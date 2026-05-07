@@ -1,0 +1,125 @@
+id: m02_seguridad_dac
+title: Seguridad DAC
+version: "0.1"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+links:
+  module: 02_Seguridad_y_Gobernanza
+  topics: ["dac", "gobernanza"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M02", "security", "dac", "governance"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "DAC", "data access control", "seguridad datos", "seguridad de datos",
+  "seguridad fila", "seguridad columna", "row level security", "column level security",
+  "valores individuales", "operadores y valores", "jerarquía", "jerarquia",
+  "tipos DAC", "tipos de permisos", "permisos DAC", "acceso a datos",
+  "restricción de datos", "restriccion de datos",
+  "qué tipo de DAC", "que tipo de DAC", "cómo restringir datos", "como restringir datos",
+  "qué usar para DAC", "que usar para DAC",
+  "acceso dinamico", "acceso dinámico", "regla acceso", "reglas acceso",
+  "seguridad SAP Datasphere", "seguridad Datasphere", "BDC seguridad",
+  "cross-system security", "filtro datos", "filtro por usuario",
+  "jerarquía organizacional", "jerarquia organizacional", "centro de costos", "organigrama"
+]
+
+# exclude_if: palabras de intención operacional que indican que el usuario
+# quiere HACER algo, no DECIDIR algo.
+exclude_if: [
+  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+
+start: q1
+
+nodes:
+  q1:
+    type: single_choice
+    question: "¿Se trata de un PoC, Piloto o MVP?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_dac_poc
+      "No": q2_reglas
+
+  q2_reglas:
+    type: single_choice
+    question: "¿Los accesos requieren reglas dinámicas, rangos de valores o condiciones complejas?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q3_jerarquia
+      "No": leaf_valores_individuales
+      "No sé": leaf_revision
+
+  q3_jerarquia:
+    type: single_choice
+    question: "¿Los datos se organizan por jerarquía (organigrama, centro de costos, región)?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_jerarquia
+      "No": leaf_operadores_valores
+
+leaves:
+  leaf_dac_poc:
+    decision: "Usar Valores Individuales — fase exploratoria: simplicidad y velocidad de configuración por sobre completitud."
+    notes:
+      - "Valores Individuales son los más simples de configurar e ideales para validar el modelo de datos."
+      - "Reevaluar la estructura DAC cuando el PoC prospere a proyecto."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Definir los campos de filtro por entidad (ej: SalesOrg, Plant, CompanyCode)"
+        - "Asignar valores fijos por usuario o perfil de acceso"
+
+  leaf_valores_individuales:
+    decision: "Usar Valores Individuales — accesos estáticos o de baja actualización sin lógica condicional."
+    notes:
+      - "Ideal cuando cada usuario o grupo tiene un conjunto fijo y acotado de valores permitidos."
+      - "La gestión es directa: se asignan los valores una vez y se actualiza ante cambios de rol."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_operadores_valores:
+    decision: "Usar Operadores y Valores — accesos con lógica condicional, rangos o combinaciones de reglas."
+    notes:
+      - "Permite expresar condiciones como 'mayor que', 'entre', 'contiene', 'empieza con'."
+      - "Mayor flexibilidad que Valores Individuales, pero mayor complejidad de mantenimiento."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_jerarquia:
+    decision: "Usar tipo Jerarquía — los datos siguen una estructura jerárquica y el acceso debe heredarse por niveles."
+    notes:
+      - "Ideal para centros de costos, organigramas o regiones donde un acceso padre implica acceso a los hijos."
+      - "Requiere que la jerarquía esté modelada y disponible en Datasphere."
+      - "Es el tipo más potente pero también el más complejo de configurar y mantener."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_revision:
+    decision: "Revisión recomendada: sin claridad sobre la complejidad de las reglas de acceso, la elección puede cambiar."
+    notes:
+      - "Comenzar con Valores Individuales como punto de partida seguro."
+      - "Levantar con el cliente cómo se gestiona hoy el acceso a los datos (¿por usuario, por área, por jerarquía?)."
+    post_actions:
+      mode: needs_human_review
+      reason: "Complejidad de reglas de acceso desconocida — validar con el cliente antes de comprometer el tipo de DAC"
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu contexto de seguridad de datos"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué decidiste hacer?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

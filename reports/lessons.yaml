@@ -1,0 +1,20 @@
+generated_at: '2026-03-09T17:18:55.050196'
+total_lessons: 3
+by_tree:
+  extraction_options:
+  - lesson: verificar version ABAP antes de sugerir SLT
+    context: ECC sin soporte ODP
+    outcome: anduvo
+    uncharted: true
+  - lesson: En esta instancia la CDS sera compatible para extraccion unicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: En esta instancia la CDS sera compatible para extraccion unicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note

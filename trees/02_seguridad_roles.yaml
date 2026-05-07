@@ -1,0 +1,124 @@
+id: m02_seguridad_roles
+title: Seguridad de Roles
+version: "0.1"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+links:
+  module: 02_Seguridad_y_Gobernanza
+  topics: ["roles", "gobernanza"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M02", "security", "roles", "governance"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "roles", "permisos", "roles estándar", "roles estandar", "roles custom",
+  "seguridad roles", "permisos datasphere", "roles datasphere",
+  "estándar vs custom", "estandar vs custom", "standard vs custom",
+  "crear roles", "diseño roles", "roles SAP", "marco de roles",
+  "objeto de seguridad", "objetos seguridad",
+  "segregación funciones", "segregacion funciones", "segregación de roles",
+  "qué rol usar", "que rol usar", "qué roles usar", "que roles usar",
+  "rol PoC", "rol piloto", "rol MVP", "roles para PoC",
+  "escalabilidad roles", "usuarios roles", "roles BDC",
+  "roles business data cloud", "Danwor RDS roles", "marco Danwor roles"
+]
+
+# exclude_if: palabras de intención operacional que indican que el usuario
+# quiere HACER algo, no DECIDIR algo.
+exclude_if: [
+  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+
+start: q1
+
+nodes:
+  q1:
+    type: single_choice
+    question: "¿Se trata de un PoC, Piloto o MVP?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_roles_std_poc
+      "No": q2_segregacion
+
+  q2_segregacion:
+    type: single_choice
+    question: "¿Existen necesidades de segregación de roles, responsabilidades o simplificación de accesos?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": q3_escalabilidad
+      "No": leaf_roles_std_simple
+
+  q3_escalabilidad:
+    type: single_choice
+    question: "¿Se espera escalabilidad de usuarios, funciones o áreas?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_roles_custom
+      "No": leaf_roles_std_segregado
+      "No sé": leaf_revision
+
+leaves:
+  leaf_roles_std_poc:
+    decision: "Usar Roles Estándar — fase exploratoria: priorizar agilidad sobre personalización."
+    notes:
+      - "Documentar si los roles estándar cubren la necesidad antes de considerar custom."
+      - "Reevaluar la decisión si el PoC prospera a proyecto."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Identificar roles estándar disponibles en Datasphere"
+        - "Asignar según perfiles mínimos necesarios para validar el PoC"
+
+  leaf_roles_std_simple:
+    decision: "Usar Roles Estándar — sin necesidades de segregación ni escalabilidad prevista."
+    notes:
+      - "Los roles estándar son suficientes cuando el modelo de acceso es simple."
+      - "Revisar si la estructura de accesos cambia al crecer el proyecto."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_roles_custom:
+    decision: "Diseñar marco de Roles Custom apoyado en estándar Danwor — escalabilidad y segregación justifican la inversión."
+    notes:
+      - "Capitalizar el marco Danwor RDS para no partir de cero."
+      - "Revisar segregación de funciones y auditoría interna del cliente."
+      - "Sin eliminar la revisión de controles de acceso con el negocio."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_roles_std_segregado:
+    decision: "Evaluar combinación: Roles Estándar base + ajuste puntual para segregación — sin escalar a framework custom completo."
+    notes:
+      - "Segregación puntual puede resolverse con roles estándar bien asignados."
+      - "Si la segregación crece, reevaluar hacia Custom."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_revision:
+    decision: "Revisión recomendada: la decisión entre Estándar y Custom depende de si los usuarios y necesidades de segregación crecerán."
+    notes:
+      - "No comprometer arquitectura de seguridad por incertidumbre."
+      - "Arrancar con Estándar y planificar evolución a Custom si el proyecto escala."
+    post_actions:
+      mode: needs_human_review
+      reason: "Escalabilidad desconocida — requiere revisión de alcance con el cliente antes de definir el marco de roles"
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu contexto de seguridad de roles"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué decidiste hacer?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

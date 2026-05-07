@@ -1,0 +1,36 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Variables de entorno y claves — NUNCA subir al repo
+.env
+API_Key.txt
+*.key
+*.pem
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+feedback_log/
+
+# Archivos temporales
+*.tmp
+*.bak
+*.zip

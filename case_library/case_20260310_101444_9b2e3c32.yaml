@@ -1,0 +1,56 @@
+case_id: case_20260310_101444_9b2e3c32
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 9b2e3c32-4dae-4c9f-959f-4515578b9887
+  timestamp: '2026-03-10T13:13:47.981395+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión de ERP?
+  answer: S4HANA
+- node: q3_s4_cds
+  question: ¿Existe un extractor CDS que cubra la necesidad?
+  answer: Sí
+- node: q4_cds_compat
+  question: ¿La CDS cuenta con anotaciones/compatibilidad para consumir en Datasphere?
+  answer: Sí
+leaf_id: leaf_cds_std
+decision: Apoyarse en la CDS estándar.
+post_actions: null
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: la verdad no me queda claro que significa apoyarse en una CDS
+  estandar
+decision_taken: null
+outcome: no anduvo
+lessons:
+- xx
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: ECC
+  reason: null
+- node: q3_s4_cds
+  option: 'No'
+  reason: null
+- node: q3_s4_cds
+  option: No sé
+  reason: null
+- node: q4_cds_compat
+  option: 'No'
+  reason: null
+- node: q4_cds_compat
+  option: No sé
+  reason: null
+confidence: null
+reviewed: true
+rating: down
+feedback_at: '2026-03-10T13:17:22.676202+00:00'

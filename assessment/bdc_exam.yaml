@@ -1,0 +1,492 @@
+##
+## assessment/bdc_exam.yaml
+## Preguntas del simulador de certificación SAP BDC.
+##
+## Schema:
+##   id:        identificador único
+##   category:  agrupador temático (usado para filtrar y pesar scoring)
+##   weight:    peso en el scoring ponderado final (debe sumar 1.0)
+##   prompt:    pregunta en en/es
+##   reference: respuesta de referencia en en/es
+##   checklist: items de detección automática por keywords
+##     - id, label (en/es), keywords[], matchMode (any|all|min), minHits?
+##
+
+meta:
+  title:
+    en: "Danwor BDC Quiz & Self-Assessment"
+    es: "Danwor BDC Quiz & Autoevaluación"
+  subtitle:
+    en: "Exam pressure + practice mode + intelligent scoring."
+    es: "Presión de examen + modo práctica + scoring inteligente."
+  pass_mark: 0.60
+  borderline_low: 0.55
+  timer_default_sec: 90
+  checklist_delay_sec: 30
+  persona:
+    en: "You will meet Riley Bennet, Principal Consultant from MidCorp, who will lead a team through SAP Business Data Cloud implementation. Demonstrate that you have the data knowledge required to join the team. Always provide thorough answers with depth."
+    es: "Vas a conocer a Riley Bennet, Principal Consultant de MidCorp, quien liderará un equipo en una implementación de SAP Business Data Cloud. Demostrá que tenés el conocimiento necesario para sumarte. Respondé con profundidad y buen nivel de detalle."
+
+weights:
+  "BDC Architecture":        0.40
+  "SAP Databricks":          0.18
+  "SAP Datasphere":          0.16
+  "SAP Analytics Cloud":     0.10
+  "Intelligent Applications": 0.04
+  "Domain Semantics":        0.04
+  "BW Integration":          0.04
+  "Data Products":           0.01
+  "Protocols":               0.01
+  "Foundation Services":     0.01
+  "Integration":             0.01
+
+questions:
+
+  - id: bdc-components
+    category: BDC Architecture
+    prompt:
+      en: "What are the key software solutions that make up SAP Business Data Cloud, and what role does each one play?"
+      es: "¿Cuáles son las soluciones clave que componen SAP Business Data Cloud y qué rol cumple cada una?"
+    reference:
+      en: "SAP Business Data Cloud integrates: (1) SAP Datasphere for governed data integration, modelling/semantics, and data product consumption; (2) SAP Databricks for scalable data engineering, ML/AI and advanced analytics; (3) SAP Analytics Cloud (SAC) for analytics visualisation and planning; all connected by Foundation Services providing shared identity/security, governance, catalog/metadata and lifecycle capabilities."
+      es: "SAP Business Data Cloud integra: (1) SAP Datasphere para integración gobernada, modelado/semántica y consumo de data products; (2) SAP Databricks para data engineering escalable, ML/AI y analítica avanzada; (3) SAP Analytics Cloud (SAC) para visualización y planificación; todo unificado por Foundation Services (identidad/seguridad, gobierno, catálogo/metadata y ciclo de vida)."
+    checklist:
+      - id: mentions-datasphere
+        label: { en: "Mentions Datasphere role", es: "Menciona rol de Datasphere" }
+        keywords: ["datasphere"]
+        matchMode: any
+      - id: mentions-databricks
+        label: { en: "Mentions Databricks role", es: "Menciona rol de Databricks" }
+        keywords: ["databricks"]
+        matchMode: any
+      - id: mentions-sac
+        label: { en: "Mentions SAC role", es: "Menciona rol de SAC" }
+        keywords: ["analytics cloud", "sac"]
+        matchMode: any
+      - id: mentions-foundation
+        label: { en: "Mentions Foundation Services", es: "Menciona Foundation Services" }
+        keywords: ["foundation"]
+        matchMode: any
+
+  - id: databricks-features
+    category: SAP Databricks
+    prompt:
+      en: "What would you say are some of the key features of SAP Databricks (in the context of BDC)?"
+      es: "¿Cuáles son algunas características clave de SAP Databricks (en el contexto de BDC)?"
+    reference:
+      en: "Key features include scalable lakehouse processing, notebook-based development (SQL/Python), ML/AI tooling, governed catalog/lineage and access controls via Unity Catalog, and secure zero-copy sharing via Delta Sharing when integrated in BDC."
+      es: "Incluye procesamiento escalable tipo lakehouse, desarrollo con notebooks (SQL/Python), tooling de ML/AI, gobierno/catálogo/lineage y controles de acceso vía Unity Catalog, y compartición segura zero-copy vía Delta Sharing en BDC."
+    checklist:
+      - id: uc
+        label: { en: "Unity Catalog governance", es: "Gobierno con Unity Catalog" }
+        keywords: ["unity catalog"]
+        matchMode: any
+      - id: delta
+        label: { en: "Delta Sharing / zero-copy", es: "Delta Sharing / zero-copy" }
+        keywords: ["delta", "zero-copy", "zero copy"]
+        matchMode: any
+      - id: notebooks
+        label: { en: "Notebooks (Python/SQL)", es: "Notebooks (Python/SQL)" }
+        keywords: ["notebook", "python", "sql"]
+        matchMode: min
+        minHits: 2
+
+  - id: datasphere-role
+    category: SAP Datasphere
+    prompt:
+      en: "How does SAP Datasphere fit into SAP Business Data Cloud?"
+      es: "¿Cómo encaja SAP Datasphere dentro de SAP Business Data Cloud?"
+    reference:
+      en: "Datasphere is the governed data integration and semantic modelling layer in BDC. It connects to SAP and non-SAP sources, models and harmonises data, applies governance (spaces, authorisations, lineage), and exposes governed models/data products to consumption (SAC) and innovation (Databricks) via sharing mechanisms."
+      es: "Datasphere es la capa de integración gobernada y modelado semántico en BDC. Conecta fuentes SAP y no SAP, modela/armoniza, aplica gobierno (spaces, autorizaciones, lineage) y expone modelos/data products a consumo (SAC) e innovación (Databricks) vía mecanismos de sharing."
+    checklist:
+      - id: integration
+        label: { en: "Integration/connectivity", es: "Integración/conectividad" }
+        keywords: ["integrat", "connect"]
+        matchMode: any
+      - id: semantic
+        label: { en: "Semantic/modeling", es: "Semántica/modelado" }
+        keywords: ["semantic", "model"]
+        matchMode: any
+      - id: govern
+        label: { en: "Governance", es: "Gobierno" }
+        keywords: ["govern", "authoriz", "space", "lineage"]
+        matchMode: any
+
+  - id: sac-role
+    category: SAP Analytics Cloud
+    prompt:
+      en: "How does SAP Analytics Cloud fit into SAP Business Data Cloud?"
+      es: "¿Cómo encaja SAP Analytics Cloud dentro de SAP Business Data Cloud?"
+    reference:
+      en: "SAC is the consumption layer for analytics and planning: dashboards/stories, interactive analysis, planning models, and collaboration. In BDC it consumes governed models from Datasphere (often via live connections) and can incorporate predictive/AI insights depending on configuration."
+      es: "SAC es la capa de consumo para analítica y planificación: dashboards/stories, análisis interactivo, modelos de planificación y colaboración. En BDC consume modelos gobernados de Datasphere (a menudo vía live connections) y puede incorporar insights predictivos/AI según configuración."
+    checklist:
+      - id: analytics
+        label: { en: "Analytics visualisation", es: "Visualización analítica" }
+        keywords: ["dashboard", "story", "visual"]
+        matchMode: any
+      - id: planning
+        label: { en: "Planning", es: "Planificación" }
+        keywords: ["plan"]
+        matchMode: any
+      - id: datasphere-consume
+        label: { en: "Consumes Datasphere models", es: "Consume modelos de Datasphere" }
+        keywords: ["datasphere", "live"]
+        matchMode: any
+
+  - id: intelligent-app-arch
+    category: Intelligent Applications
+    prompt:
+      en: "What is an intelligent application and what is its technical architecture?"
+      es: "¿Qué es una aplicación inteligente y cuál es su arquitectura técnica?"
+    reference:
+      en: "An intelligent application is a packaged, domain-focused solution that ships prebuilt assets across layers: (1) Data Products (sources/curated datasets), (2) Data Models/semantics (harmonised models in Datasphere), and (3) Consumption content (dashboards/stories in SAC). It is activated via BDC Cockpit and provisions the required assets and governance."
+      es: "Una aplicación inteligente es una solución empaquetada orientada a dominio que entrega activos preconstruidos: (1) Data Products (datasets curados), (2) Data Models/semántica (modelos armonizados en Datasphere) y (3) Contenido de consumo (dashboards/stories en SAC). Se activa vía BDC Cockpit y provisiona activos y gobierno."
+    checklist:
+      - id: layer1
+        label: { en: "Mentions Data Products", es: "Menciona Data Products" }
+        keywords: ["data product"]
+        matchMode: any
+      - id: layer2
+        label: { en: "Mentions Data Models/semantics", es: "Menciona Data Models/semántica" }
+        keywords: ["model", "semantic"]
+        matchMode: any
+      - id: layer3
+        label: { en: "Mentions SAC content", es: "Menciona contenido SAC" }
+        keywords: ["sac", "story", "dashboard"]
+        matchMode: any
+
+  - id: intelligent-app-install
+    category: Intelligent Applications
+    prompt:
+      en: "What are the steps to install an intelligent application?"
+      es: "¿Cuáles son los pasos para instalar una aplicación inteligente?"
+    reference:
+      en: "In BDC Cockpit: (1) find the intelligent application in the catalog, (2) activate/install it, (3) cockpit provisions required data products, models and SAC content, (4) validate access/governance, then consume/extend in Datasphere/SAC and share to Databricks if needed."
+      es: "En BDC Cockpit: (1) buscar la app inteligente en el catálogo, (2) activarla/instalarla, (3) el cockpit provisiona data products, modelos y contenido SAC, (4) validar accesos/gobierno, luego consumir/extender en Datasphere/SAC y compartir a Databricks si aplica."
+    checklist:
+      - id: cockpit
+        label: { en: "Uses BDC Cockpit", es: "Usa BDC Cockpit" }
+        keywords: ["cockpit"]
+        matchMode: any
+      - id: activate
+        label: { en: "Activate/install", es: "Activar/instalar" }
+        keywords: ["activate", "install"]
+        matchMode: any
+      - id: provision
+        label: { en: "Provision assets", es: "Provisionar activos" }
+        keywords: ["provision"]
+        matchMode: any
+
+  - id: one-domain-model
+    category: Domain Semantics
+    prompt:
+      en: "What is one-domain-model and how does SAP Business Data Cloud support it?"
+      es: "¿Qué es one-domain-model y cómo lo soporta SAP Business Data Cloud?"
+    reference:
+      en: "A one-domain model is a harmonised, reusable semantic model for a business domain (e.g., Finance, Sales) that can be consumed consistently across use cases. BDC supports it through curated data products + semantic modelling in Datasphere and consumption in SAC, with governance and sharing to innovation tools like Databricks."
+      es: "Un one-domain model es un modelo semántico armonizado y reutilizable para un dominio (p. ej., Finanzas, Ventas) consumible de forma consistente. BDC lo soporta vía data products curados + modelado semántico en Datasphere y consumo en SAC, con gobierno y sharing hacia Databricks."
+    checklist:
+      - id: harmonized
+        label: { en: "Harmonised semantic model", es: "Modelo semántico armonizado" }
+        keywords: ["semantic", "harmon"]
+        matchMode: any
+      - id: domain
+        label: { en: "Domain-focused reuse", es: "Reuso por dominio" }
+        keywords: ["domain", "reuse"]
+        matchMode: any
+      - id: datasphere-sac
+        label: { en: "Datasphere + SAC consumption", es: "Consumo con Datasphere + SAC" }
+        keywords: ["datasphere", "sac"]
+        matchMode: all
+
+  - id: bw-why-integrate
+    category: BW Integration
+    prompt:
+      en: "For a company running SAP BW for mission-critical analytics, why consider integrating BW with SAP Business Data Cloud?"
+      es: "Para una empresa con SAP BW para analítica crítica, ¿por qué integrar BW con SAP Business Data Cloud?"
+    reference:
+      en: "To protect and extend BW investments by exposing BW content as data products into BDC, enabling governed modelling in Datasphere, combining with non-SAP/third-party data, and accelerating innovation with Databricks (ML/AI) and SAC — often following a lift/shift/innovate approach."
+      es: "Para proteger y ampliar la inversión en BW exponiendo contenido como data products en BDC, habilitando modelado gobernado en Datasphere, combinando con datos no SAP/terceros y acelerando innovación con Databricks (ML/AI) y SAC, típicamente con enfoque lift/shift/innovate."
+    checklist:
+      - id: protect
+        label: { en: "Protect BW investments", es: "Proteger inversión BW" }
+        keywords: ["invest"]
+        matchMode: any
+      - id: data-products
+        label: { en: "Expose as data products", es: "Exponer como data products" }
+        keywords: ["data product"]
+        matchMode: any
+      - id: innovate
+        label: { en: "Innovation (Databricks/SAC)", es: "Innovación (Databricks/SAC)" }
+        keywords: ["databricks", "sac"]
+        matchMode: min
+        minHits: 1
+
+  - id: bw-prereq-hana
+    category: BW Integration
+    prompt:
+      en: "MidCorp runs SAP BW 7.5 on a non-HANA database. Are we ready to integrate with BDC? If not, what first?"
+      es: "MidCorp corre SAP BW 7.5 sobre una base no-HANA. ¿Está listo para integrar con BDC? Si no, ¿qué debe hacer primero?"
+    reference:
+      en: "No. BW must run on SAP HANA (BW/4HANA or BW 7.5 on HANA) to integrate via BW data products. First migrate/convert BW to HANA, then enable data product generation/subscriptions."
+      es: "No. BW debe correr sobre SAP HANA (BW/4HANA o BW 7.5 on HANA) para integrar vía data products. Primero migrar/convertir a HANA y luego habilitar generación/suscripción de data products."
+    checklist:
+      - id: not-ready
+        label: { en: "States not ready", es: "Indica que no está listo" }
+        keywords: ["no", "not"]
+        matchMode: any
+      - id: hana
+        label: { en: "Requires HANA", es: "Requiere HANA" }
+        keywords: ["hana"]
+        matchMode: any
+      - id: migrate
+        label: { en: "Mentions migration/conversion", es: "Menciona migración/conversión" }
+        keywords: ["migrat", "convert"]
+        matchMode: any
+
+  - id: bw-infoproviders
+    category: BW Integration
+    prompt:
+      en: "Which SAP BW InfoProviders can be used to generate data products?"
+      es: "¿Qué InfoProviders de SAP BW se pueden usar para generar data products?"
+    reference:
+      en: "Commonly: ADSOs and CompositeProviders (and depending on release/config, other BW objects that can be exposed). A safe answer: ADSOs + CompositeProviders are the typical sources for BW data products."
+      es: "Comúnmente: ADSOs y CompositeProviders (y según release/config, otros objetos exponibles). Respuesta segura: ADSOs + CompositeProviders como fuentes típicas."
+    checklist:
+      - id: adso
+        label: { en: "Mentions ADSO", es: "Menciona ADSO" }
+        keywords: ["adso"]
+        matchMode: any
+      - id: composite
+        label: { en: "Mentions CompositeProvider", es: "Menciona CompositeProvider" }
+        keywords: ["composite"]
+        matchMode: any
+
+  - id: bw-keep-up-to-date
+    category: BW Integration
+    prompt:
+      en: "How do we ensure BW-generated data products are kept up-to-date with the latest data?"
+      es: "¿Cómo aseguramos que los data products generados desde BW estén actualizados con los últimos datos?"
+    reference:
+      en: "BW remains the system of record for the underlying data. Keep BW loads current (e.g., process chains). Data products reflect the latest BW data once the BW targets are refreshed; also ensure data product subscriptions/provisioning are active and scheduled/monitored as needed."
+      es: "BW es el sistema de registro de los datos subyacentes. Mantener cargas BW al día (p. ej., process chains). Los data products reflejan los datos una vez refrescados los targets en BW; asegurar suscripciones/provisioning activos y monitoreo/agenda según corresponda."
+    checklist:
+      - id: system-of-record
+        label: { en: "BW is system of record", es: "BW es sistema de registro" }
+        keywords: ["system of record", "record"]
+        matchMode: any
+      - id: process-chains
+        label: { en: "Process chains / BW loads", es: "Process chains / cargas BW" }
+        keywords: ["process chain", "load"]
+        matchMode: any
+      - id: monitor
+        label: { en: "Monitoring/scheduling", es: "Monitoreo/agenda" }
+        keywords: ["monitor", "schedule"]
+        matchMode: any
+
+  - id: delta-sharing
+    category: Protocols
+    prompt:
+      en: "What is Delta Sharing and how is it used in SAP Business Data Cloud?"
+      es: "¿Qué es Delta Sharing y cómo se usa en SAP Business Data Cloud?"
+    reference:
+      en: "Delta Sharing is an open protocol for secure, governed, zero-copy data sharing. In BDC it enables data products to be shared between Datasphere and SAP Databricks without duplicating physical data, while enforcing access controls and governance."
+      es: "Delta Sharing es un protocolo abierto para compartir datos de forma segura, gobernada y zero-copy. En BDC permite compartir data products entre Datasphere y SAP Databricks sin duplicar datos físicos, respetando controles de acceso y gobierno."
+    checklist:
+      - id: zero-copy
+        label: { en: "Zero-copy", es: "Zero-copy" }
+        keywords: ["zero-copy", "zero copy"]
+        matchMode: any
+      - id: secure-governed
+        label: { en: "Secure + governed protocol", es: "Protocolo seguro y gobernado" }
+        keywords: ["secure", "govern"]
+        matchMode: min
+        minHits: 1
+      - id: datasphere-databricks
+        label: { en: "Used between Datasphere and Databricks", es: "Se usa entre Datasphere y Databricks" }
+        keywords: ["datasphere", "databricks"]
+        matchMode: all
+
+  - id: install-data-product
+    category: Data Products
+    prompt:
+      en: "Having identified a data product in the BDC catalogue, what are the steps to install it so you can use it in a SAP Datasphere data model?"
+      es: "Habiendo identificado un data product en el catálogo BDC, ¿cuáles son los pasos para instalarlo y usarlo en un modelo de SAP Datasphere?"
+    reference:
+      en: "In BDC Cockpit: locate the data product, activate/provision it, then it becomes available in Datasphere (in the relevant space) to consume/model/integrate. Validate authorisations and then build models on top."
+      es: "En BDC Cockpit: ubicar el data product, activarlo/provisionarlo y luego queda disponible en Datasphere (en el space correspondiente) para consumir/modelar/integrar. Validar autorizaciones y construir modelos."
+    checklist:
+      - id: cockpit
+        label: { en: "BDC Cockpit", es: "BDC Cockpit" }
+        keywords: ["cockpit"]
+        matchMode: any
+      - id: activate-provision
+        label: { en: "Activate/provision", es: "Activar/provisionar" }
+        keywords: ["activate", "provision"]
+        matchMode: min
+        minHits: 1
+      - id: available-in-ds
+        label: { en: "Available in Datasphere", es: "Disponible en Datasphere" }
+        keywords: ["datasphere"]
+        matchMode: any
+
+  - id: share-to-databricks
+    category: Data Products
+    prompt:
+      en: "Describe the steps to share a data product with SAP Databricks so you can begin developing a machine learning model."
+      es: "Describí los pasos para compartir un data product con SAP Databricks para empezar a desarrollar un modelo de ML."
+    reference:
+      en: "Activate/provision the data product in BDC Cockpit, share it to Databricks via Delta Sharing so it appears in Unity Catalog, then use Databricks notebooks to engineer features and train models."
+      es: "Activar/provisionar el data product en BDC Cockpit, compartirlo hacia Databricks vía Delta Sharing para que aparezca en Unity Catalog, y luego usar notebooks para feature engineering y entrenamiento."
+    checklist:
+      - id: cockpit
+        label: { en: "Activate in Cockpit", es: "Activar en Cockpit" }
+        keywords: ["cockpit", "activate"]
+        matchMode: min
+        minHits: 1
+      - id: delta
+        label: { en: "Delta Sharing", es: "Delta Sharing" }
+        keywords: ["delta"]
+        matchMode: any
+      - id: unity
+        label: { en: "Unity Catalog", es: "Unity Catalog" }
+        keywords: ["unity catalog"]
+        matchMode: any
+
+  - id: share-results-back
+    category: Databricks -> BDC
+    prompt:
+      en: "What are the steps to share the results from your ML model in SAP Databricks back to SAP Business Data Cloud?"
+      es: "¿Cuáles son los pasos para compartir resultados de un modelo ML en Databricks de vuelta a SAP Business Data Cloud?"
+    reference:
+      en: "Persist outputs as Delta tables in Databricks, register/govern them in Unity Catalog, then share them back via Delta Sharing so they can be consumed in Datasphere (and optionally surfaced in SAC)."
+      es: "Persistir outputs como tablas Delta en Databricks, registrarlas/gobernarlas en Unity Catalog y compartirlas de vuelta vía Delta Sharing para consumirlas en Datasphere (y opcionalmente exponer en SAC)."
+    checklist:
+      - id: delta-tables
+        label: { en: "Persist as Delta tables", es: "Persistir como tablas Delta" }
+        keywords: ["delta table", "delta tables"]
+        matchMode: any
+      - id: unity
+        label: { en: "Register in Unity Catalog", es: "Registrar en Unity Catalog" }
+        keywords: ["unity catalog"]
+        matchMode: any
+      - id: share-back
+        label: { en: "Share back to Datasphere/BDC", es: "Compartir a Datasphere/BDC" }
+        keywords: ["share", "datasphere"]
+        matchMode: min
+        minHits: 1
+
+  - id: bdc-cockpit
+    category: BDC Operations
+    prompt:
+      en: "What is the SAP Business Data Cloud Cockpit and who would use it?"
+      es: "¿Qué es el SAP Business Data Cloud Cockpit y quién lo usa?"
+    reference:
+      en: "BDC Cockpit is the central control plane to discover, activate, provision and manage data products and intelligent applications and their sharing/tenants. It is typically used by platform admins, data architects, and implementation consultants (not business consumers)."
+      es: "BDC Cockpit es el plano de control central para descubrir, activar, provisionar y administrar data products y aplicaciones inteligentes y su sharing/tenants. Lo usan admins, arquitectos de datos y consultores (no usuarios de negocio consumidores)."
+    checklist:
+      - id: control-plane
+        label: { en: "Control plane", es: "Plano de control" }
+        keywords: ["control plane"]
+        matchMode: any
+      - id: discover-activate
+        label: { en: "Discover/activate/provision", es: "Descubrir/activar/provisionar" }
+        keywords: ["discover", "activate", "provision"]
+        matchMode: min
+        minHits: 2
+      - id: persona
+        label: { en: "Admins/architects (not business users)", es: "Admins/arquitectos (no usuarios negocio)" }
+        keywords: ["admin", "architect", "not business"]
+        matchMode: any
+
+  - id: foundation-services
+    category: Foundation Services
+    prompt:
+      en: "What is the role of Foundation Services in SAP Business Data Cloud?"
+      es: "¿Cuál es el rol de Foundation Services en SAP Business Data Cloud?"
+    reference:
+      en: "Foundation Services provide shared platform capabilities across BDC solutions, including identity and access management, security, governance, catalog/metadata, and lifecycle/tenant management to enable consistent integration and controls."
+      es: "Foundation Services provee capacidades compartidas en BDC: identidad y accesos, seguridad, gobierno, catálogo/metadata y gestión de ciclo de vida/tenant para habilitar integración y controles consistentes."
+    checklist:
+      - id: iam
+        label: { en: "Identity/access", es: "Identidad/accesos" }
+        keywords: ["identity", "access"]
+        matchMode: any
+      - id: security
+        label: { en: "Security", es: "Seguridad" }
+        keywords: ["security"]
+        matchMode: any
+      - id: governance
+        label: { en: "Governance/metadata/lifecycle", es: "Gobierno/metadata/ciclo de vida" }
+        keywords: ["govern", "metadata", "lifecycle"]
+        matchMode: min
+        minHits: 1
+
+  - id: ord-protocol
+    category: Protocols
+    prompt:
+      en: "What is the ORD protocol and what part does it play in SAP Business Data Cloud?"
+      es: "¿Qué es el protocolo ORD y qué rol cumple en SAP Business Data Cloud?"
+    reference:
+      en: "ORD (Open Resource Discovery) standardises how resources like APIs and data products are described and discovered (metadata/catalog). It supports interoperability and governance by enabling consistent discovery; it does not move data."
+      es: "ORD (Open Resource Discovery) estandariza cómo se describen y descubren recursos como APIs y data products (metadata/catálogo). Soporta interoperabilidad y gobierno; no transporta datos."
+    checklist:
+      - id: name
+        label: { en: "Open Resource Discovery", es: "Open Resource Discovery" }
+        keywords: ["open resource discovery", "ord"]
+        matchMode: any
+      - id: metadata
+        label: { en: "Metadata/discovery", es: "Metadata/descubrimiento" }
+        keywords: ["metadata", "discover"]
+        matchMode: any
+      - id: not-data-move
+        label: { en: "Not for moving data", es: "No mueve datos" }
+        keywords: ["not", "move data", "doesn't"]
+        matchMode: any
+
+  - id: storage-tech
+    category: Storage
+    prompt:
+      en: "What is the physical storage technology used in SAP Business Data Cloud?"
+      es: "¿Cuál es la tecnología de almacenamiento físico usada en SAP Business Data Cloud?"
+    reference:
+      en: "BDC leverages SAP HANA for in-memory persistence and a scalable data lake storage option for larger volumes/cost-efficient storage, depending on workload and architecture."
+      es: "BDC utiliza SAP HANA para persistencia in-memory y una opción de data lake escalable para mayores volúmenes/menor costo, según workload y arquitectura."
+    checklist:
+      - id: hana
+        label: { en: "Mentions HANA", es: "Menciona HANA" }
+        keywords: ["hana"]
+        matchMode: any
+      - id: datalake
+        label: { en: "Mentions data lake", es: "Menciona data lake" }
+        keywords: ["data lake", "lake"]
+        matchMode: any
+      - id: workload
+        label: { en: "Explains why/when", es: "Explica por qué/cuándo" }
+        keywords: ["volume", "cost", "scal"]
+        matchMode: any
+
+  - id: third-party-integration
+    category: Integration
+    prompt:
+      en: "How can a company integrate third-party data with its SAP data using SAP Business Data Cloud?"
+      es: "¿Cómo puede una empresa integrar datos de terceros con sus datos SAP usando SAP Business Data Cloud?"
+    reference:
+      en: "Use Datasphere connectivity/integration to connect to non-SAP sources (databases, files, cloud services), ingest or virtualise data, harmonise it with SAP data models, govern access, and then consume in SAC or share to Databricks for innovation."
+      es: "Usar conectividad/integración de Datasphere para conectar fuentes no SAP (DBs, archivos, servicios cloud), ingerir o virtualizar, armonizar con modelos SAP, gobernar accesos y consumir en SAC o compartir a Databricks para innovación."
+    checklist:
+      - id: connect
+        label: { en: "Connections/connectors", es: "Conexiones/conectores" }
+        keywords: ["connect", "connector"]
+        matchMode: any
+      - id: harmonise
+        label: { en: "Harmonise with SAP", es: "Armonizar con SAP" }
+        keywords: ["harmon", "integrat"]
+        matchMode: any
+      - id: consume-share
+        label: { en: "Consume in SAC or share to Databricks", es: "Consumir en SAC o compartir a Databricks" }
+        keywords: ["sac", "databricks"]
+        matchMode: min
+        minHits: 1

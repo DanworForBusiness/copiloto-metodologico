@@ -1,0 +1,51 @@
+case_id: case_20260308_152905_d7dc5149
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: d7dc5149-78be-4bb5-b203-2d176e0f6e2e
+  timestamp: '2026-03-08T18:28:57.233225+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión de ERP?
+  answer: ECC
+- node: q3_ecc_version
+  question: ¿Qué versión ABAP?
+  answer: Inferior
+leaf_id: leaf_ecc_investigation
+decision: No contamos con experiencia previa integrando una version ECC tan antigua
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions:
+  - ¿Es compatible el framework CDS (Core Data Services) en ECC 6.0 con version ABAP
+    inferior a Netweaver 7.5?
+  - ¿Es factible provisionar un SLT para la replica de datos de tablas base?
+  - ¿Es viable para integracion con SAP Datasphere?
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: S4HANA
+  reason: null
+- node: q3_ecc_version
+  option: ≥NW7.5
+  reason: null
+- node: q3_ecc_version
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

@@ -1,0 +1,55 @@
+case_id: case_20260307_155436_16d66a0a
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 16d66a0a-737f-449e-8b28-668e1b9035cd
+  timestamp: '2026-03-07T18:54:23.918335+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión de ERP?
+  answer: S4HANA
+- node: q3_s4_cds
+  question: ¿Existe un extractor CDS que cubra la necesidad?
+  answer: Sí
+- node: q4_cds_compat
+  question: ¿La CDS cuenta con anotaciones/compatibilidad para consumir en Datasphere?
+  answer: Sí
+leaf_id: leaf_cds_std
+decision: Apoyarse en la CDS estándar.
+post_actions: null
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: anduvo pero conviene enmascarar la CDS estandar (API funcional)
+  como CDS custom "Z" (API Corporativa) de manera que desacoplar y encapsular traiga
+  mayor rebustez
+decision_taken: null
+outcome: anduvo
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: ECC
+  reason: null
+- node: q3_s4_cds
+  option: 'No'
+  reason: null
+- node: q3_s4_cds
+  option: No sé
+  reason: null
+- node: q4_cds_compat
+  option: 'No'
+  reason: null
+- node: q4_cds_compat
+  option: No sé
+  reason: null
+confidence: null
+reviewed: true
+feedback_at: '2026-03-07T18:55:55.212166+00:00'

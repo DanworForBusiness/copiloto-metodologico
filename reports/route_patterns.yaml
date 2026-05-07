@@ -1,0 +1,12 @@
+generated_at: '2026-03-09T17:18:55.050155'
+total_completed: 4
+patterns:
+- route_signature: q1:ERP → q2_erp_version:ECC → q3_ecc_version:≥NW7.5
+  occurrences: 2
+  outcomes:
+    anduvo: 2
+  leaf_reached:
+    leaf_ecc_framework: 2
+  trees:
+  - extraction_options
+  confidence: 1.0

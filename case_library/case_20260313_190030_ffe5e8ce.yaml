@@ -1,0 +1,51 @@
+case_id: case_20260313_190030_ffe5e8ce
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: ffe5e8ce-610c-465d-bad2-ca7620bfffa7
+  timestamp: '2026-03-13T22:00:20.320425+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: BW
+- node: q2_bw_inversion
+  question: ¿Existe inversión alta en mejoras/ampliaciones de extractores/DataSources?
+  answer: Sí
+- node: q_bw_whitelist
+  question: ¿Se encuentra whitelisted en Nota SAP 2500202?
+  answer: Sí
+leaf_id: leaf_bw_whitelisted
+decision: ODP-SAPI — Continuar con los extractores/DataSources BW whitelisted (Nota
+  SAP 2500202) como mecanismo de extracción hacia Datasphere.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: ERP
+  reason: null
+- node: q2_bw_inversion
+  option: 'No'
+  reason: null
+- node: q2_bw_inversion
+  option: No sé
+  reason: null
+- node: q_bw_whitelist
+  option: 'No'
+  reason: null
+- node: q_bw_whitelist
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

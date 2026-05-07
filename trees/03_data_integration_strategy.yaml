@@ -1,0 +1,107 @@
+id: m03_data_integration_strategy
+title: Federación vs Persistencia
+version: "0.2"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+# topics alineados a key_topics del módulo 03 (integracion, extraccion, clean_core)
+links:
+  module: 03_Integracion_y_Estrategia_de_Datos
+  topics: ["integracion", "extraccion"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M03", "integration", "strategy", "federation", "persistence"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "federación", "federacion", "persistencia", "híbrido", "hibrido",
+  "federar o persistir", "qué estrategia", "que estrategia",
+  "tablas remotas", "tablas locales", "remote tables", "local tables",
+  "replicación", "replicacion", "tiempo real datasphere",
+  "performance datasphere", "volumen datos", "volumetría",
+  "cuándo federar", "cuando federar", "cuándo persistir", "cuando persistir",
+  "estrategia integración", "estrategia integracion",
+  "cómo integrar", "como integrar", "modelo integración", "modelo integracion",
+  "acceso directo", "datos históricos", "datos historicos", "batch datasphere",
+  "data flow", "replication flow"
+]
+
+# exclude_if: palabras que indican intención de HACER algo (código/template),
+# no de DECIDIR algo (que es para lo que sirve este árbol).
+exclude_if: [
+  "codigo", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+
+start: q1
+
+nodes:
+  q1:
+    type: single_choice
+    question: "¿Necesitas acceso en tiempo real?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": q2_vol
+      "No": q3_hist
+
+  q2_vol:
+    type: single_choice
+    question: "¿La volumetría es alta?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_hybrid_perf
+      "No": leaf_federation
+
+  q3_hist:
+    type: single_choice
+    question: "¿El caso es mayormente histórico / batch?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_persistence
+      "No": leaf_hybrid_balanced
+
+leaves:
+  leaf_federation:
+    decision: "Priorizar federación (acceso directo) para real-time con baja/mediana volumetría."
+    notes:
+      - "Validar impacto en sistema fuente y latencia percibida."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_persistence:
+    decision: "Priorizar persistencia para histórico/batch y control de performance."
+    notes:
+      - "Evitar sobrecargar el sistema fuente; optimizar modelo y refresh."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_hybrid_perf:
+    decision: "Solución híbrida: federación selectiva + persistencia para volumen alto y performance."
+    notes:
+      - "Definir qué va federado vs persistido, y criterios de refresco."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_hybrid_balanced:
+    decision: "Solución híbrida balanceada: persistir core y federar lo puntual."
+    notes:
+      - "Separar dominios y definir SLA de actualización."
+    post_actions:
+      mode: llm_value_add
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu contexto técnico"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué decidiste hacer?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

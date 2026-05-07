@@ -1,0 +1,16 @@
+﻿# CODEOWNERS — Copiloto Metodológico Danwor
+# Reemplazar @danwor-owner con tu usuario real de GitHub
+
+/core/state.py                @joconnor-danwor
+/core/llm.py                  @joconnor-danwor
+/core/content.py              @joconnor-danwor
+/core/prompts.py              @joconnor-danwor
+/core/utils.py                @joconnor-danwor
+/engine/tree_platform.py      @joconnor-danwor
+/engine/tree_engine.py        @joconnor-danwor
+/engine/tree_registry.py      @joconnor-danwor
+/app.py                       @joconnor-danwor
+/config.py                    @joconnor-danwor
+/ui/styles.py                 @joconnor-danwor
+/DECISIONS.md                 @joconnor-danwor
+/CODEOWNERS                   @joconnor-danwor

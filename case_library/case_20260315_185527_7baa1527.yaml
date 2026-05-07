@@ -1,0 +1,57 @@
+case_id: case_20260315_185527_7baa1527
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 7baa1527-763e-479b-9aca-5ed19c970afa
+  timestamp: '2026-03-15T21:55:14.496455+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión de ERP?
+  answer: S4HANA
+- node: q3_s4_cds
+  question: ¿Existe un extractor CDS que cubra la necesidad?
+  answer: 'No'
+- node: q4_odp_whitelist
+  question: ¿Existe extractor ODP-SAPI tradicional whitelisted (Nota SAP 2500202)?
+  answer: 'No'
+leaf_id: leaf_alternatives
+decision: 'Sin ODP-SAPI whitelisted disponible: evaluar alternativa alineada a clean
+  core (posible Puente ERP según contexto).'
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: ECC
+  reason: null
+- node: q3_s4_cds
+  option: Sí
+  reason: null
+- node: q3_s4_cds
+  option: No sé
+  reason: null
+- node: q4_odp_whitelist
+  option: Sí
+  reason: null
+- node: q4_odp_whitelist
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false
