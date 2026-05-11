@@ -49,8 +49,8 @@ nodes:
     question: "¿Existen necesidades de segregación de roles, responsabilidades o simplificación de accesos?"
     options: ["Sí", "No"]
     next:
-      "Sí": q3_escalabilidad
-      "No": leaf_roles_std_simple
+      "Sí": leaf_roles_custom
+      "No": q3_escalabilidad
 
   q3_escalabilidad:
     type: single_choice
@@ -63,7 +63,7 @@ nodes:
 
 leaves:
   leaf_roles_std_poc:
-    decision: "Usar Roles Estándar — fase exploratoria: priorizar agilidad sobre personalización."
+    decision: "Usar Roles Estándar — fase exploratoria: priorizar agilidad sobre personalización. Si prospera a Proyecto no olvides reconsiderar este árbol."
     notes:
       - "Documentar si los roles estándar cubren la necesidad antes de considerar custom."
       - "Reevaluar la decisión si el PoC prospera a proyecto."
@@ -82,7 +82,11 @@ leaves:
       mode: llm_value_add
 
   leaf_roles_custom:
-    decision: "Diseñar marco de Roles Custom apoyado en estándar Danwor — escalabilidad y segregación justifican la inversión."
+    decision: "Usar Roles Custom apoyado en Template Danwor"
+    assets:
+      - label: "Template Danwor"
+        url: "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=k2fU4w"
+        description: "Plantilla de referencia para roles custom."
     notes:
       - "Capitalizar el marco Danwor RDS para no partir de cero."
       - "Revisar segregación de funciones y auditoría interna del cliente."

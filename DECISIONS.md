@@ -147,3 +147,44 @@ como tag legacy y tampoco gobierna la numeración visible.
 **No revertir:** No usar el número manual como clave lógica del copiloto. El
 routing debe seguir apoyándose en título normalizado, `section_meta`,
 `semantic_summary`, `scope` y `guardrails`.
+
+---
+
+## ADR-010 — Router transversal liviano antes del fallback LLM
+
+**Contexto**
+La separación modular reduce alucinaciones y mantiene al copiloto enfocado, pero
+el usuario puede preguntar un tema desde el módulo equivocado. Si el módulo
+activo no contiene el tema y el sistema cae directamente al LLM, se pierde valor
+metodológico y aparecen respuestas genéricas.
+
+**Decisión**
+Mantener el módulo activo como primera fuente de verdad. Si no hay árbol, asset
+o sección local relevante, ejecutar un router transversal liviano sobre metadata
+de otros módulos/apéndices antes del fallback LLM.
+
+El router transversal puede mirar:
+- `scope` del frontmatter
+- headings normalizados
+- `section_meta`
+- `semantic_summary`
+
+El router transversal no debe enviar todo el corpus al LLM ni usar el cuerpo
+completo de todos los módulos como contexto. Si encuentra un match claro, ofrece
+navegar al módulo/sección correspondiente o responder usando esa sección como
+marco contextual.
+
+**Principio rector**
+El usuario puede preguntar desde cualquier módulo; el copiloto debe saber cuándo
+contestar desde el módulo actual, cuándo derivar a otro módulo y cuándo admitir
+que está fuera del marco.
+
+**Consecuencia**
+Las mejoras de conocimiento deben capitalizarse primero en metadata y contenido:
+`section_meta`, `semantic_summary`, `scope`, `guardrails` e `intent_assets`.
+Solo después evaluar cambios en prompts globales o lógica de ranking.
+
+**No revertir:** No reemplazar este router por un RAG global indiscriminado ni
+por fallback LLM directo. La modularidad sigue siendo una barrera deliberada de
+precisión; el router transversal es una capa de derivación, no una fusión de
+todos los módulos.

@@ -82,7 +82,7 @@ nodes:
 
 leaves:
   leaf_standard:
-    decision: "Vista SQL Estándar — opción recomendada para ~80% de los casos en Datasphere."
+    decision: "Vista SQL Estándar — opción recomendada para al menos ~80% de los casos en Datasphere."
     notes:
       - "Cubre filtros, JOINs, agregaciones, cálculos y expresiones CASE."
       - "Mejor plan de ejecución HANA, más fácil de versionar, trazar y auditar."
@@ -116,7 +116,7 @@ leaves:
   leaf_table_function_simple:
     decision: "Evaluar si SQL Estándar resuelve el caso — la lógica secuencial puede ser innecesaria. Si no, usar Table Function con wrapper."
     notes:
-      - "Antes de comprometerse con SQLScript, verificar si una CTE (Common Table Expression) en SQL Estándar cubre el caso."
+      - "Antes de comprometerse con SQLScript, agotar todo recurso via SQL Estándar."
       - "Si se confirma Table Function: incluir vista wrapper para preservar linaje."
     post_actions:
       mode: needs_human_review

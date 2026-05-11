@@ -238,8 +238,22 @@ div[data-testid="stMarkdownContainer"] td,
 div[data-testid="stMarkdownContainer"] th {
   font-size: 14px !important; line-height: 1.45 !important;
 }
+div[data-testid="stMarkdownContainer"] code,
+div[data-testid="stMarkdownContainer"] p code,
+div[data-testid="stMarkdownContainer"] li code,
+div[data-testid="stMarkdownContainer"] td code,
+div[data-testid="stMarkdownContainer"] th code {
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+}
 div[data-testid="stMarkdownContainer"] ul,
-div[data-testid="stMarkdownContainer"] ol { font-size: 14px !important; }
+div[data-testid="stMarkdownContainer"] ol {
+  font-size: 14px !important;
+  padding-left: 22px !important;
+  margin-left: 5px !important;
+  margin-top: 6px !important;
+  margin-bottom: 10px !important;
+}
 div[data-testid="stMarkdownContainer"] a {
   color: #2563eb; text-decoration: none; font-weight: 500;
 }
@@ -311,6 +325,10 @@ div[data-testid="stMarkdownContainer"] tbody tr:hover td { background: rgba(0,0,
 }
 .dw-page-hero--first {
   margin-top: 0 !important;
+}
+.dw-page-hero--no-pinner {
+  border-bottom: 1px solid var(--dw-border) !important;
+  border-radius: var(--dw-radius) var(--dw-radius) 0 0 !important;
 }
 .dw-page-hero::before {
   content: "";
@@ -508,21 +526,33 @@ label[data-dw-tip]:hover::after {
   opacity: 1;
 }
 /* Pin button — emular dw-md-pill lo más posible */
-div[data-testid="stHorizontalBlock"]:has([class*="_pin_"]) {
+/* Header action rows: keep the bottom line continuous across title, support
+   links, font controls and pinner. Selectors are intentionally narrow:
+   - no-support header: 4 direct columns, font controls in child 2/3, pin in 4
+   - support header:    5 direct columns, links in child 2, font controls 3/4,
+                        pin in 5
+   Avoid broad :has() selectors here; they can match the main content/tools row. */
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) {
     background: #fff !important;
     border-bottom: 1px solid var(--dw-border) !important;
     border-radius: var(--dw-radius) var(--dw-radius) 0 0 !important;
     margin: 5px 0 !important;
+    align-items: center !important;
 }
-div[data-testid="stHorizontalBlock"]:has(.dw-page-hero--first):has([class*="_pin_"]) {
+div[data-testid="stHorizontalBlock"]:has(.dw-page-hero--first):has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]),
+div[data-testid="stHorizontalBlock"]:has(.dw-page-hero--first):has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) {
     margin-top: -10px !important;
 }
-div[data-testid="stHorizontalBlock"]:has([class*="_pin_"]) .dw-page-hero {
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]) .dw-page-hero,
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) .dw-page-hero {
     border-bottom: 0 !important;
     margin: 0 !important;
 }
 .dw-page-hero + div [class*="st-key-"][class*="_pin_"],
-[class*="st-key-"][class*="_pin_"] {
+[class*="st-key-"][class*="_pin_"],
+[class*="st-key-"][class*="_font_down_"],
+[class*="st-key-"][class*="_font_up_"] {
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
@@ -531,32 +561,55 @@ div[data-testid="stHorizontalBlock"]:has([class*="_pin_"]) .dw-page-hero {
     background: #fff !important;
     border-bottom: 0 !important;
 }
-.dw-page-hero + div [class*="st-key-"][class*="_pin_"] > div,
-[class*="st-key-"][class*="_pin_"] > div {
+.dw-md-links {
+    min-height: 72px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
+    gap: 6px !important;
+    background: #fff !important;
+}
+.dw-page-hero + div [class*="st-key-"][class*="_pin_"] > div,
+[class*="st-key-"][class*="_pin_"] > div,
+[class*="st-key-"][class*="_font_down_"] > div,
+[class*="st-key-"][class*="_font_up_"] > div {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 .dw-md-h2--pinrow + div [class*="st-key-"][class*="_pin_"] button,
-[class*="st-key-"][class*="_pin_"] button {
+[class*="st-key-"][class*="_pin_"] button,
+[class*="st-key-"][class*="_font_down_"] button,
+[class*="st-key-"][class*="_font_up_"] button {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    padding: 4px 9px !important;
+    padding: 4px 8px !important;
     border-radius: 999px !important;
     border: 1px solid rgba(0,0,0,0.10) !important;
     background: #fff !important;
-    font-size: 10px !important;
-    line-height: 0.5 !important;
+    color: #0f172a !important;
+    font-size: 11px !important;
+    font-weight: 650 !important;
+    line-height: 1 !important;
     min-height: unset !important;
     height: 22px !important;
     width: auto !important;
+    min-width: 28px !important;
     box-shadow: none !important;
     margin-left: 0 !important;
     margin-top: 0 !important;
     vertical-align: middle !important;
+    white-space: nowrap !important;
 }
-[class*="st-key-"][class*="_pin_"] button:hover {
+[class*="st-key-"][class*="_font_down_"] button,
+[class*="st-key-"][class*="_font_up_"] button {
+    padding-left: 7px !important;
+    padding-right: 7px !important;
+}
+[class*="st-key-"][class*="_pin_"] button:hover,
+[class*="st-key-"][class*="_font_down_"] button:hover,
+[class*="st-key-"][class*="_font_up_"] button:hover {
     border-color: rgba(0,0,0,0.18) !important;
     background: #fff !important;
 }
@@ -773,6 +826,13 @@ div[data-testid="stTextInput"] input {
   border-color: var(--dw-border) !important;
   background: var(--dw-surface) !important;
 }
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stTextInput"] input,
+div[data-baseweb="input"] input,
+div[data-baseweb="textarea"] textarea {
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+}
 div[data-testid="stTextArea"] textarea:focus,
 div[data-testid="stTextInput"] input:focus {
   border-color: var(--dw-accent) !important;
@@ -858,7 +918,7 @@ div[data-testid="stMarkdownContainer"] blockquote {
   margin: 18px 0 22px 54px !important;
   border-radius: 0 !important;
   color: var(--dw-muted) !important;
-  font-family: 'DM Sans', sans-serif !important;
+  font-family: "Source Sans", sans-serif !important;
   font-size: 15px !important;
   line-height: 1.65 !important;
 }
@@ -867,13 +927,13 @@ div[data-testid="stMarkdownContainer"] blockquote p span,
 div[data-testid="stMarkdownContainer"] blockquote * {
   margin: 0 !important;
   color: var(--dw-muted) !important;
-  font-family: 'DM Sans', sans-serif !important;
+  font-family: "Source Sans", sans-serif !important;
   font-size: 15px !important;
   line-height: 1.65 !important;
   font-weight: 400 !important;
 }
 .dw-hero-desc {
-  font-family: 'DM Sans', sans-serif !important;
+  font-family: "Source Sans", sans-serif !important;
   font-size: 15px !important;
   color: var(--dw-muted) !important;
   line-height: 1.65 !important;
@@ -881,11 +941,16 @@ div[data-testid="stMarkdownContainer"] blockquote * {
   max-width: none !important;
   padding-left: 16px !important;
   border-left: 3px solid var(--dw-gold) !important;
-  margin: 18px 0 22px 54px !important;
+  margin: 5px 0 22px 50px !important;
   font-weight: 400 !important;
   white-space: normal !important;
   overflow-wrap: anywhere !important;
   word-break: normal !important;
+}
+.dw-hero-desc--no-gap {
+  width: 100% !important;
+  margin-left: 10px !important;
+  margin-right: 0 !important;
 }
 div[data-testid="stMarkdownContainer"] table {
   border: 1px solid var(--dw-border-strong) !important;
@@ -944,6 +1009,128 @@ div[data-testid="stMarkdownContainer"] td {
   color: #102a2a;
   font-size: 14px !important;
   line-height: 1.25 !important;
+}
+.dw-action-help {
+  background: #ffffff !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.dw-action-help-item {
+  background: #ffffff !important;
+  margin: 0 0 12px 0 !important;
+  padding: 0 !important;
+  color: #243141 !important;
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+}
+.dw-action-help-item:last-child {
+  margin-bottom: 0 !important;
+}
+.dw-action-help-item strong {
+  display: block;
+  color: #111827 !important;
+  font-weight: 700 !important;
+  margin-bottom: 2px !important;
+}
+.dw-action-help-item span {
+  display: block;
+  color: #243141 !important;
+}
+[class*="st-key-tree_reset_result_"] {
+  position: relative !important;
+  z-index: 20 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+[class*="st-key-tree_reset_result_"] > div,
+[class*="st-key-tree_reset_result_"] div[data-testid="stButton"] {
+  position: relative !important;
+  width: 100% !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  display: block !important;
+  overflow: visible !important;
+}
+[class*="st-key-tree_reset_result_"] button {
+  position: absolute !important;
+  top: 11px !important;
+  right: 8px !important;
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, .06) !important;
+  background-color: rgba(15, 23, 42, .06) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: #111827 !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  transform: none !important;
+}
+[class*="st-key-tree_reset_result_"] button:hover {
+  background: rgba(15, 23, 42, .06) !important;
+  background-color: rgba(15, 23, 42, .06) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+[class*="st-key-tree_reset_result_"] button:focus,
+[class*="st-key-tree_reset_result_"] button:active {
+  background: rgba(15, 23, 42, .06) !important;
+  background-color: rgba(15, 23, 42, .06) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transform: none !important;
+}
+.dw-leaf-assets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 0 0;
+}
+div[data-testid="stMarkdown"]:has(.dw-leaf-assets),
+div[data-testid="stMarkdownContainer"]:has(.dw-leaf-assets),
+div[data-testid="stElementContainer"]:has(.dw-leaf-assets) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+[class*="btn_down_"],
+[class*="_leaf_fb_down_"] {
+  margin-left: 5px !important;
+}
+.dw-leaf-assets span {
+  color: var(--dw-muted-text);
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+.dw-leaf-asset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 1px solid var(--dw-border);
+  border-radius: var(--dw-radius);
+  background: #fff;
+  color: #102a2a !important;
+  font-size: 13px !important;
+  font-weight: 650;
+  text-decoration: none !important;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+}
+.dw-leaf-asset-btn:hover {
+  background: #f8fafc;
+  border-color: rgba(15,118,110,.28);
 }
 .dw-empty-state {
   border: 1px dashed var(--dw-border-strong);
@@ -1041,6 +1228,16 @@ div[style*="overflow"]:has(.dw-chat-surface-marker) > div {
 .dw-tools-shell-marker {
   display: none;
 }
+div[data-testid="stElementContainer"]:has(.dw-tools-shell-marker),
+div[data-testid="stMarkdown"]:has(.dw-tools-shell-marker),
+div[data-testid="stMarkdownContainer"]:has(.dw-tools-shell-marker) {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
 div[data-testid="stHorizontalBlock"]:has(.dw-content-shell-marker):has(.dw-tools-shell-marker),
 div[data-testid="stHorizontalBlock"]:has(.dw-content-shell-marker):has(.dw-tools-shell-marker) > div {
   background: var(--dw-bg) !important;
@@ -1088,6 +1285,36 @@ div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpan
 div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"],
 div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] {
   background: #ffffff !important;
+}
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] > div,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] > div,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdown"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdown"],
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdownContainer"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdownContainer"] {
+  background: #ffffff !important;
+}
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker),
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker),
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) > div,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) > div,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) div[data-testid="stMarkdown"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) div[data-testid="stMarkdown"],
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) div[data-testid="stMarkdownContainer"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) div[data-testid="stMarkdownContainer"],
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) table,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) table,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) tbody,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) tbody,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) tr,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) tr,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) td,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) td {
+  background: #ffffff !important;
+}
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) th,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker) th {
+  background: #f8fafc !important;
 }
 
 @media (max-width: 900px) {

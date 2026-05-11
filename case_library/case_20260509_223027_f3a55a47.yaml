@@ -1,0 +1,51 @@
+case_id: case_20260509_223027_f3a55a47
+version: '1.0'
+source:
+  tree_id: m04_tipos_vistas_sql
+  tree_title: Tipos de Vistas SQL
+  module: 04_Modelado_y_Desarrollo
+  run_id: f3a55a47-3dd1-47ea-a480-d55fff32ee25
+  timestamp: '2026-05-10T01:30:02.756245+00:00'
+route:
+- node: q1
+  question: ¿El objetivo se puede resolver con una consulta SQL convencional (SELECT,
+    filtros, JOINs, agregaciones)?
+  answer: 'No'
+- node: q3_pasos
+  question: ¿Se necesita lógica con pasos secuenciales (cada paso usa el resultado
+    del anterior) o columnas/tablas dinámicas en tiempo de ejecución?
+  answer: 'No'
+- node: q5_persistencia
+  question: ¿Se requiere snapshot, persistencia de datos o particionar los resultados
+    por rendimiento y reuso?
+  answer: Sí
+leaf_id: leaf_data_flow
+decision: Data Flow — para persistencia, snapshots o transformaciones pesadas que
+  no deben ejecutarse en cada consulta.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- No es una vista en tiempo real — es un proceso de carga que genera una tabla local.
+- Definir la frecuencia de actualización (schedule) y el impacto en el sistema fuente.
+- Evaluar Replication Flow si el caso es replicación incremental desde sistemas SAP.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: Sí
+  reason: null
+- node: q3_pasos
+  option: Sí
+  reason: null
+- node: q5_persistencia
+  option: 'No'
+  reason: null
+confidence: null
+reviewed: false

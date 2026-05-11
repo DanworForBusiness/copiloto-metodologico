@@ -1,0 +1,34 @@
+case_id: case_20260510_094618_025f1b78
+version: '1.0'
+source:
+  tree_id: resolucion_contrato
+  tree_title: Resolución de Contrato
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 025f1b78-073b-4ad9-a505-24941b38dcc9
+  timestamp: '2026-05-10T12:45:36.828217+00:00'
+route:
+- node: q1
+  question: ¿La fuente de origen puede resolver el contrato sin comprometer CDC?
+  answer: Sí
+leaf_id: leaf_contrato_origen
+decision: Contrato Resuelto en Origen
+post_actions:
+  mode: resolved
+  next_steps:
+  - Cuando la complejidad del contrato es baja, se recomienda resolver el contrato
+    en el origen mismo.
+  reason: null
+  questions: []
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: anduvo
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: 'No'
+  reason: null
+confidence: null
+reviewed: false

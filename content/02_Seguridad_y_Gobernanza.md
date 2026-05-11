@@ -48,6 +48,7 @@ out_of_scope_redirect:
 
 ## {dw-black}Seguridad de {dw-gold}Roles
 {{section_meta: keywords="roles, permisos, roles estándar, roles estandar, roles custom, seguridad roles, permisos datasphere, roles datasphere, estándar vs custom, estandar vs custom, crear roles, diseño roles, roles SAP, marco de roles, objeto de seguridad, objetos seguridad, segregación funciones, segregacion funciones, qué rol usar, roles PoC, roles piloto, roles MVP, escalabilidad roles, Danwor RDS roles, marco Danwor roles, roles BDC"}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/d7350c6823a14733a7a5727bad8371aa.html?locale=es-ES&version=LATEST"}}
 
 > A la fecha, no existe práctica recomendada por SAP respecto al uso directo de los objetos de seguridad estándar vs. la creación de un marco propio apoyado en el estándar. Dado que ambos casos de uso podrían ser técnicamente válidos, detallamos sus virtudes y desventajas.
 {{html_embed: ../assets/danwor-seguridad-roles-dac.html height=820 default_mode=roles}}
@@ -55,17 +56,17 @@ out_of_scope_redirect:
 
 ## {dw-black}Seguridad de {dw-gold}Datos 
 {{section_meta: keywords="DAC, data access control, seguridad datos, seguridad de datos, seguridad fila, seguridad columna, row level security, column level security, valores individuales, operadores y valores, jerarquía, jerarquia, tipos DAC, tipos de permisos, permisos DAC, acceso a datos, restricción de datos, qué tipo de DAC, cómo restringir datos, acceso dinámico, regla acceso, reglas acceso, seguridad SAP Datasphere, BDC seguridad, filtro datos, filtro por usuario, jerarquía organizacional, centro de costos, organigrama"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html" Pin=true}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html?locale=en-US&version=LATEST&state=PRODUCTION"}}
 
 > A la fecha, Datasphere soporta seguridad a nivel fila/columna vía DAC. Con Business Data Cloud (BDC) se prevé integración nativa cross-system, aún no disponible. El diseño de seguridad debe derivar siempre de los dominios y data products definidos a nivel conceptual.
 {{html_embed: ../assets/danwor-seguridad-roles-dac.html height=850 default_mode=dac}}
-{{tree_button: Seguridad DAC}}
+{{tree_button: Seguridad de Datos}}
 
 ## {dw-black}Seguridad de {dw-gold}Roles & Datos
 {{section_meta: keywords="seguridad diseño dominios, data product seguridad, gobernanza datos, principio seguridad, modelo seguridad, dominios y seguridad, data governance, roles responsabilidades, controles acceso, activo confiable, seguridad bien diseñada, diseño conceptual seguridad, dominios Danwor"}}
 
+{{subtitle: no-gap}}
 > Seguridad como extensión del diseño de dominios
-
-{{callout: title="Principio Danwor" tone="punch" icon="🔒"}}
-Definir claramente roles, responsabilidades y controles de acceso **derivados del diseño de dominios y data products** asegura que las decisiones estratégicas se apoyen en información íntegra, protegida y gobernada.
+{{callout: title="Recordá..." tone="punch" icon="🔐"}}
+La seguridad bien diseñada no debiera retrasar al negocio, sino asegurar que los datos sean un activo confiable. Definir claramente roles, responsabilidades y controles de acceso **derivados del diseño de dominios y data products** asegura que las decisiones estratégicas se apoyen en información íntegra, protegida y gobernada.
 {{/callout}}

@@ -296,7 +296,7 @@ def render_leaf_feedback_form(leaf: dict, case_id: str, key: str, leaf_id: str) 
 
     # Botones 👍/👎 — solo visibles si el form no está abierto
     if not is_open:
-        col1, col2, _ = st.columns([0.12, 0.12, 0.76])
+        col1, col2, _ = st.columns([0.09, 0.09, 0.82], gap=None)
         with col1:
             if st.button("👍", key=f"{key}_leaf_fb_up_{leaf_id}", help="Fue útil — agregar feedback opcional"):
                 st.session_state[rating_key]   = "up"

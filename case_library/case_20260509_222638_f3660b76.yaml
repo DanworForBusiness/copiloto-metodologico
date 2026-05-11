@@ -1,0 +1,52 @@
+case_id: case_20260509_222638_f3660b76
+version: '1.0'
+source:
+  tree_id: m05_herramienta_reporting
+  tree_title: Herramienta de Reporting
+  module: 05_Reporting_y_Consumo
+  run_id: f3660b76-7753-4eeb-a0e4-d9011c4aa620
+  timestamp: '2026-05-10T01:26:30.659892+00:00'
+route:
+- node: q1
+  question: ¿Que herramienta de BI definió el cliente o tiene en uso?
+  answer: Power BI
+- node: q2_pbi_modo
+  question: ¿Los reportes requieren datos en tiempo real o es aceptable actualización
+    programada (batch)?
+  answer: Batch / programado
+leaf_id: leaf_pbi_import
+decision: Power BI con Import Mode — datos importados y almacenados en el motor de
+  Power BI.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- Requiere schema user a nivel espacio.
+- Performance óptima en Power BI — no impacta Datasphere en cada consulta.
+- Definir frecuencia de refresh según SLA de actualización del negocio.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: SAC
+  reason: null
+- node: q1
+  option: BusinessObjects
+  reason: null
+- node: q1
+  option: Ninguna / No sé
+  reason: null
+- node: q2_pbi_modo
+  option: Tiempo real
+  reason: null
+- node: q2_pbi_modo
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

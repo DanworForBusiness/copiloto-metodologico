@@ -72,14 +72,24 @@ Actuá como Arquitecto Senior Danwor revisando una propuesta técnica de un cons
 
 No quiero descripción del módulo.
 Quiero cómo se aplica en la práctica bajo presión real de proyecto.
+Si el módulo incluye una sección de checklist, lista de control, puntos de verificación
+o configuración base, usala como insumo de contraste para enriquecer la guía operativa.
+No te limites a ese contenido ni lo copies como checklist completo: integrá lo útil
+con el resto del marco del módulo y convertí esos puntos en decisiones, prioridades y riesgos concretos.
 
-Entregá:
-1) Decisión arquitectónica dominante que este módulo obliga a tomar.
-2) Tres decisiones donde el consultor típicamente se equivoca.
-3) Qué priorizarías si el tiempo es limitado.
-4) Riesgos reales si se toma la decisión incorrecta.
-5) Recomendación Danwor clara (una postura final).
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando cómo usar esta guía bajo presión de proyecto.
+- Un título en negrita: **Guía operativa del módulo**
+- Luego la lista numerada.
 
+Entregá en la lista numerada:
+1. Decisión arquitectónica dominante que este módulo obliga a tomar.
+2. Tres decisiones donde el consultor típicamente se equivoca.
+3. Qué priorizarías si el tiempo es limitado.
+4. Riesgos reales si se toma la decisión incorrecta.
+5. Recomendación Danwor clara (una postura final).
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
 Usá terminología Danwor. No describas. Decidí.
 Si depende de contexto no provisto, indicalo explícitamente.
 """,
@@ -87,11 +97,14 @@ Si depende de contexto no provisto, indicalo explícitamente.
 
 No quiero teoría ni introducción.
 Quiero un checklist que el consultor pueda ejecutar hoy.
+Si el módulo ya incluye una sección de checklist, lista de control o puntos de verificación,
+usala como insumo de partida, pero no te limites a ella. Reordená, completá y
+operacionalizá esos ítems con el resto del marco del módulo.
 
 Entregá:
-1) Checklist de 10-12 ítems ordenados por dependencia (lo que bloquea va primero).
-2) Para cada ítem: qué validar, con quién, y qué pasa si no está resuelto.
-3) Los 3 ítems que más frecuentemente se saltean y generan retrabajo.
+1. Checklist de 10-12 ítems ordenados por dependencia (lo que bloquea va primero).
+2. Para cada ítem: qué validar, con quién, y qué pasa si no está resuelto.
+3. Los 3 ítems que más frecuentemente se saltean y generan retrabajo.
 
 Usá terminología Danwor. Sé específico.
 Si un ítem depende de contexto no provisto, marcalo con [VALIDAR CON CLIENTE].
@@ -100,27 +113,42 @@ Si un ítem depende de contexto no provisto, marcalo con [VALIDAR CON CLIENTE].
 
 No quiero buenas prácticas genéricas.
 Quiero los errores reales que se repiten en este módulo bajo presión de proyecto.
+Si el módulo incluye checklist o puntos de control, usalos para detectar anti-patrones:
+tratá cada ítem omitido o mal configurado como una señal posible de error, pero cruzalo
+con el resto del marco para no limitar la respuesta al checklist.
 
 Entregá:
-1) 8 errores frecuentes, ordenados de mayor a menor impacto en el proyecto.
-2) Para cada error: cómo se manifiesta, por qué ocurre, y cómo lo corrige el marco Danwor.
-3) El error que más cuesta dinero o tiempo si no se detecta a tiempo.
+1. 8 errores frecuentes, ordenados de mayor a menor impacto en el proyecto.
+2. Para cada error: cómo se manifiesta, por qué ocurre, y cómo lo corrige el marco Danwor.
+3. El error que más cuesta dinero o tiempo si no se detecta a tiempo.
 
 Usá terminología Danwor. No describas síntomas, describí causas raíz.
 Si el error depende de contexto no provisto, indicalo explícitamente.
 """,
     "Ejemplos prácticos": """Actuá como Arquitecto Senior Danwor explicándole a un consultor cómo se ve esto en un proyecto real.
 
-No quiero ejemplos de manual.
-Quiero escenarios que un consultor de Danwor puede encontrarse la semana próxima.
+No quiero ejemplos de manual ni escenarios inventados si hay material interno disponible.
+Priorizá casos documentados en apéndices internos, assets del módulo, checklist, guía operativa
+o puntos de control. Usalos como base y enriquecelos con criterio LLM solo cuando haga falta.
+Si completás algo que no está explícitamente documentado, marcá esa parte con [INFERENCIA].
 
-Entregá:
-1) 3 escenarios típicos con contexto concreto (tipo de cliente, sistema, restricción real).
-2) Para cada escenario: la decisión Danwor, por qué esa y no otra, y el riesgo si se elige mal.
-3) En qué escenario aplicarías cada decisión sin dudar, y en cuál pedirías más contexto antes.
+Entregá una introducción breve de 1-2 líneas indicando de qué fuentes internas te apoyaste.
+
+Luego entregá 2 o 3 ejemplos, no más, con este formato:
+
+**Ejemplo N: <nombre del caso o escenario>**
+- **Fuente interna usada:** apéndice, sección, checklist o asset utilizado.
+- **Contexto:** tipo de cliente/sistema/restricción real.
+- **Decisión Danwor:** postura o recomendación concreta.
+- **Por qué esa y no otra:** criterio arquitectónico.
+- **Riesgo si se elige mal:** consecuencia práctica.
+
+Cerrá con:
+**Cuándo aplicarlo sin dudar:** 2 bullets.
+**Cuándo pedir más contexto:** 2 bullets.
 
 Usá terminología Danwor. Nombrá tecnologías reales (ECC, S/4, BDC, Datasphere).
-Si el escenario requiere contexto no provisto, indicalo con [DEPENDE DE].
+Si no encontrás material interno suficiente, decilo explícitamente antes de usar ejemplos hipotéticos.
 """,
 }
 
@@ -301,6 +329,8 @@ def _load_module_meta(module_stem: str | None) -> dict:
     try:
         from config import CONTENT_DIR
         md_path = CONTENT_DIR / f"{module_stem}.md"
+        if not md_path.exists():
+            md_path = CONTENT_DIR / "apendices" / f"{module_stem}.md"
         if not md_path.exists():
             return {}
         text = md_path.read_text(encoding="utf-8")

@@ -1,0 +1,37 @@
+case_id: case_20260510_125132_9b21e85a
+version: '1.0'
+source:
+  tree_id: m02_seguridad_roles
+  tree_title: Seguridad de Roles
+  module: 02_Seguridad_y_Gobernanza
+  run_id: 9b21e85a-217f-4183-bdcb-0d405b82a9c0
+  timestamp: '2026-05-10T15:51:29.884523+00:00'
+route:
+- node: q1
+  question: ¿Se trata de un PoC, Piloto o MVP?
+  answer: Sí
+leaf_id: leaf_roles_std_poc
+decision: 'Usar Roles Estándar — fase exploratoria: priorizar agilidad sobre personalización.
+  Si prospera a Proyecto no olvides reconsiderar este árbol.'
+post_actions:
+  mode: resolved
+  next_steps:
+  - Identificar roles estándar disponibles en Datasphere
+  - Asignar según perfiles mínimos necesarios para validar el PoC
+  reason: null
+  questions: []
+leaf_notes:
+- Documentar si los roles estándar cubren la necesidad antes de considerar custom.
+- Reevaluar la decisión si el PoC prospera a proyecto.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: anduvo
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: 'No'
+  reason: null
+confidence: null
+reviewed: false

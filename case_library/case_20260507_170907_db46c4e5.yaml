@@ -1,0 +1,41 @@
+case_id: case_20260507_170907_db46c4e5
+version: '1.0'
+source:
+  tree_id: m02_seguridad_roles
+  tree_title: Seguridad de Roles
+  module: 02_Seguridad_y_Gobernanza
+  run_id: db46c4e5-f6cb-482d-82bd-7c7823cb9128
+  timestamp: '2026-05-07T20:09:03.465968+00:00'
+route:
+- node: q1
+  question: ¿Se trata de un PoC, Piloto o MVP?
+  answer: 'No'
+- node: q2_segregacion
+  question: ¿Existen necesidades de segregación de roles, responsabilidades o simplificación
+    de accesos?
+  answer: 'No'
+leaf_id: leaf_roles_std_simple
+decision: Usar Roles Estándar — sin necesidades de segregación ni escalabilidad prevista.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- Los roles estándar son suficientes cuando el modelo de acceso es simple.
+- Revisar si la estructura de accesos cambia al crecer el proyecto.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: Sí
+  reason: null
+- node: q2_segregacion
+  option: Sí
+  reason: null
+confidence: null
+reviewed: false

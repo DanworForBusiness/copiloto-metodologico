@@ -8,6 +8,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from config import IA_ENABLED_MODULES
 from core.content import (
     key_topics_from_module_with_start,
     extract_section_by_heading,
@@ -89,6 +90,7 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stMarkdownContainer"] p
 div[data-testid="stMainBlockContainer"] div[data-testid="stMarkdownContainer"] li,
 div[data-testid="stMainBlockContainer"] div[data-testid="stMarkdownContainer"] td,
 div[data-testid="stMainBlockContainer"] div[data-testid="stMarkdownContainer"] th,
+div[data-testid="stMainBlockContainer"] div[data-testid="stMarkdownContainer"] code,
 div[data-testid="stMainBlockContainer"] .dw-callout__body,
 div[data-testid="stMainBlockContainer"] [data-baseweb="select"] div[value],
 div[data-testid="stMainBlockContainer"] [data-baseweb="select"] input,
@@ -100,50 +102,39 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
 </style>
 """, unsafe_allow_html=True)
 
-    # ── Key topics + botones de fuente en una sola fila ────────────────────────
+    # ── Key topics ─────────────────────────────────────────────────────────────
     st.markdown("<div class='dw-topic-label'>Key topics</div>", unsafe_allow_html=True)
 
-    # Layout: col_down, col_up | gap | topic cols
-    # Usamos columnas con ancho fijo para los botones via CSS
+    # Los controles de fuente viven junto al pinner de cada encabezado. Así los
+    # key topics recuperan ancho útil y quedan como navegación pura del módulo.
+    # Cada topic recibe un peso mínimo según su texto. Así evitamos que cinco
+    # topics cortos salten a una segunda línea solo porque el layout estaba
+    # limitado a cuatro columnas fijas.
     n_topics = min(len(topics), 8) if topics else 0
-    n_cols   = min(n_topics, 4)
+    visible_topics = topics[:8] if topics else []
 
-    btn_col_a, btn_col_b, *topic_cols = st.columns(
-        [0.18, 0.18] + ([1] * n_cols if n_cols else [1]),
-        gap="small",
-    )
+    def _topic_weight(topic: dict) -> float:
+        label = (topic.get("label") or "").strip()
+        return max(0.58, min(1.2, len(label) / 18))
 
-    with btn_col_a:
-        if st.button("🗚", key="font_down", help=f"Reducir texto ({font_size}px)",
-                     use_container_width=True,
-                     disabled=font_size <= _FONT_MIN):
-            st.session_state[_FONT_SIZE_KEY] = font_size - 1
-            st.rerun()
+    topic_weights = [_topic_weight(t) for t in visible_topics] or [1]
 
-    with btn_col_b:
-        if st.button("🗛", key="font_up", help=f"Aumentar texto ({font_size}px)",
-                     use_container_width=True,
-                     disabled=font_size >= _FONT_MAX):
-            st.session_state[_FONT_SIZE_KEY] = font_size + 1
-            st.rerun()
+    topic_cols = st.columns(topic_weights, gap="small")
 
-    if topics and topic_cols:
-        for idx, t in enumerate(topics[:8]):
+    if visible_topics and topic_cols:
+        for idx, t in enumerate(visible_topics):
             label   = (t.get("label") or "").strip()
             heading = (t.get("heading") or label).strip()
             short   = label if len(label) <= 18 else label[:15] + "…"
-            col_idx = idx % n_cols
-            if col_idx < len(topic_cols):
-                with topic_cols[col_idx]:
-                    if st.button(
-                        short,
-                        help=heading,
-                        use_container_width=True,
-                        key=f"topic_{selected_stem}_{idx}",
-                    ):
-                        section_md = extract_section_by_heading(body_md, heading, level=(2, 3)) or ""
-                        AppState.set_selected_topic(heading, section_md)
-                        st.rerun()
+            with topic_cols[idx]:
+                if st.button(
+                    short,
+                    help=heading,
+                    use_container_width=True,
+                    key=f"topic_{selected_stem}_{idx}",
+                ):
+                    section_md = extract_section_by_heading(body_md, heading, level=(2, 3)) or ""
+                    AppState.set_selected_topic(heading, section_md)
 
     # ── Markdown content ───────────────────────────────────────────────────────
     with st.container(height=660):
@@ -188,7 +179,43 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
             height=0,
         )
         display_md = demote_markdown_headings(strip_first_h1(body_md), shift=2)
-        render_md_with_image_zoom(display_md, base_dir=md_dir, key_prefix=f"mdimg_{selected_stem}", section_start=section_base)
+        render_md_with_image_zoom(
+            display_md,
+            base_dir=md_dir,
+            key_prefix=f"mdimg_{selected_stem}",
+            section_start=section_base,
+            show_pinners=selected_stem in IA_ENABLED_MODULES,
+        )
+        _scroll_content_to_top = st.session_state.pop("_scroll_content_to_top", False)
+        if _scroll_content_to_top:
+            st.components.v1.html(
+                f"""<script>
+(function() {{
+  function scrollContentTop(attempts) {{
+    var marker = window.parent.document.getElementById('{marker_id}');
+    if (!marker) {{
+      if (attempts > 0) setTimeout(function() {{ scrollContentTop(attempts - 1); }}, 120);
+      return;
+    }}
+
+    var container = marker.parentElement;
+    while (container && container !== window.parent.document.body) {{
+      var style = window.parent.getComputedStyle(container);
+      if (style.overflowY === 'auto' || style.overflowY === 'scroll') break;
+      container = container.parentElement;
+    }}
+
+    if (container) {{
+      setTimeout(function() {{
+        container.scrollTop = 0;
+      }}, 80);
+    }}
+  }}
+  scrollContentTop(16);
+}})();
+</script>""",
+                height=0,
+            )
         _slug_after_render = st.session_state.pop("_scroll_to_slug", None)
         if _slug_after_render:
             _safe_slug = _slug_after_render.replace("'", "\\'").replace('"', '\\"')

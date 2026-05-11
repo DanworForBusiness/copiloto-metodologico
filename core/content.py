@@ -13,6 +13,11 @@ import re
 import streamlit as st
 import yaml
 
+_FONT_SIZE_KEY = "_content_font_size"
+_FONT_MIN = 12
+_FONT_MAX = 18
+_FONT_DEFAULT = 14
+
 
 # =========================================================
 # Data model + lectura
@@ -141,6 +146,12 @@ def strip_section_meta(md: str) -> str:
 @st.cache_data(show_spinner=False)
 def module_label_from_md(stem: str, md_text: str) -> str:
     meta, _ = split_front_matter(md_text)
+
+    # Los apéndices conservan su numeración editorial propia (A01, A02...),
+    # aunque su frontmatter haya heredado un "module: 06/07" histórico.
+    m = re.match(r"^(A\d{2})_(.+)$", stem, re.I)
+    if m:
+        return f"{m.group(1).upper()} · {m.group(2).replace('_', ' ')}"
 
     mod = str(meta.get("module", "")).strip()
     title = str(meta.get("title", "")).strip()
@@ -315,9 +326,15 @@ def section_number_base_for_path(selected_path: str | Path) -> int:
     """
     path = Path(selected_path)
     content_dir = path.parent
+    root_dir = content_dir.parent if content_dir.name.lower() == "apendices" else content_dir
     total = 0
-    for md_path in sorted(content_dir.glob("*.md"), key=lambda p: p.name.lower()):
-        if md_path.name.lower() == path.name.lower():
+    md_paths = sorted(root_dir.glob("*.md"), key=lambda p: p.name.lower())
+    appendices_dir = root_dir / "apendices"
+    if appendices_dir.exists():
+        md_paths.extend(sorted(appendices_dir.glob("*.md"), key=lambda p: p.name.lower()))
+
+    for md_path in md_paths:
+        if md_path.resolve() == path.resolve():
             break
         try:
             md_text = md_path.read_text(encoding="utf-8", errors="ignore")
@@ -390,6 +407,7 @@ LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
 SUPPORT_LINE_RE = re.compile(r"^\s*\{\{\s*support\s*:\s*(.*?)\s*\}\}\s*$", re.I)
 SUPPORT_KV_RE = re.compile(r'([A-Za-z0-9 _\-]+)\s*=\s*(?:"([^"]+)"|(true|false))', re.I)
 BADGE_LINE_RE = re.compile(r"^\s*\{\{\s*badge\s*:\s*(.*?)\s*\}\}\s*$", re.I)
+SUBTITLE_LINE_RE = re.compile(r"^\s*\{\{\s*subtitle\s*:\s*(.*?)\s*\}\}\s*$", re.I)
 _HEADING_BADGES: dict[str, str] = {}
 _CURRENT_SECTION_NUM = 0
 
@@ -560,7 +578,7 @@ def _support_links_html(items: list[dict], *, pin: bool = False, section_slug: s
         l = label.lower()
         u = url.lower()
         if "help" in l or "help.sap.com" in u:
-            pills.append(_pill("SAP Help", url, "🔗"))
+            pills.append(_pill("SAP Help", url, "🔗", title=label))
         elif "note" in l or "nota" in l or "me.sap.com/notes" in u:
             pills.append(_pill(label, url, "📝"))
         elif "appendix" in l or "apendice" in l or "danwor.sharepoint.com/" in u:
@@ -586,27 +604,73 @@ def _render_pinnable_header(
     badge: str = "",
     first_header: bool = False,
     display_title: str = "",
+    show_pinner: bool = True,
 ) -> int:
     slug = _slugify_heading(title)
     pin_key = f"{key_prefix}_pin_{idx}"
+    font_size = int(st.session_state.get(_FONT_SIZE_KEY, _FONT_DEFAULT))
+    header_extra_class = "dw-page-hero--first" if first_header else ""
+    if not show_pinner:
+        header_extra_class = (header_extra_class + " dw-page-hero--no-pinner").strip()
+
+    controls_right_html = right_html if show_pinner else ""
+    header_right_html = "" if show_pinner else right_html
+
     header_html = _header_with_support_html(
         title,
-        right_html,
+        header_right_html,
         badge=badge,
-        extra_class="dw-page-hero--first" if first_header else "",
+        extra_class=header_extra_class,
         display_title=display_title,
     )
 
-    col_hdr, col_pin = st.columns([0.965, 0.035], vertical_alignment="center", gap="small")
+    if not show_pinner:
+        _render_raw_html(header_html)
+        return idx + 1
+
+    if controls_right_html:
+        col_hdr, col_links, col_down, col_up, col_pin = st.columns(
+            [0.735, 0.145, 0.04, 0.04, 0.04],
+            vertical_alignment="center",
+            gap="small",
+        )
+    else:
+        col_hdr, col_down, col_up, col_pin = st.columns(
+            [0.875, 0.04, 0.04, 0.04],
+            vertical_alignment="center",
+            gap="small",
+        )
     with col_hdr:
         _render_raw_html(header_html)
+    if controls_right_html:
+        with col_links:
+            _render_raw_html(controls_right_html)
+    with col_down:
+        if st.button(
+            "🗚",
+            key=f"{key_prefix}_font_down_{idx}",
+            help=f"Reducir texto ({font_size}px)",
+            use_container_width=True,
+            disabled=font_size <= _FONT_MIN,
+        ):
+            st.session_state[_FONT_SIZE_KEY] = font_size - 1
+            st.rerun()
+    with col_up:
+        if st.button(
+            "🗛",
+            key=f"{key_prefix}_font_up_{idx}",
+            help=f"Aumentar texto ({font_size}px)",
+            use_container_width=True,
+            disabled=font_size >= _FONT_MAX,
+        ):
+            st.session_state[_FONT_SIZE_KEY] = font_size + 1
+            st.rerun()
     with col_pin:
         if st.button("📌", key=pin_key, help="Abrir en panel Sección"):
             st.session_state["selected_topic_from_anchor"] = display_title or title
             st.session_state["_scroll_to_slug"] = slug
             AppState.set_active_tools_tab(0)
             AppState.open_tools_panel()
-            st.rerun()
 
     return idx + 1
 
@@ -620,6 +684,7 @@ def _render_support_header(
     badge: str = "",
     first_header: bool = False,
     display_title: str = "",
+    show_pinner: bool = True,
 ) -> int:
     # El pinner es comportamiento nativo de todo encabezado. El tag {{support}}
     # solo agrega recursos complementarios a la derecha del mismo header.
@@ -633,6 +698,7 @@ def _render_support_header(
         badge=badge,
         first_header=first_header,
         display_title=display_title,
+        show_pinner=show_pinner,
     )
 
 def _inline_body_html(text: str) -> str:
@@ -721,18 +787,36 @@ def _subtitle_blockquotes_to_html(text: str) -> str:
     """Render simple Markdown blockquotes as the roadmap-style subtitle class."""
     out: list[str] = []
     quote_buf: list[str] = []
+    quote_no_gap = False
+    pending_no_gap = False
 
     def flush_quote() -> None:
+        nonlocal quote_no_gap
         if not quote_buf:
             return
         body = "<br>".join(html.escape(part.strip()) for part in quote_buf if part.strip())
         if body:
-            out.append(f'<p class="dw-hero-desc">{body}</p>')
+            extra_class = " dw-hero-desc--no-gap" if quote_no_gap else ""
+            out.append(f'<p class="dw-hero-desc{extra_class}">{body}</p>')
         quote_buf.clear()
+        quote_no_gap = False
 
     for line in text.splitlines():
+        m_subtitle = SUBTITLE_LINE_RE.match(line.strip())
+        if m_subtitle:
+            flush_quote()
+            raw_mode = (m_subtitle.group(1) or "").strip().lower()
+            # Modos editoriales soportados:
+            # - with-gap: comportamiento por defecto, conserva el margen izquierdo.
+            # - no-gap: alinea el subtítulo al margen del contenido.
+            pending_no_gap = raw_mode in {"no-gap", "nogap", "no_gap", "left", "flush"}
+            continue
+
         match = re.match(r"^\s*>\s?(.*)$", line)
         if match:
+            if not quote_buf:
+                quote_no_gap = pending_no_gap
+                pending_no_gap = False
             quote_buf.append(match.group(1))
             continue
         flush_quote()
@@ -775,13 +859,14 @@ def _parse_support_items(raw: str) -> dict:
 
     return out
 
-def _pill(label: str, url: str, icon: str) -> str:
+def _pill(label: str, url: str, icon: str, *, title: str = "") -> str:
     safe_label = html.escape(label or "")
     safe_url = html.escape(url or "", quote=True)
     safe_icon = html.escape(icon or "")
+    safe_title = html.escape(title or label or "", quote=True)
     return (
         f'<a class="dw-md-pill" href="{safe_url}" target="_blank" '
-        f'rel="noopener noreferrer">{safe_icon} {safe_label}</a>'
+        f'rel="noopener noreferrer" title="{safe_title}">{safe_icon} {safe_label}</a>'
     )
 
 def _callout_html(title: str, tone: str, icon: str, body: str) -> str:
@@ -847,7 +932,13 @@ def _render_text_with_tree_buttons(text: str, *, key_prefix: str, start_idx: int
     return idx
 
 
-def _render_text_with_callouts_tree_support(text: str, *, key_prefix: str, start_idx: int) -> int:
+def _render_text_with_callouts_tree_support(
+    text: str,
+    *,
+    key_prefix: str,
+    start_idx: int,
+    show_pinners: bool = True,
+) -> int:
     """
     Pipeline único:
       - callouts / callout_row
@@ -997,6 +1088,7 @@ def _render_text_with_callouts_tree_support(text: str, *, key_prefix: str, start
                     idx=idx,
                     first_header=is_first_header,
                     display_title=display_title,
+                    show_pinner=show_pinners,
                 )
 
                 # Consumimos heading + líneas vacías + support line
@@ -1025,6 +1117,7 @@ def _render_text_with_callouts_tree_support(text: str, *, key_prefix: str, start
                 idx=idx,
                 first_header=is_first_header,
                 display_title=display_title,
+                show_pinner=show_pinners,
             )
             i += 1
             continue
@@ -1146,7 +1239,13 @@ def _render_html_embed(raw_path: str, base_dir: Path, height: int | None = None,
     )
 
 
-def render_md_with_image_zoom(md: str, base_dir: str | Path = ".", key_prefix: str = "mdimg", section_start: int = 0):
+def render_md_with_image_zoom(
+    md: str,
+    base_dir: str | Path = ".",
+    key_prefix: str = "mdimg",
+    section_start: int = 0,
+    show_pinners: bool = True,
+):
     """
     Renderiza markdown con:
       - imágenes ![alt](path) como st.image (resolviendo relativo a base_dir)
@@ -1185,7 +1284,12 @@ def render_md_with_image_zoom(md: str, base_dir: str | Path = ".", key_prefix: s
     for m in MEDIA_RE.finditer(md):
         chunk = md[pos:m.start()]
         if chunk.strip():
-            idx = _render_text_with_callouts_tree_support(chunk, key_prefix=key_prefix, start_idx=idx)
+            idx = _render_text_with_callouts_tree_support(
+                chunk,
+                key_prefix=key_prefix,
+                start_idx=idx,
+                show_pinners=show_pinners,
+            )
 
         if m.group(3):
             raw_path = (m.group(3) or "").strip()
@@ -1203,4 +1307,9 @@ def render_md_with_image_zoom(md: str, base_dir: str | Path = ".", key_prefix: s
 
     tail = md[pos:]
     if tail.strip():
-        _render_text_with_callouts_tree_support(tail, key_prefix=key_prefix, start_idx=idx)
+        _render_text_with_callouts_tree_support(
+            tail,
+            key_prefix=key_prefix,
+            start_idx=idx,
+            show_pinners=show_pinners,
+        )

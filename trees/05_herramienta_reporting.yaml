@@ -38,13 +38,13 @@ start: q1
 nodes:
   q1:
     type: single_choice
-    question: "¿El cliente ya tiene una herramienta de BI definida o en uso (Power BI, SAC, BO)?"
-    options: ["Sí, Power BI", "Sí, SAC", "Sí, BusinessObjects", "No / No sé"]
+    question: "¿Que herramienta de BI definió el cliente o tiene en uso?"
+    options: ["SAC", "BusinessObjects", "Power BI", "Ninguna / No sé"]
     next:
-      "Sí, Power BI": q2_pbi_modo
-      "Sí, SAC": leaf_sac
-      "Sí, BusinessObjects": leaf_bo
-      "No / No sé": q3_ecosistema
+      "Power BI": q2_pbi_modo
+      "SAC": leaf_sac
+      "BusinessObjects": leaf_bo
+      "Ninguna / No sé": q3_ecosistema
 
   q2_pbi_modo:
     type: single_choice
@@ -57,7 +57,7 @@ nodes:
 
   q3_ecosistema:
     type: single_choice
-    question: "¿El cliente tiene licencias SAP (SAC, BTP) o prioriza el ecosistema Microsoft?"
+    question: "¿El cliente tiene licencias SAP (SAC, BTP) o prioriza otro ecosistema?"
     options: ["Ecosistema SAP", "Ecosistema Microsoft", "Indiferente / Mixto"]
     next:
       "Ecosistema SAP": leaf_sac
@@ -79,7 +79,7 @@ leaves:
         - "Asegurar que las vistas de consumo (capa 3) tienen el Semantic Usage correcto (Analytical Dataset)"
 
   leaf_pbi_directquery:
-    decision: "Power BI con DirectQuery — datos en tiempo real consultando Datasphere en cada interacción."
+    decision: "Power BI con DirectQuery — datos en tiempo real consultando vistas en Datasphere en cada interacción."
     notes:
       - "Requiere schema user a nivel espacio con los DAC correspondientes."
       - "Impacto de performance en Datasphere con consultas concurrentes — evaluar workload class."
@@ -106,7 +106,7 @@ leaves:
       reason: "SLA de actualización de datos no definido — levantar con el cliente antes de configurar el modo de conexión"
 
   leaf_bo:
-    decision: "BusinessObjects (BO) — vía Universe o conexión JDBC/ODBC hacia Datasphere."
+    decision: "BusinessObjects (BO) — vía Universe o conexión JDBC/ODBC contra Modelos Analíticos en Datasphere."
     notes:
       - "Opción para clientes con BO existente que no migran aún a SAC."
       - "Requiere schema user a nivel espacio."

@@ -49,6 +49,25 @@ streamlit run app.py
 
 No versionar `.env`, `.streamlit/secrets.toml`, archivos `.zip`, `feedback_log/` ni `__pycache__/`.
 
+## Flujo de decisión del asistente
+
+El copiloto no debe comportarse como un chat genérico cuando existe contenido
+metodológico interno. La regla de producto es:
+
+1. Resolver primero con el módulo activo: árboles, assets, `section_meta`,
+   `semantic_summary`, sección seleccionada y guardrails del módulo.
+2. Si el módulo activo no cubre el tema, ejecutar un router transversal liviano
+   sobre metadata de otros módulos/apéndices. Este router no entrega todo el
+   corpus al LLM: solo usa `scope`, headings, `section_meta` y
+   `semantic_summary` para detectar si el tema vive elsewhere.
+3. Si hay un match claro en otro módulo, ofrecer navegación a esa sección o
+   responder usando ese marco como contexto.
+4. Solo si no hay contenido interno aplicable, usar LLM como fallback general.
+
+Principio rector: el usuario puede preguntar desde cualquier módulo; el
+copiloto debe saber cuándo contestar desde el módulo actual, cuándo derivar a
+otro módulo y cuándo admitir que está fuera del marco.
+
 ## Contrato de contenido
 
 Los módulos Markdown son la fuente metodológica y semántica del copiloto. Los
@@ -61,7 +80,8 @@ Usar los tags así:
   calcula automáticamente desde `00_Intro` en adelante. El ancho se controla con
   `SECTION_NUMBER_WIDTH` en `config.py` (`2` => `[01]`, `3` => `[001]`).
 - `{{semantic_summary}}...{{/semantic_summary}}`: resumen invisible en pantalla,
-  usado por el LLM cuando una imagen o HTML contiene conocimiento técnico.
+  usado por el LLM y por el router transversal cuando una imagen o HTML contiene
+  conocimiento técnico.
 - `{{section_mode: visual_only}}`: contenido institucional/introductorio que no
   debe participar en el flujo IA.
 - `{{html_embed: ../assets/archivo.html height=660}}`: render visual embebido.
@@ -76,7 +96,8 @@ Usar frontmatter así:
   evitar que anti-patterns se presenten como alternativas viables.
 
 Regla práctica: si el visual enseña una decisión técnica, debe tener
-`semantic_summary`; si es onboarding institucional, puede ser `visual_only`.
+`section_meta` y `semantic_summary`; si es onboarding institucional, puede ser
+`visual_only`.
 Si una corrección de feedback cambia la postura metodológica de un módulo,
 primero evaluar si corresponde actualizar `scope` o `guardrails` antes de tocar
 prompts globales.

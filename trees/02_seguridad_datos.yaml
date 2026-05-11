@@ -1,5 +1,5 @@
-id: m02_seguridad_dac
-title: Seguridad DAC
+id: m02_seguridad_datos
+title: Seguridad de Datos
 version: "0.1"
 
 # Links como navigation bindings (para UI / conexión con módulos)
@@ -47,24 +47,32 @@ nodes:
 
   q2_reglas:
     type: single_choice
-    question: "¿Los accesos requieren reglas dinámicas, rangos de valores o condiciones complejas?"
+    question: "¿Los accesos son estaticos o de baja actualizacion?"
     options: ["Sí", "No", "No sé"]
     next:
-      "Sí": q3_jerarquia
-      "No": leaf_valores_individuales
+      "Sí": leaf_valores_individuales
+      "No": q3_operadores
       "No sé": leaf_revision
 
-  q3_jerarquia:
+  q3_operadores:
+    type: single_choice
+    question: "¿Se require de reglas dinamicas o rangos de acceso?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_operadores_valores
+      "No": q4_jerarquia
+
+  q4_jerarquia:
     type: single_choice
     question: "¿Los datos se organizan por jerarquía (organigrama, centro de costos, región)?"
     options: ["Sí", "No"]
     next:
       "Sí": leaf_jerarquia
-      "No": leaf_operadores_valores
+      "No": leaf_valores_individuales
 
 leaves:
   leaf_dac_poc:
-    decision: "Usar Valores Individuales — fase exploratoria: simplicidad y velocidad de configuración por sobre completitud."
+    decision: "Usar Valores Individuales — fase exploratoria: priorizar agilidad sobre personalización. Si prospera a Proyecto no olvides reconsiderar este árbol."
     notes:
       - "Valores Individuales son los más simples de configurar e ideales para validar el modelo de datos."
       - "Reevaluar la estructura DAC cuando el PoC prospere a proyecto."

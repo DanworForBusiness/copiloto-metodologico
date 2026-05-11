@@ -62,6 +62,48 @@ intent_assets:
 ---
 # 03 Integracion y Estrategia de Datos
 
+## {dw-black}Modelo de Integración {dw-gold}Danwor
+{{section_meta: keywords="API extracción, API corporativa, data product, contrato de datos"}}
+{{subtitle: no-gap}}
+> La integración se define por el contrato de datos, no por la tecnología.
+
+  - Toda integración se expone como una API
+  - Nunca se consumen tablas como contrato
+  - Se separa API funcional SAP (CDS estándar) de API Corporativa (CDS integración)
+  - El contrato de datos tiene un dueño. Ese dueño define su alcance, ciclo de vida y compatibilidad:
+
+{{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=650 default_mode=modelo}}
+
+{{subtitle: no-gap}}
+> Una API de integración no siempre debe resolver todo: Puede cubrir uno o más de estos roles:
+
+  - Extracción (delta / CDC)
+  - Contrato de datos
+  - Enriquecimiento
+
+{{callout: title="Contrato Propio" tone="punch" icon="🛡️"}}
+La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a pertenecer al cliente.
+{{/callout}}
+
+## {dw-black}Contrato de Datos vs. {dw-gold}Data Product
+{{section_meta: keywords="API extracción, API corporativa, data product, contrato de datos"}}
+{{subtitle: no-gap}}
+> En el modelo Danwor, ambos conceptos se utilizan de forma equivalente en el contexto de consumo.
+
+  - El contrato de datos define estructura, semantica y reglas de acceso 	**¿Qué prometemos entregar?**
+  - El Data Product representa su materialización lista para ser consumida	**¿Cómo lo entregamos?**
+
+### Data Products:
+{{subtitle: no-gap}}
+> El resultado del modelo de integración es la construcción de Data Products gobernados, reutilizables y orientados a negocio
+{{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=390 default_mode=dp}}
+
+{{callout: title="Contrato Propio" tone="punch" icon="🤝"}}
+En la práctica, el Data Product es el contrato de datos expuesto al negocio.
+{{/callout}}
+
+{{tree_button: Resolución de Contrato}}
+
 ## {dw-black}Arquitectura de {dw-gold}Integración
 {{section_meta: keywords="arquitectura integración, arquitectura de integración, diagrama integración, componentes integración, flujo integración, cómo integra datasphere, landscape integración, visión general integración"}}
 > En escenarios de origen S/4HANA (*) donde no solo se elimina el DP Agent, se desacopla el canal y el procesamiento. Para escenarios de origen ECC o cuando el DP Agent cumple un rol de integración crítico o única opción → ver slide legacy.
@@ -88,7 +130,7 @@ La estrategia de integración no es la misma si el origen de los datos es ECC, S
 ### Clean Core aplicado a extracción
 {{section_meta: keywords="clean core, qué es clean core, clean core sap, clean core extracción, principio clean core, clean core datasphere, apis liberadas, ODP clean core, CDS clean core, extensiones permitidas, evitar lógica SAP, exits simples, clean core integración"}}
 {{section_exclude: "codigo, código, vista CDS, ejemplo CDS, crear CDS, escribir CDS, anotaciones CDS, patrón CDS, implementar CDS, template CDS, ayuda codigo, ayuda código"}}
-{{support: SAP Help="https://help.sap.com/" Nota SAP="https://me.sap.com/notes/2232584" Pin=true}}
+{{support: SAP Help="https://help.sap.com/" Nota SAP="https://me.sap.com/notes/2232584"}}
 Clean core no significa eliminar extractores SAP, sino apoyarse en mecanismos liberados (ODP/CDS) y mantener la lógica fuera del core.
   - APIs liberadas: ODP_SAPI, ODP_CDS
   - Extensiones: Exits simples
@@ -106,7 +148,13 @@ ODP es un mecanismo estándar para extracción con colas delta, compatible con D
 {{/callout_row}}
 
 ## {dw-black}Integración Legacy vs. {dw-gold}Moderna
-{{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
+{{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, configurar cloud connector, configuración cloud connector, cloud connector datasphere, cloud connector on premise, cloud connector RISE, SAP RISE cloud connector, ABAP SQL service, cloud to on premise, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
+{{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST" Config Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
+{{semantic_summary}}
+Para preguntas de configuración de Cloud Connector, no responder con un procedimiento genérico sin aclarar primero el contexto operativo. Distinguir si el escenario es Cloud Connector administrado por el cliente en su red/on-premise o conectividad bajo SAP RISE, donde ciertas tareas pueden requerir Service Request o coordinación con SAP. En SAP Datasphere, Cloud Connector/SCC actúa como túnel seguro y no procesa datos; la configuración depende del tipo de conexión, protocolo expuesto, recurso permitido en Cloud To On-Premise y capacidades del sistema fuente. Para federación moderna con S/4HANA, validar release, ABAP Platform, FPS y disponibilidad/configuración de ABAP SQL Service antes de reemplazar DP Agent. Si el usuario pide "cómo configuro Cloud Connector", apoyar la respuesta en la guía oficial "Config Cloud Connector" y advertir qué debe validar antes de ejecutar pasos.
+{{/semantic_summary}}
+
+{{subtitle: no-gap}}
 > Comparación de propósito, despliegue y alcance en SAP Datasphere
 
 | Característica | DP Agent | Cloud Connector |
@@ -117,11 +165,12 @@ ODP es un mecanismo estándar para extracción con colas delta, compatible con D
 | **Protocolos de Conexión** | Soporta ODP, RFC, SOAP para la extracción de datos | Soporta HTTP/HTTPS (ABAP SQL Service), RFC para la comunicación segura |
 | **Alcance** | Integración de datos, operaciones ETL | Seguridad y comunicación para integración entre nube y sistemas locales |
 
-(*) acceso federado vía servicios ABAP (HTTPS) en contexto S/4HANA
+(*) acceso federado vía servicios ABAP (HTTPS) requiere S/4HANA (ABAP Platform 2021 FPS01 o superior)
 
 ## {dw-black}Federación vs. {dw-gold}Persistencia
 {{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere"}}
 
+{{subtitle: no-gap}}
 > Diferencias prácticas según escenario de integración: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento
 
 | Federación | Persistencia |
@@ -152,6 +201,7 @@ Para extractores estándar, tener en cuenta su compatibilidad/whitelisteo. Para 
 ## {dw-black}Modelo de Integración {dw-gold}Híbrido
 {{section_meta: keywords="modelo híbrido, integración híbrida, híbrido federación persistencia, tablas remotas locales combinadas, evolución integración, remote tables local tables, data flow replication flow, cuándo usar híbrido"}}
 
+{{subtitle: no-gap}}
 > En la práctica, se puede comenzar con tablas remotas y, según necesidades de rendimiento, evolucionar hacia persistencia mediante replication/data flows.
 
 | Aspecto | Tablas Remotas | Tablas Locales |
@@ -288,4 +338,5 @@ define view ZI_DS_VENTAS_CDC
 | Vista con joins entre tablas | CDC con mapping |
 | Volumen bajo, sin requisito de incremental | Full |
 
+{{subtitle: no-gap}}
 > La elección entre Full y Delta impacta directamente en la estrategia de replicación en Datasphere (Replication Flow vs Data Flow) y en la capacidad de mantener datos actualizados sin recargas completas.

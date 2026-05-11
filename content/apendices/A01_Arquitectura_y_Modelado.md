@@ -47,28 +47,33 @@ out_of_scope_redirect:
 ---
 # 10 Fundamentos EA y Paradigmas
 
-## Marco EA y Diseño
+## {dw-black}Arquitectura como {dw-gold}Marco de Diseño
 {{section_meta: keywords="EA, enterprise architecture, arquitectura empresarial, marco EA, diseño previo, diseño conceptual, diseño lógico, diseño físico, arquitectura datasphere, decisiones diseño, gobernanza diseño, hands-on sin diseño, evitar hands-on, lenguaje común negocio tecnología, dominios datasphere, capacidades negocio, roadmap modernización, EA datasphere BDC, fundamentos arquitectura"}}
 
-La arquitectura empresarial (EA) garantiza que cada decisión de diseño en Datasphere — modelado, integración, dominios, data products — esté **alineada con las capacidades del negocio**, con el roadmap de modernización y con la transición natural hacia BDC.
+{{subtitle: no-gap}}
+>La arquitectura empresarial (EA = Enterprise Architecture por sus siglas en inglés), permite asegurar que cada decisión de diseño en Datasphere — modelado, integración, dominios, data products y arquitectura moderna — estén alineados con las capacidades del negocio, con el roadmap de modernización y con la transición natural hacia BDC.​
 
-{{callout: title="Por qué importa el marco EA" tone="punch" icon="💡"}}
-Un diseño adecuado evita desarrollos *hands-on* sin dirección. Antes de construir, definimos: qué modelo necesitamos, en qué paradigma se apoya (Warehouse, Lakehouse, Mesh, Fabric) y cómo se relaciona con las capacidades del negocio. Esto garantiza un **lenguaje común** entre negocio y tecnología y prepara la arquitectura para evolucionar naturalmente hacia BDC.
+  - **Arquitectura de Negocio:** <br>
+    Entender capacidades y procesos para definir dominios y data products.
+
+  - **Arquitectura de Datos:** <br>
+    Modelado conceptual/logico/fisico, metadatos, linaje, diseño gobernado.
+
+  - **Arquitectura de Integración:** <br>
+    Integración entre Datasphere y S/4, plataformas no-SAP (CDS, ODP, Lakehouse, Fabric).
+
+  - **Arquitectura de Tecnología:** <br>
+    Bases técnicas para evolucionar hacia BDC, HDLF, virtualización, seguridad y performance.
+
+{{callout: title="¿Por qué importa?" tone="punch" icon="💡"}}
+Sintetiza cómo abordamos el diseño arquitectural y de modelado en Datasphere desde una mirada de EA: decisiones coherentes, gobernadas y alineadas con el negocio​.
 {{/callout}}
 
-La arquitectura Danwor para Datasphere integra cuatro dominios del marco EA:
-
-| Dominio EA | Aplicación en Datasphere |
-|---|---|
-| **Arquitectura de Negocio** | Entender capacidades y procesos para definir dominios y data products |
-| **Arquitectura de Datos** | Diseño conceptual → lógico → físico; metadatos, linaje, gobernanza |
-| **Arquitectura de Aplicación** | Integración entre Datasphere, SAP ERP, BDC y herramientas de consumo |
-| **Arquitectura Técnica** | Espacios, transportes, conectividad, performance, seguridad |
-
-## Diseño de Modelos de Datos
+## {dw-black}Diseño de los {dw-gold}Modelos de Datos
 {{section_meta: keywords="diseño modelos datos, modelo conceptual, modelo lógico, modelo físico, conceptual lógico físico, ERD, entidad relación, modelo de datos datasphere, trazabilidad modelo, modelado efectivo, diseño colaborativo negocio, semántica modelo, cardinalidad, claves modelo, normalización, iteración modelo, gobernanza modelo, modelo no estático, prácticas modelado"}}
 
-Los tres modelos forman un ciclo: mantener trazabilidad entre ellos es lo que distingue una arquitectura madura de un desarrollo aislado.
+{{subtitle: no-gap}}
+>Los tres modelos forman un ciclo: mantener trazabilidad entre ellos es lo que distingue una arquitectura madura de un desarrollo aislado.
 
 | Modelo | Qué define | Herramientas |
 |---|---|---|
@@ -76,7 +81,8 @@ Los tres modelos forman un ciclo: mantener trazabilidad entre ellos es lo que di
 | **Lógico** | Atributos, claves, cardinalidades, dependencias y semántica. Base de la arquitectura por capas en Datasphere | Modelo lógico normalizado, diccionario de datos |
 | **Físico** | Implementación concreta: vistas SQL, tablas, naming, tipos de dato, índices | Datasphere Data Builder, objetos deployados |
 
-> Las reglas de normalización, claves y cardinalidades se derivan del modelo **lógico** — no del físico. Construir el modelo físico sin pasar por el lógico es la causa más frecuente de retrabajo en proyectos de datos.
+{{subtitle: no-gap}}
+> Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico — no del físico. Construir el modelo físico sin pasar por el lógico es la causa más frecuente de retrabajo en proyectos de datos.
 
 {{callout_row}}
 {{callout: title="Diseño colaborativo con negocio" tone="success" icon="🌿"}}
@@ -87,29 +93,42 @@ El modelo no es estático: se ajusta al aprendizaje del proyecto. Evitar modelos
 {{/callout}}
 {{/callout_row}}
 
-**Clasificación de Metadatos**
+## {dw-black}Clasificación de {dw-gold}Metadatos
+{{subtitle: no-gap}}
+> Los metadatos proveen la semántica que conecta el diseño conceptual, lógico y físico. Son el puente entre cómo se modelan los datos y cómo se gobiernan, descubren y trazan en Datasphere / BDC.
 
-Los metadatos proveen la semántica que conecta el diseño conceptual, lógico y físico. Son el puente entre cómo se modelan los datos y cómo se gobiernan, descubren y trazan en Datasphere / BDC.
-
-| Tipo | Ejemplos | Propósito |
+| Tipo | Que describen | Por que importan |
 |---|---|---|
-| **Estructurales** | Tipos de dato, longitudes, claves, relaciones | Garantizan consistencia técnica del modelo |
-| **Semánticos** | `@Semantics.amount`, `@EndUserText.label`, Semantic Usage | Conectan el objeto técnico con el significado de negocio |
-| **Operacionales** | Frecuencia de refresh, linaje, propietario del dato | Habilitan gobernanza, trazabilidad y catálogo en BDC |
+| **Estructurales** | Tablas, vistas, tipos de datos, dependencias, jobs, integración | Permiten linaje, impacto, calidad técnica y automatización en Datasphere |
+| **Semánticos** | Definiciones, reglas, owners, propósito, dominio funcional​ | Aseguran semántica común; base del glosario, del catálogo y del consumo analítico. |
+| **Operacionales** | Logs, accesos, refrescos, calidad, uso real | Habilitan auditoría, SLAs y monitoreo continuo de las vistas y modelos. |
 
-## Paradigmas Arquitectónicos
+{{callout: title="¿Por qué importan?" tone="punch" icon="💡"}}
+Un modelo bien diseñado se sostiene en metadatos bien clasificados​: 
+  - Mitigan riesgos (Datos sensibles, confidenciales y cumplimiento)
+  - Acelera descrubrimiento (Catálogo navegable, semántica consistente)
+  - Construye confianza (origen, calidad y definicón clara)
+  - Escala Gobernanza (políticas aplicadas por clasificación)
+{{/callout}}
+
+## {dw-black}Paradigmas como {dw-gold}Diseño Arquitectónico
 {{section_meta: keywords="paradigmas arquitectónicos, paradigmas datos, data warehouse, lakehouse, data mesh, data fabric, qué paradigma usar, cuándo usar lakehouse, cuándo usar data mesh, cuándo usar data fabric, data warehouse datasphere, lakehouse datasphere, data mesh datasphere, arquitectura híbrida, paradigma arquitectónico SAP, decisión paradigma, árbol paradigma, federación paradigma, dominios autónomos"}}
 
-Cinco paradigmas con un mismo objetivo: transformar datos distribuidos en capacidades de negocio gobernadas. El rol del arquitecto es diseñar un **ecosistema híbrido gobernado**, no apostar a uno solo.
+{{subtitle: no-gap}}
+> Cinco paradigmas con un mismo objetivo: transformar datos distribuidos en capacidades de negocio gobernadas. El rol del arquitecto es diseñar un ecosistema híbrido gobernado, no apostar a uno solo.
 
-| Paradigma | Qué resuelve | En Datasphere |
-|---|---|---|
-| **Data Warehouse / Lakehouse tabular** | Reporting confiable, regulatorio y KPIs críticos | Modelado por capas, tablas persistentes, modelos analíticos, DAC, semántica SAP. **Base predeterminada.** |
-| **Data Lake / Lakehouse** | Exploración, ML, granularidad masiva, datos semiestructurados | Data lake externo (HDFS/S3) + Lakehouse BDC para integración |
-| **Data Mesh** | Múltiples dominios con autonomía, equipos distintos, data products distribuidos | Espacios por dominio, data products publicados, ownership distribuido |
-| **Data Fabric** | Landscape híbrido/multi-cloud sin mover datos | Federación, tablas virtuales, catálogo unificado, linaje técnico |
+Tres de ellos, son operativos centrales para Datasphere y BDC​:
+| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
+|---|---|---|---|
+| **Data Warehouse** | Repositorio central, estructurado y gobernado, optimizado para analítica y reporting | KPIs corporativos, finanzas, reporting regulatorio, analítica repetible | Datasphere es sin dudas un data warehouse moderno que incluye: tablas, persistencia, modelos relacionales, DataFlows, Transformación, Arquitectura por capas, Modelos Analiticos, etc​ |
+| **Data Lakehouse** | Convergencia de lake + warehouse con transaccionalidad y gobierno sobre object storage | Unificar BI + ML en una única plataforma, evitar duplicación lake/warehouse | Critico en Datasphere, absolutamente central en BDC como lakehouse gobernado con semántica SAP (Lakehouse es core, data products viven sobre Lakehouse, lineaje + transactional storage)​ |
+| **Data Fabric** | Capa de integración y acceso unificado, basada en metadatos activos y virtualización | Paisajes híbridos/multi-cloud donde no es viable centralizar físicamente todo | Datasphere oficia de fabric cuando actúa como capa de federación semántica, integración, catalogo unificado, virtualización de datos o modelado sin movimiento de datos​ |
 
-> **Trade-offs a considerar:** Flexibilidad vs. estructura · Centralización vs. autonomía · Performance vs. virtualización · Costo total vs. duplicación de datos.
+Los dos restantes, mas bien informativos con alcance indirecto:
+| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
+|---|---|---|---|
+| **Data Lake** | Almacén masivo de datos crudos (estructurados y no estructurados), schema-on-read | IA/ML, analítica exploratoria, grandes volúmenes y variedad de datos | Datasphere no incluye un data lake completo; sin embargo, HDLF provee capacidades de lake sobre object storage (parquet, particiones, ingestion masiva, external tables). Es la base técnica del camino hacia el Lakehouse en BDC​ |
+| **Data Mesh** | Descentraliza: cada dominio publica “data products” gobernados sobre una plataforma común | Organizaciones grandes con muchos dominios que necesitan autonomía y velocidad | Conceptual, no técnica. Datasphere no implementa mesh automáticamente,sino que ofrece/facilita con espacios y permisos a nivel dominio (DAC)​ |
 
 {{tree_button: Decisión de Paradigma Arquitectónico}}
 

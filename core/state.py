@@ -79,10 +79,6 @@ class AppState:
     def set_execution_mode(mode: str) -> None:
         st.session_state[K_EXEC_MODE] = mode
         st.session_state["_prev_execution_mode"] = mode
-        st.session_state[K_DEBUG_TOGGLE] = (mode == "Simulación")
-        # Si sale del modo diagnóstico y estaba en tab Analítica (3) → volver a Sección
-        if mode != "Simulación" and st.session_state.get(K_ACTIVE_TOOLS_TAB) == 3:
-            st.session_state[K_ACTIVE_TOOLS_TAB] = 0
 
     @staticmethod
     def is_simulation() -> bool:
@@ -160,6 +156,8 @@ class AppState:
 
     @staticmethod
     def append_chat(role: str, msg: str) -> None:
+        if role == "assistant":
+            msg = re.sub(r"(?m)^(\s*)(\d+)[\.)]\s*(?=\S)", r"\1\2. ", msg or "")
         st.session_state.setdefault(K_CHAT, []).append((role, msg))
 
     @staticmethod

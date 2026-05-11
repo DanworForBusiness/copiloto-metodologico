@@ -27,7 +27,7 @@ from core.state import AppState, K_MODULE_SELECTOR
 from engine.tree_engine import load_tree_registry, load_all_trees, module_tag_from_selected, trees_for_module
 from ui.styles import inject_styles
 from ui.header import render_header, render_roadmap_modal
-from ui.sidebar import render_sidebar
+from ui.sidebar import APPENDICES_SENTINEL, K_APPENDIX_SELECTOR, render_sidebar
 from ui.assessment_panel import render_assessment_panel
 from ui.content_panel import render_content_panel
 from ui.tools_panel import render_tools_panel
@@ -50,14 +50,25 @@ inject_styles()
 if "tools_panel_collapsed" not in st.session_state:
     st.session_state["tools_panel_collapsed"] = False
 
-# Cargar mÃ³dulos 
-paths          = sorted(CONTENT_DIR.glob("*.md"))
-module_names   = [p.stem for p in paths]
-module_paths   = {p.stem: str(p) for p in paths}
-module_labels  = {
+# Cargar módulos core y apéndices técnicos.
+#
+# Los módulos core viven en content/*.md y son la navegación principal del
+# copiloto. Los apéndices viven en content/apendices/*.md y se exponen como
+# una categoría secundaria del sidebar para no mezclar material operativo con
+# anexos técnicos.
+paths           = sorted(CONTENT_DIR.glob("*.md"), key=lambda p: p.name.lower())
+appendices_dir  = CONTENT_DIR / "apendices"
+appendix_paths  = sorted(appendices_dir.glob("*.md"), key=lambda p: p.name.lower()) if appendices_dir.exists() else []
+
+module_names    = [p.stem for p in paths]
+appendix_names  = [p.stem for p in appendix_paths]
+nav_names       = module_names + appendix_names
+module_paths    = {p.stem: str(p) for p in [*paths, *appendix_paths]}
+module_labels   = {
     stem: module_label_from_md(stem, read_text_cached(path))
     for stem, path in module_paths.items()
 }
+appendix_labels = {stem: module_labels.get(stem, stem) for stem in appendix_names}
 
 from core.utils import slugify as _slugify
 
@@ -69,13 +80,34 @@ def _make_slug_map(body_md: str) -> dict[str, str]:
         for _, title, _ in parse_markdown_headings(body_md)
     }
 
-# Cambio de mÃ³dulo pendiente (desde out-of-scope redirect en tools_panel)
-_pending_switch = st.session_state.pop("_pending_module_switch", None)
-if _pending_switch and _pending_switch in module_names:
-    st.session_state[K_MODULE_SELECTOR] = _pending_switch
+# Links internos desde respuestas del asistente pueden pedir cambio de módulo
+# antes de resolver el anchor de sección. Ej:
+# ?module=01_Arquitectura_y_Conectividad&section=ratio-orientativo...
+_query_module = str(st.query_params.get("module", "")).strip()
+if _query_module and _query_module in nav_names:
+    st.session_state["_pending_module_switch"] = _query_module
+    st.session_state["_scroll_content_to_top"] = True
+    try:
+        del st.query_params["module"]
+    except Exception:
+        pass
 
-# Sidebar â†’ mÃ³dulo seleccionado + acciÃ³n rÃ¡pida 
-selected_stem, quick_action, assessment_clicked = render_sidebar(module_names, module_labels)
+# Cambio de módulo pendiente (desde out-of-scope redirect, header o tools_panel)
+_pending_switch = st.session_state.pop("_pending_module_switch", None)
+if _pending_switch and _pending_switch in nav_names:
+    if _pending_switch in appendix_names:
+        st.session_state[K_MODULE_SELECTOR] = APPENDICES_SENTINEL
+        st.session_state[K_APPENDIX_SELECTOR] = _pending_switch
+    else:
+        st.session_state[K_MODULE_SELECTOR] = _pending_switch
+
+# Sidebar → módulo/apéndice seleccionado + acción rápida
+selected_stem, quick_action, assessment_clicked = render_sidebar(
+    module_names,
+    module_labels,
+    appendix_names=appendix_names,
+    appendix_labels=appendix_labels,
+)
 tools_enabled_for_module = selected_stem in IA_ENABLED_MODULES
 
 # El panel derecho solo aporta valor en módulos habilitados para IA.
@@ -102,30 +134,42 @@ if st.session_state.get("_active_assessment"):
     st.stop()
 
 # Modo Diagnóstico
+def _on_debug_mode_change() -> None:
+    debug_on = bool(st.session_state.get("debug_mode_toggle", False))
+    st.session_state["debug_mode"] = debug_on
+    st.session_state["execution_mode"] = "Simulación" if debug_on else "API Real"
+    if debug_on:
+        st.session_state["mode_selector"] = "Simulación"
+    elif st.session_state.get("active_tools_tab") == 3:
+        st.session_state["active_tools_tab"] = 0
+
+
 if IS_DEV:
     st.sidebar.toggle(
         "Modo Diagnóstico (interno)",
         key="debug_mode_toggle",
-        on_change=lambda: st.session_state.update(
-            {"debug_mode": st.session_state["debug_mode_toggle"]}
-        ),
+        on_change=_on_debug_mode_change,
     )
+if not st.session_state.get("debug_mode", False):
+    AppState.set_execution_mode("API Real")
 
 # Header
 roadmap_clicked, module_nav_delta = render_header(
     is_dev=IS_DEV,
-    module_names=module_names,
+    module_names=nav_names,
     selected_stem=selected_stem,
+    show_mode_selector=AppState.debug_mode(),
 )
 if module_nav_delta:
-    current_idx = module_names.index(selected_stem)
-    target_idx = max(0, min(len(module_names) - 1, current_idx + module_nav_delta))
-    target_stem = module_names[target_idx]
+    current_idx = nav_names.index(selected_stem)
+    target_idx = max(0, min(len(nav_names) - 1, current_idx + module_nav_delta))
+    target_stem = nav_names[target_idx]
     if target_stem != selected_stem:
         # El selectbox del sidebar ya fue instanciado en este run, por eso no
         # podemos tocar K_MODULE_SELECTOR directamente acá. Dejamos el cambio
         # pendiente para aplicarlo arriba, antes de render_sidebar().
         st.session_state["_pending_module_switch"] = target_stem
+        st.session_state["_scroll_content_to_top"] = True
         for _key in (
             "selected_topic",
             "selected_section_md",
@@ -149,8 +193,11 @@ if roadmap_clicked:
 
 # Limpiar chat al cambiar de mÃ³dulo
 prev_module = st.session_state.get("_prev_module")
+preserve_chat = bool(st.session_state.pop("_preserve_chat_on_module_switch", False))
 if prev_module and prev_module != selected_stem:
-    AppState.clear_chat()
+    if not preserve_chat:
+        AppState.clear_chat()
+    st.session_state["_scroll_content_to_top"] = True
 st.session_state["_prev_module"] = selected_stem
 
 # Cargar contexto del mÃ³dulo 
@@ -190,7 +237,7 @@ if section_slug:
         st.session_state.pop("_combined_suggestion", None)
         AppState.set_active_tools_tab(0)
         if target:
-            AppState.append_chat("assistant", f"📖 Abriendo sección: **{target}**")
+            AppState.append_chat("assistant", f"📖 Abriendo sección: **{AppState.clean_topic_label(target)}**")
         try:
             del st.query_params["section_nav"]
         except Exception:
@@ -230,6 +277,8 @@ else:
         render_content_panel(selected_stem, selected_path, context)
 
     with col_tools:
+        st.markdown("<div class='dw-tools-shell-marker'></div>", unsafe_allow_html=True)
+
         toggle_label = "▶" if not collapsed else "◀"
         toggle_help  = "Ocultar panel de herramientas" if not collapsed else "Mostrar panel de herramientas"
         
@@ -241,7 +290,6 @@ else:
         with ct:
             if not collapsed:
                 st.markdown(
-                        "<div class='dw-tools-shell-marker'></div>"
                         "<div class='dw-section-title dw-section-tools'>Herramientas de Decisión</div>",
                         unsafe_allow_html=True)
                 st.caption("Seleccioná un key topic o una sección del módulo.")

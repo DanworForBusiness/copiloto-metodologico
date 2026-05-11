@@ -57,7 +57,7 @@ def _render_roadmap_body() -> None:
     )
     st.markdown(_roadmap_cards_html(), unsafe_allow_html=True)
     st.markdown(
-        "<div class='dw-rm-help'>Roadmap sujeto a cambios y/o prioridades I+D</div>",
+        "<div class='dw-rm-help'>Roadmap sujeto a cambios y/o prioridades I+D · Danwor Transversal</div>",
         unsafe_allow_html=True,
     )
 
@@ -74,6 +74,7 @@ def render_header(
     *,
     module_names: list[str] | None = None,
     selected_stem: str = "",
+    show_mode_selector: bool | None = None,
 ) -> tuple[bool, int | None]:
     """
     Renderiza el header completo.
@@ -103,6 +104,7 @@ def render_header(
     roadmap_clicked = False
     module_nav_delta: int | None = None
     module_names = module_names or []
+    show_mode_selector = AppState.debug_mode() if show_mode_selector is None else show_mode_selector
     can_nav = bool(module_names and selected_stem in module_names)
     current_idx = module_names.index(selected_stem) if can_nav else 0
     can_prev = can_nav and current_idx > 0
@@ -122,7 +124,7 @@ def render_header(
             """,
             unsafe_allow_html=True,
         )
-        if is_dev:
+        if is_dev and show_mode_selector:
             r1, r_prev, r_next, r2 = st.columns([0.42, 0.13, 0.13, 0.50], vertical_alignment="center")
             with r1:
                 roadmap_clicked = st.button(
@@ -159,8 +161,9 @@ def render_header(
                 )
             # Toggle de debug movido a app.py para que aparezca siempre
         else:
-            AppState.set_execution_mode("API Real")
-            r1, r_prev, r_next = st.columns([0.60, 0.20, 0.20], vertical_alignment="center")
+            r_spacer, r1, r_prev, r_next = st.columns([0.50, 0.42, 0.13, 0.13], vertical_alignment="center")
+            with r_spacer:
+                st.empty()
             with r1:
                 roadmap_clicked = st.button(
                     "Roadmap",

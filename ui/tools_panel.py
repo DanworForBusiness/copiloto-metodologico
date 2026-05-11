@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import html
 import datetime as _dt
 import time as _time
 from pathlib import Path
@@ -19,7 +20,7 @@ import streamlit as st
 import yaml
 
 from core.utils import norm_text as _norm, slugify as _slugify
-from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR
+from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, CONTENT_DIR
 
 try:
     from auth import get_current_user as _get_auth_user
@@ -37,7 +38,10 @@ except ImportError:
         return text
 from core.content import (
     render_md_with_image_zoom,
+    read_text_cached,
     split_front_matter,
+    module_label_from_md,
+    parse_section_meta,
     extract_section_by_heading,
 )
 from core.llm import LLMGateway
@@ -67,6 +71,106 @@ from engine.tree_engine import (
     tree_engine_render,
     render_leaf_feedback_form,
 )
+
+_MODULE01_STEM = "01_Arquitectura_y_Conectividad"
+_QUOTA_RATIO_HEADING = "Ratio orientativo de distribución de quota"
+_PRACTICAL_CASE_APPENDICES = (
+    "A02_Modernizacion_BW_Greenfield_BDC.md",
+    "A03_Hub_de_Integracion_AWS.md",
+    "A05_Troubleshooting_y_Performance.md",
+)
+
+
+def _strip_md_for_case_context(text: str) -> str:
+    """Compacta markdown/apéndices para usarlos como contexto semántico del LLM."""
+    lines: list[str] = []
+    skip_fence = False
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("```"):
+            skip_fence = not skip_fence
+            continue
+        if skip_fence:
+            continue
+        if not line:
+            continue
+        if line.startswith("{{") and line.endswith("}}"):
+            continue
+        if line.startswith("![](") or line.startswith("!["):
+            continue
+        line = re.sub(r"\{\{[^{}]*\}\}", " ", line)
+        line = re.sub(r"\{dw-[^{}]+\}", "", line)
+        line = re.sub(r"<[^>]+>", " ", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _appendix_case_context(max_chars: int = 6500) -> str:
+    """
+    Devuelve un bloque corto con apéndices/casos internos para acciones rápidas.
+
+    No reemplaza el contexto del módulo: lo enriquece para que "Ejemplos prácticos"
+    use casos documentados (greenfield, modernización BW, hub de integración, etc.)
+    antes de inventar escenarios hipotéticos.
+    """
+    appendix_dir = CONTENT_DIR / "apendices"
+    if not appendix_dir.exists():
+        return ""
+
+    blocks: list[str] = []
+    for name in _PRACTICAL_CASE_APPENDICES:
+        path = appendix_dir / name
+        if not path.exists():
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        meta, body = split_front_matter(raw)
+        title = str(meta.get("title") or path.stem).strip()
+        scope = str(meta.get("scope") or "").strip()
+        headings = re.findall(r"(?m)^#{2,3}\s+(.+?)\s*$", body)
+        clean = _strip_md_for_case_context(body)
+        snippet = clean[:1600].rstrip()
+        parts = [f"Apéndice interno: {title}"]
+        if scope:
+            parts.append(f"Alcance: {scope}")
+        if headings:
+            parts.append("Secciones: " + "; ".join(headings[:8]))
+        if snippet:
+            parts.append("Contenido útil:\n" + snippet)
+        blocks.append("\n".join(parts))
+
+    if not blocks:
+        return ""
+
+    text = "\n\n".join(blocks)
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit("\n", 1)[0].rstrip()
+    return (
+        "\n\nCONTEXTO ADICIONAL - APÉNDICES Y CASOS INTERNOS DANWOR:\n"
+        "Usá este bloque como fuente prioritaria para ejemplos prácticos documentados. "
+        "Si completás algo por inferencia, marcá [INFERENCIA].\n"
+        f"{text}"
+    )
+
+
+def _should_suggest_quota_ratio(answer: str, *, quick_action: str, selected_stem: str) -> bool:
+    """
+    Detecta cuándo una acción rápida toca un artefacto interno navegable.
+
+    La navegación se resuelve con el mismo patrón conversacional del asistente
+    (_section_suggestion), no con links markdown generados por el LLM.
+    """
+    if quick_action != "Errores frecuentes" or selected_stem != _MODULE01_STEM:
+        return False
+
+    text = answer or ""
+    if not re.search(r"(distribuci[oó]n porcentual|quota|space quota|capacidad total del tenant)", text, re.I):
+        return False
+    return True
 
 
 def _simulate_section_output(action: str, topic: str) -> str:
@@ -175,16 +279,16 @@ def _render_feedback_buttons(
     state = st.session_state[state_key]
 
     if state == "idle":
-        col1, col2, _ = st.columns([0.12, 0.12, 0.76])
+        col1, col2, _ = st.columns([0.09, 0.09, 0.82], gap=None)
         with col1:
             if st.button("👍", key=f"btn_up_{fb_key}", help="Este output fue útil"):
                 _save_ia_feedback("up", "", action, topic, module, feedback_type)
                 st.session_state[state_key] = "done_up"
-                st.rerun()
+                _rerun_tools_panel()
         with col2:
             if st.button("👎", key=f"btn_down_{fb_key}", help="Este output necesita mejora"):
                 st.session_state[state_key] = "awaiting_comment"
-                st.rerun()
+                _rerun_tools_panel()
 
     elif state == "awaiting_comment":
         comment = st.text_input(
@@ -198,7 +302,7 @@ def _render_feedback_buttons(
             else:
                 _save_ia_feedback("down", comment, action, topic, module, feedback_type)
                 st.session_state[state_key] = "done_down"
-                st.rerun()
+                _rerun_tools_panel()
 
     elif state == "done_up":
         show_msg("Feedback registrado. ¡Gracias!", kind="success")
@@ -207,6 +311,42 @@ def _render_feedback_buttons(
     elif state == "done_down":
         show_msg("Feedback registrado. Lo usaremos para mejorar.", kind="success")
         st.session_state[state_key] = "confirmed"
+
+
+def _render_leaf_assets(leaf: dict) -> None:
+    """Renderiza recursos opcionales declarados en una hoja de arbol.
+
+    Ejemplo YAML:
+      assets:
+        - label: "Template Danwor"
+          url: "https://..."
+          description: "Plantilla de referencia"
+    """
+    assets = (leaf or {}).get("assets") or []
+    if not isinstance(assets, list):
+        return
+
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+
+        label = str(asset.get("label") or "Abrir recurso").strip()
+        url = str(asset.get("url") or "").strip()
+        desc = str(asset.get("description") or "").strip()
+        if not url:
+            continue
+
+        desc_html = f"<span>{html.escape(desc)}</span>" if desc else ""
+        st.markdown(
+            f"""
+            <div class="dw-leaf-assets">
+              <a class="dw-leaf-asset-btn" href="{html.escape(url, quote=True)}"
+                 target="_blank" rel="noopener noreferrer">🔗 {html.escape(label)}</a>
+              {desc_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def _ia_enabled(selected_stem: str) -> bool:
@@ -281,6 +421,8 @@ def _llm_guard(fingerprint: str) -> bool:
     Devuelve False si es nuevo (permitir) → registra el fingerprint.
     El set se limpia en Limpiar chat y al cambiar de módulo.
     """
+    if AppState.is_simulation():
+        return False
     executed = st.session_state.setdefault(_LLM_EXECUTED_KEY, set())
     if fingerprint in executed:
         return True
@@ -308,21 +450,23 @@ _SPIN_MSGS = [
     "🧠 Ya casi estamos...",
 ]
 
+def _render_processing_bubble(slot, message: str) -> None:
+    slot.markdown(
+        "<div class='dw-chat-msg dw-chat-assistant'>"
+        "<div class='dw-chat-label'>Arquitecto Danwor</div>"
+        f"<span style='color:#8a95a3;font-size:0.9rem'>{html.escape(message)}</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _animated_spinner(slot, loading_msg: str, thread) -> None:
     """Anima el slot mientras el thread está vivo."""
     msgs = [loading_msg] + _SPIN_MSGS
-    slot.markdown(
-        f"<div style='color:#888;font-size:0.9rem;padding:6px 0;"
-        f"text-align:center;width:100%'>{msgs[0]}</div>",
-        unsafe_allow_html=True,
-    )
+    _render_processing_bubble(slot, msgs[0])
     i = 1
     while thread.is_alive():
-        slot.markdown(
-            f"<div style='color:#888;font-size:0.9rem;padding:6px 0;"
-            f"text-align:center;width:100%'>{msgs[i % len(msgs)]}</div>",
-            unsafe_allow_html=True,
-        )
+        _render_processing_bubble(slot, msgs[i % len(msgs)])
         i += 1
         _time.sleep(3)
     slot.empty()
@@ -333,6 +477,7 @@ def _llm_call_direct(
     context: str,
     loading_msg: str = "Consultando al Arquitecto Senior Danwor...",
     module: str | None = None,
+    max_tokens: int = 1200,
 ) -> str:
     """
     Llama al LLM en un thread separado con spinner animado.
@@ -351,7 +496,7 @@ def _llm_call_direct(
         if _is_sim:
             _result["answer"] = _gw._simulate(_sys, context, prompt)
         else:
-            _result["answer"] = _gw._call_api(_sys, context, prompt)
+            _result["answer"] = _gw._call_api(_sys, context, prompt, max_tokens=max_tokens)
 
     _slot = st.empty()
     _t    = _threading.Thread(target=_call, daemon=True)
@@ -377,6 +522,7 @@ def _llm_call_with_cases(
     loading_msg: str,
     cases_count: int = 0,
     module: str | None = None,
+    max_tokens: int = 1200,
 ) -> str:
     """
     Igual que _llm_call_direct pero con fase 1 animada de conteo de casos.
@@ -395,7 +541,7 @@ def _llm_call_with_cases(
         if _is_sim:
             _result["answer"] = _gw._simulate(_sys, context, prompt)
         else:
-            _result["answer"] = _gw._call_api(_sys, context, prompt)
+            _result["answer"] = _gw._call_api(_sys, context, prompt, max_tokens=max_tokens)
 
     _slot = st.empty()
 
@@ -403,11 +549,7 @@ def _llm_call_with_cases(
     if cases_count > 0:
         _delay = 2.0 / cases_count
         for _n in range(1, cases_count + 1):
-            _slot.markdown(
-                f"<div style='color:#888;font-size:0.9rem;padding:6px 0;text-align:center;width:100%'>"
-                f"📂 Recuperando casos reales ({_n})</div>",
-                unsafe_allow_html=True,
-            )
+            _render_processing_bubble(_slot, f"📂 Recuperando casos reales ({_n})")
             _time.sleep(_delay)
 
     # Fase 2 — LLM en thread con spinner animado
@@ -425,6 +567,7 @@ def _has_pending_action() -> bool:
 
 
 def _queue_action(label: str, callback, debug_prompt: str | None = None, cases_count: int = 0, skip_dialog: bool = False) -> None:
+    st.session_state["_processing"] = True
     st.session_state[_PENDING_KEY] = {
         "label":        label,
         "callback":     callback,
@@ -432,7 +575,7 @@ def _queue_action(label: str, callback, debug_prompt: str | None = None, cases_c
         "cases_count":  cases_count,
         "skip_dialog":  skip_dialog,
     }
-    st.rerun()
+    _rerun_tools_panel()
 
 
 def _flush_pending_action() -> None:
@@ -471,7 +614,7 @@ def _flush_pending_action() -> None:
 
     if not hasattr(st, "dialog") or not AppState.is_simulation():
         callback()
-        st.rerun()
+        _rerun_tools_panel()
         return
 
     @st.dialog("Procesando...", width="small")
@@ -495,7 +638,7 @@ def _flush_pending_action() -> None:
                 st.caption("📂 Sin casos registrados aún.")
             c1, c2 = st.columns(2)
             if c1.button("Cancelar", width='stretch'):
-                st.rerun()
+                _rerun_tools_panel()
             if c2.button("Confirmar", width='stretch'):
                 if sim_delay > 0:
                     _slot = st.empty()
@@ -510,8 +653,269 @@ def _flush_pending_action() -> None:
                         _elapsed += 3
                     _slot.empty()
                 callback()
-                st.rerun()
+                _rerun_tools_panel()
     _dlg()
+
+
+def _flush_pending_classify(selected_stem: str) -> None:
+    """Procesa una pregunta libre pendiente desde la superficie del chat."""
+    _pending_classify = st.session_state.pop("_pending_classify", None)
+    if not _pending_classify:
+        return
+
+    _pc_prompt      = _pending_classify["prompt"]
+    _pc_user_prompt = _pending_classify.get("user_prompt")
+    _pc_ctx         = _pending_classify["context"]
+    _pc_loading     = _pending_classify["loading_msg"]
+
+    if _pc_user_prompt:
+        AppState.append_chat("user", _pc_user_prompt)
+
+    st.session_state["_fq_counter"] = st.session_state.get("_fq_counter", 0) + 1
+
+    if AppState.is_simulation():
+        _is_ambiguous = False
+    else:
+        import threading as _threading
+
+        _result = {"ambiguous": False}
+
+        def _classify():
+            try:
+                gw  = LLMGateway.get()
+                raw = gw._call_api(AMBIGUITY_SYSTEM, "", build_ambiguity_prompt(_pc_prompt), max_tokens=20)
+                stripped = raw.strip()
+                if stripped.startswith("{"):
+                    _result["ambiguous"] = bool(json.loads(stripped).get("ambiguous", False))
+            except Exception:
+                _result["ambiguous"] = False
+
+        _slot = st.empty()
+        _t = _threading.Thread(target=_classify, daemon=True)
+        _t.start()
+        _animated_spinner(_slot, "Analizando tu consulta...", _t)
+        _t.join()
+        _is_ambiguous = _result["ambiguous"]
+
+    if _is_ambiguous:
+        st.session_state["_depth_selector"] = {
+            "prompt":        _pc_prompt,
+            "context":       _pc_ctx,
+            "exclude_modes": ["metodologico"],
+        }
+        _llm_guard_reset()
+    else:
+        st.session_state["_pending_llm_direct"] = {
+            "prompt": _pc_prompt,
+            "context": _pc_ctx,
+            "loading_msg": _pc_loading,
+            "module": _pending_classify.get("module") or selected_stem,
+        }
+    st.session_state.pop("_expand_chat_open", None)
+    _rerun_tools_panel()
+
+
+def _flush_pending_llm_direct(selected_stem: str) -> None:
+    """Procesa una respuesta LLM directa desde la superficie del chat."""
+    _pending_direct = st.session_state.pop("_pending_llm_direct", None)
+    if not _pending_direct:
+        return
+    answer = _llm_call_direct(
+        _pending_direct["prompt"],
+        _pending_direct["context"],
+        _pending_direct.get("loading_msg", get_loading_message("Explicación", False)),
+        module=_pending_direct.get("module") or selected_stem,
+    )
+    AppState.append_chat("assistant", answer)
+    st.session_state.pop("_expand_chat_open", None)
+    _rerun_tools_panel()
+
+
+def _flush_pending_free_question(
+    selected_stem: str,
+    selected_path: str,
+    context: str,
+    trees_this_module: list | None,
+) -> None:
+    """Procesa una pregunta libre completa desde el chat, incluyendo routing interno."""
+    pending = st.session_state.pop("_pending_free_question", None)
+    if not pending:
+        return
+
+    _prompt = (pending.get("prompt") or "").strip()
+    if not _prompt:
+        return
+
+    _ctx = context
+    AppState.append_chat("user", _prompt)
+    st.session_state["_clear_fq"] = True
+    st.session_state["_fq_counter"] = st.session_state.get("_fq_counter", 0) + 1
+
+    _slot = st.empty()
+    _render_processing_bubble(_slot, "Analizando tu consulta...")
+
+    matched_section = _find_matching_section(_prompt, _ctx)
+    is_conceptual   = _is_conceptual_or_comparative_query(_prompt)
+    matched_tree    = None if (is_conceptual and matched_section) else _find_matching_tree(_prompt, trees_this_module or [])
+
+    _slot.empty()
+
+    if matched_section:
+        _matched_label = AppState.clean_topic_label(_display_heading(matched_section.get("heading", "")))
+        _active_label  = AppState.clean_topic_label(AppState.selected_topic() or "")
+        if _active_label and _matched_label == _active_label:
+            _active_ctx = AppState.selected_section_md() or _ctx
+            st.session_state["_pending_llm_direct"] = {
+                "prompt": _prompt,
+                "context": _active_ctx,
+                "loading_msg": get_loading_message("Explicación", False),
+                "module": selected_stem,
+            }
+            st.session_state.pop("_expand_chat_open", None)
+            _rerun_tools_panel()
+            return
+
+    if matched_tree:
+        tree_title = matched_tree.get("title", matched_tree.id if hasattr(matched_tree, "id") else "")
+        _resolved_section_heading = None
+        if matched_section:
+            _sec_heading    = matched_section["heading"]
+            _sec_body_match = re.search(
+                r"(?m)^#{1,3}[^\n]*" + re.escape(_sec_heading) + r"[^\n]*\n(.*?)(?=^#{1,3} |\Z)",
+                _ctx, re.DOTALL | re.MULTILINE,
+            )
+            _has_tree_btn = bool(
+                _sec_body_match and re.search(
+                    r"\{\{tree_button:\s*(.+?)\}\}", _sec_body_match.group(1),
+                )
+            )
+            if not _has_tree_btn:
+                _resolved_section_heading = _sec_heading
+        st.session_state["_last_tree_question"] = _prompt
+        if _resolved_section_heading:
+            AppState.append_chat("assistant", "Encontré recursos sobre este tema. ¿Cómo preferís abordarlo?")
+            st.session_state["_combined_suggestion"] = {
+                "tree": matched_tree, "tree_title": tree_title,
+                "section_heading": _resolved_section_heading, "prompt": _prompt,
+            }
+        else:
+            AppState.append_chat("assistant", f"Encontré un árbol de decisión que puede guiarte: **{tree_title}**. ¿Cómo preferís continuar?")
+            st.session_state["_tree_suggestion"] = {"tree": matched_tree, "title": tree_title, "prompt": _prompt}
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+        return
+
+    matched_asset = _find_matching_asset(_prompt, selected_path, _ctx)
+    if matched_asset is not None:
+        AppState.append_chat("assistant", "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?")
+        st.session_state["_asset_suggestion"] = {"asset": matched_asset, "prompt": _prompt}
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+        return
+
+    if matched_section:
+        _sec_heading    = matched_section["heading"]
+        _sec_label      = _display_heading(_sec_heading)
+        _active_label   = AppState.clean_topic_label(AppState.selected_topic() or "")
+        if _active_label and AppState.clean_topic_label(_sec_label) == _active_label:
+            _active_ctx = AppState.selected_section_md() or _ctx
+            st.session_state["_pending_llm_direct"] = {
+                "prompt": _prompt,
+                "context": _active_ctx,
+                "loading_msg": get_loading_message("Explicación", False),
+                "module": selected_stem,
+            }
+            st.session_state.pop("_expand_chat_open", None)
+            _rerun_tools_panel()
+            return
+        _sec_body_match = re.search(
+            r"(?m)^#{1,3}[^\n]*" + re.escape(_sec_heading) + r"[^\n]*\n(.*?)(?=^#{1,3} |\Z)",
+            _ctx, re.DOTALL | re.MULTILINE,
+        )
+        _tree_btn_match = None
+        if _sec_body_match:
+            _tree_btn_match = re.search(
+                r"\{\{tree_button:\s*(.+?)\}\}", _sec_body_match.group(1),
+            )
+        if _tree_btn_match:
+            _tree_title       = _tree_btn_match.group(1).strip()
+            _matched_tree_obj = next(
+                (t for t in (trees_this_module or [])
+                 if (t.get("title") if isinstance(t, dict) else getattr(t, "title", "")) == _tree_title),
+                None,
+            )
+            if _matched_tree_obj:
+                AppState.append_chat("assistant", f"Encontré un árbol de decisión que puede guiarte: **{_tree_title}**. ¿Cómo preferís continuar?")
+                st.session_state["_tree_suggestion"]    = {"tree": _matched_tree_obj, "title": _tree_title, "prompt": _prompt}
+                st.session_state["_last_tree_question"] = _prompt
+            else:
+                AppState.append_chat("assistant", f"Encontré una sección del módulo que puede ayudarte: **{_sec_label}**. ¿Cómo preferís continuar?")
+                st.session_state["_section_suggestion"] = {"heading": _sec_heading, "prompt": _prompt}
+        else:
+            AppState.append_chat("assistant", f"Encontré una sección del módulo que puede ayudarte: **{_sec_label}**. ¿Cómo preferís continuar?")
+            st.session_state["_section_suggestion"] = {"heading": _sec_heading, "prompt": _prompt}
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+        return
+
+    # Si el modulo activo no resolvio la consulta, buscamos solamente en
+    # metadata transversal. Esto evita caer en un LLM generico para temas que
+    # el copiloto ya cubre elsewhere, sin abrir todo el corpus como contexto.
+    cross_section = _find_cross_module_section(_prompt, selected_stem)
+    if cross_section:
+        _sec_heading = cross_section["heading"]
+        _sec_label = _display_heading(_sec_heading)
+        _module_label = cross_section.get("module_label") or cross_section.get("module") or "otro modulo"
+        AppState.append_chat(
+            "assistant",
+            f"Este tema parece estar cubierto con más precisión en el módulo **{_module_label}**, "
+            f"sección **{_sec_label}**. ¿Cómo preferís continuar?",
+        )
+        st.session_state["_section_suggestion"] = {
+            "heading": _sec_heading,
+            "prompt": _prompt,
+            "module": cross_section.get("module"),
+            "module_label": _module_label,
+            "context": cross_section.get("section_md") or "",
+        }
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+
+    from core.prompts import get_out_of_scope_redirect
+    _oos = get_out_of_scope_redirect(_prompt, selected_stem)
+    if _oos:
+        AppState.append_chat("assistant", f"⚠️ {_oos.get('message', 'Esa consulta corresponde a otro módulo.')}")
+        st.session_state["_oos_redirect"] = {
+            "module": _oos.get("module"),
+            "label":  _oos.get("label", f"Módulo {_oos.get('module')}"),
+            "prompt": _prompt,
+            "context": _ctx,
+        }
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+
+    if _needs_cds_delta_choice(_prompt):
+        st.session_state["_cds_delta_selector"] = {
+            "prompt":  _prompt,
+            "context": _ctx,
+            "module":  selected_stem,
+        }
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+
+    _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
+    _loading_msg = get_loading_message("Pregunta libre", _cases_count > 0)
+    st.session_state["_pending_classify"] = {
+        "prompt":       _prompt,
+        "user_prompt":  None,
+        "fq_key":       f"free_question_{st.session_state.get('_fq_counter', 0)}",
+        "context":      _ctx,
+        "module":       selected_stem,
+        "loading_msg":  _loading_msg,
+        "processing":   True,
+    }
+    st.session_state.pop("_expand_chat_open", None)
+    _rerun_tools_panel()
 
 
 def _confirm_and_run(action_label: str, callback, debug_prompt: str | None = None, cases_count: int = 0, skip_dialog: bool = False) -> None:
@@ -541,6 +945,7 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
 
     if selected_topic and section_md.strip():
         with st.expander("Ver fragmento", expanded=False):
+            st.markdown("<div class='dw-fragment-surface-marker'></div>", unsafe_allow_html=True)
             lines = section_md.strip().splitlines()
             body_only = "\n".join(
                 lines[1:] if lines and lines[0].lstrip().startswith("#") else lines
@@ -581,10 +986,24 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
     )
 
     with st.expander("¿Qué hace cada acción?", expanded=False):
-        for _a, _desc in _ACTION_DESCRIPTIONS.items():
-            st.markdown(f"**{_a}**  \n{_desc}")
+        _help_items = "\n".join(
+            f"<div class='dw-action-help-item'>"
+            f"<strong>{html.escape(_a)}</strong>"
+            f"<span>{html.escape(_desc)}</span>"
+            f"</div>"
+            for _a, _desc in _ACTION_DESCRIPTIONS.items()
+        )
+        st.markdown(
+            f"<div class='dw-action-help'>{_help_items}</div>",
+            unsafe_allow_html=True,
+        )
 
-    if st.button("Analizar", width='stretch', key="analyze_topic_btn", disabled=_has_pending_action()):
+    if st.button(
+        "Analizar",
+        width='stretch',
+        key="analyze_topic_btn",
+        disabled=_has_pending_action(),
+    ):
         if not selected_topic:
             show_msg("Seleccioná primero un key topic o una sección del Módulo.", kind="tip")
         elif not _ia_enabled(selected_stem):
@@ -641,7 +1060,7 @@ def _render_trees_tab(
     tree_by_title = {t.get("title", t["id"]): t for t in trees_this_module}
 
     if st.session_state.get("tree_selector") not in tree_by_title:
-        st.session_state["tree_selector"] = None
+        st.session_state["tree_selector"] = tree_titles[0] if len(tree_titles) == 1 else None
 
     def _on_change():
         tree = tree_by_title.get(st.session_state.get("tree_selector"))
@@ -668,7 +1087,7 @@ def _render_trees_tab(
             _toggle_label = "✕ Cerrar" if _sel_unc_open else "⚠ No está mi árbol"
             if st.button(_toggle_label, key=f"tree_sel_unc_btn_{selected_stem}", width='stretch'):
                 st.session_state[_sel_unc_key] = not _sel_unc_open
-                st.rerun()
+                _rerun_tools_panel()
         if st.session_state.get(_sel_unc_key):
             from engine.tree_engine import _render_missing_tree_form
             _render_missing_tree_form(selected_stem, f"sel_{selected_stem}")
@@ -688,6 +1107,26 @@ def _render_trees_tab(
         post     = leaf.get("post_actions", {}) or {}
         mode     = (post.get("mode") or "resolved").strip()
 
+        def _reset_tree_result() -> None:
+            tree_engine_reset(tree, key)
+            _leaf_state_key = f"_tree_leaf_result_{tree['id']}"
+            for _k in (
+                _leaf_state_key,
+                _leaf_state_key + "_chat_added",
+                _leaf_state_key + "_via_analizar",
+            ):
+                st.session_state.pop(_k, None)
+            _feedback_prefix = f"tools_{tree['id']}_leaf_feedback"
+            for _k in list(st.session_state.keys()):
+                if str(_k).startswith(_feedback_prefix):
+                    st.session_state.pop(_k, None)
+            st.session_state.pop("_active_tree_id", None)
+            st.session_state.pop("_active_tree_title", None)
+            _rerun_tools_panel()
+
+        if st.button("✕", key=f"tree_reset_result_{tree['id']}"):
+            _reset_tree_result()
+
         if mode == "resolved":
             st.success(f"✅ {decision}")
         elif mode == "needs_human_review":
@@ -699,6 +1138,8 @@ def _render_trees_tab(
             st.info(f"💡 {decision}")
         else:
             st.warning(f"Modo post_actions desconocido: {mode}")
+
+        _render_leaf_assets(leaf)
 
         # Registrar resultado del árbol para que el tab Asistente lo incorpore al chat
         # Se actualiza en cada render del leaf — idempotente por run_id
@@ -753,7 +1194,7 @@ def _render_trees_tab(
                         "tree_title":    tree.get("title", ""),  # para el evento en el chat
                     }
                     AppState.set_active_tools_tab(2)
-                    st.rerun()
+                    _rerun_tools_panel()
 
         # Debug — siempre al final para no interrumpir el flujo de decisión
         if AppState.debug_mode():
@@ -764,6 +1205,160 @@ def _render_trees_tab(
 
 
 # Tab 3: Asistente ────────────────────────────────────────────────────────────
+
+_ROUTING_STOPWORDS = {
+    "que", "qué", "cual", "cuál", "como", "cómo", "hay", "entre", "para",
+    "con", "una", "uno", "unos", "unas", "del", "las", "los", "por", "sobre",
+    "esto", "este", "esta", "ese", "esa", "datasphere", "sap"
+}
+
+
+def _is_conceptual_or_comparative_query(question: str) -> bool:
+    q = _norm(question)
+    conceptual_terms = (
+        "diferencia", "diferencias", "diferenciar", "comparar", "comparativa",
+        "versus", " vs ", "que es", "qué es", "que significa", "qué significa",
+        "explicame", "explicar", "relacion", "relación", "coexistencia",
+        "hana vs", "hdlf vs", "hana db", "hana database", "hdlf"
+    )
+    decision_terms = (
+        "que conviene", "qué conviene", "cual conviene", "cuál conviene",
+        "que topologia", "qué topología", "que topologia usar", "qué topología usar",
+        "recomendas", "recomendás", "decidir", "decidimos", "elegir",
+        "cual uso", "cuál uso", "que uso", "qué uso"
+    )
+    return any(t in q for t in conceptual_terms) and not any(t in q for t in decision_terms)
+
+
+def _significant_tokens(text: str) -> set[str]:
+    tokens = set()
+    for tok in re.findall(r"[\w/]+", _norm(text)):
+        tok = tok.strip("_")
+        if len(tok) < 3 or tok in _ROUTING_STOPWORDS:
+            continue
+        tokens.add(tok)
+    return tokens
+
+
+def _display_heading(heading: str) -> str:
+    """Devuelve un heading legible para UI/chat, sin tags visuales del markdown."""
+    text = heading or ""
+    text = re.sub(r"\{dw-[^{}]+\}", "", text)
+    text = re.sub(r"\{\{[^{}]*\}\}", "", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _semantic_summary_from_fragment(fragment: str) -> str:
+    m = re.search(
+        r"(?ms)^\s*\{\{\s*semantic_summary\s*\}\}\s*$\n?(.*?)^\s*\{\{\s*/semantic_summary\s*\}\}\s*$",
+        fragment or "",
+    )
+    return (m.group(1) or "").strip() if m else ""
+
+
+def _score_section_candidate(question: str, heading: str, keywords: list[str], section_md: str, module_scope: str = "") -> int:
+    q_norm = _norm(question)
+    q_tokens = _significant_tokens(question)
+    heading_tokens = _significant_tokens(_display_heading(heading))
+    summary = _semantic_summary_from_fragment(section_md)
+    summary_tokens = _significant_tokens(summary)
+    scope_tokens = _significant_tokens(module_scope)
+
+    score = 0
+    for kw in keywords or []:
+        kw_norm = _norm(kw)
+        if not kw_norm:
+            continue
+        if kw_norm in q_norm:
+            score += 14 if len(kw_norm.split()) > 1 else 8
+            continue
+        kw_tokens = _significant_tokens(kw)
+        hits = len(q_tokens & kw_tokens)
+        if hits >= 2:
+            score += hits * 3
+            if hits == len(kw_tokens):
+                score += 4
+
+    heading_hits = len(q_tokens & heading_tokens)
+    if heading_hits >= 2:
+        score += heading_hits * 2
+
+    summary_hits = len(q_tokens & summary_tokens)
+    if summary_hits >= 2:
+        score += summary_hits * 2
+
+    # Module scope is a tie-breaker only; broad module vocabulary should not
+    # route a question by itself.
+    if score > 0:
+        scope_hits = len(q_tokens & scope_tokens)
+        if scope_hits >= 2:
+            score += min(scope_hits, 4)
+
+    return score
+
+
+def _find_cross_module_section(question: str, current_stem: str) -> dict | None:
+    """
+    Busca una seccion relevante fuera del modulo activo sin abrir todo el corpus.
+
+    Solo mira metadata editorial: frontmatter scope, section_meta,
+    semantic_summary y headings. Si el match no es claro, deja que siga el
+    fallback LLM actual.
+    """
+    candidates: list[tuple[int, dict]] = []
+    content_paths = list(CONTENT_DIR.glob("*.md"))
+    appendices_dir = CONTENT_DIR / "apendices"
+    if appendices_dir.exists():
+        content_paths.extend(appendices_dir.glob("*.md"))
+
+    for path in sorted(content_paths, key=lambda p: p.name.lower()):
+        stem = path.stem
+        if stem == current_stem:
+            continue
+        try:
+            md = read_text_cached(str(path))
+            meta, body = split_front_matter(md)
+            sections = parse_section_meta(body)
+        except Exception:
+            continue
+
+        module_scope = str(meta.get("scope") or "")
+        module_label = module_label_from_md(stem, md)
+        for section in sections:
+            heading = section.get("heading", "")
+            if not heading:
+                continue
+            section_md = extract_section_by_heading(body, heading, level=(2, 3)) or ""
+            score = _score_section_candidate(
+                question,
+                heading,
+                section.get("keywords") or [],
+                section_md,
+                module_scope=module_scope,
+            )
+            if score >= 12:
+                candidates.append((
+                    score,
+                    {
+                        "module": stem,
+                        "module_label": module_label,
+                        "path": str(path),
+                        "heading": heading,
+                        "section_md": section_md,
+                        "score": score,
+                    },
+                ))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best_score, best = candidates[0]
+    second_score = candidates[1][0] if len(candidates) > 1 else 0
+    if second_score and best_score - second_score < 4:
+        return None
+    return best
+
 
 # ── Intent Section Detection ──────────────────────────────────────────────────
 def _find_matching_section(question: str, context: str) -> dict | None:
@@ -805,12 +1400,34 @@ def _find_matching_section(question: str, context: str) -> dict | None:
     # ── Nivel 1: section_meta explícito ──────────────────────────────────────
     try:
         sections = parse_section_meta(body)
+        q_tokens = _significant_tokens(question)
+        scored_sections: list[tuple[int, dict]] = []
         for section in sections:
             if _is_excluded(section.get("heading", "")):
                 continue
             keywords = [_norm(k) for k in section.get("keywords", [])]
-            if any(kw in q_norm for kw in keywords):
-                return section
+            score = 0
+            for kw in keywords:
+                if not kw:
+                    continue
+                if kw in q_norm:
+                    score += 10
+                    continue
+                kw_tokens = _significant_tokens(kw)
+                if not kw_tokens:
+                    continue
+                hits = len(q_tokens & kw_tokens)
+                if hits >= 2:
+                    # Premia keywords específicas como "diferencia HANA HDLF"
+                    # sin exigir que la frase aparezca exactamente igual.
+                    score += hits * 2
+                    if hits == len(kw_tokens):
+                        score += 3
+            if score > 0:
+                scored_sections.append((score, section))
+        if scored_sections:
+            scored_sections.sort(key=lambda x: -x[0])
+            return scored_sections[0][1]
     except Exception:
         pass
 
@@ -908,6 +1525,11 @@ def _find_matching_tree(question: str, trees: list) -> object | None:
         return None
 
     q_norm = _norm(question)
+    if _is_conceptual_or_comparative_query(question):
+        # Los árboles resuelven decisiones. Para preguntas conceptuales o
+        # comparativas, una sección/LLM debe ganar salvo que el usuario pida
+        # explícitamente decidir, elegir o recomendar una topología.
+        return None
     scored = []
 
     for tree in trees:
@@ -1005,7 +1627,7 @@ def _render_assistant_tab(
 
             # Marcar como procesado para no duplicar
             st.session_state[_lsk + "_chat_added"] = True
-            st.rerun()
+            _rerun_tools_panel()
 
     # Detectar árbol abandonado (estaba activo pero sin hoja completada)
     _active_tid   = st.session_state.get("_active_tree_id", "")
@@ -1020,7 +1642,7 @@ def _render_assistant_tab(
             # Limpiar tracking activo
             st.session_state.pop("_active_tree_id", None)
             st.session_state.pop("_active_tree_title", None)
-            st.rerun()
+            _rerun_tools_panel()
         elif _has_result:
             # Árbol completado — limpiar tracking activo
             st.session_state.pop("_active_tree_id", None)
@@ -1037,14 +1659,34 @@ def _render_assistant_tab(
             _label  = quick_action
 
             _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
-            _loading_msg = get_loading_message(_label, _cases_count > 0)
+            if _label == "Ejemplos prácticos":
+                _appendix_context = _appendix_case_context()
+                if _appendix_context:
+                    _ctx = _ctx + _appendix_context
+                    _loading_msg = "Preparando ejemplos · cruzando apéndices internos..."
+                else:
+                    _loading_msg = get_loading_message(_label, _cases_count > 0)
+            else:
+                _loading_msg = get_loading_message(_label, _cases_count > 0)
 
             def _run_qa():
-                with st.spinner(_loading_msg):
-                    gw     = LLMGateway.get()
-                    answer = gw.ask(build_system_prompt(selected_stem), _ctx, _prompt)
+                answer = _llm_call_direct(
+                    _prompt,
+                    _ctx,
+                    _loading_msg,
+                    module=selected_stem,
+                    max_tokens=1800 if _label == "Ejemplos prácticos" else 1200,
+                )
                 AppState.append_chat("user", f"Acción: {_label}")
                 AppState.append_chat("assistant", answer)
+                if _should_suggest_quota_ratio(answer, quick_action=_label, selected_stem=selected_stem):
+                    st.session_state["_section_suggestion"] = {
+                        "heading": _QUOTA_RATIO_HEADING,
+                        "prompt": (
+                            "Explicá cómo aplicar la guía de distribución porcentual de quota "
+                            "para dimensionar espacios en SAP Datasphere."
+                        ),
+                    }
                 st.session_state["_last_qa_fb"] = {
                     "action": _label, "topic": selected_stem, "module": selected_stem,
                 }
@@ -1091,9 +1733,18 @@ def _render_assistant_tab(
     _depth_sel_active        = bool(st.session_state.get("_depth_selector"))
     _cds_delta_sel_active    = bool(st.session_state.get("_cds_delta_selector"))
     _pending_classify_active = bool(st.session_state.get("_pending_classify"))
+    _pending_free_active     = bool(st.session_state.get("_pending_free_question"))
     _processing              = bool(st.session_state.get("_processing"))
+    _pending_direct_active   = bool(st.session_state.get("_pending_llm_direct"))
+    _assistant_busy          = (
+        _has_pending_action()
+        or _pending_free_active
+        or _pending_classify_active
+        or _processing
+        or _pending_direct_active
+    )
 
-    if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_classify_active or _processing:
+    if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_free_active or _pending_classify_active or _pending_direct_active or _processing:
         with st.container(height=420):
             _chat_surface_id = f"dw-chat-surface-{selected_stem}"
             st.markdown(f"<div id='{_chat_surface_id}' class='dw-chat-surface-marker'></div>", unsafe_allow_html=True)
@@ -1175,19 +1826,30 @@ def _render_assistant_tab(
                         st.session_state[f"_fb_state_{_chat_fb_key}"] = "confirmed"
                     else:
                         _is_last = (_abs_idx == _last_asst_abs)
+                        if not _is_last:
+                            st.markdown(
+                                """
+                                <div style="display:flex;gap:5px;margin:4px 0 10px 0;">
+                                  <span style="display:inline-flex;align-items:center;justify-content:center;width:38px;height:34px;border:1px solid #d8dee8;border-radius:7px;background:#f1f4f8;color:#a8b2c1;opacity:.72;">👍</span>
+                                  <span style="display:inline-flex;align-items:center;justify-content:center;width:38px;height:34px;border:1px solid #d8dee8;border-radius:7px;background:#f1f4f8;color:#a8b2c1;opacity:.72;">👎</span>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                            continue
                         if _fb_state == "idle":
-                            _col1, _col2, _ = st.columns([0.12, 0.12, 0.76])
+                            _col1, _col2, _ = st.columns([0.09, 0.09, 0.82], gap=None)
                             with _col1:
-                                if st.button("👍", key=f"btn_up_{_chat_fb_key}", help="Fue útil", disabled=not _is_last):
+                                if st.button("👍", key=f"btn_up_{_chat_fb_key}", help="Fue útil"):
                                     _save_ia_feedback("up", "", "chat_libre", msg[:60], selected_stem, "chat")
                                     st.session_state[f"_fb_state_{_chat_fb_key}"] = "done_up"
-                                    st.rerun()
+                                    _rerun_tools_panel()
                             with _col2:
-                                if st.button("👎", key=f"btn_down_{_chat_fb_key}", help="No fue útil", disabled=not _is_last):
+                                if st.button("👎", key=f"btn_down_{_chat_fb_key}", help="No fue útil"):
                                     st.session_state[f"_fb_state_{_chat_fb_key}"] = "awaiting_comment"
-                                    st.rerun()
+                                    _rerun_tools_panel()
                         elif _fb_state in ("awaiting_comment", "done_down"):
-                            _col1, _col2, _ = st.columns([0.12, 0.12, 0.76])
+                            _col1, _col2, _ = st.columns([0.09, 0.09, 0.82], gap=None)
                             with _col1:
                                 st.button("👍", key=f"btn_up_{_chat_fb_key}", disabled=True)
                             with _col2:
@@ -1209,18 +1871,34 @@ def _render_assistant_tab(
                                         else:
                                             _save_ia_feedback("down", _comment, "chat_libre", msg[:60], selected_stem, "chat")
                                             st.session_state[f"_fb_state_{_chat_fb_key}"] = "done_down"
-                                            st.rerun()
+                                            _rerun_tools_panel()
 
             # ── Indicador de procesamiento ────────────────────────────────────
-            if _processing:
+            if _has_pending_action():
                 st.session_state.pop("_processing", None)
-                st.markdown(
-                    "<div class='dw-chat-msg dw-chat-assistant'>"
-                    "<div class='dw-chat-label'>Arquitecto Danwor</div>"
-                    "<span style='color:#aaa;font-size:0.9rem'>⏳ Procesando tu consulta...</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
+                _flush_pending_action()
+            elif _pending_free_active:
+                st.session_state.pop("_processing", None)
+                _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
+            elif _pending_classify_active:
+                st.session_state.pop("_processing", None)
+                _flush_pending_classify(selected_stem)
+            elif _pending_direct_active:
+                st.session_state.pop("_processing", None)
+                _flush_pending_llm_direct(selected_stem)
+            elif _processing:
+                if _has_pending_action():
+                    st.session_state.pop("_processing", None)
+                    _flush_pending_action()
+                else:
+                    st.session_state.pop("_processing", None)
+                    st.markdown(
+                        "<div class='dw-chat-msg dw-chat-assistant'>"
+                        "<div class='dw-chat-label'>Arquitecto Danwor</div>"
+                        "<span style='color:#8a95a3;font-size:0.9rem'>⏳ Procesando tu consulta...</span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
 
             # ── Out-of-scope redirect — dos botones ───────────────────────────
             _oos_r = st.session_state.get("_oos_redirect")
@@ -1236,7 +1914,7 @@ def _render_assistant_tab(
                             st.session_state["_pending_module_switch"] = _matches[0].stem
                         st.session_state.pop("_oos_redirect", None)
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
                 with col_b:
                     if st.button("💬 Ayudame igual", width="stretch", key="oos_llm_btn"):
                         _oos_prompt = (
@@ -1252,7 +1930,7 @@ def _render_assistant_tab(
                             "context": _oos_r["context"],
                         }
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
             # ── Selector de modo (chat libre ambiguo o árbol → Analizar) ──────
             _cds_delta_sel = st.session_state.get("_cds_delta_selector")
@@ -1264,7 +1942,7 @@ def _render_assistant_tab(
                     )
                     _cds_delta_sel["_msg_persisted"] = True
                     st.session_state["_cds_delta_selector"] = _cds_delta_sel
-                    st.rerun()
+                    _rerun_tools_panel()
 
                 _sel_ctx = _cds_delta_sel["context"]
                 _sel_prompt = _cds_delta_sel["prompt"]
@@ -1284,7 +1962,7 @@ def _render_assistant_tab(
                             "module": _sel_module,
                         }
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
                 with c2:
                     if st.button("Recomendación moderna", width="stretch", key="cds_delta_modern"):
                         st.session_state.pop("_cds_delta_selector", None)
@@ -1300,7 +1978,7 @@ def _render_assistant_tab(
                             "module": _sel_module,
                         }
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
                 with c3:
                     if st.button("Validar versión", width="stretch", key="cds_delta_release"):
                         st.session_state.pop("_cds_delta_selector", None)
@@ -1309,7 +1987,7 @@ def _render_assistant_tab(
                             "si la CDS es simple o tiene joins, y si necesitás detectar borrados."
                         )
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
             _depth_sel = st.session_state.get("_depth_selector")
             if _depth_sel:
@@ -1342,7 +2020,7 @@ def _render_assistant_tab(
                         )
                     _depth_sel["_msg_persisted"] = True
                     st.session_state["_depth_selector"] = _depth_sel
-                    st.rerun()
+                    _rerun_tools_panel()
                 st.markdown("""
 <style>
 .dw-mode-option {
@@ -1389,25 +2067,32 @@ button[kind="secondary"] p { text-align: left !important; }
                                 "context": _sel_ctx,
                             }
                             st.session_state.pop("_expand_chat_open", None)
-                            st.rerun()
+                            _rerun_tools_panel()
 
             # ── Sugerencia de sección ─────────────────────────────────────────
             section_suggestion = st.session_state.get("_section_suggestion")
             if section_suggestion:
-                heading = section_suggestion["heading"]
                 col_a, col_b = st.columns(2)
                 with col_a:
                     if st.button("📖 Ir a la sección", width="stretch", key="section_nav_btn"):
                         slug = _slugify(section_suggestion["heading"])
+                        _target_module = section_suggestion.get("module")
+                        if _target_module and _target_module != selected_stem:
+                            st.session_state["_preserve_chat_on_module_switch"] = True
+                            st.query_params["module"] = _target_module
                         st.query_params["section"] = slug
                         st.query_params["section_nav"] = "1"
                         st.rerun()
                 with col_b:
                     if st.button("💬 Explicame vos", width="stretch", key="section_llm_btn"):
-                        st.session_state["_pending_llm_direct"] = {"prompt": section_suggestion["prompt"], "context": context}
+                        st.session_state["_pending_llm_direct"] = {
+                            "prompt": section_suggestion["prompt"],
+                            "context": section_suggestion.get("context") or context,
+                            "module": section_suggestion.get("module") or selected_stem,
+                        }
                         st.session_state.pop("_section_suggestion", None)
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
             # ── Sugerencia de asset ───────────────────────────────────────────
             asset_suggestion = st.session_state.get("_asset_suggestion")
@@ -1424,13 +2109,13 @@ button[kind="secondary"] p { text-align: left !important; }
                             "language": language, "selected_path": selected_path,
                         }
                         st.session_state.pop("_asset_suggestion", None)
-                        st.rerun()
+                        _rerun_tools_panel()
                 with col_b:
                     if st.button("💬 Explicame vos", width="stretch", key="asset_llm_btn"):
                         st.session_state["_pending_llm_direct"] = {"prompt": asset_suggestion["prompt"], "context": context}
                         st.session_state.pop("_asset_suggestion", None)
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
             # ── Sugerencia combinada: árbol + sección ─────────────────────────
             combined_suggestion = st.session_state.get("_combined_suggestion")
@@ -1450,13 +2135,13 @@ button[kind="secondary"] p { text-align: left !important; }
                             "title":          tree_title,
                             "suggestion_key": "_combined_suggestion",
                         }
-                        st.rerun()
+                        _rerun_tools_panel()
                 with col_c:
                     if st.button("💬 Explicame vos", width="stretch", key="combined_llm_btn"):
                         st.session_state["_pending_llm_direct"] = {"prompt": combined_suggestion["prompt"], "context": context}
                         st.session_state.pop("_combined_suggestion", None)
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
             # ── Sugerencia de árbol solo ──────────────────────────────────────
             if suggestion:
@@ -1468,13 +2153,13 @@ button[kind="secondary"] p { text-align: left !important; }
                             "title":   suggestion["title"],
                             "suggestion_key": "_tree_suggestion",
                         }
-                        st.rerun()
+                        _rerun_tools_panel()
                 with col_b:
                     if st.button("💬 Explicame vos", width="stretch", key="suggestion_llm"):
                         st.session_state["_pending_llm_direct"] = {"prompt": suggestion["prompt"], "context": context}
                         st.session_state.pop("_tree_suggestion", None)
                         st.session_state.pop("_expand_chat_open", None)
-                        st.rerun()
+                        _rerun_tools_panel()
 
     # ── Dialog: asset viewer ──────────────────────────────────────────────────
     if st.session_state.get("_asset_open"):
@@ -1496,7 +2181,7 @@ button[kind="secondary"] p { text-align: left !important; }
             if st.button("Cerrar", width="stretch", key="close_asset_dialog"):
                 st.session_state["_asset_consumed"] = asset_info.get("desc", "Recurso técnico")
                 st.session_state.pop("_asset_open", None)
-                st.rerun()
+                _rerun_tools_panel()
         _asset_dialog()
         # Cerrado con la X del dialog
         if not st.session_state.get("_asset_open"):
@@ -1549,17 +2234,20 @@ button[kind="secondary"] p { text-align: left !important; }
                 placeholder="Escribí tu consulta...",
             )
             st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-            if st.button("Enviar", width='stretch', key="send_dialog"):
+            if st.button("Enviar", width='stretch', key="send_dialog", disabled=_assistant_busy):
                 if user_input_d.strip() and _ia_enabled(selected_stem):
                     _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
                     _loading_msg = get_loading_message("Pregunta libre", _cases_count > 0)
-                    with st.spinner(_loading_msg):
-                        gw     = LLMGateway.get()
-                        answer = gw.ask(build_system_prompt(selected_stem), context, user_input_d.strip())
                     AppState.append_chat("user", user_input_d.strip())
-                    AppState.append_chat("assistant", answer)
+                    st.session_state["_pending_llm_direct"] = {
+                        "prompt": user_input_d.strip(),
+                        "context": context,
+                        "loading_msg": _loading_msg,
+                        "module": selected_stem,
+                    }
+                    st.session_state["_processing"] = True
                     st.session_state.pop("_expand_chat_open", None)
-                    st.rerun()
+                    _rerun_tools_panel()
                 elif not _ia_enabled(selected_stem):
                     _ia_disabled_msg()
                 else:
@@ -1576,8 +2264,30 @@ button[kind="secondary"] p { text-align: left !important; }
 
     _fq_key    = f"free_question_{st.session_state.get('_fq_counter', 0)}"
     user_input = st.text_area("Tu pregunta (sobre este módulo):", value="", key=_fq_key, height=90)
+    if not _assistant_busy:
+        st.components.v1.html(
+            """
+            <script>
+            (function() {
+              setTimeout(function() {
+                var doc = window.parent.document;
+                var fields = Array.prototype.slice.call(doc.querySelectorAll('textarea'));
+                var target = fields.reverse().find(function(el) {
+                  var label = (el.getAttribute('aria-label') || '').toLowerCase();
+                  var visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                  return visible && label.indexOf('tu pregunta') >= 0;
+                });
+                if (target && doc.activeElement !== target) {
+                  target.focus({ preventScroll: true });
+                }
+              }, 120);
+            })();
+            </script>
+            """,
+            height=0,
+        )
 
-    if st.button("Enviar", width='stretch', key="send_free"):
+    if st.button("Enviar", width='stretch', key="send_free", disabled=_assistant_busy):
         if not _ia_enabled(selected_stem):
             _ia_disabled_msg()
         elif not user_input.strip():
@@ -1590,140 +2300,13 @@ button[kind="secondary"] p { text-align: left !important; }
                 AppState.append_chat("user", _prompt)
                 AppState.append_chat("assistant", "recibido")
                 st.session_state["_clear_fq"] = True
-                st.rerun()
+                _rerun_tools_panel()
             else:
 
-                # ── Detección de intent — directa, sin dialog, sin rerun extra ──
-
-                # 1. árbol + sección en paralelo
-                matched_tree    = _find_matching_tree(_prompt, trees_this_module or [])
-                matched_section = _find_matching_section(_prompt, _ctx)
-
-                if matched_tree:
-                    tree_title = matched_tree.get("title", matched_tree.id if hasattr(matched_tree, "id") else "")
-                    _resolved_section_heading = None
-                    if matched_section:
-                        _sec_heading    = matched_section["heading"]
-                        _sec_body_match = re.search(
-                            r"(?m)^#{1,3}[^\n]*" + re.escape(_sec_heading) + r"[^\n]*\n(.*?)(?=^#{1,3} |\Z)",
-                            _ctx, re.DOTALL | re.MULTILINE,
-                        )
-                        _has_tree_btn = bool(
-                            _sec_body_match and re.search(
-                                r"\{\{tree_button:\s*(.+?)\}\}", _sec_body_match.group(1),
-                            )
-                        )
-                        if not _has_tree_btn:
-                            _resolved_section_heading = _sec_heading
-                    AppState.append_chat("user", _prompt)
-                    st.session_state["_last_tree_question"] = _prompt
-                    if _resolved_section_heading:
-                        AppState.append_chat("assistant", f"Encontré recursos sobre este tema. ¿Cómo preferís abordarlo?")
-                        st.session_state["_combined_suggestion"] = {
-                            "tree": matched_tree, "tree_title": tree_title,
-                            "section_heading": _resolved_section_heading, "prompt": _prompt,
-                        }
-                    else:
-                        AppState.append_chat("assistant", f"Encontré un árbol de decisión que puede guiarte: **{tree_title}**. ¿Cómo preferís continuar?")
-                        st.session_state["_tree_suggestion"] = {"tree": matched_tree, "title": tree_title, "prompt": _prompt}
-                    st.session_state["_clear_fq"] = True
-                    st.rerun()
-
-                # 2. asset
-                elif (matched_asset := _find_matching_asset(_prompt, selected_path, _ctx)) is not None:
-                    AppState.append_chat("user", _prompt)
-                    AppState.append_chat("assistant", f"Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?")
-                    st.session_state["_asset_suggestion"] = {"asset": matched_asset, "prompt": _prompt}
-                    st.session_state["_clear_fq"] = True
-                    st.rerun()
-
-                # 3. sección sola
-                elif matched_section:
-                    _sec_heading    = matched_section["heading"]
-                    _sec_body_match = re.search(
-                        r"(?m)^#{1,3}[^\n]*" + re.escape(_sec_heading) + r"[^\n]*\n(.*?)(?=^#{1,3} |\Z)",
-                        _ctx, re.DOTALL | re.MULTILINE,
-                    )
-                    _tree_btn_match = None
-                    if _sec_body_match:
-                        _tree_btn_match = re.search(
-                            r"\{\{tree_button:\s*(.+?)\}\}", _sec_body_match.group(1),
-                        )
-                    AppState.append_chat("user", _prompt)
-                    if _tree_btn_match:
-                        _tree_title       = _tree_btn_match.group(1).strip()
-                        _matched_tree_obj = next(
-                            (t for t in (trees_this_module or [])
-                             if (t.get("title") if isinstance(t, dict) else getattr(t, "title", "")) == _tree_title),
-                            None,
-                        )
-                        if _matched_tree_obj:
-                            AppState.append_chat("assistant", f"Encontré un árbol de decisión que puede guiarte: **{_tree_title}**. ¿Cómo preferís continuar?")
-                            st.session_state["_tree_suggestion"]    = {"tree": _matched_tree_obj, "title": _tree_title, "prompt": _prompt}
-                            st.session_state["_last_tree_question"] = _prompt
-                        else:
-                            AppState.append_chat("assistant", f"Encontré una sección del módulo que puede ayudarte: **{_sec_heading}**. ¿Cómo preferís continuar?")
-                            st.session_state["_section_suggestion"] = {"heading": _sec_heading, "prompt": _prompt}
-                    else:
-                        AppState.append_chat("assistant", f"Encontré una sección del módulo que puede ayudarte: **{_sec_heading}**. ¿Cómo preferís continuar?")
-                        st.session_state["_section_suggestion"] = {"heading": _sec_heading, "prompt": _prompt}
-                    st.session_state["_clear_fq"] = True
-                    st.rerun()
-
-                else:
-                    # ── Paths que necesitan LLM ───────────────────────────────
-                    _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
-                    _loading_msg = get_loading_message("Pregunta libre", _cases_count > 0)
-
-                    def _classify_depth_quick(question: str) -> bool:
-                        try:
-                            gw  = LLMGateway.get()
-                            raw = gw.ask(AMBIGUITY_SYSTEM, "", build_ambiguity_prompt(question), max_tokens=20)
-                            return json.loads(raw.strip()).get("ambiguous", False)
-                        except Exception:
-                            return False
-
-                    def _run_llm():
-                        # 4. scope check
-                        from core.prompts import get_out_of_scope_redirect
-                        _oos = get_out_of_scope_redirect(_prompt, selected_stem)
-                        if _oos:
-                            AppState.append_chat("assistant", f"⚠️ {_oos.get('message', 'Esa consulta corresponde a otro módulo.')}")
-                            st.session_state["_oos_redirect"] = {
-                                "module": _oos.get("module"),
-                                "label":  _oos.get("label", f"Módulo {_oos.get('module')}"),
-                                "prompt": _prompt,
-                                "context": _ctx,
-                            }
-                            return
-                        # 5+6: delegar al ciclo siguiente para clasificar y responder
-                        if _needs_cds_delta_choice(_prompt):
-                            AppState.append_chat("user", _prompt)
-                            st.session_state["_cds_delta_selector"] = {
-                                "prompt":  _prompt,
-                                "context": _ctx,
-                                "module":  selected_stem,
-                            }
-                            return
-
-                        st.session_state["_pending_classify"] = {
-                            "prompt":       _prompt,
-                            "user_prompt":  _prompt,   # para append_chat en el render siguiente
-                            "fq_key":       f"free_question_{st.session_state.get('_fq_counter', 0)}",
-                            "context":      _ctx,
-                            "module":       selected_stem,
-                            "loading_msg":  _loading_msg,
-                            "processing":   True,      # activa el indicador visual en el próximo render
-                        }
-
-                    if AppState.debug_mode():
-                        _confirm_and_run("Pregunta libre", _run_llm, debug_prompt=_prompt, cases_count=_cases_count)
-                    else:
-                        # Guardamos el prompt para procesarlo en _pending_classify
-                        # donde session_state persiste correctamente entre reruns
-                        st.session_state["_clear_fq"] = True
-                        _run_llm()
-                        st.rerun()
+                st.session_state["_pending_free_question"] = {"prompt": _prompt}
+                st.session_state["_processing"] = True
+                st.session_state["_clear_fq"] = True
+                _rerun_tools_panel()
 
     st.markdown(
         "<div style='font-size:0.75rem;color:#888;margin-top:4px;margin-bottom:8px;text-align:center'>"
@@ -1744,11 +2327,11 @@ button[kind="secondary"] p { text-align: left !important; }
                 st.session_state.pop("_depth_selector", None)
                 st.session_state.pop("_cds_delta_selector", None)
                 _llm_guard_reset()
-                st.rerun()
+                _rerun_tools_panel()
         with col_expand:
             if st.button("⛶ Expandir chat", width='stretch', key="expand_chat_btn"):
                 st.session_state["_expand_chat_open"] = True
-                st.rerun()
+                _rerun_tools_panel()
 
     if _quick_action_blocked:
         _ia_disabled_msg()
@@ -1807,13 +2390,13 @@ def _render_analytics_tab() -> None:
             out = result.stdout.strip()
             err = result.stderr.strip()
             st.session_state[out_key] = out if out else (f"Error:\n{err}" if err else "(sin output)")
-            st.rerun()
+            _rerun_tools_panel()
         else:
             st.session_state[_PENDING_KEY] = {
                 "_type": "script", "label": label,
                 "script": script, "args": args, "out_key": out_key,
             }
-            st.rerun()
+            _rerun_tools_panel()
 
     _GROUP_SEP = "<div style='margin: 10px 0'></div>"
     st.markdown("<h4 style='margin-top:0'>🔬 Analítica interna</h4>", unsafe_allow_html=True)
@@ -1898,6 +2481,22 @@ def _render_tab_bar(active: int, tab_labels: dict | None = None) -> int:
 
 
 # Entry point ─────────────────────────────────────────────────────────────────
+_streamlit_fragment = getattr(st, "fragment", lambda fn: fn)
+
+
+def _rerun_tools_panel() -> None:
+    """Rerenderiza solo el panel derecho cuando Streamlit lo permite.
+
+    Mantiene el fallback completo para llamadas ejecutadas fuera del fragmento o
+    en versiones de Streamlit sin rerun scoped.
+    """
+    try:
+        st.rerun(scope="fragment")
+    except Exception:
+        st.rerun()
+
+
+@_streamlit_fragment
 def render_tools_panel(
     selected_stem: str,
     selected_path: str,
@@ -1933,62 +2532,11 @@ def render_tools_panel(
     elif active_tab == 3 and AppState.debug_mode():
         _render_analytics_tab()
 
-    _flush_pending_action()
-
-    # ── Clasificador de ambigüedad — fuera del handler, spinner visible ──────
-    _pending_classify = st.session_state.pop("_pending_classify", None)
-    if _pending_classify:
-        _pc_prompt      = _pending_classify["prompt"]
-        _pc_user_prompt = _pending_classify.get("user_prompt")
-        _pc_ctx         = _pending_classify["context"]
-        _pc_loading     = _pending_classify["loading_msg"]
-
-        # Agregar la burbuja del usuario al chat aquí — session_state persiste
-        # en este contexto (fuera del handler del botón)
-        if _pc_user_prompt:
-            AppState.append_chat("user", _pc_user_prompt)
-
-        # Activar indicador de procesamiento si fue pedido
-        if _pending_classify.get("processing"):
-            st.session_state["_processing"] = True
-
-        # Avanzar el counter para que en el próximo render se cree un widget nuevo
-        # con key diferente — sin tocar el widget actual (Streamlit no lo permite)
-        st.session_state["_fq_counter"] = st.session_state.get("_fq_counter", 0) + 1
-
-        # En simulación no tiene sentido clasificar — ir directo a respuesta
-        if AppState.is_simulation():
-            _is_ambiguous = False
-        else:
-            def _classify_depth_quick_outer(question: str) -> bool:
-                try:
-                    from core.prompts import AMBIGUITY_SYSTEM, build_ambiguity_prompt
-                    gw  = LLMGateway.get()
-                    raw = gw.ask(AMBIGUITY_SYSTEM, "", build_ambiguity_prompt(question), max_tokens=20)
-                    stripped = raw.strip()
-                    if not stripped.startswith("{"):
-                        return False
-                    return json.loads(stripped).get("ambiguous", False)
-                except Exception as e:
-                    return False
-            with st.spinner("Analizando tu consulta..."):
-                _is_ambiguous = _classify_depth_quick_outer(_pc_prompt)
-
-
-        if _is_ambiguous:
-            st.session_state["_depth_selector"] = {
-                "prompt":        _pc_prompt,
-                "context":       _pc_ctx,
-                "exclude_modes": ["metodologico"],
-            }
-            _llm_guard_reset()
-        else:
-            st.session_state["_pending_llm_direct"] = {
-                "prompt": _pc_prompt, "context": _pc_ctx, "loading_msg": _pc_loading,
-                "module": _pending_classify.get("module"),
-            }
-        st.session_state.pop("_expand_chat_open", None)
-        st.rerun()
+    if active_tab != 2:
+        _flush_pending_action()
+        _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
+        _flush_pending_classify(selected_stem)
+        _flush_pending_llm_direct(selected_stem)
 
     # ── LLM directo — para chat libre y "Explicame vos" ─────────────────────
     # ── Abrir árbol desde sugerencia — procesado aquí donde session_state persiste
@@ -2007,19 +2555,4 @@ def render_tools_panel(
             st.session_state.pop(_sug_key, None)
         st.session_state["tree_selector"] = _tree_title
         AppState.open_tree(_tree_title)
-        st.rerun()
-
-    _pending_direct = st.session_state.pop("_pending_llm_direct", None)
-    if _pending_direct:
-        with st.container():
-            answer = _llm_call_direct(
-                _pending_direct["prompt"],
-                _pending_direct["context"],
-                _pending_direct.get("loading_msg", get_loading_message("Explicación", False)),
-                module=_pending_direct.get("module") or selected_stem,
-            )
-        AppState.append_chat("assistant", answer)
-        # Cerrar el dialog expandido si estaba abierto — el resultado
-        # ya quedó en el historial y se verá en el chat principal
-        st.session_state.pop("_expand_chat_open", None)
-        st.rerun()
+        _rerun_tools_panel()

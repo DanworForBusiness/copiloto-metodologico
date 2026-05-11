@@ -1,0 +1,53 @@
+case_id: case_20260509_222622_651c00ff
+version: '1.0'
+source:
+  tree_id: m05_herramienta_reporting
+  tree_title: Herramienta de Reporting
+  module: 05_Reporting_y_Consumo
+  run_id: 651c00ff-c9f2-469d-802d-1e6674e4ac6c
+  timestamp: '2026-05-10T01:26:08.581204+00:00'
+route:
+- node: q1
+  question: ¿Que herramienta de BI definió el cliente o tiene en uso?
+  answer: Power BI
+- node: q2_pbi_modo
+  question: ¿Los reportes requieren datos en tiempo real o es aceptable actualización
+    programada (batch)?
+  answer: Tiempo real
+leaf_id: leaf_pbi_directquery
+decision: Power BI con DirectQuery — datos en tiempo real consultando Datasphere en
+  cada interacción.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- Requiere schema user a nivel espacio con los DAC correspondientes.
+- Impacto de performance en Datasphere con consultas concurrentes — evaluar workload
+  class.
+- Garantiza datos siempre actualizados sin necesidad de refresh schedule.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: SAC
+  reason: null
+- node: q1
+  option: BusinessObjects
+  reason: null
+- node: q1
+  option: Ninguna / No sé
+  reason: null
+- node: q2_pbi_modo
+  option: Batch / programado
+  reason: null
+- node: q2_pbi_modo
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

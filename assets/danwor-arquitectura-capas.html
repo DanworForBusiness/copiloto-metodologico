@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Arquitectura por Capas</title>
+<link rel="stylesheet" href="danwor-shared.css">
+<style>
+  :root {
+    --c-ingesta:      #1565c0;
+    --c-armon:        #0d7a5f;
+    --c-prop:         #7b1fa2;
+    --c-reporting:    #e65100;
+    --c-domain:       #1e5fa8;
+    --c-hdlf:         var(--dw-gold);
+    --c-s4:           #455a64;
+  }
+
+  .main { padding: 1px 40px 22px; max-width: 1420px; margin: 0 auto; }
+
+  /* ── HINT ── */
+  .hint-bar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
+    font-size: 12px; color: var(--dw-muted);
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: var(--r-sm); padding: 7px 14px;
+  }
+  .hint-bar svg { width: 14px; height: 14px; flex-shrink: 0; opacity: .5; }
+
+  /* ══════════════════════════════════════════
+     TOP-LEVEL LAYOUT
+     S4 col | Datasphere (capas + dominios)
+  ══════════════════════════════════════════ */
+  .arch-outer {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  /* ── S/4 HANA column ── */
+  .s4-pane {
+    border: 1.5px solid var(--dw-border); border-radius: var(--r-lg);
+    background: var(--dw-white); box-shadow: var(--sh-sm);
+    padding: 14px 12px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .s4-title { font-size: 13px; font-weight: 700; text-align: center; padding-bottom: 8px; border-bottom: 1px solid var(--dw-border); }
+  .env-node {
+    border-radius: var(--r-sm); padding: 10px 8px; font-size: 13px; font-weight: 700;
+    text-align: center; border: 1.5px solid;
+  }
+  .env-dev  { background: #e8f0fe; border-color: #93c5fd; color: #1a4ea0; }
+  .env-qa   { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .env-prd  { background: #dcfce7; border-color: #86efac; color: #15803d; }
+
+  /* CDS section */
+  .cds-block {
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 10px 10px; font-size: 11px;
+  }
+  .cds-block strong { font-size: 11.5px; font-weight: 700; display: block; margin-bottom: 5px; color: var(--dw-text); }
+  .cds-line { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; font-size: 10.5px; color: var(--dw-muted); }
+  .cds-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .cds-link { color: var(--dw-gold2); font-weight: 600; font-size: 10px; }
+  .template-chip {
+    font-family: var(--mono); font-size: 9px;
+    background: #fff; border: 1px solid var(--dw-border);
+    border-radius: 3px; padding: 2px 5px; color: var(--dw-muted);
+    display: block; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tip-sm {
+    background: rgba(var(--dw-gold-rgb),.08); border: 1px solid rgba(var(--dw-gold-rgb),.22);
+    border-radius: var(--r-sm); padding: 7px 9px;
+    font-size: 10.5px; color: var(--dw-text); line-height: 1.5;
+    display: flex; gap: 5px; align-items: flex-start;
+  }
+  .phase-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 600; color: var(--dw-gold2);
+    background: rgba(var(--dw-gold-rgb),.08); border: 1px solid rgba(var(--dw-gold-rgb),.22);
+    padding: 5px 13px; border-radius: 20px; text-decoration: none; transition: var(--tr);
+  }
+  .phase-link:hover { background: rgba(var(--dw-gold-rgb),.16); }
+
+  /* ── Datasphere outer ── */
+  .ds-outer {
+    border: 1.5px solid var(--dw-border); border-radius: var(--r-lg);
+    background: var(--dw-white); box-shadow: var(--sh-sm);
+    padding: 16px; display: flex; flex-direction: column; gap: 14px;
+    position: relative; overflow: visible;
+  }
+  .ds-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 5; }
+  .ds-inner-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; }
+
+  .ds-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 10px; border-bottom: 1px solid var(--dw-border);
+  }
+  .ds-main-title { font-size: 14px; font-weight: 700; }
+  .ds-subtitle   { font-size: 10px; font-weight: 600; color: var(--dw-muted); font-family: var(--mono); letter-spacing: .3px; }
+
+  /* ── CAPAS ROW ── */
+  .capas-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .capa-card {
+    border-radius: var(--r-md); border: 1.5px solid var(--dw-border);
+    background: var(--dw-white); box-shadow: var(--sh-sm);
+    overflow: hidden; cursor: pointer;
+    transition: border-color var(--tr), box-shadow var(--tr), transform var(--tr);
+    border-top: 3px solid var(--cap-color);
+  }
+  .capa-card:hover, .capa-card.active {
+    border-color: var(--cap-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb,var(--cap-color) 15%,transparent), var(--sh-md);
+    transform: translateY(-2px);
+  }
+  .capa-head {
+    padding: 10px 12px 8px;
+    background: color-mix(in srgb,var(--cap-color) 6%,white);
+    border-bottom: 1px solid var(--dw-border);
+  }
+  .capa-name { font-size: 13px; font-weight: 800; color: var(--cap-color); margin-bottom: 6px; }
+  .capa-objects { display: flex; flex-direction: column; gap: 4px; }
+  .obj-chip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 500; color: var(--dw-text);
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: 4px; padding: 3px 7px;
+  }
+  .obj-chip-icon { font-size: 11px; flex-shrink: 0; }
+
+  .capa-body { padding: 10px 12px; }
+  .capa-desc { font-size: 11.5px; color: var(--dw-muted); line-height: 1.55; }
+
+  /* filter labels */
+  .filter-row {
+    display: flex; gap: 6px; align-items: center;
+    padding: 6px 0 2px; flex-wrap: wrap;
+  }
+  .filter-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600; color: var(--dw-muted);
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    padding: 2px 8px; border-radius: 20px;
+  }
+  .filter-tag.active-tag { color: var(--dw-gold2); background: rgba(var(--dw-gold-rgb),.08); border-color: rgba(var(--dw-gold-rgb),.25); }
+
+  /* flow row at bottom of capas */
+  .flow-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; background: var(--dw-light);
+    border-radius: var(--r-sm); font-size: 11px; flex-wrap: wrap;
+  }
+  .flow-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; padding: 4px 10px;
+    border-radius: 20px; border: 1px solid;
+  }
+  .flow-rep  { color: #1565c0; border-color: #93c5fd; background: #e8f0fe; }
+  .flow-trans { color: #0d7a5f; border-color: #6ee7b7; background: #f0fdf4; }
+  .flow-bsg  { color: var(--dw-gold); border-color: #fcd34d; background: #fffbeb; }
+  .flow-sep  { color: var(--dw-muted); font-weight: 300; }
+
+  /* ── RIGHT BLOCK: HANA DB + HDLF ── */
+  .right-block { display: grid; grid-template-columns: 1fr; gap: 10px; }
+
+  .hana-block, .hdlf-block {
+    border-radius: var(--r-md); padding: 12px 14px;
+    border: 1.5px solid; display: flex; flex-direction: column; gap: 8px;
+  }
+  .hana-block { border-color: rgba(26,83,160,.2); background: rgba(232,240,254,.15); }
+  .hdlf-block { border-color: rgba(var(--dw-gold-rgb),.3); background: rgba(254,243,205,.2); }
+  .block-title { font-size: 11.5px; font-weight: 700; color: var(--dw-text); }
+  .block-subtitle { font-size: 9.5px; font-weight: 500; color: var(--dw-muted); font-family: var(--mono); }
+
+  /* Cross-sharing + domain stack */
+  .hana-inner { display: grid; grid-template-columns: 24px 1fr; gap: 6px; align-items: start; }
+  .cross-slash {
+    display: flex; flex-direction: column; align-items: center;
+    font-size: 22px; color: #bbb; line-height: 1; padding-top: 4px;
+    font-weight: 300;
+  }
+  .cross-label { font-size: 8px; color: #bbb; letter-spacing: .3px; text-align: center; }
+  .domain-stack { display: flex; flex-direction: column; gap: 5px; }
+  .domain-tile {
+    border-radius: var(--r-sm); padding: 8px 10px;
+    background: #1e5fa8; color: #fff;
+    font-size: 11px; font-weight: 600;
+    transition: filter var(--tr), transform var(--tr);
+    cursor: default;
+  }
+  .domain-tile:hover { filter: brightness(1.1); transform: translateX(2px); }
+  .domain-tile.others { background: var(--dw-light); color: var(--dw-muted); border: 1px solid var(--dw-border); font-size: 10.5px; }
+  .domain-tile.excel  { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; font-size: 10.5px; }
+
+  /* HDLF inner */
+  .hdlf-inner { display: flex; flex-direction: column; gap: 6px; }
+  .hdlf-file {
+    border-radius: var(--r-sm); padding: 7px 10px; font-size: 11.5px; font-weight: 700;
+    border: 1.5px solid;
+  }
+  .hdlf-delta   { background: #eff6ff; border-color: #93c5fd; color: #1565c0; }
+  .hdlf-parquet { background: #faf5ff; border-color: #c4b5fd; color: #6d28d9; }
+  .hdlf-bsg {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; color: var(--dw-gold2); font-weight: 600;
+    margin-top: 2px;
+  }
+  .hdlf-note {
+    background: rgba(var(--dw-gold-rgb),.08); border: 1px solid rgba(var(--dw-gold-rgb),.25);
+    border-radius: var(--r-sm); padding: 7px 9px;
+    font-size: 10.5px; color: var(--dw-text); line-height: 1.5;
+    display: flex; gap: 5px;
+  }
+
+  /* ── DETAIL DRAWER ── */
+  .detail-drawer {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); box-shadow: var(--sh-md);
+    padding: 0; overflow: hidden;
+    display: none; margin-top: 16px;
+    animation: slideIn .25s cubic-bezier(.4,0,.2,1) forwards;
+  }
+  .detail-drawer.open { display: block; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);} }
+  .drawer-header {
+    padding: 16px 22px; display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid var(--dw-border);
+    border-top: 3px solid var(--dr-color);
+    background: color-mix(in srgb,var(--dr-color) 4%,white);
+  }
+  .drawer-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: color-mix(in srgb,var(--dr-color) 10%,white); flex-shrink: 0; }
+  .drawer-title { font-size: 16px; font-weight: 800; color: var(--dw-text); }
+  .drawer-close { margin-left: auto; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--dw-border); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--dw-muted); transition: var(--tr); flex-shrink: 0; }
+  .drawer-close:hover { background: var(--dw-light); }
+  .drawer-body { padding: 18px 22px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .drawer-col h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--dw-muted); margin-bottom: 10px; }
+  .drawer-item { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 9px; }
+  .di-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dr-color); flex-shrink: 0; margin-top: 5px; }
+  .di-text strong { font-size: 13px; font-weight: 600; display: block; margin-bottom: 1px; }
+  .di-text span   { font-size: 12px; color: var(--dw-muted); line-height: 1.5; }
+
+  /* ── FOOTNOTE ── */
+  .footnote-box {
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 12px 16px;
+    font-size: 11.5px; color: var(--dw-muted); line-height: 1.6;
+    margin-top: 16px;
+  }
+  .footnote-box strong { color: var(--dw-text); font-weight: 600; }
+  .footnote-box code  { font-family: var(--mono); font-size: 10.5px; background: var(--dw-white); border: 1px solid var(--dw-border); border-radius: 3px; padding: 1px 5px; color: #5b21b6; }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);} }
+  .animate { animation: fadeUp .5s cubic-bezier(.4,0,.2,1) both; }
+
+  @media (max-width:1100px) {
+    .arch-outer { grid-template-columns: 1fr; }
+    .capas-row  { grid-template-columns: 1fr 1fr; }
+    .drawer-body { grid-template-columns: 1fr 1fr; }
+    .main { padding: 20px; }
+  }
+  @media (max-width:700px) {
+    .capas-row  { grid-template-columns: 1fr; }
+    .drawer-body { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- MAIN -->
+<main class="main">
+
+  <div class="hint-bar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Hacé click en cualquier capa (Ingesta, Armonización, Propagación, Reporting) para ver el detalle de objetos y criterios de uso.
+  </div>
+
+  <!-- ══ OUTER GRID ══ -->
+  <div class="arch-outer animate">
+
+    <!-- ── S/4 HANA ── -->
+    <div class="s4-pane">
+      <div class="s4-title">S/4 HANA</div>
+      <div class="env-node env-dev" id="s4-dev">DEV</div>
+
+      <!-- CDS block -->
+      <div class="cds-block">
+        <strong>Vistas CDS (ABAP)</strong>
+        <div style="font-size:10px;color:var(--dw-muted);margin-bottom:7px;line-height:1.4">
+          <a class="cds-link" href="#">Templates</a> para el desarrollo de nuevas vistas
+        </div>
+
+        <div class="cds-line">
+          <div class="cds-dot" style="background:var(--dw-gold)"></div>
+          <span>ZDWC</span>
+        </div>
+        <div class="cds-line" style="padding-left:10px">
+          <div class="cds-dot" style="background:#1565c0"></div>
+          <span>Core Data Services</span>
+        </div>
+        <div class="cds-line" style="padding-left:18px">
+          <div class="cds-dot" style="background:#7b1fa2"></div>
+          <span>Data Definitions</span>
+        </div>
+
+        <div class="template-chip">ZCDS_DWC_DIM_TEMPLATE</div>
+        <div class="template-chip">ZCDS_DWC_FACT_TEMPLATE</div>
+      </div>
+
+      <div class="tip-sm">
+        <span>💡</span>
+        <span>Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.</span>
+      </div>
+
+      <a class="phase-link" href="#">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Link a Apéndice
+      </a>
+    </div>
+
+    <!-- ── DATASPHERE ── -->
+    <div class="ds-outer" id="ds-outer">
+      <svg class="ds-svg" id="ds-svg"></svg>
+      <div class="ds-inner-content">
+
+        <div class="ds-header-row">
+          <div>
+            <div class="ds-main-title">Datasphere</div>
+          </div>
+        </div>
+
+        <!-- Top area: Capas de Modelado + right panels stacked -->
+        <div style="display:grid;grid-template-columns:1fr 200px;gap:14px;align-items:start">
+
+          <!-- CAPAS DE MODELADO -->
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--dw-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding:5px 8px;background:var(--dw-light);border-radius:var(--r-sm)">
+              Capas de Modelado
+            </div>
+
+            <div class="capas-row">
+
+              <!-- INGESTA -->
+              <div class="capa-card" style="--cap-color:var(--c-ingesta)" id="cap-ingesta" onclick="toggleCapa('ingesta')">
+                <div class="capa-head">
+                  <div class="capa-name">Ingesta</div>
+                  <div class="capa-objects">
+                    <div class="obj-chip"><span class="obj-chip-icon">🔲</span>Tabla Remota</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔃</span>Replication Flow</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔀</span>Data Flow</div>
+                  </div>
+                </div>
+                <div class="capa-body">
+                  <div class="filter-row">
+                    <span class="filter-tag active-tag">▽ Filtros Estáticos</span>
+                  </div>
+                  <div class="capa-desc" style="margin-top:7px">
+                    Datos federados en volúmenes bajos (real-time), o persistidos en volúmenes grandes o cuando no se deba golpear constantemente el sistema fuente.
+                  </div>
+                </div>
+              </div>
+
+              <!-- ARMONIZACIÓN -->
+              <div class="capa-card" style="--cap-color:var(--c-armon)" id="cap-armon" onclick="toggleCapa('armon')">
+                <div class="capa-head">
+                  <div class="capa-name">Armonización</div>
+                  <div class="capa-objects">
+                    <div class="obj-chip"><span class="obj-chip-icon">🗄️</span>SQL Views</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">⚙️</span>Data Flows</div>
+                  </div>
+                </div>
+                <div class="capa-body">
+                  <div class="filter-row">
+                    <span class="filter-tag">Agregación, Joins,<br>Calculation Views, etc.</span>
+                  </div>
+                  <div class="capa-desc" style="margin-top:7px">
+                    Persistencia Opcional — usualmente vistas sin persistir.
+                  </div>
+                </div>
+              </div>
+
+              <!-- PROPAGACIÓN -->
+              <div class="capa-card" style="--cap-color:var(--c-prop)" id="cap-prop" onclick="toggleCapa('prop')">
+                <div class="capa-head">
+                  <div class="capa-name">Propagación</div>
+                  <div class="capa-objects">
+                    <div class="obj-chip"><span class="obj-chip-icon">📊</span>Analytical Dataset</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🗄️</span>SQL Views</div>
+                  </div>
+                </div>
+                <div class="capa-body">
+                  <div class="filter-row">
+                    <span class="filter-tag active-tag">▽ Filtros Dinámicos</span>
+                  </div>
+                  <div class="capa-desc" style="margin-top:7px">
+                    Persistencia Opcional, usualmente para mejorar rendimiento o performance. Usualmente con persistencia por necesidades de transformación y agregación.
+                  </div>
+                </div>
+              </div>
+
+              <!-- REPORTING -->
+              <div class="capa-card" style="--cap-color:var(--c-reporting)" id="cap-reporting" onclick="toggleCapa('reporting')">
+                <div class="capa-head">
+                  <div class="capa-name">Reporting</div>
+                  <div class="capa-objects">
+                    <div class="obj-chip"><span class="obj-chip-icon">🔵</span>D</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🟡</span>O</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🟢</span>P</div>
+                  </div>
+                </div>
+                <div class="capa-body">
+                  <div class="capa-desc">
+                    Gobierno de Datos como capa central de exposición hacia herramientas de reporting (SAP Analytics Cloud, etc.).
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- /capas-row -->
+
+            <!-- Flow row -->
+            <div class="flow-row" style="margin-top:10px">
+              <span style="font-size:10.5px;font-weight:600;color:var(--dw-muted)">Flows:</span>
+              <span class="flow-chip flow-rep">🔃 Replication Flows</span>
+              <span class="flow-sep">·</span>
+              <span class="flow-chip flow-trans">🔀 Transformation Flows</span>
+              <span class="flow-sep">·</span>
+              <span class="flow-chip flow-bsg">⭐ Bronze / Silver / Gold</span>
+            </div>
+          </div>
+
+          <!-- RIGHT: HANA DB + HDLF -->
+          <div class="right-block">
+
+            <div class="hana-block">
+              <div>
+                <div class="block-title">HANA DB</div>
+                <div class="block-subtitle">Disk | In-Memory</div>
+              </div>
+              <div class="hana-inner">
+                <div class="cross-slash">
+                  <span>//</span>
+                  <span class="cross-label">Cross<br>Sharing</span>
+                </div>
+                <div class="domain-stack">
+                  <div class="domain-tile">Capital Humano</div>
+                  <div class="domain-tile">Comercial</div>
+                  <div class="domain-tile">Compras</div>
+                  <div class="domain-tile">Logística</div>
+                  <div class="domain-tile others">Otros...</div>
+                  <div class="domain-tile excel">Excel</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hdlf-block">
+              <div>
+                <div class="block-title">HDLF</div>
+                <div class="block-subtitle">HANA Data Lake Files</div>
+              </div>
+              <div class="hdlf-inner">
+                <div class="hdlf-file hdlf-delta">Delta Tables</div>
+                <div class="hdlf-file hdlf-parquet">Parquet Files</div>
+                <div class="hdlf-bsg">
+                  <span>⬛🔲⬜</span> Bronze / Silver / Gold
+                </div>
+                <div class="hdlf-note">
+                  <span>⚠️</span>
+                  <span>A diferencia de la ingesta en HANA DB, en HDLF la "tabla" es un archivo físico materializado mediante Transformation o Replication Flows. El ciclo de vida del dato es responsabilidad del flujo que lo crea.</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div><!-- /top grid -->
+
+        <!-- DETAIL DRAWER — appears below capas on click -->
+        <div class="detail-drawer" id="detail-drawer"></div>
+
+      </div><!-- /ds-inner-content -->
+    </div><!-- /ds-outer -->
+
+  </div><!-- /arch-outer -->
+
+  <!-- FOOTNOTE -->
+  <div class="footnote-box">
+    <code>ZCDS_DWC_DIM_TEMPLATE</code> se sugiere como extractor integral de dimensión maestra (sea atributo, texto o conjuntamente). La diferenciación de CDS por atributos y texto pierde sentido en el marco de core data services puesto que la anotación <code>dataCategory: #TEXT</code> no es compatible con extracción sino como capa intermedia para asociaciones de texto desde otras CDS en S/4.
+  </div>
+
+<script>
+'use strict';
+
+/* ── LAYER DETAIL DATA ───────────────────────────────────────── */
+const CAPAS = {
+  ingesta: {
+    color:  '#1565c0',
+    icon:   '📥',
+    title:  'Ingesta',
+    cols: [
+      {
+        heading: 'Objetos principales',
+        items: [
+          { title: 'Tabla Remota',      desc: 'Federación en tiempo real. Los datos permanecen en el origen. Acceso vía HTTPS/SQL Service.' },
+          { title: 'Replication Flow',  desc: 'Copia incremental o inicial hacia tablas locales. Canal RFC vía Cloud Connector.' },
+          { title: 'Data Flow',         desc: 'Transformación y carga con lógica de procesamiento (joins, aggregations, conversiones).' },
+        ]
+      },
+      {
+        heading: 'Criterio de persistencia',
+        items: [
+          { title: 'Datos federados',   desc: 'Volúmenes bajos o real-time. Sin movimiento de datos. Impacto directo en sistema fuente.' },
+          { title: 'Datos persistidos', desc: 'Volúmenes grandes o cuando no se deba golpear constantemente el sistema fuente.' },
+        ]
+      },
+      {
+        heading: 'Filtros y anotaciones',
+        items: [
+          { title: 'Filtros Estáticos', desc: 'Aplicados en la definición de la Tabla Remota o el Replication Flow. No varían en tiempo de ejecución.' },
+          { title: 'Templates CDS',     desc: 'ZCDS_DWC_DIM_TEMPLATE y ZCDS_DWC_FACT_TEMPLATE como base para nuevas vistas de extracción.' },
+        ]
+      }
+    ]
+  },
+  armon: {
+    color:  '#0d7a5f',
+    icon:   '🔗',
+    title:  'Armonización',
+    cols: [
+      {
+        heading: 'Objetos principales',
+        items: [
+          { title: 'SQL Views',   desc: 'Vistas SQL sobre tablas de ingesta. Permiten joins, renombrado de campos y estandarización semántica.' },
+          { title: 'Data Flows',  desc: 'Para transformaciones más complejas con persistencia, cuando la vista sola no alcanza.' },
+        ]
+      },
+      {
+        heading: 'Transformaciones',
+        items: [
+          { title: 'Agregación',           desc: 'Consolidación de registros según granularidad del modelo lógico.' },
+          { title: 'Joins multi-fuente',   desc: 'Combinación de datos de distintos orígenes (SAP + No-SAP) en un modelo unificado.' },
+          { title: 'Calculation Views',    desc: 'Para lógica analítica compleja nativa de HANA cuando aplique.' },
+        ]
+      },
+      {
+        heading: 'Criterio de persistencia',
+        items: [
+          { title: 'Vistas sin persistir', desc: 'El caso más común. La armonización es computada en tiempo de consulta.' },
+          { title: 'Persistencia opcional', desc: 'Solo cuando el volumen o la complejidad de la consulta lo justifique por performance.' },
+        ]
+      }
+    ]
+  },
+  prop: {
+    color:  '#7b1fa2',
+    icon:   '📡',
+    title:  'Propagación',
+    cols: [
+      {
+        heading: 'Objetos principales',
+        items: [
+          { title: 'Analytical Dataset', desc: 'Objeto semántico de Datasphere. Define medidas, dimensiones y jerarquías para consumo analítico.' },
+          { title: 'SQL Views',          desc: 'Vistas de propagación con filtros dinámicos y lógica de negocio aplicada.' },
+        ]
+      },
+      {
+        heading: 'Filtros dinámicos',
+        items: [
+          { title: 'Filtros de datos',    desc: 'Aplicados en tiempo de ejecución según el contexto del usuario o la consulta.' },
+          { title: 'DAC integration',     desc: 'Los filtros de seguridad a nivel fila/columna se aplican en esta capa.' },
+        ]
+      },
+      {
+        heading: 'Criterio de persistencia',
+        items: [
+          { title: 'Persistencia para performance', desc: 'Cuando el volumen de datos o la complejidad de cálculo impacta el tiempo de respuesta.' },
+          { title: 'Transformación + agregación',   desc: 'Cuando la lógica acumulada entre capas hace necesario materializar el resultado intermedio.' },
+        ]
+      }
+    ]
+  },
+  reporting: {
+    color:  '#e65100',
+    icon:   '📊',
+    title:  'Reporting',
+    cols: [
+      {
+        heading: 'Tipos de consumo',
+        items: [
+          { title: 'D — Dimensión',    desc: 'Tablas maestras de referencia. Atributos descriptivos sin métricas.' },
+          { title: 'O — Operacional',  desc: 'Datos transaccionales en tiempo real para análisis operativo.' },
+          { title: 'P — Posicional',   desc: 'Snapshots o posiciones en un punto del tiempo (balances, stocks, etc.).' },
+        ]
+      },
+      {
+        heading: 'Herramientas de consumo',
+        items: [
+          { title: 'SAP Analytics Cloud', desc: 'Herramienta principal de BI y planning sobre Datasphere.' },
+          { title: 'Reporting externo',    desc: 'Conexión ODBC/JDBC para herramientas como Power BI, Tableau, etc.' },
+          { title: 'Excel / otros',        desc: 'Consumo mediante Live Data Connection u OData.' },
+        ]
+      },
+      {
+        heading: 'Gobierno de Datos',
+        items: [
+          { title: 'Capa de exposición central', desc: 'El Gobierno de Datos actúa como hub semántico desde donde se exponen los modelos hacia reporting.' },
+          { title: 'Cross-Sharing',              desc: 'Los dominios (Capital Humano, Comercial, Compras, Logística) son accedidos vía Cross-Sharing desde el espacio de Gobierno.' },
+        ]
+      }
+    ]
+  }
+};
+
+let activeCapa = null;
+
+function toggleCapa(id) {
+  if (activeCapa === id) {
+    closeCapa();
+    return;
+  }
+  activeCapa = id;
+
+  // Highlight active card
+  document.querySelectorAll('.capa-card').forEach(c => c.classList.remove('active'));
+  document.getElementById(`cap-${id}`).classList.add('active');
+
+  const cfg = CAPAS[id];
+  const drawer = document.getElementById('detail-drawer');
+  drawer.style.setProperty('--dr-color', cfg.color);
+
+  const colsHtml = cfg.cols.map(col => `
+    <div class="drawer-col">
+      <h4>${col.heading}</h4>
+      ${col.items.map(it => `
+        <div class="drawer-item">
+          <div class="di-dot"></div>
+          <div class="di-text">
+            <strong>${it.title}</strong>
+            <span>${it.desc}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  drawer.innerHTML = `
+    <div class="drawer-header">
+      <div class="drawer-icon">${cfg.icon}</div>
+      <div class="drawer-title">Capa de ${cfg.title}</div>
+      <button class="drawer-close" onclick="closeCapa()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body">${colsHtml}</div>
+  `;
+
+  drawer.classList.add('open');
+  setTimeout(() => drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+
+function closeCapa() {
+  activeCapa = null;
+  document.querySelectorAll('.capa-card').forEach(c => c.classList.remove('active'));
+  const drawer = document.getElementById('detail-drawer');
+  drawer.classList.remove('open');
+}
+</script>
+</body>
+</html>

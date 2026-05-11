@@ -53,9 +53,13 @@ out_of_scope_redirect:
 {{html_embed: ../assets/danwor-referencias-arquitectura.html height=710}}
 
 ## {dw-black}Coexistencia de {dw-gold}Paradigmas
+{{section_meta: keywords="HANA DB vs HDLF, HANA Database vs HDLF, HANA space, HDLF space, HANA Data Lake Files, diferencia HANA y HDLF, diferencia espacio HANA HDLF, coexistencia HANA HDLF, HANA DB object store, object store datasphere, parquet delta tables, ciclo de vida HANA DB, ciclo de vida HDLF, DEV QA PRD HANA, storage HDLF, arquitectura BDC ready, HANA Database y HANA Data Lake Files, comparar HANA DB HDLF, cuándo usar HANA DB, cuándo usar HDLF"}}
+
+{{support: HANA Space="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/bbd41b82ad4d4d9ba91341545f0b37e7.html?locale=es-ES&version=LATEST" HDLF Space= "https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/947444683e524cfd9169d7671b72ba0c.html?locale=es-ES&version=LATEST"}}
+{{subtitle: no-gap}}
 > HANA DB y HDLF (HANA Data Lake Files) comparten la plataforma, pero tienen reglas distintas de ciclo de vida, modelado y gobernanza. El marco Danwor está diseñado para operar en ambos y evolucionar entre ellos
 
-| HANA Database • 📌 lo que construimos hoy | HDLF - Object Store • BDC-Ready 📌 |
+| HANA Database >> 📌 lo que construimos hoy | HDLF - Object Store >> BDC-Ready 📌 |
 |---|---|
 | Objetos Transportables (vistas, flujos, modelos, tablas)  | Datos como archivos físicos (Parquet, Delta tables) |
 | Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |
@@ -65,12 +69,13 @@ out_of_scope_redirect:
 
 ## {dw-black}Espacios & {dw-gold}Transportes
 {{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html" Pin=true}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html"}}
 > En Arquitectura Datasphere / BDC. Seleccioná el modelo de tenancy para explorar la topología de espacios y el flujo de transporte DEV → QA → PRD.
 {{html_embed: ../assets/danwor-espacios-transportes.html height=665}}
 
 ## {dw-black}Configuración de {dw-gold}Espacios
 {{section_meta: keywords="configuración espacios datasphere, space configuration, quota espacio, space quota, source language, idioma espacio, idioma datasphere, multi-language datasphere, conexiones datasphere, nombre conexiones, naming conexiones, time data, dimensión tiempo datasphere, usuarios esquema, schema users, power bi datasphere, usuarios base de datos, configuración inicial datasphere, setup datasphere, buenas practicas espacios, workload class, tenant quota, disk quota, memory quota, distribución quota, ratio quota, sizing tenant, capacidad tenant, quota por ambiente, cuota por tenant, cuota memoria, cuota disk, distribución de recursos"}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/bbd41b82ad4d4d9ba91341545f0b37e7.html?locale=es-ES&version=LATEST"}}
 
 Una configuración correcta del espacio desde el inicio evita problemas de rendimiento, transporte y consumo externo.
 
@@ -78,11 +83,12 @@ Una configuración correcta del espacio desde el inicio evita problemas de rendi
 |---|---|---|
 | **Space Quota** | Dimensionar por caso — no usar valor genérico | La quota impacta directamente en el sizing del tenant; ajustar post-PoC |
 | **Source Language** | Definir explícitamente (ej: Spanish) | Datasphere es multi-idioma; los objetos semánticos importados se interpretan según el idioma del espacio destino |
-| **Nombre de Conexiones** | Usar nombres genéricos: `S4`, `ECC`, `BW` (no `S4DEV`) | Las conexiones ya están resguardadas en su espacio (S4 en DEV ≠ S4 en PRD); el nombre genérico facilita el transporte de objetos |
+| **Nombre de Conexiones** | Usar nombres funcionales y estables: `S4`, `ECC`, `BW` (evitar codificar el ambiente, ej: `S4DEV`) | El ambiente ya queda implícito por el espacio y por los parámetros técnicos de la conexión (application server/endpoint). El criterio busca estandarización y evitar redundancia, no resolver una limitación de transporte |
 | **Time Data Dimension** | Configurar en el espacio antes de crear modelos | Habilita el soporte nativo de dimensiones de tiempo en vistas analíticas |
 | **Schema Users** | Crear usuarios de base de datos a nivel espacio para consumo externo (ej: Power BI) | Los schema users están sujetos a DAC; requeridos para conexiones DirectQuery desde herramientas externas |
 
 ### Ratio orientativo de distribución de quota
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f414c3d62bfe49b38e2cfdd7b4e7d786.html?locale=es-ES&version=LATEST"}}
 
 La quota de espacios debe dimensionarse contra la capacidad total del tenant, no como valor fijo por espacio. Como regla de trabajo, partir de una distribución porcentual ayuda a reservar capacidad para ambientes, operación y crecimiento.
 
@@ -100,9 +106,10 @@ Definir:
 | **Espacios de dominio / negocio** | `(D x 35%) / N` | `(M x 25%) / N` | Distribución por dominio, área o producto de datos |
 | **Reserva tenant** | No asignar inicialmente | No asignar inicialmente | Margen para crecimiento, performance tuning y contingencia |
 
+{{subtitle: no-gap}}
 > Los porcentajes son un punto de partida metodológico. Deben ajustarse según volumen real, criticidad, persistencia, concurrencia, estrategia de federación y evolución post-PoC.
 
-## ✅ Checklist de Configuración
+## 🌟 Checklist de Configuración
 {{section_meta: keywords="checklist configuración, checklist datasphere, lista verificación, revisión proyecto, setup inicial, buenas practicas, oportunidad mejora, verificar espacios, verificar conexiones, verificar transporte, puntos de control arquitectura, configuración base datasphere, lista chequeo"}}
 
 Orientativo para revisar que la configuración base del proyecto esté completa antes de avanzar al modelado:
@@ -114,7 +121,7 @@ Orientativo para revisar que la configuración base del proyecto esté completa 
 | ☐ Space Quota | ¿Alocaste cuota de almacenamiento (Space Quota)? |
 | ☐ Schema Users | ¿Definiste usuarios a nivel espacio/schema para consumo externo? |
 | ☐ Time Data | ¿Configuraste la dimensión de Time Data? |
-| ☐ Conexiones | ¿Utilizaste nombres genéricos para las conexiones? |
+| ☐ Conexiones | ¿Usaste nombres funcionales y estables, evitando codificar DEV/QA/PRD en el nombre técnico? |
 | ☐ Cross-Sharing | ¿Alineaste la estrategia de Cross-Sharing y gobierno de datos? |
 | ☐ Transporte | ¿Definiste la estrategia de transporte entre ambientes? |
 

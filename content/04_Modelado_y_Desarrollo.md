@@ -16,9 +16,7 @@ key_topics:
   - id: naming
     label: Naming
     heading: "Convención de Nombres"
-  - id: checklist
-    label: Checklist
-    heading: "✅ Checklist de Desarrollo"
+
 scope: |
   Cubre el modelo de desarrollo en SAP Datasphere: arquitectura por capas
   (ingesta, armonización, propagación, consumo), tipos de vistas SQL (Estándar,
@@ -56,104 +54,145 @@ intent_assets:
 ---
 # 04 Modelado y Desarrollo
 
-## Arquitectura por Capas
-{{section_meta: keywords="arquitectura por capas, capas modelado, ingesta armonización propagación consumo, separación responsabilidades, capa ingesta, capa armonización, capa propagación, capa reporting, capa consumo, lakehouse SAP, principio capas datasphere, arquitectura modelado datasphere, modelo por capas, cómo modelar datasphere, diseño capas, capa 1 2 3, tablas remotas capa, vistas capa, persistencia capas, federación capas"}}
+## {dw-black}Evolución de Arquitectura {dw-gold}por Capas
+{{section_meta: keywords="evolución arquitectura por capas, evolución LSA, LSA++, layered scalable architecture, BW LSA, BW LSA++ a Datasphere, equivalencia LSA Datasphere, equivalencia LSA Databricks, medallion architecture, bronze silver gold, lakehouse por capas, arquitectura por capas conceptual, historia arquitectura por capas, separación de responsabilidades conceptual, continuidad conceptual BW Datasphere Databricks, paradigma por capas, arquitectura híbrida moderna, evolución data warehouse a lakehouse, marco conceptual Danwor"}}
 
-El principio de **separación de responsabilidades** (ingesta → armonización → propagación → consumo) es la base del modelo de desarrollo Danwor en SAP Datasphere. Implementa un enfoque Lakehouse moderno con capas bien definidas:
+{{subtitle: no-gap}}
+>La arquitectura por capas no nace con Datasphere ni con Databricks: es la evolución de un principio conocido en BW/LSA++, donde se separan responsabilidades para controlar ingesta, armonización, propagación y consumo. Cambian los objetos técnicos; el criterio arquitectónico permanece.
 
-| Capa | Prefijo | Responsabilidad | Persistencia |
+
+| Principio | SAP BW (LSA) | Lakehouse (Databricks) | Datasphere/BDC |
 |---|---|---|---|
-| **Ingesta** | `1` | Tablas remotas o locales con los datos tal como vienen del origen. Sin transformaciones de negocio. | Federada (bajo volumen / real-time) o persistida (alto volumen) |
-| **Armonización** | `2` | Vistas reutilizables que armonizan, normalizan y enriquecen. Joins, filtros, cálculos base. | Opcional — sin persistir salvo necesidad de performance |
-| **Propagación** | `3` | Vistas orientadas al consumo final: agregaciones, KPIs, modelos analíticos por área de negocio. | Opcional — persisitir cuando la transformación es costosa |
-| **Reporting** | `3`+ | Vistas finales optimizadas para herramientas de consumo (Power BI, SAC, etc.). | Opcional — según SLA de actualización |
+| **Ingesta o persistencia desacoplada del origen** | Staging Layer <br>Corporate Memory | Bronze (raw zone) | Tablas Remotas / Persistencia opcional / Data Lake (HDLF en BDC) |
+| **Armonización y Propagacion** | EDW Layer | Silver (refined zone) | Armonización / Propagación |
+| **Exposición para consumo** | Reporting Layer | Gold (serving zone) | Consumo / Modelos Analíticos |
+| **Gobierno Semántico** | Infoobjects / BW Semantics | Unity Catalog + Delta | Semantic Layer + Data Products |
 
-{{callout_row}}
-{{callout: title="Regla de oro" tone="punch" icon="💡"}}
-Cada capa consume solo de la capa inmediatamente anterior. Una vista de propagación no apunta directamente a una tabla de ingesta. Esto garantiza trazabilidad, reuso y mantenibilidad.
+{{callout: title="El principio no cambia, sino su forma de implementarlo" tone="punch" icon="⭐"}}
+Hoy la escalabilidad proviene del diseño semántico y separación entre almacenamiento y procesamiento, la gobernanza de contratos y metadatos,  y la performance (pushdown, delta y storage optimizado). Las capas ya no son rígidas ni necesariamente físicas: pueden ser lógicas o persistentes según el caso.
 {{/callout}}
-{{callout: title="Persistencia selectiva" tone="note" icon="🗄️"}}
-No persistir por defecto. Persistir solo cuando: (1) el origen no puede ser golpeado constantemente, (2) la transformación es computacionalmente costosa, o (3) el SLA de actualización lo requiere.
+
+## {dw-black}Aplicación de Arquitectura {dw-gold}por Capas
+{{section_meta: keywords="aplicación arquitectura por capas, implementar capas Datasphere, diseño capas Datasphere, ingesta armonización propagación consumo, capa ingesta Datasphere, capa armonización Datasphere, capa propagación Datasphere, capa reporting Datasphere, tablas remotas por capa, vistas SQL por capa, data flows por capa, replication flows por capa, analytical datasets, federación por capa, persistencia por capa, filtros estáticos, filtros dinámicos, HANA DB, HDLF, cross sharing, dominios Datasphere, objetos por capa, criterios de persistencia, modelo por capas Danwor"}}
+
+{{subtitle: no-gap}}
+>Implementamos la arquitectura de modelado por capas con separación de responsabilidades, adaptada a un enfoque Lakehouse moderno en SAP Datasphere:
+{{html_embed: ../assets/danwor-arquitectura-capas.html height=830}}
+
+## {dw-black}Arquitectura por Capa: {dw-gold}Guía Operativa
+{{section_meta: keywords="guía operativa arquitectura por capas, arquitectura por capa operativa, criterio por capa, cómo usar cada capa, capa ingesta propósito, capa armonización propósito, capa propagación propósito, capa reporting propósito, prefijos por capa, nivel de transformación por capa, transformación por capa, propósito de cada capa, cuándo usar ingesta, cuándo usar armonización, cuándo usar propagación, cuándo usar reporting, qué va en cada capa, responsabilidades por capa, separación responsabilidades operativa, preservar datos originales, auditoría datos crudos, normalizar datos, enriquecer datos, reutilización vistas, modelos analíticos finales, optimización reporting, consumo Power BI, consumo SAC, vistas planas Power BI, modelos analíticos SAC, evitar mezclar responsabilidades entre capas"}}
+
+{{subtitle: no-gap}}
+>Patrón de separación de responsabilidades aplicado a nuestro marco.
+
+| Capa | Prefijo | Nivel de Transformación | Propósito | ¿Cómo usar? |
+|---|---|---|---|---|
+| **Ingesta** | `1` | Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente | Capturar los datos crudos directamente desde las fuentes externas (sea S/4HANA, u otras bases de datos y/o sistemas externos) | - Ingestar datos directamente desde sistemas fuente<br> - Preservar datos originales para auditoría |
+| **Armonización** | `2` | Alta. Limpieza y estandarización | Transformar, limpiar, y unificar los datos para asegurar consistencia semántica y su re-utilización alineado con las reglas de negocio | - Unificar datos de sistemas heterogéneos<br> - Reutilizacion<br> - Normalizar formatos, eliminar duplicados, enriquecer datos |
+| **Propagacion** | `3` |  Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones- Permitir reutilización en otras vistas<br> - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
+| **Reporting** | `4` | Alta. Optimización para consumo | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones<br> - Proveer datos listos para dashboards y herramientas BI<br> - Para SAC con Modelos Analíticos (multidimensional nativo) |
+
+## {dw-black}Artefactos y uso {dw-gold}Semántico
+{{section_meta: keywords="artefactos y uso semántico, artefactos datasphere, uso semántico datasphere, semantic usage, semantic type, tipo semántico, fact, dimension, relacional, analytical dataset, tablas locales, tablas remotas, vistas SQL, vistas gráficas, table functions, data flows, capa business, capa consumption, modelo analítico, medidas, dimensiones, atributos, jerarquías, asociaciones semánticas, exposición semántica, consumo analítico, autoservicio BI, SAP Analytics Cloud, Power BI, cuándo usar fact, cuándo usar dimension, cuándo usar relacional, cuándo usar analytical dataset, qué artefacto usar, criterio de modelado semántico"}}
+
+{{subtitle: no-gap}}
+>El uso semántico define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
+
+| Uso Semántico | Prefijo | Propósito | ¿Cómo usar? |
+|---|---|---|---|
+| Fact | `F` | Diseñado para contener medidas (datos cuantitativos) | - Tablas principales de métricas (ej.: ventas, costos)<br> - Centro de un esquema estrella enlazado a dimensiones<br> - Datos de KPI o valores agregables |
+| Relacional | `R` | Uso Generico para datos sin un rol especifico (no distingue entre medidas y dimensiones) | - Datos sin rol definido o en etapa de transformación<br> - Tablas intermedias o de staging<br> - Datos transaccionales sin optimización analítica inmediata |
+| Dimension | `D` | Representa datos categoricos o descriptivos para analizar hechos | - Datos descriptivos como clientes, productos, regiones<br> - Tablas referenciales reutilizables<br> - En esquemas estrella como tabla complementaria |
+| Analítica | `A` | Combina medidas y dimensiones optimizado para herramientas analiticas | - Repositorios completos para análisis<br> - Cuando necesitas jerarquías y atributos<br> - Conexión directa con herramientas como SAP Analytics Cloud |
+| Texto | `T` | Contiene descripciones textuales, o especificaciones multilenguaje | - RDatos de etiquetas o descripciones multilingües<br> -Tablas de textos vinculadas a claves |
+| Jerarquía | `H` | Estructura jerarquica de datos para analisis basados en niveles (ej.: organizacion, categorias) | - Cuando necesitas modelar jerarquías (Ej.: niveles gerenciales, categorías de productos)<br> -Para estructuras complejas con relaciones padre-hijo |
+
+{{callout: title="Predeterminado" tone="warn" icon="⚠️"}}
+Tené en cuenta que el uso semántico "Relacional" es utilizado por defecto al crear tablas y vistas, al ser parte de la convención de nombres es importante que te asegures de reclasificarlo para no tenerminar teniendo inconsistencias entre el nombre y el uso semántico por detrás.
 {{/callout}}
-{{/callout_row}}
 
-> La vista `ZCDS_DSP_DIM_MATERIAL` (y el template `ZCDS_DWC_DIM_TEMPLATE`) construyen la dimensión maestra integral: atributos y textos unificados en una sola CDS. En CDS, la separación entre vistas de atributos y textos pierde sentido — la anotación `dataCategory: #TEXT` no es compatible con extracción directa hacia Datasphere.
+## {dw-black}Convención de {dw-gold}Nombres
+{{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
 
-## Tipos de Vistas SQL
+>Si bien la interfaz de usuario en Datasphere ofrece capacidades de navegación y filtro que permiten identificar objetos fácilmente a través de sus atributos técnicos y metadata (tales como tipo de objeto, uso semántico, etc.) permitiendo así separar tablas de vistas, o flujos de datos de replicación, o inclusive los modelos analíticos creados, entendemos sigue siendo una buena idea el uso de prefijos en la convención de nombres por alguno de los siguientes motivos:
+
+{{html_embed: ../assets/danwor-convencion-nombres.html height=750 default_mode=porque}}
+>El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes
+
+### ¿Como usarla?
+{{html_embed: ../assets/danwor-convencion-nombres.html height=550 default_mode=como}}
+
+### Otros Artefactos
+| Artefacto | Prefijo | Ejemplo |
+|---|---|---|
+| **Data Flow** | `DF` | DF_SND_PEDIDOS |
+| **Replication Flow** | `RF` | RF_SND_PEDIDOS |
+| **Transformation Flow** | `FT` | FT_SND_PEDIDOS |
+| **Intelligent Look-up** | `IL` | IL_SND_PEDIDOS |
+| **Task Chain** | `TC` | TC_SND |
+| **Analytic Model** | `AM` | AM_SND_FACTURACION |
+| **Entity Relationship Model** | `EM` | EM_SND_ENTREGAS |
+| **Data Access Control** | `DAC` | DAC_SND |
+
+### CDS Views
+| Objeto | Convencion de nombre | Ejemplo | Comentarios |
+|---|---|---|---|
+| CDS View | `ZCDS_DSP_`<libre> | ZCDS_DSP_DIM_MATERIAL | Vista logica de extracción (hasta 30 caracteres) |
+| Vista SQL para CDS | `ZCDS_`<libre> | ZCDS_DMATERIAL | Nombre físico asociado (hasta 16 caracteres)(*) |
+
+{{subtitle: no-gap}}
+> (*) Dado que la vista SQL ya se encuentra vinculada a la CDS (que sigue la convencion correspondiente), y la longitude maxima para las vistas siendo 16 caracteres, se eliminan de la convencion de la vista SQL (CDS_) dando lugar a 4 caracteres extras por ser utilizados para el nombre de la vista, cuyo proposito es pura y exclusivamente datasphere, dando sentido a la convencion/nomenclatura DWC_ para futuras referencias, analisis e identificacion.
+
+## {dw-black}Tipos de {dw-gold}Vistas SQL
 {{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
 
-En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+{{subtitle: no-gap}}
+>En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
 
 | Tipo | Cuándo usarlo | Cuándo evitarlo |
 |---|---|---|
-| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |
-| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
+| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta adecuada |
+| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
 | **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |
-| **Data Flow** | Snapshot, persistencia, transformaciones pesadas, particionar por rendimiento | Acceso federado real-time — no es una vista, es un proceso de carga |
 
-{{callout: title="Cada vista debe justificarse" tone="warn" icon="🔸"}}
-Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.
+{{callout: title="Cada vista debe justificarse" tone="punch" icon="⚠️"}}
+Las vistas gráficas tal vez simplifiquen la lectura visual y aceleren tu proceso inicial, pero no sustituyen la precisión técnica del SQL Estándar ni ofrecen igual escalabilidad y flexibilidad. Además, dificultan su mantenimiento a largo plazo al limitar la revisión técnica directa del código SQL.
 {{/callout}}
 
 {{tree_button: Tipos de Vistas SQL}}
 
-## Tipos y Uso Semántico
-{{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, analytical dataset, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
+## {dw-black}Tipos de {dw-gold}Vistas CDS
+{{section_meta: keywords="tipos vistas CDS, vista CDS estándar, vista CDS custom, API Funcional SAP, wrapper, core-data services, core data services, CDS Views, DDL, DDIC"}}
 
-El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
+{{subtitle: no-gap}}
+>Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP (modernización por sobre legado), hay consideraciones importantes en nuestro contexto metodológico de cara a la extracción y framework ODP por los cuales inclusive SAP continúa apoyándose en CDS DDIC-based para sus propias API de extracción liberadas.
 
-| Tipo Semántico | Uso | Notas |
+| Aspecto | CDS View Entity<br>(DDL Moderno) | CDS DDIC-based View<br>(DDIC Clásico) |
 |---|---|---|
-| **Relacional** | Vistas de preparación o armonización que no son consumidas directamente en reportes | Es el tipo por defecto; reclasificar una vez que el objeto tiene semántica de negocio definida |
-| **Dimension** | Maestros y atributos descriptivos (Clientes, Materiales, Centros de Costo) | Debe tener una clave única; asociable con Facts en el modelo analítico |
-| **Text** | Textos de una entidad dimensional (descripción de Material en varios idiomas) | No apto para extracción directa desde origen; usar como capa intermedia de textos en CDS |
-| **Hierarchy** | Jerarquías organizacionales o de producto | Requiere la dimensión base asociada |
-| **Fact** | Hechos transaccionales (Ventas, Pedidos, Movimientos de Stock) | Con métricas y asociaciones a dimensiones |
-| **Analytical Dataset** | Set analítico que combina Facts y Dimensions en un objeto único de consumo | Usado en la capa de propagación/consumo; base para reportes en SAC/Power BI |
+| **Naturaleza** | Modelo moderno ABAP CDS | Modelo clásico basado en DDIC |
+| **SQL View** | ❌ No requiere | ✅ Requiere (`@AbapCatalog.sqlViewName`) |
+| **Integración ABAP** | Alta (RAP, OData, Fiori) | Alta (frameworks legacy/estables) |
+| **Capacidad DDL** |Avanzadas | Estándar |
+| **Dependencia DDIC** | Baja | Alta |
+| **Uso típico SAP** | Desarrollo moderno | Extracción / integración |
+| **Compatibilidad** | Depende del release | Amplia entre releases |
 
-> La **capa Business** (Business Layer) agrega la semántica de negocio sobre los objetos técnicos. La **capa Consumption** (Consumption Layer) expone los objetos analíticos finales. Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.
+{{subtitle: no-gap}}
+>El tipo de vista no es una decisión de modernidad, sino de propósito. Elegir mal tiene consecuencias en compatibilidad ODP diseño SAP.
 
-## Convención de Nombres
-{{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
-
-El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
-
-```
-<Capa><Tipo>_<Origen>_<LibreConLineamientos>
-```
-
-**Capa** (prefijo numérico):
-- `1` — Ingesta (tablas remotas o locales desde origen)
-- `2` — Armonización (vistas reutilizables)
-- `3` — Propagación / Consumo (vistas finales, modelos analíticos)
-
-**Tipo** (letra):
-- `T` — Tabla (local o remota)
-- `V` — Vista (SQL Estándar o Gráfica)
-- `F` — Fact / Analytical Dataset
-
-**Origen** (sufijo de 3 letras):
-| Código | Origen |
+| Propósito Técnico | Tipo de Vista CDS |
 |---|---|
-| `SAP` | Ingesta desde SAP (ECC, S/4HANA, BW) |
-| `DSP` | Generado dentro de Datasphere (DF, RF, etc.) |
-| `EDB` | Base de datos externa (Oracle, SQL Server) |
-| `TXT` | Archivo plano (CSV, TXT) |
-| `API` | Ingesta vía API |
+| RAP/OData/Fiori | View Entity |
+| Virtual Data Model (VDM) | View Entity |
+| Integración Técnica | DDIC-based |
+| Extracción de Datos | DDIC-based |
 
-**Ejemplos:**
+{{callout: title="Señal Arquitectónica" tone="punch" icon="💡"}}
+SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: sino una decisión técnica deliberada.
+{{/callout}}
 
-| Objeto | Interpretación |
-|---|---|
-| `1TT_SAP_T151T` | Capa 1 · Tabla · Origen SAP · T151T (textos grupos cliente) |
-| `2VD_CLIENTES_CABECERA` | Capa 2 · Vista · Dimensión Clientes Cabecera (armonización) |
-| `3VF_TOPLINE_SPM` | Capa 3 · Vista Fact · Topline para SPM (consumo) |
-| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer para Power BI |
-
-> Usar **CamelCase** para la parte libre (`<LibreConLineamientos>`). Usar nombres genéricos de origen (`S4`, `ECC`) en las conexiones para que los objetos transporten sin modificación.
-
-## ✅ Checklist de Desarrollo
+## Checklist de Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}
 
 Orientativo para revisar la calidad del modelo antes de promover al siguiente ambiente:

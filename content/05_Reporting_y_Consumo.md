@@ -46,64 +46,54 @@ out_of_scope_redirect:
 ---
 # 05 Reporting y Consumo
 
-## Estrategia de Reporting
+## {dw-black}Estrategia de {dw-gold}Reporting
 {{section_meta: keywords="estrategia reporting, herramienta reporting, SAC, SAP Analytics Cloud, Power BI, BusinessObjects, BO, qué herramienta usar, SAC vs Power BI, Power BI datasphere, SAC datasphere, BO datasphere, herramienta BI, herramienta analítica, consumo datasphere, cómo consumir datasphere, herramientas externas datasphere, reporte datasphere, visualización datasphere, árbol herramienta reporting"}}
 
-Para clientes que desean explotar los datos por fuera del ecosistema SAP nativo, existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
+{{subtitle: no-gap}}
+>Para clientes que desean explotar los datos por fuera del ecosistema SAP nativo, existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
+
+{{html_embed: ../assets/danwor-estrategia-reporting.html height=860}}
 
 | Herramienta | Tipo | Integración con Datasphere | Cuándo usarla |
 |---|---|---|---|
 | **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |
 | **Power BI** | Microsoft | Vía schema users (DirectQuery o Import Mode) | Cliente con inversión fuerte en ecosistema Microsoft o Power BI ya implantado |
 | **BusinessObjects (BO)** | SAP legacy | Vía Universe o conexión JDBC/ODBC | Clientes con BO existente que no migran aún a SAC |
-| **Herramientas genéricas** | SQL/ODBC | Vía schema users | Acceso técnico ad-hoc, integraciones custom, notebooks de análisis |
+| **Herramientas genéricas** | OData/ODBC | Vía schema users | Acceso técnico ad-hoc, integraciones custom, notebooks de análisis |
 
+{{subtitle: no-gap}}
 > SAC es la herramienta recomendada dentro del ecosistema SAP: tiene Live Data Connection nativa con Datasphere sin necesidad de schema users ni configuración adicional de conectividad.
 
 {{callout_row}}
 {{callout: title="SAC — Integración nativa" tone="success" icon="🌿"}}
-La Live Data Connection de SAC con Datasphere es la más directa: consume modelos analíticos en tiempo real, respeta DAC automáticamente y no requiere exportar datos.
+Contexto:
+  - Consume modelos analíticos en tiempo real
+  - Respeta DAC en forma nativa
+  - No requiere exportar datos
+Capacidad Nativa:
+  - Las asociaciones en Datasphere se propagan automáticamente al modelo analítico, sin código adicional.
+Error Frecuente:
+  - Desarrolladores formados en PowerBI trasladan el patrón de derivar campos, eliminando los beneficios del modelo
+Veredicto:
+  - Usar asociaciones nativas es la práctica correcta. 
+  - Trazabilidad, rendimiento, mantenibilidad y escalabilidad.      
 {{/callout}}
 {{callout: title="Power BI — Ecosistema Microsoft" tone="punch" icon="📊"}}
-Requiere schema users a nivel espacio. Elegir DirectQuery para tiempo real (con impacto en performance del origen) o Import Mode para snapshots (con latencia de actualización).
+Contexto:
+  - Compatibilidad con Modelos Analíticos muy limitada
+  - Soporta DAC via usuario de base de datos
+  - DirectQuery para tiempo real, Import Mode para snapshots
+Restricción Técnica:
+  - Power BI no puede resolver medidas calculadas, restringidas o navegar asociaciones ni jerarquías.
+Work-around actual:
+  - Derivar atributos y textos en las vistas es la única alternativa disponible
+Veredicto:
+  - Práctica aceptable bajo DirectQuery. 
+  - Complejidad en escalabilidad y rendimiento bajo import mode.
 {{/callout}}
 {{/callout_row}}
 
 {{tree_button: Herramienta de Reporting}}
-
-## Conexión de Herramientas Externas
-{{section_meta: keywords="conexión Power BI datasphere, schema user, usuario esquema, DirectQuery datasphere, import mode datasphere, live data connection, conexión SAC datasphere, cómo conectar Power BI, cómo conectar herramienta externa, JDBC ODBC datasphere, conexión BO datasphere, configurar Power BI datasphere, conexión externa datasphere, tipo conexión reporting"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/4db9e1e21c814cda933c5e1b5a6e6e30.html" Pin=true}}
-
-Para conectar herramientas externas como Power BI a Datasphere se requiere un **schema user** (usuario de base de datos a nivel espacio). Este usuario está sujeto a DAC — los filtros de acceso configurados en Datasphere se aplican automáticamente al consumo externo.
-
-| Modo | Descripción | Ventajas | Consideraciones |
-|---|---|---|---|
-| **DirectQuery** | Power BI consulta Datasphere en tiempo real en cada interacción | Datos siempre actualizados — sin latencia de refresh | Impacto de performance en Datasphere con consultas concurrentes |
-| **Import Mode** | Power BI importa los datos y los almacena en su propio motor | Performance óptima en Power BI | Latencia de actualización — requiere schedule de refresh |
-| **Live Data Connection (SAC)** | SAC consulta el modelo analítico directamente en Datasphere | Nativo, sin schema users, respeta DAC | Solo disponible con SAC — no aplica a Power BI |
-
-{{callout: title="Schema user — patrón recomendado" tone="note" icon="🔹"}}
-Crear un schema user por espacio y ambiente (DEV/QA/PRD). No compartir el mismo usuario entre herramientas distintas. El schema user debe tener asignados los DAC correspondientes al perfil de consumo externo.
-{{/callout}}
-
-## Performance en Reporting
-{{section_meta: keywords="performance reporting, performance datasphere, rendimiento reporting, lentitud Power BI, lentitud SAC, optimizar reporte, performance consultas, índices datasphere, persistencia performance, DirectQuery lento, capacidad datasphere, CU datasphere, capacity units, optimización reporting, latencia reporte"}}
-
-La performance del reporting depende de decisiones tomadas desde el modelo, no solo desde la herramienta de consumo.
-
-| Palanca | Recomendación |
-|---|---|
-| **Persistencia selectiva** | Persistir vistas en capas de consumo (capa 3) cuando el volumen es alto o la transformación es costosa |
-| **Aggregation views** | Pre-agregar en Datasphere antes de exponer al reporte — reducir granularidad innecesaria |
-| **Filtros en el modelo** | Aplicar filtros en capas internas — no delegar toda la selectividad a la herramienta de reporting |
-| **DirectQuery vs Import** | Evaluar Import Mode para dashboards con alto volumen y baja necesidad de tiempo real |
-| **Workload class** | Configurar clases de workload para priorizar consultas de reporting sobre procesos de carga |
-| **Capacity Units (CU)** | Dimensionar CUs según el volumen de consultas concurrentes esperadas — no subestimar en go-live |
-
-{{callout: title="Regla de oro de performance" tone="punch" icon="💡"}}
-Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.
-{{/callout}}
 
 ## ✅ Checklist de Reporting
 {{section_meta: keywords="checklist reporting, lista verificación reporting, checklist consumo, revisión reporting, buenas practicas reporting, puntos control reporting, verificar herramienta, verificar conexión, verificar performance, checklist Power BI datasphere, checklist SAC datasphere"}}

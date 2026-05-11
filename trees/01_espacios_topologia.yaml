@@ -38,28 +38,37 @@ start: q1
 nodes:
   q1:
     type: single_choice
-    question: "¿El proyecto requiere ambientes separados (DEV / QA / PRD)?"
-    options: ["Sí", "No"]
+    question: "¿Cuál es el caso de uso/Rol de Datasphere?"
+    options: ["Warehouse/Lakehouse", "Hub hacia otro sistema"]
     next:
-      "Sí": q2_lineas
-      "No": leaf_core_only
+      "Warehouse/Lakehouse": q2
+      "Hub hacia otro sistema": q2
+  q2:
+    type: single_choice
+    question: "¿Cómo está compuesto el landscape?"
+    options: ["1-Tier", "2-Tier"]
+    next:
+      "1-Tier": q3
+      "2-Tier": leaf_core_only
 
-  q2_lineas:
+  q3:
     type: single_choice
     question: "¿Hay múltiples líneas de negocio (Logística, Comercial, RRHH, etc.) con datos independientes?"
     options: ["Sí", "No"]
     next:
-      "Sí": q3_cross_sharing
-      "No": leaf_1tier_simple
+      "Sí": leaf_1tier_multi
+      "No": q4
 
-  q3_cross_sharing:
+  q4:
     type: single_choice
-    question: "¿Las líneas de negocio necesitan compartir objetos maestros o dimensiones comunes (ej: Clientes, Materiales, Tiempo)?"
-    options: ["Sí", "No", "No sé"]
+    question: "¿Como se consumirán los datos?"
+    options: ["SAC", "PowerBI", "BOBJ", "Excel"]
     next:
-      "Sí": leaf_2tier_crosssharing
-      "No": leaf_1tier_multi
-      "No sé": leaf_revision
+      "SAC": leaf_revisar_espacios_negocio
+      "PowerBI": leaf_capa_pbi
+      "BOBJ": leaf_revisar_espacios_negocio
+      "Excel": q4
+      "Externo": q4
 
 leaves:
   leaf_core_only:
@@ -86,10 +95,9 @@ leaves:
         - "Definir estrategia de transporte entre ambientes"
 
   leaf_1tier_multi:
-    decision: "Topología 1-Tier con múltiples espacios por ambiente — cada línea de negocio tiene su espacio, sin compartición formal."
+    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) tomando el espacio Productivo como Gobierno de datos y compartiendo en forma nativa (Cross-Sharing) a los Espacios de Negocio"
     notes:
-      - "Las líneas trabajan de forma independiente; no hay espacio central de gobierno."
-      - "Si en el futuro se necesita compartir objetos, migrar a 2-Tier."
+      - "Todos los objetos en los espacios de Negocio son compartidos desde el Gobierno de Datos (Espacio Productivo)"
     post_actions:
       mode: llm_value_add
 

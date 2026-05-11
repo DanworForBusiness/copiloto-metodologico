@@ -1,0 +1,45 @@
+case_id: case_20260507_172024_ec6e027e
+version: '1.0'
+source:
+  tree_id: m02_seguridad_dac
+  tree_title: Seguridad DAC
+  module: 02_Seguridad_y_Gobernanza
+  run_id: ec6e027e-4365-47be-8f02-c46c173b4b9d
+  timestamp: '2026-05-07T20:20:13.239441+00:00'
+route:
+- node: q1
+  question: ¿Se trata de un PoC, Piloto o MVP?
+  answer: 'No'
+- node: q2_reglas
+  question: ¿Los accesos son estaticos o de baja actualizacion?
+  answer: Sí
+leaf_id: leaf_valores_individuales
+decision: Usar Valores Individuales — accesos estáticos o de baja actualización sin
+  lógica condicional.
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- Ideal cuando cada usuario o grupo tiene un conjunto fijo y acotado de valores permitidos.
+- 'La gestión es directa: se asignan los valores una vez y se actualiza ante cambios
+  de rol.'
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: Sí
+  reason: null
+- node: q2_reglas
+  option: 'No'
+  reason: null
+- node: q2_reglas
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

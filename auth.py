@@ -89,7 +89,8 @@ def get_current_user() -> dict:
 
 def render_logout_button() -> None:
     """
-    Renderiza usuario y logout como controles livianos en el sidebar.
+    Renderiza usuario y estado de sesion en el sidebar.
+    Apagar el toggle equivale a cerrar sesion.
     """
     try:
         from streamlit_msal import Msal
@@ -100,29 +101,34 @@ def render_logout_button() -> None:
     display_name = html.escape(user.get("name") or "Usuario")
 
     st.sidebar.markdown(
-        f"""
-        <div style="font-size:0.8rem;color:rgba(255,255,255,.92);padding:4px 0;line-height:1.6">
-            Bienvenido {display_name}!
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.sidebar.markdown(
         """
 <style>
-[data-testid="stSidebar"] div:has(> button#logout_btn) button {
-    all: unset !important;
-    font-size: 0.8rem !important;
-    color: #eef2f6 !important;
-    cursor: pointer !important;
-    padding: 0 !important;
+[data-testid="stSidebar"] .dw-sidebar-session-user {
+    color: rgba(255,255,255,.94) !important;
+    font-size: 0.82rem !important;
+    font-weight: 650 !important;
+    line-height: 1.25 !important;
+    padding: 2px 0 3px 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+[data-testid="stSidebar"] .st-key-session_active_toggle {
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
     margin: 0 !important;
-    line-height: 1.6 !important;
+    padding: 0 !important;
 }
-[data-testid="stSidebar"] div:has(> button#logout_btn) button:hover {
-    color: #ffcf00 !important;
+[data-testid="stSidebar"] .st-key-session_active_toggle [data-testid="stWidgetLabel"] {
+    display: none !important;
 }
-[data-testid="stSidebar"] div:has(> button#logout_btn) {
+[data-testid="stSidebar"] .st-key-session_active_toggle label {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+[data-testid="stSidebar"] .st-key-session_active_toggle div[data-testid="stElementContainer"],
+[data-testid="stSidebar"] .st-key-session_active_toggle div[data-testid="stMarkdownContainer"] {
     margin: 0 !important;
     padding: 0 !important;
 }
@@ -131,10 +137,31 @@ def render_logout_button() -> None:
         unsafe_allow_html=True,
     )
 
-    if st.sidebar.button("-> Cerrar sesion", key="logout_btn"):
+    toggle_key = "session_active_toggle"
+    if toggle_key not in st.session_state:
+        st.session_state[toggle_key] = True
+
+    def _sign_out_if_disabled() -> None:
+        if st.session_state.get(toggle_key, True):
+            return
         Msal.sign_out()
         st.session_state.pop("_auth", None)
+        st.session_state.pop(toggle_key, None)
         st.rerun()
+
+    col_user, col_toggle = st.sidebar.columns([0.82, 0.18], vertical_alignment="center")
+    with col_user:
+        st.markdown(
+            f"<div class='dw-sidebar-session-user'>Bienvenido {display_name}!</div>",
+            unsafe_allow_html=True,
+        )
+    with col_toggle:
+        st.toggle(
+            "Sesion activa",
+            key=toggle_key,
+            label_visibility="collapsed",
+            on_change=_sign_out_if_disabled,
+        )
 
 
 def _render_login_screen() -> None:
@@ -435,13 +462,13 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
         <div class="dw-login-feature"><span class="dw-login-check">&#10003;</span><span>Criterios tecnicos para proyectos SAP</span></div>
       </div>
     </div>
-    <div class="dw-login-footer">&copy; 2026 Danwor &middot; Data & AI for Business</div>
+    <div class="dw-login-footer">&copy; 2026 Danwor &middot; Data & AI for Business &vert; Danwor Transversal</div>
   </div>
 </section>
 
 <section class="dw-login-right" aria-label="Acceso corporativo">
   <div class="dw-card">
-    <h2 class="dw-card-title">Bienvenido!</h2>
+    <h2 class="dw-card-title">¡Hola, bienvenido!</h2>
     <p class="dw-card-sub">{app_title}<br>{app_subtitle}</p>
     <div class="dw-login-slot" aria-hidden="true"></div>
   </div>
@@ -450,12 +477,12 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
         unsafe_allow_html=True,
     )
 
-    if st.button("Ingresar con @danwor.com", use_container_width=True, key="login_btn"):
+    if st.button("Ingresar con tu cuenta Danwor", use_container_width=True, key="login_btn"):
         Msal.sign_in()
 
     st.markdown(
         """
-<div class="dw-access-note">Autenticacion segura via Microsoft 365</div>
+<div class="dw-access-note">Autenticacion segura via dominio @danwor.com | Microsoft 365</div>
 """,
         unsafe_allow_html=True,
     )
