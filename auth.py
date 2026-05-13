@@ -14,7 +14,25 @@ from __future__ import annotations
 import html
 
 import streamlit as st
-from config import AZURE_CLIENT_ID, AZURE_TENANT_ID
+from config import ALLOWED_USERS, AZURE_CLIENT_ID, AZURE_TENANT_ID
+
+
+def _allowed_users() -> set[str] | None:
+    """
+    Devuelve None cuando el acceso está abierto a cualquier usuario autenticado.
+    Si ALLOWED_USERS contiene una lista CSV, normaliza los mails a minúscula.
+    """
+    raw = (ALLOWED_USERS or "").strip()
+    if not raw or raw.upper() == "ALL":
+        return None
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def _is_authorized_user(username: str) -> bool:
+    allowed = _allowed_users()
+    if allowed is None:
+        return True
+    return (username or "").strip().lower() in allowed
 
 
 def require_login() -> None:
@@ -43,6 +61,11 @@ def require_login() -> None:
     first_name = full_name.split()[0] if full_name else "Usuario"
     username = account.get("username", "")
     token = auth_data.get("accessToken", "")
+
+    if not _is_authorized_user(username):
+        st.session_state["_auth_denied"] = username or "usuario no identificado"
+        Msal.sign_out()
+        st.stop()
 
     # Microsoft Graph expone jobTitle con User.Read. Si falla, el login no debe bloquear.
     job_title = ""
@@ -416,6 +439,21 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
     font: 12px/1.45 "Segoe UI", system-ui, sans-serif;
     text-align: center;
 }}
+.dw-login-denied {{
+    position: fixed;
+    left: 71%;
+    top: calc(50% + 166px);
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 108px));
+    z-index: 1000;
+    color: #8a4b00;
+    background: rgba(234,179,8,.12);
+    border: 1px solid rgba(234,179,8,.38);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: 12px/1.45 "Segoe UI", system-ui, sans-serif;
+    text-align: center;
+}}
 
 @media (max-width: 1120px) {{
     .dw-login-left {{
@@ -438,7 +476,8 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
     }}
     .st-key-login_btn,
     div[data-testid="stButton"].st-key-login_btn,
-    .dw-access-note {{
+    .dw-access-note,
+    .dw-login-denied {{
         left: 50%;
     }}
 }}
@@ -476,6 +515,17 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
 """,
         unsafe_allow_html=True,
     )
+
+    denied_user = st.session_state.pop("_auth_denied", "")
+    if denied_user:
+        st.markdown(
+            f"""
+<div class="dw-login-denied">
+  El usuario {html.escape(denied_user)} no está autorizado para ingresar.
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
     if st.button("Ingresar con tu cuenta Danwor", use_container_width=True, key="login_btn"):
         Msal.sign_in()

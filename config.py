@@ -65,6 +65,12 @@ AZURE_CLIENT_ID  = _env("AZURE_CLIENT_ID", "Ad98b5cd-71d0-451f-8d70-e8581a4788fa
 AZURE_TENANT_ID  = _env("AZURE_TENANT_ID", "f287b953-5428-4a5e-ae17-bd9c4cfaedbe")
 TITLE_CONTEXT    = _env("DANWOR_TITLE_CONTEXT", "ON").upper() # ON vs OFF → el asistente usa el jobTitle como contexto
 
+# Control de acceso adicional a la autenticación corporativa.
+# "ALL" permite cualquier usuario autenticado del tenant configurado.
+# En otro caso, usar mails separados por coma:
+# ALLOWED_USERS="usuario1@danwor.com,usuario2@danwor.com"
+ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
+
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
 #                      aparecer en el cuerpo de la sección para considerar match.
