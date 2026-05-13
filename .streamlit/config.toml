@@ -2,3 +2,5 @@
 primaryColor = "#9E9E9E"
 [server]
 fileWatcherType = "poll"
+[client]
+toolbarMode = "minimal"
