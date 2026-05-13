@@ -161,16 +161,13 @@ def render_logout_button() -> None:
     )
 
     toggle_key = "session_active_toggle"
+    logout_pending_key = "_session_logout_pending"
     if toggle_key not in st.session_state:
         st.session_state[toggle_key] = True
 
-    def _sign_out_if_disabled() -> None:
-        if st.session_state.get(toggle_key, True):
-            return
-        Msal.sign_out()
-        st.session_state.pop("_auth", None)
-        st.session_state.pop(toggle_key, None)
-        st.rerun()
+    def _queue_sign_out_if_disabled() -> None:
+        if not st.session_state.get(toggle_key, True):
+            st.session_state[logout_pending_key] = True
 
     col_user, col_toggle = st.sidebar.columns([0.82, 0.18], vertical_alignment="center")
     with col_user:
@@ -183,8 +180,14 @@ def render_logout_button() -> None:
             "Sesion activa",
             key=toggle_key,
             label_visibility="collapsed",
-            on_change=_sign_out_if_disabled,
+            on_change=_queue_sign_out_if_disabled,
         )
+
+    if st.session_state.pop(logout_pending_key, False):
+        Msal.sign_out()
+        st.session_state.pop("_auth", None)
+        st.session_state.pop(toggle_key, None)
+        st.rerun()
 
 
 def _render_login_screen() -> None:
