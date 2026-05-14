@@ -25,6 +25,7 @@ LOGO_ANIMATED     = ASSETS_DIR / "danwor-animated-logo.html"
 LOGO_DANCING      = ASSETS_DIR / "danwor-animated-dancing.html"
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
+ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
 
 # LLM
 MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
@@ -68,8 +69,14 @@ TITLE_CONTEXT    = _env("DANWOR_TITLE_CONTEXT", "ON").upper() # ON vs OFF → el
 # Control de acceso adicional a la autenticación corporativa.
 # "ALL" permite cualquier usuario autenticado del tenant configurado.
 # En otro caso, usar mails separados por coma:
-# ALLOWED_USERS="usuario1@danwor.com,usuario2@danwor.com"
+# ALLOWED_USERS="usuario1,usuario2" asume @danwor.com.
+# También acepta mails completos si algún caso lo requiere.
 ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
+AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("@")
+
+# Logging liviano de adopción inicial.
+# OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios.
+LOG_ACTIVITY = _env("LOG_ACTIVITY", "OFF").upper()
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
