@@ -35,6 +35,10 @@ MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
 # "PRD"  → API Real forzada, controles de debug ocultos
 STATUS       = _env("DANWOR_STATUS", "DEV").upper()
 
+# Usuario(s) con permiso operativo para ver el modo diagnóstico aun en PRD.
+# Acepta alias sin dominio ("joconnor") o mails completos separados por coma.
+APP_OWNER    = _env("APP_OWNER", "")
+
 # Presentation
 # Cantidad mínima de dígitos para la numeración global de secciones.
 # 2 => [01], [02]. 3 => [001], [002].
