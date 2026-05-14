@@ -15,7 +15,15 @@ Modularizacion bajo la siguiente estructura:
 import re
 import streamlit as st
 
-from config import APP_TITLE, CONTENT_DIR, TREES_DIR, STATUS, IA_ENABLED_MODULES
+from config import (
+    APP_TITLE,
+    CONTENT_DIR,
+    TREES_DIR,
+    STATUS,
+    IA_ENABLED_MODULES,
+    APP_OWNER,
+    AUTH_DEFAULT_DOMAIN,
+)
 from core.content import (
     read_text_cached,
     split_front_matter,
@@ -37,10 +45,36 @@ from auth import require_login, get_current_user, render_logout_button
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
 require_login()
+current_user = get_current_user()
 render_logout_button()
 
 # Bootstrap 
 IS_DEV = STATUS.upper() == "DEV"
+
+
+def _normalize_owner_email(value: str) -> str:
+    user = (value or "").strip().lower()
+    if not user:
+        return ""
+    if "@" not in user:
+        domain = (AUTH_DEFAULT_DOMAIN or "danwor.com").strip().lower().lstrip("@")
+        user = f"{user}@{domain}"
+    return user
+
+
+def _is_app_owner(username: str) -> bool:
+    owners = {
+        _normalize_owner_email(item)
+        for item in (APP_OWNER or "").split(",")
+        if item.strip()
+    }
+    if not owners:
+        return False
+    return _normalize_owner_email(username) in owners
+
+
+IS_APP_OWNER = _is_app_owner(current_user.get("username", ""))
+CAN_TOGGLE_DEBUG = IS_DEV or IS_APP_OWNER
 
 st.markdown("<div class='dw-app-spacer'></div>", unsafe_allow_html=True)
 
@@ -154,12 +188,18 @@ def _on_debug_mode_change() -> None:
         st.session_state["active_tools_tab"] = 0
 
 
-if IS_DEV:
+if CAN_TOGGLE_DEBUG:
     st.sidebar.toggle(
         "Modo Diagnóstico (interno)",
         key="debug_mode_toggle",
         on_change=_on_debug_mode_change,
     )
+else:
+    st.session_state["debug_mode"] = False
+    st.session_state["debug_mode_toggle"] = False
+    if st.session_state.get("active_tools_tab") == 3:
+        st.session_state["active_tools_tab"] = 0
+
 if not st.session_state.get("debug_mode", False):
     AppState.set_execution_mode("API Real")
 
