@@ -14,18 +14,30 @@ from __future__ import annotations
 import html
 
 import streamlit as st
-from config import ALLOWED_USERS, AZURE_CLIENT_ID, AZURE_TENANT_ID
+from config import ALLOWED_USERS, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID
+from core.activity import log_activity
 
 
 def _allowed_users() -> set[str] | None:
     """
     Devuelve None cuando el acceso está abierto a cualquier usuario autenticado.
     Si ALLOWED_USERS contiene una lista CSV, normaliza los mails a minúscula.
+    Los valores sin dominio se interpretan como usuarios @danwor.com.
     """
     raw = (ALLOWED_USERS or "").strip()
-    if not raw or raw.upper() == "ALL":
+    if not raw or raw.upper() == "ALL" or raw == "*":
         return None
-    return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+    domain = (AUTH_DEFAULT_DOMAIN or "danwor.com").strip().lower().lstrip("@")
+    users: set[str] = set()
+    for item in raw.split(","):
+        user = item.strip().lower()
+        if not user:
+            continue
+        if "@" not in user:
+            user = f"{user}@{domain}"
+        users.add(user)
+    return users
 
 
 def _is_authorized_user(username: str) -> bool:
@@ -91,6 +103,10 @@ def require_login() -> None:
         "job_title": job_title,
         "token": token,
     }
+
+    if st.session_state.get("_activity_login_logged_for") != username:
+        log_activity("login", username=username, name=full_name, job_title=job_title)
+        st.session_state["_activity_login_logged_for"] = username
 
 
 def get_current_user() -> dict:

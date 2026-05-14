@@ -23,6 +23,7 @@ from core.content import (
     parse_markdown_headings,
     extract_section_by_heading,
 )
+from core.activity import log_activity
 from core.state import AppState, K_MODULE_SELECTOR
 from engine.tree_engine import load_tree_registry, load_all_trees, module_tag_from_selected, trees_for_module
 from ui.styles import inject_styles
@@ -109,6 +110,15 @@ selected_stem, quick_action, assessment_clicked = render_sidebar(
     appendix_labels=appendix_labels,
 )
 tools_enabled_for_module = selected_stem in IA_ENABLED_MODULES
+
+if st.session_state.get("_activity_last_module") != selected_stem:
+    log_activity(
+        "module_selected",
+        module=selected_stem,
+        label=module_labels.get(selected_stem, selected_stem),
+        ia_enabled=tools_enabled_for_module,
+    )
+    st.session_state["_activity_last_module"] = selected_stem
 
 # El panel derecho solo aporta valor en módulos habilitados para IA.
 # Al cambiar de módulo, se abre/cierra automáticamente según config.py.

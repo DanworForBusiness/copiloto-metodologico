@@ -21,6 +21,7 @@ import yaml
 
 from core.utils import norm_text as _norm, slugify as _slugify
 from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, CONTENT_DIR
+from core.activity import log_activity
 
 try:
     from auth import get_current_user as _get_auth_user
@@ -720,6 +721,13 @@ def _flush_pending_llm_direct(selected_stem: str) -> None:
     _pending_direct = st.session_state.pop("_pending_llm_direct", None)
     if not _pending_direct:
         return
+    if _pending_direct.get("activity_event") != "logged":
+        log_activity(
+            _pending_direct.get("activity_event") or "llm_direct",
+            module=_pending_direct.get("module") or selected_stem,
+            prompt=_pending_direct.get("prompt", ""),
+            source=_pending_direct.get("activity_source", "assistant"),
+        )
     answer = _llm_call_direct(
         _pending_direct["prompt"],
         _pending_direct["context"],
@@ -745,6 +753,7 @@ def _flush_pending_free_question(
     _prompt = (pending.get("prompt") or "").strip()
     if not _prompt:
         return
+    log_activity("prompt_consulted", module=selected_stem, prompt=_prompt, source="assistant")
 
     _ctx = context
     AppState.append_chat("user", _prompt)
@@ -770,6 +779,7 @@ def _flush_pending_free_question(
                 "context": _active_ctx,
                 "loading_msg": get_loading_message("Explicación", False),
                 "module": selected_stem,
+                "activity_event": "logged",
             }
             st.session_state.pop("_expand_chat_open", None)
             _rerun_tools_panel()
@@ -824,6 +834,7 @@ def _flush_pending_free_question(
                 "context": _active_ctx,
                 "loading_msg": get_loading_message("Explicación", False),
                 "module": selected_stem,
+                "activity_event": "logged",
             }
             st.session_state.pop("_expand_chat_open", None)
             _rerun_tools_panel()
@@ -1023,6 +1034,13 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
                 _loading_msg  = get_loading_message(_action, _cases_count > 0)
 
                 def _run():
+                    log_activity(
+                        "section_action",
+                        module=selected_stem,
+                        topic=_topic,
+                        action=_action,
+                        prompt=prompt,
+                    )
                     if AppState.is_simulation():
                         answer = _simulate_section_output(_action, _topic)
                     else:
@@ -1146,6 +1164,15 @@ def _render_trees_tab(
         _run_id = result.get("run", {}).get("run_id") if result.get("export") else result.get("trail", [{}])[0].get("tree_id", "")
         _leaf_state_key = f"_tree_leaf_result_{tree['id']}"
         if not st.session_state.get(_leaf_state_key + "_chat_added"):
+            log_activity(
+                "tree_completed",
+                module=selected_stem,
+                tree=tree.get("title", ""),
+                tree_id=tree.get("id", ""),
+                decision=decision,
+                mode=mode,
+                leaf_id=result.get("leaf_id", ""),
+            )
             st.session_state[_leaf_state_key] = {
                 "tree_title": tree.get("title", ""),
                 "decision":   decision,
@@ -1181,6 +1208,13 @@ def _render_trees_tab(
                     _export   = result.get("export", {}) or {}
                     va_prompt = build_tree_value_add_prompt(
                         _export, module=selected_stem
+                    )
+                    log_activity(
+                        "tree_action",
+                        module=selected_stem,
+                        tree=tree.get("title", ""),
+                        action="Analizar",
+                        prompt=va_prompt,
                     )
                     # Marcar que este árbol fue procesado via Analizar
                     # para que el tab Asistente no agregue la burbuja de decisión
@@ -1670,6 +1704,7 @@ def _render_assistant_tab(
                 _loading_msg = get_loading_message(_label, _cases_count > 0)
 
             def _run_qa():
+                log_activity("quick_action", module=selected_stem, action=_label, prompt=_prompt)
                 answer = _llm_call_direct(
                     _prompt,
                     _ctx,
@@ -2238,12 +2273,15 @@ button[kind="secondary"] p { text-align: left !important; }
                 if user_input_d.strip() and _ia_enabled(selected_stem):
                     _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
                     _loading_msg = get_loading_message("Pregunta libre", _cases_count > 0)
-                    AppState.append_chat("user", user_input_d.strip())
+                    _dialog_prompt = user_input_d.strip()
+                    log_activity("prompt_consulted", module=selected_stem, prompt=_dialog_prompt, source="expanded_chat")
+                    AppState.append_chat("user", _dialog_prompt)
                     st.session_state["_pending_llm_direct"] = {
-                        "prompt": user_input_d.strip(),
+                        "prompt": _dialog_prompt,
                         "context": context,
                         "loading_msg": _loading_msg,
                         "module": selected_stem,
+                        "activity_event": "logged",
                     }
                     st.session_state["_processing"] = True
                     st.session_state.pop("_expand_chat_open", None)
