@@ -1,12 +1,82 @@
-generated_at: '2026-03-09T17:18:55.050155'
-total_completed: 4
+generated_at: '2026-05-14T17:51:33.946053'
+total_completed: 84
 patterns:
+- route_signature: q1:Sí
+  occurrences: 18
+  outcomes:
+    anduvo: 18
+  leaf_reached:
+    leaf_roles_std_poc: 15
+    leaf_dac_poc: 2
+    leaf_contrato_origen: 1
+  trees:
+  - m02_seguridad_dac
+  - m02_seguridad_roles
+  - resolucion_contrato
+  confidence: 1.0
+- route_signature: q1:BW → q2_bw_inversion:Sí → q_bw_whitelist:Sí
+  occurrences: 16
+  outcomes:
+    anduvo: 1
+    en curso: 15
+  leaf_reached:
+    leaf_bw_whitelisted: 16
+  trees:
+  - extraction_options
+  confidence: 1.0
+- route_signature: q1:ERP → q2_erp_version:S4HANA → q3_s4_cds:No → q4_odp_whitelist:No
+  occurrences: 10
+  outcomes:
+    en curso: 10
+  leaf_reached:
+    leaf_alternatives: 10
+  trees:
+  - extraction_options
+  confidence: null
 - route_signature: q1:ERP → q2_erp_version:ECC → q3_ecc_version:≥NW7.5
+  occurrences: 6
+  outcomes:
+    anduvo: 6
+  leaf_reached:
+    leaf_ecc_framework: 6
+  trees:
+  - extraction_options
+  confidence: 1.0
+- route_signature: q1:No → q2_segregacion:Sí
+  occurrences: 6
+  outcomes:
+    en curso: 6
+  leaf_reached:
+    leaf_roles_custom: 6
+  trees:
+  - m02_seguridad_roles
+  confidence: null
+- route_signature: q1:ERP → q2_erp_version:S4HANA → q3_s4_cds:Sí → q4_cds_compat:Sí
+  occurrences: 4
+  outcomes:
+    anduvo: 1
+    no anduvo: 1
+    en curso: 2
+  leaf_reached:
+    leaf_cds_std: 4
+  trees:
+  - extraction_options
+  confidence: 0.5
+- route_signature: q1:ERP → q2_erp_version:S4HANA → q3_s4_cds:Sí → q4_cds_compat:No
+  occurrences: 3
+  outcomes:
+    en curso: 3
+  leaf_reached:
+    leaf_cds_template: 3
+  trees:
+  - extraction_options
+  confidence: null
+- route_signature: q1:SAC
   occurrences: 2
   outcomes:
     anduvo: 2
   leaf_reached:
-    leaf_ecc_framework: 2
+    leaf_sac: 2
   trees:
-  - extraction_options
+  - m05_herramienta_reporting
   confidence: 1.0

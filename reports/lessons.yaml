@@ -1,5 +1,5 @@
-generated_at: '2026-03-09T17:18:55.050196'
-total_lessons: 3
+generated_at: '2026-05-14T17:51:33.946399'
+total_lessons: 104
 by_tree:
   extraction_options:
   - lesson: verificar version ABAP antes de sugerir SLT
@@ -14,6 +14,550 @@ by_tree:
     source: leaf_note
   - lesson: En esta instancia la CDS sera compatible para extraccion unicamente en
       modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: xx
+    context: la verdad no me queda claro que significa apoyarse en una CDS estandar
+    outcome: no anduvo
+    uncharted: false
+  - lesson: En esta instancia la CDS será compatible para extracción únicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: En esta instancia la CDS será compatible para extracción únicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: En esta instancia la CDS será compatible para extracción únicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: En esta instancia la CDS será compatible para extracción únicamente en
+      modo FULL
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  m01_espacios_topologia:
+  - lesson: No define DEV/QA/PRD — todo en un único espacio de trabajo.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la topología cuando el proyecto avance a producción.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: El espacio Cross-Sharing publica data products (clientes, materiales,
+      jerarquías) que consumen los espacios de negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Los objetos del espacio raíz son siempre los data products publicados
+      hacia Cross-Sharing.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Es la topología recomendada para proyectos enterprise con gobierno de
+      datos.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  m02_seguridad_dac:
+  - lesson: Valores Individuales son los más simples de configurar e ideales para
+      validar el modelo de datos.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la estructura DAC cuando el PoC prospere a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Ideal cuando cada usuario o grupo tiene un conjunto fijo y acotado de
+      valores permitidos.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: 'La gestión es directa: se asignan los valores una vez y se actualiza
+      ante cambios de rol.'
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Ideal para centros de costos, organigramas o regiones donde un acceso
+      padre implica acceso a los hijos.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Requiere que la jerarquía esté modelada y disponible en Datasphere.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Es el tipo más potente pero también el más complejo de configurar y mantener.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Valores Individuales son los más simples de configurar e ideales para
+      validar el modelo de datos.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la estructura DAC cuando el PoC prospere a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  m02_seguridad_roles:
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Los roles estándar son suficientes cuando el modelo de acceso es simple.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar si la estructura de accesos cambia al crecer el proyecto.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Capitalizar el marco Danwor RDS para no partir de cero.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Revisar segregación de funciones y auditoría interna del cliente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Sin eliminar la revisión de controles de acceso con el negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Documentar si los roles estándar cubren la necesidad antes de considerar
+      custom.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Reevaluar la decisión si el PoC prospera a proyecto.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  m04_tipos_vistas_sql:
+  - lesson: El plan de ejecución HANA es menos optimizable que en SQL Estándar.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Dificulta el versionado, la trazabilidad y la auditoría técnica.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Escala peor en modelos reutilizables o críticos.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Planificar migración a Vista SQL Estándar antes de promover a producción.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Cubre filtros, JOINs, agregaciones, cálculos y expresiones CASE.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Mejor plan de ejecución HANA, más fácil de versionar, trazar y auditar.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Preferir siempre sobre Vista Gráfica en objetos productivos o reutilizables.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: No es una vista en tiempo real — es un proceso de carga que genera una
+      tabla local.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Definir la frecuencia de actualización (schedule) y el impacto en el sistema
+      fuente.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Evaluar Replication Flow si el caso es replicación incremental desde sistemas
+      SAP.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Antes de comprometerse con SQLScript, verificar si una CTE (Common Table
+      Expression) en SQL Estándar cubre el caso.
+    context: null
+    outcome: inconcluso
+    uncharted: false
+    source: leaf_note
+  - lesson: 'Si se confirma Table Function: incluir vista wrapper para preservar linaje.'
+    context: null
+    outcome: inconcluso
+    uncharted: false
+    source: leaf_note
+  m05_herramienta_reporting:
+  - lesson: No requiere schema users ni configuración adicional de conectividad.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Consume modelos analíticos en tiempo real y respeta DAC automáticamente.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Opción recomendada dentro del ecosistema SAP end-to-end.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Opción para clientes con BO existente que no migran aún a SAC.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Requiere schema user a nivel espacio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Evaluar roadmap de migración a SAC a mediano plazo si el cliente sigue
+      en ecosistema SAP.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Requiere schema user a nivel espacio con los DAC correspondientes.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Impacto de performance en Datasphere con consultas concurrentes — evaluar
+      workload class.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Garantiza datos siempre actualizados sin necesidad de refresh schedule.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Requiere schema user a nivel espacio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Performance óptima en Power BI — no impacta Datasphere en cada consulta.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: Definir frecuencia de refresh según SLA de actualización del negocio.
+    context: null
+    outcome: en curso
+    uncharted: false
+    source: leaf_note
+  - lesson: La elección de herramienta impacta en el tipo semántico y la estructura
+      de las vistas de consumo.
+    context: null
+    outcome: inconcluso
+    uncharted: false
+    source: leaf_note
+  - lesson: Proponer SAC si el cliente no tiene preferencia — es la integración más
+      directa.
+    context: null
+    outcome: inconcluso
+    uncharted: false
+    source: leaf_note
+  - lesson: No requiere schema users ni configuración adicional de conectividad.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Consume modelos analíticos en tiempo real y respeta DAC automáticamente.
+    context: null
+    outcome: anduvo
+    uncharted: false
+    source: leaf_note
+  - lesson: Opción recomendada dentro del ecosistema SAP end-to-end.
     context: null
     outcome: anduvo
     uncharted: false

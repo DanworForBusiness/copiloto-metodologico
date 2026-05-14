@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import re
 import html
+import io
+import zipfile
 import datetime as _dt
 import time as _time
 from pathlib import Path
@@ -20,7 +22,7 @@ import streamlit as st
 import yaml
 
 from core.utils import norm_text as _norm, slugify as _slugify
-from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, CONTENT_DIR
+from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, CONTENT_DIR
 from core.activity import log_activity
 
 try:
@@ -2407,6 +2409,136 @@ div[data-testid="stVerticalBlock"]:has(> div > .dw-section-title) {
 """
 
 
+_RUNTIME_EXPORT_DIRS = (
+    ("feedback_log", FEEDBACK_LOG_DIR),
+    ("activity_log", ACTIVITY_LOG_DIR),
+    ("case_library", CASE_LIBRARY_DIR),
+)
+
+
+def _format_bytes(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1024
+    return f"{num_bytes} B"
+
+
+def _iter_runtime_files(root: Path) -> list[Path]:
+    if not root.exists() or not root.is_dir():
+        return []
+    return sorted(
+        p for p in root.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    )
+
+
+def _runtime_export_inventory() -> tuple[list[dict], int, int, float | None]:
+    rows: list[dict] = []
+    total_files = 0
+    total_size = 0
+    latest_mtime: float | None = None
+
+    for label, root in _RUNTIME_EXPORT_DIRS:
+        files = _iter_runtime_files(root)
+        size = sum(p.stat().st_size for p in files)
+        mtimes = [p.stat().st_mtime for p in files]
+        latest = max(mtimes) if mtimes else None
+        rows.append({
+            "carpeta": label,
+            "path": str(root),
+            "archivos": len(files),
+            "tamano": _format_bytes(size),
+            "ultimo_cambio": (
+                _dt.datetime.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M:%S")
+                if latest else "-"
+            ),
+        })
+        total_files += len(files)
+        total_size += size
+        if latest is not None:
+            latest_mtime = latest if latest_mtime is None else max(latest_mtime, latest)
+
+    return rows, total_files, total_size, latest_mtime
+
+
+def _build_runtime_export_zip() -> bytes:
+    rows, total_files, total_size, latest_mtime = _runtime_export_inventory()
+    generated_at = _dt.datetime.now().isoformat(timespec="seconds")
+    manifest = {
+        "generated_at": generated_at,
+        "total_files": total_files,
+        "total_size_bytes": total_size,
+        "latest_mtime": latest_mtime,
+        "folders": rows,
+        "note": "Export manual de archivos runtime locales/efimeros antes de redeploy o reinicio.",
+    }
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        for label, root in _RUNTIME_EXPORT_DIRS:
+            for path in _iter_runtime_files(root):
+                zf.write(path, arcname=str(Path(label) / path.relative_to(root)))
+    return buffer.getvalue()
+
+
+def _runtime_export_preview(rows: list[dict], total_files: int, total_size: int) -> str:
+    lines = [
+        "Export runtime Danwor",
+        f"Archivos: {total_files}",
+        f"Tamaño: {_format_bytes(total_size)}",
+        "",
+    ]
+    for row in rows:
+        lines.append(
+            f"- {row['carpeta']}: {row['archivos']} archivos, "
+            f"{row['tamano']}, último cambio {row['ultimo_cambio']}"
+        )
+    return "\n".join(lines)
+
+
+def _render_runtime_export_section() -> None:
+    rows, total_files, total_size, _latest = _runtime_export_inventory()
+
+    st.markdown("**📦 Export runtime**")
+    st.caption(
+        "Descarga una copia manual de feedback, actividad y case library antes de un redeploy/reinicio. "
+        "En DigitalOcean estos archivos viven en el filesystem efímero del contenedor."
+    )
+
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "carpeta": "Carpeta",
+            "path": "Path",
+            "archivos": "Archivos",
+            "tamano": "Tamaño",
+            "ultimo_cambio": "Último cambio",
+        },
+    )
+
+    if total_files == 0:
+        st.info("No hay archivos runtime para exportar todavía.")
+        return
+
+    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_bytes = _build_runtime_export_zip()
+    st.download_button(
+        "📥 Descargar ZIP runtime",
+        data=zip_bytes,
+        file_name=f"danwor-runtime-export-{timestamp}.zip",
+        mime="application/zip",
+        key="download_runtime_export_zip",
+        width="stretch",
+    )
+    with st.expander("Resumen copiable", expanded=False):
+        st.code(_runtime_export_preview(rows, total_files, total_size), language=None)
+
+
 def _render_analytics_tab() -> None:
     import subprocess, sys as _sys, os as _os
     from config import BASE_DIR
@@ -2440,6 +2572,9 @@ def _render_analytics_tab() -> None:
     st.markdown("<h4 style='margin-top:0'>🔬 Analítica interna</h4>", unsafe_allow_html=True)
     st.caption("Herramientas administrativas — solo visible en modo diagnóstico.")
 
+    _render_runtime_export_section()
+
+    st.markdown(_GROUP_SEP, unsafe_allow_html=True)
     st.markdown("**📚 Case Library**")
     with st.expander("¿Qué hace cada acción?", expanded=False):
         st.markdown("**Analizar casos**  \nEscanea `case_library/` y genera reportes estructurados.")
