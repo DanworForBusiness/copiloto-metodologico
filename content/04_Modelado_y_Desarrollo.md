@@ -162,36 +162,6 @@ Las vistas gráficas tal vez simplifiquen la lectura visual y aceleren tu proces
 
 {{tree_button: Tipos de Vistas SQL}}
 
-## {dw-black}Tipos de {dw-gold}Vistas CDS
-{{section_meta: keywords="tipos vistas CDS, vista CDS estándar, vista CDS custom, API Funcional SAP, wrapper, core-data services, core data services, CDS Views, DDL, DDIC"}}
-
-{{subtitle: no-gap}}
->Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP (modernización por sobre legado), hay consideraciones importantes en nuestro contexto metodológico de cara a la extracción y framework ODP por los cuales inclusive SAP continúa apoyándose en CDS DDIC-based para sus propias API de extracción liberadas.
-
-| Aspecto | CDS View Entity<br>(DDL Moderno) | CDS DDIC-based View<br>(DDIC Clásico) |
-|---|---|---|
-| **Naturaleza** | Modelo moderno ABAP CDS | Modelo clásico basado en DDIC |
-| **SQL View** | ❌ No requiere | ✅ Requiere (`@AbapCatalog.sqlViewName`) |
-| **Integración ABAP** | Alta (RAP, OData, Fiori) | Alta (frameworks legacy/estables) |
-| **Capacidad DDL** |Avanzadas | Estándar |
-| **Dependencia DDIC** | Baja | Alta |
-| **Uso típico SAP** | Desarrollo moderno | Extracción / integración |
-| **Compatibilidad** | Depende del release | Amplia entre releases |
-
-{{subtitle: no-gap}}
->El tipo de vista no es una decisión de modernidad, sino de propósito. Elegir mal tiene consecuencias en compatibilidad ODP diseño SAP.
-
-| Propósito Técnico | Tipo de Vista CDS |
-|---|---|
-| RAP/OData/Fiori | View Entity |
-| Virtual Data Model (VDM) | View Entity |
-| Integración Técnica | DDIC-based |
-| Extracción de Datos | DDIC-based |
-
-{{callout: title="Señal Arquitectónica" tone="punch" icon="💡"}}
-SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: sino una decisión técnica deliberada.
-{{/callout}}
-
 ## Checklist de Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}
 

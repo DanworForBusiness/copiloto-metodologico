@@ -51,7 +51,7 @@ def _clean_heading_label(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 # ── Acciones disponibles en el panel de sección ───────────────────────────────
-ACTION_FULL       = "Salida completa (operativa)"
+ACTION_FULL       = "Salida Operativa"
 ACTION_CHECKLIST  = "Checklist ejecutable"
 ACTION_DECISIONS  = "Decisiones si/entonces"
 ACTION_ANTIPATTERNS = "Anti-patterns y riesgos"

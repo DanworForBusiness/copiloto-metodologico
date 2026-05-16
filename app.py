@@ -23,6 +23,7 @@ from config import (
     IA_ENABLED_MODULES,
     APP_OWNER,
     AUTH_DEFAULT_DOMAIN,
+    ia_enabled_for,
 )
 from core.content import (
     read_text_cached,
@@ -30,6 +31,7 @@ from core.content import (
     module_label_from_md,
     parse_markdown_headings,
     extract_section_by_heading,
+    tree_button_refs_from_markdown,
 )
 from core.activity import log_activity
 from core.state import AppState, K_MODULE_SELECTOR
@@ -143,7 +145,7 @@ selected_stem, quick_action, assessment_clicked = render_sidebar(
     appendix_names=appendix_names,
     appendix_labels=appendix_labels,
 )
-tools_enabled_for_module = selected_stem in IA_ENABLED_MODULES
+tools_enabled_for_module = ia_enabled_for(selected_stem)
 
 if st.session_state.get("_activity_last_module") != selected_stem:
     log_activity(
@@ -230,6 +232,8 @@ if module_nav_delta:
             "selected_topic_from_anchor",
             "_scroll_to_slug",
             "_tree_suggestion",
+            "_requested_tree_id",
+            "_requested_tree_title",
             "_combined_suggestion",
             "_section_suggestion",
             "_asset_suggestion",
@@ -245,6 +249,24 @@ if roadmap_clicked:
 prev_module = st.session_state.get("_prev_module")
 preserve_chat = bool(st.session_state.pop("_preserve_chat_on_module_switch", False))
 if prev_module and prev_module != selected_stem:
+    for _key in (
+        "selected_topic",
+        "selected_section_md",
+        "decision_panel",
+        "section_panel_open",
+        "tree_panel_open",
+        "tree_selector",
+        "selected_topic_from_anchor",
+        "_scroll_to_slug",
+        "_tree_suggestion",
+        "_requested_tree_id",
+        "_requested_tree_title",
+        "_combined_suggestion",
+        "_section_suggestion",
+        "_asset_suggestion",
+        "_pending_llm_direct",
+    ):
+        st.session_state.pop(_key, None)
     if not preserve_chat:
         AppState.clear_chat()
     st.session_state["_scroll_content_to_top"] = True
@@ -312,6 +334,38 @@ trees_legacy   = [
 merged         = {t.id: t for t in trees_new}
 for t in trees_legacy:
     merged.setdefault(t.id, t)
+
+# Los tree_button declarados en el markdown actual también cuentan como
+# árboles disponibles para este contexto, aunque el YAML pertenezca a otro
+# módulo. Mantiene one source of truth y evita que el tab Árbol diga que no
+# hay árboles cuando el propio contenido expone uno.
+for ref in tree_button_refs_from_markdown(body_md):
+    ref_id = (ref.get("id") or "").strip()
+    ref_label = (ref.get("label") or "").strip()
+    ref_tree = registry.get(ref_id) if ref_id else None
+    if not ref_tree and ref_label:
+        ref_tree = next(
+            (t for t in registry.all if (t.get("title", t["id"]) == ref_label)),
+            None,
+        )
+    if ref_tree:
+        merged.setdefault(ref_tree.id, ref_tree)
+
+# Permite reutilizar un árbol desde cualquier módulo/apéndice mediante:
+#   {{tree_button: id=extraction_options label="Opciones de Extracción"}}
+# El árbol sigue teniendo un único YAML fuente; acá solo se lo agrega
+# temporalmente al set renderizable del panel derecho cuando fue solicitado.
+requested_tree_id = (st.session_state.get("_requested_tree_id") or "").strip()
+requested_tree_title = (st.session_state.get("_requested_tree_title") or "").strip()
+requested_tree = registry.get(requested_tree_id) if requested_tree_id else None
+if not requested_tree and requested_tree_title:
+    requested_tree = next(
+        (t for t in registry.all if (t.get("title", t["id"]) == requested_tree_title)),
+        None,
+    )
+if requested_tree:
+    merged.setdefault(requested_tree.id, requested_tree)
+
 trees_this_module = list(merged.values())
 
 # Layout principal 

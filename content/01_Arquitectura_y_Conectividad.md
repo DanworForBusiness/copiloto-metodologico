@@ -9,11 +9,13 @@ key_topics:
     heading: "Referencias de Arquitectura"
   - id: espacios
     label: Espacios
-    heading: "Espacios y Transportes"
+    heading: "Espacios & Transportes"
   - id: configuracion
     label: Configuración
     heading: "Configuración de Espacios"
-
+  - id: checklist
+    label: Checklist
+    heading: "🌟 Checklist de Configuración"
 scope: |
   Cubre la arquitectura de referencia de SAP Datasphere y Business Data Cloud (BDC):
   landscape de sistemas fuente (SAP y no-SAP), mecanismos de conexión (DP Agent,

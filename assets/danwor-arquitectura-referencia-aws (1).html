@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Arquitectura de Referencia | Hub de Integración AWS</title>
+<link rel="stylesheet" href="danwor-shared.css">
+<style>
+  /* ── LOCAL TOKENS ── */
+  :root {
+    --sap-bg:     rgba(240,244,255,0.70); --sap-border: #7b9fd4;
+    --ds-bg:      rgba(240,247,244,0.70); --ds-border:  #5aaa8a;
+    --aws-bg:     rgba(255,249,235,0.80); --aws-border: #e8a020;
+    --inf-bg:     rgba(245,240,255,0.80); --inf-border: #9b72cf;
+    --cc-bg:      #fff3e0; --cc-border: #e8972a;
+    --odq-bg:     #1976d2; --cdc-bg:    #388e3c;
+    --https-bg:   #4527a0; --rfc-bg:    #1a5294;
+    --adapter-bg: #b85c00; --odbc-bg:   #455a64;
+    --dpserver-bg:#2e7d32;
+    --remote-bg:  #3949ab; --repflow-bg:#1565c0;
+    --dataflow-bg:#0277bd;
+    --raw-bg:     #5d4037; --curated-bg:#1b5e20;
+    --s3-bg:      #e65100;
+    --aws-orange: #ff9900;
+    --inf-purple: #7b1fa2;
+  }
+
+  .page-hero { padding: 40px 60px 26px; }
+  .hero-dots  { top: 20px; }
+  .hero-badge { margin-bottom: 14px; }
+  .page-hero h1 { font-size: 34px; letter-spacing: -0.4px; }
+  .page-hero .hero-desc { font-size: 14px; max-width: 860px; padding-left: 14px; }
+  .page-hero .hero-desc strong { font-weight: 700; }
+  .page-hero .hero-desc a { color: var(--dw-gold2); font-weight: 600; }
+
+  /* "Versión no productiva" ribbon */
+  .version-ribbon {
+    position: absolute; top: 22px; right: -32px;
+    background: #b91c1c; color: #fff;
+    font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase;
+    padding: 5px 42px; transform: rotate(35deg);
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    white-space: nowrap;
+  }
+
+  /* ── MAIN ── */
+  .main { padding: 4px 40px 12px; }
+
+  /* ── DIAGRAM: 4 columns ── */
+  .diagram {
+    display: grid;
+    grid-template-columns: 1fr 72px 1.6fr 1fr;
+    gap: 0;
+    min-height: 540px;
+    align-items: stretch;
+    position: relative;
+  }
+
+  /* ── SAP S/4 pane ── */
+  .pane-sap {
+    background: var(--sap-bg); border: 1.5px solid var(--sap-border);
+    border-radius: var(--r-lg) 0 0 var(--r-lg);
+    padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    position: relative;
+  }
+  .pane-title {
+    font-size: 13px; font-weight: 700; color: var(--dw-text);
+    margin-bottom: 2px; display: flex; align-items: center; gap: 8px;
+  }
+  .pane-subtitle {
+    font-size: 10px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px;
+    background: rgba(123,159,212,.15); color: var(--sap-border);
+    border: 1px solid rgba(123,159,212,.3);
+  }
+  .src-group {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .src-label { font-size: 11px; font-weight: 600; color: var(--dw-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+  .block-odq {
+    background: var(--odq-bg); color: #fff;
+    border-radius: var(--r-sm); padding: 9px 12px;
+    cursor: pointer; transition: var(--tr);
+  }
+  .block-odq:hover { filter: brightness(1.12); transform: translateY(-1px); box-shadow: var(--sh-sm); }
+  .block-cdc {
+    background: var(--cdc-bg); color: #fff;
+    border-radius: var(--r-sm); padding: 9px 12px;
+    cursor: pointer; transition: var(--tr);
+  }
+  .block-cdc:hover { filter: brightness(1.12); transform: translateY(-1px); box-shadow: var(--sh-sm); }
+  .block-title { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+  .block-sub   { font-size: 10.5px; opacity: .85; }
+  .tip-bar {
+    background: rgba(var(--dw-gold-rgb),.08); border: 1px solid rgba(var(--dw-gold-rgb),.25);
+    border-radius: var(--r-sm); padding: 8px 12px;
+    font-size: 11px; color: var(--dw-text); line-height: 1.45;
+    display: flex; gap: 7px; align-items: flex-start;
+  }
+  .tip-bar strong { color: var(--dw-gold2); }
+  .pane-foot { font-size: 11px; color: var(--dw-muted); line-height: 1.6; margin-top: auto; padding-top: 8px; }
+  .pane-foot span { display: block; }
+  .phase-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; color: var(--dw-gold2);
+    background: rgba(var(--dw-gold-rgb),.08); border: 1px solid rgba(var(--dw-gold-rgb),.25);
+    padding: 5px 13px; border-radius: 20px; text-decoration: none; transition: var(--tr);
+  }
+  .phase-link:hover { background: rgba(var(--dw-gold-rgb),.15); transform: translateY(-1px); }
+  .phase-link svg { width: 12px; height: 12px; }
+
+  /* ── MIDDLE: Firewall ── */
+  .pane-middle {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: space-around;
+    position: relative; padding: 14px 0;
+  }
+  .firewall-line {
+    position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 2px; border-left: 2px dashed rgba(var(--dw-gold-rgb),.5);
+    transform: translateX(-50%); z-index: 0;
+  }
+  .firewall-label {
+    position: absolute; top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--dw-gold); color: #000;
+    font-size: 9px; font-weight: 800; padding: 3px 8px;
+    border-radius: 4px; white-space: nowrap; z-index: 2; letter-spacing: .4px;
+  }
+  .net-label { font-size: 9px; color: var(--dw-muted); font-weight: 500; text-align: center; z-index: 2; line-height: 1.3; }
+  .block-cc {
+    background: var(--cc-bg); border: 1.5px solid var(--cc-border);
+    border-radius: var(--r-md); padding: 9px 11px;
+    text-align: center; cursor: pointer; transition: var(--tr); z-index: 2; width: 62px;
+  }
+  .block-cc:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(232,150,42,.3); }
+  .block-cc .block-title { font-size: 10px; color: var(--dw-text); }
+  .block-cc-icon { font-size: 16px; margin-bottom: 3px; }
+  .block-dpa {
+    background: var(--dw-light); border: 1.5px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 7px 9px;
+    text-align: center; cursor: pointer; transition: var(--tr); z-index: 2; width: 62px;
+  }
+  .block-dpa:hover { transform: translateY(-2px); box-shadow: var(--sh-sm); }
+  .block-dpa .block-title { font-size: 10px; color: var(--dw-muted); }
+  .comm-label {
+    font-size: 9px; color: var(--dw-muted); text-align: center;
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-sm); padding: 3px 5px; z-index: 2;
+    line-height: 1.3; width: 60px;
+  }
+
+  /* ── DATASPHERE hub pane ── */
+  .pane-ds {
+    background: var(--ds-bg); border: 1.5px solid var(--ds-border);
+    border-top: 3px solid var(--ds-border);
+    padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    position: relative;
+  }
+  .ds-hub-label {
+    font-size: 10px; color: #5aaa8a; font-weight: 700;
+    letter-spacing: .4px; text-transform: uppercase; margin-top: 2px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ds-hub-badge {
+    background: #5aaa8a; color: #fff; font-size: 9px; font-weight: 700;
+    padding: 2px 8px; border-radius: 3px; letter-spacing: .3px; text-transform: uppercase;
+  }
+  .ds-inner {
+    background: rgba(240,247,244,.7); border: 1px dashed rgba(90,170,138,.5);
+    border-radius: var(--r-md); padding: 13px; display: flex; flex-direction: column; gap: 9px;
+  }
+  .ds-inner-label {
+    font-size: 10px; font-weight: 600; color: #5aaa8a; text-transform: uppercase;
+    letter-spacing: .5px; margin-bottom: 2px;
+  }
+  /* protocol pills */
+  .proto-stack { display: flex; flex-direction: column; gap: 7px; margin-right: 10px; }
+  .proto-pill {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer;
+    transition: var(--tr); text-align: center; min-width: 66px; position: relative;
+  }
+  .proto-pill:hover { filter: brightness(1.1); transform: translateX(2px); box-shadow: var(--sh-sm); }
+  .proto-pill .block-title { font-size: 10.5px; font-weight: 700; }
+  .proto-pill .block-sub   { font-size: 9px; opacity: .85; margin-top: 2px; }
+  .proto-https   { background: var(--https-bg);   color: #fff; }
+  .proto-odbc    { background: var(--odbc-bg);    color: #fff; }
+  .proto-dpserv  { background: var(--dpserver-bg);color: #fff; }
+  .proto-rfc     { background: var(--rfc-bg);     color: #fff; }
+  .proto-adapter { background: var(--adapter-bg); color: #fff; }
+  /* ds objects */
+  .ds-objects { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .ds-obj {
+    background: var(--dw-white); border-radius: var(--r-sm);
+    border: 1px solid var(--dw-border); padding: 8px 11px;
+    cursor: pointer; transition: var(--tr);
+    display: flex; align-items: center; gap: 9px; position: relative;
+  }
+  .ds-obj:hover { transform: translateX(-1px); box-shadow: var(--sh-sm); border-color: var(--obj-color); z-index: 9500; }
+  .ds-obj-icon {
+    width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+    background: color-mix(in srgb, var(--obj-color) 12%, white);
+  }
+  .ds-obj-info { flex: 1; min-width: 0; }
+  .ds-obj-name { font-size: 12px; font-weight: 700; color: var(--dw-text); }
+  .ds-obj-tags { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
+  .ds-obj-tag {
+    font-family: var(--mono); font-size: 9px;
+    background: color-mix(in srgb, var(--obj-color) 8%, white);
+    color: color-mix(in srgb, var(--obj-color) 70%, black);
+    border: 1px solid color-mix(in srgb, var(--obj-color) 18%, transparent);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .ds-obj.disabled { opacity: .45; cursor: not-allowed; }
+  .ds-obj.disabled:hover { transform: none; box-shadow: none; }
+
+  /* outbound section inside DS */
+  .ds-outbound {
+    background: rgba(255,153,0,.07); border: 1.5px dashed rgba(255,153,0,.35);
+    border-radius: var(--r-md); padding: 12px 13px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .ds-outbound-label {
+    font-size: 10px; font-weight: 700; color: #b45309; text-transform: uppercase;
+    letter-spacing: .4px; display: flex; align-items: center; gap: 6px;
+  }
+  .outbound-obj {
+    background: var(--dw-white); border: 1px solid rgba(255,153,0,.3);
+    border-radius: var(--r-sm); padding: 8px 11px;
+    display: flex; align-items: center; gap: 9px;
+    cursor: pointer; transition: var(--tr); position: relative;
+  }
+  .outbound-obj:hover { box-shadow: var(--sh-sm); transform: translateX(1px); z-index: 9500; }
+  .out-icon { font-size: 14px; flex-shrink: 0; }
+  .out-name { font-size: 12px; font-weight: 700; color: var(--dw-text); }
+  .out-tags { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 3px; }
+  .out-tag  {
+    font-family: var(--mono); font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(255,153,0,.1); color: #b45309; border: 1px solid rgba(255,153,0,.25);
+  }
+  .out-tag.premium {
+    background: #fff3e0; color: #e65100; border-color: rgba(230,81,0,.3); font-weight: 700;
+  }
+  .premium-note {
+    font-size: 10px; color: #b45309; background: rgba(255,153,0,.08);
+    border: 1px solid rgba(255,153,0,.2); border-radius: var(--r-sm);
+    padding: 5px 9px; line-height: 1.5; display: flex; gap: 5px; align-items: flex-start;
+  }
+  .premium-note a { color: #e65100; font-weight: 700; }
+  .premium-note strong { font-weight: 700; }
+
+  /* ── AWS pane ── */
+  .pane-aws {
+    background: var(--aws-bg); border: 1.5px solid var(--aws-border);
+    border-top: 3px solid var(--aws-orange);
+    border-radius: 0 var(--r-lg) var(--r-lg) 0;
+    padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    position: relative;
+  }
+  .pane-aws .pane-title { color: var(--dw-text); }
+  .aws-service-group {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .aws-group-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--dw-muted); margin-bottom: 3px; display: flex; align-items: center; gap: 6px;
+  }
+  .aws-group-title .aws-icon { font-size: 14px; }
+  .aws-layer {
+    border-radius: var(--r-sm); padding: 7px 10px;
+    font-size: 11.5px; font-weight: 600; cursor: pointer;
+    transition: var(--tr); display: flex; align-items: center; gap: 7px;
+    position: relative;
+  }
+  .aws-layer:hover { filter: brightness(1.08); transform: translateX(2px); box-shadow: var(--sh-sm); z-index: 9500; }
+  .aws-layer-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .layer-raw     { background: #fff8f0; border: 1px solid rgba(93,64,55,.25);  color: #4e342e; }
+  .layer-raw .aws-layer-dot { background: #5d4037; }
+  .layer-clean   { background: #f0f4ff; border: 1px solid rgba(63,81,181,.2);  color: #283593; }
+  .layer-clean .aws-layer-dot { background: #3f51b5; }
+  .layer-cur     { background: #f0fdf4; border: 1px solid rgba(27,94,32,.2);   color: #1b5e20; }
+  .layer-cur .aws-layer-dot { background: #1b5e20; }
+  .layer-analytics { background: #faf5ff; border: 1px solid rgba(123,31,162,.2); color: #4a148c; }
+  .layer-analytics .aws-layer-dot { background: #7b1fa2; }
+  .layer-security { background: #fff9f0; border: 1px solid rgba(230,81,0,.2); color: #bf360c; }
+  .layer-security .aws-layer-dot { background: #e65100; }
+
+  /* S3 block */
+  .s3-block {
+    background: linear-gradient(135deg,#ff9900,#e8820e); color: #fff;
+    border-radius: var(--r-sm); padding: 9px 12px; font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 3px;
+  }
+  .s3-block-icon { font-size: 16px; }
+
+  /* Informatica pane (inlined at bottom of aws) */
+  .informatica-block {
+    background: var(--inf-bg); border: 1.5px solid var(--inf-border);
+    border-radius: var(--r-md); padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .informatica-title { font-size: 12px; font-weight: 700; color: var(--inf-purple); margin-bottom: 3px; display: flex; align-items: center; gap: 5px; }
+  .informatica-subtitle { font-size: 10px; color: var(--dw-muted); font-style: italic; }
+  .inf-item { font-size: 11px; color: var(--dw-muted); display: flex; align-items: baseline; gap: 5px; }
+  .inf-item::before { content: '—'; color: var(--inf-purple); flex-shrink: 0; font-weight: 700; }
+
+  /* footnote numbers */
+  .fn-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(var(--dw-gold-rgb),.15); border: 1px solid rgba(var(--dw-gold-rgb),.3);
+    color: var(--dw-gold2); font-size: 9px; font-weight: 800;
+    flex-shrink: 0; cursor: help;
+  }
+  .fn-num.pending { background: rgba(185,28,28,.1); border-color: rgba(185,28,28,.3); color: #b91c1c; }
+
+  /* ── TOOLTIP ── */
+  .has-tip { position: relative; }
+  .has-tip:hover { z-index: 9000 !important; }
+  .tip-content {
+    display: none; position: absolute; z-index: 9999;
+    background: var(--dw-black); color: rgba(255,255,255,.9);
+    font-size: 12px; line-height: 1.55; padding: 10px 14px;
+    border-radius: var(--r-sm); width: 220px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35); pointer-events: none;
+    white-space: normal; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  }
+  .tip-content::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--dw-black);
+  }
+  .has-tip:hover .tip-content { display: block; }
+  .tip-content strong { color: var(--dw-gold); font-weight: 700; }
+
+  /* ── LEGEND ── */
+  .legend {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 16px 22px; margin-top: 18px;
+    display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start;
+  }
+  .legend-group { display: flex; flex-direction: column; gap: 7px; }
+  .legend-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--dw-muted); margin-bottom: 2px; }
+  .legend-item  { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dw-text); }
+  .leg-line { width: 28px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .leg-line--solid   { background: var(--ds-border); }
+  .leg-line--dashed  { background: transparent; border-top: 2px dashed var(--ds-border); }
+  .leg-line--orange  { background: var(--aws-orange); }
+  .leg-line--premium { background: #e65100; }
+
+  /* ── FOOTNOTE ── */
+  .footnote {
+    font-size: 12px; color: var(--dw-muted); margin-top: 14px; line-height: 1.65;
+    padding: 12px 18px; background: var(--dw-light); border-radius: var(--r-md);
+    border-left: 3px solid var(--dw-gold); display: flex; flex-direction: column; gap: 5px;
+  }
+  .footnote a { color: var(--dw-gold2); font-weight: 600; }
+  .footnote strong { color: var(--dw-text); font-weight: 600; }
+
+  /* ── GOV BAR ── */
+  .gov-bar {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); padding: 15px 22px; margin-top: 20px;
+    display: flex; align-items: center; gap: 14px; box-shadow: var(--sh-sm);
+  }
+  .gov-icon { width: 36px; height: 36px; background: #eef2ff; border-radius: 9px; border: 1px solid #c7d2fe; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .gov-text strong { font-size: 13px; font-weight: 600; display: block; margin-bottom: 1px; }
+  .gov-text span   { font-size: 12px; color: var(--dw-muted); }
+  .gov-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .gov-tag  { font-size: 11.5px; padding: 3px 11px; border-radius: 20px; background: #f0f1ff; color: #4338ca; border: 1px solid #c7d2fe; font-weight: 500; }
+
+  /* ── FOOTER ── */
+  .site-footer {
+    background: var(--dw-black); padding: 20px 40px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid rgba(var(--dw-gold-rgb),.1); margin-top: 32px;
+  }
+  .site-footer p    { font-size: 12px; color: rgba(255,255,255,.3); }
+  .footer-logo      { font-size: 12px; color: rgba(255,255,255,.5); font-weight: 600; letter-spacing: 1px; }
+  .footer-logo span { color: var(--dw-gold); }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);} }
+  .animate  { animation: fadeUp .5s cubic-bezier(.4,0,.2,1) both; }
+  .delay-1  { animation-delay: .08s; }
+  .delay-2  { animation-delay: .16s; }
+
+  @media (max-width: 1100px) {
+    .diagram { grid-template-columns: 1fr; }
+    .pane-sap   { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+    .pane-aws   { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    .pane-middle { flex-direction: row; height: 52px; padding: 0 16px; min-height: unset; }
+    .firewall-line { top:50%;bottom:auto;left:0;right:0;height:2px;width:100%;border-left:none;border-top:2px dashed rgba(var(--dw-gold-rgb),.5);transform:translateY(-50%); }
+    .firewall-label { top:50%;left:8px;transform:translateY(-50%); }
+    .main { padding: 4px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER via shared.css -->
+<header class="site-header">
+  <a class="logo" href="#">
+    <div class="logo-mark">DW</div>
+    <div style="display:flex;flex-direction:column;gap:0">
+      <span class="logo-text">DANWOR</span>
+      <span class="logo-sub">Data &amp; AI for Business</span>
+    </div>
+  </a>
+  <nav class="header-nav">
+    <span class="nav-link">Inicio</span>
+    <span class="nav-link active">Marcos Metodológicos</span>
+    <span class="nav-link">Roadmap</span>
+    <span class="nav-link">Recursos</span>
+  </nav>
+</header>
+
+<!-- HERO -->
+<section class="page-hero" style="position:relative;overflow:hidden">
+  <div class="hero-dots">
+    <div class="hero-dot"></div><div class="hero-dot"></div><div class="hero-dot"></div>
+    <div class="hero-dot"></div><div class="hero-dot"></div><div class="hero-dot"></div>
+    <div class="hero-dot"></div><div class="hero-dot"></div><div class="hero-dot"></div>
+    <div class="hero-dot"></div><div class="hero-dot"></div><div class="hero-dot"></div>
+  </div>
+
+  <!-- "Versión no productiva" ribbon -->
+  <div style="position:absolute;top:0;right:0;width:140px;height:140px;overflow:hidden;pointer-events:none">
+    <div class="version-ribbon">Versión no productiva</div>
+  </div>
+
+  <div class="hero-badge">Hub de Integración | AWS</div>
+  <h1>Arquitectura de <em>Referencia</em></h1>
+  <p class="hero-desc">
+    Una mirada a alto nivel de la arquitectura de integración, y el <strong>camino hacia AWS</strong>.
+    SAP Datasphere actúa como <strong>hub corporativo de integración</strong> entre S/4 HANA y AWS como plataforma de Data Lake.
+    <a href="#">→</a>
+  </p>
+</section>
+
+<!-- MAIN -->
+<main class="main">
+<div class="diagram animate">
+
+  <!-- ══ 1. SAP S/4 HANA ══ -->
+  <div class="pane-sap">
+    <div>
+      <div class="pane-title">
+        SAP S/4 HANA
+        <span class="pane-subtitle">Origen</span>
+      </div>
+      <div style="font-size:11px;color:var(--dw-muted);margin-top:3px">Data Sources (Extractores)</div>
+    </div>
+
+    <!-- ODP -->
+    <div class="src-group">
+      <div class="src-label">ODP · Framework</div>
+      <div class="has-tip block-odq" style="border-radius:8px;padding:9px 11px;background:#1565c0;color:#fff;cursor:pointer;transition:.2s">
+        <div class="block-title">Framework ODP</div>
+        <div class="block-sub">Operational Delta Queue (ODQ)</div>
+        <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">
+          <span style="font-family:monospace;font-size:9px;background:rgba(255,255,255,.15);color:#fff;padding:2px 5px;border-radius:3px">ODP-BW</span>
+          <span style="font-family:monospace;font-size:9px;background:rgba(255,255,255,.15);color:#fff;padding:2px 5px;border-radius:3px">ODP-SAPI</span>
+        </div>
+        <div class="tip-content">
+          <strong>Framework ODP</strong><br>
+          Gestiona la extracción en modo delta. ODQ actúa como buffer seguro. Compatible con CDS Views, ODP-BW y ODP-SAPI.
+        </div>
+      </div>
+      <div style="font-size:10.5px;color:var(--dw-muted);padding:3px 2px;display:flex;flex-direction:column;gap:2px">
+        <span>↗ Vistas CDS (ABAP)</span>
+        <span style="font-family:monospace;font-size:9.5px;color:#455a64">dataExtraction.delta.byElement</span>
+        <span style="font-family:monospace;font-size:9.5px;color:#455a64">dataExtraction.delta.changeDataCapture</span>
+      </div>
+    </div>
+
+    <!-- CDC -->
+    <div class="src-group">
+      <div class="src-label">CDC · Change Data Capture</div>
+      <div class="has-tip block-cdc" style="border-radius:8px;padding:9px 11px;cursor:pointer;transition:.2s">
+        <div class="block-title">Motor CDC</div>
+        <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">
+          <span style="font-family:monospace;font-size:9px;background:rgba(255,255,255,.15);color:#fff;padding:2px 5px;border-radius:3px">DB Triggers</span>
+          <span style="font-family:monospace;font-size:9px;background:rgba(255,255,255,.15);color:#fff;padding:2px 5px;border-radius:3px">Logging Tables</span>
+        </div>
+        <div class="tip-content">
+          <strong>Motor CDC</strong><br>
+          Captura cambios a nivel de BD vía triggers o logging tables. Alternativa al ODP cuando no hay extractores estándar.
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--dw-muted);padding:3px 2px">↗ Vista SQL Interna → Tablas ABAP</div>
+    </div>
+
+    <div class="tip-bar">
+      <span>💡</span>
+      <span>La <strong>elección de la fuente e integración</strong> responde al modelo lógico definido.</span>
+    </div>
+
+    <div class="pane-foot">
+      <span>CDS / ODP / CDC</span>
+      <span>Fuentes autorizadas · Clean Core</span>
+      <span>Semántica SAP</span>
+    </div>
+  </div>
+
+  <!-- ══ 2. FIREWALL / CONECTORES ══ -->
+  <div class="pane-middle">
+    <div class="firewall-line"></div>
+    <div class="firewall-label">Firewall</div>
+    <div class="net-label">Red<br>Corp.</div>
+
+    <div class="has-tip block-cc">
+      <div class="block-cc-icon">🔗</div>
+      <div class="block-title">Cloud Connector</div>
+      <div class="tip-content" style="left:120%;bottom:50%;transform:translateY(50%)">
+        <strong>SAP Cloud Connector</strong><br>
+        Proxy seguro entre red del cliente y SAP BTP/Datasphere. Canal cifrado sin abrir puertos inbound.
+      </div>
+    </div>
+
+    <div class="has-tip block-dpa">
+      <div style="font-size:15px;margin-bottom:2px">🖥️</div>
+      <div class="block-title">DP Agent</div>
+      <div class="tip-content" style="left:120%;bottom:50%;transform:translateY(50%)">
+        <strong>Data Provisioning Agent</strong><br>
+        Legado. Canal RFC directo para On-Premise/ECC. En S/4 moderno se reemplaza por Cloud Connector + RFC.
+      </div>
+    </div>
+
+    <div class="comm-label" style="font-size:8px">Túnel Seguro y Cifrado</div>
+    <div class="net-label">Red<br>Pública</div>
+    <div style="font-size:8px;color:var(--dw-muted);text-align:center;z-index:2;margin-top:4px">Movimiento<br>de Datos</div>
+  </div>
+
+  <!-- ══ 3. SAP DATASPHERE — Hub de Integración ══ -->
+  <div class="pane-ds">
+    <div>
+      <div class="pane-title">SAP Datasphere</div>
+      <div class="ds-hub-label">
+        Hub de Integración
+        <span class="ds-hub-badge">in-between</span>
+      </div>
+    </div>
+
+    <!-- INBOUND: entrada desde S/4 -->
+    <div class="ds-inner">
+      <div class="ds-inner-label">Inbound · Entrada desde S/4</div>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <!-- Protocols -->
+        <div class="proto-stack">
+          <div class="has-tip proto-pill proto-https">
+            <div class="block-title">HTTPS</div>
+            <div class="tip-content">
+              <strong>HTTPS / SQL Service</strong><br>Puerto 44300. Federación vía ABAP SQL. Virtual host en Cloud Connector requerido.
+            </div>
+          </div>
+          <div class="has-tip proto-pill proto-odbc">
+            <div class="block-title">ODBC</div>
+            <div class="block-sub">(SDA)</div>
+            <div class="tip-content">
+              <strong>ODBC / SDA</strong><br>Smart Data Access. Federación directa sobre conexiones ODBC.
+            </div>
+          </div>
+          <div class="has-tip proto-pill proto-dpserv">
+            <div class="block-title">DP Server</div>
+            <div class="block-sub">(SDI)</div>
+            <div class="tip-content">
+              <strong>DP Server / SDI</strong><br>Canal del DP Agent para Replication Flows.
+            </div>
+          </div>
+          <div class="has-tip proto-pill proto-rfc">
+            <div class="block-title">RFC</div>
+            <div class="tip-content">
+              <strong>RFC</strong><br>Canal principal para Replication Flows vía Cloud Connector. Function modules DHAMB_* y DHAPE_*.
+            </div>
+          </div>
+          <div class="has-tip proto-pill proto-adapter">
+            <div class="block-title">Adapter</div>
+            <div class="block-sub">Connector</div>
+            <div class="tip-content">
+              <strong>Adapter / Connector</strong><br>Conectores SDI para fuentes no-SAP gestionados por el DP Agent.
+            </div>
+          </div>
+        </div>
+
+        <!-- DS objects -->
+        <div class="ds-objects">
+          <div class="has-tip ds-obj" style="--obj-color:#3949ab">
+            <div class="ds-obj-icon">🔲</div>
+            <div class="ds-obj-info">
+              <div class="ds-obj-name">Tabla Remota</div>
+              <div class="ds-obj-tags">
+                <span class="ds-obj-tag">ABAP_CDS</span>
+                <span class="ds-obj-tag">ODP SAPI</span>
+                <span class="ds-obj-tag">Extractores</span>
+                <span class="ds-obj-tag">Tablas ABAP</span>
+              </div>
+            </div>
+            <div class="tip-content">
+              <strong>Tabla Remota</strong><br>Federación en tiempo real. Datos en origen. Vía HTTPS/SQL Service. Salida federada hacia AWS vía JDBC/ODBC <span class="fn-num">(*2)</span>.
+            </div>
+          </div>
+
+          <div class="has-tip ds-obj disabled" style="--obj-color:#9e9e9e">
+            <div class="ds-obj-icon" style="opacity:.5">📥</div>
+            <div class="ds-obj-info">
+              <div class="ds-obj-name" style="color:var(--dw-muted)">Model Import (*)</div>
+              <div class="ds-obj-tags"><span class="ds-obj-tag">ABAP_CDS</span></div>
+            </div>
+            <div class="tip-content">
+              <strong>Model Import (*)</strong><br>Requiere ABAP 2021 FPS01+. Servicio ABAP SQL disponible.
+            </div>
+          </div>
+
+          <div class="has-tip ds-obj" style="--obj-color:#1565c0">
+            <div class="ds-obj-icon">🔃</div>
+            <div class="ds-obj-info">
+              <div class="ds-obj-name">Replication Flow</div>
+              <div class="ds-obj-tags">
+                <span class="ds-obj-tag">Extracción CDS</span>
+                <span class="ds-obj-tag">ODP_BW</span>
+                <span class="ds-obj-tag">ODP_SAPI</span>
+              </div>
+            </div>
+            <div class="tip-content">
+              <strong>Replication Flow</strong><br>Copia incremental/inicial hacia tablas locales. Canal RFC vía Cloud Connector.
+            </div>
+          </div>
+
+          <div class="has-tip ds-obj" style="--obj-color:#0277bd">
+            <div class="ds-obj-icon">🔀</div>
+            <div class="ds-obj-info">
+              <div class="ds-obj-name">Data Flow</div>
+              <div class="ds-obj-tags">
+                <span class="ds-obj-tag">Extracción CDS</span>
+              </div>
+            </div>
+            <div class="tip-content">
+              <strong>Data Flow</strong><br>Transformación y carga con lógica de procesamiento. Joins, aggregations, conversiones. Estandarización mínima · Metadatos SAP · Publicación.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OUTBOUND: salida hacia AWS -->
+    <div class="ds-outbound">
+      <div class="ds-outbound-label">
+        📤 Outbound · Salida hacia AWS
+      </div>
+
+      <div class="has-tip outbound-obj">
+        <span class="out-icon">🔃</span>
+        <div style="flex:1">
+          <div class="out-name">Replication Flow → Amazon S3</div>
+          <div class="out-tags">
+            <span class="out-tag premium">★ Premium Outbound</span>
+            <span class="out-tag">Integration en Datasphere</span>
+          </div>
+        </div>
+        <span class="fn-num">*1</span>
+        <div class="tip-content" style="right:0;left:auto;transform:none">
+          <strong>Replication Flow → S3</strong><br>
+          Requiere <strong>Premium Outbound</strong> Integration en SAP Datasphere. Copia incremental/inicial directa desde Datasphere hacia buckets S3.
+        </div>
+      </div>
+
+      <div class="has-tip outbound-obj">
+        <span class="out-icon">🔌</span>
+        <div style="flex:1">
+          <div class="out-name">JDBC/ODBC desde AWS</div>
+          <div class="out-tags">
+            <span class="out-tag">Glue / Spark / dbt</span>
+            <span class="out-tag">Lectura opcional</span>
+          </div>
+        </div>
+        <span class="fn-num">*2</span>
+        <div class="tip-content" style="right:0;left:auto;transform:none">
+          <strong>JDBC/ODBC desde AWS</strong><br>
+          AWS Glue, Spark o dbt pueden leer directamente de Datasphere vía JDBC/ODBC. Lectura opcional sobre Tablas Remotas o locales.
+        </div>
+      </div>
+
+      <div class="premium-note">
+        <span>⚠️</span>
+        <span><strong>(*1)</strong> Replication flows hacia Amazon S3 requieren <strong>Premium Outbound</strong> Integration en SAP Datasphere. <a href="#">Link →</a></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 4. AWS — Plataforma Corporativa ══ -->
+  <div class="pane-aws">
+    <div style="position:relative;overflow:hidden">
+      <div class="pane-title">
+        AWS
+        <span style="font-size:10px;font-weight:600;background:rgba(255,153,0,.15);border:1px solid rgba(255,153,0,.35);color:#b45309;padding:2px 8px;border-radius:4px;letter-spacing:.3px">Plataforma Corporativa</span>
+      </div>
+    </div>
+
+    <!-- DataLake S3 -->
+    <div class="aws-service-group">
+      <div class="aws-group-title">
+        <span class="aws-icon">🗄️</span> DataLake
+      </div>
+
+      <div class="s3-block">
+        <span class="s3-block-icon">☁️</span>
+        S3-based datalake
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div class="has-tip aws-layer layer-raw">
+          <div class="aws-layer-dot"></div>
+          Raw
+          <div class="tip-content">
+            <strong>Capa Raw</strong><br>Datos tal como llegan desde Datasphere/S4. Sin transformación. Zona de aterrizaje inmutable.
+          </div>
+        </div>
+        <div class="has-tip aws-layer layer-clean">
+          <div class="aws-layer-dot"></div>
+          Cleansed / Curated
+          <div class="tip-content">
+            <strong>Capa Cleansed</strong><br>Datos limpios y validados. Transformaciones básicas aplicadas por Glue, Spark o dbt.
+          </div>
+        </div>
+        <div class="has-tip aws-layer layer-analytics">
+          <div class="aws-layer-dot"></div>
+          Analítica
+          <div class="tip-content">
+            <strong>Capa Analítica</strong><br>Modelos dimensionales y analíticos listos para consumo BI/ML (Redshift, Athena, SageMaker).
+          </div>
+        </div>
+        <div class="has-tip aws-layer layer-security">
+          <div class="aws-layer-dot"></div>
+          Seguridad
+          <div class="tip-content">
+            <strong>Seguridad AWS</strong><br>IAM, KMS, Lake Formation para control de acceso granular. Cifrado en tránsito y en reposo.
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:5px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:10px;color:var(--dw-muted)">Escaneo nativo de metadatos</span>
+        <span class="fn-num">*3</span>
+      </div>
+    </div>
+
+    <!-- Informatica -->
+    <div class="informatica-block">
+      <div class="informatica-title">
+        <span>🏛️</span> Informatica
+        <span style="font-size:10px;font-weight:600;background:rgba(123,31,162,.1);border:1px solid rgba(123,31,162,.2);color:var(--inf-purple);padding:2px 7px;border-radius:4px">Autoridad de Gobierno</span>
+      </div>
+      <div class="informatica-subtitle">Gobierno de datos corporativo sobre el Data Lake</div>
+      <div style="margin-top:4px;display:flex;flex-direction:column;gap:3px">
+        <div class="inf-item">IDMC</div>
+        <div class="inf-item">Catálogo</div>
+        <div class="inf-item">Glosario · Linaje</div>
+        <div class="inf-item">Calidad</div>
+      </div>
+    </div>
+
+    <!-- Pending footnote -->
+    <div style="display:flex;align-items:center;gap:7px;margin-top:auto;padding-top:6px">
+      <span class="fn-num pending">*4</span>
+      <span style="font-size:11px;color:var(--dw-muted)">Pendiente de investigación</span>
+    </div>
+  </div>
+
+</div><!-- /diagram -->
+
+<!-- LEGEND -->
+<div class="legend animate delay-1">
+  <div class="legend-group">
+    <div class="legend-title">Flujo S/4 → Datasphere</div>
+    <div class="legend-item"><div class="leg-line leg-line--solid"></div>Replicación de datos (ODP/CDS vía RFC)</div>
+    <div class="legend-item"><div class="leg-line leg-line--dashed"></div>Federación de datos (HTTPS / SQL Service)</div>
+  </div>
+  <div class="legend-group">
+    <div class="legend-title">Flujo Datasphere → AWS</div>
+    <div class="legend-item"><div class="leg-line leg-line--premium"></div>Replication Flow → S3 (<strong>Premium Outbound</strong>)</div>
+    <div class="legend-item"><div class="leg-line leg-line--orange"></div>JDBC/ODBC lectura desde AWS (opcional)</div>
+  </div>
+  <div class="legend-group">
+    <div class="legend-title">Datasphere como hub</div>
+    <div class="legend-item" style="font-size:11.5px">Estandarización mínima · Metadatos SAP · Publicación controlada</div>
+  </div>
+</div>
+
+<!-- FOOTNOTES -->
+<div class="footnote animate delay-2">
+  <div><strong>(*1)</strong> Replication flows hacia Amazon S3 requieren <strong>Premium Outbound</strong> Integration en SAP Datasphere | <a href="#">Link</a></div>
+  <div><strong>(*2)</strong> Lectura opcional vía JDBC/ODBC desde AWS (Glue/Spark/dbt)</div>
+  <div><strong>(*3)</strong> Escaneo nativo de metadatos técnicos (S3/Glue/Redshift)</div>
+  <div><strong>(*4)</strong> Pendiente de investigación</div>
+</div>
+
+<!-- GOV BAR -->
+<div class="gov-bar">
+  <div class="gov-icon">🛡️</div>
+  <div class="gov-text">
+    <strong>Gobernanza Transversal</strong>
+    <span>Seguridad · Linaje · Control de Acceso · Auditoría · Calidad · Cumplimiento</span>
+  </div>
+  <div class="gov-tags">
+    <span class="gov-tag">S/4HANA</span>
+    <span class="gov-tag">Datasphere Hub</span>
+    <span class="gov-tag">AWS S3</span>
+    <span class="gov-tag">Informatica</span>
+    <span class="gov-tag">Premium Outbound</span>
+  </div>
+</div>
+
+</main>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <p>Danwor · Data &amp; AI for Business · Marco metodológico interno · Versión no productiva</p>
+  <div class="footer-logo"><span>DANWOR</span> FOR BUSINESS</div>
+</footer>
+
+</body>
+</html>

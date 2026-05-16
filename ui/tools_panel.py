@@ -22,7 +22,7 @@ import streamlit as st
 import yaml
 
 from core.utils import norm_text as _norm, slugify as _slugify
-from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, CONTENT_DIR
+from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, CONTENT_DIR, ia_enabled_for
 from core.activity import log_activity
 
 try:
@@ -353,8 +353,7 @@ def _render_leaf_assets(leaf: dict) -> None:
 
 
 def _ia_enabled(selected_stem: str) -> bool:
-    return any(selected_stem.startswith(s.split("_")[0] + "_") or selected_stem == s
-               for s in IA_ENABLED_MODULES)
+    return ia_enabled_for(selected_stem)
 
 
 def _ia_disabled_msg() -> None:
@@ -616,7 +615,10 @@ def _flush_pending_action() -> None:
         callback = pending["callback"]
 
     if not hasattr(st, "dialog") or not AppState.is_simulation():
-        callback()
+        try:
+            callback()
+        finally:
+            st.session_state.pop("_processing", None)
         _rerun_tools_panel()
         return
 
@@ -641,6 +643,7 @@ def _flush_pending_action() -> None:
                 st.caption("📂 Sin casos registrados aún.")
             c1, c2 = st.columns(2)
             if c1.button("Cancelar", width='stretch'):
+                st.session_state.pop("_processing", None)
                 _rerun_tools_panel()
             if c2.button("Confirmar", width='stretch'):
                 if sim_delay > 0:
@@ -655,7 +658,10 @@ def _flush_pending_action() -> None:
                         _time.sleep(3)
                         _elapsed += 3
                     _slot.empty()
-                callback()
+                try:
+                    callback()
+                finally:
+                    st.session_state.pop("_processing", None)
                 _rerun_tools_panel()
     _dlg()
 
@@ -971,7 +977,7 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
         st.caption("No se encontró fragmento exacto para este heading.")
 
     _ACTION_DESCRIPTIONS = {
-        "Salida completa (operativa)":
+        "Salida Operativa":
             "Síntesis ejecutiva en lenguaje no técnico, orientada a decisión. "
             "Para compartir con el cliente: qué necesita saber para aprobar o avanzar.",
         "Checklist ejecutable":
