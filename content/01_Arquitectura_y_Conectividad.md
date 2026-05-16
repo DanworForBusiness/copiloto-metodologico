@@ -17,9 +17,9 @@ key_topics:
     label: Checklist
     heading: "🌟 Checklist de Configuración"
 scope: |
-  Cubre la arquitectura de referencia de SAP Datasphere y Business Data Cloud (BDC):
+  Cubre la arquitectura de referencia de los distintos casos de uso implementados con SAP Datasphere:
   landscape de sistemas fuente (SAP y no-SAP), mecanismos de conexión (DP Agent,
-  Cloud Connector, SDA, BW Bridge), diseño de espacios (topologías 1-Tier / 2-Tier /
+  Cloud Connector, SDA), diseño de espacios (topologías 1-Tier / 2-Tier /
   Multi-Tier), estrategia de transportes, y configuración base de espacios (quota,
   source language, conexiones, Time Data). No cubre extracción de datos ni integración
   con sistemas origen (módulo 03), modelado dentro de Datasphere (módulo 04), ni

@@ -1253,14 +1253,22 @@ def _render_text_with_callouts_tree_support(
         if m_hdr:
             # Buscar la próxima línea no vacía después del heading
             _next_i = i + 1
-            while _next_i < len(lines) and not lines[_next_i].strip():
-                _next_i += 1
-            if _next_i < len(lines):
-                m_sid = SECTION_ID_RE.match(lines[_next_i].strip())
-                if m_sid:
+            while _next_i < len(lines):
+                candidate = lines[_next_i].strip()
+                if not candidate:
                     _next_i += 1
-                    while _next_i < len(lines) and not lines[_next_i].strip():
+                    continue
+                if SECTION_ID_RE.match(candidate) or SECTION_META_RE.match(candidate) or SECTION_MODE_RE.match(candidate):
+                    _next_i += 1
+                    continue
+                if re.match(r"^\s*\{\{\s*semantic_summary\s*\}\}\s*$", candidate, flags=re.I):
+                    _next_i += 1
+                    while _next_i < len(lines) and not re.match(r"^\s*\{\{\s*/\s*semantic_summary\s*\}\}\s*$", lines[_next_i], flags=re.I):
                         _next_i += 1
+                    if _next_i < len(lines):
+                        _next_i += 1
+                    continue
+                break
             m_sup = SUPPORT_LINE_RE.match(lines[_next_i]) if _next_i < len(lines) else None
             if m_sup:
                 flush_normal()
