@@ -45,16 +45,23 @@ APP_OWNER    = _env("APP_OWNER", "")
 SECTION_NUMBER_WIDTH = int(_env("DANWOR_SECTION_NUMBER_WIDTH", "2"))
 
 # IA completa habilitada sólo para estos stems (PoC → Herramienta interna)
+# El valor debe coincidir exactamente con el nombre físico del .md, sin extensión.
 IA_ENABLED_MODULES: list[str] = [
     "01_Arquitectura_y_Conectividad",
     "02_Seguridad_y_Gobernanza",
     "03_Integracion_y_Estrategia_de_Datos",
     "04_Modelado_y_Desarrollo",
     "05_Reporting_y_Consumo",
-    "06_Troubleshooting_y_Performance",
-    "08_Modernizacion_BW_Greenfield_BDC",
-    "10_Fundamentos_EA_y_Paradigmas",
+    "A01_Arquitectura_y_Modelado",
+    "A02_Modernizacion_BW_Greenfield_BDC",
+    "A03_Hub_de_Integracion_AWS",
+    "A05_Troubleshooting_y_Performance",
 ]
+
+
+def ia_enabled_for(stem: str) -> bool:
+    """Devuelve si un módulo/apéndice tiene IA habilitada por stem exacto."""
+    return (stem or "").strip() in IA_ENABLED_MODULES
 
 # Roadmap items
 ROADMAP_ITEMS = [

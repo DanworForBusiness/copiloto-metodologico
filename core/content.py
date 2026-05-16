@@ -380,6 +380,7 @@ HTML_EMBED_PARAM_RE = re.compile(
     re.I,
 )
 TREE_BTN_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I)
+TREE_BTN_KV_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_\-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^,\s]+))')
 
 # section_meta: tag invisible para intent detection del asistente.
 # No renderiza ningún contenido visual. Usarlo solo como señal de routing.
@@ -567,16 +568,102 @@ def _header_with_support_html(title: str, right_html: str, badge: str = "", extr
 """.strip()
 
 
-def _support_links_html(items: list[dict], *, pin: bool = False, section_slug: str = "") -> str:
+def _support_asset_download(item: dict, support_assets: list[dict] | None) -> dict | None:
+    """
+    Resuelve referencias de {{support}} hacia intent_assets declarados en el
+    front matter del módulo.
+
+    Contrato:
+      intent_assets:
+        - description: "Template CDS..."
+          asset: "templates/cds_extractor_template.abap"
+
+      {{support: Template CDS="asset:templates/cds_extractor_template.abap"}}
+      {{support: Template CDS="intent_asset:Template CDS"}}
+
+    Seguridad:
+    - Solo se habilitan assets ya declarados en intent_assets.
+    - La ruta final debe quedar dentro de BASE_DIR.
+    - El link se emite como data URL descargable, no como ruta local pública.
+    """
+    raw_ref = (item.get("url") or "").strip()
+    if not raw_ref.lower().startswith(("asset:", "intent_asset:", "intent:")):
+        return None
+
+    ref = raw_ref.split(":", 1)[1].strip()
+    if not ref or not support_assets:
+        return None
+
+    ref_norm = _norm(ref)
+    match = None
+    for asset in support_assets:
+        asset_path = str(asset.get("asset") or "").strip()
+        description = str(asset.get("description") or "").strip()
+        candidates = {
+            _norm(asset_path),
+            _norm(Path(asset_path).name),
+            _norm(description),
+        }
+        if ref_norm in candidates or any(ref_norm and ref_norm in c for c in candidates):
+            match = asset
+            break
+
+    if not match:
+        return None
+
+    from config import BASE_DIR
+    rel_path = str(match.get("asset") or "").strip()
+    try:
+        asset_path = (BASE_DIR / rel_path).resolve()
+        base_dir = BASE_DIR.resolve()
+        if base_dir not in asset_path.parents and asset_path != base_dir:
+            return None
+        if not asset_path.exists() or not asset_path.is_file():
+            return None
+        data = asset_path.read_bytes()
+    except Exception:
+        return None
+
+    mime = "text/plain"
+    return {
+        "label": (item.get("label") or match.get("description") or asset_path.name),
+        "data": data,
+        "mime": mime,
+        "download": asset_path.name,
+        "title": match.get("description") or item.get("label") or asset_path.name,
+    }
+
+
+def _support_asset_downloads(items: list[dict], support_assets: list[dict] | None) -> list[dict]:
+    downloads: list[dict] = []
+    for it in items or []:
+        asset_download = _support_asset_download(it, support_assets)
+        if asset_download:
+            downloads.append(asset_download)
+    return downloads
+
+
+def _support_links_html(
+    items: list[dict],
+    *,
+    pin: bool = False,
+    section_slug: str = "",
+    support_assets: list[dict] | None = None,
+) -> str:
     pills: list[str] = []
 
     for it in items:
         label = (it.get("label") or "").strip()
         url = (it.get("url") or "").strip()
+        if _support_asset_download(it, support_assets):
+            continue
         if not label or not url:
             continue
         l = label.lower()
         u = url.lower()
+        if "template" in l:
+            pills.append(_pill(_compact_template_label(label), url, "\U0001F4C4", title=label))
+            continue
         if "help" in l or "help.sap.com" in u:
             pills.append(_pill("SAP Help", url, "🔗", title=label))
         elif "note" in l or "nota" in l or "me.sap.com/notes" in u:
@@ -605,6 +692,7 @@ def _render_pinnable_header(
     first_header: bool = False,
     display_title: str = "",
     show_pinner: bool = True,
+    asset_downloads: list[dict] | None = None,
 ) -> int:
     slug = _slugify_heading(title)
     pin_key = f"{key_prefix}_pin_{idx}"
@@ -628,9 +716,10 @@ def _render_pinnable_header(
         _render_raw_html(header_html)
         return idx + 1
 
-    if controls_right_html:
+    has_right_controls = bool(controls_right_html or asset_downloads)
+    if has_right_controls:
         col_hdr, col_links, col_down, col_up, col_pin = st.columns(
-            [0.735, 0.145, 0.04, 0.04, 0.04],
+            [0.56, 0.32, 0.04, 0.04, 0.04],
             vertical_alignment="center",
             gap="small",
         )
@@ -642,9 +731,14 @@ def _render_pinnable_header(
         )
     with col_hdr:
         _render_raw_html(header_html)
-    if controls_right_html:
+    if has_right_controls:
         with col_links:
-            _render_raw_html(controls_right_html)
+            _render_header_support_controls(
+                controls_right_html,
+                asset_downloads or [],
+                key_prefix=key_prefix,
+                idx=idx,
+            )
     with col_down:
         if st.button(
             "🗚",
@@ -671,8 +765,37 @@ def _render_pinnable_header(
             st.session_state["_scroll_to_slug"] = slug
             AppState.set_active_tools_tab(0)
             AppState.open_tools_panel()
+            st.rerun()
 
     return idx + 1
+
+
+def _render_header_support_controls(
+    html_src: str,
+    asset_downloads: list[dict],
+    *,
+    key_prefix: str,
+    idx: int,
+) -> None:
+    if not asset_downloads:
+        _render_raw_html(html_src)
+        return
+
+    cols = st.columns([0.46] * len(asset_downloads) + ([1.0] if html_src else []), gap="small")
+    for n, asset_download in enumerate(asset_downloads):
+        with cols[n]:
+            st.download_button(
+                label=str(asset_download.get("label") or asset_download.get("download") or "Descargar"),
+                data=asset_download.get("data") or b"",
+                file_name=str(asset_download.get("download") or "asset.txt"),
+                mime=str(asset_download.get("mime") or "text/plain"),
+                key=f"{key_prefix}_support_asset_{idx}_{n}",
+                help=str(asset_download.get("title") or ""),
+                use_container_width=True,
+            )
+    if html_src:
+        with cols[-1]:
+            _render_raw_html(html_src)
 
 
 def _render_support_header(
@@ -685,11 +808,18 @@ def _render_support_header(
     first_header: bool = False,
     display_title: str = "",
     show_pinner: bool = True,
+    support_assets: list[dict] | None = None,
 ) -> int:
     # El pinner es comportamiento nativo de todo encabezado. El tag {{support}}
     # solo agrega recursos complementarios a la derecha del mismo header.
     links = support.get("links", [])
-    right_html = _support_links_html(links, pin=False, section_slug=_slugify_heading(title))
+    asset_downloads = _support_asset_downloads(links, support_assets)
+    right_html = _support_links_html(
+        links,
+        pin=False,
+        section_slug=_slugify_heading(title),
+        support_assets=support_assets,
+    )
     return _render_pinnable_header(
         title,
         right_html,
@@ -699,6 +829,7 @@ def _render_support_header(
         first_header=first_header,
         display_title=display_title,
         show_pinner=show_pinner,
+        asset_downloads=asset_downloads,
     )
 
 def _inline_body_html(text: str) -> str:
@@ -859,15 +990,31 @@ def _parse_support_items(raw: str) -> dict:
 
     return out
 
-def _pill(label: str, url: str, icon: str, *, title: str = "") -> str:
+def _pill(label: str, url: str, icon: str, *, title: str = "", download: str = "") -> str:
     safe_label = html.escape(label or "")
     safe_url = html.escape(url or "", quote=True)
-    safe_icon = html.escape(icon or "")
+    safe_icon = "" if download else html.escape(icon or "")
     safe_title = html.escape(title or label or "", quote=True)
+    safe_download = html.escape(download or "", quote=True)
+    download_attr = f' download="{safe_download}"' if safe_download else ""
+    target_attr = "" if safe_download else ' target="_blank"'
+    icon_html = f"{safe_icon} " if safe_icon else ""
     return (
-        f'<a class="dw-md-pill" href="{safe_url}" target="_blank" '
-        f'rel="noopener noreferrer" title="{safe_title}">{safe_icon} {safe_label}</a>'
+        f'<a class="dw-md-pill" href="{safe_url}"{target_attr}{download_attr} '
+        f'rel="noopener noreferrer" title="{safe_title}">{icon_html}{safe_label}</a>'
     )
+
+
+def _compact_template_label(label: str) -> str:
+    raw = (label or "").strip()
+    normalized = raw.lower()
+    if "ddic" in normalized:
+        return "CDS DDIC"
+    if "entity" in normalized:
+        return "CDS Entity"
+    if "cds" in normalized:
+        return "CDS Template"
+    return "Template"
 
 def _callout_html(title: str, tone: str, icon: str, body: str) -> str:
     safe_title = html.escape(title or "")
@@ -915,12 +1062,15 @@ def _render_text_with_tree_buttons(text: str, *, key_prefix: str, start_idx: int
             st.markdown(_subtitle_blockquotes_to_html("\n".join(buf)), unsafe_allow_html=True)
         buf = []
 
-        tree_title = m.group(1).strip()
+        tree_id, tree_title = _parse_tree_button_spec(m.group(1).strip())
         if st.button(
             f"🌳 Ejecutar árbol: {tree_title}",
             use_container_width=True,
             key=f"{key_prefix}_treebtn_{idx}",
         ):
+            if tree_id:
+                st.session_state["_requested_tree_id"] = tree_id
+            st.session_state["_requested_tree_title"] = tree_title
             AppState.open_tree(tree_title)
             st.rerun()
 
@@ -932,12 +1082,65 @@ def _render_text_with_tree_buttons(text: str, *, key_prefix: str, start_idx: int
     return idx
 
 
+def _parse_tree_button_spec(raw: str) -> tuple[str, str]:
+    """
+    Contrato del tag:
+      {{tree_button: Titulo visible}}                         # legacy
+      {{tree_button: id=extraction_options label="Titulo"}}   # reusable por id
+      {{tree_button: extraction_options | Titulo visible}}     # shorthand
+
+    El id permite invocar un arbol desde cualquier modulo/apendice sin
+    duplicarlo ni atarlo al modulo actual.
+    """
+    spec = (raw or "").strip()
+    if not spec:
+        return "", ""
+
+    if "|" in spec and "=" not in spec.split("|", 1)[0]:
+        tree_id, label = [p.strip() for p in spec.split("|", 1)]
+        return tree_id, label or tree_id
+
+    kv: dict[str, str] = {}
+    for m in TREE_BTN_KV_RE.finditer(spec):
+        kv[m.group(1).strip().lower()] = (m.group(2) or m.group(3) or m.group(4) or "").strip()
+
+    if kv:
+        tree_id = kv.get("id") or kv.get("tree") or kv.get("tree_id") or ""
+        label = kv.get("label") or kv.get("title") or tree_id
+        return tree_id.strip(), label.strip()
+
+    return "", spec
+
+
+def tree_button_refs_from_markdown(md: str) -> list[dict[str, str]]:
+    """
+    Devuelve los árboles declarados explícitamente en el contenido actual.
+
+    Esto permite que un módulo/apéndice exponga árboles reutilizables en el
+    panel derecho sin duplicar YAML ni cambiar el módulo dueño del árbol.
+    """
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for line in (md or "").splitlines():
+        m = TREE_BTN_RE.match(line)
+        if not m:
+            continue
+        tree_id, label = _parse_tree_button_spec(m.group(1).strip())
+        key = (tree_id, label)
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append({"id": tree_id, "label": label})
+    return refs
+
+
 def _render_text_with_callouts_tree_support(
     text: str,
     *,
     key_prefix: str,
     start_idx: int,
     show_pinners: bool = True,
+    support_assets: list[dict] | None = None,
 ) -> int:
     """
     Pipeline único:
@@ -1089,6 +1292,7 @@ def _render_text_with_callouts_tree_support(
                     first_header=is_first_header,
                     display_title=display_title,
                     show_pinner=show_pinners,
+                    support_assets=support_assets,
                 )
 
                 # Consumimos heading + líneas vacías + support line
@@ -1245,6 +1449,7 @@ def render_md_with_image_zoom(
     key_prefix: str = "mdimg",
     section_start: int = 0,
     show_pinners: bool = True,
+    intent_assets: list[dict] | None = None,
 ):
     """
     Renderiza markdown con:
@@ -1289,6 +1494,7 @@ def render_md_with_image_zoom(
                 key_prefix=key_prefix,
                 start_idx=idx,
                 show_pinners=show_pinners,
+                support_assets=intent_assets,
             )
 
         if m.group(3):
@@ -1312,4 +1518,5 @@ def render_md_with_image_zoom(
             key_prefix=key_prefix,
             start_idx=idx,
             show_pinners=show_pinners,
+            support_assets=intent_assets,
         )

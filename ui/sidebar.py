@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from config import IA_ENABLED_MODULES, SECTION_NUMBER_WIDTH
+from config import IA_ENABLED_MODULES, SECTION_NUMBER_WIDTH, ia_enabled_for
 from core.prompts import QUICK_ACTIONS
 from core.state import AppState, K_MODULE_SELECTOR
 
@@ -82,7 +82,7 @@ def render_sidebar(
     else:
         selected = selected_main
 
-    ia_enabled = selected in IA_ENABLED_MODULES
+    ia_enabled = ia_enabled_for(selected)
 
     st.sidebar.markdown("<div class='dw-side-section'>Acciones rápidas</div>", unsafe_allow_html=True)
     action_clicked: str | None = None
@@ -92,8 +92,11 @@ def render_sidebar(
             AppState.set_active_tools_tab(2)
             AppState.open_tools_panel()
 
-    st.sidebar.markdown("<div class='dw-side-section'>Assessments</div>", unsafe_allow_html=True)
+    if st.session_state.get("debug_mode", False):
+        st.sidebar.markdown("<div class='dw-side-section'>Assessments</div>", unsafe_allow_html=True)
     assessment_clicked: str | None = None
+    if not st.session_state.get("debug_mode", False):
+        return selected, action_clicked, assessment_clicked
     if st.sidebar.button("📋 BDC", use_container_width=True, key="sidebar_assess_bdc", disabled=not ia_enabled):
         assessment_clicked = "bdc"
         AppState.open_tools_panel()

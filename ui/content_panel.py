@@ -8,7 +8,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from config import IA_ENABLED_MODULES
+from config import ia_enabled_for
 from core.content import (
     key_topics_from_module_with_start,
     extract_section_by_heading,
@@ -19,6 +19,7 @@ from core.content import (
     section_number_base_for_path,
 )
 from core.state import AppState
+from core.utils import slugify
 
 _FONT_SIZE_KEY = "_content_font_size"
 _FONT_MIN      = 12
@@ -77,7 +78,7 @@ def render_content_panel(
             height=0,
         )
 
-    _, body_md = split_front_matter(context)
+    meta, body_md = split_front_matter(context)
     md_dir     = Path(selected_path).parent
     section_base = section_number_base_for_path(selected_path)
     topics     = key_topics_from_module_with_start(context, level=2, max_topics=8, section_start=section_base)
@@ -112,6 +113,8 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
     # limitado a cuatro columnas fijas.
     n_topics = min(len(topics), 8) if topics else 0
     visible_topics = topics[:8] if topics else []
+    ia_enabled = ia_enabled_for(selected_stem)
+    content_height = 635 if (ia_enabled and visible_topics) else 670
 
     def _topic_weight(topic: dict) -> float:
         label = (topic.get("label") or "").strip()
@@ -135,9 +138,13 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
                 ):
                     section_md = extract_section_by_heading(body_md, heading, level=(2, 3)) or ""
                     AppState.set_selected_topic(heading, section_md)
+                    AppState.set_active_tools_tab(0)
+                    AppState.open_tools_panel()
+                    st.session_state["_scroll_to_slug"] = slugify(heading)
+                    st.rerun()
 
     # ── Markdown content ───────────────────────────────────────────────────────
-    with st.container(height=660):
+    with st.container(height=content_height):
         marker_id = f"dw-content-surface-{selected_stem}"
         st.markdown(f"<div id='{marker_id}' class='dw-content-surface-marker'></div>", unsafe_allow_html=True)
         st.components.v1.html(
@@ -184,7 +191,8 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
             base_dir=md_dir,
             key_prefix=f"mdimg_{selected_stem}",
             section_start=section_base,
-            show_pinners=selected_stem in IA_ENABLED_MODULES,
+            show_pinners=ia_enabled,
+            intent_assets=meta.get("intent_assets") or [],
         )
         _scroll_content_to_top = st.session_state.pop("_scroll_content_to_top", False)
         if _scroll_content_to_top:

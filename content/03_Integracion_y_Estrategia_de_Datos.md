@@ -4,15 +4,18 @@ title: "Integración y Estrategia de Datos"
 nav_label: "03 · Integración y Estrategia de Datos"
 tags: ["module:03", "domain:integration", "domain:data-strategy"]
 key_topics:
+  - id: data_contract
+    label: Contratos
+    heading: "Contrato de Datos vs. Data Product"
   - id: integracion
     label: Integración
     heading: "Arquitectura de Integración"
   - id: extraccion
     label: Extracción
-    heading: "Opciones de Extracción"
-  - id: clean_core
-    label: Clean Core
-    heading: "✔️ Clean Core aplicado a extracción"
+    heading: "Estrategia de Extracción"
+  - id: cds_views
+    label: Vistas CDS
+    heading: "Tipos de Vistas CDS"
 scope: |
   Cubre extracción e integración desde sistemas origen hacia SAP Datasphere:
   frameworks ODP y ABAP CDS, mecanismos de extracción (Full/Delta/CDC),
@@ -60,6 +63,7 @@ intent_assets:
     asset: "templates/cds_extractor_template.abap"
     language: "abap"
 ---
+
 # 03 Integracion y Estrategia de Datos
 
 ## {dw-black}Modelo de Integración {dw-gold}Danwor
@@ -96,7 +100,7 @@ La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a perte
 ### Data Products:
 {{subtitle: no-gap}}
 > El resultado del modelo de integración es la construcción de Data Products gobernados, reutilizables y orientados a negocio
-{{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=390 default_mode=dp}}
+{{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=420 default_mode=dp}}
 
 {{callout: title="Contrato Propio" tone="punch" icon="🤝"}}
 En la práctica, el Data Product es el contrato de datos expuesto al negocio.
@@ -126,6 +130,64 @@ El movimiento de datos puede resolverse tanto on-premise (donde el cliente provi
 
 La estrategia de integración no es la misma si el origen de los datos es ECC, S/4HANA o si el proyecto en el que estamos trabajando busca modernizar un BW existente. Te ayudamos a identificar los distintos mecanismos de extracción y su implementación a través de un **árbol determinístico** de decisión guiada.
 {{tree_button: Opciones de Extracción}}
+
+## {dw-black}Tipos de {dw-gold}Vistas CDS
+{{section_meta: keywords="tipos vistas CDS, vista CDS estándar, vista CDS custom, API Funcional SAP, wrapper, core-data services, core data services, CDS Views, DDL, DDIC, CDS, vista CDS, CDS view, CDS DDIC, DDIC-based CDS, CDS view entity, define view entity, define view, diferencia DDIC entity, DDIC vs entity, código CDS, crear CDS, escribir CDS, ayuda CDS, ejemplo CDS, CDS extracción, CDS datasphere, CDS S4HANA, ABAP CDS, anotaciones CDS, @Analytics, dataExtraction, vista extracción, cómo crear CDS, patrón CDS, referencia CDS, CDS FULL, CDS delta, CDC CDS, CDS change data capture, CDS timestamp, ODP CDS, CDS ODP extracción, CDS para datasphere, CDS hacia datasphere, estructura CDS, código extracción SAP, vista ABAP extracción"}}
+
+{{support: SAP Help CDS Entity="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST" SAP Help CDS DDIC-based="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST#loioe3a611dc5f25472481a9cf4ad5066ba4"}}
+
+{{subtitle: no-gap}}
+>Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP (modernización por sobre legado), hay consideraciones importantes en nuestro contexto metodológico de cara a la extracción y framework ODP por los cuales inclusive SAP continúa apoyándose en CDS DDIC-based para sus propias API de extracción liberadas.
+
+| Aspecto | CDS View Entity<br>(DDL Moderno) | CDS DDIC-based View<br>(DDIC Clásico) |
+|---|---|---|
+| **Naturaleza** | Modelo moderno ABAP CDS | Modelo clásico basado en DDIC |
+| **SQL View** | ❌ No requiere | ✅ Requiere (`@AbapCatalog.sqlViewName`) |
+| **Integración ABAP** | Alta (RAP, OData, Fiori) | Alta (frameworks legacy/estables) |
+| **Capacidad DDL** |Avanzadas | Estándar |
+| **Dependencia DDIC** | Baja | Alta |
+| **Uso típico SAP** | Desarrollo moderno | Extracción / integración |
+| **Compatibilidad** | Depende del release | Amplia entre releases |
+
+{{subtitle: no-gap}}
+>El tipo de vista no es una decisión de modernidad, sino de propósito. Elegir mal tiene consecuencias en compatibilidad ODP diseño SAP.
+
+| Propósito Técnico | Tipo de Vista CDS |
+|---|---|
+| RAP/OData/Fiori | View Entity |
+| Virtual Data Model (VDM) | View Entity |
+| Integración Técnica | DDIC-based |
+| Extracción de Datos | DDIC-based |
+
+{{callout: title="Señal Arquitectónica" tone="punch" icon="💡"}}
+SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: sino una decisión técnica deliberada.
+{{/callout}}
+
+{{subtitle: no-gap}}
+> Postura Danwor: para extractores ODP-CDS orientados a Datasphere, usar CDS DDIC-based como patrón conservador por compatibilidad amplia y porque muchas CDS estándar liberadas para extracción siguen ese modelo. Usar `define view entity` solo si el release ABAP/SAP, la nota aplicable y el mecanismo de consumo confirman soporte para ese escenario.
+
+## {dw-black}Template de Extracción vía {dw-gold}API Corporativa
+{{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=IX4s2Z" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=CCnek5" SAP Help CDS Annotations="https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&version=LATEST" Nota SAP="https://me.sap.com/notes/3534086"}}
+{{subtitle: no-gap}}
+> Una vez identificada y validada la fuente de extracción según los criterios de evaluación, se implementa una CDS como API corporativa hacia Datasphere, utilizando CDS DDIC-based como mecanismo alineado al stack SAP y el marco ODP.
+
+| Anotación | Proposito |
+|---|---|
+| **@Analytics.dataExtraction.enabled** | Habilita la vista CDS para extracción vía ODP |
+| **@Analytics.dataExtraction.delta.byElement** | Define el campo lógico como puntero delta (extractor clásico) (usar solo si no se implementa CDC) (*1) | 
+| **@Analytics.dataExtraction.delta.changeDataCapture** | Habilita CDC automático o manual (sujeto a compatibilidad de release y tipo de CDS) (*1) | 
+| **@AccessControl.authorizationCheck:** | #NOT_REQUIRED > El control de acceso se gestiona desde Datasphere | 
+| **@Analytics.dataCategory: #XXX** | Define el tipo semántico de objetos transaccionales o dimensionales (#FACT, #DIMENSION). ODP genera sufijos: $F | $P |
+| **@ObjectModel.dataCategory: #X** | #S (<1000), #M (<100,000), #L (<10,000,000), #XL (<100,000,000), #XXL (>= 100M) |
+| **@ObjectModel.supportedCapabilities:** | #EXTRACTION_DATA_SOURCE > No habilita funcionalidad, sino metadata declarativa/capability |
+| **@ObjectModel.usageType.sizeCategory** | Define el tipo semántico de objetos de texto o jerarquia (#TEXT, #HIERARCHY). ODP genera sufijos: $T | $H |
+| **@OData.publish: false** | Desactiva servicios Odata (no requeridos para uso en SAP Datasphere) (*2) |
+
+>📌Tip! No forma parte del template, pero en casos donde NO se quiera heredar anotaciones de las capas inferiores: @Metadata.ignorePropagatedAnnotations: true
+
+{{callout: title="CDC Avanzado" tone="punch" icon="💡"}}
+El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_BASIS (>= 7.56) y no está garantizado en todos los escenarios de extracción. Para mas información ver Nota SAP 3534086
+{{/callout}}
 
 ### Clean Core aplicado a extracción
 {{section_meta: keywords="clean core, qué es clean core, clean core sap, clean core extracción, principio clean core, clean core datasphere, apis liberadas, ODP clean core, CDS clean core, extensiones permitidas, evitar lógica SAP, exits simples, clean core integración"}}
@@ -223,29 +285,10 @@ Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
 El siguiente **árbol determinístico** de decisión guiada puede servir como soporte para distintos casos de uso y contexto técnico en cuanto al tipo de conexión a utilizar, considerando sus compatibilidades y limitaciones de acuerdo al 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>
 
-## Referencia técnica: CDS Views para extracción hacia Datasphere
-{{section_meta: keywords="CDS, vista CDS, CDS view, CDS DDIC, DDIC-based CDS, CDS view entity, define view entity, define view, diferencia DDIC entity, DDIC vs entity, código CDS, crear CDS, escribir CDS, ayuda CDS, ejemplo CDS, CDS extracción, CDS datasphere, CDS S4HANA, ABAP CDS, anotaciones CDS, @Analytics, dataExtraction, vista extracción, cómo crear CDS, patrón CDS, referencia CDS, CDS FULL, CDS delta, CDC CDS, CDS change data capture, CDS timestamp, ODP CDS, CDS ODP extracción, CDS para datasphere, CDS hacia datasphere, estructura CDS, código extracción SAP, vista ABAP extracción"}}
+## {dw-black}Referencia {dw-gold}Técnica
 Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. A continuación, los patrones de referencia.
 
-### DDIC-based CDS vs. CDS view entity para ODP
-
-Existen dos generaciones de CDS ABAP: las CDS DDIC-based, definidas con `define view` y `@AbapCatalog.sqlViewName`, y las CDS view entity, definidas con `define view entity`. Ambas comparten muchas anotaciones, pero en escenarios ODP/ABAP_CDS la compatibilidad productiva no debe asumirse como equivalente.
-
-Postura Danwor: para extractores ODP-CDS orientados a Datasphere, usar CDS DDIC-based como patrón conservador por compatibilidad amplia y porque muchas CDS estándar liberadas para extracción siguen ese modelo. Usar `define view entity` solo si el release ABAP/SAP, la nota aplicable y el mecanismo de consumo confirman soporte para ese escenario.
-
-### Anotaciones mínimas requeridas
-
-| Anotación | Valor recomendado | Propósito |
-|---|---|---|
-| `@Analytics.dataExtraction.enabled` | `true` | Habilita la vista para extracción vía ODP |
-| `@Analytics.dataCategory` | `#FACT` / `#DIMENSION` | Clasifica el tipo de objeto analítico |
-| `@AccessControl.authorizationCheck` | `#NOT_REQUIRED` | Estándar para vistas de extracción |
-| `@EndUserText.label` | Texto descriptivo | Descripción visible en catálogo |
-
-**No usar** `@OData.publish: true` para integración con Datasphere — esa anotación es para servicios OData, no para extracción vía ABAP_CDS/ODP.
-
 ### Patrón 1 — Extracción FULL
-
 ```abap
 @EndUserText.label: 'Ventas para Datasphere - Full'
 @AbapCatalog.sqlViewName: 'ZDSVTAFULL'
@@ -267,7 +310,6 @@ define view ZI_DS_VENTAS
 ```
 
 ### Patrón 2 — Extracción FULL + Delta por campo timestamp
-
 Requiere un campo `last_changed_at` confiable que se actualice en cada modificación del registro.
 
 ```abap

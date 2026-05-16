@@ -5,14 +5,14 @@ nav_label: "02 · Seguridad y Gobernanza"
 tags: ["module:02", "domain:security", "domain:governance"]
 key_topics:
   - id: roles
-    label: Roles
+    label: Seguridad de Roles
     heading: "Seguridad de Roles"
   - id: dac
-    label: DAC
-    heading: "Seguridad de Datos (DAC)"
+    label: Seguridad de Datos
+    heading: "Seguridad de Datos"
   - id: gobernanza
     label: Gobernanza
-    heading: "Seguridad como extensión del diseño de dominios"
+    heading: "Seguridad de Roles & Datos"
 scope: |
   Cubre el diseño de seguridad en SAP Datasphere y Business Data Cloud (BDC):
   modelo de roles (estándar vs custom), Data Access Control (DAC) a nivel fila
@@ -51,7 +51,7 @@ out_of_scope_redirect:
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/d7350c6823a14733a7a5727bad8371aa.html?locale=es-ES&version=LATEST"}}
 
 > A la fecha, no existe práctica recomendada por SAP respecto al uso directo de los objetos de seguridad estándar vs. la creación de un marco propio apoyado en el estándar. Dado que ambos casos de uso podrían ser técnicamente válidos, detallamos sus virtudes y desventajas.
-{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=820 default_mode=roles}}
+{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=890 default_mode=roles}}
 {{tree_button: Seguridad de Roles}}
 
 ## {dw-black}Seguridad de {dw-gold}Datos 
@@ -59,7 +59,7 @@ out_of_scope_redirect:
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html?locale=en-US&version=LATEST&state=PRODUCTION"}}
 
 > A la fecha, Datasphere soporta seguridad a nivel fila/columna vía DAC. Con Business Data Cloud (BDC) se prevé integración nativa cross-system, aún no disponible. El diseño de seguridad debe derivar siempre de los dominios y data products definidos a nivel conceptual.
-{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=850 default_mode=dac}}
+{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=880 default_mode=dac}}
 {{tree_button: Seguridad de Datos}}
 
 ## {dw-black}Seguridad de {dw-gold}Roles & Datos

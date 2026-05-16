@@ -1,7 +1,7 @@
 ---
 module: "08"
-title: "Modernización BW Greenfield BDC"
-nav_label: "08 · Modernización BW Greenfield BDC"
+title: "Modernización BW Greenfield"
+nav_label: "08 · Modernización BW Greenfield"
 tags: ["module:08", "domain:modernization", "domain:bw"]
 key_topics:
   - id: greenfield
@@ -48,7 +48,7 @@ out_of_scope_redirect:
     label: "Arquitectura y Conectividad"
     message: "Ese tema corresponde al módulo 01 · Arquitectura y Conectividad, que cubre espacios, transportes y BW Bridge."
 ---
-# 08 Modernizacion BW Greenfield BDC
+# 08 Modernizacion BW Greenfield
 
 ## Principio Greenfield
 {{section_meta: keywords="modernización BW, greenfield BW, lift and shift, no lift and shift, BW a Datasphere, migración BW, migrar BW datasphere, qué hacer con BW, dejar BW, modernizar BW, BW bridge, estrategia modernización, BW S4HANA datasphere, reutilizar BW, aprovechar BW, objetos BW útiles, ADSO datasphere, infocubo datasphere, DSO datasphere, BW greenfield approach, principio greenfield"}}
@@ -70,7 +70,8 @@ En modernizaciones hacia Datasphere (fuera del contexto Business Data Cloud), el
 {{/callout}}
 {{/callout_row}}
 
-> El objetivo estratégico: pasar de un modelado centrado en reportes (BEx, BO) a una **fundación de datos gobernada**: data products, catálogo y gobernanza. Compatible y preparado para la evolución natural hacia BDC.
+{{subtitle: no-gap}}
+> El objetivo estratégico: pasar de un modelado centrado en reportes (BEx, BO) a una fundación de datos gobernada: data products, catálogo y gobernanza. Compatible y preparado para la evolución natural hacia BDC.
 
 ## Relevamiento y Matriz Técnica
 {{section_meta: keywords="relevamiento BW, matriz técnica BW, métricas uso BW, objetos BW uso, candidatos baja BW, 90 días uso, ADSO uso, infocubo uso, DSO uso, whitelisted BW, nota SAP 2500202 BW, extractor BW whitelisted, redundancias BW, duplicidades BW, cadenas proceso BW, complejidad ETL BW, qué objeto modernizar, qué objeto decomisisar, inventario BW"}}

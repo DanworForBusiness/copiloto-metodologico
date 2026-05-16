@@ -410,6 +410,10 @@ div[data-testid="stMarkdownContainer"] tbody tr:hover td { background: rgba(0,0,
 .dw-page-hero__title .dw-heading-tone--black { color: var(--dw-black) !important; }
 .dw-heading-tone--gold,
 .dw-page-hero__title .dw-heading-tone--gold { color: var(--dw-gold) !important; }
+.dw-heading-tone--green,
+.dw-page-hero__title .dw-heading-tone--green { color: var(--dw-green) !important; }
+.dw-heading-tone--red,
+.dw-page-hero__title .dw-heading-tone--red { color: var(--dw-red) !important; }
 .dw-heading-tone--muted,
 .dw-page-hero__title .dw-heading-tone--muted { color: var(--dw-muted) !important; }
 .dw-heading-tone--accent,
@@ -539,6 +543,22 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
     border-radius: var(--dw-radius) var(--dw-radius) 0 0 !important;
     margin: 5px 0 !important;
     align-items: center !important;
+    gap: 5px !important;
+}
+
+/* Trim de columnas Streamlit para controles compactos del header.
+   Los support links son HTML y ya ajustan su ancho al contenido; los botones
+   internos viven dentro de columnas Streamlit que por defecto reservan espacio
+   extra. Estas reglas hacen que esas columnas se comporten como pills. */
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]) > div:nth-child(2),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]) > div:nth-child(3),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]) > div:nth-child(4),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) > div:nth-child(3),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) > div:nth-child(4),
+div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) > div:nth-child(5) {
+    flex: 0 0 30px !important;
+    width: 30px !important;
+    min-width: 30px !important;
 }
 div[data-testid="stHorizontalBlock"]:has(.dw-page-hero--first):has(> div:nth-child(2) [class*="_font_down_"]):has(> div:nth-child(3) [class*="_font_up_"]):has(> div:nth-child(4) [class*="_pin_"]),
 div[data-testid="stHorizontalBlock"]:has(.dw-page-hero--first):has(> div:nth-child(3) [class*="_font_down_"]):has(> div:nth-child(4) [class*="_font_up_"]):has(> div:nth-child(5) [class*="_pin_"]) {
@@ -552,7 +572,8 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
 .dw-page-hero + div [class*="st-key-"][class*="_pin_"],
 [class*="st-key-"][class*="_pin_"],
 [class*="st-key-"][class*="_font_down_"],
-[class*="st-key-"][class*="_font_up_"] {
+[class*="st-key-"][class*="_font_up_"],
+[class*="st-key-"][class*="_support_asset_"] {
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
@@ -566,13 +587,14 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
-    gap: 6px !important;
+    gap: 5px !important;
     background: #fff !important;
 }
 .dw-page-hero + div [class*="st-key-"][class*="_pin_"] > div,
 [class*="st-key-"][class*="_pin_"] > div,
 [class*="st-key-"][class*="_font_down_"] > div,
-[class*="st-key-"][class*="_font_up_"] > div {
+[class*="st-key-"][class*="_font_up_"] > div,
+[class*="st-key-"][class*="_support_asset_"] > div {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -580,7 +602,8 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
 .dw-md-h2--pinrow + div [class*="st-key-"][class*="_pin_"] button,
 [class*="st-key-"][class*="_pin_"] button,
 [class*="st-key-"][class*="_font_down_"] button,
-[class*="st-key-"][class*="_font_up_"] button {
+[class*="st-key-"][class*="_font_up_"] button,
+[class*="st-key-"][class*="_support_asset_"] button {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -607,9 +630,15 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
     padding-left: 7px !important;
     padding-right: 7px !important;
 }
+[class*="st-key-"][class*="_support_asset_"] button {
+    min-width: max-content !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+}
 [class*="st-key-"][class*="_pin_"] button:hover,
 [class*="st-key-"][class*="_font_down_"] button:hover,
-[class*="st-key-"][class*="_font_up_"] button:hover {
+[class*="st-key-"][class*="_font_up_"] button:hover,
+[class*="st-key-"][class*="_support_asset_"] button:hover {
     border-color: rgba(0,0,0,0.18) !important;
     background: #fff !important;
 }
@@ -635,6 +664,8 @@ div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3) [class*="_font_down_
   --dw-danger: #b42318;
   --dw-radius: 8px;
   --dw-shadow: 0 10px 24px rgba(16, 24, 40, .06);
+  --dw-green: #00B050;
+  --dw-red: #FF0000;
 }
 
 div[data-testid="stAppViewContainer"] {
@@ -981,6 +1012,9 @@ div[data-testid="stMarkdownContainer"] td {
   background: #f8fafc !important;
   color: #334155 !important;
   font-weight: 650 !important;
+  cursor: pointer !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
 }
 .dw-md-pill:hover {
   background: #eef6f5 !important;
