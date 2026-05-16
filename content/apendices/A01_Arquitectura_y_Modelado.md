@@ -5,14 +5,14 @@ nav_label: "10 · Fundamentos EA y Paradigmas"
 tags: ["module:10", "domain:ea", "domain:principles"]
 key_topics:
   - id: ea
-    label: EA
-    heading: "Marco EA y Diseño"
+    label: Marco EA
+    heading: Arquitectura como Marco de Diseño"
   - id: modelos
     label: Modelos
-    heading: "Diseño de Modelos de Datos"
+    heading: "Diseño de los Modelos de Datos"
   - id: paradigmas
     label: Paradigmas
-    heading: "Paradigmas Arquitectónicos"
+    heading: "Paradigmas como Diseño Arquitectónico"
   - id: data_products
     label: Data Products
     heading: "Datos como Producto"
@@ -132,7 +132,7 @@ Los dos restantes, mas bien informativos con alcance indirecto:
 
 {{tree_button: Decisión de Paradigma Arquitectónico}}
 
-## Datos como Producto
+## {dw-black}Datos como {dw-gold}Producto
 {{section_meta: keywords="data product, datos como producto, data products datasphere, data product BDC, DPD, data product descriptor, qué es un data product, definición data product, data product SAP, tratar datos como producto, unidad de valor datos, sales order data product, customer 360 data product, data product autocontenido, data product reutilizable, linaje data product, contrato datos"}}
 
 Tratar los datos como productos alinea la arquitectura con el negocio: se pasa de construir pipelines a diseñar **capacidades reutilizables** que viven en Datasphere, el data lake o BDC.

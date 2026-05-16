@@ -14,11 +14,11 @@ key_topics:
     label: Gobernanza
     heading: "Seguridad de Roles & Datos"
 scope: |
-  Cubre el diseño de seguridad en SAP Datasphere y Business Data Cloud (BDC):
+  Cubre el diseño de seguridad en SAP Datasphere:
   modelo de roles (estándar vs custom), Data Access Control (DAC) a nivel fila
   y columna, tipos de permisos (Valores Individuales, Operadores y Valores,
   Jerarquía), y principios de gobernanza derivados del diseño de dominios.
-  No cubre modelado de datos ni definición de Semantic Types (módulo 04),
+  No cubre modelado de datos ni definición de usos semánticos (módulo 04),
   configuración de espacios o transportes (módulo 01), ni integración con
   sistemas origen (módulo 03).
 guardrails:

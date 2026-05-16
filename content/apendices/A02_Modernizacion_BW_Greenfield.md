@@ -5,20 +5,17 @@ nav_label: "08 · Modernización BW Greenfield"
 tags: ["module:08", "domain:modernization", "domain:bw"]
 key_topics:
   - id: greenfield
-    label: Greenfield
+    label: Principio
     heading: "Principio Greenfield"
   - id: relevamiento
     label: Relevamiento
     heading: "Relevamiento y Matriz Técnica"
-  - id: alcance
-    label: Alcance
-    heading: "Árbol: Alcance de Modernización"
   - id: armonizacion
     label: Armonización
     heading: "Reglas de Armonización"
   - id: bdc
-    label: BDC
-    heading: "Visión BDC y Data Products"
+    label: Visión BDC
+    heading: "Visión BDC"
 scope: |
   Cubre la estrategia de modernización de SAP BW hacia SAP Datasphere y
   Business Data Cloud (BDC): principio Greenfield (sin Lift & Shift),
@@ -50,7 +47,7 @@ out_of_scope_redirect:
 ---
 # 08 Modernizacion BW Greenfield
 
-## Principio Greenfield
+## {dw-black}Principio {dw-gold}Greenfield
 {{section_meta: keywords="modernización BW, greenfield BW, lift and shift, no lift and shift, BW a Datasphere, migración BW, migrar BW datasphere, qué hacer con BW, dejar BW, modernizar BW, BW bridge, estrategia modernización, BW S4HANA datasphere, reutilizar BW, aprovechar BW, objetos BW útiles, ADSO datasphere, infocubo datasphere, DSO datasphere, BW greenfield approach, principio greenfield"}}
 
 En modernizaciones hacia Datasphere (fuera del contexto Business Data Cloud), el principio rector es **no hacer Lift & Shift**: no trasladar objetos técnicos BW a Datasphere tal como están. En cambio, rediseñar Greenfield aprovechando del BW solo aquello que aporta valor real: **definiciones de negocio, semántica, reglas de calidad y conversión**.
@@ -73,7 +70,7 @@ En modernizaciones hacia Datasphere (fuera del contexto Business Data Cloud), el
 {{subtitle: no-gap}}
 > El objetivo estratégico: pasar de un modelado centrado en reportes (BEx, BO) a una fundación de datos gobernada: data products, catálogo y gobernanza. Compatible y preparado para la evolución natural hacia BDC.
 
-## Relevamiento y Matriz Técnica
+## {dw-black}Relevamiento y {dw-gold}Matriz Técnica
 {{section_meta: keywords="relevamiento BW, matriz técnica BW, métricas uso BW, objetos BW uso, candidatos baja BW, 90 días uso, ADSO uso, infocubo uso, DSO uso, whitelisted BW, nota SAP 2500202 BW, extractor BW whitelisted, redundancias BW, duplicidades BW, cadenas proceso BW, complejidad ETL BW, qué objeto modernizar, qué objeto decomisisar, inventario BW"}}
 
 Antes de decidir qué objetos modernizar, relevar uso y criticidad mediante una **Matriz Técnica** que se enriquece iterativamente:
@@ -93,14 +90,14 @@ Antes de decidir qué objetos modernizar, relevar uso y criticidad mediante una 
 Las métricas de uso sirven para **ponderar y priorizar** qué modernizar primero, no como criterio único de decisión. Que un objeto tenga uso no significa que deba seguir existiendo tal como está. Que no tenga uso no significa automáticamente que sea candidato a baja — puede ser crítico por regulación o cierre de período.
 {{/callout}}
 
-## Árbol: Alcance de Modernización
+## {dw-black}Alcance de {dw-gold}Modernización
 {{section_meta: keywords="árbol modernización BW, árbol alcance BW, decidir qué modernizar, qué hacer con objeto BW, rediseñar BW, decomisisar BW, canonizar BW, migrar lógica BW, extractor soportado BW, lógica negocio core SAP, árbol migración BW datasphere, entidad canónica BW, árbol BW datasphere"}}
 
 El árbol de decisión a continuación guía el tratamiento de cada objeto BW en la modernización:
 
 {{tree_button: Alcance de Modernización BW}}
 
-## Reglas de Armonización
+## {dw-black}Reglas de {dw-gold}Armonización
 {{section_meta: keywords="reglas armonización, armonización BW, entidades canónicas, naming canónico, convención nombres BW, normalizar BW, homogeneidad datos, eliminar prefijos Z, eliminar prefijos Y, objetos Z BW, ZACSECUND, idioma canónico, nombres técnicos inglés español, guion bajo naming, CENTRO_ID CLIENTE_DESC, armonización semántica, lenguaje técnico único, governance datos BW"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE" Pin=true}}
 
@@ -131,7 +128,7 @@ Al modernizar objetos BW hacia Datasphere se aplican reglas de armonización par
 Menos es más — solo lo que agrega valor se moderniza. La armonización no es renombrar por renombrar: es definir un lenguaje de datos único que el negocio y la tecnología comparten.
 {{/callout}}
 
-## Visión BDC y Data Products
+## {dw-black}Visión {dw-gold}BDC
 {{section_meta: keywords="BDC, business data cloud, data product, data products, visión BDC, compatibilidad BDC, DPD, data product descriptor, catálogo BDC, metadatos BDC, linaje BDC, separación capas BDC, VDM BDC, capas lógicas BDC, activar data product, SAP managed data product, evolución BDC, datasphere hacia BDC, cómo preparar BDC, roadmap BDC"}}
 
 El diseño actual en Datasphere es **compatible con BDC por construcción** si se siguen los principios del marco Danwor: capas, clean core, semántica y contratos de consumo definidos.

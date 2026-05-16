@@ -4,15 +4,12 @@ title: "Reporting y Consumo"
 nav_label: "05 · Reporting y Consumo"
 tags: ["module:05", "domain:reporting", "domain:consumption"]
 key_topics:
+  - id: estrategia
+    label: Estrategia
+    heading: "Estrategia de Reporting"
   - id: herramientas
     label: Herramientas
-    heading: "Estrategia de Reporting"
-  - id: conexion
-    label: Conexión
-    heading: "Conexión de Herramientas Externas"
-  - id: performance
-    label: Performance
-    heading: "Performance en Reporting"
+    heading: "Herramientas de Reporting"
   - id: checklist
     label: Checklist
     heading: "✅ Checklist de Reporting"
@@ -48,12 +45,14 @@ out_of_scope_redirect:
 
 ## {dw-black}Estrategia de {dw-gold}Reporting
 {{section_meta: keywords="estrategia reporting, herramienta reporting, SAC, SAP Analytics Cloud, Power BI, BusinessObjects, BO, qué herramienta usar, SAC vs Power BI, Power BI datasphere, SAC datasphere, BO datasphere, herramienta BI, herramienta analítica, consumo datasphere, cómo consumir datasphere, herramientas externas datasphere, reporte datasphere, visualización datasphere, árbol herramienta reporting"}}
+{{support: SAP Help ODBC JDBC="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253867.html?locale=en-US&version=LATEST" SAP Help OData="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4224677129.html?locale=en-US&version=LATEST"}}
 
 {{subtitle: no-gap}}
 >Para clientes que desean explotar los datos por fuera del ecosistema SAP nativo, existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
 
 {{html_embed: ../assets/danwor-estrategia-reporting.html height=860}}
 
+### {dw-black}Herramientas de {dw-gold}Reporting
 | Herramienta | Tipo | Integración con Datasphere | Cuándo usarla |
 |---|---|---|---|
 | **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |

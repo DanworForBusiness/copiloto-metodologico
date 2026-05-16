@@ -5,22 +5,22 @@ nav_label: "04 · Modelado y Desarrollo"
 tags: ["module:04", "domain:modeling", "domain:development"]
 key_topics:
   - id: capas
-    label: Capas
-    heading: "Arquitectura por Capas"
+    label: Capas & Roles
+    heading: "Arquitectura por Capa: Guía Operativa"
+  - id: semantico
+    label: Uso Semántico
+    heading: "Artefactos y uso Semántico"    
+  - id: naming
+    label: Nomenclatura
+    heading: "Convención de Nombres"    
   - id: vistas_sql
     label: Vistas SQL
     heading: "Tipos de Vistas SQL"
-  - id: semantico
-    label: Semántico
-    heading: "Tipos y Uso Semántico"
-  - id: naming
-    label: Naming
-    heading: "Convención de Nombres"
 
 scope: |
   Cubre el modelo de desarrollo en SAP Datasphere: arquitectura por capas
   (ingesta, armonización, propagación, consumo), tipos de vistas SQL (Estándar,
-  Gráfica, Table Function, Data Flow), tipos de uso semántico (Relacional,
+  Gráfica, Table Function), tipos de uso semántico (Relacional,
   Dimensional, Fact), convención de nombres de artefactos, y buenas prácticas
   de desarrollo. No cubre configuración de espacios ni transportes (módulo 01),
   seguridad de roles o DAC (módulo 02), ni extracción desde sistemas origen
@@ -114,6 +114,8 @@ Tené en cuenta que el uso semántico "Relacional" es utilizado por defecto al c
 ## {dw-black}Convención de {dw-gold}Nombres
 {{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
 
+{{support: KBA Naming="https://community.sap.com/t5/technology-blog-posts-by-sap/sap-datasphere-naming-convention-in-action/ba-p/13567336"}}
+
 >Si bien la interfaz de usuario en Datasphere ofrece capacidades de navegación y filtro que permiten identificar objetos fácilmente a través de sus atributos técnicos y metadata (tales como tipo de objeto, uso semántico, etc.) permitiendo así separar tablas de vistas, o flujos de datos de replicación, o inclusive los modelos analíticos creados, entendemos sigue siendo una buena idea el uso de prefijos en la convención de nombres por alguno de los siguientes motivos:
 
 {{html_embed: ../assets/danwor-convencion-nombres.html height=750 default_mode=porque}}
@@ -146,6 +148,8 @@ Tené en cuenta que el uso semántico "Relacional" es utilizado por defecto al c
 ## {dw-black}Tipos de {dw-gold}Vistas SQL
 {{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
+
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/f2e359c899fa4351b5f514d1d86ed9e2.html?locale=en-US&version=LATEST" SAP Help SQL Reference="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/bc433adac03d4ac18bd0949ecbf961bc.html?locale=en-US&version=LATEST"}}
 
 {{subtitle: no-gap}}
 >En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
