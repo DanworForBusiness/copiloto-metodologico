@@ -77,6 +77,7 @@ def require_login() -> None:
     if not _is_authorized_user(username):
         st.session_state["_auth_denied"] = username or "usuario no identificado"
         Msal.sign_out()
+        _render_login_screen()
         st.stop()
 
     # Microsoft Graph expone jobTitle con User.Read. Si falla, el login no debe bloquear.
@@ -461,17 +462,28 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
 .dw-login-denied {{
     position: fixed;
     left: 71%;
-    top: calc(50% + 166px);
+    top: calc(50% + 154px);
     transform: translateX(-50%);
     width: min(360px, calc(100vw - 108px));
     z-index: 1000;
-    color: #8a4b00;
-    background: rgba(234,179,8,.12);
+    color: #334155;
+    background: #fffdf4;
     border: 1px solid rgba(234,179,8,.38);
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     font: 12px/1.45 "Segoe UI", system-ui, sans-serif;
-    text-align: center;
+    text-align: left;
+    box-shadow: 0 8px 20px rgba(16,24,40,.08);
+}}
+.dw-login-denied strong {{
+    display: block;
+    color: #0f172a;
+    font-size: 13px;
+    margin-bottom: 4px;
+}}
+.dw-login-denied span {{
+    color: #8a4b00;
+    font-weight: 700;
 }}
 
 @media (max-width: 1120px) {{
@@ -540,13 +552,19 @@ div[data-testid="stButton"].st-key-login_btn > button:focus {{
         st.markdown(
             f"""
 <div class="dw-login-denied">
-  El usuario {html.escape(denied_user)} no está autorizado para ingresar.
+  <strong>Acceso pendiente de habilitacion</strong>
+  El usuario <span>{html.escape(denied_user)}</span> autentico correctamente, pero todavia no esta autorizado para ingresar al copiloto.
 </div>
 """,
             unsafe_allow_html=True,
         )
 
-    if st.button("Ingresar con tu cuenta Danwor", use_container_width=True, key="login_btn"):
+    login_label = "Volver a intentar con otra cuenta" if denied_user else "Ingresar con tu cuenta Danwor"
+    if st.button(login_label, use_container_width=True, key="login_btn"):
+        if denied_user:
+            Msal.sign_out()
+            st.session_state.pop("_auth", None)
+            st.session_state.pop("_auth_denied", None)
         Msal.sign_in()
 
     st.markdown(

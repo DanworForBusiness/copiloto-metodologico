@@ -1166,6 +1166,19 @@ div[data-testid="stElementContainer"]:has(.dw-leaf-assets) {
   background: #f8fafc;
   border-color: rgba(15,118,110,.28);
 }
+.dw-suggestion-link,
+.dw-suggestion-link .dw-leaf-asset-btn {
+  width: 100% !important;
+}
+.dw-suggestion-link .dw-leaf-asset-btn {
+  justify-content: center !important;
+  min-height: 38px !important;
+  font-family: "Source Sans", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.35 !important;
+  padding: 0.45rem 0.75rem !important;
+}
 .dw-empty-state {
   border: 1px dashed var(--dw-border-strong);
   background: #ffffff;
