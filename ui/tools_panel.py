@@ -724,6 +724,22 @@ def _flush_pending_classify(selected_stem: str) -> None:
     _rerun_tools_panel()
 
 
+_CHAT_SUGGESTION_KEYS = (
+    "_section_suggestion",
+    "_tree_suggestion",
+    "_asset_suggestion",
+    "_asset_section_suggestion",
+    "_combined_suggestion",
+    "_depth_selector",
+    "_cds_delta_selector",
+)
+
+
+def _clear_pending_suggestions() -> None:
+    for key in _CHAT_SUGGESTION_KEYS:
+        st.session_state.pop(key, None)
+
+
 def _flush_pending_llm_direct(selected_stem: str) -> None:
     """Procesa una respuesta LLM directa desde la superficie del chat."""
     _pending_direct = st.session_state.pop("_pending_llm_direct", None)
@@ -767,15 +783,75 @@ def _flush_pending_free_question(
     AppState.append_chat("user", _prompt)
     st.session_state["_clear_fq"] = True
     st.session_state["_fq_counter"] = st.session_state.get("_fq_counter", 0) + 1
-
-    _slot = st.empty()
-    _render_processing_bubble(_slot, "Analizando tu consulta...")
+    _clear_pending_suggestions()
 
     matched_section = _find_matching_section(_prompt, _ctx)
     is_conceptual   = _is_conceptual_or_comparative_query(_prompt)
-    matched_tree    = None if (is_conceptual and matched_section) else _find_matching_tree(_prompt, trees_this_module or [])
+    is_asset_query  = _is_asset_seeking_query(_prompt)
+    matched_asset   = _find_matching_asset(_prompt, selected_path, _ctx, allow_strong=True)
+    cross_asset     = None if matched_asset else _find_cross_module_asset(_prompt, selected_stem, allow_strong=True)
+    has_asset_match = bool(matched_asset or cross_asset)
+    matched_tree    = None if ((is_conceptual and matched_section) or is_asset_query or has_asset_match) else _find_matching_tree(_prompt, trees_this_module or [])
+    cross_section_for_asset = None
+    if has_asset_match and not matched_section:
+        cross_section_for_asset = _find_cross_module_section(_prompt, selected_stem)
 
-    _slot.empty()
+    # Para consultas tipo how-to/documentacion/template o matches fuertes contra
+    # activos curados, dejamos competir primero a la biblioteca interna. Si
+    # tambien hay una seccion local amplia, ofrecemos ambos caminos en vez de
+    # forzar una respuesta demasiado vaga.
+    if has_asset_match:
+        _asset = matched_asset or cross_asset
+        _asset_desc = _asset.get("description", "recurso tecnico")
+        _section_match = matched_section or cross_section_for_asset
+        if _section_match:
+            _sec_heading = _section_match["heading"]
+            _sec_label = _display_heading(_sec_heading)
+            _sec_module = _section_match.get("module") or selected_stem
+            _sec_module_label = _section_match.get("module_label")
+            _asset_module = _asset.get("_module") or selected_stem
+            _asset_module_label = _asset.get("_module_label")
+            if (
+                _sec_module == _asset_module
+                and _is_reference_library_module(_sec_module, _sec_module_label or _asset_module_label)
+            ):
+                _section_match = None
+            elif not _should_pair_section_with_asset(_prompt, _section_match):
+                _section_match = None
+        if _section_match:
+            _sec_heading = _section_match["heading"]
+            _sec_label = _display_heading(_sec_heading)
+            _sec_module = _section_match.get("module") or selected_stem
+            _sec_module_label = _section_match.get("module_label")
+            _sec_context = _section_match.get("section_md") or context
+            _section_prefix = "Sección del módulo"
+            if _sec_module_label and _sec_module != selected_stem:
+                _section_prefix = f"Sección en {_sec_module_label}"
+            AppState.append_chat(
+                "assistant",
+                "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n"
+                f"- **{_section_prefix}:** {_sec_label}\n"
+                f"- **Biblioteca de referencia:** {_asset_desc}",
+            )
+            st.session_state["_asset_section_suggestion"] = {
+                "asset": _asset,
+                "section_heading": _sec_heading,
+                "prompt": _prompt,
+                "context": _sec_context,
+                "module": _sec_module,
+                "module_label": _sec_module_label,
+            }
+        else:
+            _module_label = _asset.get("_module_label")
+            _source = f" en **{_module_label}**" if _module_label else ""
+            AppState.append_chat(
+                "assistant",
+                f"Encontré un recurso de la biblioteca de referencias{_source}: **{_asset_desc}**. ¿Querés verlo?",
+            )
+            st.session_state["_asset_suggestion"] = {"asset": _asset, "prompt": _prompt}
+        st.session_state.pop("_expand_chat_open", None)
+        _rerun_tools_panel()
+        return
 
     if matched_section:
         _matched_label = AppState.clean_topic_label(_display_heading(matched_section.get("heading", "")))
@@ -823,7 +899,6 @@ def _flush_pending_free_question(
         _rerun_tools_panel()
         return
 
-    matched_asset = _find_matching_asset(_prompt, selected_path, _ctx)
     if matched_asset is not None:
         AppState.append_chat("assistant", "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?")
         st.session_state["_asset_suggestion"] = {"asset": matched_asset, "prompt": _prompt}
@@ -1282,6 +1357,91 @@ def _significant_tokens(text: str) -> set[str]:
     return tokens
 
 
+def _routing_token_variants(tokens: set[str]) -> set[str]:
+    """Variantes livianas para matching editorial, no para texto final.
+
+    Evita que diferencias simples como singular/plural o infinitivo/conjugado
+    hagan invisible un asset curado: transporta <> transportar, chains <> chain.
+    """
+    variants = set(tokens)
+    for token in tokens:
+        if len(token) > 4 and token.endswith("s"):
+            variants.add(token[:-1])
+        if len(token) >= 8:
+            variants.add(token[:8])
+    return variants
+
+
+_ASSET_GENERIC_TOKEN_ROOTS = (
+    "configur", "instal", "conect", "transport", "import",
+    "activ", "particion", "integr"
+)
+
+_ASSET_GENERIC_TOKENS = {
+    "how", "danwor", "datasphere", "template", "plantilla",
+    "documentacion", "documento", "referencia", "oficial",
+    "guia", "paso"
+}
+
+
+def _asset_specific_token_hits(query_tokens: set[str], candidate_tokens: set[str]) -> set[str]:
+    """Tokens que identifican el objeto real del asset, no el verbo generico.
+
+    Ej: en "como conecto SAC con Datasphere", "conecto" y "datasphere" solo
+    indican intencion/dominio; "sac" es lo que debe romper empates contra otros
+    how-to de conexion.
+    """
+    hits = query_tokens & candidate_tokens
+    return {
+        token for token in hits
+        if token not in _ASSET_GENERIC_TOKENS
+        and not any(token.startswith(root) for root in _ASSET_GENERIC_TOKEN_ROOTS)
+    }
+
+
+def _is_reference_library_module(stem: str | None, label: str | None = None) -> bool:
+    text = _norm(" ".join(part for part in (stem or "", label or "") if part))
+    return "biblioteca" in text and "referencia" in text
+
+
+def _section_candidate_text(section_match: dict) -> str:
+    return " ".join(
+        str(part or "")
+        for part in (
+            section_match.get("heading"),
+            section_match.get("module_label"),
+            " ".join(section_match.get("keywords") or []),
+            section_match.get("section_md"),
+        )
+    )
+
+
+def _should_pair_section_with_asset(question: str, section_match: dict | None) -> bool:
+    """Decide si una seccion merece acompanar a un how-to concreto.
+
+    Evita duplicidades como "Referencias de Arquitectura" + "How-to particionar
+    tablas remotas": la seccion comparte vocabulario amplio, pero no la accion
+    especifica. En preguntas mixtas/conceptuales, preserva la doble recomendacion.
+    """
+    if not section_match:
+        return False
+    if _is_conceptual_or_comparative_query(question):
+        return True
+
+    q_norm = _norm(question)
+    section_text = _norm(_section_candidate_text(section_match))
+    q_tokens = _significant_tokens(question)
+    section_tokens = _significant_tokens(section_text)
+    specific_hits = _asset_specific_token_hits(q_tokens, section_tokens)
+    if len(specific_hits) < 2:
+        return False
+
+    action_roots = [root for root in _ASSET_GENERIC_TOKEN_ROOTS if root in q_norm]
+    if not action_roots:
+        return True
+    return any(root in section_text for root in action_roots)
+
+
 def _display_heading(heading: str) -> str:
     """Devuelve un heading legible para UI/chat, sin tags visuales del markdown."""
     text = heading or ""
@@ -1501,7 +1661,126 @@ def _find_matching_section(question: str, context: str) -> dict | None:
 
 
 # ── Intent Asset Detection ────────────────────────────────────────────────────
-def _find_matching_asset(question: str, selected_path: str, context: str) -> dict | None:
+_ASSET_INTENT_TERMS = (
+    "template", "plantilla", "codigo", "código", "ejemplo", "ver recurso",
+    "ver template", "mostrar template", "descargar", "copiar", "crear cds",
+    "escribir cds", "implementacion", "implementación", "documentacion",
+    "documentación", "link", "enlace", "sap help", "nota sap", "kba",
+    "how-to", "guia", "guía", "paso a paso", "configurar", "configuro",
+    "configuración", "configuracion", "instalar", "conectar", "transportar",
+    "transporta", "transporte", "transportes",
+    "activar", "fuente oficial", "documento", "referencia",
+    "como integro", "cómo integro", "como integrar", "cómo integrar",
+    "integrar process", "process chain", "process chains", "task chain", "task chains"
+)
+
+
+def _is_asset_seeking_query(question: str) -> bool:
+    q_lower = _norm(question)
+    if any(term in q_lower for term in _ASSET_INTENT_TERMS):
+        return True
+    # Raices operativas comunes. Evita depender de cada conjugacion:
+    # conectar/conecto/conectamos, transportar/transporta, etc.
+    return any(
+        root in q_lower
+        for root in ("configur", "instal", "conect", "transport", "import", "activ", "particion", "integr")
+    )
+
+
+def _score_asset_candidate(question: str, asset: dict) -> int:
+    q_lower = _norm(question)
+    q_tokens = _significant_tokens(question)
+    q_tokens_loose = _routing_token_variants(q_tokens)
+    keywords = [_norm(k) for k in (asset.get("keywords") or [])]
+    desc = _norm(str(asset.get("description") or ""))
+    score = 0
+
+    for kw in keywords:
+        if not kw:
+            continue
+        if kw in q_lower:
+            score += 12
+            continue
+        if "bw bridge" in kw and "bw bridge" in q_lower:
+            score += 6
+        for root in ("configur", "instal", "conect", "transport", "import", "activ", "particion"):
+            if root in kw and root in q_lower:
+                score += 6
+                break
+        if "datasphere" in kw and "datasphere" in q_lower:
+            score += 4
+        kw_tokens = _significant_tokens(kw)
+        kw_tokens_loose = _routing_token_variants(kw_tokens)
+        specific_hits = _asset_specific_token_hits(q_tokens, kw_tokens)
+        if specific_hits:
+            # Premia el objeto consultado (SAC, PowerBI, BW Bridge, process/task
+            # chain, etc.) por encima de verbos y dominios compartidos.
+            score += 8 * len(specific_hits)
+        hits = len(q_tokens_loose & kw_tokens_loose)
+        if hits >= 2:
+            score += hits * 3
+            if hits == len(kw_tokens_loose):
+                score += 4
+        elif hits == 1:
+            # Un token especifico del objeto consultado (SAC, OpenID, BWMT,
+            # PowerBI, etc.) debe pesar mas que el verbo generico "conectar".
+            exact_hits = q_tokens & kw_tokens
+            if exact_hits:
+                score += 6
+
+    desc_tokens = _significant_tokens(desc)
+    desc_tokens_loose = _routing_token_variants(desc_tokens)
+    desc_specific_hits = _asset_specific_token_hits(q_tokens, desc_tokens)
+    if desc_specific_hits:
+        score += 4 * len(desc_specific_hits)
+    desc_hits = len(q_tokens_loose & desc_tokens_loose)
+    if desc_hits >= 2:
+        score += desc_hits
+    elif desc_hits == 1 and (q_tokens & desc_tokens):
+        score += 3
+    for root in ("configur", "instal", "conect", "transport", "import", "activ", "particion"):
+        if root in desc and root in q_lower:
+            score += 3
+            break
+    if "datasphere" in desc and "datasphere" in q_lower:
+        score += 2
+    if "bw bridge" in desc and "bw bridge" in q_lower:
+        score += 3
+    return score
+
+
+def _find_best_asset(
+    question: str,
+    assets: list[dict],
+    *,
+    require_intent: bool = True,
+    min_score: int = 8,
+    min_gap: int = 3,
+) -> dict | None:
+    if require_intent and not _is_asset_seeking_query(question):
+        return None
+    scored: list[tuple[int, dict]] = []
+    for asset in assets or []:
+        score = _score_asset_candidate(question, asset)
+        if score >= min_score:
+            scored.append((score, asset))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else 0
+    if second_score and best_score - second_score < min_gap:
+        return None
+    return best
+
+
+def _find_matching_asset(
+    question: str,
+    selected_path: str,
+    context: str,
+    *,
+    allow_strong: bool = False,
+) -> dict | None:
     try:
         from core.content import split_front_matter
         meta, _ = split_front_matter(context)
@@ -1510,26 +1789,61 @@ def _find_matching_asset(question: str, selected_path: str, context: str) -> dic
         return None
 
     q_lower = _norm(question)
-    explicit_asset_terms = (
-        "template", "plantilla", "codigo", "código", "ejemplo", "ver recurso",
-        "ver template", "mostrar template", "descargar", "copiar", "crear cds",
-        "escribir cds", "implementacion", "implementación"
-    )
     conceptual_terms = (
         "diferencia", "comparar", "comparativa", "versus", " vs ", "mejor",
         "funciona mejor", "recomendas", "recomendás", "conviene", "por que",
         "por qué", "explicame", "explicar", "corrige", "corregir", "malinformando",
         "ddic", "view entity", "entity", "define view entity", "define view"
     )
-    if any(term in q_lower for term in conceptual_terms) and not any(term in q_lower for term in explicit_asset_terms):
+    has_intent = _is_asset_seeking_query(question)
+    if any(term in q_lower for term in conceptual_terms) and not (has_intent or allow_strong):
         return None
-    if not any(term in q_lower for term in explicit_asset_terms):
+    return _find_best_asset(
+        question,
+        assets,
+        require_intent=not allow_strong,
+        min_score=8 if has_intent else 12,
+        min_gap=3 if has_intent else 4,
+    )
+
+
+def _find_cross_module_asset(question: str, current_stem: str, *, allow_strong: bool = False) -> dict | None:
+    has_intent = _is_asset_seeking_query(question)
+    if not has_intent and not allow_strong:
         return None
-    for asset in assets:
-        keywords = [_norm(k) for k in (asset.get("keywords") or [])]
-        if any(kw in q_lower for kw in keywords):
-            return asset
-    return None
+    min_score = 8 if has_intent else 12
+    min_gap = 3 if has_intent else 4
+    candidates: list[tuple[int, dict]] = []
+    content_paths = list(CONTENT_DIR.glob("*.md"))
+    appendices_dir = CONTENT_DIR / "apendices"
+    if appendices_dir.exists():
+        content_paths.extend(appendices_dir.glob("*.md"))
+
+    for path in sorted(content_paths, key=lambda p: p.name.lower()):
+        if path.stem == current_stem:
+            continue
+        try:
+            md = read_text_cached(str(path))
+            meta, _body = split_front_matter(md)
+            module_label = module_label_from_md(path.stem, md)
+        except Exception:
+            continue
+        for asset in meta.get("intent_assets") or []:
+            score = _score_asset_candidate(question, asset)
+            if score >= min_score:
+                asset = dict(asset)
+                asset["_module"] = path.stem
+                asset["_module_label"] = module_label
+                candidates.append((score, asset))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best_score, best = candidates[0]
+    second_score = candidates[1][0] if len(candidates) > 1 else 0
+    if second_score and best_score - second_score < min_gap:
+        return None
+    return best
 
 
 def _needs_cds_delta_choice(question: str) -> bool:
@@ -1561,7 +1875,10 @@ def _needs_cds_delta_choice(question: str) -> bool:
 def _find_matching_tree(question: str, trees: list) -> object | None:
     """
     Nivel A: scoring local con filtros exclude_if y min_sources.
-    Nivel B: LLM árbitro como fallback (no en simulación).
+
+    Los arboles se ofrecen solo cuando la metadata local alcanza. No usamos
+    LLM arbitro como fallback porque ante preguntas operativas/how-to tiende a
+    fabricar afinidad con arboles amplios (ej. Topologia de Espacios).
     """
     if not trees:
         return None
@@ -1615,27 +1932,6 @@ def _find_matching_tree(question: str, trees: list) -> object | None:
     if scored:
         scored.sort(key=lambda x: -x[0])
         return scored[0][1]
-
-    if AppState.is_simulation():
-        return None
-    try:
-        tree_summaries = "\n".join(
-            f"- id={t.id if hasattr(t, 'id') else t.get('id','')}: {t.get('title', '')}"
-            for t in trees
-        )
-        gw   = LLMGateway.get()
-        resp = gw.ask(
-            "Sos un sistema de routing. Respondé SOLO con el id del árbol más relevante o 'ninguno'.",
-            tree_summaries,
-            f"Pregunta del usuario: {question}",
-        )
-        resp = resp.strip().lower()
-        for tree in trees:
-            tid = (tree.id if hasattr(tree, "id") else tree.get("id", "")).lower()
-            if tid in resp:
-                return tree
-    except Exception:
-        pass
 
     return None
 
@@ -1787,6 +2083,15 @@ def _render_assistant_tab(
         or _pending_direct_active
     )
 
+    # Resolver primero el router liviano antes de pintar el chat. Si la pregunta
+    # matchea seccion/arbol/asset, evita un render intermedio vacio con apariencia
+    # de llamada LLM. Si no matchea, este bloque agenda _pending_classify y el
+    # siguiente render muestra el preloader real de LLM.
+    if _pending_free_active:
+        st.session_state.pop("_processing", None)
+        _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
+        return
+
     if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_free_active or _pending_classify_active or _pending_direct_active or _processing:
         with st.container(height=420):
             _chat_surface_id = f"dw-chat-surface-{selected_stem}"
@@ -1813,6 +2118,7 @@ def _render_assistant_tab(
     }}
 
     if (!scrollBox) return;
+    scrollBox.style.marginTop = '-10px';
     scrollBox.style.background = '#ffffff';
     scrollBox.style.backgroundColor = '#ffffff';
     scrollBox.style.borderRadius = '8px';
@@ -2144,9 +2450,20 @@ button[kind="secondary"] p { text-align: left !important; }
                 desc       = asset.get("description", "Recurso técnico disponible")
                 asset_path = asset.get("asset", "")
                 language   = asset.get("language", "abap")
+                is_external_asset = str(asset_path).lower().startswith(("http://", "https://"))
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    if st.button("📎 Ver template", width="stretch", key="asset_view_btn"):
+                    if is_external_asset:
+                        if st.button("📎 Abrir recurso", width="stretch", key="asset_open_external_btn"):
+                            st.session_state["_open_external_asset"] = {
+                                "url": str(asset_path),
+                                "desc": desc,
+                                "suggestion_key": "_asset_suggestion",
+                            }
+                            st.session_state.pop("_active_tree_id", None)
+                            st.session_state.pop("_active_tree_title", None)
+                            _rerun_tools_panel()
+                    elif st.button("📎 Ver template", width="stretch", key="asset_view_btn"):
                         st.session_state["_asset_open"] = {
                             "path": asset_path, "desc": desc,
                             "language": language, "selected_path": selected_path,
@@ -2161,6 +2478,54 @@ button[kind="secondary"] p { text-align: left !important; }
                         _rerun_tools_panel()
 
             # ── Sugerencia combinada: árbol + sección ─────────────────────────
+            asset_section_suggestion = st.session_state.get("_asset_section_suggestion")
+            if asset_section_suggestion:
+                asset = asset_section_suggestion["asset"]
+                desc = asset.get("description", "Recurso tecnico disponible")
+                asset_path = asset.get("asset", "")
+                language = asset.get("language", "abap")
+                is_external_asset = str(asset_path).lower().startswith(("http://", "https://"))
+                col_a, col_b, col_c = st.columns(3, gap="small")
+                with col_a:
+                    if st.button("📖 Abrir sección", width="stretch", key="asset_section_nav_btn"):
+                        slug = _slugify(asset_section_suggestion["section_heading"])
+                        _target_module = asset_section_suggestion.get("module")
+                        if _target_module and _target_module != selected_stem:
+                            st.session_state["_preserve_chat_on_module_switch"] = True
+                            st.query_params["module"] = _target_module
+                        st.session_state.pop("_asset_section_suggestion", None)
+                        st.query_params["section"] = slug
+                        st.query_params["section_nav"] = "1"
+                        st.rerun()
+                with col_b:
+                    if is_external_asset:
+                        if st.button("📎 Abrir recurso", width="stretch", key="asset_section_open_external_btn"):
+                            st.session_state["_open_external_asset"] = {
+                                "url": str(asset_path),
+                                "desc": desc,
+                                "suggestion_key": "_asset_section_suggestion",
+                            }
+                            st.session_state.pop("_active_tree_id", None)
+                            st.session_state.pop("_active_tree_title", None)
+                            _rerun_tools_panel()
+                    elif st.button("📎 Abrir recurso", width="stretch", key="asset_section_asset_btn"):
+                        st.session_state["_asset_open"] = {
+                            "path": asset_path, "desc": desc,
+                            "language": language, "selected_path": selected_path,
+                        }
+                        st.session_state.pop("_asset_section_suggestion", None)
+                        _rerun_tools_panel()
+                with col_c:
+                    if st.button("💬 Explicame vos", width="stretch", key="asset_section_llm_btn"):
+                        st.session_state["_pending_llm_direct"] = {
+                            "prompt": asset_section_suggestion["prompt"],
+                            "context": asset_section_suggestion.get("context") or context,
+                            "module": asset_section_suggestion.get("module") or selected_stem,
+                        }
+                        st.session_state.pop("_asset_section_suggestion", None)
+                        st.session_state.pop("_expand_chat_open", None)
+                        _rerun_tools_panel()
+
             combined_suggestion = st.session_state.get("_combined_suggestion")
             if combined_suggestion:
                 tree_title       = combined_suggestion["tree_title"]
@@ -2244,7 +2609,7 @@ button[kind="secondary"] p { text-align: left !important; }
             st.markdown("<style>.dw-chat-msg { margin-bottom: 10px !important; }</style>", unsafe_allow_html=True)
 
             # Aviso si hay botones de sugerencia activos que no se ven en el dialog
-            _SUGGESTION_KEYS = ("_section_suggestion", "_tree_suggestion", "_asset_suggestion", "_combined_suggestion", "_depth_selector")
+            _SUGGESTION_KEYS = ("_section_suggestion", "_tree_suggestion", "_asset_suggestion", "_asset_section_suggestion", "_combined_suggestion", "_depth_selector")
             if any(st.session_state.get(k) for k in _SUGGESTION_KEYS):
                 st.info("💡 Hay opciones pendientes de selección en el chat. Cerrá este panel para interactuar con ellas.", icon=None)
 
@@ -2369,6 +2734,7 @@ button[kind="secondary"] p { text-align: left !important; }
                 st.session_state.pop("_combined_suggestion", None)
                 st.session_state.pop("_section_suggestion", None)
                 st.session_state.pop("_asset_suggestion", None)
+                st.session_state.pop("_asset_section_suggestion", None)
                 st.session_state.pop("_asset_open", None)
                 st.session_state.pop("_depth_selector", None)
                 st.session_state.pop("_cds_delta_selector", None)
@@ -2694,6 +3060,21 @@ def render_tools_panel(
 
     active_tab = AppState.active_tools_tab()
     active_tab = _render_tab_bar(active_tab, _tab_labels)
+
+    _external_asset = st.session_state.pop("_open_external_asset", None)
+    if _external_asset:
+        _desc = _external_asset.get("desc", "recurso")
+        _url = _external_asset.get("url", "")
+        _sug_key = _external_asset.get("suggestion_key")
+        AppState.append_chat("event", f"📖 Abriendo recurso: **{_desc}**")
+        if _sug_key:
+            st.session_state.pop(_sug_key, None)
+        if _url:
+            st.components.v1.html(
+                f"<script>window.open({json.dumps(_url)}, '_blank', 'noopener,noreferrer');</script>",
+                height=0,
+            )
+        active_tab = 2
 
     anchor_topic = AppState.pop_topic_from_anchor()
     if anchor_topic:
