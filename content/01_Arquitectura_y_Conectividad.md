@@ -9,7 +9,7 @@ key_topics:
     heading: "Referencias de Arquitectura"
   - id: espacios
     label: Espacios
-    heading: "Espacios y Transportes"
+    heading: "Espacios & Transportes"
   - id: configuracion
     label: Configuración
     heading: "Configuración de Espacios"
