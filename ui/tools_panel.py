@@ -33,9 +33,10 @@ except ImportError:
 try:
     import markdown as _md_lib
     def _to_html(text: str) -> str:
-        return _md_lib.markdown(text)
+        return _md_lib.markdown(_normalize_llm_spacing(text))
 except ImportError:
     def _to_html(text: str) -> str:
+        text = _normalize_llm_spacing(text)
         text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
         text = re.sub(r'\*(.+?)\*',     r'<em>\1</em>',         text)
         return text
@@ -154,10 +155,44 @@ def _appendix_case_context(max_chars: int = 6500) -> str:
         text = text[:max_chars].rsplit("\n", 1)[0].rstrip()
     return (
         "\n\nCONTEXTO ADICIONAL - APÉNDICES Y CASOS INTERNOS DANWOR:\n"
-        "Usá este bloque como fuente prioritaria para ejemplos prácticos documentados. "
+        "Usá este bloque como fuente complementaria para ejemplos prácticos documentados. "
+        "Priorizá siempre el contrato semántico del módulo activo si define un foco específico. "
         "Si completás algo por inferencia, marcá [INFERENCIA].\n"
         f"{text}"
     )
+
+
+def _quick_action_guidance_from_context(context: str, action: str) -> tuple[str, str]:
+    """
+    Lee instrucciones opcionales para una acción rápida desde el front matter.
+
+    El panel no debe conocer semántica editorial por módulo. Si un módulo necesita
+    matizar una acción rápida, lo declara en `quick_action_guidance` dentro del
+    markdown; el código solo aplica ese contrato de forma genérica.
+    """
+    try:
+        meta, _ = split_front_matter(context or "")
+    except Exception:
+        return "", ""
+
+    guidance = meta.get("quick_action_guidance") or {}
+    if not isinstance(guidance, dict):
+        return "", ""
+
+    item = guidance.get(action)
+    if item is None:
+        item = guidance.get(_norm(action))
+    if item is None:
+        return "", ""
+
+    if isinstance(item, str):
+        return item.strip(), ""
+    if not isinstance(item, dict):
+        return "", ""
+
+    prompt = str(item.get("prompt") or item.get("instruction") or "").strip()
+    context_note = str(item.get("context") or item.get("contexto") or "").strip()
+    return prompt, context_note
 
 
 def _should_suggest_quota_ratio(answer: str, *, quick_action: str, selected_stem: str) -> bool:
@@ -167,7 +202,7 @@ def _should_suggest_quota_ratio(answer: str, *, quick_action: str, selected_stem
     La navegación se resuelve con el mismo patrón conversacional del asistente
     (_section_suggestion), no con links markdown generados por el LLM.
     """
-    if quick_action != "Errores frecuentes" or selected_stem != _MODULE01_STEM:
+    if quick_action not in {"Errores frecuentes", "Guía operativa del módulo"} or selected_stem != _MODULE01_STEM:
         return False
 
     text = answer or ""
@@ -474,6 +509,39 @@ def _animated_spinner(slot, loading_msg: str, thread) -> None:
     slot.empty()
 
 
+def _normalize_llm_spacing(answer: str) -> str:
+    """
+    Separa la intro de los encabezados principales cuando el LLM devuelve
+    un solo salto de linea. Markdown necesita linea en blanco para respirar.
+    """
+    if not answer:
+        return answer
+
+    title_prefixes = (
+        "guia operativa",
+        "checklist",
+        "errores frecuentes",
+        "ejemplos practicos",
+        "ejemplo ",
+        "anti-patterns",
+        "decisiones",
+        "riesgos",
+        "recomendacion danwor",
+        "salida operativa",
+        "mirada danwor",
+    )
+
+    lines = answer.splitlines()
+    out: list[str] = []
+    for line in lines:
+        clean_line = re.sub(r"^[#*\s_`]+|[*\s_`]+$", "", line).strip()
+        clean_norm = _norm(clean_line)
+        if clean_norm.startswith(title_prefixes) and out and out[-1].strip():
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
 def _llm_call_direct(
     prompt: str,
     context: str,
@@ -500,22 +568,22 @@ def _llm_call_direct(
         else:
             _result["answer"] = _gw._call_api(_sys, context, prompt, max_tokens=max_tokens)
 
-    _slot = st.empty()
+    _slot = st.session_state.pop("_llm_spinner_slot", None) or st.empty()
     _t    = _threading.Thread(target=_call, daemon=True)
     _t.start()
     _animated_spinner(_slot, loading_msg, _t)
     _t.join()
-    return _result.get("answer", "⚠ Sin respuesta.")
+    return _normalize_llm_spacing(_result.get("answer", "⚠ Sin respuesta."))
 
     def _call():
         _result["answer"] = _gw.ask(_sys, context, prompt)
 
-    _slot = st.empty()
+    _slot = st.session_state.pop("_llm_spinner_slot", None) or st.empty()
     _t    = _threading.Thread(target=_call, daemon=True)
     _t.start()
     _animated_spinner(_slot, loading_msg, _t)
     _t.join()
-    return _result.get("answer", "⚠ Sin respuesta.")
+    return _normalize_llm_spacing(_result.get("answer", "⚠ Sin respuesta."))
 
 
 def _llm_call_with_cases(
@@ -559,7 +627,7 @@ def _llm_call_with_cases(
     _t.start()
     _animated_spinner(_slot, loading_msg, _t)
     _t.join()
-    return _result.get("answer", "⚠ Sin respuesta.")
+    return _normalize_llm_spacing(_result.get("answer", "⚠ Sin respuesta."))
 
 
 _PENDING_KEY = "_pending_action"
@@ -570,6 +638,7 @@ def _has_pending_action() -> bool:
 
 def _queue_action(label: str, callback, debug_prompt: str | None = None, cases_count: int = 0, skip_dialog: bool = False) -> None:
     st.session_state["_processing"] = True
+    st.session_state["_hide_section_action_zone"] = True
     st.session_state[_PENDING_KEY] = {
         "label":        label,
         "callback":     callback,
@@ -619,6 +688,7 @@ def _flush_pending_action() -> None:
             callback()
         finally:
             st.session_state.pop("_processing", None)
+            st.session_state.pop("_hide_section_action_zone", None)
         _rerun_tools_panel()
         return
 
@@ -644,6 +714,7 @@ def _flush_pending_action() -> None:
             c1, c2 = st.columns(2)
             if c1.button("Cancelar", width='stretch'):
                 st.session_state.pop("_processing", None)
+                st.session_state.pop("_hide_section_action_zone", None)
                 _rerun_tools_panel()
             if c2.button("Confirmar", width='stretch'):
                 if sim_delay > 0:
@@ -662,6 +733,7 @@ def _flush_pending_action() -> None:
                     callback()
                 finally:
                     st.session_state.pop("_processing", None)
+                    st.session_state.pop("_hide_section_action_zone", None)
                 _rerun_tools_panel()
     _dlg()
 
@@ -733,6 +805,15 @@ _CHAT_SUGGESTION_KEYS = (
     "_depth_selector",
     "_cds_delta_selector",
 )
+
+
+def _inject_inline_style(css: str) -> None:
+    html_block = f"<style>{css}</style>"
+    html_fn = getattr(st, "html", None)
+    if callable(html_fn):
+        html_fn(html_block)
+    else:
+        st.markdown(html_block, unsafe_allow_html=True)
 
 
 def _clear_pending_suggestions() -> None:
@@ -1051,7 +1132,8 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
     elif selected_topic:
         st.caption("No se encontró fragmento exacto para este heading.")
 
-    _ACTION_DESCRIPTIONS = {
+    with st.container(key="section_action_zone"):
+        _ACTION_DESCRIPTIONS = {
         "Salida Operativa":
             "Síntesis ejecutiva en lenguaje no técnico, orientada a decisión. "
             "Para compartir con el cliente: qué necesita saber para aprobar o avanzar.",
@@ -1069,81 +1151,81 @@ def _render_section_tab(selected_stem: str, context: str, selected_path: str) ->
             "Va en dirección inversa: no 'explicame el marco' sino 'revisá si lo que hice es correcto'.",
     }
 
-    st.markdown("<div class='dw-field-label'>Acción</div>", unsafe_allow_html=True)
-    action = st.radio(
-        "Acción",
-        ALL_ACTIONS,
-        index=0,
-        horizontal=False,
-        key="topic_action_radio",
-        label_visibility="collapsed",
-    )
-
-    with st.expander("¿Qué hace cada acción?", expanded=False):
-        _help_items = "\n".join(
-            f"<div class='dw-action-help-item'>"
-            f"<strong>{html.escape(_a)}</strong>"
-            f"<span>{html.escape(_desc)}</span>"
-            f"</div>"
-            for _a, _desc in _ACTION_DESCRIPTIONS.items()
-        )
-        st.markdown(
-            f"<div class='dw-action-help'>{_help_items}</div>",
-            unsafe_allow_html=True,
+        st.markdown("<div class='dw-field-label'>Acción</div>", unsafe_allow_html=True)
+        action = st.radio(
+            "Acción",
+            ALL_ACTIONS,
+            index=0,
+            horizontal=False,
+            key="topic_action_radio",
+            label_visibility="collapsed",
         )
 
-    if st.button(
-        "Analizar",
-        width='stretch',
-        key="analyze_topic_btn",
-        disabled=_has_pending_action(),
-    ):
-        if not selected_topic:
-            show_msg("Seleccioná primero un key topic o una sección del Módulo.", kind="tip")
-        elif not _ia_enabled(selected_stem):
-            _ia_disabled_msg()
-        else:
-            _fp = f"section_{selected_stem}_{selected_topic}_{action}"
-            if _llm_guard(_fp):
-                show_msg("Ya analizaste esta acción. Elegí otra o el topic para un nuevo análisis.", kind="warning")
+        with st.expander("¿Qué hace cada acción?", expanded=False):
+            _help_items = "\n".join(
+                f"<div class='dw-action-help-item'>"
+                f"<strong>{html.escape(_a)}</strong>"
+                f"<span>{html.escape(_desc)}</span>"
+                f"</div>"
+                for _a, _desc in _ACTION_DESCRIPTIONS.items()
+            )
+            st.markdown(
+                f"<div class='dw-action-help'>{_help_items}</div>",
+                unsafe_allow_html=True,
+            )
+
+        if st.button(
+            "Analizar",
+            width='stretch',
+            key="analyze_topic_btn",
+            disabled=_has_pending_action(),
+        ):
+            if not selected_topic:
+                show_msg("Seleccioná primero un key topic o una sección del Módulo.", kind="tip")
+            elif not _ia_enabled(selected_stem):
+                _ia_disabled_msg()
             else:
-                _topic        = selected_topic
-                _section      = section_md or "(No se encontró fragmento.)"
-                _action       = action
-                _ctx          = context
-                _instr        = topic_instruction(_action)
-                prompt        = build_topic_prompt(_ctx, _topic, _section, _action, _instr, module=selected_stem)
-                _cases_count  = len(_load_relevant_cases(module=selected_stem, max_cases=5))
-                _loading_msg  = get_loading_message(_action, _cases_count > 0)
+                _fp = f"section_{selected_stem}_{selected_topic}_{action}"
+                if _llm_guard(_fp):
+                    show_msg("Ya analizaste esta acción. Elegí otra o el topic para un nuevo análisis.", kind="warning")
+                else:
+                    _topic        = selected_topic
+                    _section      = section_md or "(No se encontró fragmento.)"
+                    _action       = action
+                    _ctx          = context
+                    _instr        = topic_instruction(_action)
+                    prompt        = build_topic_prompt(_ctx, _topic, _section, _action, _instr, module=selected_stem)
+                    _cases_count  = len(_load_relevant_cases(module=selected_stem, max_cases=5))
+                    _loading_msg  = get_loading_message(_action, _cases_count > 0)
 
-                def _run():
-                    log_activity(
-                        "section_action",
-                        module=selected_stem,
-                        topic=_topic,
-                        action=_action,
-                        prompt=prompt,
-                    )
-                    if AppState.is_simulation():
-                        answer = _simulate_section_output(_action, _topic)
-                    else:
-                        answer = _llm_call_with_cases(prompt, _ctx, _loading_msg, _cases_count, module=selected_stem)
-                    AppState.append_chat("user", f"📌 {_topic} → {_action}")
-                    AppState.append_chat("assistant", answer)
-                    st.session_state.pop("_last_section_output", None)
-                    st.session_state.pop("_last_section_fb", None)
-                    _fb_key = f"sec_{selected_stem}_{_topic}_{_action}"
-                    st.session_state.pop(f"_fb_state_{_fb_key}", None)
-                    AppState.set_active_tools_tab(2)
+                    def _run():
+                        log_activity(
+                            "section_action",
+                            module=selected_stem,
+                            topic=_topic,
+                            action=_action,
+                            prompt=prompt,
+                        )
+                        if AppState.is_simulation():
+                            answer = _simulate_section_output(_action, _topic)
+                        else:
+                            answer = _llm_call_with_cases(prompt, _ctx, _loading_msg, _cases_count, module=selected_stem)
+                        AppState.append_chat("user", f"📌 {_topic} → {_action}")
+                        AppState.append_chat("assistant", answer)
+                        st.session_state.pop("_last_section_output", None)
+                        st.session_state.pop("_last_section_fb", None)
+                        _fb_key = f"sec_{selected_stem}_{_topic}_{_action}"
+                        st.session_state.pop(f"_fb_state_{_fb_key}", None)
+                        AppState.set_active_tools_tab(2)
 
-                _confirm_and_run(f"Analizar: {_topic}", _run, debug_prompt=prompt, cases_count=_cases_count)
+                    _confirm_and_run(f"Analizar: {_topic}", _run, debug_prompt=prompt, cases_count=_cases_count)
 
-    if _ia_enabled(selected_stem):
-        st.markdown(
-            "<div style='font-size:0.75rem;color:#888;margin-top:4px;margin-bottom:16px;text-align:center'>"
-            "⚠ La IA puede cometer errores. Revisá sus respuestas.</div>",
-            unsafe_allow_html=True,
-        )
+        if _ia_enabled(selected_stem):
+            st.markdown(
+                "<div style='font-size:0.75rem;color:#888;margin-top:4px;margin-bottom:16px;text-align:center'>"
+                "⚠ La IA puede cometer errores. Revisá sus respuestas.</div>",
+                unsafe_allow_html=True,
+            )
 
 
 # Tab 2: Árboles ──────────────────────────────────────────────────────────────
@@ -1995,6 +2077,11 @@ def _render_assistant_tab(
             _ctx    = context
             _prompt = QUICK_ACTIONS[quick_action].strip()
             _label  = quick_action
+            _prompt_guidance, _context_guidance = _quick_action_guidance_from_context(context, _label)
+            if _prompt_guidance:
+                _prompt = f"{_prompt}\n\n{_prompt_guidance}"
+            if _context_guidance:
+                _ctx = f"{_ctx}\n\n{_context_guidance}"
 
             _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
             if _label == "Ejemplos prácticos":
@@ -2092,8 +2179,10 @@ def _render_assistant_tab(
         _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
         return
 
+    _defer_pending_action = False
+
     if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_free_active or _pending_classify_active or _pending_direct_active or _processing:
-        with st.container(height=420):
+        with st.container(height=420, key="assistant_chat_surface"):
             _chat_surface_id = f"dw-chat-surface-{selected_stem}"
             st.markdown(f"<div id='{_chat_surface_id}' class='dw-chat-surface-marker'></div>", unsafe_allow_html=True)
             st.components.v1.html(
@@ -2224,8 +2313,8 @@ def _render_assistant_tab(
 
             # ── Indicador de procesamiento ────────────────────────────────────
             if _has_pending_action():
-                st.session_state.pop("_processing", None)
-                _flush_pending_action()
+                _defer_pending_action = True
+                st.session_state["_llm_spinner_slot"] = st.empty()
             elif _pending_free_active:
                 st.session_state.pop("_processing", None)
                 _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
@@ -2237,8 +2326,8 @@ def _render_assistant_tab(
                 _flush_pending_llm_direct(selected_stem)
             elif _processing:
                 if _has_pending_action():
-                    st.session_state.pop("_processing", None)
-                    _flush_pending_action()
+                    _defer_pending_action = True
+                    st.session_state["_llm_spinner_slot"] = st.empty()
                 else:
                     st.session_state.pop("_processing", None)
                     st.markdown(
@@ -2671,10 +2760,18 @@ button[kind="secondary"] p { text-align: left !important; }
         _expanded_chat()
 
     # ── Input libre ───────────────────────────────────────────────────────────
+    if _assistant_busy:
+        st.markdown("<span class='dw-assistant-busy-marker'></span>", unsafe_allow_html=True)
     st.caption("Consultá y recibí recomendaciones en lenguaje natural")
 
     _fq_key    = f"free_question_{st.session_state.get('_fq_counter', 0)}"
-    user_input = st.text_area("Tu pregunta (sobre este módulo):", value="", key=_fq_key, height=90)
+    user_input = st.text_area(
+        "Tu pregunta (sobre este módulo):",
+        value="",
+        key=_fq_key,
+        height=90,
+        disabled=_assistant_busy,
+    )
     if not _assistant_busy:
         st.components.v1.html(
             """
@@ -2724,6 +2821,11 @@ button[kind="secondary"] p { text-align: left !important; }
         "⚠ La IA puede cometer errores. Revisá sus respuestas.</div>",
         unsafe_allow_html=True,
     )
+
+    if _defer_pending_action and _has_pending_action():
+        st.session_state.pop("_processing", None)
+        _flush_pending_action()
+        return
 
     if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_classify_active:
         col_clear, col_expand = st.columns(2)
@@ -3059,7 +3161,11 @@ def render_tools_panel(
         _tab_labels[3] = "🔬 Analítica"
 
     active_tab = AppState.active_tools_tab()
+    if active_tab == 2 or st.session_state.get("_hide_section_action_zone"):
+        _inject_inline_style(".st-key-section_action_zone{display:none!important;}")
     active_tab = _render_tab_bar(active_tab, _tab_labels)
+    if active_tab == 2:
+        st.markdown("<span class='dw-active-assistant-marker'></span>", unsafe_allow_html=True)
 
     _external_asset = st.session_state.pop("_open_external_asset", None)
     if _external_asset:

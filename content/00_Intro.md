@@ -28,7 +28,7 @@ key_topics:
 
 ## {dw-black}Nuestro punto de {dw-gold}partida
 {{section_mode: visual_only}}
-{{html_embed: ../assets/danwor-punto-de-partida.html height=660}}
+{{html_embed: ../assets/danwor-punto-de-partida.html height=570}}
 
 ## {dw-black}Roadmap de {dw-gold}Implementación
 {{section_mode: visual_only}}

@@ -115,6 +115,9 @@ intent_assets:
   - keywords: ["nota 3590400", "3590400", "bw data product generator", "bdc datasphere generator"]
     description: "Nota SAP 3590400: BW Data Product Generator for SAP BDC / Datasphere"
     asset: "https://me.sap.com/notes/3590400"
+  - keywords: ["nota 2559981", "2559981", "requerimientos DP agent"]
+    description: "Nota SAP 2559981: System requirements for installing Data Provisioning Agent"
+    asset: "https://me.sap.com/notes/2559981"    
   - keywords: ["nota 3220622", "3220622", "hana cloud release schedule"]
     description: "Nota SAP 3220622: HANA Cloud Release/Schedule for SAP Datasphere"
     asset: "https://me.sap.com/notes/3220622"
@@ -195,6 +198,7 @@ Listado curado de notas SAP relevantes para SAP Datasphere, BW Bridge, integraci
 | **3417440** | Verify generated BW bridge objects after conversion/installation | Técnico / Informativo |
 | **3579966** | Update to latest BWMT (Modeling Tools for SAP BW) | Técnico / Informativo |
 | **3590400** | BW Data Product Generator for SAP BDC / Datasphere | Técnico / Informativo |
+| **2559981** | Data Provisioning Agent - System Requirements | Tenant / Admin |
 | **3220622** | HANA Cloud Release/Schedule for SAP Datasphere | Tenant / Admin |
 | **1732157** | Collecting diagnosis information for SAP HANA | Tenant / Admin |
 | **2180165** | FAQ: SAP HANA Expensive Statements Trace | Tenant / Admin |

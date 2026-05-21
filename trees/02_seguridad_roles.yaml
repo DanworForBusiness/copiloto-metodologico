@@ -85,7 +85,7 @@ leaves:
     decision: "Usar Roles Custom apoyado en Template Danwor"
     assets:
       - label: "Template Danwor"
-        url: "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=k2fU4w"
+        url: "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=ItlfCX"
         description: "Plantilla de referencia para roles custom."
     notes:
       - "Capitalizar el marco Danwor RDS para no partir de cero."

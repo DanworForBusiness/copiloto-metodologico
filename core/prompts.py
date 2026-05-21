@@ -51,7 +51,7 @@ def _clean_heading_label(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 # ── Acciones disponibles en el panel de sección ───────────────────────────────
-ACTION_FULL       = "Salida Operativa"
+ACTION_FULL       = "Salida completa (operativa)"
 ACTION_CHECKLIST  = "Checklist ejecutable"
 ACTION_DECISIONS  = "Decisiones si/entonces"
 ACTION_ANTIPATTERNS = "Anti-patterns y riesgos"
@@ -68,17 +68,15 @@ ALL_ACTIONS = [
 # ── Quick actions (sidebar) ────────────────────────────────────────────────────
 QUICK_ACTIONS: dict[str, str] = {
     "Guía operativa del módulo": """\
-Actuá como Arquitecto Senior Danwor revisando una propuesta técnica de un consultor con poco tiempo.
+Actuá como Arquitecto Senior Danwor revisando el módulo activo bajo presión real de proyecto.
 
-No quiero descripción del módulo.
-Quiero cómo se aplica en la práctica bajo presión real de proyecto.
-Si el módulo incluye una sección de checklist, lista de control, puntos de verificación
-o configuración base, usala como insumo de contraste para enriquecer la guía operativa.
-No te limites a ese contenido ni lo copies como checklist completo: integrá lo útil
-con el resto del marco del módulo y convertí esos puntos en decisiones, prioridades y riesgos concretos.
+Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `semantic_summary`,
+`quick_action_guidance`, secciones, assets, árboles y apéndices. El foco editorial, prioridades,
+ejemplos y exclusiones específicas deben venir del módulo. `prompts.py` solo define la estructura.
 
 Estructura la respuesta así:
 - Una introducción breve de 2-3 líneas, sin numerar, explicando cómo usar esta guía bajo presión de proyecto.
+- Una línea en blanco.
 - Un título en negrita: **Guía operativa del módulo**
 - Luego la lista numerada.
 
@@ -90,49 +88,49 @@ Entregá en la lista numerada:
 5. Recomendación Danwor clara (una postura final).
 
 Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
-Usá terminología Danwor. No describas. Decidí.
+Usá terminología Danwor. No describas: decidí.
 Si depende de contexto no provisto, indicalo explícitamente.
 """,
-    "Checklist de implementación": """Actuá como Arquitecto Senior Danwor que tiene que dejar listo a un consultor junior antes de una reunión técnica crítica.
+    "Checklist de implementación": """\
+Actuá como Arquitecto Senior Danwor preparando un checklist operativo para una reunión técnica crítica.
 
-No quiero teoría ni introducción.
-Quiero un checklist que el consultor pueda ejecutar hoy.
-Si el módulo ya incluye una sección de checklist, lista de control o puntos de verificación,
-usala como insumo de partida, pero no te limites a ella. Reordená, completá y
-operacionalizá esos ítems con el resto del marco del módulo.
+Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `semantic_summary`,
+`quick_action_guidance`, secciones, assets, árboles y apéndices. Los puntos obligatorios,
+dependencias, exclusiones y foco técnico deben venir del módulo. `prompts.py` solo define la estructura.
 
 Entregá:
 1. Checklist de 10-12 ítems ordenados por dependencia (lo que bloquea va primero).
 2. Para cada ítem: qué validar, con quién, y qué pasa si no está resuelto.
-3. Los 3 ítems que más frecuentemente se saltean y generan retrabajo.
 
 Usá terminología Danwor. Sé específico.
 Si un ítem depende de contexto no provisto, marcalo con [VALIDAR CON CLIENTE].
+No agregues una sección final de "ítems que se saltean", "errores frecuentes" ni recomendaciones genéricas.
+No cierres con una frase de coaching al consultor ni hables en tercera persona. Terminá con el último ítem del checklist.
 """,
-    "Errores frecuentes": """Actuá como Arquitecto Senior Danwor haciendo una revisión post-mortem de proyectos anteriores.
+    "Errores frecuentes": """\
+Actuá como Arquitecto Senior Danwor haciendo una revisión post-mortem de proyectos anteriores.
 
-No quiero buenas prácticas genéricas.
-Quiero los errores reales que se repiten en este módulo bajo presión de proyecto.
-Si el módulo incluye checklist o puntos de control, usalos para detectar anti-patrones:
-tratá cada ítem omitido o mal configurado como una señal posible de error, pero cruzalo
-con el resto del marco para no limitar la respuesta al checklist.
+Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `semantic_summary`,
+`quick_action_guidance`, secciones, assets, árboles y apéndices. Los errores prioritarios,
+causas raíz y correcciones Danwor deben venir del módulo. `prompts.py` solo define la estructura.
 
 Entregá:
 1. 8 errores frecuentes, ordenados de mayor a menor impacto en el proyecto.
 2. Para cada error: cómo se manifiesta, por qué ocurre, y cómo lo corrige el marco Danwor.
 3. El error que más cuesta dinero o tiempo si no se detecta a tiempo.
 
-Usá terminología Danwor. No describas síntomas, describí causas raíz.
+Usá terminología Danwor. No describas síntomas solamente: describí causas raíz.
 Si el error depende de contexto no provisto, indicalo explícitamente.
 """,
-    "Ejemplos prácticos": """Actuá como Arquitecto Senior Danwor explicándole a un consultor cómo se ve esto en un proyecto real.
+    "Ejemplos prácticos": """\
+Actuá como Arquitecto Senior Danwor explicándole a un consultor cómo se ve el módulo activo en un proyecto real.
 
-No quiero ejemplos de manual ni escenarios inventados si hay material interno disponible.
-Priorizá casos documentados en apéndices internos, assets del módulo, checklist, guía operativa
-o puntos de control. Usalos como base y enriquecelos con criterio LLM solo cuando haga falta.
-Si completás algo que no está explícitamente documentado, marcá esa parte con [INFERENCIA].
+Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `semantic_summary`,
+`quick_action_guidance`, secciones, assets, árboles y apéndices. Los casos, fuentes internas y límites
+editoriales deben venir del módulo. Si completás algo que no está explícitamente documentado, marcá esa parte con [INFERENCIA].
 
 Entregá una introducción breve de 1-2 líneas indicando de qué fuentes internas te apoyaste.
+Dejá siempre una línea en blanco entre la introducción y el primer ejemplo.
 
 Luego entregá 2 o 3 ejemplos, no más, con este formato:
 
@@ -147,13 +145,10 @@ Cerrá con:
 **Cuándo aplicarlo sin dudar:** 2 bullets.
 **Cuándo pedir más contexto:** 2 bullets.
 
-Usá terminología Danwor. Nombrá tecnologías reales (ECC, S/4, BDC, Datasphere).
+Usá terminología Danwor. Nombrá tecnologías reales del módulo activo.
 Si no encontrás material interno suficiente, decilo explícitamente antes de usar ejemplos hipotéticos.
 """,
 }
-
-
-
 
 # =========================================================
 # Case library — carga y filtrado
