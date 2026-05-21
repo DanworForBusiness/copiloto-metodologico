@@ -45,6 +45,101 @@ guardrails:
   - "DP Agent legacy no significa obsoleto ni inválido: sigue siendo válido cuando el contexto lo requiere, pero no debe elegirse por defecto si existen capacidades nativas modernas vía SCC/HTTPS/ABAP SQL que reduzcan operación, mantenimiento y acoplamiento."
   - "Desacoplar y encapsular contratos de integración es una práctica recomendada. El anti-pattern no es desacoplar, sino consumir contratos SAP funcionales directamente sin una capa gobernada/customer-managed, o encapsular sin ownership, versionado y SLA."
   - "La extracción directa de tablas base no debe presentarse como recomendación. Si el cliente la espera, explicar por qué no conviene y ofrecer alternativas gobernadas mediante APIs/extractores liberados, CDS u ODP."
+quick_action_guidance:
+  "Guía operativa del módulo":
+    context: |
+      CONTEXTO EDITORIAL DANWOR PARA ESTA ACCIÓN - MÓDULO 03:
+      - La guía operativa debe tratar integración y extracción como decisión arquitectónica de datos, no como lista genérica de conectores.
+      - La decisión dominante debe partir de origen, versión/release, SAP_BASIS/SAP_ABAP, FPS, modalidad RISE/on-prem, conectividad disponible y fuente autorizada de extracción.
+      - Para S/4HANA moderno, priorizar ODP-CDS / ABAP_CDS con CDS DDIC-based como patrón conservador para extracción hacia Datasphere, porque conserva compatibilidad productiva con ODP y muchas APIs CDS liberadas por SAP siguen este modelo.
+      - Mencionar que CDS View Entity es una alternativa más moderna, pero no asumirla como default para ODP/CDS de extracción sin validar release, notas SAP y compatibilidad. Referenciar la sección "Tipos de Vistas CDS" cuando aparezca esta decisión.
+      - No reducir DP Agent vs Cloud Connector a "nuevo vs obsoleto": DP Agent es legacy válido si el contexto lo exige; Cloud Connector/SCC + HTTPS + ABAP SQL Service puede reducir operación y acoplamiento si el landscape lo soporta. Referenciar la sección "Integración Legacy vs. Moderna".
+      - Incluir readiness técnico: Note Analyzer / CNV_NA_DI, estado de notas SAP, usuario/servicio de integración y compatibilidad ABAP -> Datasphere antes de prometer Replication Flows o conectividad productiva.
+      - Para delta, no limitarse a timestamp: diferenciar delta byElement vs CDC con mapping. CDC avanzado depende de release/SAP_BASIS, tipo de CDS y Nota SAP 3534086. Referenciar la sección "Template de Extracción vía API Corporativa".
+      - Mantener como guardrail fuerte que la extracción directa de tablas base no es recomendación Danwor; si aparece, ofrecer alternativa gobernada mediante ODP-SAPI, ODP-CDS, CDS Views liberadas o API corporativa.
+    prompt: |
+      INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 03 - GUÍA OPERATIVA:
+      La decisión dominante debe formularse como: elegir el mecanismo de integración/extracción autorizado según origen, release y compatibilidad técnica, priorizando ODP-CDS/CDS DDIC-based como patrón conservador para APIs de extracción hacia Datasphere cuando aplique.
+
+      Incluí obligatoriamente:
+      - Validación de origen y versión: ECC, S/4HANA, SAP_BASIS/SAP_ABAP, release/FPS y modalidad RISE/on-prem.
+      - Referencia conceptual a "Tipos de Vistas CDS" para explicar DDIC-based vs CDS View Entity y por qué DDIC-based sigue siendo conservador para ODP/CDS de extracción.
+      - Validación DP Agent vs Cloud Connector/SCC con ABAP SQL Service, sin llamar obsoleto al DP Agent.
+      - Readiness de integración: Note Analyzer / CNV_NA_DI, estado de notas SAP y usuario/servicio de integración.
+      - Delta: timestamp/byElement solo como patrón clásico; CDC con mapping como patrón avanzado sujeto a compatibilidad y Nota SAP 3534086.
+      - Rechazo explícito de extracción directa de tablas base como recomendación.
+
+      La recomendación Danwor final debe incluir esta idea explícitamente:
+      "validando siempre la compatibilidad técnica, estado de Note Analyzer (CNV_NA_DI) y evitando la extracción directa de tablas base."
+
+      Evitá una guía liviana centrada solo en "usar ODP-CDS". La salida debe sonar como criterio operativo de arquitectura de integración.
+  "Checklist de implementación":
+    context: |
+      CONTEXTO EDITORIAL DANWOR PARA ESTA ACCIÓN - MÓDULO 03:
+      - El checklist debe confirmar readiness técnico de integración/extracción antes de construir o activar flujos.
+      - Debe cubrir origen, release, SAP_BASIS/SAP_ABAP, FPS, modalidad RISE/on-prem y conectividad.
+      - Debe validar fuentes autorizadas: ODP-SAPI, ODP-CDS, CDS Views habilitadas para extracción y API corporativa.
+      - Debe incluir Note Analyzer / CNV_NA_DI, notas SAP aplicables y usuario/servicio de integración.
+      - Debe distinguir DP Agent vs Cloud Connector/SCC + HTTPS + ABAP SQL Service sin tratar DP Agent como obsoleto.
+      - Debe incluir delta clásico byElement y CDC con mapping como alternativas sujetas a compatibilidad.
+      - Debe rechazar extracción directa de tablas base como práctica recomendada.
+    prompt: |
+      INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 03 - CHECKLIST DE IMPLEMENTACIÓN:
+      Construí un checklist operativo de integración/extracción hacia SAP Datasphere.
+
+      Debe validar:
+      - Origen: ECC, S/4HANA, BW o no-SAP.
+      - Release/FPS y componentes técnicos SAP_BASIS/SAP_ABAP.
+      - Modalidad RISE/on-prem y restricciones de conectividad.
+      - Fuente autorizada: ODP-SAPI, ODP-CDS, CDS View liberada o API corporativa.
+      - Whitelist/notas SAP aplicables.
+      - Note Analyzer / CNV_NA_DI y estado de notas.
+      - Usuario/servicio de integración.
+      - Cloud Connector/SCC, ABAP SQL Service y protocolo HTTPS cuando aplique.
+      - DP Agent solo si el contexto lo requiere.
+      - Estrategia delta: FULL, byElement o CDC con mapping.
+      - Pruebas de ODQ, Replication Flow/Data Flow y monitoreo.
+      - Ownership, versionado y SLA del contrato/API corporativa.
+
+      Si aparece expectativa de extracción directa de tablas base, convertirla en punto de bloqueo y proponer alternativa gobernada.
+  "Errores frecuentes":
+    context: |
+      CONTEXTO EDITORIAL DANWOR PARA ESTA ACCIÓN - MÓDULO 03:
+      - Los errores deben centrarse en decisiones de integración/extracción, no en modelado ni reporting.
+      - Evitar lenguaje alarmista: DP Agent es legacy, no obsoleto.
+      - Tratar la extracción directa de tablas base como anti-pattern fuerte.
+      - Incluir errores de compatibilidad de release, Note Analyzer, usuario de servicio, notas SAP y delta/CDC.
+      - Tratar desacoplamiento/encapsulación como buena práctica; el error es consumir contratos funcionales SAP sin contrato propio, ownership o versionado.
+    prompt: |
+      INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 03 - ERRORES FRECUENTES:
+      Priorizá estos errores:
+      - Extraer tablas base directamente en lugar de fuentes autorizadas.
+      - Asumir CDS View Entity como default para ODP/CDS de extracción sin validar compatibilidad.
+      - No validar release, SAP_BASIS/SAP_ABAP, FPS o notas SAP.
+      - No ejecutar o no resolver Note Analyzer / CNV_NA_DI.
+      - Llamar obsoleto al DP Agent o elegirlo por defecto sin evaluar SCC/HTTPS/ABAP SQL.
+      - Configurar Cloud Connector sin ABAP SQL Service, usuario de integración o permisos adecuados.
+      - Prometer delta avanzado/CDC mapping sin validar compatibilidad técnica y Nota SAP 3534086.
+      - Consumir contratos SAP funcionales directamente sin API corporativa/customer-managed cuando el caso requiere encapsulación.
+      - Elegir federación o persistencia sin evaluar volumen, latencia, SLA y costo operativo.
+
+      Para cada error, explicá causa raíz, impacto y corrección Danwor.
+  "Ejemplos prácticos":
+    context: |
+      CONTEXTO EDITORIAL DANWOR PARA ESTA ACCIÓN - MÓDULO 03:
+      - Los ejemplos deben salir de las secciones del módulo: arquitectura de integración, estrategia de extracción, integración legacy vs moderna, federación vs persistencia y templates CDS/API corporativa.
+      - No inventar casos si el módulo ya ofrece escenarios suficientes.
+      - Usar apéndices o biblioteca solo como complemento, no como sustituto del criterio del módulo.
+    prompt: |
+      INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 03 - EJEMPLOS PRÁCTICOS:
+      Construí ejemplos concretos de integración/extracción:
+      - S/4HANA moderno: ODP-CDS/CDS DDIC-based como API de extracción conservadora, con validación de release y notas.
+      - ECC/BW: reutilización ODP-SAPI/ODQ cuando el extractor está liberado/whitelisteado.
+      - DP Agent vs Cloud Connector/SCC: cuándo mantener patrón legacy y cuándo evolucionar a HTTPS/ABAP SQL.
+      - API corporativa CDS: cuándo encapsular una fuente funcional SAP en contrato propio.
+      - Federación vs persistencia: cuándo priorizar acceso remoto y cuándo materializar.
+
+      Para cada ejemplo, indicá fuente interna usada, decisión Danwor, por qué esa y no otra, y riesgo si se elige mal.
 out_of_scope_redirect:
   - keywords: ["tipo semantico", "tipos semanticos", "uso semantico", "semantic type",
                "fact", "dimension", "texto dimension", "jerarquia", "capa business",
@@ -58,9 +153,16 @@ out_of_scope_redirect:
 intent_assets:
   - keywords: ["codigo CDS", "código CDS", "vista CDS", "template CDS", "ejemplo CDS",
                "crear CDS", "escribir CDS", "CDS extracción", "CDS datasphere",
-               "ayuda CDS", "CDS view", "ABAP CDS extracción"]
-    description: "Template CDS para extracción hacia SAP Datasphere"
-    asset: "templates/cds_extractor_template.abap"
+               "ayuda CDS", "CDS view", "ABAP CDS extracción", "DDIC CDS",
+               "define view", "sqlViewName", "ODP CDS DDIC"]
+    description: "Template CDS DDIC-based para extracción hacia SAP Datasphere"
+    asset: "https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4"
+    language: "abap"
+  - keywords: ["codigo CDS", "código CDS", "vista CDS", "template CDS", "ejemplo CDS",
+               "crear CDS", "escribir CDS", "CDS view entity", "view entity",
+               "define view entity", "CDS entity", "template CDS entity"]
+    description: "Template CDS View Entity-based para extracción hacia SAP Datasphere"
+    asset: "https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7"
     language: "abap"
 ---
 
@@ -114,11 +216,11 @@ En la práctica, el Data Product es el contrato de datos expuesto al negocio.
 La Arquitectura de Integración muestra cómo SAP Datasphere se conecta con sistemas origen SAP mediante capacidades modernas y legacy. Para S/4HANA moderno se prioriza el acceso desacoplado vía Cloud Connector/SCC, HTTPS y servicio ABAP SQL cuando el release y FPS lo soportan. Para escenarios ECC, S/4HANA con restricciones de versión, o casos donde el DP Agent sigue siendo requerido, se valida el patrón legacy antes de reemplazarlo. Legacy no significa obsoleto: el riesgo es elegir DP Agent por defecto cuando existen capacidades nativas que resuelven el mismo objetivo con menor operación y acoplamiento. La decisión depende de origen, release, SAP_BASIS/SAP_ABAP, conectividad, protocolo disponible, compatibilidad de extracción y necesidad de federación, replicación o persistencia. Desacoplar y encapsular contratos de integración es deseable; el anti-pattern es consumir contratos SAP funcionales directamente sin capa customer-managed o encapsular sin ownership, versionado y SLA. Las fuentes recomendadas para extracción gobernada son ODP-SAPI, ODP-CDS y CDS Views habilitadas para extracción. La extracción directa de tablas base no debe presentarse como recomendación: ante esa expectativa, explicar por qué no conviene y ofrecer alternativas gobernadas que cumplan el mismo objetivo sin comprometer escalabilidad, gobernanza ni upgrades.
 {{/semantic_summary}}
 
-{{support: SAP Help ODP="https://help.sap.com/docs/SAP_S4HANA_CLOUD/a630d57fc5004c6383e7a81efee7a8bb/1e9a569a49a24beb91997530ef115aa8.html?locale=en-US&version=LATEST" SAP Help DP Agent="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253840.html?locale=en-US&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
+{{support: SAP Help DP Agent="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253840.html?locale=en-US&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
 
 > En escenarios de origen S/4HANA (*) donde no solo se elimina el DP Agent, se desacopla el canal y el procesamiento. Para escenarios de origen ECC o cuando el DP Agent cumple un rol de integración crítico o única opción → ver slide legacy.
 
-{{html_embed: ../assets/danwor-arquitectura-integracion.html height=770}}
+{{html_embed: ../assets/danwor-arquitectura-integracion.html height=780}}
 
 {{callout_row}}
 {{callout: title="Federación via Cloud Connector" tone="punch" icon="🔗"}}
@@ -171,7 +273,11 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 > Postura Danwor: para extractores ODP-CDS orientados a Datasphere, usar CDS DDIC-based como patrón conservador por compatibilidad amplia y porque muchas CDS estándar liberadas para extracción siguen ese modelo. Usar `define view entity` solo si el release ABAP/SAP, la nota aplicable y el mecanismo de consumo confirman soporte para ese escenario.
 
 ## {dw-black}Template de Extracción vía {dw-gold}API Corporativa
-{{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=IX4s2Z" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=CCnek5" SAP Help CDS Annotations="https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&version=LATEST" Nota SAP="https://me.sap.com/notes/3534086"}}
+{{section_meta: keywords="template extracción, template CDS, API corporativa, CDS extracción, anotaciones extracción, @Analytics.dataExtraction, delta byElement, change data capture, CDC mapping, SAP_BASIS 7.56, nota SAP 3534086, compatibilidad CDC, delta avanzado, extractor CDS, ABAP CDS Datasphere"}}
+{{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7" SAP Help CDS Annotations="https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&version=LATEST" Nota SAP="https://me.sap.com/notes/3534086"}}
+{{semantic_summary}}
+Esta sección define el template de extracción vía API corporativa para Datasphere. El patrón Danwor conserva CDS DDIC-based como baseline productivo para ODP/CDS de extracción por compatibilidad amplia con el framework ODP y porque muchas APIs CDS liberadas por SAP para extracción siguen ese modelo. La decisión entre delta byElement y CDC con mapping no debe resolverse solo por preferencia técnica: depende de release, SAP_BASIS/SAP_ABAP, tipo de CDS, joins y compatibilidad documentada. El soporte de CDC avanzado con mapping está sujeto a SAP_BASIS >= 7.56 y Nota SAP 3534086, por lo que se debe validar antes de prometer incrementalidad avanzada en Replication Flows. Si el escenario no cumple compatibilidad, usar delta byElement con timestamp confiable o extracción full según criticidad, volumen y capacidad de recarga.
+{{/semantic_summary}}
 {{subtitle: no-gap}}
 > Una vez identificada y validada la fuente de extracción según los criterios de evaluación, se implementa una CDS como API corporativa hacia Datasphere, utilizando CDS DDIC-based como mecanismo alineado al stack SAP y el marco ODP.
 
@@ -196,7 +302,7 @@ El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_B
 ### Clean Core aplicado a extracción
 {{section_meta: keywords="clean core, qué es clean core, clean core sap, clean core extracción, principio clean core, clean core datasphere, apis liberadas, ODP clean core, CDS clean core, extensiones permitidas, evitar lógica SAP, exits simples, clean core integración"}}
 {{section_exclude: "codigo, código, vista CDS, ejemplo CDS, crear CDS, escribir CDS, anotaciones CDS, patrón CDS, implementar CDS, template CDS, ayuda codigo, ayuda código"}}
-{{support: SAP Help="https://www.sap.com/resources/what-is-a-clean-core" Nota SAP="https://me.sap.com/notes/2232584"}}
+{{support: SAP Help="https://help.sap.com/" Nota SAP="https://me.sap.com/notes/2232584"}}
 Clean core no significa eliminar extractores SAP, sino apoyarse en mecanismos liberados (ODP/CDS) y mantener la lógica fuera del core.
   - APIs liberadas: ODP_SAPI, ODP_CDS
   - Extensiones: Exits simples
@@ -215,7 +321,7 @@ ODP es un mecanismo estándar para extracción con colas delta, compatible con D
 
 ## {dw-black}Integración Legacy vs. {dw-gold}Moderna
 {{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, configurar cloud connector, configuración cloud connector, cloud connector datasphere, cloud connector on premise, cloud connector RISE, SAP RISE cloud connector, ABAP SQL service, cloud to on premise, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
-{{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST"}}
+{{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST" Config Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
 {{semantic_summary}}
 Para preguntas de configuración de Cloud Connector, no responder con un procedimiento genérico sin aclarar primero el contexto operativo. Distinguir si el escenario es Cloud Connector administrado por el cliente en su red/on-premise o conectividad bajo SAP RISE, donde ciertas tareas pueden requerir Service Request o coordinación con SAP. En SAP Datasphere, Cloud Connector/SCC actúa como túnel seguro y no procesa datos; la configuración depende del tipo de conexión, protocolo expuesto, recurso permitido en Cloud To On-Premise y capacidades del sistema fuente. Para federación moderna con S/4HANA, validar release, ABAP Platform, FPS y disponibilidad/configuración de ABAP SQL Service antes de reemplazar DP Agent. Si el usuario pide "cómo configuro Cloud Connector", apoyar la respuesta en la guía oficial "Config Cloud Connector" y advertir qué debe validar antes de ejecutar pasos.
 {{/semantic_summary}}
@@ -235,7 +341,6 @@ Para preguntas de configuración de Cloud Connector, no responder con un procedi
 
 ## {dw-black}Federación vs. {dw-gold}Persistencia
 {{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere"}}
-{{support: KBA Federacion="https://community.sap.com/t5/technology-blog-posts-by-members/data-federation-in-datasphere/ba-p/13750166" KBA Persistencia="https://community.sap.com/t5/technology-blog-posts-by-members/analyzing-views-persisting-and-partitioning-data-in-sap-datasphere/ba-p/13982344"}}
 
 {{subtitle: no-gap}}
 > Diferencias prácticas según escenario de integración: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento
@@ -267,7 +372,6 @@ Para extractores estándar, tener en cuenta su compatibilidad/whitelisteo. Para 
 
 ## {dw-black}Modelo de Integración {dw-gold}Híbrido
 {{section_meta: keywords="modelo híbrido, integración híbrida, híbrido federación persistencia, tablas remotas locales combinadas, evolución integración, remote tables local tables, data flow replication flow, cuándo usar híbrido"}}
-{{support: SAP Help Remote Tables="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7c4acd33e39a451e99c87f0661772443.html?locale=en-US&version=LATEST" SAP Help Local Tables="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/2509fe4d86aa472b9858164b55b38077.html?locale=en-US&version=LATEST"}}
 
 {{subtitle: no-gap}}
 > En la práctica, se puede comenzar con tablas remotas y, según necesidades de rendimiento, evolucionar hacia persistencia mediante replication/data flows.

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterable
 from core.state import AppState
 from core.utils import norm_text as _norm
-from config import SECTION_NUMBER_WIDTH
+from config import SECTION_NUMBER_WIDTH, SUPPORT_LINK_LENGTH
 
 import html
 import json
@@ -662,16 +662,16 @@ def _support_links_html(
         l = label.lower()
         u = url.lower()
         if "template" in l:
-            pills.append(_pill(_compact_template_label(label), url, "\U0001F4C4", title=label))
+            pills.append(_pill(_trim_support_label(_compact_template_label(label)), url, "\U0001F4C4", title=label))
             continue
         if "help" in l or "help.sap.com" in u:
-            pills.append(_pill("SAP Help", url, "🔗", title=label))
+            pills.append(_pill(_trim_support_label(_compact_sap_help_label(label)), url, "🔗", title=label))
         elif "note" in l or "nota" in l or "me.sap.com/notes" in u:
-            pills.append(_pill(label, url, "📝"))
+            pills.append(_pill(_trim_support_label(label), url, "📝", title=label))
         elif "appendix" in l or "apendice" in l or "danwor.sharepoint.com/" in u:
-            pills.append(_pill(label, url, "👨🏻‍🏫"))
+            pills.append(_pill(_trim_support_label(label), url, "👨🏻‍🏫", title=label))
         else:
-            pills.append(_pill(label, url, "🌐"))
+            pills.append(_pill(_trim_support_label(label), url, "🌐", title=label))
 
     if pin and section_slug:
         safe_slug = html.escape(section_slug, quote=True)
@@ -1015,6 +1015,23 @@ def _compact_template_label(label: str) -> str:
     if "cds" in normalized:
         return "CDS Template"
     return "Template"
+
+
+def _compact_sap_help_label(label: str) -> str:
+    raw = (label or "").strip()
+    compact = re.sub(r"(?i)^\s*sap\s+help\s*[:\-–—]?\s*", "", raw).strip()
+    return compact or "SAP Help"
+
+
+def _trim_support_label(label: str) -> str:
+    raw = (label or "").strip()
+    try:
+        limit = int(SUPPORT_LINK_LENGTH)
+    except (TypeError, ValueError):
+        limit = 15
+    if limit <= 0 or len(raw) <= limit:
+        return raw
+    return raw[:limit].rstrip() + "..."
 
 def _callout_html(title: str, tone: str, icon: str, body: str) -> str:
     safe_title = html.escape(title or "")

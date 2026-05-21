@@ -44,6 +44,10 @@ APP_OWNER    = _env("APP_OWNER", "")
 # 2 => [01], [02]. 3 => [001], [002].
 SECTION_NUMBER_WIDTH = int(_env("DANWOR_SECTION_NUMBER_WIDTH", "2"))
 
+# Largo máximo del texto visible en botones {{support}}.
+# El texto completo se conserva como tooltip para no perder contexto.
+SUPPORT_LINK_LENGTH = int(_env("SUPPORT_LINK_LENGTH", "15"))
+
 # IA completa habilitada sólo para estos stems (PoC → Herramienta interna)
 # El valor debe coincidir exactamente con el nombre físico del .md, sin extensión.
 IA_ENABLED_MODULES: list[str] = [
@@ -54,7 +58,6 @@ IA_ENABLED_MODULES: list[str] = [
     "05_Reporting_y_Consumo",
     "A01_Arquitectura_y_Modelado",
     "A02_Modernizacion_BW_Greenfield_BDC",
-    "A03_Hub_de_Integracion_AWS",
     "A05_Troubleshooting_y_Performance",
 ]
 

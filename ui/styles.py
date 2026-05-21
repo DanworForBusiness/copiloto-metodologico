@@ -1245,6 +1245,29 @@ div[data-testid="stExpander"] summary:hover {
 .dw-chat-surface-marker {
   display: none;
 }
+.dw-active-assistant-marker {
+  display: none;
+}
+body:has(.dw-active-assistant-marker) .st-key-section_action_zone {
+  display: none !important;
+}
+div[data-testid="stElementContainer"]:has(.dw-chat-surface-marker),
+div[data-testid="stElementContainer"]:has(.dw-active-assistant-marker),
+div[data-testid="stMarkdown"]:has(.dw-chat-surface-marker),
+div[data-testid="stMarkdown"]:has(.dw-active-assistant-marker),
+div[data-testid="stMarkdownContainer"]:has(.dw-chat-surface-marker),
+div[data-testid="stMarkdownContainer"]:has(.dw-active-assistant-marker) {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.st-key-assistant_chat_surface,
+.st-key-assistant_chat_surface > div {
+  background: #ffffff !important;
+}
 div[style*="overflow"]:has(.dw-chat-surface-marker),
 div[style*="overflow"]:has(.dw-chat-surface-marker) > div {
   background: #ffffff !important;
@@ -1259,6 +1282,29 @@ div[style*="overflow"]:has(.dw-chat-surface-marker) > div {
 }
 .dw-chat-label {
   letter-spacing: .07em !important;
+}
+.dw-chat-msg p {
+  margin: 0 0 10px 0 !important;
+}
+.dw-chat-msg p:last-child {
+  margin-bottom: 0 !important;
+}
+.dw-chat-msg p + p,
+.dw-chat-msg p + ol,
+.dw-chat-msg p + ul {
+  margin-top: 10px !important;
+}
+.dw-assistant-busy-marker {
+  display: none;
+}
+body:has(.dw-assistant-busy-marker) div[data-testid="stTextArea"] textarea {
+  background: #f6f7f9 !important;
+  color: #98a2b3 !important;
+  border-color: #e5e7eb !important;
+  pointer-events: none !important;
+}
+body:has(.dw-assistant-busy-marker) div[data-testid="stTextArea"] textarea::placeholder {
+  color: #aeb8c6 !important;
 }
 
 .dw-rm-wrap {

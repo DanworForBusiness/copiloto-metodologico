@@ -1,0 +1,42 @@
+case_id: case_20260519_093716_5965d375
+version: '1.0'
+source:
+  tree_id: m02_seguridad_roles
+  tree_title: Seguridad de Roles
+  module: 02_Seguridad_y_Gobernanza
+  run_id: 5965d375-cfe2-49c4-bf0f-d8a62974362e
+  timestamp: '2026-05-19T12:37:09.053118+00:00'
+route:
+- node: q1
+  question: ¿Se trata de un PoC, Piloto o MVP?
+  answer: 'No'
+- node: q2_segregacion
+  question: ¿Existen necesidades de segregación de roles, responsabilidades o simplificación
+    de accesos?
+  answer: Sí
+leaf_id: leaf_roles_custom
+decision: Usar Roles Custom apoyado en Template Danwor
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes:
+- Capitalizar el marco Danwor RDS para no partir de cero.
+- Revisar segregación de funciones y auditoría interna del cliente.
+- Sin eliminar la revisión de controles de acceso con el negocio.
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: Sí
+  reason: null
+- node: q2_segregacion
+  option: 'No'
+  reason: null
+confidence: null
+reviewed: false
