@@ -197,15 +197,21 @@ El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia 
 <Capa><Tipo>_<Origen>_<LibreConLineamientos>
 ```
 
+{{semantic_summary}}
+Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es: la Capa 1 representa ingesta cruda desde origen y debe nombrarse como tabla (`T`), ya sea remota o local/materializada. No usar ejemplos `1V...` para ingesta. Las vistas (`V`) aplican desde Capa 2 en adelante, cuando ya existe preparacion, armonizacion, propagacion o consumo. La armonizacion nunca debe describirse como Capa 1.
+{{/semantic_summary}}
+
 **Capa** (prefijo numérico):
 - `1` — Ingesta (tablas remotas o locales desde origen)
 - `2` — Armonización (vistas reutilizables)
 - `3` — Propagación / Consumo (vistas finales, modelos analíticos)
 
 **Tipo** (letra):
-- `T` — Tabla (local o remota)
-- `V` — Vista (SQL Estándar o Gráfica)
+- `T` — Tabla (local o remota). En Capa 1 / Ingesta, este es el tipo esperado.
+- `V` — Vista (SQL Estándar o Gráfica). Usar desde Capa 2 en adelante; no usar `1V...` para ingesta.
 - `F` — Fact / Analytical Dataset
+
+> Regla Danwor: la ingesta (`1`) mantiene el dato crudo como tabla remota o local. Si hay renombrado semántico, joins, limpieza, armonización o preparación, ya no es Capa 1: corresponde a Capa 2 o superior.
 
 **Origen** (sufijo de 3 letras):
 | Código | Origen |
@@ -235,14 +241,14 @@ Orientativo para revisar la calidad del modelo antes de promover al siguiente am
 
 | Item | Pregunta de control |
 |---|---|
-| ☐ Separación de capas | ¿Cada vista consume solo de la capa inmediatamente anterior? |
-| ☐ Tipo semántico | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Analytical Dataset)? |
-| ☐ Naming | ¿Los nombres siguen el patrón `<Capa><Tipo>_<Origen>_<Libre>`? |
-| ☐ Persistencia | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa)? |
-| ☐ Tipo de vista | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |
-| ☐ Claves | ¿Las vistas dimensionales tienen clave única definida? |
-| ☐ Textos | ¿Las dimensiones maestras integran atributos y textos en un solo objeto (sin separar)? |
-| ☐ Linaje | ¿Las Table Functions tienen wrapper de consumo para preservar linaje? |
+| **Separación de capas** | ¿Cada vista consume solo de la capa inmediatamente anterior? |
+| **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Analytical Dataset)? |
+| **Naming** | ¿Los nombres siguen el patrón `<Capa><Tipo>_<Origen>_<Libre>`? |
+| **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa)? |
+| **Tipo de vista** | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |
+| **Claves** | ¿Las vistas dimensionales tienen clave única definida? |
+| **Textos** | ¿Las dimensiones maestras integran atributos y textos en un solo objeto (sin separar)? |
+| **Linaje** | ¿Las Table Functions tienen wrapper de consumo para preservar linaje? |
 
 {{callout: title="Principio de diseño Danwor" tone="success" icon="🌿"}}
 Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico — no al revés. El checklist es más efectivo en el cierre de cada sprint de desarrollo y antes de transportar a QA.

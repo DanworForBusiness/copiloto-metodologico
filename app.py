@@ -1,15 +1,15 @@
-﻿"""
-app.py â€” Orquestador principal de la aplicaciÃ³n.
+"""
+app.py — Orquestador principal de la aplicación.
 
-Responsabilidad Ãºnica: montar la pÃ¡gina, cargar datos y delegar a los mÃ³dulos UI.
+Responsabilidad única: montar la página, cargar datos y delegar a los módulos UI.
 Modularizacion bajo la siguiente estructura:
-  ui/styles.py       â†’ CSS global
-  ui/header.py       â†’ Logo + tÃ­tulo + roadmap + modo
-  ui/sidebar.py      â†’ NavegaciÃ³n + acciones rÃ¡pidas
-  ui/content_panel.py â†’ Panel izquierdo (contenido del mÃ³dulo)
-  ui/tools_panel.py  â†’ Panel derecho (secciÃ³n / Ã¡rboles / asistente)
-  core/state.py      â†’ Session state centralizado
-  core/llm.py        â†’ LLMGateway
+  ui/styles.py       → CSS global
+  ui/header.py       → Logo + título + roadmap + modo
+  ui/sidebar.py      → Navegación + acciones rápidas
+  ui/content_panel.py → Panel izquierdo (contenido del módulo)
+  ui/tools_panel.py  → Panel derecho (sección / árboles / asistente)
+  core/state.py      → Session state centralizado
+  core/llm.py        → LLMGateway
 """
 
 import re
@@ -111,7 +111,7 @@ from core.utils import slugify as _slugify
 
 @st.cache_data(show_spinner=False)
 def _make_slug_map(body_md: str) -> dict[str, str]:
-    """Mapea slug → título para todos los headings del módulo activo."""
+    """Mapea slug -> título para todos los headings del módulo activo."""
     return {
         _slugify(title): title
         for _, title, _ in parse_markdown_headings(body_md)
@@ -138,7 +138,7 @@ if _pending_switch and _pending_switch in nav_names:
     else:
         st.session_state[K_MODULE_SELECTOR] = _pending_switch
 
-# Sidebar → módulo/apéndice seleccionado + acción rápida
+# Sidebar -> módulo/apéndice seleccionado + acción rápida
 selected_stem, quick_action, assessment_clicked = render_sidebar(
     module_names,
     module_labels,
@@ -163,12 +163,12 @@ if _tools_panel_module != selected_stem:
     st.session_state["tools_panel_collapsed"] = not tools_enabled_for_module
     st.session_state["_tools_panel_module"] = selected_stem
 
-# Assessment clickeado â†’ activar vista
+# Assessment clickeado → activar vista
 if assessment_clicked:
     st.session_state["_active_assessment"] = assessment_clicked
     st.rerun()
 
-# Assessment view â€” interrumpir antes del header y contenido principal
+# Assessment view — interrumpir antes del header y contenido principal
 if st.session_state.get("_active_assessment"):
     st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
     if st.button("✕ Exit", key="assess_back_main"):
@@ -245,7 +245,7 @@ if module_nav_delta:
 if roadmap_clicked:
     render_roadmap_modal()
 
-# Limpiar chat al cambiar de mÃ³dulo
+# Limpiar chat al cambiar de módulo
 prev_module = st.session_state.get("_prev_module")
 preserve_chat = bool(st.session_state.pop("_preserve_chat_on_module_switch", False))
 if prev_module and prev_module != selected_stem:
@@ -272,13 +272,13 @@ if prev_module and prev_module != selected_stem:
     st.session_state["_scroll_content_to_top"] = True
 st.session_state["_prev_module"] = selected_stem
 
-# Cargar contexto del mÃ³dulo 
+# Cargar contexto del módulo 
 selected_path = module_paths[selected_stem]
 context       = read_text_cached(selected_path)
 _, body_md    = split_front_matter(context)
 
-# Query param: navegaciÃ³n desde anchor (?section=slug) y pin (?pin=slug)
-# Pin desde support pill â€” ?pin=slug
+# Query param: navegación desde anchor (?section=slug) y pin (?pin=slug)
+# Pin desde support pill — ?pin=slug
 _pin_slug = str(st.query_params.get("pin", "")).strip()
 if _pin_slug:
     slug_map   = _make_slug_map(body_md)
@@ -302,8 +302,8 @@ if section_slug:
         AppState.set_selected_topic(target, section_md)
         st.session_state["_scroll_to_slug"] = section_slug
 
-    # Si viene de "Ir a secciÃ³n" desde el asistente, limpiar estado que
-    # no se puede limpiar desde el handler del botÃ³n (session_state + rerun)
+    # Si viene de "Ir a sección" desde el asistente, limpiar estado que
+    # no se puede limpiar desde el handler del botón (session_state + rerun)
     if st.query_params.get("section_nav"):
         st.session_state.pop("_section_suggestion", None)
         st.session_state.pop("_combined_suggestion", None)
@@ -321,7 +321,7 @@ if section_slug:
         pass
     st.rerun()
 
-# Cargar Ã¡rboles del mÃ³dulo
+# Cargar árboles del módulo
 registry    = load_tree_registry(TREES_DIR)
 all_trees   = load_all_trees(TREES_DIR)
 module_tag  = module_tag_from_selected(selected_stem)
@@ -337,7 +337,7 @@ for t in trees_legacy:
 
 # Los tree_button declarados en el markdown actual también cuentan como
 # árboles disponibles para este contexto, aunque el YAML pertenezca a otro
-# módulo. Mantiene one source of truth y evita que el tab Árbol diga que no
+# módulo. Mantiene one source of truth y evita que el tab árbol diga que no
 # hay árboles cuando el propio contenido expone uno.
 for ref in tree_button_refs_from_markdown(body_md):
     ref_id = (ref.get("id") or "").strip()

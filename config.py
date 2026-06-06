@@ -57,7 +57,8 @@ IA_ENABLED_MODULES: list[str] = [
     "04_Modelado_y_Desarrollo",
     "05_Reporting_y_Consumo",
     "A01_Arquitectura_y_Modelado",
-    "A02_Modernizacion_BW_Greenfield_BDC",
+    "A02_Modernizacion_BW_Greenfield",
+    "A03_Hub_de_Integracion_AWS",
     "A05_Troubleshooting_y_Performance",
 ]
 
@@ -91,6 +92,21 @@ AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("
 # Logging liviano de adopción inicial.
 # OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios.
 LOG_ACTIVITY = _env("LOG_ACTIVITY", "OFF").upper()
+
+# SharePoint / Graph — Casos SAP internos.
+# Se leen con token delegado del usuario autenticado. No se usa client_secret.
+SHAREPOINT_CASES_ENABLED = _env("SHAREPOINT_CASES_ENABLED", "ON").upper()
+SHAREPOINT_CASES_SITE_ID = _env(
+    "SHAREPOINT_CASES_SITE_ID",
+    "danwor.sharepoint.com,87f47e3b-f792-4537-bcac-8a26d5488789,616ef0c6-fda4-427e-92fb-5f8470732185",
+)
+SHAREPOINT_CASES_LIST_ID = _env(
+    "SHAREPOINT_CASES_LIST_ID",
+    "973e8de0-35e2-4ba1-950b-34eaf88348fd",
+)
+SHAREPOINT_CASES_TOP_K = int(_env("SHAREPOINT_CASES_TOP_K", "5"))
+SHAREPOINT_CASES_MIN_SCORE = float(_env("SHAREPOINT_CASES_MIN_SCORE", "6"))
+SHAREPOINT_CASES_CACHE_TTL = int(_env("SHAREPOINT_CASES_CACHE_TTL", "300"))
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben

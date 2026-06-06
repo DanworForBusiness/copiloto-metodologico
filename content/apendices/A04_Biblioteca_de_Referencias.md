@@ -52,6 +52,9 @@ intent_assets:
   - keywords: ["configurar cloud connector", "cloud connector rise", "cloud connector on-prem", "cloud connector on premise", "scc datasphere"]
     description: "How-to Danwor: Configurar Datasphere con Cloud Connector"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ"
+  - keywords: ["configurar dp agent", "instalar dp agent", "dpa", "data provisioning agent", "dp agent datasphere"]
+    description: "How-to Danwor: Instalar y Configurar DP Agent"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBX2bMaIeFqTroYJER_FKJKAeonRE5glwlSwCvV-dXSEGQ?e=Eyy0ct"   
   - keywords: ["importar odp", "importar extractores", "extractores odp datasphere", "odp sapi datasphere"]
     description: "How-to Danwor: Importar extractores ODP a Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EakLSitvsIFGqZl3lXZfp0QBwRPQLq8WrWSMN5dG2pQ27w?e=eSvJk8"
@@ -127,6 +130,12 @@ intent_assets:
   - keywords: ["nota 2180165", "2180165", "expensive statements trace"]
     description: "Nota SAP 2180165: FAQ SAP HANA Expensive Statements Trace"
     asset: "https://me.sap.com/notes/2180165"
+  - keywords: ["nota 3509695", "3509695", "integracion IBP"]
+    description: "Nota SAP 3509695: Integracion SAP IBP con Datasphere"
+    asset: "https://me.sap.com/notes/3509695"
+  - keywords: ["nota 3384164", "3384164", "out of memory", "OOM", "STATEMENT_MEMORY_LIMIT_FROM_GLOBAL_CONFIG"]
+    description: "Nota SAP 3384164: Out of Memory errors in SAP Datasphere"
+    asset: "https://me.sap.com/notes/3384164"
 key_topics:
   - id: links
     label: Links
@@ -165,6 +174,7 @@ Colección de guías internas Danwor orientadas a ejecución paso a paso. Usar e
 - Instalar y configurar BW Bridge en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EXRXdwKimLpPvca1zZYKH6sBN3sPyNY9iMi0GOJ6PX2zow?e=dMIGFe)
 - Conectar Datasphere con S/4HANA | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/Eb85pQsL465BuhrEj4AmpgkBPzcdEQQ7cirBq92AtaK6Ag?e=ILNdwQ)
 - Configurar Datasphere con Cloud Connector | [RISE](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ) | [On-Prem](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQC-LogGAQl0QqNKEFlTuifFAayzvRQGu3dsi80C-DgEdew?e=n5idZP)
+- Instalar y configurar DP Agent | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBX2bMaIeFqTroYJER_FKJKAeonRE5glwlSwCvV-dXSEGQ?e=Eyy0ct)
 - Importar extractores ODP a Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EakLSitvsIFGqZl3lXZfp0QBwRPQLq8WrWSMN5dG2pQ27w?e=eSvJk8)
 - Particionar Tablas Remotas en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EUlxrDVZY0FAvd_Uh6IdVV4BpvP9BPZ-UUO-SetOlNdxOA?e=DRNp7R)
 - Integrar BW Process Chains y Task Chains | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZpzF-Rt8q5NqilkAGlazmcBi86yMnMuQAay7Ja2hIWbbg?e=ef9Xgn)
@@ -202,3 +212,11 @@ Listado curado de notas SAP relevantes para SAP Datasphere, BW Bridge, integraci
 | **3220622** | HANA Cloud Release/Schedule for SAP Datasphere | Tenant / Admin |
 | **1732157** | Collecting diagnosis information for SAP HANA | Tenant / Admin |
 | **2180165** | FAQ: SAP HANA Expensive Statements Trace | Tenant / Admin |
+
+{{subtitle: no-gap}}
+>Otras notas que puedan servirte a futuro
+
+| Nota | Descripción | Alcance |
+|---|---|---|
+| **3509695** | Conectar SAP Integrated Business Planning (IBP) con Datasphere | Integración |
+| **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance | 

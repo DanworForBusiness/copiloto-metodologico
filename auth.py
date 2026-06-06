@@ -61,7 +61,7 @@ def require_login() -> None:
     auth_data = Msal.initialize(
         client_id=AZURE_CLIENT_ID,
         authority=f"https://login.microsoftonline.com/{AZURE_TENANT_ID}",
-        scopes=["User.Read"],
+        scopes=["User.Read","Sites.Read.All"],
     )
 
     if not auth_data:
@@ -109,6 +109,104 @@ def require_login() -> None:
         log_activity("login", username=username, name=full_name, job_title=job_title)
         st.session_state["_activity_login_logged_for"] = username
 
+def debug_sharepoint_access() -> None:
+    import requests
+
+    user = get_current_user()
+    token = user.get("token", "")
+
+    if not token:
+        st.warning("No hay token disponible")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    # -----------------------------
+    # 1) Buscar sitio
+    # -----------------------------
+    r = requests.get(
+        "https://graph.microsoft.com/v1.0/sites/danwor.sharepoint.com:/sites/EOS",
+        headers=headers,
+        timeout=10,
+    )
+
+    st.subheader("1. Site")
+    st.write(r.status_code)
+
+    if r.status_code != 200:
+        st.json(r.json())
+        return
+
+    site_data = r.json()
+
+    st.json(site_data)
+
+    if not site_data.get("value"):
+        st.error("No se encontro el sitio")
+        return
+
+    site = site_data["value"][0]
+    site_id = site["id"]
+
+    st.success(f"Site ID: {site_id}")
+
+    # -----------------------------
+    # 2) Obtener listas
+    # -----------------------------
+    r = requests.get(
+        f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists",
+        headers=headers,
+        timeout=10,
+    )
+
+    st.subheader("2. Listas")
+    st.write(r.status_code)
+
+    if r.status_code != 200:
+        st.json(r.json())
+        return
+
+    lists = r.json()
+
+    st.json(lists)
+
+    target_list = None
+
+    for l in lists.get("value", []):
+        if l.get("name") == "Repositorio de Casos SAP":
+            target_list = l
+            break
+
+    if not target_list:
+        st.error("No encontre la lista Repositorio de Casos SAP")
+        return
+
+    list_id = target_list["id"]
+
+    st.success(f"List ID: {list_id}")
+
+    # -----------------------------
+    # 3) Leer items
+    # -----------------------------
+    r = requests.get(
+        f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items?$expand=fields",
+        headers=headers,
+        timeout=10,
+    )
+
+    st.subheader("3. Casos")
+
+    st.write(r.status_code)
+
+    if r.status_code != 200:
+        st.json(r.json())
+        return
+
+    items = r.json()
+
+    st.json(items)
 
 def get_current_user() -> dict:
     """

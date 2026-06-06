@@ -1,4 +1,4 @@
-"""
+﻿"""
 ui/tools_panel.py — Panel derecho: Herramientas de Decisión.
 
 Estructura con st.tabs:
@@ -49,6 +49,14 @@ from core.content import (
     extract_section_by_heading,
 )
 from core.llm import LLMGateway
+from core.sharepoint_cases import (
+    build_cases_semantic_seed as _build_sharepoint_cases_seed,
+    build_sharepoint_search_url as _build_sharepoint_search_url,
+    fetch_sap_cases as _fetch_sharepoint_cases,
+    find_relevant_cases_for_query as _find_sharepoint_cases,
+    format_cases_for_prompt as _format_sharepoint_cases_for_prompt,
+    has_sharepoint_case_signal as _has_sharepoint_case_signal,
+)
 from core.prompts import (
     ALL_ACTIONS,
     ACTION_FULL,
@@ -542,6 +550,169 @@ def _normalize_llm_spacing(answer: str) -> str:
     return "\n".join(out)
 
 
+def _auth_token_for_sharepoint() -> str:
+    """Token delegado MSAL del usuario. Nunca loguear ni persistir."""
+    try:
+        user = _get_auth_user() or {}
+    except Exception:
+        user = {}
+    token = user.get("token") or st.session_state.get("_auth", {}).get("token", "")
+    return str(token or "")
+
+
+def _looks_like_sap_support_case_query(prompt: str) -> bool:
+    """
+    Casos SAP en SharePoint no son corpus metodologico general.
+
+    Solo los usamos cuando la consulta parece un incidente, error, anomalia,
+    troubleshooting o busqueda explicita de casos previos. Esto evita que
+    compita con markdown, arboles o biblioteca de referencias en preguntas
+    conceptuales/how-to.
+    """
+    q = _norm(prompt or "")
+    if not q:
+        return False
+    if _has_sharepoint_case_signal(prompt):
+        return True
+
+    incident_terms = {
+        "error", "errores", "failed", "failure", "fail", "exception", "dump",
+        "csrf", "token", "timeout", "trace", "traza", "log", "logs", "bug",
+        "issue", "problema", "problemas", "anomalia", "anomalias", "falla",
+        "fallo", "no", "interrumpe", "interrumpido", "atascado", "bloqueado",
+        "incidente", "soporte", "support", "sap for me", "case", "caso",
+        "nota", "kba", "troubleshooting", "memory", "memoria", "allocation",
+        "oom", "outofmemory", "privilege", "privileges", "permission",
+        "permissions", "autorizacion", "authorization",
+    }
+    technical_context = {
+        "bw", "bridge", "datasphere", "sac", "cloud", "connector", "process",
+        "chain", "task", "odp", "cds", "abap", "hana", "replication", "flow",
+        "remote", "table", "csrf", "s4hana", "ecc", "statement", "limit",
+        "allocation", "memory", "memoria", "global", "config",
+    }
+
+    has_incident = any(term in q for term in incident_terms)
+    has_context = any(term in q for term in technical_context)
+
+    explicit_case_lookup = any(
+        phrase in q
+        for phrase in (
+            "tenemos algo",
+            "tenemos casos",
+            "tenes casos",
+            "casos sobre",
+            "casos relacionados",
+            "hay algun caso",
+            "hay casos",
+            "caso sap",
+            "casos sap",
+            "caso soporte",
+            "casos soporte",
+            "ya paso",
+            "ya nos paso",
+            "error conocido",
+            "problema conocido",
+        )
+    )
+    return explicit_case_lookup or (has_incident and has_context)
+
+
+def _sharepoint_cases_context_for_prompt(
+    prompt: str,
+    *,
+    module: str | None = None,
+    force_refresh: bool = False,
+    token: str | None = None,
+) -> tuple[str, int]:
+    """
+    Recupera casos SAP relevantes desde SharePoint y los serializa para el LLM.
+
+    Falla cerrado: si Graph no responde, si no hay permisos o si no hay match
+    suficiente, devuelve contexto vacío y el asistente sigue su flujo normal.
+    """
+    if not _looks_like_sap_support_case_query(prompt):
+        return "", 0
+    graph_token = token if token is not None else _auth_token_for_sharepoint()
+    if not graph_token or not (prompt or "").strip():
+        return "", 0
+    try:
+        matches = _find_sharepoint_cases(prompt, graph_token, force_refresh=force_refresh)
+    except Exception:
+        matches = []
+    try:
+        log_activity(
+            "sharepoint_cases_search",
+            module=module or "",
+            query=(prompt or "")[:300],
+            matches=len(matches),
+        )
+    except Exception:
+        pass
+    if not matches:
+        return "", 0
+    return _format_sharepoint_cases_for_prompt(matches), len(matches)
+
+
+def _asset_with_sharepoint_search(asset: dict | None, prompt: str) -> dict | None:
+    """Si el asset es una lista SharePoint de casos, abre ya filtrado por query."""
+    if not isinstance(asset, dict):
+        return asset
+    url = str(asset.get("asset") or "")
+    if not url:
+        return asset
+    url_l = url.lower()
+    desc_l = _norm(str(asset.get("description") or ""))
+    looks_like_cases_repo = (
+        "sharepoint.com" in url_l
+        and ("/lists/" in url_l or "repositorio danwor de casos sap" in desc_l or "casos sap" in desc_l)
+    )
+    if not looks_like_cases_repo:
+        return asset
+    filtered_url = _build_sharepoint_search_url(url, prompt)
+    if filtered_url == url:
+        return asset
+    enriched = dict(asset)
+    enriched["asset"] = filtered_url
+    return enriched
+
+
+def _enrich_context_with_sharepoint_cases(
+    prompt: str,
+    context: str,
+    *,
+    module: str | None = None,
+    token: str | None = None,
+    force_refresh: bool | None = None,
+) -> tuple[str, int]:
+    if "CASOS SAP INTERNOS EN SHAREPOINT" in (context or ""):
+        return context, 0
+    if force_refresh is None:
+        force_refresh = bool(st.session_state.pop("_refresh_sharepoint_cases", False))
+    cases_block, count = _sharepoint_cases_context_for_prompt(
+        prompt,
+        module=module,
+        force_refresh=force_refresh,
+        token=token,
+    )
+    if not cases_block:
+        return context, 0
+    enriched = (
+        f"{context}\n\n"
+        f"---\n"
+        f"{cases_block}\n"
+        f"---\n"
+        "INSTRUCCIÓN DE USO DE CASOS SAP:\n"
+        "- Si estos casos son relevantes para la consulta, mencioná que encontraste casos internos en SharePoint.\n"
+        "- Incluí número de caso, cliente, título, resumen breve, motivo del match y link original.\n"
+        "- Si el contexto también contiene RECURSOS INTERNOS DE BIBLIOTECA RELACIONADOS, agregá una sección breve "
+        "\"Referencias/notas relacionadas\" y listá esos recursos además de los casos.\n"
+        "- Usá tono rioplatense/profesional: escribí \"Encontré\" en lugar de \"He encontrado\".\n"
+        "- Si no aportan evidencia suficiente, no fuerces su uso.\n"
+    )
+    return enriched, count
+
+
 def _llm_call_direct(
     prompt: str,
     context: str,
@@ -560,13 +731,22 @@ def _llm_call_direct(
     _is_sim = AppState.is_simulation()
     _gw     = LLMGateway.get()
     _sys    = build_system_prompt(module)
+    _sp_token = _auth_token_for_sharepoint()
+    _sp_force_refresh = bool(st.session_state.pop("_refresh_sharepoint_cases", False))
     _result = {}
 
     def _call():
+        enriched_context, _sp_cases_count = _enrich_context_with_sharepoint_cases(
+            prompt,
+            context,
+            module=module,
+            token=_sp_token,
+            force_refresh=_sp_force_refresh,
+        )
         if _is_sim:
-            _result["answer"] = _gw._simulate(_sys, context, prompt)
+            _result["answer"] = _gw._simulate(_sys, enriched_context, prompt)
         else:
-            _result["answer"] = _gw._call_api(_sys, context, prompt, max_tokens=max_tokens)
+            _result["answer"] = _gw._call_api(_sys, enriched_context, prompt, max_tokens=max_tokens)
 
     _slot = st.session_state.pop("_llm_spinner_slot", None) or st.empty()
     _t    = _threading.Thread(target=_call, daemon=True)
@@ -575,15 +755,6 @@ def _llm_call_direct(
     _t.join()
     return _normalize_llm_spacing(_result.get("answer", "⚠ Sin respuesta."))
 
-    def _call():
-        _result["answer"] = _gw.ask(_sys, context, prompt)
-
-    _slot = st.session_state.pop("_llm_spinner_slot", None) or st.empty()
-    _t    = _threading.Thread(target=_call, daemon=True)
-    _t.start()
-    _animated_spinner(_slot, loading_msg, _t)
-    _t.join()
-    return _normalize_llm_spacing(_result.get("answer", "⚠ Sin respuesta."))
 
 
 def _llm_call_with_cases(
@@ -605,13 +776,22 @@ def _llm_call_with_cases(
     _is_sim = AppState.is_simulation()
     _gw     = LLMGateway.get()
     _sys    = build_system_prompt(module)
+    _sp_token = _auth_token_for_sharepoint()
+    _sp_force_refresh = bool(st.session_state.pop("_refresh_sharepoint_cases", False))
     _result = {}
 
     def _call():
+        enriched_context, _sp_cases_count = _enrich_context_with_sharepoint_cases(
+            prompt,
+            context,
+            module=module,
+            token=_sp_token,
+            force_refresh=_sp_force_refresh,
+        )
         if _is_sim:
-            _result["answer"] = _gw._simulate(_sys, context, prompt)
+            _result["answer"] = _gw._simulate(_sys, enriched_context, prompt)
         else:
-            _result["answer"] = _gw._call_api(_sys, context, prompt, max_tokens=max_tokens)
+            _result["answer"] = _gw._call_api(_sys, enriched_context, prompt, max_tokens=max_tokens)
 
     _slot = st.empty()
 
@@ -800,6 +980,7 @@ _CHAT_SUGGESTION_KEYS = (
     "_section_suggestion",
     "_tree_suggestion",
     "_asset_suggestion",
+    "_asset_multi_suggestion",
     "_asset_section_suggestion",
     "_combined_suggestion",
     "_depth_selector",
@@ -849,8 +1030,14 @@ def _flush_pending_free_question(
     selected_path: str,
     context: str,
     trees_this_module: list | None,
+    *,
+    rerun_after: bool = True,
 ) -> None:
     """Procesa una pregunta libre completa desde el chat, incluyendo routing interno."""
+    def _finish() -> None:
+        if rerun_after:
+            _rerun_tools_panel()
+
     pending = st.session_state.pop("_pending_free_question", None)
     if not pending:
         return
@@ -866,13 +1053,15 @@ def _flush_pending_free_question(
     st.session_state["_fq_counter"] = st.session_state.get("_fq_counter", 0) + 1
     _clear_pending_suggestions()
 
+    is_support_case_query = _looks_like_sap_support_case_query(_prompt)
     matched_section = _find_matching_section(_prompt, _ctx)
     is_conceptual   = _is_conceptual_or_comparative_query(_prompt)
     is_asset_query  = _is_asset_seeking_query(_prompt)
+    matched_assets  = _find_matching_assets(_prompt, selected_stem, _ctx)
     matched_asset   = _find_matching_asset(_prompt, selected_path, _ctx, allow_strong=True)
     cross_asset     = None if matched_asset else _find_cross_module_asset(_prompt, selected_stem, allow_strong=True)
     has_asset_match = bool(matched_asset or cross_asset)
-    matched_tree    = None if ((is_conceptual and matched_section) or is_asset_query or has_asset_match) else _find_matching_tree(_prompt, trees_this_module or [])
+    matched_tree    = None if (is_support_case_query or (is_conceptual and matched_section) or is_asset_query or has_asset_match) else _find_matching_tree(_prompt, trees_this_module or [])
     cross_section_for_asset = None
     if has_asset_match and not matched_section:
         cross_section_for_asset = _find_cross_module_section(_prompt, selected_stem)
@@ -881,8 +1070,28 @@ def _flush_pending_free_question(
     # activos curados, dejamos competir primero a la biblioteca interna. Si
     # tambien hay una seccion local amplia, ofrecemos ambos caminos en vez de
     # forzar una respuesta demasiado vaga.
-    if has_asset_match:
-        _asset = matched_asset or cross_asset
+    if matched_assets and not is_support_case_query:
+        _lines = []
+        for _asset in matched_assets:
+            _asset_desc = _asset.get("description", "Recurso técnico")
+            _module_label = _asset.get("_module_label")
+            _prefix = f"{_module_label}: " if _module_label else ""
+            _lines.append(f"- **{_prefix}{_asset_desc}**")
+        AppState.append_chat(
+            "assistant",
+            "Encontré varios recursos de la biblioteca que pueden ayudarte. ¿Cuál querés abrir?\n\n"
+            + "\n".join(_lines),
+        )
+        st.session_state["_asset_multi_suggestion"] = {
+            "assets": matched_assets,
+            "prompt": _prompt,
+        }
+        st.session_state.pop("_expand_chat_open", None)
+        _finish()
+        return
+
+    if has_asset_match and not is_support_case_query:
+        _asset = _asset_with_sharepoint_search(matched_asset or cross_asset, _prompt) or (matched_asset or cross_asset)
         _asset_desc = _asset.get("description", "recurso tecnico")
         _section_match = matched_section or cross_section_for_asset
         if _section_match:
@@ -931,7 +1140,7 @@ def _flush_pending_free_question(
             )
             st.session_state["_asset_suggestion"] = {"asset": _asset, "prompt": _prompt}
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
         return
 
     if matched_section:
@@ -947,7 +1156,7 @@ def _flush_pending_free_question(
                 "activity_event": "logged",
             }
             st.session_state.pop("_expand_chat_open", None)
-            _rerun_tools_panel()
+            _finish()
             return
 
     if matched_tree:
@@ -977,14 +1186,15 @@ def _flush_pending_free_question(
             AppState.append_chat("assistant", f"Encontré un árbol de decisión que puede guiarte: **{tree_title}**. ¿Cómo preferís continuar?")
             st.session_state["_tree_suggestion"] = {"tree": matched_tree, "title": tree_title, "prompt": _prompt}
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
         return
 
     if matched_asset is not None:
+        matched_asset = _asset_with_sharepoint_search(matched_asset, _prompt) or matched_asset
         AppState.append_chat("assistant", "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?")
         st.session_state["_asset_suggestion"] = {"asset": matched_asset, "prompt": _prompt}
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
         return
 
     if matched_section:
@@ -1001,7 +1211,7 @@ def _flush_pending_free_question(
                 "activity_event": "logged",
             }
             st.session_state.pop("_expand_chat_open", None)
-            _rerun_tools_panel()
+            _finish()
             return
         _sec_body_match = re.search(
             r"(?m)^#{1,3}[^\n]*" + re.escape(_sec_heading) + r"[^\n]*\n(.*?)(?=^#{1,3} |\Z)",
@@ -1030,7 +1240,7 @@ def _flush_pending_free_question(
             AppState.append_chat("assistant", f"Encontré una sección del módulo que puede ayudarte: **{_sec_label}**. ¿Cómo preferís continuar?")
             st.session_state["_section_suggestion"] = {"heading": _sec_heading, "prompt": _prompt}
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
         return
 
     # Si el modulo activo no resolvio la consulta, buscamos solamente en
@@ -1054,7 +1264,8 @@ def _flush_pending_free_question(
             "context": cross_section.get("section_md") or "",
         }
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
+        return
 
     from core.prompts import get_out_of_scope_redirect
     _oos = get_out_of_scope_redirect(_prompt, selected_stem)
@@ -1067,7 +1278,8 @@ def _flush_pending_free_question(
             "context": _ctx,
         }
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
+        return
 
     if _needs_cds_delta_choice(_prompt):
         st.session_state["_cds_delta_selector"] = {
@@ -1076,7 +1288,40 @@ def _flush_pending_free_question(
             "module":  selected_stem,
         }
         st.session_state.pop("_expand_chat_open", None)
-        _rerun_tools_panel()
+        _finish()
+        return
+
+    if is_support_case_query:
+        if has_asset_match:
+            _asset = _asset_with_sharepoint_search(matched_asset or cross_asset, _prompt) or (matched_asset or cross_asset)
+            _asset_desc = _asset.get("description", "recurso tecnico")
+            _asset_url = _asset.get("asset") or _asset.get("url") or ""
+            _prompt = (
+                f"{_prompt}\n\n"
+                "Para esta respuesta, además de los casos internos de SharePoint, "
+                f"incluí explícitamente la referencia relacionada de biblioteca: {_asset_desc} ({_asset_url})."
+            )
+            _ctx = (
+                f"{_ctx}\n\n"
+                "---\n"
+                "RECURSOS INTERNOS DE BIBLIOTECA RELACIONADOS:\n"
+                f"- {_asset_desc}: {_asset_url}\n"
+                "---\n"
+                "INSTRUCCIÓN DE USO DE BIBLIOTECA:\n"
+                "- Si hay recursos internos de biblioteca relacionados, mencionalos además de los casos internos de SharePoint.\n"
+                "- Usá una frase del estilo: \"Además, encontré esta referencia/notas SAP relacionadas...\".\n"
+                "- Diferenciá claramente evidencia de casos vs. nota/recurso de referencia.\n"
+            )
+        st.session_state["_pending_llm_direct"] = {
+            "prompt": _prompt,
+            "context": _ctx,
+            "loading_msg": get_loading_message("Pregunta libre", True),
+            "module": selected_stem,
+            "activity_event": "logged",
+        }
+        st.session_state.pop("_expand_chat_open", None)
+        _finish()
+        return
 
     _cases_count = len(_load_relevant_cases(module=selected_stem, max_cases=5))
     _loading_msg = get_loading_message("Pregunta libre", _cases_count > 0)
@@ -1090,7 +1335,7 @@ def _flush_pending_free_question(
         "processing":   True,
     }
     st.session_state.pop("_expand_chat_open", None)
-    _rerun_tools_panel()
+    _finish()
 
 
 def _confirm_and_run(action_label: str, callback, debug_prompt: str | None = None, cases_count: int = 0, skip_dialog: bool = False) -> None:
@@ -1498,6 +1743,15 @@ def _section_candidate_text(section_match: dict) -> str:
     )
 
 
+def _shared_action_roots(question: str, candidate_text: str) -> set[str]:
+    q_norm = _norm(question)
+    c_norm = _norm(candidate_text)
+    return {
+        root for root in _ASSET_GENERIC_TOKEN_ROOTS
+        if root in q_norm and root in c_norm
+    }
+
+
 def _should_pair_section_with_asset(question: str, section_match: dict | None) -> bool:
     """Decide si una seccion merece acompanar a un how-to concreto.
 
@@ -1544,9 +1798,12 @@ def _semantic_summary_from_fragment(fragment: str) -> str:
 def _score_section_candidate(question: str, heading: str, keywords: list[str], section_md: str, module_scope: str = "") -> int:
     q_norm = _norm(question)
     q_tokens = _significant_tokens(question)
+    q_variants = _routing_token_variants(q_tokens)
     heading_tokens = _significant_tokens(_display_heading(heading))
+    heading_variants = _routing_token_variants(heading_tokens)
     summary = _semantic_summary_from_fragment(section_md)
     summary_tokens = _significant_tokens(summary)
+    summary_variants = _routing_token_variants(summary_tokens)
     scope_tokens = _significant_tokens(module_scope)
 
     score = 0
@@ -1558,17 +1815,18 @@ def _score_section_candidate(question: str, heading: str, keywords: list[str], s
             score += 14 if len(kw_norm.split()) > 1 else 8
             continue
         kw_tokens = _significant_tokens(kw)
-        hits = len(q_tokens & kw_tokens)
+        kw_variants = _routing_token_variants(kw_tokens)
+        hits = len(q_variants & kw_variants)
         if hits >= 2:
             score += hits * 3
-            if hits == len(kw_tokens):
+            if kw_tokens and kw_tokens <= q_variants:
                 score += 4
 
-    heading_hits = len(q_tokens & heading_tokens)
+    heading_hits = len(q_variants & heading_variants)
     if heading_hits >= 2:
         score += heading_hits * 2
 
-    summary_hits = len(q_tokens & summary_tokens)
+    summary_hits = len(q_variants & summary_variants)
     if summary_hits >= 2:
         score += summary_hits * 2
 
@@ -1578,6 +1836,14 @@ def _score_section_candidate(question: str, heading: str, keywords: list[str], s
         scope_hits = len(q_tokens & scope_tokens)
         if scope_hits >= 2:
             score += min(scope_hits, 4)
+
+        candidate_action_text = _norm(" ".join([
+            _display_heading(heading),
+            " ".join(keywords or []),
+            summary,
+        ]))
+        if any(root in q_norm and root in candidate_action_text for root in _ASSET_GENERIC_TOKEN_ROOTS):
+            score += 6
 
     return score
 
@@ -1684,34 +1950,27 @@ def _find_matching_section(question: str, context: str) -> dict | None:
     # ── Nivel 1: section_meta explícito ──────────────────────────────────────
     try:
         sections = parse_section_meta(body)
-        q_tokens = _significant_tokens(question)
-        scored_sections: list[tuple[int, dict]] = []
+        scored_sections: list[tuple[int, dict, bool]] = []
         for section in sections:
-            if _is_excluded(section.get("heading", "")):
+            heading = section.get("heading", "")
+            if _is_excluded(heading):
                 continue
-            keywords = [_norm(k) for k in section.get("keywords", [])]
-            score = 0
-            for kw in keywords:
-                if not kw:
-                    continue
-                if kw in q_norm:
-                    score += 10
-                    continue
-                kw_tokens = _significant_tokens(kw)
-                if not kw_tokens:
-                    continue
-                hits = len(q_tokens & kw_tokens)
-                if hits >= 2:
-                    # Premia keywords específicas como "diferencia HANA HDLF"
-                    # sin exigir que la frase aparezca exactamente igual.
-                    score += hits * 2
-                    if hits == len(kw_tokens):
-                        score += 3
+            section_md = extract_section_by_heading(body, heading, level=(2, 3)) or ""
+            score = _score_section_candidate(
+                question,
+                heading,
+                section.get("keywords") or [],
+                section_md,
+            )
             if score > 0:
-                scored_sections.append((score, section))
+                action_text = " ".join([heading, " ".join(section.get("keywords") or [])])
+                has_action_root = bool(_shared_action_roots(question, action_text))
+                scored_sections.append((score, section, has_action_root))
         if scored_sections:
-            scored_sections.sort(key=lambda x: -x[0])
-            return scored_sections[0][1]
+            action_scored = [item for item in scored_sections if item[2]]
+            candidates = action_scored or scored_sections
+            candidates.sort(key=lambda x: -x[0])
+            return candidates[0][1]
     except Exception:
         pass
 
@@ -1753,7 +2012,7 @@ _ASSET_INTENT_TERMS = (
     "transporta", "transporte", "transportes",
     "activar", "fuente oficial", "documento", "referencia",
     "como integro", "cómo integro", "como integrar", "cómo integrar",
-    "integrar process", "process chain", "process chains", "task chain", "task chains"
+    "integrar process"
 )
 
 
@@ -1767,6 +2026,21 @@ def _is_asset_seeking_query(question: str) -> bool:
         root in q_lower
         for root in ("configur", "instal", "conect", "transport", "import", "activ", "particion", "integr")
     )
+
+
+_ASSET_LISTING_TERMS = (
+    "que documentacion", "que documentación", "documentacion tenemos", "documentación tenemos",
+    "que documentos", "que recursos", "que links", "que enlaces", "que referencias",
+    "que material", "que tenemos", "tenemos documentacion", "tenemos documentación",
+    "tenemos recursos", "tenemos links", "tenemos referencias", "documentacion sobre",
+    "documentación sobre", "recursos sobre", "links sobre", "referencias sobre",
+    "material sobre", "biblioteca sobre"
+)
+
+
+def _is_asset_listing_query(question: str) -> bool:
+    q_lower = _norm(question)
+    return any(term in q_lower for term in _ASSET_LISTING_TERMS)
 
 
 def _score_asset_candidate(question: str, asset: dict) -> int:
@@ -1829,6 +2103,104 @@ def _score_asset_candidate(question: str, asset: dict) -> int:
     if "bw bridge" in desc and "bw bridge" in q_lower:
         score += 3
     return score
+
+
+def _asset_candidate_specific_hits(question: str, asset: dict) -> set[str]:
+    q_tokens = _significant_tokens(question)
+    candidate_text = " ".join(
+        str(part or "")
+        for part in (
+            asset.get("description"),
+            " ".join(asset.get("keywords") or []),
+            asset.get("language"),
+        )
+    )
+    return _asset_specific_token_hits(q_tokens, _significant_tokens(candidate_text))
+
+
+def _dedupe_assets(scored: list[tuple[int, dict]]) -> list[tuple[int, dict]]:
+    seen: set[str] = set()
+    deduped: list[tuple[int, dict]] = []
+    for score, asset in scored:
+        key = _norm(str(asset.get("asset") or asset.get("description") or ""))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append((score, asset))
+    return deduped
+
+
+def _find_matching_assets(
+    question: str,
+    current_stem: str,
+    context: str,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    """Devuelve varios recursos cuando el usuario pide explorar documentacion.
+
+    Para preguntas operativas/directas conservamos el flujo de un único asset.
+    Esta rama cubre consultas tipo "que documentacion tenemos de X", donde la
+    respuesta correcta puede ser un abanico de guias, notas y referencias.
+    """
+    if not _is_asset_listing_query(question):
+        return []
+
+    scored: list[tuple[int, dict]] = []
+
+    def _add_assets(assets: list[dict], module_stem: str, module_label: str | None) -> None:
+        for raw_asset in assets or []:
+            score = _score_asset_candidate(question, raw_asset)
+            if score < 8:
+                continue
+            # Exigimos al menos un token de tema real. Esto evita que "documentacion"
+            # por si solo arrastre recursos genericos sin relacion con el objeto.
+            specific_hits = _asset_candidate_specific_hits(question, raw_asset)
+            if not specific_hits:
+                continue
+            asset = dict(raw_asset)
+            asset["_module"] = module_stem
+            asset["_module_label"] = module_label
+            asset["_specific_hits"] = sorted(specific_hits)
+            scored.append((score, asset))
+
+    try:
+        meta, _body = split_front_matter(context)
+        _add_assets(meta.get("intent_assets") or [], current_stem, module_label_from_md(current_stem, context))
+    except Exception:
+        pass
+
+    content_paths = list(CONTENT_DIR.glob("*.md"))
+    appendices_dir = CONTENT_DIR / "apendices"
+    if appendices_dir.exists():
+        content_paths.extend(appendices_dir.glob("*.md"))
+
+    for path in sorted(content_paths, key=lambda p: p.name.lower()):
+        if path.stem == current_stem:
+            continue
+        try:
+            md = path.read_text(encoding="utf-8", errors="ignore")
+            meta, _body = split_front_matter(md)
+            module_label = module_label_from_md(path.stem, md)
+        except Exception:
+            continue
+        _add_assets(meta.get("intent_assets") or [], path.stem, module_label)
+
+    scored = _dedupe_assets(scored)
+    if len(scored) < 2:
+        return []
+    scored.sort(key=lambda item: (-item[0], str(item[1].get("description") or "")))
+    best_score = scored[0][0]
+    best_hits = set(scored[0][1].get("_specific_hits") or [])
+    selected = []
+    for score, asset in scored:
+        asset_hits = set(asset.get("_specific_hits") or [])
+        same_topic = bool(best_hits and asset_hits and (best_hits & asset_hits))
+        if same_topic or score >= max(8, best_score - 12):
+            selected.append(asset)
+        if len(selected) >= limit:
+            break
+    return selected if len(selected) >= 2 else []
 
 
 def _find_best_asset(
@@ -1905,7 +2277,10 @@ def _find_cross_module_asset(question: str, current_stem: str, *, allow_strong: 
         if path.stem == current_stem:
             continue
         try:
-            md = read_text_cached(str(path))
+            # Los intent_assets suelen ajustarse durante la curaduria del marco.
+            # Para routing conversacional preferimos leerlos frescos y evitar que
+            # un cache de Streamlit deje invisible una nota/referencia recien agregada.
+            md = path.read_text(encoding="utf-8", errors="ignore")
             meta, _body = split_front_matter(md)
             module_label = module_label_from_md(path.stem, md)
         except Exception:
@@ -2170,15 +2545,6 @@ def _render_assistant_tab(
         or _pending_direct_active
     )
 
-    # Resolver primero el router liviano antes de pintar el chat. Si la pregunta
-    # matchea seccion/arbol/asset, evita un render intermedio vacio con apariencia
-    # de llamada LLM. Si no matchea, este bloque agenda _pending_classify y el
-    # siguiente render muestra el preloader real de LLM.
-    if _pending_free_active:
-        st.session_state.pop("_processing", None)
-        _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
-        return
-
     _defer_pending_action = False
 
     if chat or suggestion or _depth_sel_active or _cds_delta_sel_active or _pending_free_active or _pending_classify_active or _pending_direct_active or _processing:
@@ -2316,6 +2682,20 @@ def _render_assistant_tab(
                 _defer_pending_action = True
                 st.session_state["_llm_spinner_slot"] = st.empty()
             elif _pending_free_active:
+                _pending_free = st.session_state.get("_pending_free_question") or {}
+                _pending_prompt = (_pending_free.get("prompt") or "").strip()
+                if _pending_prompt:
+                    st.markdown(
+                        f"<div class='dw-chat-msg dw-chat-user'>"
+                        f"<div class='dw-chat-label'>{_get_auth_user().get('first_name', 'Tú')}</div>"
+                        f"{_to_html(_pending_prompt)}</div>",
+                        unsafe_allow_html=True,
+                    )
+                st.session_state["_llm_spinner_slot"] = st.empty()
+                _render_processing_bubble(
+                    st.session_state["_llm_spinner_slot"],
+                    "🔎 Analizando tu consulta...",
+                )
                 st.session_state.pop("_processing", None)
                 _flush_pending_free_question(selected_stem, selected_path, context, trees_this_module)
             elif _pending_classify_active:
@@ -2566,6 +2946,69 @@ button[kind="secondary"] p { text-align: left !important; }
                         st.session_state.pop("_expand_chat_open", None)
                         _rerun_tools_panel()
 
+            # ── Sugerencia de varios assets ─────────────────────────────────
+            asset_multi_suggestion = st.session_state.get("_asset_multi_suggestion")
+            if asset_multi_suggestion:
+                assets = asset_multi_suggestion.get("assets") or []
+                if assets:
+                    def _asset_option_label(idx: int) -> str:
+                        asset = assets[idx]
+                        desc = str(asset.get("description") or "Recurso técnico")
+                        module_label = asset.get("_module_label")
+                        return f"{module_label} · {desc}" if module_label else desc
+
+                    selected_idx = st.selectbox(
+                        "Recurso",
+                        list(range(len(assets))),
+                        format_func=_asset_option_label,
+                        label_visibility="collapsed",
+                        key="asset_multi_select",
+                    )
+                    selected_asset = assets[selected_idx]
+                    desc = selected_asset.get("description", "Recurso técnico disponible")
+                    asset_path = selected_asset.get("asset", "")
+                    language = selected_asset.get("language", "abap")
+                    is_external_asset = str(asset_path).lower().startswith(("http://", "https://"))
+                    col_a, col_b = st.columns(2, gap="small")
+                    with col_a:
+                        if is_external_asset:
+                            if st.button("📎 Abrir recurso", width="stretch", key="asset_multi_open_external_btn"):
+                                st.session_state["_open_external_asset"] = {
+                                    "url": str(asset_path),
+                                    "desc": desc,
+                                    "suggestion_key": "_asset_multi_suggestion",
+                                }
+                                st.session_state.pop("_active_tree_id", None)
+                                st.session_state.pop("_active_tree_title", None)
+                                _rerun_tools_panel()
+                        elif st.button("📎 Abrir recurso", width="stretch", key="asset_multi_open_btn"):
+                            st.session_state["_asset_open"] = {
+                                "path": asset_path,
+                                "desc": desc,
+                                "language": language,
+                                "selected_path": selected_path,
+                            }
+                            st.session_state.pop("_asset_multi_suggestion", None)
+                            _rerun_tools_panel()
+                    with col_b:
+                        if st.button("💬 Explicame vos", width="stretch", key="asset_multi_llm_btn"):
+                            asset_context = "\n".join(
+                                f"- {a.get('description', 'Recurso técnico')}: {a.get('asset', '')}"
+                                for a in assets
+                            )
+                            st.session_state["_pending_llm_direct"] = {
+                                "prompt": asset_multi_suggestion["prompt"],
+                                "context": (
+                                    f"{context}\n\n"
+                                    "RECURSOS INTERNOS DE BIBLIOTECA DISPONIBLES PARA ESTA CONSULTA:\n"
+                                    f"{asset_context}"
+                                ),
+                                "module": selected_stem,
+                            }
+                            st.session_state.pop("_asset_multi_suggestion", None)
+                            st.session_state.pop("_expand_chat_open", None)
+                            _rerun_tools_panel()
+
             # ── Sugerencia combinada: árbol + sección ─────────────────────────
             asset_section_suggestion = st.session_state.get("_asset_section_suggestion")
             if asset_section_suggestion:
@@ -2698,7 +3141,7 @@ button[kind="secondary"] p { text-align: left !important; }
             st.markdown("<style>.dw-chat-msg { margin-bottom: 10px !important; }</style>", unsafe_allow_html=True)
 
             # Aviso si hay botones de sugerencia activos que no se ven en el dialog
-            _SUGGESTION_KEYS = ("_section_suggestion", "_tree_suggestion", "_asset_suggestion", "_asset_section_suggestion", "_combined_suggestion", "_depth_selector")
+            _SUGGESTION_KEYS = ("_section_suggestion", "_tree_suggestion", "_asset_suggestion", "_asset_multi_suggestion", "_asset_section_suggestion", "_combined_suggestion", "_depth_selector")
             if any(st.session_state.get(k) for k in _SUGGESTION_KEYS):
                 st.info("💡 Hay opciones pendientes de selección en el chat. Cerrá este panel para interactuar con ellas.", icon=None)
 
@@ -2836,6 +3279,7 @@ button[kind="secondary"] p { text-align: left !important; }
                 st.session_state.pop("_combined_suggestion", None)
                 st.session_state.pop("_section_suggestion", None)
                 st.session_state.pop("_asset_suggestion", None)
+                st.session_state.pop("_asset_multi_suggestion", None)
                 st.session_state.pop("_asset_section_suggestion", None)
                 st.session_state.pop("_asset_open", None)
                 st.session_state.pop("_depth_selector", None)
@@ -3047,6 +3491,38 @@ def _render_analytics_tab() -> None:
     st.caption("Herramientas administrativas — solo visible en modo diagnóstico.")
 
     _render_runtime_export_section()
+
+    st.markdown(_GROUP_SEP, unsafe_allow_html=True)
+    st.markdown("**Casos SAP SharePoint**")
+    st.caption("Limpia el cache local de lectura delegada; la proxima consulta volvera a leer Microsoft Graph.")
+    with st.expander("¿Qué hace cada acción?", expanded=False):
+        st.markdown("**Refrescar cache**  \nLa próxima lectura ignora el cache local y vuelve a consultar Microsoft Graph con tu token delegado.")
+        st.markdown("**Generar seed semántico**  \nLee los casos SAP desde SharePoint, limpia la historia HTML y genera un JSON auxiliar con términos técnicos, keywords candidatas y borradores `case_patterns`.")
+        st.caption("No escribe en SharePoint, no persiste tokens y respeta los permisos del usuario logueado.")
+    col_sp1, col_sp2 = st.columns(2)
+    if col_sp1.button("Refrescar cache", key="analytics_sp_cases_refresh", width="stretch"):
+        st.session_state["_refresh_sharepoint_cases"] = True
+        st.success("Cache marcado para refresco en la proxima consulta.")
+    if col_sp2.button("Generar seed", key="analytics_sp_cases_seed", width="stretch"):
+        token = _auth_token_for_sharepoint()
+        if not token:
+            st.warning("No hay token delegado disponible en la sesion.")
+        else:
+            cases = _fetch_sharepoint_cases(token, force_refresh=bool(st.session_state.pop("_refresh_sharepoint_cases", False)))
+            seed = _build_sharepoint_cases_seed(cases)
+            st.session_state["_sp_cases_seed_json"] = json.dumps(seed, ensure_ascii=False, indent=2)
+            st.success(f"Seed generado con {len(seed)} caso(s).")
+    if st.session_state.get("_sp_cases_seed_json"):
+        st.download_button(
+            "Descargar seed JSON",
+            data=st.session_state["_sp_cases_seed_json"],
+            file_name="sharepoint_cases_semantic_seed.json",
+            mime="application/json",
+            key="analytics_sp_cases_seed_download",
+            width="stretch",
+        )
+        with st.expander("Preview seed JSON", expanded=False):
+            st.code(st.session_state["_sp_cases_seed_json"][:8000], language="json")
 
     st.markdown(_GROUP_SEP, unsafe_allow_html=True)
     st.markdown("**📚 Case Library**")

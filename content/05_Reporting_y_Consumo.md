@@ -184,11 +184,11 @@ Si el reporte es lento, el problema suele estar en el modelo — no en la herram
 
 | Item | Pregunta de control |
 |---|---|
-| ☐ Herramienta | ¿Está definida la herramienta de reporting del cliente (SAC / Power BI / BO)? |
-| ☐ Schema user | ¿Está creado el schema user con los DAC correspondientes? |
-| ☐ Modo de conexión | ¿Está definido el modo de conexión (DirectQuery / Import / Live)? |
-| ☐ Persistencia | ¿Las vistas de consumo (capa 3) tienen persistencia donde se justifica? |
-| ☐ Pre-agregación | ¿Los datos están pre-agregados al nivel de granularidad que consume el reporte? |
-| ☐ Workload class | ¿Está configurada la clase de workload para consultas de reporting? |
-| ☐ Refresh schedule | ¿Está definida la frecuencia de actualización (para Import Mode o Data Flows)? |
-| ☐ DAC en consumo | ¿Los filtros de acceso (DAC) aplican correctamente al perfil del schema user? |
+| **Herramienta** | ¿Está definida la herramienta de reporting del cliente (SAC / Power BI / BO)? |
+| **Schema user** | ¿Está creado el schema user con los DAC correspondientes? |
+| **Modo de conexión** | ¿Está definido el modo de conexión (DirectQuery / Import / Live)? |
+| **Persistencia** | ¿Las vistas de consumo (capa 3) tienen persistencia donde se justifica? |
+| **Pre-agregación** | ¿Los datos están pre-agregados al nivel de granularidad que consume el reporte? |
+| **Workload class** | ¿Está configurada la clase de workload para consultas de reporting? |
+| **Refresh schedule** | ¿Está definida la frecuencia de actualización (para Import Mode o Data Flows)? |
+| **DAC en consumo** | ¿Los filtros de acceso (DAC) aplican correctamente al perfil del schema user? |

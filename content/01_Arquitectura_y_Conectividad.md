@@ -217,14 +217,14 @@ Orientativo para revisar que la configuración base del proyecto esté completa 
 
 | Item | Pregunta de control |
 |---|---|
-| ☐ Ambientes | ¿Definiste espacios DEV / QA / PRD? |
-| ☐ Source Language | ¿Configuraste el idioma del espacio (Source Language)? |
-| ☐ Space Quota | ¿Alocaste cuota de almacenamiento (Space Quota)? |
-| ☐ Schema Users | ¿Definiste usuarios a nivel espacio/schema para consumo externo? |
-| ☐ Time Data | ¿Configuraste la dimensión de Time Data? |
-| ☐ Conexiones | ¿Usaste nombres funcionales y estables, evitando codificar DEV/QA/PRD en el nombre técnico? |
-| ☐ Cross-Sharing | ¿Alineaste la estrategia de Cross-Sharing y gobierno de datos? |
-| ☐ Transporte | ¿Definiste la estrategia de transporte entre ambientes? |
+| **Ambientes** | ¿Definiste espacios DEV / QA / PRD? |
+| **Source Language** | ¿Configuraste el idioma del espacio (Source Language)? |
+| **Space Quota** | ¿Alocaste cuota de almacenamiento (Space Quota)? |
+| **Schema Users** | ¿Definiste usuarios a nivel espacio/schema para consumo externo? |
+| **Time Data** | ¿Configuraste la dimensión de Time Data? |
+| **Conexiones** | ¿Usaste nombres funcionales y estables, evitando codificar DEV/QA/PRD en el nombre técnico? |
+| **Cross-Sharing** | ¿Alineaste la estrategia de Cross-Sharing y gobierno de datos? |
+| **Transporte** | ¿Definiste la estrategia de transporte entre ambientes? |
 
 {{callout: title="Momento recomendado" tone="success" icon="🌿"}}
 Este checklist es más efectivo al cierre del setup inicial (antes del primer modelo analítico) y en las revisiones de arquitectura de proyecto. Un ítem sin marcar a tiempo puede implicar trabajo de refactor en etapas avanzadas.

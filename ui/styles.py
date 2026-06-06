@@ -1230,6 +1230,20 @@ div[data-testid="stExpander"] summary,
 div[data-testid="stExpander"] div[role="region"] {
   background: #ffffff !important;
 }
+div[data-testid="stExpander"] div[role="region"] > div,
+div[data-testid="stExpander"] div[role="region"] div[data-testid="stVerticalBlock"],
+div[data-testid="stExpander"] div[role="region"] div[data-testid="stElementContainer"],
+div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdown"],
+div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdownContainer"] {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+}
+div[data-testid="stExpander"] details > div,
+div[data-testid="stExpander"] details > div div,
+div[data-testid="stExpander"] details > div section {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+}
 div[data-testid="stExpander"] summary {
   border-radius: var(--dw-radius) var(--dw-radius) 0 0 !important;
 }
@@ -1381,11 +1395,25 @@ div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpan
 }
 div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] > div,
 div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] > div,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stVerticalBlock"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stVerticalBlock"],
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stElementContainer"],
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stElementContainer"],
 div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdown"],
 div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdown"],
 div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdownContainer"],
 div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"] div[data-testid="stMarkdownContainer"] {
   background: #ffffff !important;
+  background-color: #ffffff !important;
+}
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div div,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div div,
+div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div section,
+div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] details > div section {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
 }
 div[data-testid="column"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker),
 div[data-testid="stColumn"]:has(.dw-tools-shell-marker) div[data-testid="stExpander"] div[role="region"]:has(.dw-fragment-surface-marker),
