@@ -1,7 +1,7 @@
 """
 ui/header.py — Header de la aplicación.
 
-Renderiza: logo animado | título + subtítulo | navegación + Roadmap + selector de modo.
+Renderiza: logo animado | título + subtítulo | navegación + Roadmap + selector de contenido.
 Devuelve si Roadmap fue clickeado y si se pidió navegación entre módulos.
 """
 
@@ -12,6 +12,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from config import APP_TITLE, APP_SUBTITLE, ASSETS_DIR, LOGO_DANCING, ROADMAP_ITEMS
+from core.content_registry import (
+    CONTENT_PACK_SESSION_KEY,
+    active_content_pack,
+    available_content_packs,
+    content_pack_short_label,
+)
 from core.state import AppState
 
 
@@ -62,10 +68,23 @@ def _render_roadmap_body() -> None:
     )
 
 
-#  Mode selector callback 
-def _on_mode_change() -> None:
-    mode = st.session_state.get("mode_selector", "Simulación")
-    AppState.set_execution_mode(mode)
+#  Content pack selector callback
+def _on_content_pack_change() -> None:
+    """Aisla la navegacion y el chat al cambiar de corpus metodologico."""
+    for key in (
+        "module_selector", "appendix_selector", "selected_topic",
+        "selected_section_md", "decision_panel", "section_panel_open",
+        "tree_panel_open", "tree_selector", "selected_topic_from_anchor",
+        "_scroll_to_slug", "_tree_suggestion", "_requested_tree_id",
+        "_requested_tree_title", "_combined_suggestion",
+        "_section_suggestion", "_asset_suggestion",
+        "_asset_multi_suggestion", "_asset_section_suggestion",
+        "_pending_llm_direct", "_prev_module", "_tools_panel_module",
+        "_activity_last_module",
+    ):
+        st.session_state.pop(key, None)
+    AppState.clear_chat()
+    st.session_state["_scroll_content_to_top"] = True
 
 
 #  Main render
@@ -124,57 +143,48 @@ def render_header(
             """,
             unsafe_allow_html=True,
         )
-        if is_dev and show_mode_selector:
+        if show_mode_selector:
             r1, r_prev, r_next, r2 = st.columns([0.42, 0.13, 0.13, 0.50], vertical_alignment="center")
-            with r1:
-                roadmap_clicked = st.button(
-                    "Roadmap",
-                    use_container_width=True,
-                    key="btn_roadmap",
-                )
-            with r_prev:
-                if st.button(
-                    "←",
-                    use_container_width=True,
-                    key="btn_module_prev",
-                    help="Módulo anterior",
-                    disabled=not can_prev,
-                ):
-                    module_nav_delta = -1
-            with r_next:
-                if st.button(
-                    "→",
-                    use_container_width=True,
-                    key="btn_module_next",
-                    help="Módulo siguiente",
-                    disabled=not can_next,
-                ):
-                    module_nav_delta = 1
-            with r2:
-                st.selectbox(
-                    "Modo",
-                    options=["Simulación", "API Real"],
-                    index=0 if AppState.is_simulation() else 1,
-                    key="mode_selector",
-                    label_visibility="collapsed",
-                    on_change=_on_mode_change,
-                )
-            # Toggle de debug movido a app.py para que aparezca siempre
         else:
             r_spacer, r1, r_prev, r_next = st.columns([0.50, 0.42, 0.13, 0.13], vertical_alignment="center")
             with r_spacer:
                 st.empty()
-            with r1:
-                roadmap_clicked = st.button(
-                    "Roadmap",
-                    use_container_width=True,
-                    key="btn_roadmap",
+        with r1:
+            roadmap_clicked = st.button(
+                "Roadmap",
+                use_container_width=True,
+                key="btn_roadmap",
+            )
+        with r_prev:
+            if st.button(
+                "←",
+                use_container_width=True,
+                key="btn_module_prev",
+                help="Módulo anterior",
+                disabled=not can_prev,
+            ):
+                module_nav_delta = -1
+        with r_next:
+            if st.button(
+                "→",
+                use_container_width=True,
+                key="btn_module_next",
+                help="Módulo siguiente",
+                disabled=not can_next,
+            ):
+                module_nav_delta = 1
+        if show_mode_selector:
+            with r2:
+                packs = available_content_packs()
+                if st.session_state.get(CONTENT_PACK_SESSION_KEY) not in packs:
+                    st.session_state[CONTENT_PACK_SESSION_KEY] = active_content_pack()
+                st.selectbox(
+                    "Contenido",
+                    options=packs,
+                    format_func=content_pack_short_label,
+                    key=CONTENT_PACK_SESSION_KEY,
+                    label_visibility="collapsed",
+                    on_change=_on_content_pack_change,
                 )
-            with r_prev:
-                if st.button("←", use_container_width=True, key="btn_module_prev", help="Módulo anterior", disabled=not can_prev):
-                    module_nav_delta = -1
-            with r_next:
-                if st.button("→", use_container_width=True, key="btn_module_next", help="Módulo siguiente", disabled=not can_next):
-                    module_nav_delta = 1
 
     return roadmap_clicked, module_nav_delta

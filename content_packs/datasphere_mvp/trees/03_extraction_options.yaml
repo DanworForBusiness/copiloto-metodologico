@@ -1,0 +1,234 @@
+id: extraction_options
+title: Opciones de Extracción
+version: "0.1"
+#Links como navigation bindings (para UI / conexión con módulos)
+#módulo | topic (key_topic)
+links:
+  module: 03_Integracion_y_Estrategia_de_Datos
+  topics: ["extraccion", "gobernanza"]
+#Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+# concepts responde: ¿De qué trata este árbol?
+tags: ["M03", "integration", "extraction"]  
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "extraccin", "extraer", "extraigo", "opciones de extraccion",
+  "sistema fuente", "fuente de datos",
+  "ECC", "S4", "S/4", "S/4HANA", "S4HANA", "BW",
+  "CDS", "ODP", "ODP-SAPI", "DataSource", "extractor",
+  "whitelisted", "whitelist", "Nota 2500202",
+  "integrar", "integracion", "conectar", "replicar", 
+  "Datasphere", "datasphere", "ABAP", "Netweaver", "NW7.5"
+]
+# exclude_if: palabras de intención operacional (pedir código/template/ejemplo)
+# que indican que el usuario quiere HACER algo, no DECIDIR algo.
+# Si la pregunta contiene alguna → este árbol no se ofrece.
+exclude_if: [
+  "Codigo", "codigo", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+start: q1
+nodes:
+  q1:
+    type: single_choice
+    question: "¿Cuál es el sistema fuente?"
+    options: ["ERP", "BW"]
+    next:
+      ERP: q2_erp_version
+      BW: q2_bw_inversion
+
+  q2_erp_version:
+    type: single_choice
+    question: "¿Qué versión?"
+    options: ["S4HANA", "ECC"]
+    next:
+      ECC: q3_ecc_version
+      S4HANA: q3_s4_edition
+
+  q3_ecc_version:
+    type: single_choice
+    question: "¿Qué versión ABAP?"
+    options: ["≥NW7.5", "Inferior", "No sé"]
+    next:
+      "≥NW7.5": leaf_ecc_framework
+      "Inferior": leaf_ecc_investigation
+      "No sé": leaf_intervention
+
+  q3_s4_edition:
+    type: single_choice
+    question: "¿Qué edición?"
+    options: ["Private", "Public"]
+    next:
+      Private: q4_s4_api_auth
+      Public: q4_s4_api_rel
+
+  q4_s4_api_auth:
+    type: single_choice
+    question: "¿Existe una API funcional SAP autorizada (CDS Estándar, ODP-SAPI whitelistado, etc.)?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q5_cds_cumple
+      "No": leaf_api_corp_wrap_tabla
+      "No sé": leaf_intervention
+
+  q4_s4_api_rel:
+    type: single_choice
+    question: "¿Existe una API SAP liberada? (CDS Released, SAP_COM_0532, ABAP SQL)?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q5_api_cumple
+      "No": q5_api_ext      
+      "No sé": leaf_intervention
+
+  q5_cds_cumple:
+    type: single_choice
+    question: "¿Cumple el requrimiento funcional?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q6_cds_compat
+      "No": leaf_api_corp_wrap_func
+      "No sé": leaf_intervention
+
+  q5_api_cumple:
+    type: single_choice
+    question: "¿Cumple el requrimiento funcional?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_libe_contrato
+      "No": q5_api_ext
+      "No sé": leaf_intervention
+
+  q5_api_ext:
+    type: single_choice
+    question: "¿Existe extensibilidad permitida?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_ext
+      "No": leaf_api_not_supported
+      "No sé": leaf_intervention
+
+  q6_cds_compat:
+    type: single_choice
+    question: "¿Es técnicamente apta para consumo ? (anotaciones, delta, performance, asociaciones, c/compatibilidad con Datasphere)"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_corp_contrato
+      "No": leaf_api_corp_wrap_func
+      "No sé": leaf_intervention
+
+  q2_bw_inversion:
+    type: single_choice
+    question: "¿Existe inversión alta en mejoras/ampliaciones de extractores/DataSources?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q_bw_whitelist
+      "No": leaf_bw_puente
+      "No sé": leaf_intervention
+
+  q_bw_whitelist:
+    type: single_choice
+    question: "¿Se encuentra whitelisted en Nota SAP 2500202?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_bw_whitelisted
+      "No": leaf_bw_puente
+      "No sé": leaf_intervention
+
+leaves:
+  leaf_ecc_investigation: 
+    decision: "No contamos con experiencia previa integrando una versión ECC tan antigua"
+    post_actions: 
+      mode: llm_value_add
+      prompt_profile: "danwor_reco"
+      questions:
+        - "¿Es compatible el framework CDS (Core Data Services) en ECC 6.0 con versión ABAP inferior a Netweaver 7.5?"
+        - "¿Es factible provisionar un SLT para la réplica de datos de tablas base?"
+        - "¿Es viable para integración con SAP Datasphere?"
+
+  leaf_ecc_framework: 
+    decision: "Apoyarse en Framework CDS con vistas/wrapper custom compatibles con futuro upgrade."
+    post_actions: 
+      mode: resolved
+      next_steps:
+        - "Crear vista CDS Z como API de Integración"
+        - "Incluir las anotaciones mínimas compatibles"
+    notes:
+      - "En esta instancia la CDS será compatible para extracción únicamente en modo FULL"
+
+  leaf_intervention: 
+    decision: "No contamos con información suficiente para una decisión sin intervención"
+    post_actions: 
+      mode: needs_human_review
+      reason: "No indica contexto técnico suficiente"
+
+  leaf_api_corp_wrap_tabla:
+    decision: "API Corporativa: Apoyada en CDS Custom para encapsular tablas base"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_corp_wrap_func:
+    decision: "API Corporativa: Apoyada en CDS Custom para encapsular la API functional y corregir limitaciones tecnicas, adaptar semantica o estabilizar consumo."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_corp_contrato:
+    decision: "API Corporativa: El contrato se define en SAP mediante una API Corporativa apoyada en API funcionales (CDS, ODP). Cuando no es posible, el contrato se define en Datasphere"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_libe_contrato:
+    decision: "Consumir API SAP Liberada: El contrato se define en Datasphere."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_cds_template:
+    decision: "Copiar CDS existente o crear una nueva usando el template Danwor (adaptar anotaciones compatibles con Datasphere)."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_ext:
+    decision: "API SAP Extendida: Contrato definido en Datasphere."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_not_supported:
+    decision: "Escenario no soportado."
+    post_actions:
+      mode: llm_value_add      
+
+  leaf_odp_std:
+    decision: "Apoyarse en extractor ODP-SAPI estándar whitelisted."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_alternatives:
+    decision: "Sin ODP-SAPI whitelisted disponible: evaluar alternativa alineada a clean core (posible Puente ERP según contexto)."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_bw_puente:
+    decision: "Puente ERP: reutilizar los DataSources/extractores BW existentes vía ODP-SAPI como capa de transición hacia Datasphere."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_bw_whitelisted:
+    decision: "ODP-SAPI — Continuar con los extractores/DataSources BW whitelisted (Nota SAP 2500202) como mecanismo de extracción hacia Datasphere."
+    post_actions:
+      mode: llm_value_add
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu contexto técnico"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué decidiste hacer?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

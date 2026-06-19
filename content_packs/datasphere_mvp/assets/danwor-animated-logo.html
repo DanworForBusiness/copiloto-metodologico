@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: transparent;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .outer {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;    /* vertical center */
+    justify-content: flex-start; /* align left, matching left edge of column */
+    padding-left: 0;
+  }
+
+  .main-row {
+    position: relative;
+    height: 67px;
+  }
+
+  .word {
+    position: absolute;
+    top: 0; left: 0;
+    display: flex;
+    align-items: center;
+    height: 80px;
+    white-space: nowrap;
+  }
+
+  .ch {
+    font-family: 'Rajdhani', 'Arial Black', sans-serif;
+    font-weight: 700;
+    font-size: 72px;
+    color: #363636;
+    line-height: 1;
+    letter-spacing: 2px;
+    display: inline-block;
+    will-change: transform, opacity;
+  }
+
+  #wId .ch {
+    font-size: 72px;
+    letter-spacing: 1px;
+  }
+
+  .chA {
+    font-family: 'Rajdhani', 'Arial Black', sans-serif;
+    font-weight: 700;
+    font-size: 65px;
+    color: #363636;
+    padding-top: 5px;
+    line-height: 1;
+    letter-spacing: 2px;
+    display: inline-block;
+    will-change: transform, opacity;
+  }
+
+  .gold { color: #EAB308; }
+</style>
+</head>
+<body>
+<div class="outer">
+  <div class="main-row" id="mainRow">
+
+    <div class="word" id="wDan">
+      <span class="ch" id="chD">D</span><span class="chA" id="chA">Ʌ</span><span class="ch" id="chNwor">NWOR</span>
+    </div>
+
+    <div class="word" id="wId" style="opacity:0; pointer-events:none;">
+      <span class="ch" id="chI">I</span><span class="ch" id="chNov">NNOVACI&Oacute;N</span>
+      <span class="ch gold" id="chPlus">&nbsp;+&nbsp;</span>
+      <span class="ch" id="chDes">D</span><span class="ch" id="chEsa">ESARROLLO</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const chD    = document.getElementById('chD'),
+        chNwor= document.getElementById('chNwor'),
+        chA    = document.getElementById('chA'),
+        wDan   = document.getElementById('wDan'),
+        wId    = document.getElementById('wId'),
+        chI    = document.getElementById('chI'),
+        chNov  = document.getElementById('chNov'),
+        chPlus = document.getElementById('chPlus'),
+        chDes  = document.getElementById('chDes'),
+        chEsa  = document.getElementById('chEsa'),
+        mainRow= document.getElementById('mainRow');
+
+  function matchWidths() {
+    wId.style.opacity = '0';
+    const danworW = wDan.getBoundingClientRect().width;
+
+    let lo = 8, hi = 72, mid, best = 20;
+    for (let i = 0; i < 30; i++) {
+      mid = (lo + hi) / 2;
+      [chI, chNov, chPlus, chDes, chEsa].forEach(el => el.style.fontSize = mid + 'px');
+      const idW = wId.getBoundingClientRect().width;
+      if (idW < danworW) lo = mid; else hi = mid;
+      best = mid;
+    }
+    [chI, chNov, chPlus, chDes, chEsa].forEach(el => el.style.fontSize = best + 'px');
+    mainRow.style.width = danworW + 'px';
+    wId.style.opacity = '0';
+  }
+
+  document.fonts.ready.then(() => { matchWidths(); startCycle(); });
+
+  const HOLD=3000, OUT=360, BACK=420, SH=50;
+  const ease=t=>t<.5?2*t*t:-1+(4-2*t)*t;
+  const tw=(dur,fn)=>new Promise(res=>{
+    const s=performance.now();
+    (function f(n){const t=ease(Math.min((n-s)/dur,1));fn(t);t<1?requestAnimationFrame(f):res();})(performance.now());
+  });
+  const after=(d,dur,fn)=>new Promise(r=>setTimeout(()=>tw(dur,fn).then(r),d));
+
+  function reset(){
+    chD.style.transform='translateX(0)'; chD.style.opacity='1';
+    chNwor.style.opacity='1'; chNwor.style.transform='translateX(0)';
+    chA.style.opacity='1'; chA.style.transform='translateX(0)';
+    wId.style.opacity='1'; wId.style.pointerEvents='none';
+    [chI,chNov,chPlus,chDes,chEsa].forEach(el=>{el.style.opacity='0';el.style.transform='translateX(-55px)';});
+  }
+
+  async function cycle(){
+    reset();
+    await new Promise(r=>setTimeout(r,HOLD));
+    await Promise.all([
+      tw(OUT,t=>{chNwor.style.opacity=1-t;chNwor.style.transform=`translateX(${t*14}px)`;chA.style.opacity=1-t;chA.style.transform=`translateX(${t*14}px)`;}),
+
+      tw(OUT,t=>{chD.style.transform=`translateX(${t*SH}px)`;chD.style.opacity=t>.4?Math.max(0,1-(t-.4)/.6):1;}),
+      tw(OUT,      t=>{chI.style.opacity=t;   chI.style.transform=`translateX(${-55*(1-t)}px)`;}),
+      after(40, OUT,t=>{chNov.style.opacity=t; chNov.style.transform=`translateX(${-55*(1-t)}px)`;}),
+      after(80, OUT,t=>{chPlus.style.opacity=t;chPlus.style.transform=`translateX(${-55*(1-t)}px)`;}),
+      after(120,OUT,t=>{chDes.style.opacity=t; chDes.style.transform=`translateX(${-55*(1-t)}px)`;}),
+      after(160,OUT,t=>{chEsa.style.opacity=t; chEsa.style.transform=`translateX(${-55*(1-t)}px)`;}),
+    ]);
+    chD.style.opacity='0'; chNwor.style.opacity='0'; chA.style.opacity='0';
+    [chI,chNov,chPlus,chDes,chEsa].forEach(el=>{el.style.opacity='1';el.style.transform='translateX(0)';});
+    wId.style.pointerEvents='auto';
+    await new Promise(r=>setTimeout(r,HOLD));
+    chD.style.transform=`translateX(${SH}px)`; chD.style.opacity='0';
+    chNwor.style.opacity='0'; chNwor.style.transform='translateX(14px)';
+    chA.style.opacity='0'; chA.style.transform='translateX(14px)';
+    await Promise.all([
+      tw(BACK,      t=>{chI.style.opacity=1-t;   chI.style.transform=`translateX(${-55*t}px)`;}),
+      after(30,BACK,t=>{chNov.style.opacity=1-t; chNov.style.transform=`translateX(${-55*t}px)`;}),
+      after(60,BACK,t=>{chPlus.style.opacity=1-t;chPlus.style.transform=`translateX(${-55*t}px)`;}),
+      after(90,BACK,t=>{chDes.style.opacity=1-t; chDes.style.transform=`translateX(${-55*t}px)`;}),
+      after(120,BACK,t=>{chEsa.style.opacity=1-t;chEsa.style.transform=`translateX(${-55*t}px)`;}),
+      after(75, BACK,t=>{chD.style.opacity=t;chD.style.transform=`translateX(${SH*(1-t)}px)`;}),
+      after(130,BACK,t=>{chNwor.style.opacity=t;chNwor.style.transform=`translateX(${14*(1-t)}px)`;chA.style.opacity=t;chA.style.transform=`translateX(${14*(1-t)}px)`;}),
+
+    ]);
+    wId.style.pointerEvents='none';
+    cycle();
+  }
+
+  function startCycle(){ cycle(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Convención de Nombres</title>
+<link rel="stylesheet" href="danwor-shared.css">
+<style>
+  .main { padding: 1px 40px 22px; max-width: 1300px; margin: 0 auto; }
+
+  /* ── TAB BAR ── */
+  .tab-bar { display: flex; gap: 8px; margin-bottom: 28px; }
+  .tab-btn {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 22px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 600;
+    border: 1.5px solid var(--dw-border);
+    background: var(--dw-white); color: var(--dw-muted);
+    transition: var(--tr); user-select: none;
+  }
+  .tab-btn:hover { border-color: var(--dw-gold); color: var(--dw-text); }
+  .tab-btn.active { border-color: var(--dw-gold); background: var(--dw-gold); color: #000; }
+  .tab-num {
+    width: 20px; height: 20px; border-radius: 5px;
+    background: rgba(0,0,0,.12); color: inherit;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800;
+  }
+
+  /* ── TAB PANELS ── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ════════════════════════════════
+     TAB 1 — POR QUÉ
+  ════════════════════════════════ */
+  .por-que-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 32px;
+    align-items: start;
+  }
+
+  /* Left: intro + bullets */
+  .pq-intro {
+    font-size: 15.5px; line-height: 1.75; color: var(--dw-text); margin-bottom: 28px;
+  }
+  .pq-intro strong { font-weight: 700; }
+
+  .reason-list { display: flex; flex-direction: column; gap: 12px; }
+  .reason-item {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px; border-radius: var(--r-md);
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    box-shadow: var(--sh-sm); transition: border-color var(--tr), box-shadow var(--tr), transform var(--tr);
+    cursor: default;
+  }
+  .reason-item:hover { border-color: var(--dw-gold); box-shadow: var(--sh-md); transform: translateX(3px); }
+  .reason-icon {
+    width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+    background: rgba(var(--dw-gold-rgb),.1); border: 1px solid rgba(var(--dw-gold-rgb),.22);
+    display: flex; align-items: center; justify-content: center; font-size: 17px;
+  }
+  .reason-text strong { font-size: 14px; font-weight: 700; display: block; margin-bottom: 3px; }
+  .reason-text span   { font-size: 13px; color: var(--dw-muted); line-height: 1.55; }
+
+  /* Right: Datasphere filter panel mockup */
+  .filter-mockup {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); box-shadow: var(--sh-md);
+    overflow: hidden; font-size: 13px;
+  }
+  .fm-header {
+    padding: 10px 14px; background: var(--dw-light);
+    border-bottom: 1px solid var(--dw-border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 600; color: var(--dw-muted);
+  }
+  .fm-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 16px; }
+  .fm-group-label { font-size: 11px; font-weight: 700; color: var(--dw-gold2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .fm-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0; border-bottom: 1px solid var(--dw-border);
+  }
+  .fm-row:last-child { border-bottom: none; }
+  .fm-check { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid #ccc; flex-shrink: 0; }
+  .fm-icon  { font-size: 13px; flex-shrink: 0; }
+  .fm-label { flex: 1; font-size: 12.5px; color: var(--dw-text); }
+  .fm-count { font-size: 11.5px; font-weight: 600; color: var(--dw-gold2); min-width: 28px; text-align: right; }
+  .fm-show-more { font-size: 11px; color: var(--dw-gold2); cursor: pointer; margin-top: 2px; font-weight: 600; }
+
+  .fm-note {
+    background: rgba(var(--dw-gold-rgb),.07); border: 1px solid rgba(var(--dw-gold-rgb),.2);
+    border-radius: var(--r-sm); padding: 9px 11px;
+    font-size: 11.5px; color: var(--dw-text); line-height: 1.55;
+    margin: 12px 14px;
+  }
+  .fm-note strong { color: var(--dw-gold2); font-weight: 700; }
+
+  /* ════════════════════════════════
+     TAB 2 — CÓMO
+  ════════════════════════════════ */
+
+  /* Camel notation badge */
+  .camel-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--dw-gold); color: #000;
+    font-size: 12px; font-weight: 700; padding: 5px 14px;
+    border-radius: 6px; margin-bottom: 14px;
+  }
+
+  /* Anatomy formula */
+  .formula-bar {
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 14px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .formula-part {
+    font-family: var(--mono); font-size: 13px; font-weight: 500;
+    padding: 4px 10px; border-radius: var(--r-sm);
+    border: 1px solid; cursor: help;
+    transition: transform var(--tr), box-shadow var(--tr);
+  }
+  .formula-part:hover { transform: translateY(-2px); box-shadow: var(--sh-sm); }
+  .fp-artifact  { background: #e8f0fe; border-color: #93c5fd; color: #1565c0; }
+  .fp-variant   { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .fp-sep       { background: transparent; border-color: transparent; color: var(--dw-muted); font-size: 16px; padding: 0 4px; }
+  .fp-origin    { background: #dcfce7; border-color: #86efac; color: #15803d; }
+  .fp-free      { background: #fff3cd; border-color: #f0d870; color: #92670a; }
+  .fp-seq       { background: #fce8e8; border-color: #fca5a5; color: #b91c1c; font-size: 11px; }
+
+  /* Main table */
+  .naming-table {
+    width: 100%; border-collapse: collapse;
+    border: 1px solid var(--dw-border); border-radius: var(--r-lg);
+    overflow: hidden; box-shadow: var(--sh-sm);
+    margin-bottom: 20px;
+  }
+  .naming-table th {
+    background: var(--dw-light); padding: 11px 14px;
+    font-size: 11.5px; font-weight: 700; text-align: left;
+    color: var(--dw-muted); text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 2px solid var(--dw-border);
+  }
+  .naming-table td {
+    padding: 12px 14px; font-size: 13px; border-bottom: 1px solid var(--dw-border);
+    vertical-align: top; line-height: 1.55;
+  }
+  .naming-table tr:last-child td { border-bottom: none; }
+  .naming-table tbody tr:hover td { background: rgba(var(--dw-gold-rgb),.03); }
+
+  /* Layer badges in table */
+  .layer-badge {
+    display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+    border-radius: 4px; margin: 2px 0; white-space: nowrap;
+  }
+  .lb-1 { background: #e8f0fe; color: #1565c0; }
+  .lb-2 { background: #f0fdf4; color: #15803d; }
+  .lb-3 { background: #faf5ff; color: #6d28d9; }
+  .lb-4 { background: #fff8f0; color: #c2410c; }
+
+  /* Variant chips */
+  .vc { display: flex; flex-direction: column; gap: 4px; }
+  .vc-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500;
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: 4px; padding: 3px 9px;
+  }
+  .vc-code { font-family: var(--mono); font-weight: 700; color: #5b21b6; font-size: 12px; }
+
+  /* Origin legend box */
+  .origin-legend {
+    background: var(--dw-light); border: 1px solid var(--dw-border);
+    border-radius: var(--r-md); padding: 12px 16px;
+    font-size: 12.5px; display: flex; flex-direction: column; gap: 5px;
+    margin-top: 4px;
+  }
+  .ol-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--dw-muted); margin-bottom: 3px; }
+  .ol-row   { display: flex; align-items: baseline; gap: 6px; }
+  .ol-code  { font-family: var(--mono); font-size: 12px; font-weight: 700; color: #15803d; min-width: 36px; }
+  .ol-desc  { font-size: 12px; color: var(--dw-muted); }
+
+  /* Free field tags */
+  .ff-section { display: flex; flex-direction: column; gap: 8px; }
+  .ff-group { }
+  .ff-group-title { font-size: 11px; font-weight: 700; color: var(--dw-muted); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+  .ff-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .ff-tag {
+    font-family: var(--mono); font-size: 11px; padding: 2px 8px;
+    border-radius: 4px; border: 1px solid; font-weight: 500;
+  }
+  .ff-tag.suffix { background: rgba(var(--dw-gold-rgb),.08); border-color: rgba(var(--dw-gold-rgb),.3); color: var(--dw-gold2); }
+  .ff-tag.prefix { background: rgba(21,101,192,.06); border-color: rgba(21,101,192,.2); color: #1565c0; }
+
+  /* Sequential note */
+  .seq-note {
+    background: #fff8f0; border: 1px solid #fcd34d;
+    border-radius: var(--r-md); padding: 12px 15px;
+    font-size: 12px; color: var(--dw-text); line-height: 1.6;
+  }
+  .seq-note strong { font-weight: 700; color: var(--dw-gold2); }
+
+  /* bottom two-col grid for origin + sequential */
+  .bottom-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 0;
+  }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);} }
+  .animate { animation: fadeUp .45s cubic-bezier(.4,0,.2,1) both; }
+  .delay-1 { animation-delay: .07s; }
+
+  @media (max-width: 960px) {
+    .por-que-layout { grid-template-columns: 1fr; }
+    .bottom-grid    { grid-template-columns: 1fr; }
+    .main { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- TAB BAR -->
+  <div class="tab-bar">
+    <div class="tab-btn active" id="tab-btn-porq" onclick="switchTab('porq')">
+      <span class="tab-num">1</span> ¿Por qué usar prefijos?
+    </div>
+    <div class="tab-btn" id="tab-btn-como" onclick="switchTab('como')">
+      <span class="tab-num">2</span> ¿Cómo nombrar objetos?
+    </div>
+  </div>
+
+  <!-- ══════════════
+       TAB 1 — POR QUÉ
+  ══════════════ -->
+  <div class="tab-panel active animate" id="tab-porq">
+    <div class="por-que-layout">
+
+      <!-- Left -->
+      <div>
+        <div class="reason-list">
+          <div class="reason-item">
+            <div class="reason-icon">⚡</div>
+            <div class="reason-text">
+              <strong>Contexto inmediato</strong>
+              <span>El nombre del objeto comunica su capa, tipo y origen sin necesidad de abrir filtros o metadata. Reduce la fricción cognitiva en equipos grandes.</span>
+            </div>
+          </div>
+          <div class="reason-item">
+            <div class="reason-icon">🔀</div>
+            <div class="reason-text">
+              <strong>Mitigar conflicto de nombres</strong>
+              <span>En espacios compartidos o multi-dominio, distintos objetos pueden referirse a entidades similares. El prefijo los diferencia inequívocamente.</span>
+            </div>
+          </div>
+          <div class="reason-item">
+            <div class="reason-icon">🔍</div>
+            <div class="reason-text">
+              <strong>Análisis técnico donde filtros UI no está disponible</strong>
+              <span>En APIs, metadata flows, CDS o herramientas externas el filtro visual de Datasphere no está disponible. El nombre es la única señal.</span>
+            </div>
+          </div>
+          <div class="reason-item">
+            <div class="reason-icon">🔗</div>
+            <div class="reason-text">
+              <strong>Integración y consistencia entre plataformas</strong>
+              <span>Al exponer objetos hacia sistemas inbound/outbound (SAP Analytics Cloud, Power BI, APIs, etc.) el nombre viaja sin contexto de UI.</span>
+            </div>
+          </div>
+          <div class="reason-item">
+            <div class="reason-icon">🛡️</div>
+            <div class="reason-text">
+              <strong>Future-proofing</strong>
+              <span>SAP puede cambiar sus criterios de filtro o metadata en futuras versiones. Una buena convención de nombres es independiente de la UI.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Datasphere filter mockup -->
+      <div>
+        <div class="filter-mockup">
+          <div class="fm-header">
+            <span>Filter By</span>
+            <span style="font-size:16px;color:var(--dw-muted)">⊿</span>
+          </div>
+          <div class="fm-body">
+
+            <div>
+              <div class="fm-group-label">Type</div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">📋</span><span class="fm-label">View</span><span class="fm-count">983</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">🔲</span><span class="fm-label">Remote Table</span><span class="fm-count">670</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">🗄️</span><span class="fm-label">Local Table</span><span class="fm-count">159</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">📊</span><span class="fm-label">Analytic Model</span><span class="fm-count">44</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">🔀</span><span class="fm-label">Data Flow</span><span class="fm-count">10</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">📁</span><span class="fm-label">Folder</span><span class="fm-count">3</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-icon">🔐</span><span class="fm-label">Data Access Control</span><span class="fm-count">2</span></div>
+              <div class="fm-show-more">Show More</div>
+            </div>
+
+            <div>
+              <div class="fm-group-label">Semantic Usage</div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Relational Dataset</span><span class="fm-count">715</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Text</span><span class="fm-count">536</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Dimension</span><span class="fm-count">367</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Fact</span><span class="fm-count">161</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Cube</span><span class="fm-count">44</span></div>
+              <div class="fm-row"><div class="fm-check"></div><span class="fm-label">Hierarchy with Directory</span><span class="fm-count">33</span></div>
+              <div class="fm-show-more">Show More</div>
+            </div>
+
+          </div>
+          <div class="fm-note">
+            <strong>⚠️ Sin prefijos</strong>, todos estos tipos conviven en el mismo espacio de nombres. Con 983 vistas y 670 tablas remotas, encontrar un objeto específico sin convención es difícil.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /tab-porq -->
+
+  <!-- ══════════════
+       TAB 2 — CÓMO
+  ══════════════ -->
+  <div class="tab-panel animate delay-1" id="tab-como">
+
+    <!-- Formula bar -->
+    <div class="formula-bar">
+      <span class="formula-part fp-artifact" title="Ej: T (Tabla), V (Vista)">Artefacto</span>
+      <span class="formula-part fp-variant"  title="Ej: F, R, D, A, T, H">Variante</span>
+      <span class="formula-part fp-sep">_</span>
+      <span class="formula-part fp-origin"   title="SAP, DSP, EDB, TXT, API">&lt;Origen 3 letras&gt;</span>
+      <span class="formula-part fp-sep">_</span>
+      <span class="formula-part fp-free"     title="Nombre libre con lineamientos">&lt;libreConLineamientosPosibles&gt;</span>
+      <span class="formula-part fp-sep" style="opacity:.4">_</span>
+      <span class="formula-part fp-seq"      title="Solo si usan ciclo de vida / versionado (opcional)">XX</span>
+      <span style="font-size:12px;color:var(--dw-muted);margin-left:8px;font-style:italic">← opcional</span>
+    </div>
+
+    <!-- Main table -->
+    <table class="naming-table">
+      <thead>
+        <tr>
+          <th>Capa</th>
+          <th>Artefacto</th>
+          <th>Variante</th>
+          <th>Origen</th>
+          <th>Libre con Lineamientos</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span class="layer-badge lb-1">1 · Ingesta</span>
+              <span class="layer-badge lb-2">2 · Armonización</span>
+              <span class="layer-badge lb-3">3 · Propagación</span>
+              <span class="layer-badge lb-4">4 · Reporting</span>
+            </div>
+          </td>
+          <td>
+            <div class="vc">
+              <div class="vc-chip"><span class="vc-code">T</span> Tabla</div>
+              <div class="vc-chip"><span class="vc-code">V</span> Vista</div>
+            </div>
+          </td>
+          <td>
+            <div class="vc">
+              <div class="vc-chip"><span class="vc-code">F</span> Fact</div>
+              <div class="vc-chip"><span class="vc-code">R</span> Relacional</div>
+              <div class="vc-chip"><span class="vc-code">D</span> Dimension</div>
+              <div class="vc-chip"><span class="vc-code">A</span> Analítica</div>
+              <div class="vc-chip"><span class="vc-code">T</span> Texto</div>
+              <div class="vc-chip"><span class="vc-code">H</span> Jerarquía</div>
+            </div>
+          </td>
+          <td>
+            <div class="origin-legend">
+              <div class="ol-title">Solo en ingesta</div>
+              <div class="ol-row"><span class="ol-code">SAP</span><span class="ol-desc">Ingesta desde SAP</span></div>
+              <div class="ol-row"><span class="ol-code">DSP</span><span class="ol-desc">Datasphere (RF, DF, etc.)</span></div>
+              <div class="ol-row"><span class="ol-code">EDB</span><span class="ol-desc">External Database</span></div>
+              <div class="ol-row"><span class="ol-code">TXT</span><span class="ol-desc">Ingesta desde archive</span></div>
+              <div class="ol-row"><span class="ol-code">API</span><span class="ol-desc">Ingesta vía API</span></div>
+            </div>
+          </td>
+          <td>
+            <div style="font-size:12.5px;color:var(--dw-muted);line-height:1.55;margin-bottom:12px">
+              Texto libre que describe el objeto, con ciertos lineamientos para mayor robustez. Salvo en ingesta, donde se mantiene la convención de nombre del origen.
+            </div>
+            <div class="ff-section">
+              <div class="ff-group">
+                <div class="ff-group-title">Áreas — Sufijo</div>
+                <div class="ff-tags">
+                  <span class="ff-tag suffix">*_PBI</span>
+                  <span class="ff-tag suffix">*_SPM</span>
+                </div>
+                <div style="font-size:11px;color:var(--dw-muted);margin-top:4px">PBI = exclusivo PBI · SPM = exclusivo outbound SPM</div>
+              </div>
+              <div class="ff-group" style="margin-top:8px">
+                <div class="ff-group-title">Dominios — Prefijo</div>
+                <div class="ff-tags">
+                  <span class="ff-tag prefix">MD_*</span>
+                  <span class="ff-tag prefix">FNC_*</span>
+                  <span class="ff-tag prefix">IVT_*</span>
+                  <span class="ff-tag prefix">PUR_*</span>
+                  <span class="ff-tag prefix">SND_*</span>
+                  <span class="ff-tag prefix">MNF_*</span>
+                  <span class="ff-tag prefix">FLD_*</span>
+                  <span class="ff-tag prefix">DSP_*</span>
+                </div>
+                <div style="font-size:11px;color:var(--dw-muted);margin-top:4px;line-height:1.5">
+                  MD=Master Data · FNC=Finanzas · IVT=Inventory · PUR=Compras<br>
+                  SND=Ventas · MNF=Manufactura · FLD=Fletes · DSP=Datasphere interno
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Bottom: sequential note -->
+    <div class="seq-note">
+      <strong>Secuencial XX (01, 02…)</strong> — Solo si desean usar ciclo de vida / versionado. Llegado el caso de querer utilizar el versionado (ciclo de vida de vistas para facilitar el uso/manejo de versionado), el secuencial aplica desde la capa de armonización en adelante.
+    </div>
+
+  </div><!-- /tab-como -->
+
+</main>
+
+<script>
+'use strict';
+const VALID_MODES = new Set(['porq', 'como']);
+
+function normalizeMode(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  const aliases = {
+    porque: 'porq',
+    por_que: 'porq',
+    porqué: 'porq',
+    why: 'porq',
+    naming: 'como',
+    nombres: 'como',
+    convencion: 'como',
+    convención: 'como',
+    guia: 'como',
+    guía: 'como',
+    how: 'como',
+  };
+  const mode = aliases[raw] || raw;
+  return VALID_MODES.has(mode) ? mode : 'porq';
+}
+
+function switchTab(name) {
+  const mode = normalizeMode(name);
+  ['porq','como'].forEach(t => {
+    document.getElementById(`tab-btn-${t}`).classList.toggle('active', t === mode);
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === mode);
+  });
+}
+
+function readDefaultMode() {
+  const props = window.DANWOR_EMBED_PROPS || {};
+  const params = new URLSearchParams(window.location.search || '');
+  return props.default_mode || props.defaultMode || props.mode || params.get('default_mode') || params.get('mode');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  switchTab(readDefaultMode());
+});
+</script>
+</body>
+</html>

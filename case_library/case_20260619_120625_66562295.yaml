@@ -1,0 +1,62 @@
+case_id: case_20260619_120625_66562295
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 66562295-5afd-48e5-91ab-1d2b333cf23f
+  timestamp: '2026-06-19T15:06:15.438991+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión?
+  answer: S4HANA
+- node: q3_s4_edition
+  question: ¿Qué edición?
+  answer: Public
+- node: q4_s4_api_rel
+  question: ¿Existe una API SAP liberada? (CDS Released, SAP_COM_0532, ABAP SQL)?
+  answer: Sí
+- node: q5_api_cumple
+  question: ¿Cumple el requrimiento funcional?
+  answer: Sí
+leaf_id: leaf_api_libe_contrato
+decision: 'Consumir API SAP Liberada: El contrato se define en Datasphere.'
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: ECC
+  reason: null
+- node: q3_s4_edition
+  option: Private
+  reason: null
+- node: q4_s4_api_rel
+  option: 'No'
+  reason: null
+- node: q4_s4_api_rel
+  option: No sé
+  reason: null
+- node: q5_api_cumple
+  option: 'No'
+  reason: null
+- node: q5_api_cumple
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

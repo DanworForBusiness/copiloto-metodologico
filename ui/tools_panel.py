@@ -22,7 +22,7 @@ import streamlit as st
 import yaml
 
 from core.utils import norm_text as _norm, slugify as _slugify
-from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, CONTENT_DIR, ia_enabled_for
+from config import IA_ENABLED_MODULES, MODEL, FEEDBACK_LOG_DIR, ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, ia_enabled_for
 from core.activity import log_activity
 
 try:
@@ -47,6 +47,11 @@ from core.content import (
     module_label_from_md,
     parse_section_meta,
     extract_section_by_heading,
+)
+from core.content_registry import (
+    iter_content_module_paths,
+    iter_content_markdown_paths,
+    resolve_pack_file,
 )
 from core.llm import LLMGateway
 from core.sharepoint_cases import (
@@ -127,13 +132,9 @@ def _appendix_case_context(max_chars: int = 6500) -> str:
     use casos documentados (greenfield, modernización BW, hub de integración, etc.)
     antes de inventar escenarios hipotéticos.
     """
-    appendix_dir = CONTENT_DIR / "apendices"
-    if not appendix_dir.exists():
-        return ""
-
     blocks: list[str] = []
     for name in _PRACTICAL_CASE_APPENDICES:
-        path = appendix_dir / name
+        path = resolve_pack_file("content", Path("apendices") / name)
         if not path.exists():
             continue
         try:
@@ -1707,7 +1708,7 @@ _ASSET_GENERIC_TOKEN_ROOTS = (
 _ASSET_GENERIC_TOKENS = {
     "how", "danwor", "datasphere", "template", "plantilla",
     "documentacion", "documento", "referencia", "oficial",
-    "guia", "paso"
+    "guia", "paso", "relevamiento", "tecnico", "tecnica"
 }
 
 
@@ -1857,10 +1858,7 @@ def _find_cross_module_section(question: str, current_stem: str) -> dict | None:
     fallback LLM actual.
     """
     candidates: list[tuple[int, dict]] = []
-    content_paths = list(CONTENT_DIR.glob("*.md"))
-    appendices_dir = CONTENT_DIR / "apendices"
-    if appendices_dir.exists():
-        content_paths.extend(appendices_dir.glob("*.md"))
+    content_paths = iter_content_markdown_paths()
 
     for path in sorted(content_paths, key=lambda p: p.name.lower()):
         stem = path.stem
@@ -2170,10 +2168,7 @@ def _find_matching_assets(
     except Exception:
         pass
 
-    content_paths = list(CONTENT_DIR.glob("*.md"))
-    appendices_dir = CONTENT_DIR / "apendices"
-    if appendices_dir.exists():
-        content_paths.extend(appendices_dir.glob("*.md"))
+    content_paths = iter_content_markdown_paths()
 
     for path in sorted(content_paths, key=lambda p: p.name.lower()):
         if path.stem == current_stem:
@@ -2268,10 +2263,7 @@ def _find_cross_module_asset(question: str, current_stem: str, *, allow_strong: 
     min_score = 8 if has_intent else 12
     min_gap = 3 if has_intent else 4
     candidates: list[tuple[int, dict]] = []
-    content_paths = list(CONTENT_DIR.glob("*.md"))
-    appendices_dir = CONTENT_DIR / "apendices"
-    if appendices_dir.exists():
-        content_paths.extend(appendices_dir.glob("*.md"))
+    content_paths = iter_content_markdown_paths()
 
     for path in sorted(content_paths, key=lambda p: p.name.lower()):
         if path.stem == current_stem:
@@ -2724,10 +2716,12 @@ def _render_assistant_tab(
                 col_a, col_b = st.columns(2)
                 with col_a:
                     if st.button(f"📖 Ir al módulo {_oos_r['module']}", width="stretch", key="oos_goto_btn"):
-                        from config import CONTENT_DIR
                         from core.state import K_MODULE_SELECTOR
                         _target_num = str(_oos_r["module"]).zfill(2)
-                        _matches = sorted(CONTENT_DIR.glob(f"{_target_num}_*.md"))
+                        _matches = [
+                            path for path in iter_content_module_paths()
+                            if path.name.startswith(f"{_target_num}_")
+                        ]
                         if _matches:
                             st.session_state["_pending_module_switch"] = _matches[0].stem
                         st.session_state.pop("_oos_redirect", None)

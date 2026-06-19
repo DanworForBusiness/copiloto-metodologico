@@ -1,0 +1,443 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Roadmap de Implementación</title>
+<link rel="stylesheet" href="danwor-shared.css">
+<style>
+  .page-hero h1 { font-size: 38px; }
+
+
+  /* SAP for Me note */
+  .sapforme-note {
+    position: absolute; right: 60px; top: 50%; transform: translateY(-50%);
+    background: var(--dw-white);
+    border: 1px solid var(--dw-border);
+    border-radius: var(--r-md);
+    padding: 14px 18px;
+    max-width: 260px;
+    box-shadow: var(--sh-sm);
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .sapforme-icon {
+    width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+    background: #e8f4fd; border: 1px solid #bcd8f0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .sapforme-text strong { font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px; }
+  .sapforme-text p { font-size: 12px; color: var(--dw-muted); line-height: 1.5; }
+
+  /* ── MAIN ── */
+  .main { padding: 1px 60px 10px; max-width: 1200px; margin: 0 auto; }
+
+  /* ── TIMELINE PATH ── */
+  .timeline {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* The winding golden path */
+  .timeline-track {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  /* ── PHASE ROW ── */
+  .phase-row {
+    display: grid;
+    min-height: 200px;
+    position: relative;
+    margin-bottom: 0;
+  }
+  /* Odd: phase left, connector right */
+  .phase-row:nth-child(odd)  { grid-template-columns: 1fr 80px 1fr; }
+  /* Even: connector left, phase right */
+  .phase-row:nth-child(even) { grid-template-columns: 1fr 80px 1fr; direction: rtl; }
+  .phase-row:nth-child(even) > * { direction: ltr; }
+
+  .phase-card {
+    background: var(--dw-white);
+    border: 1px solid var(--dw-border);
+    border-top: 3px solid var(--phase-color, var(--dw-gold));
+    border-radius: var(--r-lg);
+    padding: 24px 26px;
+    box-shadow: var(--sh-sm);
+    transition: transform var(--tr), box-shadow var(--tr);
+    position: relative;
+    margin: 12px 0;
+    cursor: default;
+    overflow: hidden;
+  }
+  .phase-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sh-md);
+  }
+
+  /* Colored top accent uses the card border itself, matching for-business tiles. */
+
+  /* ── CONNECTOR COLUMN ── */
+  .phase-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  /* vertical track line */
+  .phase-connector::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 50%;
+    width: 3px;
+    background: linear-gradient(to bottom, var(--dw-gold) 0%, rgba(255,207,0,0.2) 100%);
+    transform: translateX(-50%);
+    border-radius: 2px;
+  }
+
+  .phase-node {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--dw-gold);
+    border: 4px solid var(--dw-white);
+    box-shadow: 0 0 0 2px var(--dw-gold), var(--sh-gold);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: var(--dw-black);
+    position: relative; z-index: 2;
+    transition: transform var(--tr);
+  }
+  .phase-card:hover ~ .phase-connector .phase-node,
+  .phase-connector:hover .phase-node { transform: scale(1.15); }
+
+  /* spacer for even rows (empty cell) */
+  .phase-spacer { }
+
+  /* ── PHASE HEADER ── */
+  .phase-head {
+    display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px;
+  }
+  .phase-num {
+    font-family: var(--font-serif);
+    font-size: 42px; line-height: 1;
+    color: var(--phase-color, var(--dw-gold));
+    opacity: 0.15;
+    flex-shrink: 0; margin-top: -4px;
+    user-select: none;
+  }
+  .phase-meta { flex: 1; }
+  .phase-tag {
+    display: inline-block;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+    color: var(--phase-color, var(--dw-gold));
+    background: color-mix(in srgb, var(--phase-color, var(--dw-gold)) 10%, white);
+    border: 1px solid color-mix(in srgb, var(--phase-color, var(--dw-gold)) 22%, transparent);
+    padding: 2px 9px; border-radius: 4px; margin-bottom: 5px;
+  }
+  .phase-title {
+    font-size: 16px; font-weight: 700; color: var(--dw-text); line-height: 1.2; margin-bottom: 2px;
+  }
+  .phase-subtitle { font-size: 12.5px; color: var(--dw-muted); }
+  .phase-icons { font-size: 18px; margin-top: 2px; }
+
+  /* ── CHECKLIST ── */
+  .phase-list { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .phase-list li {
+    display: flex; align-items: baseline; gap: 9px;
+    font-size: 13px; color: var(--dw-text); line-height: 1.45;
+  }
+  .phase-list li::before {
+    content: '';
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--phase-color, var(--dw-gold));
+    flex-shrink: 0; margin-top: 5px;
+  }
+  .phase-list li strong { font-weight: 600; }
+  .phase-list li span  { color: var(--dw-muted); }
+
+  /* ── TIP BOX ── */
+  .phase-tip {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin-top: 14px;
+    background: color-mix(in srgb, var(--phase-color, var(--dw-gold)) 6%, white);
+    border: 1px solid color-mix(in srgb, var(--phase-color, var(--dw-gold)) 22%, transparent);
+    border-radius: var(--r-sm); padding: 9px 12px;
+    font-size: 12px; color: var(--dw-text); line-height: 1.5;
+  }
+  .phase-tip-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── LINK BUTTON ── */
+  .phase-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin-top: 14px;
+    font-size: 12.5px; font-weight: 600;
+    color: var(--phase-color, var(--dw-gold));
+    background: color-mix(in srgb, var(--phase-color, var(--dw-gold)) 8%, white);
+    border: 1px solid color-mix(in srgb, var(--phase-color, var(--dw-gold)) 22%, transparent);
+    padding: 6px 14px; border-radius: 20px;
+    text-decoration: none; transition: var(--tr);
+  }
+  .phase-link:hover {
+    background: color-mix(in srgb, var(--phase-color, var(--dw-gold)) 15%, white);
+    transform: translateY(-1px);
+  }
+  .phase-link svg { width: 12px; height: 12px; }
+
+  /* ── ITERATIVO BADGE ── */
+  .iterativo-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    position: absolute; right: -18px; top: 50%;
+    transform: translateY(-50%);
+    background: var(--dw-gold);
+    color: var(--dw-black);
+    font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
+    padding: 5px 10px; border-radius: 20px;
+    box-shadow: var(--sh-gold);
+    white-space: nowrap; z-index: 5;
+  }
+  .iterativo-badge::before {
+    content: '↻'; font-size: 12px;
+  }
+
+  /* ── GOVBAR ── */
+  .gov-bar {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); padding: 16px 24px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: var(--sh-sm); margin-top: 48px;
+  }
+  .gov-icon {
+    width: 38px; height: 38px; background: #eef2ff;
+    border-radius: 10px; border: 1px solid #c7d2fe;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    font-size: 17px;
+  }
+  .gov-text strong { font-size: 13.5px; font-weight: 600; display: block; margin-bottom: 2px; }
+  .gov-text span   { font-size: 12px; color: var(--dw-muted); }
+  .gov-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .gov-tag  { font-size: 11.5px; padding: 4px 12px; border-radius: 20px; background: #f0f1ff; color: #4338ca; border: 1px solid #c7d2fe; font-weight: 500; }
+
+  /* ── FOOTER ── */
+  .site-footer {
+    background: var(--dw-black); padding: 20px 40px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid rgba(255,207,0,0.1); margin-top: 40px;
+  }
+  .site-footer p { font-size: 12px; color: rgba(255,255,255,0.3); }
+  .footer-logo   { font-size: 12px; color: rgba(255,255,255,0.5); font-weight: 600; letter-spacing: 1px; }
+  .footer-logo span { color: var(--dw-gold); }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .phase-card { animation: fadeUp 0.5s cubic-bezier(0.4,0,0.2,1) both; }
+  .phase-row:nth-child(1) .phase-card { animation-delay: 0.05s; }
+  .phase-row:nth-child(2) .phase-card { animation-delay: 0.12s; }
+  .phase-row:nth-child(3) .phase-card { animation-delay: 0.19s; }
+  .phase-row:nth-child(4) .phase-card { animation-delay: 0.26s; }
+  .phase-row:nth-child(5) .phase-card { animation-delay: 0.33s; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 860px) {
+    .page-hero { padding: 32px 24px 28px; }
+    .sapforme-note { display: none; }
+    .main { padding: 1px 10px; }
+    .phase-row { grid-template-columns: 1fr !important; direction: ltr !important; }
+    .phase-connector { height: 40px; flex-direction: row; }
+    .phase-connector::before { width: 100%; height: 3px; top: 50%; left: 0; transform: translateY(-50%); }
+    .phase-spacer { display: none; }
+    .header-nav { display: none; }
+    .hero h1 { font-size: 28px; }
+    .iterativo-badge { right: auto; top: auto; bottom: -14px; left: 50%; transform: translateX(-50%); }
+  }
+</style>
+</head>
+<body>
+
+<!-- MAIN TIMELINE -->
+<main class="main">
+<div class="timeline">
+
+  <!-- ══ FASE 1 ══ -->
+  <div class="phase-row">
+    <div class="phase-card" style="--phase-color:#e8722a">
+      <div class="phase-head">
+        <div class="phase-num">1</div>
+        <div class="phase-meta">
+          <div class="phase-tag">Fase #1</div>
+          <div class="phase-title">Configuración Técnica</div>
+          <div class="phase-subtitle">Infraestructura y conectividad base</div>
+          <div class="phase-icons">⚙️ 🔧</div>
+        </div>
+      </div>
+      <ul class="phase-list">
+        <li><strong>Cloud Connector</strong> <span>+ DP Agent</span></li>
+        <li>Conexiones <span>(SAP, Oracle, MSSQL y sus respectivos drivers)</span></li>
+        <li>Configuración de espacios <span>HANA &amp; HDLF</span></li>
+        <li>Seguridad <span>(Roles)</span></li>
+      </ul>
+      <a class="phase-link" href="https://danwor.com/Metodologia/danwor-datasphere-cloud-connector.html" self="_blank">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        Ver guía Cloud Connector
+      </a>
+    </div>
+    <div class="phase-connector">
+      <div class="phase-node">1</div>
+    </div>
+    <div class="phase-spacer"></div>
+  </div>
+
+  <!-- ══ FASE 2 ══ -->
+  <div class="phase-row">
+    <div class="phase-spacer"></div>
+    <div class="phase-connector">
+      <div class="phase-node">2</div>
+    </div>
+    <div class="phase-card" style="--phase-color:#c9960a">
+      <div class="phase-head">
+        <div class="phase-num">2</div>
+        <div class="phase-meta">
+          <div class="phase-tag">Fase #2</div>
+          <div class="phase-title">Framework Metodológico</div>
+          <div class="phase-subtitle">Estándares de extracción y nomenclatura</div>
+          <div class="phase-icons">📋 🚀</div>
+        </div>
+      </div>
+      <ul class="phase-list">
+        <li>Extracción <span>(ODP, CDS Views, etc.)</span></li>
+        <li>Estandarización</li>
+        <li>Nomenclatura</li>
+        <li>Roles y Responsabilidades</li>
+        <li>Espacios <span>(restantes)</span></li>
+      </ul>
+      <div class="phase-tip">
+        <span class="phase-tip-icon">💡</span>
+        Este marco se apoya en los principios EA
+      </div>
+      <a class="phase-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Ver apéndice
+      </a>
+    </div>
+  </div>
+
+  <!-- ══ FASE 3 ══ -->
+  <div class="phase-row" style="position:relative">
+    <div class="phase-card" style="--phase-color:#1a73e8; position:relative">
+      <div class="phase-head">
+        <div class="phase-num">3</div>
+        <div class="phase-meta">
+          <div class="phase-tag">Fase #3</div>
+          <div class="phase-title">Desarrollo &amp; Modelado</div>
+          <div class="phase-subtitle">Inicio del desarrollo con definiciones de integración</div>
+          <div class="phase-icons">👷 🏗️</div>
+        </div>
+      </div>
+      <ul class="phase-list">
+        <li>Ingesta</li>
+        <li>Armonización</li>
+        <li>Propagación</li>
+        <li>Modelos Analíticos</li>
+        <li>ReplicationFlows <span>/ DataFlows</span></li>
+        <li>Task Chains</li>
+        <li>Seguridad <span>(DAC)</span></li>
+      </ul>
+      <div class="phase-tip">
+        <span class="phase-tip-icon">💡</span>
+        Antes de construir, se valida diseño y Arquitectura
+      </div>
+      <a class="phase-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Ver apéndice
+      </a>
+      <!-- iterativo badge -->
+      <div class="iterativo-badge">Iterativo</div>
+    </div>
+    <div class="phase-connector">
+      <div class="phase-node">3</div>
+    </div>
+    <div class="phase-spacer"></div>
+  </div>
+
+  <!-- ══ FASE 4 ══ -->
+  <div class="phase-row">
+    <div class="phase-spacer"></div>
+    <div class="phase-connector">
+      <div class="phase-node">4</div>
+    </div>
+    <div class="phase-card" style="--phase-color:#0d7a5f">
+      <div class="phase-head">
+        <div class="phase-num">4</div>
+        <div class="phase-meta">
+          <div class="phase-tag">Fase #4</div>
+          <div class="phase-title">Transporte &amp; Pruebas</div>
+          <div class="phase-subtitle">Validación y expansión progresiva</div>
+          <div class="phase-icons">🔄 📊</div>
+        </div>
+      </div>
+      <ul class="phase-list">
+        <li>Transporte preliminar</li>
+        <li>Pruebas de validación</li>
+        <li>Ajustes y correcciones</li>
+        <li>Expansión progresiva <span>de funcionalidades</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ FASE 5 ══ -->
+  <div class="phase-row">
+    <div class="phase-card" style="--phase-color:#5c3fa3">
+      <div class="phase-head">
+        <div class="phase-num">5</div>
+        <div class="phase-meta">
+          <div class="phase-tag">Fase #5</div>
+          <div class="phase-title">Puesta en Productivo</div>
+          <div class="phase-subtitle">Go-live y operación continua</div>
+          <div class="phase-icons">🏆 🚀</div>
+        </div>
+      </div>
+      <ul class="phase-list">
+        <li>Transportes Finales</li>
+        <li>Seguridad <span>(Roles)</span></li>
+        <li>Seguridad <span>(DAC)</span></li>
+        <li>Automatización</li>
+        <li>Oportunidades de Mejora</li>
+      </ul>
+    </div>
+    <div class="phase-connector">
+      <div class="phase-node" style="background:var(--dw-black);color:#fff;box-shadow:0 0 0 2px var(--dw-black), 0 4px 20px rgba(0,0,0,0.3)">✓</div>
+    </div>
+    <div class="phase-spacer"></div>
+  </div>
+
+</div><!-- /timeline -->
+
+  <!-- GOV BAR -->
+  <div class="gov-bar">
+    <div class="gov-icon">🛡️</div>
+    <div class="gov-text">
+      <strong>Gobernanza Transversal</strong>
+      <span>Aplica a todas las fases del roadmap de forma consistente</span>
+    </div>
+    <div class="gov-tags">
+      <span class="gov-tag">Seguridad</span>
+      <span class="gov-tag">Linaje</span>
+      <span class="gov-tag">Control de acceso</span>
+      <span class="gov-tag">Calidad</span>
+      <span class="gov-tag">Cumplimiento</span>
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>
+

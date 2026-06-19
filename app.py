@@ -17,12 +17,12 @@ import streamlit as st
 
 from config import (
     APP_TITLE,
-    CONTENT_DIR,
     TREES_DIR,
     STATUS,
     IA_ENABLED_MODULES,
     APP_OWNER,
     AUTH_DEFAULT_DOMAIN,
+    DEFAULT_EXECUTION_MODE,
     ia_enabled_for,
 )
 from core.content import (
@@ -34,8 +34,9 @@ from core.content import (
     tree_button_refs_from_markdown,
 )
 from core.activity import log_activity
+from core.content_registry import iter_content_appendix_paths, iter_content_module_paths, roots_for_kind
 from core.state import AppState, K_MODULE_SELECTOR
-from engine.tree_engine import load_tree_registry, load_all_trees, module_tag_from_selected, trees_for_module
+from engine.tree_engine import load_tree_registry_from_dirs, load_all_trees_from_dirs, module_tag_from_selected, trees_for_module
 from ui.styles import inject_styles
 from ui.header import render_header, render_roadmap_modal
 from ui.sidebar import APPENDICES_SENTINEL, K_APPENDIX_SELECTOR, render_sidebar
@@ -93,9 +94,8 @@ if "tools_panel_collapsed" not in st.session_state:
 # copiloto. Los apéndices viven en content/apendices/*.md y se exponen como
 # una categoría secundaria del sidebar para no mezclar material operativo con
 # anexos técnicos.
-paths           = sorted(CONTENT_DIR.glob("*.md"), key=lambda p: p.name.lower())
-appendices_dir  = CONTENT_DIR / "apendices"
-appendix_paths  = sorted(appendices_dir.glob("*.md"), key=lambda p: p.name.lower()) if appendices_dir.exists() else []
+paths           = iter_content_module_paths()
+appendix_paths  = iter_content_appendix_paths()
 
 module_names    = [p.stem for p in paths]
 appendix_names  = [p.stem for p in appendix_paths]
@@ -183,10 +183,7 @@ if st.session_state.get("_active_assessment"):
 def _on_debug_mode_change() -> None:
     debug_on = bool(st.session_state.get("debug_mode_toggle", False))
     st.session_state["debug_mode"] = debug_on
-    st.session_state["execution_mode"] = "Simulación" if debug_on else "API Real"
-    if debug_on:
-        st.session_state["mode_selector"] = "Simulación"
-    elif st.session_state.get("active_tools_tab") == 3:
+    if not debug_on and st.session_state.get("active_tools_tab") == 3:
         st.session_state["active_tools_tab"] = 0
 
 
@@ -202,15 +199,13 @@ else:
     if st.session_state.get("active_tools_tab") == 3:
         st.session_state["active_tools_tab"] = 0
 
-if not st.session_state.get("debug_mode", False):
-    AppState.set_execution_mode("API Real")
+AppState.set_execution_mode(DEFAULT_EXECUTION_MODE)
 
 # Header
 roadmap_clicked, module_nav_delta = render_header(
     is_dev=IS_DEV,
     module_names=nav_names,
     selected_stem=selected_stem,
-    show_mode_selector=AppState.debug_mode(),
 )
 if module_nav_delta:
     current_idx = nav_names.index(selected_stem)
@@ -322,8 +317,9 @@ if section_slug:
     st.rerun()
 
 # Cargar árboles del módulo
-registry    = load_tree_registry(TREES_DIR)
-all_trees   = load_all_trees(TREES_DIR)
+tree_roots  = tuple(str(path) for path in roots_for_kind("trees")) or (str(TREES_DIR),)
+registry    = load_tree_registry_from_dirs(tree_roots)
+all_trees   = load_all_trees_from_dirs(tree_roots)
 module_tag  = module_tag_from_selected(selected_stem)
 
 trees_new      = registry.list(module_stem=selected_stem)

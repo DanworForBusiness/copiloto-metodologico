@@ -46,8 +46,10 @@ class AppState:
     @staticmethod
     def init(is_dev: bool = True) -> None:
         """Inicializa todas las keys con sus defaults. Idempotente."""
+        from config import DEFAULT_EXECUTION_MODE
+
         defaults: dict = {
-            K_EXEC_MODE:           "Simulación" if is_dev else "API Real",
+            K_EXEC_MODE:           DEFAULT_EXECUTION_MODE,
             K_DEBUG_TOGGLE:        is_dev,
             K_DEBUG_MODE:          is_dev,
             K_SELECTED_TOPIC:      None,
@@ -71,9 +73,8 @@ class AppState:
     # ── Execution mode ─────────────────────────────────────────────────────────
     @staticmethod
     def execution_mode() -> str:
-        from config import STATUS
-        fallback = "Simulación" if STATUS.upper() == "DEV" else "API Real"
-        return st.session_state.get(K_EXEC_MODE, fallback)
+        from config import DEFAULT_EXECUTION_MODE
+        return st.session_state.get(K_EXEC_MODE, DEFAULT_EXECUTION_MODE)
 
     @staticmethod
     def set_execution_mode(mode: str) -> None:

@@ -40,11 +40,11 @@ nodes:
 
   q2_erp_version:
     type: single_choice
-    question: "¿Qué versión de ERP?"
-    options: ["ECC", "S4HANA"]
+    question: "¿Qué versión?"
+    options: ["S4HANA", "ECC"]
     next:
       ECC: q3_ecc_version
-      S4HANA: q3_s4_cds
+      S4HANA: q3_s4_edition
 
   q3_ecc_version:
     type: single_choice
@@ -53,31 +53,69 @@ nodes:
     next:
       "≥NW7.5": leaf_ecc_framework
       "Inferior": leaf_ecc_investigation
-      "No sé": leaf_ecc_intervention
+      "No sé": leaf_intervention
 
-  q3_s4_cds:
+  q3_s4_edition:
     type: single_choice
-    question: "¿Existe un extractor CDS que cubra la necesidad?"
+    question: "¿Qué edición?"
+    options: ["Private", "Public"]
+    next:
+      Private: q4_s4_api_auth
+      Public: q4_s4_api_rel
+
+  q4_s4_api_auth:
+    type: single_choice
+    question: "¿Existe una API funcional SAP autorizada (CDS Estándar, ODP-SAPI whitelistado, etc.)?"
     options: ["Sí", "No", "No sé"]
     next:
-      "Sí": q4_cds_compat
-      "No": q4_odp_whitelist
+      "Sí": q5_cds_cumple
+      "No": leaf_api_corp_wrap_tabla
+      "No sé": leaf_intervention
 
-  q4_cds_compat:
+  q4_s4_api_rel:
     type: single_choice
-    question: "¿La CDS cuenta con anotaciones/compatibilidad para consumir en Datasphere?"
+    question: "¿Existe una API SAP liberada? (CDS Released, SAP_COM_0532, ABAP SQL)?"
     options: ["Sí", "No", "No sé"]
     next:
-      "Sí": leaf_cds_std
-      "No": leaf_cds_template
+      "Sí": q5_api_cumple
+      "No": q5_api_ext      
+      "No sé": leaf_intervention
 
-  q4_odp_whitelist:
+  q5_cds_cumple:
     type: single_choice
-    question: "¿Existe extractor ODP-SAPI tradicional whitelisted (Nota SAP 2500202)?"
+    question: "¿Cumple el requrimiento funcional?"
     options: ["Sí", "No", "No sé"]
     next:
-      "Sí": leaf_odp_std
-      "No": leaf_alternatives
+      "Sí": q6_cds_compat
+      "No": leaf_api_corp_wrap_func
+      "No sé": leaf_intervention
+
+  q5_api_cumple:
+    type: single_choice
+    question: "¿Cumple el requrimiento funcional?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_libe_contrato
+      "No": q5_api_ext
+      "No sé": leaf_intervention
+
+  q5_api_ext:
+    type: single_choice
+    question: "¿Existe extensibilidad permitida?"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_ext
+      "No": leaf_api_not_supported
+      "No sé": leaf_intervention
+
+  q6_cds_compat:
+    type: single_choice
+    question: "¿Es técnicamente apta para consumo ? (anotaciones, delta, performance, asociaciones, c/compatibilidad con Datasphere)"
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_api_corp_contrato
+      "No": leaf_api_corp_wrap_func
+      "No sé": leaf_intervention
 
   q2_bw_inversion:
     type: single_choice
@@ -86,6 +124,7 @@ nodes:
     next:
       "Sí": q_bw_whitelist
       "No": leaf_bw_puente
+      "No sé": leaf_intervention
 
   q_bw_whitelist:
     type: single_choice
@@ -94,6 +133,7 @@ nodes:
     next:
       "Sí": leaf_bw_whitelisted
       "No": leaf_bw_puente
+      "No sé": leaf_intervention
 
 leaves:
   leaf_ecc_investigation: 
@@ -116,14 +156,29 @@ leaves:
     notes:
       - "En esta instancia la CDS será compatible para extracción únicamente en modo FULL"
 
-  leaf_ecc_intervention: 
+  leaf_intervention: 
     decision: "No contamos con información suficiente para una decisión sin intervención"
     post_actions: 
       mode: needs_human_review
       reason: "No indica contexto técnico suficiente"
 
-  leaf_cds_std:
-    decision: "Apoyarse en la CDS estándar (ODP-CDS)."
+  leaf_api_corp_wrap_tabla:
+    decision: "API Corporativa: Apoyada en CDS Custom para encapsular tablas base"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_corp_wrap_func:
+    decision: "API Corporativa: Apoyada en CDS Custom para encapsular la API functional y corregir limitaciones tecnicas, adaptar semantica o estabilizar consumo."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_corp_contrato:
+    decision: "API Corporativa: El contrato se define en SAP mediante una API Corporativa apoyada en API funcionales (CDS, ODP). Cuando no es posible, el contrato se define en Datasphere"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_libe_contrato:
+    decision: "Consumir API SAP Liberada: El contrato se define en Datasphere."
     post_actions:
       mode: llm_value_add
 
@@ -131,6 +186,16 @@ leaves:
     decision: "Copiar CDS existente o crear una nueva usando el template Danwor (adaptar anotaciones compatibles con Datasphere)."
     post_actions:
       mode: llm_value_add
+
+  leaf_api_ext:
+    decision: "API SAP Extendida: Contrato definido en Datasphere."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_api_not_supported:
+    decision: "Escenario no soportado."
+    post_actions:
+      mode: llm_value_add      
 
   leaf_odp_std:
     decision: "Apoyarse en extractor ODP-SAPI estándar whitelisted."

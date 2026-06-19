@@ -1,0 +1,136 @@
+id: m01_espacios_topologia
+title: Topología de Espacios
+version: "0.1"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+links:
+  module: 01_Arquitectura_y_Conectividad
+  topics: ["espacios", "configuracion"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M01", "architecture", "spaces", "topology"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "topología espacios", "topologia espacios", "diseño espacios", "spaces datasphere",
+  "espacios datasphere", "cuántos espacios", "cuantos espacios",
+  "qué topología usar", "que topologia usar", "cómo organizar espacios",
+  "1-tier", "2-tier", "multi-tier", "core-only",
+  "cross-sharing", "cross sharing", "espacio cross-sharing",
+  "espacio de gobierno", "gobierno datos espacio",
+  "líneas de negocio espacios", "lineas de negocio espacios",
+  "DEV QA PRD espacios", "ambientes datasphere", "ambientes espacios",
+  "desarrollo calidad produccion datasphere",
+  "espacio raíz", "espacio compartido", "espacio por línea",
+  "topología landscape datasphere", "cuántos tenants"
+]
+
+# exclude_if: palabras de intención operacional
+exclude_if: [
+  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+
+start: q1
+
+nodes:
+  q1:
+    type: single_choice
+    question: "¿Cuál es el caso de uso/Rol de Datasphere?"
+    options: ["Warehouse/Lakehouse", "Hub hacia otro sistema"]
+    next:
+      "Warehouse/Lakehouse": q2
+      "Hub hacia otro sistema": q2
+  q2:
+    type: single_choice
+    question: "¿Cómo está compuesto el landscape?"
+    options: ["1-Tier", "2-Tier"]
+    next:
+      "1-Tier": q3
+      "2-Tier": leaf_core_only
+
+  q3:
+    type: single_choice
+    question: "¿Hay múltiples líneas de negocio (Logística, Comercial, RRHH, etc.) con datos independientes?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_1tier_multi
+      "No": q4
+
+  q4:
+    type: single_choice
+    question: "¿Como se consumirán los datos?"
+    options: ["SAC", "PowerBI", "BOBJ", "Excel"]
+    next:
+      "SAC": leaf_revisar_espacios_negocio
+      "PowerBI": leaf_capa_pbi
+      "BOBJ": leaf_revisar_espacios_negocio
+      "Excel": q4
+      "Externo": q4
+
+leaves:
+  leaf_core_only:
+    decision: "Espacio único (Core-Only) — suficiente para PoC, prototipo o entorno de exploración sin ciclo de vida formal."
+    notes:
+      - "No define DEV/QA/PRD — todo en un único espacio de trabajo."
+      - "Reevaluar la topología cuando el proyecto avance a producción."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Crear un espacio único de trabajo con nombre descriptivo del proyecto"
+        - "Configurar quota, source language y Time Data antes de modelar"
+
+  leaf_1tier_simple:
+    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) para una sola línea de negocio o equipo."
+    notes:
+      - "Simple de gestionar: tres espacios en total, un ciclo de transporte directo."
+      - "Adecuado cuando no hay necesidad de aislamiento entre equipos ni datos compartidos complejos."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Crear espacios: [PROYECTO]-DEV, [PROYECTO]-QA, [PROYECTO]-PRD"
+        - "Configurar conexiones con nombre genérico en cada espacio"
+        - "Definir estrategia de transporte entre ambientes"
+
+  leaf_1tier_multi:
+    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) tomando el espacio Productivo como Gobierno de datos y compartiendo en forma nativa (Cross-Sharing) a los Espacios de Negocio"
+    notes:
+      - "Todos los objetos en los espacios de Negocio son compartidos desde el Gobierno de Datos (Espacio Productivo)"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_2tier_crosssharing:
+    decision: "Topología 2-Tier — espacios de negocio por línea + espacio Cross-Sharing para objetos maestros y dimensiones compartidas."
+    notes:
+      - "El espacio Cross-Sharing publica data products (clientes, materiales, jerarquías) que consumen los espacios de negocio."
+      - "Los objetos del espacio raíz son siempre los data products publicados hacia Cross-Sharing."
+      - "Es la topología recomendada para proyectos enterprise con gobierno de datos."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_revision:
+    decision: "Revisión recomendada: sin claridad sobre la necesidad de Cross-Sharing, arrancar con 1-Tier y planificar evolución a 2-Tier."
+    notes:
+      - "Es más fácil evolucionar de 1-Tier a 2-Tier que revertir una topología compleja."
+      - "Levantar con el cliente si existen dominios de datos que distintas áreas consultarán en común."
+    post_actions:
+      mode: needs_human_review
+      reason: "Necesidad de Cross-Sharing desconocida — validar con el cliente qué datos son compartidos entre líneas de negocio"
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente el contexto de espacios de tu proyecto"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué topología decidiste usar?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

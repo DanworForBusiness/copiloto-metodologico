@@ -322,10 +322,8 @@ def _load_module_meta(module_stem: str | None) -> dict:
     if not module_stem:
         return {}
     try:
-        from config import CONTENT_DIR
-        md_path = CONTENT_DIR / f"{module_stem}.md"
-        if not md_path.exists():
-            md_path = CONTENT_DIR / "apendices" / f"{module_stem}.md"
+        from core.content_registry import resolve_content_path
+        md_path = resolve_content_path(module_stem)
         if not md_path.exists():
             return {}
         text = md_path.read_text(encoding="utf-8")

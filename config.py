@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 
 try:
     from dotenv import load_dotenv
@@ -18,9 +19,13 @@ LOGO_URL     = _env("DANWOR_LOGO_URL", "https://certificaciones.greatplacetowork
 
 # Paths
 BASE_DIR          = Path(__file__).parent
-CONTENT_DIR       = BASE_DIR / "content"
-TREES_DIR         = BASE_DIR / "trees"
-ASSETS_DIR        = BASE_DIR / "assets"
+CONTENT_PACKS_DIR = BASE_DIR / "content_packs"
+CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_mvp")
+_CONTENT_PACK_DIR = CONTENT_PACKS_DIR / CONTENT_PACK
+CONTENT_DIR       = (_CONTENT_PACK_DIR / "content") if (_CONTENT_PACK_DIR / "content").exists() else BASE_DIR / "content"
+TREES_DIR         = (_CONTENT_PACK_DIR / "trees") if (_CONTENT_PACK_DIR / "trees").exists() else BASE_DIR / "trees"
+ASSETS_DIR        = (_CONTENT_PACK_DIR / "assets") if (_CONTENT_PACK_DIR / "assets").exists() else BASE_DIR / "assets"
+TEMPLATES_DIR     = (_CONTENT_PACK_DIR / "templates") if (_CONTENT_PACK_DIR / "templates").exists() else BASE_DIR / "templates"
 LOGO_ANIMATED     = ASSETS_DIR / "danwor-animated-logo.html"
 LOGO_DANCING      = ASSETS_DIR / "danwor-animated-dancing.html"
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
@@ -29,10 +34,11 @@ ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
 
 # LLM
 MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_EXECUTION_MODE = _env("DANWOR_EXECUTION_MODE", "API Real")
 
 # Feature flags
-# "DEV"  → modo simulación por defecto, controles de debug visibles
-# "PRD"  → API Real forzada, controles de debug ocultos
+# DEV/PRD controla la visibilidad operativa; la ejecucion conversacional se
+# define por DANWOR_EXECUTION_MODE (API Real por defecto).
 STATUS       = _env("DANWOR_STATUS", "DEV").upper()
 
 # Usuario(s) con permiso operativo para ver el modo diagnóstico aun en PRD.
@@ -48,24 +54,49 @@ SECTION_NUMBER_WIDTH = int(_env("DANWOR_SECTION_NUMBER_WIDTH", "2"))
 # El texto completo se conserva como tooltip para no perder contexto.
 SUPPORT_LINK_LENGTH = int(_env("SUPPORT_LINK_LENGTH", "15"))
 
-# IA completa habilitada sólo para estos stems (PoC → Herramienta interna)
-# El valor debe coincidir exactamente con el nombre físico del .md, sin extensión.
-IA_ENABLED_MODULES: list[str] = [
-    "01_Arquitectura_y_Conectividad",
-    "02_Seguridad_y_Gobernanza",
-    "03_Integracion_y_Estrategia_de_Datos",
-    "04_Modelado_y_Desarrollo",
-    "05_Reporting_y_Consumo",
-    "A01_Arquitectura_y_Modelado",
-    "A02_Modernizacion_BW_Greenfield",
-    "A03_Hub_de_Integracion_AWS",
-    "A05_Troubleshooting_y_Performance",
-]
+# IA completa por identidad lógica de contenido.
+# Acepta:
+# - "*" para habilitar todos los módulos/apéndices del pack activo
+# - IDs lógicos ("01", "02", "A05") independientes del nombre físico
+# - stems exactos para compatibilidad hacia atrás
+def _csv_env(name: str, default: str) -> list[str]:
+    raw = _env(name, default)
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+_IA_ENABLED_ENV = os.getenv("DANWOR_IA_ENABLED_MODULES", "").strip()
+IA_ENABLED_MODULES: list[str] = _csv_env(
+    "DANWOR_IA_ENABLED_MODULES",
+    "01,02,03,04,05,A01,A02,A03,A04,A05",
+)
+IA_DISABLED_MODULES: list[str] = _csv_env("DANWOR_IA_DISABLED_MODULES", "00")
+
+
+def _module_identity(stem: str) -> str:
+    """Extrae la identidad lógica del módulo/apéndice: 01, 02, A05, etc."""
+    match = re.match(r"^(A\d+|\d+)(?:_|$)", (stem or "").strip(), flags=re.I)
+    return match.group(1).upper() if match else ""
 
 
 def ia_enabled_for(stem: str) -> bool:
-    """Devuelve si un módulo/apéndice tiene IA habilitada por stem exacto."""
-    return (stem or "").strip() in IA_ENABLED_MODULES
+    """Devuelve si un módulo/apéndice tiene IA habilitada para el pack activo."""
+    clean_stem = (stem or "").strip()
+    module_id = _module_identity(clean_stem)
+    if _IA_ENABLED_ENV:
+        enabled = {item.strip().upper() for item in IA_ENABLED_MODULES}
+    else:
+        # El pack puede cambiar durante la sesion sin recargar config.py.
+        from core.content_registry import active_content_pack
+        enabled = {"*"} if active_content_pack() == "bdc_next" else {
+            "01", "02", "03", "04", "05", "A01", "A02", "A03", "A04", "A05"
+        }
+    disabled = {item.strip().upper() for item in IA_DISABLED_MODULES}
+
+    if clean_stem.upper() in disabled or module_id in disabled:
+        return False
+    if "*" in enabled:
+        return True
+    return clean_stem.upper() in enabled or module_id in enabled
 
 # Roadmap items
 ROADMAP_ITEMS = [

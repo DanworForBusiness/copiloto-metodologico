@@ -4,7 +4,7 @@ import yaml
 import streamlit as st
 from datetime import datetime, timezone
 
-from .tree_registry import build_registry_from_folder
+from .tree_registry import build_registry_from_folder, build_registry_from_folders
 from core.state import AppState
 
 
@@ -15,6 +15,11 @@ from core.state import AppState
 @st.cache_data(show_spinner=False)
 def load_tree_registry(trees_dir: Path):
     return build_registry_from_folder(trees_dir)
+
+
+@st.cache_data(show_spinner=False)
+def load_tree_registry_from_dirs(trees_dirs: tuple[str, ...]):
+    return build_registry_from_folders([Path(p) for p in trees_dirs])
 
 
 @st.cache_data(show_spinner=False)
@@ -31,6 +36,24 @@ def load_all_trees(trees_dir: Path):
         except Exception:
             continue
     return trees
+
+
+@st.cache_data(show_spinner=False)
+def load_all_trees_from_dirs(trees_dirs: tuple[str, ...]):
+    trees_by_name: dict[str, dict] = {}
+    for trees_dir_raw in reversed(trees_dirs):
+        trees_dir = Path(trees_dir_raw)
+        if not trees_dir.exists():
+            continue
+        for p in sorted(trees_dir.glob("*.yaml")):
+            try:
+                t = yaml.safe_load(p.read_text(encoding="utf-8"))
+                if isinstance(t, dict) and t.get("id") and t.get("start") and t.get("nodes") and t.get("leaves"):
+                    t["_path"] = str(p)
+                    trees_by_name[p.name.lower()] = t
+            except Exception:
+                continue
+    return [trees_by_name[k] for k in sorted(trees_by_name)]
 
 
 def module_tag_from_selected(selected_module: str) -> str:

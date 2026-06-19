@@ -46,15 +46,26 @@ class TreeRegistry:
 
 
 def build_registry_from_folder(trees_dir: Path) -> TreeRegistry:
+    return build_registry_from_folders([trees_dir])
+
+
+def build_registry_from_folders(trees_dirs: list[Path]) -> TreeRegistry:
     trees: dict[str, CompiledTree] = {}
     by_tag: dict[str, list[str]] = {}
     by_module: dict[str, list[str]] = {}
     by_topic: dict[str, list[str]] = {}
 
-    if not trees_dir.exists():
+    dirs = [Path(d) for d in trees_dirs if Path(d).exists()]
+    if not dirs:
         return TreeRegistry(trees, by_tag, by_module, by_topic)
 
-    for p in sorted(trees_dir.glob("*.yaml")):
+    files_by_name: dict[str, Path] = {}
+    # Procesar de menor a mayor prioridad, de modo que el pack activo pise al padre.
+    for trees_dir in reversed(dirs):
+        for p in sorted(trees_dir.glob("*.yaml")):
+            files_by_name[p.name.lower()] = p
+
+    for p in sorted(files_by_name.values(), key=lambda item: item.name.lower()):
         try:
             spec = yaml.safe_load(p.read_text(encoding="utf-8"))
             if not isinstance(spec, dict):

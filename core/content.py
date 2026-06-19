@@ -1373,6 +1373,30 @@ def _resolve_content_path(raw_path: str, base_dir: Path) -> Path:
     path = Path((raw_path or "").strip().strip('"').strip("'"))
     if not path.is_absolute():
         path = (base_dir / path).resolve()
+    if path.exists():
+        return path
+
+    # Content packs can inherit visual assets/templates from a parent pack.
+    # Keep the historical relative lookup first; only fall back to the pack
+    # registry when a markdown in a child pack points to ../assets or ../templates.
+    parts = [p for p in Path((raw_path or "").strip().strip('"').strip("'")).parts if p not in ("..", ".")]
+    for kind in ("assets", "templates"):
+        if kind not in parts:
+            continue
+        try:
+            rel = Path(*parts[parts.index(kind) + 1 :])
+        except Exception:
+            rel = Path()
+        if not str(rel):
+            continue
+        try:
+            from core.content_registry import resolve_pack_file
+
+            candidate = resolve_pack_file(kind, rel)
+            if candidate.exists():
+                return candidate
+        except Exception:
+            pass
     return path
 
 

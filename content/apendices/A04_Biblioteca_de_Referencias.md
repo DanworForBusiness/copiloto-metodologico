@@ -40,6 +40,66 @@ intent_assets:
   - keywords: ["troubleshooting datasphere", "herramientas troubleshooting", "tools troubleshooting", "diagnóstico datasphere"]
     description: "SAP Help: Tools for Troubleshooting"
     asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4428871866.html?locale=en-US"
+  - keywords: ["initial load stuck", "carga inicial atascada", "replication flow initial load stuck"]
+    description: "SAP Help: Initial load stuck | Carga inicial atascada"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5944820003.html"
+  - keywords: ["initial load partitioning failed", "partitioning for object failed", "particionamiento carga inicial", "partitioning failed table"]
+    description: "SAP Help: Initial load partitioning failed | Falló la partición de carga inicial"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5462922241.html"
+  - keywords: ["state partitioning initial load operation 0", "partitioning initial load operation 0", "estado particionamiento initial load"]
+    description: "SAP Help: State Partitioning initial load - Operation 0 | Estado de partición de carga inicial - Operación 0"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5944820023.html"
+  - keywords: ["abap note manual steps", "nota abap pasos manuales", "manual steps sap note"]
+    description: "SAP Help: ABAP Note example - Manual steps | Ejemplo de Nota ABAP - Pasos manuales"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5490122482.html"
+  - keywords: ["authorization trace s4hana", "authorization trace on premise", "traza autorizaciones s4hana", "problemas autorizacion s4hana"]
+    description: "SAP Help: Authorization trace in S/4HANA On-Premise | Trace de autorización en S/4HANA On-Premise"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4477293158.html"
+  - keywords: ["duplicate rows cloud storage", "filas duplicadas cloud storage", "duplicados almacenamiento nube"]
+    description: "SAP Help: Duplicate rows in cloud storage | Filas duplicadas en almacenamiento en la nube"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5486357332.html"
+  - keywords: ["dhcdcmon", "check dhcdcmon", "dhcdcmon replication flow", "monitor cdc replication flow"]
+    description: "SAP Help: Check DHCDCMON for Replication Flow issues | Verificar DHCDCMON para problemas de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4549335823.html"
+  - keywords: ["dhrdbmon", "check dhrdbmon", "dhrdbmon replication flow", "monitor rdb replication flow"]
+    description: "SAP Help: Check DHRDBMON for Replication Flow issues | Verificar DHRDBMON para problemas de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5290578190.html"
+  - keywords: ["odqmon", "check odqmon", "odqmon replication flow", "odq replication flow issues"]
+    description: "SAP Help: Check ODQMON for Replication Flow issues | Verificar ODQMON para problemas de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4518531178.html"
+  - keywords: ["relevant note corrections abap", "note corrections data flows replication flows", "correcciones notas abap integracion", "notas on premise replication flow"]
+    description: "SAP Help: Check relevant ABAP note corrections for Data Flows and Replication Flows | Verificar correcciones de Notas ABAP relevantes"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4457678727.html"
+  - keywords: ["sddlar", "check sddlar", "sddlar replication flow", "objetos cds sddlar"]
+    description: "SAP Help: Check SDDLAR for Replication Flow issues | Verificar SDDLAR para problemas de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4518531416.html"
+  - keywords: ["slg1 replication flow", "check slg1 replication flow", "errores replication flow slg1", "application log replication flow"]
+    description: "SAP Help: Check SLG1 for Replication Flow errors | Verificar SLG1 para errores de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4445249155.html"
+  - keywords: ["stauthtrace su53 slg1", "check stauthtrace", "check su53", "traza autorizaciones abap", "errores autorizacion replication flow"]
+    description: "SAP Help: Check STAUTHTRACE, SU53 and SLG1 in SAP ABAP systems | Verificar trazas de autorización ABAP"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4518522125.html"
+  - keywords: ["dhbas_breakpoint", "ltbas_breakpoint", "breakpoint interface", "debug replication flow breakpoint"]
+    description: "SAP Help: Debug with DHBAS_BREAKPOINT and LTBAS_BREAKPOINT | Depurar con la interfaz de breakpoints"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5391956207.html"
+  - keywords: ["sql analyzer plan file", "generate sql analyzer plan", "plan file sql query", "analizar plan sql datasphere"]
+    description: "SAP Help: Generate SQL Analyzer Plan File | Generar y visualizar el archivo de plan del analizador SQL"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4518295795.html"
+  - keywords: ["sql trace st05", "st05 s4hana", "traza sql s4hana on premise", "analizar sql origen s4"]
+    description: "SAP Help: SQL Trace ST05 in S/4HANA On-Premise | Trace SQL ST05 en S/4HANA On-Premise"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4477293127.html"
+  - keywords: ["stuck cds views", "cds views atascadas", "vista cds stuck", "cds no responde"]
+    description: "SAP Help: Stuck CDS Views | Vistas CDS atascadas"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5625397560.html"
+  - keywords: ["bw odp di parquet record tracing", "end2end record tracing", "trazabilidad registros bw odp", "parquet record tracing"]
+    description: "SAP Help: BW ODP DI Parquet End-to-End Record Tracing | Guía End-to-End de seguimiento de registros"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5540231008.html"
+  - keywords: ["data_not_ready", "data not ready replication flow", "data_not_ready troubleshooting", "datos no listos replication flow"]
+    description: "SAP Help: DATA_NOT_READY Troubleshooting in Replication Flows | Resolución de DATA_NOT_READY en flujos de replicación"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5814383193.html"
+  - keywords: ["currency shift replication flow", "desplazamiento moneda replication flow", "currency decimals replication", "importe moneda desplazado"]
+    description: "SAP Help: Currency Shift in SAP Replication Flow scenarios | Cambio de moneda en escenarios de Replication Flow"
+    asset: "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/6140463188.html"
   - keywords: ["video tutorial", "tutoriales video", "datasphere tutorials", "videos datasphere"]
     description: "SAP Datasphere Video Tutorials"
     asset: "https://help.sap.com/docs/SAP_DATASPHERE/55b34306f32145359e499c4492fc65eb/9ef88a8d4cd1479cb1272ae0de1eada0.html?locale=en-US&version=LATEST"
@@ -94,6 +154,12 @@ intent_assets:
   - keywords: ["email notifications task chain", "notificaciones task chain", "email task chain"]
     description: "How-to Danwor: Configurar Email Notifications en Task Chain"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru"
+  - keywords: ["IBP integration", "Integracion IBP", "Integrated Business Planning"]
+    description: "How-to Danwor: Integrar IBP y Datasphere"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=Uc0GEE"    
+  - keywords: ["SAC metadata", "SAC resources", "Recursos y Modelos SAC", "relevamiento tecnico SAC"]
+    description: "How-to Danwor: Guia para acelerar relevamiento tecnico via API metadata & recursos tecnicos SAC"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=C0wJYt"        
   - keywords: ["nota 3498095", "3498095", "abap on-premise datasphere"]
     description: "Nota SAP 3498095: SAP Datasphere notes on source ABAP-based On-premise"
     asset: "https://me.sap.com/notes/3498095"
@@ -189,6 +255,8 @@ Colección de guías internas Danwor orientadas a ejecución paso a paso. Usar e
 - Instalar GitHub Copilot en Eclipse | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZPXm2VTKOBPm_Sjg_KN8iEBO7_vy1n_qFQJh0D0udNQRQ?e=GFzvIi)
 - Actualizar Eclipse & BWMT | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=5i0SFX)
 - Configurar Email Notifications en Task Chain | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru)
+- Integrar SAP Business Integrated Planning y Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=la8GrL)
+- Relevamiento tecnico SAC via API metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r)
 
 ## {dw-black}Notas {dw-gold}SAP
 {{section_meta: keywords="notas sap, sap notes, kba, nota 3498095, nota 3100673, nota 3154420, nota 3117800, nota 3141688, nota 3417440, nota 3579966, nota 3590400, nota 3220622, nota 1732157, nota 2180165, restricciones datasphere, bw bridge notes, hana troubleshooting, expensive statements, release schedule hana cloud"}}

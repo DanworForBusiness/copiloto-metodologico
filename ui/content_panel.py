@@ -114,7 +114,7 @@ div[data-testid="stMainBlockContainer"] div[data-testid="stExpander"] summary p 
     n_topics = min(len(topics), 8) if topics else 0
     visible_topics = topics[:8] if topics else []
     ia_enabled = ia_enabled_for(selected_stem)
-    content_height = 635 if (ia_enabled and visible_topics) else 670
+    content_height = 600 if (ia_enabled and visible_topics) else 660
 
     def _topic_weight(topic: dict) -> float:
         label = (topic.get("label") or "").strip()
