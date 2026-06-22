@@ -15,7 +15,10 @@ from core.content_registry import (
     resolve_pack_file,
     roots_for_kind,
 )
-from config import AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE, SESSION_MAX_AGE, ia_enabled_for
+from config import (
+    AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE, SESSION_MAX_AGE,
+    SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
+)
 from core.prompts import ALL_ACTIONS, get_loading_message
 from core.utils import slugify
 from webapp.services import auth_service
@@ -105,7 +108,8 @@ def microsoft_token(body: _MsTokenBody):
     response = JSONResponse({"ok": True, "first_name": user["first_name"], "name": user["name"]})
     response.set_cookie(
         auth_service.COOKIE_NAME, auth_service.create_session(user),
-        max_age=SESSION_MAX_AGE, httponly=True, samesite="lax", path="/",
+        max_age=SESSION_MAX_AGE, httponly=True, path="/",
+        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
     )
     return response
 
@@ -121,7 +125,10 @@ def auth_me(request: Request):
 @app.post("/api/auth/logout", include_in_schema=False)
 def auth_logout():
     response = JSONResponse({"ok": True})
-    response.delete_cookie(auth_service.COOKIE_NAME, path="/")
+    response.delete_cookie(
+        auth_service.COOKIE_NAME, path="/",
+        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
+    )
     return response
 
 

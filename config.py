@@ -126,6 +126,12 @@ AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("
 # definir SESSION_SECRET por entorno; el default solo sirve para desarrollo.
 SESSION_SECRET   = _env("SESSION_SECRET", "danwor-copiloto-dev-secret-cambiar-en-produccion")
 SESSION_MAX_AGE  = int(_env("SESSION_MAX_AGE", "28800"))  # 8 horas en segundos
+# Atributos de la cookie de sesión. Cuando la app va embebida en un iframe de otro
+# dominio (p. ej. danwor.com/copiloto sobre el host de DigitalOcean), la cookie es
+# "de tercera parte": debe ser SameSite=None; Secure para viajar. En local (http)
+# se deja Lax (default). En producción: SESSION_COOKIE_SAMESITE=none + SESSION_COOKIE_SECURE=true.
+SESSION_COOKIE_SAMESITE = _env("SESSION_COOKIE_SAMESITE", "lax").lower()
+SESSION_COOKIE_SECURE   = _env("SESSION_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
 
 # Logging liviano de adopción inicial.
 # OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios.

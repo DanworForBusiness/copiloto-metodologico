@@ -1,12 +1,14 @@
-/* auth.js — Login Microsoft (Entra ID) OAuth2 + PKCE del lado del navegador.
-   Portado del login de Odoo (C:\Users\Joe\Odoo) a flujo de página completa:
-   authorize → vuelve con ?code → intercambia por id_token → POST a
-   /api/auth/microsoft/token (el backend valida, allow-list y setea cookie) →
-   entra a la app. El registro de Azure es SPA (mismo que usa el Streamlit). */
+/* auth.js — Login Microsoft (Entra ID) OAuth2 + PKCE en POPUP.
+   La app puede ir embebida en un iframe (danwor.com/copiloto), y Microsoft no
+   permite autenticar dentro de un iframe. Por eso el login abre una ventana
+   nueva (top-level): authorize → ?code → exchange → /api/auth/microsoft/token
+   (setea la cookie de sesión) → postMessage al opener → la app entra.
+   La cookie debe ser SameSite=None; Secure para viajar en el iframe. */
 (function () {
   const API = "/api/auth";
   const STATE_KEY = "dw_ms_state";
   const VERIFIER_PREFIX = "dw_ms_verifier_";
+  const MSG_TYPE = "danwor-auth";
 
   function b64url(buffer) {
     const bytes = new Uint8Array(buffer);
@@ -22,13 +24,20 @@
   async function sha256(value) {
     return crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   }
-  // Debe coincidir EXACTO con el redirect URI registrado en Azure (con barra).
+  // Debe coincidir EXACTO con el redirect URI (SPA) registrado en Azure (con barra).
   function redirectUri() {
     return window.location.origin + "/";
   }
   function homeUrl() {
     const btn = document.getElementById("microsoft-login-btn");
     return (btn && btn.getAttribute("data-home")) || "/";
+  }
+  function resetButton() {
+    const btn = document.getElementById("microsoft-login-btn");
+    if (btn) { btn.disabled = false; btn.textContent = "Ingresar con tu cuenta Danwor"; }
+  }
+  function setOverlay(on) {
+    document.body.classList.toggle("auth-completing", on);
   }
 
   function showError(message, detail) {
@@ -48,13 +57,6 @@
     document.getElementById("acceso")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  function setOverlay(on) {
-    document.body.classList.toggle("auth-completing", on);
-  }
-  function cleanUrl() {
-    window.history.replaceState({}, document.title, window.location.pathname);
-  }
-
   async function getConfig() {
     const r = await fetch(`${API}/microsoft/config`);
     const c = await r.json();
@@ -64,7 +66,8 @@
     return c;
   }
 
-  async function startLogin() {
+  // Corre DENTRO del popup: arranca el redirect a Microsoft.
+  async function startAuthInThisWindow() {
     const c = await getConfig();
     const verifier = randomB64(64);
     const challenge = b64url(await sha256(verifier));
@@ -82,8 +85,9 @@
       code_challenge_method: "S256",
       prompt: "select_account",
     });
-    window.location.href =
-      `https://login.microsoftonline.com/${encodeURIComponent(c.tenant_id)}/oauth2/v2.0/authorize?${p}`;
+    window.location.replace(
+      `https://login.microsoftonline.com/${encodeURIComponent(c.tenant_id)}/oauth2/v2.0/authorize?${p}`
+    );
   }
 
   async function exchangeCode(code, verifier) {
@@ -121,6 +125,16 @@
     return d;
   }
 
+  function notifyOpener(payload) {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({ type: MSG_TYPE, ...payload }, window.location.origin);
+      window.close();
+      return true;
+    }
+    return false;
+  }
+
+  // Corre DENTRO del popup cuando Microsoft vuelve con ?code (o ?error).
   async function handleRedirect() {
     const params = new URLSearchParams(window.location.search);
     const error = params.get("error");
@@ -128,8 +142,8 @@
     const state = params.get("state");
 
     if (error) {
-      cleanUrl();
-      showError(params.get("error_description") || "Microsoft canceló el inicio de sesión");
+      const msg = params.get("error_description") || "Microsoft canceló el inicio de sesión";
+      if (!notifyOpener({ status: "error", message: msg })) showError(msg);
       return true;
     }
     if (!code) return false;
@@ -143,27 +157,58 @@
       if (!state || state !== expected || !verifier) {
         throw new Error("No se pudo validar el estado del login (reintentá desde el inicio)");
       }
-      const idToken = await exchangeCode(code, verifier);
-      await createSession(idToken);
-      window.location.replace(homeUrl());
+      await createSession(await exchangeCode(code, verifier));
+      // Éxito: avisar al opener (la app) para que entre; si no hay opener, navegar acá.
+      if (!notifyOpener({ status: "success" })) window.location.replace(homeUrl());
     } catch (err) {
       setOverlay(false);
-      cleanUrl();
-      showError(err.message, err.detail);
+      if (!notifyOpener({ status: "error", message: err.message, detail: err.detail })) {
+        showError(err.message, err.detail);
+      }
     }
     return true;
   }
 
+  // Click "Ingresar": abre el popup (top-level, fuera del iframe).
   window.loginWithMicrosoft = function (event) {
     if (event) event.preventDefault();
     const btn = document.getElementById("microsoft-login-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Abriendo Microsoft…"; }
-    startLogin().catch((err) => {
-      if (btn) { btn.disabled = false; btn.textContent = "Ingresar con tu cuenta Danwor"; }
-      showError(err.message);
-    });
+    const popup = window.open(
+      window.location.origin + "/?auth_popup=1",
+      "dwMsLogin",
+      "width=520,height=720,menubar=no,toolbar=no,location=yes,status=no"
+    );
+    if (!popup) {
+      resetButton();
+      showError("El navegador bloqueó la ventana de Microsoft. Habilitá los pop-ups e intentá de nuevo.");
+      return;
+    }
+    const timer = setInterval(() => {
+      if (popup.closed) { clearInterval(timer); resetButton(); }
+    }, 500);
   };
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", handleRedirect);
-  else handleRedirect();
+  // En el OPENER (la app): escucha el resultado del popup.
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin || !event.data || event.data.type !== MSG_TYPE) return;
+    if (event.data.status === "success") {
+      window.location.href = homeUrl();
+    } else {
+      resetButton();
+      showError(event.data.message, event.data.detail);
+    }
+  });
+
+  // Init: decidir el rol de esta ventana.
+  (async function init() {
+    const params = new URLSearchParams(window.location.search);
+    if (await handleRedirect()) return;                         // popup volviendo de Microsoft
+    if (window.opener && params.get("auth_popup") === "1") {    // popup recién abierto
+      try { await startAuthInThisWindow(); }
+      catch (err) { if (!notifyOpener({ status: "error", message: err.message })) showError(err.message); }
+      return;
+    }
+    // si no, es la app normal (opener): espera el click + el postMessage.
+  })();
 })();
