@@ -1,0 +1,352 @@
+/* Panel derecho — tematizado (antes era siempre claro). Los tokens cascada a
+   los partials del árbol, que usan var(--*). */
+.content-theme-light .copilot-panel {
+  --ink: #202124;
+  --soft: #62666d;
+  --dim: #858a92;
+  --card: #ffffff;
+  --line: rgba(32,33,36,.14);
+  background: #fff;
+  color: var(--ink);
+}
+.content-theme-dark .copilot-panel {
+  background: #181819;        /* usa los tokens dark globales de :root */
+  color: var(--ink);
+}
+.copilot-panel .eyebrow, .copilot-panel .result-label, .copilot-panel .tool-empty span { color: var(--gold); }
+.tool-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 14px; border-bottom: 1px solid var(--line); }
+.tool-tabs button { padding: 12px 5px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--soft); font: 600 .68rem var(--sans); cursor: pointer; }
+.tool-tabs button:hover { color: var(--ink); }
+.tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
+.tool-tab-panel { padding-top: 24px; }
+.tool-label, .tree-picker label { display: block; margin: 16px 0 7px; color: var(--soft); font: 500 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.tool-tab-panel select, .tool-tab-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
+.tool-tab-panel select { height: 42px; padding: 0 32px 0 10px; }
+.tool-tab-panel textarea { padding: 12px; resize: vertical; }
+.tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
+.tool-primary { width: 100%; margin-top: 14px; }
+.tree-picker { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.tree-picker label { margin-top: 0; }
+.tree-picker-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.tree-picker-row .btn-primary { min-height: 42px; }
+.tree-tab-panel .wizard { padding-top: 22px; }
+.tool-empty { margin-top: 22px; padding: 18px; border: 1px dashed var(--line); }
+.tool-empty span { color: var(--gold); font: 500 .68rem var(--mono); text-transform: uppercase; }
+.assistant-intro { margin-top: 14px; padding: 16px; border-left: 2px solid var(--gold); background: rgba(231,176,8,.07); }
+.assistant-intro strong { font-size: .86rem; }
+.assistant-intro p { margin-bottom: 0; }
+.tool-tab-panel textarea:disabled { opacity: .6; cursor: not-allowed; }
+.active-section-card { margin-bottom: 16px; padding: 12px 13px; border: 1px solid var(--line); border-left: 3px solid #087f6c; background: var(--card); }
+.active-section-card span { display: block; color: #087f6c; font: 600 .61rem var(--mono); text-transform: uppercase; letter-spacing: .09em; }
+.active-section-card strong { display: block; margin-top: 4px; color: var(--ink); font-size: .8rem; line-height: 1.35; }
+.section-analysis-form { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.section-analysis-form fieldset { margin: 0; padding: 0; border: 0; }
+.section-analysis-form legend { margin-bottom: 10px; color: var(--soft); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.section-action-list { display: grid; gap: 7px; }
+.section-action-option { position: relative; display: flex; align-items: center; gap: 9px; color: var(--ink); font-size: .76rem; cursor: pointer; }
+.section-action-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--gold); }
+.section-action-help { margin-top: 17px; border: 1px solid var(--line); background: var(--card); }
+.section-action-help summary { padding: 10px 12px; color: var(--ink); font-size: .74rem; cursor: pointer; }
+.section-action-help > div { padding: 10px 12px; border-top: 1px solid var(--line); }
+.section-action-help strong { display: block; color: var(--ink); font-size: .72rem; }
+.section-action-help p { margin: 3px 0 0; color: var(--soft); font-size: .68rem; line-height: 1.45; }
+.section-analyze-button { width: 100%; margin-top: 14px; }
+.section-analysis-loading { margin-top: 12px; color: var(--soft); font-size: .7rem; text-align: center; }
+.section-analysis-spinner { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border: 2px solid var(--line); border-top-color: var(--gold); border-radius: 50%; animation: analysis-spin .8s linear infinite; }
+.section-analysis-loading-copy { display: inline; }
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: block; }
+.ai-disclaimer { margin: 10px 0 0; color: var(--dim); font-size: .63rem; text-align: center; }
+.section-analysis-warning:empty { display: none; }
+.section-analysis-warning-copy { margin: 10px 0 0; padding: 9px 10px; border-left: 3px solid var(--gold); background: rgba(231,176,8,.10); color: var(--ink); font-size: .7rem; line-height: 1.45; }
+.assistant-conversation { display: grid; gap: 14px; max-height: calc(100vh - 310px); margin-top: 14px; overflow-y: auto; scrollbar-width: thin; }
+.assistant-conversation:has(.assistant-exchange) .assistant-empty { display: none; }
+.assistant-exchange { display: grid; gap: 10px; }
+.assistant-message { padding: 10px 13px; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(16,24,40,.05); overflow-wrap: anywhere; }
+.assistant-message--user { border-left: 4px solid #2563eb; }
+.assistant-message--assistant { border-left: 4px solid var(--gold); }
+.assistant-message-label { display: block; margin-bottom: 4px; color: var(--soft); font: 700 .61rem var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+.assistant-message--user p { margin: 0; color: var(--ink); font-size: .74rem; line-height: 1.5; }
+.content-theme-light .assistant-message--user { background: #eff6ff; border-color: #d8e4f5; border-left-color: #2563eb; }
+.content-theme-light .assistant-message--assistant { background: #fff; border-color: #dfe3e8; border-left-color: var(--gold); }
+.content-theme-dark .assistant-message--user { background: rgba(37,99,235,.14); border-color: rgba(96,165,250,.22); border-left-color: #60a5fa; }
+.content-theme-dark .assistant-message--assistant { background: #202023; border-color: rgba(255,255,255,.11); border-left-color: var(--gold); }
+.assistant-chat-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.assistant-chat-form .tool-label { margin-top: 0; }
+.assistant-chat-form textarea { min-height: 86px; border-radius: 8px; line-height: 1.45; }
+.assistant-feedback { margin: -4px 0 4px; padding-left: 4px; }
+.assistant-exchange:not(:last-child) .assistant-route-actions { display: none; }
+.assistant-feedback form { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.assistant-feedback form > span, .assistant-feedback-thanks { color: var(--soft); font-size: .67rem; }
+.assistant-feedback form > div { display: flex; gap: 6px; }
+.assistant-feedback form > div > button { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card); cursor: pointer; }
+.assistant-feedback form > div > button:not(:disabled):hover { border-color: rgba(231,176,8,.55); background: rgba(231,176,8,.10); }
+.assistant-feedback button:disabled, .assistant-feedback textarea:disabled { opacity: .38; cursor: not-allowed; filter: grayscale(1); }
+.assistant-exchange:not(:last-child) .assistant-feedback button,
+.assistant-exchange:not(:last-child) .assistant-feedback textarea { opacity: .38; pointer-events: none; cursor: not-allowed; filter: grayscale(1); }
+.assistant-exchange:not(:last-child) .assistant-feedback form > span { display: none; }
+.assistant-exchange:not(:last-child) .assistant-feedback form { justify-content: flex-end; }
+.assistant-feedback-expanded { margin-top: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+.assistant-feedback .assistant-feedback-form { display: block; }
+.assistant-feedback-form label { display: block; margin-bottom: 7px; color: var(--ink); font-size: .72rem; font-weight: 700; }
+.assistant-feedback-form textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: 500 .73rem var(--sans); resize: vertical; }
+.assistant-feedback-form textarea:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18); }
+.assistant-feedback-actions { display: grid !important; grid-template-columns: 1fr 1.4fr; gap: 8px !important; margin-top: 9px; }
+.assistant-feedback-actions button { width: auto !important; height: auto !important; min-height: 36px; padding: 7px !important; border-radius: 0 !important; }
+.assistant-feedback-thanks { padding: 5px 0 0 5px; }
+.assistant-route-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 7px; }
+.assistant-route-explain { display: contents; }
+.assistant-route-action { display: grid; min-height: 38px; place-items: center; padding: 8px 10px; border: 1px solid rgba(194,145,0,.34); background: color-mix(in srgb, var(--card) 91%, var(--gold)); color: var(--ink); font: 700 .69rem var(--sans); text-align: center; text-decoration: none; cursor: pointer; }
+.assistant-route-action:hover { border-color: rgba(194,145,0,.55); background: color-mix(in srgb, var(--card) 84%, var(--gold)); }
+.assistant-route-action--secondary { width: 100%; border-color: var(--line); background: var(--card); color: var(--ink); }
+.content-theme-dark .assistant-route-action { border-color: rgba(231,176,8,.28); background: rgba(231,176,8,.08); }
+.content-theme-dark .assistant-route-action:hover { border-color: rgba(231,176,8,.5); background: rgba(231,176,8,.14); }
+.content-theme-dark .assistant-route-action--secondary { border-color: var(--line); background: var(--card); }
+.content-theme-dark .assistant-route-action--secondary:hover { border-color: rgba(231,176,8,.7); background: rgba(231,176,8,.12); }
+.section-analysis-output { padding: 0; border: 0; background: transparent; overflow-wrap: anywhere; }
+.section-analysis-output h1, .section-analysis-output h2, .section-analysis-output h3 { margin: 13px 0 7px; color: var(--ink); font-size: .88rem; line-height: 1.35; }
+.section-analysis-output p, .section-analysis-output li { font-size: .73rem; line-height: 1.55; }
+.section-analysis-output ul, .section-analysis-output ol { padding-left: 19px; }
+.section-analysis-output li + li { margin-top: 6px; }
+.section-analysis-output strong { color: var(--ink); font-weight: 750; }
+.section-analysis-output pre { padding: 10px; overflow-x: auto; background: color-mix(in srgb, var(--card) 86%, #000); font-size: .67rem; }
+.section-analysis-output table { display: block; width: 100%; margin: 12px 0; overflow-x: auto; border-collapse: collapse; font-size: .66rem; line-height: 1.4; scrollbar-width: thin; }
+.section-analysis-output th, .section-analysis-output td { min-width: 92px; padding: 7px 8px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.section-analysis-output th { background: color-mix(in srgb, var(--card) 82%, var(--gold)); color: var(--ink); font-weight: 750; }
+.section-analysis-output td { background: var(--card); color: var(--ink); }
+.section-analysis-error { padding: 13px; border-left: 3px solid #b34b4b; background: #c95d5d12; }
+.section-analysis-error strong { color: #b34b4b; font-size: .78rem; }
+.section-analysis-error p { margin: 4px 0 0; color: var(--soft); font-size: .7rem; }
+.analysis-prompt { margin-top: 12px; color: var(--soft); font-size: .67rem; }
+.analysis-prompt pre { max-height: 260px; padding: 10px; overflow: auto; white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); }
+@keyframes analysis-spin { to { transform: rotate(360deg); } }
+.wizard-back-only { display: grid; margin-top: 18px; }
+.wizard-back-only .btn-secondary { width: 100%; }
+.tree-feedback { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); background: var(--card); }
+.tree-feedback form { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tree-feedback form > span { color: var(--soft); font-size: .76rem; }
+.tree-feedback form div { display: flex; gap: 7px; }
+.tree-feedback button { width: 38px; height: 34px; border: 1px solid var(--line); background: var(--card); font-size: 1rem; cursor: pointer; }
+.tree-feedback button:hover { border-color: rgba(231,176,8,.55); background: rgba(231,176,8,.1); }
+.feedback-thanks { display: flex; align-items: center; gap: 9px; }
+.feedback-thanks p { margin: 0; color: var(--soft); font-size: .76rem; }
+.copilot-panel .btn-secondary { background: var(--card); }
+.copilot-panel .decision-result { background: rgba(231,176,8,.09); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   TILES FLOTANTES — emula las superficies/curvas redondeadas del original.
+   Convierte los paneles central y derecho (antes a sangre completa) en cards
+   redondeadas sobre el lienzo oscuro. El nav izquierdo queda flush a propósito.
+   ════════════════════════════════════════════════════════════════════════ */
+.module-content {
+  margin: 14px 2px 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  /* Card de altura fija con scroll interno (como el panel derecho y como el
+     st.container del Streamlit original): su base redondeada + gap quedan
+     siempre visibles en el viewport, en vez de scrollear con la página. */
+  position: sticky;
+  top: 88px;
+  height: calc(100vh - 74px - 34px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+/* Canvas + tiles cambian con el tema:
+   claro -> canvas #F6F7F9 + tiles blancos;
+   oscuro -> canvas negro + tiles #181819. */
+.content-theme-light .app-shell { background: #F6F7F9; }
+.content-theme-dark .app-shell  { background: #0c0c0d; }
+
+.content-theme-light .module-content {
+  background: #fff;
+  border-color: #e4e4e0;
+  box-shadow: 0 2px 10px rgba(20,22,28,.04);     /* casi imperceptible; separa el borde */
+}
+.content-theme-dark .module-content {
+  background: #181819;                            /* card elevado sobre el canvas negro */
+}
+.copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
+
+.copilot-panel {
+  margin: 14px 14px 20px 0;
+  border: 1px solid var(--line);          /* reemplaza el border-left suelto */
+  border-radius: 18px;
+  top: 88px;
+  height: calc(100vh - 74px - 34px);
+  box-shadow: 0 2px 10px rgba(20,22,28,.04);   /* casi imperceptible (esta es la que gana) */
+}
+
+/* Scrollbar sutil dentro de los tiles claros (el global es oscuro/grueso y
+   rompía la curvatura del card, como en el Streamlit original). */
+.module-content, .copilot-panel { scrollbar-width: thin; scrollbar-color: rgba(20,22,28,.18) transparent; }
+.module-content::-webkit-scrollbar, .copilot-panel::-webkit-scrollbar { width: 9px; height: 9px; }
+.module-content::-webkit-scrollbar-track, .copilot-panel::-webkit-scrollbar-track { background: transparent; }
+.module-content::-webkit-scrollbar-thumb, .copilot-panel::-webkit-scrollbar-thumb {
+  background: rgba(20,22,28,.16); border-radius: 9px; border: 3px solid transparent; background-clip: padding-box;
+}
+.module-content::-webkit-scrollbar-thumb:hover, .copilot-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(20,22,28,.30); background-clip: padding-box;
+}
+
+/* Alinear los divisores de resize con el gap superior de los tiles. */
+.resize-handle { top: 88px; height: calc(100vh - 88px - 20px); }
+
+/* En viewports chicos los paneles se apilan: sin márgenes laterales que descuadren. */
+@media (max-width: 1180px) {
+  .module-content { margin: 12px; position: static; height: auto; overflow: visible; }
+  .copilot-panel  { margin: 0 12px 12px; height: auto; }
+}
+
+/* Estados interactivos del árbol: en claro el hover oscurece; en oscuro aclara. */
+.option-card span { transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s; }
+.content-theme-light .option-card span:hover {
+  background: #eceef1;
+  border-color: rgba(32,33,36,.30);
+  color: #111113;
+}
+.content-theme-light .option-card input:checked + span:hover {
+  background: rgba(231,176,8,.27);
+  border-color: #b88c00;
+  color: #111113;
+}
+.content-theme-dark .option-card span:hover {
+  background: color-mix(in srgb, var(--card) 82%, #fff);
+  border-color: rgba(255,255,255,.26);
+  color: #fff;
+}
+.content-theme-dark .option-card input:checked + span:hover {
+  background: rgba(231,176,8,.30);
+  border-color: #f0c735;
+  color: #fff;
+}
+.option-card input:focus-visible + span {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(231,176,8,.24);
+}
+
+/* ── Índice "En este módulo": etiqueta header + grilla pareja + número en
+   columna fija con sangría colgante del título (alineación profesional). ── */
+.section-index { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px 32px; align-items: start; padding: 30px 0 34px; }
+.section-index > p { grid-column: 1 / -1; margin: 0 0 6px; }
+.section-index a { display: grid; grid-template-columns: 1.8em 1fr; gap: 7px; align-items: baseline; line-height: 1.4; }
+.section-index a span { margin: 0; text-align: left; }
+
+/* ── Heading de sección: el número se alinea al cap del título y escala con
+   el viewport (antes padding-top fijo de .6rem desalineaba en clamp()). ── */
+.content-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 20px; }
+.content-heading-copy { flex: 1 1 360px; min-width: 0; }
+.content-heading-copy > .section-eyebrow {
+  display: block;
+  margin: 0 0 10px;
+  padding: 0;
+  color: var(--gold);
+  font: 500 .68rem var(--mono);
+  line-height: 1;
+  letter-spacing: .14em;
+}
+.heading-supports {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  max-width: 100%;
+  margin: 0 0 2px auto;
+}
+.heading-supports .support-link { white-space: nowrap; }
+.content-heading.has-subtitle { margin-bottom: 8px; }
+.methodology .section-subtitle,
+.content-theme-light .methodology .section-subtitle,
+.content-theme-dark .methodology .section-subtitle {
+  margin: 0 0 20px;
+  padding: 2px 0 2px 18px;
+  background: transparent;
+}
+.html-embed-shell {
+  width: 100%;
+  height: var(--embed-height, 620px);
+  margin: 16px 0 28px;
+  overflow: hidden;
+  background: transparent;
+}
+.content-embed {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+/* ── Formulario de feedback del árbol (👎 abre devolución, como el original). ── */
+.tree-feedback .tree-feedback-form { display: block; }
+.tree-feedback-expanded { padding: 18px; }
+.feedback-form-header { display: flex; align-items: flex-start; gap: 11px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.feedback-form-header > span { font-size: 1.2rem; line-height: 1.2; }
+.feedback-form-header strong { display: block; font-size: .88rem; color: var(--ink); }
+.feedback-form-header p { margin: 3px 0 0; color: var(--soft); font-size: .74rem; line-height: 1.45; }
+.feedback-field { display: grid; gap: 6px; margin-top: 14px; }
+.feedback-field label { color: var(--ink); font-size: .74rem; font-weight: 650; line-height: 1.35; letter-spacing: 0; text-transform: none; }
+.feedback-field label span { margin-left: 5px; color: var(--soft); font-size: .62rem; font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+.tree-feedback-form select,
+.tree-feedback-form textarea,
+.tree-feedback-form input[type="text"] {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+  color: var(--ink); font: 500 .78rem var(--sans); padding: 9px 11px;
+}
+.tree-feedback-form select { height: 40px; padding-right: 30px; }
+.tree-feedback-form textarea { min-height: 68px; resize: vertical; line-height: 1.45; }
+.tree-feedback-form select:focus,
+.tree-feedback-form textarea:focus,
+.tree-feedback-form input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18); }
+.feedback-error { margin: 0 0 6px; padding: 8px 10px; border-left: 2px solid #c95d5d; background: #c95d5d17; color: #b34b4b; font-size: .74rem; border-radius: 4px; }
+.feedback-form-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 9px; margin-top: 14px; }
+.feedback-form-actions .btn-primary, .feedback-form-actions .btn-secondary { min-height: 40px; }
+.feedback-thanks > div { min-width: 0; }
+.feedback-thanks small { display: block; margin-top: 3px; color: var(--soft); font: 500 .61rem var(--mono); overflow-wrap: anywhere; }
+
+/* ── Sesión: bienvenida en el panel de módulos + logout en el topbar. ── */
+.nav-welcome {
+  margin: 0 0 6px 0;
+  padding: 0;
+  color: var(--soft);
+  font: 500 .72rem/1.4 var(--sans);
+}
+.nav-welcome strong { color: var(--ink); font-weight: 750; }
+.module-nav > .nav-kicker { margin: 0 0 6px 0; }
+.logout-btn { text-decoration: none; transition: color .15s ease, border-color .15s ease; }
+.logout-btn:hover { color: #ff8a8a; border-color: rgba(255,138,138,.45); }
+
+/* ── Selector de marco (solo en diagnóstico) + switch de modo diagnóstico. ── */
+.pack-select {
+  min-width: 132px; height: 34px; padding: 0 28px 0 10px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font: 500 .7rem var(--sans); cursor: pointer;
+}
+.diag-toggle { display: inline-flex; align-items: center; height: 34px; cursor: pointer; }
+.diag-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.diag-track {
+  position: relative; width: 38px; height: 20px; border-radius: 999px;
+  background: rgba(226,232,245,.14); border: 1px solid var(--line);
+  transition: background .18s, border-color .18s;
+}
+.diag-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--soft); transition: transform .18s, background .18s;
+}
+.diag-toggle input:checked + .diag-track { background: rgba(231,176,8,.28); border-color: rgba(231,176,8,.5); }
+.diag-toggle input:checked + .diag-track::after { transform: translateX(18px); background: var(--gold); }
+.diag-toggle input:focus-visible + .diag-track { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Nota de la pestaña Analítica (en portación). */
+.analytics-note { margin-top: 12px; padding: 13px; border: 1px solid var(--line); border-left: 2px solid var(--gold); }
+.analytics-note strong { display: block; color: var(--gold); font: 600 .66rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.analytics-note p { margin: 6px 0 0; color: var(--soft); font-size: .76rem; line-height: 1.5; }
+
+/* Segundo grupo colapsable del panel: Herramientas de gestión. */
+.panel-toggle--gestion { margin-top: 20px; }
+.gestion-group { padding-top: 16px; }
+
+/* Tailwind (preflight del CDN) resetea list-style; restauramos las viñetas del
+   contenido metodológico y de las respuestas LLM (que Markdown emite como <ul>/<ol>). */
+.methodology ul:not(.callout-list), .section-analysis-output ul { list-style: disc outside; padding-left: 1.3em; margin: 12px 0; }
+.methodology ol, .section-analysis-output ol { list-style: decimal outside; padding-left: 1.45em; margin: 12px 0; }
+.methodology li, .section-analysis-output li { display: list-item; }
+.methodology li::marker, .section-analysis-output li::marker { color: var(--gold); }

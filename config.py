@@ -21,13 +21,10 @@ LOGO_URL     = _env("DANWOR_LOGO_URL", "https://certificaciones.greatplacetowork
 BASE_DIR          = Path(__file__).parent
 CONTENT_PACKS_DIR = BASE_DIR / "content_packs"
 CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_mvp")
-_CONTENT_PACK_DIR = CONTENT_PACKS_DIR / CONTENT_PACK
-CONTENT_DIR       = (_CONTENT_PACK_DIR / "content") if (_CONTENT_PACK_DIR / "content").exists() else BASE_DIR / "content"
-TREES_DIR         = (_CONTENT_PACK_DIR / "trees") if (_CONTENT_PACK_DIR / "trees").exists() else BASE_DIR / "trees"
-ASSETS_DIR        = (_CONTENT_PACK_DIR / "assets") if (_CONTENT_PACK_DIR / "assets").exists() else BASE_DIR / "assets"
-TEMPLATES_DIR     = (_CONTENT_PACK_DIR / "templates") if (_CONTENT_PACK_DIR / "templates").exists() else BASE_DIR / "templates"
-LOGO_ANIMATED     = ASSETS_DIR / "danwor-animated-logo.html"
-LOGO_DANCING      = ASSETS_DIR / "danwor-animated-dancing.html"
+# La resolución de content/trees/assets/templates vive en core.content_registry
+# (basada en content_packs/, con cadena de herencia). Las viejas vars
+# CONTENT_DIR/TREES_DIR/ASSETS_DIR/TEMPLATES_DIR/LOGO_* se retiraron: no las
+# importaba nadie (la webapp resuelve por pack; las tools offline usan sus rutas).
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
 ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
@@ -40,6 +37,7 @@ DEFAULT_EXECUTION_MODE = _env("DANWOR_EXECUTION_MODE", "API Real")
 # DEV/PRD controla la visibilidad operativa; la ejecucion conversacional se
 # define por DANWOR_EXECUTION_MODE (API Real por defecto).
 STATUS       = _env("DANWOR_STATUS", "DEV").upper()
+DIAGNOSTIC_MODE = _env("DANWOR_DIAGNOSTIC_MODE", "false").lower() in {"1", "true", "yes", "on"}
 
 # Usuario(s) con permiso operativo para ver el modo diagnóstico aun en PRD.
 # Acepta alias sin dominio ("joconnor") o mails completos separados por coma.
@@ -108,6 +106,10 @@ ROADMAP_ITEMS = [
 ]
 
 # Azure AD — OAuth corporativo (Microsoft Entra ID)
+# NOTA: client_id y tenant_id NO son secretos — son identificadores públicos del
+# flujo OAuth public-client (viajan al browser igual). No se usa client_secret
+# (token delegado del usuario). Por eso es seguro dejar defaults; overridear por
+# entorno solo para apuntar a otro tenant/app.
 AZURE_CLIENT_ID  = _env("AZURE_CLIENT_ID", "Ad98b5cd-71d0-451f-8d70-e8581a4788fa")
 AZURE_TENANT_ID  = _env("AZURE_TENANT_ID", "f287b953-5428-4a5e-ae17-bd9c4cfaedbe")
 TITLE_CONTEXT    = _env("DANWOR_TITLE_CONTEXT", "ON").upper() # ON vs OFF → el asistente usa el jobTitle como contexto
@@ -119,6 +121,11 @@ TITLE_CONTEXT    = _env("DANWOR_TITLE_CONTEXT", "ON").upper() # ON vs OFF → el
 # También acepta mails completos si algún caso lo requiere.
 ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
 AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("@")
+
+# Secreto para firmar la cookie de sesión de la webapp (FastAPI). En producción
+# definir SESSION_SECRET por entorno; el default solo sirve para desarrollo.
+SESSION_SECRET   = _env("SESSION_SECRET", "danwor-copiloto-dev-secret-cambiar-en-produccion")
+SESSION_MAX_AGE  = int(_env("SESSION_MAX_AGE", "28800"))  # 8 horas en segundos
 
 # Logging liviano de adopción inicial.
 # OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios.

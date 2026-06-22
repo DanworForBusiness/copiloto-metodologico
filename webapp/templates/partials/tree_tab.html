@@ -1,0 +1,31 @@
+<div id="tree-tab-panel" class="tree-tab-panel">
+  {% if trees %}
+  <form
+    class="tree-picker"
+    hx-post="/modules/{{ document.summary.stem }}/trees/start"
+    hx-target="#tree-tab-panel"
+    hx-swap="outerHTML"
+  >
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <label for="tree-selector">Árbol de decisión</label>
+    <div class="tree-picker-row">
+      <select id="tree-selector" name="tree_id" required onchange="if(this.value) this.form.requestSubmit()">
+        <option value="">Elegí un árbol...</option>
+        {% for tree in trees %}
+        <option value="{{ tree.id }}" {% if tree.id == selected_tree_id %}selected{% endif %}>{{ tree.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+  {% if run %}
+    {% include "partials/wizard.html" %}
+  {% else %}
+  <div class="tool-empty">
+    <span>{{ trees|length }} árboles disponibles</span>
+    <p>Elegí el árbol que mejor representa la decisión que necesitás resolver.</p>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="tool-empty"><p>No hay árboles asociados a este módulo.</p></div>
+  {% endif %}
+</div>

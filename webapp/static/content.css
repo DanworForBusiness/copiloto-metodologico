@@ -1,0 +1,40 @@
+.callout {
+  --callout-accent: #8b95a5;
+  position: relative;
+  margin: 18px 0;
+  padding: 20px 22px;
+  border: 1px solid color-mix(in srgb, var(--callout-accent) 30%, transparent);
+  border-left: 3px solid var(--callout-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--callout-accent) 9%, var(--card));
+  overflow: hidden;
+}
+.callout--success { --callout-accent: #22a85a; }
+.callout--punch { --callout-accent: #d3a000; }
+.callout--warn { --callout-accent: #d64c5f; }
+.callout__head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.callout__icon { font-size: 1.35rem; line-height: 1; }
+.callout__title { color: var(--ink); font-size: .95rem; font-weight: 800; line-height: 1.25; }
+.callout__body { color: var(--soft); }
+.callout__body p { margin: 0 0 10px; color: inherit; }
+.callout__body p:last-child { margin-bottom: 0; }
+.callout-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.callout-list li { position: relative; padding-left: 19px; color: inherit; }
+.callout-list li::before { content: "✓"; position: absolute; left: 0; color: var(--callout-accent); font-weight: 800; }
+.callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
+.callout-row .callout { height: 100%; margin: 0; }
+@media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
+
+/* Reveal sutil del contenido metodologico. El panel conserva el layout completo:
+   solo cambian opacidad y transform, por lo que anchors y lazy embeds no saltan. */
+.content-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .48s cubic-bezier(.22,.61,.36,1), transform .48s cubic-bezier(.22,.61,.36,1);
+  will-change: opacity, transform;
+}
+.content-reveal.is-visible { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .content-reveal { opacity: 1; transform: none; transition: none; will-change: auto; }
+}

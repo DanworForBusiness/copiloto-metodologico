@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c0c0d">
+  <title>Copiloto Metodológico · Danwor</title>
+  <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='brand-hero.css') }}">
+</head>
+<body>
+  <!-- Fondo animado compartido (verbatim del sitio de marca) -->
+  <div class="hero-bg" aria-hidden="true">
+    <div class="hero-gradient"></div>
+    <div class="hero-grid"></div>
+    <img class="hero-circuit" src="{{ url_for('static', path='brand/hero-circuit.svg') }}" alt="">
+    <canvas class="hero-particles"></canvas>
+    <div class="hero-grain"></div>
+  </div>
+
+  <!-- Pantalla 1 — Intro: logo + cue scroll -->
+  <section class="screen" id="intro">
+    <img class="intro-logo" src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor — Data & AI for Business">
+    <p class="intro-eyebrow"><span class="ink">Copiloto Metodológico</span> · <span class="gold">Arquitecto Danwor</span></p>
+    <button class="hero-scroll" type="button" aria-label="Ingresar">
+      <span>scroll para ingresar</span>
+      <span class="hero-scroll-line"></span>
+    </button>
+  </section>
+
+  <!-- Pantalla 2 — Acceso: panel de marca + login, sobre el mismo fondo -->
+  <section class="screen" id="acceso">
+    <div class="access-grid">
+      <div class="glass access-brand">
+        <p class="kicker">Data &amp; AI for Business</p>
+        <h1>Copiloto Metodológico<span>Arquitecto Danwor</span></h1>
+        <p>Un entorno guiado para recorrer nuestro marco metodológico, consultar decisiones técnicas y acelerar entregables con criterio arquitectónico y mirada Danwor.</p>
+        <ul class="access-list">
+          <li><span class="access-check">&#10003;</span>Marco metodológico navegable</li>
+          <li><span class="access-check">&#10003;</span>Árboles de decisión y asistencia IA</li>
+          <li><span class="access-check">&#10003;</span>Criterios técnicos para proyectos SAP</li>
+        </ul>
+      </div>
+
+      <div class="glass access-login">
+        <h2>¡Hola, bienvenido!</h2>
+        <p class="sub">Copiloto Metodológico · Arquitecto Danwor<br>SAP Datasphere · BDC-Ready · Inteligencia metodológica</p>
+        <button id="microsoft-login-btn" class="login-action" type="button"
+                data-home="{{ home_url }}" onclick="loginWithMicrosoft(event)">
+          Ingresar con tu cuenta Danwor
+        </button>
+        <div class="login-note">Autenticación segura vía dominio @danwor.com · Microsoft 365</div>
+        <div id="login-message" class="login-error hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="auth-overlay" aria-hidden="true"><span class="auth-spinner"></span>Completando acceso…</div>
+
+  <script src="{{ url_for('static', path='brand-hero.js') }}"></script>
+  <script src="{{ url_for('static', path='auth.js') }}"></script>
+</body>
+</html>

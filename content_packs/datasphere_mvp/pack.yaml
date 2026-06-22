@@ -1,5 +1,5 @@
 name: datasphere_mvp
 label: SAP Datasphere MVP
-short_label: MVP Datasphere
+short_label: Datasphere
 content_modules: 00, 01, 02, 03, 04, 05
 description: Marco metodologico actual basado en SAP Datasphere / BDC-Ready.

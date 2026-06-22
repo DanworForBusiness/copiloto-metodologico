@@ -15,7 +15,7 @@ key_topics:
     heading: "Performance en Reporting"
   - id: checklist
     label: Checklist
-    heading: "✅ Checklist de Reporting"
+    heading: "Checklist de Reporting"
 scope: |
   Cubre la estrategia de consumo y reporting sobre SAP Datasphere: comparativa
   de herramientas (SAC, Power BI, BusinessObjects), modos de conexión para
@@ -179,7 +179,7 @@ La performance del reporting depende de decisiones tomadas desde el modelo, no s
 Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.
 {{/callout}}
 
-## ✅ Checklist de Reporting
+## Checklist de Reporting
 {{section_meta: keywords="checklist reporting, lista verificación reporting, checklist consumo, revisión reporting, buenas practicas reporting, puntos control reporting, verificar herramienta, verificar conexión, verificar performance, checklist Power BI datasphere, checklist SAC datasphere"}}
 
 | Item | Pregunta de control |

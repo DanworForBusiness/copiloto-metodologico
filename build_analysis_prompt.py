@@ -27,7 +27,8 @@ import yaml
 
 BASE_DIR  = Path(__file__).parent
 CASE_DIR  = BASE_DIR / "case_library"
-TREES_DIR = BASE_DIR / "trees"
+# Fuente canónica: los árboles viven en el content pack (las carpetas raíz se retiraron).
+TREES_DIR = BASE_DIR / "content_packs" / "datasphere_mvp" / "trees"
 
 
 # =========================================================

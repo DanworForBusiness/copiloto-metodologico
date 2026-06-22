@@ -1,0 +1,250 @@
+{
+  "01_Arquitectura_y_Conectividad||cloud connector status reachable pero ABAP SQL service da 503": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección en 03 · Integración y Estrategia de Datos:** Integración Legacy vs. Moderna\n- **Biblioteca de referencia:** How-to Danwor: Configurar Datasphere con Cloud Connector",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "How-to Danwor: Configurar Datasphere con Cloud Connector",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Integración Legacy vs. Moderna"
+    }
+  },
+  "01_Arquitectura_y_Conectividad||cuál es la diferencia entre DP agent y cloud connector": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección en 03 · Integración y Estrategia de Datos:** Integración Legacy vs. Moderna\n- **Biblioteca de referencia:** How-to Danwor: Configurar Datasphere con Cloud Connector",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "How-to Danwor: Configurar Datasphere con Cloud Connector",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Integración Legacy vs. Moderna"
+    }
+  },
+  "01_Arquitectura_y_Conectividad||cómo distribuyo la quota de memoria y disk entre tenants": {
+    "chat_assistant": "Encontré una sección del módulo que puede ayudarte: **Configuración de Espacios**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Configuración de Espacios",
+      "module": null
+    }
+  },
+  "01_Arquitectura_y_Conectividad||error ORA-12541 en conexión SDA hacia tabla remota": {
+    "chat_assistant": "Encontré una sección del módulo que puede ayudarte: **Referencias de Arquitectura**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Referencias de Arquitectura",
+      "module": null
+    }
+  },
+  "01_Arquitectura_y_Conectividad||federación vs persistencia, cuál conviene conceptualmente": {
+    "chat_assistant": "Este tema parece estar cubierto con más precisión en el módulo **03 · Integración y Estrategia de Datos**, sección **Federación vs. Persistencia**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Federación vs. Persistencia",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    }
+  },
+  "01_Arquitectura_y_Conectividad||necesito definir roles y DAC para seguridad de datos": {
+    "chat_assistant": "Encontré un recurso de la biblioteca de referencias en **02 · Seguridad y Gobernanza**: **Template Danwor de Seguridad, Roles y DAC**. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Template Danwor de Seguridad, Roles y DAC"
+    }
+  },
+  "01_Arquitectura_y_Conectividad||qué te parece el clima de hoy en buenos aires": {
+    "chat_assistant": null,
+    "outcome": "_pending_classify",
+    "salient": {}
+  },
+  "01_Arquitectura_y_Conectividad||¿cuántos espacios y qué topología de espacios uso en datasphere?": {
+    "chat_assistant": "Encontré una sección del módulo que puede ayudarte: **Espacios & Transportes**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Espacios & Transportes",
+      "module": null
+    }
+  },
+  "02_Seguridad_y_Gobernanza||contame un chiste de programadores": {
+    "chat_assistant": null,
+    "outcome": "_pending_classify",
+    "salient": {}
+  },
+  "02_Seguridad_y_Gobernanza||cómo configuro espacios y transporte DEV QA PRD": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección en 01 · Arquitectura y Conectividad:** Espacios & Transportes\n- **Biblioteca de referencia:** How-to Danwor: Transportar desde Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "How-to Danwor: Transportar desde Datasphere",
+      "module": "01_Arquitectura_y_Conectividad",
+      "section_heading": "Espacios & Transportes"
+    }
+  },
+  "02_Seguridad_y_Gobernanza||diferencia entre roles estándar y roles custom": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Seguridad de Roles\n- **Biblioteca de referencia:** Template Danwor de Seguridad, Roles y DAC",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template Danwor de Seguridad, Roles y DAC",
+      "module": "02_Seguridad_y_Gobernanza",
+      "section_heading": "Seguridad de Roles"
+    }
+  },
+  "02_Seguridad_y_Gobernanza||qué tipo de DAC uso para row level security por usuario": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Seguridad de Datos (DAC)\n- **Biblioteca de referencia:** Template Danwor de Seguridad, Roles y DAC",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template Danwor de Seguridad, Roles y DAC",
+      "module": "02_Seguridad_y_Gobernanza",
+      "section_heading": "Seguridad de Datos (DAC)"
+    }
+  },
+  "02_Seguridad_y_Gobernanza||restringir acceso por jerarquía organizacional y centro de costos": {
+    "chat_assistant": "Encontré un árbol de decisión que puede guiarte: **Seguridad DAC**. ¿Cómo preferís continuar?",
+    "outcome": "_tree_suggestion",
+    "salient": {
+      "title": "Seguridad DAC"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||cuánto sale una licencia de datasphere en dólares": {
+    "chat_assistant": "Encontré un recurso de la biblioteca de referencias en **A04 · Biblioteca de Referencias**: **SAP Help oficial de SAP Datasphere**. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "SAP Help oficial de SAP Datasphere"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||cómo decido entre federación o persistencia para la integración": {
+    "chat_assistant": "Encontré un recurso de la biblioteca de referencias en **A04 · Biblioteca de Referencias**: **Nota SAP 3509695: Integracion SAP IBP con Datasphere**. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Nota SAP 3509695: Integracion SAP IBP con Datasphere"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||diferencia entre ODP-SAPI y ODP-CDS para extractores": {
+    "chat_assistant": "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||explicame la coexistencia entre HANA db y HDLF": {
+    "chat_assistant": null,
+    "outcome": "_pending_classify",
+    "salient": {}
+  },
+  "03_Integracion_y_Estrategia_de_Datos||extractor 0CUSTOMER_ATTR no aparece en ODQMON tras whitelisteo": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Estrategia de Extracción\n- **Biblioteca de referencia:** SAP Help: Check ODQMON for Replication Flow issues | Verificar ODQMON para problemas de Replication Flow",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "SAP Help: Check ODQMON for Replication Flow issues | Verificar ODQMON para problemas de Replication Flow",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Estrategia de Extracción"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué es ODP y cómo extrae datos de SAP": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Estrategia de Extracción\n- **Biblioteca de referencia:** Template CDS DDIC-based para extracción hacia SAP Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Estrategia de Extracción"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué es clean core y cómo afecta la extracción": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Clean Core aplicado a extracción\n- **Biblioteca de referencia:** Template CDS DDIC-based para extracción hacia SAP Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Clean Core aplicado a extracción"
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué tipo semántico uso, fact o dimension": {
+    "chat_assistant": "Encontré un recurso de la biblioteca de referencias en **04 · Modelado y Desarrollo**: **Template CDS para extracción hacia SAP Datasphere**. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Template CDS para extracción hacia SAP Datasphere"
+    }
+  },
+  "04_Modelado_y_Desarrollo||SAP note 3534086 compatibilidad CDC SAP_BASIS 7.56 falla": {
+    "chat_assistant": "Este tema parece estar cubierto con más precisión en el módulo **03 · Integración y Estrategia de Datos**, sección **Template de Extracción vía API Corporativa**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Template de Extracción vía API Corporativa",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    }
+  },
+  "04_Modelado_y_Desarrollo||cuál es la convención de nombres de objetos en datasphere": {
+    "chat_assistant": "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Template CDS para extracción hacia SAP Datasphere"
+    }
+  },
+  "04_Modelado_y_Desarrollo||cómo escribo una vista CDS DDIC para extracción ODP con delta": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección en 03 · Integración y Estrategia de Datos:** Tipos de Vistas CDS\n- **Biblioteca de referencia:** Template CDS para extracción hacia SAP Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template CDS para extracción hacia SAP Datasphere",
+      "module": "03_Integracion_y_Estrategia_de_Datos",
+      "section_heading": "Tipos de Vistas CDS"
+    }
+  },
+  "04_Modelado_y_Desarrollo||cómo modelo por capas ingesta armonización propagación consumo": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Evolución de Arquitectura por Capas\n- **Biblioteca de referencia:** Template Danwor de Seguridad, Roles y DAC",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template Danwor de Seguridad, Roles y DAC",
+      "module": "04_Modelado_y_Desarrollo",
+      "section_heading": "Evolución de Arquitectura por Capas"
+    }
+  },
+  "04_Modelado_y_Desarrollo||cómo organizo espacios y transporte entre DEV QA PRD": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección en 01 · Arquitectura y Conectividad:** Espacios & Transportes\n- **Biblioteca de referencia:** How-to Danwor: Transportar desde Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "How-to Danwor: Transportar desde Datasphere",
+      "module": "01_Arquitectura_y_Conectividad",
+      "section_heading": "Espacios & Transportes"
+    }
+  },
+  "04_Modelado_y_Desarrollo||dump RUNTIME_ERROR al activar la vista CDS en el sistema S4HANA": {
+    "chat_assistant": "Tengo un recurso técnico que puede ayudarte. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "Template CDS para extracción hacia SAP Datasphere"
+    }
+  },
+  "04_Modelado_y_Desarrollo||necesito mantener los datos actualizados con delta incremental, puntero delta": {
+    "chat_assistant": "Encontré un recurso de la biblioteca de referencias en **A04 · Biblioteca de Referencias**: **SAP Help: DATA_NOT_READY Troubleshooting in Replication Flows | Resolución de DATA_NOT_READY en flujos de replicación**. ¿Querés verlo?",
+    "outcome": "_asset_suggestion",
+    "salient": {
+      "asset": "SAP Help: DATA_NOT_READY Troubleshooting in Replication Flows | Resolución de DATA_NOT_READY en flujos de replicación"
+    }
+  },
+  "04_Modelado_y_Desarrollo||qué tipo de vista SQL uso, gráfica o SQLScript o table function": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Tipos de Vistas SQL\n- **Biblioteca de referencia:** Template CDS para extracción hacia SAP Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "Template CDS para extracción hacia SAP Datasphere",
+      "module": "04_Modelado_y_Desarrollo",
+      "section_heading": "Tipos de Vistas SQL"
+    }
+  },
+  "05_Reporting_y_Consumo||qué es un analytical dataset en la capa de consumption": {
+    "chat_assistant": "Este tema parece estar cubierto con más precisión en el módulo **04 · Modelado y Desarrollo**, sección **Tipos y Uso Semántico**. ¿Cómo preferís continuar?",
+    "outcome": "_section_suggestion",
+    "salient": {
+      "heading": "Tipos y Uso Semántico",
+      "module": "04_Modelado_y_Desarrollo"
+    }
+  },
+  "05_Reporting_y_Consumo||qué herramienta de reporting uso para consumir datasphere": {
+    "chat_assistant": "Encontré varias opciones que pueden ayudarte. ¿Cómo preferís continuar?\n\n- **Sección del módulo:** Estrategia de Reporting\n- **Biblioteca de referencia:** SAP Help oficial de SAP Datasphere",
+    "outcome": "_asset_section_suggestion",
+    "salient": {
+      "asset": "SAP Help oficial de SAP Datasphere",
+      "module": "05_Reporting_y_Consumo",
+      "section_heading": "Estrategia de Reporting"
+    }
+  },
+  "05_Reporting_y_Consumo||recomendame una serie para ver el fin de semana": {
+    "chat_assistant": null,
+    "outcome": "_pending_classify",
+    "salient": {}
+  }
+}

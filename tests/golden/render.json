@@ -1,0 +1,976 @@
+{
+  "00_Intro": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"danwor-for-business\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[01]</span><span><span class=\"dw-heading-tone--black\">Danwor </span><span class=\"dw-heading-tone--gold\">For Business</span></span><a class=\"dw-md-anchor\" href=\"#danwor-for-business\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Dos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia, conjuntamente con capacidades de analítica predictiva end-to-end.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"nuestro-punto-de-partida\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[02]</span><span><span class=\"dw-heading-tone--black\">Nuestro punto de </span><span class=\"dw-heading-tone--gold\">partida</span></span><a class=\"dw-md-anchor\" href=\"#nuestro-punto-de-partida\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"roadmap-de-implementacion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[03]</span><span><span class=\"dw-heading-tone--black\">Roadmap de </span><span class=\"dw-heading-tone--gold\">Implementación</span></span><a class=\"dw-md-anchor\" href=\"#roadmap-de-implementacion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAytk_-d4X1SaNH2Mod9huSAQ8YtXkNJVsfymB8r8MnLmA?e=9p5yyd&amp;nav=eyJzSWQiOjUyNSwiY0lkIjoxOTE2NzY4MzkzfQ\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Apendice EA\">👨🏻‍🏫 Apendice EA</a></div>"
+    ]
+  ],
+  "01_Arquitectura_y_Conectividad": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"referencias-de-arquitectura\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[04]</span><span><span class=\"dw-heading-tone--black\">Referencias de </span><span class=\"dw-heading-tone--gold\">Arquitectura</span></span><a class=\"dw-md-anchor\" href=\"#referencias-de-arquitectura\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc\">Patrones de integración entre sistemas de origen y SAP Datasphere, clasificados por tipo de fuente y mecanismo de carga. Hacé click en un escenario para destacarlo en el diagrama.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"coexistencia-de-paradigmas\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[05]</span><span><span class=\"dw-heading-tone--black\">Coexistencia de </span><span class=\"dw-heading-tone--gold\">Paradigmas</span></span><a class=\"dw-md-anchor\" href=\"#coexistencia-de-paradigmas\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">HANA DB y HDLF (HANA Data Lake Files) comparten la plataforma, pero tienen reglas distintas de ciclo de vida, modelado y gobernanza. El marco Danwor está diseñado para operar en ambos y evolucionar entre ellos</p>\n\n| HANA Database >> 📌 lo que construimos hoy | HDLF - Object Store >> BDC-Ready 📌 |\n|---|---|\n| Objetos Transportables (vistas, flujos, modelos, tablas)  | Datos como archivos físicos (Parquet, Delta tables) |\n| Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |\n| DEV-> QA-> PRD via transportes | Sin DEV-> QA-> PRD en storage |\n| Cross-Sharing nativo hacia espacios de negocio | Spark como motor de transformación |\n| Capas: Ingesta, Armonizacion, Propagacion y Reporting | Capas: Bronze, Silver, Gold via Transformation Flows |"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"espacios-transportes\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[06]</span><span><span class=\"dw-heading-tone--black\">Espacios &amp; </span><span class=\"dw-heading-tone--gold\">Transportes</span></span><a class=\"dw-md-anchor\" href=\"#espacios-transportes\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc\">En Arquitectura Datasphere / BDC. Seleccioná el modelo de tenancy para explorar la topología de espacios y el flujo de transporte DEV → QA → PRD.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"configuracion-de-espacios\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[07]</span><span><span class=\"dw-heading-tone--black\">Configuración de </span><span class=\"dw-heading-tone--gold\">Espacios</span></span><a class=\"dw-md-anchor\" href=\"#configuracion-de-espacios\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nUna configuración correcta del espacio desde el inicio evita problemas de rendimiento, transporte y consumo externo.\n\n| Parámetro | Recomendación Danwor | Razón |\n|---|---|---|\n| **Space Quota** | Dimensionar por caso — no usar valor genérico | La quota impacta directamente en el sizing del tenant; ajustar post-PoC |\n| **Source Language** | Definir explícitamente (ej: Spanish) | Datasphere es multi-idioma; los objetos semánticos importados se interpretan según el idioma del espacio destino |\n| **Nombre de Conexiones** | Usar nombres funcionales y estables: `S4`, `ECC`, `BW` (evitar codificar el ambiente, ej: `S4DEV`) | El ambiente ya queda implícito por el espacio y por los parámetros técnicos de la conexión (application server/endpoint). El criterio busca estandarización y evitar redundancia, no resolver una limitación de transporte |\n| **Time Data Dimension** | Configurar en el espacio antes de crear modelos | Habilita el soporte nativo de dimensiones de tiempo en vistas analíticas |\n| **Schema Users** | Crear usuarios de base de datos a nivel espacio para consumo externo (ej: Power BI) | Los schema users están sujetos a DAC; requeridos para conexiones DirectQuery desde herramientas externas |"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"ratio-orientativo-de-distribucion-de-quota\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Ratio orientativo de distribución de quota</span><a class=\"dw-md-anchor\" href=\"#ratio-orientativo-de-distribucion-de-quota\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nLa quota de espacios debe dimensionarse contra la capacidad total del tenant, no como valor fijo por espacio. Como regla de trabajo, partir de una distribución porcentual ayuda a reservar capacidad para ambientes, operación y crecimiento.\n\nDefinir:\n\n- `D` = capacidad total de Disk / In-Memory Storage del tenant\n- `M` = capacidad total de Memory del tenant\n- `N` = cantidad de espacios funcionales o de dominio\n\n| Tipo de espacio | Disk sugerido | Memory sugerida | Criterio |\n|---|---:|---:|---|\n| **DEV / Desarrollo** | `D x 10%` | `M x 10%` | Desarrollo, pruebas unitarias y primeros modelos |\n| **QA / Calidad** | `D x 20%` | `M x 20%` | Validación, pruebas integradas y regresión |\n| **PRD / Producción** | `D x 25%` | `M x 25%` | Operación productiva y consumo estable |\n| **Espacios de dominio / negocio** | `(D x 35%) / N` | `(M x 25%) / N` | Distribución por dominio, área o producto de datos |\n| **Reserva tenant** | No asignar inicialmente | No asignar inicialmente | Margen para crecimiento, performance tuning y contingencia |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Los porcentajes son un punto de partida metodológico. Deben ajustarse según volumen real, criticidad, persistencia, concurrencia, estrategia de federación y evolución post-PoC.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"checklist-de-configuracion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[08]</span><span>🌟 Checklist de Configuración</span><a class=\"dw-md-anchor\" href=\"#checklist-de-configuracion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nOrientativo para revisar que la configuración base del proyecto esté completa antes de avanzar al modelado:\n\n| Item | Pregunta de control |\n|---|---|\n| **Ambientes** | ¿Definiste espacios DEV / QA / PRD? |\n| **Source Language** | ¿Configuraste el idioma del espacio (Source Language)? |\n| **Space Quota** | ¿Alocaste cuota de almacenamiento (Space Quota)? |\n| **Schema Users** | ¿Definiste usuarios a nivel espacio/schema para consumo externo? |\n| **Time Data** | ¿Configuraste la dimensión de Time Data? |\n| **Conexiones** | ¿Usaste nombres funcionales y estables, evitando codificar DEV/QA/PRD en el nombre técnico? |\n| **Cross-Sharing** | ¿Alineaste la estrategia de Cross-Sharing y gobierno de datos? |\n| **Transporte** | ¿Definiste la estrategia de transporte entre ambientes? |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Momento recomendado</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Este checklist es más efectivo al cierre del setup inicial (antes del primer modelo analítico) y en las revisiones de arquitectura de proyecto. Un ítem sin marcar a tiempo puede implicar trabajo de refactor en etapas avanzadas.</p></div>\n</div>"
+    ]
+  ],
+  "02_Seguridad_y_Gobernanza": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"seguridad-de-roles\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[09]</span><span>Seguridad de Roles</span><a class=\"dw-md-anchor\" href=\"#seguridad-de-roles\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc\">A la fecha, no existe práctica recomendada por SAP respecto al uso directo de los objetos de seguridad estándar vs. la creación de un marco propio apoyado en el estándar. Dado que ambos casos de uso podrían ser técnicamente válidos, detallamos sus virtudes y desventajas.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"seguridad-de-datos-dac\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[10]</span><span>Seguridad de Datos (DAC)</span><a class=\"dw-md-anchor\" href=\"#seguridad-de-datos-dac\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "\nSAP Datasphere soporta seguridad a nivel fila y columna vía **Data Access Control (DAC)**. Con Business Data Cloud (BDC) se prevé integración de seguridad nativa cross-system, aunque aún no está disponible en todas las versiones."
+    ],
+    [
+      "markdown",
+      "\nExisten tres tipos de estructuras de permisos. La elección depende de cómo se organiza el acceso en el cliente:\n\n| Tipo | Descripción | Cuándo usarlo |\n|---|---|---|\n| **Valores Individuales** | Asignación directa de valores fijos por usuario (ej: `SalesOrg = AR01`) | Accesos estáticos o de baja frecuencia de cambio. Ideal para PoC y MVP |\n| **Operadores y Valores** | Reglas con condiciones lógicas: rangos, \"mayor que\", \"contiene\", combinaciones | Accesos con lógica condicional o rangos de valores (ej: períodos, montos) |\n| **Jerarquía** | El acceso se hereda por niveles de una estructura jerárquica (ej: organigrama, centros de costo) | Modelos de acceso donde el padre da acceso a todos sus hijos en la jerarquía |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--note\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔹</span>\n    <span class=\"dw-callout__title\">Valores Individuales</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>El punto de partida más seguro. Simple de configurar, auditable, y suficiente para la mayoría de los escenarios en fase de proyecto.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">⚙️</span>\n    <span class=\"dw-callout__title\">Operadores y Valores</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Ideal cuando los accesos tienen lógica de negocio: rangos de período, umbrales monetarios, o combinaciones de condiciones por área.</p></div>\n</div></div>\n</div>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Jerarquía</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>El tipo más potente para estructuras organizacionales. El acceso al nodo padre propaga automáticamente a todos los descendientes.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"seguridad-como-extension-del-diseno-de-dominios\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[11]</span><span>Seguridad como extensión del diseño de dominios</span><a class=\"dw-md-anchor\" href=\"#seguridad-como-extension-del-diseno-de-dominios\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔒</span>\n    <span class=\"dw-callout__title\">Principio Danwor — Seguridad desde el diseño</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>La seguridad bien diseñada no debería retrasar al negocio, sino garantizar que los datos sean un activo confiable.</p><p>Definir claramente roles, responsabilidades y controles de acceso <strong>derivados del diseño de dominios y data products</strong> asegura que las decisiones estratégicas se apoyen en información íntegra, protegida y gobernada.</p></div>\n</div>"
+    ],
+    [
+      "markdown",
+      "\nEl modelo de seguridad no es un paso posterior al modelado: se deriva de él. Cada dominio y data product definidos a nivel conceptual tienen implicancias directas sobre:\n\n- **¿Quién puede ver qué?** — Roles y permisos a nivel espacio y objeto\n- **¿Con qué granularidad?** — DAC a nivel fila/columna según la sensibilidad del dato\n- **¿Bajo qué condiciones?** — Reglas dinámicas alineadas a la estructura organizacional del cliente"
+    ]
+  ],
+  "03_Integracion_y_Estrategia_de_Datos": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"modelo-de-integracion-danwor\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[12]</span><span><span class=\"dw-heading-tone--black\">Modelo de Integración </span><span class=\"dw-heading-tone--gold\">Danwor</span></span><a class=\"dw-md-anchor\" href=\"#modelo-de-integracion-danwor\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">La integración se define por el contrato de datos, no por la tecnología.</p>\n\n  - Toda integración se expone como una API\n  - Nunca se consumen tablas como contrato\n  - Se separa API funcional SAP (CDS estándar) de API Corporativa (CDS integración)\n  - El contrato de datos tiene un dueño. Ese dueño define su alcance, ciclo de vida y compatibilidad:"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Una API de integración no siempre debe resolver todo: Puede cubrir uno o más de estos roles:</p>\n\n  - Extracción (delta / CDC)\n  - Contrato de datos\n  - Enriquecimiento"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🛡️</span>\n    <span class=\"dw-callout__title\">Contrato Propio</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a pertenecer al cliente.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"contrato-de-datos-vs-data-product\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[13]</span><span><span class=\"dw-heading-tone--black\">Contrato de Datos vs. </span><span class=\"dw-heading-tone--gold\">Data Product</span></span><a class=\"dw-md-anchor\" href=\"#contrato-de-datos-vs-data-product\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">En el modelo Danwor, ambos conceptos se utilizan de forma equivalente en el contexto de consumo.</p>\n\n  - El contrato de datos define estructura, semantica y reglas de acceso \t**¿Qué prometemos entregar?**\n  - El Data Product representa su materialización lista para ser consumida\t**¿Cómo lo entregamos?**"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"data-products\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Data Products:</span><a class=\"dw-md-anchor\" href=\"#data-products\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">El resultado del modelo de integración es la construcción de Data Products gobernados, reutilizables y orientados a negocio</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🤝</span>\n    <span class=\"dw-callout__title\">Contrato Propio</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>En la práctica, el Data Product es el contrato de datos expuesto al negocio.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"arquitectura-de-integracion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[14]</span><span><span class=\"dw-heading-tone--black\">Arquitectura de </span><span class=\"dw-heading-tone--gold\">Integración</span></span><a class=\"dw-md-anchor\" href=\"#arquitectura-de-integracion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253840.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help DP Agent\">🔗 DP Agent</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help Cloud Connector\">🔗 Cloud Connector</a></div>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc\">En escenarios de origen S/4HANA (*) donde no solo se elimina el DP Agent, se desacopla el canal y el procesamiento. Para escenarios de origen ECC o cuando el DP Agent cumple un rol de integración crítico o única opción → ver slide legacy.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔗</span>\n    <span class=\"dw-callout__title\">Federación via Cloud Connector</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Esta capacidad requiere ABAP 2021 FPS01 o superior, donde el servicio ABAP SQL se encuentra disponible de acuerdo a la nota SAP 3691070</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🖥️</span>\n    <span class=\"dw-callout__title\">Federación via DP Agent</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>El movimiento de datos puede resolverse tanto on-premise (donde el cliente provisiona un servidor propio) como RISE (donde lo provisiona SAP si existe un acuerdo comercial/instancia en el contrato)</p></div>\n</div></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"estrategia-de-extraccion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[15]</span><span><span class=\"dw-heading-tone--black\">Estrategia de </span><span class=\"dw-heading-tone--gold\">Extracción</span></span><a class=\"dw-md-anchor\" href=\"#estrategia-de-extraccion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nLa estrategia de integración no es la misma si el origen de los datos es ECC, S/4HANA o si el proyecto en el que estamos trabajando busca modernizar un BW existente. Te ayudamos a identificar los distintos mecanismos de extracción y su implementación a través de un **árbol determinístico** de decisión guiada."
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"tipos-de-vistas-cds\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[16]</span><span><span class=\"dw-heading-tone--black\">Tipos de </span><span class=\"dw-heading-tone--gold\">Vistas CDS</span></span><a class=\"dw-md-anchor\" href=\"#tipos-de-vistas-cds\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help CDS Entity\">🔗 CDS Entity</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&amp;version=LATEST#loioe3a611dc5f25472481a9cf4ad5066ba4\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help CDS DDIC-based\">🔗 CDS DDIC-based</a></div>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP (modernización por sobre legado), hay consideraciones importantes en nuestro contexto metodológico de cara a la extracción y framework ODP por los cuales inclusive SAP continúa apoyándose en CDS DDIC-based para sus propias API de extracción liberadas.</p>\n\n| Aspecto | CDS View Entity<br>(DDL Moderno) | CDS DDIC-based View<br>(DDIC Clásico) |\n|---|---|---|\n| **Naturaleza** | Modelo moderno ABAP CDS | Modelo clásico basado en DDIC |\n| **SQL View** | ❌ No requiere | ✅ Requiere (`@AbapCatalog.sqlViewName`) |\n| **Integración ABAP** | Alta (RAP, OData, Fiori) | Alta (frameworks legacy/estables) |\n| **Capacidad DDL** |Avanzadas | Estándar |\n| **Dependencia DDIC** | Baja | Alta |\n| **Uso típico SAP** | Desarrollo moderno | Extracción / integración |\n| **Compatibilidad** | Depende del release | Amplia entre releases |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">El tipo de vista no es una decisión de modernidad, sino de propósito. Elegir mal tiene consecuencias en compatibilidad ODP diseño SAP.</p>\n\n| Propósito Técnico | Tipo de Vista CDS |\n|---|---|\n| RAP/OData/Fiori | View Entity |\n| Virtual Data Model (VDM) | View Entity |\n| Integración Técnica | DDIC-based |\n| Extracción de Datos | DDIC-based |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Señal Arquitectónica</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: sino una decisión técnica deliberada.</p></div>\n</div>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Postura Danwor: para extractores ODP-CDS orientados a Datasphere, usar CDS DDIC-based como patrón conservador por compatibilidad amplia y porque muchas CDS estándar liberadas para extracción siguen ese modelo. Usar `define view entity` solo si el release ABAP/SAP, la nota aplicable y el mecanismo de consumo confirman soporte para ese escenario.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"template-de-extraccion-via-api-corporativa\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[17]</span><span><span class=\"dw-heading-tone--black\">Template de Extracción vía </span><span class=\"dw-heading-tone--gold\">API Corporativa</span></span><a class=\"dw-md-anchor\" href=\"#template-de-extraccion-via-api-corporativa\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Template CDS DDIC\">📄 CDS DDIC</a><a class=\"dw-md-pill\" href=\"https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Template CDS View Entity\">📄 CDS Entity</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help CDS Annotations\">🔗 CDS Annotations</a><a class=\"dw-md-pill\" href=\"https://me.sap.com/notes/3534086\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Nota SAP\">📝 Nota SAP</a></div>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Una vez identificada y validada la fuente de extracción según los criterios de evaluación, se implementa una CDS como API corporativa hacia Datasphere, utilizando CDS DDIC-based como mecanismo alineado al stack SAP y el marco ODP.</p>\n\n| Anotación | Proposito |\n|---|---|\n| **@Analytics.dataExtraction.enabled** | Habilita la vista CDS para extracción vía ODP |\n| **@Analytics.dataExtraction.delta.byElement** | Define el campo lógico como puntero delta (extractor clásico) (usar solo si no se implementa CDC) (*1) | \n| **@Analytics.dataExtraction.delta.changeDataCapture** | Habilita CDC automático o manual (sujeto a compatibilidad de release y tipo de CDS) (*1) | \n| **@AccessControl.authorizationCheck:** | #NOT_REQUIRED > El control de acceso se gestiona desde Datasphere | \n| **@Analytics.dataCategory: #XXX** | Define el tipo semántico de objetos transaccionales o dimensionales (#FACT, #DIMENSION). ODP genera sufijos: $F | $P |\n| **@ObjectModel.dataCategory: #X** | #S (<1000), #M (<100,000), #L (<10,000,000), #XL (<100,000,000), #XXL (>= 100M) |\n| **@ObjectModel.supportedCapabilities:** | #EXTRACTION_DATA_SOURCE > No habilita funcionalidad, sino metadata declarativa/capability |\n| **@ObjectModel.usageType.sizeCategory** | Define el tipo semántico de objetos de texto o jerarquia (#TEXT, #HIERARCHY). ODP genera sufijos: $T | $H |\n| **@OData.publish: false** | Desactiva servicios Odata (no requeridos para uso en SAP Datasphere) (*2) |\n\n<p class=\"dw-hero-desc\">📌Tip! No forma parte del template, pero en casos donde NO se quiera heredar anotaciones de las capas inferiores: @Metadata.ignorePropagatedAnnotations: true</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">CDC Avanzado</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_BASIS (&gt;= 7.56) y no está garantizado en todos los escenarios de extracción. Para mas información ver Nota SAP 3534086</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"clean-core-aplicado-a-extraccion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Clean Core aplicado a extracción</span><a class=\"dw-md-anchor\" href=\"#clean-core-aplicado-a-extraccion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a><a class=\"dw-md-pill\" href=\"https://me.sap.com/notes/2232584\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Nota SAP\">📝 Nota SAP</a></div>"
+    ],
+    [
+      "markdown",
+      "Clean core no significa eliminar extractores SAP, sino apoyarse en mecanismos liberados (ODP/CDS) y mantener la lógica fuera del core.\n  - APIs liberadas: ODP_SAPI, ODP_CDS\n  - Extensiones: Exits simples\n  - Evitar: lógica de negocio y cálculos complejos en SAP"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Operational Data Provisioning</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>ODP es un mecanismo estándar para extracción con colas delta, compatible con Datasphere de forma nativa, sin violar el principio clean core: estás consumiendo una API liberada.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Principio Clean Core</span>\n  </div>\n  <div class=\"dw-callout__body\"><ul class=\"dw-callout-list\"><li>Usar CDS como APIs</li><li>Evitar lógica compleja en SAP</li><li>Centralizar transformaciones en Datasphere</li></ul></div>\n</div></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"integracion-legacy-vs-moderna\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[18]</span><span><span class=\"dw-heading-tone--black\">Integración Legacy vs. </span><span class=\"dw-heading-tone--gold\">Moderna</span></span><a class=\"dw-md-anchor\" href=\"#integracion-legacy-vs-moderna\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&amp;q=DP+Agent&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help DP Agent\">🔗 DP Agent</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&amp;q=DP+Agent&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help Cloud Connector\">🔗 Cloud Connector</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Config Cloud Connector\">🔗 Config Cloud Co...</a></div>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Comparación de propósito, despliegue y alcance en SAP Datasphere</p>\n\n| Característica | DP Agent | Cloud Connector |\n|---|---|---|\n| **Propósito Principal** | Proveer datos desde sistemas fuente hacia SAP Datasphere | Habilitar comunicación segura entre sistemas locales y la nube |\n| **Manejo de Datos** | Extracción, transformación y carga (ETL) | No procesa datos (*), solo comunicación segura |\n| **Despliegue** | Se instala en la red del sistema fuente para ejecutar integración y ETL. En SAP on RISE esto lo hace SAP vía Service Request | Se instala en la red corporativa como “túnel seguro” hacia la nube, sin procesar datos |\n| **Protocolos de Conexión** | Soporta ODP, RFC, SOAP para la extracción de datos | Soporta HTTP/HTTPS (ABAP SQL Service), RFC para la comunicación segura |\n| **Alcance** | Integración de datos, operaciones ETL | Seguridad y comunicación para integración entre nube y sistemas locales |\n\n(*) acceso federado vía servicios ABAP (HTTPS) requiere S/4HANA (ABAP Platform 2021 FPS01 o superior)"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"federacion-vs-persistencia\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[19]</span><span><span class=\"dw-heading-tone--black\">Federación vs. </span><span class=\"dw-heading-tone--gold\">Persistencia</span></span><a class=\"dw-md-anchor\" href=\"#federacion-vs-persistencia\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Diferencias prácticas según escenario de integración: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento</p>\n\n| Federación | Persistencia |\n|---|---|\n| Al crear tablas remotas en SAP Datasphere desde sistemas SAP (ECC, S/4HANA, BW, etc.) el método de acceso a la información predeterminado es a través de la federación de datos.  Es decir, que los datos se alojan en el sistema fuente, y datasphere funciona como capa de modelado y reporting en tiempo real | En contextos donde se requiera un fuerte reproceso de volúmenes grandes de datos que no impacten el rendimiento del sistema fuente, el método de acceso a la información es a través de la persistencia de datos.  Es decir, que los datos se replican desde el sistema fuente y alojan físicamente en datasphere |\n| ✅ Real-time | ✅ Performance (ya no golpean al origen, corren en Datasphere) |\n| ✅ No-Redundancia de datos  | ✅ Escalabilidad |\n| ✅ Costos (Licenciamiento Datapshere a través de CU) | ✅ Pre-agregación y modelado (optimizados para reporting) | \n| ❌ Performance (depende de los recursos en el sistema fuente) | ❌ Redundancia |\n| ❌ Escalabilidad limitada para escenarios complejos de analitica | ❌ Costos (por almacenamiento) |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Híbrido</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Es fundamental no verlas como alternativas (una u otra), sino que coexisten y trabajen en conjunto para una mejor solución de escalabilidad, performance y flexibilidad a través del uso de método Hibrido.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"que-nos-funciono-hasta-aca\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[20]</span><span>🌟¿Qué nos funcionó hasta acá?</span><a class=\"dw-md-anchor\" href=\"#que-nos-funciono-hasta-aca\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nCapitalizarnos de lo que existe, apoyarnos en lo que ya conocen: no reinventar la rueda – al menos como punto de partida:\n  - Capitalizarnos de exits / extractores disponibles y compatibles\n  - Respetar el idioma en el que se apoya el cliente (Centro vs. Plant)\n  - Integrar Dimensión Maestra (atributos + textos) via SQL Estandar"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Compatibilidad</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Para extractores estándar, tener en cuenta su compatibilidad/whitelisteo. Para los custom, considerar su tabla continue siendo compatible en S/4HANA. En cualquiera de los dos casos, tener en cuenta que data sources sin clave primaria pueden utilizarse únicamente en extracción FULL (sin compatibilidad delta nativa)</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"modelo-de-integracion-hibrido\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[21]</span><span><span class=\"dw-heading-tone--black\">Modelo de Integración </span><span class=\"dw-heading-tone--gold\">Híbrido</span></span><a class=\"dw-md-anchor\" href=\"#modelo-de-integracion-hibrido\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">En la práctica, se puede comenzar con tablas remotas y, según necesidades de rendimiento, evolucionar hacia persistencia mediante replication/data flows.</p>\n\n| Aspecto | Tablas Remotas | Tablas Locales |\n|---|---|---|\n| **Definición** | Tablas virtuales que acceden a datos en tiempo real desde sistemas origen (Ej.: CDS Views). | Tablas persistidas en Datasphere mediante flujos de datos o replicación. |\n| **Propósito** | Evitar replicar datos innecesarios y mantenerlos en el sistema origen para garantizar consistencia. | Centralizar datos para un acceso más rápido y personalizado en Datasphere. |\n| **Casos de Uso Típicos** | Acceso en tiempo real. Datos cambiantes. Evitar costos de replicacion | Análisis de alto volumen. Combinar múltiples fuentes. Disponibilidad independiente del origen. |\n| **Ventajas** | Datos siempre actualizados. Reducción de costos de almacenamiento. | Rendimiento optimizado para análisis. Menor latencia en consultas. Personalización de datos según los modelos analíticos |\n| **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. |"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"federacion-persistencia-o-hibrido\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[22]</span><span><span class=\"dw-heading-tone--black\">Federación, Persistencia o </span><span class=\"dw-heading-tone--gold\">Híbrido?</span></span><a class=\"dw-md-anchor\" href=\"#federacion-persistencia-o-hibrido\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nTe ayudamos a identificar el enfoque de Integración en SAP Datasphere a través de un **árbol determinístico** de decisión guiada."
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"tipos-de-conexion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[23]</span><span><span class=\"dw-heading-tone--black\">Tipos de </span><span class=\"dw-heading-tone--gold\">Conexión</span></span><a class=\"dw-md-anchor\" href=\"#tipos-de-conexion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "El siguiente **árbol determinístico** de decisión guiada puede servir como soporte para distintos casos de uso y contexto técnico en cuanto al tipo de conexión a utilizar, considerando sus compatibilidades y limitaciones de acuerdo al 🔗[SAP Help](https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US)"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"referencia-tecnica\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[24]</span><span><span class=\"dw-heading-tone--black\">Referencia </span><span class=\"dw-heading-tone--gold\">Técnica</span></span><a class=\"dw-md-anchor\" href=\"#referencia-tecnica\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. A continuación, los patrones de referencia."
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"patron-1-extraccion-full\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Patrón 1 — Extracción FULL</span><a class=\"dw-md-anchor\" href=\"#patron-1-extraccion-full\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "```abap\n@EndUserText.label: 'Ventas para Datasphere - Full'\n@AbapCatalog.sqlViewName: 'ZDSVTAFULL'\n@AccessControl.authorizationCheck: #NOT_REQUIRED\n@Analytics.dataCategory: #FACT\n@Analytics.dataExtraction.enabled: true\n\ndefine view ZI_DS_VENTAS\n  as select from zsales_hdr as H\n{\n  key H.mandt          as Client,\n  key H.sales_doc      as SalesDocument,\n      H.sales_org      as SalesOrg,\n      H.customer       as Customer,\n      H.doc_date       as DocumentDate,\n      H.net_amount     as NetAmount,\n      H.currency       as Currency\n}\n```"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"patron-2-extraccion-full-delta-por-campo-timestamp\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Patrón 2 — Extracción FULL + Delta por campo timestamp</span><a class=\"dw-md-anchor\" href=\"#patron-2-extraccion-full-delta-por-campo-timestamp\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "Requiere un campo `last_changed_at` confiable que se actualice en cada modificación del registro.\n\n```abap\n@EndUserText.label: 'Ventas para Datasphere - Delta'\n@AbapCatalog.sqlViewName: 'ZDSVTADELTA'\n@AccessControl.authorizationCheck: #NOT_REQUIRED\n@Analytics.dataCategory: #FACT\n@Analytics.dataExtraction.enabled: true\n@Analytics.dataExtraction.delta.byElement.name: 'LastChangedAt'\n@Analytics.dataExtraction.delta.byElement.maxDelayInSeconds: 60\n@Analytics.dataExtraction.delta.byElement.detectDeletedRecords: false\n\ndefine view ZI_DS_VENTAS_DELTA\n  as select from zsales_hdr as H\n{\n  key H.mandt          as Client,\n  key H.sales_doc      as SalesDocument,\n      H.sales_org      as SalesOrg,\n      H.customer       as Customer,\n      H.net_amount     as NetAmount,\n      H.currency       as Currency,\n\n      @Semantics.systemDateTime.lastChangedAt: true\n      H.changed_at     as LastChangedAt\n}\n```"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"patron-3-cdc-con-join-change-data-capture\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Patrón 3 — CDC con join (Change Data Capture)</span><a class=\"dw-md-anchor\" href=\"#patron-3-cdc-con-join-change-data-capture\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nPara vistas con joins, el delta se configura con mapeo explícito de tablas base.\n\n```abap\n@EndUserText.label: 'Ventas + Cliente para Datasphere - CDC'\n@AbapCatalog.sqlViewName: 'ZDSVTACDC'\n@AccessControl.authorizationCheck: #NOT_REQUIRED\n@Analytics.dataCategory: #FACT\n@Analytics.dataExtraction.enabled: true\n@Analytics.dataExtraction.delta.changeDataCapture.mapping: [\n  {\n    table        : 'ZSALES_HDR',\n    role         : #MAIN,\n    viewElement  : [ 'Client', 'SalesDocument' ],\n    tableElement : [ 'MANDT', 'SALES_DOC' ]\n  }\n]\n\ndefine view ZI_DS_VENTAS_CDC\n  as select from zsales_hdr as H\n    left outer join zcustomer as C\n      on  C.mandt = H.mandt\n      and C.kunnr = H.customer\n{\n  key H.mandt          as Client,\n  key H.sales_doc      as SalesDocument,\n      H.customer       as Customer,\n      C.name1          as CustomerName,\n      H.net_amount     as NetAmount,\n      H.changed_at     as LastChangedAt\n}\n```"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"cuando-usar-cada-patron\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span>Cuándo usar cada patrón</span><a class=\"dw-md-anchor\" href=\"#cuando-usar-cada-patron\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n| Escenario | Patrón recomendado |\n|---|---|\n| Tabla sin campo de cambio confiable | Full únicamente |\n| Tabla con `changed_at` o `last_changed_at` | Delta byElement |\n| Vista con joins entre tablas | CDC con mapping |\n| Volumen bajo, sin requisito de incremental | Full |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">La elección entre Full y Delta impacta directamente en la estrategia de replicación en Datasphere (Replication Flow vs Data Flow) y en la capacidad de mantener datos actualizados sin recargas completas.</p>"
+    ]
+  ],
+  "04_Modelado_y_Desarrollo": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"evolucion-de-arquitectura-por-capas\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[25]</span><span><span class=\"dw-heading-tone--black\">Evolución de Arquitectura </span><span class=\"dw-heading-tone--gold\">por Capas</span></span><a class=\"dw-md-anchor\" href=\"#evolucion-de-arquitectura-por-capas\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">El principio de separación de responsabilidades (ingesta &gt; armonización &gt; propagación &gt; consumo) tal y como lo conocemos históricamente bajo el nombre LSA++ (Layer Scalability Architecture) no es un legado, sino un patrón estructural vigente en arquitecturas modernas.</p>\n\n| Principio | SAP BW (LSA) | Lakehouse (Databricks) | Datasphere/BDC |\n|---|---|---|---|\n| **Ingesta o persistencia desacoplada del origen** | Staging Layer <br>Corporate Memory | Bronze (raw zone) | Tablas Remotas / Persistencia opcional / Data Lake (HDLF en BDC) |\n| **Armonización y Propagacion** | EDW Layer | Silver (refined zone) | Armonización / Propagación |\n| **Exposición para consumo** | Reporting Layer | Gold (serving zone) | Consumo / Modelos Analíticos |\n| **Gobierno Semántico** | Infoobjects / BW Semantics | Unity Catalog + Delta | Semantic Layer + Data Products |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">⭐</span>\n    <span class=\"dw-callout__title\">El principio no cambia, sino su forma de implementarlo</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Hoy la escalabilidad proviene del diseño semántico y separación entre almacenamiento y procesamiento, la gobernanza de contratos y metadatos,  y la performance (pushdown, delta y storage optimizado). Las capas ya no son rígidas ni necesariamente físicas: pueden ser lógicas o persistentes según el caso.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"aplicacion-de-arquitectura-por-capas\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[26]</span><span><span class=\"dw-heading-tone--black\">Aplicación de Arquitectura </span><span class=\"dw-heading-tone--gold\">por Capas</span></span><a class=\"dw-md-anchor\" href=\"#aplicacion-de-arquitectura-por-capas\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc\">Implementamos la arquitectura de modelado por capas con separación de responsabilidades, adaptada a un enfoque Lakehouse moderno en SAP Datasphere:</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"tipos-de-vistas-sql\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[27]</span><span>Tipos de Vistas SQL</span><a class=\"dw-md-anchor\" href=\"#tipos-de-vistas-sql\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEn SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.\n\n| Tipo | Cuándo usarlo | Cuándo evitarlo |\n|---|---|---|\n| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |\n| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |\n| **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |\n| **Data Flow** | Snapshot, persistencia, transformaciones pesadas, particionar por rendimiento | Acceso federado real-time — no es una vista, es un proceso de carga |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--warn\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔸</span>\n    <span class=\"dw-callout__title\">Cada vista debe justificarse</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"tipos-y-uso-semantico\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[28]</span><span>Tipos y Uso Semántico</span><a class=\"dw-md-anchor\" href=\"#tipos-y-uso-semantico\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEl **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.\n\n| Tipo Semántico | Uso | Notas |\n|---|---|---|\n| **Relacional** | Vistas de preparación o armonización que no son consumidas directamente en reportes | Es el tipo por defecto; reclasificar una vez que el objeto tiene semántica de negocio definida |\n| **Dimension** | Maestros y atributos descriptivos (Clientes, Materiales, Centros de Costo) | Debe tener una clave única; asociable con Facts en el modelo analítico |\n| **Text** | Textos de una entidad dimensional (descripción de Material en varios idiomas) | No apto para extracción directa desde origen; usar como capa intermedia de textos en CDS |\n| **Hierarchy** | Jerarquías organizacionales o de producto | Requiere la dimensión base asociada |\n| **Fact** | Hechos transaccionales (Ventas, Pedidos, Movimientos de Stock) | Con métricas y asociaciones a dimensiones |\n| **Analytical Dataset** | Set analítico que combina Facts y Dimensions en un objeto único de consumo | Usado en la capa de propagación/consumo; base para reportes en SAC/Power BI |\n\n<p class=\"dw-hero-desc\">La **capa Business** (Business Layer) agrega la semántica de negocio sobre los objetos técnicos. La **capa Consumption** (Consumption Layer) expone los objetos analíticos finales. Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"convencion-de-nombres\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[29]</span><span>Convención de Nombres</span><a class=\"dw-md-anchor\" href=\"#convencion-de-nombres\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEl patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:\n\n```\n<Capa><Tipo>_<Origen>_<LibreConLineamientos>\n```\n\n\n**Capa** (prefijo numérico):\n- `1` — Ingesta (tablas remotas o locales desde origen)\n- `2` — Armonización (vistas reutilizables)\n- `3` — Propagación / Consumo (vistas finales, modelos analíticos)\n\n**Tipo** (letra):\n- `T` — Tabla (local o remota). En Capa 1 / Ingesta, este es el tipo esperado.\n- `V` — Vista (SQL Estándar o Gráfica). Usar desde Capa 2 en adelante; no usar `1V...` para ingesta.\n- `F` — Fact / Analytical Dataset\n\n<p class=\"dw-hero-desc\">Regla Danwor: la ingesta (`1`) mantiene el dato crudo como tabla remota o local. Si hay renombrado semántico, joins, limpieza, armonización o preparación, ya no es Capa 1: corresponde a Capa 2 o superior.</p>\n\n**Origen** (sufijo de 3 letras):\n| Código | Origen |\n|---|---|\n| `SAP` | Ingesta desde SAP (ECC, S/4HANA, BW) |\n| `DSP` | Generado dentro de Datasphere (DF, RF, etc.) |\n| `EDB` | Base de datos externa (Oracle, SQL Server) |\n| `TXT` | Archivo plano (CSV, TXT) |\n| `API` | Ingesta vía API |\n\n**Ejemplos:**\n\n| Objeto | Interpretación |\n|---|---|\n| `1TT_SAP_T151T` | Capa 1 · Tabla · Origen SAP · T151T (textos grupos cliente) |\n| `2VD_CLIENTES_CABECERA` | Capa 2 · Vista · Dimensión Clientes Cabecera (armonización) |\n| `3VF_TOPLINE_SPM` | Capa 3 · Vista Fact · Topline para SPM (consumo) |\n| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer para Power BI |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`&lt;LibreConLineamientos&gt;`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"checklist-de-desarrollo\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[30]</span><span>✅ Checklist de Desarrollo</span><a class=\"dw-md-anchor\" href=\"#checklist-de-desarrollo\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nOrientativo para revisar la calidad del modelo antes de promover al siguiente ambiente:\n\n| Item | Pregunta de control |\n|---|---|\n| **Separación de capas** | ¿Cada vista consume solo de la capa inmediatamente anterior? |\n| **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Analytical Dataset)? |\n| **Naming** | ¿Los nombres siguen el patrón `<Capa><Tipo>_<Origen>_<Libre>`? |\n| **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa)? |\n| **Tipo de vista** | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |\n| **Claves** | ¿Las vistas dimensionales tienen clave única definida? |\n| **Textos** | ¿Las dimensiones maestras integran atributos y textos en un solo objeto (sin separar)? |\n| **Linaje** | ¿Las Table Functions tienen wrapper de consumo para preservar linaje? |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Principio de diseño Danwor</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico — no al revés. El checklist es más efectivo en el cierre de cada sprint de desarrollo y antes de transportar a QA.</p></div>\n</div>"
+    ]
+  ],
+  "05_Reporting_y_Consumo": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"estrategia-de-reporting\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[31]</span><span>Estrategia de Reporting</span><a class=\"dw-md-anchor\" href=\"#estrategia-de-reporting\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nPara clientes que desean explotar los datos por fuera del ecosistema SAP nativo, existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:\n\n| Herramienta | Tipo | Integración con Datasphere | Cuándo usarla |\n|---|---|---|---|\n| **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |\n| **Power BI** | Microsoft | Vía schema users (DirectQuery o Import Mode) | Cliente con inversión fuerte en ecosistema Microsoft o Power BI ya implantado |\n| **BusinessObjects (BO)** | SAP legacy | Vía Universe o conexión JDBC/ODBC | Clientes con BO existente que no migran aún a SAC |\n| **Herramientas genéricas** | SQL/ODBC | Vía schema users | Acceso técnico ad-hoc, integraciones custom, notebooks de análisis |\n\n<p class=\"dw-hero-desc\">SAC es la herramienta recomendada dentro del ecosistema SAP: tiene Live Data Connection nativa con Datasphere sin necesidad de schema users ni configuración adicional de conectividad.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">SAC — Integración nativa</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>La Live Data Connection de SAC con Datasphere es la más directa: consume modelos analíticos en tiempo real, respeta DAC automáticamente y no requiere exportar datos.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">📊</span>\n    <span class=\"dw-callout__title\">Power BI — Ecosistema Microsoft</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Requiere schema users a nivel espacio. Elegir DirectQuery para tiempo real (con impacto en performance del origen) o Import Mode para snapshots (con latencia de actualización).</p></div>\n</div></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"conexion-de-herramientas-externas\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[32]</span><span>Conexión de Herramientas Externas</span><a class=\"dw-md-anchor\" href=\"#conexion-de-herramientas-externas\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/4db9e1e21c814cda933c5e1b5a6e6e30.html\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "\nPara conectar herramientas externas como Power BI a Datasphere se requiere un **schema user** (usuario de base de datos a nivel espacio). Este usuario está sujeto a DAC — los filtros de acceso configurados en Datasphere se aplican automáticamente al consumo externo.\n\n| Modo | Descripción | Ventajas | Consideraciones |\n|---|---|---|---|\n| **DirectQuery** | Power BI consulta Datasphere en tiempo real en cada interacción | Datos siempre actualizados — sin latencia de refresh | Impacto de performance en Datasphere con consultas concurrentes |\n| **Import Mode** | Power BI importa los datos y los almacena en su propio motor | Performance óptima en Power BI | Latencia de actualización — requiere schedule de refresh |\n| **Live Data Connection (SAC)** | SAC consulta el modelo analítico directamente en Datasphere | Nativo, sin schema users, respeta DAC | Solo disponible con SAC — no aplica a Power BI |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--note\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔹</span>\n    <span class=\"dw-callout__title\">Schema user — patrón recomendado</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Crear un schema user por espacio y ambiente (DEV/QA/PRD). No compartir el mismo usuario entre herramientas distintas. El schema user debe tener asignados los DAC correspondientes al perfil de consumo externo.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"performance-en-reporting\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[33]</span><span>Performance en Reporting</span><a class=\"dw-md-anchor\" href=\"#performance-en-reporting\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nLa performance del reporting depende de decisiones tomadas desde el modelo, no solo desde la herramienta de consumo.\n\n| Palanca | Recomendación |\n|---|---|\n| **Persistencia selectiva** | Persistir vistas en capas de consumo (capa 3) cuando el volumen es alto o la transformación es costosa |\n| **Aggregation views** | Pre-agregar en Datasphere antes de exponer al reporte — reducir granularidad innecesaria |\n| **Filtros en el modelo** | Aplicar filtros en capas internas — no delegar toda la selectividad a la herramienta de reporting |\n| **DirectQuery vs Import** | Evaluar Import Mode para dashboards con alto volumen y baja necesidad de tiempo real |\n| **Workload class** | Configurar clases de workload para priorizar consultas de reporting sobre procesos de carga |\n| **Capacity Units (CU)** | Dimensionar CUs según el volumen de consultas concurrentes esperadas — no subestimar en go-live |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Regla de oro de performance</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"checklist-de-reporting\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[34]</span><span>✅ Checklist de Reporting</span><a class=\"dw-md-anchor\" href=\"#checklist-de-reporting\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n| Item | Pregunta de control |\n|---|---|\n| **Herramienta** | ¿Está definida la herramienta de reporting del cliente (SAC / Power BI / BO)? |\n| **Schema user** | ¿Está creado el schema user con los DAC correspondientes? |\n| **Modo de conexión** | ¿Está definido el modo de conexión (DirectQuery / Import / Live)? |\n| **Persistencia** | ¿Las vistas de consumo (capa 3) tienen persistencia donde se justifica? |\n| **Pre-agregación** | ¿Los datos están pre-agregados al nivel de granularidad que consume el reporte? |\n| **Workload class** | ¿Está configurada la clase de workload para consultas de reporting? |\n| **Refresh schedule** | ¿Está definida la frecuencia de actualización (para Import Mode o Data Flows)? |\n| **DAC en consumo** | ¿Los filtros de acceso (DAC) aplican correctamente al perfil del schema user? |"
+    ]
+  ],
+  "A01_Arquitectura_y_Modelado": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"arquitectura-como-marco-de-diseno\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[35]</span><span><span class=\"dw-heading-tone--black\">Arquitectura como </span><span class=\"dw-heading-tone--gold\">Marco de Diseño</span></span><a class=\"dw-md-anchor\" href=\"#arquitectura-como-marco-de-diseno\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">La arquitectura empresarial (EA = Enterprise Architecture por sus siglas en inglés), permite asegurar que cada decisión de diseño en Datasphere — modelado, integración, dominios, data products y arquitectura moderna — estén alineados con las capacidades del negocio, con el roadmap de modernización y con la transición natural hacia BDC.​</p>\n\n  - **Arquitectura de Negocio:** <br>\n    Entender capacidades y procesos para definir dominios y data products.\n\n  - **Arquitectura de Datos:** <br>\n    Modelado conceptual/logico/fisico, metadatos, linaje, diseño gobernado.\n\n  - **Arquitectura de Integración:** <br>\n    Integración entre Datasphere y S/4, plataformas no-SAP (CDS, ODP, Lakehouse, Fabric).\n\n  - **Arquitectura de Tecnología:** <br>\n    Bases técnicas para evolucionar hacia BDC, HDLF, virtualización, seguridad y performance."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué importa?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Sintetiza cómo abordamos el diseño arquitectural y de modelado en Datasphere desde una mirada de EA: decisiones coherentes, gobernadas y alineadas con el negocio​.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"diseno-de-los-modelos-de-datos\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[36]</span><span><span class=\"dw-heading-tone--black\">Diseño de los </span><span class=\"dw-heading-tone--gold\">Modelos de Datos</span></span><a class=\"dw-md-anchor\" href=\"#diseno-de-los-modelos-de-datos\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Los tres modelos forman un ciclo: mantener trazabilidad entre ellos es lo que distingue una arquitectura madura de un desarrollo aislado.</p>\n\n| Modelo | Qué define | Herramientas |\n|---|---|---|\n| **Conceptual** | Entidades, relaciones y reglas de negocio — sin tecnicismos. Validado con el negocio antes de avanzar | ERD, mapas de entidades, diagramas simples |\n| **Lógico** | Atributos, claves, cardinalidades, dependencias y semántica. Base de la arquitectura por capas en Datasphere | Modelo lógico normalizado, diccionario de datos |\n| **Físico** | Implementación concreta: vistas SQL, tablas, naming, tipos de dato, índices | Datasphere Data Builder, objetos deployados |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico — no del físico. Construir el modelo físico sin pasar por el lógico es la causa más frecuente de retrabajo en proyectos de datos.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Diseño colaborativo con negocio</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Validar entidades, relaciones y reglas clave con el negocio antes de implementar. Los artefactos visuales simples (ERD, mapas de entidades) facilitan el entendimiento común entre consultores y áreas. Reduce retrabajos y desalineamientos tardíos.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--note\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔹</span>\n    <span class=\"dw-callout__title\">Iteración y gobernanza continua</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>El modelo no es estático: se ajusta al aprendizaje del proyecto. Evitar modelos rígidos que no absorben el cambio. La gobernanza continua asegura que el modelo físico siga reflejando el lógico y el conceptual.</p></div>\n</div></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"clasificacion-de-metadatos\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[37]</span><span><span class=\"dw-heading-tone--black\">Clasificación de </span><span class=\"dw-heading-tone--gold\">Metadatos</span></span><a class=\"dw-md-anchor\" href=\"#clasificacion-de-metadatos\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Los metadatos proveen la semántica que conecta el diseño conceptual, lógico y físico. Son el puente entre cómo se modelan los datos y cómo se gobiernan, descubren y trazan en Datasphere / BDC.</p>\n\n| Tipo | Que describen | Por que importan |\n|---|---|---|\n| **Estructurales** | Tablas, vistas, tipos de datos, dependencias, jobs, integración | Permiten linaje, impacto, calidad técnica y automatización en Datasphere |\n| **Semánticos** | Definiciones, reglas, owners, propósito, dominio funcional​ | Aseguran semántica común; base del glosario, del catálogo y del consumo analítico. |\n| **Operacionales** | Logs, accesos, refrescos, calidad, uso real | Habilitan auditoría, SLAs y monitoreo continuo de las vistas y modelos. |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué importan?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Un modelo bien diseñado se sostiene en metadatos bien clasificados​:</p><ul class=\"dw-callout-list\"><li>Mitigan riesgos (Datos sensibles, confidenciales y cumplimiento)</li><li>Acelera descrubrimiento (Catálogo navegable, semántica consistente)</li><li>Construye confianza (origen, calidad y definicón clara)</li><li>Escala Gobernanza (políticas aplicadas por clasificación)</li></ul></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"paradigmas-como-diseno-arquitectonico\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[38]</span><span><span class=\"dw-heading-tone--black\">Paradigmas como </span><span class=\"dw-heading-tone--gold\">Diseño Arquitectónico</span></span><a class=\"dw-md-anchor\" href=\"#paradigmas-como-diseno-arquitectonico\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Cinco paradigmas con un mismo objetivo: transformar datos distribuidos en capacidades de negocio gobernadas. El rol del arquitecto es diseñar un ecosistema híbrido gobernado, no apostar a uno solo.</p>\n\nTres de ellos, son operativos centrales para Datasphere y BDC​:\n| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |\n|---|---|---|---|\n| **Data Warehouse** | Repositorio central, estructurado y gobernado, optimizado para analítica y reporting | KPIs corporativos, finanzas, reporting regulatorio, analítica repetible | Datasphere es sin dudas un data warehouse moderno que incluye: tablas, persistencia, modelos relacionales, DataFlows, Transformación, Arquitectura por capas, Modelos Analiticos, etc​ |\n| **Data Lakehouse** | Convergencia de lake + warehouse con transaccionalidad y gobierno sobre object storage | Unificar BI + ML en una única plataforma, evitar duplicación lake/warehouse | Critico en Datasphere, absolutamente central en BDC como lakehouse gobernado con semántica SAP (Lakehouse es core, data products viven sobre Lakehouse, lineaje + transactional storage)​ |\n| **Data Fabric** | Capa de integración y acceso unificado, basada en metadatos activos y virtualización | Paisajes híbridos/multi-cloud donde no es viable centralizar físicamente todo | Datasphere oficia de fabric cuando actúa como capa de federación semántica, integración, catalogo unificado, virtualización de datos o modelado sin movimiento de datos​ |\n\nLos dos restantes, mas bien informativos con alcance indirecto:\n| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |\n|---|---|---|---|\n| **Data Lake** | Almacén masivo de datos crudos (estructurados y no estructurados), schema-on-read | IA/ML, analítica exploratoria, grandes volúmenes y variedad de datos | Datasphere no incluye un data lake completo; sin embargo, HDLF provee capacidades de lake sobre object storage (parquet, particiones, ingestion masiva, external tables). Es la base técnica del camino hacia el Lakehouse en BDC​ |\n| **Data Mesh** | Descentraliza: cada dominio publica “data products” gobernados sobre una plataforma común | Organizaciones grandes con muchos dominios que necesitan autonomía y velocidad | Conceptual, no técnica. Datasphere no implementa mesh automáticamente,sino que ofrece/facilita con espacios y permisos a nivel dominio (DAC)​ |"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"datos-como-producto\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[39]</span><span><span class=\"dw-heading-tone--black\">Datos como </span><span class=\"dw-heading-tone--gold\">Producto</span></span><a class=\"dw-md-anchor\" href=\"#datos-como-producto\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nTratar los datos como productos alinea la arquitectura con el negocio: se pasa de construir pipelines a diseñar **capacidades reutilizables** que viven en Datasphere, el data lake o BDC.\n\nUn data product es una unidad de valor reutilizable construida a partir de datos: combina dataset curado, metadatos, reglas de negocio y mecanismos de acceso, diseñada para resolver un **problema concreto de negocio**.\n\n| Atributo | Descripción |\n|---|---|\n| **Reutilizable y acotado** | Resuelve un caso de negocio claro — no un objeto técnico genérico |\n| **Autocontenido** | Incluye datos, metadatos, semántica y contratos de acceso |\n| **Con contrato definido** | El consumidor conoce el esquema, la frecuencia de actualización y el SLA |\n| **Con linaje trazable** | Tabla → CDS básica → CDS compuesta → vista de consumo → Data Product |\n| **Gobernado** | Tiene propietario (owner), política de acceso y clasificación en el catálogo |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Lo que ya hacemos es arquitectura híbrida moderna</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Diseñamos con federación y persistencia selectiva. Organizamos por dominios. Gobernamos con semántica y contratos. Respetamos clean core. Esto que hacemos todos los días <strong>ya es</strong> arquitectura híbrida moderna — el apéndice de paradigmas muestra cómo se conectan estos conceptos con nuestro marco operativo y prepara la evolución natural hacia BDC.</p></div>\n</div>"
+    ]
+  ],
+  "A02_Modernizacion_BW_Greenfield": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"principio-greenfield\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[40]</span><span><span class=\"dw-heading-tone--black\">Principio </span><span class=\"dw-heading-tone--gold\">Greenfield</span></span><a class=\"dw-md-anchor\" href=\"#principio-greenfield\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEn modernizaciones hacia Datasphere (fuera del contexto Business Data Cloud), el principio rector es **no hacer Lift & Shift**: no trasladar objetos técnicos BW a Datasphere tal como están. En cambio, rediseñar Greenfield aprovechando del BW solo aquello que aporta valor real: **definiciones de negocio, semántica, reglas de calidad y conversión**."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">✅</span>\n    <span class=\"dw-callout__title\">Qué aprovechar del BW</span>\n  </div>\n  <div class=\"dw-callout__body\"><ul class=\"dw-callout-list\"><li>Definiciones de negocio validadas con el negocio</li><li>Reglas de calidad y conversión consolidadas</li><li>Extractores ODP-SAPI whitelisted (Nota SAP 2500202)</li><li>Métricas de uso reales (reportes usados vs. obsoletos)</li></ul></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--warn\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🚫</span>\n    <span class=\"dw-callout__title\">Qué dejar atrás</span>\n  </div>\n  <div class=\"dw-callout__body\"><ul class=\"dw-callout-list\"><li>Objetos técnicos obsoletos: DSOs clásicos, infocubos, MultiProviders</li><li>Lógica de negocio embebida en rutinas de transformación BW</li><li>Modelos centrados en BEx queries o reportes (los reportes pasan a ser consumidores, no drivers de modelado)</li><li>Prefijos Z/Y heredados sin semántica de negocio clara</li></ul></div>\n</div></div>\n</div>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">El objetivo estratégico: pasar de un modelado centrado en reportes (BEx, BO) a una fundación de datos gobernada: data products, catálogo y gobernanza. Compatible y preparado para la evolución natural hacia BDC.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"relevamiento-y-matriz-tecnica\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[41]</span><span><span class=\"dw-heading-tone--black\">Relevamiento y </span><span class=\"dw-heading-tone--gold\">Matriz Técnica</span></span><a class=\"dw-md-anchor\" href=\"#relevamiento-y-matriz-tecnica\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nAntes de decidir qué objetos modernizar, relevar uso y criticidad mediante una **Matriz Técnica** que se enriquece iterativamente:\n\n| Dimensión | Qué relevar |\n|---|---|\n| **Uso y criticidad** | Métricas de ejecución últimos 90 días — promedio y pico |\n| **Redundancias** | Mismo reporte alimentado por 1:n fuentes/objetos |\n| **Origen de datos** | Tipo de objeto fuente (Composite, Multi, ADSO, InfoCubo, etc.) |\n| **Extractor base** | ODP-SAPI, CDS, carga manual — identificar el mecanismo actual |\n| **Whitelisted** | Indicador Y/N según Nota SAP 2500202 — si N, identificar CDS estándar disponible o necesidad de CDS custom |\n| **Complejidad ETL** | Nivel L/M/H de complejidad de transformación (DataSource y modelo) |\n| **Cadenas de proceso** | Qué procesos de carga dependen del objeto |\n| **Seguridad** | Objetos de autorización asociados |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Uso como herramienta de priorización — no de verdad semántica</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Las métricas de uso sirven para <strong>ponderar y priorizar</strong> qué modernizar primero, no como criterio único de decisión. Que un objeto tenga uso no significa que deba seguir existiendo tal como está. Que no tenga uso no significa automáticamente que sea candidato a baja — puede ser crítico por regulación o cierre de período.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"alcance-de-modernizacion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[42]</span><span><span class=\"dw-heading-tone--black\">Alcance de </span><span class=\"dw-heading-tone--gold\">Modernización</span></span><a class=\"dw-md-anchor\" href=\"#alcance-de-modernizacion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEl árbol de decisión a continuación guía el tratamiento de cada objeto BW en la modernización:"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"reglas-de-armonizacion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[43]</span><span><span class=\"dw-heading-tone--black\">Reglas de </span><span class=\"dw-heading-tone--gold\">Armonización</span></span><a class=\"dw-md-anchor\" href=\"#reglas-de-armonizacion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "\nAl modernizar objetos BW hacia Datasphere se aplican reglas de armonización para garantizar homogeneidad, claridad y gobierno:\n\n**Regla 1 — Idioma y caracteres**\n- Todos los nombres técnicos en el idioma relevante para el cliente (inglés para casos globales, español para empresas locales)\n- Sin tildes ni caracteres especiales — usar guion bajo `_` como separador\n- Patrón: `<SUSTANTIVO>_<SUFIJO>`\n\n| Ejemplo BW | Entidad Canónica |\n|---|---|\n| `ZACSECUND` | `ACOND_SECUNDARIO_ID` |\n| `ZDESACSEC` | `ACOND_SECUNDARIO_DESC` |\n| `ZKUNNR` | `CLIENTE_ID` |\n| `ZMATNR` | `MATERIAL_ID` |\n\n**Regla 2 — Tratamiento de objetos Z/Y**\n- Eliminar herencias técnicas: prefijos `Z`, `Y`, numeraciones BW\n- Normalizar al concepto en el idioma canónico — respetar el **significado**, no el código técnico\n- Resultado: modelo armonizado con lenguaje técnico único (\"menos es más\")\n\n**Regla 3 — Entidades canónicas**\n- Si el objeto integra solo fuentes SAP: usar el diccionario SAP como referencia y armonizar según la convención corporativa de Datasphere\n- Si integra múltiples fuentes (SAP y no-SAP): crear una nueva **Entidad Canónica** bajo la convención corporativa unificada"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Principio rector</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Menos es más — solo lo que agrega valor se moderniza. La armonización no es renombrar por renombrar: es definir un lenguaje de datos único que el negocio y la tecnología comparten.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"vision-bdc\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[44]</span><span><span class=\"dw-heading-tone--black\">Visión </span><span class=\"dw-heading-tone--gold\">BDC</span></span><a class=\"dw-md-anchor\" href=\"#vision-bdc\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEl diseño actual en Datasphere es **compatible con BDC por construcción** si se siguen los principios del marco Danwor: capas, clean core, semántica y contratos de consumo definidos.\n\n**Data Products en BDC**\n\nUn data product es una unidad de valor reutilizable construida a partir de datos: combina dataset curado, metadatos, reglas de negocio y mecanismos de acceso, diseñada para resolver un problema concreto de negocio.\n\n| Característica | Descripción |\n|---|---|\n| **Reutilizable y acotado** | Resuelve un caso de negocio claro (ej: Sales Order, Customer 360) |\n| **Autocontenido** | Incluye datos, metadatos, reglas y contratos de acceso |\n| **Con linaje trazable** | Tabla base → CDS básica → CDS compuesta → consumo → Data Product |\n| **Compatible con separación de capas** | Las vistas de consumo (capa 3) son los candidatos naturales a Data Products |\n\n**Anotaciones CDS clave para BDC**\n\n| Anotación | Propósito |\n|---|---|\n| `@EndUserText.label` | Nombres legibles para columnas en el catálogo |\n| `@Semantics.amount.currencyCode` | Unidades monetarias |\n| `@Semantics.unitOfMeasure` | Unidades de medida |\n| `@ObjectModel.text.element` | Campos de texto descriptivos |\n| `@AccessControl.authorizationCheck` | Integración con políticas de seguridad |"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Separación de capas → contratos BDC</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>La separación en capas garantiza que cambios en la lógica interna o en la publicación sean transparentes. Las vistas de consumo exponen el <strong>contrato final</strong> para usuarios y aplicaciones — ese contrato es el Data Product en BDC.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Nuestra guía de hoy, compatible con BDC mañana</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Lo que aplicamos en cada proyecto ya es arquitectura híbrida moderna: federación y persistencia selectiva, organización por dominios, gobernanza con semántica, clean core. No cambia cómo trabajamos — prepara la transición natural a BDC.</p></div>\n</div></div>\n</div>"
+    ]
+  ],
+  "A03_Hub_de_Integracion_AWS": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"principio\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[45]</span><span>Principio</span><a class=\"dw-md-anchor\" href=\"#principio\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Diferenciar en nuestro marco metodológico, aquellos escenarios donde Datasphere no actúe como plataforma de modelado o explotación analítica, sino como un hub de integración SAP para exponer datos desde S/4HANA hacia plataformas corporativas no-SAP (como un Data Lake en AWS) que concentran el gobierno, el catálogo y el linaje empresarial.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Caso de uso</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Posicionar Datasphere como fuente SAP autorizada, el punto de calidad mínima y el generador de metadatos coherentes para integrarse con el gobierno corporativo existente. En línea con nuestra estrategia y compatibilidad con BDC, el foco está en data products, contratos de datos, estandarización semántica y trazabilidad.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"arquitectura-de-referencia\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[46]</span><span><span class=\"dw-heading-tone--black\">Arquitectura de </span><span class=\"dw-heading-tone--gold\">Referencia</span></span><a class=\"dw-md-anchor\" href=\"#arquitectura-de-referencia\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Una mirada a alto nivel de la arquitectura de integración, y el camino hacia AWS</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"por-que-no-recomendamos-extraer-tablas-base\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[47]</span><span>¿Por qué <span class=\"dw-heading-tone--red\">NO </span><span class=\"dw-heading-tone--black\">recomendamos extraer tablas base?</span></span><a class=\"dw-md-anchor\" href=\"#por-que-no-recomendamos-extraer-tablas-base\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n- ✖ No respeta el principio clean-core\n  - Las tablas base no están diseñadas como interfaz de integración\n  - Sus estructuras pueden cambiar entre releases, feature pack stack, upgrades.\n  - Consumirlas directamente compromete upgreadability, requisito critico de RISE\n\n- ✖ Linaje y Trazabilidad\n  - Las tablas no traen metadatos de negocio, solo estructuras técnicas.\n  - Se pierden dominios, unidades, textos de negocio, claves compuestas, relaciones, dependencias de tiempo.\n  - Informatica solo puede gobernar correctamente si los datasets vienen con semántica SAP.\n\n- ✖ Desalineación con el modelo S/4HANA\n  - Extraer tablas para reproducir un “ECC clásico”\n  - No se aprovecha marco Core Data Services, diseño API ni compatibilidad delta (CDC) nativa.\n  - Muchas tablas requieren lógica combinada, capitalizado únicamente a través de vistas CDS.\n\n- ✖ Compatibilidad Premium Outbound Integration\n  - Los flujos de replicación (o replication flows) están pensados para CDS/ODP, no así para tablas.\n  - Las tablas base obligan a usar Data Flows→ más staging, más costo, más lógica manual, menos delta real.\n\n- ✖ Escalabiliad y Compatibilidad Roadmap BDC\n  - Las tablas base no son compatibles con Data Products."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué importa?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Este enfoque puede funcionar técnicamente, así como brindar simplicidad inmediata, pero no es sostenible, ni gobernable, ni alineado al roadmap S/4HANA (future-proofing), lo que termina generando herencia técnica que luego debe corregirse en AWS o Informática.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"por-que-si-recomendamos-extraer-fuentes-autorizadas\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[48]</span><span>¿Por qué <span class=\"dw-heading-tone--green\">SI </span><span class=\"dw-heading-tone--black\">recomendamos extraer fuentes autorizadas?</span></span><a class=\"dw-md-anchor\" href=\"#por-que-si-recomendamos-extraer-fuentes-autorizadas\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n- ✔ Interfaz certificada para S/4HANA Private Edition (RISE).\n  - SAP Garantiza estabilidad a través de CDS views, Extractores ODP y CDC nativo.\n  - Fuentes autorizadas con compatibilidad ante upgrades.\n\n- ✔ Linaje y Trazabilidad\n  - Semantica SAP lista para gobierno\n  - Se incluyen dominios, unidades, textos de negocio, claves compuestas, relaciones, etc.\n  - Informatica puede gobernar correctamente y reconstruir el linaje, catalogo, glosario de forma consistente\n  - Facilita contratos de datos SAP > AWS > Informatica (granularidad, PK/FK, frecuencia, delta, reglas)\n\n- ✔ Compatible con Premium Outbound Integration\n  - Los flujos de replication (o replication flows) son compatibles entre S/4 > DSP y S3\n  - Se mueven datos “SAP-like” sin necesidad de staging adicional\n\n- ✔ Reduce el volumen a procesar en AWS\n  - CDS ya filtran, normaliza y enriquece los datos.\n  - Permite landing curada en Raw sin explosión de columnas y sin duplicados funcionales.\n\n- ✔ Escalabiliad y Compatibilidad Roadmap BDC\n  - Compatibilidad con Data Products."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué importa?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Este enfoque no es una recomendación genérica, sino un claro habilitador técnico para capitalizar S/4HANA, asegurar gobernanza en Informática, minimizar herencia técnica en AWS y ofrecer un marco flexible y mas fácil de mantener a futuro.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"vistas-cds-semantica-metadatos\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[49]</span><span><span class=\"dw-heading-tone--black\">Vistas CDS = </span><span class=\"dw-heading-tone--gold\">Semántica &amp; Metadatos</span></span><a class=\"dw-md-anchor\" href=\"#vistas-cds-semantica-metadatos\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Las vistas CDS proporcionan no solo la estructura de los datos, sino también una capa completa de semántica y metadatos completos, mejorando la trazabilidad, el linaje y el gobierno de datos. A través de las anotaciones, se describe el significa de los datos, sus relaciones y su contexto de negocio.</p>\n\n- **Metadatos Técnicos (Estructurales):**\n  - Estructura técnica: nombre del campo, tipo de dato, longitud, clave primaria/foránea, etc.\n  - Ejemplos de anotaciones:\n    - @EndUserText.label: para dar nombres legibles y comprensibles a las columnas\n    - @Semantics.amount.currencyCode: para vincular un campo con otro que contiene el código de moneda.\n    - @Semantics.unitOfMeasure: para especificar unidades de medida numéricos, como kilogramos o litros.\n    - @ObjectModel.modellingPattern: para especificar el patron de modelado de la vista (Consumo, Analitico, etc)\n    - @ObjectModel.supportedCapabilities: para definir capacidades soportadas (Lectura, Extraccion, etc)\n    - @ObjectModel.text.element: para indicar la descripción textual asociado a un campo de la misma vista.\n    - @AccessControl.authorizationCheck: para integrar con las políticas de seguridad.\n\n<p class=\"dw-hero-desc\">Algunos de estos metadatos estructurales se generan de forma automática al definir la CDS, pero deben revisarse y homogenizarse (ej. longitudes, tipos de dato, claves). Otros, deben ser incluidos lo que refuerza que no basta con lo ”que viene de fábrica”, sino que hay que armonizarlo.</p>\n\n- **Metadatos Semánticos (Lógicos):**\n  - Centrados en la descripción lógica de los objetos, sus relaciones de negocio, contexto de interpretación\n  - Ejemplos de anotaciones:\n    - @ObjectModel.association: para definir las relaciones lógicas de negocio. Por ejemplo, una asociación entre un cliente y sus pedidos.\n    - @ObjectModel.businessObject: para asociar la vista o entidad con un objeto de negocio. Por ejemplo, Cliente, Producto o Pedido.\n    - @EndUserText.description: para describir el contexto y propósito claros de negocio de la vista o campo.\n    - @Analytics.dataextraction.enabled: para habilitar la vista para ser extraída por Datasphere y herramientas externas (como AWS S3 o Informática)\n    - @ObjectModel.foreignKey.association: Aporta semántica a relaciones FK. Aunque es técnico, aporta semántica de relaciones.\n    - @ObjectModel.text.association: para indicar la descripción textual asociado a un campo externo (otra entidad)\n    - @Semantics.date, @Semantics.quantity, @Semantics.currency, etc: ayudan a AWS e Informática a reconstruir contexto.\n\n<p class=\"dw-hero-desc\">Estos metadatos son clave para la trazabilidad, el linaje de los datos y la integridad con los procesos de negocio.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué importa?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Extraer tablas ABAP solo mueve datos crudos. Extraer CDS mueve datos ricos en semántica y significado de negocio</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"alcance-de-integracion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[50]</span><span><span class=\"dw-heading-tone--black\">Alcance de </span><span class=\"dw-heading-tone--gold\">Integración</span></span><a class=\"dw-md-anchor\" href=\"#alcance-de-integracion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_S4HANA_CLOUD/c0c54048d35849128be8e872df5bea6d/870d66c6bfc44d6c9f128c888f0c7957.html?utm_source=chatgpt.com&amp;locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help CDS para Extraccion\">🔗 CDS para Extrac...</a><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ee6ff9b281d8448f96b4fe6c89f2bdc8/5418de55938d1d22e10000000a44147b.html?locale=en-US&amp;version=LATEST\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help Catalogo de Vistas CDS\">🔗 Catalogo de Vis...</a><a class=\"dw-md-pill\" href=\"https://me.sap.com/notes/3586160\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"Nota SAP Change Data Capture\">📝 Nota SAP Change...</a></div>"
+    ],
+    [
+      "markdown",
+      "\nEn el caso de uso de Datasphere como Hub corporativo o Data contract hub, la estrategia de integración y opciones de extracción son práctivamente las mismas a las ya cubiertas en el modulo de Integración y Estrategia de datos sólo que 100% enfocadas en asegurar y garantizar sin excepción contratos de datos estables ricos en semántica y metadatos que puedan utilizarse como base sólida. Te ayudamos a identificar los distintos mecanismos a través de un **árbol determinístico** de decisión guiada."
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"roles-cds-en-arquitectura-de-integracion\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[51]</span><span><span class=\"dw-heading-tone--black\">Roles CDS en </span><span class=\"dw-heading-tone--gold\">Arquitectura de Integración</span></span><a class=\"dw-md-anchor\" href=\"#roles-cds-en-arquitectura-de-integracion\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "<p class=\"dw-hero-desc dw-hero-desc--no-gap\">En escenarios SAP &gt; Datasphere &gt; AWS, no buscamos evitar CDS estándar ni minimizar las custom, sino apoyarnos en ellas según su propósito. Aunque muchas CDS estándar estén liberadas para extracción, su alcance responde al diseño y propósito SAP que representa, y no siempre constituyen un contrato de datos o alcance adecuado para el propósito de Data Lake corporativo.</p>\n\n- **Rol de una CDS estándar liberada para extracción | API Funcional SAP**\n  - Primera opción a considerar, siempre que el caso de uso lo permita.\n  - Representan un objeto de negocio o un proceso SAP (base para Fiori u otras apps).\n  - Pueden incluir anotaciones de extracción (@Analytics.dataExtraction.enabled).\n  - Son estables dentro del contexto funcional del objeto de negocio SAP.\n  - Adecuadas para integración cuando:\n    - El alcance funcional cubre el 100%.\n    - No incluyen filtros/joins que distorsionen volumen o semántica.\n    - Su semántica es suficiente para gobierno en Data Lake/Informática.\n\n<p class=\"dw-hero-desc\">Si una CDS estándar liberada cubre la necesidad, la utilizamos como base funcional encapsulada*1 y desacoplada a través de una CDS de Integración.</p>\n\n- **Rol de una CDS de integración (custom) | API Corporativa estable**\n  - Capa de API diseñada específicamente para el contrato SAP > DSP > AWS.\n  - Encapsula la CDS estándar y define un contrato estable, explícito y versionable.\n  - Aísla la integración de cambios funcionales futuros en vistas estándar.\n  - Permite completar campos faltantes y homogeneizar semántica.\n  - Expone solo lo necesario, con claves y reglas alineadas al Data Lake y gobierno corporativo.\n  - Respeta el clean core: no afecta Fiori ni procesos estándar\n\n<p class=\"dw-hero-desc\">La CDS custom desacopla las integraciones corporativas del modelo SAP y evita depender de cambios funcionales en artefactos estándar.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">¿Por qué encapsular &amp; desacoplar?</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Encapsular no es duplicar; es proteger. Al desacoplar ambos modelos:</p><ul class=\"dw-callout-list\"><li>Preservamos el clean core y evitamos modificaciones innecesarias.</li><li>Aislamos las integraciones de cambios funcionales en CDS estándar.</li><li>Aseguramos estabilidad, versionado y gobernanza del contrato de datos.</li><li>Reducimos riesgo, acoplamiento y herencia técnica en SAP, DSP y AWS.</li></ul><p>Una CDS de integración no reemplaza a la estándar: la encapsula, la protege y la convierte en una API segura y estable para integraciones corporativas</p></div>\n</div>"
+    ]
+  ],
+  "A04_Biblioteca_de_Referencias": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"links-sap\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[52]</span><span><span class=\"dw-heading-tone--black\">Links </span><span class=\"dw-heading-tone--gold\">SAP</span></span><a class=\"dw-md-anchor\" href=\"#links-sap\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n\n- 💡 SAP Datasphere | [Link](https://help.sap.com/docs/SAP_DATASPHERE?locale=en-US)\n- 🆕 SAP Datasphere Expert Content | [Link](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4181116697.html?locale=en-US)\n- 💡SAP Help CDS Views | [Link](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ee6ff9b281d8448f96b4fe6c89f2bdc8/8573b810511948c8a99c0672abc159aa.html?locale=en-US)\n- 🤝 Repositorio Danwor Casos SAP | [Link](https://danwor.sharepoint.com/sites/PrcticaAnalytics/Lists/Repositorio%20de%20Casos%20SAP/Explorar%20Casos%20SAP.aspx)\n- 📊 SAP Help SAC | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/1fb1f4ce92f44fc983debc25ac1f2cc9.html?locale=en-US)\n- 🔎 SAP Discovery Center | [Link](https://discovery-center.cloud.sap/viewServices)\n- 🌒 Eclipse & BWMT Updates | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=4Z3Lik)\n- 🆕 Deep dive Extracción ODP-CDS | [Link](https://learning.sap.com/learning-journeys/upgrading-your-sap-bw-skills-to-sap-bw-4hana/working-with-odp-context-cds-view-based-extraction_f01df9a0-0e79-4d76-be38-d2cfac4dde42)\n- 🛠️ Tools for Troubleshooting | [Link](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4428871866.html?locale=en-US)\n- ▶️ Video Tutorials | [Link](https://help.sap.com/docs/SAP_DATASPHERE/55b34306f32145359e499c4492fc65eb/9ef88a8d4cd1479cb1272ae0de1eada0.html?locale=en-US&version=LATEST)"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"coleccion-how-to\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[53]</span><span><span class=\"dw-heading-tone--black\">Colección </span><span class=\"dw-heading-tone--gold\">How-To</span></span><a class=\"dw-md-anchor\" href=\"#coleccion-how-to\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Nos retroalimentamos para crecer.</p>\n\n- Instalar y configurar BW Bridge en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EXRXdwKimLpPvca1zZYKH6sBN3sPyNY9iMi0GOJ6PX2zow?e=dMIGFe)\n- Conectar Datasphere con S/4HANA | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/Eb85pQsL465BuhrEj4AmpgkBPzcdEQQ7cirBq92AtaK6Ag?e=ILNdwQ)\n- Configurar Datasphere con Cloud Connector | [RISE](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ) | [On-Prem](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQC-LogGAQl0QqNKEFlTuifFAayzvRQGu3dsi80C-DgEdew?e=n5idZP)\n- Instalar y configurar DP Agent | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBX2bMaIeFqTroYJER_FKJKAeonRE5glwlSwCvV-dXSEGQ?e=Eyy0ct)\n- Importar extractores ODP a Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EakLSitvsIFGqZl3lXZfp0QBwRPQLq8WrWSMN5dG2pQ27w?e=eSvJk8)\n- Particionar Tablas Remotas en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EUlxrDVZY0FAvd_Uh6IdVV4BpvP9BPZ-UUO-SetOlNdxOA?e=DRNp7R)\n- Integrar BW Process Chains y Task Chains | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZpzF-Rt8q5NqilkAGlazmcBi86yMnMuQAay7Ja2hIWbbg?e=ef9Xgn)\n- Transportar desde BW Bridge | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/Ed_7Wmob7xpLtQNw52u0olIBUMTM06YvEPqOqBNrjcKujw?e=i3orzv)\n- Transportar desde Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EcxDFg2WdwdIotUZ8pMTQ4sB8qMcWXqK1O0ilL-nkqhV3Q?e=rnjAzc)\n- Catalogo de Funciones SQL | [Link](https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/ERWvokGY9E9Jo5iY93hMSbsBTOSq4OaDpzjlX85wedLWhA?e=b1uxwT)\n- Conectar SAC con Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EVwZ4LrADDJOkzuK41mhP_kB3suiqyYK2BhyF1sxYwz3fw?e=lUIVjN)\n- Conectar PowerBI con Datasphere ODBC | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EQY8lBQbHUZKmFPXW_okYs8BLS_7PeauIlCMnJ6NDJEJJA?e=hg4FVu)\n- Activar Business Content en BW Bridge | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ESytEyMyaUJEunPxGlrZw9kBuCpsKdrPKXiNlmPygWF96A?e=bOoSwz)\n- Activar Business Content en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZvKNc4VmHxHtJY0RCULX3gBI7ysO_CrcQv0zd6UhilpMw?e=MASv9C)\n- Configurar OpenID en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EUbAI1YVMNhPjWToI2P0jqUBa4QCpFDNCLCLPTDLbXgRTQ?e=br6EWQ)\n- Instalar GitHub Copilot en Eclipse | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZPXm2VTKOBPm_Sjg_KN8iEBO7_vy1n_qFQJh0D0udNQRQ?e=GFzvIi)\n- Actualizar Eclipse & BWMT | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=5i0SFX)\n- Configurar Email Notifications en Task Chain | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru)\n- Integrar SAP Business Integrated Planning y Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=la8GrL)\n- Relevamiento tecnico SAC via API metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r)"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"notas-sap\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[54]</span><span><span class=\"dw-heading-tone--black\">Notas </span><span class=\"dw-heading-tone--gold\">SAP</span></span><a class=\"dw-md-anchor\" href=\"#notas-sap\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Estas son las notas principales y más relevantes para tu primer experiencia Datasphere</p>\n\n| Nota | Descripción | Alcance |\n|---|---|---|\n| **3498095** | SAP Datasphere notes on source ABAP-based On-premise | Técnico / Informativo |\n| **3100673** | SAP Datasphere - ABAP Integration – Usuario servicio | Técnico / Informativo |\n| **3154420** | Collection of all relevant Notes for SAP Datasphere, BW Bridge | Técnico / Informativo |\n| **3117800** | Information/Restrictions for SAP Datasphere, BW Bridge | Técnico / Informativo |\n| **3141688** | Conversion from SAP BW to SAP Datasphere, BW Bridge | Técnico / Informativo |\n| **3417440** | Verify generated BW bridge objects after conversion/installation | Técnico / Informativo |\n| **3579966** | Update to latest BWMT (Modeling Tools for SAP BW) | Técnico / Informativo |\n| **3590400** | BW Data Product Generator for SAP BDC / Datasphere | Técnico / Informativo |\n| **2559981** | Data Provisioning Agent - System Requirements | Tenant / Admin |\n| **3220622** | HANA Cloud Release/Schedule for SAP Datasphere | Tenant / Admin |\n| **1732157** | Collecting diagnosis information for SAP HANA | Tenant / Admin |\n| **2180165** | FAQ: SAP HANA Expensive Statements Trace | Tenant / Admin |\n\n<p class=\"dw-hero-desc dw-hero-desc--no-gap\">Otras notas que puedan servirte a futuro</p>\n\n| Nota | Descripción | Alcance |\n|---|---|---|\n| **3509695** | Conectar SAP Integrated Business Planning (IBP) con Datasphere | Integración |\n| **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance | "
+    ]
+  ],
+  "A05_Troubleshooting_y_Performance": [
+    [
+      "html",
+      "<section class=\"dw-page-hero dw-page-hero--first\" id=\"bw-bridge-vs-cds-views\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[55]</span><span>BW Bridge vs CDS Views</span><a class=\"dw-md-anchor\" href=\"#bw-bridge-vs-cds-views\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/97ec7b05e6d0461ab9dd3abf6d21c040.html\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "\nEn proyectos con arquitectura BW Bridge, la decisión de dónde desarrollar (en el Bridge o directo en Datasphere via CDS) depende de si el origen ya existe en el Bridge y si hay necesidad de combinar con modelos existentes.\n\n| Escenario | Recomendación |\n|---|---|\n| El origen (tabla/extractor) ya existe en BW Bridge | Ampliar el modelo existente en el BW Bridge |\n| Existe extractor estándar y hay modelos BW Bridge relacionados | Capitalizar el estándar a través del BW Bridge |\n| No hay modelos BW Bridge relacionados pero existe extractor estándar | Crear CDS View e importar directamente a Datasphere |\n| No existe extractor estándar | Crear CDS View custom con template Danwor (compatibilidad delta incluida) |\n\n<p class=\"dw-hero-desc\">Al crear CDS Views en arquitecturas BW Bridge: incluir `@Analytics.dataExtraction.delta.changeDataCapture.automatic: true` si el extractor no tiene ya definido el mecanismo delta.</p>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"adso-y-cdc-en-bw-bridge\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[56]</span><span>ADSO y CDC en BW Bridge</span><a class=\"dw-md-anchor\" href=\"#adso-y-cdc-en-bw-bridge\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nDesde la versión **2024.06** de Datasphere, la integración nativa entre BW Bridge y Datasphere genera **2 tablas** en lugar de 1 al importar entidades de un ADSO:\n\n| Tabla | Propósito |\n|---|---|\n| **Active Table** | Snapshot actual de los datos — misma información que antes |\n| **Change Log Table** | Registro de cambios para CDC — habilita extracción incremental real |\n\n**Prerequisitos para usar CDC con Change Log:**\n1. El ADSO es de tipo **Standard** con **Write Change Log** habilitado\n2. El ADSO tiene al menos una **clave primaria** definida\n3. Las propiedades de la clave tienen **Master Data Check** habilitado para reporting\n\n**Patrón de implementación — Transformation Flow con CDC:**\n\n```\nADSO (Change Log Table) → SQL View Transform → Transformation Flow → Tabla Local Datasphere\n                                                         ↑\n                                              Set Load Type: CDC/Incremental\n```\n\nUna vez que la tabla local CDC está activa y el Transformation Flow corre en la Task Chain, el ajuste en el modelo por capas es mínimo: **reemplazar la referencia** de la vista existente (que apuntaba a la tabla remota) por la nueva tabla local CDC."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--punch\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">💡</span>\n    <span class=\"dw-callout__title\">Verificar delta antes de usar Change Log</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Data Preview devuelve la misma información entre Active y Change Log. La diferencia es operacional: al usar Change Log en un Transformation Flow con tipo CDC, el procesamiento es incremental real. Si los prerequisitos del ADSO no se cumplen, el sistema cae en extracción FULL silenciosamente.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"performance-y-runtime-metrics\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[57]</span><span>Performance y Runtime Metrics</span><a class=\"dw-md-anchor\" href=\"#performance-y-runtime-metrics\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-md-links\"><a class=\"dw-md-pill\" href=\"https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/9af04c990f294fd28c00f46763dd8b0a.html\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"SAP Help\">🔗 SAP Help</a></div>"
+    ],
+    [
+      "markdown",
+      "\nDesde la versión **2025.9** es posible usar herramientas nativas de rendimiento directamente sobre las vistas SQL en Datasphere.\n\n**Proceso de análisis de performance (3 pasos):**\n\n| Paso | Acción |\n|---|---|\n| **1** | Identificar la vista o consulta con latencia elevada |\n| **2** | Ejecutar el análisis de Runtime Metrics sobre la vista |\n| **3** | Revisar el plan de ejecución y los indicadores de consumo de memoria |\n\n<p class=\"dw-hero-desc\">**Nota:** Los indicadores de **peak de memoria** requieren haber habilitado previamente **Expensive Statements Tracing** a nivel tenant en Datasphere. SAP **no recomienda** mantenerlo activo en forma permanente — activarlo puntualmente para diagnósticos y desactivarlo después.</p>"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout-row\">\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--warn\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔸</span>\n    <span class=\"dw-callout__title\">Cuándo investigar performance</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Si un reporte es lento, revisar en este orden: (1) ¿La vista de consumo tiene persistencia donde debería? (2) ¿Hay joins innecesarios en la capa de consumo? (3) ¿El volumen no está pre-agregado? Antes de activar Expensive Statements Tracing.</p></div>\n</div></div>\n  <div class=\"dw-callout-col\"><div class=\"dw-callout dw-callout--note\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔹</span>\n    <span class=\"dw-callout__title\">Herramienta de análisis</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Runtime Metrics muestra el plan de ejecución HANA subyacente. Las vistas gráficas tienen planes menos optimizables que SQL Estándar — un argumento más para preferir SQL Estándar en objetos productivos.</p></div>\n</div></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"hana-triggers-y-cdc-buffer\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[58]</span><span>HANA Triggers y CDC Buffer</span><a class=\"dw-md-anchor\" href=\"#hana-triggers-y-cdc-buffer\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nEl framework ODP/ODQ usa **HANA Triggers** para detectar cambios en las tablas origen. Cuando un extractor CDS tiene el CDC habilitado, HANA crea triggers que escriben en tablas buffer (`/1DH/SL*`) los registros modificados. La delta queue (ODQMON) luego consume esos buffers para armar el delta incremental.\n\n**Caso real — Incidente en producción:**\n\n<p class=\"dw-hero-desc\">**Causa:** Extractores ODP-CDS inicializados como prueba pero no utilizados en extracción real. Los triggers escribían en las tablas buffer `/1DH/*`, pero los buffers **nunca eran vaciados** porque nadie los extraía. El buffer creció hasta impactar performance del sistema fuente.</p>\n\n<p class=\"dw-hero-desc\">**Solución (Notas SAP 3231210 y 3366715):**</p>\n\n```sql\n-- Paso 1: Verificar triggers inválidos\nSELECT * FROM TRIGGERS WHERE IS_VALID = 'FALSE';\n\n-- Paso 2: Eliminar triggers inválidos (si aplica)\nDROP TRIGGER <Trigger_name>;\n\n-- Paso 3: El sistema regenera automáticamente los triggers faltantes.\n-- Paso Opcional: recrear manualmente si el problema persiste\nCREATE OR REPLACE TRIGGER <Trigger_name> <Trigger_Definition_Scripts>;\n```\n\n**Proceso de limpieza en ODQMON:**\n1. Desuscribir los punteros (subscribers) de las colas delta no utilizadas\n2. Las tablas buffer se auto-eliminan una vez vacías\n3. Validar y rectificar inconsistencias de triggers si las hubiera"
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--warn\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🔸</span>\n    <span class=\"dw-callout__title\">Regla preventiva</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>No inicializar extractores CDS en entornos productivos sin confirmar que van a ser extraídos. Un extractor con CDC activo sin consumidor acumula buffers indefinidamente. Auditar ODQMON periódicamente en proyectos con múltiples extractores CDS.</p></div>\n</div>"
+    ],
+    [
+      "html",
+      "<div class=\"dw-section-break\" aria-hidden=\"true\"></div>"
+    ],
+    [
+      "html",
+      "<section class=\"dw-page-hero\" id=\"future-proof-con-ecc\">\n  <div class=\"dw-page-hero__dots\" aria-hidden=\"true\">\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n    <span></span><span></span><span></span>\n  </div>\n  <div class=\"dw-page-hero__content\">\n    \n    <div class=\"dw-page-hero__title\"><span class=\"dw-page-hero__num\">[59]</span><span>Future-Proof con ECC</span><a class=\"dw-md-anchor\" href=\"#future-proof-con-ecc\" aria-label=\"Ir a esta sección\">🔗</a></div>\n  </div>\n  \n</section>"
+    ],
+    [
+      "markdown",
+      "\nPara arquitecturas con ECC en transición hacia S/4HANA, las decisiones de integración de hoy deben ser compatibles con el upgrade futuro. Principios clave:\n\n**1 — No consumir tablas base directamente**\n\nTablas que se consolidan en S/4 (ej: `MATDOC`, `ACDOCA`) cambian su estructura al migrar. En lugar de consumirlas directamente, usar **vistas lógicas** que permitan hacer plug-and-play posterior: al migrar a S/4, solo se ajusta la vista, no todos los modelos aguas abajo.\n\n**2 — Aprovechar CDS disponibles en ECC (NW7.5)**\n\nSi existen CDS disponibles en el ECC actual (NW7.5), utilizarlas en lugar de ir por tablas o crear CDS propias. Son más estables ante el upgrade que las tablas base.\n\n**3 — Minimizar extractores ABAP custom**\n\nReducir al máximo la creación de extractores ABAP custom. Usar mecanismos estándar (ODP-SAPI whitelisted) o CDS compatibles. Para extractores BW existentes — estándar o custom — asegurar su compatibilidad con Datasphere antes de usarlos.\n\n**4 — Asegurar delta desde el inicio**\n\nLas extracciones FULL no son soluciones de largo plazo ni escalables. Diseñar con delta desde el inicio (ODP delta, CDS CDC) reduce el impacto operativo al migrar a S/4."
+    ],
+    [
+      "markdown",
+      "<div class=\"dw-callout dw-callout--success\">\n  <div class=\"dw-callout__head\">\n    <span class=\"dw-callout__icon\">🌿</span>\n    <span class=\"dw-callout__title\">Principio de compatibilidad</span>\n  </div>\n  <div class=\"dw-callout__body\"><p>Estas consideraciones en materia de compatibilidad, integración y estrategia de extracción reducen la herencia técnica y facilitan las tareas del upgrade ECC → S/4HANA, permitiendo menor disrupción en todos los modelos provisionados en Datasphere.</p></div>\n</div>"
+    ]
+  ]
+}

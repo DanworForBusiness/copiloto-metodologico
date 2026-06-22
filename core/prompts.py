@@ -317,13 +317,13 @@ def build_ambiguity_prompt(question: str) -> str:
 
 
 # ── Module scope helpers ───────────────────────────────────────────────────────
-def _load_module_meta(module_stem: str | None) -> dict:
+def _load_module_meta(module_stem: str | None, pack_name: str | None = None) -> dict:
     """Lee el frontmatter del .md del módulo activo. Retorna {} si no hay."""
     if not module_stem:
         return {}
     try:
         from core.content_registry import resolve_content_path
-        md_path = resolve_content_path(module_stem)
+        md_path = resolve_content_path(module_stem, pack_name)
         if not md_path.exists():
             return {}
         text = md_path.read_text(encoding="utf-8")
@@ -367,12 +367,14 @@ def _format_guardrails(meta: dict) -> str:
     return "\n".join(lines)
 
 
-def get_out_of_scope_message(prompt: str, module_stem: str | None) -> str | None:
+def get_out_of_scope_message(
+    prompt: str, module_stem: str | None, pack_name: str | None = None,
+) -> str | None:
     """
     Retorna mensaje de redirección si el prompt cae fuera del scope del módulo.
     Retorna None si está dentro del scope o no hay reglas definidas.
     """
-    meta = _load_module_meta(module_stem)
+    meta = _load_module_meta(module_stem, pack_name)
     redirects = meta.get("out_of_scope_redirect") or []
     prompt_lower = prompt.lower()
     for rule in redirects:
@@ -382,13 +384,15 @@ def get_out_of_scope_message(prompt: str, module_stem: str | None) -> str | None
     return None
 
 
-def get_out_of_scope_redirect(prompt: str, module_stem: str | None) -> dict | None:
+def get_out_of_scope_redirect(
+    prompt: str, module_stem: str | None, pack_name: str | None = None,
+) -> dict | None:
     """
     Igual que get_out_of_scope_message pero devuelve el objeto completo de la regla:
     { "message": ..., "module": "04", "label": "Modelado en SAP Datasphere", "keywords": [...] }
     Devuelve None si está dentro del scope.
     """
-    meta = _load_module_meta(module_stem)
+    meta = _load_module_meta(module_stem, pack_name)
     redirects = meta.get("out_of_scope_redirect") or []
     prompt_lower = prompt.lower()
     for rule in redirects:
@@ -399,7 +403,12 @@ def get_out_of_scope_redirect(prompt: str, module_stem: str | None) -> dict | No
 
 
 # ── System prompt ──────────────────────────────────────────────────────────────
-def build_system_prompt(module_stem: str | None = None) -> str:
+def build_system_prompt(
+    module_stem: str | None = None,
+    *,
+    pack_name: str | None = None,
+    user_context: dict | None = None,
+) -> str:
     """
     Construye el system prompt inyectando scope del módulo activo si está disponible.
     module_stem: nombre del archivo .md sin extensión
@@ -407,9 +416,12 @@ def build_system_prompt(module_stem: str | None = None) -> str:
     """
     _user_ctx = ""
     try:
-        from auth import get_current_user as _get_auth_user
         from config import TITLE_CONTEXT
-        _auth  = _get_auth_user()
+        if user_context is None:
+            from auth import get_current_user as _get_auth_user
+            _auth = _get_auth_user()
+        else:
+            _auth = user_context
         _first = _auth.get("first_name", "")
         _title = _auth.get("job_title", "") if TITLE_CONTEXT == "ON" else ""
         if _first:
@@ -431,7 +443,7 @@ def build_system_prompt(module_stem: str | None = None) -> str:
 
     # Scope del módulo activo (leído del frontmatter del .md)
     _scope_block = ""
-    meta = _load_module_meta(module_stem)
+    meta = _load_module_meta(module_stem, pack_name)
     scope = (meta.get("scope") or "").strip()
     guardrails = _format_guardrails(meta)
     if scope:
@@ -588,7 +600,7 @@ def _resolve_module_header(module_context: str, module: str | None) -> str:
     return f"Módulo: {module or '?'}"
 
 
-def _module_scope_for_topic_prompt(module: str | None) -> str:
+def _module_scope_for_topic_prompt(module: str | None, pack_name: str | None = None) -> str:
     """
     Devuelve el scope editorial del módulo para acciones de sección.
 
@@ -597,7 +609,7 @@ def _module_scope_for_topic_prompt(module: str | None) -> str:
     evita que una sección visual o breve opaque las reglas metodológicas del
     módulo.
     """
-    meta = _load_module_meta(module)
+    meta = _load_module_meta(module, pack_name)
     scope = (meta.get("scope") or "").strip()
     guardrails = _format_guardrails(meta)
     if not scope and not guardrails:
@@ -704,6 +716,7 @@ def build_topic_prompt(
     action: str,
     instruction: str | None = None,
     module: str | None = None,
+    pack_name: str | None = None,
 ) -> str:
     display_topic  = _clean_heading_label(selected_topic)
     instr          = (instruction or topic_instruction(action)).replace("{topic}", display_topic)
@@ -716,7 +729,7 @@ def build_topic_prompt(
         f"CONTEXTO (módulo):\n{module_header}",
         f"Sección seleccionada: {display_topic}",
     ]
-    scope_block = _module_scope_for_topic_prompt(module)
+    scope_block = _module_scope_for_topic_prompt(module, pack_name)
     if scope_block:
         parts.append(scope_block)
     parts.append(f"Fragmento:\n{clean_frag}")

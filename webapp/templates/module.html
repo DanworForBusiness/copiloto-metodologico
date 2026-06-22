@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout()"
+  x-init="init()"
+  @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
+  class="app-shell{% if not show_panel %} no-copilot{% endif %}"
+>
+  <header class="topbar">
+    <a href="/?pack={{ pack }}" class="animated-brand" aria-label="Danwor · Inicio">
+      <iframe src="/brand/dancing/{{ pack }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>
+    </a>
+
+    <div class="header-tools">
+      <div class="module-pager" aria-label="Navegación entre módulos">
+        {% if previous_module %}
+        <a href="/modules/{{ previous_module.stem }}?pack={{ pack }}" aria-label="Módulo anterior" title="Módulo anterior">←</a>
+        {% else %}<span aria-hidden="true">←</span>{% endif %}
+        {% if next_module %}
+        <a href="/modules/{{ next_module.stem }}?pack={{ pack }}" aria-label="Módulo siguiente" title="Módulo siguiente">→</a>
+        {% else %}<span aria-hidden="true">→</span>{% endif %}
+      </div>
+
+      {% if diagnostic %}
+      <select class="pack-select" aria-label="Marco metodológico" onchange="if(this.value)location.href=this.value">
+        {% for item in packs %}
+        <option value="{{ item.home }}" {% if item.name == pack %}selected{% endif %}>{{ item.label }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      <label class="diag-toggle" title="Modo diagnóstico — habilita el selector de marco y la pestaña Analítica">
+        <input type="checkbox" {% if diagnostic %}checked{% endif %} onchange="dwToggleDiagnostic(this.checked)" aria-label="Modo diagnóstico">
+        <span class="diag-track"></span>
+      </label>
+
+      <button class="theme-toggle" @click="toggleTheme()" :title="contentTheme === 'light' ? 'Usar contenido oscuro' : 'Usar contenido claro'" aria-label="Alternar tema del contenido">
+        <svg x-cloak x-show="contentTheme === 'light'" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3V1m0 22v-2M3 12H1m22 0h-2M4.2 4.2 2.8 2.8m18.4 18.4-1.4-1.4m0-15.6 1.4-1.4M2.8 21.2l1.4-1.4M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z"/></svg>
+        <svg x-cloak x-show="contentTheme === 'dark'" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 15.5A9 9 0 0 1 8.5 3.5a9 9 0 1 0 12 12Z"/></svg>
+      </button>
+      <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+      <button class="mobile-menu" @click="navOpen=!navOpen">Módulos</button>
+    </div>
+  </header>
+
+  <aside class="module-nav" :class="navOpen&&'is-open'">
+    {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
+    <p class="nav-kicker">CORE {{ pack_label }}</p>
+    <nav aria-label="Módulos metodológicos">
+      {% for module in modules %}
+      <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == document.summary.stem %}is-active{% endif %}">
+        <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
+      </a>
+      {% endfor %}
+      {% if appendices %}
+      <p class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</p>
+      {% for ap in appendices %}
+      <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == document.summary.stem %}is-active{% endif %}">
+        <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
+      </a>
+      {% endfor %}
+      {% endif %}
+    </nav>
+  </aside>
+
+  <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
+      <h1>{{ document.summary.title }}</h1>
+      <div class="hero-meta"><span>{{ document.sections|length }} secciones</span>{% if trees %}<span>{{ trees|length }} {{ "árbol asociado" if trees|length == 1 else "árboles asociados" }}</span>{% endif %}</div>
+    </section>
+    <nav class="section-index" aria-label="En este módulo">
+      <p>En este módulo</p>
+      {% for section in document.sections %}<a href="#{{ section.slug }}"><span>{{ "%02d"|format(section.number) }}</span>{{ section.title }}</a>{% endfor %}
+    </nav>
+    <article class="methodology">{% for section in document.sections %}<section id="{{ section.slug }}" class="content-section">{{ section.html|safe }}</section>{% endfor %}</article>
+  </main>
+
+  {% if show_panel %}
+  <div class="resize-handle resize-right" data-resize="right" title="Arrastrar para redimensionar" aria-hidden="true"></div>
+
+  <aside class="copilot-panel">
+    {% if ia_enabled %}
+    <button class="panel-toggle" @click="panelOpen=!panelOpen"><span>Herramientas de decisión</span><span x-text="panelOpen?'−':'+'"></span></button>
+    <div x-show="panelOpen" x-transition.opacity>
+      <nav class="tool-tabs" role="tablist" aria-label="Herramientas del módulo">
+        <button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>
+        <button type="button" role="tab" @click="toolTab='tree'" :class="toolTab==='tree'&&'is-active'" :aria-selected="toolTab==='tree'">Árbol</button>
+        <button type="button" role="tab" @click="toolTab='assistant'" :class="toolTab==='assistant'&&'is-active'" :aria-selected="toolTab==='assistant'">Asistente</button>
+      </nav>
+
+      <section class="tool-tab-panel" x-cloak x-show="toolTab==='section'" role="tabpanel">
+        <div class="active-section-card">
+          <span>Sección activa</span>
+          {% for section in document.sections %}<strong x-show="activeSection === '{{ section.slug }}'">{{ section.title }}</strong>{% endfor %}
+        </div>
+        <label class="tool-label" for="section-selector">Contenido del módulo</label>
+        <select id="section-selector" x-model="activeSection" @change="sectionChanged()">
+          {% for section in document.sections %}<option value="{{ section.slug }}">{{ "%02d"|format(section.number) }} · {{ section.title }}</option>{% endfor %}
+        </select>
+        <form class="section-analysis-form" hx-post="/modules/{{ document.summary.stem }}/sections/analyze" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#section-analysis-loading" hx-disabled-elt="button[type='submit']">
+          <input type="hidden" name="pack" value="{{ pack }}">
+          <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
+          <input type="hidden" name="section_slug" :value="activeSection">
+          <fieldset>
+            <legend>Acción</legend>
+            <div class="section-action-list">
+              {% for action in section_actions %}
+              <label class="section-action-option"><input type="radio" name="action" value="{{ action }}" data-loading-message="{{ section_loading_messages[action] }}" {% if loop.first %}checked{% endif %}><span>{{ action }}</span></label>
+              {% endfor %}
+            </div>
+          </fieldset>
+          <details class="section-action-help">
+            <summary>¿Qué hace cada acción?</summary>
+            {% for action in section_actions %}<div><strong>{{ action }}</strong><p>{{ section_action_descriptions[action] }}</p></div>{% endfor %}
+          </details>
+          <div id="section-analysis-warning" class="section-analysis-warning" aria-live="polite"></div>
+          <button type="submit" class="btn-primary section-analyze-button">Analizar</button>
+          <div id="section-analysis-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Preparando análisis metodológico...</span></div>
+          <p class="ai-disclaimer">La IA puede cometer errores. Revisá sus respuestas.</p>
+        </form>
+      </section>
+
+      <section class="tool-tab-panel" x-cloak x-show="toolTab==='tree'" role="tabpanel">
+        {% include "partials/tree_tab.html" %}
+      </section>
+
+      <section class="tool-tab-panel" x-cloak x-show="toolTab==='assistant'" role="tabpanel">
+        <span class="eyebrow">Conversación metodológica</span>
+        <div id="assistant-conversation" class="assistant-conversation" aria-live="polite">
+          <div class="assistant-intro assistant-empty">
+            <strong>Arquitecto Danwor</strong>
+            <p>Los análisis de sección y sus respuestas aparecerán en esta conversación.</p>
+          </div>
+        </div>
+        <form class="assistant-chat-form" hx-post="/modules/{{ document.summary.stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button[type='submit'], textarea">
+          <input type="hidden" name="pack" value="{{ pack }}">
+          <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
+          <input type="hidden" name="active_section" :value="activeSection">
+          <label class="tool-label" for="assistant-question">Tu consulta</label>
+          <textarea id="assistant-question" name="question" rows="4" placeholder="Preguntá sobre el módulo actual..." required></textarea>
+          <button type="submit" class="btn-primary tool-primary">Enviar</button>
+          <div id="assistant-chat-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Obteniendo la mejor respuesta...</span></div>
+        </form>
+      </section>
+    </div>
+    {% endif %}
+
+    {% if diagnostic %}
+    <button class="panel-toggle panel-toggle--gestion" @click="gestionOpen=!gestionOpen"><span>Herramientas de gestión</span><span x-text="gestionOpen?'−':'+'"></span></button>
+    <div x-cloak x-show="gestionOpen" x-transition.opacity class="gestion-group">
+      <span class="eyebrow">Analítica interna</span>
+      <p class="empty-panel">Herramientas administrativas y de diagnóstico.</p>
+      <div class="analytics-note">
+        <strong>En portación</strong>
+        <p>El export de runtime, el seed semántico de casos SharePoint y la administración de la Case Library se irán trayendo desde la versión original del copiloto.</p>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+  {% endif %}
+</div>
+{% endblock %}

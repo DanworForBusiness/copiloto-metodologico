@@ -1,0 +1,22 @@
+<div id="wizard-shell" class="wizard" aria-live="polite" tabindex="-1">
+  <div class="wizard-heading"><div><span class="eyebrow">Árbol YAML</span><h2>{{ run.title }}</h2></div><span class="step-count">{{ run.history|length + 1 }}</span></div>
+  <div class="progress" role="progressbar" aria-valuenow="{{ run.progress }}"><span style="width:{{ run.progress }}%"></span></div>
+  {% if run.error %}<div class="wizard-error">{{ run.error }}</div>{% endif %}
+
+  {% if leaf %}
+  <div class="decision-result">
+    <span class="result-label">Decisión recomendada</span><h3>{{ leaf.decision }}</h3>
+    {% if leaf.notes %}<ul>{% for note in leaf.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+    {% if leaf.post_actions and leaf.post_actions.next_steps %}<div class="next-actions"><strong>Próximos pasos</strong><ol>{% for step in leaf.post_actions.next_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
+  </div>
+  {% include "partials/tree_feedback.html" %}
+  <div class="wizard-actions"><button class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML">Volver</button><button class="btn-primary" hx-post="/wizards/{{ run.id }}/restart" hx-target="#wizard-shell" hx-swap="outerHTML">Nueva evaluación</button></div>
+  {% else %}
+  <form hx-post="/wizards/{{ run.id }}/answer" hx-trigger="change" hx-target="#wizard-shell" hx-swap="outerHTML" hx-disabled-elt="input">
+    <fieldset><legend>{{ node.question }}</legend><p class="question-help">Elegí una opción para avanzar automáticamente.</p>
+      <div class="option-list">{% for option in node.options %}<label class="option-card"><input type="radio" name="answer" value="{{ option }}" required><span>{{ option }}</span></label>{% endfor %}</div>
+    </fieldset>
+    <div class="wizard-back-only"><button type="button" class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML" {% if not run.history %}disabled{% endif %}>Volver</button></div>
+  </form>
+  {% endif %}
+</div>

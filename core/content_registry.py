@@ -13,17 +13,22 @@ Esto permite trabajar en `bdc_next` manteniendo vivo `datasphere_mvp`.
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 import re
 
-from config import BASE_DIR, CONTENT_PACK, CONTENT_PACKS_DIR
+from config import CONTENT_PACK, CONTENT_PACKS_DIR
 
 
 PACK_KINDS = ("content", "trees", "assets", "templates")
 CONTENT_PACK_SESSION_KEY = "content_pack_selector"
 
 
+@functools.lru_cache(maxsize=64)
 def _read_pack_meta(pack_name: str) -> dict[str, str]:
+    # Memoizado: se llama ~6-10 veces por rerun (content_pack_chain, roots_for_kind,
+    # include/hide keys). pack.yaml es estático en runtime. El dict devuelto es
+    # compartido — los consumidores solo lo leen, nunca lo mutan.
     path = CONTENT_PACKS_DIR / pack_name / "pack.yaml"
     if not path.exists():
         return {}
@@ -112,27 +117,26 @@ def roots_for_kind(kind: str, pack_name: str | None = None) -> list[Path]:
         path = _kind_dir(_pack_root(pack), kind)
         if path.exists():
             roots.append(path)
-    legacy = BASE_DIR / kind
-    if legacy.exists():
-        roots.append(legacy)
+    # Resolución pack-pura: sin fallback a carpetas raíz legacy (BASE_DIR/kind).
+    # Los packs (con su cadena de herencia) son la única fuente de verdad de la webapp.
     return roots
 
 
-def active_dir_for_kind(kind: str) -> Path:
+def active_dir_for_kind(kind: str, pack_name: str | None = None) -> Path:
     """Directorio preferido para escritura o paths legacy."""
-    roots = roots_for_kind(kind)
+    roots = roots_for_kind(kind, pack_name)
     if roots:
         return roots[0]
-    return _kind_dir(_pack_root(active_content_pack()), kind)
+    return _kind_dir(_pack_root(pack_name or active_content_pack()), kind)
 
 
-def resolve_pack_file(kind: str, relative: str | Path) -> Path:
+def resolve_pack_file(kind: str, relative: str | Path, pack_name: str | None = None) -> Path:
     rel = Path(relative)
-    for root in roots_for_kind(kind):
+    for root in roots_for_kind(kind, pack_name):
         candidate = root / rel
         if candidate.exists():
             return candidate
-    return active_dir_for_kind(kind) / rel
+    return active_dir_for_kind(kind, pack_name) / rel
 
 
 def _overlay_key(kind: str, root: Path, path: Path) -> str:
@@ -223,12 +227,13 @@ def _root_content_nav_key(path: Path) -> str:
     return path.name.lower()
 
 
-def iter_pack_files(kind: str, pattern: str = "*") -> list[Path]:
+def iter_pack_files(kind: str, pattern: str = "*", pack_name: str | None = None) -> list[Path]:
     """Lista archivos con override por ruta relativa del pack activo."""
     resolved: dict[str, Path] = {}
-    roots = roots_for_kind(kind)
-    content_mode = (_read_pack_meta(active_content_pack()).get("content_mode") or "overlay").strip().lower()
-    hidden_content = _content_hide_keys() if kind == "content" else set()
+    selected_pack = pack_name or active_content_pack()
+    roots = roots_for_kind(kind, selected_pack)
+    content_mode = (_read_pack_meta(selected_pack).get("content_mode") or "overlay").strip().lower()
+    hidden_content = _content_hide_keys(selected_pack) if kind == "content" else set()
 
     if kind == "content" and content_mode == "replace" and roots:
         roots = roots[:1]
@@ -244,10 +249,10 @@ def iter_pack_files(kind: str, pattern: str = "*") -> list[Path]:
     return sorted(resolved.values(), key=lambda p: p.name.lower())
 
 
-def iter_content_module_paths() -> list[Path]:
-    include_keys = _content_module_include_keys()
+def iter_content_module_paths(pack_name: str | None = None) -> list[Path]:
+    include_keys = _content_module_include_keys(pack_name)
     paths = [
-        path for path in iter_pack_files("content", "*.md")
+        path for path in iter_pack_files("content", "*.md", pack_name)
         if path.parent.name.lower() != "apendices"
     ]
     if include_keys:
@@ -255,17 +260,17 @@ def iter_content_module_paths() -> list[Path]:
     return paths
 
 
-def iter_content_appendix_paths() -> list[Path]:
-    return iter_pack_files("content", "apendices/*.md")
+def iter_content_appendix_paths(pack_name: str | None = None) -> list[Path]:
+    return iter_pack_files("content", "apendices/*.md", pack_name)
 
 
-def iter_content_markdown_paths() -> list[Path]:
-    return iter_content_module_paths() + iter_content_appendix_paths()
+def iter_content_markdown_paths(pack_name: str | None = None) -> list[Path]:
+    return iter_content_module_paths(pack_name) + iter_content_appendix_paths(pack_name)
 
 
-def resolve_content_path(stem: str) -> Path:
+def resolve_content_path(stem: str, pack_name: str | None = None) -> Path:
     stem = (stem or "").strip()
-    direct = resolve_pack_file("content", f"{stem}.md")
+    direct = resolve_pack_file("content", f"{stem}.md", pack_name)
     if direct.exists():
         return direct
-    return resolve_pack_file("content", Path("apendices") / f"{stem}.md")
+    return resolve_pack_file("content", Path("apendices") / f"{stem}.md", pack_name)

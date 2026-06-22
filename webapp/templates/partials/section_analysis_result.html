@@ -1,0 +1,24 @@
+<div class="assistant-exchange">
+  {% if error %}
+  <div class="assistant-message assistant-message--assistant">
+    <span class="assistant-message-label">Arquitecto Danwor</span>
+    <div class="section-analysis-error"><strong>No se pudo analizar</strong><p>{{ error }}</p></div>
+  </div>
+  {% elif reply %}
+  {% if show_user_message is not defined or show_user_message %}
+  <div class="assistant-message assistant-message--user">
+    <span class="assistant-message-label">{{ user_first_name }}</span>
+    <p>{{ user_message }}</p>
+  </div>
+  {% endif %}
+  <div class="assistant-message assistant-message--assistant">
+    <span class="assistant-message-label">Arquitecto Danwor</span>
+    <div class="section-analysis-output methodology">{{ (result.html if result else answer_html)|safe }}</div>
+    {% if diagnostic_mode and result %}<details class="analysis-prompt"><summary>Ver prompt de diagnóstico</summary><pre>{{ result.prompt }}</pre></details>{% endif %}
+  </div>
+  {% include "partials/assistant_feedback.html" %}
+  {% if route %}
+  {% include "partials/assistant_route_actions.html" %}
+  {% endif %}
+  {% endif %}
+</div>

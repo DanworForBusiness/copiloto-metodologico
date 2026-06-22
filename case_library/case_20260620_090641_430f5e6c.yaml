@@ -1,0 +1,64 @@
+case_id: case_20260620_090641_430f5e6c
+version: '1.0'
+source:
+  tree_id: extraction_options
+  tree_title: Opciones de Extracción
+  module: 03_Integracion_y_Estrategia_de_Datos
+  run_id: 430f5e6c-65ae-41b1-b92c-38ebc997886c
+  timestamp: '2026-06-20T12:06:26.726554+00:00'
+route:
+- node: q1
+  question: ¿Cuál es el sistema fuente?
+  answer: ERP
+- node: q2_erp_version
+  question: ¿Qué versión?
+  answer: S4HANA
+- node: q3_s4_edition
+  question: ¿Qué edición?
+  answer: Private
+- node: q4_s4_api_auth
+  question: ¿Existe una API funcional SAP autorizada (CDS Estándar, ODP-SAPI whitelistado,
+    etc.)?
+  answer: Sí
+- node: q5_cds_cumple
+  question: ¿Cumple el requrimiento funcional?
+  answer: 'No'
+leaf_id: leaf_api_corp_wrap_func
+decision: 'API Corporativa: Apoyada en CDS Custom para encapsular la API functional
+  y corregir limitaciones tecnicas, adaptar semantica o estabilizar consumo.'
+post_actions:
+  mode: llm_value_add
+  next_steps: []
+  reason: null
+  questions: []
+leaf_notes: []
+uncharted: false
+gap_node: null
+context_description: ''
+decision_taken: null
+outcome: en curso
+lessons: []
+alternatives_discarded:
+- node: q1
+  option: BW
+  reason: null
+- node: q2_erp_version
+  option: ECC
+  reason: null
+- node: q3_s4_edition
+  option: Public
+  reason: null
+- node: q4_s4_api_auth
+  option: 'No'
+  reason: null
+- node: q4_s4_api_auth
+  option: No sé
+  reason: null
+- node: q5_cds_cumple
+  option: Sí
+  reason: null
+- node: q5_cds_cumple
+  option: No sé
+  reason: null
+confidence: null
+reviewed: false

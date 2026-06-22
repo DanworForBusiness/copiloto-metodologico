@@ -28,6 +28,8 @@ from datetime import datetime
 
 import yaml
 
+from pipeline.common import write_report, MODEL
+
 
 # =========================================================
 # Config
@@ -248,7 +250,7 @@ def analyze_lessons(cases: list[dict]) -> dict:
 # Nivel 2 — análisis de texto libre con LLM (opcional)
 # =========================================================
 
-def analyze_text_clusters_llm(cases: list[dict], model: str = "gpt-4o-mini") -> dict:
+def analyze_text_clusters_llm(cases: list[dict], model: str = MODEL) -> dict:
     """
     Usa el LLM para agrupar context_description y detectar patrones
     que los campos estructurados no pueden capturar.
@@ -453,23 +455,6 @@ def build_summary(
 
 
 # =========================================================
-# Writer
-# =========================================================
-
-def write_report(reports_dir: Path, filename: str, data: dict | str) -> None:
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    dest = reports_dir / filename
-    if isinstance(data, str):
-        dest.write_text(data, encoding="utf-8")
-    else:
-        dest.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
-    print(f"  [ok] {dest.relative_to(dest.parent.parent)}")
-
-
-# =========================================================
 # Main
 # =========================================================
 
@@ -478,7 +463,7 @@ def main() -> None:
     parser.add_argument("--llm",        action="store_true", help="Activar análisis LLM (Nivel 2)")
     parser.add_argument("--min-cases",  type=int, default=MIN_CASES_DEFAULT,
                         help=f"Mínimo de casos para reportar un patrón (default: {MIN_CASES_DEFAULT})")
-    parser.add_argument("--model",      default="gpt-4o-mini", help="Modelo OpenAI a usar")
+    parser.add_argument("--model",      default=MODEL, help="Modelo OpenAI a usar")
     parser.add_argument("--case-dir",   default=str(CASE_DIR),  help="Directorio de casos")
     parser.add_argument("--report-dir", default=str(REPORTS_DIR), help="Directorio de reportes")
     args = parser.parse_args()

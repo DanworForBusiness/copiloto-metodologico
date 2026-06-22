@@ -1,0 +1,10 @@
+<!doctype html><html lang="es" class="h-full scroll-smooth"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0c0c0d">
+<script>/* Aplica el tema ANTES del primer paint (evita el flash oscuro→claro en cada navegación SSR) y lo deja en una cookie para que los HTML embebidos lo reciban en el render (DANWOR_EMBED_PROPS.theme). */(function(){var t='light';try{t=localStorage.getItem('dw-content-theme')||'light'}catch(e){}document.documentElement.classList.add('content-theme-'+t);try{document.cookie='dw-content-theme='+t+';path=/;max-age=31536000;samesite=lax'}catch(e){}})();</script>
+<style>[x-cloak]{display:none!important}</style>
+<link rel="icon" href="{{ url_for('static', path='favicon.ico') }}"><title>{% block title %}Copiloto Metodológico Danwor{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script><script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='content.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='layout.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='tools.css') }}?v={{ static_version }}"></head>
+<body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}<script src="{{ url_for('static', path='app.js') }}?v={{ static_version }}"></script></body></html>

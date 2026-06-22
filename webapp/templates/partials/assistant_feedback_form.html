@@ -1,0 +1,11 @@
+<div id="assistant-feedback-{{ reply.id }}" class="assistant-feedback assistant-feedback-expanded">
+  <form class="assistant-feedback-form" hx-post="/assistant/responses/{{ reply.id }}/feedback/submit" hx-target="#assistant-feedback-{{ reply.id }}" hx-swap="outerHTML">
+    <label for="assistant-feedback-comment-{{ reply.id }}">¿Qué podríamos mejorar?</label>
+    {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
+    <textarea id="assistant-feedback-comment-{{ reply.id }}" name="comment" rows="3" placeholder="Contanos qué faltó o qué debería cambiar..."></textarea>
+    <div class="assistant-feedback-actions">
+      <button type="button" class="btn-secondary" hx-post="/assistant/responses/{{ reply.id }}/feedback/cancel" hx-target="#assistant-feedback-{{ reply.id }}" hx-swap="outerHTML">Cancelar</button>
+      <button type="submit" class="btn-primary">Enviar feedback</button>
+    </div>
+  </form>
+</div>

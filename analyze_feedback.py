@@ -32,6 +32,8 @@ from pathlib import Path
 
 import yaml
 
+from pipeline.common import write_report
+
 
 # =========================================================
 # Config
@@ -354,23 +356,6 @@ def build_summary(ia: dict, trees: dict, missing: dict) -> str:
 
     lines += ["=" * 60, ""]
     return "\n".join(lines)
-
-
-# =========================================================
-# Writer
-# =========================================================
-
-def write_report(reports_dir: Path, filename: str, data: dict | str) -> None:
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    dest = reports_dir / filename
-    if isinstance(data, str):
-        dest.write_text(data, encoding="utf-8")
-    else:
-        dest.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
-    print(f"  [ok] {dest.relative_to(dest.parent.parent.parent)}")
 
 
 # =========================================================

@@ -1,0 +1,23 @@
+<div class="assistant-route-actions" aria-label="Opciones sugeridas">
+  {% for action in route.actions %}
+  <a class="assistant-route-action" href="{{ action.url }}"{% if action.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.label }}</a>
+  {% endfor %}
+  {% if route.explain_module %}
+  <form
+    class="assistant-route-explain"
+    hx-post="/modules/{{ stem }}/assistant/chat"
+    hx-target="#assistant-conversation"
+    hx-swap="beforeend"
+    hx-indicator="#assistant-chat-loading"
+    hx-disabled-elt="button"
+  >
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">
+    <input type="hidden" name="question" value="{{ route.original_question }}">
+    <input type="hidden" name="routing_bypass" value="true">
+    <input type="hidden" name="route_module" value="{{ route.explain_module }}">
+    <input type="hidden" name="route_heading" value="{{ route.explain_heading }}">
+    <button type="submit" class="assistant-route-action assistant-route-action--secondary">Explicame vos</button>
+  </form>
+  {% endif %}
+</div>

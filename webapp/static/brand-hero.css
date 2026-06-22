@@ -1,0 +1,98 @@
+/* brand-hero.css — Portado del sitio de marca (E:\Joe\Metodologia\web): el MISMO
+   fondo animado (gradiente + grid + grano + circuito + red de partículas) y el cue
+   "scroll". Una sola página: intro (logo) → acceso (login), compartiendo el fondo.
+   Único cambio de marca: gold #B8960C → #E7B008 (rgba 231,176,8). */
+:root{
+  --bg:#0c0c0d; --bg-card:#181819; --ink:#e4e4ec; --ink-soft:#8b8b96; --ink-dim:#50505a;
+  --gold:#e7b008; --gold-2:#c8990a; --line:rgba(231,176,8,.14);
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --mx:30%; --my:40%;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+
+/* ── Fondo animado (fijo, compartido por ambas pantallas) — verbatim del hero ── */
+.hero-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:clip}
+.hero-gradient{position:absolute;inset:-20%;
+  background:
+    radial-gradient(circle 1300px at var(--mx,30%) var(--my,40%),rgba(231,176,8,.05) 0%,rgba(231,176,8,.02) 45%,transparent 70%),
+    radial-gradient(circle 900px at 78% 15%,rgba(231,176,8,.10) 0%,transparent 55%),
+    radial-gradient(circle 700px at 8% 82%,rgba(231,176,8,.06) 0%,transparent 52%),
+    radial-gradient(circle 500px at 55% 92%,rgba(231,176,8,.05) 0%,transparent 50%)}
+.hero-grid{position:absolute;inset:0;
+  background-image:radial-gradient(rgba(231,176,8,.15) 1px,transparent 1px);
+  background-size:48px 48px;opacity:.22}
+.hero-circuit{position:absolute;right:-4%;top:50%;transform:translateY(-50%);
+  width:clamp(400px,55%,750px);height:auto;pointer-events:none;opacity:.30;
+  mask-image:linear-gradient(to left,rgba(0,0,0,.8) 0%,rgba(0,0,0,.5) 50%,transparent 85%);
+  -webkit-mask-image:linear-gradient(to left,rgba(0,0,0,.8) 0%,rgba(0,0,0,.5) 50%,transparent 85%);
+  mix-blend-mode:screen}
+@media (max-width:899px){.hero-circuit{opacity:.16;right:-10%}}
+@media (max-width:599px){.hero-circuit{display:none}}
+.hero-grain{position:absolute;inset:0;opacity:.035;mix-blend-mode:overlay;background-size:220px;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.hero-particles{position:absolute;inset:0;width:100%;height:100%}
+
+/* ── Pantalla 1 — intro: logo centrado + cue scroll ── */
+.screen{position:relative;z-index:1;min-height:100vh;min-height:100svh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 24px}
+.intro-logo{width:min(432px,64vw);height:auto;filter:drop-shadow(0 0 50px rgba(231,176,8,.14))}
+.intro-eyebrow{margin-top:30px;font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.24em}
+.intro-eyebrow .ink{color:var(--ink)}
+.intro-eyebrow .gold{color:var(--gold)}
+
+.hero-scroll{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:.55rem;opacity:.4;cursor:pointer;
+  background:none;border:0;color:var(--ink);font-family:var(--mono)}
+.hero-scroll span{font-size:.62rem;text-transform:uppercase;letter-spacing:.3em}
+.hero-scroll-line{width:1px;height:48px;background:linear-gradient(to bottom,var(--ink),transparent);
+  animation:scroll-line 2s ease-in-out infinite}
+@keyframes scroll-line{0%{transform:scaleY(0);transform-origin:top}50%{transform:scaleY(1);transform-origin:top}
+  51%{transform:scaleY(1);transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+
+/* ── Pantalla 2 — acceso: panel de marca + tarjeta de login sobre el fondo ── */
+.access-grid{width:min(1080px,100%);display:grid;grid-template-columns:1.35fr .9fr;gap:34px;align-items:stretch}
+.glass{background:rgba(20,20,22,.62);border:1px solid rgba(231,176,8,.16);border-radius:20px;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 24px 60px rgba(0,0,0,.45)}
+
+.access-brand{padding:46px 48px}
+.access-brand .kicker{margin:0;color:var(--gold);font:600 .7rem var(--mono);text-transform:uppercase;letter-spacing:.22em}
+.access-brand h1{margin:16px 0 0;font-size:clamp(2rem,3.2vw,2.7rem);font-weight:800;letter-spacing:-.03em;line-height:1.04}
+.access-brand h1 span{display:block;color:var(--gold)}
+.access-brand p{margin:20px 0 0;color:var(--ink-soft);font-size:1rem;line-height:1.7;max-width:46ch}
+.access-list{display:grid;gap:14px;margin:30px 0 0;padding:0;list-style:none}
+.access-list li{display:flex;align-items:center;gap:13px;color:rgba(228,228,236,.92);font-size:.96rem}
+.access-check{width:26px;height:26px;flex:0 0 auto;display:inline-grid;place-items:center;border-radius:999px;
+  background:var(--gold);color:#0c0c0d;font-size:.85rem;font-weight:900}
+
+.access-login{padding:46px 40px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-bottom:4px solid var(--gold)}
+.access-login h2{margin:0;font-size:1.7rem;font-weight:800;letter-spacing:-.03em}
+.access-login .sub{margin:16px 0 0;color:var(--ink-soft);font-size:.92rem;line-height:1.6}
+.login-action{width:min(330px,100%);margin-top:40px;border:0;border-radius:11px;cursor:pointer;
+  padding:14px 22px;font-size:.95rem;font-weight:700;letter-spacing:.01em;color:#0c0c0d;
+  background:var(--gold);transition:background .16s ease}
+.login-action:hover{background:#f0bf1f}
+.login-action:disabled{cursor:wait;opacity:.72}
+.login-note{margin-top:16px;color:var(--ink-dim);font-size:12px;line-height:1.5}
+.login-error{width:min(330px,100%);margin-top:20px;padding:12px 14px;border-radius:9px;text-align:left;
+  border:1px solid rgba(255,120,120,.4);background:rgba(180,35,24,.16);color:#ffb4ab;font-size:.84rem;line-height:1.45}
+.hidden{display:none}
+
+@media (max-width:880px){
+  .access-grid{grid-template-columns:1fr;gap:22px}
+  .access-brand{padding:34px 28px}
+  .access-login{padding:34px 26px}
+  .brand-header{justify-content:flex-start}
+}
+@media (prefers-reduced-motion:reduce){.hero-scroll-line{animation:none}}
+
+/* ── Overlay "Completando acceso…" (mientras se procesa el callback de Microsoft) ── */
+.auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;
+  align-items:center;justify-content:center;background:rgba(12,12,13,.94);color:var(--ink);
+  font:600 .9rem var(--mono);letter-spacing:.12em;text-transform:uppercase}
+body.auth-completing .auth-overlay{display:flex}
+.auth-spinner{width:34px;height:34px;border-radius:50%;border:2px solid rgba(231,176,8,.25);
+  border-top-color:var(--gold);animation:auth-spin .8s linear infinite}
+@keyframes auth-spin{to{transform:rotate(360deg)}}

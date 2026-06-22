@@ -1,0 +1,65 @@
+# Corpus de caracterización del router.
+#
+# Cada entrada: (module, prompt). El `intent` es solo documentación legible
+# de qué rama esperaríamos ejercitar — NO se asierta. El test fija la decisión
+# REAL que produce el código actual, sea cual sea.
+#
+# Stems del pack activo (datasphere_mvp).
+
+- module: "01_Arquitectura_y_Conectividad"
+  cases:
+    - { intent: section,   prompt: "¿cuántos espacios y qué topología de espacios uso en datasphere?" }
+    - { intent: conceptual,prompt: "cuál es la diferencia entre DP agent y cloud connector" }
+    - { intent: section,   prompt: "cómo distribuyo la quota de memoria y disk entre tenants" }
+    - { intent: oos_02,    prompt: "necesito definir roles y DAC para seguridad de datos" }
+    - { intent: support,   prompt: "error ORA-12541 en conexión SDA hacia tabla remota" }
+    - { intent: fallback,  prompt: "qué te parece el clima de hoy en buenos aires" }
+
+- module: "02_Seguridad_y_Gobernanza"
+  cases:
+    - { intent: section,   prompt: "qué tipo de DAC uso para row level security por usuario" }
+    - { intent: conceptual,prompt: "diferencia entre roles estándar y roles custom" }
+    - { intent: oos_01,    prompt: "cómo configuro espacios y transporte DEV QA PRD" }
+    - { intent: section,   prompt: "restringir acceso por jerarquía organizacional y centro de costos" }
+    - { intent: fallback,  prompt: "contame un chiste de programadores" }
+
+- module: "03_Integracion_y_Estrategia_de_Datos"
+  cases:
+    - { intent: conceptual,prompt: "qué es ODP y cómo extrae datos de SAP" }
+    - { intent: tree,      prompt: "cómo decido entre federación o persistencia para la integración" }
+    - { intent: section,   prompt: "qué es clean core y cómo afecta la extracción" }
+    - { intent: oos_04,    prompt: "qué tipo semántico uso, fact o dimension" }
+    - { intent: section,   prompt: "diferencia entre ODP-SAPI y ODP-CDS para extractores" }
+
+- module: "04_Modelado_y_Desarrollo"
+  cases:
+    - { intent: section,   prompt: "cómo modelo por capas ingesta armonización propagación consumo" }
+    - { intent: tree,      prompt: "qué tipo de vista SQL uso, gráfica o SQLScript o table function" }
+    - { intent: section,   prompt: "cuál es la convención de nombres de objetos en datasphere" }
+    - { intent: oos_01,    prompt: "cómo organizo espacios y transporte entre DEV QA PRD" }
+    - { intent: section,   prompt: "cómo escribo una vista CDS DDIC para extracción ODP con delta" }
+
+- module: "05_Reporting_y_Consumo"
+  cases:
+    - { intent: tree,      prompt: "qué herramienta de reporting uso para consumir datasphere" }
+    - { intent: oos_04,    prompt: "qué es un analytical dataset en la capa de consumption" }
+    - { intent: fallback,  prompt: "recomendame una serie para ver el fin de semana" }
+
+# Casos adicionales para ampliar cobertura de ramas del router (cds-delta,
+# casos de soporte casi-literales, conceptuales puros, fallback).
+- module: "04_Modelado_y_Desarrollo"
+  cases:
+    - { intent: cds_delta, prompt: "necesito mantener los datos actualizados con delta incremental, puntero delta" }
+    - { intent: support,   prompt: "SAP note 3534086 compatibilidad CDC SAP_BASIS 7.56 falla" }
+    - { intent: support,   prompt: "dump RUNTIME_ERROR al activar la vista CDS en el sistema S4HANA" }
+
+- module: "03_Integracion_y_Estrategia_de_Datos"
+  cases:
+    - { intent: conceptual,prompt: "explicame la coexistencia entre HANA db y HDLF" }
+    - { intent: support,   prompt: "extractor 0CUSTOMER_ATTR no aparece en ODQMON tras whitelisteo" }
+    - { intent: fallback,  prompt: "cuánto sale una licencia de datasphere en dólares" }
+
+- module: "01_Arquitectura_y_Conectividad"
+  cases:
+    - { intent: conceptual,prompt: "federación vs persistencia, cuál conviene conceptualmente" }
+    - { intent: support,   prompt: "cloud connector status reachable pero ABAP SQL service da 503" }

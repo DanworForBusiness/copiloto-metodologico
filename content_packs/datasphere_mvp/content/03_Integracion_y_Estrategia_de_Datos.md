@@ -1,6 +1,6 @@
 ---
 module: "03"
-title: "Integración y Estrategia de Datos"
+title: "Integración y Estrategia"
 nav_label: "03 · Integración y Estrategia de Datos"
 tags: ["module:03", "domain:integration", "domain:data-strategy"]
 key_topics:
@@ -166,7 +166,7 @@ intent_assets:
     language: "abap"
 ---
 
-# 03 Integracion y Estrategia de Datos
+# 03 Integracion y Estrategia
 
 ## {dw-black}Modelo de Integración {dw-gold}Danwor
 {{section_meta: keywords="API extracción, API corporativa, data product, contrato de datos"}}
@@ -358,7 +358,7 @@ Para preguntas de configuración de Cloud Connector, no responder con un procedi
 Es fundamental no verlas como alternativas (una u otra), sino que coexisten y trabajen en conjunto para una mejor solución de escalabilidad, performance y flexibilidad a través del uso de método Hibrido.
 {{/callout}}
 
-## 🌟¿Qué nos funcionó hasta acá?
+## ¿Qué nos funcionó hasta acá?
 {{section_meta: keywords="qué funcionó, lecciones aprendidas, buenas prácticas integración, extractores disponibles, capitalizar extractores, idioma cliente, dimensión maestra, atributos textos SQL, compatibilidad extractores, extractores custom"}}
 
 Capitalizarnos de lo que existe, apoyarnos en lo que ya conocen: no reinventar la rueda – al menos como punto de partida:

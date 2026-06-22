@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Copiloto de Inteligencia Metodológica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=DM+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --dw-black:  #0a0a0a;
+    --dw-gold:   #EAB308;
+    --dw-gold2:  #c9960a;
+    --dw-text:   #1a2535;
+    --dw-muted:  #6b7a8d;
+    --dw-border: rgba(13,43,69,0.10);
+    --dw-light:  #f7f8fa;
+    --dw-white:  #ffffff;
+    --font:      'DM Sans', sans-serif;
+    --mono:      'DM Mono', monospace;
+    --tr:        0.2s cubic-bezier(.4,0,.2,1);
+    --r-sm: 5px; --r-md: 10px; --r-lg: 16px;
+    --sh-sm: 0 1px 4px rgba(13,43,69,.07);
+    --sh-md: 0 4px 16px rgba(13,43,69,.11);
+    /* module layer colors */
+    --c-ok:    #15803d;
+    --c-warn:  #b45309;
+    --c-no:    #b91c1c;
+    --c-info:  #1565c0;
+    /* slide accent colors */
+    --c1: #0a0a0a; /* cover */
+    --c2: #1565c0;
+    --c3: #0d7a5f;
+    --c4: #1a2535;
+    --c5: #7b1fa2;
+    --c6: #c9960a;
+    --c7: #b45309;
+    --c8: #b91c1c;
+    --c9: #0d7a5f;
+    --c10:#7b1fa2;
+    --c11:#b45309;
+    --c12:#15803d;
+    --c13:#1565c0;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: var(--font); background: var(--dw-light); color: var(--dw-text); -webkit-font-smoothing: antialiased; display: flex; min-height: 100vh; }
+
+  /* ════════════════════════════════
+     SIDEBAR NAV
+  ════════════════════════════════ */
+  .sidebar {
+    width: 240px; flex-shrink: 0;
+    background: var(--dw-black);
+    position: fixed; top: 0; left: 0; bottom: 0;
+    overflow-y: auto; z-index: 100;
+    display: flex; flex-direction: column;
+    border-right: 1px solid rgba(245,166,35,.12);
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
+
+  .sidebar-header {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+    flex-shrink: 0;
+  }
+  .sidebar-logo { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+  .sidebar-logo-mark { width: 28px; height: 28px; background: linear-gradient(135deg,#f5a623,#c97d10); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; color: #000; flex-shrink: 0; }
+  .sidebar-logo-text { color: #fff; font-size: 12.5px; font-weight: 700; letter-spacing: .3px; }
+  .sidebar-logo-sub  { color: rgba(245,166,35,.65); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-top: -1px; }
+  .sidebar-title { font-size: 11px; color: rgba(255,255,255,.5); line-height: 1.45; }
+
+  .sidebar-nav { flex: 1; padding: 8px 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px; cursor: pointer;
+    transition: background var(--tr), color var(--tr);
+    border-left: 3px solid transparent;
+    text-decoration: none;
+  }
+  .nav-item:hover { background: rgba(255,255,255,.05); }
+  .nav-item.active { background: rgba(245,166,35,.1); border-left-color: var(--dw-gold); }
+  .nav-num {
+    width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    background: rgba(255,255,255,.08); color: rgba(255,255,255,.5);
+    transition: var(--tr);
+  }
+  .nav-item.active .nav-num { background: var(--dw-gold); color: #000; }
+  .nav-label { font-size: 12px; color: rgba(255,255,255,.55); line-height: 1.35; transition: color var(--tr); }
+  .nav-item.active .nav-label, .nav-item:hover .nav-label { color: #fff; }
+
+  .sidebar-footer {
+    padding: 12px 16px;
+    border-top: 1px solid rgba(255,255,255,.07);
+    font-size: 10.5px; color: rgba(255,255,255,.3);
+    flex-shrink: 0;
+  }
+
+  /* ════════════════════════════════
+     MAIN CONTENT
+  ════════════════════════════════ */
+  .content-area {
+    margin-left: 240px;
+    flex: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Top bar */
+  .topbar {
+    background: var(--dw-white); height: 52px;
+    position: sticky; top: 0; z-index: 50;
+    border-bottom: 1px solid var(--dw-border);
+    display: flex; align-items: center; padding: 0 32px;
+    gap: 16px;
+  }
+  .topbar-breadcrumb { font-size: 12.5px; color: var(--dw-muted); }
+  .topbar-breadcrumb strong { color: var(--dw-text); font-weight: 600; }
+  .topbar-nav { margin-left: auto; display: flex; gap: 6px; }
+  .topbar-btn {
+    padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--dw-border); background: var(--dw-white);
+    color: var(--dw-muted); cursor: pointer; transition: var(--tr);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .topbar-btn:hover { border-color: var(--dw-gold); color: var(--dw-text); }
+  .topbar-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ════════════════════════════════
+     SLIDE PANELS
+  ════════════════════════════════ */
+  .slide-panel { display: none; padding: 32px 40px 48px; animation: fadeIn .3s ease both; }
+  .slide-panel.active { display: block; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);} }
+
+  /* Slide header */
+  .slide-header {
+    margin-bottom: 28px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--dw-border);
+  }
+  .slide-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+    padding: 3px 11px; border-radius: 20px; margin-bottom: 12px;
+  }
+  .slide-badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; }
+  .slide-badge.gold  { background: rgba(245,166,35,.12); border: 1px solid rgba(245,166,35,.3); color: var(--dw-gold2); }
+  .slide-badge.gold::before { background: var(--dw-gold); }
+  .slide-badge.blue  { background: rgba(21,101,192,.08); border: 1px solid rgba(21,101,192,.25); color: #1565c0; }
+  .slide-badge.blue::before { background: #1565c0; }
+  .slide-badge.green { background: rgba(13,122,95,.08); border: 1px solid rgba(13,122,95,.25); color: #0d7a5f; }
+  .slide-badge.green::before { background: #0d7a5f; }
+  .slide-badge.purple{ background: rgba(123,31,162,.08); border: 1px solid rgba(123,31,162,.25); color: #7b1fa2; }
+  .slide-badge.purple::before { background: #7b1fa2; }
+  .slide-badge.red   { background: rgba(185,28,28,.08); border: 1px solid rgba(185,28,28,.25); color: #b91c1c; }
+  .slide-badge.red::before { background: #b91c1c; }
+  .slide-badge.dark  { background: rgba(0,0,0,.07); border: 1px solid rgba(0,0,0,.15); color: var(--dw-text); }
+  .slide-badge.dark::before { background: var(--dw-text); }
+
+  .slide-num { font-size: 11px; color: var(--dw-muted); margin-bottom: 6px; font-weight: 500; }
+  .slide-title { font-size: 30px; font-weight: 800; letter-spacing: -.4px; line-height: 1.15; margin-bottom: 8px; }
+  .slide-title em { color: var(--dw-gold); font-style: normal; }
+  .slide-sub { font-size: 14.5px; color: var(--dw-muted); line-height: 1.65; max-width: 700px; }
+
+  /* ── SHARED COMPONENTS ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+
+  /* Info card */
+  .info-card {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); padding: 18px 20px; box-shadow: var(--sh-sm);
+    transition: border-color var(--tr), box-shadow var(--tr), transform var(--tr);
+    border-top: 3px solid var(--card-c, var(--dw-gold));
+  }
+  .info-card:hover { box-shadow: var(--sh-md); transform: translateY(-2px); }
+  .card-icon { font-size: 24px; margin-bottom: 10px; display: block; }
+  .card-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
+  .card-desc  { font-size: 13px; color: var(--dw-muted); line-height: 1.6; }
+
+  /* Code block */
+  .code-block {
+    background: #1e2433; border-radius: var(--r-md); padding: 16px 18px;
+    font-family: var(--mono); font-size: 12.5px; color: #e2e8f0; line-height: 1.7;
+    overflow-x: auto;
+  }
+  .code-block .ky { color: #93c5fd; } /* key */
+  .code-block .vl { color: #86efac; } /* value */
+  .code-block .cm { color: #6b7a8d; font-style: italic; } /* comment */
+  .code-block .st { color: #fcd34d; } /* string */
+  .code-block .fn { color: #f9a8d4; } /* function */
+
+  /* Module tree rows */
+  .module-row {
+    display: flex; align-items: flex-start; gap: 0;
+    margin-bottom: 6px; border-radius: var(--r-md); overflow: hidden;
+    border: 1px solid var(--dw-border); box-shadow: var(--sh-sm);
+  }
+  .module-name {
+    background: var(--mod-bg, #1e2433); color: var(--mod-fg, #e2e8f0);
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    padding: 11px 16px; min-width: 180px; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .module-name span { font-size: 10px; opacity: .6; font-weight: 400; }
+  .module-desc {
+    background: var(--dw-white); padding: 11px 16px;
+    font-size: 13px; color: var(--dw-muted); line-height: 1.5;
+    flex: 1;
+  }
+
+  /* Flow step row */
+  .flow-row { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-bottom: 16px; }
+  .flow-step {
+    display: flex; align-items: center; gap: 0;
+  }
+  .flow-box {
+    border-radius: var(--r-md); padding: 10px 14px; font-size: 12.5px; font-weight: 600;
+    border: 1.5px solid; display: flex; flex-direction: column; gap: 3px;
+    min-width: 110px; text-align: center;
+    transition: box-shadow var(--tr), transform var(--tr);
+  }
+  .flow-box:hover { transform: translateY(-2px); box-shadow: var(--sh-sm); }
+  .flow-box small { font-size: 10px; font-weight: 400; opacity: .75; font-style: italic; }
+  .fb-dark  { background: #1e2433; border-color: #2d3748; color: #e2e8f0; }
+  .fb-blue  { background: #e8f0fe; border-color: #93c5fd; color: #1565c0; }
+  .fb-gold  { background: #fff3e0; border-color: #ffcc80; color: #b45309; }
+  .fb-purple{ background: #f3e5f5; border-color: #ce93d8; color: #7b1fa2; }
+  .fb-green { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+  .fb-gray  { background: var(--dw-light); border-color: var(--dw-border); color: var(--dw-text); }
+  .flow-arrow { color: var(--dw-gold2); font-size: 20px; padding: 0 8px; flex-shrink: 0; }
+  .flow-arrow.dashed { opacity: .45; font-size: 18px; }
+
+  /* Decision nodes */
+  .decision-row {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 13px 16px; border-radius: var(--r-md); margin-bottom: 8px;
+    border: 1px solid; background: var(--dw-white);
+  }
+  .decision-num {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800; color: #fff;
+  }
+  .decision-content strong { font-size: 13.5px; font-weight: 700; display: block; margin-bottom: 3px; }
+  .decision-content span   { font-size: 12.5px; color: var(--dw-muted); line-height: 1.5; }
+
+  /* Two-col prose */
+  .prose-two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .prose-col h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .prose-col p  { font-size: 13.5px; color: var(--dw-muted); line-height: 1.65; margin-bottom: 10px; }
+
+  /* Rule badges */
+  .rule-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 13px; border-radius: var(--r-sm); margin-bottom: 7px;
+    font-size: 13px; line-height: 1.5; border: 1px solid;
+  }
+  .rule-ok   { background: #f0fdf4; border-color: rgba(21,128,61,.2); color: var(--dw-text); }
+  .rule-warn { background: #fffbeb; border-color: rgba(180,83,9,.2); color: var(--dw-text); }
+  .rule-no   { background: #fff1f2; border-color: rgba(185,28,28,.2); color: var(--dw-text); }
+  .rule-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+
+  /* Section divider */
+  .sect-divider { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--dw-muted); margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .sect-divider::after { content: ''; flex: 1; height: 1px; background: var(--dw-border); }
+
+  /* YAML anatomy table */
+  .yaml-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--dw-border); box-shadow: var(--sh-sm); }
+  .yaml-table th { background: #1e2433; color: #e2e8f0; padding: 9px 12px; text-align: left; font-size: 11px; letter-spacing: .4px; }
+  .yaml-table td { padding: 9px 12px; border-bottom: 1px solid var(--dw-border); vertical-align: top; line-height: 1.5; }
+  .yaml-table tr:last-child td { border-bottom: none; }
+  .yaml-table .ky-col { color: #93c5fd; font-weight: 600; white-space: nowrap; }
+  .yaml-table .vl-col { color: #86efac; }
+  .yaml-table .dc-col { color: var(--dw-muted); font-family: var(--font); font-size: 12px; }
+  .yaml-table tbody tr:hover td { background: rgba(0,0,0,.02); }
+
+  /* Roadmap cards */
+  .roadmap-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 14px; }
+  .roadmap-card {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); padding: 16px 18px; box-shadow: var(--sh-sm);
+    position: relative; overflow: hidden;
+    border-top: 3px solid var(--rc-c);
+  }
+  .rc-num { font-size: 28px; font-weight: 800; color: var(--rc-c); opacity: .2; line-height: 1; margin-bottom: 4px; }
+  .rc-title { font-size: 13.5px; font-weight: 700; margin-bottom: 8px; }
+  .rc-items { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .rc-items li { font-size: 12px; color: var(--dw-muted); display: flex; gap: 6px; align-items: baseline; }
+  .rc-items li::before { content: '—'; color: var(--rc-c); flex-shrink: 0; font-weight: 700; }
+  .rc-done { position: absolute; top: 10px; right: 12px; font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 9px; border-radius: 20px; border: 1px solid #86efac; }
+
+  /* Cover slide special */
+  .cover-slide {
+    background: var(--dw-black);
+    min-height: calc(100vh - 52px);
+    display: flex; flex-direction: column; justify-content: center;
+    align-items: flex-start; padding: 60px 56px;
+    position: relative; overflow: hidden;
+  }
+  .cover-slide .cs-waves {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .cover-slide .cs-content { position: relative; z-index: 2; }
+  .cover-slide .cs-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: rgba(245,166,35,.15); border: 1px solid rgba(245,166,35,.3);
+    color: var(--dw-gold); font-size: 11px; font-weight: 600;
+    padding: 5px 14px; border-radius: 20px; margin-bottom: 24px;
+    letter-spacing: .7px; text-transform: uppercase;
+  }
+  .cover-slide h1 { font-size: 44px; font-weight: 800; color: #fff; line-height: 1.1; letter-spacing: -.5px; margin-bottom: 14px; }
+  .cover-slide h1 em { color: var(--dw-gold); font-style: normal; }
+  .cover-slide .cs-sub { font-size: 16px; color: rgba(255,255,255,.55); line-height: 1.65; max-width: 540px; margin-bottom: 32px; }
+  .cover-slide .cs-tag { font-size: 12px; color: rgba(255,255,255,.35); font-style: italic; }
+  .cover-dots { position: absolute; top: 24px; left: 24px; display: grid; grid-template-columns: repeat(3,8px); gap: 8px; opacity: .3; }
+  .cover-dot  { width: 3px; height: 3px; border-radius: 50%; background: var(--dw-gold); }
+
+  /* Closing slide */
+  .closing-slide {
+    background: var(--dw-black); min-height: calc(100vh - 52px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+  }
+  .closing-slide .cl-logo { font-size: 48px; font-weight: 800; color: var(--dw-gold); letter-spacing: 2px; margin-bottom: 8px; }
+  .closing-slide .cl-sub  { font-size: 13px; color: rgba(255,255,255,.35); letter-spacing: 3px; text-transform: uppercase; }
+
+  /* Highlight box */
+  .highlight-box {
+    border: 2px solid var(--dw-gold); border-radius: var(--r-md);
+    padding: 18px 24px; text-align: center; margin-top: 24px;
+    background: rgba(245,166,35,.04); font-size: 15px; font-weight: 600; line-height: 1.65;
+    position: relative;
+  }
+  .highlight-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg,var(--dw-gold),rgba(245,166,35,.3)); border-radius: 3px 3px 0 0; }
+
+  /* Gov bar */
+  .gov-bar {
+    background: var(--dw-white); border: 1px solid var(--dw-border);
+    border-radius: var(--r-lg); padding: 13px 20px; margin-top: 28px;
+    display: flex; align-items: center; gap: 12px; box-shadow: var(--sh-sm);
+  }
+  .gov-icon { font-size: 16px; }
+  .gov-text  { font-size: 12.5px; color: var(--dw-muted); }
+  .gov-text strong { color: var(--dw-text); font-weight: 600; }
+  .gov-tags  { display: flex; gap: 7px; margin-left: auto; flex-wrap: wrap; }
+  .gov-tag   { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: #f0f1ff; color: #4338ca; border: 1px solid #c7d2fe; font-weight: 500; }
+
+  @media (max-width: 960px) {
+    .sidebar { display: none; }
+    .content-area { margin-left: 0; }
+    .grid-2, .grid-3, .grid-4, .prose-two, .roadmap-grid { grid-template-columns: 1fr; }
+    .slide-panel { padding: 20px; }
+    .cover-slide { padding: 40px 24px; }
+    .cover-slide h1 { font-size: 30px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════ SIDEBAR ════════════════ -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">
+      <div>
+        <img src="https://danwor.com/logo_dfb.png" alt="Danwor" style="height: 38px; width: auto; display: block;" />
+      </div>
+    </div>
+    <div class="sidebar-title">Copiloto Metodológico — Guía Técnica</div>
+  </div>
+
+  <div class="sidebar-nav">
+    <a class="nav-item active" onclick="go(1)" href="#">
+      <div class="nav-num">1</div>
+      <div class="nav-label">Portada</div>
+    </a>
+    <a class="nav-item" onclick="go(2)" href="#">
+      <div class="nav-num">2</div>
+      <div class="nav-label">¿Qué es el Copiloto?</div>
+    </a>
+    <a class="nav-item" onclick="go(3)" href="#">
+      <div class="nav-num">3</div>
+      <div class="nav-label">Funcionalidades</div>
+    </a>
+    <a class="nav-item" onclick="go(4)" href="#">
+      <div class="nav-num">4</div>
+      <div class="nav-label">Arquitectura de Módulos</div>
+    </a>
+    <a class="nav-item" onclick="go(5)" href="#">
+      <div class="nav-num">5</div>
+      <div class="nav-label">Flujo de Decisión</div>
+    </a>
+    <a class="nav-item" onclick="go(6)" href="#">
+      <div class="nav-num">6</div>
+      <div class="nav-label">Contrato de Contenido</div>
+    </a>
+    <a class="nav-item" onclick="go(7)" href="#">
+      <div class="nav-num">7</div>
+      <div class="nav-label">Integración LLM</div>
+    </a>
+    <a class="nav-item" onclick="go(8)" href="#">
+      <div class="nav-num">8</div>
+      <div class="nav-label">Seguridad y Gobernanza</div>
+    </a>
+    <a class="nav-item" onclick="go(9)" href="#">
+      <div class="nav-num">9</div>
+      <div class="nav-label">Estructura de Contenido (.md)</div>
+    </a>
+    <a class="nav-item" onclick="go(10)" href="#">
+      <div class="nav-num">10</div>
+      <div class="nav-label">Árboles de Decisión (.yaml)</div>
+    </a>
+    <a class="nav-item" onclick="go(11)" href="#">
+      <div class="nav-num">11</div>
+      <div class="nav-label">Patrones críticos FastAPI / HTMX</div>
+    </a>
+    <a class="nav-item" onclick="go(12)" href="#">
+      <div class="nav-num">12</div>
+      <div class="nav-label">Guía de Modificaciones</div>
+    </a>
+    <a class="nav-item" onclick="go(13)" href="#">
+      <div class="nav-num">13</div>
+      <div class="nav-label">Estado Actual &amp; Evolución</div>
+    </a>
+    <a class="nav-item" onclick="go(14)" href="#">
+      <div class="nav-num">14</div>
+      <div class="nav-label">How-to Git · deployment → main</div>
+    </a>
+    <a class="nav-item" onclick="go(15)" href="#">
+      <div class="nav-num">15</div>
+      <div class="nav-label">Cierre</div>
+    </a>
+  </div>
+
+  <div class="sidebar-footer">I+D · Danwor Transversal</div>
+</nav>
+
+<!-- ════════════════ MAIN ════════════════ -->
+<div class="content-area">
+
+  <!-- Topbar -->
+  <div class="topbar" id="topbar">
+    <div class="topbar-breadcrumb">Copiloto Metodológico → <strong id="tb-label">Portada</strong></div>
+    <div class="topbar-nav">
+      <button class="topbar-btn" id="btn-prev" onclick="prev()">← Anterior</button>
+      <button class="topbar-btn" id="btn-next" onclick="next()">Siguiente →</button>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 1: COVER ══ -->
+  <div class="slide-panel active" id="s1">
+    <div class="cover-slide">
+      <svg class="cs-waves" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="cg1" cx="15%" cy="90%" r="55%"><stop offset="0%" stop-color="#c97d10" stop-opacity=".5"/><stop offset="100%" stop-color="#c97d10" stop-opacity="0"/></radialGradient>
+          <radialGradient id="cg2" cx="85%" cy="50%" r="40%"><stop offset="0%" stop-color="#f5a623" stop-opacity=".07"/><stop offset="100%" stop-color="#f5a623" stop-opacity="0"/></radialGradient>
+        </defs>
+        <ellipse cx="160" cy="700" rx="500" ry="380" fill="url(#cg1)"/>
+        <ellipse cx="1050" cy="300" rx="380" ry="280" fill="url(#cg2)"/>
+        <path d="M0,580 C200,500 400,620 620,540 C820,460 940,580 1140,510 L1200,700 L0,700Z" fill="rgba(201,125,16,.12)"/>
+        <path d="M0,630 C160,600 320,640 520,610 C720,580 840,625 1060,600 L1200,700 L0,700Z" fill="rgba(245,166,35,.06)"/>
+        <circle cx="1080" cy="80" r="130" fill="none" stroke="rgba(245,166,35,.06)" stroke-width="1"/>
+        <circle cx="1080" cy="80" r="85"  fill="none" stroke="rgba(245,166,35,.08)" stroke-width="1"/>
+        <circle cx="1080" cy="80" r="42"  fill="none" stroke="rgba(245,166,35,.10)" stroke-width="1"/>
+      </svg>
+      <div class="cover-dots">
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+      </div>
+      <div class="cs-content">
+        <div class="cs-badge">I+D · Consultoría Estratégica</div>
+        <h1>Copiloto de <em>Inteligencia</em><br>Metodológica</h1>
+        <p class="cs-sub">De un marco estático a una experiencia de consulta inteligente. Guía Técnica de Arquitectura, contenido e Integración IA.</p>
+        <div class="cs-tag">Danwor For Business · Arquitecto Danwor</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 2: QUÉ ES ══ -->
+  <div class="slide-panel" id="s2">
+    <div class="slide-header">
+      <div class="slide-badge blue">Visión General</div>
+      <div class="slide-num">02 / 14</div>
+      <div class="slide-title">Copiloto de <em>Inteligencia Metodológica</em></div>
+      <p class="slide-sub">La evolución de nuestro marco actual, apoyado en el mismo contenido, pero estructurado de forma navegable, intuitiva, guiada y ahora potenciado por IA.</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="info-card" style="--card-c:#1565c0">
+        <span class="card-icon">📚</span>
+        <div class="card-title">Contenido curado</div>
+        <div class="card-desc">Módulos metodológicos en Markdown con anotaciones semánticas para búsqueda precisa y routing contextual.</div>
+      </div>
+      <div class="info-card" style="--card-c:#0d7a5f">
+        <span class="card-icon">🧭</span>
+        <div class="card-title">Guía de decisión</div>
+        <div class="card-desc">Árboles determinísticos que guían al consultor paso a paso sin ambigüedad. Trazables y auditables.</div>
+      </div>
+      <div class="info-card" style="--card-c:#7b1fa2">
+        <span class="card-icon">🤖</span>
+        <div class="card-title">IA como capa adicional</div>
+        <div class="card-desc">El LLM agrega valor cuando el contenido no alcanza — nunca reemplaza la estructura. Consume responsablemente.</div>
+      </div>
+      <div class="info-card" style="--card-c:#c9960a">
+        <span class="card-icon">📊</span>
+        <div class="card-title">Aprendizaje continuo</div>
+        <div class="card-desc">Feedback de consultores alimenta una case library que enriquece futuras respuestas y mejora el routing.</div>
+      </div>
+    </div>
+
+    <div class="highlight-box">
+      El Copiloto <strong>no reemplaza</strong> nuestro criterio, lo potencia con estructura y contexto.
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 3: FUNCIONALIDADES ══ -->
+  <div class="slide-panel" id="s3">
+    <div class="slide-header">
+      <div class="slide-badge green">Producto</div>
+      <div class="slide-num">03 / 14</div>
+      <div class="slide-title"><em>Funcionalidades</em></div>
+      <p class="slide-sub">Interfaz interactiva que permite explorar el conocimiento, ejecutar decisiones y analizar escenarios con apoyo de lenguaje natural.</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="info-card" style="--card-c:#1565c0">
+        <span class="card-icon">🗂️</span>
+        <div class="card-title">Exploración del Conocimiento</div>
+        <div class="card-desc">Navegación modular con key topics interactivos. El usuario explora el marco metodológico como una experiencia guiada, no un documento estático.</div>
+      </div>
+      <div class="info-card" style="--card-c:#7b1fa2">
+        <span class="card-icon">🌳</span>
+        <div class="card-title">Árboles de Decisión</div>
+        <div class="card-desc">Evaluación guiada de escenarios, determinística y trazable. Cada hoja del árbol tiene una decisión clara con post-actions configurables.</div>
+      </div>
+      <div class="info-card" style="--card-c:#0d7a5f">
+        <span class="card-icon">🤖</span>
+        <div class="card-title">Copiloto de Análisis</div>
+        <div class="card-desc">Interpreta contexto técnico, genera recomendaciones, explica decisiones. Activado solo cuando el contenido estructurado no alcanza.</div>
+      </div>
+      <div class="info-card" style="--card-c:#c9960a">
+        <span class="card-icon">📄</span>
+        <div class="card-title">Integración Documental</div>
+        <div class="card-desc">Conecta con SAP Help, Notas SAP, SharePoint y PPTs. Los assets técnicos están registrados en intent_assets del frontmatter de cada módulo.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 4: ARQUITECTURA DE MÓDULOS ══ -->
+  <div class="slide-panel" id="s4">
+    <div class="slide-header">
+      <div class="slide-badge dark">Arquitectura Técnica</div>
+      <div class="slide-num">04 / 14</div>
+      <div class="slide-title">Arquitectura de <em>Módulos</em></div>
+      <p class="slide-sub">Adopción adecuada · Separación de responsabilidades. Cada capa tiene un rol claro — no mezclar lógica entre módulos.</p>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px">
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#1e2433;--mod-fg:#93c5fd">webapp/main.py <span>Orquestador FastAPI</span></div>
+        <div class="module-desc">Punto de entrada (uvicorn). Rutas SSR de módulos, endpoints HTMX (wizard, análisis, asistente), auth y assets. Reemplaza al viejo bootstrap Streamlit.</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#1a3a5c;--mod-fg:#bfdbfe">webapp/templates · static <span>Presentación (SSR)</span></div>
+        <div class="module-desc">Jinja2 server-side + HTMX (hipermedia, partials que se swapean sin recargar) + Alpine.js (estado liviano) + Tailwind. Solo renderiza.</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#1c3a2e;--mod-fg:#7dd3b0">webapp/services/ <span>Lógica de aplicación</span></div>
+        <div class="module-desc">content_service (parser Markdown) · wizard_service (árboles) · section_analysis + assistant (LLM) · auth_service (MSAL) · case_library.</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#14422a;--mod-fg:#86efac">core/ <span>Dominio puro Danwor</span></div>
+        <div class="module-desc">content_registry · prompts · routing_scorers · corpus · content_metadata · utils. Sin acoplamiento a UI ni a Streamlit (6 módulos).</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#422020;--mod-fg:#fca5a5">content_packs/ <span>Datos y configuración</span></div>
+        <div class="module-desc">Por pack (datasphere_mvp, bdc_next): content/*.md · trees/*.yaml · assets/ · templates/. Única fuente de verdad, con herencia entre packs. Editable sin tocar Python.</div>
+      </div>
+    </div>
+
+    <div class="rule-item rule-warn">
+      <span class="rule-icon">⚠️</span>
+      <span><strong>No modificar sin revisión cross-módulo:</strong> <code style="font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:3px">core/content_registry.py</code> · <code style="font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:3px">webapp/services/content_service.py</code> · <code style="font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:3px">webapp/static/tools.css</code></span>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 5: FLUJO DE DECISIÓN ══ -->
+  <div class="slide-panel" id="s5">
+    <div class="slide-header">
+      <div class="slide-badge purple">Motor de Decisión</div>
+      <div class="slide-num">05 / 14</div>
+      <div class="slide-title">Flujo de <em>Decisión</em></div>
+      <p class="slide-sub">Empowerment adecuado · Separación de capacidades. Cada consulta sigue un pipeline determinístico antes de llegar al LLM.</p>
+    </div>
+
+    <div class="flow-row" style="margin-bottom:24px;flex-wrap:wrap;gap:8px">
+      <div class="flow-box fb-gray" style="min-width:90px"><strong>1</strong><small>Pregunta del usuario</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box fb-purple"><strong>5 · Guardrails</strong><small>Posturas normativas Danwor</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box fb-blue"><strong>6 · Router</strong><small>Redirección liviana</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box fb-green"><strong>Respuesta</strong></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+      <div class="decision-row" style="border-color:rgba(21,101,192,.2);background:#f0f6ff">
+        <div class="decision-num" style="background:#1565c0">2</div>
+        <div class="decision-content"><strong>¿Árbol matchea?</strong><span>Si hay un árbol de decisión para la consulta → ofrece navegación guiada o LLM como opciones.</span></div>
+      </div>
+      <div class="decision-row" style="border-color:rgba(13,122,95,.2);background:#f0fdf4">
+        <div class="decision-num" style="background:#0d7a5f">3</div>
+        <div class="decision-content"><strong>¿Asset matchea?</strong><span>Si hay un template técnico descargable → ofrece ver / descargar el recurso directamente.</span></div>
+      </div>
+      <div class="decision-row" style="border-color:rgba(201,150,10,.2);background:#fffbeb">
+        <div class="decision-num" style="background:#c9960a">4</div>
+        <div class="decision-content"><strong>¿Metadata matchea?</strong><span>Si hay una sección del .md que responde la consulta → ofrece navegar o enriquecer con LLM.</span></div>
+      </div>
+      <div class="decision-row" style="border-color:rgba(123,31,162,.2);background:#faf5ff">
+        <div class="decision-num" style="background:#7b1fa2">7</div>
+        <div class="decision-content"><strong>LLM fallback</strong><span>Solo si ningún mecanismo anterior resolvió → respuesta libre con IA (API Real).</span></div>
+      </div>
+    </div>
+
+    <div class="sect-divider">Cómo se ejecuta el pipeline</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span>Determinístico y <strong>server-side</strong>: el scoring (<code style="font-family:var(--mono);font-size:12px">routing_scorers</code>) y el match de árboles/assets resuelven antes que el LLM. El LLM es el último recurso.</span></div>
+      <div class="rule-item rule-ok"><span class="rule-icon">⚡</span><span>Cada paso devuelve un <strong>fragmento HTMX</strong> que se inserta sin recargar. El LLM (API Real) es lo único con costo y solo se activa al final del flujo.</span></div>
+      <div class="rule-item rule-warn"><span class="rule-icon">💡</span><span>El modo <strong>Simulación</strong> (<code style="font-family:var(--mono);font-size:12px">DANWOR_EXECUTION_MODE</code>) permite recorrer todo el flujo sin consumir créditos — muestra el prompt que se enviaría.</span></div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 6: CONTRATO DE CONTENIDO ══ -->
+  <div class="slide-panel" id="s6">
+    <div class="slide-header">
+      <div class="slide-badge gold">Markdown Semántico</div>
+      <div class="slide-num">06 / 14</div>
+      <div class="slide-title">Contrato de <em>Contenido</em></div>
+      <p class="slide-sub">Markdown Semántico + HTML Visual. El Markdown define el conocimiento que entiende el copiloto. El HTML mejora la experiencia visual, pero no reemplaza la semántica.</p>
+    </div>
+
+    <div class="prose-two" style="margin-bottom:20px">
+      <div>
+        <div style="border:1.5px solid rgba(21,101,192,.25);border-radius:var(--r-lg);padding:18px 20px;background:#f0f6ff;border-top:3px solid #1565c0">
+          <h3 style="color:#1565c0;margin-bottom:12px">📘 Markdown semántico</h3>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="rule-item rule-ok" style="padding:8px 12px"><span class="rule-icon" style="font-family:var(--mono);font-size:11px;color:#1565c0">scope</span><span style="font-size:12.5px">delimita qué cubre el módulo</span></div>
+            <div class="rule-item rule-ok" style="padding:8px 12px"><span class="rule-icon" style="font-family:var(--mono);font-size:11px;color:#1565c0">section_meta</span><span style="font-size:12.5px">ayuda a encontrar secciones (routing)</span></div>
+            <div class="rule-item rule-ok" style="padding:8px 12px"><span class="rule-icon" style="font-family:var(--mono);font-size:11px;color:#1565c0">semantic_summary</span><span style="font-size:12.5px">contexto invisible para el LLM</span></div>
+            <div class="rule-item rule-ok" style="padding:8px 12px"><span class="rule-icon" style="font-family:var(--mono);font-size:11px;color:#1565c0">guardrails</span><span style="font-size:12.5px">fija postura Danwor y límites de recomendación</span></div>
+            <div class="rule-item rule-ok" style="padding:8px 12px"><span class="rule-icon" style="font-family:var(--mono);font-size:11px;color:#1565c0">intent_assets</span><span style="font-size:12.5px">conecta preguntas con recursos internos</span></div>
+          </div>
+          <div style="margin-top:10px;font-size:11px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:.4px">Fuente de verdad metodológica</div>
+        </div>
+      </div>
+      <div>
+        <div style="border:1.5px solid rgba(201,150,10,.25);border-radius:var(--r-lg);padding:18px 20px;background:#fffbeb;border-top:3px solid #c9960a">
+          <h3 style="color:#c9960a;margin-bottom:12px">🎨 HTML visual</h3>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:var(--dw-text);line-height:1.6">
+            <div>✓ Renderiza diagramas, mapas, roadmaps y comparativas visuales</div>
+            <div>✓ Mejora lectura, navegación y comprensión ejecutiva</div>
+            <div style="color:var(--dw-muted)">⚠ No debe ser la única fuente de conocimiento técnico</div>
+            <div style="color:var(--dw-muted)">⚠ Si enseña una decisión, el .md debe explicarla semánticamente</div>
+          </div>
+          <div style="margin-top:10px;font-size:11px;font-weight:700;color:#c9960a;text-transform:uppercase;letter-spacing:.4px">Capa de experiencia</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--dw-light);border:1px solid var(--dw-border);border-radius:var(--r-md);padding:16px 20px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dw-muted);margin-bottom:10px">Regla de Diseño</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span>Lo visual se diseña en <strong>HTML</strong>.</span></div>
+        <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span>Lo conversacional se gobierna desde <strong>Markdown</strong>.</span></div>
+      </div>
+      <div class="rule-item rule-warn" style="margin-top:8px">
+        <span class="rule-icon">⚠️</span>
+        <span>Esto evita que el copiloto se "vea" como una interfaz bonita pero no entienda la decisión técnica detrás del contenido.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 7: INTEGRACIÓN LLM ══ -->
+  <div class="slide-panel" id="s7">
+    <div class="slide-header">
+      <div class="slide-badge purple">Consumo Responsable</div>
+      <div class="slide-num">07 / 14</div>
+      <div class="slide-title">Integración <em>LLM</em></div>
+      <p class="slide-sub">Capas &amp; Responsabilidades. El LLM es una capa adicional — no la fuente primaria de respuestas.</p>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#2d1a4a;--mod-fg:#e9d5ff">SectionAnalysisService · AssistantChatService <span>webapp/services/</span></div>
+        <div class="module-desc">Llaman a OpenAI directamente (cliente <code style="font-family:var(--mono);font-size:11.5px">openai</code>, modelo de <code style="font-family:var(--mono);font-size:11.5px">config.MODEL</code>). La concurrencia la maneja FastAPI — sin singleton ni threads manuales. Respuesta renderizada a HTML (markdown).</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#14422a;--mod-fg:#86efac">build_system_prompt · build_topic_prompt <span>core/prompts.py</span></div>
+        <div class="module-desc">Construyen el prompt con el contexto del módulo activo, scope, acción solicitada y casos reales de la <code style="font-family:var(--mono);font-size:11.5px">case_library/</code>.</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#1e2433;--mod-fg:#93c5fd">DANWOR_EXECUTION_MODE <span>config.py / entorno</span></div>
+        <div class="module-desc">Modo Simulación vs API Real, leído por variable de entorno (no por session_state). El asistente del routing usa <code style="font-family:var(--mono);font-size:11.5px">routing_scorers</code> antes de tocar el LLM.</div>
+      </div>
+      <div class="module-row">
+        <div class="module-name" style="--mod-bg:#422020;--mod-fg:#fca5a5">IA_ENABLED_MODULES <span>config.py</span></div>
+        <div class="module-desc">Módulos con IA habilitada (<code style="font-family:var(--mono);font-size:11.5px">ia_enabled_for()</code>). Controla si se muestra el panel de acciones de sección por módulo (p. ej. 00 Intro queda sin panel).</div>
+      </div>
+    </div>
+
+    <div class="rule-item rule-ok">
+      <span class="rule-icon">💡</span>
+      <span><strong>Modo Simulación:</strong> no se consumen créditos — el output muestra el prompt que se enviaría. Útil para desarrollo y validación sin costo.</span>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 8: SEGURIDAD ══ -->
+  <div class="slide-panel" id="s8">
+    <div class="slide-header">
+      <div class="slide-badge red">Seguridad</div>
+      <div class="slide-num">08 / 14</div>
+      <div class="slide-title">Seguridad y <em>Gobernanza</em></div>
+      <p class="slide-sub">Microsoft 365 autentica usuarios, pero no neutraliza archivos ni contenido malicioso. El copiloto separa identidad, autorización, parsing seguro y guardrails LLM.</p>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:16px">
+      <div class="info-card" style="--card-c:#1565c0">
+        <span class="card-icon">🔐</span>
+        <div class="card-title">Identidad</div>
+        <div class="card-desc">Microsoft Entra ID por OAuth2 + PKCE (public client). El <code style="font-family:var(--mono);font-size:11.5px">id_token</code> se valida server-side contra el JWKS del tenant (firma RS256, audience, issuer) + allow-list por dominio. Sesión en cookie HttpOnly firmada (JWT); rutas protegidas.</div>
+      </div>
+      <div class="info-card" style="--card-c:#b91c1c">
+        <span class="card-icon">📁</span>
+        <div class="card-title">Archivos seguros</div>
+        <div class="card-desc">No ejecuta <code style="font-family:var(--mono);font-size:11.5px">.py</code>. YAML con <code style="font-family:var(--mono);font-size:11.5px">safe_load</code>. Markdown como texto/contenido no confiable.</div>
+      </div>
+      <div class="info-card" style="--card-c:#7b1fa2">
+        <span class="card-icon">🤖</span>
+        <div class="card-title">LLM Safety</div>
+        <div class="card-desc">Documentos son contexto, no instrucciones. No expone secrets ni variables de entorno al modelo.</div>
+      </div>
+      <div class="info-card" style="--card-c:#0d7a5f">
+        <span class="card-icon">📋</span>
+        <div class="card-title">Operación</div>
+        <div class="card-desc">Logs sin tokens. Feedback/casos tratados como datos internos. Rate limit básico como control evolutivo.</div>
+      </div>
+    </div>
+
+    <div class="rule-item rule-warn">
+      <span class="rule-icon">🛡️</span>
+      <span><strong>OWASP:</strong> upload irrestricto solo si se habilita en el futuro, con allowlist, tamaño, renombre y storage aislado.</span>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 9: ESTRUCTURA .md ══ -->
+  <div class="slide-panel" id="s9">
+    <div class="slide-header">
+      <div class="slide-badge green">Archivos Markdown</div>
+      <div class="slide-num">09 / 14</div>
+      <div class="slide-title">Estructura del <em>Contenido</em></div>
+      <p class="slide-sub">Anatomía de un módulo .md. Cada archivo markdown sigue una estructura canónica con frontmatter YAML, headings numerados y marcadores custom.</p>
+    </div>
+
+    <div class="prose-two" style="margin-bottom:20px">
+      <div>
+        <div class="sect-divider">Anatomía del módulo</div>
+        <div class="code-block" style="font-size:11.5px">
+<span class="cm">---</span>
+<span class="ky">module:</span>    <span class="vl">M03</span>
+<span class="ky">title:</span>     <span class="st">"Integración Datasphere"</span>
+<span class="ky">key_topics:</span> <span class="vl">[extraccion, replicacion]</span>
+<span class="ky">scope:</span>     <span class="cm"># qué cubre el módulo</span>
+<span class="ky">intent_assets:</span> <span class="cm"># templates descargables</span>
+<span class="ky">out_of_scope_redirect:</span> <span class="cm"># redireccionamiento</span>
+<span class="cm">---</span>
+
+<span class="fn">## Heading</span>  <span class="cm"># IDs auto via SECTION_NUMBER_WIDTH</span>
+
+<span class="ky">&#x7b;&#x7b;section_meta&#x7d;&#x7d;</span>  <span class="cm"># señales de routing</span>
+<span class="ky">&#x7b;&#x7b;semantic_summary&#x7d;&#x7d;</span>  <span class="cm"># contexto invisible IA</span>
+<span class="ky">&#x7b;&#x7b;callout&#x7d;&#x7d;</span>  <span class="cm"># marcadores renderizados</span>
+<span class="ky">&#x7b;&#x7b;tree_button&#x7d;&#x7d;</span>  <span class="cm"># launcher de árbol</span>
+<span class="ky">&#x7b;&#x7b;support: Pin=true&#x7d;&#x7d;</span>  <span class="cm"># botón pinner</span>
+        </div>
+      </div>
+      <div>
+        <div class="sect-divider">Reglas de contenido</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span><code style="font-family:var(--mono);font-size:11px">section_meta</code> es el mecanismo principal de routing — documentar bien las keywords cubre el 90% de los casos.</span></div>
+          <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span><code style="font-family:var(--mono);font-size:11px">intent_assets</code> en el frontmatter para templates descargables (.abap, .sql, .yaml).</span></div>
+          <div class="rule-item rule-ok"><span class="rule-icon">✅</span><span>Los headings generan anchors automáticos; la numeración visible es presentación, no identidad semántica.</span></div>
+          <div class="rule-item rule-warn"><span class="rule-icon">⚠️</span><span><code style="font-family:var(--mono);font-size:11px">section_exclude</code> usarlo con moderación — indica keywords que se solapan.</span></div>
+          <div class="rule-item rule-no"><span class="rule-icon">🚫</span><span>Nivel 2 (texto libre) deshabilitado — generaba falsos positivos. No reactivar sin umbral ≥ 4 y validación.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 10: ÁRBOLES YAML ══ -->
+  <div class="slide-panel" id="s10">
+    <div class="slide-header">
+      <div class="slide-badge purple">Archivos YAML</div>
+      <div class="slide-num">10 / 14</div>
+      <div class="slide-title">Árboles de <em>Decisión</em></div>
+      <p class="slide-sub">Estructura canónica de los archivos .yaml. Cada árbol define un flujo determinístico con nodos, hojas y tipos de salida.</p>
+    </div>
+
+    <div class="prose-two" style="margin-bottom:20px">
+      <div>
+        <div class="sect-divider">Estructura canónica</div>
+        <table class="yaml-table">
+          <thead><tr><th>Campo</th><th>Ejemplo</th><th>Descripción</th></tr></thead>
+          <tbody>
+            <tr><td class="ky-col">id:</td><td class="vl-col">opciones-extraccion</td><td class="dc-col">Identificador único del árbol</td></tr>
+            <tr><td class="ky-col">title:</td><td class="vl-col">Opciones de Extracción</td><td class="dc-col">Título visible en UI</td></tr>
+            <tr><td class="ky-col">tags:</td><td class="vl-col">[M03, integracion]</td><td class="dc-col">Para routing por módulo</td></tr>
+            <tr><td class="ky-col">links:</td><td class="vl-col">module_stem, topic_id</td><td class="dc-col">Vínculo al .md correspondiente</td></tr>
+            <tr><td class="ky-col">start:</td><td class="vl-col">q1</td><td class="dc-col">Nodo inicial del árbol</td></tr>
+            <tr><td class="ky-col">nodes:</td><td class="vl-col">q1→q2→... single_choice</td><td class="dc-col">Nodos de decisión</td></tr>
+            <tr><td class="ky-col">leaves:</td><td class="vl-col">decision + post_actions</td><td class="dc-col">Hojas con resultado final</td></tr>
+            <tr><td class="ky-col">keywords:</td><td class="vl-col">extraccion, delta...</td><td class="dc-col">Para routing del árbol</td></tr>
+            <tr><td class="ky-col">exclude_if:</td><td class="vl-col">condición</td><td class="dc-col">Evita falsos positivos</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="sect-divider">Tipos de Salida (post_actions.mode)</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="info-card" style="--card-c:#15803d;padding:13px 15px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px">✅</span>
+              <div class="card-title" style="margin:0">Resuelto <code style="font-family:var(--mono);font-size:11px;color:#15803d">[resolved]</code></div>
+            </div>
+            <div class="card-desc">Decisión tomada. El árbol resuelve el caso completo sin necesitar LLM.</div>
+          </div>
+          <div class="info-card" style="--card-c:#1565c0;padding:13px 15px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px">💡</span>
+              <div class="card-title" style="margin:0">Valor LLM <code style="font-family:var(--mono);font-size:11px;color:#1565c0">[llm_value_add]</code></div>
+            </div>
+            <div class="card-desc">El árbol sugiere pero el LLM puede profundizar vía botón Analizar.</div>
+          </div>
+          <div class="info-card" style="--card-c:#b45309;padding:13px 15px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-size:16px">⚠️</span>
+              <div class="card-title" style="margin:0">Requiere Intervención <code style="font-family:var(--mono);font-size:11px;color:#b45309">[needs_human_review]</code></div>
+            </div>
+            <div class="card-desc">Requiere validación humana. El árbol no puede decidir solo.</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:12.5px;color:var(--dw-muted);line-height:1.55">
+          Los casos completados se guardan en <code style="font-family:var(--mono);font-size:11.5px">case_library/</code> — base de conocimiento para enriquecer los prompts del LLM.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 11: PATRONES FASTAPI / HTMX ══ -->
+  <div class="slide-panel" id="s11">
+    <div class="slide-header">
+      <div class="slide-badge gold">⚠ Precaución</div>
+      <div class="slide-num">11 / 14</div>
+      <div class="slide-title">Patrones críticos de <em>FastAPI / HTMX</em></div>
+      <p class="slide-sub">Patrones que se deben conocer en la arquitectura SSR. El render es server-side; HTMX intercambia fragmentos y Alpine maneja el estado liviano del cliente.</p>
+    </div>
+
+    <div class="grid-2">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="rule-item rule-warn" style="flex-direction:column;gap:8px;align-items:flex-start">
+          <div style="display:flex;gap:8px;align-items:center"><span class="rule-icon">⚠️</span><strong>Tema sin flash (FOUC) en navegación SSR</strong></div>
+          <div style="font-size:12.5px;color:var(--dw-muted);line-height:1.6">Cada navegación es un load completo. El tema se aplica con un <strong>script síncrono en el <code style="font-family:var(--mono);font-size:11px">&lt;head&gt;</code></strong> (lee la cookie y setea la clase en <code style="font-family:var(--mono);font-size:11px">&lt;html&gt;</code>) ANTES del primer paint. Alpine solo conmuta. Si se delega solo a Alpine, parpadea oscuro→claro.</div>
+        </div>
+        <div class="rule-item rule-warn" style="flex-direction:column;gap:8px;align-items:flex-start">
+          <div style="display:flex;gap:8px;align-items:center"><span class="rule-icon">⚠️</span><strong>x-cloak en elementos x-show</strong></div>
+          <div style="font-size:12.5px;color:var(--dw-muted);line-height:1.6">Sin <code style="font-family:var(--mono);font-size:11px">x-cloak</code>, los <code style="font-family:var(--mono);font-size:11px">x-show</code> (tabs, íconos) se ven un instante antes de que Alpine los oculte. Regla <code style="font-family:var(--mono);font-size:11px">[x-cloak]{display:none}</code> + el atributo en cada elemento condicional.</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="rule-item rule-ok" style="flex-direction:column;gap:8px;align-items:flex-start">
+          <div style="display:flex;gap:8px;align-items:center"><span class="rule-icon">✅</span><strong>HTMX: fragmentos, no recargas</strong></div>
+          <div style="font-size:12.5px;color:var(--dw-muted);line-height:1.6">Wizard, análisis de sección y asistente usan <code style="font-family:var(--mono);font-size:11px">hx-post</code> + <code style="font-family:var(--mono);font-size:11px">hx-target</code> + <code style="font-family:var(--mono);font-size:11px">hx-swap</code>: el server devuelve un partial Jinja que se inserta sin recargar la página.</div>
+        </div>
+        <div class="rule-item rule-ok" style="flex-direction:column;gap:8px;align-items:flex-start">
+          <div style="display:flex;gap:8px;align-items:center"><span class="rule-icon">✅</span><strong>Render cacheado + resolución pack-pura</strong></div>
+          <div style="font-size:12.5px;color:var(--dw-muted);line-height:1.6"><code style="font-family:var(--mono);font-size:11px">load_module</code> con <code style="font-family:var(--mono);font-size:11px">@lru_cache</code> (documento inmutable) evita re-parsear Markdown por request. <code style="font-family:var(--mono);font-size:11px">content_registry</code> resuelve solo desde <code style="font-family:var(--mono);font-size:11px">content_packs/</code> (con herencia), sin fallback a carpetas raíz.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 12: GUÍA DE MODIFICACIONES ══ -->
+  <div class="slide-panel" id="s12">
+    <div class="slide-header">
+      <div class="slide-badge green">Guía técnica</div>
+      <div class="slide-num">12 / 14</div>
+      <div class="slide-title">Guía de <em>Modificaciones</em></div>
+      <p class="slide-sub">Qué tocar y qué no. Separación clara entre archivos seguros de editar y componentes que requieren revisión de impacto.</p>
+    </div>
+
+    <div class="prose-two">
+      <div>
+        <div class="sect-divider" style="color:var(--c-ok)">✅ SEGURO modificar</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="rule-item rule-ok">
+            <span class="rule-icon">📝</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">content_packs/&lt;pack&gt;/content/*.md</strong><br><span style="font-size:12px;color:var(--dw-muted)">Agregar secciones, section_meta, callouts, intent_assets. No cambiar la estructura del frontmatter.</span></div>
+          </div>
+          <div class="rule-item rule-ok">
+            <span class="rule-icon">🌳</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">content_packs/&lt;pack&gt;/trees/*.yaml</strong><br><span style="font-size:12px;color:var(--dw-muted)">Nuevos árboles o ramas. Respetar el schema: id, start, nodes, leaves, links (module por stem exacto).</span></div>
+          </div>
+          <div class="rule-item rule-ok">
+            <span class="rule-icon">⚙️</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">config.py</strong><br><span style="font-size:12px;color:var(--dw-muted)">IA_ENABLED_MODULES, MODEL, ALLOWED_USERS, DANWOR_EXECUTION_MODE, SESSION_SECRET.</span></div>
+          </div>
+          <div class="rule-item rule-ok">
+            <span class="rule-icon">📁</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">content_packs/&lt;pack&gt;/assets · templates</strong><br><span style="font-size:12px;color:var(--dw-muted)">Embeds HTML y templates descargables. Registrar en intent_assets del .md correspondiente.</span></div>
+          </div>
+          <div class="rule-item rule-ok">
+            <span class="rule-icon">🎨</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">webapp/static/*.css</strong><br><span style="font-size:12px;color:var(--dw-muted)">app · content · layout · tools. Verificar que no rompan tiles, tema claro/oscuro ni el render de secciones.</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="sect-divider" style="color:var(--c-warn)">⚠️ Revisar impacto antes de tocar</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="rule-item rule-warn">
+            <span class="rule-icon">🔑</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">core/content_registry.py</strong><br><span style="font-size:12px;color:var(--dw-muted)">Resolución de packs y herencia. Un cambio afecta cómo resuelven TODOS los módulos, árboles y assets.</span></div>
+          </div>
+          <div class="rule-item rule-warn">
+            <span class="rule-icon">📄</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">webapp/services/content_service.py</strong><br><span style="font-size:12px;color:var(--dw-muted)">Parser Markdown (regex de markers + render). Validar contra todos los módulos; está cacheado (lru_cache).</span></div>
+          </div>
+          <div class="rule-item rule-warn">
+            <span class="rule-icon">🌳</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">webapp/services/wizard_service.py</strong><br><span style="font-size:12px;color:var(--dw-muted)">Match de árbol por <code style="font-family:var(--mono);font-size:11px">links.module</code> = stem exacto. No volver al match por prefijo numérico (cruzaba packs).</span></div>
+          </div>
+          <div class="rule-item rule-warn">
+            <span class="rule-icon">🔐</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">webapp/main.py — gate de sesión</strong><br><span style="font-size:12px;color:var(--dw-muted)">Las rutas SSR exigen cookie de sesión válida; <code style="font-family:var(--mono);font-size:11px">show_panel</code> depende de IA/diagnóstico. Probar entrada/redirect.</span></div>
+          </div>
+          <div class="rule-item rule-warn">
+            <span class="rule-icon">🎨</span>
+            <div><strong style="font-family:var(--mono);font-size:12px">webapp/static/tools.css</strong><br><span style="font-size:12px;color:var(--dw-muted)">Carga última → gana la cascada. Concentra tiles, tema claro/oscuro y scrollbars; revisar al tocar estilos.</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 13: ESTADO ACTUAL ══ -->
+  <div class="slide-panel" id="s13">
+    <div class="slide-header">
+      <div class="slide-badge blue">Roadmap</div>
+      <div class="slide-num">13 / 14</div>
+      <div class="slide-title">Estado Actual &amp; <em>Evolución</em></div>
+      <p class="slide-sub">Copiloto Metodológico Danwor — del prototipo al framework comercial.</p>
+    </div>
+
+    <div class="roadmap-grid">
+      <div class="roadmap-card" style="--rc-c:#1565c0">
+        <div class="rc-done">✓ completado</div>
+        <div class="rc-num">01</div>
+        <div class="rc-title">Prueba de Concepto</div>
+        <ul class="rc-items">
+          <li>Módulo 03 con IA habilitada</li>
+          <li>3 árboles de decisión operativos</li>
+          <li>Case library acumulando feedback</li>
+        </ul>
+      </div>
+      <div class="roadmap-card" style="--rc-c:#0d7a5f">
+        <div class="rc-done">✓ completado</div>
+        <div class="rc-num">02</div>
+        <div class="rc-title">Herramienta Interna</div>
+        <ul class="rc-items">
+          <li>Extensión a todos los módulos metodológicos</li>
+          <li>IA habilitada para los módulos maduros</li>
+          <li>Árboles de decisión para todos los módulos</li>
+        </ul>
+      </div>
+      <div class="roadmap-card" style="--rc-c:#c9960a">
+        <div class="rc-num">03</div>
+        <div class="rc-title">Comercial &amp; Pre-venta</div>
+        <ul class="rc-items">
+          <li>💼 Discovery de retroalimentación técnica</li>
+          <li>Acelerador de propuestas</li>
+        </ul>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="roadmap-card" style="--rc-c:#7b1fa2">
+        <div class="rc-num">04</div>
+        <div class="rc-title">Assessments Técnicos</div>
+        <ul class="rc-items">
+          <li>🎓 Plataforma de entrenamiento y evaluación técnica</li>
+        </ul>
+      </div>
+      <div class="roadmap-card" style="--rc-c:#b91c1c">
+        <div class="rc-num">05</div>
+        <div class="rc-title">Módulos RDS</div>
+        <ul class="rc-items">
+          <li>📦 Framework para industrialización de Rapid Deployment Solutions</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SLIDE 14: HOW-TO GIT ══ -->
+  <div class="slide-panel" id="s14">
+    <div class="slide-header">
+      <div class="slide-badge green">Flujo de Trabajo</div>
+      <div class="slide-num">14 / 15</div>
+      <div class="slide-title">How-to Git · <em>deployment → main</em></div>
+      <p class="slide-sub">Dos ramas con responsabilidades claras: <code style="font-family:var(--mono);font-size:13px;background:rgba(0,0,0,.06);padding:1px 6px;border-radius:3px">deployment</code> para desarrollo y pruebas, <code style="font-family:var(--mono);font-size:13px;background:rgba(0,0,0,.06);padding:1px 6px;border-radius:3px">main</code> como versión productiva estable. DigitalOcean apunta a <code style="font-family:var(--mono);font-size:13px;background:rgba(0,0,0,.06);padding:1px 6px;border-radius:3px">main</code> y redeploya solo cuando promovemos cambios.</p>
+    </div>
+
+    <!-- Branch model visual -->
+    <div style="background:var(--dw-light);border:1px solid var(--dw-border);border-radius:var(--r-lg);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:var(--r-sm);padding:8px 14px;font-family:var(--mono);font-size:13px;font-weight:700;color:#15803d">deployment</div>
+        <div style="color:var(--dw-muted);font-size:12.5px;max-width:180px;line-height:1.4">desarrollo / pruebas / cambios nuevos</div>
+      </div>
+      <div style="font-size:22px;color:var(--dw-gold2);font-weight:700">→</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="background:#e8f0fe;border:1.5px solid #93c5fd;border-radius:var(--r-sm);padding:8px 14px;font-family:var(--mono);font-size:13px;font-weight:700;color:#1565c0">main</div>
+        <div style="color:var(--dw-muted);font-size:12.5px;max-width:180px;line-height:1.4">versión productiva / estable</div>
+      </div>
+      <div style="font-size:22px;color:var(--dw-gold2);font-weight:700">→</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="background:#f3e5f5;border:1.5px solid #ce93d8;border-radius:var(--r-sm);padding:8px 14px;font-family:var(--mono);font-size:13px;font-weight:700;color:#7b1fa2">DigitalOcean</div>
+        <div style="color:var(--dw-muted);font-size:12.5px;max-width:180px;line-height:1.4">redeploy automático al detectar cambios en main</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- LEFT column: steps 1-4 -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <!-- Step 1 -->
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#dcfce7;border-bottom:1px solid rgba(21,128,61,.15);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#15803d;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">1</div>
+            <span style="font-size:13px;font-weight:700;color:#15803d">Sincronizar y trabajar sobre <code style="font-family:var(--mono);font-size:12px">deployment</code></span>
+          </div>
+          <div style="padding:12px 14px">
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="cm"># Cambiar a la rama de desarrollo</span><br>
+<span class="fn">git</span> <span class="ky">fetch</span> <span class="vl">origin</span><br>
+<span class="fn">git</span> <span class="ky">checkout</span> <span class="vl">deployment</span><br>
+<span class="fn">git</span> <span class="ky">pull</span> <span class="vl">origin deployment</span><br>
+
+<span class="cm"># Verificar rama actual</span><br>
+<span class="fn">git</span> <span class="ky">branch</span><br>
+<span class="cm"># Debe verse:</span><br>
+<span class="vl">* deployment</span><br>
+<span class="st">  main</span><br>
+
+<span class="cm"># Confirmar estado limpio antes de tocar</span><br>
+<span class="fn">git</span> <span class="ky">status</span>
+            </div>
+            <div class="rule-item rule-ok" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">✅</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> <code style="font-family:var(--mono);font-size:11px">Already up to date</code> y <code style="font-family:var(--mono);font-size:11px">working tree clean</code>. Si hay archivos modificados, revisar antes de empezar.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#dcfce7;border-bottom:1px solid rgba(21,128,61,.15);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#15803d;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">2</div>
+            <span style="font-size:13px;font-weight:700;color:#15803d">Hacer cambios y validar localmente</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="cm"># Probar localmente (FastAPI/uvicorn, puerto 8501)</span><br>
+<span class="fn">python</span> <span class="ky">-m</span> <span class="vl">uvicorn webapp.main:app --reload --port 8501</span><br>
+
+<span class="cm"># Una vez validado</span><br>
+<span class="fn">git</span> <span class="ky">status</span><br>
+<span class="fn">git</span> <span class="ky">add</span> <span class="vl">.</span><br>
+<span class="fn">git</span> <span class="ky">commit</span> <span class="ky">-m</span> <span class="st">"Descripción breve del cambio"</span><br>
+<span class="fn">git</span> <span class="ky">push</span> <span class="vl">origin deployment</span><br>
+            </div>
+            <div class="rule-item rule-ok" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">✅</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> el push actualiza <code style="font-family:var(--mono);font-size:11px">origin/deployment</code>, pero no redeploya producción. Warnings de CRLF/LF son normales en Windows si no cambian el contenido real.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: verify -->
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#fffbeb;border-bottom:1px solid rgba(180,83,9,.15);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#b45309;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">4</div>
+            <span style="font-size:13px;font-weight:700;color:#b45309">Verificar que main y deployment estén iguales</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="cm"># Actualizar referencias remotas</span><br>
+<span class="fn">git</span> <span class="ky">fetch</span> <span class="vl">origin</span><br>
+
+<span class="cm"># Comparar contenido (vacío = mismo código)</span><br>
+<span class="fn">git</span> <span class="ky">diff</span> <span class="vl">origin/main origin/deployment</span><br>
+
+<span class="cm"># Comparar commits pendientes (vacío = misma historia)</span><br>
+<span class="fn">git</span> <span class="ky">log</span> <span class="ky">--oneline</span> <span class="vl">origin/main..origin/deployment</span><br>
+<span class="fn">git</span> <span class="ky">log</span> <span class="ky">--oneline</span> <span class="vl">origin/deployment..origin/main</span><br>
+
+<span class="cm"># Resumen de ramas y commits</span><br>
+<span class="fn">git</span> <span class="ky">branch</span> <span class="ky">-vv</span>
+            </div>
+            <div style="margin-top:8px;font-size:12px;color:var(--dw-muted);line-height:1.5">Si <code style="font-family:var(--mono);font-size:11px">diff</code> no devuelve nada, el contenido está alineado. Si además ambos <code style="font-family:var(--mono);font-size:11px">log</code> están vacíos, también comparten historia.</div>
+            <div class="rule-item rule-warn" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">⚠️</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> puede haber commits distintos aunque <code style="font-family:var(--mono);font-size:11px">diff</code> esté vacío. Eso no es un problema funcional; solo indica historia Git diferente.</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT column: step 3, 5, 6 -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <!-- Step 3 -->
+        <div style="background:var(--dw-white);border:1.5px solid rgba(21,101,192,.25);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#e8f0fe;border-bottom:1px solid rgba(21,101,192,.15);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#1565c0;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">3</div>
+            <span style="font-size:13px;font-weight:700;color:#1565c0">Promover cambios estables a <code style="font-family:var(--mono);font-size:12px">main</code></span>
+          </div>
+          <div style="padding:12px 14px">
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="cm"># Cambiar a main</span><br>
+<span class="fn">git</span> <span class="ky">checkout</span> <span class="vl">main</span><br>
+
+<span class="cm"># Actualizar main local</span><br>
+<span class="fn">git</span> <span class="ky">fetch</span> <span class="vl">origin</span><br>
+<span class="fn">git</span> <span class="ky">pull</span> <span class="vl">origin main</span><br>
+
+<span class="cm"># Mergear lo ya subido a deployment</span><br>
+<span class="fn">git</span> <span class="ky">merge</span> <span class="vl">origin/deployment</span> <span class="ky">-m</span> <span class="st">"Merge deployment changes into main"</span><br>
+
+<span class="cm"># Subir main actualizado → redeploy</span><br>
+<span class="fn">git</span> <span class="ky">push</span> <span class="vl">origin main</span><br>
+            </div>
+            <div class="rule-item rule-ok" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">✅</span>
+              <span style="font-size:12px">DigitalOcean detecta el push a <code style="font-family:var(--mono);font-size:11px">main</code> y redeploya automáticamente.</span>
+            </div>
+            <div class="rule-item rule-warn" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">⚠️</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> si aparece conflicto, resolver archivos marcados con <code style="font-family:var(--mono);font-size:11px">UU</code>, luego <code style="font-family:var(--mono);font-size:11px">git add</code>, <code style="font-family:var(--mono);font-size:11px">git commit</code> y recién después <code style="font-family:var(--mono);font-size:11px">git push origin main</code>.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div style="background:var(--dw-white);border:1.5px solid rgba(185,28,28,.2);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#fff1f2;border-bottom:1px solid rgba(185,28,28,.12);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#b91c1c;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">5</div>
+            <span style="font-size:13px;font-weight:700;color:#b91c1c">Caso especial · realinear ramas</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-size:12px;color:var(--dw-muted);margin-bottom:8px;line-height:1.5">Si <code style="font-family:var(--mono);font-size:11px">diff</code> está vacío pero los hashes difieren, no hace falta hacer nada. Usar esto solo si se decide que <code style="font-family:var(--mono);font-size:11px">main</code> debe quedar idéntica a <code style="font-family:var(--mono);font-size:11px">deployment</code> también en historia.</div>
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="cm"># Requiere decisión explícita: reescribe main remoto</span><br>
+<span class="fn">git</span> <span class="ky">checkout</span> <span class="vl">main</span><br>
+<span class="fn">git</span> <span class="ky">reset</span> <span class="ky">--hard</span> <span class="vl">origin/deployment</span><br>
+<span class="fn">git</span> <span class="ky">push</span> <span class="vl">origin main</span> <span class="ky">--force-with-lease</span><br>
+            </div>
+            <div class="rule-item rule-warn" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">⚠️</span>
+              <span style="font-size:12px">No es el camino normal. Para promoción estándar, usar merge desde <code style="font-family:var(--mono);font-size:11px">origin/deployment</code>.</span>
+            </div>
+            <div class="rule-item rule-no" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">⛔</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> este paso reescribe la historia de <code style="font-family:var(--mono);font-size:11px">main</code>. No usarlo para resolver conflictos comunes de merge.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 6: DigitalOcean config -->
+        <div style="background:var(--dw-white);border:1.5px solid rgba(123,31,162,.2);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm)">
+          <div style="background:#f3e5f5;border-bottom:1px solid rgba(123,31,162,.12);padding:9px 14px;display:flex;align-items:center;gap:9px">
+            <div style="width:22px;height:22px;border-radius:50%;background:#7b1fa2;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">6</div>
+            <span style="font-size:13px;font-weight:700;color:#7b1fa2">Configuración DigitalOcean</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-size:12px;color:var(--dw-muted);margin-bottom:8px">App → Settings / Components → Source</div>
+            <div class="code-block" style="font-size:11.5px;padding:10px 12px">
+<span class="ky">Repository:</span>  <span class="vl">DanworForBusiness/copiloto-metodologico</span><br>
+<span class="ky">Branch:</span>      <span class="vl">main</span><br>
+<span class="ky">Autodeploy:</span>  <span class="vl">enabled</span><br>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">
+              <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dw-muted)">
+                <span style="color:#15803d;font-weight:700">push a deployment</span> → no impacta producción
+              </div>
+              <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dw-muted)">
+                <span style="color:#1565c0;font-weight:700">push a main</span> → redeploy productivo automático
+              </div>
+            </div>
+            <div class="rule-item rule-ok" style="margin-top:8px;padding:7px 10px">
+              <span class="rule-icon">✅</span>
+              <span style="font-size:12px"><b>Qué esperar:</b> luego del push a <code style="font-family:var(--mono);font-size:11px">main</code>, DigitalOcean inicia build/deploy. Variables de entorno no viajan por Git: se administran en App Platform.</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /grid -->
+
+    <!-- Flujo resumido -->
+    <div style="margin-top:20px">
+      <div class="sect-divider">7 · Flujo resumido recomendado</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-md);padding:14px;box-shadow:var(--sh-sm);border-top:3px solid #15803d">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#15803d;margin-bottom:8px">Desarrollo</div>
+          <div class="code-block" style="font-size:11px;padding:9px 11px">
+<span class="fn">git</span> <span class="ky">checkout</span> <span class="vl">deployment</span><br>
+<span class="fn">git</span> <span class="ky">pull</span> <span class="vl">origin deployment</span><br>
+<span class="cm"># ... hacer cambios ...</span><br>
+<span class="fn">git</span> <span class="ky">add</span> <span class="vl">.</span><br>
+<span class="fn">git</span> <span class="ky">commit</span> <span class="ky">-m</span> <span class="st">"cambio"</span><br>
+<span class="fn">git</span> <span class="ky">push</span> <span class="vl">origin deployment</span><br>
+          </div>
+        </div>
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-md);padding:14px;box-shadow:var(--sh-sm);border-top:3px solid #1565c0">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#1565c0;margin-bottom:8px">Promoción a producción</div>
+          <div class="code-block" style="font-size:11px;padding:9px 11px">
+<span class="fn">git</span> <span class="ky">checkout</span> <span class="vl">main</span><br>
+<span class="fn">git</span> <span class="ky">fetch</span> <span class="vl">origin</span><br>
+<span class="fn">git</span> <span class="ky">pull</span> <span class="vl">origin main</span><br>
+<span class="fn">git</span> <span class="ky">merge</span> <span class="vl">origin/deployment</span><br>
+<span class="fn">git</span> <span class="ky">push</span> <span class="vl">origin main</span><br>
+          </div>
+        </div>
+        <div style="background:var(--dw-white);border:1px solid var(--dw-border);border-radius:var(--r-md);padding:14px;box-shadow:var(--sh-sm);border-top:3px solid #b45309">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#b45309;margin-bottom:8px">Verificación</div>
+          <div class="code-block" style="font-size:11px;padding:9px 11px">
+<span class="fn">git</span> <span class="ky">fetch</span> <span class="vl">origin</span><br>
+<span class="fn">git</span> <span class="ky">diff</span> <span class="vl">origin/main origin/deployment</span><br>
+<span class="fn">git</span> <span class="ky">log</span> <span class="ky">--oneline</span> <span class="vl">origin/main..origin/deployment</span><br>
+<span class="fn">git</span> <span class="ky">log</span> <span class="ky">--oneline</span> <span class="vl">origin/deployment..origin/main</span><br>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /s14 -->
+
+  <!-- ══ SLIDE 15: CIERRE ══ -->
+  <div class="slide-panel" id="s15">
+    <div class="closing-slide">
+      <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="clg" cx="50%" cy="60%" r="50%">
+            <stop offset="0%" stop-color="#c97d10" stop-opacity=".25"/>
+            <stop offset="100%" stop-color="#c97d10" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="600" cy="500" rx="700" ry="400" fill="url(#clg)"/>
+        <circle cx="600" cy="350" r="280" fill="none" stroke="rgba(245,166,35,.04)" stroke-width="1"/>
+        <circle cx="600" cy="350" r="200" fill="none" stroke="rgba(245,166,35,.06)" stroke-width="1"/>
+        <circle cx="600" cy="350" r="120" fill="none" stroke="rgba(245,166,35,.09)" stroke-width="1"/>
+      </svg>
+      <div class="cover-dots" style="opacity:.2">
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+        <div class="cover-dot"></div><div class="cover-dot"></div><div class="cover-dot"></div>
+      </div>
+      <div class="cl-logo" style="position:relative;z-index:2"><img src="https://danwor.com/logo_dfb.png" alt="Danwor" style="height: 85px; width: auto; display: block;" /></div>
+    </div>
+  </div>
+
+</div><!-- /content-area -->
+
+<script>
+'use strict';
+
+const SLIDES = 15;
+const LABELS = [
+  'Portada','¿Qué es el Copiloto?','Funcionalidades','Arquitectura de Módulos',
+  'Flujo de Decisión','Contrato de Contenido','Integración LLM','Seguridad y Gobernanza',
+  'Estructura de Contenido (.md)','Árboles de Decisión (.yaml)',
+  'Patrones críticos FastAPI / HTMX','Guía de Modificaciones','Estado Actual & Evolución',
+  'How-to Git · deployment → main','Cierre'
+];
+
+let current = 1;
+
+function go(n) {
+  n = Math.max(1, Math.min(SLIDES, n));
+  // Hide current
+  document.getElementById(`s${current}`)?.classList.remove('active');
+  document.querySelectorAll('.nav-item')[current - 1]?.classList.remove('active');
+  // Show new
+  current = n;
+  document.getElementById(`s${current}`)?.classList.add('active');
+  document.querySelectorAll('.nav-item')[current - 1]?.classList.add('active');
+  document.getElementById('tb-label').textContent = LABELS[current - 1];
+  document.getElementById('btn-prev').disabled = current === 1;
+  document.getElementById('btn-next').disabled = current === SLIDES;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function prev() { go(current - 1); }
+function next() { go(current + 1); }
+
+// Keyboard navigation
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); next(); }
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); prev(); }
+});
+
+// Init
+go(1);
+</script>
+</body>
+</html>

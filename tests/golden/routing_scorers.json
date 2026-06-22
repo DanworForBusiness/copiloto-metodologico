@@ -1,0 +1,472 @@
+{
+  "01_Arquitectura_y_Conectividad||cloud connector status reachable pero ABAP SQL service da 503": {
+    "cross_asset": "How-to Danwor: Configurar Datasphere con Cloud Connector",
+    "cross_section": {
+      "heading": "Integración Legacy vs. Moderna",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "01_Arquitectura_y_Conectividad||cuál es la diferencia entre DP agent y cloud connector": {
+    "cross_asset": "How-to Danwor: Configurar Datasphere con Cloud Connector",
+    "cross_section": {
+      "heading": "Integración Legacy vs. Moderna",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "01_Arquitectura_y_Conectividad||cómo distribuyo la quota de memoria y disk entre tenants": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Configuración de Espacios",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "01_Arquitectura_y_Conectividad||error ORA-12541 en conexión SDA hacia tabla remota": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Referencias de Arquitectura",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "01_Arquitectura_y_Conectividad||federación vs persistencia, cuál conviene conceptualmente": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Federación vs. Persistencia",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "03"
+  },
+  "01_Arquitectura_y_Conectividad||necesito definir roles y DAC para seguridad de datos": {
+    "cross_asset": "Template Danwor de Seguridad, Roles y DAC",
+    "cross_section": {
+      "heading": "Seguridad de Roles",
+      "module": "02_Seguridad_y_Gobernanza"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Espacios & Transportes",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "02"
+  },
+  "01_Arquitectura_y_Conectividad||qué te parece el clima de hoy en buenos aires": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "01_Arquitectura_y_Conectividad||¿cuántos espacios y qué topología de espacios uso en datasphere?": {
+    "cross_asset": "SAP Help oficial de SAP Datasphere",
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Espacios & Transportes",
+    "matched_tree": "Topología de Espacios",
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "02_Seguridad_y_Gobernanza||contame un chiste de programadores": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "02_Seguridad_y_Gobernanza||cómo configuro espacios y transporte DEV QA PRD": {
+    "cross_asset": "How-to Danwor: Transportar desde Datasphere",
+    "cross_section": {
+      "heading": "Espacios & Transportes",
+      "module": "01_Arquitectura_y_Conectividad"
+    },
+    "is_asset_query": true,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "01"
+  },
+  "02_Seguridad_y_Gobernanza||diferencia entre roles estándar y roles custom": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": "Template Danwor de Seguridad, Roles y DAC",
+    "matched_assets": [],
+    "matched_section": "Seguridad de Roles",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "02_Seguridad_y_Gobernanza||qué tipo de DAC uso para row level security por usuario": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": "Template Danwor de Seguridad, Roles y DAC",
+    "matched_assets": [],
+    "matched_section": "Seguridad de Datos (DAC)",
+    "matched_tree": "Seguridad DAC",
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "02_Seguridad_y_Gobernanza||restringir acceso por jerarquía organizacional y centro de costos": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Seguridad de Datos (DAC)",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||cuánto sale una licencia de datasphere en dólares": {
+    "cross_asset": "SAP Help oficial de SAP Datasphere",
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||cómo decido entre federación o persistencia para la integración": {
+    "cross_asset": "Nota SAP 3509695: Integracion SAP IBP con Datasphere",
+    "cross_section": null,
+    "is_asset_query": true,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Arquitectura de Integración",
+    "matched_tree": "Federación vs Persistencia",
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||diferencia entre ODP-SAPI y ODP-CDS para extractores": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Future-Proof con ECC",
+      "module": "A05_Troubleshooting_y_Performance"
+    },
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": true,
+    "matched_asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": "Estrategia de Extracción",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||explicame la coexistencia entre HANA db y HDLF": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||extractor 0CUSTOMER_ATTR no aparece en ODQMON tras whitelisteo": {
+    "cross_asset": "SAP Help: Check ODQMON for Replication Flow issues | Verificar ODQMON para problemas de Replication Flow",
+    "cross_section": {
+      "heading": "HANA Triggers y CDC Buffer",
+      "module": "A05_Troubleshooting_y_Performance"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Estrategia de Extracción",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué es ODP y cómo extrae datos de SAP": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Seguridad de Datos (DAC)",
+      "module": "02_Seguridad_y_Gobernanza"
+    },
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": "Estrategia de Extracción",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué es clean core y cómo afecta la extracción": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": "Template CDS DDIC-based para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": "Clean Core aplicado a extracción",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos||qué tipo semántico uso, fact o dimension": {
+    "cross_asset": "Template CDS para extracción hacia SAP Datasphere",
+    "cross_section": {
+      "heading": "Tipos y Uso Semántico",
+      "module": "04_Modelado_y_Desarrollo"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "🌟¿Qué nos funcionó hasta acá?",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "04"
+  },
+  "04_Modelado_y_Desarrollo||SAP note 3534086 compatibilidad CDC SAP_BASIS 7.56 falla": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Template de Extracción vía API Corporativa",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "04_Modelado_y_Desarrollo||cuál es la convención de nombres de objetos en datasphere": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Reglas de Armonización",
+      "module": "A02_Modernizacion_BW_Greenfield"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": "Template CDS para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": "Convención de Nombres",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "04_Modelado_y_Desarrollo||cómo escribo una vista CDS DDIC para extracción ODP con delta": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Tipos de Vistas CDS",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": "Template CDS para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": true,
+    "out_of_scope_module": "03"
+  },
+  "04_Modelado_y_Desarrollo||cómo modelo por capas ingesta armonización propagación consumo": {
+    "cross_asset": "Template Danwor de Seguridad, Roles y DAC",
+    "cross_section": {
+      "heading": "Reglas de Armonización",
+      "module": "A02_Modernizacion_BW_Greenfield"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Evolución de Arquitectura por Capas",
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "04_Modelado_y_Desarrollo||cómo organizo espacios y transporte entre DEV QA PRD": {
+    "cross_asset": "How-to Danwor: Transportar desde Datasphere",
+    "cross_section": {
+      "heading": "Espacios & Transportes",
+      "module": "01_Arquitectura_y_Conectividad"
+    },
+    "is_asset_query": true,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "01"
+  },
+  "04_Modelado_y_Desarrollo||dump RUNTIME_ERROR al activar la vista CDS en el sistema S4HANA": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Tipos de Vistas CDS",
+      "module": "03_Integracion_y_Estrategia_de_Datos"
+    },
+    "is_asset_query": true,
+    "is_conceptual": false,
+    "is_support_case": true,
+    "matched_asset": "Template CDS para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "04_Modelado_y_Desarrollo||necesito mantener los datos actualizados con delta incremental, puntero delta": {
+    "cross_asset": "SAP Help: DATA_NOT_READY Troubleshooting in Replication Flows | Resolución de DATA_NOT_READY en flujos de replicación",
+    "cross_section": {
+      "heading": "Seguridad de Datos (DAC)",
+      "module": "02_Seguridad_y_Gobernanza"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "04_Modelado_y_Desarrollo||qué tipo de vista SQL uso, gráfica o SQLScript o table function": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": "Template CDS para extracción hacia SAP Datasphere",
+    "matched_assets": [],
+    "matched_section": "Tipos de Vistas SQL",
+    "matched_tree": "Tipos de Vistas SQL",
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "05_Reporting_y_Consumo||qué es un analytical dataset en la capa de consumption": {
+    "cross_asset": null,
+    "cross_section": {
+      "heading": "Tipos y Uso Semántico",
+      "module": "04_Modelado_y_Desarrollo"
+    },
+    "is_asset_query": false,
+    "is_conceptual": true,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": "04"
+  },
+  "05_Reporting_y_Consumo||qué herramienta de reporting uso para consumir datasphere": {
+    "cross_asset": "SAP Help oficial de SAP Datasphere",
+    "cross_section": {
+      "heading": "Performance y Runtime Metrics",
+      "module": "A05_Troubleshooting_y_Performance"
+    },
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": "Estrategia de Reporting",
+    "matched_tree": "Herramienta de Reporting",
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  },
+  "05_Reporting_y_Consumo||recomendame una serie para ver el fin de semana": {
+    "cross_asset": null,
+    "cross_section": null,
+    "is_asset_query": false,
+    "is_conceptual": false,
+    "is_support_case": false,
+    "matched_asset": null,
+    "matched_assets": [],
+    "matched_section": null,
+    "matched_tree": null,
+    "needs_cds_delta": false,
+    "out_of_scope_module": null
+  }
+}

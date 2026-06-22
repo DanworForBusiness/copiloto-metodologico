@@ -1,0 +1,10 @@
+<div id="tree-feedback" class="tree-feedback">
+  {% if run.feedback_rating %}
+  <div class="feedback-thanks"><span>{{ "👍" if run.feedback_rating == "up" else "👎" }}</span><div><p>Gracias, registramos tu feedback para esta decisión.</p>{% if diagnostic_mode and run.case_id %}<small>Guardado en case_library/{{ run.case_id }}.yaml</small>{% endif %}</div></div>
+  {% else %}
+  <form hx-post="/wizards/{{ run.id }}/feedback" hx-target="#tree-feedback" hx-swap="outerHTML">
+    <span>¿Te resultó útil esta respuesta?</span>
+    <div><button type="submit" name="rating" value="up" aria-label="Fue útil" title="Fue útil">👍</button><button type="submit" name="rating" value="down" aria-label="No fue útil" title="No fue útil">👎</button></div>
+  </form>
+  {% endif %}
+</div>

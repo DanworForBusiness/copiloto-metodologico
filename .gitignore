@@ -3,9 +3,11 @@ __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.venv-test/
 venv/
 env/
 *.egg-info/
+.pytest_cache/
 
 # Streamlit
 .streamlit/secrets.toml
@@ -35,3 +37,7 @@ activity_log/
 *.tmp
 *.bak
 *.zip
+
+# Agente local / venv del poc (no subir)
+.claude/
+.venv-poc/

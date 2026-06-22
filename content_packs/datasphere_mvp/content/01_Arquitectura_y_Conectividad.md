@@ -156,7 +156,7 @@ out_of_scope_redirect:
 {{section_meta: keywords="arquitectura datasphere, arquitectura de referencia, landscape SAP, sistemas fuente, sistemas origen, diagrama arquitectura, componentes datasphere, BW bridge, tablas remotas, tablas locales, data flows, replication flows, conexión SAP, fuentes SAP, fuentes no-SAP, Oracle SQL Server Azure, CDS views extractores, arquitectura BDC, business data cloud arquitectura, cómo conecta datasphere, qué sistemas conecta datasphere"}}
 
 > Patrones de integración entre sistemas de origen y SAP Datasphere, clasificados por tipo de fuente y mecanismo de carga. Hacé click en un escenario para destacarlo en el diagrama.
-{{html_embed: ../assets/danwor-referencias-arquitectura.html height=710}}
+{{html_embed: ../assets/danwor-referencias-arquitectura.html height=660}}
 
 ## {dw-black}Coexistencia de {dw-gold}Paradigmas
 {{subtitle: no-gap}}
@@ -172,9 +172,9 @@ out_of_scope_redirect:
 
 ## {dw-black}Espacios & {dw-gold}Transportes
 {{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html" Pin=true}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html"}}
 > En Arquitectura Datasphere / BDC. Seleccioná el modelo de tenancy para explorar la topología de espacios y el flujo de transporte DEV → QA → PRD.
-{{html_embed: ../assets/danwor-espacios-transportes.html height=665}}
+{{html_embed: ../assets/danwor-espacios-transportes.html height=640}}
 
 ## {dw-black}Configuración de {dw-gold}Espacios
 {{section_meta: keywords="configuración espacios datasphere, space configuration, quota espacio, space quota, source language, idioma espacio, idioma datasphere, multi-language datasphere, conexiones datasphere, nombre conexiones, naming conexiones, time data, dimensión tiempo datasphere, usuarios esquema, schema users, power bi datasphere, usuarios base de datos, configuración inicial datasphere, setup datasphere, buenas practicas espacios, workload class, tenant quota, disk quota, memory quota, distribución quota, ratio quota, sizing tenant, capacidad tenant, quota por ambiente, cuota por tenant, cuota memoria, cuota disk, distribución de recursos"}}
@@ -210,7 +210,7 @@ Definir:
 {{subtitle: no-gap}}
 > Los porcentajes son un punto de partida metodológico. Deben ajustarse según volumen real, criticidad, persistencia, concurrencia, estrategia de federación y evolución post-PoC.
 
-## 🌟 Checklist de Configuración
+## {dw-black}Checklist de {dw-gold}Configuración
 {{section_meta: keywords="checklist configuración, checklist datasphere, lista verificación, revisión proyecto, setup inicial, buenas practicas, oportunidad mejora, verificar espacios, verificar conexiones, verificar transporte, puntos de control arquitectura, configuración base datasphere, lista chequeo"}}
 
 Orientativo para revisar que la configuración base del proyecto esté completa antes de avanzar al modelado:

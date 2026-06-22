@@ -35,6 +35,8 @@ from pathlib import Path
 
 import yaml
 
+from pipeline.common import write_report, MODEL
+
 
 # =========================================================
 # Config
@@ -43,7 +45,7 @@ import yaml
 BASE_DIR         = Path(__file__).parent
 FEEDBACK_DIR     = BASE_DIR / "feedback_log"
 CASE_DIR         = BASE_DIR / "case_library"
-CONTENT_DIR      = BASE_DIR / "content"
+CONTENT_DIR      = BASE_DIR / "content_packs" / "datasphere_mvp" / "content"
 REPORTS_DIR      = BASE_DIR / "reports" / "content_proposals"
 
 PRIORITY_HIGH    = "alta"
@@ -359,7 +361,7 @@ def build_proposals(signals: list[dict], min_signals: int = 1) -> list[dict]:
 # LLM enrichment
 # =========================================================
 
-def enrich_with_llm(proposals: list[dict], model: str = "gpt-4o-mini") -> list[dict]:
+def enrich_with_llm(proposals: list[dict], model: str = MODEL) -> list[dict]:
     """
     Para cada propuesta de prioridad alta o media, pide al LLM que redacte
     el texto concreto a agregar/modificar en el modulo.
@@ -457,23 +459,6 @@ def build_summary(proposals: list[dict]) -> str:
 
 
 # =========================================================
-# Writer
-# =========================================================
-
-def write_report(reports_dir: Path, filename: str, data: dict | list | str) -> None:
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    dest = reports_dir / filename
-    if isinstance(data, str):
-        dest.write_text(data, encoding="utf-8")
-    else:
-        dest.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
-    print(f"  [ok] {dest.relative_to(dest.parent.parent.parent)}")
-
-
-# =========================================================
 # Main
 # =========================================================
 
@@ -482,7 +467,7 @@ def main() -> None:
     parser.add_argument("--llm",         action="store_true", help="Enriquecer propuestas con LLM")
     parser.add_argument("--module",      default=None,        help="Filtrar por modulo (ej: 03)")
     parser.add_argument("--min-signals", type=int, default=1, help="Minimo de señales para generar propuesta")
-    parser.add_argument("--model",       default="gpt-4o-mini")
+    parser.add_argument("--model",       default=MODEL)
     parser.add_argument("--feedback-dir", default=str(FEEDBACK_DIR))
     parser.add_argument("--case-dir",     default=str(CASE_DIR))
     parser.add_argument("--report-dir",   default=str(REPORTS_DIR))

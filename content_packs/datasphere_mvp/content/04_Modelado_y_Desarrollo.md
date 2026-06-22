@@ -234,7 +234,7 @@ Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es:
 {{subtitle: no-gap}}
 > Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`<LibreConLineamientos>`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.
 
-## ✅ Checklist de Desarrollo
+## Checklist de Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}
 
 Orientativo para revisar la calidad del modelo antes de promover al siguiente ambiente:

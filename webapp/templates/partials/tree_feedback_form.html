@@ -1,0 +1,40 @@
+<div id="tree-feedback" class="tree-feedback tree-feedback-expanded">
+  <form class="tree-feedback-form" hx-post="/wizards/{{ run.id }}/feedback/submit" hx-target="#tree-feedback" hx-swap="outerHTML">
+    <input type="hidden" name="rating" value="{{ rating }}">
+    <header class="feedback-form-header">
+      <span aria-hidden="true">{{ "👍" if rating == "up" else "👎" }}</span>
+      <div><strong>{{ "Fue útil" if rating == "up" else "No fue útil" }}</strong><p>Tu experiencia ayuda a mejorar esta recomendación.</p></div>
+    </header>
+    {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
+
+    <div class="feedback-field">
+      <label for="fb-outcome">¿Cómo resultó?</label>
+      <select id="fb-outcome" name="outcome">
+        <option value="anduvo" {% if rating == 'up' %}selected{% endif %}>Anduvo</option>
+        <option value="no anduvo" {% if rating == 'down' %}selected{% endif %}>No anduvo</option>
+        <option value="inconcluso">Inconcluso</option>
+        <option value="en curso">En curso</option>
+      </select>
+    </div>
+
+    <div class="feedback-field">
+      <label for="fb-context">Contexto del proyecto <span>Opcional</span></label>
+      <textarea id="fb-context" name="context" rows="3" placeholder="Ej.: ECC 6.07, cliente retail, migración a BDC 2026..."></textarea>
+    </div>
+
+    <div class="feedback-field">
+      <label for="fb-detail">¿Qué ocurrió después de aplicar la recomendación?</label>
+      <textarea id="fb-detail" name="detail" rows="3" placeholder="Contanos qué funcionó, qué faltó o qué decisión tomaron."></textarea>
+    </div>
+
+    <div class="feedback-field">
+      <label for="fb-lesson">Lección clave <span>{{ "Requerida" if rating == "down" else "Opcional" }}</span></label>
+      <textarea id="fb-lesson" name="lesson" rows="2" placeholder="Ej.: Verificar versión ABAP antes de proponer SLT" {% if rating == "down" %}required{% endif %}></textarea>
+    </div>
+
+    <div class="feedback-form-actions">
+      <button type="button" class="btn-secondary" hx-post="/wizards/{{ run.id }}/feedback/cancel" hx-target="#tree-feedback" hx-swap="outerHTML">Cancelar</button>
+      <button type="submit" class="btn-primary">Guardar feedback</button>
+    </div>
+  </form>
+</div>
