@@ -31,12 +31,15 @@ Variables principales:
 ## Ejecucion
 
 ```powershell
-streamlit run app.py
+python -m uvicorn webapp.main:app --reload --port 8501
 ```
+
+En produccion (DigitalOcean) el arranque lo define el `Procfile`:
+`web: python -m uvicorn webapp.main:app --host 0.0.0.0 --port $PORT`.
 
 ## Estructura
 
-- `app.py`: orquestador principal.
+- `webapp/`: app FastAPI (main.py + templates + static + services).
 - `config.py`: rutas, feature flags y configuracion por entorno.
 - `core/`: estado, contenido, prompts y gateway LLM.
 - `engine/`: carga y render de arboles de decision.
