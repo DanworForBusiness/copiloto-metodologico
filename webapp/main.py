@@ -4,7 +4,7 @@ import re
 import unicodedata
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -39,6 +39,7 @@ from webapp.services.section_analysis import (
     render_llm_html,
 )
 from webapp.services.wizard_service import WizardStore
+from webapp.services import admin_tools
 
 DEFAULT_PACK = "datasphere_mvp"
 WEB_DIR = Path(__file__).parent
@@ -91,6 +92,11 @@ def _diagnostic(request: Request) -> bool:
     if DIAGNOSTIC_MODE:
         return True
     return _is_owner(request) and request.cookies.get("dw-diagnostic") == "on"
+
+
+def _truthy(value: str) -> bool:
+    """Checkbox HTML: manda su valor solo si está tildado."""
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -688,6 +694,79 @@ def tree_feedback_cancel(request: Request, run_id: str):
     except KeyError as exc:
         raise HTTPException(410, str(exc)) from exc
     return _thanks(request, run)
+
+
+# =========================================================
+# Herramientas de gestión (Analítica interna) — solo diagnóstico
+# =========================================================
+
+def _require_diagnostic(request: Request) -> None:
+    if not _diagnostic(request):
+        raise HTTPException(403, "Solo disponible en modo diagnóstico")
+
+
+def _admin_result(request: Request, title: str, output: str):
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_result.html",
+        context={"title": title, "output": output},
+    )
+
+
+@app.get("/admin/runtime/inventory", response_class=HTMLResponse)
+def admin_runtime_inventory(request: Request):
+    _require_diagnostic(request)
+    rows, total_files, total_size, _latest = admin_tools.runtime_inventory()
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_runtime.html",
+        context={
+            "rows": rows,
+            "total_files": total_files,
+            "total_size": admin_tools._format_bytes(total_size),
+        },
+    )
+
+
+@app.get("/admin/runtime/export.zip")
+def admin_runtime_export(request: Request):
+    _require_diagnostic(request)
+    payload = admin_tools.runtime_export_zip()
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{admin_tools.runtime_export_filename()}"'
+        },
+    )
+
+
+@app.post("/admin/cases/analyze", response_class=HTMLResponse)
+def admin_cases_analyze(request: Request, llm: str = Form("")):
+    _require_diagnostic(request)
+    output = admin_tools.run_cases_analysis(use_llm=_truthy(llm))
+    return _admin_result(request, "Case Library — análisis", output)
+
+
+@app.post("/admin/feedback/analyze", response_class=HTMLResponse)
+def admin_feedback_analyze(request: Request, kind: str = Form("all")):
+    _require_diagnostic(request)
+    output = admin_tools.run_feedback_analysis(kind=kind)
+    return _admin_result(request, "Feedback — análisis", output)
+
+
+@app.post("/admin/trees/propose", response_class=HTMLResponse)
+def admin_trees_propose(request: Request, apply: str = Form("")):
+    _require_diagnostic(request)
+    output = admin_tools.run_tree_proposals(apply=_truthy(apply))
+    return _admin_result(request, "Propuestas de árbol", output)
+
+
+@app.post("/admin/content/propose", response_class=HTMLResponse)
+def admin_content_propose(request: Request, llm: str = Form("")):
+    _require_diagnostic(request)
+    output = admin_tools.run_content_proposals(use_llm=_truthy(llm))
+    return _admin_result(request, "Propuestas de contenido", output)
 
 
 if __name__ == "__main__":

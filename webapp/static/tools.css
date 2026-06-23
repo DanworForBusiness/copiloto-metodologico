@@ -344,6 +344,29 @@
 .panel-toggle--gestion { margin-top: 20px; }
 .gestion-group { padding-top: 16px; }
 
+/* Herramientas administrativas (Analítica interna). */
+.admin-intro { color: var(--soft); font-size: .76rem; line-height: 1.5; margin: 6px 0 16px; }
+.admin-tool { padding: 14px 0; border-top: 1px solid var(--line); }
+.admin-tool:first-of-type { border-top: 0; }
+.admin-tool h4 { margin: 0 0 4px; color: var(--ink); font-size: .9rem; }
+.admin-help { margin: 0 0 10px; color: var(--soft); font-size: .74rem; line-height: 1.5; }
+.admin-help code, .admin-result code, .admin-table code { font: .72rem var(--mono); color: var(--gold); }
+.admin-label { display: block; color: var(--soft); font-size: .72rem; margin-bottom: 4px; }
+.admin-check { display: flex; align-items: center; gap: 7px; color: var(--soft); font-size: .76rem; margin-bottom: 10px; cursor: pointer; }
+.admin-check input { accent-color: var(--gold); }
+.admin-warn { color: var(--gold); font: 600 .68rem var(--mono); }
+.admin-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.admin-actions a.btn-primary { text-decoration: none; display: inline-flex; align-items: center; }
+.admin-indicator { color: var(--soft); font-size: .72rem; }
+.admin-result:empty, .admin-result-block:empty { display: none; }
+.admin-result-block { margin-top: 12px; }
+.admin-result-title { display: block; color: var(--gold); font: 600 .66rem var(--mono); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.admin-result-output { max-height: 320px; overflow: auto; padding: 11px; margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: .72rem/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .73rem; }
+.admin-table th, .admin-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--soft); }
+.admin-table th { color: var(--gold); font: 600 .66rem var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.admin-tool--pending { opacity: .85; }
+
 /* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →
    abre ese árbol en el panel derecho (pestaña Árbol). */
 .tree-launch {

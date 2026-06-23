@@ -1,0 +1,92 @@
+<span class="eyebrow">Analítica interna</span>
+<p class="admin-intro">Herramientas administrativas y de diagnóstico. Solo visibles en modo diagnóstico.</p>
+
+{# 1. Export runtime ─────────────────────────────────────── #}
+<section class="admin-tool">
+  <h4>📦 Export runtime</h4>
+  <p class="admin-help">Descarga una copia de <code>feedback_log</code>, <code>activity_log</code> y <code>case_library</code> antes de un redeploy/reinicio (el filesystem de DigitalOcean es efímero).</p>
+  <div class="admin-actions">
+    <button type="button" class="btn-secondary"
+            hx-get="/admin/runtime/inventory"
+            hx-target="#res-runtime" hx-swap="innerHTML"
+            hx-indicator="#ind-runtime">Ver inventario</button>
+    <a class="btn-primary" href="/admin/runtime/export.zip">📥 Descargar ZIP</a>
+    <span id="ind-runtime" class="admin-indicator htmx-indicator">…</span>
+  </div>
+  <div id="res-runtime" class="admin-result"></div>
+</section>
+
+{# 2. Case Library ───────────────────────────────────────── #}
+<section class="admin-tool">
+  <h4>📚 Case Library</h4>
+  <p class="admin-help">Escanea <code>case_library/</code> y genera reportes estructurados (gaps, rutas frecuentes, outcomes, lecciones).</p>
+  <form hx-post="/admin/cases/analyze" hx-target="#res-cases" hx-swap="innerHTML"
+        hx-indicator="#ind-cases" hx-disabled-elt="button[type='submit']">
+    <label class="admin-check"><input type="checkbox" name="llm" value="on"> Usar IA (Nivel 2) <span class="admin-warn">⚠ consume créditos</span></label>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary">Analizar casos</button>
+      <span id="ind-cases" class="admin-indicator htmx-indicator">analizando…</span>
+    </div>
+  </form>
+  <div id="res-cases" class="admin-result"></div>
+</section>
+
+{# 3. Feedback ───────────────────────────────────────────── #}
+<section class="admin-tool">
+  <h4>💬 Feedback</h4>
+  <p class="admin-help">Analiza <code>feedback_log/</code>: todo, solo árboles faltantes o solo 👍/👎 de IA.</p>
+  <form hx-post="/admin/feedback/analyze" hx-target="#res-feedback" hx-swap="innerHTML"
+        hx-indicator="#ind-feedback" hx-disabled-elt="button[type='submit']">
+    <label class="admin-label" for="fb-kind">Tipo</label>
+    <select id="fb-kind" name="kind">
+      <option value="all">Todo el feedback</option>
+      <option value="missing">Solo árboles faltantes</option>
+      <option value="ia">Solo feedback de IA</option>
+      <option value="trees">Solo decisiones de árbol</option>
+    </select>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary">Analizar feedback</button>
+      <span id="ind-feedback" class="admin-indicator htmx-indicator">analizando…</span>
+    </div>
+  </form>
+  <div id="res-feedback" class="admin-result"></div>
+</section>
+
+{# 4. Propuestas de árbol ─────────────────────────────────── #}
+<section class="admin-tool">
+  <h4>🌳 Propuestas de árbol</h4>
+  <p class="admin-help">Genera propuestas de ramas/notas a partir de los reportes. <em>Requiere correr antes "Analizar casos".</em> Con "Aplicar" escribe borradores en <code>trees/proposed/</code>.</p>
+  <form hx-post="/admin/trees/propose" hx-target="#res-trees" hx-swap="innerHTML"
+        hx-indicator="#ind-trees" hx-disabled-elt="button[type='submit']">
+    <label class="admin-check"><input type="checkbox" name="apply" value="on"> Aplicar borradores en <code>trees/proposed/</code></label>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary">Proponer actualizaciones</button>
+      <span id="ind-trees" class="admin-indicator htmx-indicator">generando…</span>
+    </div>
+  </form>
+  <div id="res-trees" class="admin-result"></div>
+</section>
+
+{# 5. Propuestas de contenido ─────────────────────────────── #}
+<section class="admin-tool">
+  <h4>📝 Contenido</h4>
+  <p class="admin-help">Cruza feedback y casos para proponer mejoras en las secciones <code>.md</code>.</p>
+  <form hx-post="/admin/content/propose" hx-target="#res-content" hx-swap="innerHTML"
+        hx-indicator="#ind-content" hx-disabled-elt="button[type='submit']">
+    <label class="admin-check"><input type="checkbox" name="llm" value="on"> Redactar borradores con IA <span class="admin-warn">⚠ consume créditos</span></label>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary">Proponer mejoras</button>
+      <span id="ind-content" class="admin-indicator htmx-indicator">generando…</span>
+    </div>
+  </form>
+  <div id="res-content" class="admin-result"></div>
+</section>
+
+{# 6. SharePoint ─ Fase 2 (pendiente) ─────────────────────── #}
+<section class="admin-tool admin-tool--pending">
+  <h4>🔗 Casos SAP SharePoint</h4>
+  <div class="analytics-note">
+    <strong>En portación (fase 2)</strong>
+    <p>El refresco de cache y el seed semántico requieren un token de Microsoft Graph (<code>Sites.Read.All</code>) que el login actual aún no solicita. Se habilitará al confirmar el scope en Azure.</p>
+  </div>
+</section>

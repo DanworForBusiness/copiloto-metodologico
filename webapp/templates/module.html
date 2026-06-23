@@ -156,12 +156,7 @@
     {% if diagnostic %}
     <button class="panel-toggle panel-toggle--gestion" @click="gestionOpen=!gestionOpen"><span>Herramientas de gestión</span><span x-text="gestionOpen?'−':'+'"></span></button>
     <div x-cloak x-show="gestionOpen" x-transition.opacity class="gestion-group">
-      <span class="eyebrow">Analítica interna</span>
-      <p class="empty-panel">Herramientas administrativas y de diagnóstico.</p>
-      <div class="analytics-note">
-        <strong>En portación</strong>
-        <p>El export de runtime, el seed semántico de casos SharePoint y la administración de la Case Library se irán trayendo desde la versión original del copiloto.</p>
-      </div>
+      {% include "partials/admin_panel.html" %}
     </div>
     {% endif %}
   </aside>

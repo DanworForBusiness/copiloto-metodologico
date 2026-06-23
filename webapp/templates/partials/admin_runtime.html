@@ -1,0 +1,18 @@
+<div class="admin-result-block">
+  <span class="admin-result-title">Inventario runtime — {{ total_files }} archivo(s), {{ total_size }}</span>
+  <table class="admin-table">
+    <thead>
+      <tr><th>Carpeta</th><th>Archivos</th><th>Tamaño</th><th>Último cambio</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><code>{{ row.carpeta }}</code></td>
+        <td>{{ row.archivos }}</td>
+        <td>{{ row.tamano }}</td>
+        <td>{{ row.ultimo_cambio }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
