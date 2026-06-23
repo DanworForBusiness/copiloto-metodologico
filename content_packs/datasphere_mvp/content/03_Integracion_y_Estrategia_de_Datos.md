@@ -364,7 +364,7 @@ Es fundamental no verlas como alternativas (una u otra), sino que coexisten y tr
 Capitalizarnos de lo que existe, apoyarnos en lo que ya conocen: no reinventar la rueda – al menos como punto de partida:
   - Capitalizarnos de exits / extractores disponibles y compatibles
   - Respetar el idioma en el que se apoya el cliente (Centro vs. Plant)
-  - Integrar Dimensión Maestra (atributos + textos) via SQL Estandar
+  - Integrar Dimensión Maestra (atributos + textos) via SQL Estándar
 
 {{callout: title="Compatibilidad" tone="punch" icon="💡"}}
 Para extractores estándar, tener en cuenta su compatibilidad/whitelisteo. Para los custom, considerar su tabla continue siendo compatible en S/4HANA. En cualquiera de los dos casos, tener en cuenta que data sources sin clave primaria pueden utilizarse únicamente en extracción FULL (sin compatibilidad delta nativa)
@@ -394,6 +394,7 @@ Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
 El siguiente **árbol determinístico** de decisión guiada puede servir como soporte para distintos casos de uso y contexto técnico en cuanto al tipo de conexión a utilizar, considerando sus compatibilidades y limitaciones de acuerdo al 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>
+{{tree_button: Opciones de Extracción}}
 
 ## {dw-black}Referencia {dw-gold}Técnica
 Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. A continuación, los patrones de referencia.

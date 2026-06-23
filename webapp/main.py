@@ -17,8 +17,8 @@ from core.content_registry import (
     roots_for_kind,
 )
 from config import (
-    APP_OWNER, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE, SESSION_MAX_AGE,
-    SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
+    APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE,
+    SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
 from core.prompts import ALL_ACTIONS, get_loading_message
 from core.utils import slugify
@@ -60,12 +60,25 @@ def _pack(value: str) -> str:
     return value if value in available_content_packs() else DEFAULT_PACK
 
 
+def _owner_emails() -> set[str]:
+    """APP_OWNER → set de mails. Acepta CSV y alias sin dominio (joconnor →
+    joconnor@danwor.com), igual que ALLOWED_USERS."""
+    domain = (AUTH_DEFAULT_DOMAIN or "danwor.com").strip().lower().lstrip("@")
+    owners = set()
+    for raw in (APP_OWNER or "").split(","):
+        u = raw.strip().lower()
+        if u:
+            owners.add(u if "@" in u else f"{u}@{domain}")
+    return owners
+
+
 def _is_owner(request: Request) -> bool:
     """True si el usuario logueado es el dueño de la app (config APP_OWNER)."""
-    if not APP_OWNER:
+    owners = _owner_emails()
+    if not owners:
         return False
     user = auth_service.session_user(request)
-    return bool(user) and (str(user.get("sub") or "").strip().lower() == APP_OWNER.strip().lower())
+    return bool(user) and (str(user.get("sub") or "").strip().lower() in owners)
 
 
 def _diagnostic(request: Request) -> bool:

@@ -267,7 +267,7 @@ def _prepare(source: str, pack_name: str, stem: str = "") -> str:
             f'@click="toolTab=&#39;tree&#39;; panelOpen=true">'
             f'<span class="tree-launch-eyebrow">Árbol de decisión</span>'
             f'<span class="tree-launch-title">{html.escape(title)}</span>'
-            f'<span class="tree-launch-cta">Abrir en herramientas →</span>'
+            f'<span class="tree-launch-cta">Hacé click para abrir en panel de herramientas de decisión</span>'
             f'</button>'
         )
 
