@@ -51,6 +51,9 @@ _INLINE_BULLET_RE = re.compile(
     r"[ \t\u00a0]+(?:\\?[-–—−•▪◦*+])(?:[ \t\u00a0]+|(?=[A-ZÁÉÍÓÚÑ¿]))"
 )
 _LEADING_BULLET_RE = re.compile(r"^\s*(?:\\?[-–—−•▪◦*+])\s+")
+# Heading numerado en negrita: "1. **ODBC:**" → se trata como heading propio
+# (no como item de <ol>, que renumeraría y absorbería los bullets siguientes).
+_NUMBERED_HEADING_LINE_RE = re.compile(r"^\s*(\d+)\.\s+\*\*(.+?)\*\*\s*:?\s*$")
 _TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$")
 
 
@@ -108,6 +111,15 @@ def normalize_llm_markdown(answer: str) -> str:
                 if output and output[-1].strip():
                     output.append("")
                 output.extend([line.strip(), ""])
+                continue
+
+            numbered = _NUMBERED_HEADING_LINE_RE.match(line)
+            if numbered:
+                if output and output[-1].strip():
+                    output.append("")
+                # Conserva el número como texto literal dentro del negrita para que
+                # NO arranque un <ol> (que renumeraría y absorbería los bullets).
+                output.extend([f"**{numbered.group(1)}. {numbered.group(2)}**", ""])
                 continue
 
             normalized = _normalize_bullets_on_line(line)

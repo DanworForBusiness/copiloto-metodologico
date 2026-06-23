@@ -99,6 +99,31 @@ def test_separates_standalone_group_heading_from_paragraphs():
     )
 
 
+def test_numbered_bold_heading_is_isolated_from_intro_and_bullets():
+    # El LLM suele numerar headings ("1. **ODBC:**") seguidos de viñetas. Sin
+    # separación, el "1." se pega al párrafo previo y el "2." es absorbido por el
+    # último <li>. Se convierten en headings en negrita (número literal, sin <ol>).
+    answer = (
+        "Diferencias clave entre ODBC y OData:\n"
+        "1. **ODBC:**\n"
+        "- Conexion directa a la base.\n"
+        "- Acceso a un esquema especifico.\n"
+        "2. **OData:**\n"
+        "- Protocolo REST sobre HTTP.\n"
+        "- Mejor para exponer servicios."
+    )
+
+    normalized = normalize_llm_markdown(answer)
+    rendered = render_llm_html(answer)
+
+    assert "OData:\n\n**1. ODBC:**" in normalized
+    assert "especifico.\n\n**2. OData:**" in normalized
+    assert "<p>Diferencias clave entre ODBC y OData:</p>" in rendered
+    assert "<p><strong>1. ODBC:</strong></p>" in rendered
+    assert "<p><strong>2. OData:</strong></p>" in rendered
+    assert "<ol>" not in rendered
+
+
 def test_keeps_regular_inline_bold_text_unchanged():
     answer = "Este concepto es **importante** dentro del texto."
 
