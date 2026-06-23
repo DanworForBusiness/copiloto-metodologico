@@ -1,0 +1,15 @@
+<div class="admin-result-block">
+  {% if count %}
+  <span class="admin-result-title">Seed generado — {{ count }} caso(s)</span>
+  <div class="admin-actions">
+    <a class="btn-primary" href="/admin/sharepoint/seed.json" download>📥 Descargar seed JSON</a>
+  </div>
+  <pre class="admin-result-output">{{ preview[:8000] }}{% if preview|length > 8000 %}
+
+… (preview truncado — descargá el JSON completo)
+{% endif %}</pre>
+  {% else %}
+  <span class="admin-result-title">SharePoint — seed</span>
+  <pre class="admin-result-output">{{ preview }}</pre>
+  {% endif %}
+</div>

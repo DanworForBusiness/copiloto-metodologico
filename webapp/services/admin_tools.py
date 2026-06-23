@@ -167,3 +167,45 @@ def run_tree_proposals(apply: bool = False) -> str:
 def run_content_proposals(use_llm: bool = False) -> str:
     import propose_content_updates
     return _capture_main(propose_content_updates, ["--llm"] if use_llm else [])
+
+
+# =========================================================
+# 3. SharePoint — seed semántico de casos SAP (Fase 2)
+# =========================================================
+
+# El seed generado se retiene en memoria por dueño para ofrecer la descarga
+# como un GET separado (el JSON no viaja en el HTML del preview).
+_LAST_SEED: dict[str, str] = {}
+
+
+def sharepoint_refresh_cache(graph_token: str) -> str:
+    """Limpia el cache local y vuelve a leer los casos desde Microsoft Graph."""
+    if not graph_token:
+        return ("No hay token de Microsoft Graph en la sesión. Cerrá sesión y "
+                "volvé a ingresar para habilitar el acceso a SharePoint.")
+    from core import sharepoint_cases as sp
+    cases = sp.fetch_sap_cases(graph_token, force_refresh=True)
+    if not cases:
+        return ("No se obtuvieron casos: el token pudo expirar, falta el permiso "
+                "Sites.Read.All, o la lista está vacía. Reingresá e intentá de nuevo.")
+    return f"Cache refrescado. {len(cases)} caso(s) leído(s) desde SharePoint."
+
+
+def run_sharepoint_seed(graph_token: str, owner_key: str) -> tuple[str, int]:
+    """Genera el seed semántico. Devuelve (preview_o_mensaje, cantidad_de_casos)."""
+    if not graph_token:
+        return ("No hay token de Microsoft Graph en la sesión. Cerrá sesión y "
+                "volvé a ingresar para habilitar el acceso a SharePoint.", 0)
+    from core import sharepoint_cases as sp
+    cases = sp.fetch_sap_cases(graph_token, force_refresh=False)
+    if not cases:
+        return ("No se obtuvieron casos: el token pudo expirar, falta el permiso "
+                "Sites.Read.All, o la lista está vacía. Reingresá e intentá de nuevo.", 0)
+    seed = sp.build_cases_semantic_seed(cases)
+    payload = json.dumps(seed, ensure_ascii=False, indent=2)
+    _LAST_SEED[owner_key or "anon"] = payload
+    return payload, len(seed)
+
+
+def last_seed(owner_key: str) -> str | None:
+    return _LAST_SEED.get(owner_key or "anon")

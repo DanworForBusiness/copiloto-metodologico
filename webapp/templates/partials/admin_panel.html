@@ -82,11 +82,22 @@
   <div id="res-content" class="admin-result"></div>
 </section>
 
-{# 6. SharePoint ─ Fase 2 (pendiente) ─────────────────────── #}
-<section class="admin-tool admin-tool--pending">
+{# 6. SharePoint ─ seed semántico de casos SAP ────────────── #}
+<section class="admin-tool">
   <h4>🔗 Casos SAP SharePoint</h4>
-  <div class="analytics-note">
-    <strong>En portación (fase 2)</strong>
-    <p>El refresco de cache y el seed semántico requieren un token de Microsoft Graph (<code>Sites.Read.All</code>) que el login actual aún no solicita. Se habilitará al confirmar el scope en Azure.</p>
+  <p class="admin-help">Lee los casos SAP desde SharePoint (Graph, token delegado) y genera un seed semántico JSON con términos técnicos, keywords y borradores de <code>case_patterns</code>. No escribe en SharePoint ni persiste el token.</p>
+  <div class="admin-actions">
+    <button type="button" class="btn-secondary"
+            hx-post="/admin/sharepoint/refresh-cache"
+            hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+            hx-target="#res-sharepoint" hx-swap="innerHTML"
+            hx-indicator="#ind-sharepoint">Refrescar cache</button>
+    <button type="button" class="btn-primary"
+            hx-post="/admin/sharepoint/seed"
+            hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+            hx-target="#res-sharepoint" hx-swap="innerHTML"
+            hx-indicator="#ind-sharepoint">Generar seed</button>
+    <span id="ind-sharepoint" class="admin-indicator htmx-indicator">consultando…</span>
   </div>
+  <div id="res-sharepoint" class="admin-result"></div>
 </section>

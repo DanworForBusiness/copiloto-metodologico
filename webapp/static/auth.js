@@ -79,7 +79,7 @@
       response_type: "code",
       redirect_uri: redirectUri(),
       response_mode: "query",
-      scope: "openid profile email User.Read",
+      scope: "openid profile email User.Read Sites.Read.All",
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -94,7 +94,7 @@
     const c = await getConfig();
     const body = new URLSearchParams({
       client_id: c.client_id,
-      scope: "openid profile email User.Read",
+      scope: "openid profile email User.Read Sites.Read.All",
       code,
       redirect_uri: redirectUri(),
       grant_type: "authorization_code",
@@ -106,7 +106,13 @@
     );
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.id_token) throw new Error(d.error_description || "Microsoft no devolvió un token válido");
-    return d.id_token;
+    // Devolvemos también el access_token (Graph): lo usa el seed de casos SAP.
+    return { id_token: d.id_token, access_token: d.access_token || "" };
+  }
+
+  function rememberGraphToken(token) {
+    if (!token) return;
+    try { sessionStorage.setItem("dw-graph-token", token); } catch (e) { /* sin storage: se omite */ }
   }
 
   async function createSession(idToken) {
@@ -157,9 +163,15 @@
       if (!state || state !== expected || !verifier) {
         throw new Error("No se pudo validar el estado del login (reintentá desde el inicio)");
       }
-      await createSession(await exchangeCode(code, verifier));
+      const tokens = await exchangeCode(code, verifier);
+      await createSession(tokens.id_token);
       // Éxito: avisar al opener (la app) para que entre; si no hay opener, navegar acá.
-      if (!notifyOpener({ status: "success" })) window.location.replace(homeUrl());
+      // El token Graph viaja al opener por postMessage (mismo origen) y se guarda
+      // en su sessionStorage; si no hay opener, lo guardamos en esta ventana.
+      if (!notifyOpener({ status: "success", graph_token: tokens.access_token })) {
+        rememberGraphToken(tokens.access_token);
+        window.location.replace(homeUrl());
+      }
     } catch (err) {
       setOverlay(false);
       if (!notifyOpener({ status: "error", message: err.message, detail: err.detail })) {
@@ -193,6 +205,7 @@
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin || !event.data || event.data.type !== MSG_TYPE) return;
     if (event.data.status === "success") {
+      rememberGraphToken(event.data.graph_token);
       window.location.href = homeUrl();
     } else {
       resetButton();

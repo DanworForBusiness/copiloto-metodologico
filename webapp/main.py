@@ -769,6 +769,42 @@ def admin_content_propose(request: Request, llm: str = Form("")):
     return _admin_result(request, "Propuestas de contenido", output)
 
 
+def _owner_key(request: Request) -> str:
+    user = auth_service.session_user(request) or {}
+    return str(user.get("sub") or "anon").strip().lower()
+
+
+@app.post("/admin/sharepoint/refresh-cache", response_class=HTMLResponse)
+def admin_sharepoint_refresh(request: Request, graph_token: str = Form("")):
+    _require_diagnostic(request)
+    message = admin_tools.sharepoint_refresh_cache(graph_token)
+    return _admin_result(request, "SharePoint — cache", message)
+
+
+@app.post("/admin/sharepoint/seed", response_class=HTMLResponse)
+def admin_sharepoint_seed(request: Request, graph_token: str = Form("")):
+    _require_diagnostic(request)
+    preview, count = admin_tools.run_sharepoint_seed(graph_token, _owner_key(request))
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_sharepoint.html",
+        context={"preview": preview, "count": count},
+    )
+
+
+@app.get("/admin/sharepoint/seed.json")
+def admin_sharepoint_seed_download(request: Request):
+    _require_diagnostic(request)
+    payload = admin_tools.last_seed(_owner_key(request))
+    if not payload:
+        raise HTTPException(404, "No hay seed generado en esta sesión")
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="sharepoint_cases_semantic_seed.json"'},
+    )
+
+
 if __name__ == "__main__":
     # `python -m webapp.main` levanta en 8501, el puerto cuyo redirect URI
     # (http://localhost:8501/) ya está registrado en Azure para el login MSAL.

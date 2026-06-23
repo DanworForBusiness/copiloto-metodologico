@@ -130,3 +130,37 @@ def test_content_proposals_render_result():
     response = diag_client.post("/admin/content/propose", data={})
     assert response.status_code == 200
     assert "Propuestas de contenido" in response.text
+
+
+# ── SharePoint (Fase 2) ───────────────────────────────────────────────────
+
+def test_sharepoint_requires_diagnostic():
+    assert client.post("/admin/sharepoint/seed", data={}).status_code == 403
+    assert client.post("/admin/sharepoint/refresh-cache", data={}).status_code == 403
+    assert client.get("/admin/sharepoint/seed.json").status_code == 403
+
+
+def test_sharepoint_seed_without_token_explains():
+    response = diag_client.post("/admin/sharepoint/seed", data={"graph_token": ""})
+    assert response.status_code == 200
+    assert "token de Microsoft Graph" in response.text
+
+
+def test_sharepoint_seed_happy_path_and_download(monkeypatch):
+    from core import sharepoint_cases
+    fake = [{
+        "_search_text": "Error TIMEOUT RFC_READ_TABLE SAP_BASIS cliente ACME",
+        "history": "Historia de prueba.", "case_number": "00123", "client": "ACME",
+        "title": "Timeout RFC", "tags": "rfc,timeout", "web_url": "", "created": "", "modified": "",
+    }]
+    monkeypatch.setattr(sharepoint_cases, "fetch_sap_cases", lambda token, **kw: fake)
+
+    response = diag_client.post("/admin/sharepoint/seed", data={"graph_token": "FAKE"})
+    assert response.status_code == 200
+    assert "Seed generado" in response.text
+    assert "/admin/sharepoint/seed.json" in response.text
+
+    download = diag_client.get("/admin/sharepoint/seed.json")
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("application/json")
+    assert "00123" in download.text
