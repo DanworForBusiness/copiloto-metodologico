@@ -7,6 +7,10 @@ from webapp.services import auth_service
 from webapp.services.section_analysis import SectionAnalysisService
 from webapp.services.content_service import load_module
 
+# El modo diagnóstico solo lo habilita el dueño (APP_OWNER). En tests, el usuario
+# de prueba ES el owner para poder ejercitar el grupo de gestión / selector.
+web_main.APP_OWNER = "test@danwor.com"
+
 _SESSION = auth_service.create_session(
     {"email": "test@danwor.com", "name": "Test User", "first_name": "Test", "family_name": "User"}
 )

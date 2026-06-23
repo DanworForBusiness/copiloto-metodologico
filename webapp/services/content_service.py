@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 import html
+import json
 import re
 from urllib.parse import urlencode
 
@@ -34,6 +35,7 @@ CALLOUT_ROW_RE = re.compile(
 )
 CALLOUT_ATTR_RE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
+TREE_BUTTON_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I | re.M)
 INTERNAL_TOKEN_LINE_RE = re.compile(r"^\s*\{\{.*?\}\}\s*$", re.M)
 
 
@@ -202,7 +204,7 @@ def _callout_body_html(body: str) -> str:
     return "".join(parts)
 
 
-def _prepare(source: str, pack_name: str) -> str:
+def _prepare(source: str, pack_name: str, stem: str = "") -> str:
     source = SEMANTIC_RE.sub("", META_RE.sub("", source))
 
     def callout(match: re.Match[str]) -> str:
@@ -251,11 +253,30 @@ def _prepare(source: str, pack_name: str) -> str:
     def support(match: re.Match[str]) -> str:
         return _support_links_html(match.group(1))
 
+    def tree_button(match: re.Match[str]) -> str:
+        # {{tree_button: <título>}} → botón que abre ese árbol en el panel derecho
+        # (cambia a la pestaña Árbol vía Alpine y lanza el árbol vía HTMX por título).
+        title = match.group(1).strip()
+        payload = html.escape(
+            json.dumps({"tree_title": title, "pack": pack_name}, ensure_ascii=False), quote=True
+        )
+        return (
+            f'<button type="button" class="tree-launch" '
+            f'hx-post="/modules/{html.escape(stem, quote=True)}/trees/start" '
+            f'hx-target="#tree-tab-panel" hx-swap="outerHTML" hx-vals="{payload}" '
+            f'@click="toolTab=&#39;tree&#39;; panelOpen=true">'
+            f'<span class="tree-launch-eyebrow">Árbol de decisión</span>'
+            f'<span class="tree-launch-title">{html.escape(title)}</span>'
+            f'<span class="tree-launch-cta">Abrir en herramientas →</span>'
+            f'</button>'
+        )
+
     rendered_callouts = CALLOUT_RE.sub(callout, source)
     rendered_callouts = CALLOUT_ROW_RE.sub(callout_row, rendered_callouts)
     rendered_tokens = SUPPORT_RE.sub(support, EMBED_RE.sub(embed, rendered_callouts))
+    rendered_tokens = TREE_BUTTON_RE.sub(tree_button, rendered_tokens)
     # Cualquier token de línea restante es metadata/control editorial. Nunca
-    # debe llegar como texto a la vista web (tree_button, callout_row, etc.).
+    # debe llegar como texto a la vista web (callout_row, etc.).
     return INTERNAL_TOKEN_LINE_RE.sub("", rendered_tokens)
 
 
@@ -278,7 +299,7 @@ def load_module(stem: str, pack_name: str = "datasphere_mvp") -> ModuleDocument:
         title, styled = _styled_title(match.group(1))
         section_markdown = body[match.start():end].strip()
         section_body, heading_supports = _extract_heading_supports(body[match.end():end].strip())
-        prepared = _prepare(section_body, pack_name)
+        prepared = _prepare(section_body, pack_name, stem)
         has_subtitle = prepared.lstrip().startswith(">")
         rendered = markdown.markdown(prepared, extensions=["tables", "fenced_code", "sane_lists"])
         if has_subtitle:

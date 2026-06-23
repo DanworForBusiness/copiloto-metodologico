@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import re
+import unicodedata
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -16,7 +17,7 @@ from core.content_registry import (
     roots_for_kind,
 )
 from config import (
-    AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE, SESSION_MAX_AGE,
+    APP_OWNER, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE, SESSION_MAX_AGE,
     SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
 from core.prompts import ALL_ACTIONS, get_loading_message
@@ -59,13 +60,24 @@ def _pack(value: str) -> str:
     return value if value in available_content_packs() else DEFAULT_PACK
 
 
-def _diagnostic(request: Request) -> bool:
-    """Modo diagnóstico: activo por cookie de sesión o forzado por entorno.
+def _is_owner(request: Request) -> bool:
+    """True si el usuario logueado es el dueño de la app (config APP_OWNER)."""
+    if not APP_OWNER:
+        return False
+    user = auth_service.session_user(request)
+    return bool(user) and (str(user.get("sub") or "").strip().lower() == APP_OWNER.strip().lower())
 
-    Es la dualidad en desarrollo: habilita el selector de marco metodológico y la
-    pestaña Analítica. En producción (off) el marco es siempre el predeterminado.
+
+def _diagnostic(request: Request) -> bool:
+    """Modo diagnóstico: solo el dueño (APP_OWNER) puede activarlo por cookie.
+
+    Habilita el selector de marco metodológico y la pestaña/grupo de gestión.
+    DANWOR_DIAGNOSTIC_MODE lo fuerza por entorno (dev). Para usuarios no-owner
+    queda siempre off, aunque tengan la cookie seteada a mano.
     """
-    return DIAGNOSTIC_MODE or request.cookies.get("dw-diagnostic") == "on"
+    if DIAGNOSTIC_MODE:
+        return True
+    return _is_owner(request) and request.cookies.get("dw-diagnostic") == "on"
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -298,6 +310,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "ia_enabled": ia_enabled,
             "is_appendix": is_appendix,
             "diagnostic": diagnostic,
+            "is_owner": _is_owner(request),
             # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
             # si está el modo diagnóstico activo (grupo Gestión).
             "show_panel": ia_enabled or diagnostic,
@@ -518,16 +531,46 @@ def assistant_feedback_cancel(request: Request, reply_id: str):
     )
 
 
+def _norm_tokens(text: str) -> list[str]:
+    ascii_text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+    return [t for t in re.split(r"[^a-z0-9]+", ascii_text) if t]
+
+
+def _resolve_tree(trees: tuple, tree_id: str, tree_title: str) -> dict | None:
+    """Resuelve un árbol por id exacto; si no, por título (exacto, luego por
+    subconjunto de tokens — p. ej. el botón 'Estrategia de Integración (federación
+    vs persistencia)' matchea el árbol 'Federación vs Persistencia')."""
+    if tree_id:
+        tree = next((t for t in trees if str(t.get("id")) == tree_id), None)
+        if tree:
+            return tree
+    title = (tree_title or "").strip()
+    if not title:
+        return None
+    low = title.lower()
+    for t in trees:
+        if str(t.get("title") or "").strip().lower() == low:
+            return t
+    button_tokens = set(_norm_tokens(title))
+    best, best_len = None, 0
+    for t in trees:
+        tree_tokens = _norm_tokens(str(t.get("title") or ""))
+        if tree_tokens and len(tree_tokens) > best_len and all(tok in button_tokens for tok in tree_tokens):
+            best, best_len = t, len(tree_tokens)
+    return best
+
+
 @app.post("/modules/{stem}/trees/start", response_class=HTMLResponse)
 def start_tree(
     request: Request,
     stem: str,
     tree_id: str = Form(""),
+    tree_title: str = Form(""),
     pack: str = Form(DEFAULT_PACK),
 ):
     selected = _pack(pack)
     trees = store.trees_for_module(stem, selected)
-    tree = next((item for item in trees if str(item.get("id")) == tree_id), None)
+    tree = _resolve_tree(trees, tree_id, tree_title)
     if tree is None:
         raise HTTPException(404, "Árbol no encontrado")
     run = store.start(tree)
@@ -539,7 +582,7 @@ def start_tree(
             "run": run,
             "node": run.node,
             "leaf": run.leaf,
-            "selected_tree_id": tree_id,
+            "selected_tree_id": tree.get("id"),
             "document": load_module(stem, selected),
             "pack": selected,
         },

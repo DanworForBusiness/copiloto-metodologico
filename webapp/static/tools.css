@@ -344,6 +344,21 @@
 .panel-toggle--gestion { margin-top: 20px; }
 .gestion-group { padding-top: 16px; }
 
+/* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →
+   abre ese árbol en el panel derecho (pestaña Árbol). */
+.tree-launch {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  margin: 20px 0; padding: 14px 18px; cursor: pointer; color: var(--ink);
+  border: 1px solid rgba(231,176,8,.40); border-left: 3px solid var(--gold);
+  background: linear-gradient(135deg, rgba(231,176,8,.12), transparent);
+  border-radius: 12px; transition: background .16s ease, transform .12s ease;
+}
+.tree-launch:hover { background: linear-gradient(135deg, rgba(231,176,8,.20), rgba(231,176,8,.04)); transform: translateY(-1px); }
+.tree-launch-eyebrow { font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--gold); }
+.tree-launch-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+.tree-launch-cta { font-size: .76rem; color: var(--soft); }
+.content-theme-light .tree-launch { color: #26262a; border-color: rgba(184,138,0,.45); }
+
 /* Tailwind (preflight del CDN) resetea list-style; restauramos las viñetas del
    contenido metodológico y de las respuestas LLM (que Markdown emite como <ul>/<ol>). */
 .methodology ul:not(.callout-list), .section-analysis-output ul { list-style: disc outside; padding-left: 1.3em; margin: 12px 0; }
