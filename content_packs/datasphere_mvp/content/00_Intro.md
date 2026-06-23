@@ -23,7 +23,7 @@ key_topics:
 ## {dw-black}Danwor {dw-gold}For Business
 {{section_mode: visual_only}}
 {{subtitle: no-gap}}
->Dos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia, conjuntamente con capacidades de analítica predictiva end-to-end.
+>Distintos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia, conjuntamente con capacidades de analítica predictiva end-to-end.
 {{html_embed: ../assets/danwor-for-business.html height=940}}
 
 ## {dw-black}Nuestro punto de {dw-gold}partida
