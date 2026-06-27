@@ -889,7 +889,10 @@
 
   document.fonts.ready.then(() => {
     matchWidths();
-    cycle();
+    // Logo asentado, sin la animación de entrada (se replicaba en cada navegación
+    // SSR al recargar el iframe). reset() deja el estado de reposo: DANWOR + claim
+    // visibles, sin el morph. Para restaurar la animación: volver a `cycle();`.
+    reset();
   });
 </script>
 </body>
