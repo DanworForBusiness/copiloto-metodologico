@@ -54,7 +54,7 @@
       <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
         <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>
       </button>
-      <div x-show="navCore" x-transition.opacity>
+      <div x-show="navCore" x-transition.opacity{% if is_appendix %} style="display:none"{% endif %}>
         {% for module in modules %}
         <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == document.summary.stem %}is-active{% endif %}">
           <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
@@ -65,7 +65,7 @@
       <button type="button" class="nav-toggle nav-toggle--appendix" @click="navAppendix=!navAppendix" :aria-expanded="navAppendix">
         <span class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</span><span class="nav-toggle-sign" x-text="navAppendix?'−':'+'"></span>
       </button>
-      <div x-show="navAppendix" x-transition.opacity>
+      <div x-show="navAppendix" x-transition.opacity{% if not is_appendix %} style="display:none"{% endif %}>
         {% for ap in appendices %}
         <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == document.summary.stem %}is-active{% endif %}">
           <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
