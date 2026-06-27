@@ -81,6 +81,10 @@
   content: ""; position: absolute; inset: 0 2px; background: var(--line);
   transition: background .15s, box-shadow .15s;
 }
+/* En oscuro la línea gris (var(--line)) se camufla con el fondo del shell, como
+   ya pasaba en claro. Va ANTES de las reglas :hover/.is-resizing (misma
+   especificidad) para que esas ganen por orden y el dorado siga apareciendo. */
+.content-theme-dark .resize-handle::after { background: transparent; }
 .resize-handle:hover::after, .is-resizing .resize-handle::after {
   background: var(--gold); box-shadow: 0 0 12px rgba(231,176,8,.35);
 }
