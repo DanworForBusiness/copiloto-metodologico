@@ -11,7 +11,17 @@ import markdown
 from openai import OpenAI
 
 from config import BASE_DIR, DEFAULT_EXECUTION_MODE, MODEL, ia_enabled_for
-from core.prompts import ALL_ACTIONS, build_system_prompt, build_topic_prompt, topic_instruction
+from core.prompts import (
+    ALL_ACTIONS,
+    MODULE_ACTIONS,
+    QUICK_ACTIONS,
+    build_system_prompt,
+    build_topic_prompt,
+    topic_instruction,
+)
+
+# Slug especial: el target no es una sección sino la cabecera del módulo.
+MODULE_TARGET_SLUG = "__module__"
 from webapp.services.content_service import ModuleDocument
 
 
@@ -165,27 +175,40 @@ class SectionAnalysisService:
         action: str,
         pack_name: str,
     ) -> SectionAnalysisResult:
-        if action not in ALL_ACTIONS:
+        is_module = section_slug == MODULE_TARGET_SLUG
+        valid_actions = MODULE_ACTIONS if is_module else ALL_ACTIONS
+        if action not in valid_actions:
             raise SectionAnalysisError("La acción seleccionada no es válida.")
         if not ia_enabled_for(document.summary.stem):
             raise SectionAnalysisError("El análisis con IA no está habilitado para este módulo.")
-        section = next((item for item in document.sections if item.slug == section_slug), None)
-        if section is None:
-            raise SectionAnalysisError("No se encontró la sección seleccionada.")
+
+        if is_module:
+            # Target = cabecera del módulo: el fragmento es el módulo completo y la
+            # instrucción es la quick action (QUICK_ACTIONS), no la de sección.
+            target_title = document.summary.title
+            fragment = document.source
+            instruction = QUICK_ACTIONS.get(action)
+        else:
+            section = next((item for item in document.sections if item.slug == section_slug), None)
+            if section is None:
+                raise SectionAnalysisError("No se encontró la sección seleccionada.")
+            target_title = section.title
+            fragment = section.markdown
+            instruction = topic_instruction(action)
 
         prompt = build_topic_prompt(
             document.source,
-            section.title,
-            section.markdown,
+            target_title,
+            fragment,
             action,
-            topic_instruction(action),
+            instruction,
             module=document.summary.stem,
             pack_name=pack_name,
         )
         if self.execution_mode.lower().startswith("simul"):
             answer = (
                 "🧪 **Simulación activa** — no se consumieron créditos.\n\n"
-                f"La acción **{action}** quedó preparada para **{section.title}**."
+                f"La acción **{action}** quedó preparada para **{target_title}**."
             )
         else:
             api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or _legacy_api_key()
@@ -227,4 +250,4 @@ class SectionAnalysisService:
                 raise SectionAnalysisError("El modelo no devolvió contenido para esta acción.")
 
         rendered = render_llm_html(answer)
-        return SectionAnalysisResult(section.title, action, answer, rendered, prompt)
+        return SectionAnalysisResult(target_title, action, answer, rendered, prompt)

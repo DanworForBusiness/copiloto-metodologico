@@ -20,7 +20,12 @@ from config import (
     APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
-from core.prompts import ALL_ACTIONS, get_loading_message
+from core.prompts import (
+    ALL_ACTIONS,
+    MODULE_ACTIONS,
+    MODULE_ACTION_DESCRIPTIONS,
+    get_loading_message,
+)
 from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services.content_service import list_appendices, list_modules, load_module
@@ -34,6 +39,7 @@ from webapp.services.assistant_service import (
 from webapp.services.assistant_routing import AssistantRoutingService
 from webapp.services.section_analysis import (
     ACTION_DESCRIPTIONS,
+    MODULE_TARGET_SLUG,
     SectionAnalysisError,
     SectionAnalysisService,
     render_llm_html,
@@ -345,9 +351,13 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "previous_module": previous_module,
             "next_module": next_module,
             "section_actions": ALL_ACTIONS,
-            "section_action_descriptions": ACTION_DESCRIPTIONS,
-            "section_loading_messages": {
-                action: get_loading_message(action, False) for action in ALL_ACTIONS
+            "module_actions": MODULE_ACTIONS,
+            # Descripciones y mensajes de carga combinados (sección + módulo) para el
+            # template, que alterna las acciones según el target activo.
+            "all_action_descriptions": {**ACTION_DESCRIPTIONS, **MODULE_ACTION_DESCRIPTIONS},
+            "all_loading_messages": {
+                action: get_loading_message(action, False)
+                for action in (*ALL_ACTIONS, *MODULE_ACTIONS)
             },
             "user": user,
             "conversation_id": conversation.id,
@@ -373,9 +383,12 @@ def analyze_section(
         document = load_module(stem, selected)
         if not conversation_id:
             conversation_id = assistant_store.start(stem, selected).id
-        if action not in ALL_ACTIONS or not any(
+        is_module_target = section_slug == MODULE_TARGET_SLUG
+        valid_action = action in (MODULE_ACTIONS if is_module_target else ALL_ACTIONS)
+        valid_target = is_module_target or any(
             section.slug == section_slug for section in document.sections
-        ):
+        )
+        if not valid_action or not valid_target:
             raise SectionAnalysisError("La sección o acción seleccionada no es válida.")
         if not assistant_store.claim_section_analysis(
             conversation_id, stem, selected, section_slug, action,

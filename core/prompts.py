@@ -150,6 +150,17 @@ Si no encontrás material interno suficiente, decilo explícitamente antes de us
 """,
 }
 
+# Acciones a nivel módulo (cabecera): mismo orden de QUICK_ACTIONS. Se ofrecen en
+# la pestaña "Sección" del panel derecho cuando el target es "Módulo (general)".
+MODULE_ACTIONS = list(QUICK_ACTIONS.keys())
+
+MODULE_ACTION_DESCRIPTIONS = {
+    "Guía operativa del módulo": "Decisión arquitectónica dominante del módulo, dónde se equivoca el consultor y la postura Danwor.",
+    "Checklist de implementación": "Checklist ordenado por dependencia para una reunión técnica: qué validar, con quién y qué bloquea.",
+    "Errores frecuentes": "Post-mortem: los errores más caros del módulo, su causa raíz y cómo los corrige el marco Danwor.",
+    "Ejemplos prácticos": "2-3 casos reales (apoyados en fuentes internas) con contexto, decisión Danwor y riesgo si se elige mal.",
+}
+
 # =========================================================
 # Case library — carga y filtrado
 # =========================================================

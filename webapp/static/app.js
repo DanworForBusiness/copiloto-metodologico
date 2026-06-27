@@ -1,10 +1,16 @@
-function copilotLayout() {
+function copilotLayout(isAppendix = false) {
   return {
     navOpen: false,
     panelOpen: true,
     gestionOpen: false,
     toolTab: "section",
     activeSection: "",
+    // Grupos colapsables del nav izquierdo. Abrimos el grupo del documento
+    // activo y dejamos el otro colapsado. El grupo activo no se puede colapsar
+    // mientras se lo navega: si queda cerrado, un $watch lo reabre (ver init()).
+    activeNavGroup: isAppendix ? "appendix" : "core",
+    navCore: !isAppendix,
+    navAppendix: isAppendix,
     contentTheme: localStorage.getItem("dw-content-theme") || "light",
     init() {
       const shell = this.$root;
@@ -15,7 +21,12 @@ function copilotLayout() {
       shell.querySelectorAll("[data-resize]").forEach(handle => {
         handle.addEventListener("pointerdown", event => this.startResize(event, handle.dataset.resize));
       });
-      const sections = [...document.querySelectorAll(".content-section")];
+      // El grupo del doc activo siempre vuelve a abrirse (no se navega colapsado).
+      this.$watch("navCore", v => { if (!v && this.activeNavGroup === "core") this.navCore = true; });
+      this.$watch("navAppendix", v => { if (!v && this.activeNavGroup === "appendix") this.navAppendix = true; });
+      // El hero (#__module__) también es target del scroll-spy: arriba de todo el
+      // selector marca "Módulo (general)"; al entrar a una sección, marca la sección.
+      const sections = [...document.querySelectorAll(".module-hero, .content-section")];
       this.activeSection = sections[0]?.id || "";
       if ("IntersectionObserver" in window) {
         // Mantenemos un Set persistente de secciones que cruzan la banda y la

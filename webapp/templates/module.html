@@ -2,7 +2,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout()"
+  x-data="copilotLayout({{ 'true' if is_appendix else 'false' }})"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
@@ -50,20 +50,28 @@
 
   <aside class="module-nav" :class="navOpen&&'is-open'">
     {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
-    <p class="nav-kicker">CORE {{ pack_label }}</p>
     <nav aria-label="Módulos metodológicos">
-      {% for module in modules %}
-      <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == document.summary.stem %}is-active{% endif %}">
-        <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
-      </a>
-      {% endfor %}
+      <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
+        <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>
+      </button>
+      <div x-show="navCore" x-transition.opacity>
+        {% for module in modules %}
+        <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == document.summary.stem %}is-active{% endif %}">
+          <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
+        </a>
+        {% endfor %}
+      </div>
       {% if appendices %}
-      <p class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</p>
-      {% for ap in appendices %}
-      <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == document.summary.stem %}is-active{% endif %}">
-        <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
-      </a>
-      {% endfor %}
+      <button type="button" class="nav-toggle nav-toggle--appendix" @click="navAppendix=!navAppendix" :aria-expanded="navAppendix">
+        <span class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</span><span class="nav-toggle-sign" x-text="navAppendix?'−':'+'"></span>
+      </button>
+      <div x-show="navAppendix" x-transition.opacity>
+        {% for ap in appendices %}
+        <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == document.summary.stem %}is-active{% endif %}">
+          <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
+        </a>
+        {% endfor %}
+      </div>
       {% endif %}
     </nav>
   </aside>
@@ -71,7 +79,7 @@
   <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
 
   <main id="content" class="module-content">
-    <section class="module-hero">
+    <section id="__module__" class="module-hero">
       <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
       <h1>{{ document.summary.title }}</h1>
       <div class="hero-meta"><span>{{ document.sections|length }} secciones</span>{% if trees %}<span>{{ trees|length }} {{ "árbol asociado" if trees|length == 1 else "árboles asociados" }}</span>{% endif %}</div>
@@ -98,28 +106,35 @@
 
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='section'" role="tabpanel">
         <div class="active-section-card">
-          <span>Sección activa</span>
+          <span x-text="activeSection === '__module__' ? 'Nivel módulo' : 'Sección activa'"></span>
+          <strong x-show="activeSection === '__module__'">{{ document.summary.title }} — general</strong>
           {% for section in document.sections %}<strong x-show="activeSection === '{{ section.slug }}'">{{ section.title }}</strong>{% endfor %}
         </div>
         <label class="tool-label" for="section-selector">Contenido del módulo</label>
         <select id="section-selector" x-model="activeSection" @change="sectionChanged()">
+          <option value="__module__">Módulo (general)</option>
           {% for section in document.sections %}<option value="{{ section.slug }}">{{ "%02d"|format(section.number) }} · {{ section.title }}</option>{% endfor %}
         </select>
-        <form class="section-analysis-form" hx-post="/modules/{{ document.summary.stem }}/sections/analyze" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#section-analysis-loading" hx-disabled-elt="button[type='submit']">
+        <form class="section-analysis-form"
+              x-data='{ sectionActions: {{ section_actions|tojson }}, moduleActions: {{ module_actions|tojson }}, descriptions: {{ all_action_descriptions|tojson }}, loading: {{ all_loading_messages|tojson }}, picked: "" }'
+              x-effect="const cur = (activeSection==='__module__' ? moduleActions : sectionActions); if (!cur.includes(picked)) picked = cur[0]"
+              hx-post="/modules/{{ document.summary.stem }}/sections/analyze" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#section-analysis-loading" hx-disabled-elt="button[type='submit']">
           <input type="hidden" name="pack" value="{{ pack }}">
           <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
           <input type="hidden" name="section_slug" :value="activeSection">
           <fieldset>
             <legend>Acción</legend>
             <div class="section-action-list">
-              {% for action in section_actions %}
-              <label class="section-action-option"><input type="radio" name="action" value="{{ action }}" data-loading-message="{{ section_loading_messages[action] }}" {% if loop.first %}checked{% endif %}><span>{{ action }}</span></label>
-              {% endfor %}
+              <template x-for="action in (activeSection==='__module__' ? moduleActions : sectionActions)" :key="action">
+                <label class="section-action-option"><input type="radio" name="action" :value="action" :data-loading-message="loading[action]" x-model="picked"><span x-text="action"></span></label>
+              </template>
             </div>
           </fieldset>
           <details class="section-action-help">
             <summary>¿Qué hace cada acción?</summary>
-            {% for action in section_actions %}<div><strong>{{ action }}</strong><p>{{ section_action_descriptions[action] }}</p></div>{% endfor %}
+            <template x-for="action in (activeSection==='__module__' ? moduleActions : sectionActions)" :key="action">
+              <div><strong x-text="action"></strong><p x-text="descriptions[action]"></p></div>
+            </template>
           </details>
           <div id="section-analysis-warning" class="section-analysis-warning" aria-live="polite"></div>
           <button type="submit" class="btn-primary section-analyze-button">Analizar</button>

@@ -62,6 +62,40 @@ def test_section_analysis_endpoint_returns_htmx_fragment(monkeypatch):
     assert "Checklist ejecutable" in response.text
 
 
+def test_module_level_analysis_uses_module_target(monkeypatch):
+    monkeypatch.setattr(
+        web_main,
+        "section_analysis_service",
+        SectionAnalysisService(execution_mode="Simulación"),
+    )
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/sections/analyze",
+        data={
+            "pack": "datasphere_mvp",
+            "section_slug": "__module__",
+            "action": "Guía operativa del módulo",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Simulación activa" in response.text
+    assert "Guía operativa del módulo" in response.text
+
+
+def test_module_page_offers_module_target_and_nav_toggles():
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert response.status_code == 200
+    # Opción "Módulo (general)" + acciones módulo-nivel en el panel derecho.
+    # (Los labels con acento viajan json-escapados en x-data; "Errores frecuentes"
+    # es ASCII y aparece literal.)
+    assert "Módulo (general)" in response.text
+    assert "Errores frecuentes" in response.text
+    # Hero como target del scroll-spy + nav izquierdo colapsable.
+    assert 'id="__module__"' in response.text
+    assert "navCore" in response.text
+    assert "navAppendix" in response.text
+
+
 def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
     monkeypatch.setattr(
         web_main,
