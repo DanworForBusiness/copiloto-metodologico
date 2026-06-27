@@ -85,10 +85,11 @@ def test_module_level_analysis_uses_module_target(monkeypatch):
 def test_module_page_offers_module_target_and_nav_toggles():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert response.status_code == 200
-    # Opción "Módulo (general)" + acciones módulo-nivel en el panel derecho.
-    # (Los labels con acento viajan json-escapados en x-data; "Errores frecuentes"
-    # es ASCII y aparece literal.)
-    assert "Módulo (general)" in response.text
+    # Target módulo (opción con value="__module__", card "Módulo activo") +
+    # acciones módulo-nivel. (Los labels con acento viajan json-escapados en
+    # x-data; "Errores frecuentes" es ASCII y aparece literal.)
+    assert 'value="__module__"' in response.text
+    assert "Módulo activo" in response.text
     assert "Errores frecuentes" in response.text
     # Hero como target del scroll-spy + nav izquierdo colapsable.
     assert 'id="__module__"' in response.text

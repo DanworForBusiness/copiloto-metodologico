@@ -21,9 +21,14 @@ function copilotLayout(isAppendix = false) {
       shell.querySelectorAll("[data-resize]").forEach(handle => {
         handle.addEventListener("pointerdown", event => this.startResize(event, handle.dataset.resize));
       });
-      // El grupo del doc activo siempre vuelve a abrirse (no se navega colapsado).
-      this.$watch("navCore", v => { if (!v && this.activeNavGroup === "core") this.navCore = true; });
-      this.$watch("navAppendix", v => { if (!v && this.activeNavGroup === "appendix") this.navAppendix = true; });
+      // El grupo del doc activo se puede colapsar, pero apenas el contenido
+      // central scrollea se reabre solo (no se "navega" con el grupo cerrado).
+      const reopenActiveGroup = () => {
+        if (this.activeNavGroup === "appendix") this.navAppendix = true;
+        else this.navCore = true;
+      };
+      const contentEl = shell.querySelector(".module-content");
+      contentEl?.addEventListener("scroll", reopenActiveGroup, { passive: true });
       // El hero (#__module__) también es target del scroll-spy: arriba de todo el
       // selector marca "Módulo (general)"; al entrar a una sección, marca la sección.
       const sections = [...document.querySelectorAll(".module-hero, .content-section")];

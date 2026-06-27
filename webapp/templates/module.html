@@ -106,13 +106,13 @@
 
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='section'" role="tabpanel">
         <div class="active-section-card">
-          <span x-text="activeSection === '__module__' ? 'Nivel módulo' : 'Sección activa'"></span>
-          <strong x-show="activeSection === '__module__'">{{ document.summary.title }} — general</strong>
+          <span x-text="activeSection === '__module__' ? 'Módulo activo' : 'Sección activa'"></span>
+          <strong x-show="activeSection === '__module__'">{{ document.summary.title }}</strong>
           {% for section in document.sections %}<strong x-show="activeSection === '{{ section.slug }}'">{{ section.title }}</strong>{% endfor %}
         </div>
         <label class="tool-label" for="section-selector">Contenido del módulo</label>
         <select id="section-selector" x-model="activeSection" @change="sectionChanged()">
-          <option value="__module__">Módulo (general)</option>
+          <option value="__module__">{% if is_appendix %}{{ document.summary.stem.split('_')[0] }}{% else %}{{ document.summary.number }}{% endif %} · {{ document.summary.title }}</option>
           {% for section in document.sections %}<option value="{{ section.slug }}">{{ "%02d"|format(section.number) }} · {{ section.title }}</option>{% endfor %}
         </select>
         <form class="section-analysis-form"
