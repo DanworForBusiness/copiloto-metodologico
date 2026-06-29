@@ -585,6 +585,38 @@ function arrow(svg, x1,y1,x2,y2, color, dash) {
   return el;
 }
 
+// Flecha de retorno Calidad → Desarrollo (escenario (*): transporte transversal
+// QA→DEV). Ruta ortogonal por la derecha y sobre el tope, entrando a Desarrollo
+// desde arriba — para no cruzar la cadena descendente del centro. Línea sólida.
+function returnArrow(svg, sx, sy, vx, ty, tx, by, color) {
+  const markId = 'mkar-' + color.replace(/[^a-z0-9]/gi,'');
+  if (!svg.querySelector(`#${markId}`)) {
+    const defs = svg.querySelector('defs') || svg.insertBefore(
+      document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
+    const m = document.createElementNS('http://www.w3.org/2000/svg','marker');
+    m.setAttribute('id', markId);
+    m.setAttribute('markerWidth','7'); m.setAttribute('markerHeight','7');
+    m.setAttribute('refX','6'); m.setAttribute('refY','3.5');
+    m.setAttribute('orient','auto');
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d','M0,0 L7,3.5 L0,7 Z');
+    p.setAttribute('fill', color);
+    m.appendChild(p); defs.appendChild(m);
+  }
+  const r = 8;
+  const d = `M${sx},${sy} L${vx},${sy} L${vx},${ty + r} Q${vx},${ty} ${vx - r},${ty} `
+          + `L${tx + r},${ty} Q${tx},${ty} ${tx},${ty + r} L${tx},${by}`;
+  const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+  el.setAttribute('d', d);
+  el.setAttribute('stroke', color);
+  el.setAttribute('stroke-width', '2.4');
+  el.setAttribute('fill', 'none');
+  el.setAttribute('marker-end', `url(#${markId})`);
+  el.classList.add('arr');
+  svg.appendChild(el);
+  return el;
+}
+
 function clearSvg(svgId) {
   const svg = document.getElementById(svgId);
   // Remove all path elements (keep defs)
@@ -618,6 +650,11 @@ function drawTier1() {
   const s4p = paneRel(wrap, els['t1-s4-prd']);
   const dsp = paneRel(wrap, els['t1-prd']);
   arrow(svg, s4p.rx, s4p.my, dsp.lx-4, dsp.my, '#2d7a4a', '6,3');
+
+  // Calidad → Desarrollo: retorno transversal QA→DEV (escenario (*)).
+  const vx1 = Math.max(dsd.rx, dsq.rx) + 4;
+  const tx1 = Math.round(dsd.lx + (dsd.rx - dsd.lx) * 0.5);
+  returnArrow(svg, dsq.rx, dsq.my, vx1, dsd.top - 16, tx1, dsd.top, '#e0a800');
 }
 
 // ── DRAW TIER 2 ───────────────────────────────────────────────────────────────
@@ -640,6 +677,11 @@ function drawTier2() {
   const s4q = paneRel(wrap, get('t2-s4-qa'));
   const taq = paneRel(wrap, get('t2a-qa'));
   arrow(svg, s4q.rx, s4q.my, taq.lx-4, taq.my, '#7c6fcd', '6,3');
+
+  // Calidad → Desarrollo: retorno transversal QA→DEV (escenario (*)).
+  const vx2 = Math.max(tad.rx, taq.rx) + 4;
+  const tx2 = Math.round(tad.lx + (tad.rx - tad.lx) * 0.5);
+  returnArrow(svg, taq.rx, taq.my, vx2, tad.top - 16, tx2, tad.top, '#e0a800');
 
   // S/4 PRD → Tenant B Gobierno de Datos
   const s4p = paneRel(wrap, get('t2-s4-prd'));

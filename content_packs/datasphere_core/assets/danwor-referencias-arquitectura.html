@@ -64,7 +64,11 @@
     gap: 14px;
     position: relative;
     z-index: 1; /* below SVG */
-    min-height: 360px;
+    /* Sin min-height: el grid toma la altura del contenido más alto (la columna
+       de sistemas, que cierra en No-SAP/Azure). Así la caja Datasphere — que
+       estira con height:100% — alinea su borde inferior con No-SAP en vez de
+       dejar un hueco vacío, y el espacio ganado sube el bloque outbound para
+       que la columna izquierda termine a la altura de la derecha (escenario 4). */
   }
 
   /* pointer-events:none on SVG lets clicks pass through to nodes */
@@ -120,6 +124,41 @@
     justify-content: center; text-align: center;
     padding: 11px 8px; line-height: 1.3;
   }
+
+  /* ══════════════════════════════
+     PREMIUM OUTBOUND
+     Datasphere como puente/hub hacia plataformas corporativas (uso indirecto).
+     Estilo deliberadamente atenuado/corporativo: no compite con el flujo de
+     ingesta principal, lo extiende.
+  ══════════════════════════════ */
+  /* z-index 3 (por encima del SVG de flechas, z-index 2) para que el texto del
+     divisor y las cajas queden legibles y las flechas outbound pasen por detrás. */
+  .outbound-divider { display: flex; align-items: center; gap: 10px; margin: 22px 2px 10px; position: relative; z-index: 3; }
+  .outbound-divider::before, .outbound-divider::after { content: ''; height: 1px; flex: 1; background: var(--dw-border); }
+  .outbound-divider span {
+    font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--dw-muted); background: var(--dw-light);
+    border: 1px solid var(--dw-border); border-radius: 20px; padding: 3px 12px; white-space: nowrap;
+  }
+  .outbound-caption { font-size: 10.5px; color: var(--dw-muted); text-align: center; margin: 0 0 12px; line-height: 1.5; position: relative; z-index: 3; }
+  .outbound-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; z-index: 3; }
+  .platform-box {
+    border: 1.5px dashed var(--dw-border); border-radius: var(--r-md);
+    background: var(--dw-light); padding: 12px; text-align: center;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .platform-title { font-size: 13px; font-weight: 800; color: var(--dw-muted); letter-spacing: 0.3px; }
+  .platform-sub, .platform-layer {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dw-muted);
+  }
+  .platform-sub { opacity: 0.8; margin-top: -4px; }
+  .platform-node {
+    justify-content: center; text-align: center; padding: 9px 8px; line-height: 1.3;
+    background: var(--dw-white); border: 1px solid var(--dw-border); color: var(--dw-text);
+    font-size: 10.5px; cursor: default;
+  }
+  .platform-node:hover { filter: none; transform: none; }
+  .platform-foot { font-size: 9px; color: var(--dw-muted); opacity: 0.75; line-height: 1.4; }
 
   /* ══════════════════════════════
      SCENARIOS PANE
@@ -237,6 +276,7 @@
         <marker id="mh3" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#1a73e8"/></marker>
         <marker id="mh4" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#0d9e75"/></marker>
         <marker id="mhds" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgba(13,43,69,0.22)"/></marker>
+        <marker id="mhob" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/></marker>
       </defs>
       <!-- paths injected by JS -->
     </svg>
@@ -279,7 +319,7 @@
 
       <!-- RIGHT: Datasphere -->
       <div>
-        <div class="ds-container">
+        <div class="ds-container" id="n-dsbox">
           <div class="ds-title">Datasphere</div>
           <div class="ds-inner-grid">
             <div class="ds-col">
@@ -296,6 +336,26 @@
       </div>
 
     </div><!-- /diag-grid -->
+
+    <!-- ══ PREMIUM OUTBOUND: Datasphere como puente/hub ══ -->
+    <div class="outbound-divider"><span>Premium outbound</span></div>
+    <div class="outbound-caption">Datasphere como puente/hub: exposición gobernada hacia plataformas corporativas (uso indirecto).</div>
+    <div class="outbound-grid">
+      <div class="platform-box">
+        <div class="platform-title">Databricks</div>
+        <div class="platform-sub">Lakehouse Corporativo</div>
+        <div class="platform-layer">Unity Catalog</div>
+        <div class="node platform-node" id="n-dbx">Data Products<br>Publicados</div>
+        <div class="platform-foot">Consumo de Data Products</div>
+      </div>
+      <div class="platform-box">
+        <div class="platform-title">AWS</div>
+        <div class="platform-sub">Plataforma Corporativa</div>
+        <div class="platform-layer">DataLake</div>
+        <div class="node platform-node" id="n-aws">S3-based datalake</div>
+        <div class="platform-foot">Raw · Cleansed · Curated · Analítica · Seguridad</div>
+      </div>
+    </div>
   </div><!-- /diagram-pane -->
 
   <!-- ══ RIGHT: SCENARIOS ══ -->
@@ -371,6 +431,14 @@ const DS_LINKS = [
   { from:'n-vi',  to:'n-tb' },
 ];
 
+// Premium outbound: Datasphere expone hacia plataformas corporativas (verticales,
+// de la capa de consumo hacia abajo). Vistas/Modelos → Data Products gobernados
+// (Databricks); Tablas → datalake replicado (AWS).
+const OUTBOUND_LINKS = [
+  { from:'n-dsbox', to:'n-dbx' },
+  { from:'n-dsbox', to:'n-aws' },
+];
+
 let activeId = null;
 let drawnPaths = {}; // { sc: [svgPathEl, ...] }
 let dsPaths = [];
@@ -416,6 +484,17 @@ function drawArrows() {
     dsPaths.push(path);
   });
 
+  // 1b. Premium outbound links (vertical: capa de consumo → plataforma corporativa)
+  OUTBOUND_LINKS.forEach(lnk => {
+    const s = document.getElementById(lnk.from);
+    const t = document.getElementById(lnk.to);
+    if (!s || !t) return;
+    const sc = relCoords(s), tc = relCoords(t);
+    const path = createVerticalPath(svg, sc.cx, sc.bottom, tc.cx, tc.top,
+                                    '#64748b', '4,4', 'mhob', 'ob-link');
+    dsPaths.push(path); // se atenúa junto con los enlaces internos al enfocar un escenario
+  });
+
   // 2. Scenario arrows
   Object.entries(SCENARIOS).forEach(([sc, cfg]) => {
     drawnPaths[sc] = [];
@@ -444,6 +523,22 @@ function createCubicPath(svg, x1, y1, x2, y2, stroke, dash, marker, cls) {
   const mx   = (x1 + x2) / 2;
   // cubic bezier: horizontal tangents from both endpoints
   path.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+  path.setAttribute('stroke', stroke);
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-dasharray', dash);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('marker-end', `url(#${marker})`);
+  cls.split(' ').forEach(c => c && path.classList.add(c));
+  svg.appendChild(path);
+  return path;
+}
+
+// Variante con tangentes VERTICALES — para flujos de arriba hacia abajo
+// (capa de consumo de Datasphere → plataformas corporativas del outbound).
+function createVerticalPath(svg, x1, y1, x2, y2, stroke, dash, marker, cls) {
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const my   = (y1 + y2) / 2;
+  path.setAttribute('d', `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`);
   path.setAttribute('stroke', stroke);
   path.setAttribute('stroke-width', '1.8');
   path.setAttribute('stroke-dasharray', dash);

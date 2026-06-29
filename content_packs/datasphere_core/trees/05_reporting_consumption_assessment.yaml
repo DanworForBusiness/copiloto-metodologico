@@ -24,8 +24,12 @@ nodes:
     dimension: Producto de consumo
     principle: Exposición orientada a negocio
     weight_hint: 1.3
-    question: ¿La capa de consumo expone productos analíticos preparados para negocio y no sólo modelos técnicos reutilizados?
-    help: Evalúa si el consumidor recibe entidades comprensibles, gobernadas y listas para reporting o análisis.
+    question: ¿La capa de consumo expone productos analíticos preparados para el negocio en lugar de modelos técnicos?
+    help:       
+      Evalúa si los consumidores acceden a modelos analíticos preparados para su uso y no directamente a estructuras técnicas o capas intermedias del modelo de datos.
+      La capa de consumo debería encapsular la complejidad técnica del modelo y exponer entidades orientadas al negocio, enriquecidas con contexto semántico, medidas, dimensiones, jerarquías, asociaciones y capacidades analíticas cuando corresponda.
+      En SAP Datasphere esto suele materializarse mediante Analytic Models u otros artefactos específicamente diseñados para consumo analítico. Sin embargo, el principio metodológico es independiente del mecanismo utilizado. el consumidor debería interactuar con un producto analítico y no con la implementación técnica que lo soporta.
+      El objetivo es desacoplar el consumo de la estructura interna del modelo, facilitando la reutilización, el gobierno y la evolución futura de la solución.
     evaluation_guidance:
       Implementado consistentemente: Los productos de consumo están preparados y validados para negocio.
       Implementado parcialmente: La exposición está avanzada, pero quedan definiciones o ajustes de consumo.
@@ -55,8 +59,7 @@ nodes:
     dimension: Artefactos analíticos
     principle: Contrato consumible
     weight_hint: 1.2
-    question: ¿Los Analytic Models o artefactos equivalentes están preparados con medidas, atributos, filtros y jerarquías
-      adecuados?
+    question: ¿Los Modelos Analíticos o artefactos equivalentes están preparados con medidas, atributos, filtros y jerarquías adecuados?
     help: Valida si el producto analítico está listo para herramientas como SAC, Power BI u otros consumidores sin rearmar
       lógica afuera.
     evaluation_guidance:

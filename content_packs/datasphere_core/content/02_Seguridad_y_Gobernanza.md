@@ -163,7 +163,7 @@ El tipo más potente para estructuras organizacionales. El acceso al nodo padre 
 {{/callout}}
 {{/callout_row}}
 
-{{tree_button: Seguridad DAC}}
+{{tree_button: Seguridad de Datos}}
 
 ## Seguridad como extensión del diseño de dominios
 {{section_meta: keywords="seguridad diseño dominios, data product seguridad, gobernanza datos, principio seguridad, modelo seguridad, dominios y seguridad, data governance, roles responsabilidades, controles acceso, activo confiable, seguridad bien diseñada, diseño conceptual seguridad, dominios Danwor"}}
