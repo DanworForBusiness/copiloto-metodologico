@@ -222,7 +222,7 @@
   }
 </style>
 </head>
-<body onload="togglePanel('datasphere', this)">
+<body onload="togglePanel('datasphere', document.querySelector('.card-datasphere'))">
 
 <!-- MAIN -->
 <main class="main">
@@ -468,7 +468,7 @@
     }
     if (isSame) { activePanel = null; activeCard = null; return; }
     panel.classList.add('visible');
-    card.classList.add('active');
+    if (card && card.classList) card.classList.add('active');
     setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
     activePanel = id;
     activeCard  = card;
