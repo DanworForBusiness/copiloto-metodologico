@@ -13,7 +13,7 @@ from core.routing_scorers import (
     _find_matching_section,
     _should_pair_section_with_asset,
 )
-from core.utils import slugify
+from core.utils import norm_text, slugify
 from webapp.services.content_service import (
     ModuleDocument,
     list_appendices,
@@ -63,6 +63,86 @@ def _module_stem_for_number(number: str, pack_name: str) -> str:
     return match.stem if match else ""
 
 
+_COMPARATIVE_TERMS = (
+    "diferencia", "diferencias", "comparar", "comparativa", "comparativo",
+    "compatibilidad", "compatible", "vs", "versus", "entre", "puede consumir",
+    "pueden consumir", "puede exponer", "pueden exponer",
+)
+
+_DIRECT_ASSET_TERMS = (
+    "como conectar", "como config", "cómo conectar", "cómo config", "paso a paso",
+    "how-to", "guia", "guía", "abrir recurso", "pasame", "dame el link",
+    "descargar", "documentacion", "documentación", "link", "recurso",
+)
+
+_CONCEPT_GROUPS = {
+    "power_bi": ("power bi", "powerbi"),
+    "odbc": ("odbc",),
+    "odata": ("odata", "o data"),
+    "modelos_analiticos": (
+        "modelo analitico", "modelos analiticos", "modelo analítico",
+        "modelos analíticos", "analytical model", "analytical dataset",
+    ),
+}
+
+
+def _concept_groups_in(text: str) -> set[str]:
+    normalized = norm_text(text)
+    return {
+        group for group, variants in _CONCEPT_GROUPS.items()
+        if any(variant in normalized for variant in variants)
+    }
+
+
+def _is_conceptual_asset_question(question: str) -> bool:
+    normalized = norm_text(question)
+    if any(term in normalized for term in _DIRECT_ASSET_TERMS):
+        return False
+    groups = _concept_groups_in(question)
+    has_comparison = any(term in normalized for term in _COMPARATIVE_TERMS)
+    return has_comparison and len(groups) >= 2
+
+
+def _asset_covers_question_axes(question: str, asset: dict) -> bool:
+    question_groups = _concept_groups_in(question)
+    if len(question_groups) < 2:
+        return True
+    asset_text = " ".join(
+        str(part or "")
+        for part in (
+            asset.get("description"),
+            " ".join(asset.get("keywords") or []),
+            asset.get("language"),
+        )
+    )
+    return question_groups <= _concept_groups_in(asset_text)
+
+
+def _reporting_section_hint(question: str, pack_name: str) -> dict | None:
+    normalized = norm_text(question)
+    reporting_terms = (
+        "power bi", "powerbi", "sac", "odbc", "odata", "reporting",
+        "modelo analitico", "modelos analiticos", "modelo analítico", "modelos analíticos",
+    )
+    if not any(term in normalized for term in reporting_terms):
+        return None
+    heading = "Conexión de Herramientas Externas" if any(
+        term in normalized for term in ("odbc", "odata", "conexion", "conexión")
+    ) else "Estrategia de Reporting"
+    stem = _module_stem_for_number("05", pack_name)
+    if not stem:
+        return None
+    module_label = next((item.nav_label for item in list_modules(pack_name) if item.stem == stem), stem)
+    return {"module": stem, "module_label": module_label, "heading": heading}
+
+
+def _related_asset_action(asset: dict, pack_name: str) -> AssistantRouteAction | None:
+    action = _asset_action(asset, pack_name)
+    if not action:
+        return None
+    return AssistantRouteAction("Abrir recurso relacionado", action.url, action.external)
+
+
 class AssistantRoutingService:
     """Resolve curated navigation before falling back to the LLM."""
 
@@ -105,6 +185,7 @@ class AssistantRoutingService:
         cross_section = None
         if asset and not local_section:
             cross_section = _find_cross_module_section(question, stem, pack_name)
+            cross_section = cross_section or _reporting_section_hint(question, pack_name)
 
         if asset:
             asset_module = str(asset.get("_module") or stem)
@@ -113,6 +194,35 @@ class AssistantRoutingService:
             if section and not _should_pair_section_with_asset(question, section):
                 section = None
             actions: list[AssistantRouteAction] = []
+            asset_is_related = (
+                _is_conceptual_asset_question(question)
+                and not _asset_covers_question_axes(question, asset)
+            )
+            if asset_is_related:
+                if section:
+                    section_module = str(section.get("module") or stem)
+                    section_heading = str(section.get("heading") or "")
+                    section_label = _display_heading(section_heading)
+                    actions.append(AssistantRouteAction(
+                        "Ir a la sección",
+                        _module_url(section_module, pack_name, section_heading),
+                    ))
+                    explain_module = section_module
+                    explain_heading = section_heading
+                    message = (
+                        f"Tu pregunta parece comparativa; conviene responderla desde "
+                        f"**{section_label}** antes de abrir un how-to puntual."
+                    )
+                else:
+                    explain_module = stem
+                    explain_heading = ""
+                    message = "Tu pregunta parece comparativa; puedo explicarla en contexto metodológico."
+                if related_action := _related_asset_action(asset, pack_name):
+                    actions.append(related_action)
+                    message += f" También encontré un recurso relacionado: **{asset_label}**."
+                return AssistantRoute(
+                    message, tuple(actions), question, explain_module, explain_heading,
+                )
             explain_module = asset_module
             explain_heading = ""
             if section:

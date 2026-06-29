@@ -8,7 +8,7 @@ links:
   topics: ["espacios", "configuracion"]
 
 # Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
-tags: ["M01", "architecture", "spaces", "topology"]
+tags: ["M01", "arquitectura", "espacios", "topologia"]
 
 # Keywords en lenguaje natural para intent detection del asistente.
 # Responde: ¿Cómo preguntaría un consultor sobre este árbol?
@@ -42,66 +42,80 @@ nodes:
     options: ["Warehouse/Lakehouse", "Hub hacia otro sistema"]
     next:
       "Warehouse/Lakehouse": q2
-      "Hub hacia otro sistema": q2
+      "Hub hacia otro sistema": q2_hub
   q2:
     type: single_choice
     question: "¿Cómo está compuesto el landscape?"
     options: ["1-Tier", "2-Tier"]
     next:
-      "1-Tier": q3
-      "2-Tier": leaf_core_only
+      "1-Tier": q3_1tier
+      "2-Tier": q3_2tier
 
-  q3:
+  q2_hub:
+    type: single_choice
+    question: "¿Cómo está compuesto el landscape?"
+    options: ["1-Tier", "2-Tier"]
+    next:
+      "1-Tier": leaf_1tier_hub
+      "2-Tier": leaf_2tier_hub
+
+  q3_1tier:
     type: single_choice
     question: "¿Hay múltiples líneas de negocio (Logística, Comercial, RRHH, etc.) con datos independientes?"
     options: ["Sí", "No"]
     next:
       "Sí": leaf_1tier_multi
-      "No": q4
+      "No": q4_1tier_simple
 
-  q4:
+  q3_2tier:
+    type: single_choice
+    question: "¿Hay múltiples líneas de negocio (Logística, Comercial, RRHH, etc.) con datos independientes?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_2tier_multi
+      "No": q4_2tier_simple
+
+  q4_1tier_simple:
     type: single_choice
     question: "¿Como se consumirán los datos?"
-    options: ["SAC", "PowerBI", "BOBJ", "Excel"]
+    options: ["SAC", "PowerBI", "BOBJ", "Excel", "Externo"]
     next:
-      "SAC": leaf_revisar_espacios_negocio
+      "SAC": leaf_live_revisar_espacios_negocio
       "PowerBI": leaf_capa_pbi
       "BOBJ": leaf_revisar_espacios_negocio
-      "Excel": q4
-      "Externo": q4
+      "Excel": leaf_revision
+      "Externo": leaf_revision
+
+  q4_2tier_simple:
+    type: single_choice
+    question: "¿Como se consumirán los datos?"
+    options: ["SAC", "PowerBI", "BOBJ", "Excel", "Externo"]
+    next:
+      "SAC": leaf_live_revisar_espacios_negocio
+      "PowerBI": leaf_capa_pbi
+      "BOBJ": leaf_revisar_espacios_negocio
+      "Excel": leaf_revision
+      "Externo": leaf_revision
 
 leaves:
-  leaf_core_only:
-    decision: "Espacio único (Core-Only) — suficiente para PoC, prototipo o entorno de exploración sin ciclo de vida formal."
+  leaf_live_revisar_espacios_negocio:
+    decision: "Un único Espacio para gobierno y consumo no debiera ser parte de nuestra metodologia, sobre todo si se consuma live via SAP Analytics Cloud."
     notes:
-      - "No define DEV/QA/PRD — todo en un único espacio de trabajo."
-      - "Reevaluar la topología cuando el proyecto avance a producción."
+      - "Reconsiderar separacion semantica de espacios por lineas de negocio"
     post_actions:
       mode: resolved
       next_steps:
-        - "Crear un espacio único de trabajo con nombre descriptivo del proyecto"
-        - "Configurar quota, source language y Time Data antes de modelar"
-
-  leaf_1tier_simple:
-    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) para una sola línea de negocio o equipo."
-    notes:
-      - "Simple de gestionar: tres espacios en total, un ciclo de transporte directo."
-      - "Adecuado cuando no hay necesidad de aislamiento entre equipos ni datos compartidos complejos."
-    post_actions:
-      mode: resolved
-      next_steps:
-        - "Crear espacios: [PROYECTO]-DEV, [PROYECTO]-QA, [PROYECTO]-PRD"
-        - "Configurar conexiones con nombre genérico en cada espacio"
-        - "Definir estrategia de transporte entre ambientes"
+        - "Revisar nuevamente la estrategia"
+        - "Correr nuevamente el arbol de decision"
 
   leaf_1tier_multi:
-    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) tomando el espacio Productivo como Gobierno de datos y compartiendo en forma nativa (Cross-Sharing) a los Espacios de Negocio"
+    decision: "Topología 1-Tier — un espacio para cada ambiente (DEV/QA/PRD), tomando el espacio Productivo como Gobierno de datos."
     notes:
-      - "Todos los objetos en los espacios de Negocio son compartidos desde el Gobierno de Datos (Espacio Productivo)"
+      - "Todos los objetos hacia los espacios de Negocio son compartidos via Cross-Sharing en forma nativa."
     post_actions:
       mode: llm_value_add
 
-  leaf_2tier_crosssharing:
+  leaf_2tier_multi:
     decision: "Topología 2-Tier — espacios de negocio por línea + espacio Cross-Sharing para objetos maestros y dimensiones compartidas."
     notes:
       - "El espacio Cross-Sharing publica data products (clientes, materiales, jerarquías) que consumen los espacios de negocio."
@@ -109,6 +123,27 @@ leaves:
       - "Es la topología recomendada para proyectos enterprise con gobierno de datos."
     post_actions:
       mode: llm_value_add
+
+  leaf_1tier_hub:
+    decision: "Topología 1-Tier — un espacio por ambiente (DEV/QA/PRD) con export/push/outbound independiente hacia el sistema destino (Hub)."
+    notes:
+      - "Simple de gestionar: tres espacios en total, un ciclo de transporte directo."
+      - "Adecuado cuando no hay necesidad de aislamiento entre sistemas origen / destino ni datos compartidos complejos."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Crear espacios: [PROYECTO]-DEV, [PROYECTO]-QA, [PROYECTO]-PRD"
+        - "Configurar conexiones con nombre genérico en cada espacio"
+        - "Definir estrategia de transporte entre ambientes"
+
+  leaf_2tier_hub:
+    decision: "Topología 2-Tier — Sugerimos validar necesidad real, siempre es posible escalar si 1-tier resulta insuficiente."
+    notes:
+      - "Duplicar costos de infraestructura y plataforma cuando Datasphere cumple solo un rol de puente entre sistemas puede ser desafiado constructivamente con el cliente."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Confirmación posición Danwor y definir una reunión con el cliente."
 
   leaf_revision:
     decision: "Revisión recomendada: sin claridad sobre la necesidad de Cross-Sharing, arrancar con 1-Tier y planificar evolución a 2-Tier."

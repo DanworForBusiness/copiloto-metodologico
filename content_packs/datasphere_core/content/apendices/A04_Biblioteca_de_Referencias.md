@@ -157,9 +157,12 @@ intent_assets:
   - keywords: ["IBP integration", "Integracion IBP", "Integrated Business Planning"]
     description: "How-to Danwor: Integrar IBP y Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=Uc0GEE"    
-  - keywords: ["SAC metadata", "SAC resources", "Recursos y Modelos SAC", "relevamiento tecnico SAC"]
+  - keywords: ["SAC metadata", "SAC resources", "Recursos y Modelos SAC", "relevamiento tecnico SAC", "acelerar analisis SAC"]
     description: "How-to Danwor: Guia para acelerar relevamiento tecnico via API metadata & recursos tecnicos SAC"
-    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=C0wJYt"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r"
+  - keywords: ["BW metadata", "BW resources", "estimacion BW", "relevamiento tecnico BW", "acelerar analisis BW"]
+    description: "How-to Danwor: Guia para acelerar relevamiento tecnico via metadata & recursos tecnicos BW/4"
+    asset: "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQACMCP05dVHTbcYyOHkziLzAcaUsp2fZCUH7mAFx9iEnqA?e=8wxPOx"
   - keywords: ["nota 3498095", "3498095", "abap on-premise datasphere"]
     description: "Nota SAP 3498095: SAP Datasphere notes on source ABAP-based On-premise"
     asset: "https://me.sap.com/notes/3498095"
@@ -256,7 +259,8 @@ Colección de guías internas Danwor orientadas a ejecución paso a paso. Usar e
 - Actualizar Eclipse & BWMT | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=5i0SFX)
 - Configurar Email Notifications en Task Chain | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru)
 - Integrar SAP Business Integrated Planning y Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=la8GrL)
-- Relevamiento tecnico SAC via API metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r)
+- Acelerador de relevamiento tecnico SAC via API metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r)
+- Acelerador de relevamiento tecnico BW via metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQACMCP05dVHTbcYyOHkziLzAcaUsp2fZCUH7mAFx9iEnqA?e=8wxPOx)
 
 ## {dw-black}Notas {dw-gold}SAP
 {{section_meta: keywords="notas sap, sap notes, kba, nota 3498095, nota 3100673, nota 3154420, nota 3117800, nota 3141688, nota 3417440, nota 3579966, nota 3590400, nota 3220622, nota 1732157, nota 2180165, restricciones datasphere, bw bridge notes, hana troubleshooting, expensive statements, release schedule hana cloud"}}

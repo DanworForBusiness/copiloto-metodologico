@@ -1,0 +1,161 @@
+id: framework_assessment
+title: Diagnóstico del Marco Metodológico Danwor
+version: '0.1'
+kind: assessment
+assessment_type: orchestrator
+module: 00 · Marco Metodológico Danwor
+links:
+  modules:
+  - 01_Arquitectura_y_Conectividad
+  - 02_Seguridad_y_Gobernanza
+  - 03_Integracion_y_Estrategia_de_Datos
+  - 04_Modelado_y_Desarrollo
+  - 05_Reporting_y_Consumo
+  topics:
+  - diagnostico
+  - assessment
+  - madurez
+  - adopcion
+  - marco metodologico
+tags:
+- assessment
+- framework
+- orchestrator
+- danwor
+keywords:
+- diagnóstico transversal
+- assessment transversal
+- evaluar marco
+- madurez metodológica
+- adopción marco Danwor
+- self assessment
+start: q_scope
+transversal_weights:
+  01_Arquitectura_y_Conectividad: 0.2
+  02_Seguridad_y_Gobernanza: 0.2
+  03_Integracion_y_Estrategia_de_Datos: 0.2
+  04_Modelado_y_Desarrollo: 0.25
+  05_Reporting_y_Consumo: 0.15
+module_trees:
+  01_Arquitectura_y_Conectividad: m01_architecture_connectivity_assessment
+  02_Seguridad_y_Gobernanza: m02_security_governance_assessment
+  03_Integracion_y_Estrategia_de_Datos: m03_integration_strategy_assessment
+  04_Modelado_y_Desarrollo: m04_modeling_development_assessment
+  05_Reporting_y_Consumo: m05_reporting_consumption_assessment
+nodes:
+  q_scope:
+    type: single_choice
+    question: ¿Qué tipo de diagnóstico querés realizar?
+    help: 'Define si querés evaluar un módulo específico o usar el diagnóstico transversal. El transversal actúa como orquestador:
+      conecta los diagnósticos modulares y ayuda a consolidar una mirada integral del proyecto.'
+    options:
+    - Diagnóstico transversal del Marco Metodológico
+    - 'Diagnóstico específico: Arquitectura y Conectividad'
+    - 'Diagnóstico específico: Seguridad y Gobernanza'
+    - 'Diagnóstico específico: Integración y Estrategia'
+    - 'Diagnóstico específico: Modelado y Desarrollo'
+    - 'Diagnóstico específico: Reporting y Consumo'
+    next:
+      Diagnóstico transversal del Marco Metodológico: leaf_transversal
+      'Diagnóstico específico: Arquitectura y Conectividad': leaf_m01
+      'Diagnóstico específico: Seguridad y Gobernanza': leaf_m02
+      'Diagnóstico específico: Integración y Estrategia': leaf_m03
+      'Diagnóstico específico: Modelado y Desarrollo': leaf_m04
+      'Diagnóstico específico: Reporting y Consumo': leaf_m05
+    evaluation_guidance:
+      Diagnóstico transversal: 'Usalo cuando quieras recorrer el proyecto end-to-end: landscape, gobierno, integración, modelado
+        y consumo.'
+      Arquitectura y Conectividad: Usalo para validar readiness del landscape, espacios, transportes, conectividad y restricciones
+        técnicas.
+      Seguridad y Gobernanza: Usalo para validar ownership, roles, privilegios, DAC, dominios y cross-sharing gobernado.
+      Integración y Estrategia de Datos: Usalo para validar cómo ingresan los datos, contratos de integración, fuentes autorizadas
+        y desacoplamiento.
+      Modelado y Desarrollo: Usalo para validar capas, contratos semánticos, convenciones, semantic usage y técnica de modelado.
+      Reporting y Consumo: Usalo para validar exposición, herramientas consumidoras, performance, seguridad de consumo y productos
+        analíticos.
+leaves:
+  leaf_transversal:
+    decision: Ejecutar diagnóstico transversal consolidando los assessments modulares.
+    notes:
+    - 'El transversal no duplica preguntas: orquesta los diagnósticos de cada módulo y consolida resultados con ponderación.'
+    - El motor actual aún no encadena subárboles automáticamente; esta hoja deja preparado el contrato next_tree.
+    next_tree_sequence:
+    - m01_architecture_connectivity_assessment
+    - m02_security_governance_assessment
+    - m03_integration_strategy_assessment
+    - m04_modeling_development_assessment
+    - m05_reporting_consumption_assessment
+    post_actions:
+      mode: assessment_orchestration
+      next_steps:
+      - Ejecutar los cinco diagnósticos modulares.
+      - Consolidar score por módulo usando transversal_weights.
+      - Identificar brechas transversales y plan de remediación.
+  leaf_m01:
+    decision: Abrir diagnóstico específico de Arquitectura y Conectividad.
+    redirect_tree: m01_architecture_connectivity_assessment
+    module_ref: 01_Arquitectura_y_Conectividad
+    post_actions:
+      mode: redirect_tree
+      next_steps:
+      - Abrir el árbol m01_architecture_connectivity_assessment.
+  leaf_m02:
+    decision: Abrir diagnóstico específico de Seguridad y Gobernanza.
+    redirect_tree: m02_security_governance_assessment
+    module_ref: 02_Seguridad_y_Gobernanza
+    post_actions:
+      mode: redirect_tree
+      next_steps:
+      - Abrir el árbol m02_security_governance_assessment.
+  leaf_m03:
+    decision: Abrir diagnóstico específico de Integración y Estrategia.
+    redirect_tree: m03_integration_strategy_assessment
+    module_ref: 03_Integracion_y_Estrategia_de_Datos
+    post_actions:
+      mode: redirect_tree
+      next_steps:
+      - Abrir el árbol m03_integration_strategy_assessment.
+  leaf_m04:
+    decision: Abrir diagnóstico específico de Modelado y Desarrollo.
+    redirect_tree: m04_modeling_development_assessment
+    module_ref: 04_Modelado_y_Desarrollo
+    post_actions:
+      mode: redirect_tree
+      next_steps:
+      - Abrir el árbol m04_modeling_development_assessment.
+  leaf_m05:
+    decision: Abrir diagnóstico específico de Reporting y Consumo.
+    redirect_tree: m05_reporting_consumption_assessment
+    module_ref: 05_Reporting_y_Consumo
+    post_actions:
+      mode: redirect_tree
+      next_steps:
+      - Abrir el árbol m05_reporting_consumption_assessment.
+capture_uncharted:
+  type: free_capture
+  prompt: Describí brevemente el contexto del assessment
+  fields:
+  - id: model_name
+    label: Nombre del modelo o iniciativa
+    required: false
+  - id: project_name
+    label: Proyecto
+    required: false
+  - id: client_name
+    label: Cliente
+    required: false
+  - id: source_systems
+    label: Sistemas fuente
+    required: false
+  - id: current_consumers
+    label: Consumidores actuales
+    required: false
+  - id: target_capabilities
+    label: Capacidades objetivo
+    required: false
+  - id: known_pain_points
+    label: Dolores o brechas conocidas
+    required: false
+  - id: assessment_notes
+    label: Notas del diagnóstico
+    required: false

@@ -196,8 +196,8 @@ La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a perte
 {{subtitle: no-gap}}
 > En el modelo Danwor, ambos conceptos se utilizan de forma equivalente en el contexto de consumo.
 
-  - El contrato de datos define estructura, semantica y reglas de acceso 	**¿Qué prometemos entregar?**
-  - El Data Product representa su materialización lista para ser consumida	**¿Cómo lo entregamos?**
+  - El contrato de datos define estructura, semantica y reglas de acceso. Responde a **¿Qué prometemos entregar?**
+  - El Data Product representa su materialización lista para ser consumida. Responde a **¿Cómo lo entregamos?**
 
 ### Data Products:
 {{subtitle: no-gap}}

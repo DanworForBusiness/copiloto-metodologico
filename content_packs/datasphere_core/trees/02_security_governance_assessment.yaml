@@ -1,0 +1,184 @@
+id: m02_security_governance_assessment
+title: Diagnóstico · Seguridad y Gobernanza
+kind: assessment
+assessment_type: module
+version: '0.2'
+module: 02 · 02_Seguridad_y_Gobernanza
+start: q1
+scoring:
+  mode: weighted_sum
+  max_per_question: 3
+  interpretation:
+  - min_percent: 80
+    label: Alta adopción del marco
+    tone: success
+  - min_percent: 55
+    label: Adopción parcial con brechas relevantes
+    tone: warning
+  - min_percent: 0
+    label: Adopción incipiente o no gobernada
+    tone: danger
+nodes:
+  q1:
+    type: choice
+    dimension: Ownership
+    principle: Responsabilidad explícita
+    weight_hint: 1.2
+    question: ¿Cada dominio, espacio y artefacto crítico tiene ownership técnico y funcional claramente definido?
+    help: El objetivo es evitar modelos sin responsable, reglas de acceso sin dueño o decisiones de gobierno que nadie pueda
+      sostener.
+    evaluation_guidance:
+      Implementado consistentemente: Ownership técnico y funcional está asignado, documentado y vigente.
+      Implementado parcialmente: Hay responsables definidos, pero faltan dominios, artefactos o evidencia.
+      Existe, pero sin estandarización: Existen responsables informales sin estándar de gobierno.
+      No implementado: No hay ownership claro sobre espacios, dominios o artefactos críticos.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: &id001
+    - Implementado consistentemente
+    - Implementado parcialmente
+    - Existe, pero sin estandarización
+    - No implementado
+    - No evaluado / no sabe
+    scores: &id002
+      Implementado consistentemente: 3
+      Implementado parcialmente: 2
+      Existe, pero sin estandarización: 1
+      No implementado: 0
+      No evaluado / no sabe: null
+    next:
+      Implementado consistentemente: q2
+      Implementado parcialmente: q2
+      Existe, pero sin estandarización: q2
+      No implementado: q2
+      No evaluado / no sabe: q2
+  q2:
+    type: choice
+    dimension: Roles
+    principle: Menor privilegio
+    weight_hint: 1.3
+    question: ¿El modelo de roles aplica segregación de responsabilidades y menor privilegio sin sobreasignación?
+    help: Evalúa si se distinguen roles estándar, custom, técnicos y operativos con permisos mínimos necesarios.
+    evaluation_guidance:
+      Implementado consistentemente: Roles y privilegios están diseñados por responsabilidad, con mínima autorización efectiva.
+      Implementado parcialmente: El modelo aplica menor privilegio, pero quedan excepciones o roles amplios por revisar.
+      Existe, pero sin estandarización: Hay roles definidos, pero sin estándar claro de segregación.
+      No implementado: Se asignan permisos amplios o compartidos sin control suficiente.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q3
+      Implementado parcialmente: q3
+      Existe, pero sin estandarización: q3
+      No implementado: q3
+      No evaluado / no sabe: q3
+  q3:
+    type: choice
+    dimension: Privilegios
+    principle: Trazabilidad y control
+    weight_hint: 1.1
+    question: ¿Los privilegios técnicos y funcionales son trazables, revisables y auditables?
+    help: Incluye evidencia de quién puede crear, consumir, transportar, administrar espacios y acceder a datos sensibles.
+    evaluation_guidance:
+      Implementado consistentemente: Privilegios documentados, trazables y sujetos a revisión periódica.
+      Implementado parcialmente: La trazabilidad existe, pero no cubre todos los roles o revisiones.
+      Existe, pero sin estandarización: Se puede reconstruir parcialmente, pero depende de conocimiento informal.
+      No implementado: No hay trazabilidad confiable de privilegios y accesos.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q4
+      Implementado parcialmente: q4
+      Existe, pero sin estandarización: q4
+      No implementado: q4
+      No evaluado / no sabe: q4
+  q4:
+    type: choice
+    dimension: DAC
+    principle: Seguridad del dato en la capa correcta
+    weight_hint: 1.3
+    question: ¿Las reglas de Data Access Control están modeladas como reglas gobernadas y no como filtros aislados por reporte?
+    help: Valida si la seguridad del dato se diseña como parte del modelo y no se reimplementa de forma inconsistente en cada
+      consumidor.
+    evaluation_guidance:
+      Implementado consistentemente: DAC está diseñado, gobernado y aplicado en la capa correcta del modelo.
+      Implementado parcialmente: DAC existe, pero faltan criterios para excepciones, pruebas o documentación.
+      Existe, pero sin estandarización: Hay filtros de seguridad, pero no un modelo gobernado de DAC.
+      No implementado: La seguridad de datos queda resuelta manualmente en reportes o consumidores.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q5
+      Implementado parcialmente: q5
+      Existe, pero sin estandarización: q5
+      No implementado: q5
+      No evaluado / no sabe: q5
+  q5:
+    type: choice
+    dimension: Cross-sharing
+    principle: Contratos entre dominios
+    weight_hint: 1.1
+    question: ¿El cross-sharing entre espacios responde a contratos gobernados, ownership claro y reglas de acceso explícitas?
+    help: El intercambio entre espacios debe tener propósito, dueño, consumidores esperados y condiciones de seguridad.
+    evaluation_guidance:
+      Implementado consistentemente: Cross-sharing documentado con contrato, owner, consumidores y reglas de acceso.
+      Implementado parcialmente: Hay cross-sharing gobernado parcialmente, con algunos contratos incompletos.
+      Existe, pero sin estandarización: Se comparte por necesidad operativa, pero sin contrato formal.
+      No implementado: Los espacios comparten datos sin ownership ni reglas claras.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q6
+      Implementado parcialmente: q6
+      Existe, pero sin estandarización: q6
+      No implementado: q6
+      No evaluado / no sabe: q6
+  q6:
+    type: choice
+    dimension: Gobernanza de dominios
+    principle: Decisiones sostenibles
+    weight_hint: 1.0
+    question: ¿La seguridad y la gobernanza están alineadas al diseño de dominios y no sólo a usuarios individuales?
+    help: Valida si las decisiones de acceso se sostienen por dominio, rol y responsabilidad, evitando dependencias persona-a-persona.
+    evaluation_guidance:
+      Implementado consistentemente: Gobernanza alineada a dominios, roles y responsabilidades estables.
+      Implementado parcialmente: Hay alineación general, pero persisten accesos o excepciones individuales.
+      Existe, pero sin estandarización: Se reconoce el criterio, pero todavía se opera caso a caso.
+      No implementado: La seguridad depende principalmente de usuarios individuales o pedidos aislados.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: leaf_module_result
+      Implementado parcialmente: leaf_module_result
+      Existe, pero sin estandarización: leaf_module_result
+      No implementado: leaf_module_result
+      No evaluado / no sabe: leaf_module_result
+leaves:
+  leaf_module_result:
+    type: assessment_result
+    title: Resultado del diagnóstico
+    message: 'Este assessment es consultivo: diferencia un modelo funcional de un modelo gobernado, escalable y mantenible.
+      El resultado numérico consolida las respuestas y debe leerse junto con las evidencias registradas.'
+    strengths:
+    - Ownership y roles definidos como parte del modelo operativo.
+    - DAC y cross-sharing tratados como reglas gobernadas.
+    gaps:
+    - Reforzar trazabilidad de privilegios y evidencia de revisiones.
+    risks:
+    - Sobreasignación de permisos, inconsistencias de acceso y baja auditabilidad.
+    next_steps:
+    - Validar matriz de roles.
+    - Documentar DAC por dominio.
+    - Revisar contratos de cross-sharing.
+    evidence_to_collect:
+    - Matriz de roles y privilegios.
+    - Reglas DAC.
+    - Owners por dominio/espacio.
+    - Contratos de cross-sharing.
+    links:
+    - label: Abrir módulo 02 · Seguridad y Gobernanza
+      module: 02 · Seguridad y Gobernanza

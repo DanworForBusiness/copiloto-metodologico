@@ -11,10 +11,19 @@ def test_real_yaml_tree_advances_and_goes_back():
     store.back(run.id)
     assert run.current == "q1"
 
-def test_wizard_blocks_legacy_self_loop():
-    store = WizardStore(); tree = store.trees_for_module("01_Arquitectura_y_Conectividad")[0]; run = store.start(tree)
-    for answer in ("Warehouse/Lakehouse", "1-Tier", "No", "Excel"): store.answer(run.id, answer)
-    assert run.current == "q4"
+def test_wizard_blocks_self_loop():
+    # Guard de seguridad: si un YAML define una transición que vuelve al mismo
+    # nodo, se bloquea. Se ejercita con un árbol sintético (los árboles reales ya
+    # no tienen self-loops; antes este caso vivía en el árbol de módulo 01).
+    store = WizardStore()
+    tree = {
+        "id": "t_loop", "title": "Loop", "start": "q1",
+        "nodes": {"q1": {"question": "¿?", "options": ["A"], "next": {"A": "q1"}}},
+        "leaves": {},
+    }
+    run = store.start(tree)
+    store.answer(run.id, "A")
+    assert run.current == "q1"
     assert "ciclo" in run.error
 
 
@@ -33,6 +42,7 @@ def test_completed_tree_accepts_feedback_and_restart_clears_it():
     run = store.start(tree)
     store.answer(run.id, "Warehouse/Lakehouse")
     store.answer(run.id, "2-Tier")
+    store.answer(run.id, "Sí")
     assert run.leaf is not None
 
     store.rate(run.id, "up")
@@ -47,6 +57,7 @@ def _complete_short_tree(store: WizardStore):
     run = store.start(tree)
     store.answer(run.id, "Warehouse/Lakehouse")
     store.answer(run.id, "2-Tier")
+    store.answer(run.id, "Sí")
     return run
 
 

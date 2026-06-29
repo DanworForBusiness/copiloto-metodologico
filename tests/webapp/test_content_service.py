@@ -7,14 +7,14 @@ def test_loads_real_module_from_core_registry():
     assert len(document.sections) >= 3
     assert "section_meta" not in document.sections[0].html
     assert '<iframe class="content-embed"' in document.sections[0].html
-    assert "/pack-assets/datasphere_mvp/" in document.sections[0].html
+    assert "/pack-assets/datasphere_core/" in document.sections[0].html
     assert "Abrir recurso" not in document.sections[0].html
     assert '<span class="section-eyebrow">[' in document.sections[0].html
     assert "{{callout" not in "".join(section.html for section in document.sections)
 
 
 def test_content_packs_are_resolved_independently():
-    mvp = list_modules("datasphere_mvp")
+    mvp = list_modules("datasphere_core")
     bdc = list_modules("bdc_next")
 
     assert len(mvp) == 6
@@ -24,8 +24,8 @@ def test_content_packs_are_resolved_independently():
 
 
 def test_internal_editorial_tokens_never_reach_html():
-    for module in list_modules("datasphere_mvp"):
-        document = load_module(module.stem, "datasphere_mvp")
+    for module in list_modules("datasphere_core"):
+        document = load_module(module.stem, "datasphere_core")
         rendered = "".join(section.html for section in document.sections)
         assert "{{" not in rendered, module.stem
 

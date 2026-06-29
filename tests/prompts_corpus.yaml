@@ -4,7 +4,7 @@
 # de qué rama esperaríamos ejercitar — NO se asierta. El test fija la decisión
 # REAL que produce el código actual, sea cual sea.
 #
-# Stems del pack activo (datasphere_mvp).
+# Stems del pack activo (datasphere_core).
 
 - module: "01_Arquitectura_y_Conectividad"
   cases:

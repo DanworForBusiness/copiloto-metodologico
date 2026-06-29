@@ -160,6 +160,8 @@ out_of_scope_redirect:
 
 ## {dw-black}Coexistencia de {dw-gold}Paradigmas
 {{subtitle: no-gap}}
+{{support: SAP Help HDLF="https://help.sap.com/docs/hana-cloud-data-lake/welcome-guide/data-lake-files?locale=en-US&version=LATEST"}}
+
 > HANA DB y HDLF (HANA Data Lake Files) comparten la plataforma, pero tienen reglas distintas de ciclo de vida, modelado y gobernanza. El marco Danwor está diseñado para operar en ambos y evolucionar entre ellos
 
 | HANA Database >> 📌 lo que construimos hoy | HDLF - Object Store >> BDC-Ready 📌 |
@@ -172,14 +174,14 @@ out_of_scope_redirect:
 
 ## {dw-black}Espacios & {dw-gold}Transportes
 {{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/f697e93e4d06441b99b9e8ce51682c9c.html"}}
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6a396f6cf7ad41faa3a8cdd24f4e728a.html?locale=en-US&version=LATEST"}}
 > En Arquitectura Datasphere / BDC. Seleccioná el modelo de tenancy para explorar la topología de espacios y el flujo de transporte DEV → QA → PRD.
 {{html_embed: ../assets/danwor-espacios-transportes.html height=640}}
 
 ## {dw-black}Configuración de {dw-gold}Espacios
 {{section_meta: keywords="configuración espacios datasphere, space configuration, quota espacio, space quota, source language, idioma espacio, idioma datasphere, multi-language datasphere, conexiones datasphere, nombre conexiones, naming conexiones, time data, dimensión tiempo datasphere, usuarios esquema, schema users, power bi datasphere, usuarios base de datos, configuración inicial datasphere, setup datasphere, buenas practicas espacios, workload class, tenant quota, disk quota, memory quota, distribución quota, ratio quota, sizing tenant, capacidad tenant, quota por ambiente, cuota por tenant, cuota memoria, cuota disk, distribución de recursos"}}
 
-Una configuración correcta del espacio desde el inicio evita problemas de rendimiento, transporte y consumo externo.
+> Una configuración correcta del espacio desde el inicio evita problemas de rendimiento, transporte y consumo externo.
 
 | Parámetro | Recomendación Danwor | Razón |
 |---|---|---|

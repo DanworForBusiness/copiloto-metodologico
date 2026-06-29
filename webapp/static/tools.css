@@ -20,8 +20,8 @@
 .tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
 .tool-tab-panel { padding-top: 24px; }
 .tool-label, .tree-picker label { display: block; margin: 16px 0 7px; color: var(--soft); font: 500 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
-.tool-tab-panel select, .tool-tab-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
-.tool-tab-panel select { height: 42px; padding: 0 32px 0 10px; }
+.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
+.tool-tab-panel select, .diagnostic-group select { height: 42px; padding: 0 32px 0 10px; }
 .tool-tab-panel textarea { padding: 12px; resize: vertical; }
 .tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
 .tool-primary { width: 100%; margin-top: 14px; }
@@ -29,7 +29,7 @@
 .tree-picker label { margin-top: 0; }
 .tree-picker-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .tree-picker-row .btn-primary { min-height: 42px; }
-.tree-tab-panel .wizard { padding-top: 22px; }
+.tree-tab-panel .wizard, .diagnostic-tab-panel .wizard { padding-top: 22px; }
 .tool-empty { margin-top: 22px; padding: 18px; border: 1px dashed var(--line); }
 .tool-empty span { color: var(--gold); font: 500 .68rem var(--mono); text-transform: uppercase; }
 .assistant-intro { margin-top: 14px; padding: 16px; border-left: 2px solid var(--gold); background: rgba(231,176,8,.07); }
@@ -120,6 +120,32 @@
 .analysis-prompt { margin-top: 12px; color: var(--soft); font-size: .67rem; }
 .analysis-prompt pre { max-height: 260px; padding: 10px; overflow: auto; white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); }
 @keyframes analysis-spin { to { transform: rotate(360deg); } }
+
+
+.question-help-panel {
+  margin: 11px 0 9px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--card) 94%, var(--gold));
+}
+.question-help-panel summary {
+  padding: 9px 11px;
+  color: var(--ink);
+  font: 700 .7rem var(--sans);
+  cursor: pointer;
+  list-style-position: outside;
+}
+.question-help-panel > div {
+  padding: 0 11px 11px;
+}
+.question-help-panel p {
+  margin: 0;
+  color: var(--soft);
+  font-size: .7rem;
+  line-height: 1.5;
+}
+
 .wizard-back-only { display: grid; margin-top: 18px; }
 .wizard-back-only .btn-secondary { width: 100%; }
 .tree-feedback { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); background: var(--card); }
@@ -341,8 +367,8 @@
 .analytics-note p { margin: 6px 0 0; color: var(--soft); font-size: .76rem; line-height: 1.5; }
 
 /* Segundo grupo colapsable del panel: Herramientas de gestión. */
-.panel-toggle--gestion { margin-top: 20px; }
-.gestion-group { padding-top: 16px; }
+.panel-toggle--diagnostic, .panel-toggle--gestion { margin-top: 20px; }
+.diagnostic-group, .gestion-group { padding-top: 16px; }
 
 /* Herramientas administrativas (Analítica interna). */
 .admin-intro { color: var(--soft); font-size: .76rem; line-height: 1.5; margin: 6px 0 16px; }
@@ -388,3 +414,59 @@
 .methodology ol, .section-analysis-output ol { list-style: decimal outside; padding-left: 1.45em; margin: 12px 0; }
 .methodology li, .section-analysis-output li { display: list-item; }
 .methodology li::marker, .section-analysis-output li::marker { color: var(--gold); }
+
+
+/* Assessment scoring: visible only in diagnostic tree leaves. */
+.assessment-score-card {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(231,176,8,.34);
+  border-left: 3px solid var(--gold);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 88%, var(--gold));
+}
+.assessment-score-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.assessment-score-main span,
+.assessment-score-grid span {
+  color: var(--soft);
+  font: 600 .62rem var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  overflow-wrap: anywhere;
+}
+.assessment-score-main strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.assessment-score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
+  gap: 8px;
+}
+.assessment-score-grid div {
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  min-width: 0;
+}
+.assessment-score-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: .84rem;
+}
+.assessment-score-card p {
+  margin: 0;
+  color: var(--soft);
+  font-size: .73rem;
+  line-height: 1.45;
+}

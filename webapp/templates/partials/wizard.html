@@ -1,22 +1,54 @@
 <div id="wizard-shell" class="wizard" aria-live="polite" tabindex="-1">
-  <div class="wizard-heading"><div><span class="eyebrow">Árbol YAML</span><h2>{{ run.title }}</h2></div><span class="step-count">{{ run.history|length + 1 }}</span></div>
+  <div class="wizard-heading"><div><span class="eyebrow">{% if run.is_assessment %}Diagn&oacute;stico YAML{% else %}&Aacute;rbol YAML{% endif %}</span><h2>{{ run.display_title }}</h2></div><span class="step-count">{{ run.history|length + 1 }}</span></div>
   <div class="progress" role="progressbar" aria-valuenow="{{ run.progress }}"><span style="width:{{ run.progress }}%"></span></div>
   {% if run.error %}<div class="wizard-error">{{ run.error }}</div>{% endif %}
 
   {% if leaf %}
+  {% set orchestration = run.orchestration_summary %}
+  {% set assessment = orchestration if orchestration else (run.assessment_score if run.is_assessment else none) %}
   <div class="decision-result">
-    <span class="result-label">Decisión recomendada</span><h3>{{ leaf.decision }}</h3>
+    <span class="result-label">{% if orchestration %}Resultado del diagn&oacute;stico completo{% elif run.is_assessment %}Resultado del diagn&oacute;stico{% else %}Decisi&oacute;n recomendada{% endif %}</span><h3>{% if orchestration %}Diagn&oacute;stico transversal consolidado{% else %}{{ leaf.decision }}{% endif %}</h3>
+    {% if assessment %}
+    <div class="assessment-score-card">
+      <div class="assessment-score-main">
+        <span>Score</span>
+        <strong>{{ assessment.score }} / {{ assessment.max_score }}</strong>
+      </div>
+      <div class="assessment-score-grid">
+        <div><span>Cobertura</span><strong>{% if assessment.percent is not none %}{{ assessment.percent }}%{% else %}-{% endif %}</strong></div>
+        <div><span>Escala 0-10</span><strong>{% if assessment.normalized is not none %}{{ assessment.normalized }}{% else %}-{% endif %}</strong></div>
+        <div><span>Respuestas evaluadas</span><strong>{{ assessment.scored_answers }} / {{ assessment.total_answers }}</strong></div>
+      </div>
+      {% if orchestration %}<p>{{ orchestration.module_count }} diagn&oacute;sticos modulares consolidados.</p>{% elif assessment.maturity_level %}<p>{{ assessment.maturity_level }}</p>{% endif %}
+    </div>
+    {% if orchestration and orchestration.modules %}
+    <div class="next-actions"><strong>Detalle por m&oacute;dulo</strong><ol>{% for module in orchestration.modules %}<li>{{ module.title }}: {{ module.score }} / {{ module.max_score }}{% if module.percent is not none %} ({{ module.percent }}%){% endif %}</li>{% endfor %}</ol></div>
+    {% endif %}
+    {% endif %}
     {% if leaf.notes %}<ul>{% for note in leaf.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
-    {% if leaf.post_actions and leaf.post_actions.next_steps %}<div class="next-actions"><strong>Próximos pasos</strong><ol>{% for step in leaf.post_actions.next_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
+    {% if leaf.post_actions and leaf.post_actions.next_steps %}<div class="next-actions"><strong>Pr&oacute;ximos pasos</strong><ol>{% for step in leaf.post_actions.next_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
   </div>
   {% include "partials/tree_feedback.html" %}
-  <div class="wizard-actions"><button class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML">Volver</button><button class="btn-primary" hx-post="/wizards/{{ run.id }}/restart" hx-target="#wizard-shell" hx-swap="outerHTML">Nueva evaluación</button></div>
+  <div class="wizard-actions"><button class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML">Volver</button><button class="btn-primary" hx-post="/wizards/{{ run.id }}/restart" hx-target="#wizard-shell" hx-swap="outerHTML">Nueva evaluaci&oacute;n</button></div>
   {% else %}
   <form hx-post="/wizards/{{ run.id }}/answer" hx-trigger="change" hx-target="#wizard-shell" hx-swap="outerHTML" hx-disabled-elt="input">
-    <fieldset><legend>{{ node.question }}</legend><p class="question-help">Elegí una opción para avanzar automáticamente.</p>
+    <fieldset><legend>{{ node.question }}</legend>
+      {% if node.help %}
+      <details class="question-help-panel">
+        <summary>&iquest;Qu&eacute; cubre esta pregunta?</summary>
+        <div><p>{{ node.help }}</p></div>
+      </details>
+      {% endif %}
+      <p class="question-help">Eleg&iacute; una opci&oacute;n para avanzar autom&aacute;ticamente.</p>
       <div class="option-list">{% for option in node.options %}<label class="option-card"><input type="radio" name="answer" value="{{ option }}" required><span>{{ option }}</span></label>{% endfor %}</div>
     </fieldset>
-    <div class="wizard-back-only"><button type="button" class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML" {% if not run.history %}disabled{% endif %}>Volver</button></div>
+    <div class="wizard-back-only">
+      {% if run.is_assessment and not run.history and run.tree.id != "framework_assessment" %}
+      <button type="button" class="btn-secondary" hx-post="/modules/{{ run.module_stem }}/diagnostics/orchestrator" hx-include="closest form" hx-target="#wizard-shell" hx-swap="outerHTML">Diagn&oacute;stico completo</button>
+      {% else %}
+      <button type="button" class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML" {% if not run.history %}disabled{% endif %}>Volver</button>
+      {% endif %}
+    </div>
   </form>
   {% endif %}
 </div>

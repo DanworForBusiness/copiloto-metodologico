@@ -123,11 +123,12 @@ out_of_scope_redirect:
 ## Estrategia de Reporting
 {{section_meta: keywords="estrategia reporting, herramienta reporting, SAC, SAP Analytics Cloud, Power BI, BusinessObjects, BO, qué herramienta usar, SAC vs Power BI, Power BI datasphere, SAC datasphere, BO datasphere, herramienta BI, herramienta analítica, consumo datasphere, cómo consumir datasphere, herramientas externas datasphere, reporte datasphere, visualización datasphere, árbol herramienta reporting"}}
 
-Para clientes que desean explotar los datos por fuera del ecosistema SAP nativo, existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
+La explotación de datos en Datasphere es posible independientemente de la herramienta. Presentamos las opciones dentro y fuera del ecosistema SAP, donde existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
 
 | Herramienta | Tipo | Integración con Datasphere | Cuándo usarla |
 |---|---|---|---|
 | **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |
+| **Add-In for Excel (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Idem anterior, con objetivos slice & dice por sobre reporting estructurado |
 | **Power BI** | Microsoft | Vía schema users (DirectQuery o Import Mode) | Cliente con inversión fuerte en ecosistema Microsoft o Power BI ya implantado |
 | **BusinessObjects (BO)** | SAP legacy | Vía Universe o conexión JDBC/ODBC | Clientes con BO existente que no migran aún a SAC |
 | **Herramientas genéricas** | SQL/ODBC | Vía schema users | Acceso técnico ad-hoc, integraciones custom, notebooks de análisis |
@@ -143,11 +144,16 @@ Requiere schema users a nivel espacio. Elegir DirectQuery para tiempo real (con 
 {{/callout}}
 {{/callout_row}}
 
+{{callout: title="Modelos analíticos vs vistas planas" tone="punch" icon="⚠️"}}
+No todas las herramientas consumen lo mismo. Por ejemplo, **Power BI** via ODBC/JDBC queda **limitado a vistas planas: no consume modelos analíticos**, mientras que via OData puede ver los modelos y consumirlos con limitaciones (—jerarquías, medidas calculadas/restringidas— ). Por el contrario, tanto **SAC** como **BusinessObjects** sí tienen **compatibilidad multidimensional nativa** con modelos analíticos. Definí esto antes de comprometer una herramienta: si el caso de uso necesita lógica analítica multidimensional, Power BI no es la opción.
+{{/callout}}
+
 {{tree_button: Herramienta de Reporting}}
 
 ## Conexión de Herramientas Externas
 {{section_meta: keywords="conexión Power BI datasphere, schema user, usuario esquema, DirectQuery datasphere, import mode datasphere, live data connection, conexión SAC datasphere, cómo conectar Power BI, cómo conectar herramienta externa, JDBC ODBC datasphere, conexión BO datasphere, configurar Power BI datasphere, conexión externa datasphere, tipo conexión reporting"}}
-{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/4db9e1e21c814cda933c5e1b5a6e6e30.html" Pin=true}}
+
+{{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/4db9e1e21c814cda933c5e1b5a6e6e30.html" DirectQuery="https://community.sap.com/t5/technology-blogs-by-sap/sap-datasphere-powerbi-direct-query-via-hana-cloud-calculation-views/ba-p/13576406" ImportMode="https://developers.sap.com/tutorials/data-warehouse-cloud-bi7-connect-powerbi.html" LiveConn="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/a2c5486c03174620be9de3c8c769ce54.html?locale=en-US&version=LATEST"}}
 
 Para conectar herramientas externas como Power BI a Datasphere se requiere un **schema user** (usuario de base de datos a nivel espacio). Este usuario está sujeto a DAC — los filtros de acceso configurados en Datasphere se aplican automáticamente al consumo externo.
 
@@ -159,6 +165,23 @@ Para conectar herramientas externas como Power BI a Datasphere se requiere un **
 
 {{callout: title="Schema user — patrón recomendado" tone="note" icon="🔹"}}
 Crear un schema user por espacio y ambiente (DEV/QA/PRD). No compartir el mismo usuario entre herramientas distintas. El schema user debe tener asignados los DAC correspondientes al perfil de consumo externo.
+{{/callout}}
+
+## Protocolos de Consumo
+{{section_meta: keywords="consumo, tipos de consumo, odbc vs jdbc, odata, protocolos, protocolos de consumo"}}
+
+{{support: ODBC="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/4db6f5a329af44509ae422ad707877b2.html?locale=en-US&version=LATEST" OData="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/add771abf6f54c9d8de4c7e470a0e6f0.html?locale=en-US&version=LATEST" API="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/7a453609c8694b029493e7d87e0de60a.html?locale=es-ES&version=LATEST"}}
+
+Los datos expuestos como modelos analiticos o vistas pueden ser consumidos desde diferentes protocolos.
+
+| Protocolo | Descripción | Ventajas | Consideraciones |
+|---|---|---|---|
+| **ODBC** | Open Database Connectivity, es una conexión directa tipo "Base de Datos" tradicional, utilizando controladores | Mayor rendimiento para volúmenes grandes de datos. Soporta consultas complejas de forma eficiente. Acceso nativo a vistas, tablas y modelos analíticos | Requiere drivers y configuraciones. Dependencia con versiones y actualizaciones |
+| **JDBC** | Java Database Connectivity — equivalente a ODBC para aplicaciones/servidores Java (p. ej. BusinessObjects) | Rendimiento nativo en stacks Java/JVM | Acotado a herramientas Java (legacy); en implementaciones nuevas se prefiere ODBC u OData |
+| **OData** | Open Data Protocol, es una conexión tipo "servicio web", que expone los datos en formato OData (RESTful) | No requiere drivers ni configuraciones complejas. Ideal para acceso rápido, self-service o cargas ligeras. Fácil Integración con Arquitecturas basadas en APIs | Menor rendimiento para volúmenes grandes de datos. Requiere autenticación por token (OAuth), con renovación periódica (por defecto cada 30 días). |
+
+{{callout: title="Pre-requisito" tone="note" icon="💡"}}
+Los **artefactos de tipo vista** solo estarán disponibles para consumo vía ODBC / JDBC / OData cuando se haya activado previamente el flag **"Exponer para consumo"** (*Exposed for Consumption*). Sin ese flag la vista existe pero no es accesible desde herramientas externas — es un mecanismo de gobierno para evitar exposición accidental de datos técnicos.
 {{/callout}}
 
 ## Performance en Reporting
@@ -174,6 +197,10 @@ La performance del reporting depende de decisiones tomadas desde el modelo, no s
 | **DirectQuery vs Import** | Evaluar Import Mode para dashboards con alto volumen y baja necesidad de tiempo real |
 | **Workload class** | Configurar clases de workload para priorizar consultas de reporting sobre procesos de carga |
 | **Capacity Units (CU)** | Dimensionar CUs según el volumen de consultas concurrentes esperadas — no subestimar en go-live |
+
+{{callout: title="Federación vs persistencia" tone="note" icon="⚖️"}}
+La palanca de fondo es **cuándo materializar**. **Federación (live):** Datasphere resuelve la consulta en tiempo real sin persistir — conviene con datos que deben estar siempre frescos, volumen bajo-medio y baja concurrencia. **Persistencia (snapshot):** pre-calcula la vista en la capa de consumo — conviene con volumen alto, transformaciones costosas o performance crítica en la herramienta. Regla práctica: federá por defecto y persistí cuando el costo de recalcular en vivo (latencia + carga sobre Datasphere) supere el de mantener y refrescar el snapshot.
+{{/callout}}
 
 {{callout: title="Regla de oro de performance" tone="punch" icon="💡"}}
 Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.

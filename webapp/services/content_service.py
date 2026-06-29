@@ -16,7 +16,7 @@ from core.content_registry import (
     iter_content_module_paths,
     resolve_content_path,
 )
-from core.utils import slugify
+from core.utils import norm_text as _norm, slugify
 
 FRONT_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.S)
 H2_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
@@ -37,6 +37,7 @@ CALLOUT_ATTR_RE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
 TREE_BUTTON_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I | re.M)
 INTERNAL_TOKEN_LINE_RE = re.compile(r"^\s*\{\{.*?\}\}\s*$", re.M)
+PIPE_LINK_RE = re.compile(r"^([ \t]*(?:[-*]\s+)?)?(.+?)\s*\|\s*\[Link\]\((https?://[^)]+)\)\s*$", re.I | re.M)
 
 
 @dataclass(frozen=True)
@@ -81,13 +82,13 @@ def _summary(path: Path) -> ModuleSummary:
 
 
 @lru_cache(maxsize=16)
-def list_modules(pack_name: str = "datasphere_mvp") -> tuple[ModuleSummary, ...]:
+def list_modules(pack_name: str = "datasphere_core") -> tuple[ModuleSummary, ...]:
     """Use the existing core registry as the content-pack source of truth."""
     return tuple(_summary(path) for path in iter_content_module_paths(pack_name))
 
 
 @lru_cache(maxsize=16)
-def list_appendices(pack_name: str = "datasphere_mvp") -> tuple[ModuleSummary, ...]:
+def list_appendices(pack_name: str = "datasphere_core") -> tuple[ModuleSummary, ...]:
     """Apéndices técnicos del pack (content/apendices/*.md), cada uno con su markdown."""
     return tuple(_summary(path) for path in iter_content_appendix_paths(pack_name))
 
@@ -149,6 +150,72 @@ def _extract_heading_supports(source: str) -> tuple[str, str]:
         remaining = remaining[match.end():]
     raw_params = " ".join(support_groups)
     return remaining, _support_links_html(raw_params, heading=True)
+
+
+
+def _sap_note_table_links_html(source: str) -> str:
+    """Linkea numeros de nota en tablas cuya primera columna es `Nota`.
+
+    El markdown conserva solo el numero; el patron oficial de SAP Notes es
+    estable y evita duplicar URLs en el contenido curado.
+    """
+    lines = (source or "").splitlines()
+    output: list[str] = []
+    in_note_table = False
+
+    for line in lines:
+        stripped = line.strip()
+        is_table_line = stripped.startswith("|") and stripped.endswith("|")
+        if not is_table_line:
+            in_note_table = False
+            output.append(line)
+            continue
+
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        first_cell = cells[0] if cells else ""
+        first_plain = _norm(re.sub(r"<[^>]+>|[*_`\[\]()]", " ", first_cell))
+        if first_plain in {"nota", "nota sap", "sap note"}:
+            in_note_table = True
+            output.append(line)
+            continue
+
+        if in_note_table and re.fullmatch(r":?-{3,}:?", first_cell):
+            output.append(line)
+            continue
+
+        if in_note_table and cells:
+            note_match = re.fullmatch(r"(?:\*\*)?(\d{6,10})(?:\*\*)?", first_cell)
+            if note_match and "me.sap.com/notes" not in first_cell:
+                note = note_match.group(1)
+                linked = (
+                    f'<a class="sap-note-link" href="https://me.sap.com/notes/{note}" '
+                    f'target="_blank" rel="noopener noreferrer">{note}</a>'
+                )
+                cells[0] = linked
+                line = "| " + " | ".join(cells) + " |"
+        output.append(line)
+
+    return "\n".join(output)
+
+
+def _pipe_links_html(source: str) -> str:
+    """Convierte `Texto | [Link](url)` en un link de texto completo.
+
+    Se usa para la biblioteca de referencias: el texto queda visualmente como
+    contenido normal, abre en una nueva pestana y solo revela affordance en hover.
+    """
+    def repl(match: re.Match[str]) -> str:
+        prefix = match.group(1) or ""
+        label = (match.group(2) or "").strip()
+        url = (match.group(3) or "").strip()
+        safe_label = html.escape(label)
+        safe_url = html.escape(url, quote=True)
+        return (
+            f'{prefix}<a class="reference-text-link" href="{safe_url}" '
+            f'target="_blank" rel="noopener noreferrer">{safe_label}</a>'
+        )
+
+    return PIPE_LINK_RE.sub(repl, source or "")
 
 
 def _callout_inline_html(text: str) -> str:
@@ -275,13 +342,15 @@ def _prepare(source: str, pack_name: str, stem: str = "") -> str:
     rendered_callouts = CALLOUT_ROW_RE.sub(callout_row, rendered_callouts)
     rendered_tokens = SUPPORT_RE.sub(support, EMBED_RE.sub(embed, rendered_callouts))
     rendered_tokens = TREE_BUTTON_RE.sub(tree_button, rendered_tokens)
+    rendered_tokens = _pipe_links_html(rendered_tokens)
+    rendered_tokens = _sap_note_table_links_html(rendered_tokens)
     # Cualquier token de línea restante es metadata/control editorial. Nunca
     # debe llegar como texto a la vista web (callout_row, etc.).
     return INTERNAL_TOKEN_LINE_RE.sub("", rendered_tokens)
 
 
 @lru_cache(maxsize=64)
-def load_module(stem: str, pack_name: str = "datasphere_mvp") -> ModuleDocument:
+def load_module(stem: str, pack_name: str = "datasphere_core") -> ModuleDocument:
     """Parsea y renderiza un módulo. Cacheado: el resultado es inmutable
     (ModuleDocument frozen + tuplas) y solo depende de (stem, pack) y archivos
     estáticos, así que evita re-leer y re-renderizar markdown en cada request."""

@@ -1,7 +1,7 @@
 name: bdc_next
 label: SAP Business Data Cloud Next
 short_label: BDC
-extends: datasphere_mvp
+extends: datasphere_core
 content_mode: replace
 content_hide:
 description: Refactor del marco metodologico hacia SAP Business Data Cloud.

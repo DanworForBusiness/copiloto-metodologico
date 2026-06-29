@@ -51,7 +51,7 @@ def test_section_analysis_endpoint_returns_htmx_fragment(monkeypatch):
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/sections/analyze",
         data={
-            "pack": "datasphere_mvp",
+            "pack": "datasphere_core",
             "section_slug": document.sections[0].slug,
             "action": "Checklist ejecutable",
         },
@@ -71,7 +71,7 @@ def test_module_level_analysis_uses_module_target(monkeypatch):
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/sections/analyze",
         data={
-            "pack": "datasphere_mvp",
+            "pack": "datasphere_core",
             "section_slug": "__module__",
             "action": "Guía operativa del módulo",
         },
@@ -105,10 +105,10 @@ def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
     )
     document = load_module("01_Arquitectura_y_Conectividad")
     conversation = web_main.assistant_store.start(
-        document.summary.stem, "datasphere_mvp"
+        document.summary.stem, "datasphere_core"
     )
     payload = {
-        "pack": "datasphere_mvp",
+        "pack": "datasphere_core",
         "conversation_id": conversation.id,
         "section_slug": document.sections[0].slug,
         "action": "Checklist ejecutable",
@@ -135,7 +135,7 @@ def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
 
 def test_assistant_feedback_rejects_an_older_reply():
     conversation = web_main.assistant_store.start(
-        "01_Arquitectura_y_Conectividad", "datasphere_mvp"
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
     first = web_main.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
@@ -158,7 +158,7 @@ def test_assistant_feedback_rejects_an_older_reply():
 
 def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch):
     conversation = web_main.assistant_store.start(
-        "01_Arquitectura_y_Conectividad", "datasphere_mvp"
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
 
     def unexpected_llm(*args, **kwargs):
@@ -168,7 +168,7 @@ def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch)
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
         data={
-            "pack": "datasphere_mvp",
+            "pack": "datasphere_core",
             "conversation_id": conversation.id,
             "question": "tenemos algun template CDS?",
         },
@@ -184,10 +184,10 @@ def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch)
 
 def test_local_pack_resource_is_served_and_traversal_is_rejected():
     resource = client.get(
-        "/pack-resources/datasphere_mvp/templates/cds_extractor_template.abap"
+        "/pack-resources/datasphere_core/templates/cds_extractor_template.abap"
     )
     traversal = client.get(
-        "/pack-resources/datasphere_mvp/templates/../config.py"
+        "/pack-resources/datasphere_core/templates/../config.py"
     )
 
     assert resource.status_code == 200
@@ -196,7 +196,7 @@ def test_local_pack_resource_is_served_and_traversal_is_rejected():
 
 def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     conversation = web_main.assistant_store.start(
-        "01_Arquitectura_y_Conectividad", "datasphere_mvp"
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
     web_main.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
@@ -212,7 +212,7 @@ def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
         data={
-            "pack": "datasphere_mvp",
+            "pack": "datasphere_core",
             "conversation_id": conversation.id,
             "question": "tenemos algun template CDS?",
             "routing_bypass": "true",
@@ -254,7 +254,7 @@ def test_module_page_has_theme_navigation_and_resize_controls():
     assert "theme-toggle" in response.text
     assert "module-pager" in response.text
     assert response.text.count("data-resize=") == 2
-    assert "/brand/dancing/datasphere_mvp" in response.text
+    assert "/brand/dancing/datasphere_core" in response.text
     assert "tools.css?v=" in response.text
     assert "app.js?v=" in response.text
 
@@ -279,14 +279,14 @@ def test_inherited_pack_asset_is_served():
 
 
 def test_nested_pack_html_asset_is_served_inline():
-    response = client.get("/pack-assets/datasphere_mvp/apendices/danwor-arquitectura-referencia-aws.html")
+    response = client.get("/pack-assets/datasphere_core/apendices/danwor-arquitectura-referencia-aws.html")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 
 
 def test_html_embed_props_are_injected_for_legacy_visuals():
     response = client.get(
-        "/pack-assets/datasphere_mvp/danwor-modelo-integracion-dataproduct.html?default_mode=modelo"
+        "/pack-assets/datasphere_core/danwor-modelo-integracion-dataproduct.html?default_mode=modelo"
     )
     assert response.status_code == 200
     assert "window.DANWOR_EMBED_PROPS" in response.text
@@ -294,7 +294,7 @@ def test_html_embed_props_are_injected_for_legacy_visuals():
 
 
 def test_dancing_logo_uses_dark_shell_palette():
-    response = client.get("/brand/dancing/datasphere_mvp")
+    response = client.get("/brand/dancing/datasphere_core")
     assert response.status_code == 200
     assert "#e4e4ec" in response.text
     assert "#8b8b96" in response.text
@@ -317,7 +317,9 @@ def test_module_03_renders_tabs_and_tree_selector_without_scope():
     document = load_module("03_Integracion_y_Estrategia_de_Datos")
     assert response.status_code == 200
     assert 'role="tab"' in response.text
-    assert response.text.count('<option value="m03_') == 1
+    # Dos opciones con id "m03_": el árbol de decisión (m03_data_integration_strategy)
+    # y el de diagnóstico (selector separado de "Herramientas de diagnóstico").
+    assert response.text.count('<option value="m03_') == 2
     assert 'value="extraction_options"' in response.text
     assert 'value="resolucion_contrato"' in response.text
     assert "3 árboles asociados" in response.text
@@ -330,11 +332,11 @@ def test_module_03_renders_tabs_and_tree_selector_without_scope():
 def test_selected_tree_starts_via_htmx_fragment():
     response = client.post(
         "/modules/03_Integracion_y_Estrategia_de_Datos/trees/start",
-        data={"tree_id": "extraction_options", "pack": "datasphere_mvp"},
+        data={"tree_id": "extraction_options", "pack": "datasphere_core"},
     )
     assert response.status_code == 200
     assert "Opciones de Extracción" in response.text
-    assert "Árbol YAML" in response.text
+    assert "rbol YAML" in response.text  # eyebrow "Árbol YAML" (Á como entidad &Aacute;)
     assert 'id="wizard-shell"' in response.text
     assert 'hx-trigger="change"' in response.text
     assert "Continuar" not in response.text

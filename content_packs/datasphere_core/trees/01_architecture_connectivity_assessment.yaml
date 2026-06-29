@@ -1,0 +1,240 @@
+id: m01_architecture_connectivity_assessment
+title: Diagnóstico · Arquitectura y Conectividad
+kind: assessment
+assessment_type: module
+version: '0.2'
+module: 01 · 01_Arquitectura_y_Conectividad
+start: q1
+scoring:
+  mode: weighted_sum
+  max_per_question: 3
+  interpretation:
+  - min_percent: 80
+    label: Alta adopción del marco
+    tone: success
+  - min_percent: 55
+    label: Adopción parcial con brechas relevantes
+    tone: warning
+  - min_percent: 0
+    label: Adopción incipiente o no gobernada
+    tone: danger
+nodes:
+  q1:
+    type: choice
+    dimension: Landscape
+    principle: Separación de responsabilidades
+    weight_hint: 1.2
+    question: ¿El landscape separa responsabilidades entre sistemas origen, espacios, capas y ambientes DEV/QAS/PRD?
+    help: Evalúa si la arquitectura distingue origen, conectividad, espacios de trabajo, ambientes y dominios sin mezclar
+      responsabilidades técnicas y de negocio.
+    evaluation_guidance:
+      Implementado consistentemente: Hay una separación explícita de ambientes, espacios y responsabilidades, documentada
+        y aplicable al ciclo de vida.
+      Implementado parcialmente: La separación existe, pero hay ambigüedades entre ambientes, espacios o responsables.
+      Existe, pero sin estandarización: Hay separación práctica, pero depende de criterio individual y no de una convención
+        clara.
+      No implementado: El landscape mezcla responsabilidades o no diferencia ambientes y espacios de forma gobernada.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: &id001
+    - Implementado consistentemente
+    - Implementado parcialmente
+    - Existe, pero sin estandarización
+    - No implementado
+    - No evaluado / no sabe
+    scores: &id002
+      Implementado consistentemente: 3
+      Implementado parcialmente: 2
+      Existe, pero sin estandarización: 1
+      No implementado: 0
+      No evaluado / no sabe: null
+    next:
+      Implementado consistentemente: q2
+      Implementado parcialmente: q2
+      Existe, pero sin estandarización: q2
+      No implementado: q2
+      No evaluado / no sabe: q2
+  q2:
+    type: choice
+    dimension: Topología
+    principle: Diseño deliberado de espacios
+    weight_hint: 1.2
+    question: ¿La topología de espacios fue elegida deliberadamente entre 1-Tier, 2-Tier o Multi-Tier según dominios, ciclo
+      de vida y transporte?
+    help: No alcanza con crear espacios; debe existir una decisión arquitectónica sobre tenancy, dominios, promoción DEV→QAS→PRD
+      y operación.
+    evaluation_guidance:
+      Implementado consistentemente: La topología está definida y justificada según dominios, transportes, gobierno y operación.
+      Implementado parcialmente: La topología está definida, pero falta documentar criterios o excepciones.
+      Existe, pero sin estandarización: Existe una topología de hecho, pero no está estandarizada ni conectada al ciclo de
+        vida.
+      No implementado: Los espacios fueron creados sin criterio explícito de topología o transporte.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q3
+      Implementado parcialmente: q3
+      Existe, pero sin estandarización: q3
+      No implementado: q3
+      No evaluado / no sabe: q3
+  q3:
+    type: choice
+    dimension: Arquitectura de plataforma
+    principle: Coexistencia HANA DB / HDLF
+    weight_hint: 1.0
+    question: ¿La arquitectura diferencia cuándo usar HANA DB y cuándo HDLF sin tratarlos como equivalentes?
+    help: Valida si el diseño distingue objetos transportables gestionados por Datasphere de datos físicos en storage, con
+      reglas distintas de ciclo de vida y gobierno.
+    evaluation_guidance:
+      Implementado consistentemente: La coexistencia HANA DB / HDLF está entendida, documentada y conectada con transporte,
+        persistencia y gobierno.
+      Implementado parcialmente: La diferencia se entiende, pero no está completamente documentada o aplicada en todos los
+        casos.
+      Existe, pero sin estandarización: Se reconoce la diferencia, pero la decisión queda librada al criterio del consultor.
+      No implementado: HANA DB y HDLF se tratan como intercambiables sin criterio arquitectónico.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q4
+      Implementado parcialmente: q4
+      Existe, pero sin estandarización: q4
+      No implementado: q4
+      No evaluado / no sabe: q4
+  q4:
+    type: choice
+    dimension: Configuración de espacios
+    principle: Readiness antes de modelar
+    weight_hint: 1.3
+    question: ¿Los espacios tienen definidos parámetros base como quota, source language, usuarios schema, time dimension
+      y sus conexiones?
+    help: 'La configuración inicial evita retrabajo posterior: quota por capacidad real, idioma del espacio, usuarios técnicos,
+      dimensión de tiempo y conexiones estables.'
+    evaluation_guidance:
+      Implementado consistentemente: Los parámetros base están definidos, validados y documentados antes del modelado.
+      Implementado parcialmente: La mayoría está definida, pero quedan pendientes o validaciones parciales.
+      Existe, pero sin estandarización: Existen configuraciones, pero no siguen checklist ni criterio común.
+      No implementado: Se modela sin configuración base validada del espacio.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q5
+      Implementado parcialmente: q5
+      Existe, pero sin estandarización: q5
+      No implementado: q5
+      No evaluado / no sabe: q5
+  q5:
+    type: choice
+    dimension: Estrategia arquitectónica
+    principle: Federación, persistencia o híbrido
+    weight_hint: 1.1
+    question: ¿La arquitectura decide de forma explícita qué datos federar, persistir o combinar según volumen, latencia,
+      consumo y gobierno?
+    help: Esta pregunta evalúa la decisión arquitectónica de plataforma, no el mecanismo técnico de extracción. La técnica
+      específica se profundiza en integración.
+    evaluation_guidance:
+      Implementado consistentemente: Existe una matriz o criterio claro para federación, persistencia e híbrido según escenario.
+      Implementado parcialmente: El criterio existe, pero falta formalizarlo o aplicarlo consistentemente.
+      Existe, pero sin estandarización: La decisión se toma caso a caso sin estándar común.
+      No implementado: Se elige federar o persistir por comodidad técnica sin análisis arquitectónico.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q6
+      Implementado parcialmente: q6
+      Existe, pero sin estandarización: q6
+      No implementado: q6
+      No evaluado / no sabe: q6
+  q6:
+    type: choice
+    dimension: Compatibilidad técnica
+    principle: Validación del origen y destino
+    weight_hint: 1.2
+    question: ¿Se validan tipo de origen, release, modalidad RISE/on-prem y capacidades técnicas antes de confirmar la arquitectura?
+    help: Incluye SAP_BASIS/SAP_ABAP, release S/4HANA o ECC, modalidad de despliegue, capacidades disponibles y restricciones
+      que puedan impactar integración futura.
+    evaluation_guidance:
+      Implementado consistentemente: Las capacidades del origen/destino están verificadas antes de comprometer la arquitectura.
+      Implementado parcialmente: Se validan los puntos principales, pero quedan restricciones por confirmar.
+      Existe, pero sin estandarización: La validación existe informalmente, sin evidencia ni checklist.
+      No implementado: La arquitectura se decide sin validar versión, modalidad ni capacidades técnicas.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q7
+      Implementado parcialmente: q7
+      Existe, pero sin estandarización: q7
+      No implementado: q7
+      No evaluado / no sabe: q7
+  q7:
+    type: choice
+    dimension: Conectividad
+    principle: Modernización sin acoplamiento innecesario
+    weight_hint: 1.0
+    question: ¿La conectividad distingue mecanismos modernos y legados según compatibilidad, operación y mantenimiento esperado?
+    help: Valida si se evita usar agentes o patrones legacy por defecto cuando el landscape permite opciones más simples y
+      gobernadas.
+    evaluation_guidance:
+      Implementado consistentemente: La conectividad está justificada según compatibilidad, operación, seguridad y mantenimiento.
+      Implementado parcialmente: La decisión está tomada, pero falta documentar por qué se elige ese patrón.
+      Existe, pero sin estandarización: Hay una preferencia técnica, pero no un criterio transversal.
+      No implementado: Se usa el mecanismo conocido por defecto sin evaluar alternativas.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q8
+      Implementado parcialmente: q8
+      Existe, pero sin estandarización: q8
+      No implementado: q8
+      No evaluado / no sabe: q8
+  q8:
+    type: choice
+    dimension: Operación
+    principle: Promoción limpia a producción
+    weight_hint: 0.9
+    question: ¿Existe housekeeping de objetos técnicos, pruebas, versiones y configuraciones antes de promover a PRD?
+    help: Evalúa si se limpian artefactos temporales, objetos provisorios, pruebas y configuraciones residuales antes de puesta
+      productiva.
+    evaluation_guidance:
+      Implementado consistentemente: Hay una práctica clara de housekeeping y validación previa a PRD.
+      Implementado parcialmente: Se hace housekeeping, pero no siempre queda evidencia.
+      Existe, pero sin estandarización: Se limpia cuando alguien lo recuerda, sin estándar común.
+      No implementado: No existe control de residuos técnicos antes de promover.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: leaf_module_result
+      Implementado parcialmente: leaf_module_result
+      Existe, pero sin estandarización: leaf_module_result
+      No implementado: leaf_module_result
+      No evaluado / no sabe: leaf_module_result
+leaves:
+  leaf_module_result:
+    type: assessment_result
+    title: Resultado del diagnóstico
+    message: 'Este assessment es consultivo: diferencia un modelo funcional de un modelo gobernado, escalable y mantenible.
+      El resultado numérico consolida las respuestas y debe leerse junto con las evidencias registradas.'
+    strengths:
+    - Landscape y espacios definidos con criterio de ciclo de vida.
+    - Configuración base validada antes del modelado.
+    gaps:
+    - Reforzar compatibilidad técnica y evidencia de decisiones arquitectónicas.
+    risks:
+    - Retrabajo en integración, transporte o performance por decisiones tomadas sin readiness suficiente.
+    next_steps:
+    - Validar arquitectura de referencia aplicable.
+    - Revisar configuración de espacios, quota y transporte.
+    - Documentar restricciones técnicas por origen.
+    evidence_to_collect:
+    - Diagrama de landscape.
+    - Checklist de configuración de espacios.
+    - Evidencia de release/capacidades del origen.
+    - Criterio federación vs persistencia.
+    links:
+    - label: Abrir módulo 01 · Arquitectura y Conectividad
+      module: 01 · Arquitectura y Conectividad

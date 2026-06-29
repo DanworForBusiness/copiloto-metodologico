@@ -45,7 +45,7 @@ from pipeline.common import write_report, MODEL
 BASE_DIR         = Path(__file__).parent
 FEEDBACK_DIR     = BASE_DIR / "feedback_log"
 CASE_DIR         = BASE_DIR / "case_library"
-CONTENT_DIR      = BASE_DIR / "content_packs" / "datasphere_mvp" / "content"
+CONTENT_DIR      = BASE_DIR / "content_packs" / "datasphere_core" / "content"
 REPORTS_DIR      = BASE_DIR / "reports" / "content_proposals"
 
 PRIORITY_HIGH    = "alta"

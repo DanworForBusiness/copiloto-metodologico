@@ -20,7 +20,7 @@ LOGO_URL     = _env("DANWOR_LOGO_URL", "https://certificaciones.greatplacetowork
 # Paths
 BASE_DIR          = Path(__file__).parent
 CONTENT_PACKS_DIR = BASE_DIR / "content_packs"
-CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_mvp")
+CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_core")
 # La resolución de content/trees/assets/templates vive en core.content_registry
 # (basada en content_packs/, con cadena de herencia). Las viejas vars
 # CONTENT_DIR/TREES_DIR/ASSETS_DIR/TEMPLATES_DIR/LOGO_* se retiraron: no las
@@ -41,7 +41,7 @@ DIAGNOSTIC_MODE = _env("DANWOR_DIAGNOSTIC_MODE", "false").lower() in {"1", "true
 
 # Usuario(s) con permiso operativo para ver el modo diagnóstico aun en PRD.
 # Acepta alias sin dominio ("joconnor") o mails completos separados por coma.
-APP_OWNER    = _env("APP_OWNER", "")
+APP_OWNER    = _env("APP_OWNER", "joconnor")
 
 # Presentation
 # Cantidad mínima de dígitos para la numeración global de secciones.

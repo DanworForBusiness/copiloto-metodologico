@@ -1,0 +1,228 @@
+id: m05_reporting_consumption_assessment
+title: Diagnóstico · Reporting y Consumo
+kind: assessment
+assessment_type: module
+version: '0.2'
+module: 05 · 05_Reporting_y_Consumo
+start: q1
+scoring:
+  mode: weighted_sum
+  max_per_question: 3
+  interpretation:
+  - min_percent: 80
+    label: Alta adopción del marco
+    tone: success
+  - min_percent: 55
+    label: Adopción parcial con brechas relevantes
+    tone: warning
+  - min_percent: 0
+    label: Adopción incipiente o no gobernada
+    tone: danger
+nodes:
+  q1:
+    type: choice
+    dimension: Producto de consumo
+    principle: Exposición orientada a negocio
+    weight_hint: 1.3
+    question: ¿La capa de consumo expone productos analíticos preparados para negocio y no sólo modelos técnicos reutilizados?
+    help: Evalúa si el consumidor recibe entidades comprensibles, gobernadas y listas para reporting o análisis.
+    evaluation_guidance:
+      Implementado consistentemente: Los productos de consumo están preparados y validados para negocio.
+      Implementado parcialmente: La exposición está avanzada, pero quedan definiciones o ajustes de consumo.
+      Existe, pero sin estandarización: Se exponen modelos funcionales, pero no siempre preparados para negocio.
+      No implementado: Los consumidores acceden a modelos técnicos sin capa de consumo clara.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: &id001
+    - Implementado consistentemente
+    - Implementado parcialmente
+    - Existe, pero sin estandarización
+    - No implementado
+    - No evaluado / no sabe
+    scores: &id002
+      Implementado consistentemente: 3
+      Implementado parcialmente: 2
+      Existe, pero sin estandarización: 1
+      No implementado: 0
+      No evaluado / no sabe: null
+    next:
+      Implementado consistentemente: q2
+      Implementado parcialmente: q2
+      Existe, pero sin estandarización: q2
+      No implementado: q2
+      No evaluado / no sabe: q2
+  q2:
+    type: choice
+    dimension: Artefactos analíticos
+    principle: Contrato consumible
+    weight_hint: 1.2
+    question: ¿Los Analytic Models o artefactos equivalentes están preparados con medidas, atributos, filtros y jerarquías
+      adecuados?
+    help: Valida si el producto analítico está listo para herramientas como SAC, Power BI u otros consumidores sin rearmar
+      lógica afuera.
+    evaluation_guidance:
+      Implementado consistentemente: Los artefactos analíticos están completos y probados para consumo.
+      Implementado parcialmente: Están definidos, pero faltan ajustes de medidas, filtros o jerarquías.
+      Existe, pero sin estandarización: Existen artefactos consumibles, pero con preparación desigual.
+      No implementado: No hay artefactos analíticos preparados para consumo final.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q3
+      Implementado parcialmente: q3
+      Existe, pero sin estandarización: q3
+      No implementado: q3
+      No evaluado / no sabe: q3
+  q3:
+    type: choice
+    dimension: Semántica de consumo
+    principle: Lenguaje de negocio
+    weight_hint: 1.1
+    question: ¿Variables, filtros, KPIs y medidas usan nombres, definiciones y comportamiento entendibles para el consumidor?
+    help: Evalúa si el usuario final puede interpretar lo que consume sin depender de nombres técnicos o documentación externa
+      informal.
+    evaluation_guidance:
+      Implementado consistentemente: La semántica de consumo es clara, consistente y validada con negocio.
+      Implementado parcialmente: La mayoría es clara, pero faltan definiciones o nombres por ajustar.
+      Existe, pero sin estandarización: Se entiende con acompañamiento técnico, pero no está plenamente gobernada.
+      No implementado: El consumo expone nombres técnicos o conceptos ambiguos.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q4
+      Implementado parcialmente: q4
+      Existe, pero sin estandarización: q4
+      No implementado: q4
+      No evaluado / no sabe: q4
+  q4:
+    type: choice
+    dimension: Seguridad de consumo
+    principle: Respetar gobierno sin duplicar reglas
+    weight_hint: 1.1
+    question: ¿El consumo respeta el modelo de seguridad definido sin recrear reglas distintas por herramienta?
+    help: 'Esta pregunta fusiona seguridad y consumo: el reporte debe respetar DAC/roles, no reinventarlos de forma inconsistente.'
+    evaluation_guidance:
+      Implementado consistentemente: El consumo hereda o respeta seguridad gobernada sin duplicar reglas.
+      Implementado parcialmente: La seguridad se respeta, pero hay excepciones o ajustes por herramienta.
+      Existe, pero sin estandarización: Se controla el acceso, pero con implementaciones variables.
+      No implementado: Cada herramienta redefine seguridad de forma independiente.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q5
+      Implementado parcialmente: q5
+      Existe, pero sin estandarización: q5
+      No implementado: q5
+      No evaluado / no sabe: q5
+  q5:
+    type: choice
+    dimension: Mecanismo de exposición
+    principle: Consumidor correcto, privilegio correcto
+    weight_hint: 1.0
+    question: ¿Cada consumidor accede mediante el mecanismo adecuado y con privilegios mínimos necesarios?
+    help: 'Movido desde seguridad: acá se evalúa el canal de exposición hacia SAC, Power BI, APIs, OData, SQL u otros consumidores.'
+    evaluation_guidance:
+      Implementado consistentemente: Cada consumidor tiene mecanismo y privilegios adecuados al caso de uso.
+      Implementado parcialmente: La mayoría está bien resuelta, con consumidores o permisos pendientes.
+      Existe, pero sin estandarización: Se resuelve caso a caso sin estándar de exposición.
+      No implementado: Los consumidores acceden por mecanismos o privilegios inadecuados.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q6
+      Implementado parcialmente: q6
+      Existe, pero sin estandarización: q6
+      No implementado: q6
+      No evaluado / no sabe: q6
+  q6:
+    type: choice
+    dimension: Reutilización de consumo
+    principle: No duplicar por herramienta
+    weight_hint: 1.0
+    question: ¿Los modelos de consumo reutilizan contratos comunes sin duplicar lógica para cada herramienta o reporte?
+    help: Evalúa si SAC, Power BI u otros consumidores pueden apoyarse en contratos comunes, evitando divergencia de métricas.
+    evaluation_guidance:
+      Implementado consistentemente: Los consumidores reutilizan contratos comunes y evitan duplicación de lógica.
+      Implementado parcialmente: Hay reutilización parcial, con duplicaciones justificadas o pendientes.
+      Existe, pero sin estandarización: Se reutiliza de forma oportunista, sin patrón común.
+      No implementado: Cada herramienta replica lógica o métricas propias.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q7
+      Implementado parcialmente: q7
+      Existe, pero sin estandarización: q7
+      No implementado: q7
+      No evaluado / no sabe: q7
+  q7:
+    type: choice
+    dimension: Performance de consumo
+    principle: Diseño para experiencia de usuario
+    weight_hint: 1.0
+    question: ¿El diseño de consumo considera performance, volumen, filtros, agregaciones y experiencia de usuario final?
+    help: No alcanza con que el modelo sea correcto; debe responder con tiempos y comportamiento adecuados al uso real.
+    evaluation_guidance:
+      Implementado consistentemente: Performance y experiencia están consideradas y probadas en escenarios reales.
+      Implementado parcialmente: Hay validaciones principales, pero faltan pruebas de carga o casos límite.
+      Existe, pero sin estandarización: Se ajusta performance de forma reactiva ante problemas.
+      No implementado: No se considera performance hasta que el usuario reporta fallas.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q8
+      Implementado parcialmente: q8
+      Existe, pero sin estandarización: q8
+      No implementado: q8
+      No evaluado / no sabe: q8
+  q8:
+    type: choice
+    dimension: Evolución de consumo
+    principle: Preparación para capacidades avanzadas
+    weight_hint: 0.9
+    question: ¿La capa de consumo facilita evolución hacia analítica avanzada, agentes, IA, Data Products o BDC sin rehacer
+      el modelo?
+    help: Evalúa si el consumo queda preparado para nuevos canales y capacidades sin comprometer gobernanza ni semántica.
+    evaluation_guidance:
+      Implementado consistentemente: La arquitectura de consumo está preparada para evolución avanzada.
+      Implementado parcialmente: Hay una base adecuada, pero faltan definiciones future-ready.
+      Existe, pero sin estandarización: La evolución es posible, aunque requeriría retrabajo importante.
+      No implementado: El consumo está cerrado al caso actual y no escala a nuevas capacidades.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: leaf_module_result
+      Implementado parcialmente: leaf_module_result
+      Existe, pero sin estandarización: leaf_module_result
+      No implementado: leaf_module_result
+      No evaluado / no sabe: leaf_module_result
+leaves:
+  leaf_module_result:
+    type: assessment_result
+    title: Resultado del diagnóstico
+    message: 'Este assessment es consultivo: diferencia un modelo funcional de un modelo gobernado, escalable y mantenible.
+      El resultado numérico consolida las respuestas y debe leerse junto con las evidencias registradas.'
+    strengths:
+    - Productos analíticos preparados para negocio.
+    - Consumo alineado a seguridad, semántica y performance.
+    gaps:
+    - Reforzar contratos comunes, pruebas de performance y mecanismos de exposición.
+    risks:
+    - Duplicación de métricas, baja adopción del usuario y divergencia por herramienta.
+    next_steps:
+    - Validar productos de consumo con negocio.
+    - Revisar mecanismos SAC/Power BI/OData/SQL.
+    - Probar performance y seguridad end-to-end.
+    evidence_to_collect:
+    - Inventario de consumidores.
+    - Definiciones KPI/filtros/medidas.
+    - Pruebas de performance.
+    - Matriz de exposición por herramienta.
+    links:
+    - label: Abrir módulo 05 · Reporting y Consumo
+      module: 05 · Reporting y Consumo

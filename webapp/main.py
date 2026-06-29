@@ -47,9 +47,19 @@ from webapp.services.section_analysis import (
 from webapp.services.wizard_service import WizardStore
 from webapp.services import admin_tools
 
-DEFAULT_PACK = "datasphere_mvp"
+DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
+
+
+def _display_diagnostic_title(title: str) -> str:
+    value = str(title or "")
+    for prefix in ("Diagn\u00f3stico \u00b7 ", "Diagn\u00f3stico del ", "Diagn\u00f3stico de "):
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    return value
+
+templates.env.filters["diagnostic_title"] = _display_diagnostic_title
 templates.env.globals["static_version"] = str(max(
     path.stat().st_mtime_ns for path in (WEB_DIR / "static").iterdir() if path.is_file()
 ))
@@ -319,8 +329,8 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         if current_index is not None and current_index + 1 < len(nav_items)
         else None
     )
-    trees = store.trees_for_module(stem, selected)
-    run = store.start(trees[0]) if len(trees) == 1 else None
+    trees = store.trees_for_module(stem, selected, include_assessment=True)
+    run = store.start(trees[0], selected) if len(trees) == 1 else None
     conversation = assistant_store.start(stem, selected)
     packs = [
         {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": _home_url(name)}
@@ -599,16 +609,18 @@ def start_tree(
     tree_id: str = Form(""),
     tree_title: str = Form(""),
     pack: str = Form(DEFAULT_PACK),
+    panel: str = Form("tree"),
 ):
     selected = _pack(pack)
-    trees = store.trees_for_module(stem, selected)
+    trees = store.trees_for_module(stem, selected, include_assessment=True)
     tree = _resolve_tree(trees, tree_id, tree_title)
     if tree is None:
         raise HTTPException(404, "Árbol no encontrado")
-    run = store.start(tree)
+    run = store.start(tree, selected)
+    partial_name = "partials/diagnostic_tab.html" if panel == "diagnostic" else "partials/tree_tab.html"
     return templates.TemplateResponse(
         request=request,
-        name="partials/tree_tab.html",
+        name=partial_name,
         context={
             "trees": trees,
             "run": run,
@@ -621,18 +633,83 @@ def start_tree(
     )
 
 
+
+@app.post("/modules/{stem}/diagnostics/orchestrator", response_class=HTMLResponse)
+def start_diagnostic_orchestrator(
+    request: Request,
+    stem: str,
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = _pack(pack)
+    trees = store.trees_for_module(stem, selected, include_routing_only=True, include_assessment=True)
+    tree = next((item for item in trees if str(item.get("id")) == "framework_assessment"), None)
+    if tree is None:
+        raise HTTPException(404, "Diagn\u00f3stico transversal no encontrado")
+    run = store.start(tree, selected)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/wizard.html",
+        context={"run": run, "node": run.node, "leaf": run.leaf, "pack": selected},
+    )
+
+def _follow_wizard_redirect(run):
+    leaf = run.leaf or {}
+    post_actions = leaf.get("post_actions") or {}
+    target_tree_id = str(leaf.get("redirect_tree") or "").strip()
+    if post_actions.get("mode") == "assessment_orchestration":
+        sequence = [str(item).strip() for item in (leaf.get("next_tree_sequence") or []) if str(item).strip()]
+        target_tree_id = sequence[0] if sequence else ""
+        target_tree = store.tree_by_id(target_tree_id, run.pack_name) if target_tree_id else None
+        if target_tree is None:
+            return run
+        return store.start(
+            target_tree,
+            run.pack_name,
+            orchestration_sequence=sequence,
+            orchestration_index=0,
+            orchestration_scores=[],
+        )
+    if target_tree_id:
+        target_tree = store.tree_by_id(target_tree_id, run.pack_name)
+        if target_tree is None:
+            return run
+        return store.start(target_tree, run.pack_name)
+    if run.is_orchestrated and run.leaf is not None and run.orchestration_index < len(run.orchestration_sequence) - 1:
+        scores = list(run.orchestration_scores)
+        current_score = run.assessment_score
+        if current_score:
+            item = dict(current_score)
+            item["tree_id"] = str(run.tree.get("id") or "")
+            item["title"] = run.display_title
+            scores.append(item)
+        next_index = run.orchestration_index + 1
+        next_tree_id = run.orchestration_sequence[next_index]
+        next_tree = store.tree_by_id(next_tree_id, run.pack_name)
+        if next_tree is None:
+            return run
+        return store.start(
+            next_tree,
+            run.pack_name,
+            orchestration_sequence=run.orchestration_sequence,
+            orchestration_index=next_index,
+            orchestration_scores=scores,
+        )
+    return run
+
+
 def _fragment(request, run):
     return templates.TemplateResponse(
         request=request,
         name="partials/wizard.html",
-        context={"run": run, "node": run.node, "leaf": run.leaf},
+        context={"run": run, "node": run.node, "leaf": run.leaf, "pack": run.pack_name},
     )
 
 
 @app.post("/wizards/{run_id}/answer", response_class=HTMLResponse)
 def answer(request: Request, run_id: str, answer: str = Form("")):
     try:
-        return _fragment(request, store.answer(run_id, answer))
+        run = store.answer(run_id, answer)
+        return _fragment(request, _follow_wizard_redirect(run))
     except KeyError as exc:
         raise HTTPException(410, str(exc)) from exc
 

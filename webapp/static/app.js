@@ -2,6 +2,7 @@ function copilotLayout(isAppendix = false) {
   return {
     navOpen: false,
     panelOpen: true,
+    diagnosticOpen: false,
     gestionOpen: false,
     toolTab: "section",
     activeSection: "",
@@ -31,6 +32,29 @@ function copilotLayout(isAppendix = false) {
       };
       const contentEl = shell.querySelector(".module-content");
       contentEl?.addEventListener("scroll", syncNavToActive, { passive: true });
+      // Lectura continua: al llegar al final del módulo y seguir scrolleando con
+      // intención, pasar al siguiente (además del click en el cue .module-continue).
+      // Requiere overscroll deliberado (umbral + reset por inactividad) para no
+      // disparar con la inercia de llegar al fondo.
+      const continueEl = shell.querySelector(".module-continue");
+      if (contentEl && continueEl) {
+        const nextUrl = continueEl.getAttribute("href");
+        let overscroll = 0, navigating = false, idle = null;
+        contentEl.addEventListener("wheel", event => {
+          if (navigating) return;
+          const atBottom = contentEl.scrollTop + contentEl.clientHeight >= contentEl.scrollHeight - 2;
+          if (event.deltaY > 0 && atBottom) {
+            overscroll += event.deltaY;
+            continueEl.classList.add("is-armed");
+            clearTimeout(idle);
+            idle = setTimeout(() => { overscroll = 0; continueEl.classList.remove("is-armed"); }, 700);
+            if (overscroll > 320) { navigating = true; window.location.href = nextUrl; }
+          } else {
+            overscroll = 0;
+            continueEl.classList.remove("is-armed");
+          }
+        }, { passive: true });
+      }
       // El hero (#__module__) también es target del scroll-spy: arriba de todo el
       // selector marca "Módulo (general)"; al entrar a una sección, marca la sección.
       const sections = [...document.querySelectorAll(".module-hero, .content-section")];

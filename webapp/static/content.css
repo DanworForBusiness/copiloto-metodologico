@@ -38,3 +38,27 @@
 @media (prefers-reduced-motion: reduce) {
   .content-reveal { opacity: 1; transform: none; transition: none; will-change: auto; }
 }
+
+.methodology a.reference-text-link {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color .16s ease, text-decoration-color .16s ease;
+}
+.methodology a.reference-text-link:hover,
+.methodology a.reference-text-link:focus-visible {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.methodology a.sap-note-link {
+  color: inherit;
+  font-weight: 750;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.methodology a.sap-note-link:hover,
+.methodology a.sap-note-link:focus-visible {
+  color: var(--gold);
+  text-decoration: underline;
+}

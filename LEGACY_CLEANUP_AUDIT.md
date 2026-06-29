@@ -28,15 +28,15 @@ fallback; después se borran las copias.
 
 ### Datasphere MVP
 
-- 6/6 módulos resueltos desde `content_packs/datasphere_mvp/content`.
-- 5/5 apéndices resueltos desde `content_packs/datasphere_mvp/content/apendices`.
-- 13/13 árboles resueltos desde `content_packs/datasphere_mvp/trees`.
+- 6/6 módulos resueltos desde `content_packs/datasphere_core/content`.
+- 5/5 apéndices resueltos desde `content_packs/datasphere_core/content/apendices`.
+- 13/13 árboles resueltos desde `content_packs/datasphere_core/trees`.
 - Todos los embeds y el template CDS resuelven dentro del pack.
 
 ### BDC Next
 
 - 2/2 módulos y 1/1 apéndice resueltos desde `content_packs/bdc_next/content`.
-- Los tres embeds heredados resuelven desde el pack padre `datasphere_mvp`.
+- Los tres embeds heredados resuelven desde el pack padre `datasphere_core`.
 - `content_mode: replace` evita mezclar Markdown Datasphere con BDC.
 
 ### Riesgo detectado en BDC
@@ -53,7 +53,7 @@ Recomendación: resolver árboles por `links.module` exacto y declarar herencia 
 
 ### `content/`
 
-- 6 módulos y 5 apéndices tienen equivalente en `datasphere_mvp`.
+- 6 módulos y 5 apéndices tienen equivalente en `datasphere_core`.
 - 6 archivos son idénticos.
 - 5 archivos ya divergen del pack activo.
 - Las cuatro imágenes de `content/img/` no tienen referencias en el repositorio.
@@ -100,12 +100,12 @@ Estos archivos no tienen consumidores detectados y no participan de FastAPI:
 
 Assets sin referencias detectadas dentro del pack:
 
-- `content_packs/datasphere_mvp/assets/danwor-animated-header.html`.
-- `content_packs/datasphere_mvp/assets/danwor-animated-logo.html` (sólo lo
+- `content_packs/datasphere_core/assets/danwor-animated-header.html`.
+- `content_packs/datasphere_core/assets/danwor-animated-logo.html` (sólo lo
   menciona el módulo huérfano).
-- `content_packs/datasphere_mvp/assets/danwor-arquitectura-referencia-aws (1).html`.
-- `content_packs/datasphere_mvp/assets/danwor-convencion-nombres.html`.
-- `content_packs/datasphere_mvp/assets/danwor-estrategia-reporting.html`.
+- `content_packs/datasphere_core/assets/danwor-arquitectura-referencia-aws (1).html`.
+- `content_packs/datasphere_core/assets/danwor-convencion-nombres.html`.
+- `content_packs/datasphere_core/assets/danwor-estrategia-reporting.html`.
 
 Antes de borrar assets editoriales conviene confirmar que no estén reservados
 para secciones todavía no publicadas.

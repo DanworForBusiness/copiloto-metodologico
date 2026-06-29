@@ -1,5 +1,6 @@
 <div id="tree-tab-panel" class="tree-tab-panel">
-  {% if trees %}
+  {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
+  {% if decision_trees %}
   <form
     class="tree-picker"
     hx-post="/modules/{{ document.summary.stem }}/trees/start"
@@ -7,25 +8,26 @@
     hx-swap="outerHTML"
   >
     <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="panel" value="tree">
     <label for="tree-selector">Árbol de decisión</label>
     <div class="tree-picker-row">
       <select id="tree-selector" name="tree_id" required onchange="if(this.value) this.form.requestSubmit()">
         <option value="">Elegí un árbol...</option>
-        {% for tree in trees %}
+        {% for tree in decision_trees %}
         <option value="{{ tree.id }}" {% if tree.id == selected_tree_id %}selected{% endif %}>{{ tree.title }}</option>
         {% endfor %}
       </select>
     </div>
   </form>
-  {% if run %}
+  {% if run and run.tree.kind != "assessment" %}
     {% include "partials/wizard.html" %}
   {% else %}
   <div class="tool-empty">
-    <span>{{ trees|length }} árboles disponibles</span>
+    <span>{{ decision_trees|length }} {{ "árbol disponible" if decision_trees|length == 1 else "árboles disponibles" }}</span>
     <p>Elegí el árbol que mejor representa la decisión que necesitás resolver.</p>
   </div>
   {% endif %}
   {% else %}
-  <div class="tool-empty"><p>No hay árboles asociados a este módulo.</p></div>
+  <div class="tool-empty"><p>No hay árboles de decisión asociados a este módulo.</p></div>
   {% endif %}
 </div>

@@ -27,7 +27,7 @@ import yaml
 BASE_DIR     = Path(__file__).parent
 REPORTS_DIR  = BASE_DIR / "reports"
 # Fuente canónica: los árboles viven en el content pack (las carpetas raíz se retiraron).
-TREES_DIR    = BASE_DIR / "content_packs" / "datasphere_mvp" / "trees"
+TREES_DIR    = BASE_DIR / "content_packs" / "datasphere_core" / "trees"
 
 
 # =========================================================

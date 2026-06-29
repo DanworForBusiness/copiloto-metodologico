@@ -35,7 +35,7 @@ def test_section_analysis_reuses_core_prompt_and_renders_safe_markdown(monkeypat
     document = load_module("01_Arquitectura_y_Conectividad")
     section = document.sections[0]
 
-    result = service.analyze(document, section.slug, "Checklist ejecutable", "datasphere_mvp")
+    result = service.analyze(document, section.slug, "Checklist ejecutable", "datasphere_core")
 
     assert section.title in result.prompt
     assert "INSTRUCCIÓN ESTRICTA" in result.prompt

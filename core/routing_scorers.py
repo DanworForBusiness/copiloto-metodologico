@@ -90,6 +90,36 @@ _ASSET_GENERIC_TOKENS = {
     "guia", "paso", "relevamiento", "tecnico", "tecnica"
 }
 
+_ASSET_PLATFORM_ALIASES = {
+    "bw": ("bw", "bw/4", "bw4", "bw bridge", "bwmt", "business warehouse"),
+    "sac": ("sac", "sap analytics cloud", "analytics cloud"),
+    "powerbi": ("power bi", "powerbi"),
+    "s4": ("s/4", "s4", "s4hana", "s/4hana"),
+    "ecc": ("ecc",),
+    "aws": ("aws", "amazon"),
+    "eclipse": ("eclipse", "bwmt"),
+}
+
+
+def _asset_platform_axes(text: str) -> set[str]:
+    """Ejes tecnicos explicitos para desempatar assets por plataforma.
+
+    No se incorporan a _significant_tokens porque tokens cortos como BW son
+    ruidosos para secciones, pero en intent_assets son una senal curada fuerte:
+    si el usuario pregunta por BW, un recurso SAC no deberia ganar por verbos
+    compartidos como "acelerar" o "relevamiento".
+    """
+    norm = _norm(text or "")
+    axes: set[str] = set()
+    for axis, aliases in _ASSET_PLATFORM_ALIASES.items():
+        for alias in aliases:
+            alias_norm = _norm(alias)
+            pattern = rf"(?<![\w/]){re.escape(alias_norm)}(?![\w/])"
+            if re.search(pattern, norm):
+                axes.add(axis)
+                break
+    return axes
+
 
 def _asset_specific_token_hits(query_tokens: set[str], candidate_tokens: set[str]) -> set[str]:
     """Tokens que identifican el objeto real del asset, no el verbo generico.
@@ -421,6 +451,14 @@ def _score_asset_candidate(question: str, asset: dict) -> int:
     keywords = [_norm(k) for k in (asset.get("keywords") or [])]
     desc = _norm(str(asset.get("description") or ""))
     score = 0
+    query_axes = _asset_platform_axes(question)
+    candidate_axes = _asset_platform_axes(" ".join([desc, " ".join(keywords)]))
+    matching_axes = query_axes & candidate_axes
+    conflicting_axes = query_axes and candidate_axes and not matching_axes
+    if matching_axes:
+        score += 18 * len(matching_axes)
+    if conflicting_axes:
+        score -= 18
 
     for kw in keywords:
         if not kw:

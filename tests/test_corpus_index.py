@@ -31,6 +31,6 @@ def test_indice_estable_entre_llamadas():
 
 def test_cubre_modulos_core_del_pack():
     stems = {m.stem for m in get_corpus_index()}
-    # El pack datasphere_mvp expone los módulos 01..05 con section_meta.
+    # El pack datasphere_core expone los módulos 01..05 con section_meta.
     assert any(s.startswith("01_") for s in stems)
     assert any(s.startswith("03_") for s in stems)

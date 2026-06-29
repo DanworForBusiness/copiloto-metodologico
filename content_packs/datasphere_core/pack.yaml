@@ -1,4 +1,4 @@
-name: datasphere_mvp
+name: datasphere_core
 label: SAP Datasphere MVP
 short_label: Datasphere
 content_modules: 00, 01, 02, 03, 04, 05

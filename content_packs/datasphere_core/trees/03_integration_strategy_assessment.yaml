@@ -1,0 +1,232 @@
+id: m03_integration_strategy_assessment
+title: Diagnóstico · Integración y Estrategia
+kind: assessment
+assessment_type: module
+version: '0.2'
+module: 03 · 03_Integracion_y_Estrategia_de_Datos
+start: q1
+scoring:
+  mode: weighted_sum
+  max_per_question: 3
+  interpretation:
+  - min_percent: 80
+    label: Alta adopción del marco
+    tone: success
+  - min_percent: 55
+    label: Adopción parcial con brechas relevantes
+    tone: warning
+  - min_percent: 0
+    label: Adopción incipiente o no gobernada
+    tone: danger
+nodes:
+  q1:
+    type: choice
+    dimension: Contrato de integración
+    principle: Desacoplamiento del origen
+    weight_hint: 1.3
+    question: ¿La integración prioriza contratos de datos estables sobre estructuras técnicas internas del sistema origen?
+    help: Evalúa si Datasphere consume fuentes autorizadas, APIs o contratos gobernados en lugar de depender de tablas base
+      o detalles internos.
+    evaluation_guidance:
+      Implementado consistentemente: La integración se apoya en contratos estables y autorizados, desacoplados del detalle
+        interno.
+      Implementado parcialmente: Hay contratos definidos, pero algunas fuentes o excepciones requieren revisión.
+      Existe, pero sin estandarización: Existen acuerdos informales, pero no un contrato técnico/funcional consistente.
+      No implementado: La integración depende directamente de estructuras internas del origen.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: &id001
+    - Implementado consistentemente
+    - Implementado parcialmente
+    - Existe, pero sin estandarización
+    - No implementado
+    - No evaluado / no sabe
+    scores: &id002
+      Implementado consistentemente: 3
+      Implementado parcialmente: 2
+      Existe, pero sin estandarización: 1
+      No implementado: 0
+      No evaluado / no sabe: null
+    next:
+      Implementado consistentemente: q2
+      Implementado parcialmente: q2
+      Existe, pero sin estandarización: q2
+      No implementado: q2
+      No evaluado / no sabe: q2
+  q2:
+    type: choice
+    dimension: Fuentes autorizadas
+    principle: Clean core aplicado a extracción
+    weight_hint: 1.3
+    question: ¿Las fuentes SAP autorizadas para extracción están validadas como ODP-SAPI, ODP-CDS, CDS Views u otro contrato
+      liberado?
+    help: La pregunta busca evitar atajos como extracción directa de tablas base cuando existen APIs o extractores autorizados.
+    evaluation_guidance:
+      Implementado consistentemente: Las fuentes autorizadas están identificadas, validadas y documentadas.
+      Implementado parcialmente: La mayoría de las fuentes está validada, con pendientes o excepciones justificadas.
+      Existe, pero sin estandarización: Se conocen fuentes autorizadas, pero no hay validación sistemática.
+      No implementado: No se distingue entre fuentes liberadas y estructuras internas.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q3
+      Implementado parcialmente: q3
+      Existe, pero sin estandarización: q3
+      No implementado: q3
+      No evaluado / no sabe: q3
+  q3:
+    type: choice
+    dimension: Anti-patterns
+    principle: No extraer tablas base por defecto
+    weight_hint: 1.2
+    question: ¿La arquitectura evita extracción directa de tablas base y documenta alternativas cuando el cliente la solicita?
+    help: Si surge la expectativa de consumir tablas base, el marco debe explicar por qué no es recomendable y proponer alternativas
+      gobernadas.
+    evaluation_guidance:
+      Implementado consistentemente: La extracción directa está descartada o excepcionalmente justificada con alternativas
+        evaluadas.
+      Implementado parcialmente: Hay postura contra tablas base, pero falta documentación de excepciones.
+      Existe, pero sin estandarización: Se evita en algunos casos, pero sin criterio compartido.
+      No implementado: La extracción directa de tablas base se acepta como alternativa normal.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q4
+      Implementado parcialmente: q4
+      Existe, pero sin estandarización: q4
+      No implementado: q4
+      No evaluado / no sabe: q4
+  q4:
+    type: choice
+    dimension: Compatibilidad técnica
+    principle: Release y notas antes de implementar
+    weight_hint: 1.2
+    question: ¿Se valida release, SAP_BASIS/SAP_ABAP, Note Analyzer y notas relevantes antes de elegir el mecanismo de integración?
+    help: Incluye capacidades de ABAP SQL, replication flows, CDS extraction, CDC/delta y correcciones necesarias para el
+      escenario.
+    evaluation_guidance:
+      Implementado consistentemente: Compatibilidad y notas están verificadas antes de decidir el mecanismo.
+      Implementado parcialmente: La validación está avanzada, pero quedan notas o releases por confirmar.
+      Existe, pero sin estandarización: Se revisan notas sólo si aparece un error.
+      No implementado: Se implementa sin validar release, Note Analyzer ni compatibilidad técnica.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q5
+      Implementado parcialmente: q5
+      Existe, pero sin estandarización: q5
+      No implementado: q5
+      No evaluado / no sabe: q5
+  q5:
+    type: choice
+    dimension: Ubicación del contrato
+    principle: API corporativa de integración
+    weight_hint: 1.1
+    question: '¿Está definido dónde vive el contrato de datos: origen, CDS/API corporativa, Datasphere o capa intermedia?'
+    help: La decisión define quién gobierna el contrato, dónde se transforma y cómo se evita acoplamiento innecesario.
+    evaluation_guidance:
+      Implementado consistentemente: La ubicación del contrato está definida con criterio arquitectónico y ownership.
+      Implementado parcialmente: La ubicación está definida, pero falta documentar gobierno o excepciones.
+      Existe, pero sin estandarización: La decisión existe caso a caso, sin patrón común.
+      No implementado: No está claro dónde vive el contrato ni quién lo gobierna.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q6
+      Implementado parcialmente: q6
+      Existe, pero sin estandarización: q6
+      No implementado: q6
+      No evaluado / no sabe: q6
+  q6:
+    type: choice
+    dimension: Contract vs Data Product
+    principle: Separación entre integración y consumo
+    weight_hint: 1.0
+    question: ¿Se diferencia el contrato técnico de integración del producto de datos consumible por negocio?
+    help: Un contrato de integración no siempre es un Data Product listo para consumo; puede requerir modelado, semántica
+      y gobierno posterior.
+    evaluation_guidance:
+      Implementado consistentemente: La diferencia está clara y se refleja en arquitectura, ownership y consumo.
+      Implementado parcialmente: La diferencia se entiende, pero no siempre se documenta.
+      Existe, pero sin estandarización: Se usa la terminología de forma variable según el consultor.
+      No implementado: Se confunden contratos técnicos con productos de datos finales.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q7
+      Implementado parcialmente: q7
+      Existe, pero sin estandarización: q7
+      No implementado: q7
+      No evaluado / no sabe: q7
+  q7:
+    type: choice
+    dimension: Estrategia de extracción
+    principle: ODP/CDS/CDC según escenario
+    weight_hint: 1.2
+    question: ¿La estrategia Full, Delta o CDC está definida según fuente, volumen, frecuencia, release y trazabilidad requerida?
+    help: Valida que la extracción no se elija por costumbre sino por características del dato, mecanismo disponible y capacidad
+      del origen.
+    evaluation_guidance:
+      Implementado consistentemente: La estrategia de extracción está justificada por escenario y capacidades.
+      Implementado parcialmente: La estrategia está definida, pero falta validar delta/CDC o trazabilidad.
+      Existe, pero sin estandarización: Se elige el mecanismo caso a caso sin patrón documentado.
+      No implementado: No hay criterio claro para Full, Delta o CDC.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q8
+      Implementado parcialmente: q8
+      Existe, pero sin estandarización: q8
+      No implementado: q8
+      No evaluado / no sabe: q8
+  q8:
+    type: choice
+    dimension: Evolución
+    principle: Future-ready sin acoplamiento
+    weight_hint: 0.9
+    question: ¿La estrategia permite evolucionar hacia BDC, nuevos consumidores o cambios del origen sin rehacer la integración?
+    help: Evalúa si el diseño evita quedar preso de un escenario técnico puntual y permite escalar contratos, dominios y consumidores.
+    evaluation_guidance:
+      Implementado consistentemente: La estrategia contempla evolución y minimiza acoplamiento futuro.
+      Implementado parcialmente: Hay intención future-ready, pero faltan decisiones explícitas.
+      Existe, pero sin estandarización: La evolución se considera informalmente.
+      No implementado: El diseño queda fuertemente acoplado al escenario actual.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: leaf_module_result
+      Implementado parcialmente: leaf_module_result
+      Existe, pero sin estandarización: leaf_module_result
+      No implementado: leaf_module_result
+      No evaluado / no sabe: leaf_module_result
+leaves:
+  leaf_module_result:
+    type: assessment_result
+    title: Resultado del diagnóstico
+    message: 'Este assessment es consultivo: diferencia un modelo funcional de un modelo gobernado, escalable y mantenible.
+      El resultado numérico consolida las respuestas y debe leerse junto con las evidencias registradas.'
+    strengths:
+    - Contratos de integración priorizados sobre estructuras internas.
+    - Fuentes autorizadas y compatibilidad técnica tratadas como prerequisito.
+    gaps:
+    - Profundizar validación de releases, Note Analyzer y estrategia delta/CDC.
+    risks:
+    - Acoplamiento al origen, extracción no gobernada y retrabajo por incompatibilidades.
+    next_steps:
+    - Validar fuentes autorizadas.
+    - Revisar Note Analyzer y notas aplicables.
+    - Documentar contrato de integración y mecanismo de extracción.
+    evidence_to_collect:
+    - Lista de fuentes autorizadas.
+    - Release/SAP_BASIS/SAP_ABAP.
+    - Resultado CNV_NA_DI.
+    - Criterio Full/Delta/CDC.
+    links:
+    - label: Abrir módulo 03 · Integración y Estrategia de Datos
+      module: 03 · Integración y Estrategia de Datos

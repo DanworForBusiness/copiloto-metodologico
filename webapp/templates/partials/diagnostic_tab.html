@@ -1,0 +1,33 @@
+<div id="diagnostic-tab-panel" class="diagnostic-tab-panel">
+  {% set assessment_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
+  {% if assessment_trees %}
+  <form
+    class="tree-picker diagnostic-picker"
+    hx-post="/modules/{{ document.summary.stem }}/trees/start"
+    hx-target="#diagnostic-tab-panel"
+    hx-swap="outerHTML"
+  >
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="panel" value="diagnostic">
+    <label for="diagnostic-selector">Diagnóstico</label>
+    <div class="tree-picker-row">
+      <select id="diagnostic-selector" name="tree_id" required onchange="if(this.value) this.form.requestSubmit()">
+        <option value="">Elegí un diagnóstico...</option>
+        {% for tree in assessment_trees %}
+        <option value="{{ tree.id }}" {% if tree.id == selected_tree_id %}selected{% endif %}>{{ tree.title|diagnostic_title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+  {% if run and run.tree.kind == "assessment" %}
+    {% include "partials/wizard.html" %}
+  {% else %}
+  <div class="tool-empty">
+    <span>{{ assessment_trees|length }} {{ "diagnóstico disponible" if assessment_trees|length == 1 else "diagnósticos disponibles" }}</span>
+    <p>Elegí el diagnóstico para evaluar el estado de tu proyecto, podés hacerlo por módulo o utilizar el orquestador que los conecta a todos en un árbol transversal.</p>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="tool-empty"><p>No hay diagnósticos asociados a este módulo.</p></div>
+  {% endif %}
+</div>

@@ -1,0 +1,226 @@
+id: m04_modeling_development_assessment
+title: Diagnóstico · Modelado y Desarrollo
+kind: assessment
+assessment_type: module
+version: '0.2'
+module: 04 · 04_Modelado_y_Desarrollo
+start: q1
+scoring:
+  mode: weighted_sum
+  max_per_question: 3
+  interpretation:
+  - min_percent: 80
+    label: Alta adopción del marco
+    tone: success
+  - min_percent: 55
+    label: Adopción parcial con brechas relevantes
+    tone: warning
+  - min_percent: 0
+    label: Adopción incipiente o no gobernada
+    tone: danger
+nodes:
+  q1:
+    type: choice
+    dimension: Capas
+    principle: Separación de responsabilidades de modelado
+    weight_hint: 1.3
+    question: ¿Las capas de ingesta, armonización, propagación y reporting tienen responsabilidades claramente delimitadas?
+    help: Evalúa si cada capa hace lo que corresponde y evita mezclar persistencia cruda, reglas de negocio y consumo final.
+    evaluation_guidance:
+      Implementado consistentemente: Las capas están definidas y se respetan consistentemente.
+      Implementado parcialmente: Las capas existen, pero hay excepciones o responsabilidades mezcladas.
+      Existe, pero sin estandarización: Hay una separación conceptual, pero no se aplica como estándar.
+      No implementado: El modelo mezcla responsabilidades sin arquitectura por capas.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: &id001
+    - Implementado consistentemente
+    - Implementado parcialmente
+    - Existe, pero sin estandarización
+    - No implementado
+    - No evaluado / no sabe
+    scores: &id002
+      Implementado consistentemente: 3
+      Implementado parcialmente: 2
+      Existe, pero sin estandarización: 1
+      No implementado: 0
+      No evaluado / no sabe: null
+    next:
+      Implementado consistentemente: q2
+      Implementado parcialmente: q2
+      Existe, pero sin estandarización: q2
+      No implementado: q2
+      No evaluado / no sabe: q2
+  q2:
+    type: choice
+    dimension: Reglas de negocio
+    principle: Una regla, una ubicación gobernada
+    weight_hint: 1.2
+    question: ¿Las reglas de negocio y contratos semánticos viven en la capa correcta y no se duplican en distintos artefactos?
+    help: Evita que una misma regla sea reimplementada en vistas, reportes o consumidores de forma inconsistente.
+    evaluation_guidance:
+      Implementado consistentemente: Reglas y contratos están ubicados una vez, con ownership y reutilización clara.
+      Implementado parcialmente: La mayoría de las reglas está centralizada, con algunas duplicaciones por revisar.
+      Existe, pero sin estandarización: Se intenta centralizar, pero depende del criterio del desarrollador.
+      No implementado: Las reglas se duplican o se distribuyen sin control.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q3
+      Implementado parcialmente: q3
+      Existe, pero sin estandarización: q3
+      No implementado: q3
+      No evaluado / no sabe: q3
+  q3:
+    type: choice
+    dimension: Convención de nombres
+    principle: Trazabilidad del artefacto
+    weight_hint: 1.1
+    question: ¿La convención de nombres permite identificar capa, tipo, origen y propósito del artefacto?
+    help: 'Esta pregunta pertenece a modelado: el nombre debe expresar responsabilidad arquitectónica, no sólo preferencia
+      estética.'
+    evaluation_guidance:
+      Implementado consistentemente: La convención se aplica consistentemente y permite entender responsabilidad y trazabilidad.
+      Implementado parcialmente: La convención existe, pero tiene excepciones o falta adopción completa.
+      Existe, pero sin estandarización: Hay nombres razonables, pero sin estándar formal.
+      No implementado: Los nombres no permiten entender capa, tipo ni propósito.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q4
+      Implementado parcialmente: q4
+      Existe, pero sin estandarización: q4
+      No implementado: q4
+      No evaluado / no sabe: q4
+  q4:
+    type: choice
+    dimension: Trazabilidad semántica
+    principle: Del contrato técnico al negocio
+    weight_hint: 1.2
+    question: ¿La transición desde datos técnicos hacia semántica de negocio es trazable y entendible?
+    help: Valida si se puede explicar cómo un campo técnico termina convertido en concepto de negocio consumible.
+    evaluation_guidance:
+      Implementado consistentemente: La trazabilidad técnica→negocio está documentada y se entiende en el modelo.
+      Implementado parcialmente: La trazabilidad existe, pero faltan definiciones o documentación.
+      Existe, pero sin estandarización: Se puede reconstruir con conocimiento experto, pero no está explicitada.
+      No implementado: No hay trazabilidad clara entre origen técnico y semántica de negocio.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q5
+      Implementado parcialmente: q5
+      Existe, pero sin estandarización: q5
+      No implementado: q5
+      No evaluado / no sabe: q5
+  q5:
+    type: choice
+    dimension: Uso semántico
+    principle: Intención analítica explícita
+    weight_hint: 1.1
+    question: ¿Cada artefacto expresa su propósito analítico mediante semantic usage, tipo semántico y definición de negocio?
+    help: Incluye fact, dimension, text, hierarchy, measures, attributes y otros elementos que hacen al modelo consumible
+      y gobernado.
+    evaluation_guidance:
+      Implementado consistentemente: El uso semántico está definido de forma consistente y alineado a negocio.
+      Implementado parcialmente: Está definido en lo principal, con brechas menores o artefactos pendientes.
+      Existe, pero sin estandarización: Se usa parcialmente, sin criterio uniforme.
+      No implementado: Los artefactos no expresan intención analítica clara.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q6
+      Implementado parcialmente: q6
+      Existe, pero sin estandarización: q6
+      No implementado: q6
+      No evaluado / no sabe: q6
+  q6:
+    type: choice
+    dimension: Atributos y tipos
+    principle: Semántica a nivel correcto
+    weight_hint: 1.0
+    question: ¿Los atributos relevantes tienen tipos semánticos correctos y no sólo nombres descriptivos?
+    help: Evalúa si el modelo identifica fechas, monedas, unidades, textos, jerarquías y claves donde corresponde.
+    evaluation_guidance:
+      Implementado consistentemente: Los tipos semánticos están definidos y probados donde agregan valor.
+      Implementado parcialmente: La mayoría está definida, con algunos atributos por completar.
+      Existe, pero sin estandarización: Se definen sólo cuando son evidentes, sin revisión sistemática.
+      No implementado: No se gestionan tipos semánticos a nivel de atributo.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q7
+      Implementado parcialmente: q7
+      Existe, pero sin estandarización: q7
+      No implementado: q7
+      No evaluado / no sabe: q7
+  q7:
+    type: choice
+    dimension: Técnica de modelado
+    principle: Mantenibilidad sobre preferencia personal
+    weight_hint: 1.0
+    question: ¿La elección entre modelado gráfico, SQL u otra técnica prioriza mantenibilidad, trazabilidad y escalabilidad?
+    help: La técnica debe responder a complejidad, performance, soporte y facilidad de mantenimiento; no a preferencia individual.
+    evaluation_guidance:
+      Implementado consistentemente: La técnica está justificada y favorece mantenimiento y trazabilidad.
+      Implementado parcialmente: La técnica es adecuada, pero falta criterio documentado para elegirla.
+      Existe, pero sin estandarización: La elección depende del desarrollador, aunque suele funcionar.
+      No implementado: Se modela con la técnica disponible sin evaluar impacto.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: q8
+      Implementado parcialmente: q8
+      Existe, pero sin estandarización: q8
+      No implementado: q8
+      No evaluado / no sabe: q8
+  q8:
+    type: choice
+    dimension: Reutilización
+    principle: Bajo acoplamiento
+    weight_hint: 1.0
+    question: ¿El modelo promueve reutilización y bajo acoplamiento entre dominios, capas y consumidores?
+    help: Evalúa si los artefactos pueden evolucionar sin romper consumidores ni duplicar lógica por dominio o reporte.
+    evaluation_guidance:
+      Implementado consistentemente: El modelo favorece reutilización y evolución con bajo acoplamiento.
+      Implementado parcialmente: Hay reutilización, pero algunas dependencias rígidas por revisar.
+      Existe, pero sin estandarización: Se reutiliza cuando es conveniente, sin diseño explícito.
+      No implementado: El modelo está acoplado y obliga a duplicar o rehacer lógica.
+      No evaluado / no sabe: No hay evidencia suficiente; registrar el punto como pendiente de validación.
+    options: *id001
+    scores: *id002
+    next:
+      Implementado consistentemente: leaf_module_result
+      Implementado parcialmente: leaf_module_result
+      Existe, pero sin estandarización: leaf_module_result
+      No implementado: leaf_module_result
+      No evaluado / no sabe: leaf_module_result
+leaves:
+  leaf_module_result:
+    type: assessment_result
+    title: Resultado del diagnóstico
+    message: 'Este assessment es consultivo: diferencia un modelo funcional de un modelo gobernado, escalable y mantenible.
+      El resultado numérico consolida las respuestas y debe leerse junto con las evidencias registradas.'
+    strengths:
+    - Capas, semántica y convenciones tratadas como diseño gobernado.
+    - Trazabilidad desde origen técnico hasta negocio.
+    gaps:
+    - Reforzar semantic types, naming y documentación de técnica de modelado.
+    risks:
+    - Modelos difíciles de mantener, duplicación de reglas y baja confianza semántica.
+    next_steps:
+    - Validar arquitectura por capas.
+    - Aplicar convención de nombres.
+    - Revisar semantic usage y tipos por atributo.
+    evidence_to_collect:
+    - Mapa de capas.
+    - Convención aplicada.
+    - Definiciones semánticas.
+    - Evidencia de reutilización.
+    links:
+    - label: Abrir módulo 04 · Modelado y Desarrollo
+      module: 04 · Modelado y Desarrollo

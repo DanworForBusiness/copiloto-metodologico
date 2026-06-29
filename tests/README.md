@@ -24,7 +24,7 @@ ejecutarla headless:
   `conftest.py` antes de importar la app. `openai` también se stubea.
 - `routing_harness.py` — `run_route()` corre la cascada y extrae la decisión
   normalizada; `run_scorers()` caracteriza los scorers puros uno por uno.
-- `prompts_corpus.yaml` — 32 prompts reales por módulo del pack `datasphere_mvp`.
+- `prompts_corpus.yaml` — 32 prompts reales por módulo del pack `datasphere_core`.
 - `golden/routing_decisions.json` — rama elegida + mensaje de chat por prompt.
 - `golden/routing_scorers.json` — salida de cada scorer por prompt.
 

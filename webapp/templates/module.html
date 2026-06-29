@@ -79,16 +79,29 @@
   <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
 
   <main id="content" class="module-content">
+    {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
+    {% set diagnostic_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
     <section id="__module__" class="module-hero">
       <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
       <h1>{{ document.summary.title }}</h1>
-      <div class="hero-meta"><span>{{ document.sections|length }} secciones</span>{% if trees %}<span>{{ trees|length }} {{ "árbol asociado" if trees|length == 1 else "árboles asociados" }}</span>{% endif %}</div>
+      <div class="hero-meta">
+        <span>{{ document.sections|length }} secciones</span>
+        {% if decision_trees %}<span>{{ decision_trees|length }} {{ "árbol asociado" if decision_trees|length == 1 else "árboles asociados" }}</span>{% endif %}
+        {% if diagnostic_trees %}<span>{{ diagnostic_trees|length }} {{ "diagnóstico asociado" if diagnostic_trees|length == 1 else "diagnósticos asociados" }}</span>{% endif %}
+      </div>
     </section>
     <nav class="section-index" aria-label="En este módulo">
       <p>En este módulo</p>
       {% for section in document.sections %}<a href="#{{ section.slug }}"><span>{{ "%02d"|format(section.number) }}</span>{{ section.title }}</a>{% endfor %}
     </nav>
     <article class="methodology">{% for section in document.sections %}<section id="{{ section.slug }}" class="content-section">{{ section.html|safe }}</section>{% endfor %}</article>
+    {% if next_module %}
+    <a class="module-continue" href="/modules/{{ next_module.stem }}?pack={{ pack }}" aria-label="Continuar a {{ next_module.title }}">
+      <span class="module-continue-line" aria-hidden="true"></span>
+      <span class="module-continue-eyebrow">Scroll para continuar</span>
+      <span class="module-continue-next">{{ next_module.stem.split('_')[0] }} · {{ next_module.title }}</span>
+    </a>
+    {% endif %}
   </main>
 
   {% if show_panel %}
@@ -165,6 +178,13 @@
           <div id="assistant-chat-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Obteniendo la mejor respuesta...</span></div>
         </form>
       </section>
+    </div>
+    {% endif %}
+
+    {% if ia_enabled and diagnostic_trees %}
+    <button class="panel-toggle panel-toggle--diagnostic" @click="diagnosticOpen=!diagnosticOpen"><span>Herramientas de diagnóstico</span><span x-text="diagnosticOpen?'−':'+'"></span></button>
+    <div x-cloak x-show="diagnosticOpen" x-transition.opacity class="diagnostic-group">
+      {% include "partials/diagnostic_tab.html" %}
     </div>
     {% endif %}
 

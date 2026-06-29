@@ -8,7 +8,7 @@ templates sin duplicarlos. La regla de resolucion es simple:
 2. Si no existe, buscar en su pack padre (`extends`).
 3. Si tampoco existe, caer al layout historico del proyecto.
 
-Esto permite trabajar en `bdc_next` manteniendo vivo `datasphere_mvp`.
+Esto permite trabajar en `bdc_next` manteniendo vivo `datasphere_core`.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def available_content_packs() -> list[str]:
 
 def content_pack_chain(pack_name: str | None = None) -> list[str]:
     """Devuelve pack activo + padres, sin repetir ni entrar en ciclos."""
-    pack = (pack_name or active_content_pack() or "datasphere_mvp").strip() or "datasphere_mvp"
+    pack = (pack_name or active_content_pack() or "datasphere_core").strip() or "datasphere_core"
     chain: list[str] = []
     seen: set[str] = set()
     while pack and pack not in seen:

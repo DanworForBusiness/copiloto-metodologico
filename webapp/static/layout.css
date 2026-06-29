@@ -122,6 +122,32 @@
 .content-theme-dark .module-content { background: var(--bg); color: var(--ink); }
 .content-theme-dark .callout__title { color: #f1f1f5; }
 
+/* Cue de "lectura continua" al final del módulo: replica el "scroll para
+   ingresar" del landing. Click navega al siguiente; el overscroll también
+   (app.js). Se arma (.is-armed) cuando el scroll al final acumula intención. */
+.module-continue {
+  display: flex; flex-direction: column; align-items: center; gap: .55rem;
+  margin: 56px auto 0; padding-top: 40px; text-align: center; text-decoration: none;
+  opacity: .5; cursor: pointer; transition: opacity .2s;
+}
+.module-continue:hover, .module-continue.is-armed { opacity: 1; }
+.module-continue-line {
+  width: 1px; height: 46px; background: linear-gradient(to bottom, transparent, var(--gold));
+  animation: dw-scroll-line 2s ease-in-out infinite;
+}
+.module-continue.is-armed .module-continue-line { animation-duration: .7s; }
+.module-continue-eyebrow {
+  color: var(--soft); font: 500 .62rem var(--mono); text-transform: uppercase; letter-spacing: .3em;
+}
+.module-continue-next { color: var(--gold); font: 600 .82rem var(--sans); }
+@keyframes dw-scroll-line {
+  0% { transform: scaleY(0); transform-origin: top; }
+  50% { transform: scaleY(1); transform-origin: top; }
+  51% { transform: scaleY(1); transform-origin: bottom; }
+  100% { transform: scaleY(0); transform-origin: bottom; }
+}
+@media (prefers-reduced-motion: reduce) { .module-continue-line { animation: none; } }
+
 /* Jerarquía editorial: peso máximo para módulo y alto para cada sección. */
 .module-hero h1 { font-weight: 900; }
 .content-heading h2 { font-weight: 800; }
@@ -153,3 +179,11 @@
   .animated-brand iframe { width: 620px; transform: translateY(-20px) scale(.28); }
   .pack-selector select { width: 112px; min-width: 0; }
 }
+/* Module hero metric separators */
+.hero-meta { gap: 0; }
+.hero-meta span + span::before {
+  content: "\00b7";
+  margin: 0 10px;
+  color: currentColor;
+}
+
