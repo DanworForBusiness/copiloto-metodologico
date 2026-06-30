@@ -153,26 +153,19 @@ Hoy la escalabilidad proviene del diseño semántico y separación entre almacen
 >Implementamos la arquitectura de modelado por capas con separación de responsabilidades, adaptada a un enfoque Lakehouse moderno en SAP Datasphere:
 {{html_embed: ../assets/danwor-arquitectura-capas.html height=830}}
 
-## Tipos de Vistas SQL
-{{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
-{{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
+## {dw-black}Arquitectura por Capas: {dw-gold}Guia Operativa
+{{section_meta: keywords="arquitectura por capas, responabilidad del dato"}}
 
-En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+> Patrón de separación de responsabilidades aplicado a nuestro marco.
 
-| Tipo | Cuándo usarlo | Cuándo evitarlo |
-|---|---|---|
-| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |
-| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
-| **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |
-| **Data Flow** | Snapshot, persistencia, transformaciones pesadas, particionar por rendimiento | Acceso federado real-time — no es una vista, es un proceso de carga |
+| Capa | Nivel de Transformacion | Proposito | Cuando usar? |
+|---|---|---|---|
+| **(1) Ingesta** | Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente. | Capturar los datos crudos directamente desde las fuentes externas (sea S/4HANA, u otras bases de datos y/o sistemas externos) | - Ingestar datos directamente desde sistemas fuente. - Preservar datos originales para auditoría. |
+| **(2) Armonizacion** | Alta. Limpieza y estandarización | Transformar, limpiar, y unificar los datos para asegurar consistencia semántica y su re-utilización alineado con las reglas de negocio | - Unificar datos de sistemas heterogéneos. - Reutilizacion - Normalizar formatos, eliminar duplicados, enriquecer datos. |
+| **(3) Propagacion** | Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones. - Permitir reutilización en otras vistas. - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
+| **(4) Reporting** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
 
-{{callout: title="Cada vista debe justificarse" tone="warn" icon="🔸"}}
-Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.
-{{/callout}}
-
-{{tree_button: Tipos de Vistas SQL}}
-
-## Tipos y Uso Semántico
+## {dw-black}Artefactos y uso {dw-gold}Semántico
 {{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, analytical dataset, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
 
 El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
@@ -190,30 +183,29 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 
 ## Convención de Nombres
 {{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
-
-El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
-
-```
-<Capa><Tipo>_<Origen>_<LibreConLineamientos>
-```
-
 {{semantic_summary}}
 Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es: la Capa 1 representa ingesta cruda desde origen y debe nombrarse como tabla (`T`), ya sea remota o local/materializada. No usar ejemplos `1V...` para ingesta. Las vistas (`V`) aplican desde Capa 2 en adelante, cuando ya existe preparacion, armonizacion, propagacion o consumo. La armonizacion nunca debe describirse como Capa 1.
 {{/semantic_summary}}
 
+El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
+```<Capa><Tipo>_<Origen>_<LibreConLineamientos>```
+
 **Capa** (prefijo numérico):
-- `1` — Ingesta (tablas remotas o locales desde origen)
+
+- `1` — Ingesta (tablas remotas o locales replicadas desde origen)
 - `2` — Armonización (vistas reutilizables)
 - `3` — Propagación / Consumo (vistas finales, modelos analíticos)
 
 **Tipo** (letra):
+
 - `T` — Tabla (local o remota). En Capa 1 / Ingesta, este es el tipo esperado.
 - `V` — Vista (SQL Estándar o Gráfica). Usar desde Capa 2 en adelante; no usar `1V...` para ingesta.
 - `F` — Fact / Analytical Dataset
 
 > Regla Danwor: la ingesta (`1`) mantiene el dato crudo como tabla remota o local. Si hay renombrado semántico, joins, limpieza, armonización o preparación, ya no es Capa 1: corresponde a Capa 2 o superior.
 
-**Origen** (sufijo de 3 letras):
+**Origen:** (sufijo de 3 letras, solo para capa de ingesta)
+
 | Código | Origen |
 |---|---|
 | `SAP` | Ingesta desde SAP (ECC, S/4HANA, BW) |
@@ -233,6 +225,25 @@ Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es:
 
 {{subtitle: no-gap}}
 > Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`<LibreConLineamientos>`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.
+
+## Tipos de Vistas SQL
+{{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
+{{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
+
+En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+
+| Tipo | Cuándo usarlo | Cuándo evitarlo |
+|---|---|---|
+| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |
+| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
+| **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |
+| **Data Flow** | Snapshot, persistencia, transformaciones pesadas, particionar por rendimiento | Acceso federado real-time — no es una vista, es un proceso de carga |
+
+{{callout: title="Cada vista debe justificarse" tone="warn" icon="🔸"}}
+Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.
+{{/callout}}
+
+{{tree_button: Tipos de Vistas SQL}}
 
 ## Checklist de Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}

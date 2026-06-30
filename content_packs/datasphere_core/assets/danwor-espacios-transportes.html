@@ -258,8 +258,31 @@
   }
   .footnote-card.amber  { background: #fffbeb; border-color: #fcd34d; }
   .footnote-card.blue   { background: #eff6ff; border-color: #93c5fd; }
+  /* Disclaimer de la flecha gold (Calidad→Desarrollo): acento gold + fondo
+     neutro para NO confundirse con el recuadro ámbar de HDLF. */
+  .footnote-card.gold   { background: #fff; border-color: #e0a800; border-left: 3px solid #e0a800; }
   .footnote-card strong { font-weight: 700; }
   .fn-icon { font-size: 13px; margin-right: 4px; }
+  .fn-icon.gold { color: #e0a800; font-weight: 800; }
+
+  /* ── TOOLTIPS — hover sobre cada componente para "más info" (pedagógico, como
+     la sección 14 · Arquitectura de Integración). Sólo CSS, sin JS. ── */
+  .has-tip { position: relative; cursor: help; }
+  .has-tip:hover { z-index: 9000 !important; }
+  .tip-content {
+    display: none; position: absolute; z-index: 9999;
+    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+    width: 228px; padding: 10px 13px; border-radius: var(--r-sm);
+    background: var(--dw-black); color: rgba(255,255,255,0.92);
+    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
+  }
+  .tip-content::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--dw-black);
+  }
+  .has-tip:hover .tip-content { display: block; }
+  .tip-content strong { color: #f5c542; font-weight: 700; }
 
   /* ── GOV BAR ── */
   .gov-bar {
@@ -328,9 +351,9 @@
         <!-- S/4 HANA -->
         <div class="s4-col">
           <div class="s4-box-title">S/4 HANA</div>
-          <div class="env-node env-dev" id="t1-s4-dev">DEV</div>
-          <div class="env-node env-qa"  id="t1-s4-qa">QA</div>
-          <div class="env-node env-prd" id="t1-s4-prd">PRD</div>
+          <div class="env-node env-dev has-tip" id="t1-s4-dev">DEV<div class="tip-content"><strong>S/4 HANA · DEV</strong><br>Ambiente de desarrollo del origen SAP. Es la fuente de objetos y datos contra la que se construye la integración en el espacio Desarrollo de Datasphere.</div></div>
+          <div class="env-node env-qa  has-tip" id="t1-s4-qa">QA<div class="tip-content"><strong>S/4 HANA · QA</strong><br>Ambiente de calidad del origen. Datos representativos para validar la integración antes de pasar a productivo.</div></div>
+          <div class="env-node env-prd has-tip" id="t1-s4-prd">PRD<div class="tip-content"><strong>S/4 HANA · PRD</strong><br>Ambiente productivo del origen. Fuente de los datos reales de negocio que consume Producción.</div></div>
         </div>
 
         <!-- Datasphere -->
@@ -346,17 +369,21 @@
 
               <!-- Left: transport chain -->
               <div class="spaces-col">
-                <div class="space-node space-dev" id="t1-dev">Desarrollo</div>
-                <div class="transport-arrow">↓</div>
-                <div class="space-node space-qa"  id="t1-qa">
-                  Calidad
-                  <span style="font-size:10px;font-weight:400;display:block;margin-top:3px;color:var(--dw-muted)">(*)</span>
+                <div class="space-node space-dev has-tip" id="t1-dev">Desarrollo
+                  <div class="tip-content"><strong>Espacio Desarrollo</strong><br>Donde se construyen y versionan modelos y flujos. Inicio del ciclo de transporte DEV → QA → PRD.</div>
                 </div>
                 <div class="transport-arrow">↓</div>
-                <div class="space-node space-prd" id="t1-prd" style="position:relative">
+                <div class="space-node space-qa  has-tip" id="t1-qa">
+                  Calidad
+                  <span style="font-size:10px;font-weight:400;display:block;margin-top:3px;color:var(--dw-muted)">(*)</span>
+                  <div class="tip-content"><strong>Espacio Calidad</strong><br>Validación previa a productivo. <em>(*)</em> Si faltan datos en DEV, se puede desarrollar contra datos de Calidad; el transporte sigue siendo transversal (QA → DEV → …) para garantizar integridad y consistencia.</div>
+                </div>
+                <div class="transport-arrow">↓</div>
+                <div class="space-node space-prd has-tip" id="t1-prd" style="position:relative">
                   Producción
                   <div class="gov-badge">Gobierno de Datos</div>
                   <div class="cross-tag">Cross-Sharing</div>
+                  <div class="tip-content"><strong>Espacio Producción</strong><br>Espacio productivo y de Gobierno de Datos. Expone los modelos a los dominios vía <strong>Cross-Sharing</strong>: acceso gobernado y sin duplicar datos.</div>
                 </div>
               </div>
 
@@ -364,10 +391,10 @@
               <div style="padding-top:4px">
                 <div style="font-size:10px;font-weight:600;color:var(--dw-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Dominios</div>
                 <div class="domains-grid">
-                  <div class="domain-tile">Capital<br>Humano</div>
-                  <div class="domain-tile">Comercial</div>
-                  <div class="domain-tile">Compras y<br>Abastecimiento</div>
-                  <div class="domain-tile">Logística</div>
+                  <div class="domain-tile has-tip">Capital<br>Humano<div class="tip-content"><strong>Dominio · Capital Humano</strong><br>Consume modelos desde Producción vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Comercial<div class="tip-content"><strong>Dominio · Comercial</strong><br>Consume modelos desde Producción vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Compras y<br>Abastecimiento<div class="tip-content"><strong>Dominio · Compras y Abastecimiento</strong><br>Consume modelos desde Producción vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Logística<div class="tip-content"><strong>Dominio · Logística</strong><br>Consume modelos desde Producción vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
                 </div>
                 <div style="font-size:10.5px;color:var(--dw-muted);margin-top:10px;line-height:1.5">
                   Los dominios se acceden desde Producción vía Cross-Sharing
@@ -381,8 +408,8 @@
           <div class="hdlf-zone">
             <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta">Delta Tables</div>
-              <div class="hdlf-file parquet">Parquet Files</div>
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
             </div>
             <div class="hdlf-note">
               <span>⚠️</span>
@@ -396,8 +423,8 @@
 
     <!-- Footnotes -->
     <div class="footnotes">
-      <div class="footnote-card amber">
-        <span class="fn-icon">⚠️</span>
+      <div class="footnote-card gold">
+        <span class="fn-icon gold">↩</span>
         <strong>(*)</strong> En escenarios donde por falta de datos se requiera Desarrollo contra datos de Calidad, el flujo de transporte sigue siendo transversal, para garantizar integridad y consistencia.
       </div>
       <div class="footnote-card blue">
@@ -459,8 +486,8 @@
           <div class="hdlf-zone">
             <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta">Delta Tables</div>
-              <div class="hdlf-file parquet">Parquet Files</div>
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
             </div>
             <div class="hdlf-note"><span>⚠️</span><span>Espacio único de aterrizaje de datos</span></div>
           </div>
@@ -497,8 +524,8 @@
           <div class="hdlf-zone">
             <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta">Delta Tables</div>
-              <div class="hdlf-file parquet">Parquet Files</div>
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
             </div>
             <div class="hdlf-note"><span>⚠️</span><span>Espacio único de aterrizaje de datos</span></div>
           </div>
@@ -509,8 +536,8 @@
 
     <!-- Footnotes -->
     <div class="footnotes">
-      <div class="footnote-card amber">
-        <span class="fn-icon">⚠️</span>
+      <div class="footnote-card gold">
+        <span class="fn-icon gold">↩</span>
         <strong>(*)</strong> En escenarios donde por falta de datos se requiera Desarrollo contra datos de Calidad, el flujo de transporte sigue siendo transversal, para garantizar integridad y consistencia.
       </div>
       <div class="footnote-card blue">

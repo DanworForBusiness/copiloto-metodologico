@@ -90,7 +90,46 @@
     position: relative; overflow: visible;
   }
   .ds-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 5; }
-  .ds-inner-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; }
+  /* Sin z-index propio: el #ds-svg (z-index:5) sigue dibujando las flechas sobre
+     el contenido por DOM order, pero al no crear contexto de apilamiento acá, un
+     nodo en hover (has-tip:hover z-index 9000) puede elevar su tooltip por encima
+     de las flechas. */
+  .ds-inner-content { position: relative; display: flex; flex-direction: column; gap: 14px; }
+
+  /* ── BANDAS HANA-DB / HDLF (contenedor Datasphere en dos capas) ── */
+  .ds-band { border-radius: var(--r-md); border: 1.5px solid; padding: 11px 13px; }
+  .ds-band-hana { border-color: rgba(26,83,160,.28); background: rgba(232,240,254,.16); }
+  .ds-band-hdlf { border-color: rgba(var(--dw-gold-rgb),.32); background: rgba(254,243,205,.22); }
+  .ds-band-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
+  .ds-band-title { font-size: 12px; font-weight: 800; color: var(--dw-text); text-transform: uppercase; letter-spacing: .4px; }
+  .ds-band-sub { font-size: 9.5px; font-weight: 600; color: var(--dw-muted); font-family: var(--mono); }
+  .hana-grid { display: grid; grid-template-columns: 1fr 210px; gap: 14px; align-items: start; }
+  .capas-sublabel { font-size: 11px; font-weight: 700; color: var(--dw-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+  /* Conectores entre bandas (las flechas SVG las dibuja drawFlows). */
+  .flow-connector { display: flex; justify-content: center; align-items: center; gap: 30px; padding: 9px 0; flex-wrap: wrap; }
+  .flow-dir { font-weight: 800; font-size: 13px; }
+  .hdlf-files-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .hdlf-files-row .hdlf-file { flex: 0 1 auto; min-width: 130px; }
+  .hdlf-files-row .hdlf-bsg { margin: 0 0 0 auto; }
+
+  /* ── TOOLTIPS — hover en componentes de soporte para "más info". Las capas
+     usan el drawer al click; esto complementa los demás bloques. Sólo CSS. ── */
+  .has-tip { position: relative; cursor: help; }
+  .has-tip:hover { z-index: 9000 !important; }
+  .tip-content {
+    display: none; position: absolute; z-index: 9999;
+    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+    width: 230px; padding: 10px 13px; border-radius: var(--r-sm);
+    background: var(--dw-black); color: rgba(255,255,255,0.92);
+    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
+  }
+  .tip-content::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--dw-black);
+  }
+  .has-tip:hover .tip-content { display: block; }
+  .tip-content strong { color: #f5c542; font-weight: 700; }
 
   .ds-header-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -285,7 +324,7 @@
     <!-- ── S/4 HANA ── -->
     <div class="s4-pane">
       <div class="s4-title">S/4 HANA</div>
-      <div class="env-node env-dev" id="s4-dev">DEV</div>
+      <div class="env-node env-dev has-tip" id="s4-dev">DEV<div class="tip-content"><strong>S/4 HANA · DEV</strong><br>Ambiente de desarrollo del origen. Las vistas CDS se construyen y transportan acá antes de exponerse a Datasphere para extracción.</div></div>
 
       <!-- CDS block -->
       <div class="cds-block">
@@ -333,14 +372,18 @@
           </div>
         </div>
 
-        <!-- Top area: Capas de Modelado + right panels stacked -->
-        <div style="display:grid;grid-template-columns:1fr 200px;gap:14px;align-items:start">
+        <!-- ══ BANDA HANA-DB: capas de modelado + Cross-Sharing + LoBs ══ -->
+        <div class="ds-band ds-band-hana">
+          <div class="ds-band-head">
+            <span class="ds-band-title">HANA DB</span>
+            <span class="ds-band-sub">Disk | In-Memory</span>
+            <span class="has-tip" style="margin-left:4px;font-size:11px;color:var(--dw-muted);cursor:help">ⓘ<div class="tip-content"><strong>HANA DB (Disk · In-Memory)</strong><br>Motor de Datasphere donde viven los espacios y los datos —federados o persistidos— de las capas de modelado.</div></span>
+          </div>
+          <div class="hana-grid">
 
           <!-- CAPAS DE MODELADO -->
           <div>
-            <div style="font-size:11px;font-weight:700;color:var(--dw-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding:5px 8px;background:var(--dw-light);border-radius:var(--r-sm)">
-              Capas de Modelado
-            </div>
+            <div class="capas-sublabel">Capas de Modelado</div>
 
             <div class="capas-row">
 
@@ -420,62 +463,52 @@
               </div>
 
             </div><!-- /capas-row -->
+          </div>
 
-            <!-- Flow row -->
-            <div class="flow-row" style="margin-top:10px">
-              <span style="font-size:10.5px;font-weight:600;color:var(--dw-muted)">Flows:</span>
-              <span class="flow-chip flow-rep">🔃 Replication Flows</span>
-              <span class="flow-sep">·</span>
-              <span class="flow-chip flow-trans">🔀 Transformation Flows</span>
-              <span class="flow-sep">·</span>
-              <span class="flow-chip flow-bsg">⭐ Bronze / Silver / Gold</span>
+          <!-- Cross-Sharing + LoBs (dentro de HANA-DB) -->
+          <div class="hana-side">
+            <div class="hana-inner">
+              <div class="cross-slash has-tip">
+                <span>//</span>
+                <span class="cross-label">Cross<br>Sharing</span>
+                <div class="tip-content"><strong>Cross-Sharing</strong><br>Los dominios de negocio consumen los modelos de la capa productiva sin duplicar datos — acceso gobernado entre espacios.</div>
+              </div>
+              <div class="domain-stack">
+                <div class="domain-tile">Capital Humano</div>
+                <div class="domain-tile">Comercial</div>
+                <div class="domain-tile">Compras</div>
+                <div class="domain-tile">Logística</div>
+                <div class="domain-tile others">Otros...</div>
+                <div class="domain-tile excel has-tip">Excel<div class="tip-content"><strong>Excel</strong><br>Consumo desde Excel vía Live Data Connection u OData sobre los modelos expuestos.</div></div>
+              </div>
             </div>
           </div>
 
-          <!-- RIGHT: HANA DB + HDLF -->
-          <div class="right-block">
+          </div><!-- /hana-grid -->
+        </div><!-- /ds-band-hana -->
 
-            <div class="hana-block">
-              <div>
-                <div class="block-title">HANA DB</div>
-                <div class="block-subtitle">Disk | In-Memory</div>
-              </div>
-              <div class="hana-inner">
-                <div class="cross-slash">
-                  <span>//</span>
-                  <span class="cross-label">Cross<br>Sharing</span>
-                </div>
-                <div class="domain-stack">
-                  <div class="domain-tile">Capital Humano</div>
-                  <div class="domain-tile">Comercial</div>
-                  <div class="domain-tile">Compras</div>
-                  <div class="domain-tile">Logística</div>
-                  <div class="domain-tile others">Otros...</div>
-                  <div class="domain-tile excel">Excel</div>
-                </div>
-              </div>
-            </div>
+        <!-- ══ CONECTORES entre bandas: Replication ↓ a Parquet · Transformation ↑ a HANA ══ -->
+        <div class="flow-connector">
+          <span class="flow-chip flow-rep" id="flow-rep">🔃 Replication Flows <span class="flow-dir">↓</span></span>
+          <span class="flow-chip flow-trans" id="flow-trans"><span class="flow-dir">↑</span> Transformation Flows 🔀</span>
+        </div>
 
-            <div class="hdlf-block">
-              <div>
-                <div class="block-title">HDLF</div>
-                <div class="block-subtitle">HANA Data Lake Files</div>
-              </div>
-              <div class="hdlf-inner">
-                <div class="hdlf-file hdlf-delta">Delta Tables</div>
-                <div class="hdlf-file hdlf-parquet">Parquet Files</div>
-                <div class="hdlf-bsg">
-                  <span>⬛🔲⬜</span> Bronze / Silver / Gold
-                </div>
-                <div class="hdlf-note">
-                  <span>⚠️</span>
-                  <span>A diferencia de la ingesta en HANA DB, en HDLF la "tabla" es un archivo físico materializado mediante Transformation o Replication Flows. El ciclo de vida del dato es responsabilidad del flujo que lo crea.</span>
-                </div>
-              </div>
-            </div>
-
+        <!-- ══ BANDA HDLF: Delta Tables + Parquet Files ══ -->
+        <div class="ds-band ds-band-hdlf">
+          <div class="ds-band-head">
+            <span class="ds-band-title">HDLF</span>
+            <span class="ds-band-sub">HANA Data Lake Files</span>
           </div>
-        </div><!-- /top grid -->
+          <div class="hdlf-files-row">
+            <div class="hdlf-file hdlf-delta has-tip" id="hdlf-delta">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): archivo físico materializado por Transformation/Replication Flows, con versionado transaccional.</div></div>
+            <div class="hdlf-file hdlf-parquet has-tip" id="hdlf-parquet">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar eficiente para analítica sobre grandes volúmenes.</div></div>
+            <div class="hdlf-bsg"><span>⬛🔲⬜</span> Bronze / Silver / Gold</div>
+          </div>
+          <div class="hdlf-note">
+            <span>⚠️</span>
+            <span>A diferencia de la ingesta en HANA DB, en HDLF la "tabla" es un archivo físico materializado mediante Transformation o Replication Flows. El ciclo de vida del dato es responsabilidad del flujo que lo crea.</span>
+          </div>
+        </div>
 
         <!-- DETAIL DRAWER — appears below capas on click -->
         <div class="detail-drawer" id="detail-drawer"></div>
@@ -666,6 +699,51 @@ function closeCapa() {
   const drawer = document.getElementById('detail-drawer');
   drawer.classList.remove('open');
 }
+
+// ── Flechas entre bandas HANA-DB ⇄ HDLF (en el #ds-svg) ──────────────────────
+// Replication ↓: Replication Flows → Parquet Files (HANA empuja a HDLF).
+// Transformation ↑: Delta Tables → Transformation Flows (HDLF vuelve a HANA).
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  function rel(wrap, el) {
+    const wr = wrap.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return { cx: r.left - wr.left + r.width / 2, top: r.top - wr.top, bottom: r.bottom - wr.top };
+  }
+  function vArrow(svg, x1, y1, x2, y2, color) {
+    const mk = 'mkf-' + color.replace(/[^a-z0-9]/gi, '');
+    if (!svg.querySelector('#' + mk)) {
+      const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS(NS, 'defs'), svg.firstChild);
+      const m = document.createElementNS(NS, 'marker');
+      m.setAttribute('id', mk); m.setAttribute('markerWidth', '7'); m.setAttribute('markerHeight', '7');
+      m.setAttribute('refX', '6'); m.setAttribute('refY', '3.5'); m.setAttribute('orient', 'auto');
+      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', 'M0,0 L7,3.5 L0,7 Z'); p.setAttribute('fill', color);
+      m.appendChild(p); defs.appendChild(m);
+    }
+    const my = (y1 + y2) / 2;
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`);
+    path.setAttribute('stroke', color); path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-dasharray', '5,4'); path.setAttribute('fill', 'none');
+    path.setAttribute('marker-end', `url(#${mk})`);
+    svg.appendChild(path);
+  }
+  function drawFlows() {
+    const svg = document.getElementById('ds-svg'); if (!svg) return;
+    const wrap = svg.parentElement;
+    Array.from(svg.querySelectorAll('path')).forEach(p => p.remove());
+    Array.from(svg.querySelectorAll('defs marker')).forEach(m => m.remove());
+    const rep = document.getElementById('flow-rep'), trans = document.getElementById('flow-trans');
+    const pq = document.getElementById('hdlf-parquet'), dl = document.getElementById('hdlf-delta');
+    if (!rep || !trans || !pq || !dl) return;
+    const rc = rel(wrap, rep), tc = rel(wrap, trans), pc = rel(wrap, pq), dc = rel(wrap, dl);
+    // Replication ↓: la chip Replication Flows empuja a Parquet Files (HANA → HDLF).
+    vArrow(svg, rc.cx, rc.bottom, pc.cx, pc.top - 2, '#1565c0');
+    // Transformation ↑: Delta Tables vuelve a HANA vía Transformation Flows (HDLF → HANA).
+    vArrow(svg, dc.cx, dc.top, tc.cx, tc.bottom + 2, '#0d7a5f');
+  }
+  window.addEventListener('load', () => setTimeout(drawFlows, 120));
+  let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(drawFlows, 150); });
+})();
 </script>
 </body>
 </html>

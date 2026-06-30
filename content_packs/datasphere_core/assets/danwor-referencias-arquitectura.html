@@ -63,7 +63,10 @@
     grid-template-columns: 128px 1fr;
     gap: 14px;
     position: relative;
-    z-index: 1; /* below SVG */
+    /* Sin z-index propio: por DOM order el SVG (z-index:2) sigue dibujándose
+       sobre los nodos, pero al NO crear contexto de apilamiento acá, un nodo en
+       hover (z-index:9000, ver .has-tip:hover) puede elevar su tooltip POR ENCIMA
+       de las flechas. Con z-index:1 quedaba atrapado debajo del SVG. */
     /* Sin min-height: el grid toma la altura del contenido más alto (la columna
        de sistemas, que cierra en No-SAP/Azure). Así la caja Datasphere — que
        estira con height:100% — alinea su borde inferior con No-SAP en vez de
@@ -90,6 +93,25 @@
     user-select: none; position: relative;
   }
   .node:hover { filter: brightness(0.95); transform: translateY(-1px); }
+
+  /* ── TOOLTIPS — hover sobre cada componente para "más info" (pedagógico, como
+     la sección 14). Sólo CSS. El click sigue activando el escenario. ── */
+  .has-tip { position: relative; }
+  .has-tip:hover { z-index: 9000 !important; }
+  .tip-content {
+    display: none; position: absolute; z-index: 9999;
+    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+    width: 230px; padding: 10px 13px; border-radius: var(--r-sm);
+    background: var(--dw-black); color: rgba(255,255,255,0.92);
+    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
+  }
+  .tip-content::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: var(--dw-black);
+  }
+  .has-tip:hover .tip-content { display: block; }
+  .tip-content strong { color: #f5c542; font-weight: 700; }
 
   .node-sap   { background: #e8f0fe; border: 1px solid #c5d8fb; color: #1a4ea0; }
   .node-bw    { background: #ede9fe; border: 1px solid #d4bcfc; color: #5b21b6; }
@@ -289,29 +311,34 @@
 
         <div class="sys-box">
           <div class="sys-box-title">Sistemas SAP</div>
-          <div class="node node-sap" id="n-ecc" onclick="activateScenario(1)">
+          <div class="node node-sap has-tip" id="n-ecc" onclick="activateScenario(1)">
             <span>ECC o S/4</span>
             <span class="sc-badge sc-1">1</span>
+            <div class="tip-content"><strong>Orígenes SAP (ECC, S/4HANA)</strong><br>Importan sus tablas vía Tablas Remotas o BW Bridge, usando CDS Views y extractores ODP-SAPI/ODP-CDS. Acceso whitelisted (Nota SAP 2500202).</div>
           </div>
-          <div class="node node-bw" id="n-bw" onclick="activateScenario(2)">
+          <div class="node node-bw has-tip" id="n-bw" onclick="activateScenario(2)">
             <span>BW</span>
             <span class="sc-badge sc-2">2</span>
+            <div class="tip-content"><strong>SAP BW</strong><br>Modernización a Datasphere: migración a BW Bridge o réplica manual de los modelos. Los extractores estándar whitelisted se importan como Tablas Remotas para capitalizar rutinas y customer-exits.</div>
           </div>
         </div>
 
         <div class="sys-box">
           <div class="sys-box-title">No-SAP</div>
-          <div class="node node-nosap" id="n-oracle" onclick="activateScenario(3)">
+          <div class="node node-nosap has-tip" id="n-oracle" onclick="activateScenario(3)">
             <span>Oracle</span>
             <span class="sc-badge sc-3">3</span>
+            <div class="tip-content"><strong>Oracle (no-SAP)</strong><br>Compatible con Tablas Remotas: conexión directa vía ODBC/SDA hacia Datasphere (acceso federado, sin replicar).</div>
           </div>
-          <div class="node node-nosap" id="n-sql" onclick="activateScenario(3)">
+          <div class="node node-nosap has-tip" id="n-sql" onclick="activateScenario(3)">
             <span>SQL Server</span>
             <span class="sc-badge sc-3">3</span>
+            <div class="tip-content"><strong>SQL Server (no-SAP)</strong><br>Compatible con Tablas Remotas: conexión directa vía ODBC/SDA hacia Datasphere (acceso federado, sin replicar).</div>
           </div>
-          <div class="node node-azure" id="n-azure" onclick="activateScenario(4)">
+          <div class="node node-azure has-tip" id="n-azure" onclick="activateScenario(4)">
             <span>Azure</span>
             <span class="sc-badge sc-4">4</span>
+            <div class="tip-content"><strong>Azure (no-SAP, sin tabla remota)</strong><br>Sin compatibilidad de federación directa: ingesta vía Data Flows / Replication Flows hacia Tablas locales (persistencia necesaria).</div>
           </div>
         </div>
 
@@ -323,13 +350,13 @@
           <div class="ds-title">Datasphere</div>
           <div class="ds-inner-grid">
             <div class="ds-col">
-              <div class="node node-bwb node-ds-block" id="n-bwb">BW Bridge</div>
-              <div class="node node-ds  node-ds-block" id="n-tr">Tablas<br>Remotas</div>
+              <div class="node node-bwb node-ds-block has-tip" id="n-bwb">BW Bridge<div class="tip-content"><strong>BW Bridge</strong><br>Puente para cargas BW dentro de Datasphere: reusa extractores y rutinas BW sin reescribir la lógica de origen.</div></div>
+              <div class="node node-ds  node-ds-block has-tip" id="n-tr">Tablas<br>Remotas<div class="tip-content"><strong>Tablas Remotas</strong><br>Acceso federado a los datos del origen sin replicar (live). Base de la mayoría de las integraciones SAP y no-SAP compatibles.</div></div>
             </div>
             <div class="ds-col">
-              <div class="node node-ds node-ds-block" id="n-ma" style="font-size:10.5px">Modelos<br>Analíticos</div>
-              <div class="node node-ds node-ds-block" id="n-vi">Vistas</div>
-              <div class="node node-ds node-ds-block" id="n-tb">Tablas</div>
+              <div class="node node-ds node-ds-block has-tip" id="n-ma" style="font-size:10.5px">Modelos<br>Analíticos<div class="tip-content" style="font-size:11.5px"><strong>Modelos Analíticos</strong><br>Capa semántica de consumo: medidas, jerarquías y lógica analítica sobre vistas y tablas.</div></div>
+              <div class="node node-ds node-ds-block has-tip" id="n-vi">Vistas<div class="tip-content"><strong>Vistas</strong><br>Vistas de modelado y consumo construidas sobre tablas remotas, tablas locales y modelos.</div></div>
+              <div class="node node-ds node-ds-block has-tip" id="n-tb">Tablas<div class="tip-content"><strong>Tablas (locales)</strong><br>Datos persistidos dentro de Datasphere cuando no hay federación directa (p. ej. orígenes sin tabla remota).</div></div>
             </div>
           </div>
         </div>
@@ -341,19 +368,21 @@
     <div class="outbound-divider"><span>Premium outbound</span></div>
     <div class="outbound-caption">Datasphere como puente/hub: exposición gobernada hacia plataformas corporativas (uso indirecto).</div>
     <div class="outbound-grid">
-      <div class="platform-box">
+      <div class="platform-box has-tip">
         <div class="platform-title">Databricks</div>
         <div class="platform-sub">Lakehouse Corporativo</div>
         <div class="platform-layer">Unity Catalog</div>
         <div class="node platform-node" id="n-dbx">Data Products<br>Publicados</div>
         <div class="platform-foot">Consumo de Data Products</div>
+        <div class="tip-content"><strong>Databricks — Lakehouse Corporativo</strong><br>Uso indirecto: Datasphere actúa como puente y publica Data Products gobernados (catalogados en Unity Catalog) que la compañía consume desde su lakehouse.</div>
       </div>
-      <div class="platform-box">
+      <div class="platform-box has-tip">
         <div class="platform-title">AWS</div>
         <div class="platform-sub">Plataforma Corporativa</div>
         <div class="platform-layer">DataLake</div>
         <div class="node platform-node" id="n-aws">S3-based datalake</div>
         <div class="platform-foot">Raw · Cleansed · Curated · Analítica · Seguridad</div>
+        <div class="tip-content"><strong>AWS — Plataforma Corporativa</strong><br>Uso indirecto: Datasphere expone los datos hacia un datalake en S3 (capas raw / cleansed / curated) cuando la explotación analítica vive fuera del ecosistema SAP.</div>
       </div>
     </div>
   </div><!-- /diagram-pane -->
