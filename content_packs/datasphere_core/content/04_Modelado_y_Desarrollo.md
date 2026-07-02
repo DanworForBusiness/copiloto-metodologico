@@ -134,17 +134,17 @@ intent_assets:
 {{section_meta: keywords="arquitectura por capas, capas modelado, ingesta armonización propagación consumo, separación responsabilidades, capa ingesta, capa armonización, capa propagación, capa reporting, capa consumo, lakehouse SAP, principio capas datasphere, arquitectura modelado datasphere, modelo por capas, cómo modelar datasphere, diseño capas, capa 1 2 3, tablas remotas capa, vistas capa, persistencia capas, federación capas"}}
 
 {{subtitle: no-gap}}
-> El principio de separación de responsabilidades (ingesta > armonización > propagación > consumo) tal y como lo conocemos históricamente bajo el nombre LSA++ (Layer Scalability Architecture) no es un legado, sino un patrón estructural vigente en arquitecturas modernas.
+> El principio de separación de responsabilidades tal y como lo conocemos históricamente bajo el nombre LSA++ (Layer Scalability Architecture) no es un legado, sino un patrón estructural vigente en arquitecturas modernas -como Lakehouse- que aunque popularizan arquitecturas Bronze, Silver y Gold, el principio arquitectónico sigue siendo el mismo: separar responsabilidades entre ingesta, armonización, publicación y consumo.
 
 | Principio | SAP BW (LSA) | Lakehouse (Databricks) | Datasphere/BDC |
 |---|---|---|---|
-| **Ingesta o persistencia desacoplada del origen** | Staging Layer <br>Corporate Memory | Bronze (raw zone) | Tablas Remotas / Persistencia opcional / Data Lake (HDLF en BDC) |
-| **Armonización y Propagacion** | EDW Layer | Silver (refined zone) | Armonización / Propagación |
-| **Exposición para consumo** | Reporting Layer | Gold (serving zone) | Consumo / Modelos Analíticos |
-| **Gobierno Semántico** | Infoobjects / BW Semantics | Unity Catalog + Delta | Semantic Layer + Data Products |
+| **Ingesta desacoplada del origen** | Staging Layer <br>Corporate Memory | Bronze | Tablas Remotas / Persistencia opcional / Data Lake (HDLF en BDC) |
+| **Armonización** | EDW Layer | Silver | Businss Builder / Data Builder |
+| **Publicación** | Reporting Layer | Gold | Data Products / Modelos Analíticos |
+| **Gobierno Semántico** | Infoobjects / BW Semantics | Unity Catalog + Delta | Semantic Layer |
 
 {{callout: title="El principio no cambia, sino su forma de implementarlo" tone="punch" icon="⭐"}}
-Hoy la escalabilidad proviene del diseño semántico y separación entre almacenamiento y procesamiento, la gobernanza de contratos y metadatos,  y la performance (pushdown, delta y storage optimizado). Las capas ya no son rígidas ni necesariamente físicas: pueden ser lógicas o persistentes según el caso.
+Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del diseño semántico, la separación entre almacenamiento y procesamiento, y la gobernanza de contratos y metadatos. En este contexto, Bronze/Silver/Gold describen la implementación física del Lakehouse, mientras que nuestras capas describen responsabilidades arquitectónicas. Ambos enfoques son complementarios.
 {{/callout}}
 
 ## {dw-black}Aplicación de Arquitectura {dw-gold}por Capas
@@ -181,26 +181,37 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 
 > La **capa Business** (Business Layer) agrega la semántica de negocio sobre los objetos técnicos. La **capa Consumption** (Consumption Layer) expone los objetos analíticos finales. Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.
 
-## Convención de Nombres
+## {dw-black}Convención de {dw-gold}Nombres
 {{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
 {{semantic_summary}}
 Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es: la Capa 1 representa ingesta cruda desde origen y debe nombrarse como tabla (`T`), ya sea remota o local/materializada. No usar ejemplos `1V...` para ingesta. Las vistas (`V`) aplican desde Capa 2 en adelante, cuando ya existe preparacion, armonizacion, propagacion o consumo. La armonizacion nunca debe describirse como Capa 1.
 {{/semantic_summary}}
 
-El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
-```<Capa><Tipo>_<Origen>_<LibreConLineamientos>```
+{{subtitle: no-gap}}
+> El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
+
+```<Capa><Artefacto><Variante>_<Origen>_<libreConLineamientosPosibles>```
 
 **Capa** (prefijo numérico):
 
-- `1` — Ingesta (tablas remotas o locales replicadas desde origen)
-- `2` — Armonización (vistas reutilizables)
-- `3` — Propagación / Consumo (vistas finales, modelos analíticos)
+- `1` — **Ingesta**: datos crudos del origen, sin transformar (tablas remotas o locales replicadas).
+- `2` — **Armonización**: donde nace el contrato de datos — entidades limpias, estandarizadas, gobernadas y reutilizables (el *qué prometemos entregar*).
+- `3` — **Propagación**: el contrato materializado y expuesto como data product — composición (cruces/joins), reagregación y subsets orientados a casos de consumo. 
+- `4` — **Consumo / Reporting**: modelos analíticos finales para el negocio (SAC/Power BI). Consume el data product; no introduce un contrato nuevo.
 
-**Tipo** (letra):
+**Artefacto** (letra):
 
-- `T` — Tabla (local o remota). En Capa 1 / Ingesta, este es el tipo esperado.
-- `V` — Vista (SQL Estándar o Gráfica). Usar desde Capa 2 en adelante; no usar `1V...` para ingesta.
-- `F` — Fact / Analytical Dataset
+- `T` — Tabla (local o remota). 
+- `V` — Vista (SQL Estándar o Gráfica). 
+
+**Variante** (letra):
+
+- `F` — Fact 
+- `R` — Relacional
+- `D` — Dimension
+- `A` — Analítica
+- `T` — Texto
+- `H` — Jerarquia
 
 > Regla Danwor: la ingesta (`1`) mantiene el dato crudo como tabla remota o local. Si hay renombrado semántico, joins, limpieza, armonización o preparación, ya no es Capa 1: corresponde a Capa 2 o superior.
 
@@ -214,6 +225,23 @@ El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia 
 | `TXT` | Archivo plano (CSV, TXT) |
 | `API` | Ingesta vía API |
 
+**Texto Libre con Lineamientos:**
+Salvo por la capa de ingesta donde se mantiene la convencion de nombre del origen, es un texto libre que describe el objeto en cuestión pero con ciertos lineamientos para darle mayor robustez
+
+- Sufijos: 
+    - *_PBI (exclusivo consumo PBI)
+    - *_SPM (exclusivo outbound SPM)
+  
+- Prefijos: 
+    - MD_* (Master Data)
+    - FNC_* (Finanzas)
+    - IVT_* (Inventarios)
+    - PUR_* (Compras)
+    - SND_* (Ventas y Distribucion)
+
+**Secuencial:** (solo si desean usar ciclo de vida/versionado)
+> llegado el caso de querer utilizar versionado (ciclo de vida de vistas para facilitar el uso/manejo de versionado y ciclo de vida sobre todo desde la capa de armonizacion en adelante).
+
 **Ejemplos:**
 
 | Objeto | Interpretación |
@@ -226,7 +254,22 @@ El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia 
 {{subtitle: no-gap}}
 > Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`<LibreConLineamientos>`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.
 
-## Tipos de Vistas SQL
+### Otros Artefactos
+Alineado con la agrupación semántica de las distintas líneas de negocio a través del texto <LibreConLineamientos> y los distintos prefijos utilizados, los artefectas a continuación llevan una simple abreviación, seguida de sus referencias adjuntas:
+
+| Artefacto | Abreviación | Ejemplo
+|---|---|---|
+| **Data Flow** | DF | DF_SND_PEDIDOS |
+| **Replication Flow** | RF | RF_SND_ENTREGAS |
+| **Transformation Flow** | FT | FT_SND_CONDICIONES |
+| **Intelligent Look-up** | IL | IL_MNF_NOTIFICACIONES |
+| **Task Chain** | TC | TC_SND |
+| **Analytic Model** | AM | AM_SND_FACTURACION |
+| **Entity Rel'ship Model** | EM | EM_SND_ENTREGAS |
+| **Data Access Controls** | DAC | DAC_SND |
+
+
+## {dw-black}Tipos de {dw-gold}Vistas SQL
 {{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
 
@@ -245,7 +288,7 @@ Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisi
 
 {{tree_button: Tipos de Vistas SQL}}
 
-## Checklist de Desarrollo
+## {dw-black}Checklist de {dw-gold}Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}
 
 Orientativo para revisar la calidad del modelo antes de promover al siguiente ambiente:

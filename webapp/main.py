@@ -1,7 +1,10 @@
 from pathlib import Path
+from datetime import datetime, timezone
+from uuid import uuid4
 import json
 import re
 import unicodedata
+import yaml
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -17,6 +20,7 @@ from core.content_registry import (
     roots_for_kind,
 )
 from config import (
+    FEEDBACK_LOG_DIR,
     APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
@@ -438,6 +442,44 @@ def analyze_section(
     )
 
 
+@app.post("/modules/{stem}/feedback", response_class=HTMLResponse)
+def module_feedback(
+    request: Request,
+    stem: str,
+    rating: str = Form(""),
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = _pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inv?lido")
+    document = load_module(stem, selected)
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "module_content",
+            "module": document.summary.stem,
+            "module_title": document.summary.title,
+            "pack": selected,
+            "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""),
+            "ts": now.isoformat(),
+        }
+        path = FEEDBACK_LOG_DIR / f"module_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        temporary = path.with_suffix(".yaml.tmp")
+        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        temporary.replace(path)
+    except Exception:
+        # El feedback no debe romper la navegaci?n ni el contenido del m?dulo.
+        pass
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected, "submitted": True, "rating": rating},
+    )
+
+
 @app.post("/modules/{stem}/assistant/chat", response_class=HTMLResponse)
 def assistant_chat(
     request: Request,
@@ -578,12 +620,15 @@ def _norm_tokens(text: str) -> list[str]:
     return [t for t in re.split(r"[^a-z0-9]+", ascii_text) if t]
 
 
-def _resolve_tree(trees: tuple, tree_id: str, tree_title: str) -> dict | None:
+def _resolve_tree(trees: tuple, tree_id: str, tree_title: str, pack_name: str) -> dict | None:
     """Resuelve un árbol por id exacto; si no, por título (exacto, luego por
     subconjunto de tokens — p. ej. el botón 'Estrategia de Integración (federación
     vs persistencia)' matchea el árbol 'Federación vs Persistencia')."""
     if tree_id:
         tree = next((t for t in trees if str(t.get("id")) == tree_id), None)
+        if tree:
+            return tree
+        tree = store.tree_by_id(tree_id, pack_name)
         if tree:
             return tree
     title = (tree_title or "").strip()
@@ -613,7 +658,7 @@ def start_tree(
 ):
     selected = _pack(pack)
     trees = store.trees_for_module(stem, selected, include_assessment=True)
-    tree = _resolve_tree(trees, tree_id, tree_title)
+    tree = _resolve_tree(trees, tree_id, tree_title, selected)
     if tree is None:
         raise HTTPException(404, "Árbol no encontrado")
     run = store.start(tree, selected)

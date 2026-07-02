@@ -240,7 +240,7 @@ La estrategia de integración no es la misma si el origen de los datos es ECC, S
 ## {dw-black}Tipos de {dw-gold}Vistas CDS
 {{section_meta: keywords="tipos vistas CDS, vista CDS estándar, vista CDS custom, API Funcional SAP, wrapper, core-data services, core data services, CDS Views, DDL, DDIC, CDS, vista CDS, CDS view, CDS DDIC, DDIC-based CDS, CDS view entity, define view entity, define view, diferencia DDIC entity, DDIC vs entity, código CDS, crear CDS, escribir CDS, ayuda CDS, ejemplo CDS, CDS extracción, CDS datasphere, CDS S4HANA, ABAP CDS, anotaciones CDS, @Analytics, dataExtraction, vista extracción, cómo crear CDS, patrón CDS, referencia CDS, CDS FULL, CDS delta, CDC CDS, CDS change data capture, CDS timestamp, ODP CDS, CDS ODP extracción, CDS para datasphere, CDS hacia datasphere, estructura CDS, código extracción SAP, vista ABAP extracción"}}
 
-{{support: SAP Help CDS Entity="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST" SAP Help CDS DDIC-based="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST#loioe3a611dc5f25472481a9cf4ad5066ba4"}}
+{{support: SAP Help CDS Entity="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST" SAP Help CDS DDIC-based="https://help.sap.com/docs/ABAP_PLATFORM_NEW/f2e545608079437ab165c105649b89db/7c078765ec6d4e6b88b71bdaf8a2bd9f.html?locale=en-US&version=LATEST#loioe3a611dc5f25472481a9cf4ad5066ba4" CDS para Extraccion="https://help.sap.com/docs/SAP_S4HANA_CLOUD/c0c54048d35849128be8e872df5bea6d/870d66c6bfc44d6c9f128c888f0c7957.html?utm_source=chatgpt.com&locale=en-US&version=LATEST"}}
 
 {{subtitle: no-gap}}
 >Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP (modernización por sobre legado), hay consideraciones importantes en nuestro contexto metodológico de cara a la extracción y framework ODP por los cuales inclusive SAP continúa apoyándose en CDS DDIC-based para sus propias API de extracción liberadas.
@@ -299,11 +299,13 @@ Esta sección define el template de extracción vía API corporativa para Datasp
 El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_BASIS (>= 7.56) y no está garantizado en todos los escenarios de extracción. Para mas información ver Nota SAP 3534086
 {{/callout}}
 
-### Clean Core aplicado a extracción
+## Clean Core aplicado a extracción
 {{section_meta: keywords="clean core, qué es clean core, clean core sap, clean core extracción, principio clean core, clean core datasphere, apis liberadas, ODP clean core, CDS clean core, extensiones permitidas, evitar lógica SAP, exits simples, clean core integración"}}
 {{section_exclude: "codigo, código, vista CDS, ejemplo CDS, crear CDS, escribir CDS, anotaciones CDS, patrón CDS, implementar CDS, template CDS, ayuda codigo, ayuda código"}}
-{{support: SAP Help="https://help.sap.com/" Nota SAP="https://me.sap.com/notes/2232584"}}
-Clean core no significa eliminar extractores SAP, sino apoyarse en mecanismos liberados (ODP/CDS) y mantener la lógica fuera del core.
+{{support: CDS para Extraccion="https://help.sap.com/docs/SAP_S4HANA_CLOUD/c0c54048d35849128be8e872df5bea6d/870d66c6bfc44d6c9f128c888f0c7957.html?utm_source=chatgpt.com&locale=en-US&version=LATEST" Nota SAP ODP-SAPI="https://me.sap.com/notes/2232584"}}
+
+> Clean core no significa eliminar extractores SAP, sino apoyarse en mecanismos liberados (ODP/CDS) y mantener la lógica fuera del core.
+
   - APIs liberadas: ODP_SAPI, ODP_CDS
   - Extensiones: Exits simples
   - Evitar: lógica de negocio y cálculos complejos en SAP
@@ -358,37 +360,23 @@ Para preguntas de configuración de Cloud Connector, no responder con un procedi
 Es fundamental no verlas como alternativas (una u otra), sino que coexisten y trabajen en conjunto para una mejor solución de escalabilidad, performance y flexibilidad a través del uso de método Hibrido.
 {{/callout}}
 
-## ¿Qué nos funcionó hasta acá?
-{{section_meta: keywords="qué funcionó, lecciones aprendidas, buenas prácticas integración, extractores disponibles, capitalizar extractores, idioma cliente, dimensión maestra, atributos textos SQL, compatibilidad extractores, extractores custom"}}
-
-Capitalizarnos de lo que existe, apoyarnos en lo que ya conocen: no reinventar la rueda – al menos como punto de partida:
-  - Capitalizarnos de exits / extractores disponibles y compatibles
-  - Respetar el idioma en el que se apoya el cliente (Centro vs. Plant)
-  - Integrar Dimensión Maestra (atributos + textos) via SQL Estándar
-
-{{callout: title="Compatibilidad" tone="punch" icon="💡"}}
-Para extractores estándar, tener en cuenta su compatibilidad/whitelisteo. Para los custom, considerar su tabla continue siendo compatible en S/4HANA. En cualquiera de los dos casos, tener en cuenta que data sources sin clave primaria pueden utilizarse únicamente en extracción FULL (sin compatibilidad delta nativa)
-{{/callout}}
-
 ## {dw-black}Modelo de Integración {dw-gold}Híbrido
 {{section_meta: keywords="modelo híbrido, integración híbrida, híbrido federación persistencia, tablas remotas locales combinadas, evolución integración, remote tables local tables, data flow replication flow, cuándo usar híbrido"}}
 
 {{subtitle: no-gap}}
-> En la práctica, se puede comenzar con tablas remotas y, según necesidades de rendimiento, evolucionar hacia persistencia mediante replication/data flows.
+> La decisión entre federar y persistir no cambia el modelo de integración, sino el modo de consumo del Data Product.
 
-| Aspecto | Tablas Remotas | Tablas Locales |
-|---|---|---|
-| **Definición** | Tablas virtuales que acceden a datos en tiempo real desde sistemas origen (Ej.: CDS Views). | Tablas persistidas en Datasphere mediante flujos de datos o replicación. |
-| **Propósito** | Evitar replicar datos innecesarios y mantenerlos en el sistema origen para garantizar consistencia. | Centralizar datos para un acceso más rápido y personalizado en Datasphere. |
-| **Casos de Uso Típicos** | Acceso en tiempo real. Datos cambiantes. Evitar costos de replicacion | Análisis de alto volumen. Combinar múltiples fuentes. Disponibilidad independiente del origen. |
-| **Ventajas** | Datos siempre actualizados. Reducción de costos de almacenamiento. | Rendimiento optimizado para análisis. Menor latencia en consultas. Personalización de datos según los modelos analíticos |
-| **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. |
-
-## {dw-black}Federación, Persistencia o {dw-gold}Híbrido?
-{{section_meta: keywords="federación persistencia híbrido, qué estrategia elegir, cómo decidir integración, árbol integración, estrategia integración datasphere, decidir federación o persistencia"}}
+| Aspecto | Federacion / Tablas Remotas | Persistencia / Tablas Locales | Object Store / HDLF
+|---|---|---|---|
+| **Definición** | Tablas virtuales que acceden a datos en tiempo real desde sistemas origen (Ej.: CDS Views). | Tablas persistidas en Datasphere mediante flujos de datos o replicación. | Archivos físicos (Parquet + transaction log) persistidos en HANA Data Lake Files mediante Replication o Transformation Flows |
+| **Propósito** | Evitar replicar datos innecesarios y mantenerlos en el sistema origen para garantizar consistencia. | Centralizar datos para un acceso más rápido y personalizado en Datasphere. | Almacenar grandes volúmenes de datos históricos a bajo costo, habilitando procesamiento Spark y consumo analítico vía SQL on Files o HANA Space | 
+| **Casos de Uso Típicos** | Acceso en tiempo real. Datos cambiantes. Evitar costos de replicacion | Análisis de alto volumen. Combinar múltiples fuentes. Disponibilidad independiente del origen. | Alto volumen de datos históricos. Procesamiento medallion (Bronze/Silver/Gold). Datos compartidos vía Delta Sharing (BDC). Casos donde el costo HANA in-memory no se justifica |
+| **Ventajas** | Datos siempre actualizados. Reducción de costos de almacenamiento. | Rendimiento optimizado para análisis. Menor latencia en consultas. Personalización de datos según los modelos analíticos | Costo de storage significativamente menor. Escalabilidad sin impacto en memoria HANA. Procesamiento distribuido con Spark. Compatibilidad nativa con ecosistemas lakehouse (Databricks, Delta Sharing) |
+| **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. | Requiere mínimo 128GB de memoria HANA habilitados (Nota SAP 3648786). Sin separación de ambientes DEV/QA/PRD en el storage (el lifecycle se gestiona desde los flujos). Mayor latencia que HANA in-memory para consultas analíticas frecuentes. El ciclo de vida del dato depende del flujo que lo genera, no del objeto en sí |
+| **Role en Danwor** | Acceso al Dato | Construccion del Data Product | Lakehouse / Aterrizaje BDC-ready |
 
 Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través de un **árbol determinístico** de decisión guiada.
-{{tree_button: Estrategia de Integración (federación vs persistencia)}}
+{{tree_button: Federación vs Persistencia vs Híbrido}}
 
 ## {dw-black}Tipos de {dw-gold}Conexión
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}

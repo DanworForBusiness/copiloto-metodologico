@@ -1,5 +1,5 @@
 id: m03_data_integration_strategy
-title: Federación vs Persistencia
+title: Federación vs Persistencia vs Híbrido
 version: "0.2"
 
 # Links como navigation bindings (para UI / conexión con módulos)

@@ -120,7 +120,7 @@ out_of_scope_redirect:
 ---
 # 05 Reporting y Consumo
 
-## Estrategia de Reporting
+## {dw-black}Estrategia de {dw-gold}Reporting
 {{section_meta: keywords="estrategia reporting, herramienta reporting, SAC, SAP Analytics Cloud, Power BI, BusinessObjects, BO, qué herramienta usar, SAC vs Power BI, Power BI datasphere, SAC datasphere, BO datasphere, herramienta BI, herramienta analítica, consumo datasphere, cómo consumir datasphere, herramientas externas datasphere, reporte datasphere, visualización datasphere, árbol herramienta reporting"}}
 
 La explotación de datos en Datasphere es posible independientemente de la herramienta. Presentamos las opciones dentro y fuera del ecosistema SAP, donde existen distintas alternativas según el contexto tecnológico, la inversión existente y los requisitos de gobernanza:
@@ -150,7 +150,7 @@ No todas las herramientas consumen lo mismo. Por ejemplo, **Power BI** via ODBC/
 
 {{tree_button: Herramienta de Reporting}}
 
-## Conexión de Herramientas Externas
+## {dw-black}Conexión de {dw-gold}Herramientas Externas
 {{section_meta: keywords="conexión Power BI datasphere, schema user, usuario esquema, DirectQuery datasphere, import mode datasphere, live data connection, conexión SAC datasphere, cómo conectar Power BI, cómo conectar herramienta externa, JDBC ODBC datasphere, conexión BO datasphere, configurar Power BI datasphere, conexión externa datasphere, tipo conexión reporting"}}
 
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/4db9e1e21c814cda933c5e1b5a6e6e30.html" DirectQuery="https://community.sap.com/t5/technology-blogs-by-sap/sap-datasphere-powerbi-direct-query-via-hana-cloud-calculation-views/ba-p/13576406" ImportMode="https://developers.sap.com/tutorials/data-warehouse-cloud-bi7-connect-powerbi.html" LiveConn="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/a2c5486c03174620be9de3c8c769ce54.html?locale=en-US&version=LATEST"}}
@@ -167,7 +167,7 @@ Para conectar herramientas externas como Power BI a Datasphere se requiere un **
 Crear un schema user por espacio y ambiente (DEV/QA/PRD). No compartir el mismo usuario entre herramientas distintas. El schema user debe tener asignados los DAC correspondientes al perfil de consumo externo.
 {{/callout}}
 
-## Protocolos de Consumo
+## {dw-black}Protocolos de {dw-gold}Consumo
 {{section_meta: keywords="consumo, tipos de consumo, odbc vs jdbc, odata, protocolos, protocolos de consumo"}}
 
 {{support: ODBC="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/4db6f5a329af44509ae422ad707877b2.html?locale=en-US&version=LATEST" OData="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/add771abf6f54c9d8de4c7e470a0e6f0.html?locale=en-US&version=LATEST" API="https://help.sap.com/docs/SAP_DATASPHERE/43509d67b8b84e66a30851e832f66911/7a453609c8694b029493e7d87e0de60a.html?locale=es-ES&version=LATEST"}}
@@ -184,7 +184,7 @@ Los datos expuestos como modelos analiticos o vistas pueden ser consumidos desde
 Los **artefactos de tipo vista** solo estarán disponibles para consumo vía ODBC / JDBC / OData cuando se haya activado previamente el flag **"Exponer para consumo"** (*Exposed for Consumption*). Sin ese flag la vista existe pero no es accesible desde herramientas externas — es un mecanismo de gobierno para evitar exposición accidental de datos técnicos.
 {{/callout}}
 
-## Performance en Reporting
+## {dw-black}Performance en {dw-gold}Reporting
 {{section_meta: keywords="performance reporting, performance datasphere, rendimiento reporting, lentitud Power BI, lentitud SAC, optimizar reporte, performance consultas, índices datasphere, persistencia performance, DirectQuery lento, capacidad datasphere, CU datasphere, capacity units, optimización reporting, latencia reporte"}}
 
 La performance del reporting depende de decisiones tomadas desde el modelo, no solo desde la herramienta de consumo.
@@ -206,7 +206,7 @@ La palanca de fondo es **cuándo materializar**. **Federación (live):** Datasph
 Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.
 {{/callout}}
 
-## Checklist de Reporting
+## {dw-black}Checklist de {dw-gold}Reporting
 {{section_meta: keywords="checklist reporting, lista verificación reporting, checklist consumo, revisión reporting, buenas practicas reporting, puntos control reporting, verificar herramienta, verificar conexión, verificar performance, checklist Power BI datasphere, checklist SAC datasphere"}}
 
 | Item | Pregunta de control |

@@ -28,6 +28,10 @@
   </div>
   {% endif %}
   {% else %}
-  <div class="tool-empty"><p>No hay árboles de decisión asociados a este módulo.</p></div>
+    {% if run and run.tree.kind != "assessment" %}
+      {% include "partials/wizard.html" %}
+    {% else %}
+      <div class="tool-empty"><p>No hay &aacute;rboles de decisi&oacute;n asociados a este m&oacute;dulo.</p></div>
+    {% endif %}
   {% endif %}
 </div>

@@ -127,7 +127,7 @@ out_of_scope_redirect:
 ---
 # 02 Seguridad y Gobernanza
 
-## Seguridad de Roles
+## {dw-black}Seguridad de {dw-gold}Roles
 {{section_meta: keywords="roles, permisos, roles estándar, roles estandar, roles custom, seguridad roles, permisos datasphere, roles datasphere, estándar vs custom, estandar vs custom, crear roles, diseño roles, roles SAP, marco de roles, objeto de seguridad, objetos seguridad, segregación funciones, segregacion funciones, qué rol usar, roles PoC, roles piloto, roles MVP, escalabilidad roles, Danwor RDS roles, marco Danwor roles, roles BDC"}}
 
 > A la fecha, no existe práctica recomendada por SAP respecto al uso directo de los objetos de seguridad estándar vs. la creación de un marco propio apoyado en el estándar. Dado que ambos casos de uso podrían ser técnicamente válidos, detallamos sus virtudes y desventajas.
@@ -135,7 +135,7 @@ out_of_scope_redirect:
 
 {{tree_button: Seguridad de Roles}}
 
-## Seguridad de Datos (DAC)
+## {dw-black}Seguridad de {dw-gold}Datos 
 {{section_meta: keywords="DAC, data access control, seguridad datos, seguridad de datos, seguridad fila, seguridad columna, row level security, column level security, valores individuales, operadores y valores, jerarquía, jerarquia, tipos DAC, tipos de permisos, permisos DAC, acceso a datos, restricción de datos, qué tipo de DAC, cómo restringir datos, acceso dinámico, regla acceso, reglas acceso, seguridad SAP Datasphere, BDC seguridad, filtro datos, filtro por usuario, jerarquía organizacional, centro de costos, organigrama"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html" Pin=true}}
 
@@ -165,7 +165,7 @@ El tipo más potente para estructuras organizacionales. El acceso al nodo padre 
 
 {{tree_button: Seguridad de Datos}}
 
-## Seguridad como extensión del diseño de dominios
+## {dw-black}Seguridad como {dw-gold}extensión del diseño de dominios
 {{section_meta: keywords="seguridad diseño dominios, data product seguridad, gobernanza datos, principio seguridad, modelo seguridad, dominios y seguridad, data governance, roles responsabilidades, controles acceso, activo confiable, seguridad bien diseñada, diseño conceptual seguridad, dominios Danwor"}}
 
 {{callout: title="Principio Danwor — Seguridad desde el diseño" tone="success" icon="🔒"}}
