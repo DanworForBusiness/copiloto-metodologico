@@ -64,9 +64,23 @@ def _display_diagnostic_title(title: str) -> str:
     return value
 
 templates.env.filters["diagnostic_title"] = _display_diagnostic_title
-templates.env.globals["static_version"] = str(max(
-    path.stat().st_mtime_ns for path in (WEB_DIR / "static").iterdir() if path.is_file()
-))
+class _StaticVersion:
+    """Cache-busting de estáticos: se recalcula en cada render (mtime actual de
+    /static). Así, tras editar un .css/.js, un simple refresh trae la versión
+    nueva sin reiniciar el server (antes se fijaba al importar el módulo → los
+    cambios locales quedaban cacheados con la URL vieja)."""
+
+    def __str__(self) -> str:
+        try:
+            return str(max(
+                path.stat().st_mtime_ns
+                for path in (WEB_DIR / "static").iterdir() if path.is_file()
+            ))
+        except ValueError:
+            return "0"
+
+
+templates.env.globals["static_version"] = _StaticVersion()
 store = WizardStore(case_repository=CaseLibraryRepository())
 section_analysis_service = SectionAnalysisService()
 assistant_chat_service = AssistantChatService()

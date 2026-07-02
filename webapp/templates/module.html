@@ -48,6 +48,8 @@
     </div>
   </header>
 
+  <div class="read-progress" aria-hidden="true"><span class="read-progress__fill"></span></div>
+
   <aside class="module-nav" :class="navOpen&&'is-open'">
     {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
     <nav aria-label="Módulos metodológicos">

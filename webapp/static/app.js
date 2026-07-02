@@ -32,6 +32,34 @@ function copilotLayout(isAppendix = false) {
       };
       const contentEl = shell.querySelector(".module-content");
       contentEl?.addEventListener("scroll", syncNavToActive, { passive: true });
+
+      // Barra de progreso de lectura (estilo de la web de referencia: una línea
+      // que se "llena" vía scaleX). No asumimos QUÉ elemento scrollea: elegimos
+      // dinámicamente el de mayor rango de scroll (panel central, <html> o <body>).
+      const progressFill = document.querySelector(".read-progress__fill");
+      if (progressFill) {
+        const pickScroller = () => {
+          const cands = [contentEl, document.scrollingElement, document.documentElement, document.body];
+          let best = null, bestRange = 8;
+          for (const el of cands) {
+            if (!el) continue;
+            const range = (el.scrollHeight || 0) - (el.clientHeight || 0);
+            if (range > bestRange) { best = el; bestRange = range; }
+          }
+          return { el: best, range: bestRange };
+        };
+        const updateProgress = () => {
+          const { el, range } = pickScroller();
+          const ratio = el ? Math.min(1, Math.max(0, el.scrollTop / range)) : 0;
+          progressFill.style.width = (ratio * 100).toFixed(2) + "%";
+        };
+        // Captura en document: el evento scroll no burbujea, pero sí llega en
+        // fase de captura, así atrapamos el scroll venga del elemento que venga.
+        document.addEventListener("scroll", updateProgress, { capture: true, passive: true });
+        window.addEventListener("resize", updateProgress, { passive: true });
+        setTimeout(updateProgress, 100);   // reevaluar tras montar embeds/iframes
+        updateProgress();
+      }
       // Lectura continua: al llegar al final del módulo y seguir scrolleando con
       // intención, pasar al siguiente (además del click en el cue .module-continue).
       // Requiere overscroll deliberado (umbral + reset por inactividad) para no

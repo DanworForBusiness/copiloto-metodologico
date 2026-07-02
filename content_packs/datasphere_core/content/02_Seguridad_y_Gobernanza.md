@@ -131,7 +131,7 @@ out_of_scope_redirect:
 {{section_meta: keywords="roles, permisos, roles estándar, roles estandar, roles custom, seguridad roles, permisos datasphere, roles datasphere, estándar vs custom, estandar vs custom, crear roles, diseño roles, roles SAP, marco de roles, objeto de seguridad, objetos seguridad, segregación funciones, segregacion funciones, qué rol usar, roles PoC, roles piloto, roles MVP, escalabilidad roles, Danwor RDS roles, marco Danwor roles, roles BDC"}}
 
 > A la fecha, no existe práctica recomendada por SAP respecto al uso directo de los objetos de seguridad estándar vs. la creación de un marco propio apoyado en el estándar. Dado que ambos casos de uso podrían ser técnicamente válidos, detallamos sus virtudes y desventajas.
-{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=710 default_mode=roles}}
+{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=730 default_mode=roles}}
 
 {{tree_button: Seguridad de Roles}}
 
@@ -141,7 +141,7 @@ out_of_scope_redirect:
 
 SAP Datasphere soporta seguridad a nivel fila y columna vía **Data Access Control (DAC)**. Con Business Data Cloud (BDC) se prevé integración de seguridad nativa cross-system, aunque aún no está disponible en todas las versiones.
 
-{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=710 default_mode=dac}}
+{{html_embed: ../assets/danwor-seguridad-roles-dac.html height=796 default_mode=dac}}
 
 Existen tres tipos de estructuras de permisos. La elección depende de cómo se organiza el acceso en el cliente:
 

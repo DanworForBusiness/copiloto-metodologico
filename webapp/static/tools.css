@@ -218,6 +218,25 @@
 /* Alinear los divisores de resize con el gap superior de los tiles. */
 .resize-handle { top: 88px; height: calc(100vh - 88px - 20px); }
 
+/* Barra de progreso de lectura: línea fina bajo el topbar, CONFINADA al panel
+   central (arranca en el borde inicial del contenido, no sobre el nav ni el panel
+   derecho), que se llena de izquierda a derecha según el scroll del módulo.
+   Usa las vars de ancho de columna que actualiza el resize. */
+.read-progress {
+  position: fixed; top: 74px; height: 3px;
+  left: calc(var(--nav-width, 245px) + 6px);
+  right: calc(var(--panel-width, 380px) + 6px);
+  z-index: 21; pointer-events: none;
+}
+.read-progress__fill {
+  display: block; height: 100%; width: 0;
+  background: var(--gold);
+}
+/* Sin panel derecho: el contenido llega hasta el borde. */
+.app-shell.no-copilot .read-progress { right: 0; }
+/* Layout apilado: la barra ocupa todo el ancho, bajo el topbar más bajo. */
+@media (max-width: 900px) { .read-progress { top: 66px; left: 0; right: 0; } }
+
 /* En viewports chicos los paneles se apilan: sin márgenes laterales que descuadren. */
 @media (max-width: 1180px) {
   .module-content { margin: 12px; position: static; height: auto; overflow: visible; }

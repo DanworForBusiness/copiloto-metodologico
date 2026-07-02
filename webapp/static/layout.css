@@ -116,7 +116,6 @@
 .content-theme-light .callout--success { background: #f2fbf5; }
 .content-theme-light .callout--punch { background: #fffaf0; }
 .content-theme-light .callout--warn { background: #fff5f6; }
-.content-theme-light .tone-black { color: #111113; }
 .content-theme-light .hero-meta { color: #66666e; }
 
 .content-theme-dark .module-content { background: var(--bg); color: var(--ink); }
