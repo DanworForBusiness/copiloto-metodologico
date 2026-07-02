@@ -27,7 +27,7 @@ EMBED_PARAM_RE = re.compile(r'([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|(
 SUPPORT_RE = re.compile(r"^\s*\{\{support\s*:\s*(.*?)\}\}\s*$", re.I | re.M)
 LEADING_SUPPORT_RE = re.compile(r"\A\s*(\{\{support\s*:\s*.*?\}\})\s*", re.I)
 SUPPORT_ITEM_RE = re.compile(r'([A-Za-z0-9 _-]+)\s*=\s*"([^"]+)"')
-TONE_RE = re.compile(r"\{dw-(black|gold|white)\}", re.I)
+TONE_RE = re.compile(r"\{dw-(black|gold|white|green|red)\}", re.I)
 CALLOUT_RE = re.compile(r"\{\{callout:(.*?)\}\}(.*?)\{\{/callout\}\}", re.I | re.S)
 CALLOUT_ROW_RE = re.compile(
     r"^\s*\{\{\s*callout_row\s*\}\}\s*$(.*?)^\s*\{\{\s*/\s*callout_row\s*\}\}\s*$",
@@ -321,13 +321,27 @@ def _prepare(source: str, pack_name: str, stem: str = "") -> str:
         return _support_links_html(match.group(1))
 
     def tree_button(match: re.Match[str]) -> str:
-        # {{tree_button: <título>}} → botón que abre ese árbol en el panel derecho
-        # (cambia a la pestaña Árbol vía Alpine y lanza el árbol vía HTMX por título).
-        title = match.group(1).strip()
+        # Soporta dos formas:
+        #   {{tree_button: Opciones de Extracción}}
+        #   {{tree_button: id=extraction_options label="Opciones de Extracción"}}
+        # La segunda permite reutilizar árboles de otro módulo sin duplicar YAML.
+        raw = match.group(1).strip()
+        params = {}
+        if "=" in raw:
+            for item in EMBED_PARAM_RE.finditer(raw):
+                params[item.group(1).lower().replace("-", "_")] = next(
+                    (value for value in item.groups()[1:] if value is not None), ""
+                )
+        tree_id = str(params.get("id") or params.get("tree_id") or "").strip()
+        title = str(params.get("label") or params.get("title") or raw).strip()
         payload = html.escape(
-            json.dumps({"tree_title": title, "pack": pack_name}, ensure_ascii=False), quote=True
+            json.dumps({"tree_id": tree_id, "tree_title": title, "pack": pack_name}, ensure_ascii=False), quote=True
         )
+        # Se rodea el bot?n con l?neas en blanco y se envuelve en un <div> block-level:
+        # as? markdown nunca lo pega al p?rrafo anterior (quedar?a inline dentro de un
+        # <p> y no tomar?a el ancho completo ? bug del "bot?n cuadrado").
         return (
+            f'\n\n<div class="tree-launch-wrap">'
             f'<button type="button" class="tree-launch" '
             f'hx-post="/modules/{html.escape(stem, quote=True)}/trees/start" '
             f'hx-target="#tree-tab-panel" hx-swap="outerHTML" hx-vals="{payload}" '
@@ -335,7 +349,7 @@ def _prepare(source: str, pack_name: str, stem: str = "") -> str:
             f'<span class="tree-launch-eyebrow">Árbol de decisión</span>'
             f'<span class="tree-launch-title">{html.escape(title)}</span>'
             f'<span class="tree-launch-cta">Hacé click para abrir en panel de herramientas de decisión</span>'
-            f'</button>'
+            f'</button></div>\n\n'
         )
 
     rendered_callouts = CALLOUT_RE.sub(callout, source)

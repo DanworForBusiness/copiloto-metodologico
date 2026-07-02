@@ -222,7 +222,7 @@
   }
 </style>
 </head>
-<body onload="togglePanel('datasphere', document.querySelector('.card-datasphere'))">
+<body onload="togglePanel('datasphere', document.querySelector('.card-datasphere'), false)">
 
 <!-- MAIN -->
 <main class="main">
@@ -459,7 +459,7 @@
   let activePanel = null;
   let activeCard  = null;
 
-  function togglePanel(id, card) {
+  function togglePanel(id, card, scroll = true) {
     const panel  = document.getElementById('panel-' + id);
     const isSame = activePanel === id;
     if (activePanel) {
@@ -469,7 +469,10 @@
     if (isSame) { activePanel = null; activeCard = null; return; }
     panel.classList.add('visible');
     if (card && card.classList) card.classList.add('active');
-    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    // scrollIntoView solo en clicks del usuario. En la apertura por defecto (onload)
+    // NO se scrollea: embebido en un iframe, scrollIntoView arrastra el scroll de la
+    // página padre hasta el embed y se pierde el contexto de la intro.
+    if (scroll) setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
     activePanel = id;
     activeCard  = card;
   }

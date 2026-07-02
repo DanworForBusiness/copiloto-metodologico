@@ -156,8 +156,8 @@
     cursor: default; transition: box-shadow var(--tr);
     border: 1.5px solid;
   }
-  .env-dev { background: #e8f0fe; border-color: #93c5fd; color: #1a4ea0; }
-  .env-qa  { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .env-dev { background: var(--dw-blue-50); border-color: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .env-qa  { background: var(--dw-purple-50); border-color: var(--dw-purple-200); color: var(--dw-purple-900); }
   .env-prd { background: #dcfce7; border-color: #86efac; color: #15803d; }
 
   /* ── Datasphere pane ── */
@@ -193,8 +193,8 @@
     transition: box-shadow var(--tr), transform var(--tr);
   }
   .space-node:hover { transform: translateY(-1px); }
-  .space-dev { background: #e8f0fe; border-color: #93c5fd; color: #1a4ea0; }
-  .space-qa  { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .space-dev { background: var(--dw-blue-50); border-color: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .space-qa  { background: var(--dw-purple-50); border-color: var(--dw-purple-200); color: var(--dw-purple-900); }
   .space-prd { background: #dcfce7; border-color: #86efac; color: #15803d; }
 
   /* Transport arrow inside spaces col */
@@ -235,16 +235,16 @@
     background: rgba(254,243,205,.4); padding: 12px 14px;
     display: flex; flex-direction: column; gap: 6px;
   }
-  .hdlf-label { font-size: 10px; font-weight: 700; color: #92670a; font-family: var(--mono); letter-spacing: .3px; }
+  .hdlf-label { font-size: 10px; font-weight: 700; color: var(--dw-gold-900); font-family: var(--mono); letter-spacing: .3px; }
   .hdlf-file {
     border-radius: var(--r-sm); padding: 7px 10px;
     font-size: 11px; font-weight: 600; border: 1px solid;
     background: #fff; color: var(--dw-text);
   }
-  .hdlf-file.delta { border-color: #93c5fd; }
-  .hdlf-file.parquet { border-color: #c4b5fd; }
+  .hdlf-file.delta { border-color: var(--dw-blue-200); }
+  .hdlf-file.parquet { border-color: var(--dw-purple-200); }
   .hdlf-note {
-    font-size: 10.5px; color: #92670a; display: flex; align-items: flex-start; gap: 5px; margin-top: 2px;
+    font-size: 10.5px; color: var(--dw-gold-900); display: flex; align-items: flex-start; gap: 5px; margin-top: 2px;
   }
 
   /* ── FOOTNOTES ── */
@@ -257,7 +257,7 @@
     border: 1px solid;
   }
   .footnote-card.amber  { background: #fffbeb; border-color: #fcd34d; }
-  .footnote-card.blue   { background: #eff6ff; border-color: #93c5fd; }
+  .footnote-card.blue   { background: #eff6ff; border-color: var(--dw-blue-200); }
   /* Disclaimer de la flecha gold (Calidad→Desarrollo): acento gold + fondo
      neutro para NO confundirse con el recuadro ámbar de HDLF. */
   .footnote-card.gold   { background: #fff; border-color: #e0a800; border-left: 3px solid #e0a800; }
@@ -265,24 +265,7 @@
   .fn-icon { font-size: 13px; margin-right: 4px; }
   .fn-icon.gold { color: #e0a800; font-weight: 800; }
 
-  /* ── TOOLTIPS — hover sobre cada componente para "más info" (pedagógico, como
-     la sección 14 · Arquitectura de Integración). Sólo CSS, sin JS. ── */
-  .has-tip { position: relative; cursor: help; }
-  .has-tip:hover { z-index: 9000 !important; }
-  .tip-content {
-    display: none; position: absolute; z-index: 9999;
-    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
-    width: 228px; padding: 10px 13px; border-radius: var(--r-sm);
-    background: var(--dw-black); color: rgba(255,255,255,0.92);
-    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
-  }
-  .tip-content::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent; border-top-color: var(--dw-black);
-  }
-  .has-tip:hover .tip-content { display: block; }
-  .tip-content strong { color: #f5c542; font-weight: 700; }
+  /* Tooltips (.has-tip / .tip-content): patrón estándar heredado de danwor-shared.css */
 
   /* ── GOV BAR ── */
   .gov-bar {
@@ -446,10 +429,10 @@
         <!-- S/4 HANA — 2-tier has DEV+QA feeding Tenant A, PRD feeding Tenant B -->
         <div class="s4-col">
           <div class="s4-box-title">S/4 HANA</div>
-          <div class="env-node env-dev" id="t2-s4-dev">DEV</div>
-          <div class="env-node env-qa"  id="t2-s4-qa">QA</div>
+          <div class="env-node env-dev has-tip" id="t2-s4-dev">DEV<div class="tip-content"><strong>S/4 HANA · DEV</strong><br>Ambiente de desarrollo del origen SAP. Alimenta el espacio Desarrollo del Tenant A.</div></div>
+          <div class="env-node env-qa  has-tip" id="t2-s4-qa">QA<div class="tip-content"><strong>S/4 HANA · QA</strong><br>Ambiente de calidad del origen. Alimenta el espacio Calidad del Tenant A.</div></div>
           <div style="height:32px"></div>
-          <div class="env-node env-prd" id="t2-s4-prd">PRD</div>
+          <div class="env-node env-prd has-tip" id="t2-s4-prd">PRD<div class="tip-content"><strong>S/4 HANA · PRD</strong><br>Ambiente productivo del origen. Alimenta el espacio PRD (Gobierno de Datos) del Tenant B.</div></div>
         </div>
 
         <!-- Datasphere Tenant A -->
@@ -463,21 +446,22 @@
             <div class="zone-label">Espacios DEV / QA</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
               <div class="spaces-col">
-                <div class="space-node space-dev" id="t2a-dev">Desarrollo</div>
+                <div class="space-node space-dev has-tip" id="t2a-dev">Desarrollo<div class="tip-content"><strong>Espacio Desarrollo · Tenant A</strong><br>Construcción de modelos e integración. Promociona a Calidad vía transporte.</div></div>
                 <div class="transport-arrow">↓</div>
-                <div class="space-node space-qa" id="t2a-qa" style="position:relative">
+                <div class="space-node space-qa has-tip" id="t2a-qa" style="position:relative">
                   Calidad
                   <span style="font-size:10px;font-weight:400;display:block;margin-top:3px;color:var(--dw-muted)">(*)</span>
                   <div class="cross-tag">Cross-Sharing</div>
+                  <div class="tip-content"><strong>Espacio Calidad · Tenant A</strong><br>Validación previa a productivo. (*) Retorna a Desarrollo si se detectan ajustes; expone modelos vía Cross-Sharing a los dominios.</div>
                 </div>
               </div>
               <div style="padding-top:4px">
                 <div style="font-size:10px;font-weight:600;color:var(--dw-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Dominios</div>
                 <div class="domains-grid">
-                  <div class="domain-tile">Capital<br>Humano</div>
-                  <div class="domain-tile">Comercial</div>
-                  <div class="domain-tile">Compras</div>
-                  <div class="domain-tile">Logística</div>
+                  <div class="domain-tile has-tip">Capital<br>Humano<div class="tip-content"><strong>Dominio · Capital Humano</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Comercial<div class="tip-content"><strong>Dominio · Comercial</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Compras<div class="tip-content"><strong>Dominio · Compras</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Logística<div class="tip-content"><strong>Dominio · Logística</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
                 </div>
               </div>
             </div>
@@ -504,18 +488,19 @@
             <div class="zone-label">Espacio PRD</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
               <div class="spaces-col">
-                <div class="space-node space-prd" id="t2b-prd" style="position:relative">
+                <div class="space-node space-prd has-tip" id="t2b-prd" style="position:relative">
                   Gobierno<br>de Datos
                   <div class="cross-tag">Cross-Sharing</div>
+                  <div class="tip-content"><strong>Espacio PRD · Gobierno de Datos (Tenant B)</strong><br>Productivo aislado en su propio tenant. Publica modelos a los dominios vía Cross-Sharing.</div>
                 </div>
               </div>
               <div style="padding-top:4px">
                 <div style="font-size:10px;font-weight:600;color:var(--dw-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Dominios</div>
                 <div class="domains-grid">
-                  <div class="domain-tile">Capital<br>Humano</div>
-                  <div class="domain-tile">Comercial</div>
-                  <div class="domain-tile">Compras</div>
-                  <div class="domain-tile">Logística</div>
+                  <div class="domain-tile has-tip">Capital<br>Humano<div class="tip-content"><strong>Dominio · Capital Humano</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Comercial<div class="tip-content"><strong>Dominio · Comercial</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Compras<div class="tip-content"><strong>Dominio · Compras</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
+                  <div class="domain-tile has-tip">Logística<div class="tip-content"><strong>Dominio · Logística</strong><br>Consume modelos publicados vía Cross-Sharing: acceso gobernado, sin copiar datos.</div></div>
                 </div>
               </div>
             </div>

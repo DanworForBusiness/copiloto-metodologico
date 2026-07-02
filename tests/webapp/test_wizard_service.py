@@ -30,7 +30,7 @@ def test_wizard_blocks_self_loop():
 def test_module_03_exposes_three_operational_trees():
     trees = WizardStore.trees_for_module("03_Integracion_y_Estrategia_de_Datos")
     assert [tree["title"] for tree in trees] == [
-        "Federación vs Persistencia",
+        "Federación vs Persistencia vs Híbrido",
         "Opciones de Extracción",
         "Resolución de Contrato",
     ]

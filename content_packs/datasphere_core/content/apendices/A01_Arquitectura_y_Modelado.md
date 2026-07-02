@@ -118,6 +118,7 @@ Un modelo bien diseñado se sostiene en metadatos bien clasificados​:
 > Cinco paradigmas con un mismo objetivo: transformar datos distribuidos en capacidades de negocio gobernadas. El rol del arquitecto es diseñar un ecosistema híbrido gobernado, no apostar a uno solo.
 
 Tres de ellos, son operativos centrales para Datasphere y BDC​:
+
 | Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
 |---|---|---|---|
 | **Data Warehouse** | Repositorio central, estructurado y gobernado, optimizado para analítica y reporting | KPIs corporativos, finanzas, reporting regulatorio, analítica repetible | Datasphere es sin dudas un data warehouse moderno que incluye: tablas, persistencia, modelos relacionales, DataFlows, Transformación, Arquitectura por capas, Modelos Analiticos, etc​ |
@@ -125,6 +126,7 @@ Tres de ellos, son operativos centrales para Datasphere y BDC​:
 | **Data Fabric** | Capa de integración y acceso unificado, basada en metadatos activos y virtualización | Paisajes híbridos/multi-cloud donde no es viable centralizar físicamente todo | Datasphere oficia de fabric cuando actúa como capa de federación semántica, integración, catalogo unificado, virtualización de datos o modelado sin movimiento de datos​ |
 
 Los dos restantes, mas bien informativos con alcance indirecto:
+
 | Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
 |---|---|---|---|
 | **Data Lake** | Almacén masivo de datos crudos (estructurados y no estructurados), schema-on-read | IA/ML, analítica exploratoria, grandes volúmenes y variedad de datos | Datasphere no incluye un data lake completo; sin embargo, HDLF provee capacidades de lake sobre object storage (parquet, particiones, ingestion masiva, external tables). Es la base técnica del camino hacia el Lakehouse en BDC​ |

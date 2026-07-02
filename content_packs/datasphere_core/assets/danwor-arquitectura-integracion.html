@@ -7,8 +7,8 @@
 <link rel="stylesheet" href="danwor-shared.css">
 <style>
   :root {
-    --sap-bg:rgba(240,244,255,0.70); --sap-border:#7b9fd4; --ds-bg:rgba(240,247,244,0.70); --ds-border:#5aaa8a;
-    --fw-color:var(--dw-gold); --cc-bg:#fff3e0; --cc-border:#e8972a; --https-bg:#4527a0;
+    --sap-bg:var(--dw-blue-50); --sap-border:var(--dw-blue-200); --ds-bg:var(--dw-teal-50); --ds-border:var(--dw-teal);
+    --fw-color:var(--dw-gold); --cc-bg:var(--dw-orange-50); --cc-border:var(--dw-orange); --https-bg:var(--dw-purple);
     --rfc-bg:#1a5294; --adapter-bg:#b85c00; --odbc-bg:#455a64; --dpserver-bg:#2e7d32;
     --remote-bg:#3949ab; --repflow-bg:#1565c0; --dataflow-bg:#0277bd; --model-bg:#9e9e9e;
     --federated-bg:#e65100; --persist-bg:#bf360c; --odq-bg:#1976d2; --cdc-bg:#388e3c;
@@ -188,7 +188,7 @@
     display: flex; flex-direction: column; gap: 10px;
   }
   .ds-inner-label {
-    font-size: 10px; font-weight: 600; color: #5aaa8a; text-transform: uppercase;
+    font-size: 10px; font-weight: 600; color: var(--dw-teal); text-transform: uppercase;
     letter-spacing: 0.5px; margin-bottom: 2px;
   }
 
@@ -281,27 +281,7 @@
   .leg-line--dot    { background: transparent; border-top: 2px dashed var(--dw-muted); opacity: 0.4; }
   .leg-line--orange { background: var(--dw-gold); }
 
-  /* ── TOOLTIP ── */
-  .has-tip { position: relative; }
-  .has-tip:hover { z-index: 9000 !important; }
-  .tip-content {
-    display: none;
-    position: absolute;
-    z-index: 9999;
-    background: var(--dw-black);
-    color: rgba(255,255,255,0.9);
-    font-size: 12px; line-height: 1.55;
-    padding: 10px 14px; border-radius: var(--r-sm);
-    width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    pointer-events: none;
-    white-space: normal;
-    bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  }
-  .tip-content::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent; border-top-color: var(--dw-black);
-  }
-  .has-tip:hover .tip-content { display: block; }
+  /* Tooltips (.has-tip / .tip-content): patrón estándar heredado de danwor-shared.css */
   .proto-stack,
   .proto-pill,
   .ds-objects,
@@ -318,7 +298,6 @@
   .ds-output:hover {
     z-index: 9500 !important;
   }
-  .tip-content strong { color: var(--dw-gold); font-weight: 700; }
 
   /* ── FOOTNOTE ── */
   .footnote {
@@ -496,7 +475,7 @@
     <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
       <div>
         <div class="pane-title">SAP Datasphere</div>
-        <div style="font-size:10px;color:#5aaa8a;font-weight:600;letter-spacing:0.4px;margin-top:2px">Procesamiento en Datasphere</div>
+        <div style="font-size:10px;color:var(--dw-teal);font-weight:600;letter-spacing:0.4px;margin-top:2px">Procesamiento en Datasphere</div>
       </div>
 
       <div class="ds-inner">

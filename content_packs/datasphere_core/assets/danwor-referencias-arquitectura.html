@@ -8,7 +8,7 @@
 <style>
   :root {
     --c1: var(--dw-gold);
-    --c2: #8b5cf6;
+    --c2: var(--dw-purple);
     --c3: var(--dw-blue);
     --c4: var(--dw-teal);
   }
@@ -94,30 +94,14 @@
   }
   .node:hover { filter: brightness(0.95); transform: translateY(-1px); }
 
-  /* ── TOOLTIPS — hover sobre cada componente para "más info" (pedagógico, como
-     la sección 14). Sólo CSS. El click sigue activando el escenario. ── */
-  .has-tip { position: relative; }
-  .has-tip:hover { z-index: 9000 !important; }
-  .tip-content {
-    display: none; position: absolute; z-index: 9999;
-    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
-    width: 230px; padding: 10px 13px; border-radius: var(--r-sm);
-    background: var(--dw-black); color: rgba(255,255,255,0.92);
-    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
-  }
-  .tip-content::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent; border-top-color: var(--dw-black);
-  }
-  .has-tip:hover .tip-content { display: block; }
-  .tip-content strong { color: #f5c542; font-weight: 700; }
+  /* Tooltips (.has-tip / .tip-content): patrón estándar heredado de danwor-shared.css.
+     El click sigue activando el escenario. */
 
-  .node-sap   { background: #e8f0fe; border: 1px solid #c5d8fb; color: #1a4ea0; }
-  .node-bw    { background: #ede9fe; border: 1px solid #d4bcfc; color: #5b21b6; }
-  .node-bwb   { background: #fef3cd; border: 1px solid #f0d890; color: #92670a; }
-  .node-ds    { background: #e0f7f2; border: 1px solid #8ed8c9; color: #0a6e57; }
-  .node-nosap { background: #dbeafe; border: 1px solid #93c5fd; color: #1e4ea6; }
+  .node-sap   { background: var(--dw-blue-50); border: 1px solid var(--dw-blue-200); color: var(--dw-blue-900); }
+  .node-bw    { background: var(--dw-purple-50); border: 1px solid var(--dw-purple-200); color: var(--dw-purple-900); }
+  .node-bwb   { background: var(--dw-gold-50); border: 1px solid var(--dw-gold-200); color: var(--dw-gold-900); }
+  .node-ds    { background: var(--dw-teal-50); border: 1px solid var(--dw-teal-200); color: var(--dw-teal-900); }
+  .node-nosap { background: var(--dw-blue-50); border: 1px solid var(--dw-blue-200); color: var(--dw-blue-900); }
   .node-azure { background: #f0f9ff; border: 1px solid #7dd3fc; color: #0369a1; }
 
   .sc-badge {
@@ -131,7 +115,7 @@
   .sc-4 { background: var(--c4); color: #fff; }
 
   .ds-container {
-    border: 1.5px solid #8ed8c9; border-radius: var(--r-md);
+    border: 1.5px solid var(--dw-teal-200); border-radius: var(--r-md);
     background: rgba(224,247,242,0.2); padding: 10px 12px;
     height: 100%;
   }
@@ -294,7 +278,7 @@
     <svg id="arrows-svg" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="mh1" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#EAB308"/></marker>
-        <marker id="mh2" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#8b5cf6"/></marker>
+        <marker id="mh2" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#5c3fa3"/></marker>
         <marker id="mh3" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#1a73e8"/></marker>
         <marker id="mh4" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#0d9e75"/></marker>
         <marker id="mhds" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="rgba(13,43,69,0.22)"/></marker>
@@ -442,7 +426,7 @@ const SCENARIOS = {
   1: { color: '#EAB308', dash: '7,4', marker: 'mh1',
        paths: [{ from:'n-ecc', to:'n-tr'  },
                { from:'n-ecc', to:'n-bwb' }] },
-  2: { color: '#8b5cf6', dash: '6,4', marker: 'mh2',
+  2: { color: '#5c3fa3', dash: '6,4', marker: 'mh2',
        paths: [{ from:'n-bw',  to:'n-bwb' },
                { from:'n-bw',  to:'n-tr'  }] },
   3: { color: '#1a73e8', dash: '6,4', marker: 'mh3',

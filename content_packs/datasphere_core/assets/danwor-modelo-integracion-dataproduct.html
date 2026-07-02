@@ -49,7 +49,7 @@
   .flow-row {
     display: flex; align-items: center; gap: 0;
     background: var(--dw-light); border: 1px solid var(--dw-border);
-    border-radius: var(--r-lg); padding: 16px 20px; overflow-x: auto;
+    border-radius: var(--r-lg); padding: 16px 20px; overflow: visible;
   }
   .flow-node {
     border-radius: var(--r-md); padding: 12px 16px;
@@ -66,12 +66,12 @@
   }
 
   .fn-tablas  { background: var(--dw-white); border-color: var(--dw-border); color: var(--dw-text); }
-  .fn-api-sap { background: #e3f2fd; border-color: #90caf9; color: #1565c0; }
-  .fn-api-sap .flow-node-badge { background: #bbdefb; color: #1565c0; }
-  .fn-api-corp { background: #fff3e0; border-color: #ffcc80; color: #e65100; }
-  .fn-api-corp .flow-node-badge { background: #ffe0b2; color: #e65100; }
-  .fn-dp       { background: #f3e5f5; border-color: #ce93d8; color: #7b1fa2; }
-  .fn-dp .flow-node-badge { background: #e1bee7; color: #7b1fa2; }
+  .fn-api-sap { background: var(--dw-blue-50); border-color: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .fn-api-sap .flow-node-badge { background: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .fn-api-corp { background: var(--dw-orange-50); border-color: var(--dw-orange-200); color: var(--dw-orange-900); }
+  .fn-api-corp .flow-node-badge { background: var(--dw-orange-200); color: var(--dw-orange-900); }
+  .fn-dp       { background: var(--dw-purple-50); border-color: var(--dw-purple-200); color: var(--dw-purple-900); }
+  .fn-dp .flow-node-badge { background: var(--dw-purple-200); color: var(--dw-purple-900); }
   .fn-consumo  { background: var(--dw-white); border-color: var(--dw-border); color: var(--dw-text); }
 
   .flow-arrow {
@@ -90,12 +90,12 @@
     padding: 11px 16px; font-size: 13px; font-weight: 700;
     text-align: center; border-bottom: 2px solid var(--dw-border);
   }
-  .th-sap  { background: #1565c0; color: #fff; }
+  .th-sap  { background: var(--dw-blue); color: #fff; }
   .th-cust { background: var(--dw-gold); color: #000; }
   .comparison-table td { padding: 11px 16px; font-size: 13px; border-bottom: 1px solid var(--dw-border); vertical-align: top; line-height: 1.55; }
   .comparison-table tr:last-child td { border-bottom: none; }
-  .td-sap  { background: color-mix(in srgb,#1565c0 4%,white); color: var(--dw-text); border-right: 1px solid var(--dw-border); }
-  .td-cust { background: color-mix(in srgb,#c9960a 4%,white); color: var(--dw-text); }
+  .td-sap  { background: color-mix(in srgb,var(--dw-blue) 4%,white); color: var(--dw-text); border-right: 1px solid var(--dw-border); }
+  .td-cust { background: color-mix(in srgb,var(--dw-gold) 4%,white); color: var(--dw-text); }
   .comparison-table tbody tr:hover td { filter: brightness(.97); }
 
   /* Side tips */
@@ -211,10 +211,10 @@
 
   <!-- TAB BAR -->
   <div class="tab-bar">
-    <div class="tab-btn active" id="tab-btn-modelo" style="--btn-c:#1565c0" onclick="switchTab('modelo')">
+    <div class="tab-btn active" id="tab-btn-modelo" style="--btn-c:var(--dw-blue)" onclick="switchTab('modelo')">
       <span class="tab-icon">🔗</span> Modelo de Integración Danwor
     </div>
-    <div class="tab-btn" id="tab-btn-dp" style="--btn-c:#7b1fa2" onclick="switchTab('dp')">
+    <div class="tab-btn" id="tab-btn-dp" style="--btn-c:var(--dw-purple)" onclick="switchTab('dp')">
       <span class="tab-icon">📦</span> Contrato de Datos vs. Data Product
     </div>
   </div>
@@ -258,26 +258,30 @@
           Capas de Exposición de datos
         </div>
         <div class="flow-row">
-          <div class="flow-node fn-tablas">
+          <div class="flow-node fn-tablas has-tip">
+            <span class="tip-content">Tablas transaccionales del core SAP (ECC/S4). No se consumen directo: son el <strong>origen físico</strong> del dato.</span>
             <div class="flow-node-title">Tablas SAP</div>
           </div>
           <div class="flow-arrow solid">→</div>
-          <div class="flow-node fn-api-sap">
+          <div class="flow-node fn-api-sap has-tip">
+            <span class="tip-content">CDS estándar liberada por SAP. <strong>SAP-managed</strong>: SAP define alcance y ciclo de vida; un cambio suyo impacta tu modelo.</span>
             <div class="flow-node-title">API Funcional SAP</div>
             <div class="flow-node-sub">CDS Estándar | Liberada</div>
             <div class="flow-node-badge">SAP-managed</div>
           </div>
-          <div class="flow-arrow" style="color:#c9960a;font-size:24px">⟫</div>
-          <div class="flow-node fn-api-corp">
+          <div class="flow-arrow" style="color:var(--dw-gold);font-size:24px">⟫</div>
+          <div class="flow-node fn-api-corp has-tip">
+            <span class="tip-content">Wrapper CDS propio sobre la API SAP. <strong>Customer-managed</strong>: acá resolvés el contrato y contenés los cambios del origen.</span>
             <div class="flow-node-title">API Corporativa</div>
             <div class="flow-node-sub">CDS wrapper | Integración</div>
             <div class="flow-node-badge">Customer-managed</div>
           </div>
           <div class="flow-arrow solid">→</div>
-          <div class="flow-node fn-dp">
+          <div class="flow-node fn-dp has-tip">
+            <span class="tip-content">El <strong>contrato de datos expuesto</strong> al consumo. Caso ideal: materializado desde el origen, con el contrato ya resuelto en la API Corporativa.</span>
             <div class="flow-node-title">Data Products</div>
             <div class="flow-node-sub">Contrato de datos hacia el consumo</div>
-            <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:10px;color:#7b1fa2">
+            <div style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:10px;color:var(--dw-purple)">
               <span>🗂️</span> Contrato en Origen
             </div>
             <div class="flow-node-badge">Customer-managed</div>
@@ -313,24 +317,28 @@
     <!-- How it's built -->
     <div style="font-size:13px;font-weight:600;color:var(--dw-muted);margin-bottom:12px;text-align:center">¿Cómo se construye?</div>
     <div class="flow-row" style="justify-content:center;gap:0">
-      <div class="flow-node fn-api-sap" style="text-align:center">
+      <div class="flow-node fn-api-sap has-tip" style="text-align:center">
+        <span class="tip-content">Fuentes habilitadas de ingesta (API Corporativa, ODP/SAPI, CDS u otras). El <strong>punto de entrada gobernado</strong> del dato.</span>
         <div class="flow-node-title">APIs Autorizadas</div>
         <div class="flow-node-sub">API Corporativa, ODP<br>(SAPI, CDS) | otros</div>
       </div>
       <div class="flow-arrow solid">→</div>
-      <div class="flow-node fn-api-corp" style="text-align:center">
+      <div class="flow-node fn-api-corp has-tip" style="text-align:center">
+        <span class="tip-content">Capa de integración y semántica en Datasphere: donde se <strong>arma y gobierna el contrato</strong> antes de exponerlo.</span>
         <div class="flow-node-title">Modelo de Datos</div>
         <div class="flow-node-sub">Capa de Integración /<br>Semántica Datasphere</div>
       </div>
-      <div class="flow-arrow" style="color:#c9960a;font-size:24px">⟫</div>
-      <div class="flow-node fn-dp" style="text-align:center">
+      <div class="flow-arrow" style="color:var(--dw-gold);font-size:24px">⟫</div>
+      <div class="flow-node fn-dp has-tip" style="text-align:center">
+        <span class="tip-content"><strong>Contrato en destino</strong>: el dato listo para consumir, independiente del origen técnico (SAP, Azure, SQL…).</span>
         <div class="flow-node-title">Data Product</div>
-        <div style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px;color:#7b1fa2;justify-content:center">
+        <div style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px;color:var(--dw-purple);justify-content:center">
           <span>🗂️</span> Contrato en Destino
         </div>
       </div>
       <div class="flow-arrow solid">→</div>
-      <div class="flow-node fn-consumo" style="text-align:center">
+      <div class="flow-node fn-consumo has-tip" style="text-align:center">
+        <span class="tip-content">Destinos finales — BI, ML, Apps. Consumen el <strong>Data Product</strong> sin conocer ni depender de su origen.</span>
         <div class="flow-node-title">Consumo</div>
         <div class="flow-node-sub">BI, ML, Apps</div>
       </div>

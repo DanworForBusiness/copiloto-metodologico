@@ -7,11 +7,11 @@
 <link rel="stylesheet" href="danwor-shared.css">
 <style>
   :root {
-    --c-ingesta:      #1565c0;
-    --c-armon:        #0d7a5f;
-    --c-prop:         #7b1fa2;
-    --c-reporting:    #e65100;
-    --c-domain:       #1e5fa8;
+    --c-ingesta:      var(--dw-blue);
+    --c-armon:        var(--dw-teal);
+    --c-prop:         var(--dw-purple);
+    --c-reporting:    var(--dw-orange);
+    --c-domain:       var(--dw-blue);
     --c-hdlf:         var(--dw-gold);
     --c-s4:           #455a64;
   }
@@ -112,24 +112,7 @@
   .hdlf-files-row .hdlf-file { flex: 0 1 auto; min-width: 130px; }
   .hdlf-files-row .hdlf-bsg { margin: 0 0 0 auto; }
 
-  /* ── TOOLTIPS — hover en componentes de soporte para "más info". Las capas
-     usan el drawer al click; esto complementa los demás bloques. Sólo CSS. ── */
-  .has-tip { position: relative; cursor: help; }
-  .has-tip:hover { z-index: 9000 !important; }
-  .tip-content {
-    display: none; position: absolute; z-index: 9999;
-    bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
-    width: 230px; padding: 10px 13px; border-radius: var(--r-sm);
-    background: var(--dw-black); color: rgba(255,255,255,0.92);
-    font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
-  }
-  .tip-content::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent; border-top-color: var(--dw-black);
-  }
-  .has-tip:hover .tip-content { display: block; }
-  .tip-content strong { color: #f5c542; font-weight: 700; }
+  /* Tooltips (.has-tip / .tip-content): patrón estándar heredado de danwor-shared.css */
 
   .ds-header-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -199,8 +182,8 @@
     font-size: 11px; font-weight: 600; padding: 4px 10px;
     border-radius: 20px; border: 1px solid;
   }
-  .flow-rep  { color: #1565c0; border-color: #93c5fd; background: #e8f0fe; }
-  .flow-trans { color: #0d7a5f; border-color: #6ee7b7; background: #f0fdf4; }
+  .flow-rep  { color: #1a73e8; border-color: #93c5fd; background: #e8f0fe; }
+  .flow-trans { color: #0d9e75; border-color: #6ee7b7; background: #f0fdf4; }
   .flow-bsg  { color: var(--dw-gold); border-color: #fcd34d; background: #fffbeb; }
   .flow-sep  { color: var(--dw-muted); font-weight: 300; }
 
@@ -242,7 +225,7 @@
     border-radius: var(--r-sm); padding: 7px 10px; font-size: 11.5px; font-weight: 700;
     border: 1.5px solid;
   }
-  .hdlf-delta   { background: #eff6ff; border-color: #93c5fd; color: #1565c0; }
+  .hdlf-delta   { background: #eff6ff; border-color: #93c5fd; color: #1a73e8; }
   .hdlf-parquet { background: #faf5ff; border-color: #c4b5fd; color: #6d28d9; }
   .hdlf-bsg {
     display: flex; align-items: center; gap: 6px;
@@ -338,11 +321,11 @@
           <span>ZDWC</span>
         </div>
         <div class="cds-line" style="padding-left:10px">
-          <div class="cds-dot" style="background:#1565c0"></div>
+          <div class="cds-dot" style="background:#1a73e8"></div>
           <span>Core Data Services</span>
         </div>
         <div class="cds-line" style="padding-left:18px">
-          <div class="cds-dot" style="background:#7b1fa2"></div>
+          <div class="cds-dot" style="background:#5c3fa3"></div>
           <span>Data Definitions</span>
         </div>
 
@@ -529,7 +512,7 @@
 /* ── LAYER DETAIL DATA ───────────────────────────────────────── */
 const CAPAS = {
   ingesta: {
-    color:  '#1565c0',
+    color:  '#1a73e8',
     icon:   '📥',
     title:  'Ingesta',
     cols: [
@@ -558,7 +541,7 @@ const CAPAS = {
     ]
   },
   armon: {
-    color:  '#0d7a5f',
+    color:  '#0d9e75',
     icon:   '🔗',
     title:  'Armonización',
     cols: [
@@ -587,7 +570,7 @@ const CAPAS = {
     ]
   },
   prop: {
-    color:  '#7b1fa2',
+    color:  '#5c3fa3',
     icon:   '📡',
     title:  'Propagación',
     cols: [
@@ -615,7 +598,7 @@ const CAPAS = {
     ]
   },
   reporting: {
-    color:  '#e65100',
+    color:  '#e8722a',
     icon:   '📊',
     title:  'Reporting',
     cols: [
@@ -737,9 +720,9 @@ function closeCapa() {
     if (!rep || !trans || !pq || !dl) return;
     const rc = rel(wrap, rep), tc = rel(wrap, trans), pc = rel(wrap, pq), dc = rel(wrap, dl);
     // Replication ↓: la chip Replication Flows empuja a Parquet Files (HANA → HDLF).
-    vArrow(svg, rc.cx, rc.bottom, pc.cx, pc.top - 2, '#1565c0');
+    vArrow(svg, rc.cx, rc.bottom, pc.cx, pc.top - 2, '#1a73e8');
     // Transformation ↑: Delta Tables vuelve a HANA vía Transformation Flows (HDLF → HANA).
-    vArrow(svg, dc.cx, dc.top, tc.cx, tc.bottom + 2, '#0d7a5f');
+    vArrow(svg, dc.cx, dc.top, tc.cx, tc.bottom + 2, '#0d9e75');
   }
   window.addEventListener('load', () => setTimeout(drawFlows, 120));
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(drawFlows, 150); });

@@ -23,12 +23,12 @@
     --sh-md: 0 4px 16px rgba(13,43,69,.11);
 
     /* semantic colors */
-    --c-dev:    #4a90d9;
-    --c-qa:     #7c6fcd;
+    --c-dev:    var(--dw-blue);
+    --c-qa:     var(--dw-purple);
     --c-prd:    #2d7a4a;
-    --c-domain: #1e5fa8;
-    --c-pro:    #1565c0;  /* pro = Roles tab accent */
-    --c-dac:    #7b1fa2;  /* DAC tab accent */
+    --c-domain: var(--dw-blue);
+    --c-pro:    var(--dw-blue);  /* pro = Roles tab accent */
+    --c-dac:    var(--dw-purple);  /* DAC tab accent */
     --c-yes:    #15803d;
     --c-no:     #b91c1c;
   }
@@ -121,7 +121,7 @@
     width: 100%; height: 100%;
     pointer-events: none; overflow: visible; z-index: 5;
   }
-  .diag-content { position: relative; z-index: 1; }
+  .diag-content { position: relative; }  /* sin z-index: permite que el nodo en hover (z-index:9000) suba sobre el SVG de flechas */
 
   /* mini-diagram reuses Espacios style */
   .diag-grid {
@@ -142,8 +142,8 @@
     font-size: 11.5px; font-weight: 600; text-align: center;
     border: 1.5px solid; cursor: default;
   }
-  .env-dev { background: #e8f0fe; border-color: #93c5fd; color: #1a4ea0; }
-  .env-qa  { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .env-dev { background: var(--dw-blue-50); border-color: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .env-qa  { background: var(--dw-purple-50); border-color: var(--dw-purple-200); color: var(--dw-purple-900); }
   .env-prd { background: #dcfce7; border-color: #86efac; color: #15803d; }
 
   /* Datasphere box */
@@ -179,8 +179,8 @@
     border-radius: var(--r-sm); padding: 8px 10px;
     font-size: 11px; font-weight: 600; border: 1.5px solid;
   }
-  .space-dev { background: #e8f0fe; border-color: #93c5fd; color: #1a4ea0; }
-  .space-qa  { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
+  .space-dev { background: var(--dw-blue-50); border-color: var(--dw-blue-200); color: var(--dw-blue-900); }
+  .space-qa  { background: var(--dw-purple-50); border-color: var(--dw-purple-200); color: var(--dw-purple-900); }
   .space-prd { background: #f0fdf4; border-color: #86efac; color: #15803d; text-align:center; }
 
   /* Gobierno de Datos (center) */
@@ -205,7 +205,7 @@
 
   /* Domain tiles */
   .domain-tile {
-    background: #1e5fa8; color: #fff;
+    background: var(--dw-blue); color: #fff;
     border-radius: var(--r-sm); padding: 8px 8px;
     font-size: 11px; font-weight: 600; text-align: center; line-height: 1.3;
   }
@@ -213,7 +213,7 @@
 
   /* Dashed border highlight for DAC tab */
   .dac-highlight {
-    border: 2px dashed #ce93d8 !important;
+    border: 2px dashed var(--dw-purple-200) !important;
     background: rgba(123,31,162,.03) !important;
   }
 
@@ -321,10 +321,10 @@
 
   <!-- TAB BAR -->
   <div class="tab-bar">
-    <div class="tab-btn active" id="tab-btn-roles" style="--btn-color:#1565c0" onclick="switchTab('roles')">
+    <div class="tab-btn active" id="tab-btn-roles" style="--btn-color:var(--dw-blue)" onclick="switchTab('roles')">
       <span class="tab-icon">🔐</span> Seguridad de Roles
     </div>
-    <div class="tab-btn" id="tab-btn-dac" style="--btn-color:#7b1fa2" onclick="switchTab('dac')">
+    <div class="tab-btn" id="tab-btn-dac" style="--btn-color:var(--dw-purple)" onclick="switchTab('dac')">
       <span class="tab-icon">🗂️</span> Seguridad de Datos
     </div>
   </div>
@@ -342,7 +342,7 @@
 
           <!-- Entry badge top-right -->
           <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-            <div class="entry-badge" style="background:#1565c0">Roles</div>
+            <div class="entry-badge" style="background:var(--dw-blue)">Roles</div>
           </div>
           <div class="entry-arrow">↓</div>
 
@@ -351,9 +351,9 @@
             <!-- S/4 -->
             <div class="s4-col">
               <div class="s4-title">S/4 HANA</div>
-              <div class="env-node env-dev" id="r-s4-dev">DEV</div>
-              <div class="env-node env-qa"  id="r-s4-qa">QA</div>
-              <div class="env-node env-prd" id="r-s4-prd">PRD</div>
+              <div class="env-node env-dev has-tip" id="r-s4-dev">DEV<div class="tip-content"><strong>S/4 HANA · DEV</strong><br>Ambiente de desarrollo del origen SAP.</div></div>
+              <div class="env-node env-qa  has-tip" id="r-s4-qa">QA<div class="tip-content"><strong>S/4 HANA · QA</strong><br>Ambiente de calidad del origen.</div></div>
+              <div class="env-node env-prd has-tip" id="r-s4-prd">PRD<div class="tip-content"><strong>S/4 HANA · PRD</strong><br>Ambiente productivo del origen.</div></div>
             </div>
 
             <!-- Datasphere -->
@@ -362,35 +362,36 @@
 
               <!-- Role types row -->
               <div style="display:flex;gap:8px;margin-bottom:4px">
-                <div style="flex:1;background:#e3f2fd;border:1px solid #90caf9;border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:#1565c0;text-align:center">Integrador</div>
-                <div style="flex:1;background:#f3e5f5;border:1px solid #ce93d8;border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:#7b1fa2;text-align:center">Modelador</div>
-                <div style="flex:1;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:#2e7d32;text-align:center">Viewer</div>
+                <div class="has-tip" style="flex:1;background:var(--dw-blue-50);border:1px solid var(--dw-blue-200);border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:var(--dw-blue);text-align:center">Integrador<div class="tip-content"><strong>Rol Integrador</strong><br>Crea y gestiona conexiones y flujos de ingesta de datos hacia Datasphere.</div></div>
+                <div class="has-tip" style="flex:1;background:var(--dw-purple-50);border:1px solid var(--dw-purple-200);border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:var(--dw-purple);text-align:center">Modelador<div class="tip-content"><strong>Rol Modelador</strong><br>Construye vistas, modelos analíticos y data products sobre los datos integrados.</div></div>
+                <div class="has-tip" style="flex:1;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:5px;padding:6px 8px;font-size:10.5px;font-weight:600;color:#2e7d32;text-align:center">Viewer<div class="tip-content"><strong>Rol Viewer</strong><br>Consume y visualiza modelos publicados; sin permisos de modificación.</div></div>
               </div>
 
               <div class="ds-inner">
                 <div class="ds-left">
-                  <div class="space-node space-dev" id="r-dev">Desarrollo</div>
-                  <div class="space-node space-qa"  id="r-qa">Calidad</div>
-                  <div class="gov-center" id="r-prd">
+                  <div class="space-node space-dev has-tip" id="r-dev">Desarrollo<div class="tip-content"><strong>Espacio Desarrollo</strong><br>Construcción de modelos e integración.</div></div>
+                  <div class="space-node space-qa  has-tip" id="r-qa">Calidad<div class="tip-content"><strong>Espacio Calidad</strong><br>Validación previa a productivo.</div></div>
+                  <div class="gov-center has-tip" id="r-prd">
                     Gobierno<br>de Datos
                     <div><span class="cross-tag">Cross-Sharing</span></div>
+                    <div class="tip-content"><strong>Espacio Gobierno de Datos (PRD)</strong><br>Productivo; publica modelos a los dominios vía Cross-Sharing.</div>
                   </div>
                   <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
-                    <div class="source-chip">Azure</div>
-                    <div class="source-chip">TXT</div>
+                    <div class="source-chip has-tip">Azure<div class="tip-content"><strong>Fuente externa · Azure</strong><br>Base de datos en la nube integrada a Datasphere vía federación o replicación.</div></div>
+                    <div class="source-chip has-tip">TXT<div class="tip-content"><strong>Fuente externa · Archivos planos</strong><br>Archivos TXT/CSV cargados a Datasphere.</div></div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-                      <div class="source-chip">Oracle</div>
-                      <div class="source-chip">SQL</div>
+                      <div class="source-chip has-tip">Oracle<div class="tip-content"><strong>Fuente externa · Oracle</strong><br>Base de datos Oracle integrada vía federación o replicación.</div></div>
+                      <div class="source-chip has-tip">SQL<div class="tip-content"><strong>Fuente externa · SQL</strong><br>Base de datos SQL integrada vía federación o replicación.</div></div>
                     </div>
                   </div>
                 </div>
                 <div class="ds-right">
                   <div style="font-size:10px;font-weight:600;color:var(--dw-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Admin. Espacios</div>
                   <div class="domains-stack">
-                    <div class="domain-tile">Capital Humano</div>
-                    <div class="domain-tile">Comercial</div>
-                    <div class="domain-tile">Compras</div>
-                    <div class="domain-tile">Logística</div>
+                    <div class="domain-tile has-tip">Capital Humano<div class="tip-content"><strong>Dominio · Capital Humano</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Comercial<div class="tip-content"><strong>Dominio · Comercial</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Compras<div class="tip-content"><strong>Dominio · Compras</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Logística<div class="tip-content"><strong>Dominio · Logística</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
                   </div>
                 </div>
               </div>
@@ -404,7 +405,7 @@
       <div class="comp-panel">
 
         <!-- Roles Estándar -->
-        <div class="comp-section" style="--sec-color:#1565c0">
+        <div class="comp-section" style="--sec-color:var(--dw-blue)">
           <div class="sec-title">Roles Estándar</div>
           <div class="sec-desc">
             Facilitan una implementación inmediata, sin embargo, al no ser posible actualizar ni modificar roles estándar, también deja el modelo sujeto a la estructura y definición de SAP, así como cualquier cambio impactando directamente.
@@ -420,7 +421,7 @@
         </div>
 
         <!-- Roles Custom -->
-        <div class="comp-section" style="--sec-color:#7b1fa2">
+        <div class="comp-section" style="--sec-color:var(--dw-purple)">
           <div class="sec-title">Roles Custom</div>
           <div class="sec-desc">
             Proveen una mayor flexibilidad en el manejo y la gestión de los permisos y privilegios sobre el criterio y/o la separación semántica resuelta por SAP a través del estándar (donde en muchos casos es "todo" o "nada").
@@ -464,7 +465,7 @@
 
           <!-- Entry badge -->
           <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-            <div class="entry-badge" style="background:#7b1fa2">DAC</div>
+            <div class="entry-badge" style="background:var(--dw-purple)">DAC</div>
           </div>
           <div class="entry-arrow">↓</div>
 
@@ -473,39 +474,40 @@
             <!-- S/4 -->
             <div class="s4-col">
               <div class="s4-title">S/4 HANA</div>
-              <div class="env-node env-dev" id="d-s4-dev">DEV</div>
-              <div class="env-node env-qa"  id="d-s4-qa">QA</div>
-              <div class="env-node env-prd" id="d-s4-prd">PRD</div>
+              <div class="env-node env-dev has-tip" id="d-s4-dev">DEV<div class="tip-content"><strong>S/4 HANA · DEV</strong><br>Ambiente de desarrollo del origen SAP.</div></div>
+              <div class="env-node env-qa  has-tip" id="d-s4-qa">QA<div class="tip-content"><strong>S/4 HANA · QA</strong><br>Ambiente de calidad del origen.</div></div>
+              <div class="env-node env-prd has-tip" id="d-s4-prd">PRD<div class="tip-content"><strong>S/4 HANA · PRD</strong><br>Ambiente productivo del origen.</div></div>
             </div>
 
             <!-- Datasphere — dashed DAC highlight -->
             <div class="ds-box dac-highlight">
-              <div class="ds-box-title" style="color:#7b1fa2">Datasphere · DAC activo</div>
+              <div class="ds-box-title" style="color:var(--dw-purple)">Datasphere · DAC activo</div>
 
               <div class="ds-inner">
                 <div class="ds-left">
-                  <div class="space-node space-dev" id="d-dev">Desarrollo</div>
-                  <div class="space-node space-qa"  id="d-qa">Calidad</div>
-                  <div class="gov-center" id="d-prd">
+                  <div class="space-node space-dev has-tip" id="d-dev">Desarrollo<div class="tip-content"><strong>Espacio Desarrollo</strong><br>Con DAC activo, el acceso a filas se filtra por las reglas del objeto DAC.</div></div>
+                  <div class="space-node space-qa  has-tip" id="d-qa">Calidad<div class="tip-content"><strong>Espacio Calidad</strong><br>Validación previa a productivo, respetando los filtros DAC.</div></div>
+                  <div class="gov-center has-tip" id="d-prd">
                     Gobierno<br>de Datos
                     <div><span class="cross-tag">Cross-Sharing</span></div>
+                    <div class="tip-content"><strong>Espacio Gobierno de Datos (PRD)</strong><br>Publica a los dominios vía Cross-Sharing; el DAC define qué filas ve cada consumidor.</div>
                   </div>
                   <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
-                    <div class="source-chip">Azure</div>
-                    <div class="source-chip">TXT</div>
+                    <div class="source-chip has-tip">Azure<div class="tip-content"><strong>Fuente externa · Azure</strong><br>Base de datos en la nube integrada a Datasphere vía federación o replicación.</div></div>
+                    <div class="source-chip has-tip">TXT<div class="tip-content"><strong>Fuente externa · Archivos planos</strong><br>Archivos TXT/CSV cargados a Datasphere.</div></div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-                      <div class="source-chip">Oracle</div>
-                      <div class="source-chip">SQL</div>
+                      <div class="source-chip has-tip">Oracle<div class="tip-content"><strong>Fuente externa · Oracle</strong><br>Base de datos Oracle integrada vía federación o replicación.</div></div>
+                      <div class="source-chip has-tip">SQL<div class="tip-content"><strong>Fuente externa · SQL</strong><br>Base de datos SQL integrada vía federación o replicación.</div></div>
                     </div>
                   </div>
                 </div>
                 <div class="ds-right">
                   <div style="font-size:10px;font-weight:600;color:var(--dw-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Dominios</div>
                   <div class="domains-stack">
-                    <div class="domain-tile">Capital Humano</div>
-                    <div class="domain-tile">Comercial</div>
-                    <div class="domain-tile">Compras</div>
-                    <div class="domain-tile">Logística</div>
+                    <div class="domain-tile has-tip">Capital Humano<div class="tip-content"><strong>Dominio · Capital Humano</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Comercial<div class="tip-content"><strong>Dominio · Comercial</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Compras<div class="tip-content"><strong>Dominio · Compras</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
+                    <div class="domain-tile has-tip">Logística<div class="tip-content"><strong>Dominio · Logística</strong><br>Acceso gobernado a los modelos según rol y reglas DAC; sin copiar datos.</div></div>
                   </div>
                 </div>
               </div>
@@ -527,7 +529,7 @@
       <div class="comp-panel">
 
         <!-- Valores Individuales -->
-        <div class="comp-section" style="--sec-color:#1565c0">
+        <div class="comp-section" style="--sec-color:var(--dw-blue)">
           <div class="sec-title">Valores Individuales</div>
           <div class="sec-desc">
             Mantenimiento individual para cada combinación válida por ser cubierta por el objeto DAC.
@@ -542,7 +544,7 @@
         </div>
 
         <!-- Operadores y Valores -->
-        <div class="comp-section" style="--sec-color:#7b1fa2">
+        <div class="comp-section" style="--sec-color:var(--dw-purple)">
           <div class="sec-title">Operadores y Valores</div>
           <div class="sec-desc">
             Mantenimiento más dinámico con el uso de operadores y valores que dan rangos y facilitan el mantenimiento DAC.
@@ -557,7 +559,7 @@
         </div>
 
         <!-- Jerarquía -->
-        <div class="comp-section" style="--sec-color:#0d7a5f">
+        <div class="comp-section" style="--sec-color:var(--dw-teal)">
           <div class="sec-title">Jerarquía</div>
           <div class="sec-desc">
             Estructura de permisos basada en jerarquías organizacionales o de datos, ideal cuando el acceso sigue una lógica de árbol o dependencia.
@@ -666,8 +668,8 @@ function drawDiagram(svgId, wrapId, prefix) {
   if (!svg || !wrap) return;
 
   const pairs = [
-    { from: `${prefix}-s4-dev`, to: `${prefix}-dev`, color: '#4a90d9' },
-    { from: `${prefix}-s4-qa`,  to: `${prefix}-qa`,  color: '#7c6fcd' },
+    { from: `${prefix}-s4-dev`, to: `${prefix}-dev`, color: 'var(--dw-blue)' },
+    { from: `${prefix}-s4-qa`,  to: `${prefix}-qa`,  color: 'var(--dw-purple)' },
     { from: `${prefix}-s4-prd`, to: `${prefix}-prd`, color: '#2d7a4a' },
   ];
   pairs.forEach(p => drawArrow(svg, wrap, p.from, p.to, p.color, '6,3'));

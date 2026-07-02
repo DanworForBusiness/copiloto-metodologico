@@ -16,6 +16,16 @@
   --dw-border:  rgba(13,43,69,0.10);
   --dw-light:   #f7f8fa;
   --dw-white:   #ffffff;
+
+  /* ── Rampas semánticas por rol (ancladas a los tokens de marca) ──
+     Uso en diagramas: -50 = fill del nodo · -200 = borde · base = línea/acento fuerte · -900 = texto.
+     Roles: blue=SAP/HANA · teal=HDLF/lakehouse · purple=data product/BDC · orange=transformación · gold=acento Danwor. */
+  --dw-blue-50:    #e8f0fe;  --dw-blue-200:   #a9caf6;  --dw-blue-900:   #12437f;
+  --dw-teal-50:    #e2f6f0;  --dw-teal-200:   #86d8c2;  --dw-teal-900:   #0a5a44;
+  --dw-purple-50:  #efeafc;  --dw-purple-200: #c9bced;  --dw-purple-900: #382363;
+  --dw-orange-50:  #fdeee2;  --dw-orange-200: #f4c3a3;  --dw-orange-900: #8f3f12;
+  --dw-gold-50:    #fdf3cf;  --dw-gold-200:   #f3dd85;  --dw-gold-900:   #7d5e05;
+
   --font:       'DM Sans', sans-serif;
   --font-main:  'DM Sans', sans-serif;
   --font-serif: 'DM Serif Display', serif;
@@ -248,3 +258,26 @@ body {
   .page-hero { padding: 32px 24px 28px; }
   .hero-version { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   TOOLTIPS PEDAGÓGICOS — patrón estándar Danwor (sólo CSS, sin JS).
+   Envolver el nodo con class="has-tip" y agregar dentro un
+   <span class="tip-content">…<strong>resaltado</strong>…</span>.
+   Cada asset puede sobreescribir width/posición localmente si lo necesita.
+   ══════════════════════════════════════════════════════════════════ */
+.has-tip { position: relative; cursor: help; }
+.has-tip:hover { z-index: 9000 !important; }
+.tip-content {
+  display: none; position: absolute; z-index: 9999;
+  bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+  width: 230px; padding: 10px 13px; border-radius: var(--r-sm);
+  background: var(--dw-black); color: rgba(255,255,255,0.92);
+  font-size: 11.5px; font-weight: 400; line-height: 1.55; text-align: left;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.32); pointer-events: none; white-space: normal;
+}
+.tip-content::after {
+  content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--dw-black);
+}
+.has-tip:hover .tip-content { display: block; }
+.tip-content strong { color: var(--dw-gold); font-weight: 700; }

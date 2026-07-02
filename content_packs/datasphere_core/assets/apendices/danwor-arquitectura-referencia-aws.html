@@ -7,10 +7,10 @@
 <link rel="stylesheet" href="../danwor-shared.css">
 <style>
   :root {
-    --sap-bg:       rgba(240,244,255,0.70); --sap-border: #7b9fd4;
-    --ds-bg:        rgba(240,247,244,0.70); --ds-border:  #5aaa8a;
-    --aws-bg:       rgba(255,248,235,0.80); --aws-border: #e8972a;
-    --inf-bg:       rgba(243,240,255,0.80); --inf-border: #7c5cbf;
+    --sap-bg:       var(--dw-blue-50); --sap-border: var(--dw-blue-200);
+    --ds-bg:        var(--dw-teal-50); --ds-border:  var(--dw-teal);
+    --aws-bg:       var(--dw-orange-50); --aws-border: var(--dw-orange);
+    --inf-bg:       var(--dw-purple-50); --inf-border: var(--dw-purple);
     --fw-color:     var(--dw-gold);
     --cc-bg:#fff3e0; --cc-border:#e8972a;
     --https-bg:#4527a0; --rfc-bg:#1a5294; --adapter-bg:#b85c00;
@@ -167,7 +167,7 @@
     display: flex; flex-direction: column; gap: 10px;
   }
   .ds-inner-label {
-    font-size: 10px; font-weight: 600; color: #5aaa8a; text-transform: uppercase;
+    font-size: 10px; font-weight: 600; color: var(--dw-teal); text-transform: uppercase;
     letter-spacing: 0.5px; margin-bottom: 2px;
   }
 
@@ -385,26 +385,7 @@
     border-radius: 4px; display: inline-block;
   }
 
-  /* ══════════════════════════════════
-     TOOLTIP
-  ═══════════════════════════════════ */
-  .has-tip { position: relative; }
-  .has-tip:hover { z-index: 9000 !important; }
-  .tip-content {
-    display: none; position: absolute; z-index: 9999;
-    background: var(--dw-black); color: rgba(255,255,255,0.9);
-    font-size: 12px; line-height: 1.55;
-    padding: 10px 14px; border-radius: var(--r-sm);
-    width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    pointer-events: none; white-space: normal;
-    bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  }
-  .tip-content::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 5px solid transparent; border-top-color: var(--dw-black);
-  }
-  .has-tip:hover .tip-content { display: block; }
-  .tip-content strong { color: var(--dw-gold); font-weight: 700; }
+  /* Tooltips (.has-tip / .tip-content): patrón estándar heredado de danwor-shared.css */
   .proto-pill:hover, .ds-obj:hover, .block-cc:hover,
   .block-dpa:hover, .ds-output:hover, .inf-product:hover {
     z-index: 9500 !important;
@@ -591,7 +572,7 @@
   <div class="pane-ds">
     <div>
       <div class="pane-title">SAP Datasphere</div>
-      <div style="font-size:9.5px;color:#5aaa8a;font-weight:600;letter-spacing:0.4px;margin-top:2px;text-transform:uppercase">Hub de Integración</div>
+      <div style="font-size:9.5px;color:var(--dw-teal);font-weight:600;letter-spacing:0.4px;margin-top:2px;text-transform:uppercase">Hub de Integración</div>
     </div>
 
     <!-- Top output chips -->
