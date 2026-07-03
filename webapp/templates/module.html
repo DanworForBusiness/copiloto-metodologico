@@ -104,6 +104,12 @@
       <span class="module-continue-eyebrow">Scroll para continuar</span>
       <span class="module-continue-next">{{ next_module.stem.split('_')[0] }} · {{ next_module.title }}</span>
     </a>
+    {% elif loop_home %}
+    <a class="module-continue module-continue--loop" href="/modules/{{ loop_home.stem }}?pack={{ pack }}" aria-label="Volver al inicio">
+      <span class="module-continue-line" aria-hidden="true"></span>
+      <span class="module-continue-eyebrow">Scroll para volver al inicio</span>
+      <span class="module-continue-next">↻ {{ loop_home.stem.split('_')[0] }} · {{ loop_home.title }}</span>
+    </a>
     {% endif %}
   </main>
 

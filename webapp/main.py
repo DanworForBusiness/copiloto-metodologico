@@ -347,6 +347,10 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         if current_index is not None and current_index + 1 < len(nav_items)
         else None
     )
+    # Bucle de lectura: en el último documento, la continuación por scroll vuelve
+    # al inicio (Intro) en vez de "morir". Solo aplica al cue de scroll continuo,
+    # no a las flechas del pager (que siguen deshabilitándose al final).
+    loop_home = nav_items[0] if (next_module is None and len(nav_items) > 1) else None
     trees = store.trees_for_module(stem, selected, include_assessment=True)
     run = store.start(trees[0], selected) if len(trees) == 1 else None
     conversation = assistant_store.start(stem, selected)
@@ -378,6 +382,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "pack_label": content_pack_short_label(selected),
             "previous_module": previous_module,
             "next_module": next_module,
+            "loop_home": loop_home,
             "section_actions": ALL_ACTIONS,
             "module_actions": MODULE_ACTIONS,
             # Descripciones y mensajes de carga combinados (sección + módulo) para el

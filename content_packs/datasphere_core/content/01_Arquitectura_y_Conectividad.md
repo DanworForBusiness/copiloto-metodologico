@@ -164,13 +164,18 @@ out_of_scope_redirect:
 
 > HANA DB y HDLF (HANA Data Lake Files) comparten la plataforma, pero tienen reglas distintas de ciclo de vida, modelado y gobernanza. El marco Danwor está diseñado para operar en ambos y evolucionar entre ellos
 
-| HANA Database >> 📌 lo que construimos hoy | HDLF - Object Store >> BDC-Ready 📌 |
+| HANA Database | HDLF - Object Store |
 |---|---|
 | Objetos Transportables (vistas, flujos, modelos, tablas)  | Datos como archivos físicos (Parquet, Delta tables) |
 | Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |
 | DEV-> QA-> PRD via transportes | Sin DEV-> QA-> PRD en storage |
 | Cross-Sharing nativo hacia espacios de negocio | Spark como motor de transformación |
 | Capas: Ingesta, Armonizacion, Propagacion y Reporting | Capas: Bronze, Silver, Gold via Transformation Flows |
+
+<div class="paradigm-tags">
+  <span class="paradigm-tag">📌 Lo que construimos hoy</span>
+  <span class="paradigm-tag">📌 BDC-Ready</span>
+</div>
 
 ## {dw-black}Espacios & {dw-gold}Transportes
 {{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes"}}

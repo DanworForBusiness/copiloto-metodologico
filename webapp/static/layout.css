@@ -121,6 +121,17 @@
 .content-theme-dark .module-content { background: var(--bg); color: var(--ink); }
 .content-theme-dark .callout__title { color: #f1f1f5; }
 
+/* Stickers de la tabla "Coexistencia de Paradigmas" (módulo 01): rótulos que
+   antes vivían dentro de los headers, ahora como pills debajo de cada columna
+   (línea visual más limpia entre la tabla y el fin de sección). */
+.paradigm-tags { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 6px 0 0; }
+.paradigm-tag {
+  justify-self: start; display: inline-flex; align-items: center; gap: 7px;
+  font: 600 .64rem var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  padding: 6px 12px; border-radius: 6px; color: var(--gold);
+  background: rgba(231,176,8,.09); border: 1px solid rgba(231,176,8,.38);
+}
+
 /* Cue de "lectura continua" al final del módulo: replica el "scroll para
    ingresar" del landing. Click navega al siguiente; el overscroll también
    (app.js). Se arma (.is-armed) cuando el scroll al final acumula intención. */
