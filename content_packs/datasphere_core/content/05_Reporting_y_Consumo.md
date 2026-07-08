@@ -127,8 +127,8 @@ La explotación de datos en Datasphere es posible independientemente de la herra
 
 | Herramienta | Tipo | Integración con Datasphere | Cuándo usarla |
 |---|---|---|---|
-| **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |
-| **Add-In for Excel (SAC)** | Nativa SAP | Live Data Connection directa — sin configuración de conexión adicional | Idem anterior, con objetivos slice & dice por sobre reporting estructurado |
+| **SAP Analytics Cloud (SAC)** | Nativa SAP | Live Data Connection directa — o tunel si fuera necesario scheduling | Cuando el cliente ya tiene licencia SAC o prioriza el ecosistema SAP end-to-end |
+| **Add-In for Excel (SAC)** | Nativa SAP | Live Data Connection directa | Idem anterior, con objetivos slice & dice por sobre reporting estructurado |
 | **Power BI** | Microsoft | Vía schema users (DirectQuery o Import Mode) | Cliente con inversión fuerte en ecosistema Microsoft o Power BI ya implantado |
 | **BusinessObjects (BO)** | SAP legacy | Vía Universe o conexión JDBC/ODBC | Clientes con BO existente que no migran aún a SAC |
 | **Herramientas genéricas** | SQL/ODBC | Vía schema users | Acceso técnico ad-hoc, integraciones custom, notebooks de análisis |

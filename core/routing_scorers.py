@@ -76,6 +76,19 @@ def _routing_token_variants(tokens: set[str]) -> set[str]:
             variants.add(token[:-1])
         if len(token) >= 8:
             variants.add(token[:8])
+        # Familias operativas frecuentes en preguntas how-to. Esto permite que
+        # "conexion" y "conectar" compitan como la misma intencion sin depender
+        # de una lista por plataforma o caso puntual.
+        if token.startswith(("conect", "conex")):
+            variants.add("conect")
+        if token.startswith("integr"):
+            variants.add("integr")
+        if token.startswith("configur"):
+            variants.add("configur")
+        # Familia naming: nombre/nombrar/nombro/nombres/nomenclatura -> "nombr".
+        # Sin esto, "como nombro un objeto" no matchea la keyword "nombre objeto".
+        if token.startswith("nombr") or token.startswith("nomencl"):
+            variants.add("nombr")
     return variants
 
 
@@ -87,7 +100,12 @@ _ASSET_GENERIC_TOKEN_ROOTS = (
 _ASSET_GENERIC_TOKENS = {
     "how", "danwor", "datasphere", "template", "plantilla",
     "documentacion", "documento", "referencia", "oficial",
-    "guia", "paso", "relevamiento", "tecnico", "tecnica"
+    "guia", "paso", "relevamiento", "tecnico", "tecnica",
+    # "modelo" es palabra de dominio amplia (modelado, modelo de datos, modelo
+    # analitico, modelo de seguridad...): no debe contar como token especifico
+    # que rompa empates o clasifique un asset (ej. "modelo analitico" enganchaba
+    # el Template de Seguridad por su keyword "modelo seguridad").
+    "modelo", "modelos",
 }
 
 _ASSET_PLATFORM_ALIASES = {
@@ -173,19 +191,35 @@ def _should_pair_section_with_asset(question: str, section_match: dict | None) -
         return False
     if _is_conceptual_or_comparative_query(question):
         return True
+    # Un score de seccion alto es una senal fuerte del propio matcher (keyword
+    # curado exacto / mucha evidencia): en consultas SIN intencion de recurso
+    # (conceptuales/naming), no dejar que la heuristica de solape de tokens la
+    # descarte y deje ganar a un asset cross-module debil.
+    # Ej: "como llamo al modelo analitico" -> Convencion de Nombres (72) no debe
+    # ceder ante el Template de Seguridad (14). Se excluye cuando la pregunta
+    # busca un recurso (how-to): ahi el asset lidera y permanece anclado a su
+    # modulo, sin desviar el contexto a una seccion cross-module.
+    if section_match.get("score", 0) >= 20 and not _is_asset_seeking_query(question):
+        return True
 
     q_norm = _norm(question)
     section_text = _norm(_section_candidate_text(section_match))
     q_tokens = _significant_tokens(question)
     section_tokens = _significant_tokens(section_text)
     specific_hits = _asset_specific_token_hits(q_tokens, section_tokens)
-    if len(specific_hits) < 2:
-        return False
-
     action_roots = [root for root in _ASSET_GENERIC_TOKEN_ROOTS if root in q_norm]
-    if not action_roots:
+    shares_action = any(root in section_text for root in action_roots)
+
+    if len(specific_hits) >= 2:
+        return True if not action_roots else shares_action
+
+    # En preguntas operativas cortas, el dominio comun (Datasphere/SAP) se filtra
+    # a proposito. Si queda un objeto fuerte (SAC, BW, etc.) y la seccion comparte
+    # la accion solicitada, la seccion sigue siendo una buena companera del asset.
+    if len(specific_hits) == 1 and action_roots and shares_action:
         return True
-    return any(root in section_text for root in action_roots)
+
+    return False
 
 
 def _display_heading(heading: str) -> str:
@@ -205,6 +239,15 @@ def _semantic_summary_from_fragment(fragment: str) -> str:
     return (m.group(1) or "").strip() if m else ""
 
 
+def _has_exact_multiword_keyword(question: str, keywords: list[str] | tuple[str, ...]) -> bool:
+    q_norm = _norm(question)
+    for kw in keywords or []:
+        kw_norm = _norm(str(kw or ""))
+        if len(kw_norm.split()) > 1 and kw_norm in q_norm:
+            return True
+    return False
+
+
 def _score_section_candidate(question: str, heading: str, keywords: list[str], section_md: str, module_scope: str = "") -> int:
     q_norm = _norm(question)
     q_tokens = _significant_tokens(question)
@@ -222,7 +265,9 @@ def _score_section_candidate(question: str, heading: str, keywords: list[str], s
         if not kw_norm:
             continue
         if kw_norm in q_norm:
-            score += 14 if len(kw_norm.split()) > 1 else 8
+            # Un keyword curado multi-palabra exacto debe ganar sobre
+            # acumulaciones difusas de tokens compartidos en secciones amplias.
+            score += 36 if len(kw_norm.split()) > 1 else 8
             continue
         kw_tokens = _significant_tokens(kw)
         kw_variants = _routing_token_variants(kw_tokens)
@@ -254,6 +299,25 @@ def _score_section_candidate(question: str, heading: str, keywords: list[str], s
         ]))
         if any(root in q_norm and root in candidate_action_text for root in _ASSET_GENERIC_TOKEN_ROOTS):
             score += 6
+
+    # Boost de intencion de naming: una consulta que pregunta COMO NOMBRAR algo
+    # ("como nombro/llamo un X", "convencion/nomenclatura/prefijo/sufijo de X")
+    # debe resolverse desde la seccion de Convencion de Nombres, sin importar el
+    # objeto X. Sin esto, "como nombro un replication flow" se iba a "Tipos de
+    # Vistas SQL" porque el objeto pesa mas que la intencion. Escalable: no
+    # depende de enumerar cada artefacto en las keywords.
+    naming_intent = any(t in q_norm for t in (
+        "como nombro", "como nombrar", "como llamo", "como se llama", "como nombramos",
+        "convencion", "convención", "nomenclatura", "prefijo", "sufijo", "naming",
+    ))
+    heading_norm = _norm(_display_heading(heading))
+    naming_section = (
+        any(t in heading_norm for t in ("convencion", "convención", "nomenclatura", "nombres"))
+        or any(("nombr" in _norm(k) or "nomencl" in _norm(k) or "prefijo" in _norm(k) or "sufijo" in _norm(k))
+               for k in (keywords or []))
+    )
+    if naming_intent and naming_section:
+        score += 40
 
     return score
 
@@ -297,6 +361,7 @@ def _find_cross_module_section(
                         "path": section.path,
                         "heading": heading,
                         "section_md": section_md,
+                        "keywords": list(section.keywords),
                         "score": score,
                     },
                 ))
@@ -307,7 +372,10 @@ def _find_cross_module_section(
     best_score, best = candidates[0]
     second_score = candidates[1][0] if len(candidates) > 1 else 0
     if second_score and best_score - second_score < 4:
-        return None
+        best_exact = _has_exact_multiword_keyword(question, best.get("keywords") or [])
+        second_exact = _has_exact_multiword_keyword(question, candidates[1][1].get("keywords") or [])
+        if not (best_exact and not second_exact):
+            return None
     return best
 
 
@@ -363,9 +431,15 @@ def _find_matching_section(question: str, context: str) -> dict | None:
                 section.get("keywords") or [],
                 section_md,
             )
-            if score > 0:
+            # Evita que una seccion local gane por vocabulario compartido
+            # demasiado generico (ej: datos, espacios) y bloquee un match
+            # transversal mas preciso. Un score 8 equivale, como minimo, a un
+            # keyword simple explicito o a suficiente evidencia semantica.
+            if score >= 8:
                 action_text = " ".join([heading, " ".join(section.get("keywords") or [])])
                 has_action_root = bool(_shared_action_roots(question, action_text))
+                section = dict(section)
+                section["score"] = score
                 scored_sections.append((score, section, has_action_root))
         if scored_sections:
             action_scored = [item for item in scored_sections if item[2]]
@@ -444,6 +518,79 @@ def _is_asset_listing_query(question: str) -> bool:
     return any(term in q_lower for term in _ASSET_LISTING_TERMS)
 
 
+def _has_naming_intent(question: str) -> bool:
+    q = _norm(question)
+    return any(term in q for term in (
+        "como nombro", "como nombrar", "como llamo", "como se llama",
+        "como nombramos", "convencion", "nomenclatura",
+        "prefijo", "sufijo", "naming",
+    ))
+
+
+def _is_naming_asset(asset: dict) -> bool:
+    text = _norm(" ".join(str(part or "") for part in (
+        asset.get("description"),
+        " ".join(asset.get("keywords") or []),
+        asset.get("asset"),
+        asset.get("url"),
+    )))
+    return any(term in text for term in (
+        "convencion", "nomenclatura", "nombre", "nombres",
+        "nombr", "prefijo", "sufijo", "naming",
+    ))
+
+
+def _has_troubleshooting_or_reference_intent(question: str) -> bool:
+    q = _norm(question)
+    terms = (
+        "error", "errores", "fallo", "falla", "failed", "exception",
+        "problema", "issue", "issues", "troubleshooting", "debug", "depurar",
+        "trace", "traza", "st05", "su53", "slg1", "odqmon", "sddlar",
+        "dhcdcmon", "dhrdbmon", "oom", "out of memory", "memory",
+        "not ready", "data_not_ready", "nota", "notas", "kba", "caso",
+        "casos", "sap help", "documentacion", "referencia",
+        "referencias", "recurso", "recursos", "help", "how-to", "how to",
+    )
+    return any(term in q for term in terms)
+
+
+def _is_troubleshooting_asset(asset: dict) -> bool:
+    text = _norm(" ".join(str(part or "") for part in (
+        asset.get("description"),
+        " ".join(asset.get("keywords") or []),
+        asset.get("asset"),
+        asset.get("url"),
+    )))
+    terms = (
+        "troubleshooting", "error", "errores", "issue", "issues",
+        "data_not_ready", "not ready", "failed", "fallo", "falla",
+        "out of memory", "oom", "trace", "traza", "st05", "su53",
+        "slg1", "dhcdcmon", "dhrdbmon", "odqmon", "sddlar",
+        "replication flow issues", "problemas de flujo", "atascada",
+        "atascado", "debug", "depurar",
+    )
+    return any(term in text for term in terms)
+
+
+def _should_skip_asset_for_question(question: str, asset: dict) -> bool:
+    # En preguntas de naming, un asset solo debe competir si tambien trata
+    # convenciones/nomenclatura. Evita que un recurso operativo gane solo por
+    # compartir el artefacto (ej. Replication Flow) cuando la pregunta es como
+    # nombrarlo.
+    if _has_naming_intent(question) and not _is_naming_asset(asset):
+        return True
+
+    # Los assets de troubleshooting solo compiten cuando el usuario pide errores,
+    # casos, notas, documentacion o una guia operativa concreta. Antes solo se
+    # excluian en preguntas conceptuales; se amplia a CUALQUIER pregunta sin
+    # intencion de troubleshooting/referencia (ej. "como expongo datos para
+    # consumo" no debe resolverse con una nota DATA_NOT_READY).
+    return (
+        not _has_troubleshooting_or_reference_intent(question)
+        and _is_troubleshooting_asset(asset)
+    )
+
+
 def _score_asset_candidate(question: str, asset: dict) -> int:
     q_lower = _norm(question)
     q_tokens = _significant_tokens(question)
@@ -460,11 +607,25 @@ def _score_asset_candidate(question: str, asset: dict) -> int:
     if conflicting_axes:
         score -= 18
 
+    datasphere_domain_counted = False
     for kw in keywords:
         if not kw:
             continue
         if kw in q_lower:
-            score += 12
+            # Un keyword curado multi-palabra exacto representa intenci?n
+            # operativa precisa (ej: conectar SAC y Datasphere) y debe ganar
+            # sobre matches amplios de plataforma o dominio.
+            if len(kw.split()) > 1:
+                score += 36
+            elif kw in _ASSET_GENERIC_TOKENS or any(kw.startswith(r) for r in _ASSET_GENERIC_TOKEN_ROOTS):
+                # Keyword generico de una sola palabra (datasphere, referencia,
+                # documentacion, configurar...): senal debil de dominio, no debe
+                # clasificar un asset por si solo ni preemptar una seccion precisa.
+                # Sin esto, el SAP Help generico de la biblioteca gana cualquier
+                # pregunta que mencione "datasphere".
+                score += 2
+            else:
+                score += 12
             continue
         if "bw bridge" in kw and "bw bridge" in q_lower:
             score += 6
@@ -472,8 +633,12 @@ def _score_asset_candidate(question: str, asset: dict) -> int:
             if root in kw and root in q_lower:
                 score += 6
                 break
-        if "datasphere" in kw and "datasphere" in q_lower:
+        # Dominio compartido (datasphere): nudge chico y UNA sola vez por asset.
+        # Antes sumaba +4 por cada keyword con "datasphere", inflando recursos
+        # genericos con muchas keywords de dominio (ej. SAP Help oficial → +20).
+        if "datasphere" in kw and "datasphere" in q_lower and not datasphere_domain_counted:
             score += 4
+            datasphere_domain_counted = True
         kw_tokens = _significant_tokens(kw)
         kw_tokens_loose = _routing_token_variants(kw_tokens)
         specific_hits = _asset_specific_token_hits(q_tokens, kw_tokens)
@@ -489,8 +654,9 @@ def _score_asset_candidate(question: str, asset: dict) -> int:
         elif hits == 1:
             # Un token especifico del objeto consultado (SAC, OpenID, BWMT,
             # PowerBI, etc.) debe pesar mas que el verbo generico "conectar".
-            exact_hits = q_tokens & kw_tokens
-            if exact_hits:
+            # Solo tokens ESPECIFICOS (excluye dominio "datasphere" y genericos)
+            # para que el solapamiento de dominio no otorgue este bonus.
+            if _asset_specific_token_hits(q_tokens, kw_tokens):
                 score += 6
 
     desc_tokens = _significant_tokens(desc)
@@ -633,7 +799,7 @@ def _find_best_asset(
     second_score = scored[1][0] if len(scored) > 1 else 0
     if second_score and best_score - second_score < min_gap:
         return None
-    return best
+    return {**best, "_score": best_score}
 
 
 def _find_matching_asset(
@@ -660,9 +826,13 @@ def _find_matching_asset(
     has_intent = _is_asset_seeking_query(question)
     if any(term in q_lower for term in conceptual_terms) and not (has_intent or allow_strong):
         return None
+    filtered_assets = [
+        asset for asset in assets
+        if not _should_skip_asset_for_question(question, asset)
+    ]
     return _find_best_asset(
         question,
-        assets,
+        filtered_assets,
         require_intent=not allow_strong,
         min_score=8 if has_intent else 12,
         min_gap=3 if has_intent else 4,
@@ -678,6 +848,12 @@ def _find_cross_module_asset(
 ) -> dict | None:
     has_intent = _is_asset_seeking_query(question)
     if not has_intent and not allow_strong:
+        return None
+    # Una palabra suelta y ambigua (ej. "modelo", "datos") sin intencion operativa
+    # es demasiado debil para arrastrar un recurso de OTRO modulo: derivaria en
+    # asociaciones cruzadas erroneas (modelo -> template de seguridad). Que lo
+    # resuelva una seccion local o el LLM.
+    if not has_intent and len(_significant_tokens(question)) < 2:
         return None
     min_score = 8 if has_intent else 12
     min_gap = 3 if has_intent else 4
@@ -698,6 +874,8 @@ def _find_cross_module_asset(
             log.warning("Cross-module asset: no se pudo leer %s, se omite: %s", path.name, exc)
             continue
         for asset in meta.get("intent_assets") or []:
+            if _should_skip_asset_for_question(question, asset):
+                continue
             score = _score_asset_candidate(question, asset)
             if score >= min_score:
                 asset = dict(asset)
@@ -712,6 +890,7 @@ def _find_cross_module_asset(
     second_score = candidates[1][0] if len(candidates) > 1 else 0
     if second_score and best_score - second_score < min_gap:
         return None
+    best["_score"] = best_score
     return best
 
 

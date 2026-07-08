@@ -45,6 +45,8 @@ guardrails:
   - "DP Agent legacy no significa obsoleto ni inválido: sigue siendo válido cuando el contexto lo requiere, pero no debe elegirse por defecto si existen capacidades nativas modernas vía SCC/HTTPS/ABAP SQL que reduzcan operación, mantenimiento y acoplamiento."
   - "Desacoplar y encapsular contratos de integración es una práctica recomendada. El anti-pattern no es desacoplar, sino consumir contratos SAP funcionales directamente sin una capa gobernada/customer-managed, o encapsular sin ownership, versionado y SLA."
   - "La extracción directa de tablas base no debe presentarse como recomendación. Si el cliente la espera, explicar por qué no conviene y ofrecer alternativas gobernadas mediante APIs/extractores liberados, CDS u ODP."
+  - "Extracción CDS/ODP: CDS DDIC-based es el baseline productivo por compatibilidad amplia con el framework ODP. La incrementalidad avanzada (CDC con mapping) requiere validar SAP_BASIS >= 7.56 y Nota SAP 3534086 antes de prometerla en Replication Flows; si no se cumple, usar delta byElement con timestamp confiable o full según criticidad, volumen y capacidad de recarga."
+  - "Cloud Connector: no dar un procedimiento genérico sin aclarar primero el contexto operativo. Distinguir Cloud Connector administrado por el cliente vs conectividad bajo SAP RISE (que puede requerir Service Request o coordinación con SAP). SCC es túnel seguro y no procesa datos; para federación moderna con S/4HANA validar release, ABAP Platform, FPS y ABAP SQL Service antes de reemplazar DP Agent, y apoyarse en la guía oficial de configuración."
 quick_action_guidance:
   "Guía operativa del módulo":
     context: |
@@ -275,9 +277,6 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 ## {dw-black}Template de Extracción vía {dw-gold}API Corporativa
 {{section_meta: keywords="template extracción, template CDS, API corporativa, CDS extracción, anotaciones extracción, @Analytics.dataExtraction, delta byElement, change data capture, CDC mapping, SAP_BASIS 7.56, nota SAP 3534086, compatibilidad CDC, delta avanzado, extractor CDS, ABAP CDS Datasphere"}}
 {{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7" SAP Help CDS Annotations="https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&version=LATEST" Nota SAP="https://me.sap.com/notes/3534086"}}
-{{semantic_summary}}
-Esta sección define el template de extracción vía API corporativa para Datasphere. El patrón Danwor conserva CDS DDIC-based como baseline productivo para ODP/CDS de extracción por compatibilidad amplia con el framework ODP y porque muchas APIs CDS liberadas por SAP para extracción siguen ese modelo. La decisión entre delta byElement y CDC con mapping no debe resolverse solo por preferencia técnica: depende de release, SAP_BASIS/SAP_ABAP, tipo de CDS, joins y compatibilidad documentada. El soporte de CDC avanzado con mapping está sujeto a SAP_BASIS >= 7.56 y Nota SAP 3534086, por lo que se debe validar antes de prometer incrementalidad avanzada en Replication Flows. Si el escenario no cumple compatibilidad, usar delta byElement con timestamp confiable o extracción full según criticidad, volumen y capacidad de recarga.
-{{/semantic_summary}}
 {{subtitle: no-gap}}
 > Una vez identificada y validada la fuente de extracción según los criterios de evaluación, se implementa una CDS como API corporativa hacia Datasphere, utilizando CDS DDIC-based como mecanismo alineado al stack SAP y el marco ODP.
 
@@ -324,9 +323,6 @@ ODP es un mecanismo estándar para extracción con colas delta, compatible con D
 ## {dw-black}Integración Legacy vs. {dw-gold}Moderna
 {{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, configurar cloud connector, configuración cloud connector, cloud connector datasphere, cloud connector on premise, cloud connector RISE, SAP RISE cloud connector, ABAP SQL service, cloud to on premise, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
 {{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST" Config Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
-{{semantic_summary}}
-Para preguntas de configuración de Cloud Connector, no responder con un procedimiento genérico sin aclarar primero el contexto operativo. Distinguir si el escenario es Cloud Connector administrado por el cliente en su red/on-premise o conectividad bajo SAP RISE, donde ciertas tareas pueden requerir Service Request o coordinación con SAP. En SAP Datasphere, Cloud Connector/SCC actúa como túnel seguro y no procesa datos; la configuración depende del tipo de conexión, protocolo expuesto, recurso permitido en Cloud To On-Premise y capacidades del sistema fuente. Para federación moderna con S/4HANA, validar release, ABAP Platform, FPS y disponibilidad/configuración de ABAP SQL Service antes de reemplazar DP Agent. Si el usuario pide "cómo configuro Cloud Connector", apoyar la respuesta en la guía oficial "Config Cloud Connector" y advertir qué debe validar antes de ejecutar pasos.
-{{/semantic_summary}}
 
 {{subtitle: no-gap}}
 > Comparación de propósito, despliegue y alcance en SAP Datasphere
@@ -342,7 +338,7 @@ Para preguntas de configuración de Cloud Connector, no responder con un procedi
 (*) acceso federado vía servicios ABAP (HTTPS) requiere S/4HANA (ABAP Platform 2021 FPS01 o superior)
 
 ## {dw-black}Federación vs. {dw-gold}Persistencia
-{{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere"}}
+{{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere, federo, persisto, federo o persisto, federar o persistir, conviene federar o persistir"}}
 
 {{subtitle: no-gap}}
 > Diferencias prácticas según escenario de integración: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento

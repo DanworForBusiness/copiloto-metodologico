@@ -11,6 +11,8 @@ from core.routing_scorers import (
     _find_matching_asset,
     _find_matching_assets,
     _find_matching_section,
+    _is_asset_seeking_query,
+    _is_conceptual_or_comparative_query,
     _should_pair_section_with_asset,
 )
 from core.utils import norm_text, slugify
@@ -184,8 +186,19 @@ class AssistantRoutingService:
         asset = local_asset or cross_asset
         cross_section = None
         if asset and not local_section:
-            cross_section = _find_cross_module_section(question, stem, pack_name)
-            cross_section = cross_section or _reporting_section_hint(question, pack_name)
+            q_low = norm_text(question)
+            conn_query = any(t in q_low for t in ("odbc", "odata", "conexion", "conexión"))
+            hint = _reporting_section_hint(question, pack_name)
+            cross_module = _find_cross_module_section(question, stem, pack_name)
+            if conn_query:
+                # Protocolo/conexión: el hint ("Conexión de Herramientas Externas")
+                # es el más preciso, tiene prioridad.
+                cross_section = hint or cross_module
+            else:
+                # En el resto gana el match cross-module más fuerte; el hint de
+                # reporting (Estrategia de Reporting genérica) queda de respaldo.
+                # Evita que "modelo analítico" desvíe una consulta de naming.
+                cross_section = cross_module or hint
 
         if asset:
             asset_module = str(asset.get("_module") or stem)
@@ -194,11 +207,19 @@ class AssistantRoutingService:
             if section and not _should_pair_section_with_asset(question, section):
                 section = None
             actions: list[AssistantRouteAction] = []
+            # La sección lidera (y el asset pasa a "recurso relacionado") cuando:
+            #  (a) es una pregunta comparativa cuyos ejes el asset no cubre, o
+            #  (b) NO hay intención operativa (how-to) y sí hay sección que matchea.
+            # Así "qué es X", "X vs Y" o "cómo nombro/qué prefijo" abren la sección
+            # metodológica en vez de un recurso tangencial; las how-to ("cómo
+            # conecto/configuro/creo") siguen liderando con el recurso.
+            has_intent = _is_asset_seeking_query(question)
             asset_is_related = (
                 _is_conceptual_asset_question(question)
                 and not _asset_covers_question_axes(question, asset)
-            )
+            ) or (section is not None and not has_intent)
             if asset_is_related:
+                is_comparative = _is_conceptual_or_comparative_query(question)
                 if section:
                     section_module = str(section.get("module") or stem)
                     section_heading = str(section.get("heading") or "")
@@ -209,15 +230,24 @@ class AssistantRoutingService:
                     ))
                     explain_module = section_module
                     explain_heading = section_heading
-                    message = (
-                        f"Tu pregunta parece comparativa; conviene responderla desde "
-                        f"**{section_label}** antes de abrir un how-to puntual."
-                    )
+                    if is_comparative:
+                        message = (
+                            f"Tu pregunta parece comparativa; conviene responderla desde "
+                            f"**{section_label}** antes de abrir un how-to puntual."
+                        )
+                    else:
+                        message = (
+                            f"Para esto conviene partir de la sección **{section_label}**."
+                        )
                 else:
                     explain_module = stem
                     explain_heading = ""
                     message = "Tu pregunta parece comparativa; puedo explicarla en contexto metodológico."
-                if related_action := _related_asset_action(asset, pack_name):
+                # El recurso "relacionado" solo se adjunta si es un match FUERTE.
+                # Un asset tangencial (score bajo, ~12-15 por compartir una palabra
+                # con la sección, ej. Template CDS ↔ "convención") no debe colgarse
+                # de una respuesta de sección: sería ruido sin relación real.
+                if asset.get("_score", 0) >= 18 and (related_action := _related_asset_action(asset, pack_name)):
                     actions.append(related_action)
                     message += f" También encontré un recurso relacionado: **{asset_label}**."
                 return AssistantRoute(
