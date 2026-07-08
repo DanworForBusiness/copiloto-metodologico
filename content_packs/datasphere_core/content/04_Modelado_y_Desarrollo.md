@@ -122,8 +122,8 @@ out_of_scope_redirect:
     label: "Integración y Estrategia de Datos"
     message: "Ese tema corresponde al módulo 03 · Integración y Estrategia de Datos, que cubre extracción, ODP, CDS y estrategias de integración."
 intent_assets:
-  - keywords: ["template CDS", "template vista", "naming template", "convención nombres ejemplo",
-               "ejemplo nombre artefacto", "template dimensión", "ZCDS_DWC_DIM_TEMPLATE"]
+  - keywords: ["template CDS", "template vista CDS", "template extraccion CDS",
+               "cds extractor template", "template dimensión", "ZCDS_DWC_DIM_TEMPLATE"]
     description: "Template CDS para extracción hacia SAP Datasphere"
     asset: "templates/cds_extractor_template.abap"
     language: "abap"
@@ -182,10 +182,7 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 > La **capa Business** (Business Layer) agrega la semántica de negocio sobre los objetos técnicos. La **capa Consumption** (Consumption Layer) expone los objetos analíticos finales. Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.
 
 ## {dw-black}Convención de {dw-gold}Nombres
-{{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor"}}
-{{semantic_summary}}
-Para preguntas sobre como nombrar ingesta en SAP Datasphere, la regla Danwor es: la Capa 1 representa ingesta cruda desde origen y debe nombrarse como tabla (`T`), ya sea remota o local/materializada. No usar ejemplos `1V...` para ingesta. Las vistas (`V`) aplican desde Capa 2 en adelante, cuando ya existe preparacion, armonizacion, propagacion o consumo. La armonizacion nunca debe describirse como Capa 1.
-{{/semantic_summary}}
+{{section_meta: keywords="convención nombres, naming convention, convención de nombres datasphere, prefijo artefacto, nomenclatura datasphere, naming artefactos, nombre vista, nombre tabla, nombre objeto datasphere, SAP DSP EDB TXT API, notación camello, CamelCase datasphere, prefijo 1 2 3, cómo nombrar objetos, estándar nombres, convencion nombres danwor, prefijo de vista, prefijo de tabla, prefijo para una vista, que prefijo, qué prefijo, prefijo vista, prefijo tabla, como llamo, cómo llamo, como se llama, cómo se llama un objeto, llamar objeto, llamar una tabla, sufijo, sufijo PBI, sufijo power bi, sufijo _PBI, 3V, 2V, 1T, prefijo data flow, prefijo de data flow, nombre data flow"}}
 
 {{subtitle: no-gap}}
 > El patrón de nomenclatura Danwor garantiza trazabilidad, linaje y consistencia entre ambientes:
@@ -255,7 +252,7 @@ Salvo por la capa de ingesta donde se mantiene la convencion de nombre del orige
 > Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`<LibreConLineamientos>`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.
 
 ### Otros Artefactos
-Alineado con la agrupación semántica de las distintas líneas de negocio a través del texto <LibreConLineamientos> y los distintos prefijos utilizados, los artefectas a continuación llevan una simple abreviación, seguida de sus referencias adjuntas:
+A diferencia de **tablas y vistas** (que usan el patrón por capas de más arriba), estos artefactos **no llevan prefijo de capa**. Siguen un patrón simple: `<Abreviación>_<Prefijo LoB>_<TextoLibre>` — la abreviación del artefacto, el prefijo de línea de negocio (MD/FNC/IVT/PUR/SND…) y el texto libre con lineamientos. Por ejemplo, un Replication Flow de Ventas se nombra `RF_SND_ENTREGAS` (no `1RF...`). Referencia:
 
 | Artefacto | Abreviación | Ejemplo
 |---|---|---|

@@ -66,7 +66,7 @@ out_of_scope_redirect:
     Bases técnicas para evolucionar hacia BDC, HDLF, virtualización, seguridad y performance.
 
 {{callout: title="¿Por qué importa?" tone="punch" icon="💡"}}
-Sintetiza cómo abordamos el diseño arquitectural y de modelado en Datasphere desde una mirada de EA: decisiones coherentes, gobernadas y alineadas con el negocio​.
+Sintetiza cómo abordamos el diseño y modelado en Datasphere desde una mirada de Arquitectura Empresarial: decisiones coherentes, gobernadas y alineadas con el negocio​.
 {{/callout}}
 
 ## {dw-black}Diseño de los {dw-gold}Modelos de Datos
@@ -117,20 +117,20 @@ Un modelo bien diseñado se sostiene en metadatos bien clasificados​:
 {{subtitle: no-gap}}
 > Cinco paradigmas con un mismo objetivo: transformar datos distribuidos en capacidades de negocio gobernadas. El rol del arquitecto es diseñar un ecosistema híbrido gobernado, no apostar a uno solo.
 
-Tres de ellos, son operativos centrales para Datasphere y BDC​:
+Los primeros cuatro paradigmas responden `cómo construyo la arquitectura` en Datasphere/BDC​:
 
-| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
-|---|---|---|---|
-| **Data Warehouse** | Repositorio central, estructurado y gobernado, optimizado para analítica y reporting | KPIs corporativos, finanzas, reporting regulatorio, analítica repetible | Datasphere es sin dudas un data warehouse moderno que incluye: tablas, persistencia, modelos relacionales, DataFlows, Transformación, Arquitectura por capas, Modelos Analiticos, etc​ |
-| **Data Lakehouse** | Convergencia de lake + warehouse con transaccionalidad y gobierno sobre object storage | Unificar BI + ML en una única plataforma, evitar duplicación lake/warehouse | Critico en Datasphere, absolutamente central en BDC como lakehouse gobernado con semántica SAP (Lakehouse es core, data products viven sobre Lakehouse, lineaje + transactional storage)​ |
-| **Data Fabric** | Capa de integración y acceso unificado, basada en metadatos activos y virtualización | Paisajes híbridos/multi-cloud donde no es viable centralizar físicamente todo | Datasphere oficia de fabric cuando actúa como capa de federación semántica, integración, catalogo unificado, virtualización de datos o modelado sin movimiento de datos​ |
+| Paradigma | Idea clave | Ideal para | Capa en BDC | Relevancia |
+|---|---|---|---|---|
+| **Data Warehouse** | Repositorio central, estructurado y gobernado, optimizado para analítica y reporting | KPIs corporativos, finanzas, reporting regulatorio, analítica repetible | Modelado y gobierno | Datasphere hereda el ADN de BW: modela, persiste y gobierna capas — la disciplina de warehouse sigue siendo el corazón, solo cambió el motor.​ |
+| **Data Lake** | Almacén masivo de datos crudos (estructurados y no estructurados), schema-on-read | IA/ML, analítica exploratoria, grandes volúmenes y variedad de datos | Storage  | Datasphere no incluye un data lake completo; sin embargo, HDLF provee capacidades de lake sobre object storage (parquet, particiones, ingestion masiva, external tables). Es la base técnica del camino hacia el Lakehouse en BDC​ |
+| **Data Lakehouse** | Convergencia de lake + warehouse con transaccionalidad y gobierno sobre object storage | Unificar BI + ML en una única plataforma, evitar duplicación lake/warehouse | Storage + Cómputo | Crítico en BDC, no en Datasphere en sí — Databricks/Snowflake es el motor lakehouse; Datasphere consume esos data products y les agrega semántica (Lakehouse es core, data products viven sobre Lakehouse, lineaje + transactional storage)​ |
+| **Data Fabric** | Capa de integración y acceso unificado, basada en metadatos activos y virtualización | Paisajes híbridos/multi-cloud donde no es viable centralizar físicamente todo | Semántica + Integración | Datasphere oficia de fabric cuando actúa como capa de federación semántica, integración, catalogo unificado, virtualización de datos o modelado sin movimiento de datos​ |
 
-Los dos restantes, mas bien informativos con alcance indirecto:
+El quinto y último: Data Mesh, responde a `quién es dueño del dato y cómo lo comparte` — como modelo de gobierno:
 
-| Paradigma | Idea clave | Ideal para | Relevancia DSP / BDC |
-|---|---|---|---|
-| **Data Lake** | Almacén masivo de datos crudos (estructurados y no estructurados), schema-on-read | IA/ML, analítica exploratoria, grandes volúmenes y variedad de datos | Datasphere no incluye un data lake completo; sin embargo, HDLF provee capacidades de lake sobre object storage (parquet, particiones, ingestion masiva, external tables). Es la base técnica del camino hacia el Lakehouse en BDC​ |
-| **Data Mesh** | Descentraliza: cada dominio publica “data products” gobernados sobre una plataforma común | Organizaciones grandes con muchos dominios que necesitan autonomía y velocidad | Conceptual, no técnica. Datasphere no implementa mesh automáticamente,sino que ofrece/facilita con espacios y permisos a nivel dominio (DAC)​ |
+| Paradigma | Idea clave | Ideal para | Capa en BDC | Relevancia |
+|---|---|---|---|---|
+| **Data Mesh** | Descentraliza: cada dominio publica **data products** gobernados sobre una plataforma común | Organizaciones grandes con muchos dominios que necesitan autonomía y velocidad | Organización/Gobierno (Data Products, DAC) | Conceptual, no técnica. Datasphere no implementa mesh automáticamente,sino que ofrece/facilita con espacios y permisos a nivel dominio (DAC)​ |
 
 {{tree_button: Decisión de Paradigma Arquitectónico}}
 

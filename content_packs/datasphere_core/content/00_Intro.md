@@ -33,4 +33,4 @@ key_topics:
 ## {dw-black}Roadmap de {dw-gold}Implementación
 {{section_mode: visual_only}}
 {{support: Apendice EA="https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAytk_-d4X1SaNH2Mod9huSAQ8YtXkNJVsfymB8r8MnLmA?e=9p5yyd&nav=eyJzSWQiOjUyNSwiY0lkIjoxOTE2NzY4MzkzfQ"}}
-{{html_embed: ../assets/danwor-roadmap-implementacion.html height=960}}
+{{html_embed: ../assets/danwor-roadmap-implementacion.html height=1420}}

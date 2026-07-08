@@ -103,6 +103,9 @@ intent_assets:
   - keywords: ["video tutorial", "tutoriales video", "datasphere tutorials", "videos datasphere"]
     description: "SAP Datasphere Video Tutorials"
     asset: "https://help.sap.com/docs/SAP_DATASPHERE/55b34306f32145359e499c4492fc65eb/9ef88a8d4cd1479cb1272ae0de1eada0.html?locale=en-US&version=LATEST"
+  - keywords: ["joule in DSP", "joule in sap datasphere", "joule in datasphere", "joule in BDC"]
+    description: "Joule in SAP Datasphere"
+    asset: "https://help.sap.com/docs/joule/capabilities-guide/joule-in-sap-datasphere?locale=en-US&version=LATEST"
   - keywords: ["instalar bw bridge", "configurar bw bridge", "bw bridge datasphere"]
     description: "How-to Danwor: Instalar y configurar BW Bridge en Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EXRXdwKimLpPvca1zZYKH6sBN3sPyNY9iMi0GOJ6PX2zow?e=dMIGFe"
@@ -133,7 +136,7 @@ intent_assets:
   - keywords: ["catalogo sql", "funciones sql", "sql datasphere", "catalogo funciones"]
     description: "Catálogo Danwor de Funciones SQL"
     asset: "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/ERWvokGY9E9Jo5iY93hMSbsBTOSq4OaDpzjlX85wedLWhA?e=b1uxwT"
-  - keywords: ["conectar sac", "sac datasphere", "conexion sac datasphere"]
+  - keywords: ["conectar sac", "sac datasphere", "conexion sac datasphere", "conectar sac y datasphere", "live connection datasphere"]
     description: "How-to Danwor: Conectar SAC con Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EVwZ4LrADDJOkzuK41mhP_kB3suiqyYK2BhyF1sxYwz3fw?e=lUIVjN"
   - keywords: ["power bi", "powerbi", "odbc datasphere", "conectar powerbi datasphere"]
@@ -205,6 +208,9 @@ intent_assets:
   - keywords: ["nota 3384164", "3384164", "out of memory", "OOM", "STATEMENT_MEMORY_LIMIT_FROM_GLOBAL_CONFIG"]
     description: "Nota SAP 3384164: Out of Memory errors in SAP Datasphere"
     asset: "https://me.sap.com/notes/3384164"
+  - keywords: ["nota 3764217", "3764217", "schedule publication fails", "sac publication", "schedule publicacion sac"]
+    description: "Nota SAP 3764217: Schedule Publications failing for story based on SAP Datasphere live connection in SAP Analytics cloud"
+    asset: "https://me.sap.com/notes/3764217"        
 key_topics:
   - id: links
     label: Links
@@ -217,9 +223,6 @@ key_topics:
 
 ## {dw-black}Links {dw-gold}SAP
 {{section_meta: keywords="links sap, documentación oficial, sap help, datasphere help, expert content, cds views, sac, discovery center, bwmt, odp cds, troubleshooting, video tutorials, fuentes oficiales sap, documentación sap datasphere"}}
-{{semantic_summary}}
-Biblioteca de links oficiales y referencias base para conversaciones donde el usuario pida documentación, fuentes oficiales o material de soporte SAP. Incluye SAP Help de Datasphere, Expert Content, CDS Views, SAC, Discovery Center, actualizaciones Eclipse/BWMT, deep dive ODP-CDS, troubleshooting y video tutorials. Usar esta sección para ofrecer un recurso cuando la consulta demande "pasame documentación", "link oficial", "SAP Help", "dónde leo más", "fuente SAP" o validación documental.
-{{/semantic_summary}}
 
 - 💡 SAP Datasphere | [Link](https://help.sap.com/docs/SAP_DATASPHERE?locale=en-US)
 - 🆕 SAP Datasphere Expert Content | [Link](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4181116697.html?locale=en-US)
@@ -234,9 +237,6 @@ Biblioteca de links oficiales y referencias base para conversaciones donde el us
 
 ## {dw-black}Colección {dw-gold}How-To
 {{section_meta: keywords="how-to, guía paso a paso, procedimiento danwor, configurar datasphere, instalar bw bridge, conectar s4hana, cloud connector, importar odp, particionar tablas remotas, task chains, transportar datasphere, transportar bw bridge, catalogo sql, conectar sac, conectar power bi, business content, openid, github copilot eclipse, email notifications"}}
-{{semantic_summary}}
-Colección de guías internas Danwor orientadas a ejecución paso a paso. Usar esta sección cuando el usuario pregunte cómo configurar, instalar, conectar, transportar, activar o ejecutar una tarea concreta en Datasphere, BW Bridge, Cloud Connector, S/4HANA, SAC, Power BI, ODP, SQL, OpenID, Business Content, Eclipse/BWMT, GitHub Copilot o Task Chains. El asistente debe priorizar ofrecer el how-to específico si hay match claro y luego complementar con explicación.
-{{/semantic_summary}}
 {{subtitle: no-gap}}
 >Nos retroalimentamos para crecer.
 
@@ -264,9 +264,6 @@ Colección de guías internas Danwor orientadas a ejecución paso a paso. Usar e
 
 ## {dw-black}Notas {dw-gold}SAP
 {{section_meta: keywords="notas sap, sap notes, kba, nota 3498095, nota 3100673, nota 3154420, nota 3117800, nota 3141688, nota 3417440, nota 3579966, nota 3590400, nota 3220622, nota 1732157, nota 2180165, restricciones datasphere, bw bridge notes, hana troubleshooting, expensive statements, release schedule hana cloud"}}
-{{semantic_summary}}
-Listado curado de notas SAP relevantes para SAP Datasphere, BW Bridge, integración ABAP, conversión BW, restricciones, BWMT, BDC, HANA Cloud schedule y troubleshooting HANA. Usar esta sección cuando el usuario pida una nota SAP, una KBA, compatibilidad, restricciones, información oficial de errores, releases, BW Bridge, ABAP Integration o diagnóstico HANA.
-{{/semantic_summary}}
 {{subtitle: no-gap}}
 >Estas son las notas principales y más relevantes para tu primer experiencia Datasphere
 
@@ -292,3 +289,4 @@ Listado curado de notas SAP relevantes para SAP Datasphere, BW Bridge, integraci
 |---|---|---|
 | **3509695** | Conectar SAP Integrated Business Planning (IBP) con Datasphere | Integración |
 | **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance | 
+| **3764217** | Schedule Publications failing for story based on SAP Datasphere live connecton | Técnico / Compatibilidad | 

@@ -153,12 +153,13 @@ out_of_scope_redirect:
 # 01 Arquitectura y Conectividad
 
 ## {dw-black}Referencias de {dw-gold}Arquitectura
-{{section_meta: keywords="arquitectura datasphere, arquitectura de referencia, landscape SAP, sistemas fuente, sistemas origen, diagrama arquitectura, componentes datasphere, BW bridge, tablas remotas, tablas locales, data flows, replication flows, conexión SAP, fuentes SAP, fuentes no-SAP, Oracle SQL Server Azure, CDS views extractores, arquitectura BDC, business data cloud arquitectura, cómo conecta datasphere, qué sistemas conecta datasphere"}}
+{{section_meta: keywords="arquitectura datasphere, arquitectura de referencia, landscape SAP, sistemas fuente, sistemas origen, diagrama arquitectura, componentes datasphere, BW bridge, tablas remotas, tablas locales, data flows, replication flows, conexión SAP, fuentes SAP, fuentes no-SAP, Oracle SQL Server Azure, CDS views extractores, arquitectura BDC, business data cloud arquitectura, cómo conecta datasphere, qué sistemas conecta datasphere, fuente no SAP, fuentes no SAP, conectar fuente no SAP, origen no SAP, conectar Oracle, conectar SQL Server, conectar Azure"}}
 
 > Patrones de integración entre sistemas de origen y SAP Datasphere, clasificados por tipo de fuente y mecanismo de carga. Hacé click en un escenario para destacarlo en el diagrama.
 {{html_embed: ../assets/danwor-referencias-arquitectura.html height=660}}
 
 ## {dw-black}Coexistencia de {dw-gold}Paradigmas
+{{section_meta: keywords="HDLF, HANA Data Lake Files, que es HDLF, qué es HDLF, object store, HANA DB vs HDLF, HANA database vs HDLF, coexistencia de paradigmas, delta tables, parquet files, lakehouse HANA, storage HDLF, ciclo de vida HDLF, HANA in-memory vs object store"}}
 {{subtitle: no-gap}}
 {{support: SAP Help HDLF="https://help.sap.com/docs/hana-cloud-data-lake/welcome-guide/data-lake-files?locale=en-US&version=LATEST"}}
 
@@ -178,7 +179,7 @@ out_of_scope_redirect:
 </div>
 
 ## {dw-black}Espacios & {dw-gold}Transportes
-{{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes"}}
+{{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes, crear espacio, creo un espacio, crear un espacio, como creo un espacio, cómo creo un espacio, nuevo espacio"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6a396f6cf7ad41faa3a8cdd24f4e728a.html?locale=en-US&version=LATEST"}}
 > En Arquitectura Datasphere / BDC. Seleccioná el modelo de tenancy para explorar la topología de espacios y el flujo de transporte DEV → QA → PRD.
 {{html_embed: ../assets/danwor-espacios-transportes.html height=640}}
