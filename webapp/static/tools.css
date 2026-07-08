@@ -117,6 +117,9 @@
 .section-analysis-error { padding: 13px; border-left: 3px solid #b34b4b; background: #c95d5d12; }
 .section-analysis-error strong { color: #b34b4b; font-size: .78rem; }
 .section-analysis-error p { margin: 4px 0 0; color: var(--soft); font-size: .7rem; }
+.assistant-llm-disclaimer { display: flex; gap: 6px; align-items: flex-start; margin: 8px 0 2px; padding: 7px 9px; border-left: 3px solid rgba(231,176,8,.55); border-radius: 5px; background: rgba(231,176,8,.08); color: var(--soft); font-size: .63rem; line-height: 1.4; }
+.assistant-llm-disclaimer::before { content: "⚠"; color: var(--gold); font-size: .72rem; line-height: 1.2; }
+.content-theme-light .assistant-llm-disclaimer { background: rgba(231,176,8,.1); }
 .analysis-prompt { margin-top: 12px; color: var(--soft); font-size: .67rem; }
 .analysis-prompt pre { max-height: 260px; padding: 10px; overflow: auto; white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); }
 @keyframes analysis-spin { to { transform: rotate(360deg); } }
@@ -195,7 +198,7 @@
 .copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
 
 .copilot-panel {
-  margin: 14px 14px 20px 0;
+  margin: 14px 4px 20px 0;
   border: 1px solid var(--line);          /* reemplaza el border-left suelto */
   border-radius: 18px;
   top: 88px;

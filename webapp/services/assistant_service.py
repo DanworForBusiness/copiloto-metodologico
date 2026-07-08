@@ -175,7 +175,15 @@ class AssistantChatService:
         user_prompt = (
             f"CONTEXTO (Marco Danwor)\n{'─' * 40}\n{context or document.source}\n\n"
             f"CONVERSACIÓN PREVIA\n{'─' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
-            f"NUEVA CONSULTA\n{'─' * 40}\n{question}"
+            f"NUEVA CONSULTA\n{'?' * 40}\n{question}\n\n"
+            "FORMATO DE RESPUESTA\n"
+            f"{'?' * 40}\n"
+            "Respond? en Markdown v?lido y legible. Si el contexto incluye una estructura, "
+            "lista de definiciones, convenci?n de nombres, patr?n o pasos, conserv? esa "
+            "estructura en la respuesta: us? p?rrafos separados, bullets con etiquetas en "
+            "negrita y ejemplos en l?neas propias. No lo conviertas en un p?rrafo plano. "
+            "Si mostr?s una plantilla con placeholders entre <...>, dejala en una l?nea "
+            "separada y explic? cada placeholder debajo con bullets."
         )
         try:
             client = self.client_factory(api_key=api_key)

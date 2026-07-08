@@ -140,12 +140,29 @@ def normalize_llm_markdown(answer: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
 
 
+_ESCAPED_ENTITY_RE = re.compile(r"&amp;((?:lt|gt|amp|quot|apos|#\d+|#x[0-9a-fA-F]+));")
+_PLACEHOLDER_SEPARATOR_RE = re.compile(r"((?:&lt;[^&\n]+?&gt;|<[^<>\n]+?>))_(?=(?:&lt;|<))")
+_PLACEHOLDER_SEPARATOR_TOKEN = "DWTEMPLATEUNDERSCORE"
+
+
+def _protect_placeholder_separators(text: str) -> str:
+    """Avoid Markdown emphasis inside naming templates such as <A>_<B>."""
+    return _PLACEHOLDER_SEPARATOR_RE.sub(rf"\1{_PLACEHOLDER_SEPARATOR_TOKEN}", text)
+
+
+def _restore_literal_entities(rendered: str) -> str:
+    """Collapse double-escaped entities while keeping literal angle brackets safe."""
+    restored = _ESCAPED_ENTITY_RE.sub(r"&\1;", rendered)
+    return restored.replace(_PLACEHOLDER_SEPARATOR_TOKEN, "_")
+
+
 def render_llm_html(answer: str) -> str:
-    normalized = normalize_llm_markdown(answer)
-    return markdown.markdown(
+    normalized = _protect_placeholder_separators(normalize_llm_markdown(answer))
+    rendered = markdown.markdown(
         html.escape(normalized),
         extensions=["tables", "fenced_code", "sane_lists"],
     )
+    return _restore_literal_entities(rendered)
 
 
 def _legacy_api_key() -> str:

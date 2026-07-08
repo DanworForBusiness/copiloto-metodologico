@@ -180,6 +180,7 @@ def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch)
     assert "Explicame vos" in response.text
     assert "assistant-feedback" in response.text
     assert "¿Te resultó útil esta respuesta?" in response.text
+    assert "assistant-llm-disclaimer" not in response.text
 
 
 def test_local_pack_resource_is_served_and_traversal_is_rejected():
@@ -223,6 +224,7 @@ def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     assert response.status_code == 200
     assert "Explicación contextual" in response.text
     assert "assistant-message--user" not in response.text
+    assert "assistant-llm-disclaimer" in response.text
     assert web_main.assistant_store.history(
         conversation.id, conversation.module, conversation.pack,
     ).count(("user", "tenemos algun template CDS?")) == 1

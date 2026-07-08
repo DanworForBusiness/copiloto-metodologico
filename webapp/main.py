@@ -457,6 +457,7 @@ def analyze_section(
             "error": error,
             "diagnostic_mode": _diagnostic(request),
             "user_first_name": first_name,
+            "llm_answer": reply is not None,
         },
     )
 
@@ -566,6 +567,7 @@ def assistant_chat(
             "stem": stem,
             "pack": selected,
             "show_user_message": not routing_bypass,
+            "llm_answer": route is None and reply is not None,
         },
     )
 
