@@ -423,3 +423,12 @@ def test_regular_module_is_not_immersive():
     assert response.status_code == 200
     assert 'class="module-content"' in response.text
     assert 'class="academy-stage"' not in response.text
+
+
+def test_intro_has_no_panel_even_in_diagnostic_mode():
+    # 00 Intro es solo lectura (inmersivo, sin IA): nunca panel derecho, ni con diagnóstico.
+    response = diag_client.get("/modules/00_Intro")
+    assert response.status_code == 200
+    assert 'class="academy-stage"' in response.text
+    assert "copilot-panel" not in response.text
+    assert "no-copilot" in response.text

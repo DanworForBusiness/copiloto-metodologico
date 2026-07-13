@@ -273,8 +273,8 @@ def pack_asset(request: Request, pack_name: str, asset_path: str):
             'html[data-dw-theme="light"]::-webkit-scrollbar-thumb:hover,html[data-dw-theme="light"] ::-webkit-scrollbar-thumb:hover'
             '{background:rgba(20,22,28,.30);background-clip:padding-box}'
             # Embebido a pantalla completa (embed=1): el shell del copiloto ya da
-            # contexto, así que se oculta el topbar/progreso propios del HTML.
-            'html[data-dw-embed] .topbar,html[data-dw-embed] .scroll-progress{display:none!important}'
+            # contexto, así que se ocultan el topbar/progreso/footer propios del HTML.
+            'html[data-dw-embed] .topbar,html[data-dw-embed] .scroll-progress,html[data-dw-embed] footer{display:none!important}'
             'html[data-dw-embed] .hero{padding-top:2.5rem}</style>'
             "<script>(function(){function a(t){document.documentElement"
             ".setAttribute('data-dw-theme',t||'light');}"
@@ -420,8 +420,9 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "immersive": immersive,
             "iframe_src": iframe_src,
             # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
-            # si está el modo diagnóstico activo (grupo Gestión).
-            "show_panel": ia_enabled or diagnostic,
+            # si está el modo diagnóstico activo (grupo Gestión). Nunca en módulos
+            # inmersivos de solo lectura (p. ej. 00 Intro), aunque esté diagnóstico.
+            "show_panel": (ia_enabled or diagnostic) and not immersive,
             "document": document,
             "trees": trees,
             "run": run,

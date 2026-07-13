@@ -86,7 +86,11 @@ html.branding-danwor .topbar{display:block;}
 .finale:last-of-type{border-bottom:none;}
 .finale-head{margin-bottom:3rem;}
 .finale-title{font-size:clamp(1.9rem,3.4vw,3rem); font-weight:800; line-height:1.15; margin-bottom:1.2rem; max-width:32ch;}
-.finale-title em{font-style:normal; color:var(--gold);}
+/* Slide de cierre (BDC): menos gold. El título va en tono oscuro y los sublabels
+   "+ …" y el CTA en gris; se mantiene el gold solo en las alegorías (.fc-role). */
+.finale-title em{font-style:normal; color:var(--ink);}
+.finale-subtile .fst-label{color:var(--ink);}
+.finale-card-cta{color:var(--ink-soft);}
 .finale-body{font-size:1.08rem; color:var(--ink-soft); max-width:none;}
 .finale-tagline{margin-top:3rem; font-size:clamp(1.15rem,1.8vw,1.5rem); font-style:italic; color:var(--ink); border-left:3px solid var(--gold); padding-left:1.2rem; max-width:56ch;}
 </style>
