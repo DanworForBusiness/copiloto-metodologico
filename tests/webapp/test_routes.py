@@ -401,6 +401,9 @@ def test_intro_module_renders_immersive_embed():
     assert "embed=1" in response.text
     assert 'class="section-index"' not in response.text
     assert 'class="module-feedback' not in response.text
+    # El cue "scroll para continuar" del HTML embebido apunta al módulo 01.
+    assert "continue_url=" in response.text
+    assert "01_Arquitectura_y_Conectividad" in response.text
     # Sigue siendo módulo Core: conserva el pager (link al 01) y el nav.
     assert 'href="/modules/01_Arquitectura_y_Conectividad' in response.text
     assert "CORE" in response.text

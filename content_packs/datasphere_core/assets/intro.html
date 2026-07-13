@@ -28,6 +28,17 @@
 .topic.intro-slide{min-height:auto; padding:clamp(3.5rem,7vw,6rem) 0; justify-content:flex-start;}
 .intro-embed{margin-top:1.6rem;}
 .intro-embed iframe{width:100%; border:0; display:block; background:transparent;}
+
+/* Cue de cierre "scroll para continuar" → siguiente módulo del copiloto (igual
+   look que el .module-continue del copiloto; navega el frame padre). */
+.intro-continue{display:flex; flex-direction:column; align-items:center; gap:.55rem; margin:.5rem auto clamp(3rem,6vw,5rem); padding-top:1.5rem; text-align:center; text-decoration:none; opacity:.55; cursor:pointer; transition:opacity .2s;}
+.intro-continue:hover, .intro-continue.is-armed{opacity:1;}
+.intro-continue-line{width:1px; height:46px; background:linear-gradient(to bottom, transparent, var(--gold)); animation:intro-scroll-line 2s ease-in-out infinite;}
+.intro-continue.is-armed .intro-continue-line{animation-duration:.7s;}
+.intro-continue-eyebrow{font-family:var(--mono); font-size:.62rem; letter-spacing:.3em; text-transform:uppercase; color:var(--ink-dim);}
+.intro-continue-next{font-family:var(--sans); font-weight:600; font-size:.82rem; color:var(--gold);}
+@keyframes intro-scroll-line{0%{transform:scaleY(0);transform-origin:top;}50%{transform:scaleY(1);transform-origin:top;}51%{transform:scaleY(1);transform-origin:bottom;}100%{transform:scaleY(0);transform-origin:bottom;}}
+@media (prefers-reduced-motion: reduce){ .intro-continue-line{animation:none;} }
 </style>
 </head>
 <body>
@@ -99,6 +110,13 @@
     </div>
   </section>
 
+  <!-- CIERRE · continuar al siguiente módulo del copiloto -->
+  <a class="intro-continue" id="introContinue" href="#" target="_parent" hidden>
+    <span class="intro-continue-line" aria-hidden="true"></span>
+    <span class="intro-continue-eyebrow">Scroll para continuar</span>
+    <span class="intro-continue-next" id="introContinueLabel"></span>
+  </a>
+
 </main>
 
 <script>
@@ -147,6 +165,34 @@
       });
     }
   });
+
+  // Cue de "scroll para continuar": navega el frame PADRE (la página del módulo del
+  // copiloto) al destino que nos pasó por query (?continue_url / ?continue_label).
+  // El click nativo usa target="_parent"; además, overscroll deliberado al final avanza.
+  var params = new URLSearchParams(window.location.search);
+  var contUrl = params.get('continue_url');
+  var contLabel = params.get('continue_label');
+  var cue = document.getElementById('introContinue');
+  if(contUrl && cue){
+    cue.setAttribute('href', contUrl);
+    var lbl = document.getElementById('introContinueLabel');
+    if(lbl){ lbl.textContent = contLabel || 'Continuar'; }
+    cue.hidden = false;
+    var go = function(){ try{ window.parent.location.href = contUrl; }catch(_){ window.location.href = contUrl; } };
+    var overscroll = 0, navigating = false, idle = null;
+    var se = document.scrollingElement || document.documentElement;
+    window.addEventListener('wheel', function(ev){
+      if(navigating) return;
+      var atBottom = se.scrollTop + se.clientHeight >= se.scrollHeight - 2;
+      if(ev.deltaY > 0 && atBottom){
+        overscroll += ev.deltaY;
+        cue.classList.add('is-armed');
+        clearTimeout(idle);
+        idle = setTimeout(function(){ overscroll = 0; cue.classList.remove('is-armed'); }, 700);
+        if(overscroll > 320){ navigating = true; go(); }
+      } else { overscroll = 0; cue.classList.remove('is-armed'); }
+    }, {passive:true});
+  }
 })();
 </script>
 

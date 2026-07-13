@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 from uuid import uuid4
 import json
 import re
@@ -369,9 +370,6 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     immersive = str(_meta.get("layout") or "").strip().lower() == "immersive"
     embed_asset = str(_meta.get("embed_asset") or "").strip()
     immersive = immersive and bool(embed_asset) and "/" not in embed_asset and ".." not in embed_asset
-    iframe_src = (
-        f"/pack-assets/{selected}/{embed_asset}?branding=danwor&embed=1" if immersive else None
-    )
     current_index = next((i for i, item in enumerate(nav_items) if item.stem == stem), None)
     previous_module = nav_items[current_index - 1] if current_index else None
     next_module = (
@@ -383,6 +381,21 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     # al inicio (Intro) en vez de "morir". Solo aplica al cue de scroll continuo,
     # no a las flechas del pager (que siguen deshabilitándose al final).
     loop_home = nav_items[0] if (next_module is None and len(nav_items) > 1) else None
+
+    # En modo inmersivo el scroll ocurre dentro del iframe, así que el cue de
+    # "scroll para continuar" vive en el HTML embebido: le pasamos a dónde ir
+    # (siguiente módulo, o loop al inicio) para que navegue el top al llegar al final.
+    iframe_src = None
+    if immersive:
+        _cont = next_module or loop_home
+        _params = {"branding": "danwor", "embed": "1"}
+        if _cont:
+            _prefix = _cont.stem.split("_")[0]
+            _params["continue_url"] = f"/modules/{_cont.stem}?pack={selected}"
+            _params["continue_label"] = (
+                f"{_prefix} · {_cont.title}" if next_module else f"↻ {_prefix} · {_cont.title}"
+            )
+        iframe_src = f"/pack-assets/{selected}/{embed_asset}?{urlencode(_params)}"
     trees = store.trees_for_module(stem, selected, include_assessment=True)
     run = store.start(trees[0], selected) if len(trees) == 1 else None
     conversation = assistant_store.start(stem, selected)
