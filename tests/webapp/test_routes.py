@@ -342,3 +342,81 @@ def test_selected_tree_starts_via_htmx_fragment():
     assert 'id="wizard-shell"' in response.text
     assert 'hx-trigger="change"' in response.text
     assert "Continuar" not in response.text
+
+
+def test_academy_page_embeds_asset_full_height_without_panel():
+    response = client.get("/academy/ACAD01_Paradigmas")
+    assert response.status_code == 200
+    # Iframe inmersivo al HTML de storytelling, con branding danwor + embed=1.
+    assert 'class="content-embed academy-embed"' in response.text
+    assert "/pack-assets/datasphere_core/academy/paradigmas.html" in response.text
+    assert "branding=danwor" in response.text
+    assert "embed=1" in response.text
+    # Sin panel de IA (se ve como el módulo 00): shell no-copilot, sin panel derecho.
+    assert "copilot-panel" not in response.text
+    assert "no-copilot" in response.text
+    # El grupo Academy y sus 4 entradas están en el nav.
+    assert "Danwor Academy" in response.text
+    assert '/academy/ACAD02_Datasphere' in response.text
+    assert '/academy/ACAD04_SAC' in response.text
+
+
+def test_academy_group_present_on_module_pages_but_out_of_pager():
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert response.status_code == 200
+    # El grupo Academy aparece en el nav (links a /academy/…, ruta distinta de /modules/).
+    assert "Danwor Academy" in response.text
+    assert 'href="/academy/ACAD01_Paradigmas' in response.text
+    # Desconexión: el pager superior nunca apunta a Academy.
+    pager = response.text.split('class="module-pager"', 1)[1].split("</div>", 1)[0]
+    assert "/academy/" not in pager
+
+
+def test_academy_asset_injects_embed_flag_and_theme():
+    response = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&embed=1")
+    assert response.status_code == 200
+    assert "window.DANWOR_EMBED_PROPS" in response.text
+    assert "data-dw-embed" in response.text          # el script marca el modo embebido
+    assert "data-dw-theme" in response.text          # theme del copiloto inyectado
+
+
+def test_academy_shared_stylesheet_is_served():
+    response = client.get("/pack-assets/datasphere_core/academy/dw-academy.css")
+    assert response.status_code == 200
+    assert 'branding-danwor' in response.text
+
+
+def test_unknown_academy_page_returns_404():
+    response = client.get("/academy/ACAD99_NoExiste")
+    assert response.status_code == 404
+
+
+def test_intro_module_renders_immersive_embed():
+    response = client.get("/modules/00_Intro")
+    assert response.status_code == 200
+    # Cuerpo inmersivo: stage full-height con el iframe a intro.html (no secciones markdown).
+    assert 'class="academy-stage"' in response.text
+    assert "/pack-assets/datasphere_core/intro.html" in response.text
+    assert "branding=danwor" in response.text
+    assert "embed=1" in response.text
+    assert 'class="section-index"' not in response.text
+    assert 'class="module-feedback' not in response.text
+    # Sigue siendo módulo Core: conserva el pager (link al 01) y el nav.
+    assert 'href="/modules/01_Arquitectura_y_Conectividad' in response.text
+    assert "CORE" in response.text
+
+
+def test_intro_asset_has_rail_and_embeds_diagrams():
+    response = client.get("/pack-assets/datasphere_core/intro.html")
+    assert response.status_code == 200
+    assert 'id="rail"' in response.text
+    assert "danwor-for-business.html" in response.text
+    assert "danwor-punto-de-partida.html" in response.text
+    assert "danwor-roadmap-implementacion.html" in response.text
+
+
+def test_regular_module_is_not_immersive():
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert response.status_code == 200
+    assert 'class="module-content"' in response.text
+    assert 'class="academy-stage"' not in response.text

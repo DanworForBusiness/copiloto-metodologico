@@ -32,7 +32,14 @@ from core.prompts import (
 )
 from core.utils import slugify
 from webapp.services import auth_service
-from webapp.services.content_service import list_appendices, list_modules, load_module
+from webapp.services.content_service import (
+    academy_asset_for,
+    list_academy,
+    list_appendices,
+    list_modules,
+    load_module,
+    split_front_matter,
+)
 from webapp.services.case_library import CaseLibraryRepository
 from webapp.services.assistant_service import (
     AssistantChatService,
@@ -263,10 +270,21 @@ def pack_asset(request: Request, pack_name: str, asset_path: str):
             'html[data-dw-theme="light"]::-webkit-scrollbar-thumb,html[data-dw-theme="light"] ::-webkit-scrollbar-thumb'
             '{background:rgba(20,22,28,.16);border-radius:9px;border:3px solid transparent;background-clip:padding-box}'
             'html[data-dw-theme="light"]::-webkit-scrollbar-thumb:hover,html[data-dw-theme="light"] ::-webkit-scrollbar-thumb:hover'
-            '{background:rgba(20,22,28,.30);background-clip:padding-box}</style>'
+            '{background:rgba(20,22,28,.30);background-clip:padding-box}'
+            # Embebido a pantalla completa (embed=1): el shell del copiloto ya da
+            # contexto, así que se oculta el topbar/progreso propios del HTML.
+            'html[data-dw-embed] .topbar,html[data-dw-embed] .scroll-progress{display:none!important}'
+            'html[data-dw-embed] .hero{padding-top:2.5rem}</style>'
             "<script>(function(){function a(t){document.documentElement"
             ".setAttribute('data-dw-theme',t||'light');}"
-            "a((window.DANWOR_EMBED_PROPS||{}).theme);"
+            "var p=window.DANWOR_EMBED_PROPS||{};a(p.theme);"
+            "if(p.embed){document.documentElement.setAttribute('data-dw-embed','1');"
+            # Avisar al copiloto qué página se está viendo (para sincronizar el nav
+            # izquierdo al navegar entre páginas DENTRO del iframe, p. ej. paradigmas→datasphere).
+            # El propio HTML ya arrastra el query completo (branding+embed) a sus cross-links
+            # (data-carry-branding), así que embed=1 persiste al navegar dentro.
+            "try{parent.postMessage({type:'danwor-academy-nav',"
+            "asset:(location.pathname.split('/').pop()||'')},'*');}catch(_){}}"
             "window.addEventListener('message',function(e){"
             "if(e.data&&e.data.type==='danwor-theme')a(e.data.theme);});})();</script>"
         )
@@ -331,15 +349,29 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
     modules = list_modules(selected)
     appendices = list_appendices(selected)
+    academy = list_academy(selected)
     try:
         document = load_module(stem, selected)
     except FileNotFoundError as exc:
         raise HTTPException(404, "Módulo no encontrado") from exc
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
+    # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada
+    # de la navegación (no entra en el pager prev/next ni en el bucle de scroll).
     nav_items = (*modules, *appendices)
     is_appendix = any(item.stem == stem for item in appendices)
     ia_enabled = ia_enabled_for(stem)
+
+    # Layout inmersivo (p. ej. 00 Intro): en vez de renderizar secciones markdown,
+    # se embebe un HTML de storytelling (formato Academy) a pantalla completa. El
+    # módulo sigue en el nav Core con su pager/loop; solo cambia el cuerpo.
+    _meta, _ = split_front_matter(document.source)
+    immersive = str(_meta.get("layout") or "").strip().lower() == "immersive"
+    embed_asset = str(_meta.get("embed_asset") or "").strip()
+    immersive = immersive and bool(embed_asset) and "/" not in embed_asset and ".." not in embed_asset
+    iframe_src = (
+        f"/pack-assets/{selected}/{embed_asset}?branding=danwor&embed=1" if immersive else None
+    )
     current_index = next((i for i, item in enumerate(nav_items) if item.stem == stem), None)
     previous_module = nav_items[current_index - 1] if current_index else None
     next_module = (
@@ -364,10 +396,16 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         context={
             "modules": modules,
             "appendices": appendices,
+            "academy": academy,
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+            "active_group": "appendix" if is_appendix else "core",
+            "active_stem": stem,
             "ia_enabled": ia_enabled,
             "is_appendix": is_appendix,
             "diagnostic": diagnostic,
             "is_owner": _is_owner(request),
+            "immersive": immersive,
+            "iframe_src": iframe_src,
             # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
             # si está el modo diagnóstico activo (grupo Gestión).
             "show_panel": ia_enabled or diagnostic,
@@ -394,6 +432,56 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             },
             "user": user,
             "conversation_id": conversation.id,
+        },
+    )
+
+
+@app.get("/academy/{stem}", response_class=HTMLResponse, include_in_schema=False)
+def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
+    """Danwor Academy: área de onboarding desconectada de la navegación.
+
+    Embebe un HTML de storytelling autónomo (assets/academy/*.html) a pantalla
+    completa, sin panel de IA (como el módulo 00). El theme del copiloto viaja al
+    iframe por la infra de /pack-assets (data-dw-theme + postMessage)."""
+    diagnostic = _diagnostic(request)
+    selected = _pack(pack) if diagnostic else DEFAULT_PACK
+    user = auth_service.session_user(request)
+    if not user:
+        return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
+
+    asset = academy_asset_for(stem, selected)
+    if not asset:
+        raise HTTPException(404, "Página de Academy no encontrada")
+    current = next((item for item in list_academy(selected) if item.stem == stem), None)
+
+    # branding=danwor → colores/marca Danwor; embed=1 → oculta el topbar propio del
+    # HTML (el shell del copiloto ya da contexto). El theme lo inyecta pack_asset.
+    iframe_src = (
+        f"/pack-assets/{selected}/academy/{asset}?branding=danwor&embed=1"
+    )
+    packs = [
+        {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": _home_url(name)}
+        for name in available_content_packs()
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="academy.html",
+        context={
+            "modules": list_modules(selected),
+            "appendices": list_appendices(selected),
+            "academy": list_academy(selected),
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in list_academy(selected)},
+            "active_group": "academy",
+            "active_stem": stem,
+            "page_title": current.title if current else "Danwor Academy",
+            "iframe_src": iframe_src,
+            "show_panel": False,
+            "diagnostic": diagnostic,
+            "is_owner": _is_owner(request),
+            "pack": selected,
+            "packs": packs,
+            "pack_label": content_pack_short_label(selected),
+            "user": user,
         },
     )
 

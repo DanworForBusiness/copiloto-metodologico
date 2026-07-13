@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — Intro: visión del dato como producto, punto de partida y roadmap de implementación." />
+<title>Danwor — Intro</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') === 'danwor'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="academy/dw-academy.css" />
+
+<style>
+/* Slides con diagrama embebido: no forzamos 100svh (el alto lo da el diagrama)
+   ni el centrado vertical, para que los visuales altos no se recorten. */
+.topic.intro-slide{min-height:auto; padding:clamp(3.5rem,7vw,6rem) 0; justify-content:flex-start;}
+.intro-embed{margin-top:1.6rem;}
+.intro-embed iframe{width:100%; border:0; display:block; background:transparent;}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<nav class="rail" id="rail" aria-label="Secciones">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#marco" data-label="Marco"><span>Danwor For Business</span></a>
+  <a href="#partida" data-label="Punto de Partida"><span>Nuestro punto de partida</span></a>
+  <a href="#roadmap" data-label="Roadmap"><span>Roadmap de implementación</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in"><span class="dot"></span>Danwor Transversal · Arquitectura e Innovación</p>
+      <h1 class="hero-title reveal in">Copiloto <em>Metodológico</em></h1>
+      <p class="hero-sub reveal in reveal-d1">En Danwor contamos con distintos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia — junto con capacidades de analítica predictiva end-to-end. Te invitamos a un recorrido por nuestro marco, punto de partida y roadmap de implementación.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para recorrer</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Secciones">
+        <a href="#marco">1 · Danwor For Business</a>
+        <a href="#partida">2 · Punto de partida</a>
+        <a href="#roadmap">3 · Roadmap</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- 1 · MARCO -->
+  <section class="topic intro-slide" id="marco">
+    <div class="container">
+      <span class="topic-num reveal">Sección 1 de 3</span>
+      <p class="topic-kicker reveal">Marco</p>
+      <h2 class="topic-title reveal">Danwor <em>For Business</em></h2>
+      <p class="topic-lead reveal reveal-d1">El dato como producto, con distintos niveles de analítica convergiendo bajo una misma visión — de la descriptiva a la predictiva end-to-end.</p>
+      <div class="intro-embed reveal reveal-d1">
+        <iframe src="danwor-for-business.html?branding=danwor&embed=1" title="Danwor For Business" loading="lazy" height="940"></iframe>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · PUNTO DE PARTIDA -->
+  <section class="topic intro-slide" id="partida">
+    <div class="container">
+      <span class="topic-num reveal">Sección 2 de 3</span>
+      <p class="topic-kicker reveal">Diagnóstico</p>
+      <h2 class="topic-title reveal">Nuestro punto de <em>partida</em></h2>
+      <p class="topic-lead reveal reveal-d1">Dónde suelen estar hoy los datos y la analítica, y desde qué realidad arranca cada iniciativa antes de diseñar la solución.</p>
+      <div class="intro-embed reveal reveal-d1">
+        <iframe src="danwor-punto-de-partida.html?branding=danwor&embed=1" title="Nuestro punto de partida" loading="lazy" height="570"></iframe>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · ROADMAP -->
+  <section class="topic intro-slide" id="roadmap">
+    <div class="container">
+      <span class="topic-num reveal">Sección 3 de 3</span>
+      <p class="topic-kicker reveal">Implementación</p>
+      <h2 class="topic-title reveal">Roadmap de <em>implementación</em></h2>
+      <p class="topic-lead reveal reveal-d1">Las fases del camino: cómo se lleva la visión a una plataforma gobernada, escalable y lista para la explotación analítica.</p>
+      <div class="intro-embed reveal reveal-d1">
+        <iframe src="danwor-roadmap-implementacion.html?branding=danwor&embed=1" title="Roadmap de implementación" loading="lazy" height="1420"></iframe>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    if(bar){ bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%'; }
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.reveal:not(.in)').forEach(function(el){ io.observe(el); });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.35});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // Relay del theme del copiloto a los diagramas embebidos (iframes internos):
+  // app.js solo postea a los iframe.content-embed de nivel superior (este documento),
+  // así que reenviamos el mensaje a nuestros propios iframes.
+  window.addEventListener('message', function(e){
+    if(e.data && e.data.type === 'danwor-theme'){
+      document.querySelectorAll('iframe').forEach(function(f){
+        try{ f.contentWindow.postMessage(e.data, '*'); }catch(_){}
+      });
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

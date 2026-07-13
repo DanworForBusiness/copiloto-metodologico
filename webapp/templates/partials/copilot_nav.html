@@ -1,0 +1,45 @@
+{# Nav izquierdo compartido por module.html y academy.html.
+   Grupos colapsables: Core + Apéndices + Danwor Academy.
+   `active_group` (core|appendix|academy) decide cuál abre inicialmente;
+   `active_stem` resalta la entrada actual. Academy está desconectado de la
+   navegación metodológica (prev/next/loop) — es un área aparte. #}
+<aside class="module-nav" :class="navOpen&&'is-open'">
+  {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
+  <nav aria-label="Módulos metodológicos">
+    <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
+      <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>
+    </button>
+    <div x-show="navCore" x-transition.opacity{% if active_group != 'core' %} style="display:none"{% endif %}>
+      {% for module in modules %}
+      <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == active_stem %}is-active{% endif %}">
+        <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
+      </a>
+      {% endfor %}
+    </div>
+    {% if appendices %}
+    <button type="button" class="nav-toggle nav-toggle--appendix" @click="navAppendix=!navAppendix" :aria-expanded="navAppendix">
+      <span class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</span><span class="nav-toggle-sign" x-text="navAppendix?'−':'+'"></span>
+    </button>
+    <div x-show="navAppendix" x-transition.opacity{% if active_group != 'appendix' %} style="display:none"{% endif %}>
+      {% for ap in appendices %}
+      <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == active_stem %}is-active{% endif %}">
+        <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if academy %}
+    <button type="button" class="nav-toggle nav-toggle--academy" @click="navAcademy=!navAcademy" :aria-expanded="navAcademy">
+      <span class="nav-kicker nav-kicker--academy">Danwor Academy</span><span class="nav-toggle-sign" x-text="navAcademy?'−':'+'"></span>
+    </button>
+    <div x-show="navAcademy" x-transition.opacity{% if active_group != 'academy' %} style="display:none"{% endif %}>
+      {% for ac in academy %}
+      <a href="/academy/{{ ac.stem }}?pack={{ pack }}" class="module-link {% if ac.stem == active_stem %}is-active{% endif %}"
+         data-asset="{{ academy_assets.get(ac.stem, '') if academy_assets else '' }}">
+        <span>{{ "%02d"|format(loop.index) }}</span><strong>{{ ac.nav_label if ac.nav_label else ac.title }}</strong>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </nav>
+</aside>

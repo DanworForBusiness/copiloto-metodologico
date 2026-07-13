@@ -28,7 +28,7 @@
 }
 .nav-toggle .nav-kicker { margin: 0; }
 .nav-toggle .nav-kicker--appendix { margin: 0; padding: 0; border-top: 0; }
-.nav-toggle--appendix { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+.nav-toggle--appendix, .nav-toggle--academy { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .nav-toggle-sign { color: var(--soft); font: 500 .8rem var(--mono); }
 .nav-toggle:hover .nav-kicker, .nav-toggle:hover .nav-toggle-sign { color: var(--ink); }
 
@@ -71,6 +71,24 @@
 .module-nav { grid-column: 1; }
 .resize-left { grid-column: 2; }
 .module-content { grid-column: 3; transition: background-color .22s, color .22s; }
+/* Danwor Academy: mismo "tile" flotante que .module-content (card curvo sobre el
+   canvas gris/negro), con el HTML embebido llenándolo y recortado a las esquinas.
+   El fondo/borde por tema se define junto a .module-content en tools.css. */
+.academy-stage {
+  grid-column: 3;
+  margin: 14px 2px 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  position: sticky;
+  top: 88px;
+  height: calc(100vh - 74px - 34px);
+  overflow: hidden;
+}
+.academy-stage .academy-embed {
+  width: 100%; height: 100%; border: 0; display: block;
+  background: transparent; border-radius: inherit;
+}
 .resize-right { grid-column: 4; }
 .copilot-panel { grid-column: 5; }
 .resize-handle {
@@ -137,10 +155,15 @@
    (app.js). Se arma (.is-armed) cuando el scroll al final acumula intención. */
 .module-continue {
   display: flex; flex-direction: column; align-items: center; gap: .55rem;
-  margin: 56px auto 0; padding-top: 40px; text-align: center; text-decoration: none;
+  margin: 34px auto 0; padding-top: 22px; text-align: center; text-decoration: none;
   opacity: .5; cursor: pointer; transition: opacity .2s;
 }
 .module-continue:hover, .module-continue.is-armed { opacity: 1; }
+/* Entra con el mismo reveal que el resto del contenido, pero conserva su atenuado
+   de reposo (.5) y el brillo en hover/armado (el reveal por defecto forzaría 1). */
+.module-continue.content-reveal.is-visible { opacity: .5; }
+.module-continue.content-reveal.is-visible:hover,
+.module-continue.content-reveal.is-armed { opacity: 1; }
 .module-continue-line {
   width: 1px; height: 46px; background: linear-gradient(to bottom, transparent, var(--gold));
   animation: dw-scroll-line 2s ease-in-out infinite;

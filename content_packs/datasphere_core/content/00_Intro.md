@@ -2,23 +2,18 @@
 module: "00"
 title: "Intro"
 nav_label: "00 · Intro"
+layout: immersive
+embed_asset: intro.html
 tags: ["module:00", "domain:intro"]
-key_topics:
-  - id: marco
-    label: Marco
-    heading: "Danwor For Business"
-    enabled: false
-  - id: punto_partida
-    label: Punto de Partida
-    heading: "Nuestro punto de partida"
-    enabled: false
-  - id: roadmap
-    label: Implementación
-    heading: "Roadmap de Implementación"
-    enabled: false
 ---
 
 # 00 Intro
+
+<!-- El 00 se renderiza en modo inmersivo (layout: immersive): el copiloto embebe
+     assets/intro.html (formato Academy con hero + rail + reveal), que a su vez
+     reutiliza los diagramas danwor-for-business / -punto-de-partida / -roadmap.
+     El cuerpo markdown de abajo queda como respaldo/documentación y NO se renderiza
+     en modo inmersivo. -->
 
 ## {dw-black}Danwor {dw-gold}For Business
 {{section_mode: visual_only}}

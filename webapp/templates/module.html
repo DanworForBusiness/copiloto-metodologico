@@ -2,7 +2,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout({{ 'true' if is_appendix else 'false' }})"
+  x-data="copilotLayout('{{ active_group }}')"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
@@ -50,36 +50,15 @@
 
   <div class="read-progress" aria-hidden="true"><span class="read-progress__fill"></span></div>
 
-  <aside class="module-nav" :class="navOpen&&'is-open'">
-    {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
-    <nav aria-label="Módulos metodológicos">
-      <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
-        <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>
-      </button>
-      <div x-show="navCore" x-transition.opacity{% if is_appendix %} style="display:none"{% endif %}>
-        {% for module in modules %}
-        <a href="/modules/{{ module.stem }}?pack={{ pack }}" class="module-link {% if module.stem == document.summary.stem %}is-active{% endif %}">
-          <span>{{ module.number }}</span><strong>{{ module.title }}</strong>
-        </a>
-        {% endfor %}
-      </div>
-      {% if appendices %}
-      <button type="button" class="nav-toggle nav-toggle--appendix" @click="navAppendix=!navAppendix" :aria-expanded="navAppendix">
-        <span class="nav-kicker nav-kicker--appendix">Apéndices Técnicos</span><span class="nav-toggle-sign" x-text="navAppendix?'−':'+'"></span>
-      </button>
-      <div x-show="navAppendix" x-transition.opacity{% if not is_appendix %} style="display:none"{% endif %}>
-        {% for ap in appendices %}
-        <a href="/modules/{{ ap.stem }}?pack={{ pack }}" class="module-link {% if ap.stem == document.summary.stem %}is-active{% endif %}">
-          <span>{{ ap.stem.split('_')[0] }}</span><strong>{{ ap.title }}</strong>
-        </a>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </nav>
-  </aside>
+  {% include "partials/copilot_nav.html" %}
 
   <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
 
+  {% if immersive %}
+  <main id="content" class="academy-stage">
+    <iframe class="content-embed academy-embed" src="{{ iframe_src }}" title="{{ document.summary.title }}" loading="lazy"></iframe>
+  </main>
+  {% else %}
   <main id="content" class="module-content">
     {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
     {% set diagnostic_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
@@ -112,6 +91,7 @@
     </a>
     {% endif %}
   </main>
+  {% endif %}
 
   {% if show_panel %}
   <div class="resize-handle resize-right" data-resize="right" title="Arrastrar para redimensionar" aria-hidden="true"></div>

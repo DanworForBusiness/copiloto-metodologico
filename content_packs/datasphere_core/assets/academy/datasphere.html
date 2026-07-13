@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — SAP Datasphere: modelado e integración de datos." />
+<title>Danwor — SAP Datasphere: Modelado e Integración</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') === 'danwor'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" class="topbar-logo" />
+    <div class="topbar-right">
+      <span class="topbar-tag">SAP Datasphere</span>      
+      <a href="paradigmas.html#bdc" data-carry-branding class="topbar-back">← Volver al recorrido</a>
+    </div>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Temas">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#tema-1" data-label="Tema 1"><span>Arquitectura y conceptos</span></a>
+  <a href="#tema-2" data-label="Tema 2"><span>Data Builder</span></a>
+  <a href="#tema-3" data-label="Tema 3"><span>Controles y capa analítica</span></a>
+  <a href="#tema-4" data-label="Tema 4"><span>Flujos de datos</span></a>
+  <a href="#tema-5" data-label="Tema 5"><span>Integración de datos</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in">SAP DATASPHERE</p>
+      <h1 class="hero-title reveal in">Modelado e <em>Integración de datos</em></h1>
+      <p class="hero-sub reveal in reveal-d1">En el recorrido anterior, Datasphere era "la planta + el contrato": la plataforma que gobierna el dato antes de que se convierta en algo consumible. Acá vemos cómo se construye esa planta, tema por tema — de la arquitectura de espacios al dato ya integrado y listo para modelar.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Temas">
+        <a href="#tema-1">1 · Arquitectura</a>
+        <a href="#tema-2">2 · Data Builder</a>
+        <a href="#tema-3">3 · Controles</a>
+        <a href="#tema-4">4 · Flujos</a>
+        <a href="#tema-5">5 · Integración</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- TEMA 1 -->
+  <section class="topic" id="tema-1">
+    <div class="container">
+      <span class="topic-num reveal">Tema 1 de 5</span>
+      <p class="topic-kicker reveal">Arquitectura y conceptos</p>
+      <h2 class="topic-title reveal">La misma planta, <em>ahora con el dato</em></h2>
+      <p class="topic-lead reveal reveal-d1">Ya sabemos cómo funciona una planta potabilizadora: capta el agua, la trata, la distribuye. Datasphere hace lo mismo con el dato, en cuatro pasos — no un checklist rígido, sino la estructura que sostiene la trazabilidad, el linaje y el gobierno del dato.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Ingesta</span>
+            <p class="ps-title">El agua tal cual llega</p>
+            <p class="ps-caption">El dato, tal cual sale del sistema origen.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">A veces ya viene potable: el origen entrega estructura y semántica resueltas, como una fuente que nace pura. Ahí el contrato ya estaba resuelto antes de llegar — Datasphere lo hereda, no lo inventa.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Armonización</span>
+            <p class="ps-title">El tratamiento, cuando hace falta</p>
+            <p class="ps-caption">Limpia, estandariza, arma el contrato.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Si el origen solo entrega agua bruta —una extracción robusta, sin más— acá se resuelve el contrato de punta a punta. Cuanto más cerca del origen, mejor: esto es la red de contención, no el lugar por defecto.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Publicación</span>
+            <p class="ps-title">Lista para la canilla</p>
+            <p class="ps-caption">El Data Product, listo para consumo.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">La materialización del contrato: gobernada, reutilizable, orientada a un consumidor de negocio puntual — el mismo concepto de Data Product de todo el recorrido.</div></div>
+          </div>
+        </div>
+        <div class="pipeline-underlay">↕ <strong>Gobierno Semántico</strong> — corre por debajo de los tres pasos, todo el tiempo: el mismo diccionario de reglas (qué es "Cliente", qué significa "Venta") para que todos hablen el mismo idioma.</div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Postura Danwor</span><span class="tc-plain">Postura recomendada</span></p>
+        <p>La complejidad del contrato dicta dónde conviene resolverlo:</p>
+        <ul class="arrow-list">
+          <li><strong>Baja complejidad</strong>: se resuelve en origen</li>
+          <li><strong>Complejidad media</strong>: parcial en origen, completado en la Armonización</li>
+          <li><strong>Alta complejidad</strong>: destino, la Armonización resuelve todo</li>
+        </ul>
+        <p>Nunca al revés: no se elige dónde resolver el contrato por comodidad, sino por cuánto puede realmente entregar el origen.</p>
+      </div>
+
+      <p class="topic-lead reveal reveal-d2">Siguiendo la analogía Data Mesh, donde cada provincia gestiona su propio tramo del río: son los <strong>Espacios</strong> en Datasphere el correspondiente a cada dominio: no es una carpeta, es una jurisdicción con sus propios recursos, seguridad y ciclo de vida. Y quién puede acceder a ese tramo se decide con roles como primera cerradura, incluso antes de suplementar con seguridad a nivel de fila (DAC) que veremos en el Tema 3.</p>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Un mismo principio, tres implementaciones</caption>
+          <thead><tr><th>Principio</th><th>SAP BW (LSA)</th><th>Lakehouse (Databricks)</th><th>Datasphere / BDC</th></tr></thead>
+          <tbody>
+            <tr><td>Ingesta desacoplada</td><td>Staging Layer</td><td>Bronze</td><td>Tablas remotas / HDLF</td></tr>
+            <tr><td>Armonización</td><td>EDW Layer</td><td>Silver</td><td>Data Builder</td></tr>
+            <tr><td>Publicación</td><td>Reporting Layer</td><td>Gold</td><td>Data Products</td></tr>
+            <tr><td>Gobierno semántico</td><td>Infoobjects</td><td>Unity Catalog + Delta</td><td>Semantic Layer</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Configuración de espacios — recomendación y por qué</caption>
+          <thead><tr><th>Parámetro</th><th>Recomendación</th><th>Razón</th></tr></thead>
+          <tbody>
+            <tr><td>Space Quota</td><td>Dimensionar por caso, no un valor genérico</td><td>Impacta directo el sizing del tenant; se ajusta post-PoC</td></tr>
+            <tr><td>Source Language</td><td>Definir explícitamente</td><td>Los objetos semánticos importados se interpretan según el idioma del espacio destino</td></tr>
+            <tr><td>Nombre de conexiones</td><td>Funcional y estable (<code>S4</code>, <code>ECC</code>, <code>BW</code>) — sin codificar el ambiente</td><td>El ambiente ya queda implícito por el espacio; el objetivo es estandarizar, no resolver una limitación de transporte</td></tr>
+            <tr><td>Time Data Dimension</td><td>Configurar antes de crear modelos</td><td>Habilita soporte nativo de dimensiones de tiempo en vistas analíticas</td></tr>
+            <tr><td>Schema Users</td><td>Un usuario por espacio para consumo externo</td><td>Sujetos a DAC; requeridos para DirectQuery desde herramientas externas</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEMA 2 -->
+  <section class="topic" id="tema-2">
+    <div class="container">
+      <span class="topic-num reveal">Tema 2 de 5</span>
+      <p class="topic-kicker reveal">Data Builder — objetos core</p>
+      <h2 class="topic-title reveal">Hechos, <em>dimensiones</em> y el vocabulario del modelado</h2>
+      <p class="topic-lead reveal reveal-d1">Datasphere ofrece distintos artefactos: Tablas locales y remotas, Graphical Views vs. SQL Views — pero lo que realmente define el valor del objeto para consumo es su tipo y uso semántico: qué es, y qué rol cumple.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Dimension</span>
+            <p class="ps-title">Los maestros</p>
+            <p class="ps-caption">Cliente, Producto, Centro de Costo — con clave única.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Atributos descriptivos de una entidad de negocio. Se asocia con Facts en el modelo analítico — sin dimensiones, un hecho no tiene con qué cruzarse.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Fact</span>
+            <p class="ps-title">Los hechos</p>
+            <p class="ps-caption">Ventas, Pedidos, Stock — lo que se mide.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Hechos transaccionales, con métricas y asociaciones a dimensiones. El corazón de cualquier modelo analítico.</div></div>
+          </div>
+          <div class="pipeline-arrow">=</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Modelo Analítico</span>
+            <p class="ps-title">Lo que se consume</p>
+            <p class="ps-caption">Combina Facts y Dimensions en un objeto final.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">La base para reportes en SAC o Power BI: ya no es un objeto técnico, es el data product listo para el negocio.</div></div>
+          </div>
+        </div>
+        <div class="pipeline-underlay"><strong>Relacional, Text, Hierarchy</strong> — tipos de apoyo: preparación, textos multi-idioma y jerarquías, siempre asociados a una Dimension o Fact.</div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Una <strong>Fact Table</strong> (Tabla de hecho) no sirve sola: necesita <strong>Dimensiones</strong> (Cliente, Producto, Tiempo) para poder cruzarse, y <strong>métricas</strong> que digan qué se está midiendo. Es la misma lógica que la norma de potabilidad del recorrido anterior — una especificación que tiene que cumplirse antes de que el dato sea confiable para reporting.</div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Postura Danwor</span><span class="tc-plain">Postura recomendada</span></p>
+        <p>La convención de nombres codifica la capa en el propio objeto:</p>
+        <ul class="arrow-list">
+          <li>Patrón: <code>&lt;Capa&gt;&lt;Artefacto&gt;&lt;Variante&gt;_&lt;Origen&gt;_&lt;libre&gt;</code></li>
+          <li>Ejemplo: <code>2VD_CLIENTES_CABECERA</code> → Capa 2 (armonización) · Vista · Dimensión</li>
+        </ul>
+        <p>La capa 1 mantiene el dato crudo; si hay renombrado, joins o limpieza, ya no es Capa 1.</p>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Semantic Usage — qué tipo semántico usar</caption>
+          <thead><tr><th>Tipo</th><th>Uso</th><th>Notas</th></tr></thead>
+          <tbody>
+            <tr><td>Relacional</td><td>Vistas de preparación/armonización, no consumidas directamente</td><td>Tipo por defecto; reclasificar cuando el objeto tenga semántica de negocio</td></tr>
+            <tr><td>Dimension</td><td>Maestros y atributos descriptivos (Cliente, Material, Centro de Costo)</td><td>Requiere clave única; asociable con Facts</td></tr>
+            <tr><td>Text</td><td>Textos de una entidad dimensional</td><td>No apto para extracción directa desde origen</td></tr>
+            <tr><td>Hierarchy</td><td>Jerarquías organizacionales o de producto</td><td>Requiere la dimensión base asociada</td></tr>
+            <tr><td>Fact</td><td>Hechos transaccionales (Ventas, Pedidos, Stock)</td><td>Con métricas y asociaciones a dimensiones</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Tipos de vista — cuándo usar cada una</caption>
+          <thead><tr><th>Tipo</th><th>Cuándo usarlo</th><th>Cuándo evitarlo</th></tr></thead>
+          <tbody>
+            <tr><td>SQL Estándar</td><td>Filtros, joins, agregaciones — opción por defecto (~80% de los casos)</td><td>Rara vez; casi siempre es la respuesta correcta</td></tr>
+            <tr><td>Vista Gráfica</td><td>Prototipos y exploración inicial</td><td>Modelos productivos reutilizables — dificulta versionado</td></tr>
+            <tr><td>Table Function</td><td>Lógica secuencial, columnas dinámicas</td><td>Si se puede resolver con SQL Estándar</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEMA 3 -->
+  <section class="topic" id="tema-3">
+    <div class="container">
+      <span class="topic-num reveal">Tema 3 de 5</span>
+      <p class="topic-kicker reveal">Controles y capa analítica</p>
+      <h2 class="topic-title reveal">Quién ve <em>qué, y cómo.</em></h2>
+      <p class="topic-lead reveal reveal-d1">Data Access Control (DAC) resuelve seguridad a nivel fila y columna. La estructura que elijas depende de cómo se organiza el acceso en el cliente — no hay una única respuesta correcta.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Valores Individuales</span>
+            <p class="ps-title">El más simple</p>
+            <p class="ps-caption">Asignación fija por usuario (ej: SalesOrg = AR01).</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Ideal para PoC y MVP: accesos estáticos, de baja frecuencia de cambio. El punto de partida más seguro y auditable.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Operadores y Valores</span>
+            <p class="ps-title">Con lógica condicional</p>
+            <p class="ps-caption">Rangos, "mayor que", combinaciones.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Para accesos con lógica de negocio: períodos, montos, umbrales — cuando un valor fijo no alcanza.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Jerarquía</span>
+            <p class="ps-title">El más potente</p>
+            <p class="ps-caption">El acceso se hereda por niveles.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">El nodo padre da acceso a todos sus descendientes — ideal para estructuras organizacionales (organigrama, centros de costo).</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Principio Danwor</span><span class="tc-plain">Principio recomendado</span></p>
+        <p>La seguridad bien diseñada no debería retrasar al negocio, sino garantizar que los datos sean un activo confiable. El modelo de seguridad no es un paso posterior al modelado — se deriva del diseño de dominios y data products definidos a nivel conceptual.</p>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Tipos de DAC — cuándo usar cada uno</caption>
+          <thead><tr><th>Tipo</th><th>Descripción</th><th>Cuándo usarlo</th></tr></thead>
+          <tbody>
+            <tr><td>Valores Individuales</td><td>Asignación directa de valores fijos por usuario (ej: SalesOrg = AR01)</td><td>Accesos estáticos o de baja frecuencia de cambio. Ideal para PoC y MVP</td></tr>
+            <tr><td>Operadores y Valores</td><td>Reglas con condiciones lógicas: rangos, "mayor que", combinaciones</td><td>Accesos con lógica condicional — períodos, montos, umbrales</td></tr>
+            <tr><td>Jerarquía</td><td>El acceso se hereda por niveles de una estructura jerárquica</td><td>Modelos donde el nodo padre da acceso a todos sus descendientes</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEMA 4 -->
+  <section class="topic" id="tema-4">
+    <div class="container">
+      <span class="topic-num reveal">Tema 4 de 5</span>
+      <p class="topic-kicker reveal">Flujos de datos</p>
+      <h2 class="topic-title reveal">Movimiento <em>del dato</em></h2>
+      <p class="topic-lead reveal reveal-d1">Data Flows, Transformation Flows, Replication Flows: tres mecanismos, una misma decisión de fondo: federar, persistir, o aterrizar en Object Store.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Federación</span>
+            <p class="ps-title">Tablas remotas</p>
+            <p class="ps-caption">Acceso en tiempo real, sin mover el dato.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Depende de la latencia y disponibilidad del origen. Rol: acceso al dato.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Persistencia</span>
+            <p class="ps-title">Tablas locales</p>
+            <p class="ps-caption">Vía flujos o replicación.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Alto volumen, múltiples fuentes combinadas. Rol: construcción del Data Product.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Object Store (HDLF)</span>
+            <p class="ps-title">Archivos, no tablas</p>
+            <p class="ps-caption">Parquet + transaction log.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Históricos masivos, medallion Bronze/Silver/Gold. Rol: Lakehouse / aterrizaje BDC-ready.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Regla práctica Danwor</span><span class="tc-plain">Regla práctica recomendada</span></p>
+        <p>Federá por defecto: los datos siempre actualizados, sin redundancia. Persistí cuando el volumen es alto, la transformación es costosa, o la performance en la herramienta de consumo lo exige. La pregunta de fondo nunca es "federación o persistencia" — es cuándo materializar.</p>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Federación vs. Persistencia vs. Object Store (HDLF)</caption>
+          <thead><tr><th>Aspecto</th><th>Federación / Tablas remotas</th><th>Persistencia / Tablas locales</th><th>Object Store / HDLF</th></tr></thead>
+          <tbody>
+            <tr><td>Definición</td><td>Tablas virtuales en tiempo real desde el origen</td><td>Tablas persistidas vía flujos o replicación</td><td>Archivos Parquet + transaction log en HANA Data Lake Files</td></tr>
+            <tr><td>Casos de uso</td><td>Acceso real-time, datos cambiantes</td><td>Alto volumen, múltiples fuentes combinadas</td><td>Históricos masivos, medallion Bronze/Silver/Gold, Delta Sharing</td></tr>
+            <tr><td>Límite principal</td><td>Depende de latencia/disponibilidad del origen</td><td>Costo de storage y sincronización</td><td>Mínimo 128GB HANA habilitados; sin DEV/QA/PRD en el storage</td></tr>
+            <tr><td>Rol en Danwor</td><td>Acceso al dato</td><td>Construcción del Data Product</td><td>Lakehouse / aterrizaje BDC-ready</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEMA 5 -->
+  <section class="topic" id="tema-5">
+    <div class="container">
+      <span class="topic-num reveal">Tema 5 de 5</span>
+      <p class="topic-kicker reveal">Integración de datos</p>
+      <h2 class="topic-title reveal">El momento en que el dato <em>cambia de dueño</em></h2>
+      <p class="topic-lead reveal reveal-d1">Ya vimos cómo la planta capta el agua (Ingesta, Tema 1). Pero, ¿por dónde entra exactamente? Siempre por una <strong>toma de agua</strong> construida y acordada — nunca metiendo un caño donde se nos ocurra.</p>
+
+      <div class="topic-note reveal reveal-d1">Una <strong>API</strong> es una toma de agua: un punto de conexión fijo y regulado entre la fuente y la planta. Un <strong>extractor</strong> (ODP-SAPI, ODP-CDS) es una toma que el propio origen ya construyó y mantiene — vos solo te conectás. La <strong>tabla base</strong> no tiene toma: es meter un caño directo en el río. Si el cauce cambia —un upgrade de SAP— tu caño puede quedar en tierra seca.</div>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">API funcional SAP</span>
+            <p class="ps-title">Propiedad de SAP</p>
+            <p class="ps-caption">La toma que ya construyó el origen.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Es la API que SAP mantiene y actualiza — no se toca, se consume tal cual viene liberada.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">API Corporativa</span>
+            <p class="ps-title">Propiedad del cliente</p>
+            <p class="ps-caption">Tu propia toma, entre el río y tu planta.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">El momento en que el dato pasa de pertenecer a SAP a pertenecer al cliente — con ownership, versionado y SLA propios.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Si cada consumidor le pide directo a la toma de SAP, un cambio río arriba los golpea a todos al mismo tiempo. Si en cambio todos piden en tu propia toma —y sos vos quien conecta con la de SAP— el cambio lo absorbés una sola vez, en un solo lugar, y es transparente para los demás.</div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Guardrail Danwor</span><span class="tc-plain">Punto de atención</span></p>
+        <p>La extracción directa de tablas base no es una recomendación — nunca es el contrato. Siempre a través de fuentes autorizadas:</p>
+        <ul class="arrow-list">
+          <li>ODP-SAPI o ODP-CDS</li>
+          <li>CDS Views habilitadas para extracción (<code>@Analytics.dataExtraction.enabled</code>)</li>
+        </ul>
+        <p>Es la diferencia entre consumir una API liberada y comprometer gobernanza, estabilidad y upgrades futuros.</p>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
+      <p class="topic-lead reveal reveal-d2" style="font-size:.95rem; margin-bottom:1.2rem;">Desde ABAP 7.55 existen dos generaciones de vistas CDS, y si bien es la evolución natural de SAP, hay consideraciones importantes de cara a la extracción y framework ODP.</p>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>CDS DDIC-based vs. CDS View Entity — para extracción hacia Datasphere</caption>
+          <thead><tr><th>Aspecto</th><th>CDS View Entity (DDL moderno)</th><th>CDS DDIC-based (clásico)</th></tr></thead>
+          <tbody>
+            <tr><td>SQL View</td><td>❌ No requiere</td><td>✅ Requiere <code>@AbapCatalog.sqlViewName</code></td></tr>
+            <tr><td>Uso típico SAP</td><td>Desarrollo moderno (RAP, OData, Fiori)</td><td>Extracción / integración</td></tr>
+            <tr><td>Compatibilidad</td><td>Depende del release</td><td>Amplia entre releases</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: una decisión técnica deliberada — para extractores ODP-CDS hacia Datasphere, DDIC-based sigue siendo el patrón conservador.</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // pipeline steps — click to expand detail (independent) + active border (exclusive per pipeline, last touched)
+  document.querySelectorAll('.pipeline').forEach(function(pipeline){
+    var steps = pipeline.querySelectorAll('.pipeline-step');
+    steps.forEach(function(step){
+      step.addEventListener('click', function(){
+        var willOpen = !step.classList.contains('is-open');
+        step.classList.toggle('is-open', willOpen);
+        var toggle = step.querySelector('.ps-toggle');
+        if(toggle){ toggle.textContent = willOpen ? '− tocá para ver menos' : '+ tocá para ver más'; }
+        steps.forEach(function(s){ s.classList.remove('is-active'); });
+        if(willOpen){ step.classList.add('is-active'); }
+      });
+    });
+  });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward, preserving hash position
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

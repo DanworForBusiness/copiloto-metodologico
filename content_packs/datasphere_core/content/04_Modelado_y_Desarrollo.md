@@ -37,7 +37,7 @@ quick_action_guidance:
       - La decisión dominante es separar responsabilidades por capa: ingesta, armonización, propagación y consumo.
       - Usar la evolución LSA/Lakehouse/Datasphere como contexto conceptual y la guía operativa por capa como criterio práctico.
       - Incluir elección de artefacto: SQL estándar, vista gráfica, table function o data flow según mantenibilidad, performance y responsabilidad.
-      - Incluir uso semántico: Relational, Dimension, Fact, Analytical Dataset, textos y jerarquías.
+      - Incluir uso semántico: Relational, Dimension, Fact, textos y jerarquías.
       - Incluir convención de nombres como mecanismo de trazabilidad, linaje y gobierno.
     prompt: |
       INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 04 - GUÍA OPERATIVA:
@@ -101,7 +101,7 @@ quick_action_guidance:
       Construí ejemplos de desarrollo:
       - Modelo por capas desde datos crudos hasta consumo analítico.
       - Elección entre SQL estándar, vista gráfica, table function o data flow.
-      - Asignación de Semantic Usage para facts, dimensiones, textos o analytical datasets.
+      - Asignación de Semantic Usage para facts, dimensiones, textos.
       - Aplicación de convención de nombres para trazabilidad.
 
       Para cada ejemplo, indicá fuente interna usada, decisión Danwor, por qué esa y no otra, y riesgo si se elige mal.
@@ -166,7 +166,7 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 | **(4) Reporting** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
 
 ## {dw-black}Artefactos y uso {dw-gold}Semántico
-{{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, analytical dataset, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
+{{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
 
 El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
 
@@ -177,7 +177,6 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 | **Text** | Textos de una entidad dimensional (descripción de Material en varios idiomas) | No apto para extracción directa desde origen; usar como capa intermedia de textos en CDS |
 | **Hierarchy** | Jerarquías organizacionales o de producto | Requiere la dimensión base asociada |
 | **Fact** | Hechos transaccionales (Ventas, Pedidos, Movimientos de Stock) | Con métricas y asociaciones a dimensiones |
-| **Analytical Dataset** | Set analítico que combina Facts y Dimensions en un objeto único de consumo | Usado en la capa de propagación/consumo; base para reportes en SAC/Power BI |
 
 > La **capa Business** (Business Layer) agrega la semántica de negocio sobre los objetos técnicos. La **capa Consumption** (Consumption Layer) expone los objetos analíticos finales. Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico.
 
@@ -293,7 +292,7 @@ Orientativo para revisar la calidad del modelo antes de promover al siguiente am
 | Item | Pregunta de control |
 |---|---|
 | **Separación de capas** | ¿Cada vista consume solo de la capa inmediatamente anterior? |
-| **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Analytical Dataset)? |
+| **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Relacional)? |
 | **Naming** | ¿Los nombres siguen el patrón `<Capa><Tipo>_<Origen>_<Libre>`? |
 | **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa)? |
 | **Tipo de vista** | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |

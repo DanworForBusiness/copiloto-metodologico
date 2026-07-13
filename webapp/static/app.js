@@ -1,4 +1,7 @@
-function copilotLayout(isAppendix = false) {
+function copilotLayout(activeGroup = "core") {
+  // Retrocompat: antes recibía un booleano isAppendix.
+  if (activeGroup === true) activeGroup = "appendix";
+  else if (activeGroup === false) activeGroup = "core";
   return {
     navOpen: false,
     panelOpen: true,
@@ -6,12 +9,13 @@ function copilotLayout(isAppendix = false) {
     gestionOpen: false,
     toolTab: "section",
     activeSection: "",
-    // Grupos colapsables del nav izquierdo. Abrimos el grupo del documento
-    // activo y dejamos el otro colapsado. El grupo activo no se puede colapsar
-    // mientras se lo navega: si queda cerrado, un $watch lo reabre (ver init()).
-    activeNavGroup: isAppendix ? "appendix" : "core",
-    navCore: !isAppendix,
-    navAppendix: isAppendix,
+    // Grupos colapsables del nav izquierdo (Core / Apéndices / Danwor Academy).
+    // Abrimos el grupo del documento activo y dejamos los otros colapsados. Al
+    // scrollear el contenido, syncNavToActive() reabre el activo y cierra el resto.
+    activeNavGroup: activeGroup,
+    navCore: activeGroup === "core",
+    navAppendix: activeGroup === "appendix",
+    navAcademy: activeGroup === "academy",
     contentTheme: localStorage.getItem("dw-content-theme") || "light",
     init() {
       const shell = this.$root;
@@ -26,12 +30,32 @@ function copilotLayout(isAppendix = false) {
       // contenido central scrollea, el nav vuelve a reflejar "dónde estás":
       // abre el grupo del doc activo y cierra el otro (no se navega desfasado).
       const syncNavToActive = () => {
-        const onAppendix = this.activeNavGroup === "appendix";
-        this.navCore = !onAppendix;
-        this.navAppendix = onAppendix;
+        const g = this.activeNavGroup;
+        this.navCore = g === "core";
+        this.navAppendix = g === "appendix";
+        this.navAcademy = g === "academy";
       };
       const contentEl = shell.querySelector(".module-content");
       contentEl?.addEventListener("scroll", syncNavToActive, { passive: true });
+
+      // Sincronización del nav con Danwor Academy: al navegar entre páginas DENTRO
+      // del iframe (p. ej. paradigmas→datasphere), el HTML embebido avisa qué asset
+      // está viendo; acá reflejamos el resaltado y la URL sin recargar el copiloto.
+      window.addEventListener("message", event => {
+        const data = event.data;
+        if (!data || data.type !== "danwor-academy-nav") return;
+        let matched = null;
+        shell.querySelectorAll(".module-link[data-asset]").forEach(link => {
+          const isCurrent = !!data.asset && link.dataset.asset === data.asset;
+          link.classList.toggle("is-active", isCurrent);
+          if (isCurrent) matched = link;
+        });
+        if (matched) {
+          this.navAcademy = true;
+          const href = matched.getAttribute("href");
+          if (href) { try { history.replaceState(null, "", href); } catch (e) {} }
+        }
+      });
 
       // Barra de progreso de lectura (estilo de la web de referencia: una línea
       // que se "llena" vía scaleX). No asumimos QUÉ elemento scrollea: elegimos
@@ -177,6 +201,8 @@ function initContentReveals(shell) {
     ".content-section > .callout-row",
     ".content-section > .html-embed-shell",
     ".content-section > .support-links",
+    ".module-feedback",
+    ".module-continue",
   ].join(",");
   const elements = [...container.querySelectorAll(selector)];
   if (!elements.length) return;

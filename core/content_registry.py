@@ -253,7 +253,7 @@ def iter_content_module_paths(pack_name: str | None = None) -> list[Path]:
     include_keys = _content_module_include_keys(pack_name)
     paths = [
         path for path in iter_pack_files("content", "*.md", pack_name)
-        if path.parent.name.lower() != "apendices"
+        if path.parent.name.lower() not in ("apendices", "academy")
     ]
     if include_keys:
         paths = [path for path in paths if _root_content_nav_key(path) in include_keys]
@@ -262,6 +262,16 @@ def iter_content_module_paths(pack_name: str | None = None) -> list[Path]:
 
 def iter_content_appendix_paths(pack_name: str | None = None) -> list[Path]:
     return iter_pack_files("content", "apendices/*.md", pack_name)
+
+
+def iter_content_academy_paths(pack_name: str | None = None) -> list[Path]:
+    """Páginas de Danwor Academy (content/academy/*.md).
+
+    Área desconectada de la navegación metodológica: cada .md es un envoltorio
+    fino que apunta (frontmatter academy_asset) a un HTML de storytelling
+    autónomo bajo assets/academy/. No se mezcla con módulos ni apéndices.
+    """
+    return iter_pack_files("content", "academy/*.md", pack_name)
 
 
 def iter_content_markdown_paths(pack_name: str | None = None) -> list[Path]:
@@ -273,4 +283,7 @@ def resolve_content_path(stem: str, pack_name: str | None = None) -> Path:
     direct = resolve_pack_file("content", f"{stem}.md", pack_name)
     if direct.exists():
         return direct
-    return resolve_pack_file("content", Path("apendices") / f"{stem}.md", pack_name)
+    appendix = resolve_pack_file("content", Path("apendices") / f"{stem}.md", pack_name)
+    if appendix.exists():
+        return appendix
+    return resolve_pack_file("content", Path("academy") / f"{stem}.md", pack_name)

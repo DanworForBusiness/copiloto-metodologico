@@ -12,6 +12,7 @@ import markdown
 import yaml
 
 from core.content_registry import (
+    iter_content_academy_paths,
     iter_content_appendix_paths,
     iter_content_module_paths,
     resolve_content_path,
@@ -91,6 +92,31 @@ def list_modules(pack_name: str = "datasphere_core") -> tuple[ModuleSummary, ...
 def list_appendices(pack_name: str = "datasphere_core") -> tuple[ModuleSummary, ...]:
     """Apéndices técnicos del pack (content/apendices/*.md), cada uno con su markdown."""
     return tuple(_summary(path) for path in iter_content_appendix_paths(pack_name))
+
+
+@lru_cache(maxsize=16)
+def list_academy(pack_name: str = "datasphere_core") -> tuple[ModuleSummary, ...]:
+    """Páginas de Danwor Academy (content/academy/*.md). Solo metadatos de nav:
+    cada una envuelve un HTML autónomo (frontmatter academy_asset)."""
+    return tuple(_summary(path) for path in iter_content_academy_paths(pack_name))
+
+
+@lru_cache(maxsize=64)
+def academy_asset_for(stem: str, pack_name: str = "datasphere_core") -> str:
+    """Nombre del HTML de storytelling asociado a una página de Academy.
+
+    Se lee del frontmatter `academy_asset`. Devuelve "" si el stem no es una
+    página de Academy válida o no declara asset.
+    """
+    summary = next((item for item in list_academy(pack_name) if item.stem == stem), None)
+    if summary is None:
+        return ""
+    meta, _ = split_front_matter(summary.path.read_text(encoding="utf-8", errors="ignore"))
+    asset = str(meta.get("academy_asset") or "").strip()
+    # Defensa: solo un nombre de archivo simple (sin rutas ni traversal).
+    if not asset or "/" in asset or "\\" in asset or ".." in asset:
+        return ""
+    return asset
 
 
 def _section_base(stem: str, pack_name: str) -> int:

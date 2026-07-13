@@ -4,7 +4,7 @@
   {% else %}
   <form hx-post="/modules/{{ document.summary.stem }}/feedback" hx-target="#module-feedback" hx-swap="outerHTML">
     <input type="hidden" name="pack" value="{{ pack }}">
-    <span>&iquest;Te result&oacute; &uacute;til este contenido?</span>
+    <span>&iquest;C&oacute;mo te result&oacute; el contenido de este m&oacute;dulo?</span>
     <div><button type="submit" name="rating" value="up" aria-label="Fue util" title="Fue util">&#128077;</button><button type="submit" name="rating" value="down" aria-label="No fue util" title="No fue util">&#128078;</button></div>
   </form>
   {% endif %}

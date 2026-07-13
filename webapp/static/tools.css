@@ -125,28 +125,28 @@
 @keyframes analysis-spin { to { transform: rotate(360deg); } }
 
 
+/* Alineado con .section-action-help (herramientas de decisión): card neutra
+   y la flecha del marker DENTRO del recuadro, no colgando afuera. */
 .question-help-panel {
   margin: 11px 0 9px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--gold);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--card) 94%, var(--gold));
+  background: var(--card);
 }
 .question-help-panel summary {
-  padding: 9px 11px;
+  padding: 10px 12px;
   color: var(--ink);
-  font: 700 .7rem var(--sans);
+  font-size: .74rem;
   cursor: pointer;
-  list-style-position: outside;
 }
 .question-help-panel > div {
-  padding: 0 11px 11px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
 }
 .question-help-panel p {
   margin: 0;
   color: var(--soft);
-  font-size: .7rem;
-  line-height: 1.5;
+  font-size: .68rem;
+  line-height: 1.45;
 }
 
 .wizard-back-only { display: grid; margin-top: 18px; }
@@ -180,6 +180,7 @@
   height: calc(100vh - 74px - 34px);
   overflow-y: auto;
   scrollbar-gutter: stable;
+  padding-bottom: 54px;   /* menos vacío bajo el pie "scroll para continuar" (app.css pone 90px) */
 }
 /* Canvas + tiles cambian con el tema:
    claro -> canvas #F6F7F9 + tiles blancos;
@@ -187,12 +188,14 @@
 .content-theme-light .app-shell { background: #F6F7F9; }
 .content-theme-dark .app-shell  { background: #0c0c0d; }
 
-.content-theme-light .module-content {
+.content-theme-light .module-content,
+.content-theme-light .academy-stage {
   background: #fff;
   border-color: #e4e4e0;
   box-shadow: 0 2px 10px rgba(20,22,28,.04);     /* casi imperceptible; separa el borde */
 }
-.content-theme-dark .module-content {
+.content-theme-dark .module-content,
+.content-theme-dark .academy-stage {
   background: #181819;                            /* card elevado sobre el canvas negro */
 }
 .copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
