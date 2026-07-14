@@ -210,7 +210,46 @@ intent_assets:
     asset: "https://me.sap.com/notes/3384164"
   - keywords: ["nota 3764217", "3764217", "schedule publication fails", "sac publication", "schedule publicacion sac"]
     description: "Nota SAP 3764217: Schedule Publications failing for story based on SAP Datasphere live connection in SAP Analytics cloud"
-    asset: "https://me.sap.com/notes/3764217"        
+    asset: "https://me.sap.com/notes/3764217"
+  - keywords: ["manage files folders sac", "administrar archivos sac", "repositorio archivos sac", "file repository sac", "vista system sac"]
+    description: "SAP Help SAC: Manage Files and Folders"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/18850a0e13944f53aa8a8b7c094ea29e/0aa4632c98fb453ba2db9ee20813e728.html"
+  - keywords: ["configure workspaces sac", "configurar workspaces sac", "workspace administrator", "administrar workspace sac", "workspaces sac"]
+    description: "SAP Help SAC: Configure Workspaces"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/aa613f0fc51f401ab1a2cdf47708c0d9.html"
+  - keywords: ["share files folders sac", "compartir carpeta sac", "niveles acceso sac", "view edit full control", "herencia permisos sac"]
+    description: "SAP Help SAC: Share Files or Folders"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/35b0bdae69254b04b075e09702d8cb56.html"
+  - keywords: ["exporting content sac", "exportar contenido sac", "content network sac", "estructura carpetas workspace transporte", "importar exportar tenant sac"]
+    description: "SAP Help SAC: Exporting Content"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/fd6086c87a20488a9c85eef0f000c9c8.html"
+  - keywords: ["change content owners sac", "cambiar propietario contenido sac", "content owner sac", "carpetas usuarios workspace", "propiedad contenido sac"]
+    description: "SAP Help SAC: Change Content Owners"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/8cee0f29934d4500b081dd5969ebc669.html"
+  - keywords: ["catalog sac", "find access content catalog", "descubrimiento contenido sac", "catalogo sac", "contenido publicado sac"]
+    description: "SAP Help SAC: Find and Access Content in the Catalog"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/ebca8921174240719fe0eeb461019761.html"
+  - keywords: ["managing content sac", "gestionar contenido sac", "ciclo de vida contenido sac", "testing produccion sac", "lifecycle sac"]
+    description: "SAP Help SAC: Managing Content"
+    asset: "https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/8b79d6dd6af04eb88e98b615045aadc6.html"
+  - keywords: ["kba 3576331", "3576331", "folders workspace not visible", "contenido privado workspace sac", "carpeta usuario workspace"]
+    description: "KBA 3576331: Folders created directly under a workspace are not visible in System -> Workspace"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3576331"
+  - keywords: ["kba 3524959", "3524959", "moving content location not reflected", "object id ubicacion destino sac", "mover contenido origen destino sac"]
+    description: "KBA 3524959: After moving content in source and transferring to target, the location is not reflected correctly"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3524959"
+  - keywords: ["kba 3311985", "3311985", "stories deleted folder transported content network", "colision carpetas mismo nombre distinto id", "folder id transporte sac"]
+    description: "KBA 3311985: The stories in a folder were deleted after the folder was transported via Content Network"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3311985"
+  - keywords: ["kba 3493600", "3493600", "object failed to be imported content network storage", "deleted files bloquea importacion sac", "resource does not exist import sac"]
+    description: "KBA 3493600: A specific object failed to be imported through Content Network Storage (resource does not exist)"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3493600"
+  - keywords: ["kba 3460999", "3460999", "object level security teams transport", "seguridad objeto equipos transporte sac"]
+    description: "KBA 3460999: Object level security for teams during transports (verificar contenido oficial)"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3460999"
+  - keywords: ["kba 3561284", "3561284", "transported access team added not overwritten", "acceso equipo transporte agregado no sobreescrito sac"]
+    description: "KBA 3561284: Transported team access may be added to existing target team settings instead of overwriting (verificar contenido oficial)"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3561284"
 key_topics:
   - id: links
     label: Links
@@ -218,6 +257,9 @@ key_topics:
   - id: notas
     label: Notas
     heading: "Notas SAP"
+  - id: kbas
+    label: KBAs
+    heading: "KBAs SAP"
 ---
 # 07 Biblioteca de Referencias
 
@@ -229,6 +271,13 @@ key_topics:
 - 💡SAP Help CDS Views | [Link](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/ee6ff9b281d8448f96b4fe6c89f2bdc8/8573b810511948c8a99c0672abc159aa.html?locale=en-US)
 - 🤝 Repositorio Danwor Casos SAP | [Link](https://danwor.sharepoint.com/sites/PrcticaAnalytics/Lists/Repositorio%20de%20Casos%20SAP/Explorar%20Casos%20SAP.aspx)
 - 📊 SAP Help SAC | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/1fb1f4ce92f44fc983debc25ac1f2cc9.html?locale=en-US)
+- 📊 SAC · Manage Files and Folders | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/18850a0e13944f53aa8a8b7c094ea29e/0aa4632c98fb453ba2db9ee20813e728.html)
+- 📊 SAC · Configure Workspaces | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/aa613f0fc51f401ab1a2cdf47708c0d9.html)
+- 📊 SAC · Share Files or Folders | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/35b0bdae69254b04b075e09702d8cb56.html)
+- 📊 SAC · Exporting Content | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/fd6086c87a20488a9c85eef0f000c9c8.html)
+- 📊 SAC · Change Content Owners | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/8cee0f29934d4500b081dd5969ebc669.html)
+- 📊 SAC · Find and Access Content in the Catalog | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/ebca8921174240719fe0eeb461019761.html)
+- 📊 SAC · Managing Content | [Link](https://help.sap.com/docs/SAP_ANALYTICS_CLOUD/00f68c2e08b941f081002fd3691d86a7/8b79d6dd6af04eb88e98b615045aadc6.html)
 - 🔎 SAP Discovery Center | [Link](https://discovery-center.cloud.sap/viewServices)
 - 🌒 Eclipse & BWMT Updates | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=4Z3Lik)
 - 🆕 Deep dive Extracción ODP-CDS | [Link](https://learning.sap.com/learning-journeys/upgrading-your-sap-bw-skills-to-sap-bw-4hana/working-with-odp-context-cds-view-based-extraction_f01df9a0-0e79-4d76-be38-d2cfac4dde42)
@@ -290,3 +339,15 @@ key_topics:
 | **3509695** | Conectar SAP Integrated Business Planning (IBP) con Datasphere | Integración |
 | **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance | 
 | **3764217** | Schedule Publications failing for story based on SAP Datasphere live connecton | Técnico / Compatibilidad | 
+
+## {dw-black}KBAs {dw-gold}SAP
+{{section_meta: keywords="kba sap, knowledge base article, kbas sac, kba 3576331, kba 3524959, kba 3311985, kba 3493600, kba 3460999, kba 3561284, gobierno contenido sac kba, transporte sac kba, deleted files sac, object id sac, workspace sac kba"}}
+{{subtitle: no-gap}}
+>KBAs de gobierno y ciclo de vida de contenido SAP Analytics Cloud (base del apéndice A06). A diferencia de las Notas SAP, las KBAs se acceden por el portal de knowledge (requiere login SAP).
+
+- 🗂️ KBA 3576331 · Folders created directly under a workspace are not visible in System → Workspace | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3576331)
+- 🔀 KBA 3524959 · After moving content in source and transferring to target, the location is not reflected correctly | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3524959)
+- ⚠️ KBA 3311985 · The stories in a folder were deleted after the folder was transported via Content Network | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3311985)
+- 🧹 KBA 3493600 · A specific object failed to be imported through Content Network Storage (resource does not exist) | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3493600)
+- 🔐 KBA 3460999 · Object level security for teams during transports | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3460999)
+- 🔐 KBA 3561284 · Transported team access may be added to existing target team settings instead of overwriting | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3561284)

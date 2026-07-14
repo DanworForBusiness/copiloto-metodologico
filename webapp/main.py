@@ -124,6 +124,17 @@ def _is_owner(request: Request) -> bool:
     return bool(user) and (str(user.get("sub") or "").strip().lower() in owners)
 
 
+def _readonly(request: Request) -> bool:
+    """True si el usuario logueado es perfil SOLO LECTURA (ACADEMY_USERS): navega y
+    lee todo el contenido, pero con la IA apagada (sin asistente ni análisis de
+    sección → sin consumo de tokens). Se deriva del email en cada request, así que
+    mover un usuario entre listas surte efecto sin necesidad de re-login."""
+    user = auth_service.session_user(request)
+    if not user:
+        return False
+    return auth_service.user_tier(str(user.get("sub") or "")) == "academy"
+
+
 def _diagnostic(request: Request) -> bool:
     """Modo diagnóstico: solo el dueño (APP_OWNER) puede activarlo por cookie.
 
@@ -323,13 +334,31 @@ def _home_url(pack: str) -> str:
     return f"/modules/{module.stem}?pack={pack}"
 
 
+@app.get("/home", include_in_schema=False)
+def home(request: Request, pack: str = Query(DEFAULT_PACK)):
+    """Destino post-login, dependiente del perfil. Los usuarios de solo lectura
+    (ACADEMY_USERS) aterrizan por defecto en Danwor Academy —su puerta de entrada—;
+    los demás, en el primer módulo del marco. El contenido no se restringe: es solo
+    el punto de aterrizaje inicial."""
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    if not auth_service.session_user(request):
+        return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
+    if _readonly(request):
+        academy = list_academy(selected)
+        if academy:
+            return RedirectResponse(f"/academy/{academy[0].stem}?pack={selected}", status_code=307)
+    return RedirectResponse(_home_url(selected), status_code=307)
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing(request: Request, pack: str = Query(DEFAULT_PACK)):
     selected = _pack(pack)
+    # data-home apunta a /home (redirección server-side según perfil), no directo al
+    # módulo 01: así el perfil solo-lectura aterriza en Danwor Academy tras el login.
     return templates.TemplateResponse(
         request=request,
         name="landing.html",
-        context={"pack": selected, "home_url": _home_url(selected)},
+        context={"pack": selected, "home_url": f"/home?pack={selected}"},
     )
 
 
@@ -399,6 +428,11 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     trees = store.trees_for_module(stem, selected, include_assessment=True)
     run = store.start(trees[0], selected) if len(trees) == 1 else None
     conversation = assistant_store.start(stem, selected)
+    # Perfil de solo lectura (ACADEMY_USERS): lee todo, pero sin IA. Conserva el
+    # panel SOLO si el módulo tiene árboles de decisión (deterministas, sin tokens);
+    # las pestañas Sección/Asistente (IA) se ocultan en el template.
+    readonly = _readonly(request)
+    has_decision_tree = any(t.get("kind") != "assessment" for t in trees)
     packs = [
         {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": _home_url(name)}
         for name in available_content_packs()
@@ -419,10 +453,15 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "is_owner": _is_owner(request),
             "immersive": immersive,
             "iframe_src": iframe_src,
+            "readonly": readonly,
             # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
             # si está el modo diagnóstico activo (grupo Gestión). Nunca en módulos
-            # inmersivos de solo lectura (p. ej. 00 Intro), aunque esté diagnóstico.
-            "show_panel": (ia_enabled or diagnostic) and not immersive,
+            # inmersivos (p. ej. 00 Intro). Para el perfil de solo lectura se muestra
+            # si hay asistente (router determinista) o árbol; la salida LLM queda gateada.
+            "show_panel": (
+                ((ia_enabled or has_decision_tree) and not immersive) if readonly
+                else ((ia_enabled or diagnostic) and not immersive)
+            ),
             "document": document,
             "trees": trees,
             "run": run,
@@ -487,6 +526,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in list_academy(selected)},
             "active_group": "academy",
             "active_stem": stem,
+            "readonly": _readonly(request),
             "page_title": current.title if current else "Danwor Academy",
             "iframe_src": iframe_src,
             "show_panel": False,
@@ -509,6 +549,12 @@ def analyze_section(
     pack: str = Form(DEFAULT_PACK),
     conversation_id: str = Form(""),
 ):
+    if _readonly(request):
+        return HTMLResponse(
+            '<p class="section-analysis-warning-copy">IA no disponible para Danwor Academy: '
+            'el análisis de sección genera contenido con IA y está deshabilitado en tu perfil por ahora.</p>',
+            status_code=403,
+        )
     selected = _pack(pack)
     user = auth_service.session_user(request) or {}
     first_name = str(user.get("first_name") or "").strip()
@@ -614,6 +660,10 @@ def assistant_chat(
     route_module: str = Form(""),
     route_heading: str = Form(""),
 ):
+    # Perfil solo-lectura: el asistente SÍ funciona (el router interno es determinista
+    # y no consume OpenAI), pero cualquier salida que dispararía la API de OpenAI
+    # (chat libre sin ruta, "Explicame vos") se reemplaza por un aviso, sin gastar tokens.
+    readonly = _readonly(request)
     selected = _pack(pack)
     user = auth_service.session_user(request) or {}
     first_name = str(user.get("first_name") or "").strip()
@@ -636,8 +686,18 @@ def assistant_chat(
                     None,
                 )
                 answer_context = target_section.markdown if target_section else None
+        ia_blocked = False
         if route:
             answer = route.message
+            answer_html = render_llm_html(answer)
+        elif readonly:
+            # El flujo requería OpenAI (sin ruta curada / "Explicame vos") → no disponible.
+            ia_blocked = True
+            answer = (
+                "**IA no disponible para Danwor Academy.** El asistente puede orientarte "
+                "con el contenido curado del marco, pero las respuestas generadas con IA "
+                "están deshabilitadas en tu perfil por ahora."
+            )
             answer_html = render_llm_html(answer)
         else:
             answer, answer_html = assistant_chat_service.ask(
@@ -645,7 +705,8 @@ def assistant_chat(
             )
         reply = assistant_store.append(
             conversation_id, stem, selected, question.strip(), answer, answer_html,
-            topic=route_heading or "Pregunta libre", action="Routing" if route else "Asistente",
+            topic=route_heading or "Pregunta libre",
+            action="Routing" if route else ("IA bloqueada" if ia_blocked else "Asistente"),
             include_user=not routing_bypass,
         )
         error = ""
@@ -669,7 +730,7 @@ def assistant_chat(
             "stem": stem,
             "pack": selected,
             "show_user_message": not routing_bypass,
-            "llm_answer": route is None and reply is not None,
+            "llm_answer": route is None and reply is not None and not readonly,
         },
     )
 

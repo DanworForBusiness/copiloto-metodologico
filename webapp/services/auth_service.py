@@ -17,6 +17,7 @@ import httpx
 from jose import JWTError, jwt
 
 from config import (
+    ACADEMY_USERS,
     ALLOWED_USERS,
     AUTH_DEFAULT_DOMAIN,
     AZURE_CLIENT_ID,
@@ -37,11 +38,15 @@ class AuthError(Exception):
         self.denied_user = denied_user
 
 
-# ── Allow-list (misma lógica que el auth.py original del copiloto) ──────────────
-def _allowed_set() -> set[str] | None:
-    """None ⇒ 'ALL' (cualquier usuario del tenant). Si no, set de mails permitidos."""
-    raw = (ALLOWED_USERS or "").strip()
-    if not raw or raw.upper() == "ALL":
+# ── Allow-list + perfiles de acceso ────────────────────────────────────────────
+def _csv_users(raw: str | None, *, empty_is_all: bool) -> set[str] | None:
+    """Parsea una lista de usuarios. None ⇒ 'ALL' (cualquier autenticado del tenant).
+    Un set ⇒ mails permitidos. `empty_is_all` define cómo interpretar la lista vacía:
+    ALLOWED_USERS vacío = ALL (histórico); ACADEMY_USERS vacío = nadie."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None if empty_is_all else set()
+    if raw.upper() == "ALL":
         return None
     domain = (AUTH_DEFAULT_DOMAIN or "danwor.com").strip().lower().lstrip("@")
     return {
@@ -50,11 +55,38 @@ def _allowed_set() -> set[str] | None:
     }
 
 
+def _allowed_set() -> set[str] | None:
+    """Perfil FULL. None ⇒ 'ALL' (todos full); set() ⇒ nadie full explícito; o set de mails.
+    Vacío = nadie full (NO 'ALL'): así, con ACADEMY_USERS, el resto cae a solo-lectura."""
+    return _csv_users(ALLOWED_USERS, empty_is_all=False)
+
+
+def _academy_set() -> set[str] | None:
+    """Perfil SOLO LECTURA. None ⇒ 'ALL' (cualquier autenticado no-full); set() ⇒ nadie."""
+    return _csv_users(ACADEMY_USERS, empty_is_all=False)
+
+
+def user_tier(email: str) -> str | None:
+    """Perfil del usuario: 'full' (copiloto completo + IA), 'academy' (solo lectura,
+    sin IA) o None (no autorizado). FULL gana si está en ambas listas."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    full = _allowed_set()       # None='ALL', set() vacío = nadie, o set de mails
+    academy = _academy_set()    # idem
+    # Sin NINGUNA lista configurada (ambas vacías) → abierto: todos full.
+    # Evita un lockout accidental y preserva el "sin config = abierto" histórico.
+    if full == set() and academy == set():
+        return "full"
+    if full is None or email in full:
+        return "full"
+    if academy is None or email in academy:
+        return "academy"
+    return None
+
+
 def is_authorized(email: str) -> bool:
-    allowed = _allowed_set()
-    if allowed is None:  # 'ALL' → el tenant ya restringe quién puede autenticar
-        return True
-    return (email or "").strip().lower() in allowed
+    return user_tier(email) is not None
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────

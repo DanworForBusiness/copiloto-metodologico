@@ -1,4 +1,4 @@
-function copilotLayout(activeGroup = "core") {
+function copilotLayout(activeGroup = "core", readonly = false) {
   // Retrocompat: antes recibía un booleano isAppendix.
   if (activeGroup === true) activeGroup = "appendix";
   else if (activeGroup === false) activeGroup = "core";
@@ -7,7 +7,10 @@ function copilotLayout(activeGroup = "core") {
     panelOpen: true,
     diagnosticOpen: false,
     gestionOpen: false,
-    toolTab: "section",
+    // En perfil de solo lectura la pestaña Sección (análisis IA) se oculta; arrancamos
+    // en Asistente (router determinista que sirve contenido curado; la salida LLM se
+    // reemplaza por un aviso, ver assistant_chat).
+    toolTab: readonly ? "assistant" : "section",
     activeSection: "",
     // Grupos colapsables del nav izquierdo (Core / Apéndices / Danwor Academy).
     // Abrimos el grupo del documento activo y dejamos los otros colapsados. Al

@@ -418,6 +418,115 @@ def test_intro_asset_has_rail_and_embeds_diagrams():
     assert "danwor-roadmap-implementacion.html" in response.text
 
 
+def test_user_tier_resolution(monkeypatch):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "senior@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "junior@danwor.com")
+    assert auth_service.user_tier("senior@danwor.com") == "full"
+    assert auth_service.user_tier("junior@danwor.com") == "academy"
+    assert auth_service.user_tier("otro@danwor.com") is None          # ninguna lista → denegado
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    assert auth_service.user_tier("otro@danwor.com") == "academy"     # ACADEMY=ALL → resto read-only
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    assert auth_service.user_tier("otro@danwor.com") == "full"        # FULL=ALL gana (post-lanzamiento)
+
+
+def _readonly_client(monkeypatch, email="junior@danwor.com"):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "senior@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    session = auth_service.create_session(
+        {"email": email, "name": "Junior", "first_name": "Junior", "family_name": "X"}
+    )
+    ro = TestClient(app)
+    ro.cookies.set(auth_service.COOKIE_NAME, session)
+    return ro
+
+
+def test_readonly_profile_reads_content_with_assistant_but_no_llm(monkeypatch):
+    ro = _readonly_client(monkeypatch)
+    page = ro.get("/modules/05_Reporting_y_Consumo")
+    assert page.status_code == 200
+    # Lee el contenido completo (no se restringe).
+    assert "Estrategia de" in page.text
+    # Badge de perfil + Árbol + Asistente (router determinista) disponibles.
+    assert "Modo lectura" in page.text
+    assert "Árbol" in page.text
+    assert ">Asistente</button>" in page.text
+    assert "/assistant/chat" in page.text
+    # Pero la pestaña Sección (análisis puramente IA) queda oculta.
+    assert ">Sección</button>" not in page.text
+    assert "/sections/analyze" not in page.text
+
+
+def test_readonly_assistant_router_works_but_llm_output_is_blocked(monkeypatch):
+    ro = _readonly_client(monkeypatch)
+    # El router NO debe llamar a OpenAI para este perfil: si algo intenta ask(), falla.
+    monkeypatch.setattr(
+        web_main.assistant_chat_service, "ask",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe consumir OpenAI en solo-lectura")),
+    )
+    conv = web_main.assistant_store.start("01_Arquitectura_y_Conectividad", "datasphere_core")
+    # Pregunta que resuelve el router (contenido curado, determinista) → responde igual.
+    routed = ro.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={"pack": "datasphere_core", "question": "tenemos algun template CDS?", "conversation_id": conv.id},
+    )
+    assert routed.status_code == 200
+    assert "IA no disponible para Danwor Academy" not in routed.text
+    # "Explicame vos" (fuerza salida LLM) → aviso, sin consumir tokens.
+    bypass = ro.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={"pack": "datasphere_core", "question": "x", "conversation_id": conv.id,
+              "routing_bypass": "true", "route_module": "01_Arquitectura_y_Conectividad"},
+    )
+    assert bypass.status_code == 200
+    assert "IA no disponible para Danwor Academy" in bypass.text
+
+
+def test_readonly_section_analysis_is_blocked(monkeypatch):
+    ro = _readonly_client(monkeypatch)
+    analyze = ro.post(
+        "/modules/05_Reporting_y_Consumo/sections/analyze",
+        data={"pack": "datasphere_core", "section_slug": "__module__",
+              "action": "Guía operativa del módulo", "conversation_id": ""},
+    )
+    assert analyze.status_code == 403
+    assert "IA no disponible para Danwor Academy" in analyze.text
+
+
+def test_home_redirects_by_tier(monkeypatch):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "senior@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    ro = _readonly_client(monkeypatch)
+    ro_home = ro.get("/home", follow_redirects=False)
+    assert ro_home.status_code == 307
+    assert "/academy/ACAD01_Paradigmas" in ro_home.headers["location"]
+
+    full_session = auth_service.create_session(
+        {"email": "senior@danwor.com", "name": "Senior", "first_name": "Senior", "family_name": "Y"}
+    )
+    full = TestClient(app)
+    full.cookies.set(auth_service.COOKIE_NAME, full_session)
+    full_home = full.get("/home", follow_redirects=False)
+    assert full_home.status_code == 307
+    assert "/modules/01_Arquitectura_y_Conectividad" in full_home.headers["location"]
+
+
+def test_full_profile_keeps_ia(monkeypatch):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "senior@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    session = auth_service.create_session(
+        {"email": "senior@danwor.com", "name": "Senior", "first_name": "Senior", "family_name": "Y"}
+    )
+    full = TestClient(app)
+    full.cookies.set(auth_service.COOKIE_NAME, session)
+    page = full.get("/modules/05_Reporting_y_Consumo")
+    assert page.status_code == 200
+    assert ">Asistente</button>" in page.text
+    assert ">Sección</button>" in page.text
+    assert "/sections/analyze" in page.text
+    assert "Modo lectura" not in page.text
+
+
 def test_regular_module_is_not_immersive():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert response.status_code == 200
@@ -432,3 +541,30 @@ def test_intro_has_no_panel_even_in_diagnostic_mode():
     assert 'class="academy-stage"' in response.text
     assert "copilot-panel" not in response.text
     assert "no-copilot" in response.text
+
+
+def test_sac_appendix_a06_renders():
+    response = client.get("/modules/A06_SAP_Analytics_Cloud")
+    assert response.status_code == 200
+    assert 'class="module-content"' in response.text
+    # Secciones clave del gobierno de contenido SAC.
+    assert "Vista System" in response.text
+    assert "Identidad Técnica" in response.text
+    assert "Object ID" in response.text
+    # Apéndice con IA habilitada → panel derecho presente.
+    assert "copilot-panel" in response.text
+    # Sin tokens sin renderizar.
+    assert "{{" not in response.text
+
+
+def test_sac_appendix_a06_in_nav_and_linked_from_module_05():
+    # A06 aparece en el grupo de apéndices técnicos.
+    nav = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert nav.status_code == 200
+    assert 'href="/modules/A06_SAP_Analytics_Cloud' in nav.text
+    assert "SAP Analytics Cloud" in nav.text
+    # El módulo 05 suma la sección de organización de contenido SAC y enlaza a A06.
+    mod05 = client.get("/modules/05_Reporting_y_Consumo")
+    assert mod05.status_code == 200
+    assert "Organización de Contenido en" in mod05.text
+    assert "/modules/A06_SAP_Analytics_Cloud" in mod05.text

@@ -41,3 +41,6 @@ activity_log/
 # Agente local / venv del poc (no subir)
 .claude/
 .venv-poc/
+# Datos runtime/locales generados por la app (no deployar)
+case_library/
+reports/feedback/

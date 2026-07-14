@@ -2,7 +2,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout('{{ active_group }}')"
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
@@ -97,15 +97,16 @@
   <div class="resize-handle resize-right" data-resize="right" title="Arrastrar para redimensionar" aria-hidden="true"></div>
 
   <aside class="copilot-panel">
-    {% if ia_enabled %}
+    {% if ia_enabled or readonly %}
     <button class="panel-toggle" @click="panelOpen=!panelOpen"><span>Herramientas de decisión</span><span x-text="panelOpen?'−':'+'"></span></button>
     <div x-show="panelOpen" x-transition.opacity>
       <nav class="tool-tabs" role="tablist" aria-label="Herramientas del módulo">
-        <button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>
+        {% if not readonly %}<button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='tree'" :class="toolTab==='tree'&&'is-active'" :aria-selected="toolTab==='tree'">Árbol</button>
         <button type="button" role="tab" @click="toolTab='assistant'" :class="toolTab==='assistant'&&'is-active'" :aria-selected="toolTab==='assistant'">Asistente</button>
       </nav>
 
+      {% if not readonly %}
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='section'" role="tabpanel">
         <div class="active-section-card">
           <span x-text="activeSection === '__module__' ? 'Módulo activo' : 'Sección activa'"></span>
@@ -144,6 +145,7 @@
           <p class="ai-disclaimer">La IA puede cometer errores. Revisá sus respuestas.</p>
         </form>
       </section>
+      {% endif %}
 
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='tree'" role="tabpanel">
         {% include "partials/tree_tab.html" %}
@@ -170,7 +172,7 @@
     </div>
     {% endif %}
 
-    {% if ia_enabled and diagnostic_trees %}
+    {% if ia_enabled and diagnostic_trees and not readonly %}
     <button class="panel-toggle panel-toggle--diagnostic" @click="diagnosticOpen=!diagnosticOpen"><span>Herramientas de diagnóstico</span><span x-text="diagnosticOpen?'−':'+'"></span></button>
     <div x-cloak x-show="diagnosticOpen" x-transition.opacity class="diagnostic-group">
       {% include "partials/diagnostic_tab.html" %}

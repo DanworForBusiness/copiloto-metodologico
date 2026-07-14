@@ -4,7 +4,7 @@
    `active_stem` resalta la entrada actual. Academy está desconectado de la
    navegación metodológica (prev/next/loop) — es un área aparte. #}
 <aside class="module-nav" :class="navOpen&&'is-open'">
-  {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong></p>{% endif %}
+  {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong>{% if readonly %} <span class="nav-readonly" title="Tu perfil navega y lee todo el contenido, pero el asistente IA está deshabilitado por ahora.">Modo lectura</span>{% endif %}</p>{% endif %}
   <nav aria-label="Módulos metodológicos">
     <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
       <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>

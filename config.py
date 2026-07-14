@@ -65,7 +65,7 @@ def _csv_env(name: str, default: str) -> list[str]:
 _IA_ENABLED_ENV = os.getenv("DANWOR_IA_ENABLED_MODULES", "").strip()
 IA_ENABLED_MODULES: list[str] = _csv_env(
     "DANWOR_IA_ENABLED_MODULES",
-    "01,02,03,04,05,A01,A02,A03,A04,A05",
+    "01,02,03,04,05,A01,A02,A03,A04,A05,A06",
 )
 IA_DISABLED_MODULES: list[str] = _csv_env("DANWOR_IA_DISABLED_MODULES", "00")
 
@@ -86,7 +86,7 @@ def ia_enabled_for(stem: str) -> bool:
         # El pack puede cambiar durante la sesion sin recargar config.py.
         from core.content_registry import active_content_pack
         enabled = {"*"} if active_content_pack() == "bdc_next" else {
-            "01", "02", "03", "04", "05", "A01", "A02", "A03", "A04", "A05"
+            "01", "02", "03", "04", "05", "A01", "A02", "A03", "A04", "A05", "A06"
         }
     disabled = {item.strip().upper() for item in IA_DISABLED_MODULES}
 
@@ -120,6 +120,16 @@ TITLE_CONTEXT    = _env("DANWOR_TITLE_CONTEXT", "ON").upper() # ON vs OFF → el
 # ALLOWED_USERS="usuario1,usuario2" asume @danwor.com.
 # También acepta mails completos si algún caso lo requiere.
 ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
+# Perfil de SOLO LECTURA (trainees/juniors que entran por Danwor Academy y
+# profundizan en el contenido técnico, pero SIN interacción IA hasta que los
+# seniors validen el copiloto). Estos usuarios navegan y leen todo el contenido,
+# pero tienen la IA apagada (sin asistente ni análisis de sección → sin consumo
+# de tokens). Mismo formato que ALLOWED_USERS: "" = nadie es solo-lectura;
+# "ALL" = cualquier autenticado que NO esté en ALLOWED_USERS es solo-lectura;
+# o CSV de mails/alias. ALLOWED_USERS (perfil full) SIEMPRE gana si el usuario
+# está en ambas listas. Para el lanzamiento masivo: vaciar ACADEMY_USERS y/o
+# pasar los usuarios a ALLOWED_USERS.
+ACADEMY_USERS    = _env("ACADEMY_USERS", "")
 AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("@")
 
 # Secreto para firmar la cookie de sesión de la webapp (FastAPI). En producción

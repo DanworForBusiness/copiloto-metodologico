@@ -173,17 +173,17 @@ class AssistantChatService:
             for role, text in history
         )
         user_prompt = (
-            f"CONTEXTO (Marco Danwor)\n{'─' * 40}\n{context or document.source}\n\n"
-            f"CONVERSACIÓN PREVIA\n{'─' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
-            f"NUEVA CONSULTA\n{'?' * 40}\n{question}\n\n"
+            f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
+            f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
+            f"NUEVA CONSULTA\n{'-' * 40}\n{question}\n\n"
             "FORMATO DE RESPUESTA\n"
-            f"{'?' * 40}\n"
-            "Respond? en Markdown v?lido y legible. Si el contexto incluye una estructura, "
-            "lista de definiciones, convenci?n de nombres, patr?n o pasos, conserv? esa "
-            "estructura en la respuesta: us? p?rrafos separados, bullets con etiquetas en "
-            "negrita y ejemplos en l?neas propias. No lo conviertas en un p?rrafo plano. "
-            "Si mostr?s una plantilla con placeholders entre <...>, dejala en una l?nea "
-            "separada y explic? cada placeholder debajo con bullets."
+            f"{'-' * 40}\n"
+            "Respond\u00e9 en Markdown v\u00e1lido y legible. Si el contexto incluye una estructura, "
+            "lista de definiciones, convenci\u00f3n de nombres, patr\u00f3n o pasos, conserv\u00e1 esa "
+            "estructura en la respuesta: us\u00e1 p\u00e1rrafos separados, bullets con etiquetas en "
+            "negrita y ejemplos en l\u00edneas propias. No lo conviertas en un p\u00e1rrafo plano. "
+            "Si mostr\u00e1s una plantilla con placeholders entre <...>, dejala en una l\u00ednea "
+            "separada y explic\u00e1 cada placeholder debajo con bullets."
         )
         try:
             client = self.client_factory(api_key=api_key)

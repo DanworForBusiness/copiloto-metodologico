@@ -13,6 +13,9 @@ key_topics:
   - id: performance
     label: Performance
     heading: "Performance en Reporting"
+  - id: organizacion
+    label: Organización SAC
+    heading: "Organización de Contenido en SAC"
   - id: checklist
     label: Checklist
     heading: "Checklist de Reporting"
@@ -20,12 +23,16 @@ scope: |
   Cubre la estrategia de consumo y reporting sobre SAP Datasphere: comparativa
   de herramientas (SAC, Power BI, BusinessObjects), modos de conexión para
   herramientas externas (DirectQuery vs Import, schema users, Live Data Connection),
-  y consideraciones de performance. No cubre modelado dentro de Datasphere
-  (módulo 04), seguridad DAC (módulo 02), ni configuración de espacios (módulo 01).
+  consideraciones de performance, y la organización de contenido en SAC a nivel
+  decisión (workspaces vs team folders vs Public, vista System vs Workspaces).
+  No cubre modelado dentro de Datasphere (módulo 04), seguridad DAC (módulo 02),
+  configuración de espacios/transportes Datasphere (módulo 01), ni la operación
+  profunda de gobierno/transporte de contenido SAC (apéndice A06).
 guardrails:
   - "No elegir la herramienta de reporting por preferencia aislada: decidir según modo de consumo, gobierno, performance, seguridad y operación."
   - "El reporting no debe corregir problemas de modelado o seguridad de base; si la consulta trata capas, semántica o DAC, derivar al módulo correspondiente."
   - "Con herramientas externas, no recomendar accesos sin gobierno: validar schema users, modo de conexión, permisos y comportamiento de performance."
+  - "En SAC, el límite de gobierno de contenido es el workspace (análogo al espacio en Datasphere): no tratar team folders ni la carpeta Public como su reemplazo, ni confundir visibilidad con profundidad de carpetas."
 quick_action_guidance:
   "Guía operativa del módulo":
     context: |
@@ -117,6 +124,12 @@ out_of_scope_redirect:
     module: "01"
     label: "Arquitectura y Conectividad"
     message: "Ese tema corresponde al módulo 01 · Arquitectura y Conectividad, que cubre espacios, transportes y conectividad."
+  - keywords: ["workspace sac", "team folder", "carpeta equipo sac", "public files", "content network",
+               "transporte sac", "object id", "folder id", "deleted files", "migrar team folder workspace",
+               "vista system", "compartir carpeta sac", "herencia permisos sac", "gobierno contenido sac"]
+    module: "A06"
+    label: "SAP Analytics Cloud (apéndice)"
+    message: "La operación profunda de gobierno y ciclo de vida de contenido SAC (workspaces, compartición/herencia, transporte por Object ID, migración, troubleshooting) corresponde al apéndice A06 · SAP Analytics Cloud."
 ---
 # 05 Reporting y Consumo
 
@@ -205,6 +218,51 @@ La palanca de fondo es **cuándo materializar**. **Federación (live):** Datasph
 {{callout: title="Regla de oro de performance" tone="punch" icon="💡"}}
 Si el reporte es lento, el problema suele estar en el modelo — no en la herramienta. Revisar primero si hay vistas sin persistir con alto volumen, joins innecesarios en la capa de consumo, o datos que no están pre-agregados.
 {{/callout}}
+
+## {dw-black}Organización de {dw-gold}Contenido en SAC
+{{section_meta: keywords="organización contenido sac, workspace sac, workspaces sac, team folder sac, carpeta equipo sac, carpeta public sac, public files, carpeta privada usuario sac, vista system sac, files system, files workspaces, system common, system common public, system workspace, donde guardar contenido sac, matriz ubicacion contenido sac, workspace vs team folder, workspace vs carpeta, gobierno contenido sac, organizar reportes sac, donde crear story"}}
+
+Así como en Datasphere el **espacio** forma parte del gobierno (módulo 01 · Espacios & Transportes), en SAC ese rol lo cumple el **workspace**. SAC organiza el contenido en un **repositorio de archivos** cuya administración se gestiona via **System View**, diferenciando distintos tipo de uso:
+
+| Ubicación | Ruta en el repositorio | Qué es |
+|---|---|---|
+| **Public folder** | `System/Common/Public` | Contenido disponible para una audiencia amplia del tenant (sujeto a roles y alcance `sharing`) |
+| **Team folder** | `System/Common/<Team_Name>` | Contenido basado en equipos de trabajo: `System/Common/FINANZAS` es el team folder del equipo `FINANZAS` — **no es** el workspace `Finanzas` |
+| **Workspace** | `System/<Workspace_Name>` | Gobierno a nivel dominio/LoB: usuarios asignados explicitamente, o a traves del uso de Equipos (Teams) |
+| **Private** | `System/<Workspace_Name>/Users/<User_ID>` | Contenido privado por defecto creado por un usuario sin importar el origen (archivos propios, desde workspaces, etc) |
+
+> **Importante:** no todo en `System/Common` equivale a "público". Solo `System/Common/Public` es la carpeta Public. Y la similitud de nombres entre `System/Common/FINANZAS` (team folder) y `System/Finanzas` (workspace) **no las vincula**: son ramas distintas del repositorio.
+>
+> **Carpetas de equipo:** se crean **automáticamente** al crear el equipo. En el patrón Danwor el equipo se usa como **centralizador de miembros** asignado al workspace (al compartir las carpetas gobernadas del workspace con el equipo, todos sus miembros entran en alcance), así que esa carpeta de equipo **queda vacía** — no se le carga contenido ni se comparten objetos directamente. El detalle operativo está en el apéndice [A06 · SAP Analytics Cloud](/modules/A06_SAP_Analytics_Cloud?pack=datasphere_core).
+
+{{callout: title="Decisión canónica Danwor — Workspace como ubicación autoritativa" tone="punch" icon="⭐"}}
+Para el gobierno por dominio o linea de negocio conviene usar **workspaces**. Los **team folders** y la **carpeta Public** se usan solo cuando se busca deliberadamente un modelo de compartición más amplio (Public) o más simple/liviano (team folder), para colaboración entre dominios o contenido legacy/transitorio pendiente de migración. Team folders y workspaces pueden resultar funcionalmente similares en casos simples, pero son **mecanismos distintos y ambos siguen soportados** — no es que "los workspaces reemplazaron a los team folders".
+{{/callout}}
+
+Ejemplo canónico de jerarquía gobernada para el dominio de Finanzas (adaptar nombres a las convenciones del cliente; ver convención de artefactos en el módulo 04):
+
+```text
+System
+└── Finanzas                      ← workspace (límite de gobierno)
+    ├── Reports
+    │   ├── Costeo Directo
+    │   ├── Presupuesto
+    │   └── Cierre
+    ├── Models
+    ├── Data Actions
+    └── Shared Components
+```
+
+{{callout_row}}
+{{callout: title="System vs Workspaces — dos vistas" tone="note" icon="🔹"}}
+`Files → System → <Workspace>` es la vista **administrativa/gobierno** (ve todo el WS, incluso lo no compartido). `Files → Workspaces → <Workspace>` es la vista de **colaboración filtrada por acceso** (solo lo compartido con el usuario). Pertenecer al workspace ≠ tener acceso a cada objeto.
+{{/callout}}
+{{callout: title="La profundidad no determina visibilidad" tone="warn" icon="🔸"}}
+Mover un reporte a una carpeta menos profunda **no** lo hace aparecer en la vista de usuario del workspace. La visibilidad depende del **acceso y la compartición**, no de los niveles de carpeta. No aplanar jerarquías para resolver permisos.
+{{/callout}}
+{{/callout_row}}
+
+La operación profunda —compartición y herencia de permisos, transporte por identidad técnica (Object ID), colisiones de Folder ID, Deleted Files, alineación entre tenants, migración de team folder a workspace y checklist DEV/QA/PRD— está en el apéndice [A06 · SAP Analytics Cloud](/modules/A06_SAP_Analytics_Cloud?pack=datasphere_core). La dirección del landscape DEV→QA→PRD se hereda del módulo 01.
 
 ## {dw-black}Checklist de {dw-gold}Reporting
 {{section_meta: keywords="checklist reporting, lista verificación reporting, checklist consumo, revisión reporting, buenas practicas reporting, puntos control reporting, verificar herramienta, verificar conexión, verificar performance, checklist Power BI datasphere, checklist SAC datasphere"}}
