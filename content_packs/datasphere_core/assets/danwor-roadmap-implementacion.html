@@ -320,9 +320,9 @@
       </ul>
       <div class="phase-tip">
         <span class="phase-tip-icon">💡</span>
-        Este marco se apoya en los principios EA
+        Este marco se apoya en los fundamentos EA y Paradigmas
       </div>
-      <a class="phase-link" href="#">
+      <a class="phase-link" href="/modules/A01_Arquitectura_y_Modelado?pack=datasphere_core" data-appendix-nav>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         Ver apéndice
       </a>
@@ -437,6 +437,32 @@
   </div>
 
 </main>
+
+<script>
+(function(){
+  // "Ver apéndice": navega la PÁGINA del copiloto (no el iframe ni el top real,
+  // que en prod es danwor.com/cross-origin). Sube por los frames same-origin hasta
+  // encontrar el shell del copiloto (.app-shell) — funciona embebido directo o vía
+  // intro.html, y cae a navegación local si se abre standalone.
+  function goToCopiloto(href){
+    try{
+      var w = window;
+      while (w !== w.parent){
+        var doc = w.parent.document;            // lanza si el ancestro es cross-origin
+        if (doc.querySelector('.app-shell')){ w.parent.location.href = href; return; }
+        w = w.parent;
+      }
+    }catch(e){}
+    window.location.href = href;                // fallback
+  }
+  document.addEventListener('click', function(e){
+    var a = e.target.closest('a[data-appendix-nav]');
+    if(!a) return;
+    e.preventDefault();
+    goToCopiloto(a.getAttribute('href'));
+  });
+})();
+</script>
 
 </body>
 </html>
