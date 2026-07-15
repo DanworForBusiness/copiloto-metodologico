@@ -34,15 +34,15 @@
 {# 3. Feedback ───────────────────────────────────────────── #}
 <section class="admin-tool">
   <h4>💬 Feedback</h4>
-  <p class="admin-help">Analiza <code>feedback_log/</code>: todo, solo árboles faltantes o solo 👍/👎 de IA.</p>
+  <p class="admin-help">Analiza el 👍/👎 de <code>feedback_log/</code>: asistente IA, contenido de módulos y Danwor Academy.</p>
   <form hx-post="/admin/feedback/analyze" hx-target="#res-feedback" hx-swap="innerHTML"
         hx-indicator="#ind-feedback" hx-disabled-elt="button[type='submit']">
     <label class="admin-label" for="fb-kind">Tipo</label>
     <select id="fb-kind" name="kind">
       <option value="all">Todo el feedback</option>
-      <option value="missing">Solo árboles faltantes</option>
-      <option value="ia">Solo feedback de IA</option>
-      <option value="trees">Solo decisiones de árbol</option>
+      <option value="ia">Solo asistente IA</option>
+      <option value="modulos">Solo contenido de módulos</option>
+      <option value="academy">Solo Danwor Academy</option>
     </select>
     <div class="admin-actions">
       <button type="submit" class="btn-primary">Analizar feedback</button>
