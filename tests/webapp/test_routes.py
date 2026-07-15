@@ -394,6 +394,52 @@ def test_unknown_academy_page_returns_404():
     assert response.status_code == 404
 
 
+# ── Invitación al Desafío (dialog one-off vía /desafio) ───────────────────
+
+def test_desafio_sets_invite_cookie_and_redirects_home():
+    try:
+        response = client.get("/desafio", follow_redirects=False)
+        assert response.status_code == 307
+        assert "/home" in response.headers["location"]
+        assert "dw-desafio=1" in response.headers.get("set-cookie", "")
+    finally:
+        # El TestClient es compartido a nivel módulo: sin esta limpieza la cookie
+        # de invitación contamina los tests siguientes (dialog siempre visible).
+        client.cookies.delete("dw-desafio")
+
+
+def test_invite_dialog_renders_only_with_cookie():
+    # Sin cookie: el shell no arma el dialog.
+    clean = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert "dw-invite-overlay" not in clean.text
+    # Con cookie (la arma /desafio): dialog con el iframe del Desafío, en módulos
+    # y también en Academy (donde aterriza el perfil solo-lectura).
+    client.cookies.set("dw-desafio", "1")
+    try:
+        invited = client.get("/modules/01_Arquitectura_y_Conectividad")
+        assert "dw-invite-overlay" in invited.text
+        assert "/pack-assets/datasphere_core/academy/desafio.html" in invited.text
+        assert "academy_feedback=ACAD05_Desafio" in invited.text
+        academy = client.get("/academy/ACAD01_Paradigmas")
+        assert "dw-invite-overlay" in academy.text
+    finally:
+        client.cookies.delete("dw-desafio")
+
+
+def test_desafio_hidden_from_nav_but_direct_url_and_feedback_work(monkeypatch, tmp_path):
+    # nav_hidden: la página no se lista en el nav de Academy…
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert "ACAD05_Desafio" not in response.text
+    # …pero la URL directa sigue viva (fallback del mail) y el feedback también.
+    direct = client.get("/academy/ACAD05_Desafio")
+    assert direct.status_code == 200
+    assert "desafio.html" in direct.text
+    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)  # no ensuciar runtime real
+    thanks = client.post("/academy/ACAD05_Desafio/feedback", data={"rating": "up", "pack": "datasphere_core"})
+    assert thanks.status_code == 200
+    assert list(tmp_path.glob("academy_feedback_*.yaml"))
+
+
 def test_intro_module_renders_immersive_embed():
     response = client.get("/modules/00_Intro")
     assert response.status_code == 200

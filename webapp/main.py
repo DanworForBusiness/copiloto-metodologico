@@ -515,10 +515,41 @@ def home(request: Request, pack: str = Query(DEFAULT_PACK)):
     if not auth_service.session_user(request):
         return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
     if _readonly(request):
-        academy = list_academy(selected)
+        academy = [item for item in list_academy(selected) if not item.nav_hidden]
         if academy:
             return RedirectResponse(f"/academy/{academy[0].stem}?pack={selected}", status_code=307)
     return RedirectResponse(_home_url(selected), status_code=307)
+
+
+# ── Invitación al Desafío (one-off) ──────────────────────────────────────
+# URL directa (enviada por mail) que muestra la página del Desafío como dialog
+# sobre el copiloto. No es navegable: el trigger es una cookie que sobrevive al
+# login (el flujo post-login siempre aterriza en /home) y se borra al cerrar el
+# dialog. Reusable: cada visita a /desafio la vuelve a armar.
+INVITE_COOKIE = "dw-desafio"
+INVITE_STEM = "ACAD05_Desafio"
+
+
+def _invite_src(request: Request, pack: str) -> str:
+    """src del iframe del dialog de invitación, o "" si no corresponde mostrarlo."""
+    if request.cookies.get(INVITE_COOKIE) != "1":
+        return ""
+    asset = academy_asset_for(INVITE_STEM, pack)
+    if not asset:
+        return ""
+    query = urlencode({"branding": "danwor", "embed": "1", "academy_feedback": INVITE_STEM})
+    return f"/pack-assets/{pack}/academy/{asset}?{query}"
+
+
+@app.get("/desafio", include_in_schema=False)
+def desafio_invite(request: Request, pack: str = Query(DEFAULT_PACK)):
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    response = RedirectResponse(f"/home?pack={selected}", status_code=307)
+    response.set_cookie(
+        INVITE_COOKIE, "1", max_age=86400, path="/", httponly=False,
+        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
+    )
+    return response
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -550,7 +581,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
     modules = list_modules(selected)
     appendices = list_appendices(selected)
-    academy = list_academy(selected)
+    academy = [item for item in list_academy(selected) if not item.nav_hidden]
     try:
         document = load_module(stem, selected)
     except FileNotFoundError as exc:
@@ -656,6 +687,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             },
             "user": user,
             "conversation_id": conversation.id,
+            "invite_src": _invite_src(request, selected),
         },
     )
 
@@ -677,6 +709,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     if not asset:
         raise HTTPException(404, "Página de Academy no encontrada")
     current = next((item for item in list_academy(selected) if item.stem == stem), None)
+    academy_nav = [item for item in list_academy(selected) if not item.nav_hidden]
 
     # branding=danwor → colores/marca Danwor; embed=1 → oculta el topbar propio del
     # HTML (el shell del copiloto ya da contexto). El theme lo inyecta pack_asset.
@@ -694,8 +727,8 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         context={
             "modules": list_modules(selected),
             "appendices": list_appendices(selected),
-            "academy": list_academy(selected),
-            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in list_academy(selected)},
+            "academy": academy_nav,
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy_nav},
             "active_group": "academy",
             "active_stem": stem,
             "readonly": _readonly(request),
@@ -708,6 +741,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "packs": packs,
             "pack_label": content_pack_short_label(selected),
             "user": user,
+            "invite_src": _invite_src(request, selected),
         },
     )
 
@@ -841,17 +875,8 @@ def analyze_section(
     )
 
 
-@app.post("/modules/{stem}/feedback", response_class=HTMLResponse)
-def module_feedback(
-    request: Request,
-    stem: str,
-    rating: str = Form(""),
-    pack: str = Form(DEFAULT_PACK),
-):
-    selected = _pack(pack)
-    if rating not in {"up", "down"}:
-        raise HTTPException(400, "Rating inv?lido")
-    document = load_module(stem, selected)
+
+def _save_module_feedback(request: Request, document, selected: str, rating: str, comment: str = "") -> None:
     user = auth_service.session_user(request) or {}
     now = datetime.now(timezone.utc)
     try:
@@ -865,17 +890,82 @@ def module_feedback(
             "user": str(user.get("username") or user.get("email") or ""),
             "ts": now.isoformat(),
         }
+        clean_comment = (comment or "").strip()
+        if clean_comment:
+            payload["comment"] = clean_comment
         path = FEEDBACK_LOG_DIR / f"module_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
         temporary = path.with_suffix(".yaml.tmp")
         temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
         temporary.replace(path)
     except Exception:
-        # El feedback no debe romper la navegaci?n ni el contenido del m?dulo.
+        # El feedback no debe romper la navegacion ni el contenido del modulo.
         pass
+
+
+@app.post("/modules/{stem}/feedback", response_class=HTMLResponse)
+def module_feedback(
+    request: Request,
+    stem: str,
+    rating: str = Form(""),
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = _pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating invalido")
+    document = load_module(stem, selected)
+    if rating == "down":
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/module_feedback.html",
+            context={"document": document, "pack": selected, "form": True, "error": ""},
+        )
+    _save_module_feedback(request, document, selected, "up")
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected, "submitted": True, "rating": "up"},
+    )
+
+
+@app.post("/modules/{stem}/feedback/submit", response_class=HTMLResponse)
+def module_feedback_submit(
+    request: Request,
+    stem: str,
+    rating: str = Form("down"),
+    comment: str = Form(""),
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = _pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating invalido")
+    document = load_module(stem, selected)
+    if rating == "down" and not comment.strip():
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/module_feedback.html",
+            context={
+                "document": document,
+                "pack": selected,
+                "form": True,
+                "error": "Contanos brevemente que falto o que mejorarias.",
+            },
+        )
+    _save_module_feedback(request, document, selected, rating, comment)
     return templates.TemplateResponse(
         request=request,
         name="partials/module_feedback.html",
         context={"document": document, "pack": selected, "submitted": True, "rating": rating},
+    )
+
+
+@app.post("/modules/{stem}/feedback/cancel", response_class=HTMLResponse)
+def module_feedback_cancel(request: Request, stem: str, pack: str = Form(DEFAULT_PACK)):
+    selected = _pack(pack)
+    document = load_module(stem, selected)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected},
     )
 
 

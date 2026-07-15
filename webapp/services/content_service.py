@@ -48,6 +48,9 @@ class ModuleSummary:
     title: str
     nav_label: str
     path: Path
+    # Página fuera de la navegación (frontmatter nav_hidden: true). Sigue siendo
+    # resoluble por URL directa y válida para feedback; solo no se lista en el nav.
+    nav_hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,11 @@ def _summary(path: Path) -> ModuleSummary:
     meta, _ = split_front_matter(path.read_text(encoding="utf-8", errors="ignore"))
     number = str(meta.get("module") or path.stem.split("_", 1)[0]).zfill(2)
     title = str(meta.get("title") or path.stem.split("_", 1)[-1].replace("_", " "))
-    return ModuleSummary(path.stem, number, title, str(meta.get("nav_label") or f"{number} · {title}"), path)
+    return ModuleSummary(
+        path.stem, number, title,
+        str(meta.get("nav_label") or f"{number} · {title}"), path,
+        nav_hidden=bool(meta.get("nav_hidden")),
+    )
 
 
 @lru_cache(maxsize=16)

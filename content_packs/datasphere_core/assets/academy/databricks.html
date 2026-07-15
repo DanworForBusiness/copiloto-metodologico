@@ -160,29 +160,29 @@
       <span class="topic-num reveal">Tema 3 de 4</span>
       <p class="topic-kicker reveal">Integración con Datasphere</p>
       <h2 class="topic-title reveal">El canal <em>zero-copy</em></h2>
-      <p class="topic-lead reveal reveal-d1">Ya vimos que una API es una toma de agua fija entre el origen y quien consume. Delta Sharing es exactamente eso, pero entre la planta (Datasphere) y la represa (Databricks): en vez de trasvasar el agua a un depósito propio, la represa abre una toma directa sobre la misma agua de la planta — sin duplicarla.</p>
+      <p class="topic-lead reveal reveal-d1">Ya vimos que una API funciona como una toma de agua entre el origen y quien consume. En BDC, esa reserva puede mantenerse actualizada a medida que llega agua nueva. OpenSharing resuelve otra parte del problema: en vez de trasvasar y almacenar esa agua en un depósito propio en Databricks, abre una toma directa sobre la reserva que BDC ya mantiene y gobierna.</p>
 
       <div class="pipeline reveal reveal-d1">
         <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr;">
           <div class="pipeline-step" data-step>
             <span class="ps-num">Sin zero-copy</span>
             <p class="ps-title">Copiar el agua a otro embalse</p>
-            <p class="ps-caption">Un pipeline de extracción replica los datos en Databricks.</p>
+            <p class="ps-caption">Un pipeline de extracción replica los datos a Databricks y debe mantener sincronizado ese segundo depósito.</p>
             <span class="ps-toggle">+ tocá para ver más</span>
             <div class="ps-detail"><div class="ps-detail-inner">El agua duplicada envejece: cada cambio en el origen exige otra vuelta de extracción, y mientras tanto ambos embalses pueden mostrar cosas distintas.</div></div>
           </div>
           <div class="pipeline-arrow">↔</div>
           <div class="pipeline-step" data-step>
-            <span class="ps-num">Con Delta Sharing</span>
-            <p class="ps-title">Se abre una toma directa</p>
-            <p class="ps-caption">La represa toma agua directo de la planta — no un trasvase a un depósito propio.</p>
+            <span class="ps-num">Con OpenSharing</span>
+            <p class="ps-title">Se abre una toma directa sobre el mismo embalse</p>
+            <p class="ps-caption">Databricks toma agua directamente de la reserva — no genera ni mantiene un depósito propio.</p>
             <span class="ps-toggle">+ tocá para ver más</span>
             <div class="ps-detail"><div class="ps-detail-inner">SAP Business Data Cloud Connect habilita esto en ambas direcciones: los datos permanecen en su lugar de origen, sin duplicarse en un segundo depósito (arquitectura zero-copy, vía OpenSharing).</div></div>
           </div>
         </div>
       </div>
 
-      <div class="topic-note reveal reveal-d2">Cuando se monta un share de SAP Business Data Cloud en Unity Catalog, no solo llega el dato: también viajan los metadatos semánticos — comentarios de tablas y columnas, claves primarias, etiquetas de gobierno. El contrato de datos no se pierde al cruzar de un embalse al otro.</div>
+      <div class="topic-note reveal reveal-d2">Cuando se monta un share de SAP Business Data Cloud en Unity Catalog, no solo llega el dato: también viajan sus metadatos semánticos —comentarios de tablas y columnas, claves primarias y etiquetas de gobierno—. El contrato de datos no se pierde al abrir la toma hacia otro ecosistema.</div>
 
       <span class="topic-ref-label reveal reveal-d2">Referencia técnica</span>
       <div class="topic-table-wrap reveal reveal-d2">

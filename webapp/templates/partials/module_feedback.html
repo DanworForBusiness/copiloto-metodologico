@@ -1,11 +1,40 @@
-<div id="module-feedback" class="module-feedback tree-feedback">
+<div id="module-feedback" class="module-feedback">
   {% if submitted %}
-  <div class="feedback-thanks"><span>{{ "&#128077;"|safe if rating == "up" else "&#128078;"|safe }}</span><div><p>Gracias, registramos tu feedback sobre este m&oacute;dulo.</p></div></div>
+  <section class="module-feedback__inner module-feedback__inner--thanks">
+    <p class="module-feedback__eyebrow"><span></span>Gracias por tu recorrido</p>
+    <p class="module-feedback__prompt"><span>{{ "&#128077;"|safe if rating == "up" else "&#128078;"|safe }}</span> &iexcl;Gracias!</p>
+    <p class="module-feedback__note">Registramos tu opini&oacute;n sobre este m&oacute;dulo.</p>
+  </section>
+  {% elif form %}
+  <section class="module-feedback__inner module-feedback__inner--form">
+    <p class="module-feedback__eyebrow"><span></span>Contanos un poco m&aacute;s</p>
+    <p class="module-feedback__prompt">&iquest;Qu&eacute; falt&oacute; o qu&eacute; mejorar&iacute;as?</p>
+    <form hx-post="/modules/{{ document.summary.stem }}/feedback/submit" hx-target="#module-feedback" hx-swap="outerHTML">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <input type="hidden" name="rating" value="down">
+      {% if error %}<p class="module-feedback__error">{{ error }}</p>{% endif %}
+      <textarea name="comment" rows="3" placeholder="Ej.: falt&oacute; contexto, un ejemplo pr&aacute;ctico, m&aacute;s claridad o profundidad..." required></textarea>
+      <div class="module-feedback__actions">
+        <button type="button" class="module-feedback__ghost" hx-post="/modules/{{ document.summary.stem }}/feedback/cancel" hx-target="#module-feedback" hx-swap="outerHTML" hx-vals='{"pack":"{{ pack }}"}'>Cancelar</button>
+        <button type="submit" class="module-feedback__primary">Enviar</button>
+      </div>
+    </form>
+  </section>
   {% else %}
-  <form hx-post="/modules/{{ document.summary.stem }}/feedback" hx-target="#module-feedback" hx-swap="outerHTML">
-    <input type="hidden" name="pack" value="{{ pack }}">
-    <span>&iquest;C&oacute;mo te result&oacute; el contenido de este m&oacute;dulo?</span>
-    <div><button type="submit" name="rating" value="up" aria-label="Fue util" title="Fue util">&#128077;</button><button type="submit" name="rating" value="down" aria-label="No fue util" title="No fue util">&#128078;</button></div>
-  </form>
+  <section class="module-feedback__inner">
+    <p class="module-feedback__eyebrow"><span></span>Fin del m&oacute;dulo</p>
+    <p class="module-feedback__prompt">&iquest;Qu&eacute; te pareci&oacute; este contenido?</p>
+    <form hx-post="/modules/{{ document.summary.stem }}/feedback" hx-target="#module-feedback" hx-swap="outerHTML">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <div class="module-feedback__reactions">
+        <button type="submit" name="rating" value="up" class="module-feedback__react" aria-label="Me sirvi&oacute;" title="Me sirvi&oacute;">
+          <span class="module-feedback__emoji">&#128077;</span><span class="module-feedback__label">Me sirvi&oacute;</span>
+        </button>
+        <button type="submit" name="rating" value="down" class="module-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">
+          <span class="module-feedback__emoji">&#128078;</span><span class="module-feedback__label">Puede mejorar</span>
+        </button>
+      </div>
+    </form>
+  </section>
   {% endif %}
 </div>

@@ -8,4 +8,24 @@
 <script src="https://cdn.tailwindcss.com"></script><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script><script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='content.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='layout.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='tools.css') }}?v={{ static_version }}">
 <script>/* Aplica los anchos guardados de las columnas ANTES del primer paint (evita el salto al restaurarlos por JS tras cada navegación SSR). Inyecta un <style> DESPUÉS de los CSS para ganar la cascada sobre .app-shell. */(function(){try{var n=Number(localStorage.getItem('dw-nav-width')),p=Number(localStorage.getItem('dw-panel-width')),r='';if(n)r+='--nav-width:'+n+'px;';if(p)r+='--panel-width:'+p+'px;';if(r){var s=document.createElement('style');s.textContent='.app-shell{'+r+'}';document.head.appendChild(s);}}catch(e){}})();</script></head>
-<body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}<script src="{{ url_for('static', path='app.js') }}?v={{ static_version }}"></script></body></html>
+<body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}
+{% if invite_src %}
+{# Invitación al Desafío (one-off): dialog sobre el copiloto, disparado por la
+   cookie dw-desafio que arma /desafio. Cerrar borra la cookie — no reaparece
+   hasta que el link directo la vuelva a armar. #}
+<div class="dw-invite-overlay" id="dwInvite" role="dialog" aria-modal="true" aria-label="Desafío Copiloto">
+  <div class="dw-invite-panel">
+    <button type="button" class="dw-invite-close" id="dwInviteClose" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</button>
+    <iframe src="{{ invite_src }}" title="Desafío Copiloto"></iframe>
+  </div>
+</div>
+<script>(function(){
+  var overlay=document.getElementById('dwInvite');
+  function close(){document.cookie='dw-desafio=; Max-Age=0; path=/';overlay.remove();document.removeEventListener('keydown',onKey);}
+  function onKey(e){if(e.key==='Escape')close();}
+  document.getElementById('dwInviteClose').addEventListener('click',close);
+  overlay.addEventListener('click',function(e){if(e.target===overlay)close();});
+  document.addEventListener('keydown',onKey);
+})();</script>
+{% endif %}
+<script src="{{ url_for('static', path='app.js') }}?v={{ static_version }}"></script></body></html>
