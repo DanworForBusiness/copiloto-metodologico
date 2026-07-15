@@ -160,6 +160,9 @@ intent_assets:
   - keywords: ["IBP integration", "Integracion IBP", "Integrated Business Planning"]
     description: "How-to Danwor: Integrar IBP y Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=Uc0GEE"    
+  - keywords: ["SSFF integration", "Integracion SSFF", "Success Factors integration", "Integracion Success Factors"]
+    description: "How-to Danwor: Integrar SuccessFactors y Datasphere"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCLvan5B8VFRZhLjOdCCj8iAROq6a3WMEOUxV9W0aQWKcc?e=vPCvmY"    
   - keywords: ["SAC metadata", "SAC resources", "Recursos y Modelos SAC", "relevamiento tecnico SAC", "acelerar analisis SAC"]
     description: "How-to Danwor: Guia para acelerar relevamiento tecnico via API metadata & recursos tecnicos SAC"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r"
@@ -308,6 +311,7 @@ key_topics:
 - Actualizar Eclipse & BWMT | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=5i0SFX)
 - Configurar Email Notifications en Task Chain | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru)
 - Integrar SAP Business Integrated Planning y Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=la8GrL)
+- Integrar SAP Success Factors y Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCLvan5B8VFRZhLjOdCCj8iAROq6a3WMEOUxV9W0aQWKcc?e=vPCvmY)
 - Acelerador de relevamiento tecnico SAC via API metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r)
 - Acelerador de relevamiento tecnico BW via metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQACMCP05dVHTbcYyOHkziLzAcaUsp2fZCUH7mAFx9iEnqA?e=8wxPOx)
 

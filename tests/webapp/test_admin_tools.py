@@ -11,6 +11,7 @@ from webapp.services import auth_service
 # Las herramientas de gestión solo las habilita el dueño (APP_OWNER) en modo
 # diagnóstico. En tests, el usuario de prueba ES el owner.
 web_main.APP_OWNER = "test@danwor.com"
+auth_service.ALLOWED_USERS = "ALL"  # baseline: perfil full (ver test_routes)
 
 _SESSION = auth_service.create_session(
     {"email": "test@danwor.com", "name": "Test User", "first_name": "Test", "family_name": "User"}

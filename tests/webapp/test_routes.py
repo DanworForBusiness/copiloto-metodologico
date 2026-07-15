@@ -10,6 +10,9 @@ from webapp.services.content_service import load_module
 # El modo diagnóstico solo lo habilita el dueño (APP_OWNER). En tests, el usuario
 # de prueba ES el owner para poder ejercitar el grupo de gestión / selector.
 web_main.APP_OWNER = "test@danwor.com"
+# Baseline de perfil: full para todos (el default de config es ACADEMY_USERS=ALL →
+# solo lectura). Los tests de perfil read-only monkeypatchean estas listas.
+auth_service.ALLOWED_USERS = "ALL"
 
 _SESSION = auth_service.create_session(
     {"email": "test@danwor.com", "name": "Test User", "first_name": "Test", "family_name": "User"}
