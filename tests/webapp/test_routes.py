@@ -408,6 +408,21 @@ def test_desafio_sets_invite_cookie_and_redirects_home():
         client.cookies.delete("dw-desafio")
 
 
+def test_desafio_respects_dismissed_cookie():
+    # El wrapper de danwor.com deja /desafio fija en la URL: tras cerrar el dialog
+    # (cookie descartada = "0"), cada refresh reinvoca /desafio y NO debe rearmarlo.
+    client.cookies.set("dw-desafio", "0")
+    try:
+        response = client.get("/desafio", follow_redirects=False)
+        assert response.status_code == 307
+        assert "dw-desafio=1" not in response.headers.get("set-cookie", "")
+        # Con la cookie descartada el shell tampoco renderiza el dialog.
+        page = client.get("/modules/01_Arquitectura_y_Conectividad")
+        assert "dw-invite-overlay" not in page.text
+    finally:
+        client.cookies.delete("dw-desafio")
+
+
 def test_invite_dialog_renders_only_with_cookie():
     # Sin cookie: el shell no arma el dialog.
     clean = client.get("/modules/01_Arquitectura_y_Conectividad")

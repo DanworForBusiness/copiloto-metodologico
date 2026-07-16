@@ -11,8 +11,10 @@
 <body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}
 {% if invite_src %}
 {# Invitación al Desafío (one-off): dialog sobre el copiloto, disparado por la
-   cookie dw-desafio que arma /desafio. Cerrar borra la cookie — no reaparece
-   hasta que el link directo la vuelva a armar. #}
+   cookie dw-desafio que arma /desafio. Cerrar la marca como descartada ("0",
+   30 días) en vez de borrarla: el wrapper de danwor.com deja /desafio fija en
+   la URL del navegador y cada refresh la reinvocaría — /desafio respeta el
+   descarte y no rearma el dialog. #}
 <div class="dw-invite-overlay" id="dwInvite" role="dialog" aria-modal="true" aria-label="Desafío Copiloto">
   <div class="dw-invite-panel">
     <button type="button" class="dw-invite-close" id="dwInviteClose" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</button>
@@ -21,7 +23,7 @@
 </div>
 <script>(function(){
   var overlay=document.getElementById('dwInvite');
-  function close(){document.cookie='dw-desafio=; Max-Age=0; path=/';overlay.remove();document.removeEventListener('keydown',onKey);}
+  function close(){document.cookie='dw-desafio=0; Max-Age=2592000; path=/';overlay.remove();document.removeEventListener('keydown',onKey);}
   function onKey(e){if(e.key==='Escape')close();}
   document.getElementById('dwInviteClose').addEventListener('click',close);
   overlay.addEventListener('click',function(e){if(e.target===overlay)close();});
