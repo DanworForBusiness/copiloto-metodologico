@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -433,6 +434,44 @@ def test_root_forwards_logged_users_into_the_app():
     anonymous = TestClient(app).get("/", follow_redirects=False)
     assert anonymous.status_code == 200
     assert "acceso" in anonymous.text.lower()
+
+
+# ── Modo diagnóstico y actividad ──────────────────────────────────────────
+
+def test_diagnostic_toggle_sets_cookie_server_side():
+    # La cookie la emite el server (con los atributos de la de sesión): desde el
+    # JS del iframe enmascarado una cookie Lax no viaja y el modo se apagaba solo.
+    try:
+        response = client.post("/api/diagnostic", data={"on": "on"})
+        assert response.status_code == 200
+        assert "dw-diagnostic=on" in response.headers.get("set-cookie", "")
+        off = client.post("/api/diagnostic", data={"on": "off"})
+        assert "dw-diagnostic=off" in off.headers.get("set-cookie", "")
+        anonymous = TestClient(app).post("/api/diagnostic", data={"on": "on"})
+        assert anonymous.status_code == 401
+    finally:
+        client.cookies.delete("dw-diagnostic")
+
+
+def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
+    from webapp.services import activity_service
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "ON")
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    client.get("/modules/01_Arquitectura_y_Conectividad")
+    client.get("/academy/ACAD01_Paradigmas")
+    lines = []
+    for path in tmp_path.glob("activity_*.jsonl"):
+        lines += [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    events = {entry["event"] for entry in lines}
+    assert "module_selected" in events and "academy_selected" in events
+    assert all(entry["user"] == "test@danwor.com" for entry in lines)
+
+
+def test_activity_log_disabled_by_default(monkeypatch, tmp_path):
+    from webapp.services import activity_service
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)  # LOG_ACTIVITY queda OFF
+    client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert not list(tmp_path.glob("activity_*.jsonl"))
 
 
 def test_desafio_is_reinvocable():

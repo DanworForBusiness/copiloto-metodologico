@@ -258,10 +258,14 @@ function stopSectionAnalysisMessages() {
 }
 
 // Modo diagnóstico: persiste en cookie y recarga (el server re-renderiza el
-// selector de marco y la pestaña Analítica según corresponda).
+// selector de marco y la pestaña Analítica según corresponda). La cookie la
+// setea el SERVER: enmascarada en el frame de danwor.com, una cookie puesta
+// por JS (SameSite=Lax implícito) no viaja en requests cross-site y el modo
+// "se apagaba solo"; el server la emite con los mismos atributos que la
+// cookie de sesión (SameSite=None; Secure en producción).
 window.dwToggleDiagnostic = function (on) {
-  document.cookie = "dw-diagnostic=" + (on ? "on" : "off") + ";path=/;max-age=31536000;samesite=lax";
-  window.location.reload();
+  const body = new URLSearchParams({ on: on ? "on" : "off" });
+  fetch("/api/diagnostic", { method: "POST", body }).finally(() => window.location.reload());
 };
 
 // Logout: limpia la cookie de sesión en el backend y vuelve al landing.

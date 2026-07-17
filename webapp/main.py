@@ -34,6 +34,7 @@ from core.prompts import (
 )
 from core.utils import slugify
 from webapp.services import auth_service
+from webapp.services.activity_service import log_activity
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -352,6 +353,7 @@ def microsoft_token(body: _MsTokenBody):
     except Exception as exc:  # noqa: BLE001 — fallo de red/JWKS u otro
         return JSONResponse({"detail": {"message": f"No se pudo validar el login: {exc}"}}, status_code=502)
 
+    log_activity("login", user=user, job_title=str(claims.get("jobTitle") or ""))
     response = JSONResponse({"ok": True, "first_name": user["first_name"], "name": user["name"]})
     response.set_cookie(
         auth_service.COOKIE_NAME, auth_service.create_session(user),
@@ -367,6 +369,25 @@ def auth_me(request: Request):
     if not user:
         raise HTTPException(401, "Sin sesión")
     return {"name": user.get("name"), "first_name": user.get("first_name"), "email": user.get("sub")}
+
+
+@app.post("/api/diagnostic", include_in_schema=False)
+def diagnostic_toggle(request: Request, on: str = Form("")):
+    """Persiste el modo diagnóstico en cookie, emitida por el SERVER.
+
+    Desde el JS del iframe enmascarado (danwor.com) una cookie SameSite=Lax no
+    viaja en requests cross-site y el modo se "apagaba solo" en producción; acá
+    se emite con los mismos atributos que la cookie de sesión (None+Secure en
+    prod). El gate real sigue siendo _diagnostic() (cookie + APP_OWNER)."""
+    if not auth_service.session_user(request):
+        raise HTTPException(401, "Sin sesión")
+    enabled = on == "on"
+    response = JSONResponse({"ok": True, "diagnostic": enabled})
+    response.set_cookie(
+        "dw-diagnostic", "on" if enabled else "off", max_age=31536000, path="/",
+        httponly=False, samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
+    )
+    return response
 
 
 @app.post("/api/auth/logout", include_in_schema=False)
@@ -619,6 +640,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         document = load_module(stem, selected)
     except FileNotFoundError as exc:
         raise HTTPException(404, "Módulo no encontrado") from exc
+    log_activity("module_selected", user=user, module=stem, pack=selected)
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada
@@ -743,6 +765,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         raise HTTPException(404, "Página de Academy no encontrada")
     current = next((item for item in list_academy(selected) if item.stem == stem), None)
     academy_nav = [item for item in list_academy(selected) if not item.nav_hidden]
+    log_activity("academy_selected", user=user, page=stem, pack=selected)
 
     # branding=danwor → colores/marca Danwor; embed=1 → oculta el topbar propio del
     # HTML (el shell del copiloto ya da contexto). El theme lo inyecta pack_asset.
