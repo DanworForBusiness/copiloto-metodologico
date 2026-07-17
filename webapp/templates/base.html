@@ -14,26 +14,27 @@
    dw-desafio que arma /desafio. Reinvocable: cada visita al link vuelve a
    mostrarlo. Cierre según contexto: enmascarada en el frame de danwor.com
    (la URL /desafio queda fija en el navegador), la cruz navega la ventana
-   COMPLETA (target=_top) a la URL limpia del wrapper — así el refresh deja
-   de pasar por /desafio; sin frame, cierra en el lugar borrando la cookie. #}
+   COMPLETA (target=_top) a /desafio/cerrar, que borra la cookie en contexto
+   first-party (desde el iframe es third-party y no es confiable) y redirige
+   a la URL limpia del wrapper; sin frame, cierra en el lugar borrando la
+   cookie por JS (first-party directo). #}
 <div class="dw-invite-overlay" id="dwInvite" role="dialog" aria-modal="true" aria-label="Desafío Copiloto">
   <div class="dw-invite-panel">
-    <a class="dw-invite-close" id="dwInviteClose" href="{{ invite_close_url }}" target="_top" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</a>
+    <a class="dw-invite-close" id="dwInviteClose" href="/desafio/cerrar" target="_top" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</a>
     <iframe src="{{ invite_src }}" title="Desafío Copiloto"></iframe>
   </div>
 </div>
 <script>(function(){
   var overlay=document.getElementById('dwInvite');
-  var closeUrl=document.getElementById('dwInviteClose').getAttribute('href');
   var framed=true; try{framed=window.top!==window.self;}catch(e){}
   function close(ev){
-    document.cookie='dw-desafio=; Max-Age=0; path=/';
-    if(framed&&closeUrl){try{window.top.location.href=closeUrl;return;}catch(e){}}
+    if(framed){try{window.top.location.href='/desafio/cerrar';return;}catch(e){}}
     if(ev)ev.preventDefault();
+    document.cookie='dw-desafio=; Max-Age=0; path=/';
     overlay.remove();document.removeEventListener('keydown',onKey);
   }
   function onKey(e){if(e.key==='Escape')close();}
-  document.getElementById('dwInviteClose').addEventListener('click',function(e){if(!framed)close(e);/* enmarcada: el <a target=_top> navega solo */});
+  document.getElementById('dwInviteClose').addEventListener('click',function(e){if(!framed)close(e);/* enmarcada: el <a target=_top> navega solo a /desafio/cerrar */});
   overlay.addEventListener('click',function(e){if(e.target===overlay)close(e);});
   document.addEventListener('keydown',onKey);
 })();</script>

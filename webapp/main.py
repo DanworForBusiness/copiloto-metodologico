@@ -558,9 +558,30 @@ def desafio_invite(request: Request, pack: str = Query(DEFAULT_PACK)):
     return response
 
 
+@app.get("/desafio/cerrar", include_in_schema=False)
+def desafio_close():
+    """Cierre del dialog cuando la app corre enmascarada en el frame de danwor.com.
+
+    La cruz navega el TOP a este endpoint: al ser una navegación de primer nivel
+    al host de la app, la cookie de invitación se borra en contexto first-party
+    (desde el JS del iframe es third-party y el borrado no es confiable) y recién
+    después se redirige a la URL limpia del wrapper."""
+    response = RedirectResponse(DESAFIO_CLOSE_URL, status_code=307)
+    response.delete_cookie(
+        INVITE_COOKIE, path="/",
+        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
+    )
+    return response
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing(request: Request, pack: str = Query(DEFAULT_PACK)):
     selected = _pack(pack)
+    # Con sesión vigente, la raíz sigue de largo al copiloto: el wrapper de
+    # danwor.com (/copiloto/) embebe esta raíz, y un usuario ya logueado debe
+    # aterrizar adentro de la app, no en el landing con la sección de acceso.
+    if auth_service.session_user(request):
+        return RedirectResponse(f"/home?pack={selected}", status_code=307)
     # data-home apunta a /home (redirección server-side según perfil), no directo al
     # módulo 01: así el perfil solo-lectura aterriza en Danwor Academy tras el login.
     return templates.TemplateResponse(
@@ -694,7 +715,6 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "user": user,
             "conversation_id": conversation.id,
             "invite_src": _invite_src(request, selected),
-            "invite_close_url": DESAFIO_CLOSE_URL,
         },
     )
 
@@ -749,7 +769,6 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "pack_label": content_pack_short_label(selected),
             "user": user,
             "invite_src": _invite_src(request, selected),
-            "invite_close_url": DESAFIO_CLOSE_URL,
         },
     )
 

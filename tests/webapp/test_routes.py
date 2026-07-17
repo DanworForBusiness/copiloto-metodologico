@@ -408,6 +408,33 @@ def test_desafio_sets_invite_cookie_and_redirects_home():
         client.cookies.delete("dw-desafio")
 
 
+def test_desafio_cerrar_deletes_cookie_and_redirects_to_wrapper():
+    # El cierre pasa por el server: navegación top-level (first-party) que borra
+    # la cookie de invitación de forma confiable y recién entonces vuelve al
+    # wrapper limpio de danwor.com.
+    client.cookies.set("dw-desafio", "1")
+    try:
+        response = client.get("/desafio/cerrar", follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == web_main.DESAFIO_CLOSE_URL
+        set_cookie = response.headers.get("set-cookie", "")
+        assert "dw-desafio=" in set_cookie and ('Max-Age=0' in set_cookie or "expires" in set_cookie.lower())
+    finally:
+        client.cookies.delete("dw-desafio")
+
+
+def test_root_forwards_logged_users_into_the_app():
+    # El wrapper /copiloto/ embebe la raíz: con sesión vigente no debe mostrar el
+    # landing con la sección de acceso, sino seguir de largo al copiloto.
+    logged = client.get("/", follow_redirects=False)
+    assert logged.status_code == 307
+    assert "/home" in logged.headers["location"]
+    # Sin sesión, el landing se sirve normal.
+    anonymous = TestClient(app).get("/", follow_redirects=False)
+    assert anonymous.status_code == 200
+    assert "acceso" in anonymous.text.lower()
+
+
 def test_desafio_is_reinvocable():
     # El link del mail debe volver a invitar SIEMPRE, incluso si quedó una cookie
     # vieja de un cierre anterior (el "no reaparece" lo resuelve el cierre del
@@ -433,11 +460,11 @@ def test_invite_dialog_renders_only_with_cookie():
         assert "dw-invite-overlay" in invited.text
         assert "/pack-assets/datasphere_core/academy/desafio.html" in invited.text
         assert "academy_feedback=ACAD05_Desafio" in invited.text
-        # La cruz es un link target=_top: enmascarada en el frame de danwor.com,
-        # navega la ventana completa a la URL limpia (el refresh deja de pasar
-        # por /desafio, que era lo que rearmaba el dialog).
+        # La cruz es un link target=_top a /desafio/cerrar: enmascarada en el
+        # frame de danwor.com, navega la ventana completa al endpoint que borra
+        # la cookie en first-party y redirige a la URL limpia del wrapper.
         assert 'target="_top"' in invited.text
-        assert web_main.DESAFIO_CLOSE_URL in invited.text
+        assert 'href="/desafio/cerrar"' in invited.text
         academy = client.get("/academy/ACAD01_Paradigmas")
         assert "dw-invite-overlay" in academy.text
     finally:
