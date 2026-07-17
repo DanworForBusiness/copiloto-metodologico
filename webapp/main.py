@@ -498,11 +498,17 @@ def pack_resource(pack_name: str, kind: str, resource_path: str):
 
 
 def _home_url(pack: str) -> str:
-    """URL del primer módulo del pack (entrada a la app tras el login)."""
+    """URL de entrada a la app tras el login (perfil full): el 00 Intro.
+
+    La intro inmersiva es la puerta narrativa del copiloto; el perfil de solo
+    lectura (ACADEMY_USERS) no pasa por acá — aterriza en Danwor Academy (/home)."""
     modules = list_modules(pack)
     if not modules:
         raise HTTPException(503, "No hay módulos configurados")
-    module = next((item for item in modules if item.number == "01"), modules[0])
+    module = next(
+        (item for item in modules if item.number == "00"),
+        next((item for item in modules if item.number == "01"), modules[0]),
+    )
     return f"/modules/{module.stem}?pack={pack}"
 
 

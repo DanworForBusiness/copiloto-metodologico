@@ -602,7 +602,8 @@ def test_home_redirects_by_tier(monkeypatch):
     full.cookies.set(auth_service.COOKIE_NAME, full_session)
     full_home = full.get("/home", follow_redirects=False)
     assert full_home.status_code == 307
-    assert "/modules/01_Arquitectura_y_Conectividad" in full_home.headers["location"]
+    # El perfil full aterriza en la intro inmersiva (00), no en el módulo 01.
+    assert "/modules/00_Intro" in full_home.headers["location"]
 
 
 def test_full_profile_keeps_ia(monkeypatch):
