@@ -408,17 +408,15 @@ def test_desafio_sets_invite_cookie_and_redirects_home():
         client.cookies.delete("dw-desafio")
 
 
-def test_desafio_respects_dismissed_cookie():
-    # El wrapper de danwor.com deja /desafio fija en la URL: tras cerrar el dialog
-    # (cookie descartada = "0"), cada refresh reinvoca /desafio y NO debe rearmarlo.
+def test_desafio_is_reinvocable():
+    # El link del mail debe volver a invitar SIEMPRE, incluso si quedó una cookie
+    # vieja de un cierre anterior (el "no reaparece" lo resuelve el cierre del
+    # dialog navegando el top a la URL limpia del wrapper, no esta ruta).
     client.cookies.set("dw-desafio", "0")
     try:
         response = client.get("/desafio", follow_redirects=False)
         assert response.status_code == 307
-        assert "dw-desafio=1" not in response.headers.get("set-cookie", "")
-        # Con la cookie descartada el shell tampoco renderiza el dialog.
-        page = client.get("/modules/01_Arquitectura_y_Conectividad")
-        assert "dw-invite-overlay" not in page.text
+        assert "dw-desafio=1" in response.headers.get("set-cookie", "")
     finally:
         client.cookies.delete("dw-desafio")
 

@@ -546,15 +546,15 @@ def _invite_src(request: Request, pack: str) -> str:
 def desafio_invite(request: Request, pack: str = Query(DEFAULT_PACK)):
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     response = RedirectResponse(f"/home?pack={selected}", status_code=307)
-    # El wrapper de danwor.com enmascara la app en un frame: la URL /desafio queda
-    # fija en el navegador y cada refresh vuelve a pasar por acá. Si el usuario ya
-    # cerró el dialog (cookie descartada = "0"), no se rearma — el link solo vuelve
-    # a invitar cuando el descarte expira (30 días) o en otro navegador/perfil.
-    if request.cookies.get(INVITE_COOKIE) != "0":
-        response.set_cookie(
-            INVITE_COOKIE, "1", max_age=86400, path="/", httponly=False,
-            samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-        )
+    # Siempre rearma la invitación: si el consultor vuelve a usar el link del
+    # mail, el dialog debe volver a aparecer. El "no reaparece tras cerrar" no
+    # se resuelve acá sino en el cierre del dialog (base.html): enmascarado en
+    # el frame de danwor.com, la cruz navega el top a la URL limpia del wrapper
+    # y el refresh deja de pasar por /desafio.
+    response.set_cookie(
+        INVITE_COOKIE, "1", max_age=86400, path="/", httponly=False,
+        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
+    )
     return response
 
 
