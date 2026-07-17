@@ -130,6 +130,11 @@ ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
 # está en ambas listas. Para el lanzamiento masivo: vaciar ACADEMY_USERS y/o
 # pasar los usuarios a ALLOWED_USERS.
 ACADEMY_USERS    = _env("ACADEMY_USERS", "")
+# Cierre del dialog de invitación (/desafio) cuando la app corre enmascarada en
+# el frame de danwor.com: la cruz navega la ventana completa (target=_top) a esta
+# URL "limpia" para que el refresh no vuelva a pasar por /desafio. Sin frame
+# (host directo o local), el dialog se cierra en el lugar y esta URL no se usa.
+DESAFIO_CLOSE_URL = _env("DESAFIO_CLOSE_URL", "https://danwor.com.ar/copiloto/")
 AUTH_DEFAULT_DOMAIN = _env("AUTH_DEFAULT_DOMAIN", "danwor.com").lower().lstrip("@")
 
 # Secreto para firmar la cookie de sesión de la webapp (FastAPI). En producción

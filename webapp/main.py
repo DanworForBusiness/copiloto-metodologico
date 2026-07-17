@@ -22,7 +22,8 @@ from core.content_registry import (
 )
 from config import (
     FEEDBACK_LOG_DIR,
-    APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DIAGNOSTIC_MODE,
+    APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DESAFIO_CLOSE_URL,
+    DIAGNOSTIC_MODE,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
 from core.prompts import (
@@ -693,6 +694,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "user": user,
             "conversation_id": conversation.id,
             "invite_src": _invite_src(request, selected),
+            "invite_close_url": DESAFIO_CLOSE_URL,
         },
     )
 
@@ -747,6 +749,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "pack_label": content_pack_short_label(selected),
             "user": user,
             "invite_src": _invite_src(request, selected),
+            "invite_close_url": DESAFIO_CLOSE_URL,
         },
     )
 

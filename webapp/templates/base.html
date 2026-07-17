@@ -11,22 +11,30 @@
 <body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}
 {% if invite_src %}
 {# Invitación al Desafío (one-off): dialog sobre el copiloto, disparado por la
-   cookie dw-desafio que arma /desafio. Cerrar la marca como descartada ("0",
-   30 días) en vez de borrarla: el wrapper de danwor.com deja /desafio fija en
-   la URL del navegador y cada refresh la reinvocaría — /desafio respeta el
-   descarte y no rearma el dialog. #}
+   cookie dw-desafio que arma /desafio. Cierre según contexto: enmascarada en el
+   frame de danwor.com (la URL /desafio queda fija y las cookies del iframe son
+   third-party → no sirven de descarte), la cruz navega la ventana COMPLETA
+   (target=_top) a la URL limpia del wrapper; sin frame, cierra en el lugar y
+   marca la cookie como descartada ("0", 30 días) para que /desafio no rearme. #}
 <div class="dw-invite-overlay" id="dwInvite" role="dialog" aria-modal="true" aria-label="Desafío Copiloto">
   <div class="dw-invite-panel">
-    <button type="button" class="dw-invite-close" id="dwInviteClose" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</button>
+    <a class="dw-invite-close" id="dwInviteClose" href="{{ invite_close_url }}" target="_top" aria-label="Cerrar y entrar al copiloto" title="Cerrar y entrar al copiloto">✕</a>
     <iframe src="{{ invite_src }}" title="Desafío Copiloto"></iframe>
   </div>
 </div>
 <script>(function(){
   var overlay=document.getElementById('dwInvite');
-  function close(){document.cookie='dw-desafio=0; Max-Age=2592000; path=/';overlay.remove();document.removeEventListener('keydown',onKey);}
+  var closeUrl=document.getElementById('dwInviteClose').getAttribute('href');
+  var framed=true; try{framed=window.top!==window.self;}catch(e){}
+  function close(ev){
+    document.cookie='dw-desafio=0; Max-Age=2592000; path=/';
+    if(framed&&closeUrl){try{window.top.location.href=closeUrl;return;}catch(e){}}
+    if(ev)ev.preventDefault();
+    overlay.remove();document.removeEventListener('keydown',onKey);
+  }
   function onKey(e){if(e.key==='Escape')close();}
-  document.getElementById('dwInviteClose').addEventListener('click',close);
-  overlay.addEventListener('click',function(e){if(e.target===overlay)close();});
+  document.getElementById('dwInviteClose').addEventListener('click',function(e){if(!framed)close(e);/* enmarcada: el <a target=_top> navega solo; igual dejamos el descarte */else document.cookie='dw-desafio=0; Max-Age=2592000; path=/';});
+  overlay.addEventListener('click',function(e){if(e.target===overlay)close(e);});
   document.addEventListener('keydown',onKey);
 })();</script>
 {% endif %}

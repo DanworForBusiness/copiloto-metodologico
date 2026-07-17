@@ -435,6 +435,11 @@ def test_invite_dialog_renders_only_with_cookie():
         assert "dw-invite-overlay" in invited.text
         assert "/pack-assets/datasphere_core/academy/desafio.html" in invited.text
         assert "academy_feedback=ACAD05_Desafio" in invited.text
+        # La cruz es un link target=_top: enmascarada en el frame de danwor.com,
+        # navega la ventana completa a la URL limpia (el refresh deja de pasar
+        # por /desafio, que era lo que rearmaba el dialog).
+        assert 'target="_top"' in invited.text
+        assert web_main.DESAFIO_CLOSE_URL in invited.text
         academy = client.get("/academy/ACAD01_Paradigmas")
         assert "dw-invite-overlay" in academy.text
     finally:
