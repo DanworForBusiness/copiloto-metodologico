@@ -106,6 +106,11 @@
 .section-analysis-output { padding: 0; border: 0; background: transparent; overflow-wrap: anywhere; }
 .section-analysis-output h1, .section-analysis-output h2, .section-analysis-output h3 { margin: 13px 0 7px; color: var(--ink); font-size: .88rem; line-height: 1.35; }
 .section-analysis-output p, .section-analysis-output li { font-size: .73rem; line-height: 1.55; }
+.section-analysis-output p { margin: 0 0 10px; }
+.section-analysis-output p:last-child { margin-bottom: 0; }
+.section-analysis-output p + ol, .section-analysis-output p + ul { margin-top: 8px; }
+.section-analysis-output .section-analysis-title { margin: 18px 0 11px; font-weight: 750; line-height: 1.35; }
+.section-analysis-output .section-analysis-title + ol, .section-analysis-output .section-analysis-title + ul { margin-top: 0; }
 .section-analysis-output ul, .section-analysis-output ol { padding-left: 19px; }
 .section-analysis-output li + li { margin-top: 6px; }
 .section-analysis-output strong { color: var(--ink); font-weight: 750; }
@@ -440,6 +445,23 @@
 .methodology ol, .section-analysis-output ol { list-style: decimal outside; padding-left: 1.45em; margin: 12px 0; }
 .methodology li, .section-analysis-output li { display: list-item; }
 .methodology li::marker, .section-analysis-output li::marker { color: var(--gold); }
+.section-analysis-output li > ul,
+.section-analysis-output li > ol {
+  margin-top: 9px;
+  margin-left: .85em;
+  padding-left: 1.55em;
+}
+.section-analysis-output li > ul > li,
+.section-analysis-output li > ol > li {
+  margin-top: 7px;
+}
+.section-analysis-output > p:has(> strong:only-child) {
+  margin: 16px 0 10px;
+  line-height: 1.35;
+}
+.section-analysis-output > p:first-child:has(> strong:only-child) {
+  margin-top: 0;
+}
 
 
 /* Assessment scoring: visible only in diagnostic tree leaves. */

@@ -77,7 +77,7 @@ ejemplos y exclusiones específicas deben venir del módulo. `prompts.py` solo d
 Estructura la respuesta así:
 - Una introducción breve de 2-3 líneas, sin numerar, explicando cómo usar esta guía bajo presión de proyecto.
 - Una línea en blanco.
-- Un título en negrita: **Guía operativa del módulo**
+- Un título en negrita, en línea propia: **Guía operativa del módulo**
 - Luego la lista numerada.
 
 Entregá en la lista numerada:
@@ -88,6 +88,7 @@ Entregá en la lista numerada:
 5. Recomendación Danwor clara (una postura final).
 
 Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+No pegues el título al párrafo introductorio.
 Usá terminología Danwor. No describas: decidí.
 Si depende de contexto no provisto, indicalo explícitamente.
 """,
@@ -98,10 +99,23 @@ Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `sema
 `quick_action_guidance`, secciones, assets, árboles y apéndices. Los puntos obligatorios,
 dependencias, exclusiones y foco técnico deben venir del módulo. `prompts.py` solo define la estructura.
 
-Entregá:
-1. Checklist de 10-12 ítems ordenados por dependencia (lo que bloquea va primero).
-2. Para cada ítem: qué validar, con quién, y qué pasa si no está resuelto.
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando para qué sirve este checklist en proyecto.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Checklist de implementación**
+- Luego el checklist numerado.
 
+Entregá un checklist de 10-12 ítems ordenados por dependencia (lo que bloquea va primero).
+Para cada ítem usá este formato Markdown:
+1. Nombre del punto a validar
+   - **Qué validar:** validación concreta.
+   - **Con quién:** rol/equipo con quien confirmarlo.
+   - **Qué pasa si no está resuelto:** consecuencia o bloqueo.
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No uses guiones sueltos como encabezados (`- Con quién:`); siempre como bullets hijos del ítem numerado.
+No pegues el título al párrafo introductorio.
 Usá terminología Danwor. Sé específico.
 Si un ítem depende de contexto no provisto, marcalo con [VALIDAR CON CLIENTE].
 No agregues una sección final de "ítems que se saltean", "errores frecuentes" ni recomendaciones genéricas.
@@ -114,11 +128,23 @@ Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `sema
 `quick_action_guidance`, secciones, assets, árboles y apéndices. Los errores prioritarios,
 causas raíz y correcciones Danwor deben venir del módulo. `prompts.py` solo define la estructura.
 
-Entregá:
-1. 8 errores frecuentes, ordenados de mayor a menor impacto en el proyecto.
-2. Para cada error: cómo se manifiesta, por qué ocurre, y cómo lo corrige el marco Danwor.
-3. El error que más cuesta dinero o tiempo si no se detecta a tiempo.
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando por qué estos errores son relevantes en proyecto.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Errores frecuentes**
+- Luego la lista numerada.
 
+Entregá en la lista numerada:
+1. 8 errores frecuentes, ordenados de mayor a menor impacto en el proyecto.
+2. Para cada error, incluí bullets hijos con:
+   - **Cómo se manifiesta:** síntoma observable.
+   - **Por qué ocurre:** causa raíz.
+   - **Cómo lo corrige Danwor:** acción concreta del marco.
+3. Marcá claramente cuál es el error que más cuesta dinero o tiempo si no se detecta a tiempo.
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No pegues el título al párrafo introductorio.
 Usá terminología Danwor. No describas síntomas solamente: describí causas raíz.
 Si el error depende de contexto no provisto, indicalo explícitamente.
 """,
@@ -129,22 +155,30 @@ Usá el markdown activo como contrato de contenido: `scope`, `guardrails`, `sema
 `quick_action_guidance`, secciones, assets, árboles y apéndices. Los casos, fuentes internas y límites
 editoriales deben venir del módulo. Si completás algo que no está explícitamente documentado, marcá esa parte con [INFERENCIA].
 
-Entregá una introducción breve de 1-2 líneas indicando de qué fuentes internas te apoyaste.
-Dejá siempre una línea en blanco entre la introducción y el primer ejemplo.
+Estructura la respuesta así:
+- Una introducción breve de 1-2 líneas indicando de qué fuentes internas te apoyaste.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Ejemplos prácticos**
+- Luego 2 o 3 ejemplos, no más.
 
-Luego entregá 2 o 3 ejemplos, no más, con este formato:
-
-**Ejemplo N: <nombre del caso o escenario>**
-- **Fuente interna usada:** apéndice, sección, checklist o asset utilizado.
-- **Contexto:** tipo de cliente/sistema/restricción real.
-- **Decisión Danwor:** postura o recomendación concreta.
-- **Por qué esa y no otra:** criterio arquitectónico.
-- **Riesgo si se elige mal:** consecuencia práctica.
+Para cada ejemplo usá este formato Markdown:
+1. **Ejemplo N: <nombre del caso o escenario>**
+   - **Fuente interna usada:** apéndice, sección, checklist o asset utilizado.
+   - **Contexto:** tipo de cliente/sistema/restricción real.
+   - **Decisión Danwor:** postura o recomendación concreta.
+   - **Por qué esa y no otra:** criterio arquitectónico.
+   - **Riesgo si se elige mal:** consecuencia práctica.
 
 Cerrá con:
-**Cuándo aplicarlo sin dudar:** 2 bullets.
-**Cuándo pedir más contexto:** 2 bullets.
+**Cuándo aplicarlo sin dudar:**
+- 2 bullets.
 
+**Cuándo pedir más contexto:**
+- 2 bullets.
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No pegues el título al párrafo introductorio.
 Usá terminología Danwor. Nombrá tecnologías reales del módulo activo.
 Si no encontrás material interno suficiente, decilo explícitamente antes de usar ejemplos hipotéticos.
 """,
@@ -532,76 +566,122 @@ Conocimiento técnico de referencia — CDS Views para SAP Datasphere (ODP/ABAP_
 def topic_instruction(action: str) -> str:
     instructions = {
 
-        ACTION_FULL: (
-            "Actuá como Arquitecto Senior Danwor preparando una síntesis ejecutiva para presentar al cliente.\n"
-            "El cliente NO es técnico: evitá jerga SAP innecesaria, priorizá claridad y decisión.\n"
-            "Entregá SOLO en este formato, sin secciones adicionales:\n\n"
-            "**¿Qué resuelve esta sección?** (2-3 líneas: el problema que aborda y por qué importa al proyecto)\n\n"
-            "**Lo que el cliente necesita saber:**\n"
-            "(4-6 bullets concisos con el conocimiento clave para tomar decisiones)\n\n"
-            "**Decisiones que se derivan:**\n"
-            "(3-5 bullets con decisiones concretas que el cliente debe tomar o validar)\n\n"
-            "**Riesgos si no se aborda correctamente:**\n"
-            "(3-4 bullets con consecuencias reales de no seguir el marco)\n\n"
-            "Tono: directo, ejecutivo, orientado a acción. Sin rodeos."
-        ),
+        ACTION_FULL: """\
+Actuá como Arquitecto Senior Danwor preparando una síntesis ejecutiva para presentar al cliente.
+El cliente NO es técnico: evitá jerga SAP innecesaria, priorizá claridad y decisión.
 
-        ACTION_CHECKLIST: (
-            "Actuá como Arquitecto Senior Danwor preparando un checklist de relevamiento técnico.\n"
-            "El consultor va a usar esto en campo, con el cliente, para verificar que nada quede sin validar.\n"
-            "Entregá SOLO un checklist ejecutable, sin secciones adicionales:\n\n"
-            "**Checklist de relevamiento — {topic}**\n\n"
-            "Cada ítem debe:\n"
-            "- Ser verificable (respuesta Sí/No o valor concreto)\n"
-            "- Estar redactado como pregunta o acción directa\n"
-            "- Incluir entre paréntesis el riesgo si no se valida (breve)\n\n"
-            "Formato por ítem: ☐ [Acción/pregunta] *(riesgo si se omite)*\n"
-            "Entre 8 y 14 ítems. Ordenados por prioridad de relevamiento."
-        ),
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando por qué esta sección importa para decidir.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Salida operativa**
+- Luego los apartados solicitados.
 
-        ACTION_DECISIONS: (
-            "Actuá como Arquitecto Senior Danwor extrayendo la lógica de decisión de esta sección.\n"
-            "El objetivo es preparar al consultor para anticipar preguntas y escenarios en la reunión.\n"
-            "Entregá SOLO decisiones en formato SI / ENTONCES, sin secciones adicionales:\n\n"
-            "**Mapa de decisiones — {topic}**\n\n"
-            "Formato estricto por ítem:\n"
-            "**SI** [condición técnica o de negocio] → **ENTONCES** [acción o decisión recomendada] "
-            "*(justificación en 1 línea)*\n\n"
-            "Si la condición representa una expectativa del cliente contraria al marco Danwor, "
-            "NO la presentes como camino viable. Redactá el ENTONCES como postura negativa: "
-            "explicar por qué no conviene, qué riesgo evita el marco y qué alternativa gobernada ofrecer.\n\n"
-            "Entre 5 y 9 reglas. Cubrí los escenarios más frecuentes y los bordes críticos."
-        ),
+Entregá en este formato Markdown:
+**¿Qué resuelve esta sección?**
+2-3 líneas: problema que aborda y por qué importa al proyecto.
 
-        ACTION_ANTIPATTERNS: (
-            "Actuá como Arquitecto Senior Danwor identificando errores frecuentes en proyectos reales.\n"
-            "Muchos anti-patterns están implícitos en el marco — tu trabajo es hacerlos explícitos.\n"
-            "Entregá SOLO la siguiente lista, sin secciones adicionales:\n\n"
-            "**Anti-patterns y riesgos — {topic}**\n\n"
-            "Formato estricto por ítem:\n"
-            "❌ **[Qué se hace mal]**\n"
-            "↳ Por qué está mal: [explicación breve]\n"
-            "↳ Riesgo concreto: [consecuencia real en el proyecto]\n\n"
-            "Entre 4 y 6 ítems. Priorizá los más frecuentes en proyectos SAP Datasphere reales."
-        ),
+**Lo que el cliente necesita saber:**
+- 4-6 bullets concisos con el conocimiento clave para tomar decisiones.
 
-        ACTION_REVIEW: (
-            "Actuá como Arquitecto Senior Danwor revisando si una decisión o entregable respeta el marco.\n"
-            "Esta acción va en dirección inversa: no explicás el marco, sino que lo usás como estándar "
-            "para evaluar si algo está bien hecho.\n"
-            "Entregá SOLO en este formato, sin secciones adicionales:\n\n"
-            "**Postura Danwor sobre {topic}:**\n"
-            "(2-4 líneas: qué exige el marco en este punto y por qué)\n\n"
-            "**Evidencia mínima que debe estar presente:**\n"
-            "(4-7 bullets: qué debería poder mostrarse en un entregable correcto)\n\n"
-            "**Señales de desvío del marco:**\n"
-            "(3-5 bullets: qué indica que algo NO está alineado — para usar como checklist de revisión)\n\n"
-            "**Veredicto rápido:**\n"
-            "(1 línea: si el consultor no puede mostrar la evidencia mínima, ¿qué implica?)\n\n"
-            "Tono: criterioso pero constructivo. Como un peer review técnico senior."
-        ),
+**Decisiones que se derivan:**
+- 3-5 bullets con decisiones concretas que el cliente debe tomar o validar.
+
+**Riesgos si no se aborda correctamente:**
+- 3-4 bullets con consecuencias reales de no seguir el marco.
+
+No pegues el título al párrafo introductorio. Tono directo, ejecutivo y orientado a acción.
+""",
+
+        ACTION_CHECKLIST: """\
+Actuá como Arquitecto Senior Danwor preparando un checklist de relevamiento técnico.
+El consultor va a usar esto en campo, con el cliente, para verificar que nada quede sin validar.
+
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando para qué sirve este checklist.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Checklist ejecutable**
+- Luego el checklist numerado.
+
+Entregá entre 8 y 14 ítems, ordenados por prioridad de relevamiento.
+Para cada ítem usá este formato Markdown:
+1. Acción o pregunta verificable
+   - **Qué validar:** respuesta Sí/No, valor concreto o evidencia esperada.
+   - **Riesgo si no se valida:** consecuencia breve.
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No pegues el título al párrafo introductorio. No cierres con frases genéricas de coaching.
+""",
+
+        ACTION_DECISIONS: """\
+Actuá como Arquitecto Senior Danwor extrayendo la lógica de decisión de esta sección.
+El objetivo es preparar al consultor para anticipar preguntas, escenarios y bordes críticos en reunión.
+
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando cómo usar este mapa de decisiones.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Mapa de decisiones**
+- Luego las reglas numeradas.
+
+Entregá entre 5 y 9 reglas con este formato Markdown:
+1. **SI** [condición técnica o de negocio] → **ENTONCES** [acción o decisión recomendada]
+   - **Justificación:** motivo en una línea.
+
+Si la condición representa una expectativa del cliente contraria al marco Danwor, NO la presentes como camino viable.
+Redactá el ENTONCES como postura negativa: explicar por qué no conviene, qué riesgo evita el marco y qué alternativa gobernada ofrecer.
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No pegues el título al párrafo introductorio.
+""",
+
+        ACTION_ANTIPATTERNS: """\
+Actuá como Arquitecto Senior Danwor identificando errores frecuentes en proyectos reales.
+Muchos anti-patterns están implícitos en el marco; tu trabajo es hacerlos explícitos sin sobreactuar el riesgo.
+
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando por qué estos anti-patterns importan.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Anti-patterns y riesgos**
+- Luego la lista numerada.
+
+Entregá entre 4 y 6 ítems con este formato Markdown:
+1. **[Qué se hace mal]**
+   - **Por qué está mal:** explicación breve.
+   - **Riesgo concreto:** consecuencia real en el proyecto.
+
+Usá lista numerada Markdown válida: `1. `, `2. `, `3. ` con punto y espacio.
+Usá bullets hijos indentados con dos espacios antes de `- `.
+No pegues el título al párrafo introductorio.
+""",
+
+        ACTION_REVIEW: """\
+Actuá como Arquitecto Senior Danwor revisando si una decisión o entregable respeta el marco.
+Esta acción va en dirección inversa: no explicás el marco, lo usás como estándar de revisión técnica.
+
+Estructura la respuesta así:
+- Una introducción breve de 2-3 líneas, sin numerar, explicando qué vas a evaluar.
+- Una línea en blanco.
+- Un título en negrita, en línea propia: **Mirada Danwor**
+- Luego los apartados solicitados.
+
+Entregá en este formato Markdown:
+**Postura Danwor sobre {topic}:**
+2-4 líneas: qué exige el marco en este punto y por qué.
+
+**Evidencia mínima que debe estar presente:**
+- 4-7 bullets: qué debería poder mostrarse en un entregable correcto.
+
+**Señales de desvío del marco:**
+- 3-5 bullets: qué indica que algo NO está alineado.
+
+**Veredicto rápido:**
+1 línea: si el consultor no puede mostrar la evidencia mínima, qué implica.
+
+No pegues el título al párrafo introductorio. Tono criterioso pero constructivo.
+""",
     }
     return instructions.get(action, instructions[ACTION_REVIEW])
+
 
 
 # ── Prompt helpers (comunes a todas las acciones) ──────────────────────────────
