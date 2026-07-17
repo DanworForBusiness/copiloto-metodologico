@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import sys
 import threading
 import zipfile
@@ -115,6 +116,73 @@ def runtime_export_zip() -> bytes:
 
 def runtime_export_filename() -> str:
     return f"danwor-runtime-export-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+
+
+# ── Borrado selectivo por rango de fechas ─────────────────────────────────
+# Los tres directorios usan timestamps en el nombre (feedback_YYYYMMDD_HHMMSS_*,
+# case_YYYYMMDD_*, activity_YYYYMMDD.jsonl); el rango se resuelve contra esa
+# fecha (fallback: mtime del archivo). Flujo seguro: preview (dry-run) → delete.
+
+_PURGE_DATE_RE = re.compile(r"(\d{8})")
+_PURGE_LIST_LIMIT = 25
+
+
+def _file_date(path: Path) -> str:
+    match = _PURGE_DATE_RE.search(path.name)
+    if match:
+        return match.group(1)
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y%m%d")
+
+
+def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: bool = True) -> str:
+    """Elimina (o previsualiza) archivos runtime cuyo timestamp cae en el rango.
+
+    `date_from`/`date_to` en formato YYYY-MM-DD (inputs date), inclusivos;
+    vacíos = sin límite en ese extremo. Devuelve un reporte en texto plano."""
+    valid = {label for label, _ in _RUNTIME_EXPORT_DIRS}
+    chosen = [folder for folder in folders if folder in valid]
+    if not chosen:
+        return "Elegí al menos una carpeta (feedback_log, activity_log o case_library)."
+
+    low = (date_from or "").replace("-", "").strip() or "00000000"
+    high = (date_to or "").replace("-", "").strip() or "99999999"
+    if not (low.isdigit() and high.isdigit() and len(low) == 8 and len(high) == 8):
+        return "Fechas inválidas: usá el formato YYYY-MM-DD."
+    if low > high:
+        return "El rango está invertido: 'Desde' es posterior a 'Hasta'."
+
+    lines: list[str] = []
+    total_files = 0
+    total_size = 0
+    for label, root in _RUNTIME_EXPORT_DIRS:
+        if label not in chosen:
+            continue
+        hits = [p for p in _iter_runtime_files(root) if low <= _file_date(p) <= high]
+        size = sum(p.stat().st_size for p in hits)
+        lines.append(f"\n{label}: {len(hits)} archivo(s) · {_format_bytes(size)}")
+        for path in hits[:_PURGE_LIST_LIMIT]:
+            lines.append(f"  - {path.name}")
+        if len(hits) > _PURGE_LIST_LIMIT:
+            lines.append(f"  … y {len(hits) - _PURGE_LIST_LIMIT} más")
+        if not dry_run:
+            for path in hits:
+                try:
+                    path.unlink()
+                except OSError:
+                    lines.append(f"  [ERROR] no se pudo eliminar {path.name}")
+        total_files += len(hits)
+        total_size += size
+
+    span = f"{date_from or 'inicio'} → {date_to or 'hoy'}"
+    if dry_run:
+        header = (f"PREVISUALIZACIÓN — {span}\n"
+                  f"Se eliminarían {total_files} archivo(s) ({_format_bytes(total_size)}). "
+                  "Nada fue borrado todavía.")
+        footer = "\n\nSi está OK, ejecutá 'Eliminar' (conviene bajar el Export ZIP antes)."
+    else:
+        header = f"BORRADO EJECUTADO — {span}\nEliminados {total_files} archivo(s) ({_format_bytes(total_size)})."
+        footer = ""
+    return header + "".join(f"\n{line}" if not line.startswith("\n") else line for line in lines) + footer
 
 
 # =========================================================

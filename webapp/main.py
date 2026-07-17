@@ -1437,6 +1437,19 @@ def admin_runtime_export(request: Request):
     )
 
 
+@app.post("/admin/runtime/purge", response_class=HTMLResponse)
+def admin_runtime_purge(
+    request: Request,
+    folders: list[str] = Form([]),
+    date_from: str = Form(""),
+    date_to: str = Form(""),
+    mode: str = Form("preview"),
+):
+    _require_diagnostic(request)
+    output = admin_tools.runtime_purge(folders, date_from, date_to, dry_run=(mode != "delete"))
+    return _admin_result(request, "Borrado selectivo de runtime", output)
+
+
 @app.post("/admin/cases/analyze", response_class=HTMLResponse)
 def admin_cases_analyze(request: Request, llm: str = Form("")):
     _require_diagnostic(request)

@@ -53,6 +53,7 @@ _ADMIN_POST = [
     ("/admin/feedback/analyze", {"kind": "all"}),
     ("/admin/trees/propose", {}),
     ("/admin/content/propose", {}),
+    ("/admin/runtime/purge", {"mode": "preview"}),
 ]
 
 
@@ -94,6 +95,37 @@ def test_runtime_export_returns_zip_with_manifest():
     assert "attachment" in response.headers["content-disposition"]
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     assert "manifest.json" in archive.namelist()
+
+
+def test_runtime_purge_preview_then_delete_respects_range(monkeypatch, tmp_path):
+    from webapp.services import admin_tools as at
+    fb = tmp_path / "fb"; fb.mkdir()
+    in_range = fb / "feedback_20260101_120000_aa.yaml"; in_range.write_text("x")
+    out_range = fb / "feedback_20260715_120000_bb.yaml"; out_range.write_text("x")
+    cases = tmp_path / "cl"; cases.mkdir()
+    case_in = cases / "case_20260102_000000_cc.yaml"; case_in.write_text("x")
+    monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (
+        ("feedback_log", fb), ("activity_log", tmp_path / "al"), ("case_library", cases),
+    ))
+    data = {"folders": ["feedback_log", "case_library"],
+            "date_from": "2026-01-01", "date_to": "2026-01-31"}
+
+    # Previsualizar: reporta pero NO borra.
+    preview = diag_client.post("/admin/runtime/purge", data={**data, "mode": "preview"})
+    assert preview.status_code == 200
+    assert "PREVISUALIZACI" in preview.text and "Nada fue borrado" in preview.text
+    assert in_range.exists() and case_in.exists()
+
+    # Eliminar: borra solo lo del rango en las carpetas elegidas.
+    delete = diag_client.post("/admin/runtime/purge", data={**data, "mode": "delete"})
+    assert delete.status_code == 200
+    assert "BORRADO EJECUTADO" in delete.text
+    assert not in_range.exists() and not case_in.exists()
+    assert out_range.exists()  # fuera de rango, intacto
+
+    # Sin carpetas elegidas: mensaje claro, sin acción.
+    empty = diag_client.post("/admin/runtime/purge", data={"mode": "delete"})
+    assert "al menos una carpeta" in empty.text
 
 
 def test_runtime_inventory_lists_the_three_folders():

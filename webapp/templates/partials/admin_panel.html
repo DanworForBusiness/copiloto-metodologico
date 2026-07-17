@@ -16,6 +16,31 @@
   <div id="res-runtime" class="admin-result"></div>
 </section>
 
+{# 1b. Borrado selectivo ─────────────────────────────────── #}
+<section class="admin-tool">
+  <h4>🗑️ Borrado selectivo</h4>
+  <p class="admin-help">Elimina archivos de runtime por rango de fechas (según el timestamp del nombre; ambos extremos inclusivos, vacíos = sin límite). <strong>Previsualizá siempre primero</strong> — el borrado es definitivo; conviene bajar el Export ZIP antes.</p>
+  <form hx-post="/admin/runtime/purge" hx-target="#res-purge" hx-swap="innerHTML"
+        hx-indicator="#ind-purge" hx-disabled-elt="button[type='submit']">
+    <label class="admin-check"><input type="checkbox" name="folders" value="feedback_log"> feedback_log</label>
+    <label class="admin-check"><input type="checkbox" name="folders" value="activity_log"> activity_log</label>
+    <label class="admin-check"><input type="checkbox" name="folders" value="case_library"> case_library</label>
+    <div class="admin-actions">
+      <label class="admin-label" for="purge-from">Desde</label>
+      <input type="date" id="purge-from" name="date_from">
+      <label class="admin-label" for="purge-to">Hasta</label>
+      <input type="date" id="purge-to" name="date_to">
+    </div>
+    <div class="admin-actions">
+      <button type="submit" class="btn-secondary" name="mode" value="preview">Previsualizar</button>
+      <button type="submit" class="btn-primary" name="mode" value="delete"
+              hx-confirm="Vas a eliminar DEFINITIVAMENTE los archivos del rango elegido. ¿Confirmás?">Eliminar</button>
+      <span id="ind-purge" class="admin-indicator htmx-indicator">procesando…</span>
+    </div>
+  </form>
+  <div id="res-purge" class="admin-result"></div>
+</section>
+
 {# 2. Case Library ───────────────────────────────────────── #}
 <section class="admin-tool">
   <h4>📚 Case Library</h4>
