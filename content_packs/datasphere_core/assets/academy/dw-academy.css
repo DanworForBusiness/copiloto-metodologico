@@ -21,6 +21,11 @@
   --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
   --radius: 16px;
+  /* paleta de ilustración (spot art) — acentos extra: agua y vegetación */
+  --art-water:      #69B7DE;
+  --art-water-deep: #3E93C4;
+  --art-green:      #7FAF6C;
+  --art-green-deep: #5C8A4B;
 }
 
 /* Sin branding=danwor: paleta clara estilo SAP (fondo blanco, texto negro, acento azul) */
@@ -39,6 +44,11 @@ html:not(.branding-danwor){
   --gold-dim:  rgba(0,63,209,0.08);
   --line:      rgba(0,0,0,0.08);
   --line-2:    rgba(0,0,0,0.14);
+  /* acentos de ilustración: apenas más saturados para contraste sobre blanco */
+  --art-water:      #57ACDC;
+  --art-water-deep: #2F86BC;
+  --art-green:      #66A352;
+  --art-green-deep: #4A7D38;
 }
 
 /* Embebido en el Copiloto con tema CLARO: variante danwor-clara. El copiloto
@@ -82,6 +92,29 @@ html.branding-danwor .topbar-logo{display:block;}
 .rail a span{position:absolute; right:16px; top:50%; transform:translateY(-50%); white-space:nowrap; font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); opacity:0; transition:opacity .2s;}
 .rail a:hover span, .rail a.active span{opacity:1;}
 @media (max-width:900px){ .rail{display:none;} }
+
+/* spot illustrations por sección — SVG inline, colores via variables del theme */
+.section-art{margin:0 0 1.6rem;}
+.section-art svg{height:150px; width:auto; max-width:100%; display:block;}
+.section-art--center svg{margin:0 auto;}
+
+/* header de sección con ilustración integrada: texto a la izquierda, art ocupando el espacio vacío a la derecha del título */
+.sec-head{display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(1.5rem,4vw,3.5rem); align-items:center; margin-bottom:1rem;}
+.sec-head-text{min-width:0;grid-column:1;}
+.sec-head .stop-title, .sec-head .topic-title{margin-bottom:0;}
+.sec-head .section-art{grid-column:2; width:100%; margin:0; display:flex; justify-content:center; align-items:center;}
+.sec-head .section-art svg{height:234px; width:auto; max-width:100%; margin-inline:auto;}
+@media (max-width:880px){
+  .sec-head{grid-template-columns:1fr; gap:1.2rem;}
+  .sec-head .section-art{grid-column:1;justify-content:flex-start;}
+  .sec-head .section-art svg{height:120px;}
+}
+
+/* hero con ilustración integrada al costado del título (estilo mock: art izquierda, texto derecha) */
+.hero-merge{display:flex; align-items:center; gap:clamp(2rem,5vw,4.5rem);}
+.hero-merge .section-art{margin:0; flex:0 0 auto;}
+.hero-merge .section-art svg{height:clamp(200px,26vw,300px);}
+@media (max-width:880px){ .hero-merge .section-art{display:none;} }
 
 /* reveal on scroll */
 .reveal{opacity:0; transform:translateY(28px); transition:opacity .8s var(--ease-out), transform .8s var(--ease-out);}

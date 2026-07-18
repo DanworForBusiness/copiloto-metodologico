@@ -64,6 +64,7 @@ html.branding-danwor .topbar{display:block;}
 
 /* HERO — landing: título/subtítulo más grandes que la variante de subpáginas (dw-academy.css) */
 .hero-title{font-size:clamp(2.4rem,6vw,4.6rem); max-width:21ch;}
+.hero-title .ht-pre{display:block; font-size:.44em; font-weight:600; color:var(--ink-soft); letter-spacing:0; margin-bottom:.45rem;}
 .hero-sub{font-size:clamp(1.05rem,1.4vw,1.3rem); max-width:71ch;}
 
 /* timeline strip */
@@ -88,7 +89,7 @@ html.branding-danwor .topbar{display:block;}
 .finale-title{font-size:clamp(1.9rem,3.4vw,3rem); font-weight:800; line-height:1.15; margin-bottom:1.2rem; max-width:32ch;}
 /* Slide de cierre (BDC): menos gold. El título va en tono oscuro y los sublabels
    "+ …" y el CTA en gris; se mantiene el gold solo en las alegorías (.fc-role). */
-.finale-title em{font-style:normal; color:var(--ink);}
+.finale-title em{font-style:normal; color:var(--gold);}
 .finale-subtile .fst-label{color:var(--ink);}
 .finale-card-cta{color:var(--ink-soft);}
 .finale-body{font-size:1.08rem; color:var(--ink-soft); max-width:none;}
@@ -126,9 +127,34 @@ html.branding-danwor .topbar{display:block;}
   <section class="hero" id="hero">
     <div class="hero-bg" aria-hidden="true"></div>
     <div class="container hero-inner">
-      <p class="hero-eyebrow reveal in"><span class="dot"></span> <span class="eyebrow-branded">Danwor Academy · Lo que sabemos, contado simple</span><span class="eyebrow-plain">Conocimiento fundacional · Lo que sabemos, contado simple</span></p>
-      <h1 class="hero-title reveal in">De la fuente a la canilla.<br>Del dato al <em>consumo</em>.</h1>
-      <p class="hero-sub reveal in reveal-d1">El mismo recorrido que hace el agua, lo hace el dato: ambos necesitan garantizar confianza antes de llegar a destino. Un recorrido por los paradigmas que construyeron la arquitectura analítica moderna — con el agua como hilo conductor — hasta llegar al posicionamiento que le da SAP hoy a través de Business Data Cloud.</p>
+      <div class="hero-merge">
+        <div class="section-art reveal in">
+          <svg viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="De la canilla a la gota">
+            <path d="M216 76 q6 -8 12 0 q6 -8 12 0" stroke="var(--ink-dim)" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M238 118 q5 -7 10 0 q5 -7 10 0" stroke="var(--ink-dim)" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <g transform="translate(-32 -40) scale(1.25)">
+              <rect x="38" y="66" width="13" height="58" rx="6.5" fill="var(--ink-dim)"/>
+              <path d="M50 95 h40 q38 0 38 34 v8" stroke="var(--ink)" stroke-width="17" fill="none" stroke-linecap="round"/>
+              <rect x="72" y="55" width="34" height="11" rx="5.5" fill="var(--ink-dim)"/>
+              <rect x="84" y="64" width="10" height="20" rx="4" fill="var(--ink-dim)"/>
+            </g>
+            <rect x="121" y="148" width="13" height="34" rx="6.5" fill="var(--art-water)" opacity=".9"/>
+            <circle cx="112" cy="182" r="3" fill="var(--art-water)"/>
+            <circle cx="142" cy="178" r="3" fill="var(--art-water)"/>
+            <path d="M128 186 c12 19 22 29 22 43 a22 22 0 1 1 -44 0 c0 -14 10 -24 22 -43 Z" fill="var(--art-water)"/>
+            <circle cx="119" cy="234" r="6" fill="var(--bg)" opacity=".4"/>
+            <ellipse cx="128" cy="280" rx="48" ry="8" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+            <ellipse cx="128" cy="280" rx="26" ry="4.5" stroke="var(--art-water)" stroke-width="3" fill="none" opacity=".6"/>
+            <path d="M56 286 q-8 -20 -26 -26 q20 -2 30 17 Z" fill="var(--art-green)"/>
+            <path d="M206 288 q8 -20 26 -26 q-20 -2 -30 17 Z" fill="var(--art-green)"/>
+          </svg>
+        </div>
+        <div>
+          <p class="hero-eyebrow reveal in"><span class="dot"></span> <span class="eyebrow-branded">Danwor Academy · Lo que sabemos, contado simple</span><span class="eyebrow-plain">Conocimiento fundacional · Lo que sabemos, contado simple</span></p>
+          <h1 class="hero-title reveal in"><span class="ht-pre">De la fuente a la canilla.</span>Del dato al <em>consumo</em>.</h1>
+          <p class="hero-sub reveal in reveal-d1">El mismo recorrido que hace el agua, lo hace el dato: ambos necesitan garantizar confianza antes de llegar a destino. Te invitamos a un recorrido por los paradigmas que construyeron la arquitectura analítica moderna — <i>con el agua como hilo conductor</i> — hasta llegar al posicionamiento que le da hoy <b>SAP Business Data Cloud.</b></p>
+        </div>
+      </div>
       <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
 
       <div class="timeline reveal in reveal-d2">
@@ -148,9 +174,64 @@ html.branding-danwor .topbar{display:block;}
   <!-- 01 WAREHOUSE -->
   <section class="stop" id="warehouse">
     <div class="container">
-      <span class="stop-num reveal">01 / 09 · Paradigma fundacional</span>
-      <p class="kicker reveal">Data Warehouse</p>
-      <h2 class="stop-title reveal">La planta potabilizadora <em>del dato</em></h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">01 / 09 · Paradigma fundacional</span>
+          <p class="kicker reveal">Data Warehouse</p>
+          <h2 class="stop-title reveal">La planta potabilizadora <em>del dato</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Planta potabilizadora">
+            <ellipse cx="170" cy="108" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="60" cy="40" r="8"/><circle cx="74" cy="35" r="11"/><circle cx="88" cy="41" r="7"/><rect x="52" y="37" width="44" height="10" rx="5"/>
+              <circle cx="262" cy="54" r="6"/><circle cx="273" cy="50" r="8"/><rect x="255" y="51" width="32" height="8" rx="4"/>
+            </g>
+            <ellipse cx="104" cy="176" rx="88" ry="11" fill="var(--art-green)" opacity=".45"/>
+            <ellipse cx="238" cy="174" rx="90" ry="10" fill="var(--art-green)" opacity=".45"/>
+            <path d="M24 176 Q 92 160 170 168 Q 250 158 316 174 Q 324 186 298 190 Q 170 198 44 190 Q 16 186 24 176 Z" fill="var(--art-green)"/>                      
+            <rect x="52" y="98" width="70" height="80" rx="10" fill="var(--bg-card-2)"/>
+            <path d="M52 100 a35 20 0 0 1 70 0 Z" fill="var(--ink-dim)"/>
+            <rect x="52" y="118" width="70" height="6" fill="var(--line-2)"/>
+            <rect x="52" y="138" width="70" height="6" fill="var(--line-2)"/>
+            <circle cx="87" cy="160" r="10" fill="var(--art-water)"/>
+            <circle cx="84" cy="157" r="3" fill="var(--bg)" opacity=".5"/>
+            <rect x="118" y="152" width="26" height="9" rx="4.5" fill="var(--ink-dim)"/>
+            <rect x="164" y="74" width="14" height="26" rx="3" fill="var(--ink-dim)"/>
+            <circle cx="171" cy="64" r="7" fill="var(--line-2)"/>
+            <circle cx="183" cy="53" r="5" fill="var(--line-2)"/>
+            <rect x="132" y="96" width="126" height="14" rx="7" fill="var(--ink-dim)"/>
+            <rect x="138" y="104" width="114" height="74" rx="8" fill="var(--ink)"/>
+            <rect x="154" y="120" width="18" height="18" rx="4" fill="var(--gold)"/>
+            <rect x="182" y="120" width="18" height="18" rx="4" fill="var(--gold)"/>
+            <rect x="210" y="120" width="18" height="18" rx="4" fill="var(--gold)"/>
+            <path d="M184 178 v-20 a9 9 0 0 1 18 0 v20 Z" fill="var(--bg)" opacity=".85"/>
+            <g class="treatment-pools">
+              <ellipse cx="92" cy="180" rx="46" ry="17" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="3"/>
+              <ellipse cx="92" cy="180" rx="38" ry="12" fill="var(--art-water)" opacity=".75"/>
+              <path d="M58 180 q34 -11 68 0 q-34 10 -68 0Z" fill="var(--art-water-deep)" opacity=".22"/>
+              <path d="M66 184 h52" stroke="var(--bg)" stroke-width="2.5" opacity=".4" stroke-linecap="round"/>
+              <path d="M54 176 H130" stroke="var(--ink-dim)" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M64 176 v-5 M120 176 v-5" stroke="var(--ink-dim)" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="92" cy="176" r="3.5" fill="var(--ink)"/>
+
+              <ellipse cx="258" cy="180" rx="40" ry="15" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="3"/>
+              <ellipse cx="258" cy="180" rx="32" ry="10.5" fill="var(--art-water)" opacity=".75"/>
+              <path d="M230 180 q28 -9 56 0 q-28 8 -56 0Z" fill="var(--art-water-deep)" opacity=".22"/>
+              <path d="M234 184 h48" stroke="var(--bg)" stroke-width="2.5" opacity=".4" stroke-linecap="round"/>
+              <path d="M226 176 H290" stroke="var(--ink-dim)" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M236 176 v-5 M280 176 v-5" stroke="var(--ink-dim)" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="258" cy="176" r="3.5" fill="var(--ink)"/>
+            </g>
+            <path d="M252 152 h12 q12 0 12 12 v4" stroke="var(--ink)" stroke-width="9" fill="none" stroke-linecap="round"/>
+            <path d="M276 172 c2.5 4 4.5 6.5 4.5 9.5 a4.5 4.5 0 1 1 -9 0 c0 -3 2 -5.5 4.5 -9.5 Z" fill="var(--art-water)"/>
+            <g fill="var(--art-green-deep)">
+              <circle cx="150" cy="176" r="9"/><circle cx="139" cy="180" r="7"/>
+              <circle cx="302" cy="180" r="8"/><circle cx="312" cy="184" r="6"/>
+            </g>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">Pensá en AySA: El agua no sale de la canilla así nomás.</p>
@@ -174,13 +255,57 @@ html.branding-danwor .topbar{display:block;}
   <!-- 02 LAKE -->
   <section class="stop" id="lake">
     <div class="container">
-      <span class="stop-num reveal">02 / 09 · Cuando la planta ya no alcanzaba</span>
-      <p class="kicker reveal">Data Lake</p>
-      <h2 class="stop-title reveal">El dique, <em>antes</em> de la planta</h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">02 / 09 · Cuando la planta ya no alcanzaba</span>
+          <p class="kicker reveal">Data Lake</p>
+          <h2 class="stop-title reveal">El dique, <em>antes</em> de la planta</h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El dique — la cuenca que junta lluvia, deshielo y afluentes">
+            <ellipse cx="170" cy="106" rx="152" ry="88" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="64" cy="30" r="8"/><circle cx="79" cy="24" r="11"/><circle cx="94" cy="30" r="7"/><rect x="54" y="27" width="50" height="11" rx="5.5"/>
+              <circle cx="160" cy="20" r="6"/><circle cx="172" cy="16" r="8"/><circle cx="184" cy="21" r="5.5"/><rect x="152" y="18" width="40" height="9" rx="4.5"/>
+              <circle cx="246" cy="26" r="7"/><circle cx="260" cy="20" r="10"/><circle cx="274" cy="26" r="6.5"/><rect x="237" y="23" width="48" height="10" rx="5"/>
+            </g>
+            <g stroke="var(--art-water)" stroke-width="2.6" stroke-linecap="round">
+              <path d="M58 44 l-2 8 M70 48 l-2 8 M82 44 l-2 8 M94 48 l-2 8"/>
+              <path d="M158 34 l-2 8 M170 38 l-2 8 M182 34 l-2 8"/>
+              <path d="M240 40 l-2 8 M252 44 l-2 8 M264 40 l-2 8 M276 44 l-2 8"/>
+            </g>
+            <path d="M24 156 Q 56 112 88 84 Q 112 54 124 48 Q 134 42 144 54 Q 158 72 166 82 Q 172 88 180 80 Q 198 52 224 38 Q 234 32 244 42 Q 272 70 298 110 Q 312 132 318 156 Q 250 168 172 168 Q 94 168 24 156 Z" fill="var(--ink-dim)"/>
+            <path d="M30 158 Q 60 118 90 92 Q 112 64 126 57 Q 135 52 144 62 Q 156 76 165 88 Q 172 95 180 87 Q 196 62 224 48 Q 233 43 242 52 Q 268 78 294 116 Q 306 136 312 156 Q 252 167 172 167 Q 92 167 30 158 Z" fill="var(--art-green)"/>
+            <path d="M38 150 Q 63 116 90 91 Q 112 63 127 56 Q 136 51 145 61 Q 156 75 165 87 M 180 86 Q 196 61 223 48 Q 232 43 241 52 Q 266 78 292 115 Q 302 133 308 151" fill="none" stroke="var(--bg)" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="0.5 7" opacity=".85"/>
+            <g stroke="var(--art-water)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M84 98 Q 108 124 146 141" stroke-width="4"/>
+              <path d="M110 82 Q 120 104 134 120" stroke-width="3.5"/>
+              <path d="M128 62 Q 138 92 150 118 Q 160 138 168 152" stroke-width="4.5"/>
+              <path d="M236 52 Q 220 92 198 126 Q 186 142 177 153" stroke-width="4.5"/>
+              <path d="M258 86 Q 240 112 214 134" stroke-width="3.5"/>
+              <path d="M286 120 Q 254 140 198 152" stroke-width="4"/>
+              <path d="M168 148 Q 172 158 172 166" stroke-width="7"/>
+            </g>
+            <g fill="var(--art-green-deep)">
+              <path d="M52 138 l7 -12 l7 12 Z M54 130 l5 -9 l5 9 Z"/>
+              <path d="M70 144 l6 -10 l6 10 Z"/>
+              <path d="M114 128 l6 -11 l6 11 Z"/>
+              <path d="M204 130 l6 -11 l6 11 Z"/>
+              <path d="M246 118 l7 -12 l7 12 Z M248 110 l5 -9 l5 9 Z"/>
+              <path d="M266 128 l6 -10 l6 10 Z"/>
+              <path d="M288 144 l6 -10 l6 10 Z"/>
+            </g>
+            <ellipse cx="172" cy="197" rx="52" ry="3.5" fill="var(--line-2)" opacity=".8"/>
+            <path d="M118 168 h108 q7 0 5 8 q-3 12 -25 16 q-16 3 -34 3 q-18 0 -34 -3 q-22 -4 -25 -16 q-2 -8 5 -8 Z" fill="var(--art-water)"/>
+            <ellipse cx="172" cy="169" rx="56" ry="7" fill="var(--art-water-deep)"/>
+            <path d="M144 184 h22 M196 182 h14" stroke="var(--bg)" stroke-width="2.5" stroke-linecap="round" opacity=".35"/>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
-          <p class="lede">Construir una planta potabilizadora nueva cada vez que aparecía una fuente de agua distinta se volvió carísimo.</p>
-          <p>Hizo falta un lugar más barato para juntar esa agua sin tratar todavía: un dique o una cuenca. Ahí entra todo el volumen tal cual llega — lluvia, deshielo, distintos afluentes. Es barato de acumular y no descartás nada — pero no podés consumirla directo de ahí: Necesitás a alguien que sepa qué hacer con esa agua bruta.</p>
+          <p class="lede">Construir una planta potabilizadora nueva cada vez que aparecía una fuente de agua distinta se volvió muy caro.</p>
+          <p>Hizo falta un lugar más barato para juntar el agua sin tratar: un dique o una cuenca. Ahí entra todo tal cual llega — lluvia, deshielo, distintos afluentes. Es barato de acumular y no descartás nada — pero no podés consumirla así nomás: Necesitás a alguien que sepa qué hacer con esa agua bruta.</p>
           <div class="stop-quote">Sin criterio ni gobierno, el dique se convierte en un pantano: guardaste todo, pero ya no confiás en nada de lo que hay adentro.</div>
         </div>
         <div class="spec-card reveal reveal-d2">
@@ -200,9 +325,47 @@ html.branding-danwor .topbar{display:block;}
   <!-- 03 LAKEHOUSE -->
   <section class="stop" id="lakehouse">
     <div class="container">
-      <span class="stop-num reveal">03 / 09 · Cuando no querías elegir entre confianza y costo</span>
-      <p class="kicker reveal">Data Lakehouse</p>
-      <h2 class="stop-title reveal">La represa: el mismo <em>embalse</em>, usos distintos</h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">03 / 09 · Cuando no querías elegir entre confianza y costo</span>
+          <p class="kicker reveal">Data Lakehouse</p>
+          <h2 class="stop-title reveal">La represa: el mismo <em>embalse</em>, usos distintos</h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La represa — un embalse, múltiples usos">
+            <ellipse cx="170" cy="104" rx="152" ry="88" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="70" cy="40" r="7"/><circle cx="83" cy="36" r="10"/><circle cx="96" cy="41" r="6"/><rect x="62" y="38" width="42" height="9" rx="4.5"/>
+              <circle cx="252" cy="32" r="6"/><circle cx="263" cy="28" r="8"/><rect x="245" y="29" width="32" height="8" rx="4"/>
+            </g>
+            <path d="M116 194 L116 100 Q 104 64 62 72 Q 20 82 16 132 Q 14 172 42 188 Q 78 198 116 194 Z" fill="var(--art-green)"/>
+            <path d="M224 194 L224 100 Q 236 64 278 72 Q 320 82 324 132 Q 326 172 298 188 Q 262 198 224 194 Z" fill="var(--art-green)"/>
+            <path d="M116 194 L116 100 Q 108 76 92 72 Q 108 84 106 130 Q 105 170 116 194 Z" fill="var(--art-green-deep)" opacity=".5"/>
+            <path d="M224 194 L224 100 Q 232 76 248 72 Q 232 84 234 130 Q 235 170 224 194 Z" fill="var(--art-green-deep)" opacity=".5"/>
+            <rect x="110" y="84" width="120" height="24" fill="var(--art-water)"/>
+            <path d="M124 94 h22 M188 98 h24" stroke="var(--art-water-deep)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M112 108 L104 178 H236 L228 108 Z" fill="var(--bg-card-2)"/>
+            <rect x="102" y="98" width="136" height="13" rx="6.5" fill="var(--ink-dim)"/>
+            <path d="M140 111 V174 M170 111 V176 M200 111 V174" stroke="var(--line-2)" stroke-width="4"/>
+            <rect x="120" y="111" width="13" height="62" rx="6.5" fill="var(--art-water)"/>
+            <rect x="149" y="111" width="13" height="64" rx="6.5" fill="var(--art-water)"/>
+            <rect x="178" y="111" width="13" height="64" rx="6.5" fill="var(--art-water)"/>
+            <rect x="207" y="111" width="13" height="62" rx="6.5" fill="var(--art-water)"/>
+            <path d="M124 118 v40 M153 118 v42 M182 118 v42 M211 118 v40" stroke="var(--bg)" stroke-width="3" opacity=".45" stroke-linecap="round"/>
+            <path d="M36 186 Q 170 168 304 186 Q 260 204 170 204 Q 80 204 36 186 Z" fill="var(--art-water)"/>
+            <g fill="var(--bg)" opacity=".85">
+              <circle cx="116" cy="180" r="6"/><circle cx="132" cy="184" r="4.5"/><circle cx="152" cy="181" r="5.5"/><circle cx="172" cy="185" r="4"/><circle cx="192" cy="181" r="5.5"/><circle cx="212" cy="184" r="4.5"/><circle cx="228" cy="180" r="6"/>
+            </g>
+            <path d="M290 108 l-10 22 h8 l-7 20 20 -25 h-9 l8 -17 Z" fill="var(--gold)"/>
+            <g fill="var(--gold)">
+              <circle cx="42" cy="128" r="3.5"/><circle cx="64" cy="142" r="3.5"/><circle cx="308" cy="132" r="3.5"/>
+            </g>
+            <g fill="var(--art-green-deep)">
+              <circle cx="30" cy="146" r="7"/><circle cx="52" cy="156" r="6"/><circle cx="318" cy="150" r="7"/>
+            </g>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">El dique resolvía el costo, pero no la confianza. La planta resolvía la confianza, pero no el costo. Hacía falta algo que resolviera las dos cosas a la vez.</p>
@@ -226,9 +389,52 @@ html.branding-danwor .topbar{display:block;}
   <!-- 04 FABRIC -->
   <section class="stop" id="fabric">
     <div class="container">
-      <span class="stop-num reveal">04 / 09 · La red que no mueve el origen</span>
-      <p class="kicker reveal">Data Fabric</p>
-      <h2 class="stop-title reveal">La red troncal: no importa <em>qué planta</em> la trató</h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">04 / 09 · La red que no mueve el origen</span>
+          <p class="kicker reveal">Data Fabric</p>
+          <h2 class="stop-title reveal">La red troncal: no importa <em>qué planta</em> la trató</h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La red troncal — conecta y distribuye">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="150" cy="30" r="7"/><circle cx="163" cy="26" r="10"/><circle cx="176" cy="31" r="6"/><rect x="142" y="28" width="42" height="9" rx="4.5"/>
+            </g>
+            <path d="M24 172 Q 92 158 170 164 Q 252 156 318 170 Q 326 182 300 187 Q 170 196 42 187 Q 16 182 24 172 Z" fill="var(--art-green)"/>
+            <path d="M48 184 H292" stroke="var(--ink-soft)" stroke-width="9" fill="none" stroke-linecap="round"/>
+            <path d="M62 170 V184 M278 170 V184" stroke="var(--ink-soft)" stroke-width="7" stroke-linecap="round"/>
+            <path d="M150 184 V164 M200 184 V164" stroke="var(--ink-soft)" stroke-width="7" stroke-linecap="round"/>
+            <circle cx="106" cy="184" r="6.5" fill="var(--ink-dim)"/>
+            <circle cx="242" cy="184" r="6.5" fill="var(--ink-dim)"/>
+            <g>
+              <path d="M32 170 V126 L50 112 V126 L68 112 V126 L86 112 V170 Z" fill="var(--ink)"/>
+              <rect x="40" y="138" width="10" height="10" rx="2.5" fill="var(--gold)"/>
+              <rect x="56" y="138" width="10" height="10" rx="2.5" fill="var(--gold)"/>
+              <rect x="72" y="138" width="10" height="10" rx="2.5" fill="var(--gold)"/>
+            </g>
+            <g>
+              <path d="M252 170 V128 L278 110 V128 L304 110 V170 Z" fill="var(--ink)"/>
+              <rect x="262" y="140" width="11" height="11" rx="2.5" fill="var(--gold)"/>
+              <rect x="282" y="140" width="11" height="11" rx="2.5" fill="var(--gold)"/>
+            </g>
+            <g>
+              <path d="M132 140 L150 126 L168 140 Z" fill="var(--ink)"/>
+              <rect x="137" y="140" width="26" height="24" rx="3.5" fill="var(--bg-card-2)"/>
+              <circle cx="150" cy="151" r="4.5" fill="var(--gold)"/>
+            </g>
+            <g>
+              <path d="M180 136 L200 121 L220 136 Z" fill="var(--ink)"/>
+              <rect x="186" y="136" width="28" height="28" rx="3.5" fill="var(--bg-card-2)"/>
+              <circle cx="200" cy="149" r="5" fill="var(--gold)"/>
+            </g>
+            <g fill="var(--art-green-deep)">
+              <circle cx="114" cy="166" r="7"/><circle cx="124" cy="170" r="5"/>
+              <circle cx="230" cy="164" r="6"/>
+            </g>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">AySA no tiene una única planta potabilizadora — sino varias, conectadas a una misma red troncal de distribución.</p>
@@ -252,9 +458,45 @@ html.branding-danwor .topbar{display:block;}
   <!-- 05 MESH -->
   <section class="stop" id="mesh">
     <div class="container">
-      <span class="stop-num reveal">05 / 09 · El federalismo del dato</span>
-      <p class="kicker reveal">Data Mesh</p>
-      <h2 class="stop-title reveal">Cada provincia, <em>su tramo del río</em></h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">05 / 09 · El federalismo del dato</span>
+          <p class="kicker reveal">Data Mesh</p>
+          <h2 class="stop-title reveal">Cada provincia, <em>su tramo del río</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El comité de cuenca — cada provincia, su tramo del río">
+            <ellipse cx="170" cy="106" rx="152" ry="88" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="30" cy="60" r="6"/><circle cx="41" cy="56" r="8"/><rect x="23" y="57" width="30" height="8" rx="4"/>
+              <circle cx="296" cy="40" r="5"/><circle cx="306" cy="36" r="7"/><rect x="289" y="37" width="28" height="7" rx="3.5"/>
+            </g>
+            <ellipse cx="172" cy="184" rx="116" ry="6" fill="var(--line-2)" opacity=".8"/>
+            <rect x="64" y="30" width="212" height="148" rx="12" fill="var(--art-green)" opacity=".55"/>
+            <rect x="64" y="30" width="212" height="148" rx="12" fill="none" stroke="var(--art-green-deep)" stroke-width="2" opacity=".35"/>
+            <path d="M74 66 h78 q14 0 14 14 v46 q0 14 -14 14 h-78" fill="var(--bg)" opacity=".22"/>
+            <path d="M74 66 h78 q14 0 14 14 v46 q0 14 -14 14 h-78" fill="none" stroke="var(--ink-dim)" stroke-width="2.5" stroke-dasharray="5 6"/>
+            <path d="M188 100 Q 232 94 276 100" fill="none" stroke="var(--ink-dim)" stroke-width="2.5" stroke-dasharray="5 6"/>
+            <path d="M182 22 C 170 52 198 76 182 104 C 168 130 198 154 184 186" stroke="var(--art-water-deep)" stroke-width="15" fill="none" stroke-linecap="round"/>
+            <path d="M182 22 C 170 52 198 76 182 104 C 168 130 198 154 184 186" stroke="var(--art-water)" stroke-width="9" fill="none" stroke-linecap="round"/>
+            <g fill="var(--art-green-deep)">
+              <circle cx="92" cy="160" r="6"/><circle cx="102" cy="164" r="4.5"/><circle cx="250" cy="52" r="5"/>
+            </g>
+            <circle cx="178" cy="48" r="8" fill="var(--gold)" stroke="var(--bg)" stroke-width="3"/>
+            <circle cx="182" cy="104" r="8" fill="var(--gold)" stroke="var(--bg)" stroke-width="3"/>
+            <circle cx="183" cy="143" r="8" fill="var(--gold)" stroke="var(--bg)" stroke-width="3"/>
+            <path d="M186 48 H198" stroke="var(--ink-dim)" stroke-width="2"/>
+            <rect x="198" y="39" width="74" height="18" rx="4" fill="var(--bg)" stroke="var(--line-2)" stroke-width="1.5"/>
+            <text x="205" y="52" font-size="11.5" font-weight="600" fill="var(--ink)">Provincia A</text>
+            <path d="M160 104 H174" stroke="var(--ink-dim)" stroke-width="2"/>
+            <rect x="86" y="95" width="74" height="18" rx="4" fill="var(--bg)" stroke="var(--line-2)" stroke-width="1.5"/>
+            <text x="93" y="108" font-size="11.5" font-weight="600" fill="var(--ink)">Provincia B</text>
+            <path d="M191 143 H200" stroke="var(--ink-dim)" stroke-width="2"/>
+            <rect x="200" y="134" width="74" height="18" rx="4" fill="var(--bg)" stroke="var(--line-2)" stroke-width="1.5"/>
+            <text x="207" y="147" font-size="11.5" font-weight="600" fill="var(--ink)">Provincia C</text>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">Un río grande no pertenece a una sola provincia — cada una gestiona su propio tramo, sus propias tomas de agua y su propia infraestructura.</p>
@@ -279,6 +521,14 @@ html.branding-danwor .topbar{display:block;}
   <section class="bridge" id="bridge">
     <div class="container">
       <p class="kicker reveal" style="justify-content:center; display:inline-flex;">Síntesis</p>
+      <div class="section-art section-art--center reveal">
+        <svg viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Una gota de agua" style="height:110px;">
+          <path d="M110 22 c14 22 26 34 26 50 a26 26 0 1 1 -52 0 c0 -16 12 -28 26 -50 Z" fill="var(--art-water)"/>
+          <circle cx="100" cy="80" r="6" fill="var(--bg)" opacity=".4"/>
+          <ellipse cx="110" cy="128" rx="54" ry="9" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+          <ellipse cx="110" cy="128" rx="28" ry="5" stroke="var(--art-water)" stroke-width="3" fill="none" opacity=".6"/>
+        </svg>
+      </div>
       <h2 class="reveal">No hay un paradigma ganador:<br> hay una <em>pregunta distinta</em> en cada caso.</h2>
       <div class="bridge-grid reveal reveal-d1">
         <span class="bridge-chip">¿KPI auditado? → <strong>Warehouse</strong></span>
@@ -294,9 +544,28 @@ html.branding-danwor .topbar{display:block;}
   <!-- 06 CONTRATO -->
   <section class="stop" id="contrato">
     <div class="container">
-      <span class="stop-num reveal">06 / 09 · Lo que sostiene todo lo anterior</span>
-      <p class="kicker reveal">Contrato de Datos</p>
-      <h2 class="stop-title reveal">La norma de <em>potabilidad</em>, sea cual sea la planta</h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">06 / 09 · Lo que sostiene todo lo anterior</span>
+          <p class="kicker reveal">Contrato de Datos</p>
+          <h2 class="stop-title reveal">La norma de <em>potabilidad</em>, sea cual sea la planta</h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La norma de potabilidad — el contrato">
+            <rect x="52" y="30" width="46" height="11" rx="5.5" fill="var(--line-2)"/>
+            <rect x="246" y="42" width="36" height="10" rx="5" fill="var(--line-2)"/>
+            <rect x="112" y="30" width="108" height="136" rx="10" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="3"/>
+            <rect x="130" y="52" width="52" height="9" rx="4.5" fill="var(--gold)"/>
+            <rect x="130" y="76" width="72" height="7" rx="3.5" fill="var(--ink-dim)" opacity=".55"/>
+            <rect x="130" y="94" width="72" height="7" rx="3.5" fill="var(--ink-dim)" opacity=".55"/>
+            <rect x="130" y="112" width="58" height="7" rx="3.5" fill="var(--ink-dim)" opacity=".55"/>
+            <path d="M199 157 l-8 20 10 -6 Z" fill="var(--gold-2)"/>
+            <path d="M213 157 l8 20 -10 -6 Z" fill="var(--gold-2)"/>
+            <circle cx="206" cy="138" r="21" fill="var(--gold)"/>
+            <path d="M206 127 c3.5 5.5 6.5 8.5 6.5 12.5 a6.5 6.5 0 1 1 -13 0 c0 -4 3 -7 6.5 -12.5 Z" fill="var(--art-water)"/>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">Antes de que exista una gota de agua en la canilla, existe una norma de potabilidad.</p>
@@ -320,9 +589,40 @@ html.branding-danwor .topbar{display:block;}
   <!-- 07 DATA PRODUCT -->
   <section class="stop" id="producto">
     <div class="container">
-      <span class="stop-num reveal">07 / 09 · El contrato hecho consumible</span>
-      <p class="kicker reveal">Data Product</p>
-      <h2 class="stop-title reveal">El agua potable, <em>ya en tu canilla</em></h2>
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">07 / 09 · El contrato hecho consumible</span>
+          <p class="kicker reveal">Data Product</p>
+          <h2 class="stop-title reveal">El agua potable, <em>ya en tu canilla</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El data product — canilla, vaso y bidón">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <rect x="40" y="56" width="11" height="48" rx="5.5" fill="var(--ink-dim)"/>
+            <path d="M50 80 h34 q26 0 26 24 v6" stroke="var(--ink)" stroke-width="14" fill="none" stroke-linecap="round"/>
+            <rect x="70" y="48" width="28" height="10" rx="5" fill="var(--ink-dim)"/>
+            <rect x="80" y="56" width="8" height="16" rx="3" fill="var(--ink-dim)"/>
+            <rect x="105" y="118" width="10" height="26" rx="5" fill="var(--art-water)"/>
+            <circle cx="99" cy="150" r="2.5" fill="var(--art-water)"/>
+            <circle cx="121" cy="146" r="2.5" fill="var(--art-water)"/>
+            <path d="M90 148 h40 l-5 30 h-30 Z" fill="var(--line-2)"/>
+            <path d="M94 158 h32 l-3.5 20 h-25 Z" fill="var(--art-water)" opacity=".9"/>
+            <path d="M96 152 l-2 22" stroke="var(--bg)" stroke-width="3" opacity=".5" stroke-linecap="round"/>
+            <g class="water-gallon" transform="translate(274 170) scale(2) translate(-274 -170)">
+              <ellipse cx="254" cy="175" rx="34" ry="4.5" fill="var(--line-2)"/>              
+              <rect x="242" y="107" width="28" height="13" rx="4" fill="var(--ink)"/>
+              <rect x="224" y="118" width="62" height="58" rx="13" fill="var(--art-water)"/>
+              <path d="M270 118 h5 q11 0 11 11 v36 q0 11 -11 11 h-5 Z" fill="var(--art-water-deep)" opacity=".75"/>
+              <rect x="234" y="132" width="42" height="28" rx="7" fill="var(--bg)" opacity=".94"/>
+              <path d="M255 138 c4 6 7 9.5 7 14 a7 7 0 1 1 -14 0 c0 -4.5 3 -8 7 -14 Z" fill="var(--art-water)"/>
+              <path d="M231 126 q-3 20 1 42" stroke="var(--bg)" stroke-width="3" opacity=".42" fill="none" stroke-linecap="round"/>
+              <path d="M279 128 q3 18 0 38" stroke="var(--bg)" stroke-width="2.5" opacity=".28" fill="none" stroke-linecap="round"/>
+            </g>
+            <ellipse cx="110" cy="182" rx="26" ry="4" fill="var(--line-2)"/>
+          </svg>
+        </div>
+      </div>
       <div class="stop-grid">
         <div class="analogy reveal reveal-d1">
           <p class="lede">Ahí es donde esa norma se vuelve concreta: agua de red para tu casa, o un bidón de 20 litros para una obra sin conexión.</p>
