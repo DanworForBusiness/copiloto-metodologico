@@ -43,6 +43,7 @@
   <a href="#tema-3" data-label="Tema 3"><span>Controles y capa analítica</span></a>
   <a href="#tema-4" data-label="Tema 4"><span>Flujos de datos</span></a>
   <a href="#tema-5" data-label="Tema 5"><span>Integración de datos</span></a>
+  <a href="#semantica" data-label="Cierre"><span>Semántica del negocio</span></a>
 </nav>
 
 <main>
@@ -62,6 +63,7 @@
         <a href="#tema-3">3 · Controles</a>
         <a href="#tema-4">4 · Flujos</a>
         <a href="#tema-5">5 · Integración</a>
+        <a href="#semantica">+ · Semántica</a>
       </nav>
     </div>
   </section>
@@ -394,6 +396,43 @@
       </div>
 
       <div class="topic-note reveal reveal-d2">SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olvido: una decisión técnica deliberada — para extractores ODP-CDS hacia Datasphere, DDIC-based sigue siendo el patrón conservador.</div>
+    </div>
+  </section>
+
+  <!-- CIERRE · SEMÁNTICA DEL NEGOCIO -->
+  <section class="topic" id="semantica">
+    <div class="container">
+      <span class="topic-num reveal">Donde la integración se encuentra con el gobierno</span>
+      <p class="topic-kicker reveal">Semántica del negocio</p>
+      <h2 class="topic-title reveal">La toma <em>no es la norma</em></h2>
+      <p class="topic-lead reveal reveal-d1">Acabamos de construir nuestra propia toma de agua — la API corporativa. Pero ojo: tener la toma no es tener el contrato. La toma define por dónde entra el agua y quién controla esa entrada; la norma define qué tiene que cumplir esa agua para que cualquiera la consuma sin volver a analizarla.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Toma certificada</span>
+            <p class="ps-title">El agua llega con su análisis completo</p>
+            <p class="ps-caption">El contrato quedó resuelto en origen.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Nombres, tipos, dominios y reglas ya estandarizados a nivel de la API corporativa. Datasphere hereda el contrato — no lo inventa.</div></div>
+          </div>
+          <div class="pipeline-arrow">↔</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Toma sin certificar</span>
+            <p class="ps-title">Agua buena, pero sin certificado</p>
+            <p class="ps-caption">El contrato en origen es parcial.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">La toma funciona perfecto, pero cada fuente habla su propio idioma. Lo que falte del contrato lo completa la planta, en la Armonización — el criterio de complejidad del Tema 1.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">¿Y qué certifica la norma, además de la calidad? <strong>El idioma.</strong> Que "turbidez" se mida igual en todas las plantas, que "potable" signifique lo mismo en toda la red. En datos, eso es la <strong>semántica del negocio</strong>: mismos nombres, mismos tipos, mismos dominios para las mismas cosas — el diccionario del Gobierno Semántico que corre por debajo de todo el recorrido.</div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Postura Danwor</span><span class="tc-plain">Postura recomendada</span></p>
+        <p>Por eso en los proyectos la pregunta se hace así: ¿la semántica de negocio está completamente resuelta a nivel de la API corporativa de extracción? Si la respuesta no es un sí rotundo, el contrato en origen se considera parcial y se completa en la capa de Armonización.</p>
+      </div>
     </div>
   </section>
 </main>
