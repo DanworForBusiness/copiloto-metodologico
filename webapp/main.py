@@ -1025,6 +1025,97 @@ def module_feedback_cancel(request: Request, stem: str, pack: str = Form(DEFAULT
     )
 
 
+# ── Feedback por sección (micro-botonera al cierre de cada sección) ────────
+# Granularidad fina: complementa el feedback general de módulo. Es contenido
+# (sin IA/tokens), así que lo ve también el perfil de solo lectura. El comentario
+# del 👎 es OPCIONAL. Escribe type=section_content (lo analiza analyze_feedback).
+
+def _section_or_404(document, section_slug: str):
+    section = next((s for s in document.sections if s.slug == section_slug), None)
+    if section is None:
+        raise HTTPException(404, "Sección no encontrada")
+    return section
+
+
+def _section_feedback_ctx(document, section, selected: str, **extra) -> dict:
+    return {"stem": document.summary.stem, "section": section, "pack": selected, **extra}
+
+
+def _save_section_feedback(request: Request, document, section, selected: str, rating: str, comment: str = "") -> None:
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "section_content",
+            "module": document.summary.stem,
+            "module_title": document.summary.title,
+            "section_slug": section.slug,
+            "section_title": section.title,
+            "pack": selected,
+            "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""),
+            "ts": now.isoformat(),
+        }
+        clean_comment = (comment or "").strip()
+        if clean_comment:
+            payload["comment"] = clean_comment
+        path = FEEDBACK_LOG_DIR / f"section_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        temporary = path.with_suffix(".yaml.tmp")
+        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        temporary.replace(path)
+    except Exception:
+        # El feedback no debe romper la navegación ni el contenido del módulo.
+        pass
+
+
+@app.post("/modules/{stem}/sections/{section_slug}/feedback", response_class=HTMLResponse)
+def section_feedback(request: Request, stem: str, section_slug: str,
+                     rating: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    selected = _pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inválido")
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    if rating == "down":
+        # El 👎 despliega la línea de comentario opcional; todavía no persiste.
+        return templates.TemplateResponse(
+            request=request, name="partials/section_feedback.html",
+            context=_section_feedback_ctx(document, section, selected, form=True),
+        )
+    _save_section_feedback(request, document, section, selected, "up")
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected, submitted=True, rating="up"),
+    )
+
+
+@app.post("/modules/{stem}/sections/{section_slug}/feedback/submit", response_class=HTMLResponse)
+def section_feedback_submit(request: Request, stem: str, section_slug: str,
+                            rating: str = Form("down"), comment: str = Form(""),
+                            pack: str = Form(DEFAULT_PACK)):
+    selected = _pack(pack)
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    # Comentario opcional: el 👎 se registra siempre (con o sin texto).
+    _save_section_feedback(request, document, section, selected, "down", comment)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected, submitted=True, rating="down"),
+    )
+
+
+@app.post("/modules/{stem}/sections/{section_slug}/feedback/cancel", response_class=HTMLResponse)
+def section_feedback_cancel(request: Request, stem: str, section_slug: str, pack: str = Form(DEFAULT_PACK)):
+    selected = _pack(pack)
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected),
+    )
+
+
 @app.post("/modules/{stem}/assistant/chat", response_class=HTMLResponse)
 def assistant_chat(
     request: Request,

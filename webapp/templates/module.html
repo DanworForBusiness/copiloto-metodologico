@@ -75,7 +75,7 @@
       <p>En este módulo</p>
       {% for section in document.sections %}<a href="#{{ section.slug }}"><span>{{ "%02d"|format(section.number) }}</span>{{ section.title }}</a>{% endfor %}
     </nav>
-    <article class="methodology">{% for section in document.sections %}<section id="{{ section.slug }}" class="content-section">{{ section.html|safe }}</section>{% endfor %}</article>
+    <article class="methodology">{% for section in document.sections %}<section id="{{ section.slug }}" class="content-section">{{ section.html|safe }}{% set stem = document.summary.stem %}{% include "partials/section_feedback.html" %}</section>{% endfor %}</article>
     {% include "partials/module_feedback.html" %}
     {% if next_module %}
     <a class="module-continue" href="/modules/{{ next_module.stem }}?pack={{ pack }}" aria-label="Continuar a {{ next_module.title }}">

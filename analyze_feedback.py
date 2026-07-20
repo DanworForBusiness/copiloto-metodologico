@@ -6,6 +6,7 @@ Analiza el feedback_log/ y genera reportes en reports/feedback/.
 Tipos de entrada actuales en feedback_log/ (schema de la webapp FastAPI):
   - assistant_response  → 👍/👎 sobre respuestas del asistente IA (+ comentario)
   - module_content      → 👍/👎 sobre el contenido de un módulo/apéndice
+  - section_content     → 👍/👎 sobre una sección puntual de un módulo (+ comentario)
   - academy_content     → 👍/👎 sobre una página de Danwor Academy (+ comentario)
 
 (El feedback de árboles/decisiones y los casos viven en case_library/ y los analiza
@@ -15,12 +16,14 @@ Uso:
     python analyze_feedback.py                  # todo
     python analyze_feedback.py --type ia        # solo asistente IA
     python analyze_feedback.py --type modulos   # solo contenido de módulos
+    python analyze_feedback.py --type secciones # solo secciones de módulos
     python analyze_feedback.py --type academy   # solo Danwor Academy
     python analyze_feedback.py --module 03      # filtrar por módulo (ia/modulos)
 
 Salida en reports/feedback/:
     ia_feedback.yaml        → likes/dislikes del asistente por módulo/acción + comentarios
     module_feedback.yaml    → likes/dislikes por módulo/apéndice
+    section_feedback.yaml   → likes/dislikes por sección + comentarios
     academy_feedback.yaml   → likes/dislikes por página de Academy + comentarios
     summary.txt             → resumen legible
 """
@@ -48,9 +51,10 @@ REPORTS_DIR  = BASE_DIR / "reports" / "feedback"
 
 # Alias de CLI → type real escrito por la webapp.
 _TYPE_ALIASES = {
-    "ia":      "assistant_response",
-    "modulos": "module_content",
-    "academy": "academy_content",
+    "ia":        "assistant_response",
+    "modulos":   "module_content",
+    "secciones": "section_content",
+    "academy":   "academy_content",
 }
 
 
@@ -184,6 +188,60 @@ def analyze_modules(entries: list[dict]) -> dict:
 
 
 # =========================================================
+# Análisis — secciones de módulos (section_content)
+# =========================================================
+
+def analyze_sections(entries: list[dict]) -> dict:
+    """Likes/dislikes por sección puntual de cada módulo, con comentarios
+    negativos. La clave agrupa módulo + slug de sección para desambiguar."""
+    items = [e for e in entries if e.get("type") == "section_content"]
+    if not items:
+        return {"total": 0, "note": "Sin feedback de secciones registrado."}
+
+    by_section: dict[str, Counter] = defaultdict(Counter)
+    labels: dict[str, dict] = {}
+    comments_down: list[dict] = []
+    for e in items:
+        mod = e.get("module", "?")
+        slug = e.get("section_slug", "?")
+        key = f"{mod}::{slug}"
+        labels[key] = {
+            "module": mod,
+            "module_title": e.get("module_title", mod),
+            "section_title": e.get("section_title", slug),
+        }
+        rating = e.get("rating", "?")
+        by_section[key][rating] += 1
+        if rating == "down" and e.get("comment"):
+            comments_down.append({
+                "module": mod,
+                "section_title": labels[key]["section_title"],
+                "comment": e["comment"], "ts": e.get("ts", ""),
+            })
+
+    total_up   = sum(c.get("up", 0)   for c in by_section.values())
+    total_down = sum(c.get("down", 0) for c in by_section.values())
+    rows = [{
+        "module":        labels[key]["module"],
+        "module_title":  labels[key]["module_title"],
+        "section_title": labels[key]["section_title"],
+        "up":            c.get("up", 0),
+        "down":          c.get("down", 0),
+        "satisfaction":  _satisfaction(c.get("up", 0), c.get("down", 0)),
+    } for key, c in sorted(by_section.items())]
+
+    return {
+        "generated_at":  datetime.now().isoformat(),
+        "total":         total_up + total_down,
+        "total_up":      total_up,
+        "total_down":    total_down,
+        "satisfaction":  _satisfaction(total_up, total_down),
+        "by_section":    rows,
+        "comments_down": comments_down,
+    }
+
+
+# =========================================================
 # Análisis — Danwor Academy (academy_content)
 # =========================================================
 
@@ -236,7 +294,7 @@ def _sat_str(sat: float | None) -> str:
     return f"{int(sat * 100)}%" if sat is not None else "n/d"
 
 
-def build_summary(asis: dict, mods: dict, acad: dict) -> str:
+def build_summary(asis: dict, mods: dict, secs: dict, acad: dict) -> str:
     lines = [
         "=" * 60,
         "REPORTE DE FEEDBACK — COPILOTO METODOLÓGICO DANWOR",
@@ -284,6 +342,25 @@ def build_summary(asis: dict, mods: dict, acad: dict) -> str:
             lines.append(f"    {row['module']} ({row['title']}): 👍 {row['up']}  👎 {row['down']}")
     lines.append("")
 
+    # -- Secciones de módulos
+    lines.append("-- SECCIONES DE MÓDULOS --")
+    lines.append("")
+    if secs.get("total", 0) == 0:
+        lines.append("  Sin datos.")
+    else:
+        lines.append(f"  Total: {secs['total']}  👍 {secs['total_up']}  👎 {secs['total_down']}  "
+                     f"Satisfacción: {_sat_str(secs.get('satisfaction'))}")
+        for row in secs.get("by_section", []):
+            lines.append(f"    [{row['module']}] {row['section_title']}: 👍 {row['up']}  👎 {row['down']}")
+        comments = secs.get("comments_down", [])
+        if comments:
+            lines.append(f"  Comentarios negativos ({len(comments)}):")
+            for c in comments[:5]:
+                lines.append(f"    [{c['module']}·{c['section_title']}] \"{c['comment']}\"")
+            if len(comments) > 5:
+                lines.append(f"    ... y {len(comments)-5} más en section_feedback.yaml")
+    lines.append("")
+
     # -- Danwor Academy
     lines.append("-- DANWOR ACADEMY --")
     lines.append("")
@@ -322,7 +399,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Analizador de feedback_log/")
     parser.add_argument(
-        "--type", choices=["ia", "modulos", "academy", "all"], default="all",
+        "--type", choices=["ia", "modulos", "secciones", "academy", "all"], default="all",
         help="Tipo de feedback a analizar (default: all)",
     )
     parser.add_argument("--module",       default=None, help="Filtrar por módulo (ej: 03)")
@@ -344,15 +421,17 @@ def main() -> None:
     print("[>>] Analizando...")
     asis_report = analyze_assistant(entries)
     mods_report = analyze_modules(entries)
+    secs_report = analyze_sections(entries)
     acad_report = analyze_academy(entries)
 
     print("\n[OK] Escribiendo reportes...")
     write_report(report_dir, "ia_feedback.yaml",      asis_report)
     write_report(report_dir, "module_feedback.yaml",  mods_report)
+    write_report(report_dir, "section_feedback.yaml", secs_report)
     write_report(report_dir, "academy_feedback.yaml", acad_report)
 
     print("\n[..] Generando resumen...")
-    summary = build_summary(asis_report, mods_report, acad_report)
+    summary = build_summary(asis_report, mods_report, secs_report, acad_report)
     write_report(report_dir, "summary.txt", summary)
 
     print("\n" + summary)

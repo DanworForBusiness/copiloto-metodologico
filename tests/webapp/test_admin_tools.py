@@ -160,7 +160,8 @@ def test_tree_proposals_run_after_cases_analysis():
 
 
 def test_feedback_analysis_recognizes_current_schema_incl_academy():
-    # La analítica debe reconocer el schema actual: asistente, módulos y Danwor Academy.
+    # La analítica debe reconocer el schema actual: asistente, módulos, secciones
+    # y Danwor Academy.
     import analyze_feedback
     entries = [
         {"type": "academy_content", "academy_page": "ACAD01_Paradigmas", "academy_title": "Intro",
@@ -171,6 +172,9 @@ def test_feedback_analysis_recognizes_current_schema_incl_academy():
          "rating": "up", "ts": "t3"},
         {"type": "module_content", "module": "04_Modelado", "module_title": "Modelado",
          "rating": "up", "ts": "t4"},
+        {"type": "section_content", "module": "01_Arquitectura", "module_title": "Arquitectura",
+         "section_slug": "espacios-transportes", "section_title": "Espacios & Transportes",
+         "rating": "down", "comment": "confuso el transporte transversal", "ts": "t5"},
     ]
     acad = analyze_feedback.analyze_academy(entries)
     assert acad["total"] == 2 and acad["total_up"] == 1 and acad["total_down"] == 1
@@ -178,12 +182,18 @@ def test_feedback_analysis_recognizes_current_schema_incl_academy():
     assert acad["comments_down"][0]["comment"] == "faltó un ejemplo"
     assert analyze_feedback.analyze_assistant(entries)["total"] == 1
     assert analyze_feedback.analyze_modules(entries)["total"] == 1
+    secs = analyze_feedback.analyze_sections(entries)
+    assert secs["total"] == 1 and secs["total_down"] == 1
+    assert secs["by_section"][0]["section_title"] == "Espacios & Transportes"
+    assert secs["comments_down"][0]["comment"] == "confuso el transporte transversal"
     summary = analyze_feedback.build_summary(
         analyze_feedback.analyze_assistant(entries),
         analyze_feedback.analyze_modules(entries),
+        secs,
         acad,
     )
     assert "DANWOR ACADEMY" in summary
+    assert "SECCIONES DE MÓDULOS" in summary
     assert "CONTENIDO DE MÓDULOS" in summary
     assert "ASISTENTE IA" in summary
 

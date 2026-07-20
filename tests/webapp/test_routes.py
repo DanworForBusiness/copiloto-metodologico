@@ -524,6 +524,57 @@ def test_desafio_hidden_from_nav_but_direct_url_and_feedback_work(monkeypatch, t
     assert list(tmp_path.glob("academy_feedback_*.yaml"))
 
 
+def test_module_renders_per_section_feedback_widgets():
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert response.status_code == 200
+    # Cada sección cierra con su micro-botonera (id propio para el swap HTMX).
+    assert "section-feedback-espacios-transportes" in response.text
+    assert 'class="section-feedback__bar"' in response.text
+    assert "te pareci" in response.text  # prompt (entidades HTML: te pareci&oacute;)
+    # Y el feedback general de módulo sigue existiendo (son momentos distintos).
+    assert 'class="module-feedback' in response.text
+
+
+def test_section_feedback_up_saves_and_down_opens_optional_comment(monkeypatch, tmp_path):
+    from webapp.services import content_service
+    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)
+    base = "/modules/01_Arquitectura_y_Conectividad/sections/espacios-transportes/feedback"
+
+    # 👍 → guarda al toque y agradece.
+    up = client.post(base, data={"rating": "up", "pack": "datasphere_core"})
+    assert up.status_code == 200 and "Gracias" in up.text
+    saved = list(tmp_path.glob("section_feedback_*.yaml"))
+    assert len(saved) == 1
+    import yaml
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "section_content"
+    assert payload["section_slug"] == "espacios-transportes"
+    assert payload["rating"] == "up"
+
+    # 👎 → NO guarda todavía; despliega la línea de comentario opcional.
+    down = client.post(base, data={"rating": "down", "pack": "datasphere_core"})
+    assert down.status_code == 200
+    assert "opcional" in down.text and "<textarea" in down.text
+    assert len(list(tmp_path.glob("section_feedback_*.yaml"))) == 1  # sigue habiendo 1
+
+    # Enviar el 👎 con comentario → guarda con el texto.
+    submit = client.post(base + "/submit",
+                         data={"rating": "down", "comment": "confuso", "pack": "datasphere_core"})
+    assert submit.status_code == 200 and "Gracias" in submit.text
+    downs = [yaml.safe_load(p.read_text(encoding="utf-8")) for p in tmp_path.glob("section_feedback_*.yaml")]
+    down_entry = next(e for e in downs if e["rating"] == "down")
+    assert down_entry["comment"] == "confuso"
+
+
+def test_section_feedback_unknown_section_404(monkeypatch, tmp_path):
+    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/sections/no-existe/feedback",
+        data={"rating": "up", "pack": "datasphere_core"},
+    )
+    assert response.status_code == 404
+
+
 def test_intro_module_renders_immersive_embed():
     response = client.get("/modules/00_Intro")
     assert response.status_code == 200

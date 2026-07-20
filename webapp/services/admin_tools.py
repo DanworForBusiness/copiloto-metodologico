@@ -222,7 +222,7 @@ def run_cases_analysis(use_llm: bool = False) -> str:
 
 def run_feedback_analysis(kind: str = "all") -> str:
     import analyze_feedback
-    if kind not in {"ia", "modulos", "academy", "all"}:
+    if kind not in {"ia", "modulos", "secciones", "academy", "all"}:
         kind = "all"
     return _capture_main(analyze_feedback, ["--type", kind])
 

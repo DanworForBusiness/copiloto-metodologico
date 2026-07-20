@@ -59,7 +59,7 @@
 {# 3. Feedback ───────────────────────────────────────────── #}
 <section class="admin-tool">
   <h4>💬 Feedback</h4>
-  <p class="admin-help">Analiza el 👍/👎 de <code>feedback_log/</code>: asistente IA, contenido de módulos y Danwor Academy.</p>
+  <p class="admin-help">Analiza el 👍/👎 de <code>feedback_log/</code>: asistente IA, contenido de módulos, secciones y Danwor Academy.</p>
   <form hx-post="/admin/feedback/analyze" hx-target="#res-feedback" hx-swap="innerHTML"
         hx-indicator="#ind-feedback" hx-disabled-elt="button[type='submit']">
     <label class="admin-label" for="fb-kind">Tipo</label>
@@ -67,6 +67,7 @@
       <option value="all">Todo el feedback</option>
       <option value="ia">Solo asistente IA</option>
       <option value="modulos">Solo contenido de módulos</option>
+      <option value="secciones">Solo secciones</option>
       <option value="academy">Solo Danwor Academy</option>
     </select>
     <div class="admin-actions">
