@@ -110,7 +110,7 @@ quick_action_guidance:
 out_of_scope_redirect:
   - keywords: ["tipo semantico", "tipos semanticos", "semantic type", "fact", "dimension",
                "capa business", "capa consumption", "modelado datasphere", "vista analitica",
-               "entidad de negocio", "business entity", "analytical dataset", "capas modelado"]
+               "entidad de negocio", "business entity", "modelo analitico", "capas modelado"]
     module: "04"
     label: "Modelado y Desarrollo"
     message: "Ese tema corresponde al módulo 04 · Modelado y Desarrollo, que cubre Semantic Types, capas y modelado analítico."

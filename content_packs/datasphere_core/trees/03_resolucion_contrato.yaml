@@ -25,7 +25,7 @@ nodes:
     question: "¿La fuente de origen puede resolver el contrato sin comprometer CDC?"
     options: ["Sí", "No"]
     next:
-      "Sí": q2_vol
+      "Sí": leaf_contrato_origen
       "No": q2_min_contract
 
   q2_min_contract:

@@ -76,7 +76,7 @@ leaves:
       next_steps:
         - "Verificar licencias SAC disponibles en el tenant del cliente"
         - "Configurar la Live Data Connection desde SAC hacia el espacio Datasphere"
-        - "Asegurar que las vistas de consumo (capa 3) tienen el Semantic Usage correcto (Analytical Dataset)"
+        - "Asegurar que las vistas de consumo (capa 3) tienen el Semantic Usage correcto (Fact) y se exponen vía Modelo Analítico"
 
   leaf_pbi_directquery:
     decision: "Power BI con DirectQuery — datos en tiempo real consultando vistas en Datasphere en cada interacción."

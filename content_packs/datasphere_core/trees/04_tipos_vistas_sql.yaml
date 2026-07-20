@@ -92,7 +92,7 @@ leaves:
       next_steps:
         - "Crear la vista en la capa correspondiente (1=Ingesta, 2=Armonización, 3=Consumo)"
         - "Aplicar el naming convention: <Capa><Tipo>_<Origen>_<Libre>"
-        - "Definir el tipo semántico (Relacional, Dimension, Fact, Analytical Dataset)"
+        - "Definir el tipo semántico (Relacional, Dimension, Fact) y exponer el consumo vía Modelo Analítico"
 
   leaf_grafica:
     decision: "Vista Gráfica — aceptable para prototipos o exploración inicial. No usar en modelos productivos."

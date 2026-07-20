@@ -14,6 +14,7 @@
       document.documentElement.classList.add('branding-danwor');
     }
   }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
 })();
 </script>
 
@@ -44,6 +45,7 @@
   <a href="#tema-4" data-label="Tema 4"><span>Flujos de datos</span></a>
   <a href="#tema-5" data-label="Tema 5"><span>Integración de datos</span></a>
   <a href="#semantica" data-label="Cierre"><span>Semántica del negocio</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario del consultor</span></a>
 </nav>
 
 <main>
@@ -432,6 +434,31 @@
       <div class="topic-callout reveal reveal-d2">
         <p class="tc-label"><span class="tc-branded">Postura Danwor</span><span class="tc-plain">Postura recomendada</span></p>
         <p>Por eso en los proyectos la pregunta se hace así: ¿la semántica de negocio está completamente resuelta a nivel de la API corporativa de extracción? Si la respuesta no es un sí rotundo, el contrato en origen se considera parcial y se completa en la capa de Armonización.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO AL COPILOTO -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento al copiloto</span>
+      <p class="topic-kicker reveal">Diccionario del consultor</p>
+      <h2 class="topic-title reveal">Cómo lo llamamos <em>en el copiloto</em></h2>
+      <p class="topic-lead reveal reveal-d1">El recorrido te lo contó con agua; el copiloto lo nombra como lo vas a escuchar en proyectos. Esta es la traducción — y el atajo para profundizar cada concepto.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <caption>El cuento ↔ el copiloto</caption>
+          <thead><tr><th>En el cuento</th><th>En el copiloto</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Publicación</td><td>Propagación (capa 3) + Consumo (capa 4) — el modelo Danwor tiene cuatro capas</td><td><a class="rosetta-cta" href="/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Armonización</td><td>Capa 2 — la "2V" que vas a ver en los nombres de vistas</td><td><a class="rosetta-cta" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Los nombres de los objetos</td><td>Naming <code>&lt;capa&gt;&lt;artefacto&gt;&lt;variante&gt;</code>: <code>1TT_</code>, <code>2VD_</code>, <code>3VF_</code>, <code>FT_</code> (Transformation Flow)</td><td><a class="rosetta-cta" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Jurisdicciones (Espacios)</td><td>Topologías 1-Tier / 2-Tier · Cross-Sharing entre espacios</td><td><a class="rosetta-cta" href="/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Baja / media / alta complejidad</td><td>Árbol "Resolución de Contrato": CDC, estructura estable, extractor robusto</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Dimension, Fact y Modelo Analítico</td><td>Se suman Relacional (el default), Text y Hierarchy</td><td><a class="rosetta-cta" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

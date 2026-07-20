@@ -14,6 +14,7 @@
       document.documentElement.classList.add('branding-danwor');
     }
   }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
 })();
 </script>
 
@@ -119,6 +120,7 @@ html.branding-danwor .topbar{display:block;}
   <a href="#producto" data-label="Producto"><span>Data Product</span></a>
   <a href="#bdc" data-label="BDC"><span>SAP BDC</span></a>
   <a href="#roles" data-label="Roles"><span>Roles del proyecto</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario del consultor</span></a>
 </nav>
 
 <main>
@@ -511,7 +513,7 @@ html.branding-danwor .topbar{display:block;}
             <li>Cada dominio publica sus <strong>data products</strong> bajo un contrato común</li>
             <li>Requiere <strong>gobernanza compartida</strong> — el "pacto federal" que hace posible el intercambio</li>
           </ul>
-          <p class="spec-limit">Es organizacional, no técnico: Datasphere no lo automatiza — lo facilita vía espacios y permisos (DAC) a nivel dominio.</p>
+          <p class="spec-limit">Es organizacional, no técnico: Datasphere no lo automatiza — lo facilita vía espacios, Cross-Sharing y permisos (DAC) a nivel dominio.</p>
         </div>
       </div>
     </div>
@@ -729,6 +731,29 @@ html.branding-danwor .topbar{display:block;}
           <h3>Data Product Owner</h3>
           <p>Define y sostiene el contrato de cada data product: qué promete, quién lo consume, y bajo qué reglas de acceso y calidad.</p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO AL COPILOTO -->
+  <section class="stop" id="rosetta">
+    <div class="container">
+      <span class="stop-num reveal">Cierre · Del cuento al copiloto</span>
+      <p class="kicker reveal">Diccionario del consultor</p>
+      <h2 class="stop-title reveal" style="max-width:26ch;">Cómo lo llamamos <em>en el copiloto</em></h2>
+      <p class="finale-body reveal reveal-d1" style="margin-bottom:1.8rem;">El recorrido te lo contó con agua; el copiloto lo nombra como lo vas a escuchar en proyectos. Esta es la traducción — y el atajo para profundizar cada concepto.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <caption>El cuento ↔ el copiloto</caption>
+          <thead><tr><th>En el cuento</th><th>En el copiloto</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>La planta y su recorrido interno</td><td>Capas Danwor: Ingesta (1) → Armonización (2) → Propagación (3) → Consumo (4)</td><td><a class="rosetta-cta" href="/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>El comité de cuenca (Mesh)</td><td>Espacios + Cross-Sharing + DAC a nivel dominio</td><td><a class="rosetta-cta" href="/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>La norma de potabilidad (Contrato)</td><td>Contrato de datos / Modelo Danwor — árbol "Resolución de Contrato"</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>El agua envasada (Data Product)</td><td>Linaje: tabla → CDS básica → CDS compuesta → vista de consumo → Data Product</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>

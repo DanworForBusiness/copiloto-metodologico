@@ -208,6 +208,14 @@ html.branding-danwor .tc-label .tc-plain{display:none;}
 .topic-table tr td:first-child{color:var(--ink); font-weight:600;}
 .topic-table tr:last-child td{border-bottom:none;}
 
+/* rosetta — cierre "del cuento al copiloto": tabla de traducción + CTA de profundización.
+   El botón solo aparece embebido en el copiloto (html.in-copiloto, seteado por JS al
+   detectar iframe); standalone muestra la tabla sin accesos. */
+.rosetta-cta{display:none; font-family:var(--mono); font-size:.68rem; letter-spacing:.04em; color:var(--gold); border:1px solid var(--line-2); border-radius:999px; padding:.35rem .85rem; text-decoration:none; white-space:nowrap; transition:border-color .2s, background .2s;}
+.rosetta-cta:hover{border-color:var(--gold); background:var(--gold-dim);}
+html.in-copiloto .rosetta-cta{display:inline-block;}
+.rosetta-table td:last-child{text-align:right;}
+
 /* tiles de cierre (finale-card) — usadas por paradigmas.html y disponibles para otras páginas */
 .finale-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1rem;}
 @media (max-width:700px){ .finale-grid{grid-template-columns:1fr;} }

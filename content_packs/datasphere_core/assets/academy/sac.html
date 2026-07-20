@@ -14,6 +14,7 @@
       document.documentElement.classList.add('branding-danwor');
     }
   }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
 })();
 </script>
 
@@ -42,6 +43,7 @@
   <a href="#tema-2" data-label="Tema 2"><span>Modelado analítico</span></a>
   <a href="#tema-3" data-label="Tema 3"><span>Stories y Visualización</span></a>
   <a href="#tema-4" data-label="Tema 4"><span>Planning</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario del consultor</span></a>
 </nav>
 
 <main>
@@ -214,6 +216,29 @@
       </div>
 
       <div class="topic-note reveal reveal-d2">Así como el contrato de datos protegía una misma mirada del dato para producir múltiples data products sin corromperla, el Data Locking protege una misma versión de planificación para que distintos equipos la alimenten sin pisarse — es el mismo principio de gobierno, aplicado a la escritura en vez de a la lectura.</div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO AL COPILOTO -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento al copiloto</span>
+      <p class="topic-kicker reveal">Diccionario del consultor</p>
+      <h2 class="topic-title reveal">Cómo lo llamamos <em>en el copiloto</em></h2>
+      <p class="topic-lead reveal reveal-d1">El recorrido te lo contó con agua; el copiloto lo nombra como lo vas a escuchar en proyectos. Esta es la traducción — y el atajo para profundizar cada concepto.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <caption>El cuento ↔ el copiloto</caption>
+          <thead><tr><th>En el cuento</th><th>En el copiloto</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>La canilla en vivo (Live)</td><td>Live Data Connection — sin schema users, respeta el DAC de Datasphere</td><td><a class="rosetta-cta" href="/modules/05_Reporting_y_Consumo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>La copia local (Import)</td><td>Import + schedule de refresh — y la performance se decide en el modelo: persistencia selectiva, aggregation views, workload class / CU</td><td><a class="rosetta-cta" href="/modules/05_Reporting_y_Consumo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>El gobierno del contenido SAC</td><td>Workspaces, transporte y ciclo de vida del contenido</td><td><a class="rosetta-cta" href="/modules/A06_SAP_Analytics_Cloud?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Planning (versiones, Data Actions, Locking)</td><td>Acá la Academy va más allá: este tramo todavía no tiene capítulo en el copiloto</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>

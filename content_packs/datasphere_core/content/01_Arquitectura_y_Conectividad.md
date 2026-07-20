@@ -145,7 +145,7 @@ out_of_scope_redirect:
     message: "Ese tema corresponde al módulo 03 · Integración y Estrategia de Datos, que cubre extracción, ODP, CDS y estrategias de integración."
   - keywords: ["tipo semantico", "tipos semanticos", "semantic type", "fact", "dimension",
                "capa business", "capa consumption", "modelado datasphere", "vista analitica",
-               "entidad de negocio", "business entity", "analytical dataset"]
+               "entidad de negocio", "business entity", "modelo analitico"]
     module: "04"
     label: "Modelado en SAP Datasphere"
     message: "Ese tema corresponde al módulo 04 · Modelado en SAP Datasphere, que cubre Semantic Types, capas Business/Consumption y modelado analítico."

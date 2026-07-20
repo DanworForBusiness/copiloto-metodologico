@@ -14,6 +14,7 @@
       document.documentElement.classList.add('branding-danwor');
     }
   }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
 })();
 </script>
 
@@ -42,6 +43,7 @@
   <a href="#tema-2" data-label="Tema 2"><span>Unity Catalog</span></a>
   <a href="#tema-3" data-label="Tema 3"><span>Integración con Datasphere</span></a>
   <a href="#tema-4" data-label="Tema 4"><span>ML e IA</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario del consultor</span></a>
 </nav>
 
 <main>
@@ -237,6 +239,29 @@
       </div>
 
       <div class="topic-note reveal reveal-d2">Es el terreno del Data Engineer y el Data Scientist del recorrido: preparan los pipelines, entrenan los modelos, y consumen los datos semánticamente ricos de Datasphere vía zero-copy — sin salir nunca del mismo gobierno de datos.</div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO AL COPILOTO -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento al copiloto</span>
+      <p class="topic-kicker reveal">Diccionario del consultor</p>
+      <h2 class="topic-title reveal">Cómo lo llamamos <em>en el copiloto</em></h2>
+      <p class="topic-lead reveal reveal-d1">El recorrido te lo contó con agua; el copiloto lo nombra como lo vas a escuchar en proyectos. Esta es la traducción — y el atajo para profundizar cada concepto.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <caption>El cuento ↔ el copiloto</caption>
+          <thead><tr><th>En el cuento</th><th>En el copiloto</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>La represa por capas (Bronze/Silver/Gold)</td><td>Medallion — el mismo principio de capas Ingesta → Armonización → Consumo, visto en el Lakehouse</td><td><a class="rosetta-cta" href="/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Aterrizar el agua en la represa</td><td>Replication Flow hacia Object Store (HDLF) — aterrizaje BDC-ready</td><td><a class="rosetta-cta" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>El canal entre represa y planta (zero-copy)</td><td>Delta Sharing / BDC Connect — integración sin replicar el dato</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core" target="_top">Profundizar →</a></td></tr>
+            <tr><td>Unity Catalog, Feature Store, MLflow, Model Serving</td><td>Acá la Academy va más allá: el detalle de ML/IA todavía no tiene capítulo en el copiloto</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>
