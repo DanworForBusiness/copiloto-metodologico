@@ -165,6 +165,10 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 | **(3) Propagacion** | Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones. - Permitir reutilización en otras vistas. - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
 | **(4) Consumo** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
 
+{{callout: title="La 'Publicación' del principio se implementa en dos capas" tone="punch" icon="🔗"}}
+Arriba, en la vista de principios, hablamos de una sola etapa de **Publicación** — el momento en que el dato se vuelve consumible. En la operación esa misma responsabilidad se implementa en dos capas complementarias: **(3) Propagación**, que expone el data product gobernado hacia otros sistemas o consumo directo, y **(4) Consumo**, que arma los modelos analíticos finales para el negocio. No son dos conceptos nuevos: son la misma Publicación, desglosada según cuánto falta preparar el dato antes de que llegue a destino.
+{{/callout}}
+
 ## {dw-black}Artefactos y uso {dw-gold}Semántico
 {{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
 
