@@ -634,7 +634,12 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     if not user:  # sin sesión válida → al landing/acceso
         return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
     modules = list_modules(selected)
-    appendices = list_appendices(selected)
+    all_appendices = list_appendices(selected)
+    # Apéndices con nav_hidden (p. ej. A06 en revisión) salen del nav y del pager,
+    # pero la página sigue resoluble por URL directa (para trabajarla). is_appendix
+    # se calcula sobre la lista completa para que su render (eyebrow "Apéndice")
+    # sea correcto si se entra directo.
+    appendices = [a for a in all_appendices if not a.nav_hidden]
     academy = [item for item in list_academy(selected) if not item.nav_hidden]
     try:
         document = load_module(stem, selected)
@@ -646,7 +651,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada
     # de la navegación (no entra en el pager prev/next ni en el bucle de scroll).
     nav_items = (*modules, *appendices)
-    is_appendix = any(item.stem == stem for item in appendices)
+    is_appendix = any(item.stem == stem for item in all_appendices)
     ia_enabled = ia_enabled_for(stem)
 
     # Layout inmersivo (p. ej. 00 Intro): en vez de renderizar secciones markdown,
@@ -782,7 +787,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         name="academy.html",
         context={
             "modules": list_modules(selected),
-            "appendices": list_appendices(selected),
+            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
             "academy": academy_nav,
             "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy_nav},
             "active_group": "academy",

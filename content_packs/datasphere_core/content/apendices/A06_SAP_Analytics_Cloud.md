@@ -2,6 +2,11 @@
 module: "A06"
 title: "SAP Analytics Cloud — Gobierno de Contenido"
 nav_label: "A06 · SAP Analytics Cloud"
+# Oculto de la navegación por ahora: en revisión para diferenciarlo del contenido
+# SAC ya incluido parcialmente en el módulo 05. Sigue accesible por URL directa
+# para trabajarlo. Para reactivarlo: quitar este flag y restaurar los punteros
+# desde módulo 05 (out_of_scope_redirect + links) y sac.html.
+nav_hidden: true
 tags: ["module:A06", "domain:sac", "domain:governance", "domain:lifecycle"]
 key_topics:
   - id: vistas

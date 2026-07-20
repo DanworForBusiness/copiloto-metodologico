@@ -742,14 +742,14 @@ def test_sac_appendix_a06_renders():
     assert "{{" not in response.text
 
 
-def test_sac_appendix_a06_in_nav_and_linked_from_module_05():
-    # A06 aparece en el grupo de apéndices técnicos.
+def test_sac_appendix_a06_hidden_from_nav_and_unlinked():
+    # A06 está en revisión: nav_hidden → NO aparece en el nav de apéndices…
     nav = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert nav.status_code == 200
-    assert 'href="/modules/A06_SAP_Analytics_Cloud' in nav.text
-    assert "SAP Analytics Cloud" in nav.text
-    # El módulo 05 suma la sección de organización de contenido SAC y enlaza a A06.
+    assert "/modules/A06_SAP_Analytics_Cloud" not in nav.text
+    # …y el módulo 05 conserva su sección SAC pero ya no enlaza a A06 (sin punteros
+    # colgando a una página oculta).
     mod05 = client.get("/modules/05_Reporting_y_Consumo")
     assert mod05.status_code == 200
     assert "Organización de Contenido en" in mod05.text
-    assert "/modules/A06_SAP_Analytics_Cloud" in mod05.text
+    assert "/modules/A06_SAP_Analytics_Cloud" not in mod05.text

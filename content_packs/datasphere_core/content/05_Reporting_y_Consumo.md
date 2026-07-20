@@ -27,7 +27,7 @@ scope: |
   decisión (workspaces vs team folders vs Public, vista System vs Workspaces).
   No cubre modelado dentro de Datasphere (módulo 04), seguridad DAC (módulo 02),
   configuración de espacios/transportes Datasphere (módulo 01), ni la operación
-  profunda de gobierno/transporte de contenido SAC (apéndice A06).
+  profunda de gobierno/transporte y ciclo de vida de contenido SAC (fuera de alcance por ahora).
 guardrails:
   - "No elegir la herramienta de reporting por preferencia aislada: decidir según modo de consumo, gobierno, performance, seguridad y operación."
   - "El reporting no debe corregir problemas de modelado o seguridad de base; si la consulta trata capas, semántica o DAC, derivar al módulo correspondiente."
@@ -124,12 +124,6 @@ out_of_scope_redirect:
     module: "01"
     label: "Arquitectura y Conectividad"
     message: "Ese tema corresponde al módulo 01 · Arquitectura y Conectividad, que cubre espacios, transportes y conectividad."
-  - keywords: ["workspace sac", "team folder", "carpeta equipo sac", "public files", "content network",
-               "transporte sac", "object id", "folder id", "deleted files", "migrar team folder workspace",
-               "vista system", "compartir carpeta sac", "herencia permisos sac", "gobierno contenido sac"]
-    module: "A06"
-    label: "SAP Analytics Cloud (apéndice)"
-    message: "La operación profunda de gobierno y ciclo de vida de contenido SAC (workspaces, compartición/herencia, transporte por Object ID, migración, troubleshooting) corresponde al apéndice A06 · SAP Analytics Cloud."
 ---
 # 05 Reporting y Consumo
 
@@ -194,7 +188,7 @@ Los datos expuestos como modelos analiticos o vistas pueden ser consumidos desde
 | **OData** | Open Data Protocol, es una conexión tipo "servicio web", que expone los datos en formato OData (RESTful) | No requiere drivers ni configuraciones complejas. Ideal para acceso rápido, self-service o cargas ligeras. Fácil Integración con Arquitecturas basadas en APIs | Menor rendimiento para volúmenes grandes de datos. Requiere autenticación por token (OAuth), con renovación periódica (por defecto cada 30 días). |
 
 {{callout: title="Pre-requisito" tone="note" icon="💡"}}
-Los **artefactos de tipo vista** solo estarán disponibles para consumo vía ODBC / JDBC / OData cuando se haya activado previamente el flag **"Exponer para consumo"** (*Exposed for Consumption*). Sin ese flag la vista existe pero no es accesible desde herramientas externas — es un mecanismo de gobierno para evitar exposición accidental de datos técnicos.
+Los **artefactos de tipo vista** solo estarán disponibles para consumo vía ODBC / JDBC / OData cuando se haya activado previamente el flag **"Exponer para consumo"** (**"Exposed for Consumption"**). Sin ese flag la vista existe pero no es accesible desde herramientas externas — es un mecanismo de gobierno para evitar exposición accidental de datos técnicos.
 {{/callout}}
 
 ## {dw-black}Performance en {dw-gold}Reporting
@@ -233,7 +227,7 @@ Así como en Datasphere el **espacio** forma parte del gobierno (módulo 01 · E
 
 > **Importante:** no todo en `System/Common` equivale a "público". Solo `System/Common/Public` es la carpeta Public. Y la similitud de nombres entre `System/Common/FINANZAS` (team folder) y `System/Finanzas` (workspace) **no las vincula**: son ramas distintas del repositorio.
 >
-> **Carpetas de equipo:** se crean **automáticamente** al crear el equipo. En el patrón Danwor el equipo se usa como **centralizador de miembros** asignado al workspace (al compartir las carpetas gobernadas del workspace con el equipo, todos sus miembros entran en alcance), así que esa carpeta de equipo **queda vacía** — no se le carga contenido ni se comparten objetos directamente. El detalle operativo está en el apéndice [A06 · SAP Analytics Cloud](/modules/A06_SAP_Analytics_Cloud?pack=datasphere_core).
+> **Carpetas de equipo:** se crean **automáticamente** al crear el equipo. En el patrón Danwor el equipo se usa como **centralizador de miembros** asignado al workspace (al compartir las carpetas gobernadas del workspace con el equipo, todos sus miembros entran en alcance), así que esa carpeta de equipo **queda vacía** — no se le carga contenido ni se comparten objetos directamente.
 
 {{callout: title="Decisión canónica Danwor — Workspace como ubicación autoritativa" tone="punch" icon="⭐"}}
 Para el gobierno por dominio o linea de negocio conviene usar **workspaces**. Los **team folders** y la **carpeta Public** se usan solo cuando se busca deliberadamente un modelo de compartición más amplio (Public) o más simple/liviano (team folder), para colaboración entre dominios o contenido legacy/transitorio pendiente de migración. Team folders y workspaces pueden resultar funcionalmente similares en casos simples, pero son **mecanismos distintos y ambos siguen soportados** — no es que "los workspaces reemplazaron a los team folders".
@@ -262,7 +256,7 @@ Mover un reporte a una carpeta menos profunda **no** lo hace aparecer en la vist
 {{/callout}}
 {{/callout_row}}
 
-La operación profunda —compartición y herencia de permisos, transporte por identidad técnica (Object ID), colisiones de Folder ID, Deleted Files, alineación entre tenants, migración de team folder a workspace y checklist DEV/QA/PRD— está en el apéndice [A06 · SAP Analytics Cloud](/modules/A06_SAP_Analytics_Cloud?pack=datasphere_core). La dirección del landscape DEV→QA→PRD se hereda del módulo 01.
+La operación profunda —compartición y herencia de permisos, transporte por identidad técnica (Object ID), colisiones de Folder ID, Deleted Files, alineación entre tenants, migración de team folder a workspace y checklist DEV/QA/PRD— excede el alcance de este módulo y se documentará por separado. La dirección del landscape DEV→QA→PRD se hereda del módulo 01.
 
 ## {dw-black}Checklist de {dw-gold}Reporting
 {{section_meta: keywords="checklist reporting, lista verificación reporting, checklist consumo, revisión reporting, buenas practicas reporting, puntos control reporting, verificar herramienta, verificar conexión, verificar performance, checklist Power BI datasphere, checklist SAC datasphere"}}

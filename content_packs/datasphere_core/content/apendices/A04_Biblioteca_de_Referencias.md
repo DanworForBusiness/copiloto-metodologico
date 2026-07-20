@@ -347,7 +347,7 @@ key_topics:
 ## {dw-black}KBAs {dw-gold}SAP
 {{section_meta: keywords="kba sap, knowledge base article, kbas sac, kba 3576331, kba 3524959, kba 3311985, kba 3493600, kba 3460999, kba 3561284, gobierno contenido sac kba, transporte sac kba, deleted files sac, object id sac, workspace sac kba"}}
 {{subtitle: no-gap}}
->KBAs de gobierno y ciclo de vida de contenido SAP Analytics Cloud (base del apéndice A06). A diferencia de las Notas SAP, las KBAs se acceden por el portal de knowledge (requiere login SAP).
+>KBAs de gobierno y ciclo de vida de contenido SAP Analytics Cloud. A diferencia de las Notas SAP, las KBAs se acceden por el portal de knowledge (requiere login SAP).
 
 - 🗂️ KBA 3576331 · Folders created directly under a workspace are not visible in System → Workspace | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3576331)
 - 🔀 KBA 3524959 · After moving content in source and transferring to target, the location is not reflected correctly | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3524959)
