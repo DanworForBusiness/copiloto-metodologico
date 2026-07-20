@@ -91,6 +91,13 @@ html.branding-danwor .topbar-logo{display:block;}
 .rail a.active{background:var(--gold); transform:scale(1.3);}
 .rail a span{position:absolute; right:16px; top:50%; transform:translateY(-50%); white-space:nowrap; font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); opacity:0; transition:opacity .2s;}
 .rail a:hover span, .rail a.active span{opacity:1;}
+/* El label on-hover se despliega hacia el contenido (izquierda del punto). Con
+   el contenido centrado a 1180px, solo hay margen para el label sin solaparlo en
+   pantallas muy anchas; en anchos menores (típico embebido en el copiloto) se
+   pisaba con el texto. Debajo de 1600px mostramos solo los puntos (sin label);
+   debajo de 900px se oculta el rail completo. La media query responde al ancho
+   del iframe, así que se adapta al espacio real del embed. */
+@media (max-width:1600px){ .rail a span{ display:none; } }
 @media (max-width:900px){ .rail{display:none;} }
 
 /* spot illustrations por sección — SVG inline, colores via variables del theme */
