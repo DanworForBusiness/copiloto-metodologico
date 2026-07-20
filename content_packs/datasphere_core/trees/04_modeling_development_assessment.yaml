@@ -24,7 +24,7 @@ nodes:
     dimension: Capas
     principle: Separación de responsabilidades de modelado
     weight_hint: 1.3
-    question: ¿Las capas de ingesta, armonización, propagación y reporting tienen responsabilidades claramente delimitadas?
+    question: ¿Las capas de ingesta, armonización, propagación y consumo tienen responsabilidades claramente delimitadas?
     help: Evalúa si cada capa hace lo que corresponde y evita mezclar persistencia cruda, reglas de negocio y consumo final.
     evaluation_guidance:
       Implementado consistentemente: Las capas están definidas y se respetan consistentemente.

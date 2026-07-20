@@ -171,7 +171,7 @@ out_of_scope_redirect:
 | Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |
 | DEV-> QA-> PRD via transportes | Sin DEV-> QA-> PRD en storage |
 | Cross-Sharing nativo hacia espacios de negocio | Spark como motor de transformación |
-| Capas: Ingesta, Armonizacion, Propagacion y Reporting | Capas: Bronze, Silver, Gold via Transformation Flows |
+| Capas: Ingesta, Armonizacion, Propagacion y Consumo | Capas: Bronze, Silver, Gold via Transformation Flows |
 
 <div class="paradigm-tags">
   <span class="paradigm-tag">📌 Lo que construimos hoy</span>

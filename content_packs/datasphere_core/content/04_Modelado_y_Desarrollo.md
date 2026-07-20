@@ -163,7 +163,7 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 | **(1) Ingesta** | Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente. | Capturar los datos crudos directamente desde las fuentes externas (sea S/4HANA, u otras bases de datos y/o sistemas externos) | - Ingestar datos directamente desde sistemas fuente. - Preservar datos originales para auditoría. |
 | **(2) Armonizacion** | Alta. Limpieza y estandarización | Transformar, limpiar, y unificar los datos para asegurar consistencia semántica y su re-utilización alineado con las reglas de negocio | - Unificar datos de sistemas heterogéneos. - Reutilizacion - Normalizar formatos, eliminar duplicados, enriquecer datos. |
 | **(3) Propagacion** | Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones. - Permitir reutilización en otras vistas. - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
-| **(4) Reporting** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
+| **(4) Consumo** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
 
 ## {dw-black}Artefactos y uso {dw-gold}Semántico
 {{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
@@ -193,7 +193,7 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 - `1` — **Ingesta**: datos crudos del origen, sin transformar (tablas remotas o locales replicadas).
 - `2` — **Armonización**: donde nace el contrato de datos — entidades limpias, estandarizadas, gobernadas y reutilizables (el *qué prometemos entregar*).
 - `3` — **Propagación**: el contrato materializado y expuesto como data product — composición (cruces/joins), reagregación y subsets orientados a casos de consumo. 
-- `4` — **Consumo / Reporting**: modelos analíticos finales para el negocio (SAC/Power BI). Consume el data product; no introduce un contrato nuevo.
+- `4` — **Consumo**: modelos analíticos finales para el negocio (SAC/Power BI). Consume el data product; no introduce un contrato nuevo.
 
 **Artefacto** (letra):
 
