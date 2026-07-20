@@ -29,6 +29,12 @@
 .intro-embed{margin-top:1.6rem;}
 .intro-embed iframe{width:100%; border:0; display:block; background:transparent;}
 
+/* Rampa de acceso al recorrido "contado simple" (Academy) desde el cue de scroll.
+   Subordinada al cue: el scroll manda; esta es la invitación secundaria al trainee. */
+.hero-scroll-cue{flex-wrap:wrap;}
+.hero-scroll-alt{color:var(--gold); font-weight:600; text-decoration:none; white-space:nowrap; transition:opacity .2s;}
+.hero-scroll-alt:hover{text-decoration:underline;}
+
 /* Cue de cierre "scroll para continuar" → siguiente módulo del copiloto (igual
    look que el .module-continue del copiloto; navega el frame padre). */
 .intro-continue{display:flex; flex-direction:column; align-items:center; gap:.55rem; margin:.5rem auto clamp(3rem,6vw,5rem); padding-top:1.5rem; text-align:center; text-decoration:none; opacity:.55; cursor:pointer; transition:opacity .2s;}
@@ -61,7 +67,7 @@
       <p class="hero-eyebrow reveal in"><span class="dot"></span>Danwor Transversal · Arquitectura e Innovación</p>
       <h1 class="hero-title reveal in">Copiloto <em>Metodológico</em></h1>
       <p class="hero-sub reveal in reveal-d1">En Danwor contamos con distintos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia — junto con capacidades de analítica predictiva end-to-end. Te invitamos a un recorrido por nuestros marcos, punto de partida y roadmap de implementación.</p>
-      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para recorrer</div>
+      <div class="hero-scroll hero-scroll-cue reveal in reveal-d2"><span class="arrow">↓</span> <span>scroll para recorrer · ¿recién empezás? <a class="hero-scroll-alt" href="/academy/ACAD01_Paradigmas?pack=datasphere_core" target="_top">mirá lo que sabemos, contado simple →</a></span></div>
 
       <nav class="topic-nav reveal in reveal-d2" aria-label="Secciones">
         <a href="#marco">1 · Danwor For Business</a>
