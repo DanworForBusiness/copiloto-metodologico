@@ -1,0 +1,43 @@
+{# Resultado del dropdown de Catalogo: fichas de flujo ordenadas por mirada Danwor. #}
+{% set sevicon = {"alto": "🔴", "medio": "🟡", "nota": "🔵"} %}
+{% if not flows %}
+<p class="empty-panel">{% if dominio %}Sin flujos implementados para "{{ dominio }}".{% else %}Elegí un dominio.{% endif %}</p>
+{% else %}
+{% if foco == "fuentes" %}<p class="catalog-foco">Foco de este módulo: <strong>fuentes de integración</strong> (CDS / API corporativa).</p>
+{% elif foco == "capas" %}<p class="catalog-foco">Foco de este módulo: <strong>capas de modelado</strong>.</p>{% endif %}
+<ul class="catalog-flows-list">
+  {% for e in flows %}
+  <li class="catalog-card catalog-card--{{ e.veredicto|catalog_verdict_class }}"
+      role="link" tabindex="0" title="Ver detalle del flujo"
+      hx-get="/catalog/flow?cliente={{ e.cliente|urlencode }}&dominio={{ e.dominio|urlencode }}&pack={{ pack|default('datasphere_core') }}"
+      hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+    <p class="catalog-card__head">
+      <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+      <strong>{{ e.cliente }}</strong>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_class }}">{{ e.veredicto|catalog_verdict_label }}</span>
+    </p>
+    <p class="catalog-card__apto">{{ e.apto }}</p>
+    {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
+       "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
+    <p class="catalog-card__meta">{{ e.artefactos|length }} artefacto{{ "s" if e.artefactos|length != 1 }}</p>
+    {% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
+    {% if foco == "fuentes" and e.origenes %}
+    <details class="catalog-card__notes" onclick="event.stopPropagation()">
+      <summary>Ver fuentes ({{ e.origenes|length }})</summary>
+      <ul>{% for o in e.origenes %}<li>{{ o }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% if e.hallazgos %}
+    <details class="catalog-card__notes" onclick="event.stopPropagation()">
+      <summary>Ver notas ({{ e.hallazgos|length }})</summary>
+      <ul>
+        {% for h in e.hallazgos %}
+        <li><span class="catalog-note__sev">{{ sevicon.get(h.severidad, "•") }}</span> <strong>{{ h.titulo }}</strong>{% if h.evidencia %}<br><span class="catalog-note__ev">{{ h.evidencia }}</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

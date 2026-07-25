@@ -14,8 +14,8 @@
   color: var(--ink);
 }
 .copilot-panel .eyebrow, .copilot-panel .result-label, .copilot-panel .tool-empty span { color: var(--gold); }
-.tool-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 14px; border-bottom: 1px solid var(--line); }
-.tool-tabs button { padding: 12px 5px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--soft); font: 600 .68rem var(--sans); cursor: pointer; }
+.tool-tabs { display: flex; margin-top: 14px; border-bottom: 1px solid var(--line); }
+.tool-tabs button { flex: 1 1 0; min-width: 0; text-align: center; white-space: nowrap; padding: 12px 4px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--soft); font: 600 .68rem var(--sans); cursor: pointer; }
 .tool-tabs button:hover { color: var(--ink); }
 .tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
 .tool-tab-panel { padding-top: 24px; }
@@ -309,6 +309,10 @@
   margin: 0 0 2px auto;
 }
 .heading-supports .support-link { white-space: nowrap; }
+.heading-supports.catalog-cds-launch {
+  margin: 0 0 0 auto;
+  transform: translateY(-8px);
+}
 .content-heading.has-subtitle { margin-bottom: 8px; }
 .methodology .section-subtitle,
 .content-theme-light .methodology .section-subtitle,
@@ -741,6 +745,8 @@
   transition: opacity .25s ease;
 }
 .content-section:hover .section-feedback__bar,
+.catalog-lineage:hover .section-feedback__bar,
+.section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;
 }
@@ -848,3 +854,457 @@
   border-color: rgba(226,232,245,.14);
   color: var(--ink);
 }
+
+/* ── Pestaña Catálogo (índice determinístico de flujos CDS) ──────────────── */
+.catalog-flows-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.catalog-card { padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 10px; background: var(--card); }
+.catalog-card--plena { border-left-color: #2e9e5b; }
+.catalog-card--buena { border-left-color: #e7b008; }
+.catalog-card--parcial { border-left-color: #d98b2b; }
+.catalog-card__head { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: .9rem; color: var(--ink); }
+.catalog-card__icon { margin-right: 4px; }
+.catalog-card__verdict { display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono); text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; line-height: 1.25; }
+.catalog-card__verdict--plena { color: #2e9e5b; border-color: rgba(46,158,91,.42); background: rgba(46,158,91,.08); }
+.catalog-card__verdict--buena { color: #c89100; border-color: rgba(200,145,0,.42); background: rgba(200,145,0,.08); }
+.catalog-card__verdict--parcial { color: #d06f1f; border-color: rgba(208,111,31,.42); background: rgba(208,111,31,.08); }
+.catalog-card__apto { margin: 0 0 4px; color: var(--soft); font-size: .8rem; }
+.catalog-card__meta { margin: 0; color: var(--dim); font: 500 .66rem var(--mono); }
+.catalog-card__summary { margin: 8px 0 6px; padding-left: 9px; border-left: 2px solid var(--line); color: var(--soft); font-size: .76rem; line-height: 1.45; }
+.catalog-card--plena .catalog-card__summary { border-left-color: rgba(46,158,91,.48); }
+.catalog-card--buena .catalog-card__summary { border-left-color: rgba(200,145,0,.48); }
+.catalog-card--parcial .catalog-card__summary { border-left-color: rgba(208,111,31,.48); }
+.catalog-card__warn { margin: 6px 0 0; color: #c25a2b; font-size: .76rem; }
+.catalog-foco { margin: 0 0 10px; padding: 8px 10px; background: var(--gold-dim, #e7b0081a); border-left: 2px solid var(--gold); border-radius: 6px; font-size: .74rem; color: var(--ink); }
+.catalog-card__foco { margin: 4px 0; padding: 5px 8px; background: #e7b0081a; border-radius: 6px; font-size: .74rem; color: var(--ink); }
+.catalog-card__foco strong { color: var(--gold); }
+.catalog-card__detail { display: inline-block; margin-top: 10px; color: var(--gold); font: 600 .72rem var(--mono); text-decoration: none; }
+.catalog-card__detail:hover { text-decoration: underline; }
+.catalog-card__notes { margin-top: 8px; }
+.catalog-card__notes > summary { cursor: pointer; color: var(--gold); font: 500 .68rem var(--mono); text-transform: uppercase; letter-spacing: .04em; list-style: none; }
+.catalog-card__notes > summary::-webkit-details-marker { display: none; }
+.catalog-card__notes > summary::before { content: "+ "; }
+.catalog-card__notes[open] > summary::before { content: "− "; }
+.catalog-card__notes ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.catalog-card__notes li { font-size: .76rem; color: var(--ink); line-height: 1.4; overflow-wrap: anywhere; }
+.catalog-note__sev { margin-right: 4px; }
+.catalog-note__ev { color: var(--soft); font-size: .72rem; overflow-wrap: anywhere; }
+.content-theme-dark .catalog-card { background: #181819; }
+
+/* Detalle de flujo abierto en el slot: ocultamos el resto del módulo (sin
+   destruirlo, para no romper scroll-spy/observers/feedback). El slot y su
+   contenido quedan visibles. */
+#content.catalog-detail-open > :not(#catalog-detail-slot) { display: none; }
+
+/* Hero del detalle: el dominio es el título; cliente + semáforo son contexto.
+   El semáforo va como prefijo del "apto", no como emoji de header. El resto del
+   detalle (índice de secciones + artículo) reutiliza el estilo de contenido de
+   los módulos (.section-index / .methodology / .content-heading), no CSS propio. */
+.catalog-detail__apto { margin-top: 18px; }
+.catalog-detail__sem { margin-right: 2px; }
+.catalog-meta-dot { display: inline-block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; margin: 0; vertical-align: middle; background: var(--gold); }
+.catalog-meta-dot--plena { background: #2e9e5b; }
+.catalog-meta-dot--buena { background: #c89100; }
+.catalog-meta-dot--parcial { background: #d06f1f; }
+.content-section { scroll-margin-top: 16px; }
+
+/* Diagrama de linaje por capas (SVG server-side, temeable, nodos = anclas). */
+/* Espeja el bloque "EN ESTE MÓDULO" (.section-index): mismo padding. La LÍNEA DE
+   CIERRE se dibuja como elemento en el template (.catalog-flow-sep, con el color
+   inline) — NO en CSS — para que se vea al re-abrir el detalle por HTMX sin depender
+   de recargar tools.css. La de apertura la da el border-bottom del .module-hero. */
+.catalog-lineage { margin: 0; padding: 28px 0 36px; }
+.catalog-lineage figcaption { margin: 0 0 18px; color: var(--soft); text-transform: uppercase; font-size: .72rem; }
+.lineage-hint { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .7; }
+.lineage-toggle { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: .78rem; color: var(--soft); cursor: pointer; user-select: none; }
+.lineage-toggle input { accent-color: var(--gold); cursor: pointer; }
+.lineage-toggle em { font-style: normal; opacity: .7; }
+.catalog-lineage__scroll { overflow-x: auto; padding-bottom: 6px; }
+/* Micro-feedback del diagrama (dentro del figure de linaje/cobertura): aire arriba. */
+.catalog-lineage .section-feedback { margin-top: 12px; }
+.catalog-lineage__empty { color: var(--soft); font-size: .82rem; }
+.ln-edge--assoc { stroke-dasharray: 4 4; opacity: .55; }
+.lineage-svg { display: block; }
+.ln-col-label { font: 700 .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; fill: var(--gold); }
+.ln-node { fill: #fff; stroke: #d9d9d3; stroke-width: 1; transition: stroke .12s; }
+.content-theme-dark .ln-node { fill: #181819; stroke: #2c2c30; }
+.ln-node-a { cursor: pointer; }
+.ln-node-a:hover .ln-node { stroke: var(--gold); stroke-width: 1.5; }
+
+/* SVG de cobertura de roles (Seguridad de Roles). HERMANO de los otros SVG: los
+   nodos reusan .ln-node / .ln-node-text / .ln-node-subtext / hover de .ln-node-a
+   (misma tarjeta, tipografía y hover dorado). Lo propio de roles es solo el MARCO:
+   bandas de fondo = capa (color tenue) y columnas = entorno (DEV/QA/PRD). Grises con
+   alfa para que se vean en AMBOS temas (no --line, casi invisible en claro). */
+.roles-svg { display: block; width: 100%; height: auto; min-width: 720px; }
+.rl-band { fill: rgba(128,128,128,.05); }
+.rl-band--int { fill: rgba(47,111,237,.07); }
+.rl-band--mod { fill: rgba(124,77,255,.07); }
+.rl-band--con { fill: rgba(31,157,99,.07); }
+.rl-band--gov { fill: rgba(201,138,0,.08); }
+.rl-lyr { font: 700 .74rem var(--sans); }
+.rl-lyr--int { fill: #2f6fed; } .rl-lyr--mod { fill: #7c4dff; }
+.rl-lyr--con { fill: #1f9d63; } .rl-lyr--gov { fill: #c98a00; }
+.content-theme-dark .rl-lyr--int { fill: #6ea0ff; }
+.content-theme-dark .rl-lyr--mod { fill: #b79bff; }
+.content-theme-dark .rl-lyr--con { fill: #4fd08a; }
+.content-theme-dark .rl-lyr--gov { fill: #e7b008; }
+.rl-collabel { fill: #6b6b73; font: 700 .58rem var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.rl-envhead { fill: rgba(128,128,128,.08); stroke: rgba(128,128,128,.26); }
+.rl-env { fill: #19191b; font: 700 .68rem var(--mono); letter-spacing: .08em; }
+.rl-guide { stroke: rgba(128,128,128,.26); stroke-dasharray: 3 5; }
+.rl-badge-global { fill: #b8860b; }
+.content-theme-dark .rl-collabel { fill: #8b8b96; }
+.content-theme-dark .rl-env { fill: #e4e4ec; }
+.content-theme-dark .rl-badge-global { fill: var(--gold); }
+
+/* Banner de Novedades (What's New): barra fina arriba del contenido cuando hay un
+   anuncio mas nuevo que el ultimo visto. Acento dorado, theme-aware via --ink/--soft. */
+.whatsnew-banner { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin: 0 0 26px; padding: 11px 15px; border: 1px solid rgba(231,176,8,.35); border-radius: 10px;
+  background: rgba(231,176,8,.09); font-size: .82rem; color: #4a4a52; }
+.content-theme-dark .whatsnew-banner { color: #cfcfd6; }
+.whatsnew-banner__msg { display: flex; align-items: center; gap: 10px; line-height: 1.4; }
+.whatsnew-banner__mark { color: var(--gold); font-size: 1rem; }
+.whatsnew-banner__cta { color: var(--gold); font-weight: 600; white-space: nowrap; }
+.whatsnew-banner__cta:hover { text-decoration: underline; }
+.whatsnew-banner__close { flex: none; border: 0; background: transparent; color: #7a7a82;
+  font-size: .9rem; line-height: 1; cursor: pointer; padding: 4px 7px; border-radius: 6px; }
+.content-theme-dark .whatsnew-banner__close { color: #9a9aa2; }
+.whatsnew-banner__close:hover { color: inherit; background: rgba(128,128,128,.16); }
+/* Landing inmersivo (módulo 00): cuando hay banner adentro, el stage pasa a columna
+   flex y el iframe llena el resto. Vía :has() → no cambia la clase base (academy-stage
+   queda intacta para el resto/los tests); solo aplica si contiene el banner. */
+.academy-stage:has(> .whatsnew-banner) { display: flex; flex-direction: column; }
+.academy-stage > .whatsnew-banner { flex: none; margin: 12px 12px 0; }
+.academy-stage:has(> .whatsnew-banner) .academy-embed { flex: 1 1 auto; height: auto; min-height: 0; }
+
+/* Página de Novedades: filtros (categoría/fecha) + colapsables por fecha + items.
+   Colores explícitos por tema (no --ink, ilegible en claro); grises con alfa en bordes. */
+.whatsnew-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 4px 0 18px; }
+.whatsnew-filter { display: flex; flex-direction: column; gap: 5px; }
+.whatsnew-filter > span { color: #7a7a82; font: 600 .6rem var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.content-theme-dark .whatsnew-filter > span { color: #8b8b96; }
+.whatsnew-filter select { min-width: 190px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: inherit; font-size: .82rem; cursor: pointer; }
+.whatsnew-filter__clear { align-self: flex-end; border: 0; background: transparent; color: var(--gold);
+  font: 600 .76rem var(--sans); cursor: pointer; padding: 8px 4px; }
+.whatsnew-filter__clear:hover { text-decoration: underline; }
+.whatsnew-day { margin: 0 0 12px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; overflow: hidden; }
+.whatsnew-day__head { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px 16px;
+  border: 0; background: transparent; color: #1f1f24; cursor: pointer; text-align: left; }
+.content-theme-dark .whatsnew-day__head { color: #e4e4ec; }
+.whatsnew-day__head:hover { background: rgba(128,128,128,.07); }
+.whatsnew-day__caret { color: var(--gold); font-size: .8rem; width: 12px; }
+.whatsnew-day__date { font-weight: 700; font-size: .96rem; }
+.whatsnew-day__count { margin-left: auto; color: #7a7a82; font: 500 .7rem var(--mono); }
+.content-theme-dark .whatsnew-day__count { color: #8b8b96; }
+.whatsnew-day__body { padding: 0 16px 6px; }
+.whatsnew .catalog-flow-sep { margin-bottom: 20px; }   /* aire entre el separador y el 1er colapsable */
+.whatsnew-item { padding: 15px 0; border-top: 1px solid rgba(128,128,128,.16); }
+/* Badges (código de commit + categoría) al CIERRE del item: metadata, no protagonista. */
+.whatsnew-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 11px 0 0; }
+.whatsnew-item__badge { font: 600 .58rem var(--mono); text-transform: uppercase; letter-spacing: .05em;
+  color: #7a7a82; border: 1px solid rgba(128,128,128,.3); border-radius: 999px; padding: 2px 9px; }
+.content-theme-dark .whatsnew-item__badge { color: #9a9aa2; }
+.whatsnew-item__title { margin: 0 0 5px; font-size: 1rem; font-weight: 650; color: #1f1f24; }
+.content-theme-dark .whatsnew-item__title { color: #e4e4ec; }
+.whatsnew-item__detail { margin: 0; color: #55555c; font-size: .86rem; line-height: 1.55; }
+.content-theme-dark .whatsnew-item__detail { color: #b2b2bc; }
+.whatsnew-item__link { display: inline-block; margin-top: 8px; color: var(--gold); font-weight: 600; font-size: .82rem; }
+.whatsnew-item__link:hover { text-decoration: underline; }
+
+/* "¿Falta un árbol/catálogo?" — cierre de la caja punteada del tab (form árbol / link catálogo). */
+.tool-suggest { margin-top: 14px; }
+.tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
+.tool-suggest__link a { color: var(--gold); font-weight: 400; }
+.tool-suggest__link a strong { font-weight: 700; }
+.tool-suggest__link a:hover { text-decoration: underline; }
+.tool-suggest__box > summary { cursor: pointer; color: var(--gold); font: 600 .78rem var(--sans); list-style: none; padding: 6px 0; }
+.tool-suggest__box > summary::-webkit-details-marker { display: none; }
+.tool-suggest__box > summary span { opacity: .75; }
+.tool-suggest__form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.tool-suggest__form label { font-size: .74rem; color: var(--soft); }
+.tool-suggest__form input, .tool-suggest__form textarea { padding: 8px 10px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: .8rem; box-sizing: border-box; }
+.tool-suggest__form textarea { resize: vertical; }
+.tool-suggest__actions { display: flex; justify-content: flex-end; }
+.tool-suggest__send { border: 0; background: var(--gold); color: #0c0c0d; font-weight: 650; font-size: .76rem; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.tool-suggest__thanks { color: var(--soft); font-size: .8rem; padding: 8px 0; margin: 0; }
+
+/* La guía "Cómo publicar un catálogo" se cuenta como storytelling estilo Danwor
+   Academy (slides + rail) y se monta con el MISMO patrón que Academy: un
+   academy-stage con las slides embebidas en un iframe (catalog_guide.html →
+   catalog_guide_slides.html). Todo su estilo vive en dw-academy.css + el <style>
+   propio de las slides; acá no necesita CSS. */
+/* Lightbox de imágenes (lo dispara contenido embebido vía postMessage; ver app.js).
+   Solo la imagen sobre fondo oscuro, a pantalla completa del copiloto — cerrable. */
+.dw-lightbox { position: fixed; inset: 0; z-index: 9999; display: none; align-items: center;
+  justify-content: center; padding: 4vh 4vw; background: rgba(0,0,0,.82); }
+.dw-lightbox.is-open { display: flex; }
+.dw-lightbox img { max-width: 100%; max-height: 92vh; object-fit: contain; border-radius: 10px;
+  box-shadow: 0 30px 90px rgba(0,0,0,.6); }
+.dw-lightbox__close { position: absolute; top: 18px; right: 22px; width: 40px; height: 40px;
+  border-radius: 50%; border: 0; background: rgba(255,255,255,.14); color: #fff; font-size: 1.3rem;
+  line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.dw-lightbox__close:hover { background: rgba(255,255,255,.26); }
+.ln-num { font: 700 9px var(--mono); fill: var(--gold); }
+.ln-node-text { font: 500 10.5px system-ui, sans-serif; fill: #19191b; }
+.content-theme-dark .ln-node-text { fill: #e4e4ec; }
+.ln-edge { fill: none; stroke: #bdbdb7; stroke-width: 1.4; opacity: .75; }
+.content-theme-dark .ln-edge { stroke: #48484e; }
+.ln-arrowhead { fill: #bdbdb7; }
+.content-theme-dark .ln-arrowhead { fill: #48484e; }
+/* El índice del flujo lista identificadores CDS largos (sin espacios): una sola
+   columna y wrap defensivo (la grilla de 3 columnas del módulo asume títulos cortos). */
+.section-index--flow { grid-template-columns: 1fr; gap: 4px 0; }
+.section-index--flow a { overflow-wrap: anywhere; }
+.catalog-back { display:inline-block; margin-bottom:14px; color:var(--soft); font:500 .72rem var(--mono); text-decoration:none; }
+.catalog-back:hover { color:var(--gold); }
+.catalog-detail h1, .catalog-detail h2 { color: inherit; }  /* usa el color de contenido del tema, no --ink */
+.catalog-detail h2 { margin: 32px 0 14px; font-size: clamp(1.35rem, 2.4vw, 1.8rem); font-weight: 800; line-height: 1.12; letter-spacing: -.02em; }
+.catalog-card { cursor: pointer; overflow-wrap: anywhere; transition: background .15s, box-shadow .15s, transform .1s; }
+/* Hover: NO tocar el borde-izquierdo del semáforo; tinte suave del propio color del tile + leve elevación. */
+.catalog-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.08); transform: translateY(-1px); }
+.catalog-card--plena:hover { background: rgba(46,158,91,.07); }
+.catalog-card--buena:hover { background: rgba(231,176,8,.07); }
+.catalog-card--parcial:hover { background: rgba(217,139,43,.07); }
+.catalog-card__notes, .catalog-card__notes * { cursor: auto; }
+
+
+/* Catalogo: hallazgos de cumplimiento renderizados como tabla semaforizada. */
+.catalog-compliance { margin: 4px 0 18px; overflow-x: auto; }
+.catalog-compliance-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  color: #111827;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: .88rem;
+}
+.catalog-compliance-table th {
+  padding: 12px 14px;
+  color: var(--gold);
+  font: 700 .64rem var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-align: left;
+  background: rgba(231,176,8,.06);
+  border-bottom: 1px solid var(--line);
+}
+.catalog-compliance-table td {
+  padding: 13px 14px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.5;
+}
+.catalog-compliance-table tr:last-child td { border-bottom: 0; }
+.catalog-compliance__state { width: 106px; white-space: nowrap; }
+.catalog-compliance__finding { width: 32%; font-weight: 700; color: #111827; }
+.catalog-compliance__evidence { color: #243141; overflow-wrap: anywhere; }
+.catalog-compliance__muted { color: var(--dim); }
+.catalog-compliance__evidence-list {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: grid;
+  gap: 7px;
+}
+.catalog-compliance__evidence-list li {
+  display: block !important;
+  padding-left: 12px;
+  border-left: 2px solid rgba(231,176,8,.38);
+}
+.catalog-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 78px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font: 700 .62rem var(--mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.catalog-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.catalog-status--green { color: #2e9e5b; }
+.catalog-status--blue { color: #2f6fbd; }
+.catalog-status--amber { color: #c89100; }
+.catalog-status--orange { color: #d06f1f; }
+.catalog-status--red { color: #c43d32; }
+.content-theme-dark .catalog-compliance-table { background: #181819; color: var(--ink); }
+.content-theme-dark .catalog-compliance-table th { background: rgba(231,176,8,.08); }
+.content-theme-dark .catalog-compliance__finding { color: var(--ink); }
+.content-theme-dark .catalog-compliance__evidence { color: var(--soft); }
+
+.catalog-connection-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+.catalog-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; font: 600 .66rem var(--mono); color: var(--soft); background: var(--bg); }
+.catalog-pill--ok { color: #16784a; border-color: rgba(46,158,91,.35); background: rgba(46,158,91,.08); }
+.catalog-pill--muted { color: var(--dim); background: transparent; }
+.content-theme-dark .catalog-pill { background: #181819; }
+.content-theme-dark .catalog-pill--ok { color: #70d394; background: rgba(46,158,91,.12); }
+.catalog-feature-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; font-size: .78rem; color: var(--soft); }
+.catalog-feature-chip { display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font: 650 .62rem var(--mono); letter-spacing: .02em; }
+.catalog-feature-chip--on { color: #16784a; border-color: rgba(46,158,91,.35); background: rgba(46,158,91,.08); }
+.catalog-feature-chip--off { color: var(--dim); border-color: color-mix(in srgb, var(--line) 70%, transparent); background: color-mix(in srgb, var(--line) 18%, transparent); opacity: .58; }
+.content-theme-dark .catalog-feature-chip--on { color: #70d394; background: rgba(46,158,91,.12); }
+.content-theme-dark .catalog-feature-chip--off { background: rgba(255,255,255,.03); opacity: .52; }
+
+.catalog-card__features .catalog-feature-row { margin: 8px 0 0; }
+.catalog-card__notes > summary { cursor: pointer; }
+.catalog-card__alerts > summary { color: #d06f1f; }
+.catalog-card__alerts li {
+  padding-left: 10px;
+  border-left: 2px solid rgba(217,139,43,.38);
+}
+.catalog-feature-row--compact { margin: 7px 0 0; }
+.content-theme-dark .catalog-card__alerts li { border-left-color: rgba(217,139,43,.48); }
+
+/* Catalogo: diagrama de Arquitectura & Conectividad (conexiones -> espacios). */
+.catalog-connection-lineage .lineage-toggle { margin-bottom: 16px; }
+.conn-ds-box { fill: rgba(46,158,91,.055); stroke: rgba(46,158,91,.42); }
+.content-theme-dark .conn-ds-box { fill: rgba(46,158,91,.08); stroke: rgba(112,211,148,.38); }
+.conn-ds-title { font-weight: 750; opacity: .72; }
+.conn-space { fill: #fff; stroke: rgba(46,158,91,.28); }
+.conn-space-link { cursor: pointer; outline: none; }
+.conn-space-link .conn-space { transition: fill .14s ease, stroke .14s ease, stroke-width .14s ease; }
+.conn-space-link:focus .conn-space { stroke: var(--gold); stroke-width: 1.6; }
+.content-theme-dark .conn-space { fill: #181819; stroke: rgba(112,211,148,.28); }
+.conn-space-text { font-family: var(--mono); font-weight: 650; letter-spacing: .02em; }
+.conn-node-wrap--muted { opacity: .34; }
+.conn-edge { marker-end: url(#conn-arrow); }
+.conn-edge--muted { opacity: .24; }
+.catalog-connection-detail .methodology table {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+.catalog-connection-detail .methodology th,
+.catalog-connection-detail .methodology td {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+
+
+
+/* Tablas markdown con separadores semánticos y columnas equivalentes. */
+.methodology table.table-fixed-columns {
+  table-layout: fixed;
+  width: 100%;
+}
+.methodology table.table-fixed-columns th,
+.methodology table.table-fixed-columns td {
+  min-width: 0;
+  max-width: none;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* Separadores semánticos dentro de tablas markdown: `{{table_group: ...}}`. */
+.methodology tr.table-group-row td {
+  padding: 10px 13px;
+  border-bottom: 1px solid rgba(231,176,8,.34);
+  background: rgba(231,176,8,.14);
+  color: var(--gold);
+  font: 700 .7rem var(--mono);
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.content-theme-light .methodology tr.table-group-row td {
+  background: rgba(231,176,8,.16);
+  color: #8a6400;
+}
+.content-theme-dark .methodology tr.table-group-row td {
+  background: rgba(231,176,8,.12);
+  color: var(--gold);
+}
+
+
+.catalog-verdict-line { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.catalog-verdict-line .catalog-card__verdict { margin: 0; }
+
+/* Catalog hero meta: el separador pertenece entre piezas de metadata, no antes del badge interno. */
+.module-hero .hero-meta .catalog-verdict-line > span::before,
+.module-hero .hero-meta .catalog-verdict-line .catalog-card__verdict::before {
+  content: none !important;
+  margin: 0 !important;
+}
+.catalog-feedback { margin-top: 30px; }
+
+
+/* Bloques de codigo markdown con accion nativa de copia. Aplica al pipeline
+   reutilizado por modulos y catalogo CDS; no cambia el contenido fuente. */
+.methodology .code-copybox {
+  position: relative;
+  margin: 14px 0 18px;
+}
+.methodology .code-copybox pre {
+  margin: 0;
+  max-height: 520px;
+  overflow: auto;
+  padding: 18px 58px 18px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 90%, #000 10%);
+  color: var(--ink);
+  font: .76rem/1.55 var(--mono);
+  white-space: pre;
+  scrollbar-width: thin;
+}
+.content-theme-light .methodology .code-copybox pre {
+  background: #f6f7f9;
+}
+.content-theme-dark .methodology .code-copybox pre {
+  background: color-mix(in srgb, var(--card) 72%, #000 28%);
+}
+.methodology .code-copybtn {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--card) 96%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  transition: border-color .15s ease, color .15s ease, transform .12s ease, background .15s ease;
+}
+.methodology .code-copybtn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+.methodology .code-copybtn:hover,
+.methodology .code-copybtn:focus-visible {
+  border-color: var(--gold);
+  color: var(--gold);
+  transform: translateY(-1px);
+  outline: none;
+}
+.methodology .code-copybtn.is-copied {
+  border-color: #2e9e5b;
+  color: #2e9e5b;
+}
+
+
+.catalog-card__open {
+  width: 100%; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--ink); cursor: pointer;
+  font: 500 .78rem var(--sans); text-align: center;
+}
+.catalog-card__open:hover { border-color: var(--gold); color: var(--gold); }
+.content-theme-dark .catalog-card__open { background: #181819; }
+.ln-node-subtext { font: 500 9px system-ui, sans-serif; fill: var(--soft); }
+.catalog-security-lineage .security-dac-node { stroke: var(--gold); }

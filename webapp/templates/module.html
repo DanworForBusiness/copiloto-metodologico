@@ -2,7 +2,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }}, '{{ initial_tab }}')"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
@@ -56,18 +56,32 @@
 
   {% if immersive %}
   <main id="content" class="academy-stage">
+    {% if whatsnew_unseen %}{% include "partials/whats_new_banner.html" %}{% endif %}
     <iframe class="content-embed academy-embed" src="{{ iframe_src }}" title="{{ document.summary.title }}" loading="lazy"></iframe>
   </main>
   {% else %}
   <main id="content" class="module-content">
+    {% if whatsnew_unseen %}{% include "partials/whats_new_banner.html" %}{% endif %}
     {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
     {% set diagnostic_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
+    {# La pestaña Catálogo se muestra cuando hay catálogo generado, EXCEPTO en el
+       módulo 05 (Reporting y Consumo): hoy resolvería "Dominio", que no aplica ahí.
+       Se oculta hasta armar su catálogo propio. #}
+    {% set show_catalog = catalog_domains and document.summary.number|string != "05" and not document.summary.stem.startswith("05_") %}
     <section id="__module__" class="module-hero">
       <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
       <h1>{{ document.summary.title }}</h1>
       <div class="hero-meta">
         <span>{{ document.sections|length }} secciones</span>
         {% if decision_trees %}<span>{{ decision_trees|length }} {{ "árbol asociado" if decision_trees|length == 1 else "árboles asociados" }}</span>{% endif %}
+        {# Cantidad de catálogos disponibles para este módulo (mismo criterio que la pestaña Catálogo:
+           01 → orígenes de conexión, 02 → artefactos de seguridad, resto → dominios). Se muestra solo
+           cuando la pestaña Catálogo está visible (gateada por catalog_domains). #}
+        {% set _modnum = document.summary.number|string %}
+        {% if _modnum == "01" or document.summary.stem.startswith("01_") %}{% set _catalog_count = catalog_connection_types|length %}
+        {% elif _modnum == "02" or document.summary.stem.startswith("02_") %}{% set _catalog_count = catalog_security_families|length %}
+        {% else %}{% set _catalog_count = catalog_domains|length %}{% endif %}
+        {% if show_catalog and _catalog_count %}<span>{{ _catalog_count }} {{ "catálogo disponible" if _catalog_count == 1 else "catálogos disponibles" }}</span>{% endif %}
         {% if diagnostic_trees %}<span>{{ diagnostic_trees|length }} {{ "diagnóstico asociado" if diagnostic_trees|length == 1 else "diagnósticos asociados" }}</span>{% endif %}
       </div>
     </section>
@@ -90,6 +104,10 @@
       <span class="module-continue-next">↻ {{ loop_home.stem.split('_')[0] }} · {{ loop_home.title }}</span>
     </a>
     {% endif %}
+    {# Slot para el detalle de un flujo del catálogo: el detalle se swapea acá y
+       #content toma la clase .catalog-detail-open, que oculta el módulo sin
+       destruirlo (scroll-spy/observers/feedback intactos). Ver app.js. #}
+    <div id="catalog-detail-slot"></div>
   </main>
   {% endif %}
 
@@ -103,6 +121,7 @@
       <nav class="tool-tabs" role="tablist" aria-label="Herramientas del módulo">
         {% if not readonly %}<button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='tree'" :class="toolTab==='tree'&&'is-active'" :aria-selected="toolTab==='tree'">Árbol</button>
+        {% if show_catalog %}<button type="button" role="tab" @click="toolTab='catalogo'" :class="toolTab==='catalogo'&&'is-active'" :aria-selected="toolTab==='catalogo'">Catálogo</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='assistant'" :class="toolTab==='assistant'&&'is-active'" :aria-selected="toolTab==='assistant'">Asistente</button>
       </nav>
 
@@ -169,6 +188,12 @@
           <div id="assistant-chat-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Obteniendo la mejor respuesta...</span></div>
         </form>
       </section>
+
+      {% if show_catalog %}
+      <section class="tool-tab-panel" x-cloak x-show="toolTab==='catalogo'" role="tabpanel">
+        {% include "partials/catalog_tab.html" %}
+      </section>
+      {% endif %}
     </div>
     {% endif %}
 

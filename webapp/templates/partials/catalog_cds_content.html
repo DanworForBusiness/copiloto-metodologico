@@ -1,0 +1,22 @@
+{# Código de una CDS view (extractor corporativo). Se renderiza con la MISMA
+   estructura que el detalle de un flujo (hero + artículo .methodology), así hereda
+   el look & feel del copiloto. Se abre desde el botón "Abrir CDS View"; "Volver"
+   re-abre el flujo de origen (cliente+dominio) en el mismo slot HTMX. #}
+<a class="catalog-back" href="#"
+   hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}&pack={{ pack }}"
+   hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver al flujo</a>
+<section class="module-hero">
+  <p class="eyebrow">Catálogo Danwor · API corporativa{% if cliente %} · {{ cliente }}{% endif %}</p>
+  <h1>{{ cds_title }}</h1>
+  {% if cds_intro %}<p class="hero-lead">{{ cds_intro }}</p>{% endif %}
+  <div class="hero-meta">
+    <span><code>{{ cds_name }}</code></span>
+    {% if tabla_base %}<span>Tabla base <code>{{ tabla_base }}</code></span>{% endif %}
+    {% if extraccion %}<span>Extracción {{ extraccion }}</span>{% endif %}
+  </div>
+</section>
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+<article class="methodology catalog-detail">
+  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}</section>{% endfor %}
+</article>
+{% include "partials/catalog_feedback.html" %}

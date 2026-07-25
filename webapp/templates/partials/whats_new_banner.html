@@ -1,0 +1,12 @@
+{# Banner minimalista de Novedades. Aparece arriba del contenido cuando hay un anuncio
+   más nuevo que el último visto por el usuario (cookie dw-whatsnew-seen). La ✕ hace
+   POST /whats-new/dismiss (marca visto server-side, SameSite=None) y se quita solo. #}
+<div id="whatsnew-banner" class="whatsnew-banner" role="status">
+  <span class="whatsnew-banner__msg">
+    <span class="whatsnew-banner__mark" aria-hidden="true">🚀</span>
+    <span>¡Ahoy! Vos que lo pediste: hay contenido nuevo desde tu último ingreso.
+      <a class="whatsnew-banner__cta" href="/whats-new?pack={{ pack }}">Si querés saber más, clickeá acá →</a></span>
+  </span>
+  <button type="button" class="whatsnew-banner__close" title="Cerrar" aria-label="Cerrar novedades"
+          hx-post="/whats-new/dismiss" hx-target="#whatsnew-banner" hx-swap="outerHTML">✕</button>
+</div>

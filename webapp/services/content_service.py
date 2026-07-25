@@ -27,6 +27,10 @@ EMBED_RE = re.compile(r"^\s*\{\{html_embed\s*:\s*([^\s}]+)([^}]*)\}\}\s*$", re.I
 EMBED_PARAM_RE = re.compile(r'([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s}]+))', re.I)
 SUPPORT_RE = re.compile(r"^\s*\{\{support\s*:\s*(.*?)\}\}\s*$", re.I | re.M)
 LEADING_SUPPORT_RE = re.compile(r"\A\s*(\{\{support\s*:\s*.*?\}\})\s*", re.I)
+LEADING_HEADING_SUPPORT_HTML_RE = re.compile(
+    r'\A\s*(<div\b(?=[^>]*\bsupport-links\b)(?=[^>]*\bheading-supports\b)[^>]*>.*?</div>)\s*',
+    re.I | re.S,
+)
 SUPPORT_ITEM_RE = re.compile(r'([A-Za-z0-9 _-]+)\s*=\s*"([^"]+)"')
 TONE_RE = re.compile(r"\{dw-(black|gold|white|green|red)\}", re.I)
 CALLOUT_RE = re.compile(r"\{\{callout:(.*?)\}\}(.*?)\{\{/callout\}\}", re.I | re.S)
@@ -39,6 +43,7 @@ CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
 TREE_BUTTON_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I | re.M)
 INTERNAL_TOKEN_LINE_RE = re.compile(r"^\s*\{\{.*?\}\}\s*$", re.M)
 PIPE_LINK_RE = re.compile(r"^([ \t]*(?:[-*]\s+)?)?(.+?)\s*\|\s*\[Link\]\((https?://[^)]+)\)\s*$", re.I | re.M)
+TABLE_GROUP_CELL_RE = re.compile(r"\{\{\s*table_group\s*:\s*(.*?)\s*\}\}", re.I | re.S)
 
 
 @dataclass(frozen=True)
@@ -182,8 +187,98 @@ def _extract_heading_supports(source: str) -> tuple[str, str]:
         support_groups.append(token.group(1))
         remaining = remaining[match.end():]
     raw_params = " ".join(support_groups)
-    return remaining, _support_links_html(raw_params, heading=True)
+    heading_html = _support_links_html(raw_params, heading=True)
+    while match := LEADING_HEADING_SUPPORT_HTML_RE.match(remaining):
+        heading_html += match.group(1)
+        remaining = remaining[match.end():]
+    return remaining, heading_html
 
+
+
+def _table_group_rows_html(rendered: str) -> str:
+    """Convierte filas markdown `{{table_group: Titulo}}` en separadores colspan.
+
+    Markdown no soporta `colspan`. La convención permite escribir una fila normal
+    dentro de una tabla, por ejemplo `| {{table_group: Identificación}} | |`, y
+    resolverla visualmente sin acoplar el generador a HTML.
+    """
+    row_re = re.compile(r"<tr>\s*(?P<cells>(?:<td>.*?</td>\s*)+)</tr>", re.I | re.S)
+    cell_re = re.compile(r"<td>(?P<value>.*?)</td>", re.I | re.S)
+
+    def repl(match: re.Match[str]) -> str:
+        cells = cell_re.findall(match.group("cells") or "")
+        if not cells:
+            return match.group(0)
+        group_match = TABLE_GROUP_CELL_RE.fullmatch((cells[0] or "").strip())
+        if not group_match:
+            return match.group(0)
+        trailing = [
+            re.sub(r"(?:<br\s*/?>|\s|&nbsp;)*", "", cell or "", flags=re.I)
+            for cell in cells[1:]
+        ]
+        if any(trailing):
+            return match.group(0)
+        label = html.escape(group_match.group(1).strip())
+        colspan = max(1, len(cells))
+        return f'<tr class="table-group-row"><td colspan="{colspan}">{label}</td></tr>'
+
+    return row_re.sub(repl, rendered or "")
+
+
+def _fixed_column_tables_html(rendered: str) -> str:
+    """Agrega columnas de ancho uniforme a tablas con separadores `table_group`."""
+    table_re = re.compile(r"<table>(?P<body>.*?)</table>", re.I | re.S)
+    header_re = re.compile(
+        r"<thead>\s*<tr>\s*(?P<cells>(?:<th\b[^>]*>.*?</th>\s*)+)</tr>\s*</thead>",
+        re.I | re.S,
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        table = match.group(0)
+        if "table-group-row" not in table:
+            return table
+        header = header_re.search(table)
+        if not header:
+            return table
+        count = len(re.findall(r"<th\b", header.group("cells"), re.I))
+        if count <= 1:
+            return table
+        width = f"{100 / count:.6f}%"
+        colgroup = "<colgroup>" + "".join(
+            f'<col style="width:{width}">' for _ in range(count)
+        ) + "</colgroup>"
+        table = table.replace("<table>", '<table class="table-fixed-columns">', 1)
+        return table.replace(
+            '<table class="table-fixed-columns">',
+            f'<table class="table-fixed-columns">{colgroup}',
+            1,
+        )
+
+    return table_re.sub(repl, rendered or "")
+
+
+def _copyable_code_blocks_html(rendered: str) -> str:
+    """Envuelve bloques fenced_code con una accion de copia reutilizable."""
+    pre_re = re.compile(r"<pre><code(?P<attrs>[^>]*)>(?P<code>.*?)</code></pre>", re.I | re.S)
+
+    def repl(match: re.Match[str]) -> str:
+        block = match.group(0)
+        if "code-copybox" in block:
+            return block
+        return (
+            '<div class="code-copybox">'
+            '<button type="button" class="code-copybtn" data-copy-code '
+            'aria-label="Copiar código" title="Copiar código">'
+            '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+            '<rect x="8" y="8" width="11" height="11" rx="2"></rect>'
+            '<rect x="5" y="5" width="11" height="11" rx="2"></rect>'
+            '</svg>'
+            '</button>'
+            f'{block}'
+            '</div>'
+        )
+
+    return pre_re.sub(repl, rendered or "")
 
 
 def _sap_note_table_links_html(source: str) -> str:
@@ -409,7 +504,22 @@ def load_module(stem: str, pack_name: str = "datasphere_core") -> ModuleDocument
         summary = _summary(path)
     source = summary.path.read_text(encoding="utf-8", errors="ignore")
     meta, body = split_front_matter(source)
-    headings, base, sections = list(H2_RE.finditer(body)), _section_base(stem, pack_name), []
+    sections = render_sections(body, pack_name, stem, _section_base(stem, pack_name))
+    return ModuleDocument(
+        summary,
+        str(meta.get("scope") or "").strip(),
+        tuple(map(str, meta.get("guardrails") or ())),
+        sections,
+        source,
+    )
+
+
+def render_sections(body: str, pack_name: str = "", stem: str = "", base: int = 0) -> tuple[ModuleSection, ...]:
+    """Parsea un markdown en secciones por `## ` y las renderiza con el look de
+    contenido del copiloto (content-heading + eyebrow numerado, subtítulo `>`,
+    tablas). Reutilizable fuera de los módulos (p. ej. el detalle de un flujo del
+    catálogo) para que la renderización sea la MISMA, no una réplica visual."""
+    headings, sections = list(H2_RE.finditer(body)), []
     for offset, match in enumerate(headings):
         end = headings[offset + 1].start() if offset + 1 < len(headings) else len(body)
         title, styled = _styled_title(match.group(1))
@@ -418,6 +528,9 @@ def load_module(stem: str, pack_name: str = "datasphere_core") -> ModuleDocument
         prepared = _prepare(section_body, pack_name, stem)
         has_subtitle = prepared.lstrip().startswith(">")
         rendered = markdown.markdown(prepared, extensions=["tables", "fenced_code", "sane_lists"])
+        rendered = _table_group_rows_html(rendered)
+        rendered = _fixed_column_tables_html(rendered)
+        rendered = _copyable_code_blocks_html(rendered)
         if has_subtitle:
             rendered = rendered.replace("<blockquote>", '<blockquote class="section-subtitle">', 1)
         number = base + offset + 1
@@ -428,10 +541,4 @@ def load_module(stem: str, pack_name: str = "datasphere_core") -> ModuleDocument
             f'<h2>{styled}</h2></div>{heading_supports}</header>{rendered}'
         )
         sections.append(ModuleSection(number, title, slugify(title), rendered, section_markdown))
-    return ModuleDocument(
-        summary,
-        str(meta.get("scope") or "").strip(),
-        tuple(map(str, meta.get("guardrails") or ())),
-        tuple(sections),
-        source,
-    )
+    return tuple(sections)

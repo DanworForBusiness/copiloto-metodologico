@@ -1,0 +1,72 @@
+{# Resultado del dropdown de Arquitectura/Conectividad: conexiones agrupadas por cliente. #}
+{% if not groups %}
+<p class="empty-panel">{% if type_label %}Sin conexiones detectadas para "{{ type_label }}".{% else %}Elegí un origen.{% endif %}</p>
+{% else %}
+<ul class="catalog-flows-list catalog-connections-list">
+  {% for g in groups %}
+  <li class="catalog-card catalog-connection-card catalog-card--{{ g.verdict|catalog_verdict_class }}" tabindex="0"
+      hx-get="/catalog/connections/detail?cliente={{ g.cliente|urlencode }}&type_id={{ type_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
+      hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+    <p class="catalog-card__head">
+      <span class="catalog-meta-dot catalog-meta-dot--{{ g.verdict|catalog_verdict_class }}" aria-hidden="true"></span>
+      <strong>{{ g.cliente }}</strong>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ g.verdict|catalog_verdict_class }}">{{ g.verdict|catalog_verdict_label }}</span>
+    </p>
+    <p class="catalog-card__apto">{{ g.verdict|catalog_verdict_text }}</p>
+    {% if g.connection_label %}
+    <p class="catalog-card__meta">{{ g.connection_label }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
+    {% else %}
+    <p class="catalog-card__meta">{{ type_label }} en {{ g.spaces|join(" · ") }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
+    {% endif %}
+    <div class="catalog-connection-badges">
+      <span class="catalog-pill catalog-pill--{{ 'ok' if g.dp_agent else 'muted' }}">DP Agent: {{ 'Sí' if g.dp_agent else 'No' }}</span>
+      <span class="catalog-pill catalog-pill--{{ 'ok' if g.cloud_connector else 'muted' }}">Cloud Connector: {{ 'Sí' if g.cloud_connector else 'No' }}</span>
+    </div>
+    {% if g.feature_states %}
+    <details class="catalog-card__notes catalog-card__features" onclick="event.stopPropagation()">
+      <summary>Ver features</summary>
+      <div class="catalog-feature-row">
+        {% for feature in g.feature_states %}
+        <span class="catalog-feature-chip catalog-feature-chip--{{ 'on' if feature.enabled else 'off' }}">{{ feature.label }}</span>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    <details class="catalog-card__notes" onclick="event.stopPropagation()">
+      <summary>Ver conexiones ({{ g.connections|length }})</summary>
+      <ul>
+        {% for c in g.connections %}
+        <li>
+          <strong>{{ c.space }}</strong> · {{ c.connection }}
+          {% if c.remote_source %}<br><span class="catalog-note__ev">{{ c.remote_source }}</span>{% endif %}
+          {% if c.agent %}<br><span class="catalog-note__ev">Agente: {{ c.agent }}{% if c.agent_status %} · {{ c.agent_status }}{% endif %}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% if g.alerts %}
+    <details class="catalog-card__notes catalog-card__alerts" onclick="event.stopPropagation()">
+      <summary>Ver alerta{{ "s" if g.alerts|length != 1 else "" }} ({{ g.alerts|length }})</summary>
+      <ul>
+        {% for alert in g.alerts %}
+        <li>
+          <strong>{{ alert.label }}</strong>
+          {% if alert.spaces %}<br><span class="catalog-note__ev">Espacios: {{ alert.spaces|join(" · ") }}</span>{% endif %}
+          <br><span class="catalog-note__ev">{{ alert.reason }}</span>
+          <br><span class="catalog-note__ev">DP Agent: {{ 'Sí' if alert.dp_agent else 'No' }} · Cloud Connector: {{ 'Sí' if alert.cloud_connector else 'No' }}</span>
+          {% if alert.feature_states %}
+          <div class="catalog-feature-row catalog-feature-row--compact">
+            {% for feature in alert.feature_states %}
+            <span class="catalog-feature-chip catalog-feature-chip--{{ 'on' if feature.enabled else 'off' }}">{{ feature.label }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

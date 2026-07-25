@@ -1,4 +1,4 @@
-function copilotLayout(activeGroup = "core", readonly = false) {
+function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") {
   // Retrocompat: antes recibía un booleano isAppendix.
   if (activeGroup === true) activeGroup = "appendix";
   else if (activeGroup === false) activeGroup = "core";
@@ -10,7 +10,9 @@ function copilotLayout(activeGroup = "core", readonly = false) {
     // En perfil de solo lectura la pestaña Sección (análisis IA) se oculta; arrancamos
     // en Asistente (router determinista que sirve contenido curado; la salida LLM se
     // reemplaza por un aviso, ver assistant_chat).
-    toolTab: readonly ? "assistant" : "section",
+    // `initialTab` permite que una URL (p. ej. un link de Novedades → ?tab=catalogo)
+    // posicione el panel derecho en una pestaña puntual; si no viene, el default.
+    toolTab: initialTab || (readonly ? "assistant" : "section"),
     activeSection: "",
     // Grupos colapsables del nav izquierdo (Core / Apéndices / Danwor Academy).
     // Abrimos el grupo del documento activo y dejamos los otros colapsados. Al
@@ -91,19 +93,25 @@ function copilotLayout(activeGroup = "core", readonly = false) {
       // intención, pasar al siguiente (además del click en el cue .module-continue).
       // Requiere overscroll deliberado (umbral + reset por inactividad) para no
       // disparar con la inercia de llegar al fondo.
-      const continueEl = shell.querySelector(".module-continue");
-      if (contentEl && continueEl) {
-        const nextUrl = continueEl.getAttribute("href");
+      // Re-consultamos .module-continue en cada evento (no lo cacheamos): así, si
+      // el panel central muestra un contenido sin cue (p.ej. el detalle de un
+      // flujo del catálogo), el overscroll no navega a ningún lado — la línea de
+      // storytelling no continúa donde no corresponde. Con el detalle abierto el
+      // módulo sigue en el DOM (oculto), así que además cortamos por la clase.
+      if (contentEl) {
         let overscroll = 0, navigating = false, idle = null;
         contentEl.addEventListener("wheel", event => {
           if (navigating) return;
+          if (contentEl.classList.contains("catalog-detail-open")) { overscroll = 0; return; }
+          const continueEl = contentEl.querySelector(".module-continue");
+          if (!continueEl) { overscroll = 0; return; }
           const atBottom = contentEl.scrollTop + contentEl.clientHeight >= contentEl.scrollHeight - 2;
           if (event.deltaY > 0 && atBottom) {
             overscroll += event.deltaY;
             continueEl.classList.add("is-armed");
             clearTimeout(idle);
             idle = setTimeout(() => { overscroll = 0; continueEl.classList.remove("is-armed"); }, 700);
-            if (overscroll > 320) { navigating = true; window.location.href = nextUrl; }
+            if (overscroll > 320) { navigating = true; window.location.href = continueEl.getAttribute("href"); }
           } else {
             overscroll = 0;
             continueEl.classList.remove("is-armed");
@@ -303,6 +311,130 @@ document.body.addEventListener("htmx:afterRequest", event => {
   }
 });
 
+// Detalle de flujo del catálogo: el detalle se swapea en un slot dedicado
+// (#catalog-detail-slot) DENTRO de #content, y solo OCULTAMOS el módulo (no lo
+// destruimos). Así el scroll-spy, los IntersectionObserver y los formularios de
+// feedback — inicializados una sola vez con referencias a esos nodos — quedan
+// intactos; "Volver" solo desoculta, sin recargar (lo que reiniciaba el panel
+// derecho). Guardamos el scroll del módulo para restaurarlo al volver.
+let dwModuleScroll = 0;
+window.dwCatalogBack = function () {
+  const content = document.getElementById("content");
+  const slot = document.getElementById("catalog-detail-slot");
+  if (content && slot && content.classList.contains("catalog-detail-open")) {
+    content.classList.remove("catalog-detail-open");
+    slot.replaceChildren();
+    content.scrollTop = dwModuleScroll || 0;
+    return false;
+  }
+  // Fallback (p. ej. se entró al detalle por URL directa: no hay módulo debajo).
+  window.location.reload();
+  return false;
+};
+
+// Lightbox de imágenes para contenido embebido (p. ej. la guía "Cómo publicar",
+// cuyas slides viven en un iframe). El iframe pide ampliar por postMessage y el
+// PADRE muestra la imagen sola sobre fondo oscuro, a pantalla completa del
+// copiloto — no un dialog confinado al iframe. Cierra con ✕, click afuera o Esc.
+function dwShowLightbox(src) {
+  if (!src) return;
+  let ov = document.getElementById("dw-lightbox");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "dw-lightbox";
+    ov.className = "dw-lightbox";
+    ov.innerHTML = '<button class="dw-lightbox__close" type="button" aria-label="Cerrar">&times;</button><img alt="Captura ampliada">';
+    document.body.appendChild(ov);
+    const close = () => ov.classList.remove("is-open");
+    ov.addEventListener("click", e => { if (e.target === ov || e.target.classList.contains("dw-lightbox__close")) close(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+  }
+  ov.querySelector("img").src = src;
+  ov.classList.add("is-open");
+}
+// Regeneración self-service pedida desde un iframe embebido (la guía "Cómo
+// publicar"). El token de Graph vive en el sessionStorage del copiloto (este
+// contexto), no en el del iframe; por eso el POST lo hace el PADRE y devuelve el
+// resultado al iframe que lo pidió.
+function dwRunRegenerate(source) {
+  let token = "";
+  try { token = sessionStorage.getItem("dw-graph-token") || ""; } catch (e) {}
+  const reply = (ok, message) => {
+    if (source) { try { source.postMessage({ type: "dw-regenerate-result", ok: ok, message: message }, window.location.origin); } catch (e) {} }
+  };
+  fetch("/catalog/regenerate", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ graph_token: token }),
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => reply(!!d.ok, String(d.message || "")))
+    .catch(() => reply(false, "No se pudo regenerar. Reintentá en unos segundos."));
+}
+window.addEventListener("message", event => {
+  if (event.origin !== window.location.origin) return;   // solo mensajes del mismo origen
+  const d = event.data;
+  if (!d) return;
+  if (d.type === "dw-lightbox") dwShowLightbox(d.src);
+  else if (d.type === "dw-regenerate") dwRunRegenerate(event.source);
+});
+
+async function copyTextToClipboard(text) {
+  if (!text) return false;
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  textarea.remove();
+  return ok;
+}
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("[data-copy-code]");
+  if (!button) return;
+  const box = button.closest(".code-copybox");
+  const code = box?.querySelector("pre code");
+  if (!code) return;
+  event.preventDefault();
+  try {
+    const copied = await copyTextToClipboard(code.innerText || code.textContent || "");
+    if (!copied) return;
+    button.classList.add("is-copied");
+    button.setAttribute("aria-label", "Código copiado");
+    button.setAttribute("title", "Código copiado");
+    window.setTimeout(() => {
+      button.classList.remove("is-copied");
+      button.setAttribute("aria-label", "Copiar código");
+      button.setAttribute("title", "Copiar código");
+    }, 1400);
+  } catch (error) {
+    console.warn("No se pudo copiar el codigo", error);
+  }
+});
+
+// Detalle de flujo abierto (catalog-detail-open): los links de ancla internos
+// (índice de secciones = linaje, y las referencias entre artefactos) scrollean a
+// su sección con scrollIntoView. El salto nativo por #hash es poco fiable dentro
+// de un fragmento swapeado con contenedor de scroll ambiguo.
+document.addEventListener("click", event => {
+  const content = document.getElementById("content");
+  if (!content || !content.classList.contains("catalog-detail-open")) return;
+  const a = event.target.closest('a[href^="#"]');
+  if (!a || !content.contains(a)) return;
+  const el = document.getElementById(a.getAttribute("href").slice(1));
+  if (!el) return;
+  event.preventDefault();
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 function syncAssistantFeedbackState() {
   const exchanges = [...document.querySelectorAll("#assistant-conversation > .assistant-exchange")];
   exchanges.forEach((exchange, index) => {
@@ -320,6 +452,19 @@ document.body.addEventListener("htmx:afterSwap", event => {
   }
   if (event.detail.target?.id === "assistant-conversation") {
     syncAssistantFeedbackState();
+  }
+  // Detalle de flujo del catálogo cargado en su slot: ocultar el módulo (sin
+  // destruirlo) y arrancar el detalle desde arriba. Guardamos el scroll del
+  // módulo para restaurarlo en dwCatalogBack().
+  if (event.detail.target?.id === "catalog-detail-slot") {
+    const content = document.getElementById("content");
+    if (content) {
+      if (!content.classList.contains("catalog-detail-open")) {
+        dwModuleScroll = content.scrollTop;
+      }
+      content.classList.add("catalog-detail-open");
+      content.scrollTop = 0;
+    }
   }
 });
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);

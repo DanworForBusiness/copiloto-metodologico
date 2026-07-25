@@ -1,0 +1,44 @@
+{# Detalle central de Seguridad/DAC del cat?logo. #}
+<a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a>
+<section class="module-hero">
+  <p class="eyebrow">Catálogo Danwor &middot; {{ entry.cliente }}</p>
+  <h1>Seguridad &amp; Gobernanza</h1>
+  <div class="hero-meta">
+    <span class="catalog-verdict-line">
+      <span class="catalog-meta-dot catalog-meta-dot--{{ entry.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ entry.veredicto|catalog_verdict_class }}">{{ entry.veredicto|catalog_verdict_label }}</span>
+      <span>{{ entry.apto }}</span>
+    </span>
+    {% if entry.family == "roles" %}
+    <span>{{ entry.role_count }} rol{{ "es" if entry.role_count != 1 }} &middot; {{ entry.permission_count }} privilegio{{ "s" if entry.permission_count != 1 }}</span>
+    {% else %}
+    <span>{{ entry.consumers }} vista{{ "s" if entry.consumers != 1 }} consumidoras</span>
+    {% endif %}
+  </div>
+</section>
+
+{% if entry.family == "roles" and lineage_svg %}
+<figure class="catalog-lineage catalog-roles-lineage">
+  <figcaption>Cobertura de roles <span class="lineage-hint">&mdash; capa de Datasphere &times; entorno (DEV/QA/PRD); cada recuadro abarca el alcance del rol, los globales la envolvente de su capa</span></figcaption>
+  {{ lineage_svg|safe }}
+  {% with cliente=entry.cliente, dominio=entry.criterio, slug="diagrama-roles", fb_prompt="¿Te resultó útil este diagrama?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
+</figure>
+{% endif %}
+{% if entry.family != "roles" %}
+<figure class="catalog-lineage catalog-security-lineage">
+  <figcaption>Seguridad DAC <span class="lineage-hint">&mdash; entidad de permisos &rarr; DAC{% if show_lineage %} &rarr; vistas consumidoras{% endif %}</span></figcaption>
+  <label class="lineage-toggle">
+    <input type="checkbox" {% if show_lineage %}checked{% endif %}
+           hx-get="/catalog/security/detail?cliente={{ entry.cliente|urlencode }}&criterio={{ entry.criterio|urlencode }}&dac={{ entry.dac|urlencode }}&pack={{ pack }}&lineage={{ 0 if show_lineage else 1 }}"
+           hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="change">
+    Incluir linaje <em>vistas consumidoras referenciales</em>
+  </label>
+  {{ lineage_svg|safe }}
+  {% with cliente=entry.cliente, dominio=entry.criterio, slug="diagrama-dac", fb_prompt="¿Te resultó útil este diagrama?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
+</figure>
+{% endif %}
+
+<article class="methodology catalog-detail catalog-security-detail">
+  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}</section>{% endfor %}
+</article>
+{% include "partials/catalog_feedback.html" %}

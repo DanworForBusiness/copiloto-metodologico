@@ -1,0 +1,41 @@
+{# Micro-feedback por sección del detalle de catálogo (simil section_feedback de los
+   módulos). Identifica la sección por cliente+dominio+slug. Cada widget tiene su id
+   (catalog-sfb-<slug>) para el swap HTMX. 👍 registra al toque; 👎 despliega comentario. #}
+<div id="catalog-sfb-{{ slug }}" class="section-feedback">
+  {% if submitted %}
+  <p class="section-feedback__thanks" role="status">
+    <span class="section-feedback__emoji">{{ "&#128077;"|safe if rating == "up" else "&#128078;"|safe }}</span> &iexcl;Gracias!
+  </p>
+  {% elif form %}
+  <form class="section-feedback__form"
+        hx-post="/catalog/section-feedback/submit"
+        hx-target="#catalog-sfb-{{ slug }}" hx-swap="outerHTML">
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="cliente" value="{{ cliente }}">
+    <input type="hidden" name="dominio" value="{{ dominio }}">
+    <input type="hidden" name="slug" value="{{ slug }}">
+    <input type="hidden" name="fb_prompt" value="{{ fb_prompt }}">
+    <label class="section-feedback__formlabel" for="csfc-{{ slug }}">&iquest;Qu&eacute; esperabas o qu&eacute; falt&oacute; ac&aacute;? <span>(opcional)</span></label>
+    <textarea id="csfc-{{ slug }}" name="comment" rows="2" placeholder="Una l&iacute;nea alcanza&hellip;"></textarea>
+    <div class="section-feedback__formactions">
+      <button type="button" class="section-feedback__ghost"
+              hx-post="/catalog/section-feedback/cancel"
+              hx-target="#catalog-sfb-{{ slug }}" hx-swap="outerHTML" hx-include="closest form">Cancelar</button>
+      <button type="submit" class="section-feedback__send">Enviar</button>
+    </div>
+  </form>
+  {% else %}
+  <form class="section-feedback__bar"
+        hx-post="/catalog/section-feedback"
+        hx-target="#catalog-sfb-{{ slug }}" hx-swap="outerHTML">
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="cliente" value="{{ cliente }}">
+    <input type="hidden" name="dominio" value="{{ dominio }}">
+    <input type="hidden" name="slug" value="{{ slug }}">
+    <input type="hidden" name="fb_prompt" value="{{ fb_prompt }}">
+    <span class="section-feedback__prompt">{{ fb_prompt or "¿Qué te pareció esta sección?" }}</span>
+    <button type="submit" name="rating" value="up" class="section-feedback__react" aria-label="&Uacute;til" title="&Uacute;til">&#128077;</button>
+    <button type="submit" name="rating" value="down" class="section-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">&#128078;</button>
+  </form>
+  {% endif %}
+</div>

@@ -1,0 +1,48 @@
+<div id="catalog-feedback" class="module-feedback catalog-feedback">
+  {% if submitted %}
+  <section class="module-feedback__inner module-feedback__inner--thanks">
+    <p class="module-feedback__eyebrow"><span></span>Gracias por tu recorrido</p>
+    <p class="module-feedback__prompt"><span>{{ "&#128077;"|safe if rating == "up" else "&#128078;"|safe }}</span> &iexcl;Gracias!</p>
+    <p class="module-feedback__note">Registramos tu opini&oacute;n.</p>
+  </section>
+  {% elif form %}
+  <section class="module-feedback__inner module-feedback__inner--form">
+    <p class="module-feedback__eyebrow"><span></span>Contanos un poco m&aacute;s</p>
+    <p class="module-feedback__prompt">&iquest;Qu&eacute; falt&oacute; o qu&eacute; mejorar&iacute;as?</p>
+    <form hx-post="/catalog/feedback/submit" hx-target="#catalog-feedback" hx-swap="outerHTML">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <input type="hidden" name="catalog_kind" value="{{ catalog_kind }}">
+      <input type="hidden" name="catalog_ref" value="{{ catalog_ref }}">
+      <input type="hidden" name="fb_eyebrow" value="{{ fb_eyebrow }}">
+      <input type="hidden" name="fb_prompt" value="{{ fb_prompt }}">
+      <input type="hidden" name="rating" value="down">
+      {% if error %}<p class="module-feedback__error">{{ error }}</p>{% endif %}
+      <textarea name="comment" rows="3" placeholder="Ej.: falt&oacute; contexto, un ejemplo pr&aacute;ctico, m&aacute;s claridad o profundidad..." required></textarea>
+      <div class="module-feedback__actions">
+        <button type="button" class="module-feedback__ghost" hx-post="/catalog/feedback/cancel" hx-target="#catalog-feedback" hx-swap="outerHTML" hx-include="closest form">Cancelar</button>
+        <button type="submit" class="module-feedback__primary">Enviar</button>
+      </div>
+    </form>
+  </section>
+  {% else %}
+  <section class="module-feedback__inner">
+    <p class="module-feedback__eyebrow"><span></span>{{ fb_eyebrow or "Fin del módulo" }}</p>
+    <p class="module-feedback__prompt">{{ fb_prompt or "¿Qué te pareció este contenido?" }}</p>
+    <form hx-post="/catalog/feedback" hx-target="#catalog-feedback" hx-swap="outerHTML">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <input type="hidden" name="catalog_kind" value="{{ catalog_kind }}">
+      <input type="hidden" name="catalog_ref" value="{{ catalog_ref }}">
+      <input type="hidden" name="fb_eyebrow" value="{{ fb_eyebrow }}">
+      <input type="hidden" name="fb_prompt" value="{{ fb_prompt }}">
+      <div class="module-feedback__reactions">
+        <button type="submit" name="rating" value="up" class="module-feedback__react" aria-label="Me sirvi&oacute;" title="Me sirvi&oacute;">
+          <span class="module-feedback__emoji">&#128077;</span><span class="module-feedback__label">Me sirvi&oacute;</span>
+        </button>
+        <button type="submit" name="rating" value="down" class="module-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">
+          <span class="module-feedback__emoji">&#128078;</span><span class="module-feedback__label">Puede mejorar</span>
+        </button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+</div>

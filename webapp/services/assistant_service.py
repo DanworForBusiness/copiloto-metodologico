@@ -13,6 +13,34 @@ import yaml
 
 from config import DEFAULT_EXECUTION_MODE, FEEDBACK_LOG_DIR, MODEL, ia_enabled_for
 from core.prompts import build_system_prompt
+
+
+def _catalog_grounding(query: str) -> str:
+    """PILOTO (local, no productivo): si existe un catálogo CDS local, devuelve el
+    bloque de grounding (flujos implementados, ordenados por mirada Danwor) para
+    inyectar en el prompt del asistente. Gateado por DANWOR_CATALOG_DIR o, por
+    defecto, <repo>/catalog_local. No-op si la carpeta no existe → cero riesgo."""
+    try:
+        import sys
+        from pathlib import Path
+        from config import BASE_DIR
+        raw = os.getenv("DANWOR_CATALOG_DIR", "").strip()
+        cat_dir = Path(raw) if raw else (BASE_DIR / "catalog_local")
+        if not cat_dir.exists():
+            return ""
+        svc_dir = str(BASE_DIR / "tools" / "catalog")
+        if svc_dir not in sys.path:
+            sys.path.insert(0, svc_dir)
+        import catalog_service as mod
+        # Fuente: SharePoint en vivo (token delegado) o carpeta local (default).
+        if os.getenv("DANWOR_CATALOG_SOURCE", "local").strip().lower() == "sharepoint":
+            token = os.getenv("DANWOR_CATALOG_GRAPH_TOKEN", "").strip()
+            entries = mod.fetch_catalog_from_sharepoint(token)
+        else:
+            entries = mod.load_catalog(cat_dir)
+        return mod.format_catalog_for_prompt(mod.search_catalog(query, entries))
+    except Exception:
+        return ""
 from webapp.services.content_service import ModuleDocument
 from webapp.services.section_analysis import SectionAnalysisError, _legacy_api_key, render_llm_html
 
@@ -172,8 +200,10 @@ class AssistantChatService:
             f"{'Usuario' if role == 'user' else 'Arquitecto Danwor'}: {text}"
             for role, text in history
         )
+        catalog_block = _catalog_grounding(question)
         user_prompt = (
-            f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
+            (f"{catalog_block}\n\n" if catalog_block else "")
+            + f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
             f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
             f"NUEVA CONSULTA\n{'-' * 40}\n{question}\n\n"
             "FORMATO DE RESPUESTA\n"

@@ -35,6 +35,10 @@
 .hero-scroll-alt{color:var(--gold); font-weight:600; text-decoration:none; white-space:nowrap; transition:opacity .2s;}
 .hero-scroll-alt:hover{text-decoration:underline;}
 
+/* 4º acceso de la botonera: no es una sección del recorrido sino la página de
+   Novedades (a demanda). Texto dorado para diferenciarlo de 1·2·3. */
+.topic-nav .topic-nav-alt{color:var(--gold); font-weight:600;}
+
 /* Cue de cierre "scroll para continuar" → siguiente módulo del copiloto (igual
    look que el .module-continue del copiloto; navega el frame padre). */
 .intro-continue{display:flex; flex-direction:column; align-items:center; gap:.55rem; margin:.5rem auto clamp(3rem,6vw,5rem); padding-top:1.5rem; text-align:center; text-decoration:none; opacity:.55; cursor:pointer; transition:opacity .2s;}
@@ -73,6 +77,7 @@
         <a href="#marco">1 · Danwor For Business</a>
         <a href="#partida">2 · Punto de partida</a>
         <a href="#roadmap">3 · Roadmap</a>
+        <a class="topic-nav-alt" href="/whats-new?pack=datasphere_core" target="_parent">4 · Novedades 🚀</a>
       </nav>
     </div>
   </section>

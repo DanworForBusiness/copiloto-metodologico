@@ -1,0 +1,29 @@
+{# Detalle de un flujo del catálogo. Se renderiza con la MISMA estructura que el
+   contenido de un módulo (hero + índice de secciones + artículo .methodology),
+   así hereda el look & feel del copiloto en vez de replicarlo. El índice de
+   secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
+   la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
+   panel central (#content) sin salir del módulo ni perder el panel derecho. #}
+<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
+<section class="module-hero">
+  <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
+  <h1>{{ dominio }}</h1>
+  <div class="hero-meta">
+    <span class="catalog-verdict-line">
+      <span class="catalog-meta-dot catalog-meta-dot--{{ veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto|catalog_verdict_class }}">{{ veredicto|catalog_verdict_label }}</span>
+      <span>{{ apto }}</span>
+    </span>
+    <span>{{ n_art }} artefactos</span>
+  </div>
+</section>
+{% include "partials/catalog_lineage.html" %}
+{# Línea de cierre del bloque de linaje (equivale al border-bottom de "EN ESTE
+   MÓDULO"). Color inline con gris semitransparente que se ve en AMBOS temas (en
+   light la app no ajusta --line, por eso var(--line) quedaba invisible). Va en el
+   template para que se vea al re-abrir por HTMX sin depender de recargar tools.css. #}
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+<article class="methodology catalog-detail">
+  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}{% with slug=s.slug %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}</section>{% endfor %}
+</article>
+{% include "partials/catalog_feedback.html" %}

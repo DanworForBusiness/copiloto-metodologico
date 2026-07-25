@@ -1,0 +1,25 @@
+{# "¿Falta un árbol?" — cierre de la caja punteada del tab Árbol. Disclosure discreto
+   con un formulario minimalista para sugerir un nuevo árbol de decisión. Se registra
+   como feedback (type: tree_suggestion). Recupera la funcionalidad perdida en la
+   migración Streamlit→FastAPI. #}
+<div id="tree-suggest" class="tool-suggest">
+  {% if suggested %}
+  <p class="tool-suggest__thanks" role="status">🌱 &iexcl;Gracias! Registramos tu sugerencia — la revisamos para sumar el &aacute;rbol.</p>
+  {% else %}
+  <details class="tool-suggest__box">
+    <summary class="tool-suggest__summary">&iquest;Falta un &aacute;rbol? <span>Suger&iacute; uno &rarr;</span></summary>
+    <form class="tool-suggest__form" hx-post="/trees/suggest" hx-target="#tree-suggest" hx-swap="outerHTML">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <input type="hidden" name="module" value="{{ stem }}">
+      <label for="tsg-title">&iquest;Qu&eacute; decisi&oacute;n deber&iacute;a ayudar a resolver?</label>
+      <input id="tsg-title" name="title" required
+             placeholder="Ej.: c&oacute;mo elegir entre dos enfoques de modelado&hellip;">
+      <textarea name="detail" rows="2"
+                placeholder="Contexto (opcional): el caso, las opciones en juego, por qu&eacute; cuesta decidir&hellip;"></textarea>
+      <div class="tool-suggest__actions">
+        <button type="submit" class="tool-suggest__send">Enviar sugerencia</button>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</div>

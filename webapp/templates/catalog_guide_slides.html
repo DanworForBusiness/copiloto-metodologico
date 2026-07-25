@@ -1,0 +1,285 @@
+{# Slides de la guía "Cómo publicar un catálogo" — storytelling estilo Danwor
+   Academy (hero + slides + rail + reveal), reutilizando dw-academy.css. Es el
+   CONTENIDO del iframe: siempre embebido en el copiloto (catalog_guide.html lo
+   monta en un academy-stage, sin panel derecho, como Academy). El tema llega por
+   ?theme= (inicial) y por postMessage 'danwor-theme' (en vivo, lo emite app.js). #}
+<!doctype html>
+<html lang="es" class="branding-danwor" data-dw-embed="1" data-dw-theme="{{ theme }}">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cómo publicar un catálogo · Copiloto Danwor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="/pack-assets/{{ pack }}/academy/dw-academy.css" />
+<style>
+  /* Embebido: sin topbar/scroll-progress propios (el shell del copiloto ya da
+     contexto y tema). El hero llena el alto del iframe y centra su contenido,
+     igual que las demás slides (.topic ya es min-height:100svh) — así al abrir se
+     ve SOLO el landing y no se asoma el paso 1. Sin topbar, no hace falta el
+     padding-top de 6rem que compensaba la barra fija. */
+  .topbar, .scroll-progress{display:none!important;}
+  .hero{padding-top:0;}
+  html[data-dw-embed], html[data-dw-embed] body{background:transparent;}
+
+  /* dw-academy pega el título del paso a su bajada dentro de .sec-head
+     (margin-bottom:0). Le devolvemos aire entre header y sub-header. */
+  .sec-head-text .topic-title{margin-bottom:1.1rem;}
+  /* Botonera del landing: UNA sola fila aunque el panel sea angosto. nowrap +
+     reparto equitativo (flex:1 1 0) + fuente/padding menores; labels cortos
+     (short) para que no se corten. Así "Listo" no cae a una fila aparte. */
+  .topic-nav{flex-wrap:nowrap;}
+  .topic-nav a{min-width:0; flex:1 1 0; padding:.72rem .45rem; font-size:.64rem;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+
+  /* "← Volver" dentro del contenido, arriba a la izquierda — mismo formato de
+     texto plano que el catalog-back del resto (experiencia transversal). Único
+     cambio: FIXED, para que quede anclado al viewport del stage y NO desaparezca
+     al scrollear (antes scrolleaba con el hero y "se perdía"). Navega el frame
+     padre de vuelta al módulo (target=_parent, sin romper la máscara). */
+  .guide-back{position:fixed; top:clamp(1rem,3vw,1.7rem); left:clamp(1.25rem,4vw,3rem); z-index:50;
+    display:inline-flex; align-items:center; gap:.35rem; font:500 .74rem var(--mono);
+    color:var(--ink-soft); text-decoration:none; transition:color .2s;}
+  .guide-back:hover{color:var(--gold);}
+
+  /* Capturas: acotadas (más chicas) y clickeables para ampliar. El "ampliar" abre
+     un lightbox en el documento padre (copiloto completo), no un dialog confinado
+     al iframe. El hint es un badge en la esquina (position:absolute, sin impacto
+     en el layout: no puede solaparse con el caption). */
+  .shots{flex-direction:column; align-items:stretch; gap:1rem;}
+  .shot{width:100%; margin:0;}
+  .shot-btn{position:relative; display:block; width:100%; max-width:440px; margin-inline:auto;
+    padding:0; border:0; background:none; cursor:zoom-in;}
+  .shot img{width:100%; height:auto; display:block;
+    border:1px solid var(--line-2); border-radius:12px; background:var(--bg-card);
+    box-shadow:0 14px 36px rgba(0,0,0,.16); transition:transform .2s, box-shadow .2s;}
+  .shot-btn:hover img{transform:translateY(-2px); box-shadow:0 18px 44px rgba(0,0,0,.22);}
+  .shot-badge{position:absolute; top:8px; right:8px; width:26px; height:26px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; font-size:.85rem; line-height:1;
+    background:rgba(12,12,13,.62); color:#fff; opacity:0; transition:opacity .2s; pointer-events:none;}
+  .shot-btn:hover .shot-badge{opacity:1;}
+  .shot figcaption{font-family:var(--mono); font-size:.7rem; line-height:1.5;
+    color:var(--ink-dim); margin:.55rem auto 0; max-width:440px; text-align:center;}
+  .shot-empty{border:1px dashed var(--line-2); border-radius:12px; background:var(--bg-card-2);
+    aspect-ratio:16/10; max-width:440px; margin-inline:auto; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:.5rem; color:var(--ink-dim);}
+  .shot-empty span{font-family:var(--mono); font-size:.72rem;}
+  .shot-empty code{font-family:var(--mono); font-size:.68rem; color:var(--ink-soft);}
+
+  /* CTA opcional del paso (link a recurso externo, p. ej. la carpeta SharePoint).
+     Abre en pestaña nueva; pill dorado sobrio, coherente con el resto. */
+  .guide-link{display:inline-flex; align-items:center; gap:.4rem; margin-top:1.4rem;
+    padding:.6rem 1rem; border:1px solid var(--line-2); border-radius:10px;
+    font:600 .82rem var(--sans); color:var(--gold); text-decoration:none;
+    transition:border-color .2s, background .2s;}
+  .guide-link:hover{border-color:var(--gold); background:var(--gold-dim);}
+
+  /* Bloque de cierre del paso (nota + template): separador corto + texto tenue. */
+  .guide-sep{border:0; border-top:1px solid var(--line-2); max-width:34rem; margin:1.8rem 0 1.2rem;}
+  .guide-note{color:var(--ink-soft); font-size:.92rem; line-height:1.55; max-width:52ch; margin:0 0 1.1rem;}
+  /* <em> como acento dorado también fuera de los títulos (body/bajada/nota/sub-pasos):
+     dw-academy solo lo pinta en .topic-title/.hero-title. Mismo criterio (gold, sin itálica). */
+  .hero-sub em, .topic-lead em, .guide-note em, .substeps em{color:var(--gold); font-style:normal;}
+
+  /* Acción del paso (self-service): botón sólido dorado + área de resultado. */
+  .guide-action{margin-top:1.4rem;}
+  .guide-action__btn{display:inline-flex; align-items:center; gap:.45rem; padding:.7rem 1.15rem;
+    border:0; border-radius:10px; background:var(--gold); color:#0c0c0d; font:700 .84rem var(--sans);
+    cursor:pointer; transition:filter .2s, opacity .2s;}
+  .guide-action__btn:hover{filter:brightness(1.05);}
+  .guide-action__btn:disabled{opacity:.6; cursor:default;}
+  .guide-action__result{margin-top:.85rem; max-width:520px; white-space:pre-wrap;
+    font:500 .76rem/1.5 var(--mono); color:var(--ink-soft); background:var(--bg-card);
+    border:1px solid var(--line-2); border-radius:10px; padding:.7rem .85rem; max-height:220px; overflow:auto;}
+  .guide-action__result.is-error{color:#e08a8a; border-color:rgba(224,138,138,.4);}
+
+  /* Sub-pasos: checklist numerada (la "secuencia del paso"). */
+  .substeps{list-style:none; counter-reset:s; display:flex; flex-direction:column; gap:.55rem; margin:1.4rem 0 0;}
+  .substeps li{counter-increment:s; position:relative; padding-left:2.1rem; color:var(--ink-soft); font-size:.96rem; line-height:1.5;}
+  .substeps li::before{content:counter(s); position:absolute; left:0; top:0; width:1.5rem; height:1.5rem;
+    border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:var(--mono);
+    font-size:.72rem; font-weight:600; color:var(--gold); background:var(--gold-dim); border:1px solid var(--line-2);}
+
+  /* Cierre "fin de módulo" — mismo espíritu transversal, look Academy. */
+  .guide-end{min-height:auto; padding:clamp(3rem,7vw,5rem) 0 clamp(4rem,9vw,6rem); border-bottom:0;}
+  .guide-fb{text-align:center;}
+  .guide-fb__eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); margin-bottom:.6rem;}
+  .guide-fb__prompt{font-size:clamp(1.2rem,2.2vw,1.6rem); font-weight:700; margin-bottom:1.4rem;}
+  .guide-fb__reactions{display:inline-flex; gap:.8rem;}
+  .guide-fb__react{display:inline-flex; align-items:center; gap:.5rem; padding:.7rem 1.1rem; border:1px solid var(--line-2);
+    border-radius:12px; background:var(--bg-card); color:var(--ink-soft); font:600 .8rem var(--sans); cursor:pointer; transition:border-color .2s, color .2s;}
+  .guide-fb__react:hover{border-color:var(--gold); color:var(--ink);}
+  .guide-fb textarea{width:min(560px,90%); min-height:88px; margin:0 auto; display:block; padding:.75rem .9rem;
+    border:1px solid var(--line-2); border-radius:12px; background:var(--bg-card); color:var(--ink); font:500 .92rem/1.5 var(--sans); resize:vertical;}
+  .guide-fb textarea:focus{outline:none; border-color:var(--gold);}
+  .guide-fb__actions{display:flex; gap:.6rem; justify-content:center; margin-top:.9rem;}
+  .guide-fb__send{border:0; background:var(--gold); color:#0c0c0d; font-weight:700; font-size:.8rem; padding:.6rem 1.2rem; border-radius:10px; cursor:pointer;}
+  .guide-fb__ghost{border:1px solid var(--line-2); background:transparent; color:var(--ink-soft); font-size:.8rem; padding:.6rem 1.1rem; border-radius:10px; cursor:pointer;}
+  .guide-fb__note{color:var(--ink-soft); font-size:.9rem;}
+</style>
+</head>
+<body>
+
+<nav class="rail" id="rail" aria-label="Pasos">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  {% for s in steps %}
+  <a href="#paso-{{ s.n }}" data-label="Paso {{ s.n }}"><span>Paso {{ s.n }}</span></a>
+  {% endfor %}
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <a class="guide-back" href="{{ back_url }}" target="_parent">← Volver</a>
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      {% if guide.eyebrow %}<p class="hero-eyebrow reveal in"><span class="dot"></span> {{ guide.eyebrow }}</p>{% endif %}
+      <h1 class="hero-title reveal in">{{ guide.title }}{% if guide.accent %} <em>{{ guide.accent }}</em>{% endif %}</h1>
+      {% if guide.lead %}<p class="hero-sub reveal in reveal-d1">{{ guide.lead|safe }}</p>{% endif %}
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para recorrer los pasos</div>
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Pasos">
+        {% for s in steps %}
+        <a href="#paso-{{ s.n }}">{{ "%02d"|format(s.n) }} · {{ s.short }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+  </section>
+
+  {% for s in steps %}
+  <!-- PASO {{ s.n }} -->
+  <section class="topic" id="paso-{{ s.n }}">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="topic-num reveal">Paso {{ "%02d"|format(s.n) }} de {{ "%02d"|format(steps|length) }}</span>
+          <h2 class="topic-title reveal">{{ s.title|safe }}</h2>
+          <p class="topic-lead reveal reveal-d1">{{ s.body|safe }}</p>
+          {% if s.substeps %}
+          <ol class="substeps reveal reveal-d1">{% for ss in s.substeps %}<li>{{ ss|safe }}</li>{% endfor %}</ol>
+          {% endif %}
+          {% if s.link %}
+          <a class="guide-link reveal reveal-d1" href="{{ s.link.url }}" target="_blank" rel="noopener noreferrer">{{ s.link.label }} <span aria-hidden="true">↗</span></a>
+          {% endif %}
+          {% if s.action == "regenerate" %}
+          <div class="guide-action reveal reveal-d1">
+            <button type="button" class="guide-action__btn" data-guide-action="regenerate">↻ Regenerar catálogo ahora</button>
+            <p class="guide-action__result" data-guide-result hidden></p>
+          </div>
+          {% endif %}
+          {% if s.note %}
+          <hr class="guide-sep reveal reveal-d1" />
+          {% if s.note.text %}<p class="guide-note reveal reveal-d1">{{ s.note.text|safe }}</p>{% endif %}
+          {% if s.note.url %}<a class="guide-link reveal reveal-d1" href="{{ s.note.url }}" target="_blank" rel="noopener noreferrer">{{ s.note.label }} <span aria-hidden="true">↗</span></a>{% endif %}
+          {% endif %}
+        </div>
+        <div class="section-art shots reveal reveal-d1">
+          {% for shot in s.shots %}
+          <figure class="shot">
+            {% if shot.img %}
+            <button type="button" class="shot-btn" data-shot="{{ shot.img }}" aria-label="Ampliar captura"><img src="{{ shot.img }}" alt="{{ s.title_plain }}" loading="lazy" /><span class="shot-badge" aria-hidden="true">⤢</span></button>
+            {% else %}
+            <div class="shot-empty" aria-hidden="true"><span>Captura pendiente</span><code>{{ shot.fname }}</code></div>
+            {% endif %}
+            {% if shot.caption %}<figcaption>{{ shot.caption }}</figcaption>{% endif %}
+          </figure>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+
+  <!-- CIERRE -->
+  <section class="topic guide-end" id="fin">
+    <div class="container">
+      <div id="guideFeedback" class="guide-fb reveal">
+        <p class="guide-fb__eyebrow">Fin del instructivo</p>
+        <p class="guide-fb__prompt">¿Te resultó útil esta guía?</p>
+        <div class="guide-fb__reactions">
+          <button type="button" class="guide-fb__react" data-rating="up">👍 <span>Me sirvió</span></button>
+          <button type="button" class="guide-fb__react" data-rating="down">👎 <span>Puede mejorar</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  // reveal on scroll
+  var io = new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  document.querySelectorAll('.reveal:not(.in)').forEach(function(el){io.observe(el);});
+
+  // rail active
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+  var rio = new IntersectionObserver(function(es){es.forEach(function(e){var i=stops.indexOf(e.target);if(i<0)return;if(e.isIntersecting){railLinks.forEach(function(l){l.classList.remove('active');});railLinks[i].classList.add('active');}});},{threshold:0.4});
+  stops.forEach(function(s){rio.observe(s);});
+
+  // mensajes del padre (copiloto): tema en vivo + resultado de la regeneración
+  window.addEventListener('message', function(e){
+    if(!e.data) return;
+    if(e.data.type==='danwor-theme'){ document.documentElement.setAttribute('data-dw-theme', e.data.theme || 'light'); }
+    else if(e.data.type==='dw-regenerate-result'){ finishRegen(!!e.data.ok, e.data.message || (e.data.ok ? 'Catálogo regenerado.' : 'No se pudo regenerar.')); }
+  });
+
+  // Ampliar captura: abre un lightbox en el documento PADRE (copiloto completo),
+  // no un dialog confinado al iframe. Solo la imagen sobre fondo oscuro, cerrable.
+  var framed = false; try{ framed = window.parent && window.parent !== window; }catch(e){ framed = false; }
+  document.querySelectorAll('.shot-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      var src = b.getAttribute('data-shot');
+      if(framed){ try{ window.parent.postMessage({type:'dw-lightbox', src:src}, '*'); return; }catch(e){} }
+      window.open(src, '_blank');   // fallback (sin iframe): abre la imagen sola
+    });
+  });
+
+  // Regenerar catálogo (self-service): el token de Graph vive en el PADRE
+  // (sessionStorage del copiloto, no del iframe), así que le pedimos al padre que
+  // ejecute el POST y nos devuelva el resultado por postMessage (dw-regenerate-result).
+  function finishRegen(ok, msg){
+    var btn = document.querySelector('[data-guide-action="regenerate"]');
+    var res = document.querySelector('[data-guide-result]');
+    if(btn){ btn.disabled = false; btn.textContent = btn.getAttribute('data-orig') || '↻ Regenerar catálogo ahora'; }
+    if(res){ res.hidden = false; res.textContent = msg; res.classList.toggle('is-error', !ok); }
+  }
+  var regenBtn = document.querySelector('[data-guide-action="regenerate"]');
+  if(regenBtn){
+    regenBtn.setAttribute('data-orig', regenBtn.textContent);
+    var regenRes = document.querySelector('[data-guide-result]');
+    regenBtn.addEventListener('click', function(){
+      regenBtn.disabled = true;
+      regenBtn.textContent = '↻ Regenerando…';
+      if(regenRes){ regenRes.hidden = true; regenRes.textContent = ''; regenRes.classList.remove('is-error'); }
+      if(framed){ try{ window.parent.postMessage({type:'dw-regenerate'}, '*'); return; }catch(e){} }
+      finishRegen(false, 'Abrí la guía desde el copiloto para poder regenerar.');
+    });
+  }
+
+  // feedback de cierre → /catalog/feedback (self-contained; no depende de HTMX)
+  var box = document.getElementById('guideFeedback');
+  var KIND = 'guide', REF = 'como-publicar', PACK = {{ pack|tojson }};
+  function thanks(){ box.innerHTML = '<p class="guide-fb__eyebrow">Gracias por tu recorrido</p><p class="guide-fb__note">Registramos tu opinión sobre esta guía.</p>'; }
+  function post(url, data){ var body=new URLSearchParams(data); return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}); }
+  box.addEventListener('click', function(e){
+    var r = e.target.closest('[data-rating]'); if(!r) return;
+    var rating = r.getAttribute('data-rating');
+    if(rating === 'up'){ post('/catalog/feedback', {rating:'up', catalog_kind:KIND, catalog_ref:REF, pack:PACK}).then(thanks).catch(thanks); return; }
+    // 👎 → pedir comentario y enviar a /submit
+    box.innerHTML = '<p class="guide-fb__eyebrow">Contanos un poco más</p><p class="guide-fb__prompt">¿Qué faltó o qué mejorarías?</p>'
+      + '<textarea id="guideFbComment" rows="3" placeholder="Ej.: faltó contexto, un ejemplo práctico, más claridad..."></textarea>'
+      + '<div class="guide-fb__actions"><button type="button" class="guide-fb__ghost" id="guideFbCancel">Cancelar</button><button type="button" class="guide-fb__send" id="guideFbSend">Enviar</button></div>';
+    document.getElementById('guideFbCancel').addEventListener('click', function(){ location.reload(); });
+    document.getElementById('guideFbSend').addEventListener('click', function(){
+      var c = document.getElementById('guideFbComment').value || '';
+      post('/catalog/feedback/submit', {rating:'down', catalog_kind:KIND, catalog_ref:REF, pack:PACK, comment:c}).then(thanks).catch(thanks);
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

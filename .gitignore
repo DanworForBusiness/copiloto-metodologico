@@ -44,3 +44,6 @@ activity_log/
 # Datos runtime/locales generados por la app (no deployar)
 case_library/
 reports/feedback/
+catalog_local/
+catalog_inbound/
+.scratch_*

@@ -1,0 +1,35 @@
+{# Detalle central de Arquitectura/Conectividad del catalogo.
+   Reutiliza la estructura del detalle de flujos: hero + lineage + sections. #}
+<a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a>
+<section class="module-hero">
+  <p class="eyebrow">Cat&aacute;logo Danwor &middot; {{ cliente }}</p>
+  <h1>Conexiones &amp; Espacios</h1>
+  <div class="hero-meta">
+    <span class="catalog-verdict-line">
+      <span class="catalog-meta-dot catalog-meta-dot--{{ verdict|catalog_verdict_class }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ verdict|catalog_verdict_class }}">{{ verdict|catalog_verdict_label }}</span>
+      <span>{{ verdict|catalog_verdict_text }}</span>
+    </span>
+    <span>{{ count }} {{ "conexión" if count == 1 else "conexiones" }}</span>
+  </div>
+</section>
+<figure class="catalog-lineage catalog-connection-lineage" id="catalog-lineage-wrap">
+  <figcaption>Arquitectura &amp; Conectividad <span class="lineage-hint">&mdash; origenes, espacios y capacidades por tipo de conexi&oacute;n</span></figcaption>
+  {% if lineage_svg %}
+  <label class="lineage-toggle" title="Muestra tambien conexiones del cliente fuera del tipo seleccionado, en tono tenue, para comparar cobertura de arquitectura.">
+    <input type="checkbox" {% if include_all %}checked{% endif %}
+           hx-get="/catalog/connections/detail?cliente={{ cliente|urlencode }}&type_id={{ type_id|urlencode }}&pack={{ pack|default('datasphere_core') }}&all={{ 0 if include_all else 1 }}"
+           hx-target="#catalog-detail-slot" hx-swap="innerHTML">
+    <span>Incluir todas las conexiones <em>(las no seleccionadas se ven atenuadas)</em></span>
+  </label>
+  {{ lineage_svg|safe }}
+  {% with dominio=type_id, slug="diagrama-conectividad", fb_prompt="¿Te resultó útil este diagrama?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
+  {% else %}
+  <p class="catalog-lineage__empty">Sin conexiones para diagramar.</p>
+  {% endif %}
+</figure>
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+<article class="methodology catalog-detail catalog-connection-detail">
+  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}</section>{% endfor %}
+</article>
+{% include "partials/catalog_feedback.html" %}

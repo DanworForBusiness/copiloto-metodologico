@@ -1,0 +1,25 @@
+# Novedades CURADAS (fuente manual del What's New).
+# El copiloto SOLO lee este archivo — nunca lo sobrescribe ni borra. Se FUSIONA con
+# los commits que llevan trailer `Novedad:` (fuente automática). Append-only: agregá
+# entradas arriba; no hace falta tocar nada más.
+#
+# Estructura de cada entrada (tags que el copiloto entiende):
+#   ref:       código corto y ESTABLE — aparece en dorado, como el hash de commit. Único.
+#   fecha:     YYYY-MM-DD — ordena las novedades (la más nueva arriba dispara el banner).
+#   titulo:    descripción del cambio (header de la sección).
+#   categoria: para el filtro (p. ej. Arquitectura, Conectividad, Seguridad, Integración,
+#              Modelado, Reporting, Gobernanza, General). Libre; el filtro se arma solo.
+#   detalle:   resumen breve (subtítulo `>`). Opcional.
+#   link:      acceso directo al material/contenido (opcional). Interno (/modules/...)
+#              abre en la misma vista; externo (http...) en pestaña nueva. Se puede
+#              sumar `&tab=catalogo` (o tree/section/assistant) para abrir el módulo
+#              ya posicionado en esa pestaña del panel derecho.
+#
+# La fuente automática (commits) usa los trailers `Categoria:` y `Link:` para lo mismo.
+
+- ref: catalogos-danwor
+  fecha: "2026-07-25"
+  titulo: "Catálogos Danwor"
+  categoria: "Gobernanza"
+  detalle: "Nuevo catálogo por cliente y dominios de negocio: flujos CDS con diagrama de linaje, fuentes de integración, conexiones & espacios, y seguridad (roles y DAC) con semáforo de cumplimiento — todo navegable desde la pestaña Catálogo."
+  link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo"

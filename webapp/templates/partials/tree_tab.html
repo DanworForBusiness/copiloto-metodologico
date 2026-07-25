@@ -34,4 +34,5 @@
       <div class="tool-empty"><p>No hay &aacute;rboles de decisi&oacute;n asociados a este m&oacute;dulo.</p></div>
     {% endif %}
   {% endif %}
+  {% with stem=document.summary.stem %}{% include "partials/tree_suggest.html" %}{% endwith %}
 </div>

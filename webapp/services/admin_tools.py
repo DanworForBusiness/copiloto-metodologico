@@ -237,6 +237,91 @@ def run_content_proposals(use_llm: bool = False) -> str:
     return _capture_main(propose_content_updates, ["--llm"] if use_llm else [])
 
 
+# Regeneración self-service: un lock NO bloqueante evita que dos colaboradores
+# regeneren a la vez (se pisarían sobre catalog_local). Si está tomado, avisamos en
+# vez de encolar o correr en paralelo.
+_CATALOG_REGEN_LOCK = threading.Lock()
+
+
+def run_catalog_generation_locked(graph_token: str = "") -> tuple[bool, str]:
+    """Como run_catalog_generation pero serializado. Devuelve (corrió, mensaje):
+    corrió=False si ya había una regeneración en curso (no corre ni espera)."""
+    if not _CATALOG_REGEN_LOCK.acquire(blocking=False):
+        return False, "Ya hay una regeneración en curso. Esperá unos segundos y volvé a intentar."
+    try:
+        return True, run_catalog_generation(graph_token=graph_token)
+    finally:
+        _CATALOG_REGEN_LOCK.release()
+
+
+def run_catalog_generation(graph_token: str = "") -> str:
+    """PILOTO (no productivo): regenera el catálogo CDS desde los JSON crudos.
+    Dispara el botón del panel diagnóstico. Fuente de los JSON crudos:
+    - Si hay token de sesión + SHAREPOINT_CATALOG_CSN_URL → lee la carpeta CSN
+      de SharePoint (Graph, token delegado) a un temp y genera desde ahí.
+    - Si no → carpeta local catalog_inbound (stand-in de desarrollo).
+    Escribe en catalog_local (DANWOR_CATALOG_DIR) y preserva el bloque `manual:`."""
+    import os
+    import shutil
+    import tempfile
+    from config import (
+        BASE_DIR,
+        SHAREPOINT_CATALOG_CSN_URL,
+        SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT,
+        SHAREPOINT_SECURITY_ROLE_MATRIX_URL,
+    )
+    out = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+    csn_url = (SHAREPOINT_CATALOG_CSN_URL or "").strip()
+    svc_dir = str(BASE_DIR / "tools" / "catalog")
+    if svc_dir not in sys.path:
+        sys.path.insert(0, svc_dir)
+    try:
+        import importlib
+        import generate_catalog as gen
+        import generate_space_catalog as space_gen
+        import generate_security_catalog as security_gen
+        gen = importlib.reload(gen)
+        space_gen = importlib.reload(space_gen)
+        security_gen = importlib.reload(security_gen)
+
+        def _run_generators(src_dir: str) -> str:
+            parts = [gen.generate_all(src_dir, out)]
+            try:
+                parts.append(space_gen.generate_all(src_dir, out))
+            except Exception as space_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                parts.append(f"[WARN] Catálogo de espacios/conexiones no generado: {type(space_exc).__name__}: {space_exc}")
+            try:
+                parts.append(security_gen.generate_all(src_dir, out))
+            except Exception as security_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                parts.append(f"[WARN] Catálogo de seguridad/DAC no generado: {type(security_exc).__name__}: {security_exc}")
+            return "\n".join(parts)
+
+        if graph_token and csn_url:
+            # Caché PERSISTENTE de crudos (no un temp efímero): así la descarga es
+            # incremental (solo baja lo que cambió por cTag/eTag). Vive dentro de
+            # catalog_local (runtime, no se commitea).
+            cache = os.getenv("DANWOR_CATALOG_CSN_CACHE", "").strip() or str(Path(out) / ".csn_cache")
+            Path(cache).mkdir(parents=True, exist_ok=True)
+            messages = [gen.fetch_csn_folder(csn_url, graph_token, cache)]
+            role_matrix_url = (SHAREPOINT_SECURITY_ROLE_MATRIX_URL or "").strip()
+            role_matrix_client = (SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT or "Danone").strip() or "Danone"
+            if role_matrix_url:
+                role_dest = os.path.join(cache, role_matrix_client, "Seguridad")
+                messages.append(gen.fetch_shared_file(
+                    role_matrix_url,
+                    graph_token,
+                    role_dest,
+                    fallback_name="DSP_Matriz_Seguridad_Template.xlsx",
+                    cache_root=cache,
+                ))
+            messages.append(_run_generators(cache))
+            return "\n".join(messages)
+        inbound = os.getenv("DANWOR_CATALOG_INBOUND_DIR", "").strip() or str(BASE_DIR / "catalog_inbound")
+        return _run_generators(inbound)
+    except Exception as exc:  # noqa: BLE001 — se reporta al panel
+        return f"[ERROR] {type(exc).__name__}: {exc}"
+
+
 # =========================================================
 # 3. SharePoint — seed semántico de casos SAP (Fase 2)
 # =========================================================

@@ -167,6 +167,24 @@ SHAREPOINT_CASES_TOP_K = int(_env("SHAREPOINT_CASES_TOP_K", "5"))
 SHAREPOINT_CASES_MIN_SCORE = float(_env("SHAREPOINT_CASES_MIN_SCORE", "6"))
 SHAREPOINT_CASES_CACHE_TTL = int(_env("SHAREPOINT_CASES_CACHE_TTL", "300"))
 
+# SharePoint / Graph — Catálogo CSN (PILOTO, no productivo).
+# Carpeta "CSN" con los exports CDS crudos por cliente/dominio, leída con el
+# token delegado del usuario (mismo scope Sites.Read.All que los casos). Es el
+# link de compartir de la carpeta; el generador lo resuelve vía Graph /shares.
+SHAREPOINT_CATALOG_CSN_URL = _env(
+    "SHAREPOINT_CATALOG_CSN_URL",
+    "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=PEazSD",
+)
+
+# SharePoint / Graph — matriz de roles de seguridad (archivo Excel independiente).
+# Se descarga al staging temporal como <cliente>/Seguridad/*.xlsx para que el
+# generador de seguridad la procese junto con DAC/linaje sin mover el activo.
+SHAREPOINT_SECURITY_ROLE_MATRIX_URL = _env(
+    "SHAREPOINT_SECURITY_ROLE_MATRIX_URL",
+    "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=n6CNhy",
+)
+SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT = _env("SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT", "Danone")
+
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
 #                      aparecer en el cuerpo de la sección para considerar match.
