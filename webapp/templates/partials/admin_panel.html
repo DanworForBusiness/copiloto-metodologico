@@ -79,6 +79,22 @@
   </div>
 </details>
 
+{# 4b. Reconciliación diagnóstico ⇄ automatización (epic B 1.2) ─────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">⚖️ Reconciliación criterio <span class="admin-warn">piloto</span></summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Cruza el veredicto <strong>auto</strong> del catálogo (eje extracción) con el criterio del árbol <code>Opciones de Extracción</code>, las lecciones de campo y el override del senior. Cierra el bucle diagnóstico ⇄ automatización. Determinístico, sin IA.</p>
+    <form hx-post="/admin/reconciliation/analyze" hx-target="#res-reconc" hx-swap="innerHTML"
+          hx-indicator="#ind-reconc" hx-disabled-elt="button[type='submit']">
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Reconciliar criterio</button>
+        <span id="ind-reconc" class="admin-indicator htmx-indicator">reconciliando…</span>
+      </div>
+    </form>
+    <div id="res-reconc" class="admin-result"></div>
+  </div>
+</details>
+
 {# 5. Feedback ───────────────────────────────────────────── #}
 <details class="admin-tool">
   <summary class="admin-tool__summary">💬 Feedback</summary>

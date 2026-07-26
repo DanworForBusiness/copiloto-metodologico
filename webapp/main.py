@@ -1776,6 +1776,13 @@ def admin_cases_analyze(request: Request, llm: str = Form("")):
     return _admin_result(request, "Case Library — análisis", output)
 
 
+@app.post("/admin/reconciliation/analyze", response_class=HTMLResponse)
+def admin_reconciliation_analyze(request: Request):
+    _require_diagnostic(request)
+    output = admin_tools.run_reconciliation_analysis()
+    return _admin_result(request, "Reconciliación diagnóstico ⇄ automatización", output)
+
+
 def _catalog_entries():
     """Carga el catálogo local (catalog_local) vía el servicio del piloto.
     Determinístico, sin IA. Devuelve (módulo, entradas) o (None, [])."""
@@ -2015,6 +2022,15 @@ def _catalog_is_mssql(conn) -> bool:
     return _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "mssql"
 
 
+def _catalog_is_generic_jdbc(conn) -> bool:
+    """Orígenes JDBC genéricos (GENERICJDBC): PostgreSQL, MySQL, etc. Se detectan por
+    typeId o, como respaldo, por la presencia de los parámetros JDBC (driverClass/url)."""
+    if _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "genericjdbc":
+        return True
+    info = getattr(conn, "info", {}) or {}
+    return bool(_catalog_conn_lookup(info, "driverClass") or _catalog_conn_lookup(info, "url"))
+
+
 def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tuple[str, str, str]]:
     info = getattr(conn, "info", {}) or {}
     gateway = getattr(conn, "gateway", {}) or {}
@@ -2071,6 +2087,42 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
             ("row", "Data Provisioning Agent", _catalog_md_value(lookup("dpAgent") or getattr(conn, "agent", ""), True)),
             ("row", "Data flows", _catalog_bool_text(lookup("dataflows"), _catalog_has_feature(mod, conn, "Data Flows"))),
             ("row", "Replication Flows", _catalog_bool_text(lookup("replicationflows"), _catalog_has_feature(mod, conn, "Replication Flows"))),
+        ])
+        return rows
+
+    if _catalog_is_generic_jdbc(conn):
+        # Origen JDBC genérico (PostgreSQL, MySQL, …): la conectividad se describe con
+        # driverClass + url (no con los campos SAP host/mandante/sysid). El acceso a
+        # datos vive en adapterName (Data Provisioning) y kind (Data Access).
+        cred_mode = _catalog_conn_lookup(props, "Modo credencial", "credentialMode")
+        adapter_name = getattr(conn, "adapter", "") or lookup("adapterName", "adapter")
+        kind = _catalog_conn_lookup(info, "kind")
+        rows.extend([
+            ("group", "Conectividad", ""),
+            ("row", "JDBC driver class", _catalog_md_value(lookup("driverClass"), True)),
+            ("row", "JDBC URL", _catalog_md_value(lookup("url"), True)),
+            ("group", "Cloud Connector", ""),
+            ("row", "Configurado", _catalog_bool_text(_catalog_conn_lookup(gateway, "cloud_connector"), getattr(conn, "cloud_connector", False))),
+            ("group", "Autenticación", ""),
+            ("row", "Modo credencial", _catalog_md_value(cred_mode)),
+            ("group", "Remote Tables", ""),
+            ("row", "Data Provisioning", _catalog_md_value(adapter_name, True)),
+            ("row", "Data Access", _catalog_md_value(kind, True)),
+            ("row", "Data Provisioning Agent", _catalog_md_value(lookup("dpAgent") or getattr(conn, "agent", ""), True)),
+            ("row", "Estado", _catalog_md_value(getattr(conn, "agent_status", ""))),
+        ])
+        # Replication Flows: solo si la conexión declara la capacidad. Cuando FEATURES
+        # trae REPLICATION FLOW = No, el grupo (con Fast Serialization) se omite.
+        if _catalog_has_feature(mod, conn, "Replication Flows"):
+            rows.extend([
+                ("group", "Replication Flows", ""),
+                ("row", "Fast Serialization", _catalog_bool_text(_catalog_conn_lookup(feats, "useFastSerialization"))),
+            ])
+        rows.extend([
+            ("group", "Features", ""),
+            ("row", "Remote tables", "Sí" if _catalog_has_feature(mod, conn, "Remote Tables") else "No"),
+            ("row", "Data flows", "Sí" if _catalog_has_feature(mod, conn, "Data Flows") else "No"),
+            ("row", "Replication Flows", "Sí" if _catalog_has_feature(mod, conn, "Replication Flows") else "No"),
         ])
         return rows
 
@@ -2335,24 +2387,40 @@ def catalog_connection_detail(
     if detail is None:
         raise HTTPException(404, "Detalle de conexion no encontrado en el catalogo")
     sections, lineage_svg = _catalog_connection_detail_view(mod, detail, selected)
+    context = {
+        "pack": selected,
+        "cliente": detail["cliente"],
+        "type_id": detail["type_id"],
+        "type_label": detail["type_label"],
+        "include_all": detail["include_all"],
+        "count": detail["count"],
+        "all_count": detail["all_count"],
+        "verdict": detail["verdict"],
+        "verdict_label": detail["verdict_label"],
+        "lineage_svg": lineage_svg,
+        "sections": sections,
+        "catalog_kind": "connections",
+        "catalog_ref": f"{detail['cliente']} · {detail['type_label']}",
+    }
+    # HTMX → solo el fragmento (dentro de la pestaña Catálogo del módulo 04, sin
+    # perder el panel). Navegación directa (deep-link del asistente) → página
+    # completa con shell + nav, igual que /catalog/flow.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/catalog_connection_content.html", context=context,
+        )
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    context.update({
+        "modules": list_modules(selected),
+        "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+        "academy": academy,
+        "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+        "active_group": "", "active_stem": "",
+        "readonly": _readonly(request), "user": user,
+        "pack_label": content_pack_short_label(selected),
+    })
     return templates.TemplateResponse(
-        request=request,
-        name="partials/catalog_connection_content.html",
-        context={
-            "pack": selected,
-            "cliente": detail["cliente"],
-            "type_id": detail["type_id"],
-            "type_label": detail["type_label"],
-            "include_all": detail["include_all"],
-            "count": detail["count"],
-            "all_count": detail["all_count"],
-            "verdict": detail["verdict"],
-            "verdict_label": detail["verdict_label"],
-            "lineage_svg": lineage_svg,
-            "sections": sections,
-            "catalog_kind": "connections",
-            "catalog_ref": f"{detail['cliente']} · {detail['type_label']}",
-        },
+        request=request, name="catalog_connection.html", context=context,
     )
 
 

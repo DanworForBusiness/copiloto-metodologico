@@ -72,3 +72,58 @@ def test_direct_power_bi_odbc_how_to_still_routes_to_asset():
     assert route is not None
     assert "recurso curado" in route.message
     assert any(action.label == "Abrir recurso" for action in route.actions)
+
+
+def _seed_apis(tmp_path):
+    apis = tmp_path / "APIs"
+    apis.mkdir()
+    for n in ("ZCDS_DSP_FACT_LIPS", "ZCDS_DSP_DIM_ADRC"):
+        (apis / f"{n}.md").write_text(f"# {n}", encoding="utf-8")
+    return tmp_path
+
+
+def test_find_matching_cds_por_nombre_tecnico(tmp_path, monkeypatch):
+    from webapp.services.assistant_routing import _find_matching_cds
+
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(_seed_apis(tmp_path)))
+    assert _find_matching_cds("que hace ZCDS_DSP_FACT_LIPS?") == "ZCDS_DSP_FACT_LIPS"
+    # tolera el prefijo de transporte del artefacto (1TR_)
+    assert _find_matching_cds("mostrame 1TR_ZCDS_DSP_DIM_ADRC") == "ZCDS_DSP_DIM_ADRC"
+    # nombre ZCDS que NO está publicado (name-vs-reality) → no se inventa
+    assert _find_matching_cds("ZCDS_DSP_FACT_MCHB") is None
+    # sin referencia a una CDS → None
+    assert _find_matching_cds("como modelo una vista analitica") is None
+
+
+def test_route_lidera_con_cds_view_por_nombre(tmp_path, monkeypatch):
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(_seed_apis(tmp_path)))
+    document = load_module("01_Arquitectura_y_Conectividad")
+
+    route = AssistantRoutingService().route(
+        document, "que hace ZCDS_DSP_FACT_LIPS?", "datasphere_core"
+    )
+
+    assert route is not None
+    assert "ZCDS_DSP_FACT_LIPS" in route.message
+    assert route.actions[0].label == "Ver la CDS view"
+    assert route.actions[0].url == "/catalog/cds?name=ZCDS_DSP_FACT_LIPS&pack=datasphere_core"
+
+
+def test_clasificador_inventario_de_conectividad():
+    from webapp.services.assistant_routing import _is_connectivity_inventory_query as inv
+
+    # inventario genérico → sí (frases variadas de cobertura/posesión, robusto a
+    # inserciones tipo "tipos de" y verbos como "hemos cubierto"/"manejamos")
+    assert inv("que conexiones tenemos resueltas en proyectos?")
+    assert inv("que conexiones tenemos?")
+    assert inv("que origenes de datos tenemos implementados?")
+    assert inv("cuales fuentes de datos hay?")
+    assert inv("que tipos de conexiones hemos cubierto en nuestros proyectos?")
+    assert inv("cuales origenes de datos manejamos?")
+    # conceptual → NO es inventario (no debe secuestrar "qué es…")
+    assert not inv("que es una conexion?")
+    # how-to o conexión puntual → NO es inventario (los maneja otro lead)
+    assert not inv("como configurar PostgreSQL?")
+    assert not inv("como conectar Power BI por ODBC")
+    # sin término de conectividad → no
+    assert not inv("que modelos analiticos tenemos?")

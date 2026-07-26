@@ -30,6 +30,8 @@
 </figure>
 <div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
 <article class="methodology catalog-detail catalog-connection-detail">
-  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}</section>{% endfor %}
+  {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}
+    {% with dominio=type_id, slug=s.slug, fb_prompt="¿Te sirvió el detalle de esta conexión?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
+  </section>{% endfor %}
 </article>
 {% include "partials/catalog_feedback.html" %}

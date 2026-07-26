@@ -391,8 +391,23 @@ def _connection_info(detail: dict[str, Any]) -> dict[str, Any]:
     objects = (((detail.get("content") or {}).get("objects") or {}))
     if not isinstance(objects, dict) or not objects:
         return {}
-    first = next(iter(objects.values()))
-    return (((first or {}).get("configuration") or {}).get("ConnectionProperties") or {}).get("ConnectionInfo") or {}
+    first = next(iter(objects.values())) or {}
+    conn_props = ((first.get("configuration") or {}).get("ConnectionProperties") or {})
+    info = dict(conn_props.get("ConnectionInfo") or {})
+    # Orígenes JDBC genéricos (typeId GENERICJDBC): los parámetros de conexión no
+    # viven en ConnectionInfo (formato SAP) sino en `configurations` — driverClass y
+    # url. Los exponemos para que el catálogo los renderice como conectividad JDBC.
+    configurations = conn_props.get("configurations")
+    if isinstance(configurations, dict):
+        for key in ("dbtype", "driverClass", "url"):
+            value = configurations.get(key)
+            if value not in (None, "") and key not in info:
+                info[key] = value
+    # `kind` (p.ej. repository.remote) clasifica el acceso a datos del origen.
+    kind = first.get("kind")
+    if kind not in (None, "") and "kind" not in info:
+        info["kind"] = kind
+    return info
 
 
 def _connection_features(detail: dict[str, Any]) -> dict[str, Any]:
@@ -608,7 +623,7 @@ def render_connection(conn: ConnectionRecord, manual: dict[str, Any] | None = No
     md += [f"| {k} | {v} |" for k, v in rows]
     if info or gateway:
         md += ["", "## {dw-black}Connection {dw-gold}Info", "", "| Parámetro | Valor |", "|---|---|"]
-        for key in ("connectionType", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
+        for key in ("connectionType", "dbtype", "driverClass", "url", "kind", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
             if key in info:
                 md.append(f"| {key} | {_short_value(info.get(key))} |")
         if gateway and "gateway" not in info:

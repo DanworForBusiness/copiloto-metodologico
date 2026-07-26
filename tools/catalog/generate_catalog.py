@@ -477,9 +477,33 @@ def evaluate_compliance(entities: dict) -> tuple[list, str, str]:
             "Extracción vía CDS view corporativa (ABAP_CDS) — desacople correcto ✓",
             ", ".join(f"{e.name}→{e.remote_entity}" for e in classes["ideal"])))
     if classes.get("poor_raw"):
-        findings.append(Finding("abap_direct", "alto",
-            "Importa tablas ABAP crudas directas (no desacopla vía CDS view / API corporativa)",
-            ", ".join(f"{e.name}→{e.remote_entity} @{e.remote_connection}" for e in classes["poor_raw"])))
+        raw = classes["poor_raw"]
+        # Rúbrica PROPORCIONAL (mirada de arquitectura): una tabla cruda no degrada
+        # el flujo entero por su sola presencia. Pesa (1) MATERIALIDAD y (2) CENTRALIDAD.
+        # El anti-patrón es específico del sourcing ABAP (tabla cruda vs CDS view /
+        # API corporativa), así que la materialidad se mide sobre la FAMILIA ABAP del
+        # flujo (ABAP_CDS + ABAPTABLES), no sobre todos los orígenes: los extractores
+        # SAPI/BW son otro eje y no deberían diluir la métrica. Sistémico (alto →
+        # parcial) cuando la cruda es material (> 1/3 del sourcing ABAP) o alimenta el
+        # hecho/cubo; reserva puntual (medio, no baja a parcial) cuando es minoritaria
+        # y periférica.
+        decoupled = len(classes.get("ideal", [])) + len(classes.get("acceptable_view", []))
+        abap_family = decoupled + len(raw)              # orígenes ABAP (crudos + desacoplados)
+        raw_on_fact = any(_is_cube(e) for e in raw)
+        raw_ratio = (len(raw) / abap_family) if abap_family else 1.0
+        raw_systemic = raw_on_fact or raw_ratio > (1 / 3)
+        ratio_txt = (f"{decoupled} de {abap_family} orígenes ABAP desacoplan vía CDS/vista "
+                     f"estándar; {len(raw)} tabla(s) cruda(s)")
+        origins = ", ".join(f"{e.name}→{e.remote_entity} @{e.remote_connection}" for e in raw)
+        if raw_systemic:
+            motivo = "alimenta el hecho/cubo" if raw_on_fact else f"peso material ({raw_ratio:.0%} del sourcing ABAP)"
+            findings.append(Finding("abap_direct", "alto",
+                "Importa tablas ABAP crudas directas (no desacopla vía CDS view / API corporativa)",
+                f"{origins} — {ratio_txt}; sistémico: {motivo}"))
+        else:
+            findings.append(Finding("abap_direct", "medio",
+                "Importa una tabla ABAP cruda minoritaria y periférica (reserva puntual, no degrada el flujo)",
+                f"{origins} — {ratio_txt}; periférica (no alimenta el hecho)"))
     if classes.get("acceptable_view"):
         findings.append(Finding("abap_std_view", "nota",
             "Origen vía vista estándar SAP (ABAPTABLES.NSDM_V_*/_V_*) — aceptable, no es tabla cruda",
@@ -513,6 +537,24 @@ def evaluate_compliance(entities: dict) -> tuple[list, str, str]:
             "Oportunidades en la convención de nombres §28 (módulo 04)",
             " | ".join(naming_issues)))
 
+    # ── Eje 4: nombre vs. realidad (1.1) ──────────────────────────────────
+    # Un artefacto cuyo NOMBRE lleva `ZCDS` se presenta como CDS view corporativa
+    # (extracción desacoplada vía API corporativa). Si su ORIGEN real NO es ABAP_CDS.*
+    # —p. ej. ABAPTABLES.NSDM_V_* (vista estándar SAP) o una tabla cruda— el nombre
+    # no refleja el patrón de extracción real. Es una nota de TRANSPARENCIA: no baja
+    # el veredicto (la calidad del desacople ya la puntúa el Eje 1), pero expone la
+    # discrepancia para que el consumidor no asuma un contrato que el objeto no cumple.
+    name_reality = []
+    for e in entities.values():
+        if not e.remote_entity:
+            continue
+        if "ZCDS" in (e.name or "").upper() and not e.remote_entity.upper().startswith("ABAP_CDS."):
+            name_reality.append(f"{e.name}→{e.remote_entity}")
+    if name_reality:
+        findings.append(Finding("name_vs_reality", "nota",
+            "Nombre vs. realidad: nombrado como CDS corporativa (ZCDS) pero el origen no es ABAP_CDS — el nombre no refleja el patrón de extracción real",
+            " | ".join(name_reality)))
+
     # (No se marca "duplicación" por sujeto: una tabla persistida + su vista de
     #  origen son una CADENA, no un duplicado. El riesgo real de fuentes paralelas
     #  ya lo cubre `dual_source`.)
@@ -521,6 +563,10 @@ def evaluate_compliance(entities: dict) -> tuple[list, str, str]:
     altos = sum(1 for f in findings if f.severidad == "alto")
     if altos:
         return findings, "parcial", "Inspiración conceptual con reservas — no copiar tal cual"
+    # Reserva puntual: hay una cruda pero la rúbrica proporcional la calificó `medio`
+    # (minoritaria + periférica). Es `buena`, no `plena` ni `parcial`.
+    if any(f.id == "abap_direct" and f.severidad == "medio" for f in findings):
+        return findings, "buena", "Reutilizable con reserva puntual — origen crudo minoritario y periférico"
     if classes.get("acceptable_bw"):
         return findings, "buena", "Reutilizable con nota de especificidad (BW Bridge)"
     if classes.get("ideal"):

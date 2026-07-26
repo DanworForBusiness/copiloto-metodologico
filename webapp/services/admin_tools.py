@@ -220,6 +220,14 @@ def run_cases_analysis(use_llm: bool = False) -> str:
     return _capture_main(analyze_cases, ["--llm"] if use_llm else [])
 
 
+def run_reconciliation_analysis() -> str:
+    """Bucle diagnóstico ⇄ automatización (epic B 1.2): reconcilia el veredicto auto
+    del catálogo con el criterio del árbol de extracción + lecciones de campo + el
+    override del senior. Determinístico (sin LLM). Escribe reports/reconciliation*."""
+    import analyze_reconciliation
+    return _capture_main(analyze_reconciliation, [])
+
+
 def run_feedback_analysis(kind: str = "all") -> str:
     import analyze_feedback
     if kind not in {"ia", "modulos", "secciones", "academy", "all"}:

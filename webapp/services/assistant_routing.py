@@ -13,6 +13,7 @@ from core.routing_scorers import (
     _find_matching_section,
     _is_asset_seeking_query,
     _is_conceptual_or_comparative_query,
+    _query_object_tokens,
     _should_pair_section_with_asset,
 )
 from core.utils import norm_text, slugify
@@ -178,21 +179,140 @@ def _is_availability_query(question: str) -> bool:
     return any(term in q for term in _AVAILABILITY_TERMS)
 
 
+def _catalog_module():
+    """Importa `catalog_service` (vive en tools/catalog) de forma perezosa y segura.
+    Devuelve (módulo, cat_dir) o (None, "") si no está disponible."""
+    import os as _os
+    import sys as _sys
+    from config import BASE_DIR
+    svc_dir = str(BASE_DIR / "tools" / "catalog")
+    if svc_dir not in _sys.path:
+        _sys.path.insert(0, svc_dir)
+    import catalog_service as _cat
+    cat_dir = _os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+    return _cat, cat_dir
+
+
 def _find_matching_catalog(question: str, pack_name: str):
     """Mejor flujo del catálogo (evidencia real publicada) para la consulta, o None.
     Lee catalog_local (runtime); si está vacío/ausente → None y el router cae a su
     comportamiento normal (template/sección). El catálogo NUNCA rompe el routing."""
     try:
-        import os as _os
-        import sys as _sys
-        from config import BASE_DIR
-        svc_dir = str(BASE_DIR / "tools" / "catalog")
-        if svc_dir not in _sys.path:
-            _sys.path.insert(0, svc_dir)
-        import catalog_service as _cat
-        cat_dir = _os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+        _cat, cat_dir = _catalog_module()
         entries = _cat.load_catalog(cat_dir)
         return _cat.best_domain_match(question, entries) if entries else None
+    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return None
+
+
+def _find_matching_cds(question: str):
+    """Nombre técnico de una CDS view publicada mencionado en la consulta, o None.
+    Señal muy precisa: si la pregunta nombra una CDS del catálogo de APIs (ej.
+    'ZCDS_DSP_FACT_MCHB', o el artefacto con prefijo '1TR_ZCDS_...'), la respuesta es
+    su código/definición. Match por substring sobre los nombres reales de APIs/ (así
+    tolera prefijos de transporte); ante varios, gana el nombre más largo (más
+    específico). Lee catalog_local (runtime); nunca rompe el routing."""
+    try:
+        import os as _os
+        from config import BASE_DIR
+        cat_dir = _os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+        apis_dir = _os.path.join(cat_dir, "APIs")
+        if not _os.path.isdir(apis_dir):
+            return None
+        names = [f[:-3] for f in _os.listdir(apis_dir) if f.endswith(".md")]
+        q_upper = (question or "").upper()
+        # candidatos cuyo nombre aparece literal en la consulta (ZCDS_ es el marcador
+        # de CDS corporativa; evita falsos positivos con tokens sueltos cortos).
+        hits = [n for n in names if "ZCDS" in n.upper() and n.upper() in q_upper]
+        return max(hits, key=len) if hits else None
+    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return None
+
+
+_CONNECTIVITY_TERMS = (
+    "conexion", "conexiones", "conectividad", "origenes de datos", "origen de datos",
+    "fuentes de datos", "fuente de datos",
+)
+_INVENTORY_TERMS = (
+    # interrogativos / listado
+    "cuales", "cuantas", "cuantos", "que tipos", "listado", "lista de", "inventario",
+    # verbos de cobertura / posesión (resuelto/implementado/cubierto/manejamos/usamos…)
+    "resuelt", "implementad", "conectad", "cubiert", "cubrimos", "cubre", "cubrir",
+    "manejamos", "usamos", "contamos", "trabajamos con", "hemos",
+)
+
+
+def _is_connectivity_inventory_query(question: str) -> bool:
+    """Consulta de INVENTARIO de conectividad: '¿qué conexiones tenemos?', '¿qué
+    orígenes de datos hay?'. Distinta de un how-to ('cómo conectar X') o de una
+    conexión puntual ('configurar PostgreSQL'). Para estas, la respuesta es el
+    catálogo de Arquitectura & Conectividad (la evidencia real, no una sección)."""
+    if _is_asset_seeking_query(question):   # how-to no es inventario
+        return False
+    q = norm_text(question)
+    has_conn = any(t in q for t in _CONNECTIVITY_TERMS)
+    has_inventory = _is_availability_query(question) or any(t in q for t in _INVENTORY_TERMS)
+    return has_conn and has_inventory
+
+
+def _connections_inventory(pack_name: str):
+    """Resumen real del catálogo de conexiones: tipos y clientes. None si vacío."""
+    try:
+        _cat, cat_dir = _catalog_module()
+        conns = _cat.load_architecture_connections(cat_dir)
+        if not conns:
+            return None
+        types: dict[str, int] = {}
+        clients: set[str] = set()
+        for c in conns:
+            label = str(getattr(c, "type_label", "") or getattr(c, "type_id", "") or "").strip()
+            if label:
+                types[label] = types.get(label, 0) + 1
+            cli = str(getattr(c, "cliente", "") or "").strip()
+            if cli:
+                clients.add(cli)
+        if not types:
+            return None
+        return {"types": sorted(types), "clients": sorted(clients)}
+    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return None
+
+
+def _connectivity_catalog_action(pack_name: str) -> AssistantRouteAction | None:
+    """Botón a la pestaña Catálogo del módulo 01 (Arquitectura & Conectividad), donde
+    vive el catálogo de conexiones por tipo/cliente."""
+    mod = next((m for m in list_modules(pack_name) if m.stem.startswith("01_")), None)
+    if not mod:
+        return None
+    return AssistantRouteAction(
+        "Ver el catálogo de conexiones",
+        f"/modules/{quote(mod.stem)}?pack={quote(pack_name)}&tab=catalogo",
+    )
+
+
+def _find_matching_connection(question: str, pack_name: str):
+    """Conexión publicada (evidencia real) cuyo OBJETO matchea la consulta, o None.
+    Match fuerte: un token del objeto de la pregunta (ej. 'postgresql', 'mssql')
+    coincide con la identidad de la conexión (nombre técnico / type_label / type_id /
+    nombre funcional). Así "cómo configurar PostgreSQL" ofrece la conexión PostgreSQL
+    que un cliente ya tiene resuelta, en vez de un how-to genérico. Lee catalog_local
+    (runtime); si está vacío → None. NUNCA rompe el routing."""
+    try:
+        object_tokens = _query_object_tokens(question)
+        if not object_tokens:
+            return None
+        _cat, cat_dir = _catalog_module()
+        conns = _cat.load_architecture_connections(cat_dir)
+        if not conns:
+            return None
+        for conn in conns:
+            identity = norm_text(" ".join(str(part or "") for part in (
+                getattr(conn, "connection", ""), getattr(conn, "type_label", ""),
+                getattr(conn, "type_id", ""), getattr(conn, "business_name", ""),
+            )))
+            if object_tokens & set(identity.split()):
+                return conn
+        return None
     except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
         return None
 
@@ -216,6 +336,19 @@ class AssistantRoutingService:
         # sección donde el usuario YA está, lo recordamos para el fallback final.
         suppressed: tuple[str, str] | None = None
 
+        # CDS individual por nombre técnico: si la consulta nombra una CDS view
+        # publicada (ej. "ZCDS_DSP_FACT_MCHB" o el artefacto "1TR_ZCDS_..."), la
+        # respuesta más precisa es su código/definición del catálogo de APIs.
+        cds_name = _find_matching_cds(question)
+        if cds_name:
+            url = f"/catalog/cds?name={quote(cds_name)}&pack={quote(pack_name)}"
+            return AssistantRoute(
+                f"**{cds_name}** es una CDS view del catálogo de APIs corporativas de "
+                f"extracción. Acá está su definición y código.",
+                (AssistantRouteAction("Ver la CDS view", url),),
+                question,
+            )
+
         # Catálogo primero para consultas de DISPONIBILIDAD ("¿tenemos X?"): un flujo
         # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
         # construirlo. Solo lidera si matchea a nivel dominio (umbral fuerte); si el
@@ -232,6 +365,43 @@ class AssistantRoutingService:
                     (AssistantRouteAction("Ver en el catálogo", url),),
                     question,
                 )
+
+        # Conexión como evidencia: para how-tos de configuración/conexión ("cómo
+        # configurar/conectar X") —o disponibilidad— cuyo objeto YA tenemos resuelto
+        # como conexión publicada, la conexión REAL lidera como referencia, en vez de
+        # un how-to genérico (o, peor, un recurso tangencial por verbo compartido).
+        if _is_asset_seeking_query(question) or _is_availability_query(question):
+            conn = _find_matching_connection(question, pack_name)
+            if conn is not None:
+                label = f"{conn.cliente} · {conn.type_label}".strip(" ··")
+                url = (f"/catalog/connections/detail?cliente={quote(conn.cliente)}"
+                       f"&type_id={quote(conn.type_id)}&pack={quote(pack_name)}")
+                return AssistantRoute(
+                    f"Referencia: **{conn.cliente}** ya tiene una conexión "
+                    f"**{conn.connection}** ({conn.type_label}) resuelta en Datasphere. "
+                    f"Mirá cómo está configurada en el catálogo.",
+                    (AssistantRouteAction("Ver la conexión en el catálogo", url),),
+                    question,
+                )
+
+        # Inventario de conectividad ("¿qué conexiones tenemos resueltas?"): no hay un
+        # objeto puntual, pero la evidencia es el catálogo de Arquitectura & Conectividad.
+        # Respondemos con el inventario REAL (tipos + clientes) y deep-link al catálogo,
+        # en vez de derivar a una sección genérica.
+        if _is_connectivity_inventory_query(question):
+            inv = _connections_inventory(pack_name)
+            action = _connectivity_catalog_action(pack_name)
+            if inv and action:
+                types = ", ".join(f"**{t}**" for t in inv["types"])
+                clientes = ", ".join(inv["clients"])
+                n_t, n_c = len(inv["types"]), len(inv["clients"])
+                message = (
+                    f"En el catálogo de Arquitectura & Conectividad tenemos {n_t} "
+                    f"tipo{'s' if n_t != 1 else ''} de conexión resuelto{'s' if n_t != 1 else ''} "
+                    f"en {n_c} cliente{'s' if n_c != 1 else ''} ({clientes}): {types}. "
+                    f"Abrí el catálogo para ver qué cliente usa cada uno y con qué capacidades."
+                )
+                return AssistantRoute(message, (action,), question)
 
         multiple_assets = _find_matching_assets(
             question, stem, source, pack_name=pack_name,

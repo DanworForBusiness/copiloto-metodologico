@@ -154,6 +154,39 @@ def _asset_specific_token_hits(query_tokens: set[str], candidate_tokens: set[str
     }
 
 
+def _query_object_tokens(question: str) -> set[str]:
+    """Tokens del OBJETO de la consulta (lo que se quiere configurar/conectar/
+    instalar), descartando verbos genericos (configur/instal/conect...) y palabras
+    de dominio amplias (datasphere, referencia, modelo...). Ej: en "como configurar
+    PostgreSQL" el objeto es {postgresql}; en "como configurar" solo es vacio.
+    """
+    tokens = _significant_tokens(question)
+    return {
+        token for token in tokens
+        if token not in _ASSET_GENERIC_TOKENS
+        and not any(token.startswith(root) for root in _ASSET_GENERIC_TOKEN_ROOTS)
+    }
+
+
+def _asset_covers_query_object(question: str, asset: dict) -> bool:
+    """Guardrail de objeto. Cuando la consulta nombra un objeto especifico
+    (ej. 'PostgreSQL'), un recurso curado solo es una respuesta valida si comparte
+    ESE objeto — por token especifico (keywords/desc) o por eje de plataforma
+    explicito (SAC, BW, PowerBI...). No alcanza con compartir el VERBO generico
+    ('configurar' <-> 'configure'): eso es lo que hacia que "como configurar
+    PostgreSQL" devolviera confiadamente "SAC: Configure Workspaces". Si la consulta
+    no tiene objeto especifico, el guardrail no aplica (devuelve True)."""
+    if not _query_object_tokens(question):
+        return True
+    if _asset_candidate_specific_hits(question, asset):
+        return True
+    candidate_text = " ".join([
+        str(asset.get("description") or ""),
+        " ".join(asset.get("keywords") or []),
+    ])
+    return bool(_asset_platform_axes(question) & _asset_platform_axes(candidate_text))
+
+
 def _is_reference_library_module(stem: str | None, label: str | None = None) -> bool:
     text = _norm(" ".join(part for part in (stem or "", label or "") if part))
     return "biblioteca" in text and "referencia" in text
@@ -799,6 +832,10 @@ def _find_best_asset(
     second_score = scored[1][0] if len(scored) > 1 else 0
     if second_score and best_score - second_score < min_gap:
         return None
+    # Guardrail de objeto: no devolver un recurso que solo comparte el verbo
+    # generico con la consulta (ej. "configurar PostgreSQL" -> SAC Workspaces).
+    if not _asset_covers_query_object(question, best):
+        return None
     return {**best, "_score": best_score}
 
 
@@ -889,6 +926,10 @@ def _find_cross_module_asset(
     best_score, best = candidates[0]
     second_score = candidates[1][0] if len(candidates) > 1 else 0
     if second_score and best_score - second_score < min_gap:
+        return None
+    # Guardrail de objeto: idem _find_best_asset, tambien cross-module (el SAC
+    # "Configure Workspaces" de A04 se colaba desde el modulo 01 por el verbo).
+    if not _asset_covers_query_object(question, best):
         return None
     best["_score"] = best_score
     return best

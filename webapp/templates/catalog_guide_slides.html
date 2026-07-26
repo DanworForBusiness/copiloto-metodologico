@@ -13,7 +13,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
 <link rel="stylesheet" href="/pack-assets/{{ pack }}/academy/dw-academy.css" />
+{# feedback.css = ÚNICA fuente del estilo de la botonera de cierre (compartida con el
+   copiloto). htmx: para reusar el MISMO partial catalog_feedback.html (mismo endpoint). #}
+<link rel="stylesheet" href="/static/feedback.css" />
+<script defer src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
+  /* Shim: feedback.css usa las variables del copiloto (--card/--soft); acá las
+     mapeamos a las de Academy (theme-aware) para que resuelva igual en el iframe. */
+  :root{ --card: var(--bg-card); --soft: var(--ink-soft); }
   /* Embebido: sin topbar/scroll-progress propios (el shell del copiloto ya da
      contexto y tema). El hero llena el alto del iframe y centra su contenido,
      igual que las demás slides (.topic ya es min-height:100svh) — así al abrir se
@@ -101,22 +108,9 @@
     border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:var(--mono);
     font-size:.72rem; font-weight:600; color:var(--gold); background:var(--gold-dim); border:1px solid var(--line-2);}
 
-  /* Cierre "fin de módulo" — mismo espíritu transversal, look Academy. */
-  .guide-end{min-height:auto; padding:clamp(3rem,7vw,5rem) 0 clamp(4rem,9vw,6rem); border-bottom:0;}
-  .guide-fb{text-align:center;}
-  .guide-fb__eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); margin-bottom:.6rem;}
-  .guide-fb__prompt{font-size:clamp(1.2rem,2.2vw,1.6rem); font-weight:700; margin-bottom:1.4rem;}
-  .guide-fb__reactions{display:inline-flex; gap:.8rem;}
-  .guide-fb__react{display:inline-flex; align-items:center; gap:.5rem; padding:.7rem 1.1rem; border:1px solid var(--line-2);
-    border-radius:12px; background:var(--bg-card); color:var(--ink-soft); font:600 .8rem var(--sans); cursor:pointer; transition:border-color .2s, color .2s;}
-  .guide-fb__react:hover{border-color:var(--gold); color:var(--ink);}
-  .guide-fb textarea{width:min(560px,90%); min-height:88px; margin:0 auto; display:block; padding:.75rem .9rem;
-    border:1px solid var(--line-2); border-radius:12px; background:var(--bg-card); color:var(--ink); font:500 .92rem/1.5 var(--sans); resize:vertical;}
-  .guide-fb textarea:focus{outline:none; border-color:var(--gold);}
-  .guide-fb__actions{display:flex; gap:.6rem; justify-content:center; margin-top:.9rem;}
-  .guide-fb__send{border:0; background:var(--gold); color:#0c0c0d; font-weight:700; font-size:.8rem; padding:.6rem 1.2rem; border-radius:10px; cursor:pointer;}
-  .guide-fb__ghost{border:1px solid var(--line-2); background:transparent; color:var(--ink-soft); font-size:.8rem; padding:.6rem 1.1rem; border-radius:10px; cursor:pointer;}
-  .guide-fb__note{color:var(--ink-soft); font-size:.9rem;}
+  /* Cierre del instructivo: la botonera es el MISMO partial catalog_feedback.html,
+     estilada por feedback.css (única fuente). Solo el espaciado del slide es propio. */
+  .guide-end{min-height:auto; padding:clamp(2rem,5vw,3.5rem) 0 clamp(3rem,7vw,4.5rem); border-bottom:0;}
 </style>
 </head>
 <body>
@@ -192,16 +186,15 @@
   {% endfor %}
 
   <!-- CIERRE -->
-  <section class="topic guide-end" id="fin">
+  <section class="topic guide-end reveal" id="fin">
     <div class="container">
-      <div id="guideFeedback" class="guide-fb reveal">
-        <p class="guide-fb__eyebrow">Fin del instructivo</p>
-        <p class="guide-fb__prompt">¿Te resultó útil esta guía?</p>
-        <div class="guide-fb__reactions">
-          <button type="button" class="guide-fb__react" data-rating="up">👍 <span>Me sirvió</span></button>
-          <button type="button" class="guide-fb__react" data-rating="down">👎 <span>Puede mejorar</span></button>
-        </div>
-      </div>
+      {# MISMO partial que el cierre de módulo/catálogo (única fuente, feedback.css).
+         Posteado por htmx dentro del iframe; el endpoint /catalog/feedback devuelve
+         el mismo partial (estado de gracias). #}
+      {% with catalog_kind="guide", catalog_ref="como-publicar",
+              fb_eyebrow="Fin del instructivo", fb_prompt="¿Te resultó útil esta guía?" %}
+      {% include "partials/catalog_feedback.html" %}
+      {% endwith %}
     </div>
   </section>
 
@@ -258,26 +251,8 @@
       finishRegen(false, 'Abrí la guía desde el copiloto para poder regenerar.');
     });
   }
-
-  // feedback de cierre → /catalog/feedback (self-contained; no depende de HTMX)
-  var box = document.getElementById('guideFeedback');
-  var KIND = 'guide', REF = 'como-publicar', PACK = {{ pack|tojson }};
-  function thanks(){ box.innerHTML = '<p class="guide-fb__eyebrow">Gracias por tu recorrido</p><p class="guide-fb__note">Registramos tu opinión sobre esta guía.</p>'; }
-  function post(url, data){ var body=new URLSearchParams(data); return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body}); }
-  box.addEventListener('click', function(e){
-    var r = e.target.closest('[data-rating]'); if(!r) return;
-    var rating = r.getAttribute('data-rating');
-    if(rating === 'up'){ post('/catalog/feedback', {rating:'up', catalog_kind:KIND, catalog_ref:REF, pack:PACK}).then(thanks).catch(thanks); return; }
-    // 👎 → pedir comentario y enviar a /submit
-    box.innerHTML = '<p class="guide-fb__eyebrow">Contanos un poco más</p><p class="guide-fb__prompt">¿Qué faltó o qué mejorarías?</p>'
-      + '<textarea id="guideFbComment" rows="3" placeholder="Ej.: faltó contexto, un ejemplo práctico, más claridad..."></textarea>'
-      + '<div class="guide-fb__actions"><button type="button" class="guide-fb__ghost" id="guideFbCancel">Cancelar</button><button type="button" class="guide-fb__send" id="guideFbSend">Enviar</button></div>';
-    document.getElementById('guideFbCancel').addEventListener('click', function(){ location.reload(); });
-    document.getElementById('guideFbSend').addEventListener('click', function(){
-      var c = document.getElementById('guideFbComment').value || '';
-      post('/catalog/feedback/submit', {rating:'down', catalog_kind:KIND, catalog_ref:REF, pack:PACK, comment:c}).then(thanks).catch(thanks);
-    });
-  });
+  // El feedback de cierre ya NO tiene JS propio: es el partial catalog_feedback.html
+  // posteado por htmx (única fuente, mismo endpoint que módulo/catálogo).
 })();
 </script>
 
