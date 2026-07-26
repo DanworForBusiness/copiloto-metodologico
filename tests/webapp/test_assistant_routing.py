@@ -95,6 +95,49 @@ def test_find_matching_cds_por_nombre_tecnico(tmp_path, monkeypatch):
     assert _find_matching_cds("como modelo una vista analitica") is None
 
 
+def test_clasificador_inventario_de_dominios():
+    from webapp.services.assistant_routing import _is_domain_inventory_query as inv
+
+    assert inv("que modelos de datos tenemos ya desarrollados?")
+    assert inv("que dominios tenemos ya desarrollados?")
+    assert inv("que modelos analiticos tenemos?")
+    assert inv("cuales flujos hay implementados?")
+    # how-to → no inventario
+    assert not inv("como creo un modelo de datos?")
+    # sin término de dominio → no
+    assert not inv("que conexiones tenemos?")
+
+
+def test_clasificador_inventario_de_cds():
+    from webapp.services.assistant_routing import _is_cds_inventory_query as inv
+
+    assert inv("que CDS tenemos ya armadas?")
+    assert inv("cuales extractores tenemos?")
+    assert inv("que vistas cds hay implementadas?")
+    # crear/escribir una CDS es how-to (template), no inventario
+    assert not inv("como creo una CDS view?")
+    assert not inv("escribir una cds")
+    # sin término CDS → no
+    assert not inv("que conexiones tenemos?")
+
+
+def test_route_lidera_con_inventario_de_cds(tmp_path, monkeypatch):
+    apis = tmp_path / "APIs"
+    apis.mkdir()
+    for n in ("ZCDS_DSP_FACT_LIPS", "ZCDS_DSP_DIM_ADRC", "ZCDS_DSP_TSPAT"):
+        (apis / f"{n}.md").write_text(f"# {n}", encoding="utf-8")
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path))
+    document = load_module("03_Integracion_y_Estrategia_de_Datos")
+
+    route = AssistantRoutingService().route(document, "que CDS tenemos ya armadas?", "datasphere_core")
+
+    assert route is not None
+    assert "3 CDS views" in route.message
+    # una acción embed por CDS, apuntando a /catalog/cds
+    assert len(route.actions) == 3
+    assert all(a.embed and a.url.startswith("/catalog/cds?name=") for a in route.actions)
+
+
 def test_route_lidera_con_cds_view_por_nombre(tmp_path, monkeypatch):
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(_seed_apis(tmp_path)))
     document = load_module("01_Arquitectura_y_Conectividad")

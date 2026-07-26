@@ -2,9 +2,15 @@
    estructura que el detalle de un flujo (hero + artículo .methodology), así hereda
    el look & feel del copiloto. Se abre desde el botón "Abrir CDS View"; "Volver"
    re-abre el flujo de origen (cliente+dominio) en el mismo slot HTMX. #}
+{% if cliente and dominio %}
 <a class="catalog-back" href="#"
    hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}&pack={{ pack }}"
    hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver al flujo</a>
+{% else %}
+{# CDS abierta sin contexto de flujo (p. ej. desde el asistente por nombre o inventario):
+   Volver genérico que cierra el detalle y restaura el módulo (dwCatalogBack). #}
+<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
+{% endif %}
 <section class="module-hero">
   <p class="eyebrow">Catálogo Danwor · API corporativa{% if cliente %} · {{ cliente }}{% endif %}</p>
   <h1>{{ cds_title }}</h1>

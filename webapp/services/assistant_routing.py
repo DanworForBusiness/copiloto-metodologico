@@ -211,28 +211,61 @@ def _find_matching_catalog(question: str, pack_name: str):
         return None
 
 
-def _find_matching_cds(question: str):
-    """Nombre técnico de una CDS view publicada mencionado en la consulta, o None.
-    Señal muy precisa: si la pregunta nombra una CDS del catálogo de APIs (ej.
-    'ZCDS_DSP_FACT_MCHB', o el artefacto con prefijo '1TR_ZCDS_...'), la respuesta es
-    su código/definición. Match por substring sobre los nombres reales de APIs/ (así
-    tolera prefijos de transporte); ante varios, gana el nombre más largo (más
-    específico). Lee catalog_local (runtime); nunca rompe el routing."""
+def _list_cds_names() -> list[str]:
+    """Nombres de las CDS views publicadas en el catálogo de APIs (APIs/<name>.md).
+    Lee catalog_local (runtime); [] si no existe. Nunca rompe el routing."""
     try:
         import os as _os
         from config import BASE_DIR
         cat_dir = _os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
         apis_dir = _os.path.join(cat_dir, "APIs")
         if not _os.path.isdir(apis_dir):
-            return None
-        names = [f[:-3] for f in _os.listdir(apis_dir) if f.endswith(".md")]
-        q_upper = (question or "").upper()
-        # candidatos cuyo nombre aparece literal en la consulta (ZCDS_ es el marcador
-        # de CDS corporativa; evita falsos positivos con tokens sueltos cortos).
-        hits = [n for n in names if "ZCDS" in n.upper() and n.upper() in q_upper]
-        return max(hits, key=len) if hits else None
+            return []
+        return [f[:-3] for f in _os.listdir(apis_dir) if f.endswith(".md")]
     except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return []
+
+
+def _find_matching_cds(question: str):
+    """Nombre técnico de una CDS view publicada mencionado en la consulta, o None.
+    Señal muy precisa: si la pregunta nombra una CDS del catálogo de APIs (ej.
+    'ZCDS_DSP_FACT_MCHB', o el artefacto con prefijo '1TR_ZCDS_...'), la respuesta es
+    su código/definición. Match por substring sobre los nombres reales de APIs/ (así
+    tolera prefijos de transporte); ante varios, gana el nombre más largo (más
+    específico)."""
+    q_upper = (question or "").upper()
+    hits = [n for n in _list_cds_names() if "ZCDS" in n.upper() and n.upper() in q_upper]
+    return max(hits, key=len) if hits else None
+
+
+_CDS_TERMS = (
+    "cds", "cds view", "cds views", "vista cds", "vistas cds", "extractor",
+    "extractores", "api corporativa", "apis corporativas", "api de extraccion",
+)
+
+
+def _is_cds_inventory_query(question: str) -> bool:
+    """Inventario de CDS/extractores: '¿qué CDS tenemos armadas?', '¿qué extractores
+    hay?'. Distinto de un how-to ('cómo creo una CDS' → template) o de nombrar una CDS
+    puntual. La respuesta es el inventario real del catálogo de APIs, no un template."""
+    if _is_asset_seeking_query(question) or _is_conceptual_or_comparative_query(question):
+        return False   # "cómo creo una CDS" (template) o comparativa no son inventario
+    q = norm_text(question)
+    has_cds = any(t in q for t in _CDS_TERMS)
+    has_inventory = _is_availability_query(question) or any(t in q for t in _INVENTORY_TERMS)
+    return has_cds and has_inventory
+
+
+def _cds_inventory():
+    """Inventario real de CDS views del catálogo de APIs, agrupado FACT/DIM/otras.
+    None si no hay ninguna."""
+    names = sorted(n for n in _list_cds_names() if "ZCDS" in n.upper())
+    if not names:
         return None
+    fact = [n for n in names if "_FACT_" in n.upper()]
+    dim = [n for n in names if "_DIM_" in n.upper()]
+    other = [n for n in names if n not in fact and n not in dim]
+    return {"names": names, "fact": fact, "dim": dim, "other": other}
 
 
 _CONNECTIVITY_TERMS = (
@@ -253,8 +286,8 @@ def _is_connectivity_inventory_query(question: str) -> bool:
     orígenes de datos hay?'. Distinta de un how-to ('cómo conectar X') o de una
     conexión puntual ('configurar PostgreSQL'). Para estas, la respuesta es el
     catálogo de Arquitectura & Conectividad (la evidencia real, no una sección)."""
-    if _is_asset_seeking_query(question):   # how-to no es inventario
-        return False
+    if _is_asset_seeking_query(question) or _is_conceptual_or_comparative_query(question):
+        return False   # how-to o comparativa/conceptual no son inventario
     q = norm_text(question)
     has_conn = any(t in q for t in _CONNECTIVITY_TERMS)
     has_inventory = _is_availability_query(question) or any(t in q for t in _INVENTORY_TERMS)
@@ -292,6 +325,58 @@ def _connectivity_catalog_action(pack_name: str) -> AssistantRouteAction | None:
         return None
     return AssistantRouteAction(
         "Ver el catálogo de conexiones",
+        f"/modules/{quote(mod.stem)}?pack={quote(pack_name)}&tab=catalogo",
+    )
+
+
+_DOMAIN_TERMS = (
+    "modelo de datos", "modelos de datos", "modelo analitico", "modelos analiticos",
+    "dominio", "dominios", "flujo", "flujos", "caso de uso", "casos de uso",
+)
+
+
+def _is_domain_inventory_query(question: str) -> bool:
+    """Inventario de dominios / modelos de datos: '¿qué modelos de datos tenemos
+    desarrollados?', '¿qué dominios hay?'. Distinto de un how-to o de un dominio puntual
+    ('modelo de datos para despachos' → lo resuelve el lead de disponibilidad antes)."""
+    if _is_asset_seeking_query(question) or _is_conceptual_or_comparative_query(question):
+        return False   # how-to o comparativa/conceptual (ej. "Power BI consume modelos?")
+    q = norm_text(question)
+    has_domain = any(t in q for t in _DOMAIN_TERMS)
+    has_inventory = _is_availability_query(question) or any(t in q for t in _INVENTORY_TERMS)
+    return has_domain and has_inventory
+
+
+def _domains_inventory(pack_name: str):
+    """Inventario real de dominios/flujos publicados (dedup por cliente+dominio,
+    ordenado por veredicto). None si vacío."""
+    try:
+        _cat, cat_dir = _catalog_module()
+        entries = _cat.load_catalog(cat_dir)
+        if not entries:
+            return None
+        seen, items = set(), []
+        for e in entries:
+            key = (e.cliente, e.dominio)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(e)
+        rank = {"plena": 0, "buena": 1, "parcial": 2}
+        items.sort(key=lambda e: (rank.get(str(e.veredicto).lower(), 9), e.cliente.lower(), e.dominio.lower()))
+        return items or None
+    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return None
+
+
+def _domains_catalog_action(pack_name: str) -> AssistantRouteAction | None:
+    """Botón a la pestaña Catálogo del módulo 04 (Modelado), donde vive el catálogo de
+    dominios/flujos publicados."""
+    mod = next((m for m in list_modules(pack_name) if m.stem.startswith("04_")), None)
+    if not mod:
+        return None
+    return AssistantRouteAction(
+        "Ver el catálogo de dominios",
         f"/modules/{quote(mod.stem)}?pack={quote(pack_name)}&tab=catalogo",
     )
 
@@ -351,9 +436,44 @@ class AssistantRoutingService:
             return AssistantRoute(
                 f"**{cds_name}** es una CDS view del catálogo de APIs corporativas de "
                 f"extracción. Acá está su definición y código.",
-                (AssistantRouteAction("Ver la CDS view", url),),
+                (AssistantRouteAction("Ver la CDS view", url, embed=True),),
                 question,
             )
+
+        # Inventario de CDS ("¿qué CDS tenemos armadas?"): la respuesta es el catálogo
+        # REAL de APIs corporativas (los extractores ya construidos), no un template.
+        if _is_cds_inventory_query(question):
+            inv = _cds_inventory()
+            if inv:
+                def _subj(name: str) -> str:
+                    up = name.upper()
+                    for mk in ("_FACT_", "_DIM_"):
+                        i = up.find(mk)
+                        if i != -1:
+                            return name[i + len(mk):]
+                    return name.rsplit("_", 1)[-1]
+                bullets = []
+                if inv["fact"]:
+                    bullets.append(f"- **FACT** ({len(inv['fact'])}): {', '.join(_subj(n) for n in inv['fact'])}")
+                if inv["dim"]:
+                    bullets.append(f"- **DIM** ({len(inv['dim'])}): {', '.join(_subj(n) for n in inv['dim'])}")
+                if inv["other"]:
+                    bullets.append(f"- **Otras** ({len(inv['other'])}): {', '.join(_subj(n) for n in inv['other'])}")
+                message = (
+                    f"En el catálogo de **APIs corporativas de extracción** tenemos "
+                    f"{len(inv['names'])} CDS views ya armadas:\n\n" + "\n".join(bullets)
+                )
+                order = inv["fact"] + inv["dim"] + inv["other"]
+                actions = tuple(
+                    AssistantRouteAction(
+                        _subj(n) if n in inv["other"] else
+                        f"{'FACT' if n in inv['fact'] else 'DIM'} · {_subj(n)}",
+                        f"/catalog/cds?name={quote(n)}&pack={quote(pack_name)}",
+                        embed=True,
+                    )
+                    for n in order[:12]
+                )
+                return AssistantRoute(message, actions, question)
 
         # Catálogo primero para consultas de DISPONIBILIDAD ("¿tenemos X?"): un flujo
         # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
@@ -398,16 +518,46 @@ class AssistantRoutingService:
             inv = _connections_inventory(pack_name)
             action = _connectivity_catalog_action(pack_name)
             if inv and action:
-                types = ", ".join(f"**{t}**" for t in inv["types"])
                 clientes = ", ".join(inv["clients"])
                 n_t, n_c = len(inv["types"]), len(inv["clients"])
-                message = (
-                    f"En el catálogo de Arquitectura & Conectividad tenemos {n_t} "
+                lead = (
+                    f"En el catálogo de **Arquitectura & Conectividad** tenemos {n_t} "
                     f"tipo{'s' if n_t != 1 else ''} de conexión resuelto{'s' if n_t != 1 else ''} "
-                    f"en {n_c} cliente{'s' if n_c != 1 else ''} ({clientes}): {types}. "
-                    f"Abrí el catálogo para ver qué cliente usa cada uno y con qué capacidades."
+                    f"en {n_c} cliente{'s' if n_c != 1 else ''} ({clientes}):"
                 )
+                bullets = "\n".join(f"- **{t}**" for t in inv["types"])
+                message = f"{lead}\n\n{bullets}"
                 return AssistantRoute(message, (action,), question)
+
+        # Inventario de dominios / modelos de datos ("¿qué modelos de datos / dominios
+        # tenemos desarrollados?"): la evidencia es el catálogo de flujos publicados, no
+        # una sección de otro módulo. Respondemos con el inventario REAL (dominios +
+        # cliente + veredicto) y un botón por dominio que abre el flujo en el slot.
+        if _is_domain_inventory_query(question):
+            items = _domains_inventory(pack_name)
+            if items:
+                clientes = sorted({e.cliente for e in items})
+                lead = (
+                    f"En el catálogo tenemos **{len(items)} modelo"
+                    f"{'s' if len(items) != 1 else ''} de datos** (dominios) desarrollado"
+                    f"{'s' if len(items) != 1 else ''} en {len(clientes)} "
+                    f"cliente{'s' if len(clientes) != 1 else ''}, ordenados por cumplimiento:"
+                )
+                bullets = "\n".join(
+                    f"- {e.icon} **{e.cliente} · {e.dominio}** (mirada Danwor {e.veredicto})"
+                    for e in items
+                )
+                message = f"{lead}\n\n{bullets}"
+                actions = tuple(
+                    AssistantRouteAction(
+                        f"{e.cliente} · {e.dominio}",
+                        (f"/catalog/flow?cliente={quote(e.cliente)}"
+                         f"&dominio={quote(e.dominio)}&pack={quote(pack_name)}"),
+                        embed=True,
+                    )
+                    for e in items[:12]
+                )
+                return AssistantRoute(message, actions, question)
 
         multiple_assets = _find_matching_assets(
             question, stem, source, pack_name=pack_name,
