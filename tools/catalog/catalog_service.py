@@ -894,6 +894,21 @@ def search_catalog(query: str, entries: list[CatalogEntry], top_k: int = 8) -> l
     return [e for _s, e in scored[:top_k]]
 
 
+def best_domain_match(query: str, entries: list[CatalogEntry]) -> CatalogEntry | None:
+    """Mejor flujo del catálogo para `query`, SOLO si matchea a nivel DOMINIO
+    (token de dominio en común, con sinónimos stock↔inventario). Es el umbral
+    "fuerte" que usa el asistente para responder con evidencia real (un flujo
+    publicado) antes que ofrecer un template. None si ningún dominio matchea."""
+    q = _tokens(query)
+    if not q:
+        return None
+    cands = [e for e in entries if q & _tokens(e.dominio)]
+    if not cands:
+        return None
+    ranked = search_catalog(query, cands, top_k=1)   # reusa scoring + orden por veredicto
+    return ranked[0] if ranked else None
+
+
 def domains(entries: list[CatalogEntry]) -> list[str]:
     """Dominios disponibles en el catálogo (para el dropdown determinista).
 

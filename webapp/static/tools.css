@@ -59,8 +59,8 @@
 .ai-disclaimer { margin: 10px 0 0; color: var(--dim); font-size: .63rem; text-align: center; }
 .section-analysis-warning:empty { display: none; }
 .section-analysis-warning-copy { margin: 10px 0 0; padding: 9px 10px; border-left: 3px solid var(--gold); background: rgba(231,176,8,.10); color: var(--ink); font-size: .7rem; line-height: 1.45; }
-.assistant-conversation { display: grid; gap: 14px; max-height: calc(100vh - 340px); margin-top: 20px; overflow-y: auto; scrollbar-width: thin; }
-.assistant-conversation:empty { margin-top: 0; }
+.assistant-conversation { display: grid; gap: 14px; max-height: calc(100vh - 340px); overflow-y: auto; scrollbar-width: thin; }
+.assistant-conversation:not(:empty) { margin-bottom: 16px; }
 .assistant-conversation:has(.assistant-exchange) .assistant-empty { display: none; }
 .assistant-exchange { display: grid; gap: 10px; }
 .assistant-message { padding: 10px 13px; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(16,24,40,.05); overflow-wrap: anywhere; }
@@ -1067,7 +1067,13 @@
    columna y wrap defensivo (la grilla de 3 columnas del módulo asume títulos cortos). */
 .section-index--flow { grid-template-columns: 1fr; gap: 4px 0; }
 .section-index--flow a { overflow-wrap: anywhere; }
-.catalog-back { display:inline-block; margin-bottom:14px; color:var(--soft); font:500 .72rem var(--mono); text-decoration:none; }
+/* "← Volver" transversal: pegajoso arriba del scroller para que NO desaparezca al
+   scrollear (misma regla que el guide-back del instructivo). Texto plano sobre el
+   fondo del panel (no un chip); el bg por tema tapa el contenido que pasa debajo. */
+.catalog-back { position:sticky; top:0; z-index:6; display:block; margin:0 0 14px;
+  padding:8px 0 10px; color:var(--soft); font:500 .72rem var(--mono); text-decoration:none; }
+.content-theme-light .catalog-back { background:#fff; }
+.content-theme-dark .catalog-back { background:#181819; }
 .catalog-back:hover { color:var(--gold); }
 .catalog-detail h1, .catalog-detail h2 { color: inherit; }  /* usa el color de contenido del tema, no --ink */
 .catalog-detail h2 { margin: 32px 0 14px; font-size: clamp(1.35rem, 2.4vw, 1.8rem); font-weight: 800; line-height: 1.12; letter-spacing: -.02em; }

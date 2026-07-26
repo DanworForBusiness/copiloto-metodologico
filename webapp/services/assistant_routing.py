@@ -145,6 +145,58 @@ def _related_asset_action(asset: dict, pack_name: str) -> AssistantRouteAction |
     return AssistantRouteAction("Abrir recurso relacionado", action.url, action.external)
 
 
+def _is_current_section(heading: str, module: str, stem: str, active_section: str) -> bool:
+    """True si (module, heading) es la sección donde el usuario YA está parado.
+    Skip posicional: no re-recomendamos la sección actual — caemos al siguiente
+    candidato (recurso, cross-module) o al fallback "ya estás acá"."""
+    return bool(active_section) and module == stem and slugify(_display_heading(heading)) == active_section
+
+
+def _catalog_action(pack_name: str) -> AssistantRouteAction | None:
+    """Botón al catálogo de dominios (módulo 04, pestaña Catálogo) para el
+    repertorio del fallback. Pilot: el catálogo hoy vive en el módulo 04."""
+    mod = next((m for m in list_modules(pack_name) if m.stem.startswith("04_")), None)
+    if not mod:
+        return None
+    return AssistantRouteAction(
+        "Ver catálogo de dominios",
+        f"/modules/{quote(mod.stem)}?pack={quote(pack_name)}&tab=catalogo",
+    )
+
+
+_AVAILABILITY_TERMS = (
+    "tenemos", "tienen", "tenes", "tenés", "hay ", "existe", "contamos con",
+    "disponemos", "ya hay", "ya tenemos", "esta disponible", "está disponible",
+    "disponible", "algun caso", "algún caso", "algun cliente", "algún cliente",
+)
+
+
+def _is_availability_query(question: str) -> bool:
+    """Consulta de disponibilidad/evidencia: '¿tenemos X?', '¿hay X?', '¿existe X?'.
+    Para estas, un artefacto REAL del catálogo es mejor respuesta que un template."""
+    q = norm_text(question)
+    return any(term in q for term in _AVAILABILITY_TERMS)
+
+
+def _find_matching_catalog(question: str, pack_name: str):
+    """Mejor flujo del catálogo (evidencia real publicada) para la consulta, o None.
+    Lee catalog_local (runtime); si está vacío/ausente → None y el router cae a su
+    comportamiento normal (template/sección). El catálogo NUNCA rompe el routing."""
+    try:
+        import os as _os
+        import sys as _sys
+        from config import BASE_DIR
+        svc_dir = str(BASE_DIR / "tools" / "catalog")
+        if svc_dir not in _sys.path:
+            _sys.path.insert(0, svc_dir)
+        import catalog_service as _cat
+        cat_dir = _os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+        entries = _cat.load_catalog(cat_dir)
+        return _cat.best_domain_match(question, entries) if entries else None
+    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
+        return None
+
+
 class AssistantRoutingService:
     """Resolve curated navigation before falling back to the LLM."""
 
@@ -160,6 +212,26 @@ class AssistantRoutingService:
             return None
         stem = document.summary.stem
         source = document.source
+        # Skip posicional: si en el camino descartamos una recomendación por ser la
+        # sección donde el usuario YA está, lo recordamos para el fallback final.
+        suppressed: tuple[str, str] | None = None
+
+        # Catálogo primero para consultas de DISPONIBILIDAD ("¿tenemos X?"): un flujo
+        # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
+        # construirlo. Solo lidera si matchea a nivel dominio (umbral fuerte); si el
+        # catálogo está vacío, no devuelve nada y sigue el flujo normal.
+        if _is_availability_query(question):
+            cat_entry = _find_matching_catalog(question, pack_name)
+            if cat_entry is not None:
+                label = f"{cat_entry.cliente} · {cat_entry.dominio}".strip(" ··")
+                url = (f"/catalog/flow?cliente={quote(cat_entry.cliente)}"
+                       f"&dominio={quote(cat_entry.dominio)}&pack={quote(pack_name)}")
+                return AssistantRoute(
+                    f"Sí — ya tenemos esto implementado: **{label}** "
+                    f"({cat_entry.icon} mirada Danwor {cat_entry.veredicto}). Miralo en el catálogo.",
+                    (AssistantRouteAction("Ver en el catálogo", url),),
+                    question,
+                )
 
         multiple_assets = _find_matching_assets(
             question, stem, source, pack_name=pack_name,
@@ -205,6 +277,12 @@ class AssistantRoutingService:
             asset_label = str(asset.get("description") or "recurso técnico")
             section = local_section or cross_section
             if section and not _should_pair_section_with_asset(question, section):
+                section = None
+            # Si la sección que lideraría es donde el usuario YA está, no la
+            # re-recomendamos: la soltamos y dejamos que el recurso lidere.
+            if section and _is_current_section(str(section.get("heading") or ""),
+                                               str(section.get("module") or stem), stem, active_section):
+                suppressed = (_display_heading(str(section.get("heading") or "")), str(section.get("heading") or ""))
                 section = None
             actions: list[AssistantRouteAction] = []
             # La sección lidera (y el asset pasa a "recurso relacionado") cuando:
@@ -278,15 +356,17 @@ class AssistantRoutingService:
         if local_section:
             heading = str(local_section.get("heading") or "")
             if slugify(_display_heading(heading)) == active_section:
-                return None
-            label = _display_heading(heading)
-            return AssistantRoute(
-                f"Encontré una sección del módulo que puede ayudarte: **{label}**.",
-                (AssistantRouteAction("Ir a la sección", _module_url(stem, pack_name, heading)),),
-                question,
-                stem,
-                heading,
-            )
+                # Ya estás en esa sección → no la re-recomendamos; caé al fallback.
+                suppressed = suppressed or (_display_heading(heading), heading)
+            else:
+                label = _display_heading(heading)
+                return AssistantRoute(
+                    f"Encontré una sección del módulo que puede ayudarte: **{label}**.",
+                    (AssistantRouteAction("Ir a la sección", _module_url(stem, pack_name, heading)),),
+                    question,
+                    stem,
+                    heading,
+                )
 
         cross_section = _find_cross_module_section(question, stem, pack_name)
         if cross_section:
@@ -312,4 +392,18 @@ class AssistantRoutingService:
                     question,
                     target,
                 )
+
+        # Fallback "ya estás acá": el mejor match era la sección donde el usuario ya
+        # está y no quedó nada mejor. En vez de re-recomendarla (muy básico), ofrecemos
+        # otros ángulos: catálogo de dominios + "Explicame vos" (IA sobre esta sección).
+        if suppressed:
+            label, heading = suppressed
+            actions: list[AssistantRouteAction] = []
+            if (cat := _catalog_action(pack_name)):
+                actions.append(cat)
+            return AssistantRoute(
+                f"Veo que estás en **{label}**. Si aun así el contenido no es lo que "
+                f"buscabas, abordémoslo desde otro ángulo:",
+                tuple(actions), question, stem, heading,
+            )
         return None

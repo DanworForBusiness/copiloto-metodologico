@@ -176,8 +176,10 @@
       </section>
 
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='assistant'" role="tabpanel">
-        {# Input arriba (donde en las otras tabs va el dropdown) y la conversación
-           debajo (donde va el contenido/resultados) → sin línea divisoria huérfana. #}
+        {# Orden clásico de chat: conversación arriba, input ("Tu consulta") abajo.
+           Vacío → la conversación colapsa y el input queda arriba, SIN la línea gris
+           huérfana (se quitó el border-top del form; ese era el fix real, no reordenar). #}
+        <div id="assistant-conversation" class="assistant-conversation" aria-live="polite"></div>
         <form class="assistant-chat-form" hx-post="/modules/{{ document.summary.stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button[type='submit'], textarea">
           <input type="hidden" name="pack" value="{{ pack }}">
           <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
@@ -187,7 +189,6 @@
           <button type="submit" class="btn-primary tool-primary">Enviar</button>
           <div id="assistant-chat-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Obteniendo la mejor respuesta...</span></div>
         </form>
-        <div id="assistant-conversation" class="assistant-conversation" aria-live="polite"></div>
       </section>
 
       {% if show_catalog %}

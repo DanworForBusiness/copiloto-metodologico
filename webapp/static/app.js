@@ -118,28 +118,34 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
           }
         }, { passive: true });
       }
-      // El hero (#__module__) también es target del scroll-spy: arriba de todo el
-      // selector marca "Módulo (general)"; al entrar a una sección, marca la sección.
+      // Scroll-spy: el hero (#__module__) marca "Módulo (general)" arriba de todo, y
+      // al entrar a una sección marca esa sección. La activa es la MÁS PROFUNDA cuyo
+      // top ya cruzó una línea de referencia ≈ donde aterriza un #anchor (topbar 74px
+      // + scroll-margin 32px ≈ 110px). Antes tomaba "la primera que intersecta una
+      // banda", y el sliver inferior de la sección anterior ganaba → al redirigir por
+      // anchor el panel quedaba una sección atrás (y el router creía que no estabas ahí).
       const sections = [...document.querySelectorAll(".module-hero, .content-section")];
+      const SPY_REF = 120;
+      const recomputeActive = () => {
+        let active = null;
+        for (const s of sections) {          // en orden vertical de documento
+          if (s.getBoundingClientRect().top <= SPY_REF) active = s; else break;
+        }
+        const id = (active || sections[0])?.id;
+        if (id) this.activeSection = id;
+      };
       this.activeSection = sections[0]?.id || "";
-      if ("IntersectionObserver" in window) {
-        // Mantenemos un Set persistente de secciones que cruzan la banda y la
-        // sección activa = la primera en orden de documento. Así re-identifica
-        // tanto bajando como SUBIENDO (antes solo usaba las entries del callback
-        // actual, que al subir traían la sección que SALÍA, sin reemplazo).
-        const intersecting = new Set();
-        const observer = new IntersectionObserver(entries => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) intersecting.add(entry.target);
-            else intersecting.delete(entry.target);
-          }
-          const top = sections.find(section => intersecting.has(section));
-          if (top) this.activeSection = top.id;
-          // Banda apenas debajo del topbar (≈ donde aterrizan los anchors): la
-          // sección cambia cuando la anterior sale por arriba de los 80px.
-        }, { rootMargin: "-80px 0px -75% 0px", threshold: 0 });
-        sections.forEach(section => observer.observe(section));
-      }
+      let spyRaf = false;
+      const scheduleSpy = () => {
+        if (spyRaf) return;
+        spyRaf = true;
+        requestAnimationFrame(() => { spyRaf = false; recomputeActive(); });
+      };
+      // El scroll no burbujea pero llega en captura → atrapamos venga del scroller que venga.
+      document.addEventListener("scroll", scheduleSpy, { capture: true, passive: true });
+      window.addEventListener("resize", scheduleSpy, { passive: true });
+      requestAnimationFrame(recomputeActive);   // aterrizaje inicial (incluye landing por #anchor)
+      setTimeout(recomputeActive, 150);         // reevaluar tras montar embeds / scroll del anchor
       initContentReveals(shell);
     },
     toggleTheme() {
