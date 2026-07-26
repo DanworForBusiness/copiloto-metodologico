@@ -172,14 +172,15 @@ def _capa_of_name(name: str) -> str:
 
 
 # Categorías ESTÁNDAR de la mirada Danwor (una de tres; NO texto libre). Es la
-# etiqueta canónica que se muestra cuando el senior confirma un veredicto. Las
-# frases coinciden con las que emite el generador (generate_catalog.evaluate_compliance);
-# si allá cambian, mantener sincronizado (candidato a fuente única en el refactor).
-_APTO_ESTANDAR = {
-    "plena": "Referencia Danwor — reutilizable",
-    "buena": "Reutilizable con nota de especificidad",
-    "parcial": "Inspiración conceptual con reservas — no copiar tal cual",
-}
+# Etiqueta canónica que se muestra cuando el senior confirma un veredicto. FUENTE
+# ÚNICA compartida con el generador (compliance_criteria.APTO_CANONICAL): ya no es una
+# copia que haya que "mantener sincronizada" — es el mismo objeto. El import tolera los
+# dos modos de carga de este módulo (top-level vía sys.path, o como paquete).
+try:
+    from tools.catalog.compliance_criteria import APTO_CANONICAL as _APTO_ESTANDAR
+except Exception:  # noqa: BLE001 — fallback si tools/ no está como paquete en el path
+    import compliance_criteria as _cc
+    _APTO_ESTANDAR = _cc.APTO_CANONICAL
 
 
 # ── Carga (fuente local; SharePoint se enchufa acá) ───────────────────────

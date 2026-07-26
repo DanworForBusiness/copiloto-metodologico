@@ -90,3 +90,47 @@ def test_name_vs_reality_no_marca_zcds_sobre_abap_cds():
     # nombre ZCDS y origen ABAP_CDS.* → nombre == realidad, sin nota.
     ents = _entities(_ent("1TR_ZCDS_DSP_DIM_ADRC", "ABAP_CDS.ZCDS_DSP_DIM_ADRC$E"))
     assert "name_vs_reality" not in _finding_ids(ents)
+
+
+# ── Invariantes de FUENTE ÚNICA del criterio (epic B 1.2 — solidez) ──────────
+# Si alguien reintroduce el criterio por copia, estos tests se ponen rojos.
+
+def test_invariante_fuente_unica_del_clasificador():
+    """`classify_extraction` es UN solo objeto compartido por el motor de ponderación
+    (generate_catalog) y la reconciliación — no copias que puedan divergir."""
+    from tools.catalog.compliance_criteria import classify_extraction as C
+    from tools.catalog.generate_catalog import classify_extraction as G
+    import analyze_reconciliation as R
+    assert C is G is R._classify
+
+
+def test_invariante_fuente_unica_del_apto():
+    """Las frases canónicas de `apto` son el MISMO objeto en catalog_service y en el
+    módulo de criterio; y el generador deriva plena/parcial de esas bases (no copia)."""
+    import sys
+    from config import BASE_DIR
+    sys.path.insert(0, str(BASE_DIR / "tools" / "catalog"))
+    import catalog_service
+    from tools.catalog.compliance_criteria import APTO_CANONICAL
+    assert catalog_service._APTO_ESTANDAR is APTO_CANONICAL
+    _, v_plena, apto_plena = evaluate_compliance(
+        _entities(*[_ent(f"ZCDS_{i}", f"ABAP_CDS.Z{i}$E") for i in range(3)])
+    )
+    assert v_plena == "plena" and apto_plena.startswith(APTO_CANONICAL["plena"])
+    _, v_parc, apto_parc = evaluate_compliance(
+        _entities(_ent("FACT", "ABAPTABLES.MBEW", cube=True))
+    )
+    assert v_parc == "parcial" and apto_parc == APTO_CANONICAL["parcial"]
+
+
+def test_invariante_reconciliacion_detecta_divergencia_auto_senior():
+    """La reconciliación marca —sola— cuando el veredicto auto ≠ el override del
+    senior (drift de criterio), y no marca cuando coinciden o no hay override."""
+    import analyze_reconciliation as R
+    flows = [
+        {"flow": "X · A", "auto_verdict": "parcial", "senior_override": "buena", "origenes": [], "hallazgos": []},
+        {"flow": "Y · B", "auto_verdict": "plena", "senior_override": "", "origenes": [], "hallazgos": []},
+        {"flow": "Z · C", "auto_verdict": "buena", "senior_override": "buena", "origenes": [], "hallazgos": []},
+    ]
+    div = R.find_divergences(flows)
+    assert [d["flow"] for d in div] == ["X · A"]

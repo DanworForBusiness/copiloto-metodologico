@@ -33,25 +33,14 @@ import yaml
 
 from config import BASE_DIR, CONTENT_PACKS_DIR
 from pipeline.common import write_report
+# FUENTE ÚNICA del criterio: el mismo clasificador que usa el motor de ponderación
+# (generate_catalog). Ya no se replica — así la reconciliación no puede medir con una
+# vara distinta que la automatización que audita.
+from tools.catalog.compliance_criteria import classify_extraction as _classify
 
 REPORTS_DIR = BASE_DIR / "reports"
 AXIS = "extraction"
 TREE_ID = "03_extraction_options"
-
-# Clasificación del origen — MISMO criterio que generate_catalog.classify_extraction
-# (fuente única conceptual: si divergen, es un bug a reconciliar). Se replica local
-# para no acoplar el script al pipeline del catálogo, pero se testea la paridad.
-def _classify(remote_entity: str) -> str:
-    r = (remote_entity or "").upper()
-    if r.startswith("ABAP_CDS."):
-        return "ideal"
-    if r.startswith("ABAPTABLES.") and ("NSDM" in r or "_V_" in r):
-        return "acceptable_view"
-    if r.startswith("ABAPTABLES."):
-        return "poor_raw"
-    if "BWBRIDGE" in r:
-        return "acceptable_bw"
-    return "unknown" if r else ""
 
 
 def _frontmatter(text: str) -> dict:
@@ -120,14 +109,21 @@ def load_field_lessons() -> list[dict]:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:
         return []
+    import unicodedata
+    def _norm(s: str) -> str:
+        s = unicodedata.normalize("NFKD", s.lower())
+        return "".join(ch for ch in s if not unicodedata.combining(ch)).strip()
+
     raw = (data.get("by_tree") or {}).get("extraction_options") or []
     seen, lessons = set(), []
     for item in raw:
         if not isinstance(item, dict):
             continue
         text = str(item.get("lesson") or "").strip()
-        key = text.lower()
-        if not text or key in seen:
+        key = _norm(text)
+        # Dedup normalizando acentos (misma lección con/sin tildes = una sola) y
+        # descarte de ruido (placeholders/tests tipo "xx": < 8 chars significativos).
+        if len(key) < 8 or key in seen:
             continue
         seen.add(key)
         lessons.append({"lesson": text, "context": item.get("context"),
@@ -240,6 +236,37 @@ def build_summary(audit, tree, lessons, divergences, reconciliation) -> str:
     return "\n".join(L)
 
 
+def run(pack: str, cat_dir: Path, report_dir: Path = REPORTS_DIR) -> tuple[dict, str]:
+    """Ejecuta la reconciliación: audita, reconcilia, ESCRIBE los reportes y devuelve
+    (report, summary). Reutilizable por el CLI y por la regeneración del catálogo, así
+    la reconciliación deja de ser un botón manual y corre sola tras cada regeneración."""
+    flows = load_flows(Path(cat_dir))
+    if not flows:
+        report = {"generated_at": datetime.now(timezone.utc).isoformat(), "axis": AXIS,
+                  "flows": 0, "senior_divergences": [],
+                  "reconciliation": ["Sin flujos para reconciliar."]}
+        return report, "Sin flujos en el catálogo para reconciliar."
+    audit = audit_catalog(flows)
+    tree = load_tree_criteria(pack)
+    lessons = load_field_lessons()
+    divergences = find_divergences(flows)
+    reconciliation = build_reconciliation(audit, tree, lessons, divergences)
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "axis": AXIS,
+        "flows": len(flows),
+        "catalog_audit": audit,
+        "senior_divergences": divergences,
+        "tree_criteria": tree,
+        "field_lessons": lessons,
+        "reconciliation": reconciliation,
+    }
+    write_report(report_dir, "reconciliation.yaml", report)
+    summary = build_summary(audit, tree, lessons, divergences, reconciliation)
+    write_report(report_dir, "reconciliation_summary.txt", summary)
+    return report, summary
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Reconciliación diagnóstico ⇄ automatización (eje extracción)")
     ap.add_argument("--pack", default=None, help="Content pack (default: DANWOR_CONTENT_PACK o datasphere_core)")
@@ -254,31 +281,11 @@ def main() -> None:
     report_dir = Path(args.report_dir)
 
     print(f"\n[DIR] Catálogo: {cat_dir} | pack: {pack}")
-    flows = load_flows(cat_dir)
-    if not flows:
+    report, summary = run(pack, cat_dir, report_dir)
+    if not report.get("flows"):
         print("No hay flujos en el catálogo para reconciliar. Generá el catálogo primero.")
         sys.exit(0)
-    print(f"   {len(flows)} flujo(s).")
-
-    audit = audit_catalog(flows)
-    tree = load_tree_criteria(pack)
-    lessons = load_field_lessons()
-    divergences = find_divergences(flows)
-    reconciliation = build_reconciliation(audit, tree, lessons, divergences)
-
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "axis": AXIS,
-        "catalog_audit": audit,
-        "senior_divergences": divergences,
-        "tree_criteria": tree,
-        "field_lessons": lessons,
-        "reconciliation": reconciliation,
-    }
-    print("\n[OK] Escribiendo reportes...")
-    write_report(report_dir, "reconciliation.yaml", report)
-    summary = build_summary(audit, tree, lessons, divergences, reconciliation)
-    write_report(report_dir, "reconciliation_summary.txt", summary)
+    print(f"   {report['flows']} flujo(s).\n[OK] Reportes escritos en {report_dir}.")
     # El resumen tiene glifos (⇄, ✓) que la consola cp1252 de Windows no encodea;
     # en el webapp stdout va a un buffer UTF-8 (no falla). Blindamos el eco de CLI.
     try:

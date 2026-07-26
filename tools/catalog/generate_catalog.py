@@ -29,6 +29,8 @@ from pathlib import Path
 
 import yaml
 
+from tools.catalog.compliance_criteria import APTO_CANONICAL, classify_extraction
+
 
 # ── Vocabulario de dominios de negocio (para inferir el dominio del contenido) ──
 # El dominio es una propiedad del CONTENIDO (el asunto del modelo), no de la carpeta
@@ -448,22 +450,6 @@ class Finding:
     evidencia: str
 
 
-def classify_extraction(remote_entity: str) -> str:
-    """Clasifica la CALIDAD del desacople del origen (eje primario del semáforo)."""
-    r = (remote_entity or "").upper()
-    if r.startswith("ABAP_CDS."):
-        return "ideal"                 # CDS view corporativa — desacople correcto
-    if r.startswith("ABAPTABLES.") and ("NSDM" in r or "_V_" in r):
-        return "acceptable_view"       # vista estándar SAP (p. ej. NSDM_V_*), no tabla cruda
-    if r.startswith("ABAPTABLES."):
-        return "poor_raw"              # tabla ABAP cruda replicada directa (viola desacople)
-    if "BWBRIDGE" in r:
-        return "acceptable_bw"         # BW Bridge (virtualización) — válido pero específico
-    if r:
-        return "unknown"
-    return ""
-
-
 def evaluate_compliance(entities: dict) -> tuple[list, str, str]:
     findings: list[Finding] = []
     classes: dict[str, list] = {}
@@ -560,17 +546,20 @@ def evaluate_compliance(entities: dict) -> tuple[list, str, str]:
     #  ya lo cubre `dual_source`.)
 
     # ── Veredicto: la extracción es el eje dominante ──────────────────────
+    # Las frases `apto` que tienen equivalente canónico se CONSTRUYEN desde
+    # APTO_CANONICAL (fuente única compartida con catalog_service); las variantes
+    # descriptivas (reserva puntual / vista estándar / revisar) no tienen canónico.
     altos = sum(1 for f in findings if f.severidad == "alto")
     if altos:
-        return findings, "parcial", "Inspiración conceptual con reservas — no copiar tal cual"
+        return findings, "parcial", APTO_CANONICAL["parcial"]
     # Reserva puntual: hay una cruda pero la rúbrica proporcional la calificó `medio`
     # (minoritaria + periférica). Es `buena`, no `plena` ni `parcial`.
     if any(f.id == "abap_direct" and f.severidad == "medio" for f in findings):
         return findings, "buena", "Reutilizable con reserva puntual — origen crudo minoritario y periférico"
     if classes.get("acceptable_bw"):
-        return findings, "buena", "Reutilizable con nota de especificidad (BW Bridge)"
+        return findings, "buena", f"{APTO_CANONICAL['buena']} (BW Bridge)"
     if classes.get("ideal"):
-        return findings, "plena", "Referencia Danwor — reutilizable (atender notas menores)"
+        return findings, "plena", f"{APTO_CANONICAL['plena']} (atender notas menores)"
     if classes.get("acceptable_view"):
         return findings, "buena", "Reutilizable — origen por vista estándar SAP"
     return findings, "buena", "Reutilizable — revisar origen"

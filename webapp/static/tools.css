@@ -876,7 +876,11 @@
 .content-theme-dark .catalog-back { background:#181819; }
 .catalog-back:hover { color:var(--gold); }
 .catalog-detail h1, .catalog-detail h2 { color: inherit; }  /* usa el color de contenido del tema, no --ink */
-.catalog-detail h2 { margin: 32px 0 14px; font-size: clamp(1.35rem, 2.4vw, 1.8rem); font-weight: 800; line-height: 1.12; letter-spacing: -.02em; }
+/* NB: el encabezado del catálogo NO redeclara tamaño/espaciado — REUSA el canónico del
+   contenido de módulos (.content-heading h2 en app.css). Antes había un override propio
+   (font-size clamp más chico) que hacía que el catálogo se viera como "una copia" del
+   módulo en vez de idéntico. Si hace falta ajustar el encabezado, se toca en un solo
+   lugar (.content-heading h2) y aplica a módulos Y catálogo por igual. */
 .catalog-card { cursor: pointer; overflow-wrap: anywhere; transition: background .15s, box-shadow .15s, transform .1s; }
 /* Hover: NO tocar el borde-izquierdo del semáforo; tinte suave del propio color del tile + leve elevación. */
 .catalog-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.08); transform: translateY(-1px); }

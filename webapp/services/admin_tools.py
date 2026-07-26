@@ -251,6 +251,27 @@ def run_content_proposals(use_llm: bool = False) -> str:
 _CATALOG_REGEN_LOCK = threading.Lock()
 
 
+def _reconciliation_line(out_dir: str) -> str:
+    """Corre la reconciliación sobre el catálogo recién generado y devuelve una línea
+    de estado para el output de la regeneración. Determinístico; nunca bloquea."""
+    try:
+        import os as _os
+        import analyze_reconciliation as recon
+        pack = _os.getenv("DANWOR_CONTENT_PACK", "").strip() or "datasphere_core"
+        report, _ = recon.run(pack, Path(out_dir))
+        if not report.get("flows"):
+            return "[reconciliación] sin flujos para reconciliar."
+        divs = report.get("senior_divergences") or []
+        if divs:
+            det = "; ".join(f"{d['flow']} (auto={d['auto']} vs senior={d['senior']})" for d in divs)
+            return (f"[reconciliación] ATENCIÓN: {len(divs)} divergencia(s) auto↔senior a "
+                    f"resolver → {det}")
+        return (f"[reconciliación] OK: criterio espejado — 0 divergencias auto↔senior en "
+                f"{report['flows']} flujo(s).")
+    except Exception as exc:  # noqa: BLE001 — la reconciliación nunca debe romper la regeneración
+        return f"[reconciliación] no ejecutada: {type(exc).__name__}: {exc}"
+
+
 def run_catalog_generation_locked(graph_token: str = "") -> tuple[bool, str]:
     """Como run_catalog_generation pero serializado. Devuelve (corrió, mensaje):
     corrió=False si ya había una regeneración en curso (no corre ni espera)."""
@@ -302,6 +323,10 @@ def run_catalog_generation(graph_token: str = "") -> str:
                 parts.append(security_gen.generate_all(src_dir, out))
             except Exception as security_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
                 parts.append(f"[WARN] Catálogo de seguridad/DAC no generado: {type(security_exc).__name__}: {security_exc}")
+            # Reconciliación diagnóstico ⇄ automatización AUTOMÁTICA tras regenerar: el
+            # criterio se re-espeja solo (ya no es un botón manual). Marca fuerte si hay
+            # divergencia auto↔senior. Nunca bloquea la regeneración.
+            parts.append(_reconciliation_line(out))
             return "\n".join(parts)
 
         if graph_token and csn_url:
