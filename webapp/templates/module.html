@@ -73,7 +73,7 @@
       <h1>{{ document.summary.title }}</h1>
       <div class="hero-meta">
         <span>{{ document.sections|length }} secciones</span>
-        {% if decision_trees %}<span>{{ decision_trees|length }} {{ "árbol asociado" if decision_trees|length == 1 else "árboles asociados" }}</span>{% endif %}
+        {% if decision_trees %}<span>{{ decision_trees|length }} {{ "árbol" if decision_trees|length == 1 else "árboles" }}</span>{% endif %}
         {# Cantidad de catálogos disponibles para este módulo (mismo criterio que la pestaña Catálogo:
            01 → orígenes de conexión, 02 → artefactos de seguridad, resto → dominios). Se muestra solo
            cuando la pestaña Catálogo está visible (gateada por catalog_domains). #}
@@ -81,8 +81,8 @@
         {% if _modnum == "01" or document.summary.stem.startswith("01_") %}{% set _catalog_count = catalog_connection_types|length %}
         {% elif _modnum == "02" or document.summary.stem.startswith("02_") %}{% set _catalog_count = catalog_security_families|length %}
         {% else %}{% set _catalog_count = catalog_domains|length %}{% endif %}
-        {% if show_catalog and _catalog_count %}<span>{{ _catalog_count }} {{ "catálogo disponible" if _catalog_count == 1 else "catálogos disponibles" }}</span>{% endif %}
-        {% if diagnostic_trees %}<span>{{ diagnostic_trees|length }} {{ "diagnóstico asociado" if diagnostic_trees|length == 1 else "diagnósticos asociados" }}</span>{% endif %}
+        {% if show_catalog and _catalog_count %}<span>{{ _catalog_count }} {{ "catálogo" if _catalog_count == 1 else "catálogos" }}</span>{% endif %}
+        {% if diagnostic_trees %}<span>{{ diagnostic_trees|length }} {{ "diagnóstico" if diagnostic_trees|length == 1 else "diagnósticos" }}</span>{% endif %}
       </div>
     </section>
     <nav class="section-index" aria-label="En este módulo">
@@ -137,6 +137,10 @@
           <option value="__module__">{% if is_appendix %}{{ document.summary.stem.split('_')[0] }}{% else %}{{ document.summary.number }}{% endif %} · {{ document.summary.title }}</option>
           {% for section in document.sections %}<option value="{{ section.slug }}">{{ "%02d"|format(section.number) }} · {{ section.title }}</option>{% endfor %}
         </select>
+        <div class="tool-empty">
+          <span>{{ document.sections|length }} {{ "sección disponible" if document.sections|length == 1 else "secciones disponibles" }}</span>
+          <p>Elegí la sección (o el módulo completo) y la acción a analizar.</p>
+        </div>
         <form class="section-analysis-form"
               x-data='{ sectionActions: {{ section_actions|tojson }}, moduleActions: {{ module_actions|tojson }}, descriptions: {{ all_action_descriptions|tojson }}, loading: {{ all_loading_messages|tojson }}, picked: "" }'
               x-effect="const cur = (activeSection==='__module__' ? moduleActions : sectionActions); if (!cur.includes(picked)) picked = cur[0]"
@@ -163,6 +167,7 @@
           <div id="section-analysis-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Preparando análisis metodológico...</span></div>
           <p class="ai-disclaimer">La IA puede cometer errores. Revisá sus respuestas.</p>
         </form>
+        {% with stem=document.summary.stem, sg_id="section-suggest", sg_kind="section" %}{% include "partials/tree_suggest.html" %}{% endwith %}
       </section>
       {% endif %}
 
@@ -171,13 +176,8 @@
       </section>
 
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='assistant'" role="tabpanel">
-        <span class="eyebrow">Conversación metodológica</span>
-        <div id="assistant-conversation" class="assistant-conversation" aria-live="polite">
-          <div class="assistant-intro assistant-empty">
-            <strong>Arquitecto Danwor</strong>
-            <p>Los análisis de sección y sus respuestas aparecerán en esta conversación.</p>
-          </div>
-        </div>
+        {# Input arriba (donde en las otras tabs va el dropdown) y la conversación
+           debajo (donde va el contenido/resultados) → sin línea divisoria huérfana. #}
         <form class="assistant-chat-form" hx-post="/modules/{{ document.summary.stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button[type='submit'], textarea">
           <input type="hidden" name="pack" value="{{ pack }}">
           <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
@@ -187,6 +187,7 @@
           <button type="submit" class="btn-primary tool-primary">Enviar</button>
           <div id="assistant-chat-loading" class="section-analysis-loading assistant-request-loading htmx-indicator" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Obteniendo la mejor respuesta...</span></div>
         </form>
+        <div id="assistant-conversation" class="assistant-conversation" aria-live="polite"></div>
       </section>
 
       {% if show_catalog %}

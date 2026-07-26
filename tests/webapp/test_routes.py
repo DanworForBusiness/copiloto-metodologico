@@ -39,7 +39,7 @@ def test_module_page_renders_server_side():
     assert "Arquitectura y Conectividad" in response.text
     assert "Topología de Espacios" in response.text
     assert "hx-post=" in response.text
-    assert "1 árbol asociado" in response.text
+    assert "1 árbol" in response.text
     assert "/sections/analyze" in response.text
     assert "Salida completa (operativa)" in response.text
     assert "¿Qué hace cada acción?" in response.text
@@ -328,7 +328,7 @@ def test_module_03_renders_tabs_and_tree_selector_without_scope():
     assert response.text.count('<option value="m03_') == 2
     assert 'value="extraction_options"' in response.text
     assert 'value="resolucion_contrato"' in response.text
-    assert "3 árboles asociados" in response.text
+    assert "3 árboles" in response.text
     assert document.scope not in response.text
     assert "{{" not in response.text
     assert 'onchange="if(this.value) this.form.requestSubmit()"' in response.text

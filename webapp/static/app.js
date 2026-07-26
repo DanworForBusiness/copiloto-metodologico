@@ -421,9 +421,10 @@ document.addEventListener("click", async event => {
 });
 
 // Detalle de flujo abierto (catalog-detail-open): los links de ancla internos
-// (índice de secciones = linaje, y las referencias entre artefactos) scrollean a
-// su sección con scrollIntoView. El salto nativo por #hash es poco fiable dentro
-// de un fragmento swapeado con contenedor de scroll ambiguo.
+// (índice de secciones = linaje, nodos del SVG, y referencias entre artefactos)
+// saltan a su sección con scrollIntoView. El salto nativo por #hash es poco fiable
+// dentro de un fragmento swapeado con contenedor de scroll ambiguo. behavior:"auto"
+// (instantáneo, sin animación) para EMULAR el índice de módulos y ser consistente.
 document.addEventListener("click", event => {
   const content = document.getElementById("content");
   if (!content || !content.classList.contains("catalog-detail-open")) return;
@@ -432,7 +433,7 @@ document.addEventListener("click", event => {
   const el = document.getElementById(a.getAttribute("href").slice(1));
   if (!el) return;
   event.preventDefault();
-  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.scrollIntoView({ behavior: "auto", block: "start" });
 });
 
 function syncAssistantFeedbackState() {

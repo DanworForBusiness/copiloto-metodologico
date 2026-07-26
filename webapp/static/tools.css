@@ -59,7 +59,8 @@
 .ai-disclaimer { margin: 10px 0 0; color: var(--dim); font-size: .63rem; text-align: center; }
 .section-analysis-warning:empty { display: none; }
 .section-analysis-warning-copy { margin: 10px 0 0; padding: 9px 10px; border-left: 3px solid var(--gold); background: rgba(231,176,8,.10); color: var(--ink); font-size: .7rem; line-height: 1.45; }
-.assistant-conversation { display: grid; gap: 14px; max-height: calc(100vh - 310px); margin-top: 14px; overflow-y: auto; scrollbar-width: thin; }
+.assistant-conversation { display: grid; gap: 14px; max-height: calc(100vh - 340px); margin-top: 20px; overflow-y: auto; scrollbar-width: thin; }
+.assistant-conversation:empty { margin-top: 0; }
 .assistant-conversation:has(.assistant-exchange) .assistant-empty { display: none; }
 .assistant-exchange { display: grid; gap: 10px; }
 .assistant-message { padding: 10px 13px; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(16,24,40,.05); overflow-wrap: anywhere; }
@@ -71,7 +72,7 @@
 .content-theme-light .assistant-message--assistant { background: #fff; border-color: #dfe3e8; border-left-color: var(--gold); }
 .content-theme-dark .assistant-message--user { background: rgba(37,99,235,.14); border-color: rgba(96,165,250,.22); border-left-color: #60a5fa; }
 .content-theme-dark .assistant-message--assistant { background: #202023; border-color: rgba(255,255,255,.11); border-left-color: var(--gold); }
-.assistant-chat-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.assistant-chat-form { margin-top: 0; }
 .assistant-chat-form .tool-label { margin-top: 0; }
 .assistant-chat-form textarea { min-height: 86px; border-radius: 8px; line-height: 1.45; }
 .assistant-feedback { margin: -4px 0 4px; padding-left: 4px; }
@@ -407,8 +408,16 @@
 
 /* Herramientas administrativas (Analítica interna). */
 .admin-intro { color: var(--soft); font-size: .76rem; line-height: 1.5; margin: 6px 0 16px; }
-.admin-tool { padding: 14px 0; border-top: 1px solid var(--line); }
-.admin-tool:first-of-type { border-top: 0; }
+/* Cada herramienta es un colapsable (simil "¿Qué hace cada acción?"): summary
+   clickeable + body. Cerradas por defecto → panel ordenado, no "todo tirado". */
+.admin-tool { margin-bottom: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.admin-tool > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 11px 12px; color: var(--ink); font-size: .82rem; font-weight: 600; cursor: pointer; list-style: none; }
+.admin-tool > summary::-webkit-details-marker { display: none; }
+.admin-tool > summary::after { content: "+"; color: var(--soft); font: 600 .9rem var(--mono); }
+.admin-tool[open] > summary::after { content: "−"; }
+.admin-tool > summary:hover { color: var(--gold); }
+.admin-tool__body { padding: 0 12px 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .admin-tool h4 { margin: 0 0 4px; color: var(--ink); font-size: .9rem; }
 .admin-help { margin: 0 0 10px; color: var(--soft); font-size: .74rem; line-height: 1.5; }
 .admin-help code, .admin-result code, .admin-table code { font: .72rem var(--mono); color: var(--gold); }

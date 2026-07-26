@@ -1,144 +1,160 @@
 <span class="eyebrow">Analítica interna</span>
-<p class="admin-intro">Herramientas administrativas y de diagnóstico. Solo visibles en modo diagnóstico.</p>
+<p class="admin-intro">Herramientas administrativas y de diagnóstico. Solo visibles en modo diagnóstico. Cada grupo se expande al tocarlo.</p>
 
 {# 1. Export runtime ─────────────────────────────────────── #}
-<section class="admin-tool">
-  <h4>📦 Export runtime</h4>
-  <p class="admin-help">Descarga una copia de <code>feedback_log</code>, <code>activity_log</code> y <code>case_library</code> antes de un redeploy/reinicio (el filesystem de DigitalOcean es efímero).</p>
-  <div class="admin-actions">
-    <button type="button" class="btn-secondary"
-            hx-get="/admin/runtime/inventory"
-            hx-target="#res-runtime" hx-swap="innerHTML"
-            hx-indicator="#ind-runtime">Ver inventario</button>
-    <a class="btn-primary" href="/admin/runtime/export.zip">📥 Descargar ZIP</a>
-    <span id="ind-runtime" class="admin-indicator htmx-indicator">…</span>
+<details class="admin-tool">
+  <summary class="admin-tool__summary">📦 Export runtime</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Descarga una copia de <code>feedback_log</code>, <code>activity_log</code> y <code>case_library</code> antes de un redeploy/reinicio (el filesystem de DigitalOcean es efímero).</p>
+    <div class="admin-actions">
+      <button type="button" class="btn-secondary"
+              hx-get="/admin/runtime/inventory"
+              hx-target="#res-runtime" hx-swap="innerHTML"
+              hx-indicator="#ind-runtime">Ver inventario</button>
+      <a class="btn-primary" href="/admin/runtime/export.zip">📥 Descargar ZIP</a>
+      <span id="ind-runtime" class="admin-indicator htmx-indicator">…</span>
+    </div>
+    <div id="res-runtime" class="admin-result"></div>
   </div>
-  <div id="res-runtime" class="admin-result"></div>
-</section>
+</details>
 
-{# 1b. Borrado selectivo ─────────────────────────────────── #}
-<section class="admin-tool">
-  <h4>🗑️ Borrado selectivo</h4>
-  <p class="admin-help">Elimina archivos de runtime por rango de fechas (según el timestamp del nombre; ambos extremos inclusivos, vacíos = sin límite). <strong>Previsualizá siempre primero</strong> — el borrado es definitivo; conviene bajar el Export ZIP antes.</p>
-  <form hx-post="/admin/runtime/purge" hx-target="#res-purge" hx-swap="innerHTML"
-        hx-indicator="#ind-purge" hx-disabled-elt="button[type='submit']">
-    <label class="admin-check"><input type="checkbox" name="folders" value="feedback_log"> feedback_log</label>
-    <label class="admin-check"><input type="checkbox" name="folders" value="activity_log"> activity_log</label>
-    <label class="admin-check"><input type="checkbox" name="folders" value="case_library"> case_library</label>
-    <div class="admin-actions">
-      <label class="admin-label" for="purge-from">Desde</label>
-      <input type="date" id="purge-from" name="date_from">
-      <label class="admin-label" for="purge-to">Hasta</label>
-      <input type="date" id="purge-to" name="date_to">
-    </div>
-    <div class="admin-actions">
-      <button type="submit" class="btn-secondary" name="mode" value="preview">Previsualizar</button>
-      <button type="submit" class="btn-primary" name="mode" value="delete"
-              hx-confirm="Vas a eliminar DEFINITIVAMENTE los archivos del rango elegido. ¿Confirmás?">Eliminar</button>
-      <span id="ind-purge" class="admin-indicator htmx-indicator">procesando…</span>
-    </div>
-  </form>
-  <div id="res-purge" class="admin-result"></div>
-</section>
-
-{# 1c. Catálogos técnicos (PILOTO, no productivo) ───────────── #}
-<section class="admin-tool">
-  <h4>🗂️ Catálogos técnicos <span class="admin-warn">piloto</span></h4>
-  <p class="admin-help">Regenera los catálogos Danwor desde insumos técnicos crudos publicados en SharePoint o en la carpeta entrante local: dominios/CSN, espacios, conexiones, seguridad/DAC y demás artefactos soportados. Preserva la curaduría manual del senior (intención, veredicto, resumen y criterios) y actualiza solo el contenido derivado de la evidencia técnica.</p>
-  <form hx-post="/admin/catalog/generate" hx-target="#res-catalog" hx-swap="innerHTML"
-        hx-indicator="#ind-catalog" hx-disabled-elt="button[type='submit']"
-        hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'>
-    <div class="admin-actions">
-      <button type="submit" class="btn-primary">Regenerar catálogo</button>
-      <span id="ind-catalog" class="admin-indicator htmx-indicator">generando…</span>
-    </div>
-  </form>
-  <div id="res-catalog" class="admin-result"></div>
-</section>
-
-{# 2. Case Library ───────────────────────────────────────── #}
-<section class="admin-tool">
-  <h4>📚 Case Library</h4>
-  <p class="admin-help">Escanea <code>case_library/</code> y genera reportes estructurados (gaps, rutas frecuentes, outcomes, lecciones).</p>
-  <form hx-post="/admin/cases/analyze" hx-target="#res-cases" hx-swap="innerHTML"
-        hx-indicator="#ind-cases" hx-disabled-elt="button[type='submit']">
-    <label class="admin-check"><input type="checkbox" name="llm" value="on"> Usar IA (Nivel 2) <span class="admin-warn">⚠ consume créditos</span></label>
-    <div class="admin-actions">
-      <button type="submit" class="btn-primary">Analizar casos</button>
-      <span id="ind-cases" class="admin-indicator htmx-indicator">analizando…</span>
-    </div>
-  </form>
-  <div id="res-cases" class="admin-result"></div>
-</section>
-
-{# 3. Feedback ───────────────────────────────────────────── #}
-<section class="admin-tool">
-  <h4>💬 Feedback</h4>
-  <p class="admin-help">Analiza el 👍/👎 de <code>feedback_log/</code>: asistente IA, contenido de módulos, secciones y Danwor Academy.</p>
-  <form hx-post="/admin/feedback/analyze" hx-target="#res-feedback" hx-swap="innerHTML"
-        hx-indicator="#ind-feedback" hx-disabled-elt="button[type='submit']">
-    <label class="admin-label" for="fb-kind">Tipo</label>
-    <select id="fb-kind" name="kind">
-      <option value="all">Todo el feedback</option>
-      <option value="ia">Solo asistente IA</option>
-      <option value="modulos">Solo contenido de módulos</option>
-      <option value="secciones">Solo secciones</option>
-      <option value="academy">Solo Danwor Academy</option>
-    </select>
-    <div class="admin-actions">
-      <button type="submit" class="btn-primary">Analizar feedback</button>
-      <span id="ind-feedback" class="admin-indicator htmx-indicator">analizando…</span>
-    </div>
-  </form>
-  <div id="res-feedback" class="admin-result"></div>
-</section>
-
-{# 4. Propuestas de árbol ─────────────────────────────────── #}
-<section class="admin-tool">
-  <h4>🌳 Propuestas de árbol</h4>
-  <p class="admin-help">Genera propuestas de ramas/notas a partir de los reportes. <em>Requiere correr antes "Analizar casos".</em> Con "Aplicar" escribe borradores en <code>trees/proposed/</code>.</p>
-  <form hx-post="/admin/trees/propose" hx-target="#res-trees" hx-swap="innerHTML"
-        hx-indicator="#ind-trees" hx-disabled-elt="button[type='submit']">
-    <label class="admin-check"><input type="checkbox" name="apply" value="on"> Aplicar borradores en <code>trees/proposed/</code></label>
-    <div class="admin-actions">
-      <button type="submit" class="btn-primary">Proponer actualizaciones</button>
-      <span id="ind-trees" class="admin-indicator htmx-indicator">generando…</span>
-    </div>
-  </form>
-  <div id="res-trees" class="admin-result"></div>
-</section>
-
-{# 5. Propuestas de contenido ─────────────────────────────── #}
-<section class="admin-tool">
-  <h4>📝 Contenido</h4>
-  <p class="admin-help">Cruza feedback y casos para proponer mejoras en las secciones <code>.md</code>.</p>
-  <form hx-post="/admin/content/propose" hx-target="#res-content" hx-swap="innerHTML"
-        hx-indicator="#ind-content" hx-disabled-elt="button[type='submit']">
-    <label class="admin-check"><input type="checkbox" name="llm" value="on"> Redactar borradores con IA <span class="admin-warn">⚠ consume créditos</span></label>
-    <div class="admin-actions">
-      <button type="submit" class="btn-primary">Proponer mejoras</button>
-      <span id="ind-content" class="admin-indicator htmx-indicator">generando…</span>
-    </div>
-  </form>
-  <div id="res-content" class="admin-result"></div>
-</section>
-
-{# 6. SharePoint ─ seed semántico de casos SAP ────────────── #}
-<section class="admin-tool">
-  <h4>🔗 Casos SAP SharePoint</h4>
-  <p class="admin-help">Lee los casos SAP desde SharePoint (Graph, token delegado) y genera un seed semántico JSON con términos técnicos, keywords y borradores de <code>case_patterns</code>. No escribe en SharePoint ni persiste el token.</p>
-  <div class="admin-actions">
-    <button type="button" class="btn-secondary"
-            hx-post="/admin/sharepoint/refresh-cache"
-            hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
-            hx-target="#res-sharepoint" hx-swap="innerHTML"
-            hx-indicator="#ind-sharepoint">Refrescar cache</button>
-    <button type="button" class="btn-primary"
-            hx-post="/admin/sharepoint/seed"
-            hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
-            hx-target="#res-sharepoint" hx-swap="innerHTML"
-            hx-indicator="#ind-sharepoint">Generar seed</button>
-    <span id="ind-sharepoint" class="admin-indicator htmx-indicator">consultando…</span>
+{# 2. Borrado selectivo ─────────────────────────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">🗑️ Borrado selectivo</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Elimina archivos de runtime por rango de fechas (según el timestamp del nombre; ambos extremos inclusivos, vacíos = sin límite). <strong>Previsualizá siempre primero</strong> — el borrado es definitivo; conviene bajar el Export ZIP antes.</p>
+    <form hx-post="/admin/runtime/purge" hx-target="#res-purge" hx-swap="innerHTML"
+          hx-indicator="#ind-purge" hx-disabled-elt="button[type='submit']">
+      <label class="admin-check"><input type="checkbox" name="folders" value="feedback_log"> feedback_log</label>
+      <label class="admin-check"><input type="checkbox" name="folders" value="activity_log"> activity_log</label>
+      <label class="admin-check"><input type="checkbox" name="folders" value="case_library"> case_library</label>
+      <div class="admin-actions">
+        <label class="admin-label" for="purge-from">Desde</label>
+        <input type="date" id="purge-from" name="date_from">
+        <label class="admin-label" for="purge-to">Hasta</label>
+        <input type="date" id="purge-to" name="date_to">
+      </div>
+      <div class="admin-actions">
+        <button type="submit" class="btn-secondary" name="mode" value="preview">Previsualizar</button>
+        <button type="submit" class="btn-primary" name="mode" value="delete"
+                hx-confirm="Vas a eliminar DEFINITIVAMENTE los archivos del rango elegido. ¿Confirmás?">Eliminar</button>
+        <span id="ind-purge" class="admin-indicator htmx-indicator">procesando…</span>
+      </div>
+    </form>
+    <div id="res-purge" class="admin-result"></div>
   </div>
-  <div id="res-sharepoint" class="admin-result"></div>
-</section>
+</details>
+
+{# 3. Catálogos técnicos (PILOTO, no productivo) ───────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">🗂️ Catálogos técnicos <span class="admin-warn">piloto</span></summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Regenera los catálogos Danwor desde insumos técnicos crudos publicados en SharePoint o en la carpeta entrante local: dominios/CSN, espacios, conexiones, seguridad/DAC y demás artefactos soportados. Preserva la curaduría manual del senior (intención, veredicto, resumen y criterios) y actualiza solo el contenido derivado de la evidencia técnica.</p>
+    <form hx-post="/admin/catalog/generate" hx-target="#res-catalog" hx-swap="innerHTML"
+          hx-indicator="#ind-catalog" hx-disabled-elt="button[type='submit']"
+          hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'>
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Regenerar catálogo</button>
+        <span id="ind-catalog" class="admin-indicator htmx-indicator">generando…</span>
+      </div>
+    </form>
+    <div id="res-catalog" class="admin-result"></div>
+  </div>
+</details>
+
+{# 4. Case Library ───────────────────────────────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">📚 Case Library</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Escanea <code>case_library/</code> y genera reportes estructurados (gaps, rutas frecuentes, outcomes, lecciones).</p>
+    <form hx-post="/admin/cases/analyze" hx-target="#res-cases" hx-swap="innerHTML"
+          hx-indicator="#ind-cases" hx-disabled-elt="button[type='submit']">
+      <label class="admin-check"><input type="checkbox" name="llm" value="on"> Usar IA (Nivel 2) <span class="admin-warn">⚠ consume créditos</span></label>
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Analizar casos</button>
+        <span id="ind-cases" class="admin-indicator htmx-indicator">analizando…</span>
+      </div>
+    </form>
+    <div id="res-cases" class="admin-result"></div>
+  </div>
+</details>
+
+{# 5. Feedback ───────────────────────────────────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">💬 Feedback</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Analiza el 👍/👎 de <code>feedback_log/</code>: asistente IA, contenido de módulos, secciones y Danwor Academy.</p>
+    <form hx-post="/admin/feedback/analyze" hx-target="#res-feedback" hx-swap="innerHTML"
+          hx-indicator="#ind-feedback" hx-disabled-elt="button[type='submit']">
+      <label class="admin-label" for="fb-kind">Tipo</label>
+      <select id="fb-kind" name="kind">
+        <option value="all">Todo el feedback</option>
+        <option value="ia">Solo asistente IA</option>
+        <option value="modulos">Solo contenido de módulos</option>
+        <option value="secciones">Solo secciones</option>
+        <option value="academy">Solo Danwor Academy</option>
+      </select>
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Analizar feedback</button>
+        <span id="ind-feedback" class="admin-indicator htmx-indicator">analizando…</span>
+      </div>
+    </form>
+    <div id="res-feedback" class="admin-result"></div>
+  </div>
+</details>
+
+{# 6. Propuestas de árbol ─────────────────────────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">🌳 Propuestas de árbol</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Genera propuestas de ramas/notas a partir de los reportes. <em>Requiere correr antes "Analizar casos".</em> Con "Aplicar" escribe borradores en <code>trees/proposed/</code>.</p>
+    <form hx-post="/admin/trees/propose" hx-target="#res-trees" hx-swap="innerHTML"
+          hx-indicator="#ind-trees" hx-disabled-elt="button[type='submit']">
+      <label class="admin-check"><input type="checkbox" name="apply" value="on"> Aplicar borradores en <code>trees/proposed/</code></label>
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Proponer actualizaciones</button>
+        <span id="ind-trees" class="admin-indicator htmx-indicator">generando…</span>
+      </div>
+    </form>
+    <div id="res-trees" class="admin-result"></div>
+  </div>
+</details>
+
+{# 7. Propuestas de contenido ─────────────────────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">📝 Contenido</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Cruza feedback y casos para proponer mejoras en las secciones <code>.md</code>.</p>
+    <form hx-post="/admin/content/propose" hx-target="#res-content" hx-swap="innerHTML"
+          hx-indicator="#ind-content" hx-disabled-elt="button[type='submit']">
+      <label class="admin-check"><input type="checkbox" name="llm" value="on"> Redactar borradores con IA <span class="admin-warn">⚠ consume créditos</span></label>
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Proponer mejoras</button>
+        <span id="ind-content" class="admin-indicator htmx-indicator">generando…</span>
+      </div>
+    </form>
+    <div id="res-content" class="admin-result"></div>
+  </div>
+</details>
+
+{# 8. SharePoint ─ seed semántico de casos SAP ────────────── #}
+<details class="admin-tool">
+  <summary class="admin-tool__summary">🔗 Casos SAP SharePoint</summary>
+  <div class="admin-tool__body">
+    <p class="admin-help">Lee los casos SAP desde SharePoint (Graph, token delegado) y genera un seed semántico JSON con términos técnicos, keywords y borradores de <code>case_patterns</code>. No escribe en SharePoint ni persiste el token.</p>
+    <div class="admin-actions">
+      <button type="button" class="btn-secondary"
+              hx-post="/admin/sharepoint/refresh-cache"
+              hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+              hx-target="#res-sharepoint" hx-swap="innerHTML"
+              hx-indicator="#ind-sharepoint">Refrescar cache</button>
+      <button type="button" class="btn-primary"
+              hx-post="/admin/sharepoint/seed"
+              hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+              hx-target="#res-sharepoint" hx-swap="innerHTML"
+              hx-indicator="#ind-sharepoint">Generar seed</button>
+      <span id="ind-sharepoint" class="admin-indicator htmx-indicator">consultando…</span>
+    </div>
+    <div id="res-sharepoint" class="admin-result"></div>
+  </div>
+</details>

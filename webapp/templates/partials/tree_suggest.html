@@ -1,21 +1,30 @@
-{# "¿Falta un árbol?" — cierre de la caja punteada del tab Árbol. Disclosure discreto
-   con un formulario minimalista para sugerir un nuevo árbol de decisión. Se registra
-   como feedback (type: tree_suggestion). Recupera la funcionalidad perdida en la
-   migración Streamlit→FastAPI. #}
-<div id="tree-suggest" class="tool-suggest">
+{# Caja de sugerencia REUTILIZABLE (disclosure minimalista → feedback).
+   Params: sg_id (único en la página), sg_kind (tree|option|section), stem, pack,
+   suggested (estado de gracias). Un mismo endpoint /trees/suggest la sirve; el
+   `kind` distingue si falta un árbol, una opción (durante la navegación) o una
+   sección. Recupera el viejo "Mi opción no está acá" perdido en la migración. #}
+{% set sg_id = sg_id | default('tree-suggest') %}
+{% set sg_kind = sg_kind | default('tree') %}
+{% set _copy = {
+  'tree':    {'summary': '¿Falta un árbol?',    'cta': 'Sugerí uno →', 'label': '¿Qué decisión debería ayudar a resolver?', 'ph': 'Ej.: cómo elegir entre dos enfoques de modelado…', 'thanks': 'la revisamos para sumar el árbol.'},
+  'option':  {'summary': '¿Falta una opción?',  'cta': 'Sugerí una →', 'label': '¿Qué opción o respuesta falta para tu caso?', 'ph': 'La opción que esperabas encontrar en este paso…', 'thanks': 'la revisamos para sumar la opción.'},
+  'section': {'summary': '¿Falta una sección?', 'cta': 'Sugerí una →', 'label': '¿Qué tema o contenido debería cubrir?', 'ph': 'Ej.: falta un apartado sobre… / profundizar en…', 'thanks': 'la revisamos para sumar la sección.'},
+} %}
+{% set c = _copy.get(sg_kind, _copy['tree']) %}
+<div id="{{ sg_id }}" class="tool-suggest">
   {% if suggested %}
-  <p class="tool-suggest__thanks" role="status">🌱 &iexcl;Gracias! Registramos tu sugerencia — la revisamos para sumar el &aacute;rbol.</p>
+  <p class="tool-suggest__thanks" role="status">🌱 ¡Gracias! Registramos tu sugerencia — {{ c.thanks }}</p>
   {% else %}
   <details class="tool-suggest__box">
-    <summary class="tool-suggest__summary">&iquest;Falta un &aacute;rbol? <span>Suger&iacute; uno &rarr;</span></summary>
-    <form class="tool-suggest__form" hx-post="/trees/suggest" hx-target="#tree-suggest" hx-swap="outerHTML">
+    <summary class="tool-suggest__summary">{{ c.summary }} <span>{{ c.cta }}</span></summary>
+    <form class="tool-suggest__form" hx-post="/trees/suggest" hx-target="#{{ sg_id }}" hx-swap="outerHTML">
       <input type="hidden" name="pack" value="{{ pack }}">
       <input type="hidden" name="module" value="{{ stem }}">
-      <label for="tsg-title">&iquest;Qu&eacute; decisi&oacute;n deber&iacute;a ayudar a resolver?</label>
-      <input id="tsg-title" name="title" required
-             placeholder="Ej.: c&oacute;mo elegir entre dos enfoques de modelado&hellip;">
-      <textarea name="detail" rows="2"
-                placeholder="Contexto (opcional): el caso, las opciones en juego, por qu&eacute; cuesta decidir&hellip;"></textarea>
+      <input type="hidden" name="kind" value="{{ sg_kind }}">
+      <input type="hidden" name="sg_id" value="{{ sg_id }}">
+      <label for="{{ sg_id }}-title">{{ c.label }}</label>
+      <input id="{{ sg_id }}-title" name="title" required placeholder="{{ c.ph }}">
+      <textarea name="detail" rows="2" placeholder="Contexto (opcional): el caso, por qué lo notaste…"></textarea>
       <div class="tool-suggest__actions">
         <button type="submit" class="tool-suggest__send">Enviar sugerencia</button>
       </div>

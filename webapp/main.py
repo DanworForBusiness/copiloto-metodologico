@@ -1308,13 +1308,13 @@ def catalog_section_feedback_cancel(request: Request, cliente: str = Form(""), d
 
 
 # ── "¿Falta un árbol?" — sugerencia de nuevo árbol de decisión (recuperada) ──
-def _save_tree_suggestion(request: Request, module: str, title: str, detail: str, pack: str) -> None:
+def _save_tree_suggestion(request: Request, module: str, title: str, detail: str, pack: str, kind: str = "tree") -> None:
     user = auth_service.session_user(request) or {}
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
-            "type": "tree_suggestion", "module": module, "title": title, "pack": pack,
+            "type": "tree_suggestion", "kind": kind, "module": module, "title": title, "pack": pack,
             "user": str(user.get("username") or user.get("email") or ""), "ts": now.isoformat(),
         }
         d = (detail or "").strip()
@@ -1330,14 +1330,18 @@ def _save_tree_suggestion(request: Request, module: str, title: str, detail: str
 
 @app.post("/trees/suggest", response_class=HTMLResponse, include_in_schema=False)
 def trees_suggest(request: Request, title: str = Form(""), detail: str = Form(""),
-                  module: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+                  module: str = Form(""), pack: str = Form(DEFAULT_PACK),
+                  kind: str = Form("tree"), sg_id: str = Form("tree-suggest")):
     selected = _pack(pack)
     clean = (title or "").strip()
+    if kind not in {"tree", "option", "section"}:
+        kind = "tree"
     if clean:
-        _save_tree_suggestion(request, module, clean, detail, selected)
+        _save_tree_suggestion(request, module, clean, detail, selected, kind)
     return templates.TemplateResponse(
         request=request, name="partials/tree_suggest.html",
-        context={"suggested": bool(clean), "pack": selected, "stem": module})
+        context={"suggested": bool(clean), "pack": selected, "stem": module,
+                 "sg_kind": kind, "sg_id": sg_id})
 
 
 @app.post("/modules/{stem}/assistant/chat", response_class=HTMLResponse)
