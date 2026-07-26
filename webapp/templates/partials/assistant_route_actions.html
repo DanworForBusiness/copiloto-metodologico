@@ -1,6 +1,13 @@
 <div class="assistant-route-actions" aria-label="Opciones sugeridas">
   {% for action in route.actions %}
+  {% if action.embed %}
+  {# Detalle de catálogo: cargar en el slot por HTMX (como un card manual) para que
+     Volver y "Abrir CDS View" funcionen. href queda de fallback (abrir en pestaña). #}
+  <a class="assistant-route-action" href="{{ action.url }}"
+     hx-get="{{ action.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML">{{ action.label }}</a>
+  {% else %}
   <a class="assistant-route-action" href="{{ action.url }}"{% if action.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.label }}</a>
+  {% endif %}
   {% endfor %}
   {% if route.explain_module %}
   <form

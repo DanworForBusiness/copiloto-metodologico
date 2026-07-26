@@ -29,6 +29,12 @@ class AssistantRouteAction:
     label: str
     url: str
     external: bool = False
+    # embed=True: el detalle de catálogo (flujo/conexión) se carga por HTMX en
+    # #catalog-detail-slot —igual que un card manual del catálogo— en vez de navegar
+    # a la página standalone. Así el módulo queda debajo (catalog-detail-open) y los
+    # botones "← Volver" (dwCatalogBack) y "Abrir CDS View" (que apunta al slot)
+    # funcionan; con navegación completa no había slot ni ese modo y quedaban muertos.
+    embed: bool = False
 
 
 @dataclass(frozen=True)
@@ -362,7 +368,7 @@ class AssistantRoutingService:
                 return AssistantRoute(
                     f"Sí — ya tenemos esto implementado: **{label}** "
                     f"({cat_entry.icon} mirada Danwor {cat_entry.veredicto}). Miralo en el catálogo.",
-                    (AssistantRouteAction("Ver en el catálogo", url),),
+                    (AssistantRouteAction("Ver en el catálogo", url, embed=True),),
                     question,
                 )
 
@@ -380,7 +386,7 @@ class AssistantRoutingService:
                     f"Referencia: **{conn.cliente}** ya tiene una conexión "
                     f"**{conn.connection}** ({conn.type_label}) resuelta en Datasphere. "
                     f"Mirá cómo está configurada en el catálogo.",
-                    (AssistantRouteAction("Ver la conexión en el catálogo", url),),
+                    (AssistantRouteAction("Ver la conexión en el catálogo", url, embed=True),),
                     question,
                 )
 
