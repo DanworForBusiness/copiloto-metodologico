@@ -1067,11 +1067,13 @@
    columna y wrap defensivo (la grilla de 3 columnas del módulo asume títulos cortos). */
 .section-index--flow { grid-template-columns: 1fr; gap: 4px 0; }
 .section-index--flow a { overflow-wrap: anywhere; }
-/* "← Volver" transversal: pegajoso arriba del scroller para que NO desaparezca al
-   scrollear (misma regla que el guide-back del instructivo). Texto plano sobre el
-   fondo del panel (no un chip); el bg por tema tapa el contenido que pasa debajo. */
-.catalog-back { position:sticky; top:0; z-index:6; display:block; margin:0 0 14px;
-  padding:8px 0 10px; color:var(--soft); font:500 .72rem var(--mono); text-decoration:none; }
+/* "← Volver" transversal: pegajoso para que NO desaparezca al scrollear (misma
+   regla que el guide-back del instructivo). `top:-48px` contrarresta el
+   `padding-top:48px` del scroller (.module-content): así pega en el tope REAL y el
+   contenido scrollea POR DEBAJO, no asomando en esa franja. Texto plano sobre el
+   fondo del panel (no un chip); el bg por tema tapa lo que pasa debajo. */
+.catalog-back { position:sticky; top:-48px; z-index:6; display:block; margin:0 0 14px;
+  padding:10px 0 12px; color:var(--soft); font:500 .72rem var(--mono); text-decoration:none; }
 .content-theme-light .catalog-back { background:#fff; }
 .content-theme-dark .catalog-back { background:#181819; }
 .catalog-back:hover { color:var(--gold); }
