@@ -14,6 +14,7 @@ mostrar el placeholder). Ver el schema en el propio guides/<slug>.yaml.
 
 from __future__ import annotations
 
+import html
 import re
 
 import yaml
@@ -21,6 +22,17 @@ import yaml
 from config import CONTENT_PACKS_DIR
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_CODE_SPAN = re.compile(r"`([^`\n]+)`")
+
+
+def _inline(text: str) -> str:
+    """Markup inline seguro para prosa (body/substeps/nota). Convierte `…` en
+    <code>…</code> con el contenido ESCAPADO → así variables como <campo_id>, paths
+    .\\dir y símbolos < > | se muestran LITERALES (el navegador no se los come). El
+    resto del texto queda tal cual, así el acento dorado <em>…</em> sigue funcionando."""
+    return _CODE_SPAN.sub(
+        lambda m: f"<code>{html.escape(m.group(1), quote=False)}</code>", text or ""
+    )
 _TAG_RE = re.compile(r"<[^>]+>")
 # Acciones ejecutables que un paso puede exponer como botón (allowlist: el template
 # mapea cada una a su handler; nunca se ejecuta texto arbitrario del YAML).
@@ -88,7 +100,7 @@ def load(pack: str, slug: str) -> dict | None:
             href = url
         if not text and not href:
             return None
-        return {"text": text, "url": href, "label": label}
+        return {"text": _inline(text), "url": href, "label": label}
 
     def _shot(raw: dict) -> dict:
         fname = str(raw.get("img") or raw.get("fname") or "").strip()
@@ -117,8 +129,12 @@ def load(pack: str, slug: str) -> dict | None:
             "title": title,
             "title_plain": title_plain,
             "short": str(st.get("short") or "").strip() or title_plain,
-            "body": str(st.get("body") or "").strip(),
-            "substeps": [str(x).strip() for x in (st.get("substeps") or []) if str(x).strip()],
+            "body": _inline(str(st.get("body") or "").strip()),
+            # `code`: bloque de comando/terminal (CLI, PowerShell…). Se renderiza en un
+            # <pre> monospace preformateado — usá YAML literal `code: |` para preservar
+            # los saltos de línea del comando. No es acento dorado (<em>): es CÓDIGO.
+            "code": str(st.get("code") or "").rstrip(),
+            "substeps": [_inline(str(x).strip()) for x in (st.get("substeps") or []) if str(x).strip()],
             "shots": [_shot(s) for s in (st.get("shots") or []) if isinstance(s, dict)],
             "link": _link(st.get("link")),
             "action": str(st.get("action") or "").strip().lower() if str(st.get("action") or "").strip().lower() in _ACTIONS else "",
@@ -128,10 +144,14 @@ def load(pack: str, slug: str) -> dict | None:
         return None
 
     lead = str(data.get("lead") or "").strip().replace("{n}", str(len(steps)))
+    # `back_module`: número de módulo (ej. "01", "04") al que vuelve el "← Volver".
+    # Lo decide el CONTENIDO (cada guía sabe de qué catálogo salió), no la ruta.
+    back_module = re.sub(r"[^0-9]", "", str(data.get("back_module") or ""))[:2]
     return {
         "eyebrow": str(data.get("eyebrow") or "").strip(),
         "title": str(data.get("title") or "").strip(),
         "accent": str(data.get("accent") or "").strip(),
         "lead": lead,
         "steps": steps,
+        "back_module": back_module,
     }

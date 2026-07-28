@@ -1,0 +1,135 @@
+# How-to "Cómo publicar una fuente de datos" — contenido del pack (el copiloto solo LEE).
+#
+# Se renderiza como slides estilo Danwor Academy. Vive acá, NO en el código, por la
+# misma filosofía que el resto del contenido (módulos .md, novedades .yaml, academy
+# .html): editable sin tocar el webapp ni reiniciar, pack-scoped y escalable a N
+# how-tos (cada uno es un guides/<slug>.yaml nuevo). Ver webapp/services/guides_service.py.
+#
+# Schema:
+#   eyebrow:    texto del ojillo (mono, dorado) del landing.           [opcional]
+#   title:      título del landing.                                    [requerido]
+#   accent:     parte del título resaltada en dorado (va como <em>).   [opcional]
+#   lead:       bajada del landing; el token {n} = cantidad de pasos.  [opcional]
+#   assets_dir: subcarpeta de assets/ donde viven las capturas.        [opcional; default: guias/<slug>]
+#   steps:                                                             [requerido]
+#     - title:    título del paso.                                     [requerido]
+#       body:     descripción del paso (subtítulo).                    [opcional]
+#       code:     bloque de comando/terminal (CLI/PowerShell). Usá      [opcional]
+#                 YAML literal `code: |` para preservar los saltos de
+#                 línea; se renderiza monospace. NO es <em> (dorado).
+#                 Código INLINE en prosa/sub-pasos: usá backticks `…` — escapan
+#                 solos < > \ | y variables tipo <campo_id> (o <code>…</code>).
+#       substeps: checklist numerada (secuencia dentro del paso).      [opcional]
+#       link:     CTA a un recurso externo. `link: "https://…"` o      [opcional]
+#                 `link: {url: "https://…", label: "Abrir…"}`. Abre en pestaña nueva.
+#       action:   acción ejecutable como botón. Hoy: "regenerate"       [opcional]
+#                 (regenera el catálogo con tu propio acceso a SharePoint).
+#       note:     bloque de cierre (separador + texto + botón). Campos:   [opcional]
+#                 text, label, y template (archivo del pack en assets_dir,
+#                 servido por /pack-assets — NO lo escanea el generador) o url.
+#       shots:                                                         [opcional]
+#         - img:     nombre del archivo dentro de assets_dir.
+#           caption: epígrafe de la captura.                           [opcional]
+
+eyebrow: "ORIGENES & FUENTES DE DATOS · SELF-SERVICE"
+title: "Cómo publicar"
+accent: "un catálogo"
+lead: >-
+  En {n} pasos, convertimos metadata Datasphere en activo técnico interno que nutre
+  nuestro catálogo de origenes y fuentes de datos. Dejás los archivos en SharePoint y el copiloto
+  genera todo automáticamente: diagrama interactivo de arquitectura & conectividad, espacios y sus conexiones.
+assets_dir: guia-catalogo/Conexiones
+back_module: "01"   # módulo al que vuelve el "← Volver" (catálogo de arquitectura/conectividad)
+
+# En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
+# .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,
+# usa el título sin tags).
+steps:
+  - title: "Prepará el <em>CLI DSP</em>"
+    short: "Prepará"
+    body: >-
+      A diferencia del catálogo de Dominios que permite descargar CSN/JSON en forma nativa desde los artefactos, para los origenes y fuentes de datos, el catálogo se arma utilizando el Command Line Interface (CLI) de Datasphere, que permitirá la descarga metadata en formato JSON.
+      Si bien podés apoyarte en el SAP Help oficial, contamos con un How-to interno que simplifica el proceso para que salgas andando sin complicaciones:
+    link:
+      url: "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=rhoxaG"
+      label: "Abrir Guia de Configuración CLI Datasphere" 
+    shots:
+      - img: "01-prerequisitos.png"
+        caption: "SAP Help→ Simplificado en nuestro How-to Danwor"
+
+  - title: "Configurá el <em>Tenant</em>"
+    short: "Configurá"
+    body: >-
+      Utilizando una terminal en tu máquina (PowerShell, o similar):
+    substeps:
+      - "tipeá `datasphere config host set https://<hostname_URL>.hcs.cloud.sap`"
+      - "revalidá tipeando `datasphere config host show`"
+    shots:
+      - img: "02-config-host.png"
+
+  - title: "Conectáte al <em>Cliente OAuth</em>"
+    short: "Conectáte"
+    body: >-
+      Apoyádo en los datos del cliente OAuth que creaste en el paso 1, ahora nos autenticamos al tenant:
+    code : | 
+      datasphere login `
+      --client-id '<client_id>' `
+      --client-secret '<client_secret>' `
+      --authorization-url 'https://<hostname>.authentication.<dc>.hana.ondemand.com/oauth/authorize' `
+      --token-url 'https://<hostname>.authentication.<dc>.hana.ondemand.com/oauth/token' `
+      --host 'https://<hostname>.<dc>.hcs.cloud.sap/'
+    shots:
+      - img: "03a-login.png"
+        caption: "El script abrirá una pestaña en tu navegador."
+      - img: "03b-login.png"
+        caption: "Una vez autenticado, podés cerrar la pestaña y volver a la terminal."        
+
+  - title: "Descarga la <em>Metadata</em>"
+    short: "Descargá"
+    body: >-
+      Ejecutá el comando `datasphere spaces connections list --space <SPACE_ID> --output .\conn_space_<SPACE_ID>.json`
+      para obtener todas las conexiones disponibles a nivel espacio. Luego, seguí con este proceso iterativo:
+    substeps:
+      - 'Abrí el archivo generado, obtené la primera conexión'
+      - 'Usá name en el comando `datasphere spaces connections get --space <SPACE_ID> --name <NAME> --output .\conn_space_<SPACE_ID>`'
+      - Repetí el proceso para cada conexión, generando un archivo JSON por cada una.
+    shots:
+      - img: "04b-conn-properties.png"
+
+  - title: "Validá los <em>Archivos</em>"
+    short: "Validá"
+    body: >-
+      Asegurate que los archivos generados sean consistentes con las conexiones que encontraste en conn_spaces.json.
+      Una vez confirmado, podés cerrar la sesión en forma segura con el comando <code> datasphere logout --login-id 0 </code>
+    shots:
+      - img: "05a-files.png"
+        caption: "Los archivos generados en base a nuestra convencion de nombres"
+      - img: "05b-logout.png"
+        caption: "Evidencia de cierre de sesión en el CLI"  
+
+  - title: "Subilos a <em>SharePoint</em>"
+    short: "SharePoint"
+    body: >-
+      Utilizando el link debajo, accedé a nuestro sitio de Práctica, y agregá los archivos a la subcarpeta "Conexiones" dentro de la carpeta del cliente. Si no hubiera contenido para tu cliente, aseguráte de crear la carpeta primero.
+    link:
+      url: "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=rhoxaG"
+      label: "Abrir la carpeta CSN en SharePoint"
+    shots:
+      - img: "07-sharepoint.png"
+
+  - title: "Regenerá el <em>catálogo</em>"
+    short: "Regenerá"
+    body: >-
+      Con los archivos ya en SharePoint, regenerá el catálogo desde las herramientas de gestión. Si no tenés acceso, podés hacerlo con el botón aquí debajo. El copiloto leerá 
+      SharePoint con tu propio acceso, descargará solo lo que cambió y generará el contenido
+      automáticamente.
+    action: regenerate
+    shots:
+      - img: "08-regenerar.png"
+
+  - title: "Todo <em>Listo!</em>"
+    short: "Listo"
+    body: >-
+      Si todo salió bien, deberías ver los nuevos orígenes en la tab "Catálogo" del módulo, con diagrama de arquitectura y conectividad — navegable como cualquier contenido.
+    shots:
+      - img: "09-resultado.png"

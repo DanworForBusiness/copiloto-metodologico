@@ -479,7 +479,7 @@ class AssistantRoutingService:
         # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
         # construirlo. Solo lidera si matchea a nivel dominio (umbral fuerte); si el
         # catálogo está vacío, no devuelve nada y sigue el flujo normal.
-        if _is_availability_query(question):
+        if _is_availability_query(question) and not _is_conceptual_or_comparative_query(question):
             cat_entry = _find_matching_catalog(question, pack_name)
             if cat_entry is not None:
                 label = f"{cat_entry.cliente} · {cat_entry.dominio}".strip(" ··")
@@ -496,7 +496,8 @@ class AssistantRoutingService:
         # configurar/conectar X") —o disponibilidad— cuyo objeto YA tenemos resuelto
         # como conexión publicada, la conexión REAL lidera como referencia, en vez de
         # un how-to genérico (o, peor, un recurso tangencial por verbo compartido).
-        if _is_asset_seeking_query(question) or _is_availability_query(question):
+        if ((_is_asset_seeking_query(question) or _is_availability_query(question))
+                and not _is_conceptual_or_comparative_query(question)):
             conn = _find_matching_connection(question, pack_name)
             if conn is not None:
                 label = f"{conn.cliente} · {conn.type_label}".strip(" ··")

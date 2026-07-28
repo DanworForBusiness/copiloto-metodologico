@@ -14,6 +14,11 @@
 #   steps:                                                             [requerido]
 #     - title:    título del paso.                                     [requerido]
 #       body:     descripción del paso (subtítulo).                    [opcional]
+#       code:     bloque de comando/terminal (CLI/PowerShell). Usá      [opcional]
+#                 YAML literal `code: |` para preservar los saltos de
+#                 línea; se renderiza monospace. NO es <em> (dorado).
+#                 Código INLINE en prosa/sub-pasos: usá backticks `…` — escapan
+#                 solos < > \ | y variables tipo <campo_id> (o <code>…</code>).
 #       substeps: checklist numerada (secuencia dentro del paso).      [opcional]
 #       link:     CTA a un recurso externo. `link: "https://…"` o      [opcional]
 #                 `link: {url: "https://…", label: "Abrir…"}`. Abre en pestaña nueva.
@@ -34,7 +39,8 @@ lead: >-
   nuestro catálogo de dominios Danwor. Dejás los archivos en SharePoint y el copiloto
   genera todo automáticamente: diagrama interactivo de linaje, catálogo técnico,
   gobierno y semáforos de cumplimiento.
-assets_dir: guia-catalogo
+assets_dir: guia-catalogo/Dominios
+back_module: "04"   # módulo al que vuelve el "← Volver" (catálogo de dominios)
 
 # En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
 # .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,

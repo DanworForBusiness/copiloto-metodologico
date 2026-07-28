@@ -40,15 +40,16 @@
   .topic-nav a{min-width:0; flex:1 1 0; padding:.72rem .45rem; font-size:.64rem;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
-  /* "← Volver" dentro del contenido, arriba a la izquierda — mismo formato de
-     texto plano que el catalog-back del resto (experiencia transversal). Único
-     cambio: FIXED, para que quede anclado al viewport del stage y NO desaparezca
-     al scrollear (antes scrolleaba con el hero y "se perdía"). Navega el frame
-     padre de vuelta al módulo (target=_parent, sin romper la máscara). */
-  .guide-back{position:fixed; top:clamp(1rem,3vw,1.7rem); left:clamp(1.25rem,4vw,3rem); z-index:50;
-    display:inline-flex; align-items:center; gap:.35rem; font:500 .74rem var(--mono);
-    color:var(--ink-soft); text-decoration:none; transition:color .2s;}
-  .guide-back:hover{color:var(--gold);}
+  /* "← Volver": LA MISMA solución que el catálogo (.catalog-back de tools.css), no
+     una propia. `position:sticky` → arranca en el flujo (arriba del contenido) y se
+     pega al tope al scrollear, con fondo de superficie (--bg) que tapa lo que pasa
+     por detrás. Mismos valores que tools.css (sticky, z-index, márgenes, mono, hover
+     dorado); barra full-width con `.container` interno para alinear el texto igual
+     que el resto del contenido. Navega el frame padre (target=_parent). */
+  .catalog-back{position:sticky; top:0; z-index:20; display:block; margin:0 0 14px;
+    padding:10px clamp(1.25rem,4vw,3rem) 12px; background:var(--bg); color:var(--soft);
+    font:500 .72rem var(--mono); text-decoration:none;}
+  .catalog-back:hover{color:var(--gold);}
 
   /* Capturas: acotadas (más chicas) y clickeables para ampliar. El "ampliar" abre
      un lightbox en el documento padre (copiloto completo), no un dialog confinado
@@ -88,6 +89,18 @@
   /* <em> como acento dorado también fuera de los títulos (body/bajada/nota/sub-pasos):
      dw-academy solo lo pinta en .topic-title/.hero-title. Mismo criterio (gold, sin itálica). */
   .hero-sub em, .topic-lead em, .guide-note em, .substeps em{color:var(--gold); font-style:normal;}
+  /* CÓDIGO (distinto del acento dorado <em>): comandos de terminal/CLI.
+     — Bloque `code: |` → look de terminal oscura (como la captura de PowerShell),
+       monospace, preformateado (respeta los saltos de línea del YAML), envuelve
+       tokens largos (URLs/secrets) sin scroll horizontal.
+     — Inline <code>…</code> en prosa/sub-pasos → monospace con fondo sutil. */
+  .topic-code{margin:1.4rem 0 0; padding:1rem 1.15rem; border-radius:12px;
+    background:#111214; border:1px solid var(--line); color:#e6e6ea;
+    font:500 .82rem/1.6 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2;}
+  .topic-lead code, .substeps code, .guide-note code{
+    font-family:var(--mono); font-size:.86em; padding:.12em .42em; border-radius:5px;
+    background:var(--bg-card-2); border:1px solid var(--line); color:var(--ink);
+    overflow-wrap:anywhere;}
 
   /* Acción del paso (self-service): botón sólido dorado + área de resultado. */
   .guide-action{margin-top:1.4rem;}
@@ -124,9 +137,10 @@
 
 <main>
 
+  <a class="catalog-back" href="{{ back_url }}" target="_parent">← Volver</a>
+
   <!-- HERO -->
   <section class="hero" id="inicio">
-    <a class="guide-back" href="{{ back_url }}" target="_parent">← Volver</a>
     <div class="hero-bg" aria-hidden="true"></div>
     <div class="container hero-inner">
       {% if guide.eyebrow %}<p class="hero-eyebrow reveal in"><span class="dot"></span> {{ guide.eyebrow }}</p>{% endif %}
@@ -150,6 +164,7 @@
           <span class="topic-num reveal">Paso {{ "%02d"|format(s.n) }} de {{ "%02d"|format(steps|length) }}</span>
           <h2 class="topic-title reveal">{{ s.title|safe }}</h2>
           <p class="topic-lead reveal reveal-d1">{{ s.body|safe }}</p>
+          {% if s.code %}<pre class="topic-code reveal reveal-d1">{{ s.code }}</pre>{% endif %}
           {% if s.substeps %}
           <ol class="substeps reveal reveal-d1">{% for ss in s.substeps %}<li>{{ ss|safe }}</li>{% endfor %}</ol>
           {% endif %}
@@ -191,7 +206,7 @@
       {# MISMO partial que el cierre de módulo/catálogo (única fuente, feedback.css).
          Posteado por htmx dentro del iframe; el endpoint /catalog/feedback devuelve
          el mismo partial (estado de gracias). #}
-      {% with catalog_kind="guide", catalog_ref="como-publicar",
+      {% with catalog_kind="guide", catalog_ref=slug|default("guide"),
               fb_eyebrow="Fin del instructivo", fb_prompt="¿Te resultó útil esta guía?" %}
       {% include "partials/catalog_feedback.html" %}
       {% endwith %}

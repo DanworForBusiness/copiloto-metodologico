@@ -20,6 +20,7 @@
     <p>{% if catalog_connection_types %}Elegí un tipo de conexión para ver qué clientes lo usan y con qué capacidades operativas.{% else %}No se detectaron conexiones generadas para el catálogo de arquitectura.{% endif %}</p>
   </div>
 </div>
+<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo podés publicarlo →</a></p>
 {% elif is_security_catalog %}
 <div class="tree-picker catalog-picker--security">
   <label for="catalog-security-family">Catálogo de seguridad</label>
@@ -37,6 +38,7 @@
     <p>{% if catalog_security_families %}Elegí Seguridad de Roles para revisar la matriz de permisos o Seguridad de Datos para ver los artefactos DAC disponibles.{% else %}No se detectaron artefactos generados para el catálogo de seguridad.{% endif %}</p>
   </div>
 </div>
+<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo podés publicarlo →</a></p>
 {% else %}
 <div class="tree-picker">
   <label for="catalog-dominio">Dominio</label>
@@ -57,7 +59,7 @@
 {# El instructivo "Cómo publicar" cubre HOY solo dominios/flujos, así que el link
    se ofrece únicamente en el módulo 04 (catálogo de dominios). Arquitectura (01)
    y Seguridad (02) tienen procedimientos distintos, pendientes de armar. #}
-{% if module_number == "04" %}
-<p class="tool-suggest__link"><a href="/catalog/como-publicar?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
+{% if module_number == "03" or module_number == "04" %}
+<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
 {% endif %}
 {% endif %}

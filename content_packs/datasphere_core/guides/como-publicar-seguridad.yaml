@@ -1,0 +1,119 @@
+# How-to "Cómo publicar un artefacto DAC" — contenido del pack (el copiloto solo LEE).
+#
+# Se renderiza como slides estilo Danwor Academy. Vive acá, NO en el código, por la
+# misma filosofía que el resto del contenido (módulos .md, novedades .yaml, academy
+# .html): editable sin tocar el webapp ni reiniciar, pack-scoped y escalable a N
+# how-tos (cada uno es un guides/<slug>.yaml nuevo). Ver webapp/services/guides_service.py.
+#
+# Schema:
+#   eyebrow:    texto del ojillo (mono, dorado) del landing.           [opcional]
+#   title:      título del landing.                                    [requerido]
+#   accent:     parte del título resaltada en dorado (va como <em>).   [opcional]
+#   lead:       bajada del landing; el token {n} = cantidad de pasos.  [opcional]
+#   assets_dir: subcarpeta de assets/ donde viven las capturas.        [opcional; default: guias/<slug>]
+#   steps:                                                             [requerido]
+#     - title:    título del paso.                                     [requerido]
+#       body:     descripción del paso (subtítulo).                    [opcional]
+#       code:     bloque de comando/terminal (CLI/PowerShell). Usá      [opcional]
+#                 YAML literal `code: |` para preservar los saltos de
+#                 línea; se renderiza monospace. NO es <em> (dorado).
+#                 Código INLINE en prosa/sub-pasos: usá backticks `…` — escapan
+#                 solos < > \ | y variables tipo <campo_id> (o <code>…</code>).
+#       substeps: checklist numerada (secuencia dentro del paso).      [opcional]
+#       link:     CTA a un recurso externo. `link: "https://…"` o      [opcional]
+#                 `link: {url: "https://…", label: "Abrir…"}`. Abre en pestaña nueva.
+#       action:   acción ejecutable como botón. Hoy: "regenerate"       [opcional]
+#                 (regenera el catálogo con tu propio acceso a SharePoint).
+#       note:     bloque de cierre (separador + texto + botón). Campos:   [opcional]
+#                 text, label, y template (archivo del pack en assets_dir,
+#                 servido por /pack-assets — NO lo escanea el generador) o url.
+#       shots:                                                         [opcional]
+#         - img:     nombre del archivo dentro de assets_dir.
+#           caption: epígrafe de la captura.                           [opcional]
+
+eyebrow: "SEGURIDAD DE DATOS · SELF-SERVICE"
+title: "Cómo publicar"
+accent: "un catálogo"
+lead: >-
+  En {n} pasos, convertimos metadata Datasphere en activo técnico interno que nutre
+  nuestro catálogo de Seguridad Danwor. Dejás los archivos en SharePoint y el copiloto
+  genera todo automáticamente: diagrama interactivo de linaje, catálogo técnico,
+  gobierno y semáforos de cumplimiento.
+assets_dir: guia-catalogo/Seguridad
+back_module: "02"   # módulo al que vuelve el "← Volver" (catálogo de seguridad & gobernanza)
+
+# En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
+# .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,
+# usa el título sin tags).
+steps:
+  - title: "Exportá el <em>linaje</em>"
+    short: "Exportá"
+    body: >-
+      El catálogo de Seguridad se arma con el Core Schema Notation (CSN/JSON) de todos los artefactos del flujo. Ingresá a Datasphere → Data Builder → objeto DAC y seguí los siguientes pasos:
+    substeps:
+      - "Exportá vía Tools → «Export to CSN/JSON File»."
+      - "Entidad de Permisos → «Open in a New tab» para repetir su paso 1"
+      - "Repetí los pasos 1 y 2 en cada artefacto DAC, hasta cubrirlos todos."
+    note:
+      text: >-
+        [Opcional]: La referencia de utilización de DACs y sus artefactos no forma parte de la metadata pero te explicamos como incluir este paso en el próximo bloque.
+    shots:
+      - img: "01a-DAC.png"
+        caption: "Tools → Export to CSN/JSON File"
+      - img: "01b-export.png"
+        caption: "Simil paso 1 pero para su entidad de permisos"
+
+  - title: "Referencia de <em>Utilización</em>"
+    short: "Referencia"
+    body: >-
+      Utilizando SAP HANA Database Explorer de Datasphere:
+    code: |
+      SELECT "SPACE_SCHEMAS"."SPACE_ID", "VIEWS"."VIEW_NAME"
+      FROM "SYS"."VIEWS" AS "VIEWS"
+      INNER JOIN "DWC_TENANT_OWNER"."SPACE_SCHEMAS" AS "SPACE_SCHEMAS"
+      ON "VIEWS"."SCHEMA_NAME" = "SPACE_SCHEMAS"."SCHEMA_NAME"
+      WHERE "VIEWS"."DEFINITION" LIKE '%((SELECT%) AS "$DAC$%_0"%'
+      AND "VIEWS"."VIEW_NAME" NOT LIKE '%$%'
+      AND "SPACE_SCHEMAS"."SCHEMA_TYPE" = 'space_schema'
+      ORDER BY "SPACE_SCHEMAS"."SPACE_ID", "VIEWS"."VIEW_NAME"            
+    substeps:
+      - "Ejecutá la query"
+      - "Descargá el resultado como CSV (Ej: lineage_<DAC_ID>.csv)"
+    shots:
+      - img: "02-sql.png"
+        caption: "Podés abrir el Database Explorer tanto desde el espacio, como a nivel tenant en ambos casos teniendo un usuario de base de datos"
+
+  - title: "Validá los <em>Archivos</em>"
+    short: "Validá"
+    body: >-
+      Asegurate que los archivos generados sean consistentes con los artefactos que buscas catalogar. Por cada DAC, debieras tener un archivo CSN/JSON propio + un archivo CSN/JSON de su entidad de permisos + un CSV de referencia de utilización. Si faltara alguno, repetí el paso 1 o 2 según corresponda.
+    shots:
+      - img: "03-archivos.png"
+        caption: "Los archivos generados en base a nuestra convencion de nombres"
+
+  - title: "Subilos a <em>SharePoint</em>"
+    short: "SharePoint"
+    body: >-
+      Utilizando el link debajo, accedé a nuestro sitio de Práctica, y agregá los archivos a la subcarpeta "Seguridad" dentro de la carpeta del cliente. Si no hubiera contenido para tu cliente, aseguráte de crear la carpeta primero.
+    link:
+      url: "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=rhoxaG"
+      label: "Abrir la carpeta CSN en SharePoint"
+    shots:
+      - img: "04-sharepoint.png"
+
+  - title: "Regenerá el <em>catálogo</em>"
+    short: "Regenerá"
+    body: >-
+      Con los archivos ya en SharePoint, regenerá el catálogo desde las herramientas de gestión. Si no tenés acceso, podés hacerlo con el botón aquí debajo. El copiloto leerá 
+      SharePoint con tu propio acceso, descargará solo lo que cambió y generará el contenido
+      automáticamente.
+    action: regenerate
+    shots:
+      - img: "05-regenerar.png"
+
+  - title: "Todo <em>Listo!</em>"
+    short: "Listo"
+    body: >-
+      Si todo salió bien, deberías ver los nuevos artefactos de seguridad bajo la opción "Seguridad de Datos" de la tab "Catálogo" del módulo, con diagrama de seguridad y linaje — navegable como cualquier contenido.
+    shots:
+      - img: "06-resultado.png"

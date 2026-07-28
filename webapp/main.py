@@ -3266,21 +3266,20 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
     )
 
 
-@app.get("/catalog/como-publicar", response_class=HTMLResponse, include_in_schema=False)
-def catalog_guide(request: Request, pack: str = Query(DEFAULT_PACK),
+@app.get("/catalog/guide/{slug}", response_class=HTMLResponse, include_in_schema=False)
+def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
                   embed: int = 0, theme: str = ""):
-    """Guía (autoservicio) para publicar un catálogo: exportar CSN → subir a
-    SharePoint → regenerar. Se cuenta como storytelling estilo Danwor Academy
-    (slides + rail), con el MISMO patrón de embebido: la página monta un
-    academy-stage con las slides en un iframe (sin panel derecho). `embed=1`
-    devuelve las slides (contenido del iframe); sin embed, el wrapper con shell.
-    El CONTENIDO vive en el pack (guides/como-publicar.yaml), no acá: lo carga
-    guides_service. Las capturas se sirven de assets/<assets_dir>/ del pack."""
+    """Guía (autoservicio) para publicar un catálogo. GENÉRICA por `slug`: cada
+    how-to es un `guides/<slug>.yaml` del pack (dominios, orígenes/conexiones, …) —
+    agregar una guía nueva NO requiere código, solo el YAML + un link. Se cuenta como
+    storytelling estilo Danwor Academy (slides + rail): `embed=1` devuelve las slides
+    (contenido del iframe); sin embed, el wrapper con shell. El CONTENIDO vive en el
+    pack; lo carga guides_service. Capturas desde assets/<assets_dir>/ del pack."""
     user = auth_service.session_user(request)
     if not user:
         return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
-    guide = guides.load(selected, "como-publicar")
+    guide = guides.load(selected, slug)
     if guide is None:
         raise HTTPException(404, "Guía no encontrada en el pack")
 
@@ -3290,10 +3289,13 @@ def catalog_guide(request: Request, pack: str = Query(DEFAULT_PACK),
         resolved_theme = "light"
 
     # Destino del "← Volver" (dentro del contenido, como en los detalles de flujo):
-    # el módulo 04 con la pestaña Catálogo, que es desde donde se invoca la guía.
-    mod04 = next((m for m in list_modules(selected)
-                  if str(m.number) == "4" or m.stem.startswith("04_")), None)
-    back_url = (f"/modules/{mod04.stem}?pack={selected}&tab=catalogo" if mod04
+    # el módulo/pestaña Catálogo desde donde se invoca la guía. Lo decide el CONTENIDO
+    # (guide.back_module: dominios→04, orígenes→01); default 04 si no viene.
+    back_num = (guide.get("back_module") or "04").zfill(2)
+    back_mod = next((m for m in list_modules(selected)
+                     if str(m.number).zfill(2) == back_num
+                     or m.stem.startswith(f"{back_num}_")), None)
+    back_url = (f"/modules/{back_mod.stem}?pack={selected}&tab=catalogo" if back_mod
                 else f"/?pack={selected}")
 
     # embed=1 → contenido de las slides (lo monta el iframe del wrapper).
@@ -3301,13 +3303,13 @@ def catalog_guide(request: Request, pack: str = Query(DEFAULT_PACK),
         return templates.TemplateResponse(
             request=request, name="catalog_guide_slides.html",
             context={"pack": selected, "guide": guide, "steps": guide["steps"],
-                     "theme": resolved_theme, "back_url": back_url},
+                     "theme": resolved_theme, "back_url": back_url, "slug": slug},
         )
 
-    # Wrapper (navegación directa desde "¿Falta un Dominio?"): shell + academy-stage
+    # Wrapper (navegación directa desde el link "¿Falta …?"): shell + academy-stage
     # con las slides embebidas (mismo patrón que /academy/{stem}). Sin panel derecho.
     iframe_src = (
-        f"/catalog/como-publicar?"
+        f"/catalog/guide/{quote(slug, safe='')}?"
         f"{urlencode({'embed': '1', 'pack': selected, 'theme': resolved_theme, 'branding': 'danwor'})}"
     )
     # Topbar completo, igual que módulos/Academy: el selector de marco (diagnóstico)
@@ -3337,6 +3339,14 @@ def catalog_guide(request: Request, pack: str = Query(DEFAULT_PACK),
             "iframe_src": iframe_src, "show_panel": False,
         },
     )
+
+
+@app.get("/catalog/como-publicar", response_class=HTMLResponse, include_in_schema=False)
+def catalog_guide_legacy(request: Request, pack: str = Query(DEFAULT_PACK)):
+    """Alias histórico: la ruta se generalizó a /catalog/guide/{slug}. Redirige a la
+    guía de dominios para no romper links viejos."""
+    return RedirectResponse(
+        f"/catalog/guide/como-publicar-dominios?pack={_pack(pack)}", status_code=307)
 
 
 @app.post("/catalog/regenerate", include_in_schema=False)
