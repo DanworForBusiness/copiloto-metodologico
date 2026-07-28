@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -185,6 +186,25 @@ def _is_availability_query(question: str) -> bool:
     return any(term in q for term in _AVAILABILITY_TERMS)
 
 
+_HOWTO_VERBS = (
+    "configurar", "configuro", "instalar", "conectar", "conecto", "transportar",
+    "importar", "activar", "integrar",
+)
+
+
+def _is_howto(question: str) -> bool:
+    """How-to real (instrucción operativa), guard para los filtros/inventarios de
+    catálogo. Preciso a propósito: usa "como" + VERBOS COMPLETOS, no los roots amplios
+    de _is_asset_seeking_query — que dan falso positivo en SUSTANTIVOS de inventario
+    (conect·ores, model import, referencia·s) y bloqueaban consultas de catálogo."""
+    q = norm_text(question)
+    if q.startswith("como ") or " como " in f" {q} ":
+        return True
+    # verbos por PALABRA COMPLETA (no substring): "conecto" NO debe matchear dentro de
+    # "conectores", ni "importar" dentro de "model import".
+    return bool(set(re.findall(r"[a-z]+", q)) & set(_HOWTO_VERBS))
+
+
 def _catalog_module():
     """Importa `catalog_service` (vive en tools/catalog) de forma perezosa y segura.
     Devuelve (módulo, cat_dir) o (None, "") si no está disponible."""
@@ -249,7 +269,7 @@ def _is_cds_inventory_query(question: str) -> bool:
     hay?'. Distinto de un how-to ('cómo creo una CDS' → template) o de nombrar una CDS
     puntual. La respuesta es el inventario real del catálogo de APIs, no un template."""
     if _is_asset_seeking_query(question) or _is_conceptual_or_comparative_query(question):
-        return False   # "cómo creo una CDS" (template) o comparativa no son inventario
+        return False   # how-to o "template CDS" (→ asset) o comparativa no son inventario
     q = norm_text(question)
     has_cds = any(t in q for t in _CDS_TERMS)
     has_inventory = _is_availability_query(question) or any(t in q for t in _INVENTORY_TERMS)
@@ -269,8 +289,8 @@ def _cds_inventory():
 
 
 _CONNECTIVITY_TERMS = (
-    "conexion", "conexiones", "conectividad", "origenes de datos", "origen de datos",
-    "fuentes de datos", "fuente de datos",
+    "conexion", "conexiones", "conectividad", "conector", "conectores",
+    "origenes de datos", "origen de datos", "fuentes de datos", "fuente de datos",
 )
 _INVENTORY_TERMS = (
     # interrogativos / listado
@@ -286,7 +306,7 @@ def _is_connectivity_inventory_query(question: str) -> bool:
     orígenes de datos hay?'. Distinta de un how-to ('cómo conectar X') o de una
     conexión puntual ('configurar PostgreSQL'). Para estas, la respuesta es el
     catálogo de Arquitectura & Conectividad (la evidencia real, no una sección)."""
-    if _is_asset_seeking_query(question) or _is_conceptual_or_comparative_query(question):
+    if _is_howto(question) or _is_conceptual_or_comparative_query(question):
         return False   # how-to o comparativa/conceptual no son inventario
     q = norm_text(question)
     has_conn = any(t in q for t in _CONNECTIVITY_TERMS)
@@ -406,6 +426,98 @@ def _find_matching_connection(question: str, pack_name: str):
         return None
     except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
         return None
+
+
+# ── Filtros de catálogo por FACETA / VEREDICTO ───────────────────────────────
+# Responden "¿qué conexiones usan adaptador ABAP / cloud connector / model import?"
+# y "¿qué referencias reutilizables tenemos?" escaneando el catálogo REAL. Gate
+# estricto (no how-to, no comparativa/conceptual, contexto de catálogo) para NO
+# secuestrar consultas que ya rutean bien. Determinístico, cero tokens.
+
+def _conn_feature_labels(mod, conn) -> set:
+    try:
+        states = mod.connection_feature_states([conn]) if hasattr(mod, "connection_feature_states") else []
+        return {norm_text(str(s.get("label") or "")) for s in states if s.get("enabled")}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _find_connection_facet(question: str):
+    """Filtro de conexiones por faceta → (etiqueta, [labels que matchean], total) o None."""
+    if _is_howto(question) or _is_conceptual_or_comparative_query(question):
+        return None
+    q = norm_text(question)
+    if not (any(t in q for t in _CONNECTIVITY_TERMS) or "catalogo" in q):
+        return None
+    try:
+        _cat, cat_dir = _catalog_module()
+        conns = _cat.load_architecture_connections(cat_dir)
+    except Exception:  # noqa: BLE001
+        return None
+    if not conns:
+        return None
+    seen, uniq = set(), []
+    for c in conns:
+        k = (getattr(c, "cliente", ""), getattr(c, "connection", ""), getattr(c, "type_id", ""))
+        if k not in seen:
+            seen.add(k)
+            uniq.append(c)
+    facet = None
+    if "adaptador" in q or "adapter" in q:
+        for tok in ("abap", "jdbc", "odata", "mssql", "camel"):
+            if tok in q:
+                facet = (f"adaptador {tok.upper()}",
+                         lambda c, mod, t=tok: t in norm_text(getattr(c, "adapter", "")))
+                break
+    if facet is None and "cloud connector" in q:
+        facet = ("Cloud Connector", lambda c, mod: bool(getattr(c, "cloud_connector", False)))
+    if facet is None:
+        for label, keys in (("Model Import", ("model import", "importacion de modelos")),
+                            ("Remote Tables", ("remote tables", "tablas remotas")),
+                            ("Data Flows", ("data flows", "data flow", "flujos de datos")),
+                            ("Replication Flows", ("replication flows", "replication flow", "flujos de replicacion"))):
+            if any(kk in q for kk in keys):
+                facet = (label, lambda c, mod, ln=norm_text(label): ln in _conn_feature_labels(mod, c))
+                break
+    if facet is None:
+        return None
+    label, pred = facet
+    matches = [f"{c.cliente} · {c.connection} ({c.type_label})" for c in uniq if pred(c, _cat)]
+    return (label, matches, len(uniq))
+
+
+_VERDICT_QUERY = (
+    (("referencia danwor", "referencias danwor", "reutilizable", "reutilizables", "plena", "plenas"), "plena"),
+    (("nota de especificidad", "reserva puntual", "con reserva"), "buena"),
+    (("con reservas", "no copiar", "inspiracion conceptual", "parcial", "parciales"), "parcial"),
+)
+
+
+def _find_flow_verdict(question: str):
+    """Filtro de flujos por veredicto ("referencias reutilizables"→plena, etc.) →
+    (veredicto, [entries]) o None."""
+    if _is_howto(question) or _is_conceptual_or_comparative_query(question):
+        return None
+    q = norm_text(question)
+    verdict = next((v for keys, v in _VERDICT_QUERY if any(k in q for k in keys)), None)
+    if verdict is None:
+        return None
+    try:
+        _cat, cat_dir = _catalog_module()
+        entries = _cat.load_catalog(cat_dir)
+    except Exception:  # noqa: BLE001
+        return None
+    if not entries:
+        return None
+    seen, matches = set(), []
+    for e in entries:
+        if str(getattr(e, "veredicto", "")).lower() != verdict:
+            continue
+        k = (e.cliente, e.dominio)
+        if k not in seen:
+            seen.add(k)
+            matches.append(e)
+    return (verdict, matches)
 
 
 class AssistantRoutingService:
@@ -559,6 +671,55 @@ class AssistantRoutingService:
                     for e in items[:12]
                 )
                 return AssistantRoute(message, actions, question)
+
+        # Filtro de conexiones por faceta ("¿qué conexiones usan adaptador ABAP / cloud
+        # connector / model import?"): escanea el catálogo real. Sin match → afirma el
+        # "no" con evidencia + "Explicame vos" (explain_module).
+        facet = _find_connection_facet(question)
+        if facet is not None:
+            f_label, f_matches, f_total = facet
+            cat_action = _connectivity_catalog_action(pack_name)
+            if f_matches:
+                bullets = "\n".join(f"- **{mm}**" for mm in f_matches[:12])
+                return AssistantRoute(
+                    f"En el catálogo, {len(f_matches)} de {f_total} conexiones usan "
+                    f"**{f_label}**:\n\n{bullets}",
+                    (cat_action,) if cat_action else (), question,
+                )
+            return AssistantRoute(
+                f"Ninguna de las {f_total} conexiones del catálogo usa/tiene **{f_label}**. "
+                f"Si querés, te lo explico igual:",
+                (), question, stem,
+            )
+
+        # Filtro de flujos por veredicto ("¿qué referencias reutilizables tenemos?").
+        verdict_hit = _find_flow_verdict(question)
+        if verdict_hit is not None:
+            v_verdict, v_matches = verdict_hit
+            v_label = {"plena": "referencia Danwor reutilizable",
+                       "buena": "reutilizable con nota de especificidad",
+                       "parcial": "inspiración conceptual con reservas"}.get(v_verdict, v_verdict)
+            if v_matches:
+                bullets = "\n".join(f"- {e.icon} **{e.cliente} · {e.dominio}**" for e in v_matches)
+                actions = tuple(
+                    AssistantRouteAction(
+                        f"{e.cliente} · {e.dominio}",
+                        (f"/catalog/flow?cliente={quote(e.cliente)}"
+                         f"&dominio={quote(e.dominio)}&pack={quote(pack_name)}"),
+                        embed=True,
+                    )
+                    for e in v_matches[:12]
+                )
+                return AssistantRoute(
+                    f"En el catálogo, {len(v_matches)} flujo(s) con mirada Danwor **{v_verdict}** "
+                    f"({v_label}):\n\n{bullets}",
+                    actions, question,
+                )
+            return AssistantRoute(
+                f"Por ahora no hay flujos con mirada Danwor **{v_verdict}** en el catálogo. "
+                f"Si querés, te lo explico igual:",
+                (), question, stem,
+            )
 
         multiple_assets = _find_matching_assets(
             question, stem, source, pack_name=pack_name,

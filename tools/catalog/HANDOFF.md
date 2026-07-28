@@ -940,3 +940,11 @@ Follow-up abierto (chip): inventario de **seguridad** (cerrar el patrón). Opcio
 - **"← Volver" del how-to**: pasó de barra `fixed` bespoke a REUSAR `.catalog-back` (sticky, mismos valores), con gutter izquierdo chico (no centrado en el container).
 - **Guard comparativo** en los leads de conexión/flujo del router: una comparativa ("Power BI consume modelos? diferencia ODBC/OData") ya no la secuestra el lead de conexión al matchear "OData" (apareció al regenerar catalog_local con una conexión ODATA real).
 Pilot local: `catalog_local/` y `reports/` runtime, NO se commitean. Módulo 05 (Reporting) pendiente de instructivo.
+
+### 2026-07-28 (b) — Claude/Joe (Asistente: filtros de catálogo por faceta/veredicto)
+**Estado: implementado y verificado (157 tests: +2); pusheado.** 4 casos que Joe reportó (módulo 01) donde el asistente no cruzaba el catálogo:
+- **Filtro de conexiones por FACETA** (`_find_connection_facet`): adapter (ABAP/JDBC/OData/MSSQL/Camel), cloud connector, features (Model Import/Remote Tables/Data Flows/Replication Flows). "¿qué conexiones usan adaptador ABAP?" → lista las 4; sin match ("model import") → afirma "ninguna de las N" + "Explicame vos".
+- **Filtro de flujos por VEREDICTO** (`_find_flow_verdict`): "referencias/reutilizables/plena"→🟢, "con reservas/parcial"→🟠, etc. "¿qué referencias reutilizables tenemos?" → los flujos plena.
+- **"conector(es)"** sumado a `_CONNECTIVITY_TERMS` (inventario de conectividad).
+- **No-match** = afirmar el "no" con evidencia + botón "Explicame vos" (explain_module).
+- **Guard `_is_howto`** (NUEVO): reemplaza a `_is_asset_seeking_query` SOLO en connectivity-inventory + facet + verdict, porque el heurístico amplio daba falso positivo por SUBSTRING en sustantivos de inventario ("conect·ores"→conect, "model import"→import, "referencia·s"→referencia) y bloqueaba las consultas. `_is_howto` matchea "como" + verbos por PALABRA COMPLETA (`re.findall`), no roots. CDS-inventory y domain-inventory MANTIENEN `_is_asset_seeking_query` (protege "template CDS" → asset). Regresión OK: template CDS→asset, comparativas→sección, configurar PostgreSQL→conexión, inventarios previos intactos.

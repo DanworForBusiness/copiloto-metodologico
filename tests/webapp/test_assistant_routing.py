@@ -108,6 +108,23 @@ def test_clasificador_inventario_de_dominios():
     assert not inv("que conexiones tenemos?")
 
 
+def test_is_howto_matchea_verbos_por_palabra_no_substring():
+    from webapp.services.assistant_routing import _is_howto
+    # how-to real
+    assert _is_howto("como conectar Power BI")
+    assert _is_howto("configurar PostgreSQL")
+    # sustantivos de inventario que NO deben leerse como how-to (bug de substring):
+    assert not _is_howto("que conectores tenemos")          # 'conecto' ⊄ palabra 'conectores'
+    assert not _is_howto("tenemos algo con model import")   # 'importar' ⊄ 'import'
+    assert not _is_howto("que referencias reutilizables tenemos")
+
+
+def test_conectores_dispara_inventario_de_conectividad():
+    from webapp.services.assistant_routing import _is_connectivity_inventory_query as inv
+    assert inv("que conectores tenemos?")
+    assert inv("cuales conectores hay?")
+
+
 def test_clasificador_inventario_de_cds():
     from webapp.services.assistant_routing import _is_cds_inventory_query as inv
 
