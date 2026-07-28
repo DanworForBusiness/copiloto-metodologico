@@ -684,18 +684,20 @@ class AssistantRoutingService:
             v_pl, v_sg = ("tienen habilitado", "tiene habilitado") if _feat else ("usan", "usa")
             _asumo = ("Asumiendo que buscás **capital interno** (nuestro catálogo de "
                       "Arquitectura & Conectividad — orígenes y fuentes de datos)")
-            _general = "\n\nSi en cambio querías una respuesta general, puedo dártela."
+            # cierre tras la lista: `---` fuerza un párrafo aparte (si no, markdown lo
+            # absorbe como último bullet). En el caso sin lista va inline.
+            _cierre = "Si en cambio querías una respuesta general, hacé click en «Explicame vos»."
             if f_matches:
                 bullets = "\n".join(f"- **{mm}**" for mm in f_matches[:12])
                 acts = ((cat_action,) if cat_action else ())
                 return AssistantRoute(
                     f"{_asumo}: {len(f_matches)} de las {f_total} conexiones disponibles "
-                    f"{v_pl} **{f_label}**.\n\n{bullets}{_general}",
+                    f"{v_pl} **{f_label}**.\n\n{bullets}\n\n---\n\n{_cierre}",
                     acts, question, stem,
                 )
             return AssistantRoute(
                 f"{_asumo}: ninguna de las {f_total} conexiones disponibles {v_sg} "
-                f"**{f_label}**.{_general}",
+                f"**{f_label}**. {_cierre}",
                 (), question, stem,
             )
 
@@ -722,14 +724,14 @@ class AssistantRoutingService:
                 return AssistantRoute(
                     f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios / "
                     f"modelos de datos): {len(v_matches)} {_flujo} {_tiene} mirada Danwor "
-                    f"**{v_verdict}** ({v_label}).\n\n{bullets}"
-                    f"\n\nSi en cambio querías una respuesta general, puedo dártela.",
+                    f"**{v_verdict}** ({v_label}).\n\n{bullets}\n\n---\n\n"
+                    f"Si en cambio querías una respuesta general, hacé click en «Explicame vos».",
                     actions, question, stem,
                 )
             return AssistantRoute(
                 f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios): "
-                f"por ahora ningún flujo tiene mirada Danwor **{v_verdict}** ({v_label})."
-                f"\n\nSi en cambio querías una respuesta general, puedo dártela.",
+                f"por ahora ningún flujo tiene mirada Danwor **{v_verdict}** ({v_label}). "
+                f"Si en cambio querías una respuesta general, hacé click en «Explicame vos».",
                 (), question, stem,
             )
 
