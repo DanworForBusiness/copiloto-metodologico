@@ -2024,11 +2024,17 @@ def _catalog_is_mssql(conn) -> bool:
 
 def _catalog_is_generic_jdbc(conn) -> bool:
     """Orígenes JDBC genéricos (GENERICJDBC): PostgreSQL, MySQL, etc. Se detectan por
-    typeId o, como respaldo, por la presencia de los parámetros JDBC (driverClass/url)."""
+    typeId o, como respaldo, por `driverClass` (marcador inequívoco de JDBC). NO se usa
+    `url` como respaldo: OData también tiene url y caería acá por error."""
     if _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "genericjdbc":
         return True
     info = getattr(conn, "info", {}) or {}
-    return bool(_catalog_conn_lookup(info, "driverClass") or _catalog_conn_lookup(info, "url"))
+    return bool(_catalog_conn_lookup(info, "driverClass"))
+
+
+def _catalog_is_odata(conn) -> bool:
+    """Orígenes OData (typeId ODATA): conectividad por URL de servicio, no formato SAP."""
+    return _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "odata"
 
 
 def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tuple[str, str, str]]:
@@ -2073,7 +2079,7 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
             virtual_destination_label = _catalog_bool_text(virtual_destination)
         rows.extend([
             ("group", "Conectividad", ""),
-            ("row", "Connection type", _catalog_md_value(lookup("database") or getattr(conn, "type_label", ""))),
+            ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
             ("row", "Servidor", _catalog_md_value(server, True)),
             ("row", "Puerto", _catalog_md_value(port, True)),
             ("row", "Nombre de base de datos", _catalog_md_value(lookup("pds_database_name"), True)),
@@ -2099,6 +2105,7 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
         kind = _catalog_conn_lookup(info, "kind")
         rows.extend([
             ("group", "Conectividad", ""),
+            ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
             ("row", "JDBC driver class", _catalog_md_value(lookup("driverClass"), True)),
             ("row", "JDBC URL", _catalog_md_value(lookup("url"), True)),
             ("group", "Cloud Connector", ""),
@@ -2126,6 +2133,37 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
         ])
         return rows
 
+    if _catalog_is_odata(conn):
+        # Origen OData: la conectividad es la URL del servicio + versión (no los campos
+        # SAP host/mandante/sysid). Cloud Connector con Virtual Destination condicional.
+        # Sin grupos Remote Tables / Replication Flows (no aplican al patrón OData).
+        auth_odata = _catalog_conn_lookup(info, "authentication") or _catalog_conn_lookup(auth, "auth_type")
+        rows.extend([
+            ("group", "Conectividad", ""),
+            ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
+            ("row", "URL", _catalog_md_value(_catalog_conn_lookup(info, "url"), True)),
+            ("row", "Version", _catalog_md_value(_catalog_conn_lookup(info, "version"))),
+            ("group", "Cloud Connector", ""),
+            ("row", "Configurado", _catalog_bool_text(_catalog_conn_lookup(gateway, "cloud_connector"), getattr(conn, "cloud_connector", False))),
+            ("row", "Location ID", _catalog_md_value(_catalog_conn_lookup(gateway, "cloudConnectorLocation"), True)),
+        ])
+        vdest = _catalog_bool_text(_catalog_conn_lookup(gateway, "virtual_destination"))
+        rows.append(("row", "Virtual Destination", vdest))
+        if vdest == "Sí":   # solo si hay virtual destination tiene sentido host/puerto
+            rows.extend([
+                ("row", "Virtual Host", _catalog_md_value(_catalog_conn_lookup(gateway, "virtualHost"), True)),
+                ("row", "Virtual Port", _catalog_md_value(_catalog_conn_lookup(gateway, "virtualPort"), True)),
+            ])
+        rows.extend([
+            ("group", "Autenticación", ""),
+            ("row", "Tipo", _catalog_md_value(auth_odata)),
+            ("group", "Features", ""),
+            ("row", "Remote tables", "Sí" if _catalog_has_feature(mod, conn, "Remote Tables") else "No"),
+            ("row", "Data flows", "Sí" if _catalog_has_feature(mod, conn, "Data Flows") else "No"),
+            ("row", "Replication Flows", "Sí" if _catalog_has_feature(mod, conn, "Replication Flows") else "No"),
+        ])
+        return rows
+
     auth_type = _catalog_conn_lookup(auth, "auth_type")
     data_provisioning = _catalog_conn_lookup(feats, "dataProvisioningOption") or getattr(conn, "data_provisioning", "")
     data_access = _catalog_words(_catalog_conn_lookup(feats, "dataAccess"))
@@ -2134,7 +2172,8 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
 
     rows.extend([
         ("group", "Conectividad", ""),
-        ("row", "Connection type", _catalog_md_value(_catalog_conn_lookup(info, "connectionType"))),
+        ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
+        ("row", "Modo de conexión", _catalog_md_value(_catalog_conn_lookup(info, "connectionType"))),
         ("row", "Application Server", _catalog_md_value(_catalog_conn_lookup(info, "host"), True)),
         ("row", "System Number", _catalog_md_value(_catalog_conn_lookup(info, "systemnumber"), True)),
         ("row", "Mandante", _catalog_md_value(_catalog_conn_lookup(info, "client"), True)),

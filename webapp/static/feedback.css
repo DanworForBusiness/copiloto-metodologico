@@ -159,17 +159,23 @@
 .content-theme-light .module-feedback__note {
   color: #62666d;
 }
-.content-theme-light .module-feedback__react {
+/* El tema claro se estila para AMBOS sistemas: la app usa la clase .content-theme-light;
+   los how-to viven en un iframe dw-academy que marca el tema con [data-dw-theme]. Mismos
+   valores en los dos → la botonera se ve idéntica (antes el iframe caía al gris de --card). */
+.content-theme-light .module-feedback__react,
+:root[data-dw-theme="light"] .module-feedback__react {
   background: #fff;
   border-color: #d8dee6;
   color: #62666d;
 }
-.content-theme-light .module-feedback__inner--form textarea {
+.content-theme-light .module-feedback__inner--form textarea,
+:root[data-dw-theme="light"] .module-feedback__inner--form textarea {
   background: #fff;
   border-color: #d8dee6;
   color: #202124;
 }
-.content-theme-light .module-feedback__react:hover {
+.content-theme-light .module-feedback__react:hover,
+:root[data-dw-theme="light"] .module-feedback__react:hover {
   border-color: rgba(231,176,8,.65);
   background: rgba(231,176,8,.08);
   color: #202124;

@@ -403,6 +403,22 @@ def _connection_info(detail: dict[str, Any]) -> dict[str, Any]:
             value = configurations.get(key)
             if value not in (None, "") and key not in info:
                 info[key] = value
+    # Orígenes OData (typeId ODATA): sus parámetros viven en ConnectionProperties.UI
+    # (URL en mayúscula, version, authentication), no en ConnectionInfo. Los exponemos
+    # normalizados (url minúscula) para renderizar la conectividad OData.
+    ui = conn_props.get("UI")
+    if isinstance(ui, dict):
+        for src, dst in (("URL", "url"), ("version", "version")):
+            value = ui.get(src)
+            if value not in (None, "") and dst not in info:
+                info[dst] = value
+        # `authentication` puede venir como dict {auth_type: 'Basic'} o string; guardamos
+        # el tipo legible (Basic/OAuth/…), no el dict crudo.
+        auth = ui.get("authentication")
+        if isinstance(auth, dict):
+            auth = auth.get("auth_type") or auth.get("authType") or ""
+        if auth not in (None, "") and "authentication" not in info:
+            info["authentication"] = auth
     # `kind` (p.ej. repository.remote) clasifica el acceso a datos del origen.
     kind = first.get("kind")
     if kind not in (None, "") and "kind" not in info:
@@ -623,7 +639,7 @@ def render_connection(conn: ConnectionRecord, manual: dict[str, Any] | None = No
     md += [f"| {k} | {v} |" for k, v in rows]
     if info or gateway:
         md += ["", "## {dw-black}Connection {dw-gold}Info", "", "| Parámetro | Valor |", "|---|---|"]
-        for key in ("connectionType", "dbtype", "driverClass", "url", "kind", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
+        for key in ("connectionType", "dbtype", "driverClass", "url", "version", "authentication", "kind", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
             if key in info:
                 md.append(f"| {key} | {_short_value(info.get(key))} |")
         if gateway and "gateway" not in info:
