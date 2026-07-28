@@ -344,7 +344,7 @@ def _connectivity_catalog_action(pack_name: str) -> AssistantRouteAction | None:
     if not mod:
         return None
     return AssistantRouteAction(
-        "Ver el catálogo de conexiones",
+        "Ver el catálogo",
         f"/modules/{quote(mod.stem)}?pack={quote(pack_name)}&tab=catalogo",
     )
 
@@ -679,16 +679,23 @@ class AssistantRoutingService:
         if facet is not None:
             f_label, f_matches, f_total = facet
             cat_action = _connectivity_catalog_action(pack_name)
+            # verbo según la faceta (adapter/cloud connector "usan"; features "tienen")
+            _feat = not (f_label.lower().startswith("adaptador") or f_label == "Cloud Connector")
+            v_pl, v_sg = ("tienen habilitado", "tiene habilitado") if _feat else ("usan", "usa")
+            _asumo = ("Asumiendo que buscás **capital interno** (nuestro catálogo de "
+                      "Arquitectura & Conectividad — orígenes y fuentes de datos)")
+            _general = "\n\nSi en cambio querías una respuesta general, puedo dártela."
             if f_matches:
                 bullets = "\n".join(f"- **{mm}**" for mm in f_matches[:12])
+                acts = ((cat_action,) if cat_action else ())
                 return AssistantRoute(
-                    f"En el catálogo, {len(f_matches)} de {f_total} conexiones usan "
-                    f"**{f_label}**:\n\n{bullets}",
-                    (cat_action,) if cat_action else (), question,
+                    f"{_asumo}: {len(f_matches)} de las {f_total} conexiones disponibles "
+                    f"{v_pl} **{f_label}**.\n\n{bullets}{_general}",
+                    acts, question, stem,
                 )
             return AssistantRoute(
-                f"Ninguna de las {f_total} conexiones del catálogo usa/tiene **{f_label}**. "
-                f"Si querés, te lo explico igual:",
+                f"{_asumo}: ninguna de las {f_total} conexiones disponibles {v_sg} "
+                f"**{f_label}**.{_general}",
                 (), question, stem,
             )
 
@@ -710,14 +717,19 @@ class AssistantRoutingService:
                     )
                     for e in v_matches[:12]
                 )
+                _tiene = "tiene" if len(v_matches) == 1 else "tienen"
+                _flujo = "flujo desarrollado" if len(v_matches) == 1 else "flujos desarrollados"
                 return AssistantRoute(
-                    f"En el catálogo, {len(v_matches)} flujo(s) con mirada Danwor **{v_verdict}** "
-                    f"({v_label}):\n\n{bullets}",
-                    actions, question,
+                    f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios / "
+                    f"modelos de datos): {len(v_matches)} {_flujo} {_tiene} mirada Danwor "
+                    f"**{v_verdict}** ({v_label}).\n\n{bullets}"
+                    f"\n\nSi en cambio querías una respuesta general, puedo dártela.",
+                    actions, question, stem,
                 )
             return AssistantRoute(
-                f"Por ahora no hay flujos con mirada Danwor **{v_verdict}** en el catálogo. "
-                f"Si querés, te lo explico igual:",
+                f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios): "
+                f"por ahora ningún flujo tiene mirada Danwor **{v_verdict}** ({v_label})."
+                f"\n\nSi en cambio querías una respuesta general, puedo dártela.",
                 (), question, stem,
             )
 
