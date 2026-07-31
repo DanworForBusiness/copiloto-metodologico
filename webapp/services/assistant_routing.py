@@ -45,6 +45,11 @@ class AssistantRoute:
     original_question: str
     explain_module: str = ""
     explain_heading: str = ""
+    # Directiva para "Explicame vos" cuando el usuario optó por la respuesta GENERAL
+    # tras un lead de catálogo: desactiva el grounding interno y pide mirada a nivel
+    # producto SAP Datasphere (si no, el LLM parrotea el "no" del catálogo). "" = sin
+    # directiva (comportamiento normal, p. ej. explain de una sección con su contexto).
+    explain_prompt: str = ""
 
 
 def _module_url(stem: str, pack_name: str, heading: str = "") -> str:
@@ -434,6 +439,15 @@ def _find_matching_connection(question: str, pack_name: str):
 # estricto (no how-to, no comparativa/conceptual, contexto de catálogo) para NO
 # secuestrar consultas que ya rutean bien. Determinístico, cero tokens.
 
+_GENERAL_EXPLAIN = (
+    "El usuario consultó por una capacidad/atributo del catálogo y YA vio la respuesta "
+    "basada en nuestro INVENTARIO interno; ahora eligió una respuesta GENERAL. Explicá a "
+    "nivel producto SAP Datasphere / BDC: qué es la capacidad consultada y qué tipos de "
+    "conexión, adaptadores o artefactos la soportan en general. NO te limites a nuestro "
+    "inventario ni repitas el 'no tenemos' del catálogo — eso ya lo vio."
+)
+
+
 def _conn_feature_labels(mod, conn) -> set:
     try:
         states = mod.connection_feature_states([conn]) if hasattr(mod, "connection_feature_states") else []
@@ -693,12 +707,12 @@ class AssistantRoutingService:
                 return AssistantRoute(
                     f"{_asumo}: {len(f_matches)} de las {f_total} conexiones disponibles "
                     f"{v_pl} **{f_label}**.\n\n{bullets}\n\n---\n\n{_cierre}",
-                    acts, question, stem,
+                    acts, question, stem, explain_prompt=_GENERAL_EXPLAIN,
                 )
             return AssistantRoute(
                 f"{_asumo}: ninguna de las {f_total} conexiones disponibles {v_sg} "
                 f"**{f_label}**. {_cierre}",
-                (), question, stem,
+                (), question, stem, explain_prompt=_GENERAL_EXPLAIN,
             )
 
         # Filtro de flujos por veredicto ("¿qué referencias reutilizables tenemos?").
@@ -726,13 +740,13 @@ class AssistantRoutingService:
                     f"modelos de datos): {len(v_matches)} {_flujo} {_tiene} mirada Danwor "
                     f"**{v_verdict}** ({v_label}).\n\n{bullets}\n\n---\n\n"
                     f"Si en cambio querías una respuesta general, hacé click en «Explicame vos».",
-                    actions, question, stem,
+                    actions, question, stem, explain_prompt=_GENERAL_EXPLAIN,
                 )
             return AssistantRoute(
                 f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios): "
                 f"por ahora ningún flujo tiene mirada Danwor **{v_verdict}** ({v_label}). "
                 f"Si en cambio querías una respuesta general, hacé click en «Explicame vos».",
-                (), question, stem,
+                (), question, stem, explain_prompt=_GENERAL_EXPLAIN,
             )
 
         multiple_assets = _find_matching_assets(

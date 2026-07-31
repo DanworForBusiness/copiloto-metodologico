@@ -79,6 +79,59 @@ def test_free_chat_simulation_returns_rendered_markdown():
     assert rendered.count("<li>") == 2
 
 
+class _CapturingClient:
+    """Cliente OpenAI falso: captura los mensajes y devuelve una respuesta canónica."""
+
+    captured: dict = {}
+
+    def __init__(self, **_kwargs):
+        self.chat = self
+
+    @property
+    def completions(self):
+        return self
+
+    def create(self, *, messages, **_kwargs):
+        _CapturingClient.captured["messages"] = messages
+
+        class _Msg:
+            content = "Respuesta general de prueba."
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        return _Resp()
+
+
+def test_directive_inyecta_bloque_prioritario_y_saltea_grounding(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    _CapturingClient.captured = {}
+    # centinela: si el grounding se inyectara, aparecería en el prompt.
+    monkeypatch.setattr(
+        "webapp.services.assistant_service._catalog_grounding",
+        lambda _q: "GROUNDING_CENTINELA_NO_DEBE_APARECER",
+    )
+    service = AssistantChatService(
+        client_factory=_CapturingClient, execution_mode="produccion",
+    )
+    document = load_module("01_Arquitectura_y_Conectividad")
+
+    service.ask(
+        document, "tenemos algo con model import = SI?", "datasphere_core", (),
+        directive="Explicá a nivel producto SAP Datasphere, no repitas el 'no' del catálogo.",
+    )
+
+    user_prompt = _CapturingClient.captured["messages"][1]["content"]
+    assert "DIRECTIVA (prioritaria)" in user_prompt
+    assert user_prompt.lstrip().startswith("DIRECTIVA")
+    assert "no repitas el 'no' del catálogo" in user_prompt
+    # con directiva, el grounding del inventario NO debe inyectarse
+    assert "GROUNDING_CENTINELA_NO_DEBE_APARECER" not in user_prompt
+
+
 def test_assistant_feedback_persists_up_and_down(tmp_path):
     store = AssistantConversationStore()
     conversation = store.start("01_Arquitectura_y_Conectividad", "datasphere_core")

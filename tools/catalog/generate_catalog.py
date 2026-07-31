@@ -295,6 +295,9 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
         except Exception as exc:  # noqa: BLE001
             print(f"[WARN] no se pudo leer {jf.name}: {exc}")
             continue
+        if not isinstance(data, dict):
+            print(f"[WARN] se omite {jf.name}: JSON raíz no es objeto ({type(data).__name__})")
+            continue
         # Tabla i18n del CSN ({idioma: {clave: texto}}) para resolver los labels que
         # vienen como placeholder '{i18n>clave}'. Se mergea entre archivos; iteramos
         # en → es para que el español (si existe) gane.
@@ -839,11 +842,23 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
                 folder = f"{folder}_{_slug_domain(cube.name)}"
             used.add(folder)
             lines.append("  · " + _write_flow(cli_dir / folder, cliente, dom, sub, folder))
+        # Limpieza de dominios viejos del mismo cliente. Cuando una carpeta plana
+        # pasa a segmentarse por modelos analíticos, las salidas anteriores
+        # quedan físicamente en catalog_local y el dropdown las sigue levantando.
+        # Solo tocamos carpetas de dominio generadas por este catálogo (tienen
+        # flujo_*.md directo); no toca vistas, APIs, arquitectura ni seguridad.
+        for child in cli_dir.iterdir() if cli_dir.exists() else []:
+            if child.is_dir() and child.name not in used and any(child.glob("flujo_*.md")):
+                shutil.rmtree(child, ignore_errors=True)
         return f"[OK] {cliente}: {len(cubes)} dominios (por modelo analítico):\n" + "\n".join(lines)
 
     # Un solo flujo (carpeta con dominio real 2-niveles, o ≤1 cubo).
     dom_final = dominio if (dominio and dominio != "General") else _infer_domain(entities)
-    folder = dominio.replace(" ", "_")
+    folder = dominio.replace(" ", "_") if (dominio and dominio != "General") else _slug_domain(dom_final)
+    if dominio == "General":
+        for child in cli_dir.iterdir() if cli_dir.exists() else []:
+            if child.is_dir() and child.name != folder and any(child.glob("flujo_*.md")):
+                shutil.rmtree(child, ignore_errors=True)
     return "[OK] " + _write_flow(cli_dir / folder, cliente, dom_final, entities, folder)
 
 
@@ -949,6 +964,8 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
     enc = "u!" + base64.urlsafe_b64encode(sharing_url.strip().encode()).decode().rstrip("=")
     root = cs._graph_get_json(
         f"https://graph.microsoft.com/v1.0/shares/{enc}/driveItem?$select=id,parentReference", token)
+    if not isinstance(root, dict):
+        raise TypeError(f"Respuesta Graph inesperada para carpeta raíz: {type(root).__name__}")
     drive = root["parentReference"]["driveId"]
     stack = [(root["id"], Path())]
     while stack:
@@ -956,7 +973,17 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
         url = f"https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}/children"
         while url:
             payload = cs._graph_get_json(url, token)
-            for it in payload.get("value", []):
+            if isinstance(payload, list):
+                items = payload
+                next_url = None
+            elif isinstance(payload, dict):
+                items = payload.get("value", [])
+                next_url = payload.get("@odata.nextLink")
+            else:
+                raise TypeError(f"Respuesta Graph inesperada para children: {type(payload).__name__}")
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
                 name = it.get("name", "")
                 if it.get("folder"):
                     stack.append((it["id"], rel / name))
@@ -987,7 +1014,7 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
                     target.write_text(cs._download_text(durl), encoding="utf-8")
                 folder_now[relpath] = tag
                 downloaded += 1
-            url = payload.get("@odata.nextLink")
+            url = next_url
 
     # Prune: archivos que estaban en el caché (bloque folder) y ya no están en SharePoint.
     pruned = 0
@@ -1013,7 +1040,15 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
 
 CATALOG_MANIFEST = ".catalog_manifest.json"
 CATALOG_SOURCE_EXTENSIONS = {".json", ".txt"}
-CATALOG_IGNORED_DIRS = {"apis", "cds", "espacios", "conexiones", "seguridad"}
+CATALOG_IGNORED_DIRS = {"api", "apis", "cds", "espacios", "conexiones", "seguridad", "data products", "data_products"}
+CATALOG_RESERVED_OUTPUT_DIRS = {"apis", "arquitectura", "seguridad", "data_products", ".csn_cache"}
+
+
+def _catalog_dir_kind(name: str) -> str:
+    """Normaliza carpetas SharePoint con prefijos visuales: `02. Data Products`."""
+    clean = re.sub(r"^[^\w\d]+", "", str(name)).strip()
+    clean = re.sub(r"^\s*\d+\s*[\.\-_]\s*", "", clean).strip().lower()
+    return clean.replace("-", " ").replace("_", " ")
 
 
 def _catalog_sha256(path: Path) -> str:
@@ -1077,12 +1112,55 @@ def _catalog_outputs_exist(out_root: Path, cliente: str, dominio: str) -> bool:
     out_dir = Path(out_root) / cliente.replace(" ", "_") / dominio.replace(" ", "_")
     return (out_dir / "vistas").is_dir() and (out_dir / f"flujo_{dominio}.md").exists()
 
+
+def _prune_stale_domain_outputs(
+    out_root: Path,
+    expected_dirs: set[tuple[str, str]],
+    explicit_client_dirs: set[str],
+    current_client_dirs: set[str],
+) -> int:
+    """Elimina salidas viejas de dominios que ya no existen en el inbound actual.
+
+    La UI lee `catalog_local`, por lo que un dominio eliminado o reagrupado en
+    SharePoint seguiría apareciendo si dejamos su markdown viejo. La poda es
+    deliberadamente estrecha: solo elimina subcarpetas de cliente que tienen un
+    `flujo_*.md` directo, que es la firma de salida de este generador.
+    """
+    out_root = Path(out_root)
+    if not out_root.exists():
+        return 0
+    pruned = 0
+    for client_dir in sorted(p for p in out_root.iterdir() if p.is_dir()):
+        client_key = client_dir.name
+        if client_key.lower() in CATALOG_RESERVED_OUTPUT_DIRS or client_key.startswith("."):
+            continue
+        remove_all_client_domains = client_key not in current_client_dirs
+        prune_to_expected = client_key in explicit_client_dirs
+        if not remove_all_client_domains and not prune_to_expected:
+            continue
+        for domain_dir in sorted(p for p in client_dir.iterdir() if p.is_dir()):
+            if not any(domain_dir.glob("flujo_*.md")):
+                continue
+            domain_key = domain_dir.name
+            if remove_all_client_domains or (client_key, domain_key) not in expected_dirs:
+                shutil.rmtree(domain_dir, ignore_errors=True)
+                pruned += 1
+        try:
+            if not any(client_dir.iterdir()):
+                client_dir.rmdir()
+        except OSError:
+            pass
+    return pruned
+
 def _sync_apis(inbound_root: Path, out_root: Path) -> int:
     """Copia el código de las CDS views (extractores) desde la carpeta compartida
     del origen (APIs/ o CDS/, a nivel raíz) a <out>/APIs. Es agnóstica de cliente:
     una sola copia por CDS view, referenciada por el nombre del extractor
     (ABAP_CDS.<X> → <X>.md). Devuelve la cantidad copiada."""
-    src = next((p for p in (inbound_root / "APIs", inbound_root / "CDS") if p.is_dir()), None)
+    src = next((
+        p for p in sorted(inbound_root.iterdir() if inbound_root.is_dir() else [])
+        if p.is_dir() and _catalog_dir_kind(p.name) in {"api", "apis", "cds"}
+    ), None)
     if src is None:
         return 0
     dest = Path(out_root) / "APIs"
@@ -1105,7 +1183,10 @@ def generate_all(inbound_root, out_root) -> str:
     out_root = Path(out_root)
     leaves = sorted({
         p.parent for p in inbound_root.rglob("*.json")
-        if not any(part.lower() in CATALOG_IGNORED_DIRS for part in p.relative_to(inbound_root).parts[:-1])
+        if (
+            not any(_catalog_dir_kind(part) in CATALOG_IGNORED_DIRS for part in p.relative_to(inbound_root).parts[:-1])
+            and not (p.relative_to(inbound_root).parts and p.relative_to(inbound_root).parts[0].upper().startswith("DP_"))
+        )
     })
     if not leaves:
         return f"Sin .json bajo {inbound_root}. Nada que generar."
@@ -1120,6 +1201,9 @@ def generate_all(inbound_root, out_root) -> str:
     generated = 0
     skipped = 0
     next_entries = {}
+    expected_dirs: set[tuple[str, str]] = set()
+    explicit_client_dirs: set[str] = set()
+    current_client_dirs: set[str] = set()
 
     for leaf in leaves:
         parts = leaf.relative_to(inbound_root).parts
@@ -1127,6 +1211,11 @@ def generate_all(inbound_root, out_root) -> str:
         # (<Cliente>/*.json, sin subcarpeta de dominio), dominio = "General".
         cliente = (parts[0] if parts else leaf.name).replace("_", " ")
         dominio = parts[1].replace("_", " ") if len(parts) >= 2 else "General"
+        client_dir_key = cliente.replace(" ", "_")
+        current_client_dirs.add(client_dir_key)
+        if len(parts) >= 2:
+            explicit_client_dirs.add(client_dir_key)
+            expected_dirs.add((client_dir_key, dominio.replace(" ", "_")))
         key = _catalog_leaf_key(leaf, inbound_root)
         signature = _catalog_leaf_signature(leaf, inbound_root)
         previous = entries.get(key, {})
@@ -1147,6 +1236,7 @@ def generate_all(inbound_root, out_root) -> str:
         }
 
     apis = _sync_apis(inbound_root, out_root)
+    pruned = _prune_stale_domain_outputs(out_root, expected_dirs, explicit_client_dirs, current_client_dirs)
     next_manifest = dict(manifest)
     next_manifest.update({
         "generator_sha256": generator_sig,
@@ -1159,6 +1249,8 @@ def generate_all(inbound_root, out_root) -> str:
     if force_all and previous_sig:
         lines.insert(0, "[info] Cambió el generador; se regeneraron los flujos para evitar salidas viejas.")
 
+    if pruned:
+        lines.append(f"[limpieza] {pruned} salida(s) de dominio obsoleta(s) removida(s).")
     tail = f"\n+ {apis} código(s) CDS (APIs/) sincronizado(s)." if apis else ""
     summary = f"Catálogo regenerado ({generated} flujo(s), {skipped} sin cambios):"
     return summary + "\n" + "\n".join(lines) + tail

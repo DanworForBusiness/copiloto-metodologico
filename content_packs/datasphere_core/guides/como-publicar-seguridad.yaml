@@ -111,7 +111,7 @@ steps:
     shots:
       - img: "05-regenerar.png"
 
-  - title: "Todo <em>Listo!</em>"
+  - title: "Todo <em>Listo!</em>🚀"
     short: "Listo"
     body: >-
       Si todo salió bien, deberías ver los nuevos artefactos de seguridad bajo la opción "Seguridad de Datos" de la tab "Catálogo" del módulo, con diagrama de seguridad y linaje — navegable como cualquier contenido.

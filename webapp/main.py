@@ -806,6 +806,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "catalog_domains": _catalog_domains(),
             "catalog_connection_types": _catalog_connection_types(),
             "catalog_security_families": _catalog_security_families(),
+            "catalog_data_products": _catalog_data_products_list(),
             "initial_tab": initial_tab,
             "whatsnew_unseen": whatsnew.is_unseen(request, selected),
         },
@@ -1355,6 +1356,7 @@ def assistant_chat(
     routing_bypass: bool = Form(False),
     route_module: str = Form(""),
     route_heading: str = Form(""),
+    explain_prompt: str = Form(""),
 ):
     # Perfil solo-lectura: el asistente SÍ funciona (el router interno es determinista
     # y no consume OpenAI), pero cualquier salida que dispararía la API de OpenAI
@@ -1398,6 +1400,7 @@ def assistant_chat(
         else:
             answer, answer_html = assistant_chat_service.ask(
                 answer_document, question, selected, history, context=answer_context,
+                directive=explain_prompt,
             )
         reply = assistant_store.append(
             conversation_id, stem, selected, question.strip(), answer, answer_html,
@@ -1824,6 +1827,179 @@ def _catalog_connection_types() -> list:
 
 
 
+
+def _catalog_data_products_entries():
+    try:
+        import sys as _sys
+        from config import BASE_DIR
+        svc_dir = str(BASE_DIR / "tools" / "catalog")
+        if svc_dir not in _sys.path:
+            _sys.path.insert(0, svc_dir)
+        import catalog_service as mod
+        cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+        return mod, mod.load_data_products(cat_dir)
+    except Exception:
+        return None, []
+
+
+def _catalog_data_products_list() -> list:
+    _mod, entries = _catalog_data_products_entries()
+    return entries
+
+
+def _catalog_data_product_artifact_name(name: str) -> str:
+    tail = str(name or "").strip()
+    tail = tail.split(":", 1)[1] if ":" in tail else tail
+    tail = tail.split(".", 1)[1] if "." in tail else tail
+    return tail.strip() or str(name or "").strip()
+
+
+def _catalog_data_product_entity_role(display: str, index: int) -> str:
+    raw = str(display or "").upper()
+    if raw.startswith(("3TF", "3VF", "3VS")):
+        return "Entidad principal"
+    if raw.startswith(("2TD", "2VD", "2V")):
+        return "Entidad relacionada"
+    return "Entidad publicada" if index == 0 else "Entidad complementaria"
+
+
+def _catalog_data_product_section_slug(display: str, index: int) -> str:
+    role = _catalog_data_product_entity_role(display, index)
+    return slugify(f"{role} · {display}")
+
+
+def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> str:
+    entities = []
+    seen = set()
+    for ent in getattr(product, "entities", []) or []:
+        if not isinstance(ent, dict):
+            continue
+        if str(ent.get("kind") or "").strip().lower() != "entity":
+            continue
+        raw_name = str(ent.get("name") or "")
+        display = _catalog_data_product_artifact_name(raw_name)
+        key = display.lower()
+        if not display or key in seen:
+            continue
+        seen.add(key)
+        entities.append({"name": raw_name, "display": display})
+    if not entities:
+        return ""
+
+    if show_lineage and getattr(product, "lineage_nodes", None):
+        published_by_display = {ent["display"].lower(): idx for idx, ent in enumerate(entities)}
+        published_node_names: list[str] = []
+        lineage_nodes = []
+        extra_index = len(entities)
+        used_names: set[str] = set()
+
+        def _layer(node: dict, is_product: bool = False) -> int:
+            if is_product:
+                return 5
+            if node.get("runtime") == "object_store":
+                return 4
+            if node.get("remote_entity"):
+                return 1
+            raw = (str(node.get("display") or node.get("technical_name") or node.get("name") or "")).upper()
+            if raw.startswith(("0", "1", "SAPI", "ABAP")):
+                return 1
+            if raw.startswith("2"):
+                return 2
+            if raw.startswith("3"):
+                return 3
+            return 3
+
+        for raw_node in getattr(product, "lineage_nodes", []) or []:
+            if not isinstance(raw_node, dict):
+                continue
+            name = str(raw_node.get("name") or "").strip()
+            display = str(raw_node.get("display") or _catalog_data_product_artifact_name(name)).strip()
+            if not name or name in used_names:
+                continue
+            used_names.add(name)
+            disp_key = display.lower()
+            runtime = str(raw_node.get("runtime") or "")
+            is_pub = bool(raw_node.get("published")) or disp_key in published_by_display
+            if is_pub:
+                idx = published_by_display.get(disp_key, len(published_node_names))
+                num = idx + 2
+                slug = _catalog_data_product_section_slug(display, idx)
+                if runtime == "object_store":
+                    published_node_names.append(name)
+            else:
+                extra_index += 1
+                num = extra_index + 1
+                slug = str(raw_node.get("slug") or slugify(f"{raw_node.get('kind_label') or raw_node.get('role') or 'Artefacto'} · {display}"))
+            title_parts = [str(raw_node.get("label") or raw_node.get("kind_label") or display)]
+            if runtime:
+                title_parts.append("Object Store" if runtime == "object_store" else "HANA")
+            if raw_node.get("delta_capable"):
+                title_parts.append("delta capable")
+            lineage_nodes.append({
+                "name": name,
+                "label": display,
+                "title": " · ".join([p for p in title_parts if p]),
+                "layer": _layer(raw_node),
+                "upstreams": [str(x) for x in raw_node.get("upstreams") or []],
+                "assoc_upstreams": [str(x) for x in raw_node.get("assoc_upstreams") or []],
+                "slug": slug,
+                "num": num,
+                "is_factcube": False,
+                "runtime": runtime,
+                "subtext": "delta capable" if raw_node.get("delta_capable") else "",
+            })
+        if lineage_nodes:
+            product_label = getattr(product, "business_name", "") or getattr(product, "title", "") or getattr(product, "product_id", "")
+            root_name = "__data_product__"
+            lineage_nodes.append({
+                "name": root_name,
+                "label": str(product_label),
+                "title": str(product_label),
+                "layer": 5,
+                "upstreams": published_node_names,
+                "assoc_upstreams": [],
+                "slug": "resumen",
+                "num": 1,
+                "is_factcube": False,
+                "runtime": "object_store",
+                "subtext": "Data Product",
+            })
+            return _catalog_lineage_svg(lineage_nodes, True, {n["name"] for n in lineage_nodes})
+
+    def esc(value: str) -> str:
+        return html.escape(str(value or ""), quote=True)
+
+    H, VGAP, HEAD = 42, 14, 28
+    left_x, right_x = 22, 360
+    left_w, right_w = 300, 250
+    rows = max(1, len(entities))
+    height = HEAD + rows * (H + VGAP) - VGAP + 8
+    width = right_x + right_w + 24
+    product_y = HEAD + max(0, (rows - 1) * (H + VGAP) / 2)
+    product_label = getattr(product, "business_name", "") or getattr(product, "title", "") or getattr(product, "product_id", "")
+    p = [
+        f'<div class="catalog-lineage__scroll"><svg class="lineage-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" aria-label="Linaje del Data Product">',
+        '<defs><marker id="dp-ln-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker></defs>',
+        '<text x="22" y="12" class="ln-col-label">ENTIDADES PUBLICADAS</text>',
+        '<text x="360" y="12" class="ln-col-label">DATA PRODUCT</text>',
+    ]
+    for i, ent in enumerate(entities):
+        y = HEAD + i * (H + VGAP)
+        slug = _catalog_data_product_section_slug(ent["display"], i)
+        label = ent["display"]
+        p.append(f'<path d="M{left_x + left_w},{y + H / 2:.1f} C{left_x + left_w + 45},{y + H / 2:.1f} {right_x - 55},{product_y + H / 2:.1f} {right_x - 4},{product_y + H / 2:.1f}" class="ln-edge" marker-end="url(#dp-ln-arrow)"/>')
+        p.append(f'<a href="#{esc(slug)}" class="ln-node-a" data-catalog-anchor="#{esc(slug)}">')
+        p.append(f'<rect x="{left_x}" y="{y}" width="{left_w}" height="{H}" rx="8" class="ln-node"/>')
+        p.append(f'<text x="{left_x + 16}" y="{y + 26}" class="ln-node-text"><tspan class="ln-num">{i + 2:02d}</tspan> {esc(label[:42] + ("..." if len(label) > 42 else ""))}</text>')
+        p.append('</a>')
+    p += [
+        '<a href="#resumen" class="ln-node-a" data-catalog-anchor="#resumen">',
+        f'<rect x="{right_x}" y="{product_y:.1f}" width="{right_w}" height="{H}" rx="8" class="ln-node"/>',
+        f'<text x="{right_x + 16}" y="{product_y + 26:.1f}" class="ln-node-text"><tspan class="ln-num">01</tspan> {esc(product_label[:34] + ("..." if len(product_label) > 34 else ""))}</text>',
+        '</a>',
+        '</svg></div>',
+    ]
+    return "".join(p)
 
 def _catalog_security_entries():
     try:
@@ -2370,7 +2546,7 @@ def _catalog_connection_detail_view(mod, detail: dict, pack: str = ""):
         intro = _catalog_compliance_intro_md(
             verdict,
             _catalog_verdict_text(verdict),
-            f"las conexiones y espacios de {detail.get('cliente') or 'este cliente'} para {detail.get('type_label') or detail.get('type_id') or 'este tipo de conexi?n'}",
+            f"las conexiones y espacios de {detail.get('cliente') or 'este cliente'} para {detail.get('type_label') or detail.get('type_id') or 'este tipo de conexión'}",
         )
         parts.append("## Cumplimiento\n\n" + intro + "\n\n" + compliance_html)
 
@@ -2395,10 +2571,10 @@ def _catalog_connection_detail_view(mod, detail: dict, pack: str = ""):
 
 @app.get("/catalog/connections", response_class=HTMLResponse, include_in_schema=False)
 def catalog_connections(request: Request, type_id: str = "", pack: str = Query(DEFAULT_PACK)):
-    # Cat?logo operativo de arquitectura/conectividad: conexiones agrupadas por cliente
-    # seg?n typeId Datasphere. Determin?stico y sin tokens.
+    # Catálogo operativo de arquitectura/conectividad: conexiones agrupadas por cliente
+    # según typeId Datasphere. Determinístico y sin tokens.
     if not auth_service.session_user(request):
-        raise HTTPException(401, "Sin sesi?n")
+        raise HTTPException(401, "Sin sesión")
     mod, entries = _catalog_architecture_connections()
     hits = mod.connections_for_type(entries, type_id) if (mod and type_id) else []
     groups = mod.connection_client_groups(hits) if mod else []
@@ -2684,7 +2860,7 @@ def catalog_security_detail(
     mod, entries = _catalog_security_entries()
     entry = mod.find_security_entry(entries, cliente, criterio, dac) if mod else None
     if entry is None:
-        raise HTTPException(404, "Detalle de seguridad no encontrado en el cat?logo")
+        raise HTTPException(404, "Detalle de seguridad no encontrado en el catálogo")
     from webapp.services.content_service import render_sections
     is_roles = getattr(entry, "family", "") == "roles"
     show_lineage = bool(lineage) and not is_roles
@@ -2702,7 +2878,7 @@ def catalog_security_detail(
             "lineage_svg": lineage_svg,
             "show_lineage": show_lineage,
             "catalog_kind": "security",
-            "catalog_ref": f"{entry.cliente} ? {entry.criterio}",
+            "catalog_ref": f"{entry.cliente} · {entry.criterio}",
         },
     )
 
@@ -2879,7 +3055,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
     for n in shown:
         by_col[maxlevel - tosink_cache[n["name"]]].append(n)   # columna = distancia al sink invertida
     cols = sorted(by_col)
-    H, VGAP, COLGAP, HEAD = 40, 16, 44, 6
+    H, VGAP, COLGAP, HEAD = (46 if any(n.get("subtext") for n in shown) else 40), 16, 44, 6
     # Ancho POR CONTENIDO: cada caja se ajusta a su texto (no ancho fijo), para no
     # desperdiciar espacio; el ancho de columna = el del nodo más ancho de la columna.
     NUM_W, CHAR, PAD_R, WMIN, WMAX = 30, 6.3, 14, 92, 260
@@ -2902,25 +3078,102 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
         col_x[d] = acc
         acc += col_width[d] + COLGAP
     pos, max_rows = {}, 0
-    for d in cols:
-        for r, n in enumerate(by_col[d]):
-            pos[n["name"]] = (col_x[d], HEAD + r * (H + VGAP))
-        max_rows = max(max_rows, len(by_col[d]))
-    width = (acc - COLGAP) if cols else 0
-    height = HEAD + max_rows * (H + VGAP) - VGAP + 4
+    is_data_product_lineage = any(str(n.get("runtime") or "") == "object_store" for n in shown) and any(str(n.get("subtext") or "") == "Data Product" for n in shown)
+    if is_data_product_lineage:
+        hana_cols = [d for d in cols if any(str(n.get("runtime") or "") == "hana" for n in by_col[d])]
+        object_cols = [d for d in cols if any(str(n.get("runtime") or "") != "hana" for n in by_col[d])]
+
+        def _band_x(band_cols: list[int]) -> dict[int, int]:
+            out: dict[int, int] = {}
+            band_acc = 0
+            for d in band_cols:
+                out[d] = band_acc
+                band_acc += col_width[d] + COLGAP
+            return out
+
+        hana_x = _band_x(hana_cols)
+        object_x = _band_x(object_cols)
+        band_pad_x = 16
+        band_label_h = 26
+        hana_rows = 0
+        object_rows = 0
+        for d in hana_cols:
+            hana_idx = 0
+            for n in by_col[d]:
+                if str(n.get("runtime") or "") == "hana":
+                    pos[n["name"]] = (band_pad_x + hana_x[d], band_label_h + hana_idx * (H + VGAP))
+                    hana_idx += 1
+            hana_rows = max(hana_rows, hana_idx)
+
+        hana_height = band_label_h + max(1, hana_rows) * (H + VGAP) - VGAP + 18
+        object_top = hana_height + 22
+        for d in object_cols:
+            object_idx = 0
+            for n in by_col[d]:
+                if str(n.get("runtime") or "") != "hana":
+                    pos[n["name"]] = (band_pad_x + object_x[d], object_top + band_label_h + object_idx * (H + VGAP))
+                    object_idx += 1
+            object_rows = max(object_rows, object_idx)
+
+        hana_width = max((hana_x[d] + col_width[d] for d in hana_cols), default=0)
+        object_width = max((object_x[d] + col_width[d] for d in object_cols), default=0)
+        max_rows = max(hana_rows, object_rows)
+        width = max(hana_width, object_width) + band_pad_x * 2
+        height = object_top + band_label_h + max(1, object_rows) * (H + VGAP) - VGAP + 18
+    else:
+        for d in cols:
+            for r, n in enumerate(by_col[d]):
+                pos[n["name"]] = (col_x[d], HEAD + r * (H + VGAP))
+            max_rows = max(max_rows, len(by_col[d]))
+        width = (acc - COLGAP) if cols else 0
+        height = HEAD + max_rows * (H + VGAP) - VGAP + 4
     p = [f'<svg class="lineage-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
          f'role="img" aria-label="Diagrama de trazabilidad del flujo">',
          '<defs><marker id="ln-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">'
          '<path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker></defs>']
 
+    runtime_labels = {"hana": "HANA Space", "object_store": "HDLF Object Store", "data_product": "Data Product"}
+    runtime_groups = defaultdict(list)
+    for n in shown:
+        runtime = str(n.get("runtime") or "").strip()
+        if runtime:
+            runtime_groups[runtime].append(n)
+    for runtime, items in runtime_groups.items():
+        xs = [pos[n["name"]][0] for n in items if n["name"] in pos]
+        ys = [pos[n["name"]][1] for n in items if n["name"] in pos]
+        if not xs or not ys:
+            continue
+        x0 = max(0, min(xs) - 12)
+        y0 = max(0, min(ys) - 18)
+        x1 = max(pos[n["name"]][0] + node_w[n["name"]] for n in items if n["name"] in pos) + 12
+        y1 = max(pos[n["name"]][1] + H for n in items if n["name"] in pos) + 12
+        p.append(f'<rect class="ln-runtime-box ln-runtime-box--{html.escape(runtime)}" x="{x0:.0f}" y="{y0:.0f}" width="{x1-x0:.0f}" height="{y1-y0:.0f}" rx="10"/>')
+        p.append(f'<text class="ln-runtime-label" x="{x0+10:.0f}" y="{y0+12:.0f}">{html.escape(runtime_labels.get(runtime, runtime))}</text>')
+
+    runtime_by_name = {n["name"]: str(n.get("runtime") or "") for n in shown}
+    lineage_key_by_name = {n["name"]: slugify(str(n.get("label") or n.get("title") or n.get("name") or "")) for n in shown}
+    lineage_key_counts = defaultdict(int)
+    for _key in lineage_key_by_name.values():
+        if _key:
+            lineage_key_counts[_key] += 1
+    duplicate_lineage_keys = {k for k, v in lineage_key_counts.items() if v > 1}
+    if duplicate_lineage_keys:
+        p.append("<style>" + "".join(
+            f'.lineage-svg:has(.ln-k-{html.escape(k)}:hover) .ln-k-{html.escape(k)} .ln-node{{stroke:var(--gold);stroke-width:1.8;}}'
+            for k in sorted(duplicate_lineage_keys)
+        ) + "</style>")
+
     def _edge(up, tgt, cls):
         if up not in pos or tgt not in pos:
             return
+        edge_cls = cls
+        if is_data_product_lineage and runtime_by_name.get(up) == "hana" and runtime_by_name.get(tgt) == "object_store" and "ln-edge--assoc" not in cls:
+            edge_cls = cls + " ln-edge--hana"
         x1, y1 = pos[up]
         x2, y2 = pos[tgt]
         sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
         dx = max(24, abs(tx - sx) / 2)
-        p.append(f'<path class="{cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
+        p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
                  f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
 
     for up, tgt in direct_edges:
@@ -2931,11 +3184,16 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
     for n in shown:
         x, y = pos[n["name"]]
         w, short = node_w[n["name"]], node_disp[n["name"]]
+        subtext = str(n.get("subtext") or "").strip()
+        main_y = y + 18 if subtext else y + H / 2 + 4
+        sub_html = (f'<text class="ln-node-subtext" x="{x+32}" y="{y+32:.0f}">{html.escape(subtext)}</text>' if subtext else '')
+        lineage_key = lineage_key_by_name.get(n["name"], "")
+        lineage_key_class = f" ln-k-{lineage_key}" if lineage_key in duplicate_lineage_keys else ""
         p.append(
-            f'<a href="#{n["slug"]}" class="ln-node-a"><title>{html.escape(n["title"])}</title>'
+            f'<a href="#{n["slug"]}" class="ln-node-a{lineage_key_class}"><title>{html.escape(n["title"])}</title>'
             f'<rect class="ln-node ln-layer-{n["layer"]}" x="{x}" y="{y}" width="{w}" height="{H}" rx="8"/>'
-            f'<text class="ln-num" x="{x+11}" y="{y+H/2+4:.0f}">{n["num"]:02d}</text>'
-            f'<text class="ln-node-text" x="{x+32}" y="{y+H/2+4:.0f}">{html.escape(short)}</text></a>')
+            f'<text class="ln-num" x="{x+11}" y="{main_y:.0f}">{n["num"]:02d}</text>'
+            f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(short)}</text>{sub_html}</a>')
     p.append("</svg>")
     return '<div class="catalog-lineage__scroll">' + "".join(p) + "</div>"
 
@@ -3260,6 +3518,48 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
             "catalog_kind": "domain",
             "catalog_ref": f"{entry.cliente} · {entry.dominio}",
             **lineage_ctx,
+        },
+    )
+
+
+@app.get("/catalog/data-product", response_class=HTMLResponse, include_in_schema=False)
+def catalog_data_product(request: Request, product_id: str = "", pack: str = Query(DEFAULT_PACK), lineage: int = 0):
+    """Detalle central de un Data Product del catálogo BDC."""
+    user = auth_service.session_user(request)
+    if not user:
+        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    mod, entries = _catalog_data_products_entries()
+    entry = mod.find_data_product(entries, product_id) if mod else None
+    if entry is None:
+        raise HTTPException(404, "Data Product no encontrado en el catálogo")
+    from webapp.services.content_service import render_sections
+    sections = render_sections(entry.body, pack_name="", stem="", base=0)
+    show_lineage = bool(lineage)
+    lineage_svg = _catalog_data_product_lineage_svg(entry, show_lineage)
+    ctx = {
+        "product": entry,
+        "sections": sections,
+        "lineage_svg": lineage_svg,
+        "show_lineage": show_lineage,
+        "pack": selected,
+        "catalog_kind": "data_product",
+        "catalog_ref": entry.product_id,
+    }
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request=request, name="partials/catalog_data_product_content.html", context=ctx)
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    return templates.TemplateResponse(
+        request=request, name="catalog_data_product.html",
+        context={
+            "modules": list_modules(selected),
+            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+            "academy": academy,
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+            "active_group": "", "active_stem": "",
+            "readonly": _readonly(request),
+            "pack_label": content_pack_short_label(selected), "user": user,
+            **ctx,
         },
     )
 

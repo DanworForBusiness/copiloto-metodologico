@@ -1,4 +1,4 @@
-{# Pestaña "Catálogo". En módulo 01 muestra arquitectura/conectividad por
+﻿{# Pestaña "Catálogo". En módulo 01 muestra arquitectura/conectividad por
    typeId de conexión; en el resto conserva el catálogo de flujos por dominio. #}
 {% set module_number = document.summary.number|string %}
 {% set is_architecture_catalog = module_number == "01" or document.summary.stem.startswith("01_") %}
@@ -40,26 +40,92 @@
 </div>
 <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo podés publicarlo →</a></p>
 {% else %}
-<div class="tree-picker">
-  <label for="catalog-dominio">Dominio</label>
-  <div class="tree-picker-row">
-    <select id="catalog-dominio" name="dominio"
-            hx-get="/catalog/domain?modulo={{ document.summary.number }}&pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
-      <option value="">Elegí un dominio...</option>
-      {% for d in catalog_domains %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-    </select>
+<div x-data="{ catalogKind: '' }">
+  <div class="tree-picker catalog-picker--kind">
+    <label for="catalog-kind">Catálogo de datos</label>
+    <div class="tree-picker-row">
+      <select id="catalog-kind" x-model="catalogKind">
+        <option value="">Elegí un catálogo...</option>
+        <option value="domains">Dominios</option>
+        <option value="data_products">Data Products</option>
+      </select>
+    </div>
   </div>
-</div>
-<div id="catalog-flows" class="catalog-flows">
-  <div class="tool-empty">
-    <span>{{ catalog_domains|length }} {{ "dominio disponible" if catalog_domains|length == 1 else "dominios disponibles" }}</span>
-    <p>Elegí el dominio que mejor represente el flujo que necesitás resolver.</p>
+
+  <div x-show="!catalogKind" x-cloak id="catalog-flows-empty" class="catalog-flows">
+    <div class="tool-empty">
+      <span>2 catálogos disponibles</span>
+      <p>Elegí si querés explorar dominios implementados en Datasphere o Data Products publicados bajo el marco BDC.</p>
+    </div>
   </div>
+
+  <div x-show="catalogKind === 'domains'" x-cloak>
+    <div class="tree-picker catalog-picker--secondary">
+      <label for="catalog-dominio">Dominio</label>
+      <div class="tree-picker-row">
+        <select id="catalog-dominio" name="dominio"
+                hx-get="/catalog/domain?modulo={{ document.summary.number }}&pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
+          <option value="">Elegí un dominio...</option>
+          {% for d in catalog_domains %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div id="catalog-flows" class="catalog-flows">
+      <div class="tool-empty">
+        <span>{{ catalog_domains|length }} {{ "dominio disponible" if catalog_domains|length == 1 else "dominios disponibles" }}</span>
+        <p>Elegí el dominio que mejor represente el flujo que necesitás resolver.</p>
+      </div>
+    </div>
+  </div>
+
+  <div x-show="catalogKind === 'data_products'" x-cloak class="catalog-flows">
+    {% if catalog_data_products %}
+    <ul class="catalog-flows-list">
+      {% for dp in catalog_data_products %}
+      <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_class }}"
+          role="link" tabindex="0" title="Ver detalle del Data Product"
+          hx-get="/catalog/data-product?product_id={{ dp.product_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
+          hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+        <p class="catalog-card__head">
+          <span class="catalog-meta-dot catalog-meta-dot--{{ dp.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+          <strong>{{ dp.business_name or dp.title }}</strong>
+          <span class="catalog-card__verdict catalog-card__verdict--{{ dp.veredicto|catalog_verdict_class }}">{{ dp.veredicto|catalog_verdict_label }}</span>
+        </p>
+        <p class="catalog-card__apto">{{ dp.apto }}</p>
+        <p class="catalog-card__meta">{{ dp.product_id }} · {{ dp.artifact_names|length }} entidad{{ "es" if dp.artifact_names|length != 1 else "" }}</p>
+        <details class="catalog-card__notes" onclick="event.stopPropagation()" onkeyup="event.stopPropagation()">
+          <summary>VER DETALLES</summary>
+          <ul>
+            <li><strong>Categoría:</strong> {{ dp.data_categories|join(', ') if dp.data_categories else '-' }}</li>
+            <li><strong>Industria:</strong> {{ dp.industries|join(', ') if dp.industries else '-' }}</li>
+            <li><strong>Delivery Mode:</strong> {{ dp.delivery_mode or '-' }}</li>
+          </ul>
+        </details>
+        <details class="catalog-card__notes" onclick="event.stopPropagation()" onkeyup="event.stopPropagation()">
+          <summary>VER ARTEFACTOS</summary>
+          {% if dp.artifact_names %}
+          <ul>
+            {% for artifact in dp.artifact_names %}<li>{{ artifact }}</li>{% endfor %}
+          </ul>
+          {% else %}
+          <p>No se detectaron artefactos publicados.</p>
+          {% endif %}
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="tool-empty">
+      <span>Data Products</span>
+      <p>No se detectaron Data Products generados todavía. Regenerá el catálogo cuando existan carpetas bajo Data Products.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if module_number == "03" or module_number == "04" %}
+  <p class="tool-suggest__link" x-show="!catalogKind" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Catálogo de Datos?</strong> Cómo podés publicarlo →</a></p>
+  <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
+  <p class="tool-suggest__link" x-show="catalogKind === 'data_products'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Data Product?</strong> Cómo podés publicarlo →</a></p>
+  {% endif %}
 </div>
-{# El instructivo "Cómo publicar" cubre HOY solo dominios/flujos, así que el link
-   se ofrece únicamente en el módulo 04 (catálogo de dominios). Arquitectura (01)
-   y Seguridad (02) tienen procedimientos distintos, pendientes de armar. #}
-{% if module_number == "03" or module_number == "04" %}
-<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
-{% endif %}
 {% endif %}

@@ -309,9 +309,11 @@ def run_catalog_generation(graph_token: str = "") -> str:
         import generate_catalog as gen
         import generate_space_catalog as space_gen
         import generate_security_catalog as security_gen
+        import generate_data_products_catalog as data_products_gen
         gen = importlib.reload(gen)
         space_gen = importlib.reload(space_gen)
         security_gen = importlib.reload(security_gen)
+        data_products_gen = importlib.reload(data_products_gen)
 
         def _run_generators(src_dir: str) -> str:
             parts = [gen.generate_all(src_dir, out)]
@@ -323,6 +325,10 @@ def run_catalog_generation(graph_token: str = "") -> str:
                 parts.append(security_gen.generate_all(src_dir, out))
             except Exception as security_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
                 parts.append(f"[WARN] Catálogo de seguridad/DAC no generado: {type(security_exc).__name__}: {security_exc}")
+            try:
+                parts.append(data_products_gen.generate_all(src_dir, out))
+            except Exception as dp_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                parts.append(f"[WARN] Catálogo de Data Products no generado: {type(dp_exc).__name__}: {dp_exc}")
             # Reconciliación diagnóstico ⇄ automatización AUTOMÁTICA tras regenerar: el
             # criterio se re-espeja solo (ya no es un botón manual). Marca fuerte si hay
             # divergencia auto↔senior. Nunca bloquea la regeneración.
@@ -352,7 +358,7 @@ def run_catalog_generation(graph_token: str = "") -> str:
         inbound = os.getenv("DANWOR_CATALOG_INBOUND_DIR", "").strip() or str(BASE_DIR / "catalog_inbound")
         return _run_generators(inbound)
     except Exception as exc:  # noqa: BLE001 — se reporta al panel
-        return f"[ERROR] {type(exc).__name__}: {exc}"
+        return f"[ERROR] {type(exc).__name__}: {exc}\n" + traceback.format_exc(limit=8)
 
 
 # =========================================================

@@ -135,7 +135,51 @@ class CatalogSecurityEntry:
         return _VERDICT_ICON.get(self.veredicto, "?")
 
 
-_RESERVED_DOMAIN_NAMES = {"apis", "cds", "espacios", "conexiones", "seguridad"}
+@dataclass
+class CatalogDataProductEntry:
+    path: str
+    product_id: str
+    title: str
+    business_name: str = ""
+    data_categories: list[str] = field(default_factory=list)
+    industries: list[str] = field(default_factory=list)
+    delivery_mode: str = ""
+    veredicto: str = "plena"
+    apto: str = "Referencia Danwor — reutilizable"
+    entities: list[dict] = field(default_factory=list)
+    fields: list[dict] = field(default_factory=list)
+    lineage_nodes: list[dict] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+    body: str = ""
+    _search: str = ""
+
+    @property
+    def icon(self) -> str:
+        return _VERDICT_ICON.get(self.veredicto, "?")
+
+    @property
+    def artifact_names(self) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for ent in self.entities:
+            if not isinstance(ent, dict):
+                continue
+            if str(ent.get("kind") or "").strip().lower() != "entity":
+                continue
+            name = str(ent.get("name") or "").strip()
+            if not name:
+                continue
+            tail = name.split(":", 1)[1] if ":" in name else name
+            label = tail.split(".", 1)[1] if "." in tail else tail
+            label = label.strip()
+            key = label.lower()
+            if label and key not in seen:
+                seen.add(key)
+                out.append(label)
+        return out
+
+
+_RESERVED_DOMAIN_NAMES = {"apis", "cds", "espacios", "conexiones", "seguridad", "data_products", "data products"}
 
 
 def _is_reserved_domain(value: str) -> bool:
@@ -743,8 +787,8 @@ def security_families(entries: list[CatalogSecurityEntry]) -> list[dict[str, str
     """Opciones funcionales del selector de Seguridad.
 
     El dropdown no representa criterios t?cnicos generados sino familias de
-    cat?logo. Se mantiene fijo para que la UX sea estable: Roles primero, Datos
-    despu?s. Cada familia mostrar? las tiles disponibles, o vac?o si todav?a no
+    catálogo. Se mantiene fijo para que la UX sea estable: Roles primero, Datos
+    despu?s. Cada familia mostrar? las tiles disponibles, o vac?o si todavía no
     fue regenerada.
     """
     return [
@@ -782,6 +826,65 @@ def find_security_entry(entries: list[CatalogSecurityEntry], cliente: str, crite
             if not d or entry.dac.strip().lower() == d:
                 return entry
     return None
+
+
+def _parse_data_product_md(path: Path) -> CatalogDataProductEntry | None:
+    fm, body = _frontmatter_and_body(path.read_text(encoding="utf-8", errors="ignore"))
+    if not fm:
+        return None
+    auto = fm.get("auto") or {}
+    manual = fm.get("manual") or {}
+    if auto.get("tipo") != "data_product":
+        return None
+    veredicto = str(manual.get("veredicto") or auto.get("veredicto") or "plena").strip().lower()
+    apto = str(manual.get("apto") or auto.get("apto") or "Referencia Danwor — reutilizable")
+    title = str(manual.get("titulo") or auto.get("titulo") or auto.get("product_id") or path.stem)
+    business_name = str(manual.get("business_name") or auto.get("business_name") or title)
+    entry = CatalogDataProductEntry(
+        path=str(path),
+        product_id=str(auto.get("product_id") or path.stem),
+        title=title,
+        business_name=business_name,
+        data_categories=list(manual.get("data_categories") or auto.get("data_categories") or []),
+        industries=list(manual.get("industries") or auto.get("industries") or []),
+        delivery_mode=str(manual.get("delivery_mode") or auto.get("delivery_mode") or ""),
+        veredicto=veredicto,
+        apto=apto,
+        entities=list(auto.get("entidades") or []),
+        fields=list(auto.get("campos") or []),
+        lineage_nodes=list(auto.get("lineage_nodes") or []),
+        files=list(auto.get("archivos") or []),
+        body=body,
+    )
+    entry._search = " ".join([
+        entry.product_id,
+        entry.title,
+        entry.business_name,
+        " ".join(entry.data_categories),
+        " ".join(entry.industries),
+        entry.delivery_mode,
+        " ".join(str(e.get("name", "")) + " " + str(e.get("label", "")) for e in entry.entities if isinstance(e, dict)),
+        " ".join(str(n.get("name", "")) + " " + str(n.get("display", "")) + " " + str(n.get("label", "")) for n in entry.lineage_nodes if isinstance(n, dict)),
+        " ".join(str(f.get("name", "")) + " " + str(f.get("label", "")) for f in entry.fields if isinstance(f, dict)),
+    ])
+    return entry
+
+
+def load_data_products(root: str | Path) -> list[CatalogDataProductEntry]:
+    base = Path(root) / "data_products"
+    if not base.is_dir():
+        return []
+    entries: list[CatalogDataProductEntry] = []
+    for path in sorted(base.glob("*.md")):
+        entry = _parse_data_product_md(path)
+        if entry:
+            entries.append(entry)
+    return sorted(entries, key=lambda e: e.title.lower())
+
+
+def find_data_product(entries: list[CatalogDataProductEntry], product_id: str) -> CatalogDataProductEntry | None:
+    wanted = (product_id or "").strip().lower()
+    return next((e for e in entries if e.product_id.lower() == wanted), None)
 
 
 def load_catalog(root: str | Path) -> list[CatalogEntry]:

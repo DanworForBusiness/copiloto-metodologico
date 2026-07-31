@@ -66,6 +66,7 @@ steps:
       - "revalidá tipeando `datasphere config host show`"
     shots:
       - img: "02-config-host.png"
+        caption: En este ejemplo, el cliente no dispone de hostname custom, por lo que la URL resuelve el CUID de aprovisionamiento del tenant.
 
   - title: "Conectáte al <em>Cliente OAuth</em>"
     short: "Conectáte"
@@ -80,21 +81,22 @@ steps:
       --host 'https://<hostname>.<dc>.hcs.cloud.sap/'
     shots:
       - img: "03a-login.png"
-        caption: "El script abrirá una pestaña en tu navegador."
+        caption: "El script abrirá una pestaña en tu navegador ↓"
       - img: "03b-login.png"
-        caption: "Una vez autenticado, podés cerrar la pestaña y volver a la terminal."        
+        caption: "← Ya autenticado, podés cerrar la pestaña y volver a la terminal."        
 
-  - title: "Descarga la <em>Metadata</em>"
+  - title: "Descargá la <em>Metadata</em>"
     short: "Descargá"
     body: >-
       Ejecutá el comando `datasphere spaces connections list --space <SPACE_ID> --output .\conn_space_<SPACE_ID>.json`
       para obtener todas las conexiones disponibles a nivel espacio. Luego, seguí con este proceso iterativo:
     substeps:
       - 'Abrí el archivo generado, obtené la primera conexión'
-      - 'Usá name en el comando `datasphere spaces connections get --space <SPACE_ID> --name <NAME> --output .\conn_space_<SPACE_ID>`'
+      - 'Usá name en el comando `datasphere spaces connections get --space <SPACE_ID> --name <NAME> --output .\conn_space_<SPACE_ID>_<NAME>.json`'
       - Repetí el proceso para cada conexión, generando un archivo JSON por cada una.
     shots:
       - img: "04b-conn-properties.png"
+        caption: "Los comandos se apoyan en nuestra convencion de nombres"
 
   - title: "Validá los <em>Archivos</em>"
     short: "Validá"
@@ -116,6 +118,7 @@ steps:
       label: "Abrir la carpeta CSN en SharePoint"
     shots:
       - img: "07-sharepoint.png"
+        caption: En el directorio del cliente, creá la subcarpeta "Conexiones" y agregá los archivos JSON generados en el paso anterior.
 
   - title: "Regenerá el <em>catálogo</em>"
     short: "Regenerá"
@@ -127,7 +130,7 @@ steps:
     shots:
       - img: "08-regenerar.png"
 
-  - title: "Todo <em>Listo!</em>"
+  - title: "Todo <em>Listo!</em>🚀"
     short: "Listo"
     body: >-
       Si todo salió bien, deberías ver los nuevos orígenes en la tab "Catálogo" del módulo, con diagrama de arquitectura y conectividad — navegable como cualquier contenido.

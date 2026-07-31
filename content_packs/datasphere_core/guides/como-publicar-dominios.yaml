@@ -95,7 +95,7 @@ steps:
     shots:
       - img: "04-regenerar.png"
 
-  - title: "Todo <em>Listo!</em>"
+  - title: "Todo <em>Listo!</em>🚀"
     short: "Listo"
     body: >-
       Si todo salió bien, deberías ver el nuevo dominio en la tab "Catálogo" del módulo, con diagrama de linaje, campos

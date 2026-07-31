@@ -173,6 +173,7 @@ class AssistantChatService:
         pack_name: str,
         history: tuple[tuple[str, str], ...],
         context: str | None = None,
+        directive: str = "",
     ) -> tuple[str, str]:
         question = (question or "").strip()
         if not question:
@@ -200,9 +201,17 @@ class AssistantChatService:
             f"{'Usuario' if role == 'user' else 'Arquitecto Danwor'}: {text}"
             for role, text in history
         )
-        catalog_block = _catalog_grounding(question)
+        directive = (directive or "").strip()
+        # Con directiva (p. ej. "Explicame vos" tras un lead de catálogo) NO inyectamos el
+        # grounding del inventario: el usuario ya vio esa respuesta y ahora pidió mirada
+        # general. El grounding volvería a anclar el "no tenemos" y el LLM lo parrotearía.
+        catalog_block = "" if directive else _catalog_grounding(question)
+        directive_block = (
+            f"DIRECTIVA (prioritaria)\n{'-' * 40}\n{directive}\n\n" if directive else ""
+        )
         user_prompt = (
-            (f"{catalog_block}\n\n" if catalog_block else "")
+            directive_block
+            + (f"{catalog_block}\n\n" if catalog_block else "")
             + f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
             f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
             f"NUEVA CONSULTA\n{'-' * 40}\n{question}\n\n"

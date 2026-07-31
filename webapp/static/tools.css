@@ -26,6 +26,7 @@
 .tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
 .tool-primary { width: 100%; margin-top: 14px; }
 .tree-picker { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.catalog-picker--secondary { margin-top: 20px; }
 .tree-picker label { margin-top: 0; }
 .tree-picker-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .tree-picker-row .btn-primary { min-height: 42px; }
@@ -736,6 +737,12 @@
 .content-theme-dark .ln-node { fill: #181819; stroke: #2c2c30; }
 .ln-node-a { cursor: pointer; }
 .ln-node-a:hover .ln-node { stroke: var(--gold); stroke-width: 1.5; }
+.ln-node-subtext { font: 600 .56rem var(--mono); letter-spacing: .06em; fill: var(--soft); opacity: .78; text-transform: uppercase; }
+.ln-runtime-box { fill: rgba(128,128,128,.035); stroke: rgba(128,128,128,.18); stroke-width: 1; }
+.ln-runtime-box--hana { fill: rgba(234,179,8,.045); stroke: rgba(234,179,8,.22); }
+.ln-runtime-box--object_store { fill: rgba(31,157,99,.045); stroke: rgba(31,157,99,.22); }
+.ln-runtime-box--data_product { fill: rgba(47,111,237,.04); stroke: rgba(47,111,237,.18); }
+.ln-runtime-label { font: 700 .58rem var(--mono); letter-spacing: .13em; text-transform: uppercase; fill: var(--gold); }
 
 /* SVG de cobertura de roles (Seguridad de Roles). HERMANO de los otros SVG: los
    nodos reusan .ln-node / .ln-node-text / .ln-node-subtext / hover de .ln-node-a
@@ -1127,3 +1134,5 @@
 .content-theme-dark .catalog-card__open { background: #181819; }
 .ln-node-subtext { font: 500 9px system-ui, sans-serif; fill: var(--soft); }
 .catalog-security-lineage .security-dac-node { stroke: var(--gold); }
+
+.ln-edge--hana { stroke-dasharray: 5 5; opacity: .58; }
