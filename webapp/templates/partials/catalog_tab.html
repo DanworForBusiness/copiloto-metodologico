@@ -1,4 +1,4 @@
-﻿{# Pestaña "Catálogo". En módulo 01 muestra arquitectura/conectividad por
+{# Pestaña "Catálogo". En módulo 01 muestra arquitectura/conectividad por
    typeId de conexión; en el resto conserva el catálogo de flujos por dominio. #}
 {% set module_number = document.summary.number|string %}
 {% set is_architecture_catalog = module_number == "01" or document.summary.stem.startswith("01_") %}
