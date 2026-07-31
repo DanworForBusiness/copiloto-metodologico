@@ -17,6 +17,13 @@
 #
 # La fuente automática (commits) usa los trailers `Categoria:` y `Link:` para lo mismo.
 
+- ref: data-products-bdc
+  fecha: "2026-07-31"
+  titulo: "Catálogo de Data Products (BDC)"
+  categoria: "Gobernanza"
+  detalle: "Sumamos los Data Products publicados bajo SAP Business Data Cloud: entidades publicadas, linaje completo que cruza HANA y HDLF/Object Store, las CDS de extracción que los alimentan (vía Replication Flow) y semáforo de cumplimiento — todo navegable desde la pestaña Catálogo → Catálogo de datos → Data Products."
+  link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo"
+
 - ref: catalogos-danwor
   fecha: "2026-07-25"
   titulo: "Catálogos Danwor"
