@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — Storytelling de IA agéntica: del chatbot al chef personal, adaptado de la guía de Santiago Bilinkis." />
+<title>Danwor — Del chat al chef personal</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') === 'danwor'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+
+<style>
+/* top bar — Danwor branding: igual criterio que paradigmas.html */
+.topbar{display:none; position:fixed; top:0; left:0; right:0; z-index:100; padding:1rem 0; background:var(--bg); border-bottom:1px solid var(--line);}
+html.branding-danwor .topbar{display:block;}
+.topbar-inner{display:flex; align-items:center; justify-content:space-between;}
+.topbar img{height:26px;}
+.topbar-tag{font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; color:var(--ink-dim); text-transform:uppercase;}
+
+/* section shell (idéntico a paradigmas.html: componentes locales de la landing) */
+.stop{position:relative; padding:clamp(5rem,10vw,8rem) 0; border-bottom:1px solid var(--line);}
+.stop:last-of-type{border-bottom:none;}
+.kicker{display:inline-flex; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin-bottom:1.1rem;}
+.stop-title{font-size:clamp(1.9rem,3.2vw,2.9rem); font-weight:800; line-height:1.12; letter-spacing:-.01em; max-width:16ch; margin-bottom:1.4rem;}
+.stop-title em{font-style:normal; color:var(--gold);}
+.stop-grid{display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(1.5rem,4vw,3.5rem); align-items:stretch;}
+@media (max-width:880px){ .stop-grid{grid-template-columns:1fr;} }
+
+.analogy{display:flex; flex-direction:column;}
+.analogy p{font-size:clamp(1.02rem,1.1vw,1.18rem); color:var(--ink); max-width:56ch; flex:0 0 auto;}
+.analogy p + p{margin-top:1.25rem;}
+.analogy p:last-of-type{margin-bottom:1.25rem;}
+.analogy .lede{font-size:clamp(1.1rem,1.3vw,1.32rem); color:var(--ink); font-weight:500;}
+
+.spec-card{background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:1.6rem 1.7rem; position:relative; overflow:hidden; display:flex; flex-direction:column;}
+.spec-card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:linear-gradient(180deg,var(--gold-2),var(--gold-glow));}
+.spec-label{font-family:var(--mono); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:.6rem;}
+.spec-name{font-size:1.15rem; font-weight:700; margin-bottom:.7rem;}
+.spec-card ul{list-style:none; display:flex; flex-direction:column; gap:.55rem; margin-bottom:1.25rem; flex:0 0 auto;}
+.spec-card li{font-size:.92rem; color:var(--ink-soft); padding-left:1.1rem; position:relative;}
+.spec-card li::before{content:"→"; position:absolute; left:0; color:var(--gold); font-size:.8rem;}
+.spec-card li strong{color:var(--ink); font-weight:600;}
+.spec-limit{margin-top:0; flex:1 1 auto; padding-top:.9rem; border-top:1px dashed var(--line-2); font-size:.86rem; color:var(--ink-dim);}
+.spec-limit strong{color:var(--ink-soft);}
+
+.stop-quote{margin-top:0; flex:1 1 auto; display:flex; align-items:center; padding:1.1rem 1.4rem; background:var(--gold-dim); border-radius:12px; font-size:.98rem; color:var(--ink); border-left:3px solid var(--gold);}
+.analogy .lede, .analogy p:not(.lede){flex:0 0 auto;}
+
+.stop-num{font-family:var(--mono); font-size:.85rem; color:var(--ink-dim); margin-bottom:.5rem; display:block;}
+
+/* HERO — landing: título/subtítulo más grandes que la variante de subpáginas */
+.hero-title{font-size:clamp(2.4rem,6vw,4.6rem); max-width:22ch;}
+.hero-title .ht-pre{display:block; font-size:.44em; font-weight:600; color:var(--ink-soft); letter-spacing:0; margin-bottom:.45rem;}
+.hero-sub{font-size:clamp(1.05rem,1.4vw,1.3rem); max-width:71ch;}
+
+/* timeline strip */
+.timeline{margin-top:4rem; display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+.timeline a{flex:1 1 auto; min-width:110px; text-align:center; padding:.9rem .6rem; font-family:var(--mono); font-size:.72rem; letter-spacing:.03em; color:var(--ink-dim); border-right:1px solid var(--line); text-decoration:none; transition:color .25s, background .25s;}
+.timeline a:last-child{border-right:none;}
+.timeline a:hover{color:var(--gold); background:var(--gold-dim);}
+
+/* bridge / synthesis section */
+.bridge{min-height:100svh; display:flex; flex-direction:column; justify-content:center; padding:clamp(4.5rem,9vw,7rem) 0; text-align:center; border-bottom:1px solid var(--line); background:var(--bg-2);}
+.bridge h2{font-size:clamp(1.7rem,3vw,2.5rem); font-weight:800; max-width:24ch; margin:0 auto 1.3rem; line-height:1.2;}
+.bridge h2 em{font-style:normal; color:var(--gold);}
+.bridge-grid{display:flex; flex-wrap:wrap; justify-content:center; gap:.9rem; margin:2.2rem auto 1.6rem; max-width:900px;}
+.bridge-chip{font-family:var(--mono); font-size:.82rem; color:var(--ink-soft); border:1px solid var(--line-2); border-radius:999px; padding:.55rem 1.1rem;}
+.bridge-chip strong{color:var(--gold);}
+.bridge p.tail{max-width:56ch; margin:0 auto; color:var(--ink-soft); font-size:1.02rem;}
+
+/* closing finale sections */
+.finale{padding:clamp(5rem,10vw,8rem) 0; border-bottom:1px solid var(--line);}
+.finale:last-of-type{border-bottom:none;}
+.finale-head{margin-bottom:3rem;}
+.finale-title{font-size:clamp(1.9rem,3.4vw,3rem); font-weight:800; line-height:1.15; margin-bottom:1.2rem; max-width:34ch;}
+.finale-title em{font-style:normal; color:var(--gold);}
+.finale-body{font-size:1.08rem; color:var(--ink-soft); max-width:none;}
+.finale-tagline{margin-top:3rem; font-size:clamp(1.15rem,1.8vw,1.5rem); font-style:italic; color:var(--ink); border-left:3px solid var(--gold); padding-left:1.2rem; max-width:56ch;}
+
+/* toca de chef (imagen provista): negra en tema claro, blanca en tema oscuro.
+   Reemplaza solo el dibujo del gorro dentro del SVG original — mismo viewBox,
+   mismo bounding box, nada más cambia. */
+.academy-hat-img--white{display:none;}
+html.branding-danwor:not([data-dw-theme="light"]) .academy-hat-img--black{display:none;}
+html.branding-danwor:not([data-dw-theme="light"]) .academy-hat-img--white{display:block;}
+
+/* ÚNICO punto para ajustar el tamaño del gorro sin tocar el viewBox del SVG:
+   transform-box hace que el "centro" de la escala sea el propio bounding box
+   de la imagen (no la esquina x/y), así crece/achica sin desplazarse. Cambiá
+   solo el número de scale() (1 = tamaño actual, 1.5 = +50%, 2 = +100%, etc.).
+   Ojo: valores muy grandes pueden recortarse contra el borde del SVG. */
+.academy-hat-img{ transform-box: fill-box; transform-origin: 50% 50%; transform: scale(1); }
+
+/* nota de atribución (licencia del material fuente) */
+.attribution{margin-top:2.2rem; padding:1rem 1.3rem; background:var(--bg-card-2); border:1px solid var(--line-2); border-radius:12px; font-size:.86rem; color:var(--ink-dim);}
+.attribution a{color:var(--gold); text-decoration:none;}
+.attribution a:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" />
+    <span class="topbar-tag">Danwor Transversal · IA Fundamentals</span>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Recorrido">
+  <a href="#hero" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#agente" data-label="Agente"><span>Chatbot vs Agente</span></a>
+  <a href="#libreta" data-label="Libreta"><span>La Libreta</span></a>
+  <a href="#contexto" data-label="Contexto"><span>El Contexto</span></a>
+  <a href="#portatil" data-label="Portátil"><span>Es Portátil</span></a>
+  <a href="#piensa" data-label="Piensa"><span>Cómo Piensa</span></a>
+  <a href="#bridge" data-label="Síntesis"><span>Síntesis</span></a>
+  <a href="#profundizar" data-label="Profundizar"><span>Seguí Profundizando</span></a>
+  <a href="#roles" data-label="Roles"><span>Roles del proyecto</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="hero">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <div class="hero-merge">
+        <div class="section-art reveal in">
+          <svg viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="De la pregunta al plato servido">
+            <rect x="76" y="34" width="148" height="92" rx="26" fill="var(--ink-dim)"/>
+            <path d="M118 122 l14 26 14 -26 Z" fill="var(--ink-dim)"/>
+            <circle cx="122" cy="80" r="9" fill="var(--gold)"/>
+            <circle cx="150" cy="80" r="9" fill="var(--gold)"/>
+            <circle cx="178" cy="80" r="9" fill="var(--gold)"/>
+            <path d="M150 158 v26" stroke="var(--ink-dim)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M138 176 l12 14 12 -14" stroke="var(--ink-dim)" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <g transform="translate(150 249) scale(2.5) translate(-150 -249)">
+            <image href="assets/img/toca_black.png" x="90" y="189" width="120" height="120" class="academy-hat-img academy-hat-img--black"/>
+            <image href="assets/img/toca_white.png" x="90" y="189" width="120" height="120" class="academy-hat-img academy-hat-img--white"/>
+            </g>
+            <ellipse cx="150" cy="300" rx="70" ry="9" fill="var(--line-2)" opacity=".7"/>
+          </svg>
+        </div>
+        <div>
+          <p class="hero-eyebrow reveal in"><span class="dot"></span> <span class="eyebrow-branded">Danwor Academy · Lo que sabemos, contado simple</span><span class="eyebrow-plain">Conocimiento fundacional · Lo que sabemos, contado simple</span></p>
+          <h1 class="hero-title reveal in"><span class="ht-pre">Ya viste cómo viaja el dato.</span>Del chat al <em>chef</em>.</h1>
+          <p class="hero-sub reveal in reveal-d1">En 2026 la IA dejó de ser algo a lo que le preguntás cosas para volverse alguien que las hace. Te contamos ese salto con la misma idea simple que usa Santiago Bilinkis en su guía: pensalo como la diferencia entre un recetario y un <i>chef personal</i> que cocina, prueba, ajusta y aprende tus gustos para siempre.</p>
+        </div>
+      </div>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <div class="timeline reveal in reveal-d2">
+        <a href="#agente">01 Agente</a>
+        <a href="#libreta">02 Libreta</a>
+        <a href="#contexto">03 Contexto</a>
+        <a href="#portatil">04 Portátil</a>
+        <a href="#piensa">05 Piensa</a>
+        <a href="#roles">06 Roles</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 CHATBOT VS AGENTE -->
+  <section class="stop" id="agente">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">01 / 05 · El salto agéntico</span>
+          <p class="kicker reveal">Chatbot vs Agente</p>
+          <h2 class="stop-title reveal">El recetario y el <em>chef</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El recetario cerrado y la olla cocinando">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g transform="translate(38 46)">
+              <rect x="0" y="0" width="86" height="112" rx="8" fill="var(--ink-dim)"/>
+              <rect x="8" y="10" width="70" height="92" rx="4" fill="var(--bg-card-2)"/>
+              <rect x="18" y="26" width="50" height="6" rx="3" fill="var(--line-2)"/>
+              <rect x="18" y="42" width="50" height="6" rx="3" fill="var(--line-2)"/>
+              <rect x="18" y="58" width="34" height="6" rx="3" fill="var(--line-2)"/>
+              <rect x="0" y="0" width="10" height="112" rx="4" fill="var(--ink)"/>
+            </g>
+            <g transform="translate(190 60)">
+              <path d="M10 70 h90 l-8 34 q-2 10 -14 10 h-54 q-12 0 -14 -10 Z" fill="var(--ink)"/>
+              <ellipse cx="55" cy="70" rx="45" ry="11" fill="var(--gold)"/>
+              <rect x="0" y="62" width="14" height="9" rx="4" fill="var(--ink-dim)"/>
+              <rect x="96" y="62" width="14" height="9" rx="4" fill="var(--ink-dim)"/>
+              <path d="M30 54 q-4 -14 4 -24 M55 54 q-2 -18 8 -28 M80 54 q-4 -14 4 -24" stroke="var(--ink-dim)" stroke-width="4" fill="none" stroke-linecap="round" opacity=".7"/>
+            </g>
+            <g fill="var(--gold)">
+              <circle cx="292" cy="146" r="4"/><circle cx="304" cy="152" r="3"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Pedile a un chatbot de 2025 un bife con huevos rancheros para esta noche: te tira una receta y algún tip. Cocinar, comprar lo que falta, ajustar si algo sale mal — sigue siendo todo tuyo.</p>
+          <p>Pedile lo mismo a un agente de 2026 y la cosa cambia entera. Revisa qué tenés en la heladera. Arma la lista de lo que falta. Si no consigue un ingrediente, decide un reemplazo y te cuenta por qué. Cocina. Y a la hora pactada, te sirve el plato en la mesa. Vos solo probás y ajustás.</p>
+          <div class="stop-quote">La diferencia no es que responda mejor. Es que ejecuta.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">IA conversacional vs. IA agéntica</p>
+          <ul>
+            <li><strong>Chatbot</strong>: espera una pregunta, responde, y el resto queda en tus manos</li>
+            <li><strong>Agente</strong>: planifica, decide qué pasos seguir, ejecuta, verifica su propio resultado y te entrega el trabajo terminado</li>
+            <li>Si la tarea es grande, se "clona": lanza sub-procesos en paralelo para resolver partes distintas al mismo tiempo</li>
+          </ul>
+          <p class="spec-limit"><strong>Límite:</strong> sigue siendo una herramienta, no un oráculo — hace mejor lo que puede verificar contra algo concreto (tus archivos, una regla clara) que lo que tiene que inventar de memoria.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 LA LIBRETA -->
+  <section class="stop" id="libreta">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">02 / 05 · Aprendizaje acumulativo</span>
+          <p class="kicker reveal">Memoria permanente</p>
+          <h2 class="stop-title reveal">La libreta que <em>no se olvida</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La libreta de anotaciones del chef">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g transform="translate(112 42)">
+              <path d="M0 8 Q58 -10 116 8 V138 Q58 120 0 138 Z" fill="var(--ink)"/>
+              <path d="M58 8 V128" stroke="var(--bg)" stroke-width="3" opacity=".3"/>
+              <path d="M14 34 Q58 22 102 34" stroke="var(--line-2)" stroke-width="4" fill="none" stroke-linecap="round"/>
+              <path d="M14 56 Q58 44 102 56" stroke="var(--line-2)" stroke-width="4" fill="none" stroke-linecap="round"/>
+              <path d="M14 78 Q58 66 90 76" stroke="var(--line-2)" stroke-width="4" fill="none" stroke-linecap="round"/>
+              <path d="M14 100 l10 12 20 -22" stroke="var(--gold)" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <g transform="translate(214 30) rotate(18)">
+              <rect x="0" y="0" width="10" height="70" rx="5" fill="var(--gold-2)"/>
+              <path d="M-3 -12 l16 0 l-8 16 Z" fill="var(--ink)"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Un chef recién contratado prueba tu comida, vos le decís "un toque menos picante", y lo anota en su libreta personal.</p>
+          <p>Mañana, sin que se lo repitas, sale así. Y pasado mañana también. Para siempre. Las herramientas de antes tenían memoria frágil: recordaban algo mientras duraba la charla, y al abrir una conversación nueva arrancaban casi de cero. Estas aprenden distinto — cada corrección queda documentada por escrito.</p>
+          <div class="stop-quote">No es memoria de pez. Es aprendizaje acumulativo: cada semana que pasa, el sistema sabe más sobre cómo te gusta que se hagan las cosas.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">Memoria persistente en archivos</p>
+          <ul>
+            <li>Cada corrección se guarda como regla o criterio, no se pierde al cerrar la sesión</li>
+            <li>El aprendizaje queda documentado en archivos de texto, no "en la cabeza" del modelo</li>
+            <li>Cuanto más lo corregís hoy, menos vas a tener que corregir la próxima vez</li>
+          </ul>
+          <p class="spec-limit"><strong>Ojo:</strong> si no le pedís explícitamente "acordate de esto para siempre", a veces lo toma como un ajuste del momento y no lo persiste. Hay que pedírselo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 EL CONTEXTO -->
+  <section class="stop" id="contexto">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">03 / 05 · Memoria contextual, y enorme</span>
+          <p class="kicker reveal">El contexto</p>
+          <h2 class="stop-title reveal">Antes de cocinar, <em>recorre toda la cocina</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La heladera y la alacena, revisadas antes de empezar">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g transform="translate(120 34)">
+              <rect x="0" y="0" width="90" height="140" rx="10" fill="var(--ink-dim)"/>
+              <rect x="6" y="6" width="78" height="50" rx="5" fill="var(--bg-card-2)"/>
+              <rect x="6" y="62" width="78" height="72" rx="5" fill="var(--bg-card-2)"/>
+              <circle cx="16" cy="30" r="3.5" fill="var(--gold)"/>
+              <circle cx="16" cy="90" r="3.5" fill="var(--gold)"/>
+              <rect x="26" y="22" width="34" height="8" rx="4" fill="var(--line-2)"/>
+              <rect x="26" y="38" width="24" height="8" rx="4" fill="var(--line-2)"/>
+              <rect x="26" y="80" width="40" height="8" rx="4" fill="var(--line-2)"/>
+              <rect x="26" y="98" width="30" height="8" rx="4" fill="var(--line-2)"/>
+              <rect x="26" y="114" width="20" height="8" rx="4" fill="var(--line-2)"/>
+            </g>
+            <g transform="translate(232 96)">
+              <circle cx="0" cy="0" r="26" fill="none" stroke="var(--ink)" stroke-width="7"/>
+              <path d="M19 19 L40 40" stroke="var(--ink)" stroke-width="8" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Antes de ponerse a cocinar, un buen chef abre la heladera, chequea la alacena, revisa las especias y mira tu libreta de preferencias. Recién ahí empieza.</p>
+          <p>No mete la mano a ciegas en un cajón de papeles. Estos sistemas hacen lo mismo con la información: antes de arrancar una tarea, deciden qué archivos releer, qué reglas aplican y qué es relevante para lo que le pediste. Y esa "cabeza" es enorme — puede tener presente el equivalente a miles de páginas mientras trabaja en una sola tarea tuya.</p>
+          <div class="stop-quote">El efecto: mucho más apego a tus preferencias y métodos reales, y muchas menos veces inventando lo que no sabe.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">Contexto dirigido, no memoria aleatoria</p>
+          <ul>
+            <li>El sistema elige qué cargar para cada tarea — no repasa todo siempre</li>
+            <li>Ventanas de contexto del orden del millón de tokens (miles de páginas de libro)</li>
+            <li>Menos alucinaciones cuando el material relevante está realmente "fresco" antes de responder</li>
+          </ul>
+          <p class="spec-limit"><strong>Límite:</strong> sigue siendo finito — carpetas enormes y desordenadas consumen ese "espacio en la cabeza" más rápido de lo que conviene.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 ES PORTÁTIL -->
+  <section class="stop" id="portatil">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">04 / 05 · Conocimiento portátil</span>
+          <p class="kicker reveal">Es tuyo</p>
+          <h2 class="stop-title reveal">La libreta es <em>tuya</em>, no del restaurante</h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La libreta viaja de un chef a otro">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g transform="translate(48 60)">
+              <path d="M0 6 Q30 -6 60 6 V96 Q30 84 0 96 Z" fill="var(--ink-dim)"/>
+              <path d="M8 24 Q30 16 52 24" stroke="var(--bg)" stroke-width="3" opacity=".4" fill="none"/>
+              <path d="M8 42 Q30 34 52 42" stroke="var(--bg)" stroke-width="3" opacity=".4" fill="none"/>
+            </g>
+            <path d="M124 108 h68" stroke="var(--ink-dim)" stroke-width="4" stroke-dasharray="2 10" stroke-linecap="round"/>
+            <path d="M182 96 l16 12 -16 12" stroke="var(--gold)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <g transform="translate(214 60)">
+              <path d="M0 6 Q30 -6 60 6 V96 Q30 84 0 96 Z" fill="var(--ink)"/>
+              <path d="M8 24 Q30 16 52 24" stroke="var(--gold)" stroke-width="3" opacity=".8" fill="none"/>
+              <path d="M8 42 Q30 34 52 42" stroke="var(--gold)" stroke-width="3" opacity=".8" fill="none"/>
+              <path d="M14 62 l8 10 16 -18" stroke="var(--gold)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Si mañana el chef se va y viene uno nuevo, la libreta con tus gustos se queda con vos. El que llega la abre y ya sabe que los huevos van menos picantes.</p>
+          <p>Todo lo que estas herramientas aprenden sobre cómo trabajás vive en archivos de texto simples, en tu computadora — no en un servidor ajeno. Podés abrirlos, editarlos, y si mañana cambiás de herramienta, te los llevás con vos.</p>
+          <div class="stop-quote">No hay que casarse con nadie: el conocimiento acumulado sigue siendo tuyo, pase lo que pase con la marca.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">Archivos Markdown (.md), no una caja negra</p>
+          <ul>
+            <li>El aprendizaje se guarda en texto plano, legible y editable con cualquier editor</li>
+            <li>Portable entre herramientas distintas que trabajen sobre la misma carpeta</li>
+            <li>Sin costo de salida: si cambiás de proveedor, no perdés lo construido</li>
+          </ul>
+          <p class="spec-limit"><strong>Matiz:</strong> la portabilidad es de tu conocimiento acumulado, no de la configuración específica de cada herramienta — eso hay que rearmarlo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 CÓMO PIENSA -->
+  <section class="stop" id="piensa">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">05 / 05 · Transparencia del razonamiento</span>
+          <p class="kicker reveal">Cómo piensa</p>
+          <h2 class="stop-title reveal">Podés <em>verlo pensar</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El chef murmurando su razonamiento mientras cocina">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <circle cx="128" cy="112" r="46" fill="var(--ink)"/>
+            <path d="M104 96 q24 -20 48 0" stroke="var(--bg)" stroke-width="4" fill="none" stroke-linecap="round" opacity=".4"/>
+            <g fill="var(--gold)">
+              <circle cx="196" cy="70" r="5"/>
+              <circle cx="212" cy="52" r="7"/>
+            </g>
+            <ellipse cx="240" cy="34" rx="34" ry="22" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="3"/>
+            <path d="M222 52 l-10 14 18 -8 Z" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="3"/>
+            <rect x="222" y="26" width="36" height="5" rx="2.5" fill="var(--ink-dim)"/>
+            <rect x="222" y="36" width="24" height="5" rx="2.5" fill="var(--ink-dim)"/>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Un chef que murmura mientras cocina — "no tengo poblano, pruebo con morrón, le doy un toque ahumado" — te deja seguir su lógica antes de que el plato esté listo.</p>
+          <p>Estos modelos pueden mostrar su proceso de razonamiento antes de darte la respuesta final: qué consideró, qué descartó, por qué. A veces ese razonamiento es más revelador que la respuesta misma.</p>
+          <div class="stop-quote">No hace falta mirarlo trabajar. Pero cuando lo hacés, a veces te sorprende con algo que ni vos habías considerado.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">Chain of thought</p>
+          <ul>
+            <li>El razonamiento intermedio es visible antes de la respuesta final</li>
+            <li>Útil para auditar decisiones en tareas delicadas o poco familiares</li>
+            <li>Es opcional: podés dejarlo trabajar solo y revisar solo el resultado</li>
+          </ul>
+          <p class="spec-limit"><strong>Ojo:</strong> verlo pensar no reemplaza verificar el resultado — es una herramienta de confianza, no una garantía.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BRIDGE / SYNTHESIS -->
+  <section class="bridge" id="bridge">
+    <div class="container">
+      <p class="kicker reveal" style="justify-content:center; display:inline-flex;">Síntesis</p>
+      <div class="section-art section-art--center reveal">
+        <svg viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El gorro del chef" style="height:110px;">
+          <image href="assets/img/toca_black.png" x="50" y="26" width="120" height="120" class="academy-hat-img academy-hat-img--black"/>
+          <image href="assets/img/toca_white.png" x="50" y="26" width="120" height="120" class="academy-hat-img academy-hat-img--white"/>
+        </svg>
+      </div>
+      <h2 class="reveal">No es una herramienta más rápida: es alguien que <em>trabaja por vos</em>.</h2>
+      <div class="bridge-grid reveal reveal-d1">
+        <span class="bridge-chip">¿Tarea grande y repetitiva? → <strong>Que se clone y la delegue</strong></span>
+        <span class="bridge-chip">¿Algo salió mal? → <strong>Corregilo una vez, no se repite</strong></span>
+        <span class="bridge-chip">¿Tarea nueva o delicada? → <strong>Pedile el plan antes de que actúe</strong></span>
+        <span class="bridge-chip">¿Querés que aprenda tu criterio? → <strong>Enseñale, no lo asumas</strong></span>
+      </div>
+      <p class="tail reveal reveal-d2">Lo que separa a alguien que "probó IA un rato" de alguien que "cambió cómo trabaja" no es la herramienta. Es el entrenamiento — y ahí sigue el recorrido.</p>
+    </div>
+  </section>
+
+  <!-- SEGUÍ PROFUNDIZANDO -->
+  <section class="finale" id="profundizar">
+    <div class="container">
+      <p class="kicker reveal">De la teoría a tu escritorio</p>
+      <div class="finale-head">
+        <h2 class="finale-title reveal reveal-d1">Con el chef ya <em>instalado en tu cabeza</em>, el resto es tuyo</h2>
+        <p class="finale-body reveal reveal-d2">Enseñarle quién sos, decidir cuánto confiarle, y elegir con qué modo trabajar cada día. Tres recorridos cortos, cada uno se puede leer por separado.</p>
+      </div>
+
+      <div class="finale-grid reveal reveal-d2">
+        <a class="finale-card finale-card-link" href="entrena-tu-chef.html" data-carry-branding>
+          <p class="fc-role">Enseñale quién sos</p>
+          <h3>Entrená a tu chef</h3>
+          <p>Los 4 métodos para que en semanas te conozca de verdad: dale contexto de una, corregilo con criterio, mandalo a investigar y dejá que te entreviste.</p>
+          <span class="finale-card-cta">Explorar en profundidad →</span>
+        </a>
+        <a class="finale-card finale-card-link" href="cuanta-confianza.html" data-carry-branding>
+          <p class="fc-role">Cuánto lo dejás solo</p>
+          <h3>Cuánta confianza le das</h3>
+          <p>Cuándo confiar casi ciego, cuándo pedir pruebas, y por qué ninguna acción irreversible debería quedar en automático el día uno.</p>
+          <span class="finale-card-cta">Explorar en profundidad →</span>
+        </a>
+        <a class="finale-card finale-card-link" href="cowork-vs-code.html" data-carry-branding>
+          <p class="fc-role">El día a día</p>
+          <h3>Cowork vs Code</h3>
+          <p>Los dos modos de trabajo, cuándo usar cada uno, y los casos reales que ya está resolviendo gente que nunca programó.</p>
+          <span class="finale-card-cta">Explorar en profundidad →</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROLES -->
+  <section class="finale" id="roles">
+    <div class="container">
+      <p class="kicker reveal">¿Quién lo usa en una consultora?</p>
+      <div class="finale-head">
+        <h2 class="finale-title reveal reveal-d1" style="max-width:28ch;">No hace falta ser <em>programador</em></h2>
+        <p class="finale-body reveal reveal-d2">Cada rol de un proyecto Danwor puede tener su propio chef personal, entrenado para lo que ese rol necesita resolver todos los días.</p>
+      </div>
+
+      <div class="finale-grid reveal reveal-d2">
+        <div class="finale-card">
+          <p class="fc-role">Visión end-to-end</p>
+          <h3>Arquitecto de Datos</h3>
+          <p>Usa Code para prototipar arquitecturas, automatizar el análisis de exports CSN y dejar documentación de decisiones lista antes de la reunión de diseño.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Modelado e integración</p>
+          <h3>Consultor Datasphere</h3>
+          <p>Usa Cowork para armar reportes de avance, resumir reuniones con cliente y organizar evidencia de proyecto sin perder la tarde en formatear un Word.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Lakehouse, ML e IA</p>
+          <h3>Data Engineer / Data Scientist</h3>
+          <p>Usa Code para prototipar pipelines y automatizar validaciones de calidad antes de escalarlas a producción.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Reporting & Planning</p>
+          <h3>Consultor SAC</h3>
+          <p>Usa Cowork para transformar un Excel de seguimiento en un dashboard navegable, y para redactar el resumen ejecutivo que acompaña cada entrega.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Consumo y análisis</p>
+          <h3>Data Analyst / BI Developer</h3>
+          <p>Usa Cowork para investigar prospectos, analizar métricas de campañas, y convertir hallazgos sueltos en un memo ejecutivo con un solo pedido.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Gobierno del dato como producto</p>
+          <h3>Data Product Owner</h3>
+          <p>Usa el modo Plan para revisar, paso por paso, cualquier cambio sobre un data product antes de que se ejecute — la misma disciplina que ya aplica al contrato de datos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO A LA HERRAMIENTA REAL -->
+  <section class="stop" id="rosetta">
+    <div class="container">
+      <span class="stop-num reveal">Cierre · Del cuento a la herramienta real</span>
+      <p class="kicker reveal">Diccionario</p>
+      <h2 class="stop-title reveal" style="max-width:26ch;">Cómo se llama <em>en la vida real</em></h2>
+      <p class="finale-body reveal reveal-d1" style="margin-bottom:1.8rem;">El recorrido usó al chef como hilo conductor; así se llama cada pieza cuando la vas a usar de verdad.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <thead><tr><th>Recorrido</th><th>Herramienta real</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>La libreta del chef</td><td>CLAUDE.md + archivos de conocimiento (.md)</td><td><a class="rosetta-cta" href="entrena-tu-chef.html#arquitectura" data-carry-branding target="_parent">Profundizar →</a></td></tr>
+            <tr><td>El ida y vuelta con el chef</td><td>Entrenamiento por feedback (Método 2)</td><td><a class="rosetta-cta" href="entrena-tu-chef.html#metodo-2" data-carry-branding target="_parent">Profundizar →</a></td></tr>
+            <tr><td>Mandar al chef a investigar</td><td>Deep Research (Método 3)</td><td><a class="rosetta-cta" href="entrena-tu-chef.html#metodo-3" data-carry-branding target="_parent">Profundizar →</a></td></tr>
+            <tr><td>Cuánto lo dejás solo</td><td>Plan Mode / Ask Before Edits / Edit Automatically / Auto Mode</td><td><a class="rosetta-cta" href="cuanta-confianza.html#modos" data-carry-branding target="_parent">Profundizar →</a></td></tr>
+            <tr><td>El chef en la cocina vs. el chef que sale de compras</td><td>Modo Cowork vs. Modo Code</td><td><a class="rosetta-cta" href="cowork-vs-code.html#modos" data-carry-branding target="_parent">Profundizar →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="attribution reveal reveal-d2">
+        Este recorrido adapta, con la metáfora del chef personal y en un formato propio de Danwor Academy, ideas de <strong>"IA 2026: Una guía sencilla para las herramientas más avanzadas"</strong> de Santiago Bilinkis — una guía gratuita que se actualiza semanalmente. Si querés la versión completa y siempre al día: <a href="https://bilinkis.com/guia-ia" target="_blank" rel="noopener">bilinkis.com/guia-ia</a>.
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" />
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward into linked sub-pages
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — Entrená a tu chef: los 4 métodos para que la IA agéntica te conozca de verdad." />
+<title>Danwor — Entrená a tu chef</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') === 'danwor'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" class="topbar-logo" />
+    <div class="topbar-right">
+      <span class="topbar-tag">Entrená a tu chef</span>
+      <a href="/academy/ACAD06_IA_Agentica?pack=datasphere_core#profundizar" class="topbar-back" onclick="return dwAcademyBack('/academy/ACAD06_IA_Agentica?pack=datasphere_core');">← Volver al recorrido</a>
+    </div>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Temas">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#metodo-1" data-label="Método 1"><span>Dale mucha info</span></a>
+  <a href="#metodo-2" data-label="Método 2"><span>Ida y vuelta</span></a>
+  <a href="#metodo-3" data-label="Método 3"><span>Deep Research</span></a>
+  <a href="#metodo-4" data-label="Método 4"><span>Entrevista</span></a>
+  <a href="#arquitectura" data-label="Arquitectura"><span>Dónde vive esto</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in">ENTRENAMIENTO</p>
+      <h1 class="hero-title reveal in">No le pidas que sea <em>Maradona</em> el día 1</h1>
+      <p class="hero-sub reveal in reveal-d1">En el recorrido anterior vimos que estos sistemas aprenden y se acuerdan para siempre. Acá vemos cómo se entrena esa memoria: los 4 métodos concretos que la convierten en tu sistema, y la arquitectura de archivos que sostiene todo. Ningún chef —humano o no— cocina como vos querés el primer día. La diferencia es que a este solo hay que enseñarle una vez.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Temas">
+        <a href="#metodo-1">1 · Dale info</a>
+        <a href="#metodo-2">2 · Ida y vuelta</a>
+        <a href="#metodo-3">3 · Deep Research</a>
+        <a href="#metodo-4">4 · Entrevista</a>
+        <a href="#arquitectura">+ · Arquitectura</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- MÉTODO 1 -->
+  <section class="topic" id="metodo-1">
+    <div class="container">
+      <span class="topic-num reveal">Método 1 de 4</span>
+      <p class="topic-kicker reveal">Dale mucha info</p>
+      <h2 class="topic-title reveal">Abrile <em>toda la cocina</em></h2>
+      <p class="topic-lead reveal reveal-d1">Antes de arrancar, tirá a la carpeta de trabajo todo lo que tengas: propuestas, reportes, emails importantes, presentaciones, contratos tipo, los Excel del negocio. Es como mostrarle al chef tu heladera, tu alacena y tu recetario familiar de una sola vez, en vez de racionarle la información de a poco.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Volcá todo</span>
+            <p class="ps-title">Toda la info de una</p>
+            <p class="ps-caption">Sin explicarle nada todavía.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Archivos de cualquier formato, hasta fotos. Cuanta más evidencia real de cómo trabaja tu empresa le des, mejor arranca — no necesita que le expliques nada primero.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Descubre sola</span>
+            <p class="ps-title">Detecta lo obvio, y lo que no</p>
+            <p class="ps-caption">Patrones que ni vos habías notado.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Le das 30 propuestas y sin que le digas nada detecta que siempre arrancás con el problema del cliente y que tu tono es directo. Pero también lo que NO es obvio: que tus propuestas ganadoras tienen, en promedio, 40% menos texto que las perdedoras.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Documenta el patrón</span>
+            <p class="ps-title">Lo deja escrito</p>
+            <p class="ps-caption">Para no repetir el análisis después.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Pedile explícitamente que vaya documentando los aprendizajes en sus archivos de conocimiento. Así la próxima tarea arranca ya sabiendo esto, sin volver a analizarlo desde cero.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Regla práctica Danwor</span><span class="tc-plain">Regla práctica</span></p>
+        <p>Regla del consultor externo: si hay información que no le darías el primer día a un consultor externo recién contratado, pensalo dos veces antes de dársela a la IA. No porque sea peligrosa, sino porque siempre hay incertidumbres con servicios en la nube — sobre todo con datos regulados de clientes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- MÉTODO 2 -->
+  <section class="topic" id="metodo-2">
+    <div class="container">
+      <span class="topic-num reveal">Método 2 de 4</span>
+      <p class="topic-kicker reveal">Ida y vuelta</p>
+      <h2 class="topic-title reveal">El plato está <em>picante</em></h2>
+      <p class="topic-lead reveal reveal-d1">Acá va una de las mejores noticias de todo esto: no necesitás acertar de entrada. Ni vos ni el chef. Probás, decís "está picante, la carne pasada", y lo anota. Mañana sale mejor. Pasado mañana, todavía mejor.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Pedís algo</span>
+            <p class="ps-title">Sale mal</p>
+            <p class="ps-caption">Primera versión, no la definitiva.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">En vez de frustrarte, señalá qué cambiarías y por qué. No hace falta que la primera versión sea perfecta — es parte del proceso.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Marcás el criterio</span>
+            <p class="ps-title">No la regla puntual</p>
+            <p class="ps-caption">El principio detrás, no el caso único.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Pedile explícitamente que no guarde una regla ultra-específica que resuelve solo ese caso, sino que extraiga el principio general detrás. La diferencia es enorme: una regla resuelve un caso, un criterio resuelve cien.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Queda aprendido</span>
+            <p class="ps-title">Ya no se desaprende</p>
+            <p class="ps-caption">La próxima vez sale bien de entrada.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Queda guardado en archivos que podés leer, editar y mejorar. Se acumula: cada corrección hace que la siguiente tarea parecida salga mejor desde el principio.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Por defecto, la IA tiende a guardar cada corrección como una regla ultra-específica: <em>"no usar la palabra deliverables en la propuesta de Acme."</em> Eso no escala. Lo que querés es que extraiga el principio: <em>"usar siempre español llano, evitar anglicismos corporativos."</em></div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Matiz importante</span><span class="tc-plain">Matiz importante</span></p>
+        <p>No todo lo que le enseñás aplica siempre. Si le decís "la próxima vez que hagas un bife, más jugoso", ese aprendizaje se activa solo cuando cocina carne, no cuando prepara huevos revueltos. El aprendizaje viene junto con la condición bajo la cual aplica — si no, activar toda la memoria en cada tarea lo hace más lento y a veces lo confunde.</p>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">Referencia rápida</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Regla puntual vs. criterio general</caption>
+          <thead><tr><th>Regla puntual (evitar)</th><th>Criterio general (buscar)</th></tr></thead>
+          <tbody>
+            <tr><td>"No usar la palabra deliverables en la propuesta de Acme"</td><td>"Usar siempre español llano, evitar anglicismos corporativos"</td></tr>
+            <tr><td>"En el reporte de marzo, poné el gráfico de torta primero"</td><td>"En reportes financieros, siempre gráfico principal antes del detalle"</td></tr>
+            <tr><td>"A este cliente no le mandes el mail los viernes"</td><td>"Antes de mandar a un cliente, confirmá el día y horario que prefiere"</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- MÉTODO 3 -->
+  <section class="topic" id="metodo-3">
+    <div class="container">
+      <span class="topic-num reveal">Método 3 de 4</span>
+      <p class="topic-kicker reveal">Deep Research</p>
+      <h2 class="topic-title reveal">Mandalo a estudiar <em>con los mejores</em></h2>
+      <p class="topic-lead reveal reveal-d1">Le pedís que investigue en la web las mejores prácticas sobre un tema y que compile todo el conocimiento en un documento para volverse un experto en eso. Es como mandar a tu chef de viaje por los mejores restaurantes del mundo — solo que el viaje dura diez minutos.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Le pedís que investigue</span>
+            <p class="ps-title">Un tema puntual</p>
+            <p class="ps-caption">Frameworks, ejemplos, fuentes serias.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Ej.: "Investigá en profundidad cómo los mejores consultores estructuran una propuesta comercial. Armame un documento con todo lo que aprendas, organizado por tema."</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Compila un documento</span>
+            <p class="ps-title">Queda de referencia</p>
+            <p class="ps-caption">No arranca de cero la próxima vez.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Ese documento queda en tu carpeta de trabajo. Cada vez que necesite hacer algo relacionado, lo lee primero — arranca desde el conocimiento acumulado, no desde cero.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Vos también lo leés</span>
+            <p class="ps-title">Aprendizaje bidireccional</p>
+            <p class="ps-caption">Podés pedirle que lo actualice.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">El documento no es solo para la IA: también es un resumen legible para vos. Y podés pedirle que lo actualice cada tanto para seguir aprendiendo de otros.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Lo mejor del Deep Research no es lo que le pedís: es lo que te trae sin que se lo pidas. Le decís "investigá cómo estructurar propuestas comerciales" y te vuelve con un dato sobre pricing por valor percibido que ni tu equipo de ventas conocía. Es la IA como buscadora de tesoros que vos no sabías que existían.</div>
+    </div>
+  </section>
+
+  <!-- MÉTODO 4 -->
+  <section class="topic" id="metodo-4">
+    <div class="container">
+      <span class="topic-num reveal">Método 4 de 4</span>
+      <p class="topic-kicker reveal">Entrevista</p>
+      <h2 class="topic-title reveal">Dejá que <em>te pregunte</em></h2>
+      <p class="topic-lead reveal reveal-d1">En vez de intentar escribir instrucciones perfectas, dejá que la IA te entreviste. Es lo que haría un buen chef el primer día: sentarse con vos, hacerte preguntas sobre cómo te gustan las cosas, qué no soportás, y tomar nota. Vos no tenés que saber qué contarle — él sabe qué preguntar.</p>
+
+      <div class="topic-note reveal reveal-d1"><em>"Necesito que entiendas cómo manejo el proceso de presupuesto en mi empresa. Preguntame todo lo que necesites saber: quién aprueba, qué criterios uso, qué formato prefiero, qué errores típicos hay. No hagas solo preguntas obvias, profundizá en lo que realmente necesitás para hacer este trabajo mejor que como lo haría yo."</em></div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Por qué funciona</span><span class="tc-plain">Por qué funciona</span></p>
+        <p>Después de 10-15 minutos de conversación, la IA documenta todo lo que aprendió. Tenés un manual de tu propio proceso, escrito por alguien que te entendió de verdad — sin que vos tuvieras que redactar nada.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARQUITECTURA -->
+  <section class="topic" id="arquitectura">
+    <div class="container">
+      <span class="topic-num reveal">Dónde vive todo esto</span>
+      <p class="topic-kicker reveal">Arquitectura del sistema</p>
+      <h2 class="topic-title reveal">Las <em>capas</em> de la libreta</h2>
+      <p class="topic-lead reveal reveal-d1">Todo lo que le enseñás con los 4 métodos no queda suelto: se organiza en capas, cada una con un rol distinto.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Capa 1</span>
+            <p class="ps-title">La constitución</p>
+            <p class="ps-caption">CLAUDE.md — se lee siempre.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">UN archivo que se lee al inicio de cada sesión: tu manual permanente. Tono, reglas, formato de reportes. Todo lo que necesita saber SIEMPRE sobre vos y tu trabajo. Se crea una vez y se va refinando.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Capa 2</span>
+            <p class="ps-title">Archivos de conocimiento</p>
+            <p class="ps-caption">Se leen solo cuando hacen falta.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">El ADN de tus propuestas (Método 1), las reglas de feedback (Método 2), el documento de mejores prácticas (Método 3), el manual de tu proceso (Método 4). Cada uno se abre solo cuando la tarea lo requiere.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Capa 3</span>
+            <p class="ps-title">Memoria viva</p>
+            <p class="ps-caption">Crece todos los días.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Cada corrección actualiza los archivos de feedback. Cada descubrimiento se documenta. Es gestión activa de memoria, no un cajón donde se acumulan papeles.</div></div>
+          </div>
+        </div>
+        <div class="pipeline-underlay">Lo que conecta todo: la IA no solo guarda estos archivos — <strong>aprende cuándo ir a leerlos</strong>, igual que un empleado que antes de sentarse a trabajar pasa por el archivo y agarra los documentos relevantes.</div>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">La regla del 80/20</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <caption>Cómo evoluciona la proporción de "tuneo" vs. trabajo real</caption>
+          <thead><tr><th>Momento</th><th>Tuneo (enseñarle)</th><th>Trabajo real</th></tr></thead>
+          <tbody>
+            <tr><td>Día 1</td><td>80%</td><td>20% — vas para adelante y para atrás, parece que perdés tiempo</td></tr>
+            <tr><td>Día 10</td><td>50%</td><td>50% — te conoce lo suficiente como para hacer la mitad sola</td></tr>
+            <tr><td>Al mes</td><td>20%</td><td>80% — le pedís cosas y salen</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Ese 20% final no desaparece nunca: se mantiene para siempre, y es la mejor inversión del día. Cada cosa que le enseñás no resuelve solo el problema de hoy — deja configurado algo que va a resolver todos los problemas parecidos de mañana, del mes que viene, del año que viene.</div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO A LA HERRAMIENTA REAL -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento a la herramienta real</span>
+      <p class="topic-kicker reveal">Diccionario</p>
+      <h2 class="topic-title reveal">Cómo se llama <em>en la vida real</em></h2>
+      <p class="topic-lead reveal reveal-d1">Esta parte del recorrido usó al chef entrenándose; así se llaman esas mismas piezas en la herramienta.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <thead><tr><th>Recorrido</th><th>Herramienta real</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>La constitución del chef</td><td>CLAUDE.md — se genera un borrador con <code>/init</code></td><td><a class="rosetta-cta" href="https://code.claude.com/docs/en/best-practices" target="_blank" rel="noopener">Ver docs →</a></td></tr>
+            <tr><td>Mandarlo a estudiar</td><td>Deep Research</td><td><a class="rosetta-cta" href="https://code.claude.com/docs" target="_blank" rel="noopener">Ver docs →</a></td></tr>
+            <tr><td>El cuento completo</td><td>"IA 2026" — Santiago Bilinkis (guía completa, gratuita)</td><td><a class="rosetta-cta" href="https://bilinkis.com/guia-ia" target="_blank" rel="noopener">Leer guía →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+// "Volver al recorrido": resuelve el destino según el contexto real.
+// Servido por la app (http/https) y embebido en el iframe de Academy: navega
+// la ventana completa a la ruta real (rompe el iframe, corrige topbar/nav).
+// Abierto directo como archivo local (file://, sin server) para probarlo:
+// una ruta absoluta como "/academy/..." se resolvería contra la raíz del
+// disco, así que en ese caso volvemos al archivo hermano de al lado.
+function dwAcademyBack(realUrl){
+  // El origen siempre es la sección "Seguí profundizando" del recorrido
+  // principal: el destino fija ese anchor, sea cual sea el contexto.
+  var anchor = '#profundizar';
+  if (window.location.protocol === 'file:') {
+    // Hereda el query string actual (ej. ?branding=danwor) para no cambiar
+    // de formato al volver.
+    window.location.href = 'ia-agentica.html' + window.location.search + anchor;
+  } else if (window.parent && window.parent !== window) {
+    window.parent.location.href = realUrl + anchor;
+  } else {
+    window.location.href = realUrl + anchor;
+  }
+  return false;
+}
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // pipeline steps — click to expand detail (independent) + active border (exclusive per pipeline, last touched)
+  document.querySelectorAll('.pipeline').forEach(function(pipeline){
+    var steps = pipeline.querySelectorAll('.pipeline-step');
+    steps.forEach(function(step){
+      step.addEventListener('click', function(){
+        var willOpen = !step.classList.contains('is-open');
+        step.classList.toggle('is-open', willOpen);
+        var toggle = step.querySelector('.ps-toggle');
+        if(toggle){ toggle.textContent = willOpen ? '− tocá para ver menos' : '+ tocá para ver más'; }
+        steps.forEach(function(s){ s.classList.remove('is-active'); });
+        if(willOpen){ step.classList.add('is-active'); }
+      });
+    });
+  });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward, preserving hash position
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

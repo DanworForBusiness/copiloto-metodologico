@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — Cowork vs Code: los dos modos de trabajo de la IA agéntica, casos de uso y tu primer mes." />
+<title>Danwor — Cowork vs Code</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') === 'danwor'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" class="topbar-logo" />
+    <div class="topbar-right">
+      <span class="topbar-tag">Cowork vs Code</span>
+      <a href="/academy/ACAD06_IA_Agentica?pack=datasphere_core#profundizar" class="topbar-back" onclick="return dwAcademyBack('/academy/ACAD06_IA_Agentica?pack=datasphere_core');">← Volver al recorrido</a>
+    </div>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Temas">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#cowork" data-label="Cowork"><span>Modo Cowork</span></a>
+  <a href="#code" data-label="Code"><span>Modo Code</span></a>
+  <a href="#comparacion" data-label="Comparación"><span>Comparación directa</span></a>
+  <a href="#casos-de-uso" data-label="Casos"><span>Casos de uso</span></a>
+  <a href="#primer-mes" data-label="Primer mes"><span>Tu primer mes</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in">EL DÍA A DÍA</p>
+      <h1 class="hero-title reveal in">Modo ciudad, <em>modo ruta</em></h1>
+      <p class="hero-sub reveal in reveal-d1">El chef que entrenaste tiene dos formas de trabajar: una para el día a día con tus documentos y apps de siempre, y otra para construir herramientas a medida describiendo lo que necesitás en lenguaje simple. Mismo chef, distintas prestaciones según lo que le pidas.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Temas">
+        <a href="#cowork">1 · Cowork</a>
+        <a href="#code">2 · Code</a>
+        <a href="#comparacion">3 · Comparación</a>
+        <a href="#casos-de-uso">4 · Casos de uso</a>
+        <a href="#primer-mes">5 · Primer mes</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- MODO COWORK -->
+  <section class="topic" id="cowork">
+    <div class="container">
+      <span class="topic-num reveal">1 de 2 modos</span>
+      <p class="topic-kicker reveal">Modo Cowork — el más fácil</p>
+      <h2 class="topic-title reveal">Le das un objetivo, <em>te devuelve el trabajo hecho</em></h2>
+      <p class="topic-lead reveal reveal-d1">Cero configuración técnica: bajás la app, iniciás sesión, y listo. Se conecta directo con Gmail, Drive, Calendar, Slack, Outlook, SharePoint, Notion, Jira, y 30+ apps más — sin costo extra.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Conectás tus apps</span>
+            <p class="ps-title">38+ conexiones directas</p>
+            <p class="ps-caption">Gmail, Drive, Slack, SharePoint...</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">No son integraciones de juguete: son conexiones reales con tus datos reales. Solo necesitás tener cuenta activa en el servicio.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Le pedís un objetivo</span>
+            <p class="ps-title">En español, sin tecnicismos</p>
+            <p class="ps-caption">"Armame el reporte de ventas de marzo."</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">No hace falta decirle "cómo": le decís "qué" y se arregla sola, preguntando si algo no le queda claro.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Te devuelve el archivo</span>
+            <p class="ps-title">Terminado, no un borrador</p>
+            <p class="ps-caption">Excel con fórmulas, PowerPoint con slides.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Con gráficos, formato condicional y estructura lista para usar — no texto suelto para que vos lo armes.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Plugins (módulos por rol, como extensiones del navegador): Data Analysis, Finance, Sales, Legal, Marketing, Productivity. Ejemplo: "Agarrá el Excel de ventas Q1, identificá los productos con caída mayor al 15%, y armame un memo ejecutivo con gráficos" — eso que un analista junior tarda medio día en hacer.</div>
+    </div>
+  </section>
+
+  <!-- MODO CODE -->
+  <section class="topic" id="code">
+    <div class="container">
+      <span class="topic-num reveal">2 de 2 modos</span>
+      <p class="topic-kicker reveal">Modo Code — el más potente</p>
+      <h2 class="topic-title reveal">Describís lo que <em>necesitás</em>, y lo construye</h2>
+      <p class="topic-lead reveal reveal-d1">Puede abrir, modificar y crear cualquier archivo en tu computadora: construir herramientas a medida, automatizar procesos complejos. Es el modo favorito de los desarrolladores profesionales — pero cada vez más gente que nunca programó lo usa para hacer cosas que antes requerían un equipo técnico.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1 · Describís lo que querés</span>
+            <p class="ps-title">En lenguaje natural</p>
+            <p class="ps-caption">Sin escribir una línea de código.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Podés escribir con errores de tipeo, mezclar idiomas, ser vago. No necesitás ser preciso ni técnico.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2 · Te hace preguntas</span>
+            <p class="ps-title">Si algo no está claro</p>
+            <p class="ps-caption">Rubro, estilo, cliente destinatario.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Pedile explícitamente que te pregunte todo lo que necesite antes de arrancar a construir.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3 · Lo construye</span>
+            <p class="ps-title">Vibecoding</p>
+            <p class="ps-caption">Un archivo funcionando, en minutos.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Le describís lo que querés, la IA lo construye. Es lo mismo que hizo un equipo de 3 personas para levantar 11 millones de dólares de inversión, sin que ninguno supiera programar.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Ejemplo de pedido</span><span class="tc-plain">Ejemplo de pedido</span></p>
+        <p><em>"Armame una página web simple que sea mi tarjeta de presentación profesional. Antes de arrancar, hacéme todas las preguntas que necesites para entender bien qué conviene poner. Después armala con diseño moderno y que quede todo en un solo archivo HTML que yo pueda abrir en mi navegador."</em> — en menos de dos minutos, un archivo funcionando.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPARACIÓN -->
+  <section class="topic" id="comparacion">
+    <div class="container">
+      <span class="topic-num reveal">Comparación directa</span>
+      <p class="topic-kicker reveal">Mismo chef, dos modos</p>
+      <h2 class="topic-title reveal">Modo ciudad, <em>modo ruta</em></h2>
+      <p class="topic-lead reveal reveal-d1">Pensalo como un auto con modo ciudad y modo ruta: mismo vehículo, distintas prestaciones según lo que necesitás. Empezás por Cowork y cuando necesitás más, Code está ahí — vienen los dos incluidos en la misma app.</p>
+
+      <span class="topic-ref-label reveal reveal-d1">Referencia rápida</span>
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table">
+          <caption>Cowork vs. Code — la diferencia real</caption>
+          <thead><tr><th>Característica</th><th>Modo Cowork</th><th>Modo Code</th></tr></thead>
+          <tbody>
+            <tr><td>Pantalla</td><td>Solo visual (app de escritorio)</td><td>Visual + pantalla de comandos</td></tr>
+            <tr><td>Lo mejor</td><td>Conectores (38+ apps), archivos Office nativos, control desde el celular</td><td>Construir herramientas, automatización profunda, instrucciones permanentes</td></tr>
+            <tr><td>Lo que no puede</td><td>Construir software ni modificar archivos fuera de su espacio</td><td>No tiene conectores nativos a Gmail, Slack, etc.</td></tr>
+            <tr><td>Ideal para</td><td>Tareas del día a día con datos y documentos</td><td>Proyectos ambiciosos y herramientas a medida</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- CASOS DE USO -->
+  <section class="topic" id="casos-de-uso">
+    <div class="container">
+      <span class="topic-num reveal">Casos concretos</span>
+      <p class="topic-kicker reveal">Casos de uso</p>
+      <h2 class="topic-title reveal">De la teoría a <em>tu escritorio</em></h2>
+      <p class="topic-lead reveal reveal-d1">La consultora del cuento (5 personas) ya tiene ejemplo propio: con Cowork conecta Gmail para armar el Excel de propuestas históricas; con Code arma su propio generador de propuestas que pregunta empresa, servicio y monto, y devuelve el PDF con su estructura y tono. Misma suscripción, dos modos, dos resultados.</p>
+
+      <span class="topic-ref-label reveal reveal-d1">Ejemplos por área</span>
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table">
+          <caption>De un pedido en español a un entregable terminado</caption>
+          <thead><tr><th>Área</th><th>Antes</th><th>Con el chef</th></tr></thead>
+          <tbody>
+            <tr><td>Reporte mensual al board</td><td>Medio día: juntar 4 fuentes, cruzar en Excel, armar el deck</td><td>20 minutos: un pedido, deck en PowerPoint listo</td></tr>
+            <tr><td>Análisis de competencia</td><td>3-4 horas revisando sitios y armando el documento</td><td>30 minutos: "investigá estas 5 empresas e identificá cambios recientes"</td></tr>
+            <tr><td>Freelancer / negocio chico</td><td>Organizar archivos, calcular márgenes, armar presupuestos a mano</td><td>Minutos por tarea: organización, análisis de Excel, presupuesto en PDF con logo</td></tr>
+            <tr><td>Marketing</td><td>Revisar métricas y armar variaciones de copy a mano</td><td>Un pedido: patrones de apertura por horario, 20 variaciones de copy con el tono de marca</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TU PRIMER MES -->
+  <section class="topic" id="primer-mes">
+    <div class="container">
+      <span class="topic-num reveal">Roadmap</span>
+      <p class="topic-kicker reveal">Tu primer mes</p>
+      <h2 class="topic-title reveal">Del día 1 al <em>día 30</em></h2>
+      <p class="topic-lead reveal reveal-d1">Los que de verdad adoptan estas herramientas no son los que miraron tutoriales: son los que pasaron horas usándolas. No mirando. Usando.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Horas 1-2 · Día 1</span>
+            <p class="ps-title">Jugá</p>
+            <p class="ps-caption">Perdé el miedo, sin ambición todavía.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Pedile cosas variadas, explorá. No estás trabajando: estás conociendo a tu nuevo colega.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Horas 3-10 · Días 2-4 y semana 2</span>
+            <p class="ps-title">El pasante, después el copiloto</p>
+            <p class="ps-caption">Tareas reales pero simples.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Cada ajuste, con criterio y no regla puntual (Método 2). Después, tenelo abierto todo el día: cada tarea, preguntate si la podría hacer él.</div></div>
+          </div>
+          <div class="pipeline-arrow">→</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Semana 3 en adelante</span>
+            <p class="ps-title">El sistema</p>
+            <p class="ps-caption">Tu constitución y tus capas.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Armá tu CLAUDE.md, tu primer archivo de estilo, tu primer Deep Research. Estás dejando de usar una herramienta y empezando a construir un sistema.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">La regla de oro</span><span class="tc-plain">La regla de oro</span></p>
+        <p>Las primeras 10 horas son inversión. Después, el retorno es inmediato y creciente. Si te frustrás en la hora 3, es normal — seguí. En la hora 8 vas a entender por qué.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DEL CUENTO A LA HERRAMIENTA REAL -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento a la herramienta real</span>
+      <p class="topic-kicker reveal">Diccionario</p>
+      <h2 class="topic-title reveal">Cómo se llama <em>en la vida real</em></h2>
+      <p class="topic-lead reveal reveal-d1">Esta parte del recorrido habló del día a día; así se llaman esas piezas en la herramienta.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <thead><tr><th>Recorrido</th><th>Herramienta real</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Los 3 comandos que necesitás</td><td><code>/clear</code> (limpia la charla), <code>/plan</code> (Modo Plan), <code>/voice</code> (Modo Voz)</td><td><a class="rosetta-cta" href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">Ver docs →</a></td></tr>
+            <tr><td>Bajar la app y probarla</td><td>claude.ai — app de escritorio, Cowork + Code incluidos</td><td><a class="rosetta-cta" href="https://claude.ai" target="_blank" rel="noopener">Ir a claude.ai →</a></td></tr>
+            <tr><td>El cuento completo</td><td>"IA 2026" — Santiago Bilinkis (guía completa, gratuita, se actualiza cada semana)</td><td><a class="rosetta-cta" href="https://bilinkis.com/guia-ia" target="_blank" rel="noopener">Leer guía →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+// "Volver al recorrido": resuelve el destino según el contexto real.
+// Servido por la app (http/https) y embebido en el iframe de Academy: navega
+// la ventana completa a la ruta real (rompe el iframe, corrige topbar/nav).
+// Abierto directo como archivo local (file://, sin server) para probarlo:
+// una ruta absoluta como "/academy/..." se resolvería contra la raíz del
+// disco, así que en ese caso volvemos al archivo hermano de al lado.
+function dwAcademyBack(realUrl){
+  // El origen siempre es la sección "Seguí profundizando" del recorrido
+  // principal: el destino fija ese anchor, sea cual sea el contexto.
+  var anchor = '#profundizar';
+  if (window.location.protocol === 'file:') {
+    // Hereda el query string actual (ej. ?branding=danwor) para no cambiar
+    // de formato al volver.
+    window.location.href = 'ia-agentica.html' + window.location.search + anchor;
+  } else if (window.parent && window.parent !== window) {
+    window.parent.location.href = realUrl + anchor;
+  } else {
+    window.location.href = realUrl + anchor;
+  }
+  return false;
+}
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // pipeline steps — click to expand detail (independent) + active border (exclusive per pipeline, last touched)
+  document.querySelectorAll('.pipeline').forEach(function(pipeline){
+    var steps = pipeline.querySelectorAll('.pipeline-step');
+    steps.forEach(function(step){
+      step.addEventListener('click', function(){
+        var willOpen = !step.classList.contains('is-open');
+        step.classList.toggle('is-open', willOpen);
+        var toggle = step.querySelector('.ps-toggle');
+        if(toggle){ toggle.textContent = willOpen ? '− tocá para ver menos' : '+ tocá para ver más'; }
+        steps.forEach(function(s){ s.classList.remove('is-active'); });
+        if(willOpen){ step.classList.add('is-active'); }
+      });
+    });
+  });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward, preserving hash position
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
