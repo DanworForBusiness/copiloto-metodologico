@@ -127,6 +127,7 @@ class Entity:
     data_category: str = ""            # @Analytics.dataCategory (CUBE/FACT/DIMENSION)
     remote_connection: str = ""
     remote_entity: str = ""
+    repository_type: str = ""          # @DataWarehouse.repository.technicalType (# ), p. ej. DWC_LOCAL_TABLE
     is_dataflow: bool = False          # viene de un archivo DF_*
     has_query: bool = False
     has_sql_preview: bool = False
@@ -141,10 +142,20 @@ class Entity:
 
     @property
     def kind_label(self) -> str:
-        if self.remote_entity:
-            return "Origen remoto"
         if self.is_dataflow:
             return "Data Flow (tabla local)"
+        # Discriminante AUTORITATIVO por sobre la heurística de `query`: una Local Table
+        # persistida (delta-active) trae un `query` que es solo la proyección de activación
+        # de su tabla `_Delta` — NO es una vista. Datasphere lo marca explícitamente con
+        # @DataWarehouse.repository.technicalType = DWC_LOCAL_TABLE. La persistencia gana
+        # incluso si hay remote/replicación.
+        if self.repository_type == "DWC_LOCAL_TABLE":
+            return "Tabla local"
+        # Remote Table federada: el dato vive en el origen (no persiste local). La remotez
+        # del ORIGEN (remote_entity · conexión) se muestra en la fila "Origen", NO como
+        # tipo de artefacto — así "Artefacto" describe el objeto, no de dónde se nutre.
+        if self.remote_entity:
+            return "Tabla remota"
         if self.has_query or self.has_sql_preview:
             return "Vista"
         return "Tabla local"
@@ -321,6 +332,7 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
             ent.data_category = (defn.get("@Analytics.dataCategory") or {}).get("#", ent.data_category)
             ent.remote_connection = defn.get("@DataWarehouse.remote.connection", ent.remote_connection)
             ent.remote_entity = defn.get("@DataWarehouse.remote.entity", ent.remote_entity)
+            ent.repository_type = (defn.get("@DataWarehouse.repository.technicalType") or {}).get("#", ent.repository_type)
             ent.has_query = ent.has_query or ("query" in defn)
             _extract_elements(defn, ent)
             ent._raw_refs = getattr(ent, "_raw_refs", []) + _extract_query_sources(defn)  # type: ignore
@@ -591,6 +603,34 @@ def _read_manual(path: Path) -> dict:
     return fm.get("manual") or {}
 
 
+def artifact_metadata_rows(
+    *, capa, artefacto, uso=None, origen=None, deriva_de=(), deriva_via=None,
+    asociaciones=(), modeling_pattern=None, extra_rows=(),
+) -> list[tuple[str, str]]:
+    """Filas (label, valor) de la tabla de metadata de un artefacto, en el ORDEN
+    CANÓNICO. FUENTE ÚNICA compartida por Dominios (`render_vista`) y Data Products
+    (`generate_data_products_catalog`): cambiar el set/orden acá se refleja en ambos
+    catálogos, sin replicar a mano. Cada consumidor pasa sus valores ya formateados;
+    lo específico de cada mundo (p. ej. capa HDLF/Object Store o el origen vía
+    Replication Flow en Data Products) entra como override de esos mismos campos."""
+    rows: list[tuple[str, str]] = [("Capa", capa), ("Artefacto", artefacto)]
+    if uso:
+        rows.append(("Uso semántico", uso))
+    if origen:
+        rows.append(("Origen", origen))
+    if deriva_de:
+        # `deriva_via` anota CÓMO se derivó (p. ej. "Transformation Flow" para la
+        # publicación HANA→HDLF en Data Products), simétrico a "Origen · vía …".
+        derived = ", ".join(f"`{u}`" for u in deriva_de)
+        rows.append(("Deriva de", f"{derived} · vía {deriva_via}" if deriva_via else derived))
+    if asociaciones:
+        rows.append(("Asociaciones", ", ".join(f"`{u}`" for u in asociaciones)))
+    if modeling_pattern:
+        rows.append(("Patrón de modelado", modeling_pattern))
+    rows.extend(extra_rows)
+    return rows
+
+
 def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict | None = None) -> str:
     pn = parse_name(ent.name)
     is_sapi = _is_sapi_remote(ent.remote_entity)
@@ -633,15 +673,15 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
               **(manual_override or {})}
     # Cuerpo = dos tablas (el copiloto las renderiza con el estilo de contenido de
     # cualquier módulo): (1) resumen de la entidad, (2) campos con tipo/longitud/clave.
-    rows = [("Capa", capa_nombre), ("Artefacto", artefacto)]
-    if uso:
-        rows.append(("Uso semántico", uso))
-    if ent.remote_entity:
-        rows.append(("Origen", f"`{ent.remote_entity}` · conexión `{ent.remote_connection}`"))
-    if ent.upstreams:
-        rows.append(("Deriva de", ", ".join("`" + u + "`" for u in ent.upstreams)))
-    if ent.modeling_pattern:
-        rows.append(("Patrón de modelado", ent.modeling_pattern))
+    rows = artifact_metadata_rows(
+        capa=capa_nombre,
+        artefacto=artefacto,
+        uso=uso or None,
+        origen=(f"`{ent.remote_entity}` · conexión `{ent.remote_connection}`"
+                if ent.remote_entity else None),
+        deriva_de=ent.upstreams or (),
+        modeling_pattern=ent.modeling_pattern or None,
+    )
     # Sin subtítulo `>`: la descripción (label) la usa el detalle del flujo como
     # título de sección ("Descripción {NOMBRE}"); repetirla acá sería redundante.
     md = [_fm(auto, manual), f"# {ent.name}", "",

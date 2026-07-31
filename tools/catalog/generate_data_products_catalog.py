@@ -26,10 +26,19 @@ if str(_REPO_ROOT) not in sys.path:
 
 try:
     from tools.catalog.generate_catalog import load_folder as _load_domain_folder
+    from tools.catalog.generate_catalog import _sync_apis as _sync_domain_apis
+    # Contrato de metadata COMPARTIDO con Dominios: mismo orden/labels/columnas. DP solo
+    # inyecta lo suyo (capa HANA/HDLF, origen vía Replication Flow). Ver artifact_metadata_rows.
+    from tools.catalog.generate_catalog import artifact_metadata_rows as _artifact_metadata_rows
+    from tools.catalog.generate_catalog import parse_name as _parse_name, CAPA as _CAPA
 except Exception:  # pragma: no cover - keeps the standalone generator tolerant
     _load_domain_folder = None
+    _sync_domain_apis = None
+    _artifact_metadata_rows = None
+    _parse_name = None
+    _CAPA = {}
 
-GENERATOR_VERSION = "data-products-v11"
+GENERATOR_VERSION = "data-products-v14"
 
 DATA_PRODUCT_SUPPORT_DOCUMENT_URLS = {
     "additionalDocuments.pptx": "https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAuQ_sKiXWKSoy_pXz3Fe5yAUZKhdR-NjSKMCRcu_M5F5Q?e=5yWev3",
@@ -275,6 +284,39 @@ def _delta_base(name: str) -> str:
     return raw[:-6] if raw.lower().endswith("_delta") else raw
 
 
+def _is_replication_flow(payload: Any) -> bool:
+    return isinstance(payload, dict) and isinstance(payload.get("replicationflows"), dict)
+
+
+def _replication_sources(folder: Path) -> dict[str, str]:
+    """Mapa {nombre_tecnico_tabla_local (lower) -> CDS de extracción} leído de los
+    Replication Flow objects (`RF_*.json` con top-level `replicationflows`).
+
+    Es el análogo del `@DataWarehouse.remote.entity` de Dominios, pero para tablas
+    locales con delta capture: la tabla local no referencia a su CDS en su propio CSN
+    (lee de su `_Delta`); el vínculo vive en el RF, en cada
+    `replicationTasks[].sourceObject.name` (CDS) → `targetObject.name` (target). El
+    target suele venir con sufijo `_Delta` (delta capture) → se recorta a la tabla base.
+    """
+    out: dict[str, str] = {}
+    for jf in sorted(folder.glob("*.json")):
+        payload = _read_json(jf)
+        if not _is_replication_flow(payload):
+            continue
+        for rf in (payload.get("replicationflows") or {}).values():
+            tasks = ((rf or {}).get("contents") or {}).get("replicationTasks") or []
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                src = str((task.get("sourceObject") or {}).get("name") or "").strip()
+                tgt = str((task.get("targetObject") or {}).get("name") or "").strip()
+                if src and tgt:
+                    out[_delta_base(tgt).lower()] = src
+    return out
+
+
 def _entity_runtime_from_payload(payload: Any, filename: str) -> dict[str, str]:
     """Clasifica cada definición como HANA u Object Store.
 
@@ -346,6 +388,7 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
     published_display_norm = {x.lower() for x in published_display if x}
 
     contract_names = {"productcsn.json", "servicedefinitionobject.json", "serviceentities.json"}
+    rf_sources = _replication_sources(folder)   # {tabla_local(lower) -> CDS de extracción}
     records: dict[str, dict[str, Any]] = {}
     delta_capable: set[str] = set()
     per_file_entities: dict[str, list[tuple[str, str]]] = {}
@@ -392,6 +435,8 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
         if jf.name.lower() in contract_names:
             continue
         payload = _read_json(jf)
+        if _is_replication_flow(payload):
+            continue   # los RF aportan el vínculo CDS (rf_sources), no son artefactos del linaje
         runtime_by_def = _entity_runtime_from_payload(payload, jf.name)
         parsed = _parse_domain_json_file(jf)
         file_nodes: list[tuple[str, str]] = []
@@ -527,7 +572,18 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
             "published": bool(node.get("published")),
             "runtime": node.get("runtime") or "hana",
             "delta_capable": bool(node.get("delta_capable")),
-            "slug": node.get("slug") or _lineage_section_slug(str(node.get("display") or ""), str(node.get("role") or "")),
+            # CDS de extracción que alimenta esta tabla local (vía Replication Flow).
+            # Análogo del origen_remoto de Dominios; el runtime lo usa para el botón
+            # "Abrir CDS View" si existe APIs/<origen_cds>.md.
+            "origen_cds": rf_sources.get(str(node.get("technical_name") or "").lower(), ""),
+            # Publicado: conserva el slug de "Entidad publicada" (que el runtime realinea
+            # con el rol real de la entidad). No publicado: recomputá SIEMPRE desde el rol
+            # FINAL (que ya absorbió el kind_label), porque el heading del markdown usa ese
+            # mismo rol; si dejáramos el slug inicial ("Artefacto de linaje") no matchearía
+            # el id de su sección y la cajita del SVG no navegaría.
+            "slug": (node.get("slug") if node.get("published")
+                     else _lineage_section_slug(str(node.get("display") or ""),
+                                                str(node.get("role") or "Artefacto de linaje"))),
         })
     return nodes
 
@@ -575,15 +631,6 @@ def _field_rows_for_entity(entity: dict[str, str], fields: list[dict[str, str]],
     return matched
 
 
-def _entity_role_label(display: str, index: int) -> str:
-    raw = str(display or "").upper()
-    if raw.startswith("3TF") or raw.startswith("3VF") or raw.startswith("3VS"):
-        return "Entidad principal"
-    if raw.startswith("2TD") or raw.startswith("2VD") or raw.startswith("2V"):
-        return "Entidad relacionada"
-    return "Entidad publicada" if index == 0 else "Entidad complementaria"
-
-
 def _md_value(value: Any, code: bool = False) -> str:
     value = str(value or "").strip()
     if not value:
@@ -620,6 +667,63 @@ def _read_manual(path: Path) -> dict:
     except Exception:
         return {}
     return fm.get("manual") or {}
+
+
+def _dp_heading(name: str, label: str) -> tuple[str, str]:
+    """Header estándar Danwor, MISMO criterio que Dominios (`_heading`): descripción
+    (negro) · ID técnico (dorado). Sin descripción real (label vacío o == nombre) se
+    repite el ID. Devuelve (heading_con_tonos, texto_plano) — el plano define el slug."""
+    name = str(name or "").strip()
+    label = str(label or "").strip()
+    desc = label if (label and label != name) else name
+    return f"{{dw-black}}{desc} · {{dw-gold}}{name}", f"{desc} · {name}"
+
+
+def _dp_capa(display: str, runtime: str) -> str:
+    """Capa del artefacto en Data Products. Lo ESPECÍFICO de DP (el cruce de universos
+    que Dominios no tiene): si vive en HDLF/Object Store, esa ES su capa; si es HANA, se
+    usa la capa §28 del nombre — la misma que Dominios."""
+    if runtime == "object_store":
+        return "HDLF · Object Store"
+    pn = _parse_name(display) if _parse_name else {}
+    return _CAPA.get(pn.get("capa"), "Sin definir")
+
+
+def _dp_artefacto(runtime: str, kind_label: str) -> str:
+    # local/remota es una distinción del espacio HANA; en Object Store el detalle de
+    # persistencia lo da la Capa (HDLF), así que el artefacto queda genérico ("Tabla").
+    if runtime == "object_store":
+        return "Tabla"
+    return kind_label or "Tabla"
+
+
+def _dp_property_table(*, display: str, runtime: str, kind_label: str, deriva_de: list,
+                       asociaciones: list, modeling_pattern: str, origen_cds: str) -> list[str]:
+    """Tabla de propiedades de un artefacto DP con el MISMO contrato que Dominios
+    (`artifact_metadata_rows`: orden/labels compartidos). El nombre técnico va en el
+    heading, no como fila. DP solo inyecta lo suyo: capa HDLF/Object Store y el origen
+    vía Replication Flow."""
+    if _artifact_metadata_rows is None:
+        return ["| Propiedad | Valor |", "|---|---|"]
+    pn = _parse_name(display) if _parse_name else {}
+    origen = f"`{origen_cds}` · vía Replication Flow" if origen_cds else None
+    capa = _dp_capa(display, runtime)
+    if capa == "Sin definir" and origen_cds:
+        capa = "Ingesta"   # fuente de extracción (RF) sin prefijo §28 → capa de ingesta (simil Dominios)
+    # HDLF/Object Store se publica desde su homónima HANA vía un Transformation Flow;
+    # lo anotamos en "Deriva de" (simétrico al "Origen · vía Replication Flow").
+    deriva_via = "Transformation Flow" if runtime == "object_store" else None
+    rows = _artifact_metadata_rows(
+        capa=capa,
+        artefacto=_dp_artefacto(runtime, kind_label),
+        uso=pn.get("uso"),
+        origen=origen,
+        deriva_de=deriva_de,
+        deriva_via=deriva_via,
+        asociaciones=asociaciones,
+        modeling_pattern=modeling_pattern or None,
+    )
+    return ["| Propiedad | Valor |", "|---|---|"] + [f"| {k} | {v} |" for k, v in rows]
 
 
 def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
@@ -694,26 +798,51 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
         md.insert(idx + 1, f'{{{{support: {doc["label"]}="{doc["url"]}"}}}}')
 
 
+    published_displays = {str(ent.get("display") or _artifact_display_name(ent.get("name") or "")).strip().lower() for ent in published}
+    lineage_display_by_id = {
+        str(n.get("name") or ""): str(n.get("display") or n.get("technical_name") or n.get("name") or "")
+        for n in lineage_nodes
+    }
+    node_by_display = {str(n.get("display") or "").strip().lower(): n for n in lineage_nodes}
+
+    def _visible_lineage_ref_list(refs: list) -> list[str]:
+        """IDs internos (hana::X / object_store::X) → nombres técnicos visibles (lista)."""
+        out: list[str] = []
+        for ref in refs or []:
+            ref_s = str(ref or "")
+            val = lineage_display_by_id.get(ref_s) or ref_s.split("::", 1)[-1]
+            if val:
+                out.append(val)
+        return out
+
+    def _refs_from_node(node: dict, key: str) -> list[str]:
+        return _visible_lineage_ref_list((node or {}).get(key) or [])
+
     for i, ent in enumerate(published):
         display = ent.get("display") or _artifact_display_name(ent.get("name") or "")
-        role = _entity_role_label(display, i)
-        heading = f"{{dw-black}}{role} · {{dw-gold}}{display}"
         rows = _field_rows_for_entity(ent, fields, i, len(published))
+        node = node_by_display.get(display.strip().lower()) or {}
+        # Descripción del header: la del nodo de linaje (misma fuente que el ancla del
+        # SVG en runtime) para que el slug del heading y el del nodo coincidan.
+        heading, _plain = _dp_heading(display, node.get("label") or ent.get("label") or "")
         md += [
             f"## {heading}",
             "",
             f"> Entidad publicada por el Data Product `{product_id}`.",
             "",
-            "| Propiedad | Valor |",
-            "|---|---|",
-            f"| Technical Name | {_md_value(ent.get('name'), True)} |",
-            f"| Rol | {role} |",
-            f"| Tipo | {_md_value(ent.get('kind'))} |",
-            f"| Campos detectados | {len(rows)} |",
+            *_dp_property_table(
+                display=display,
+                runtime=str(node.get("runtime") or "object_store"),
+                kind_label=str(node.get("kind_label") or ""),
+                deriva_de=_refs_from_node(node, "upstreams"),
+                asociaciones=_refs_from_node(node, "assoc_upstreams"),
+                modeling_pattern=str(node.get("modeling_pattern") or ""),
+                origen_cds=str(node.get("origen_cds") or ""),
+            ),
             "",
         ]
         if rows:
-            md += ["### Campos", "", "| Campo | Descripción | Tipo | Long. | Clave | Relación |", "|---|---|---|---|:--:|---|"]
+            md += [f"#### Campos ({len(rows)})", "", "| Campo | Descripción | Tipo | Long. | Clave | Relación |", "|---|---|---|---|:--:|---|"]
             for field in rows:
                 md.append(
                     f"| {_md_value(field.get('name'), True)} | "
@@ -722,41 +851,30 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
                 )
             md.append("")
 
-    published_displays = {str(ent.get("display") or _artifact_display_name(ent.get("name") or "")).strip().lower() for ent in published}
-    lineage_display_by_id = {
-        str(n.get("name") or ""): str(n.get("display") or n.get("technical_name") or n.get("name") or "")
-        for n in lineage_nodes
-    }
-
-    def _visible_lineage_refs(refs: list[str]) -> str:
-        visible: list[str] = []
-        for ref in refs or []:
-            ref_s = str(ref or "")
-            visible.append(lineage_display_by_id.get(ref_s) or ref_s.split("::", 1)[-1])
-        return ", ".join(v for v in visible if v)
-
     for node in lineage_nodes:
         display = str(node.get("display") or "").strip()
         if not display or str(node.get("published") or "").lower() == "true" or display.lower() in published_displays:
             continue
-        role = str(node.get("kind_label") or node.get("role") or "Artefacto de linaje")
+        heading, _plain = _dp_heading(display, node.get("label") or "")
         md += [
-            f"## {{dw-black}}{role} · {{dw-gold}}{display}",
+            f"## {heading}",
             "",
             "> Artefacto técnico detectado en el linaje del Data Product.",
             "",
-            "| Propiedad | Valor |",
-            "|---|---|",
-            f"| Technical Name | {_md_value(node.get('technical_name') or node.get('display'), True)} |",
-            f"| Tipo | {_md_value(role)} |",
-            f"| Deriva de | {_md_value(_visible_lineage_refs(node.get('upstreams') or []), True)} |",
-            f"| Asociaciones | {_md_value(_visible_lineage_refs(node.get('assoc_upstreams') or []), True)} |",
-            f"| Origen | {_md_value(node.get('remote_entity'), True)} |",
+            *_dp_property_table(
+                display=display,
+                runtime=str(node.get("runtime") or "hana"),
+                kind_label=str(node.get("kind_label") or ""),
+                deriva_de=_refs_from_node(node, "upstreams"),
+                asociaciones=_refs_from_node(node, "assoc_upstreams"),
+                modeling_pattern=str(node.get("modeling_pattern") or ""),
+                origen_cds=str(node.get("origen_cds") or ""),
+            ),
             "",
         ]
         fields_extra = node.get("fields") or []
         if fields_extra:
-            md += ["### Campos", "", "| Campo | Descripción | Tipo | Long. | Clave | Relación |", "|---|---|---|---|:--:|---|"]
+            md += [f"#### Campos ({len(fields_extra[:80])})", "", "| Campo | Descripción | Tipo | Long. | Clave | Relación |", "|---|---|---|---|:--:|---|"]
             for field in fields_extra[:80]:
                 md.append(
                     f"| {_md_value(field.get('campo'), True)} | "
@@ -765,17 +883,23 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
                 )
             md.append("")
 
+    # Cumplimiento en el MISMO formato de bullets que Dominios (`## Hallazgos`): el
+    # runtime lo renderiza con el semáforo compartido (_catalog_compliance_table_html)
+    # + el intro por veredicto (_catalog_compliance_intro_md). El estado va como marcador
+    # inicial del bullet para que el semáforo lo clasifique.
+    def _bullet(criterio: str, estado: str, evidencia: str) -> str:
+        return f"- {estado} **{criterio}** _Evidencia:_ {evidencia}"
+
     md += [
         "## Cumplimiento",
         "",
-        "> Esta lectura resume la evidencia técnica disponible para clasificar el Data Product y deja trazabilidad de qué partes del contrato ya son parseables por el copiloto.",
-        "",
-        "| Criterio | Estado | Evidencia |",
-        "|---|---|---|",
-        f"| Producto identificado | Cumple | `{product_id}` |",
-        f"| Entidades publicadas | {'Cumple' if published else 'Pendiente'} | {len(published)} entidad(es) publicadas detectada(s) |",
-        f"| Contrato técnico parseable | {'Cumple' if files else 'Pendiente'} | {len(files)} archivo(s) JSON disponible(s) |",
-        f"| Campos del contrato | {'Cumple' if fields else 'Pendiente'} | {len(fields)} campo(s) detectado(s) |",
+        _bullet("Producto identificado", "Cumple", f"`{product_id}`"),
+        _bullet("Entidades publicadas", "Cumple" if published else "Pendiente",
+                f"{len(published)} entidad(es) publicada(s) detectada(s)"),
+        _bullet("Contrato técnico parseable", "Cumple" if files else "Pendiente",
+                f"{len(files)} archivo(s) JSON disponible(s)"),
+        _bullet("Campos del contrato", "Cumple" if fields else "Pendiente",
+                f"{len(fields)} campo(s) detectado(s)"),
     ]
     out.write_text("\n".join(md) + "\n", encoding="utf-8")
     return product_id, title
@@ -801,6 +925,22 @@ def _product_folders(inbound_root: Path) -> list[Path]:
     return [folders[name] for name in sorted(folders)]
 
 
+def _sync_data_product_apis(inbound_root: Path, out_root: Path) -> int:
+    """Sincroniza las CDS de extracción de Data Products (carpeta '01. APIs' anidada
+    bajo el wrapper 'Data Products') al pool compartido <out>/APIs, reutilizando el
+    `_sync_apis` del generador de dominios (mismo destino agnóstico de cliente que las
+    CDS de Dominios). Así el botón "Abrir CDS View" resuelve por `APIs/<CDS>.md`."""
+    if _sync_domain_apis is None or not inbound_root.is_dir():
+        return 0
+    total = 0
+    for wrapped in sorted(p for p in inbound_root.iterdir() if p.is_dir()):
+        clean = re.sub(r"^[^\w\d]+", "", wrapped.name).strip()
+        clean = re.sub(r"^\s*\d+\s*[\.\-_]\s*", "", clean).strip().lower().replace("-", " ").replace("_", " ")
+        if clean == "data products":
+            total += _sync_domain_apis(wrapped, out_root)
+    return total
+
+
 def generate_all(inbound_root, out_root) -> str:
     inbound_root = Path(inbound_root)
     out_root = Path(out_root)
@@ -811,7 +951,9 @@ def generate_all(inbound_root, out_root) -> str:
     for folder in folders:
         product_id, title = _render_product(folder, out_root)
         lines.append(f"[OK] {product_id}: {title}")
-    return f"Catálogo de Data Products regenerado ({len(lines)} producto(s)):\n" + "\n".join(lines)
+    synced = _sync_data_product_apis(inbound_root, out_root)
+    tail = f"\n[APIs] {synced} CDS de extracción sincronizada(s)." if synced else ""
+    return f"Catálogo de Data Products regenerado ({len(lines)} producto(s)):\n" + "\n".join(lines) + tail
 
 
 if __name__ == "__main__":

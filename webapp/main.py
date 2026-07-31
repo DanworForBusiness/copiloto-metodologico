@@ -1854,20 +1854,6 @@ def _catalog_data_product_artifact_name(name: str) -> str:
     return tail.strip() or str(name or "").strip()
 
 
-def _catalog_data_product_entity_role(display: str, index: int) -> str:
-    raw = str(display or "").upper()
-    if raw.startswith(("3TF", "3VF", "3VS")):
-        return "Entidad principal"
-    if raw.startswith(("2TD", "2VD", "2V")):
-        return "Entidad relacionada"
-    return "Entidad publicada" if index == 0 else "Entidad complementaria"
-
-
-def _catalog_data_product_section_slug(display: str, index: int) -> str:
-    role = _catalog_data_product_entity_role(display, index)
-    return slugify(f"{role} · {display}")
-
-
 def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> str:
     entities = []
     seen = set()
@@ -1882,9 +1868,20 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
         if not display or key in seen:
             continue
         seen.add(key)
-        entities.append({"name": raw_name, "display": display})
+        entities.append({"name": raw_name, "display": display, "label": str(ent.get("label") or "")})
     if not entities:
         return ""
+    # Label por nodo de linaje (misma fuente que usa el heading de la sección) para que
+    # el ancla de la vista SIMPLE también matchee el id de sección (Descripción · ID).
+    _node_label = {
+        str(n.get("display") or "").strip().lower(): str(n.get("label") or "")
+        for n in (getattr(product, "lineage_nodes", []) or []) if isinstance(n, dict)
+    }
+
+    def _dp_anchor(display: str, ent_label: str = "") -> str:
+        lbl = (_node_label.get(display.lower()) or ent_label or "").strip()
+        desc = lbl if (lbl and lbl != display) else display
+        return slugify(f"{desc} · {display}")
 
     if show_lineage and getattr(product, "lineage_nodes", None):
         published_by_display = {ent["display"].lower(): idx for idx, ent in enumerate(entities)}
@@ -1920,16 +1917,18 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
             disp_key = display.lower()
             runtime = str(raw_node.get("runtime") or "")
             is_pub = bool(raw_node.get("published")) or disp_key in published_by_display
+            # Ancla = MISMO texto plano que el heading de la sección (Descripción · ID).
+            # Usa el label por-display (last-wins, igual que el generador arma la sección):
+            # nodos HANA/HDLF homónimos comparten sección, así que comparten ancla.
+            slug = _dp_anchor(display)
             if is_pub:
                 idx = published_by_display.get(disp_key, len(published_node_names))
                 num = idx + 2
-                slug = _catalog_data_product_section_slug(display, idx)
                 if runtime == "object_store":
                     published_node_names.append(name)
             else:
                 extra_index += 1
                 num = extra_index + 1
-                slug = str(raw_node.get("slug") or slugify(f"{raw_node.get('kind_label') or raw_node.get('role') or 'Artefacto'} · {display}"))
             title_parts = [str(raw_node.get("label") or raw_node.get("kind_label") or display)]
             if runtime:
                 title_parts.append("Object Store" if runtime == "object_store" else "HANA")
@@ -1985,7 +1984,7 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
     ]
     for i, ent in enumerate(entities):
         y = HEAD + i * (H + VGAP)
-        slug = _catalog_data_product_section_slug(ent["display"], i)
+        slug = _dp_anchor(ent["display"], ent.get("label") or "")
         label = ent["display"]
         p.append(f'<path d="M{left_x + left_w},{y + H / 2:.1f} C{left_x + left_w + 45},{y + H / 2:.1f} {right_x - 55},{product_y + H / 2:.1f} {right_x - 4},{product_y + H / 2:.1f}" class="ln-edge" marker-end="url(#dp-ln-arrow)"/>')
         p.append(f'<a href="#{esc(slug)}" class="ln-node-a" data-catalog-anchor="#{esc(slug)}">')
@@ -3167,14 +3166,29 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
         if up not in pos or tgt not in pos:
             return
         edge_cls = cls
-        if is_data_product_lineage and runtime_by_name.get(up) == "hana" and runtime_by_name.get(tgt) == "object_store" and "ln-edge--assoc" not in cls:
+        cross_band = (is_data_product_lineage
+                      and runtime_by_name.get(up) == "hana"
+                      and runtime_by_name.get(tgt) == "object_store"
+                      and "ln-edge--assoc" not in cls)
+        if cross_band:
             edge_cls = cls + " ln-edge--hana"
         x1, y1 = pos[up]
         x2, y2 = pos[tgt]
-        sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
-        dx = max(24, abs(tx - sx) / 2)
-        p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
-                 f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
+        if cross_band:
+            # Salto ENTRE bandas (HANA arriba → HDLF abajo): sale por el borde INFERIOR
+            # del nodo superior y entra por el borde SUPERIOR del inferior (vertical),
+            # en vez de lateral der→izq. La curva se controla en el eje Y y el marker
+            # (orient="auto") rota la punta hacia abajo solo.
+            sx, sy = x1 + node_w[up] / 2, y1 + H
+            tx, ty = x2 + node_w[tgt] / 2, y2
+            dy = max(18, abs(ty - sy) / 2)
+            p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx:.0f},{sy+dy:.0f} '
+                     f'{tx:.0f},{ty-dy:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
+        else:
+            sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
+            dx = max(24, abs(tx - sx) / 2)
+            p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
+                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
 
     for up, tgt in direct_edges:
         _edge(up, tgt, "ln-edge")
@@ -3223,6 +3237,64 @@ def _catalog_cds_link(origen: str) -> str:
     if cds and (_catalog_apis_dir() / f"{cds}.md").exists():
         return cds
     return ""
+
+
+def _catalog_cds_button_html(cds: str, pack: str = "", cliente: str = "", dominio: str = "") -> str:
+    """Bloque HTML del botón "Abrir CDS View" (carga el código del extractor en el slot
+    central por HTMX). COMPARTIDO por el detalle de flujo (Dominios) y de Data Product,
+    para no duplicar markup/URL/target/estilos. `cliente`/`dominio` van vacíos cuando no
+    hay flujo de retorno (Data Products) → el CDS usa su "Volver" genérico. Va marcado
+    `heading-supports` para que el pipeline de contenido lo suba al header de la sección."""
+    qs = urlencode({"name": cds, "cliente": cliente, "dominio": dominio, "pack": pack or DEFAULT_PACK})
+    return (f'\n\n<div class="support-links heading-supports catalog-cds-launch">'
+            f'<a class="support-link catalog-cds-link" href="#" role="button" '
+            f'hx-get="/catalog/cds?{qs}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" '
+            f'@click.prevent>Abrir CDS View <span>&#8249;/&#8250;</span></a></div>\n\n')
+
+
+def _catalog_dp_inject_cds_buttons(body: str, lineage_nodes: list, pack: str) -> str:
+    """Inyecta "Abrir CDS View" en la sección de cada artefacto de ingesta del Data
+    Product con `origen_cds` (llave del Replication Flow) cuyo código exista en APIs/.
+    Espeja _catalog_flow_view (Dominios) reutilizando el mismo botón; sin flujo de
+    retorno pasa cliente/dominio vacíos → el CDS usa su "Volver" genérico."""
+    apis = _catalog_apis_dir()
+    by_display = {}
+    for n in lineage_nodes or []:
+        if not isinstance(n, dict):
+            continue
+        cds = str(n.get("origen_cds") or "").strip()
+        disp = str(n.get("display") or "").strip()
+        if cds and disp and (apis / f"{cds}.md").exists():
+            by_display[disp] = cds
+    if not by_display:
+        return body
+
+    def _repl(m):
+        head = m.group(0)
+        gold = re.search(r"\{dw-gold\}(.+)$", head)
+        disp = (gold.group(1) if gold else head).strip()
+        cds = by_display.get(disp)
+        return head + _catalog_cds_button_html(cds, pack) if cds else head
+
+    return re.sub(r"(?m)^##\s+.*$", _repl, body)
+
+
+def _catalog_dp_render_compliance(body: str, entry) -> str:
+    """Cierra el Data Product con el MISMO cumplimiento que Dominios (driver de L&F):
+    intro por veredicto (semáforo) + tabla de hallazgos coloreada. El generador emite los
+    hallazgos como bullets; acá se convierten con los helpers compartidos
+    (_catalog_compliance_intro_md + _catalog_compliance_table_html)."""
+    m = re.search(r"(?ms)^##\s+Cumplimiento[^\n]*\n(.*?)(?=\n##\s|\Z)", body)
+    if not m:
+        return body
+    verdict = str(getattr(entry, "veredicto", "") or "").strip().lower()
+    label = getattr(entry, "business_name", "") or getattr(entry, "title", "") or getattr(entry, "product_id", "")
+    intro = _catalog_compliance_intro_md(
+        verdict, str(getattr(entry, "apto", "") or _catalog_verdict_text(verdict)),
+        f"el Data Product {label}",
+    )
+    table = _catalog_compliance_table_html(m.group(1))
+    return body[:m.start()] + f"## Cumplimiento\n\n{intro}\n\n{table}\n" + body[m.end():]
 
 
 def _catalog_cds_view(name: str):
@@ -3445,12 +3517,7 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
         # lo levanta al header por venir marcado como heading-supports). Al volver del código se re-abre este mismo flujo.
         cds = _catalog_cds_link(autos[name].get("origen_remoto") or "")
         if cds:
-            qs = urlencode({"name": cds, "cliente": entry.cliente,
-                            "dominio": entry.dominio, "pack": pack or DEFAULT_PACK})
-            btn = (f'\n\n<div class="support-links heading-supports catalog-cds-launch">'
-                   f'<a class="support-link catalog-cds-link" href="#" role="button" '
-                   f'hx-get="/catalog/cds?{qs}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" '
-                   f'@click.prevent>Abrir CDS View <span>&#8249;/&#8250;</span></a></div>\n\n')
+            btn = _catalog_cds_button_html(cds, pack, entry.cliente, entry.dominio)
             vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + btn, vbody, count=1)
         parts.append(vbody)
     # Sección de cumplimiento: reutiliza el bloque "## Hallazgos…" del flujo_*.md.
@@ -3534,7 +3601,9 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
     if entry is None:
         raise HTTPException(404, "Data Product no encontrado en el catálogo")
     from webapp.services.content_service import render_sections
-    sections = render_sections(entry.body, pack_name="", stem="", base=0)
+    body = _catalog_dp_inject_cds_buttons(entry.body, entry.lineage_nodes, selected)
+    body = _catalog_dp_render_compliance(body, entry)
+    sections = render_sections(body, pack_name="", stem="", base=0)
     show_lineage = bool(lineage)
     lineage_svg = _catalog_data_product_lineage_svg(entry, show_lineage)
     ctx = {
