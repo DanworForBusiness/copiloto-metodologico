@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — El arrecife: el Guardrail Operativo que protege el foco de Arquitectura e Innovación." />
+<title>Danwor — El arrecife</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') !== 'plain'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  if(!document.documentElement.hasAttribute('data-dw-theme')){
+    document.documentElement.setAttribute('data-dw-theme', 'light');
+  }
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+<style>
+.topbar{background:#0c0c0d;}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" class="topbar-logo" />
+    <div class="topbar-right">
+      <span class="topbar-tag">El arrecife</span>
+      <a href="/academy/Funnel-como-faro?pack=datasphere_core#profundizar" class="topbar-back" onclick="return dwAcademyBack('/academy/Funnel-como-faro?pack=datasphere_core');">← Volver al recorrido</a>
+    </div>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Temas">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#objetivo" data-label="Objetivo"><span>Objetivo</span></a>
+  <a href="#regla" data-label="Regla"><span>La Regla Central</span></a>
+  <a href="#por-que" data-label="Por qué"><span>Por Qué Importa</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in">PROTECCIÓN DEL USO INDEBIDO</p>
+      <h1 class="hero-title reveal in">Decir que no a tiempo es <em>respeto</em></h1>
+      <p class="hero-sub reveal in reveal-d1">No cualquier embarcación puede entrar al canal sin condiciones mínimas. El Guardrail Operativo es el arrecife que protege esa entrada — no por desconfianza, sino para que lo que sí entra, entre en serio y con la capacidad real para atenderlo.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Temas">
+        <a href="#objetivo">1 · Objetivo</a>
+        <a href="#regla">2 · La Regla Central</a>
+        <a href="#por-que">3 · Por Qué Importa</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- OBJETIVO -->
+  <section class="topic" id="objetivo">
+    <div class="container">
+      <span class="topic-num reveal">Tema 1 de 3</span>
+      <p class="topic-kicker reveal">Objetivo</p>
+      <h2 class="topic-title reveal">Lo que el arrecife <em>protege</em></h2>
+      <p class="topic-lead reveal reveal-d1">Definir un sistema que impida que iniciativas sin condiciones mínimas consuman tiempo, energía o capacidad del equipo de Arquitectura y sus colaboradores.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Eliminar</span>
+            <p class="ps-title">El desborde</p>
+            <p class="ps-caption">Entrada indiscriminada de pedidos.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Sin un filtro, cualquier pedido llega directo a la misma cola, sin distinción de madurez ni de real necesidad de intervención.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Cortar</span>
+            <p class="ps-title">Lo inmaduro</p>
+            <p class="ps-caption">Antes de que consuma capacidad real.</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Evitar la improvisación disfrazada de oportunidad — una idea prematura no es lo mismo que una demanda lista para navegar.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Objetivo final</span><span class="tc-plain">Objetivo final</span></p>
+        <p>Asegurar foco en lo que realmente compete a la práctica de Arquitectura — no en lo que resulta más urgente para quien pregunta primero.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- LA REGLA CENTRAL -->
+  <section class="topic" id="regla">
+    <div class="container">
+      <span class="topic-num reveal">Tema 2 de 3</span>
+      <p class="topic-kicker reveal">La regla central</p>
+      <h2 class="topic-title reveal">Lo que no cumple, <em>no entra</em></h2>
+      <p class="topic-lead reveal reveal-d1">Todo lo que no cumple los criterios del proceso:</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">No avanza</span>
+            <p class="ps-title">Se detiene ahí</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">No sigue camino dentro del funnel hasta que reúna las condiciones mínimas.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">No se negocia</span>
+            <p class="ps-title">No hay excepción por insistencia</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">El criterio es el mismo para todos — no se ablanda porque quien pide, pida más fuerte.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">No consume capacidad</span>
+            <p class="ps-title">Protege el tiempo del equipo</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">La capacidad de Arquitectura e Innovación queda reservada para lo que ya cruzó el filtro.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">No entra al ciclo</span>
+            <p class="ps-title">Queda fuera del proceso consultivo</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">No forma parte de la conversación de priorización — se resuelve por otra vía.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Por el contrario, se deriva directamente a colaboradores desde Operaciones. No es un rechazo: es reconocer que esa necesidad tiene un camino más rápido y más adecuado que subir a la misma nave.</div>
+    </div>
+  </section>
+
+  <!-- POR QUÉ IMPORTA -->
+  <section class="topic" id="por-que">
+    <div class="container">
+      <span class="topic-num reveal">Tema 3 de 3</span>
+      <p class="topic-kicker reveal">Por qué importa</p>
+      <h2 class="topic-title reveal">Un filtro es un acto de <em>cuidado</em></h2>
+      <p class="topic-lead reveal reveal-d1">Es fácil leer un guardrail como burocracia. Es lo contrario: es la forma concreta en la que el equipo protege su foco, y en la que quien sí cruza el filtro puede confiar en que va a recibir atención real, no una promesa repartida entre demasiados pedidos.</p>
+
+      <div class="topic-callout reveal reveal-d1">
+        <p class="tc-label"><span class="tc-branded">La idea de fondo</span><span class="tc-plain">La idea de fondo</span></p>
+        <p>Decir que no a tiempo, con un criterio claro y parejo, es más respetuoso que decir que sí a todo y no poder sostenerlo. El arrecife no está para frenar — está para que lo que navega, navegue de verdad.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DICCIONARIO -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento a la operación real</span>
+      <p class="topic-kicker reveal">Diccionario</p>
+      <h2 class="topic-title reveal">Cómo se llama <em>en la vida real</em></h2>
+      <p class="topic-lead reveal reveal-d1">Esta parte del recorrido habló del arrecife; así se llama en el funnel real.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <thead><tr><th>Recorrido</th><th>Funnel real</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>El arrecife</td><td>Guardrail Operativo</td><td><a class="rosetta-cta" href="las-4-compuertas.html" data-carry-branding target="_parent">Seguir a las balizas →</a></td></tr>
+            <tr><td>Lo que no entra al canal</td><td>Se deriva a colaboradores desde Operaciones</td><td><a class="rosetta-cta" href="dos-canales.html#competitivo" data-carry-branding target="_parent">Ver el Canal Competitivo →</a></td></tr>
+            <tr><td>El faro completo</td><td>Volver al recorrido principal</td><td><a class="rosetta-cta" href="/academy/Funnel-como-faro?pack=datasphere_core" target="_parent">Volver a El Faro →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+function dwAcademyBack(realUrl){
+  var anchor = '#profundizar';
+  if (window.location.protocol === 'file:') {
+    window.location.href = 'el-faro.html' + window.location.search + anchor;
+  } else if (window.parent && window.parent !== window) {
+    window.parent.location.href = realUrl + anchor;
+  } else {
+    window.location.href = realUrl + anchor;
+  }
+  return false;
+}
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // pipeline steps — click to expand detail (independent) + active border (exclusive per pipeline, last touched)
+  document.querySelectorAll('.pipeline').forEach(function(pipeline){
+    var steps = pipeline.querySelectorAll('.pipeline-step');
+    steps.forEach(function(step){
+      step.addEventListener('click', function(){
+        var willOpen = !step.classList.contains('is-open');
+        step.classList.toggle('is-open', willOpen);
+        var toggle = step.querySelector('.ps-toggle');
+        if(toggle){ toggle.textContent = willOpen ? '− tocá para ver menos' : '+ tocá para ver más'; }
+        steps.forEach(function(s){ s.classList.remove('is-active'); });
+        if(willOpen){ step.classList.add('is-active'); }
+      });
+    });
+  });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward, preserving hash position
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

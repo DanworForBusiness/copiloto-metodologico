@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — Las 4 compuertas: los Gates 0 a 3 del Funnel Operativo, en detalle." />
+<title>Danwor — Las 4 compuertas</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') !== 'plain'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  if(!document.documentElement.hasAttribute('data-dw-theme')){
+    document.documentElement.setAttribute('data-dw-theme', 'light');
+  }
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+<style>
+.topbar{background:#0c0c0d;}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" class="topbar-logo" />
+    <div class="topbar-right">
+      <span class="topbar-tag">Las 4 compuertas</span>
+      <a href="/academy/Funnel-como-faro?pack=datasphere_core#profundizar" class="topbar-back" onclick="return dwAcademyBack('/academy/Funnel-como-faro?pack=datasphere_core');">← Volver al recorrido</a>
+    </div>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Temas">
+  <a href="#inicio" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#gate-0" data-label="Gate 0"><span>Gate 0 · Captura</span></a>
+  <a href="#gate-1" data-label="Gate 1"><span>Gate 1 · Alineación</span></a>
+  <a href="#gate-2" data-label="Gate 2"><span>Gate 2 · Madurez</span></a>
+  <a href="#gate-3" data-label="Gate 3"><span>Gate 3 · Impacto/Esfuerzo</span></a>
+  <a href="#rosetta" data-label="Diccionario"><span>Diccionario</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="inicio">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <p class="hero-eyebrow reveal in">PRIORIZACIÓN EFECTIVA</p>
+      <h1 class="hero-title reveal in">Cuatro balizas, <em>en fila</em></h1>
+      <p class="hero-sub reveal in reveal-d1">Adentro del canal, hay cuatro compuertas que cruzar en orden. Cada una pregunta algo distinto y más exigente que la anterior. Lo que las cruza las cuatro ya no discute si tenía que entrar — entró, y ahí termina la problemática de ideas o conflicto de intereses.</p>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <nav class="topic-nav reveal in reveal-d2" aria-label="Temas">
+        <a href="#gate-0">Gate 0</a>
+        <a href="#gate-1">Gate 1</a>
+        <a href="#gate-2">Gate 2</a>
+        <a href="#gate-3">Gate 3</a>
+      </nav>
+    </div>
+  </section>
+
+  <!-- GATE 0 -->
+  <section class="topic" id="gate-0">
+    <div class="container">
+      <span class="topic-num reveal">Gate 0 de 3</span>
+      <p class="topic-kicker reveal">Captura y Registro</p>
+      <h2 class="topic-title reveal">Primero, <em>normalizar</em></h2>
+      <p class="topic-lead reveal reveal-d1">Acá no se analiza en profundidad. Solo se normaliza la información para que sea comparable con cualquier otra demanda que entre por el mismo canal.</p>
+
+      <span class="topic-ref-label reveal reveal-d1">Qué se captura</span>
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table">
+          <thead><tr><th>Dato</th><th>Para qué sirve</th></tr></thead>
+          <tbody>
+            <tr><td>Dolor interno / hipótesis de oportunidad</td><td>Entender qué problema real hay detrás del pedido</td></tr>
+            <tr><td>Cliente, sponsor y urgencia</td><td>Saber quién está pidiendo y con qué peso</td></tr>
+            <tr><td>Valor potencial y alineación con visión</td><td>Primer filtro de relevancia</td></tr>
+            <tr><td>Datos disponibles (acelerador)</td><td>Si ya hay evidencia técnica para arrancar más rápido</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Es un registro, no una evaluación. La comparación en serio empieza recién en el Gate 1.</div>
+    </div>
+  </section>
+
+  <!-- GATE 1 -->
+  <section class="topic" id="gate-1">
+    <div class="container">
+      <span class="topic-num reveal">Gate 1 de 3</span>
+      <p class="topic-kicker reveal">Alineación Estratégica</p>
+      <h2 class="topic-title reveal">¿Esto <em>nos representa</em>?</h2>
+      <p class="topic-lead reveal reveal-d1">La pregunta central se responde a través del árbol de decisión (ver "Los dos canales"): si la demanda no está alineada, ahí termina — no como castigo, sino como criterio.</p>
+
+      <span class="topic-ref-label reveal reveal-d1">Criterios</span>
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">1</span>
+            <p class="ps-title">Alineación con el árbol de decisión</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Si la demanda no encaja en la lógica del árbol, no tiene sentido seguir avanzando por este canal.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">2</span>
+            <p class="ps-title">Impacto en Arquitectura e Innovación</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">No alcanza con que sea importante para quien pide — tiene que tener impacto real en lo que el área existe para sostener.</div></div>
+          </div>
+          <div class="pipeline-arrow">+</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">3</span>
+            <p class="ps-title">¿Diferenciación real respecto a otro colaborador?</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Si alguien desde Operaciones ya puede resolverlo igual de bien, no necesita subir a esta nave en particular.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Resultado</span><span class="tc-plain">Resultado</span></p>
+        <p><strong>Sí</strong> → pasa a Gate 2. <strong>No</strong> → se estaciona o se descarta. No es un "no" definitivo siempre — a veces es "todavía no".</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- GATE 2 -->
+  <section class="topic" id="gate-2">
+    <div class="container">
+      <span class="topic-num reveal">Gate 2 de 3</span>
+      <p class="topic-kicker reveal">Madurez e Instancia</p>
+      <h2 class="topic-title reveal">¿Es el <em>momento</em>?</h2>
+      <p class="topic-lead reveal reveal-d1">Pregunta central: ¿nos encontramos en el momento adecuado para intervenir y que la oportunidad sea atacada con excelencia y sin pérdida de tiempo?</p>
+
+      <span class="topic-ref-label reveal reveal-d1">Criterios</span>
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table">
+          <thead><tr><th>Criterio</th><th>Qué evalúa</th></tr></thead>
+          <tbody>
+            <tr><td>Datos mínimos para comenzar</td><td>Si hay con qué arrancar, no solo una idea</td></tr>
+            <tr><td>Acceso a personas clave del cliente</td><td>Si el camino para avanzar está realmente abierto</td></tr>
+            <tr><td>Claridad del dolor u objetivo</td><td>Si se entiende bien qué hay que resolver</td></tr>
+            <tr><td>Complejidad vs. capacidad actual</td><td>Si el equipo puede sostenerlo hoy</td></tr>
+            <tr><td>Necesidad de prototipos / PoC</td><td>Cuánto hay que construir antes de saber si funciona</td></tr>
+            <tr><td>Recursos internos requeridos</td><td>Qué se necesita destinar, y de dónde sale</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-callout reveal reveal-d2">
+        <p class="tc-label"><span class="tc-branded">Resultado</span><span class="tc-plain">Resultado</span></p>
+        <p><strong>Alto</strong> → pasa a Gate 3. <strong>Medio</strong> → incubación (todavía no, pero se sigue de cerca). <strong>Bajo</strong> → no avanza por ahora.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- GATE 3 -->
+  <section class="topic" id="gate-3">
+    <div class="container">
+      <span class="topic-num reveal">Gate 3 de 3</span>
+      <p class="topic-kicker reveal">Impacto & Esfuerzo</p>
+      <h2 class="topic-title reveal">La última <em>baliza</em></h2>
+      <p class="topic-lead reveal reveal-d1">Una matriz de impacto esperado vs. esfuerzo necesario, como mecanismo de priorización fluida entre todo lo que ya llegó hasta acá.</p>
+
+      <div class="pipeline reveal reveal-d1">
+        <div class="pipeline-row" style="grid-template-columns:1fr auto 1fr;">
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Esfuerzo necesario</span>
+            <p class="ps-title">Qué cuesta hacerlo</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Tiempo de consultoría, recursos técnicos, necesidad de investigación, complejidad de implementación.</div></div>
+          </div>
+          <div class="pipeline-arrow">×</div>
+          <div class="pipeline-step" data-step>
+            <span class="ps-num">Impacto esperado</span>
+            <p class="ps-title">Qué se gana si sale bien</p>
+            <span class="ps-toggle">+ tocá para ver más</span>
+            <div class="ps-detail"><div class="ps-detail-inner">Valor financiero/operativo potencial, posibilidad de generar roadmap o quick wins, relevancia comercial o estratégica, diferenciación competitiva.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <span class="topic-ref-label reveal reveal-d2">La matriz</span>
+      <div class="topic-table-wrap reveal reveal-d2">
+        <table class="topic-table">
+          <thead><tr><th>Cuadrante</th><th>Impacto</th><th>Esfuerzo</th></tr></thead>
+          <tbody>
+            <tr><td><strong>P1</strong></td><td>Alto</td><td>Bajo</td></tr>
+            <tr><td><strong>P2</strong></td><td>Alto</td><td>Alto</td></tr>
+            <tr><td><strong>P3</strong></td><td>Bajo</td><td>Bajo</td></tr>
+            <tr><td><strong>P4</strong></td><td>Bajo</td><td>Alto</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="topic-note reveal reveal-d2">Acá termina la problemática de ideas o conflicto de intereses. Lo que alcanza este punto ya es prioritario — y todos, en el equipo, entienden por qué.</div>
+    </div>
+  </section>
+
+  <!-- ROSETTA · DICCIONARIO -->
+  <section class="topic" id="rosetta">
+    <div class="container">
+      <span class="topic-num reveal">Cierre · Del cuento a la operación real</span>
+      <p class="topic-kicker reveal">Diccionario</p>
+      <h2 class="topic-title reveal">Cómo se llama <em>en la vida real</em></h2>
+      <p class="topic-lead reveal reveal-d1">Esta parte del recorrido habló de las cuatro balizas; así se llaman en el funnel real.</p>
+
+      <div class="topic-table-wrap reveal reveal-d1">
+        <table class="topic-table rosetta-table">
+          <thead><tr><th>Recorrido</th><th>Funnel real</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Las cuatro balizas</td><td>Gate 0 (Captura), Gate 1 (Alineación), Gate 2 (Madurez), Gate 3 (Impacto/Esfuerzo)</td><td><a class="rosetta-cta" href="el-guardrail.html" data-carry-branding target="_parent">Volver al arrecife →</a></td></tr>
+            <tr><td>La pregunta del Gate 1</td><td>El Árbol de Decisión del Canal Competitivo</td><td><a class="rosetta-cta" href="dos-canales.html#competitivo" data-carry-branding target="_parent">Ver el árbol →</a></td></tr>
+            <tr><td>El faro completo</td><td>Volver al recorrido principal</td><td><a class="rosetta-cta" href="/academy/Funnel-como-faro?pack=datasphere_core" target="_parent">Volver a El Faro →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+function dwAcademyBack(realUrl){
+  var anchor = '#profundizar';
+  if (window.location.protocol === 'file:') {
+    window.location.href = 'el-faro.html' + window.location.search + anchor;
+  } else if (window.parent && window.parent !== window) {
+    window.parent.location.href = realUrl + anchor;
+  } else {
+    window.location.href = realUrl + anchor;
+  }
+  return false;
+}
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // pipeline steps — click to expand detail (independent) + active border (exclusive per pipeline, last touched)
+  document.querySelectorAll('.pipeline').forEach(function(pipeline){
+    var steps = pipeline.querySelectorAll('.pipeline-step');
+    steps.forEach(function(step){
+      step.addEventListener('click', function(){
+        var willOpen = !step.classList.contains('is-open');
+        step.classList.toggle('is-open', willOpen);
+        var toggle = step.querySelector('.ps-toggle');
+        if(toggle){ toggle.textContent = willOpen ? '− tocá para ver menos' : '+ tocá para ver más'; }
+        steps.forEach(function(s){ s.classList.remove('is-active'); });
+        if(willOpen){ step.classList.add('is-active'); }
+      });
+    });
+  });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward, preserving hash position
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

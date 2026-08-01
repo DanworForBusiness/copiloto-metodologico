@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Danwor — El Faro: por qué confiar y sostener el Funnel Operativo de Arquitectura e Innovación." />
+<title>Danwor — El Faro</title>
+
+<script>
+(function(){
+  try{
+    var params = new URLSearchParams(window.location.search);
+    if(params.get('branding') !== 'plain'){
+      document.documentElement.classList.add('branding-danwor');
+    }
+  }catch(e){}
+  if(!document.documentElement.hasAttribute('data-dw-theme')){
+    document.documentElement.setAttribute('data-dw-theme', 'light');
+  }
+  try{ if(window.self !== window.top){ document.documentElement.classList.add('in-copiloto'); } }catch(e){ document.documentElement.classList.add('in-copiloto'); }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<link rel="stylesheet" href="dw-academy.css" />
+
+<style>
+/* top bar — Danwor branding: fondo oscuro fijo (el logo está pensado para fondo oscuro,
+   y el tema por defecto de esta página es claro) */
+.topbar{display:none; position:fixed; top:0; left:0; right:0; z-index:100; padding:1rem 0; background:#0c0c0d; border-bottom:1px solid var(--line);}
+html.branding-danwor .topbar{display:block;}
+.topbar-inner{display:flex; align-items:center; justify-content:space-between;}
+.topbar img{height:26px;}
+.topbar-tag{font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; color:var(--ink-dim); text-transform:uppercase;}
+
+/* section shell (componentes locales de la landing, no están en dw-academy.css) */
+.stop{position:relative; padding:clamp(5rem,10vw,8rem) 0; border-bottom:1px solid var(--line);}
+.stop:last-of-type{border-bottom:none;}
+.kicker{display:inline-flex; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin-bottom:1.1rem;}
+.stop-title{font-size:clamp(1.9rem,3.2vw,2.9rem); font-weight:800; line-height:1.12; letter-spacing:-.01em; max-width:16ch; margin-bottom:1.4rem;}
+.stop-title em{font-style:normal; color:var(--gold);}
+.stop-grid{display:grid; grid-template-columns:1.05fr .95fr; gap:clamp(1.5rem,4vw,3.5rem); align-items:stretch;}
+@media (max-width:880px){ .stop-grid{grid-template-columns:1fr;} }
+
+.analogy{display:flex; flex-direction:column;}
+.analogy p{font-size:clamp(1.02rem,1.1vw,1.18rem); color:var(--ink); max-width:56ch; flex:0 0 auto;}
+.analogy p + p{margin-top:1.25rem;}
+.analogy p:last-of-type{margin-bottom:1.25rem;}
+.analogy .lede{font-size:clamp(1.1rem,1.3vw,1.32rem); color:var(--ink); font-weight:500;}
+
+.spec-card{background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:1.6rem 1.7rem; position:relative; overflow:hidden; display:flex; flex-direction:column;}
+.spec-card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:linear-gradient(180deg,var(--gold-2),var(--gold-glow));}
+.spec-label{font-family:var(--mono); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:.6rem;}
+.spec-name{font-size:1.15rem; font-weight:700; margin-bottom:.7rem;}
+.spec-card ul{list-style:none; display:flex; flex-direction:column; gap:.55rem; margin-bottom:1.25rem; flex:0 0 auto;}
+.spec-card li{font-size:.92rem; color:var(--ink-soft); padding-left:1.1rem; position:relative;}
+.spec-card li::before{content:"→"; position:absolute; left:0; color:var(--gold); font-size:.8rem;}
+.spec-card li strong{color:var(--ink); font-weight:600;}
+.spec-limit{margin-top:0; flex:1 1 auto; padding-top:.9rem; border-top:1px dashed var(--line-2); font-size:.86rem; color:var(--ink-dim);}
+.spec-limit strong{color:var(--ink-soft);}
+
+.stop-quote{margin-top:0; flex:1 1 auto; display:flex; align-items:center; padding:1.1rem 1.4rem; background:var(--gold-dim); border-radius:12px; font-size:.98rem; color:var(--ink); border-left:3px solid var(--gold);}
+.analogy .lede, .analogy p:not(.lede){flex:0 0 auto;}
+
+.stop-num{font-family:var(--mono); font-size:.85rem; color:var(--ink-dim); margin-bottom:.5rem; display:block;}
+
+/* HERO — landing: título/subtítulo más grandes que la variante de subpáginas */
+.hero-title{font-size:clamp(2.2rem,5.4vw,4rem); max-width:34ch;}
+.hero-title .ht-pre{display:block; font-size:.44em; font-weight:600; color:var(--ink-soft); letter-spacing:0; margin-bottom:.45rem;}
+.hero-sub{font-size:clamp(1.05rem,1.4vw,1.3rem); max-width:71ch;}
+/* el ícono del faro (viewBox ancho 340x200) achicado para que no le gane espacio al texto */
+.hero-merge .section-art svg{height:clamp(130px,16vw,180px);}
+
+/* timeline strip */
+.timeline{margin-top:4rem; display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+.timeline a{flex:1 1 auto; min-width:110px; text-align:center; padding:.9rem .6rem; font-family:var(--mono); font-size:.72rem; letter-spacing:.03em; color:var(--ink-dim); border-right:1px solid var(--line); text-decoration:none; transition:color .25s, background .25s;}
+.timeline a:last-child{border-right:none;}
+.timeline a:hover{color:var(--gold); background:var(--gold-dim);}
+
+/* bridge / synthesis section */
+.bridge{min-height:100svh; display:flex; flex-direction:column; justify-content:center; padding:clamp(4.5rem,9vw,7rem) 0; text-align:center; border-bottom:1px solid var(--line); background:var(--bg-2);}
+.bridge h2{font-size:clamp(1.7rem,3vw,2.5rem); font-weight:800; max-width:24ch; margin:0 auto 1.3rem; line-height:1.2;}
+.bridge h2 em{font-style:normal; color:var(--gold);}
+.bridge-grid{display:flex; flex-wrap:wrap; justify-content:center; gap:.9rem; margin:2.2rem auto 1.6rem; max-width:900px;}
+.bridge-chip{font-family:var(--mono); font-size:.82rem; color:var(--ink-soft); border:1px solid var(--line-2); border-radius:999px; padding:.55rem 1.1rem;}
+.bridge-chip strong{color:var(--gold);}
+.bridge p.tail{max-width:56ch; margin:0 auto; color:var(--ink-soft); font-size:1.02rem;}
+
+/* closing finale sections */
+.finale{padding:clamp(5rem,10vw,8rem) 0; border-bottom:1px solid var(--line);}
+.finale:last-of-type{border-bottom:none;}
+.finale-head{margin-bottom:3rem;}
+.finale-title{font-size:clamp(1.9rem,3.4vw,3rem); font-weight:800; line-height:1.15; margin-bottom:1.2rem; max-width:34ch;}
+.finale-title em{font-style:normal; color:var(--gold);}
+.finale-body{font-size:1.08rem; color:var(--ink-soft); max-width:none;}
+.finale-tagline{margin-top:3rem; font-size:clamp(1.15rem,1.8vw,1.5rem); font-style:italic; color:var(--ink); border-left:3px solid var(--gold); padding-left:1.2rem; max-width:56ch;}
+
+/* "La respuesta" es ahora la última sección real del recorrido — sin borde inferior,
+   para no duplicar la línea separadora que agrega el copiloto debajo (widget de feedback). */
+#respuesta{border-bottom:none;}
+
+/* iniciativas — tiles expandibles del cierre (Dejarnos ser) */
+.iniciativas-head{margin-top:.9rem;}
+.iniciativas-lede{font-size:1.02rem; color:var(--ink-soft); margin-top:.6rem;}
+.iniciativas-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; margin-top:1.2rem;}
+.iniciativa-tile{background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:1.2rem 1.3rem;}
+.iniciativa-tile summary{cursor:pointer; list-style:none; display:flex; flex-direction:column; gap:.4rem;}
+.iniciativa-tile summary::-webkit-details-marker{display:none;}
+.iniciativa-tile .it-title{font-weight:700; font-size:.98rem; color:var(--ink); display:flex; align-items:center; justify-content:space-between; gap:.6rem;}
+.iniciativa-tile .it-title::after{content:"+"; font-family:var(--mono); color:var(--gold); font-size:1.1rem; flex:0 0 auto;}
+.iniciativa-tile[open] .it-title::after{content:"–";}
+.iniciativa-tile .it-teaser{font-size:.84rem; color:var(--ink-soft);}
+.iniciativa-tile .it-body{margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--line-2);}
+.iniciativa-tile .it-body p{font-size:.88rem; color:var(--ink-soft);}
+.iniciativa-tile .it-link{display:inline-block; margin-top:.8rem; font-family:var(--mono); font-size:.76rem; color:var(--gold); text-decoration:none;}
+.iniciativa-tile .it-link:hover{text-decoration:underline;}
+
+/* link chico, no protagonista, al pie de "La respuesta" */
+.answer-link{display:inline-block; margin-top:2.2rem; font-family:var(--mono); font-size:.72rem; color:var(--ink-dim); text-decoration:none; border-bottom:1px dotted var(--line-2); padding-bottom:2px;}
+.answer-link:hover{color:var(--gold); border-color:var(--gold);}
+</style>
+</head>
+<body>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<header class="topbar">
+  <div class="container topbar-inner">
+    <img src="assets/img/danwor-logo.png" alt="Danwor" />
+    <span class="topbar-tag">Danwor Transversal · Arquitectura e Innovación</span>
+  </div>
+</header>
+
+<nav class="rail" id="rail" aria-label="Recorrido">
+  <a href="#hero" data-label="Inicio"><span>Inicio</span></a>
+  <a href="#ordenamiento" data-label="Ordenamiento"><span>Ordenamiento</span></a>
+  <a href="#transversal" data-label="Transversal"><span>Transversal</span></a>
+  <a href="#funnel" data-label="Funnel"><span>Funnel</span></a>
+  <a href="#sponsorhsip" data-label="Sponsorship"><span>Sponsorship</span></a>
+  <a href="#autonomia" data-label="Autonomía"><span>Autonomía</span></a>
+  <a href="#bridge" data-label="Síntesis"><span>Síntesis</span></a>
+  <a href="#respuesta" data-label="Respuesta"><span>La Respuesta</span></a>
+</nav>
+
+<main>
+
+  <!-- HERO -->
+  <section class="hero" id="hero">
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="container hero-inner">
+      <div class="hero-merge">
+        <div class="section-art reveal in">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El faro, con pájaros, nubes y su haz de luz guiando">
+            <g stroke="var(--ink-dim)" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7">
+              <path d="M40 80 Q46 74 52 80 Q58 74 64 80"/>
+              <path d="M270 70 Q275 65 280 70 Q285 65 290 70"/>
+              <path d="M250 100 Q254 96 258 100 Q262 96 266 100"/>
+            </g>
+
+            <path d="M170 62 L60 32" stroke="var(--gold)" stroke-width="14" stroke-linecap="round" opacity=".28"/>
+            <path d="M170 62 L84 60" stroke="var(--gold)" stroke-width="10" stroke-linecap="round" opacity=".4"/>
+            <path d="M170 62 L110 92" stroke="var(--gold)" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+
+            <path d="M170 22 L194 54 H146 Z" fill="var(--gold)"/>
+            <rect x="150" y="54" width="40" height="16" rx="3" fill="var(--ink)"/>
+            <circle cx="170" cy="62" r="5" fill="var(--gold)"/>
+            <rect x="144" y="70" width="52" height="6" rx="2" fill="var(--ink-dim)"/>
+
+            <path d="M148 76 L192 76 L194 97 L146 97 Z" fill="var(--ink)"/>
+            <path d="M146 97 L194 97 L196 118 L144 118 Z" fill="var(--bg)"/>
+            <path d="M144 118 L196 118 L198 139 L142 139 Z" fill="var(--ink)"/>
+            <path d="M142 139 L198 139 L200 160 L140 160 Z" fill="var(--bg)"/>
+            <path d="M140 160 L200 160 L203 180 L137 180 Z" fill="var(--ink)"/>
+            <circle cx="170" cy="107" r="5" fill="var(--gold)" opacity=".85"/>
+            <circle cx="170" cy="149" r="5" fill="var(--gold)" opacity=".85"/>
+
+            <rect x="120" y="180" width="100" height="10" rx="2" fill="var(--ink-dim)"/>
+
+            <path d="M20 190 Q90 178 170 190 Q240 178 320 190" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+            <path d="M40 198 Q110 190 170 198 Q230 190 300 198" stroke="var(--line-2)" stroke-width="2.5" fill="none" opacity=".6"/>
+          </svg>
+        </div>
+        <div>
+          <p class="hero-eyebrow reveal in"><span class="dot"></span> <span class="eyebrow-branded">Otra Historia contada simple · 6 min</span><span class="eyebrow-plain">Conocimiento fundacional · Lo que sabemos, contado simple · 6 min</span></p>
+          <h1 class="hero-title reveal in"><span class="ht-pre">Diez años de crecimiento real, con base y rumbo.</span>Solo falta preguntarse: <em>¿Y si crecer también fuera esto?</em></h1>
+          <p class="hero-sub reveal in reveal-d1">Un recorrido por nuestro camino hasta entender el por qué existe Arquitectura e Innovación, y por qué el funnel que sostiene su trabajo no es un concepto sino el faro que evita que, cuando apriete el zapato, volvamos a lo de siempre.</p>
+        </div>
+      </div>
+      <div class="hero-scroll reveal in reveal-d2"><span class="arrow">↓</span> scroll para continuar el recorrido</div>
+
+      <div class="timeline reveal in reveal-d2">
+        <a href="#ordenamiento">01 Ordenamiento</a>
+        <a href="#transversal">02 Transversal</a>
+        <a href="#funnel">03 El Funnel</a>
+        <a href="#sponsorhsip">04 Sponsorship</a>
+        <a href="#autonomia">05 Autonomía</a>
+        <a href="#respuesta">06 La Respuesta</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 ordenamiento SIN MAPA -->
+  <section class="stop" id="ordenamiento">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">01 / 05 · Primer Aporte</span>
+          <p class="kicker reveal">Metodología</p>
+          <h2 class="stop-title reveal">Ordenamiento y <em>Capitalización Técnica</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cuatro piezas de rompecabezas encastradas formando un cuadrado">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <path d="M100 30 H170 V55 A10 10 0 0 1 170 75 V100 H145 A10 10 0 0 1 125 100 H100 Z" fill="var(--gold)" stroke="var(--bg)" stroke-width="2.5"/>
+            <path d="M170 30 H240 V100 H215 A10 10 0 0 1 195 100 H170 V75 A10 10 0 0 0 170 55 V30 Z" fill="var(--ink)" stroke="var(--bg)" stroke-width="2.5"/>
+            <path d="M100 100 H125 A10 10 0 0 0 145 100 H170 V125 A10 10 0 0 1 170 145 V170 H100 Z" fill="var(--ink)" stroke="var(--bg)" stroke-width="2.5"/>
+            <path d="M170 100 H195 A10 10 0 0 0 215 100 H240 V170 H170 V145 A10 10 0 0 0 170 125 V100 Z" fill="var(--gold)" stroke="var(--bg)" stroke-width="2.5"/>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Desde el trabajo técnico diario, notamos que muchos proyectos se resolvían como si fueran el primero. Con vocación de orden, empezamos a registrar cómo se hacían las cosas. No solo lo propio, sino también mirando otros proyectos: rescatando y catalogando lo que funcionaba mejor y por qué.</p>
+          <p>Esa guía referencial fue creciendo hasta convertirse en una PPT de 40 slides y 8 apéndices. Tenía valor real pero apareció el problema de fondo: el espíritu solo no alcanzaba para sostenerla: era estática y no aprendía de otros.</p>
+          <div class="stop-quote">Este primer intento no falló en convicción o utilidad. Le faltó practicidad y conocimiento orgánico.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En Resumen</p>
+          <p class="spec-name">Mirada I+D</p>
+          <ul>
+            <li>Lo que veíamos no era falta de esfuerzo — era que nada quedaba documentado después del esfuerzo</li>
+            <li>Nos dedicamos a explorar tecnologías nuevas, más allá del día a día de proyecto.</li>
+            <li>Aún sin la presión de la facturación diaria, la falta de resultados comerciales en corto plazo, empezó a leerse como costo.</li>
+            <li>La mirada no fue "dejar de explorar" sino converger exploración con ejecución.</li>
+          </ul>
+          <p class="spec-limit"><strong>Lección aprendida:</strong> explorar y sostener no podían seguir viviendo separados — sin embargo — aún faltaba resolver la mejor forma de unirlos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 DANWOR TRANSVERSAL -->
+  <section class="stop" id="transversal">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">02 / 05 · Segundo Aporte</span>
+          <p class="kicker reveal">Unimos los puntos</p>
+          <h2 class="stop-title reveal">El puente entre los <em>dos mundos</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Un puente con estructura de arco que conecta dos orillas, con sol y pájaros">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <circle cx="45" cy="40" r="22" fill="var(--gold)" opacity=".2"/>
+            <circle cx="45" cy="40" r="14" fill="var(--gold)"/>
+
+            <g stroke="var(--ink-dim)" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7">
+              <path d="M180 35 Q184 31 188 35 Q192 31 196 35"/>
+              <path d="M205 47 Q208 44 211 47 Q214 44 217 47"/>
+            </g>
+
+            <path d="M0 150 Q40 122 92 150 L92 195 L0 195 Z" fill="var(--ink-dim)" opacity=".55"/>
+            <path d="M340 150 Q300 122 248 150 L248 195 L340 195 Z" fill="var(--ink-dim)" opacity=".55"/>
+
+            <rect x="37" y="120" width="2" height="22" fill="var(--ink-dim)"/>
+            <rect x="1" y="100" width="74" height="20" rx="4" fill="var(--gold)"/>
+            <text x="38" y="114" text-anchor="middle" font-family="Inter, sans-serif" font-size="9" font-weight="700" letter-spacing="-.1" fill="var(--ink)">Innovación</text>
+
+            <rect x="301" y="120" width="2" height="22" fill="var(--ink-dim)"/>
+            <rect x="265" y="100" width="74" height="20" rx="4" fill="var(--gold)"/>
+            <text x="302" y="114" text-anchor="middle" font-family="Inter, sans-serif" font-size="9" font-weight="700" letter-spacing="-.1" fill="var(--ink)">Operación</text>
+
+            <rect x="88" y="140" width="32" height="10" rx="2" fill="var(--ink-dim)"/>
+            <path d="M92 150 L124 150 L120 195 H96 Z" fill="var(--ink-dim)"/>
+            <path d="M96 165 H120 M94 180 H122" stroke="var(--bg)" stroke-width="2.5" opacity=".3"/>
+            <path d="M104 150 a4 6 0 1 0 8 0" stroke="var(--bg)" stroke-width="2" fill="none" opacity=".4"/>
+
+            <rect x="220" y="140" width="32" height="10" rx="2" fill="var(--ink-dim)"/>
+            <path d="M248 150 L216 150 L220 195 H244 Z" fill="var(--ink-dim)"/>
+            <path d="M220 165 H244 M218 180 H246" stroke="var(--bg)" stroke-width="2.5" opacity=".3"/>
+            <path d="M228 150 a4 6 0 1 0 8 0" stroke="var(--bg)" stroke-width="2" fill="none" opacity=".4"/>
+
+            <path d="M100 150 Q170 20 240 150 Q170 40 100 150 Z" fill="var(--ink)"/>
+            <g stroke="var(--bg)" stroke-width="2.2" opacity=".55">
+              <path d="M128 108 L149 100"/>
+              <path d="M128 115 L149 91"/>
+              <path d="M149 91 L170 95"/>
+              <path d="M149 100 L170 85"/>
+              <path d="M170 85 L191 100"/>
+              <path d="M170 95 L191 91"/>
+              <path d="M191 91 L212 115"/>
+              <path d="M191 100 L212 108"/>
+            </g>
+
+            <rect x="169" y="60" width="2" height="25" fill="var(--ink-dim)"/>
+            <path d="M171 60 L171 74 L189 67 Z" fill="var(--gold)"/>
+
+            <rect x="96" y="147" width="148" height="8" rx="2" fill="var(--ink)" opacity=".9"/>
+
+            <path d="M0 182 Q170 172 340 182" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+            <g fill="var(--line-2)" opacity=".6">
+              <circle cx="30" cy="192" r="2"/>
+              <circle cx="75" cy="194" r="2"/>
+              <circle cx="120" cy="191" r="2"/>
+              <circle cx="170" cy="193" r="2"/>
+              <circle cx="220" cy="191" r="2"/>
+              <circle cx="265" cy="194" r="2"/>
+              <circle cx="310" cy="192" r="2"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">De aquél primer intento y la curiosidad por innovar nace algo distinto: un puente entre lo que Danwor sostenía y lo que se animaba a explorar.</p>
+          <p>Un rol transversal, que acompaña la ejecución de hoy, junto con lo que hace falta para mejorar mañana. Su nombre no es casual, las siglas (DT) son un guiño a Director Técnico: quien ordena, define estrategia, y ayuda al crecimiento del equipo. Pero un puente sin reglas claras se convierte rápido en el lugar donde todos cruzan al mismo tiempo, generando caos y cuello de botella.</p>
+          <div class="stop-quote">No es uno u otro, sino un puente que conecte los dos.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En Resumen</p>
+          <p class="spec-name">Danwor Transversal</p>
+          <ul>
+            <li>Acompaña la ejecución y necesidades operativas, mientras construye en paralelo lo que hace falta para mejorar mañana</li>
+            <li>No reemplaza a nadie — conecta lo que ya funciona con lo que todavía hay que construir</li>
+            <li>Nace como respuesta a las lecciones aprendidas: explorar y sostener el negocio, juntos, bajo el lema #DanworForBusiness.</li>
+          </ul>
+          <p class="spec-limit"><strong>Desafío:</strong> un puente sin reglas es el lugar por donde todos cruzan al mismo tiempo — y ahí nace nuestro Funnel Operativo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 EL FUNNEL -->
+  <section class="stop" id="funnel">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">03 / 05 · Tercer Aporte</span>
+          <p class="kicker reveal">Modelo Operativo</p>
+          <h2 class="stop-title reveal">Colaboración Danwor <em>Transversal</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El faro visto de cerca, con pájaros, nubes y su haz de luz guiando">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <g opacity=".35" fill="var(--ink-dim)">
+              <ellipse cx="60" cy="50" rx="18" ry="11"/>
+              <ellipse cx="78" cy="44" rx="14" ry="9"/>
+              <ellipse cx="44" cy="46" rx="12" ry="8"/>
+              <ellipse cx="270" cy="42" rx="16" ry="10"/>
+              <ellipse cx="286" cy="38" rx="11" ry="7"/>
+            </g>
+
+            <g stroke="var(--ink-dim)" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7">
+              <path d="M40 80 Q46 74 52 80 Q58 74 64 80"/>
+              <path d="M270 70 Q275 65 280 70 Q285 65 290 70"/>
+              <path d="M250 100 Q254 96 258 100 Q262 96 266 100"/>
+            </g>
+
+            <path d="M170 62 L60 32" stroke="var(--gold)" stroke-width="14" stroke-linecap="round" opacity=".28"/>
+            <path d="M170 62 L84 60" stroke="var(--gold)" stroke-width="10" stroke-linecap="round" opacity=".4"/>
+            <path d="M170 62 L110 92" stroke="var(--gold)" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+
+            <path d="M170 22 L194 54 H146 Z" fill="var(--gold)"/>
+            <rect x="150" y="54" width="40" height="16" rx="3" fill="var(--ink)"/>
+            <circle cx="170" cy="62" r="5" fill="var(--gold)"/>
+            <rect x="144" y="70" width="52" height="6" rx="2" fill="var(--ink-dim)"/>
+
+            <path d="M148 76 L192 76 L194 97 L146 97 Z" fill="var(--ink)"/>
+            <path d="M146 97 L194 97 L196 118 L144 118 Z" fill="var(--bg)"/>
+            <path d="M144 118 L196 118 L198 139 L142 139 Z" fill="var(--ink)"/>
+            <path d="M142 139 L198 139 L200 160 L140 160 Z" fill="var(--bg)"/>
+            <path d="M140 160 L200 160 L203 180 L137 180 Z" fill="var(--ink)"/>
+            <circle cx="170" cy="107" r="5" fill="var(--gold)" opacity=".85"/>
+            <circle cx="170" cy="149" r="5" fill="var(--gold)" opacity=".85"/>
+
+            <rect x="120" y="180" width="100" height="10" rx="2" fill="var(--ink-dim)"/>
+
+            <path d="M20 190 Q90 178 170 190 Q240 178 320 190" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+            <path d="M40 198 Q110 190 170 198 Q230 190 300 198" stroke="var(--line-2)" stroke-width="2.5" fill="none" opacity=".6"/>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Cuando todo es prioritario, nada lo termina siendo. Cuando cada área pide, con razón propia, hay conflictos de prioridades. El modelo carece de diferenciación de demanda.</p>
+          <p>Nuestro modelo busca abordarlo pasando de cuello de botella centralizado, a Ownership distribuido: un faro operativo. Está ahí, fijo, visible, para que <i>—aunque la urgencia o la ansiedad tienten a improvisar— </i>el rumbo no se pierda.</p>
+          <div class="stop-quote">Bajo una filosofía colaborativa tipo "Boomerang" va y vuelve.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En Resumen</p>
+          <p class="spec-name">El funnel operativo</p>
+          <ul>
+            <li>Dos canales conviven y retroalimentan — uno hacia adentro, el otro hacia afuera</li>
+            <li>Filosofía "boomerang": la intervención va, resuelve, y vuelve — no se queda apropiándose de nada</li>
+            <li>Delega responsabilidad y compromiso, formando nuevas capacidades en vez de acumular tareas de forma permanente</li>
+          </ul>
+          <p class="spec-limit"><strong>Aclaración:</strong> un faro no es una autoridad que decide todo — es una referencia fija que todos pueden mirar para no perderse.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 PROTECCION Y PRIORIDAD -->
+  <section class="stop" id="sponsorhsip">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">04 / 05 · El apoyo que sostiene</span>
+          <p class="kicker reveal">Sponsorship genuino</p>
+          <h2 class="stop-title reveal">Confiar es <em>delegar</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Un certificado con un sello y cinta, símbolo de aval y confianza">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <rect x="40" y="25" width="190" height="125" rx="14" fill="var(--bg)" stroke="var(--ink)" stroke-width="8"/>
+            <rect x="62" y="55" width="110" height="11" rx="5.5" fill="var(--ink)"/>
+            <rect x="62" y="82" width="110" height="11" rx="5.5" fill="var(--ink)"/>
+            <rect x="62" y="109" width="70" height="11" rx="5.5" fill="var(--ink)"/>
+
+            <path d="M212 165 L212 197 L222 188 L230 200 L238 188 L248 197 L248 165 Z" fill="var(--ink)"/>
+            <circle cx="230" cy="140" r="38" fill="none" stroke="var(--ink)" stroke-width="14" stroke-dasharray="10 6"/>
+            <circle cx="230" cy="140" r="27" fill="var(--gold)"/>
+            <circle cx="230" cy="140" r="18" fill="none" stroke="var(--bg)" stroke-width="3" opacity=".6"/>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Apoyar una iniciativa no es empujarla desde adentro. Es delegar en el marco que la sostiene, y confiar en que el resultado llega por ese camino — no buscando opciones por fuera de él.</p>
+          <p>Opinar, desafiar y re-priorizar es parte del canal competitivo: donde las áreas compiten por capacidad, y hay lugar para la postura de la Dirección. El conocimiento como activo, metodología y colaboración técnica es un canal protegido: requiere Sponsorship genuino — es confiar en que, sin intervenir, el marco lo va a sostener igual.</p>
+          <div class="stop-quote">El apoyo más genuino no siempre se nota. A veces es, simplemente, no intervenir donde no corresponde.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En Resumen</p>
+          <p class="spec-name">Canal protegido + canal competitivo</p>
+          <ul>
+            <li>El canal protegido sostiene brainstorming, metodología y conocimiento — capacidad reservada, no a demanda</li>
+            <li>El canal competitivo es donde dirección, comercial, operaciones y otras áreas compiten por prioridad y capacidad</li>
+            <li>Sponsorship genuino es confiar en el marco del canal protegido sin intervenir en su ritmo</li>
+          </ul>
+          <p class="spec-limit"><strong>Matiz:</strong> no es que dirección no opine — es que esa opinión vive en el canal competitivo, no en el protegido.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 NAVEGAR ES EL MENSAJE -->
+  <section class="stop" id="autonomia">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">05 / 05 · El cierre</span>
+          <p class="kicker reveal">Autonomía</p>
+          <h2 class="stop-title reveal">Un pedido especial: <em>Dejarnos ser</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Un avión que traza un camino con una vuelta antes de seguir derecho">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+
+            <path d="M15 175 Q60 168 95 150 A40 28 0 1 1 115 152 Q160 130 200 100 Q230 78 258 65" stroke="var(--gold)" stroke-width="3.5" fill="none" stroke-linecap="round" opacity=".85"/>
+
+            <g transform="translate(268 55) rotate(65)">
+              <path d="M-6 -2 L-38 14 L-30 20 L-6 10 Z" fill="var(--ink)"/>
+              <path d="M6 -2 L38 14 L30 20 L6 10 Z" fill="var(--ink)"/>
+              <path d="M0 -30 L6 -10 L6 20 L0 30 L-6 20 L-6 -10 Z" fill="var(--ink)"/>
+              <path d="M-6 22 L-16 28 L-13 31 L-6 27 Z" fill="var(--ink)"/>
+              <path d="M6 22 L16 28 L13 31 L6 27 Z" fill="var(--ink)"/>
+              <path d="M0 20 L4 30 L0 34 L-4 30 Z" fill="var(--ink)"/>
+              <path d="M-20 16 L-24 26 M-14 16 L-17 25 M-28 14 L-33 24" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/>
+              <path d="M20 16 L24 26 M14 16 L17 25 M28 14 L33 24" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid" style="grid-template-columns:1fr;">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede" style="max-width:none;">El camino puede no ser corto, ni rápido, ni inmediato. Pero cuando apriete el zapato, y la tentación más lógica sea volver a las formas conocidas, te pedimos te acuerdes del funnel, nuestro compromiso y apuestes a sostener el cambio.</p>
+        </div>
+      </div>
+
+      <div class="iniciativas-head reveal reveal-d1">
+        <p class="kicker">Lo que el doble canal ya sostiene</p>
+        <p class="iniciativas-lede">Mirá todo lo que seguimos logrando gracias a esa autonomía — y lo que dejaríamos de lograr si dejáramos de sostenerla</p>
+      </div>
+
+      <div class="iniciativas-grid reveal reveal-d2">
+        <details class="iniciativa-tile">
+          <summary>
+            <span class="it-title">Metodología Danwor For Business</span>
+            <span class="it-teaser">Acompañamos el paso de IT Analytic Experts a Data &amp; AI for Business.</span>
+          </summary>
+          <div class="it-body">
+            <p>Implementamos distintos niveles de analítica bajo una misma visión del dato como producto, habilitando su convergencia, con capacidades de analítica predictiva end-to-end.</p>
+            <a class="it-link" href="https://danwor.sharepoint.com/sites/PrcticaAnalytics/SitePages/Home.aspx" target="_blank" rel="noopener">Acceso directo →</a>
+          </div>
+        </details>
+        <details class="iniciativa-tile">
+          <summary>
+            <span class="it-title">Copiloto Metodológico</span>
+            <span class="it-teaser">La guía estática en PPT, convertida en un copiloto inteligente e interactivo.</span>
+          </summary>
+          <div class="it-body">
+            <p>Conversión y modernización de nuestra guía estática a un copiloto inteligente con contenido interactivo, herramientas de diagnóstico, decisión y capacidades conversacionales con nuestro contenido y activos internos.</p>
+            <a class="it-link" href="https://danwor.com/copiloto/" target="_blank" rel="noopener">Acceso directo →</a>
+          </div>
+        </details>
+        <details class="iniciativa-tile">
+          <summary>
+            <span class="it-title">Catálogos Internos</span>
+            <span class="it-teaser">Metadatos y modelos técnicos, navegables e interactivos, con scoring de cumplimiento.</span>
+          </summary>
+          <div class="it-body">
+            <p>Convertimos los metadatos y semántica de nuestros modelos y entregables técnicos en activos integrados al copiloto que permiten navegar y profundizar —casi a nivel auto-documentación técnica— nuestros modelos organizados por dominios (Datasphere) o Data Products (BDC), con scoring y semáforos de cumplimiento metodológico.</p>
+            <a class="it-link" href="https://copiloto-metodologico-rc6x9.ondigitalocean.app/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&amp;tab=catalogo" target="_blank" rel="noopener">Acceso directo →</a>
+          </div>
+        </details>
+        <details class="iniciativa-tile">
+          <summary>
+            <span class="it-title">Danwor Academy</span>
+            <span class="it-teaser">Formación interna contada fácil, con el agua como hilo conductor.</span>
+          </summary>
+          <div class="it-body">
+            <p>Elevamos y acompañamos la iniciativa interna de formación de recursos con material didáctico de iniciación: lo que sabemos, contado fácil, a través del agua como hilo conductor.</p>
+            <a class="it-link" href="https://copiloto-metodologico-rc6x9.ondigitalocean.app/academy/ACAD01_Paradigmas?pack=datasphere_core" target="_blank" rel="noopener">Acceso directo →</a>
+          </div>
+        </details>
+        <details class="iniciativa-tile">
+          <summary>
+            <span class="it-title">Danwor Self-Service</span>
+            <span class="it-teaser">Mismos resultados, con menos demanda de tiempo, gracias a dinámicas self-service.</span>
+          </summary>
+          <div class="it-body">
+            <p>Elevamos y acompañamos las iniciativas de las distintas áreas modernizando las prácticas y limitando la demanda de tiempo, facilitando iguales resultados con dinámicas self-service.</p>
+            <a class="it-link" href="https://danwor.com.ar/Metodologia/danwor-ia-fundamentals-invite-email.html#info" target="_blank" rel="noopener">Acceso directo →</a>
+          </div>
+        </details>
+      </div>
+
+      <div class="stop-quote reveal reveal-d2" style="margin-top:2.5rem;">No hace falta apurar la llegada. Hace falta la perseverancia — dejarnos ser.</div>
+    </div>
+  </section>
+
+  <!-- BRIDGE / SYNTHESIS -->
+  <section class="bridge" id="bridge">
+    <div class="container">
+      <p class="kicker reveal" style="justify-content:center; display:inline-flex;">Síntesis</p>
+      <div class="section-art section-art--center reveal">
+        <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El faro, con pájaros, nubes y su haz de luz guiando" style="height:130px;">
+          <g opacity=".35" fill="var(--ink-dim)">
+            <ellipse cx="60" cy="50" rx="18" ry="11"/>
+            <ellipse cx="78" cy="44" rx="14" ry="9"/>
+            <ellipse cx="44" cy="46" rx="12" ry="8"/>
+            <ellipse cx="270" cy="42" rx="16" ry="10"/>
+            <ellipse cx="286" cy="38" rx="11" ry="7"/>
+          </g>
+
+          <g stroke="var(--ink-dim)" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7">
+            <path d="M40 80 Q46 74 52 80 Q58 74 64 80"/>
+            <path d="M270 70 Q275 65 280 70 Q285 65 290 70"/>
+            <path d="M250 100 Q254 96 258 100 Q262 96 266 100"/>
+          </g>
+
+          <path d="M170 62 L60 32" stroke="var(--gold)" stroke-width="14" stroke-linecap="round" opacity=".28"/>
+          <path d="M170 62 L84 60" stroke="var(--gold)" stroke-width="10" stroke-linecap="round" opacity=".4"/>
+          <path d="M170 62 L110 92" stroke="var(--gold)" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+
+          <path d="M170 22 L194 54 H146 Z" fill="var(--gold)"/>
+          <rect x="150" y="54" width="40" height="16" rx="3" fill="var(--ink)"/>
+          <circle cx="170" cy="62" r="5" fill="var(--gold)"/>
+          <rect x="144" y="70" width="52" height="6" rx="2" fill="var(--ink-dim)"/>
+
+          <path d="M148 76 L192 76 L194 97 L146 97 Z" fill="var(--ink)"/>
+          <path d="M146 97 L194 97 L196 118 L144 118 Z" fill="var(--bg)"/>
+          <path d="M144 118 L196 118 L198 139 L142 139 Z" fill="var(--ink)"/>
+          <path d="M142 139 L198 139 L200 160 L140 160 Z" fill="var(--bg)"/>
+          <path d="M140 160 L200 160 L203 180 L137 180 Z" fill="var(--ink)"/>
+          <circle cx="170" cy="107" r="5" fill="var(--gold)" opacity=".85"/>
+          <circle cx="170" cy="149" r="5" fill="var(--gold)" opacity=".85"/>
+
+          <rect x="120" y="180" width="100" height="10" rx="2" fill="var(--ink-dim)"/>
+
+          <path d="M20 190 Q90 178 170 190 Q240 178 320 190" stroke="var(--line-2)" stroke-width="3" fill="none"/>
+          <path d="M40 198 Q110 190 170 198 Q230 190 300 198" stroke="var(--line-2)" stroke-width="2.5" fill="none" opacity=".6"/>
+        </svg>
+      </div>
+      <h2 class="reveal">El Funnel <em>no decide</em> por vos, sino que evita <em>perder el rumbo</em>.</h2>
+      <div class="bridge-grid reveal reveal-d1">
+        <span class="bridge-chip">¿Todo parece prioritario? → <strong>El funnel dice qué realmente lo es</strong></span>
+        <span class="bridge-chip">¿Tentación de volver a lo de siempre? → <strong>El faro sigue ahí, fijo</strong></span>
+        <span class="bridge-chip">¿No se ve resultado inmediato? → <strong>Cada paso cuenta igual</strong></span>
+      </div>
+      <p class="tail reveal reveal-d2">Lo que separa un intento que se apaga de un cambio que se sostiene no es el entusiasmo del primer día. Es sostener el rumbo cuando nadie más lo está mirando — y ahí sigue el recorrido.</p>
+    </div>
+  </section>
+
+  <!-- LA RESPUESTA -->
+  <section class="bridge" id="respuesta" style="background:var(--bg);">
+    <div class="container">
+      <p class="kicker reveal" style="justify-content:center; display:inline-flex;">La respuesta</p>
+      <h2 class="reveal reveal-d1">Sí, crecer también es <em>esto</em>.😉</h2>
+      <p class="tail reveal reveal-d2">El conocimiento como activo, lo que queda cuando el proyecto termina, lo que no hay que volver a explicar. Lo que sigue en pie cuando nadie lo está mirando. Ya no es una promesa: está pasando. 🚀</p>
+      <a class="answer-link reveal reveal-d2" href="https://danwor.sharepoint.com/:p:/s/Operaciones-IniciativasOperacionesDanworTransversal/IQBbGtI7VDmASrWLUN937z47Ab_We1mWXzO1M3I9HbYr-c8?e=hplaPK" target="_blank" rel="noopener">¿Querés ver el Funnel completo? →</a>
+    </div>
+  </section>
+
+  <!-- ROLES: pausado por ahora (le restaba pegada al cierre). Markup completo, sin link en la nav ni el timeline; se puede reactivar más adelante.
+  <section class="finale" id="roles">
+    <div class="container">
+      <p class="kicker reveal">¿Quién es quién?</p>
+      <div class="finale-head">
+        <h2 class="finale-title reveal reveal-d1" style="max-width:30ch;">Cada rol en <em>su lugar</em></h2>
+        <p class="finale-body reveal reveal-d2">El funnel no es de un área — es el acuerdo que le da previsibilidad a todos.</p>
+      </div>
+
+      <div class="finale-grid reveal reveal-d2">
+        <div class="finale-card">
+          <p class="fc-role">Define</p>
+          <h3>Dirección</h3>
+          <p>Marca la visión y prioridades del canal competitivo: si una demanda es realmente estratégica vs. urgente.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Promueve</p>
+          <h3>Comercial & Pre-venta</h3>
+          <p>Detecta oportunidades; el árbol de decisión ayuda a distinguir valor técnico real de conveniencia comercial del momento.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Sostiene</p>
+          <h3>Operaciones</h3>
+          <p>Asigna colaboradores para lo que no necesita intervención directa de Arquitectura — la mayoría de los pedidos se resuelve acá, con el marco técnico ya definido.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Identifica</p>
+          <h3>Client Partners</h3>
+          <p>Acompañan la relación con cada cliente y traen las señales tempranas de qué necesidad podría ser estratégica de verdad.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Acciona</p>
+          <h3>Colaboradores</h3>
+          <p>Participan del Canal Protegido: brainstorming, sesiones colaborativas, y el espacio 1:1 donde el conocimiento individual se vuelve activo compartido.</p>
+        </div>
+        <div class="finale-card">
+          <p class="fc-role">Produce</p>
+          <h3>Arquitectura e Innovación</h3>
+          <p>Va, resuelve, y vuelve — bajo la filosofía boomerang. No es una asignación fija: es el puente entre lo que la empresa necesita hoy y lo que va a necesitar saber hacer mañana.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  -->
+
+</main>
+
+<footer>
+  <div class="container">
+    <p>Una iniciativa de Danwor Transversal · Arquitectura e Innovación</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // scroll progress bar
+  var bar = document.getElementById('scrollProgress');
+  function updateProgress(){
+    var h = document.documentElement;
+    var scrolled = (h.scrollTop || document.body.scrollTop);
+    var height = h.scrollHeight - h.clientHeight;
+    bar.style.width = (height > 0 ? (scrolled/height)*100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, {passive:true});
+  updateProgress();
+
+  // reveal on scroll
+  var reveals = document.querySelectorAll('.reveal:not(.in)');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, {threshold:0.15, rootMargin:'0px 0px -8% 0px'});
+  reveals.forEach(function(el){ io.observe(el); });
+
+  // rail active state
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll('#rail a'));
+  var stops = railLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+  var railIo = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var idx = stops.indexOf(entry.target);
+      if(idx === -1) return;
+      if(entry.isIntersecting){
+        railLinks.forEach(function(l){ l.classList.remove('active'); });
+        railLinks[idx].classList.add('active');
+      }
+    });
+  }, {threshold:0.4});
+  stops.forEach(function(s){ railIo.observe(s); });
+
+  // carry ?branding=danwor forward into linked sub-pages
+  if(window.location.search){
+    document.querySelectorAll('[data-carry-branding]').forEach(function(a){
+      var href = a.getAttribute('href');
+      var hashIdx = href.indexOf('#');
+      var base = hashIdx === -1 ? href : href.slice(0, hashIdx);
+      var hash = hashIdx === -1 ? '' : href.slice(hashIdx);
+      a.href = base + window.location.search + hash;
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
