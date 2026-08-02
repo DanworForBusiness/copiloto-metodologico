@@ -390,6 +390,30 @@ def test_academy_shared_stylesheet_is_served():
     assert 'branding-danwor' in response.text
 
 
+def test_pack_asset_and_pack_resource_require_session():
+    # Si abrís contenido de un pack (Academy u otro), copiás el link directo y te
+    # desloguéas, ese link seguía sirviendo contenido sin sesión — pack_asset y
+    # pack_resource no chequeaban auth, a diferencia de /academy/{stem} y el resto
+    # de las rutas protegidas. Ahora deben redirigir a /?...#acceso, preservando
+    # el destino en `next` (mismo mecanismo que las demás rutas).
+    anon = TestClient(app)
+    asset = anon.get(
+        "/pack-assets/datasphere_core/academy/dw-academy.css", follow_redirects=False
+    )
+    assert asset.status_code == 307
+    assert "acceso" in asset.headers["location"]
+    assert "next=" in asset.headers["location"]
+    resource = anon.get(
+        "/pack-resources/datasphere_core/assets/danwor-animated-dancing.html", follow_redirects=False
+    )
+    assert resource.status_code == 307
+    assert "acceso" in resource.headers["location"]
+    # Con sesión, sigue sirviendo el contenido real (sin regresión).
+    authed = client.get("/pack-assets/datasphere_core/academy/dw-academy.css")
+    assert authed.status_code == 200
+    assert "branding-danwor" in authed.text
+
+
 def test_unknown_academy_page_returns_404():
     response = client.get("/academy/ACAD99_NoExiste")
     assert response.status_code == 404

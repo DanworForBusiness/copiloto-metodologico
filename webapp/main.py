@@ -473,6 +473,13 @@ def dancing_logo(pack_name: str):
 @app.get("/pack-assets/{pack_name}/{asset_path:path}", include_in_schema=False)
 def pack_asset(request: Request, pack_name: str, asset_path: str):
     selected = _pack(pack_name)
+    # Este endpoint sirve el contenido real (storytelling de Academy, imágenes de
+    # módulos, etc.), no solo un shell — sin este chequeo, la URL del botón
+    # "pantalla completa" (o cualquier <iframe src> copiado) queda accesible sin
+    # sesión aunque el usuario se haya deslogueado. `next` preserva el destino
+    # (mismo mecanismo que el resto de las rutas protegidas).
+    if not auth_service.session_user(request):
+        return _login_redirect(request, selected)
     relative = Path(asset_path)
     if relative.is_absolute() or ".." in relative.parts:
         raise HTTPException(400, "Ruta de asset inválida")
@@ -553,8 +560,10 @@ def pack_asset(request: Request, pack_name: str, asset_path: str):
 
 
 @app.get("/pack-resources/{pack_name}/{kind}/{resource_path:path}", include_in_schema=False)
-def pack_resource(pack_name: str, kind: str, resource_path: str):
+def pack_resource(request: Request, pack_name: str, kind: str, resource_path: str):
     selected = _pack(pack_name)
+    if not auth_service.session_user(request):
+        return _login_redirect(request, selected)
     if kind not in {"assets", "templates"}:
         raise HTTPException(404, "Tipo de recurso no encontrado")
     relative = Path(resource_path)

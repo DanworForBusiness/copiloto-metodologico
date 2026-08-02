@@ -10,34 +10,6 @@
   const VERIFIER_PREFIX = "dw_ms_verifier_";
   const MSG_TYPE = "danwor-auth";
 
-  // --- DIAGNÓSTICO TEMPORAL (2026-08-02) — investigando por qué en danwor.com.ar/copiloto/dt/
-  // (deep-link a Academy) el login por popup a veces se queda huérfano (el popup se
-  // autonavega al contenido en vez de avisarle al iframe). Se guarda en localStorage
-  // (compartido entre el popup y el iframe, a diferencia de sessionStorage) para poder
-  // reconstruir la secuencia completa DESPUÉS, sin depender de tener las DevTools
-  // abiertas con el timing exacto en dos ventanas. Sacar todo este bloque una vez
-  // diagnosticado — buscar "DW-AUTH-DEBUG" para encontrar cada línea.
-  const DEBUG_KEY = "dw-auth-debug-log";
-  function dbg(event, extra) {
-    try {
-      const log = JSON.parse(localStorage.getItem(DEBUG_KEY) || "[]");
-      log.push(Object.assign({
-        t: new Date().toISOString(),
-        href: window.location.href,
-        hasOpener: !!window.opener,
-        openerClosed: !!(window.opener && window.opener.closed),
-      }, { event }, extra || {}));
-      localStorage.setItem(DEBUG_KEY, JSON.stringify(log.slice(-40)));
-    } catch (e) { /* noop */ }
-  }
-  window.dwAuthDebugDump = function () {
-    const log = JSON.parse(localStorage.getItem(DEBUG_KEY) || "[]");
-    console.table(log);
-    return log;
-  };
-  window.dwAuthDebugClear = function () { localStorage.removeItem(DEBUG_KEY); };
-  // --- fin diagnóstico temporal ---
-
   function b64url(buffer) {
     const bytes = new Uint8Array(buffer);
     let bin = "";
@@ -161,7 +133,6 @@
 
   function notifyOpener(payload) {
     const ok = !!(window.opener && !window.opener.closed);
-    dbg("notifyOpener_attempt", { status: payload && payload.status, willSucceed: ok });   // DW-AUTH-DEBUG
     if (ok) {
       window.opener.postMessage({ type: MSG_TYPE, ...payload }, window.location.origin);
       window.close();
@@ -176,7 +147,6 @@
     const error = params.get("error");
     const code = params.get("code");
     const state = params.get("state");
-    dbg("handle_redirect_start", { hasError: !!error, hasCode: !!code });   // DW-AUTH-DEBUG
 
     if (error) {
       const msg = params.get("error_description") || "Microsoft canceló el inicio de sesión";
@@ -200,7 +170,6 @@
       // El token Graph viaja al opener por postMessage (mismo origen) y se guarda
       // en su sessionStorage; si no hay opener, lo guardamos en esta ventana.
       if (!notifyOpener({ status: "success", graph_token: tokens.access_token })) {
-        dbg("fallback_self_navigate", { target: homeUrl() });   // DW-AUTH-DEBUG: opener perdido, el popup se queda con el contenido
         rememberGraphToken(tokens.access_token);
         window.location.replace(homeUrl());
       }
@@ -216,7 +185,6 @@
   // Click "Ingresar": abre el popup (top-level, fuera del iframe).
   window.loginWithMicrosoft = function (event) {
     if (event) event.preventDefault();
-    dbg("click_login", { dataHome: homeUrl() });   // DW-AUTH-DEBUG: confirma qué next= quedó guardado en el botón
     const btn = document.getElementById("microsoft-login-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Abriendo Microsoft…"; }
     const popup = window.open(
@@ -224,7 +192,6 @@
       "dwMsLogin",
       "width=520,height=720,menubar=no,toolbar=no,location=yes,status=no"
     );
-    dbg("popup_opened", { popupCreated: !!popup });   // DW-AUTH-DEBUG
     if (!popup) {
       resetButton();
       showError("El navegador bloqueó la ventana de Microsoft. Habilitá los pop-ups e intentá de nuevo.");
@@ -238,7 +205,6 @@
   // En el OPENER (la app): escucha el resultado del popup.
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin || !event.data || event.data.type !== MSG_TYPE) return;
-    dbg("opener_message_received", { status: event.data.status, willNavigateTo: homeUrl() });   // DW-AUTH-DEBUG
     if (event.data.status === "success") {
       rememberGraphToken(event.data.graph_token);
       window.location.href = homeUrl();
@@ -261,7 +227,6 @@
     if (!("hasStorageAccess" in document)) return false;         // API no soportada: no bloqueamos a ciegas
     let hasAccess = true;
     try { hasAccess = await document.hasStorageAccess(); } catch (e) { return false; }
-    dbg("storage_access_check", { hasAccess });   // DW-AUTH-DEBUG
     if (hasAccess) return false;
     const btn = document.getElementById("microsoft-login-btn");
     const warning = document.getElementById("storage-restricted-warning");
@@ -273,10 +238,8 @@
   // Init: decidir el rol de esta ventana.
   (async function init() {
     const params = new URLSearchParams(window.location.search);
-    dbg("init", { authPopupParam: params.get("auth_popup") });   // DW-AUTH-DEBUG
     if (await handleRedirect()) return;                         // popup volviendo de Microsoft
     if (window.opener && params.get("auth_popup") === "1") {    // popup recién abierto
-      dbg("init_starting_auth_in_popup");   // DW-AUTH-DEBUG
       try { await startAuthInThisWindow(); }
       catch (err) { if (!notifyOpener({ status: "error", message: err.message })) showError(err.message); }
       return;
