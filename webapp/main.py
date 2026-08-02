@@ -143,6 +143,17 @@ def _pack(value: str) -> str:
     return value if value in available_content_packs() else DEFAULT_PACK
 
 
+def _login_redirect(request: Request, pack: str) -> RedirectResponse:
+    """Redirige a la sección de acceso preservando la URL original en `next`,
+    para que tras el login el usuario vuelva a donde quería ir (en vez de
+    aterrizar siempre en el destino por defecto de su perfil)."""
+    next_path = request.url.path
+    if request.url.query:
+        next_path += f"?{request.url.query}"
+    params = {"pack": pack, "next": next_path}
+    return RedirectResponse(f"/?{urlencode(params)}#acceso", status_code=307)
+
+
 def _owner_emails() -> set[str]:
     """APP_OWNER → set de mails. Acepta CSV y alias sin dominio (joconnor →
     joconnor@danwor.com), igual que ALLOWED_USERS."""
@@ -579,7 +590,7 @@ def home(request: Request, pack: str = Query(DEFAULT_PACK)):
     el punto de aterrizaje inicial."""
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     if not auth_service.session_user(request):
-        return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
+        return _login_redirect(request, selected)
     if _readonly(request):
         academy = [item for item in list_academy(selected) if not item.nav_hidden]
         if academy:
@@ -640,19 +651,24 @@ def desafio_close():
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def landing(request: Request, pack: str = Query(DEFAULT_PACK)):
+def landing(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
     selected = _pack(pack)
+    # `next` viaja desde _login_redirect cuando el visitante venía de un link directo
+    # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
+    # evitar un open-redirect a un host externo.
+    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    default_home = f"/home?pack={selected}"
     # Con sesión vigente, la raíz sigue de largo al copiloto: el wrapper de
     # danwor.com (/copiloto/) embebe esta raíz, y un usuario ya logueado debe
     # aterrizar adentro de la app, no en el landing con la sección de acceso.
     if auth_service.session_user(request):
-        return RedirectResponse(f"/home?pack={selected}", status_code=307)
-    # data-home apunta a /home (redirección server-side según perfil), no directo al
-    # módulo 01: así el perfil solo-lectura aterriza en Danwor Academy tras el login.
+        return RedirectResponse(safe_next or default_home, status_code=307)
+    # data-home apunta a /home por defecto (redirección server-side según perfil), o
+    # al `next` original si el visitante venía de un link directo sin sesión.
     return templates.TemplateResponse(
         request=request,
         name="landing.html",
-        context={"pack": selected, "home_url": f"/home?pack={selected}"},
+        context={"pack": selected, "home_url": safe_next or default_home},
     )
 
 
@@ -673,7 +689,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
     selected = _pack(pack) if diagnostic else DEFAULT_PACK
     user = auth_service.session_user(request)
     if not user:  # sin sesión válida → al landing/acceso
-        return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
+        return _login_redirect(request, selected)
     modules = list_modules(selected)
     all_appendices = list_appendices(selected)
     # Apéndices con nav_hidden (p. ej. A06 en revisión) salen del nav y del pager,
@@ -824,7 +840,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
     selected = _pack(pack) if diagnostic else DEFAULT_PACK
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={selected}#acceso", status_code=307)
+        return _login_redirect(request, selected)
 
     asset = academy_asset_for(stem, selected)
     if not asset:
@@ -2594,7 +2610,7 @@ def catalog_connection_detail(
 ):
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     mod, entries = _catalog_architecture_connections()
     detail = mod.connection_client_detail(entries, cliente, type_id, bool(all)) if mod else None
@@ -2854,7 +2870,7 @@ def catalog_security_detail(
 ):
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     mod, entries = _catalog_security_entries()
     entry = mod.find_security_entry(entries, cliente, criterio, dac) if mod else None
@@ -2898,7 +2914,7 @@ def whats_new_page(request: Request, pack: str = Query(DEFAULT_PACK)):
     con el pipeline de contenido. Visitarla marca todo como visto (avanza la cookie)."""
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     items = whatsnew.entries(selected)
     categorias = sorted({e["categoria"] for e in items if e.get("categoria")})
@@ -3552,7 +3568,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
     devuelve solo el bloque del diagrama (para el toggle vía HTMX)."""
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     mod, entries = _catalog_entries()
     entry = mod.find_flow(entries, cliente, dominio) if mod else None
@@ -3594,7 +3610,7 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
     """Detalle central de un Data Product del catálogo BDC."""
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     mod, entries = _catalog_data_products_entries()
     entry = mod.find_data_product(entries, product_id) if mod else None
@@ -3641,7 +3657,7 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
     View" del detalle de un flujo; "Volver" re-abre ese flujo (cliente+dominio)."""
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     view = _catalog_cds_view(name)
     if view is None:
@@ -3685,7 +3701,7 @@ def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
     pack; lo carga guides_service. Capturas desde assets/<assets_dir>/ del pack."""
     user = auth_service.session_user(request)
     if not user:
-        return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+        return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     guide = guides.load(selected, slug)
     if guide is None:
