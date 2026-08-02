@@ -248,6 +248,28 @@
     }
   });
 
+  // Cookies/storage de terceros bloqueadas (incógnito, Safari/Chrome mobile): el
+  // popup autentica en un contexto de PRIMERA parte (ondigitalocean.app top-level),
+  // pero el iframe embebido bajo danwor.com.ar es TERCERO para ese mismo origen —
+  // ahí la cookie de sesión no llega, y el login termina en un loop silencioso (o
+  // en un popup huérfano mostrando la app sola). document.hasStorageAccess() es la
+  // API real para esto (Safari/Firefox/Chrome recientes): dice si ESTE frame ya
+  // tiene acceso a sus cookies sin partición. Solo aplica si estamos embebidos —
+  // en acceso directo (sin iframe) nunca hay problema, sea cual sea el navegador.
+  async function warnIfStorageRestricted() {
+    if (window.top === window.self) return false;               // no embebido: no aplica
+    if (!("hasStorageAccess" in document)) return false;         // API no soportada: no bloqueamos a ciegas
+    let hasAccess = true;
+    try { hasAccess = await document.hasStorageAccess(); } catch (e) { return false; }
+    dbg("storage_access_check", { hasAccess });   // DW-AUTH-DEBUG
+    if (hasAccess) return false;
+    const btn = document.getElementById("microsoft-login-btn");
+    const warning = document.getElementById("storage-restricted-warning");
+    if (btn) btn.classList.add("hidden");
+    if (warning) warning.classList.remove("hidden");
+    return true;
+  }
+
   // Init: decidir el rol de esta ventana.
   (async function init() {
     const params = new URLSearchParams(window.location.search);
@@ -259,6 +281,8 @@
       catch (err) { if (!notifyOpener({ status: "error", message: err.message })) showError(err.message); }
       return;
     }
-    // si no, es la app normal (opener): espera el click + el postMessage.
+    // si no, es la app normal (opener): antes de esperar el click, chequeamos si
+    // el login va a poder completarse en este contexto.
+    await warnIfStorageRestricted();
   })();
 })();

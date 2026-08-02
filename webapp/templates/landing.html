@@ -54,6 +54,15 @@
         </button>
         <div class="login-note">Autenticación segura vía dominio @danwor.com · Microsoft 365</div>
         <div id="login-message" class="login-error hidden"></div>
+        {# Se muestra en vez del botón cuando el navegador bloquea cookies/storage de
+           terceros para el copiloto embebido (incógnito, Safari/Chrome mobile): el
+           login terminaría en un loop silencioso (auth.js lo detecta con
+           document.hasStorageAccess() antes de intentar nada). #}
+        <div id="storage-restricted-warning" class="login-error hidden">
+          Estás intentando acceder al copiloto desde mobile o incógnito. De momento
+          no soportamos esta navegabilidad embebida — probá desde un navegador de
+          escritorio, fuera de una ventana privada/incógnito.
+        </div>
       </div>
     </div>
   </section>
