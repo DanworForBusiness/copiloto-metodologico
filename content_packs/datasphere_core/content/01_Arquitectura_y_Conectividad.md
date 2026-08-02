@@ -171,12 +171,15 @@ out_of_scope_redirect:
 | Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |
 | DEV-> QA-> PRD via transportes | Sin DEV-> QA-> PRD en storage |
 | Cross-Sharing nativo hacia espacios de negocio | Spark como motor de transformación |
-| Capas: Ingesta, Armonizacion, Propagacion y Consumo | Capas: Bronze, Silver, Gold via Transformation Flows |
 
 <div class="paradigm-tags">
   <span class="paradigm-tag">📌 Lo que construimos hoy</span>
   <span class="paradigm-tag">📌 BDC-Ready</span>
 </div>
+
+{{callout: title="Las capas no cambian con el runtime" tone="punch" icon="💡"}}
+Las capas Danwor (Ingesta, Armonización, Propagación, Consumo) no son una propiedad de HANA que se pierde al pasar a HDLF — aplican igual en ambos paradigmas, porque describen responsabilidad arquitectónica, no almacenamiento físico. En HDLF vas a encontrar también la terminología Bronze/Silver/Gold (propia del patrón Lakehouse) nombrando la misma responsabilidad; ver cómo se relacionan en el módulo 04 · Evolución de Arquitectura por Capas.
+{{/callout}}
 
 ## {dw-black}Espacios & {dw-gold}Transportes
 {{section_meta: keywords="espacios datasphere, spaces datasphere, transporte datasphere, DEV QA PRD, desarrollo calidad produccion, topología espacios, 1-tier, 2-tier, multi-tier, core-only, cross-sharing, gobierno datos espacio, espacio por línea de negocio, espacio de integración, espacio raíz, espacio compartido, design spaces, transport packages, promote objects, cómo organizar espacios, cuántos espacios, qué topología usar, landscape datasphere spaces, espacios y ambientes, crear espacio, creo un espacio, crear un espacio, como creo un espacio, cómo creo un espacio, nuevo espacio"}}

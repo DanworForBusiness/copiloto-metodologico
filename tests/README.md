@@ -1,65 +1,49 @@
 # Tests — Red de seguridad del router
 
-Esta carpeta fija el comportamiento **actual** del router del asistente
-(`ui/tools_panel.py::_flush_pending_free_question` y los scorers que lo
-alimentan) **antes** de refactorizarlo. Es una *characterization test suite*:
-no juzga si la decisión es la correcta, solo garantiza que un refactor no la
-cambie sin que nos enteremos.
+`tests/test_routing_corpus_regression.py` fija el comportamiento **actual** del
+router del asistente (`webapp/services/assistant_routing.py::AssistantRoutingService.route`)
+contra un corpus de preguntas reales. Es una *characterization test suite*: no
+juzga si la decisión es la correcta, solo garantiza que un cambio de contenido
+(`section_meta`, `out_of_scope_redirect`, headings) en un módulo no mueva
+silenciosamente a qué módulo/sección deriva una pregunta real, sin que nos
+enteremos.
 
-## Por qué existe
+> **Nota histórica**: este README describía antes una suite equivalente sobre
+> `ui/tools_panel.py`/`core/routing.py` (Streamlit), retirada en la migración a
+> FastAPI junto con su stub (`fake_streamlit.py`) y su golden (`golden/routing_decisions.json`,
+> que quedó huérfano — no lo tocamos ni lo reusamos). El corpus real
+> (`prompts_corpus.yaml`, 26 preguntas reales por módulo) sí sobrevivió y se
+> reconectó contra el router actual en `test_routing_corpus_regression.py`
+> (golden nuevo: `golden/routing_decisions_v2.json`).
 
-El refactor planificado extrae la cascada de routing (~310 líneas embebidas en
-un God Module de 3.7k) a una función pura `core/routing.py::route()`. Para
-hacerlo "sin cambiar funcionalidad" necesitamos una prueba que detecte cualquier
-desvío. Esta suite es esa prueba.
+## Cómo corre
 
-## Cómo corre sin Streamlit
-
-La cascada **no** llama al LLM ni a la red: solo lee contenido (cacheado) y
-escribe claves en `session_state` indicando qué rama ganó. Por eso podemos
-ejecutarla headless:
-
-- `fake_streamlit.py` — stub mínimo de Streamlit (session_state = dict, cache
-  pasivo, catch-all para el resto). Se instala en `sys.modules` desde
-  `conftest.py` antes de importar la app. `openai` también se stubea.
-- `routing_harness.py` — `run_route()` corre la cascada y extrae la decisión
-  normalizada; `run_scorers()` caracteriza los scorers puros uno por uno.
-- `prompts_corpus.yaml` — 32 prompts reales por módulo del pack `datasphere_core`.
-- `golden/routing_decisions.json` — rama elegida + mensaje de chat por prompt.
-- `golden/routing_scorers.json` — salida de cada scorer por prompt.
-
-## Uso
+No llama al LLM ni a la red: `route()` solo resuelve contenido cacheado y
+scorers puros (`core/routing_scorers.py`, `core/prompts.py`). Corre headless
+con el resto de la suite:
 
 ```bash
-# Venv de test (pyyaml + pytest; streamlit/openai van stubeados)
-python -m venv .venv-test
-./.venv-test/Scripts/python -m pip install pyyaml pytest
+# Verificar que el routing NO cambió
+.venv/Scripts/python.exe -m pytest tests/test_routing_corpus_regression.py -q
 
-# Verificar que el comportamiento NO cambió (modo refactor / CI)
-./.venv-test/Scripts/python -m pytest tests/ -q
-
-# Regenerar el golden a partir del comportamiento ACTUAL
-#   (solo cuando un cambio de comportamiento es intencional y revisado)
-UPDATE_GOLDEN=1 ./.venv-test/Scripts/python -m pytest tests/test_routing_characterization.py::test_regenerate_golden -s
+# Regenerar el golden tras un cambio de contenido intencional y revisado
+UPDATE_GOLDEN=1 .venv/Scripts/python.exe -m pytest \
+    tests/test_routing_corpus_regression.py::test_regenerate_golden -s
 ```
 
-## Cobertura (honesta)
+## Cobertura
 
-Dos capas, porque la cascada por sí sola no alcanza:
+`prompts_corpus.yaml` — 32 casos reales sobre el pack `datasphere_core`
+(módulos 01-05), etiquetados por `intent` (solo documentación legible, no se
+asierta: `section`, `conceptual`, `tree`, `oos_XX`, `support`, `fallback`,
+`cds_delta`). Cada caso pinea la decisión completa de `route()` (mensaje +
+acciones) en el golden — incluye casos donde el `intent` documentado (p. ej.
+`oos_02`, redirect por keyword) en realidad NO es la rama que gana: el matcher
+de secciones cross-módulo (`_find_cross_module_section`) suele resolver antes
+y con más precisión. Eso también queda pineado — es información real sobre
+cómo se comporta el router hoy, no un error a corregir acá.
 
-1. **Decisiones (cascada).** Con el corpus actual se ejercitan 5 ramas:
-   `_asset_section_suggestion`, `_asset_suggestion`, `_section_suggestion`,
-   `_pending_classify`, `_tree_suggestion`. Las ramas
-   `_asset_multi_suggestion`, `_combined_suggestion`, `_oos_redirect`,
-   `_cds_delta_selector` y `_pending_llm_direct` **no se alcanzan** porque el
-   matcher de assets/secciones gana antes — hallazgo real sobre el router.
-
-2. **Scorers (independiente del orden).** Fija las funciones puras que el
-   refactor reutiliza: `get_out_of_scope_redirect`, `_needs_cds_delta_choice`,
-   `_looks_like_sap_support_case_query`, etc. quedan pineadas aunque la cascada
-   no las seleccione. 10 de 11 scorers tienen señal no trivial; `matched_assets`
-   (multi-asset) queda fijado en "vacío" para todo el corpus.
-
-**Implicación para el refactor:** si `route()` reutiliza los scorers verbatim y
-porta el orden de la cascada tal cual, ambos goldens deben seguir verdes sin
-tocarse. Cualquier rojo es un cambio de funcionalidad — intencional o bug.
+**Implicación práctica**: antes de editar `section_meta`, `out_of_scope_redirect`
+o un heading de un módulo existente, correr esta suite. Si algo se pone rojo y
+el cambio es intencional (contenido revisado), regenerar el golden con
+`UPDATE_GOLDEN=1`; si no lo es, es una regresión real de routing.

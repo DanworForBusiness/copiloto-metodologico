@@ -103,6 +103,8 @@
   .ds-band-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
   .ds-band-title { font-size: 12px; font-weight: 800; color: var(--dw-text); text-transform: uppercase; letter-spacing: .4px; }
   .ds-band-sub { font-size: 9.5px; font-weight: 600; color: var(--dw-muted); font-family: var(--mono); }
+  .band-info-tip { display: inline-flex; align-items: center; margin-left: 2px; cursor: help; opacity: .75; transition: opacity var(--tr); }
+  .band-info-tip:hover { opacity: 1; }
   .hana-grid { display: grid; grid-template-columns: 1fr 210px; gap: 14px; align-items: start; }
   .capas-sublabel { font-size: 11px; font-weight: 700; color: var(--dw-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
   /* Conectores entre bandas (las flechas SVG las dibuja drawFlows). */
@@ -125,7 +127,20 @@
   .capas-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
+    grid-template-rows: auto 1fr;
+    gap: 4px 10px;
+  }
+  /* Grupo "Publicación": Propagación + Consumo son, en operación, el mismo
+     principio de Publicación desglosado en 2 capas (ver guía operativa del
+     módulo). El bracket es puramente visual — no envuelve las .capa-card
+     (siguen siendo hermanas directas de .capas-row, así que toggleCapa()
+     y el querySelectorAll('.capa-card') del script no cambian). */
+  .capas-group-label {
+    grid-column: 3 / 5; grid-row: 1;
+    display: flex; align-items: flex-end; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--dw-gold2);
+    text-transform: uppercase; letter-spacing: .5px;
+    padding-bottom: 4px; border-bottom: 1.5px solid rgba(var(--dw-gold-rgb),.35);
   }
 
   .capa-card {
@@ -144,6 +159,10 @@
     padding: 10px 12px 8px;
     background: color-mix(in srgb,var(--cap-color) 6%,white);
     border-bottom: 1px solid var(--dw-border);
+    /* Altura fija: el conteo de chips varía por capa (Ingesta 3, Armon/Prop 4,
+       Consumo 2) — sin esto el borde inferior de este bloque queda a distinta
+       altura en cada tarjeta. 146px = altura real medida con 4 chips (el máximo). */
+    min-height: 146px;
   }
   .capa-name { font-size: 13px; font-weight: 800; color: var(--cap-color); margin-bottom: 6px; }
   .capa-objects { display: flex; flex-direction: column; gap: 4px; }
@@ -200,7 +219,7 @@
   .block-subtitle { font-size: 9.5px; font-weight: 500; color: var(--dw-muted); font-family: var(--mono); }
 
   /* Cross-sharing + domain stack */
-  .hana-inner { display: grid; grid-template-columns: 24px 1fr; gap: 6px; align-items: start; }
+  .hana-inner { display: grid; grid-template-columns: 24px 1fr; gap: 6px; align-items: center; }
   .cross-slash {
     display: flex; flex-direction: column; align-items: center;
     font-size: 22px; color: #bbb; line-height: 1; padding-top: 4px;
@@ -227,6 +246,16 @@
   }
   .hdlf-delta   { background: #eff6ff; border-color: #93c5fd; color: #1a73e8; }
   .hdlf-parquet { background: #faf5ff; border-color: #c4b5fd; color: #6d28d9; }
+  /* Delta Table SE CONSTRUYE sobre Parquet (Delta = Parquet + transaction log),
+     no son dos archivos paralelos: por eso van apiladas, mismo ancho, con un
+     chevron entre las dos. Transformation Flow entra por el LADO derecho de
+     Parquet (no por arriba) — así la flecha nunca cruza por encima de la caja
+     de Delta, sin depender de que las cajas tengan anchos distintos (ver
+     drawFlows()). */
+  .hdlf-stack { display: flex; flex-direction: column; gap: 3px; flex: 0 1 auto; min-width: 150px; }
+  .hdlf-stack-link {
+    text-align: center; font-size: 10px; color: var(--dw-muted); line-height: 1;
+  }
   .hdlf-bsg {
     display: flex; align-items: center; gap: 6px;
     font-size: 10.5px; color: var(--dw-gold2); font-weight: 600;
@@ -237,6 +266,7 @@
     border-radius: var(--r-sm); padding: 7px 9px;
     font-size: 10.5px; color: var(--dw-text); line-height: 1.5;
     display: flex; gap: 5px;
+    margin-top: 10px;
   }
 
   /* ── DETAIL DRAWER ── */
@@ -281,9 +311,12 @@
 
   @media (max-width:1100px) {
     .arch-outer { grid-template-columns: 1fr; }
-    .capas-row  { grid-template-columns: 1fr 1fr; }
+    .capas-row  { grid-template-columns: 1fr 1fr; grid-template-rows: none; }
     .drawer-body { grid-template-columns: 1fr 1fr; }
     .main { padding: 20px; }
+    /* El bracket "Publicación" asume 4 columnas (grid-column:3/5); con 2 o 1
+       columnas la agrupación visual deja de tener sentido geométrico. */
+    .capas-group-label, .capas-row > div[style*="grid-column:1/3"] { display: none; }
   }
   @media (max-width:700px) {
     .capas-row  { grid-template-columns: 1fr; }
@@ -360,7 +393,10 @@
           <div class="ds-band-head">
             <span class="ds-band-title">HANA DB</span>
             <span class="ds-band-sub">Disk | In-Memory</span>
-            <span class="has-tip" style="margin-left:4px;font-size:11px;color:var(--dw-muted);cursor:help">ⓘ<div class="tip-content"><strong>HANA DB (Disk · In-Memory)</strong><br>Motor de Datasphere donde viven los espacios y los datos —federados o persistidos— de las capas de modelado.</div></span>
+            <span class="has-tip band-info-tip" style="color:var(--dw-muted)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>
+              <div class="tip-content"><strong>HANA DB (Disk · In-Memory)</strong><br>Motor de Datasphere donde viven los espacios y los datos —federados o persistidos— de las capas de modelado.</div>
+            </span>
           </div>
           <div class="hana-grid">
 
@@ -370,6 +406,10 @@
 
             <div class="capas-row">
 
+              <!-- Bracket "Publicación" (solo visual, sin .capa-card: ver nota CSS arriba) -->
+              <div style="grid-column:1/3;grid-row:1"></div>
+              <div class="capas-group-label">Publicación</div>
+
               <!-- INGESTA -->
               <div class="capa-card" style="--cap-color:var(--c-ingesta)" id="cap-ingesta" onclick="toggleCapa('ingesta')">
                 <div class="capa-head">
@@ -377,7 +417,7 @@
                   <div class="capa-objects">
                     <div class="obj-chip"><span class="obj-chip-icon">🔲</span>Tabla Remota</div>
                     <div class="obj-chip"><span class="obj-chip-icon">🔃</span>Replication Flow</div>
-                    <div class="obj-chip"><span class="obj-chip-icon">🔀</span>Data Flow</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">⚙️</span>Data Flow</div>
                   </div>
                 </div>
                 <div class="capa-body">
@@ -396,12 +436,14 @@
                   <div class="capa-name">Armonización</div>
                   <div class="capa-objects">
                     <div class="obj-chip"><span class="obj-chip-icon">🗄️</span>SQL Views</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔲</span>Tabla Local</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔀</span>Transformation Flows</div>
                     <div class="obj-chip"><span class="obj-chip-icon">⚙️</span>Data Flows</div>
                   </div>
                 </div>
                 <div class="capa-body">
                   <div class="filter-row">
-                    <span class="filter-tag">Agregación, Joins,<br>Calculation Views, etc.</span>
+                    <span class="filter-tag active-tag">▽ Filtros Estáticos</span>
                   </div>
                   <div class="capa-desc" style="margin-top:7px">
                     Persistencia Opcional — usualmente vistas sin persistir.
@@ -414,16 +456,20 @@
                 <div class="capa-head">
                   <div class="capa-name">Propagación</div>
                   <div class="capa-objects">
-                    <div class="obj-chip"><span class="obj-chip-icon">📊</span>Modelo Analítico</div>
                     <div class="obj-chip"><span class="obj-chip-icon">🗄️</span>SQL Views</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔲</span>Tabla Local</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🔀</span>Transformation Flows</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">⚙️</span>Data Flows</div>
                   </div>
                 </div>
                 <div class="capa-body">
                   <div class="filter-row">
                     <span class="filter-tag active-tag">▽ Filtros Dinámicos</span>
+                    <div style="flex-basis:100%;height:0" aria-hidden="true"></div>
+                    <span class="filter-tag">Agregación, Joins, etc.</span>
                   </div>
                   <div class="capa-desc" style="margin-top:7px">
-                    Persistencia Opcional, usualmente para mejorar rendimiento o performance. Usualmente con persistencia por necesidades de transformación y agregación.
+                    Usualmente con persistencia por necesidades de transformación y agregación.
                   </div>
                 </div>
               </div>
@@ -433,9 +479,8 @@
                 <div class="capa-head">
                   <div class="capa-name">Consumo</div>
                   <div class="capa-objects">
-                    <div class="obj-chip"><span class="obj-chip-icon">🔵</span>D</div>
-                    <div class="obj-chip"><span class="obj-chip-icon">🟡</span>O</div>
-                    <div class="obj-chip"><span class="obj-chip-icon">🟢</span>P</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">📊</span>Modelo Analítico</div>
+                    <div class="obj-chip"><span class="obj-chip-icon">🗄️</span>SQL Views</div>
                   </div>
                 </div>
                 <div class="capa-body">
@@ -470,26 +515,33 @@
           </div><!-- /hana-grid -->
         </div><!-- /ds-band-hana -->
 
-        <!-- ══ CONECTORES entre bandas: Replication ↓ a Parquet · Transformation ↑ a HANA ══ -->
+        <!-- ══ CONECTORES entre bandas: Transformation ↓ materializa Parquet · Replication ↑ devuelve la Delta Table a HANA ══ -->
         <div class="flow-connector">
-          <span class="flow-chip flow-rep" id="flow-rep">🔃 Replication Flows <span class="flow-dir">↓</span></span>
-          <span class="flow-chip flow-trans" id="flow-trans"><span class="flow-dir">↑</span> Transformation Flows 🔀</span>
+          <span class="flow-chip flow-trans" id="flow-trans">🔀 Transformation Flows <span class="flow-dir">↓</span></span>
+          <span class="flow-chip flow-rep" id="flow-rep"><span class="flow-dir">↑</span> Replication Flows 🔃</span>
         </div>
 
-        <!-- ══ BANDA HDLF: Delta Tables + Parquet Files ══ -->
+        <!-- ══ BANDA HDLF: Parquet Files (base física) → Delta Table (se construye encima) ══ -->
         <div class="ds-band ds-band-hdlf">
           <div class="ds-band-head">
             <span class="ds-band-title">HDLF</span>
             <span class="ds-band-sub">HANA Data Lake Files</span>
+            <span class="has-tip band-info-tip" style="color:var(--dw-muted)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>
+              <div class="tip-content"><strong>HDLF (HANA Data Lake Files)</strong><br>Object store de Datasphere donde vive el data lake — el archivo físico (Parquet/Delta) que materializan Transformation Flow y Replication Flow, fuera del motor HANA.</div>
+            </span>
           </div>
           <div class="hdlf-files-row">
-            <div class="hdlf-file hdlf-delta has-tip" id="hdlf-delta">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): archivo físico materializado por Transformation/Replication Flows, con versionado transaccional.</div></div>
-            <div class="hdlf-file hdlf-parquet has-tip" id="hdlf-parquet">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar eficiente para analítica sobre grandes volúmenes.</div></div>
+            <div class="hdlf-stack">
+              <div class="hdlf-file hdlf-delta has-tip" id="hdlf-delta">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Se construye SOBRE los Parquet Files agregando transaction log (versionado transaccional) — mismo archivo físico, con metadata adicional. Puede replicarse de vuelta a HANA vía Replication Flow, o compartirse externamente.</div></div>
+              <div class="hdlf-stack-link" aria-hidden="true">▲</div>
+              <div class="hdlf-file hdlf-parquet has-tip" id="hdlf-parquet">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivo físico columnar que Transformation Flow materializa en el data lake (HDLF) — la base sobre la que se construye la Delta Table.</div></div>
+            </div>
             <div class="hdlf-bsg"><span>⬛🔲⬜</span> Bronze / Silver / Gold</div>
           </div>
           <div class="hdlf-note">
             <span>⚠️</span>
-            <span>A diferencia de la ingesta en HANA DB, en HDLF la "tabla" es un archivo físico materializado mediante Transformation o Replication Flows. El ciclo de vida del dato es responsabilidad del flujo que lo crea.</span>
+            <span>A diferencia de la ingesta en HANA DB, en HDLF la "tabla" es un archivo físico: Transformation Flow lo materializa como Parquet, y la Delta Table se construye sobre ese Parquet agregando transaction log. Replication Flow puede devolver la Delta Table a HANA si hace falta. El ciclo de vida del dato es responsabilidad del flujo que lo crea.</span>
           </div>
         </div>
 
@@ -549,6 +601,8 @@ const CAPAS = {
         heading: 'Objetos principales',
         items: [
           { title: 'SQL Views',   desc: 'Vistas SQL sobre tablas de ingesta. Permiten joins, renombrado de campos y estandarización semántica.' },
+          { title: 'Tabla Local', desc: 'Tabla física persistida en el espacio, destino de un Replication Flow o Data Flow — base sobre la que se construyen SQL Views cuando conviene aislar la lectura del sistema fuente.' },
+          { title: 'Transformation Flows', desc: 'Transformación con persistencia física, con soporte de carga incremental y lógica más compleja que una vista.' },
           { title: 'Data Flows',  desc: 'Para transformaciones más complejas con persistencia, cuando la vista sola no alcanza.' },
         ]
       },
@@ -577,8 +631,10 @@ const CAPAS = {
       {
         heading: 'Objetos principales',
         items: [
-          { title: 'Modelo Analítico', desc: 'Objeto semántico de Datasphere. Define medidas, dimensiones y jerarquías para consumo analítico.' },
           { title: 'SQL Views',          desc: 'Vistas de propagación con filtros dinámicos y lógica de negocio aplicada.' },
+          { title: 'Tabla Local', desc: 'Tabla física persistida en el espacio, destino de un Replication Flow o Data Flow — base sobre la que se construyen SQL Views de propagación cuando conviene aislar la lectura del sistema fuente.' },
+          { title: 'Transformation Flows', desc: 'Materializa con persistencia cuando la propagación necesita mejorar performance o aplicar transformación/agregación.' },
+          { title: 'Data Flows',  desc: 'Para transformaciones más complejas con persistencia, cuando la vista sola no alcanza.' },
         ]
       },
       {
@@ -603,11 +659,10 @@ const CAPAS = {
     title:  'Consumo',
     cols: [
       {
-        heading: 'Tipos de consumo',
+        heading: 'Objetos principales',
         items: [
-          { title: 'D — Dimensión',    desc: 'Tablas maestras de referencia. Atributos descriptivos sin métricas.' },
-          { title: 'O — Operacional',  desc: 'Datos transaccionales en tiempo real para análisis operativo.' },
-          { title: 'P — Posicional',   desc: 'Snapshots o posiciones en un punto del tiempo (balances, stocks, etc.).' },
+          { title: 'Modelo Analítico', desc: 'Objeto semántico final expuesto para consumo. Define medidas, dimensiones y jerarquías listas para reporting.' },
+          { title: 'SQL Views',        desc: 'Vistas de consumo final expuestas directamente a herramientas de reporting.' },
         ]
       },
       {
@@ -684,31 +739,55 @@ function closeCapa() {
 }
 
 // ── Flechas entre bandas HANA-DB ⇄ HDLF (en el #ds-svg) ──────────────────────
-// Replication ↓: Replication Flows → Parquet Files (HANA empuja a HDLF).
-// Transformation ↑: Delta Tables → Transformation Flows (HDLF vuelve a HANA).
+// Transformation ↓: Transformation Flows → Parquet Files (HANA materializa en HDLF).
+// Replication ↑: Delta Table → Replication Flows (HDLF vuelve a HANA; Delta Table
+// es la que se replica, no el Parquet crudo — se construye sobre él).
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
   function rel(wrap, el) {
     const wr = wrap.getBoundingClientRect(), r = el.getBoundingClientRect();
     return { cx: r.left - wr.left + r.width / 2, top: r.top - wr.top, bottom: r.bottom - wr.top };
   }
-  function vArrow(svg, x1, y1, x2, y2, color) {
+  function ensureArrowMarker(svg, color) {
     const mk = 'mkf-' + color.replace(/[^a-z0-9]/gi, '');
     if (!svg.querySelector('#' + mk)) {
       const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS(NS, 'defs'), svg.firstChild);
       const m = document.createElementNS(NS, 'marker');
-      m.setAttribute('id', mk); m.setAttribute('markerWidth', '7'); m.setAttribute('markerHeight', '7');
-      m.setAttribute('refX', '6'); m.setAttribute('refY', '3.5'); m.setAttribute('orient', 'auto');
-      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', 'M0,0 L7,3.5 L0,7 Z'); p.setAttribute('fill', color);
+      // viewBox fija el sistema de coordenadas del path (0-7); markerWidth/Height
+      // más chico (5.5) es el tamaño RENDERIZADO — así el triángulo se ve sutil sin
+      // recortar la punta (si achicáramos solo markerWidth/Height sin viewBox, el
+      // triángulo se corta porque el path sigue dibujado en coordenadas 0-7).
+      m.setAttribute('id', mk); m.setAttribute('viewBox', '0 0 7 7');
+      m.setAttribute('markerWidth', '5.5'); m.setAttribute('markerHeight', '5.5');
+      m.setAttribute('refX', '6.2'); m.setAttribute('refY', '3.5'); m.setAttribute('orient', 'auto');
+      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', 'M0,0.5 L7,3.5 L0,6.5 Z'); p.setAttribute('fill', color);
       m.appendChild(p); defs.appendChild(m);
     }
-    const my = (y1 + y2) / 2;
+    return mk;
+  }
+  function drawPath(svg, d, color) {
+    const mk = ensureArrowMarker(svg, color);
     const path = document.createElementNS(NS, 'path');
-    path.setAttribute('d', `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`);
-    path.setAttribute('stroke', color); path.setAttribute('stroke-width', '2');
+    path.setAttribute('d', d);
+    path.setAttribute('stroke', color); path.setAttribute('stroke-width', '1.75');
     path.setAttribute('stroke-dasharray', '5,4'); path.setAttribute('fill', 'none');
     path.setAttribute('marker-end', `url(#${mk})`);
     svg.appendChild(path);
+  }
+  // Entrada VERTICAL (arriba/abajo): el 2do punto de control comparte X con el
+  // destino → la tangente final es vertical y el marker (orient=auto) apunta
+  // derecho hacia arriba/abajo, como corresponde a una caja debajo/encima.
+  function vArrow(svg, x1, y1, x2, y2, color) {
+    const my = (y1 + y2) / 2;
+    drawPath(svg, `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`, color);
+  }
+  // Entrada LATERAL (por el costado de la caja): el 2do punto de control comparte
+  // Y con el destino y se desplaza en X (el "codo" final) → la tangente queda
+  // horizontal y el marker apunta de costado hacia la caja, no hacia abajo.
+  function sideArrow(svg, x1, y1, x2, y2, color) {
+    const my = (y1 + y2) / 2;
+    const elbowX = x2 + (x1 >= x2 ? 28 : -28);
+    drawPath(svg, `M${x1},${y1} C${x1},${my} ${elbowX},${y2} ${x2},${y2}`, color);
   }
   function drawFlows() {
     const svg = document.getElementById('ds-svg'); if (!svg) return;
@@ -718,11 +797,15 @@ function closeCapa() {
     const rep = document.getElementById('flow-rep'), trans = document.getElementById('flow-trans');
     const pq = document.getElementById('hdlf-parquet'), dl = document.getElementById('hdlf-delta');
     if (!rep || !trans || !pq || !dl) return;
-    const rc = rel(wrap, rep), tc = rel(wrap, trans), pc = rel(wrap, pq), dc = rel(wrap, dl);
-    // Replication ↓: la chip Replication Flows empuja a Parquet Files (HANA → HDLF).
-    vArrow(svg, rc.cx, rc.bottom, pc.cx, pc.top - 2, '#1a73e8');
-    // Transformation ↑: Delta Tables vuelve a HANA vía Transformation Flows (HDLF → HANA).
-    vArrow(svg, dc.cx, dc.top, tc.cx, tc.bottom + 2, '#0d9e75');
+    const rc = rel(wrap, rep), tc = rel(wrap, trans), dc = rel(wrap, dl);
+    const wr = wrap.getBoundingClientRect(), pr = pq.getBoundingClientRect();
+    const pqRightX = pr.right - wr.left, pqMidY = pr.top - wr.top + pr.height / 2;
+    // Transformation ↓: materializa el Parquet File (HANA → HDLF, vía Spark). Entra
+    // por el LADO DERECHO de Parquet (no por arriba), centrada en su alto — así la
+    // flecha nunca cruza por encima de la caja de Delta, sea cual sea su ancho.
+    sideArrow(svg, tc.cx, tc.bottom, pqRightX, pqMidY, '#0d9e75');
+    // Replication ↑: la Delta Table (no el Parquet crudo) vuelve a HANA si hace falta.
+    vArrow(svg, dc.cx, dc.top, rc.cx, rc.bottom + 2, '#1a73e8');
   }
   window.addEventListener('load', () => setTimeout(drawFlows, 120));
   let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(drawFlows, 150); });

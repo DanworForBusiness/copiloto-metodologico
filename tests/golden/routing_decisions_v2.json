@@ -1,0 +1,488 @@
+{
+  "01_Arquitectura_y_Conectividad::conceptual::cuál es la diferencia entre DP agent y cloud connector": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#integracion-legacy-vs-moderna"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ"
+        }
+      ],
+      "explain_heading": "{dw-black}Integración Legacy vs. {dw-gold}Moderna",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Tu pregunta parece comparativa; conviene responderla desde **Integración Legacy vs. Moderna** antes de abrir un how-to puntual. También encontré un recurso relacionado: **How-to Danwor: Configurar Datasphere con Cloud Connector**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::conceptual::federación vs persistencia, cuál conviene conceptualmente": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#federacion-vs-persistencia"
+        }
+      ],
+      "explain_heading": "{dw-black}Federación vs. {dw-gold}Persistencia",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Este tema está cubierto con más precisión en **03 · Integración y Estrategia**, sección **Federación vs. Persistencia**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::fallback::qué te parece el clima de hoy en buenos aires": {
+    "route": null
+  },
+  "01_Arquitectura_y_Conectividad::oos_02::necesito definir roles y DAC para seguridad de datos": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core#seguridad-de-roles"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=ItlfCX"
+        }
+      ],
+      "explain_heading": "{dw-black}Seguridad de {dw-gold}Roles",
+      "explain_module": "02_Seguridad_y_Gobernanza",
+      "message": "Para esto conviene partir de la sección **Seguridad de Roles**. También encontré un recurso relacionado: **Template Danwor de Seguridad, Roles y DAC**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::section::cómo distribuyo la quota de memoria y disk entre tenants": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core#configuracion-de-espacios"
+        }
+      ],
+      "explain_heading": "{dw-black}Configuración de {dw-gold}Espacios",
+      "explain_module": "01_Arquitectura_y_Conectividad",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Configuración de Espacios**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::section::¿cuántos espacios y qué topología de espacios uso en datasphere?": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core#espacios-transportes"
+        }
+      ],
+      "explain_heading": "{dw-black}Espacios & {dw-gold}Transportes",
+      "explain_module": "01_Arquitectura_y_Conectividad",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Espacios & Transportes**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::support::cloud connector status reachable pero ABAP SQL service da 503": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#integracion-legacy-vs-moderna"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ"
+        }
+      ],
+      "explain_heading": "{dw-black}Integración Legacy vs. {dw-gold}Moderna",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Para esto conviene partir de la sección **Integración Legacy vs. Moderna**. También encontré un recurso relacionado: **How-to Danwor: Configurar Datasphere con Cloud Connector**."
+    }
+  },
+  "01_Arquitectura_y_Conectividad::support::error ORA-12541 en conexión SDA hacia tabla remota": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso",
+          "url": "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/Eb85pQsL465BuhrEj4AmpgkBPzcdEQQ7cirBq92AtaK6Ag?e=ILNdwQ"
+        }
+      ],
+      "explain_heading": "",
+      "explain_module": "A04_Biblioteca_de_Referencias",
+      "message": "Encontré un recurso curado en **A04 · Biblioteca de Referencias**: **How-to Danwor: Conectar Datasphere con S/4HANA**."
+    }
+  },
+  "02_Seguridad_y_Gobernanza::conceptual::diferencia entre roles estándar y roles custom": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core#seguridad-de-roles"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=ItlfCX"
+        }
+      ],
+      "explain_heading": "{dw-black}Seguridad de {dw-gold}Roles",
+      "explain_module": "02_Seguridad_y_Gobernanza",
+      "message": "Tu pregunta parece comparativa; conviene responderla desde **Seguridad de Roles** antes de abrir un how-to puntual. También encontré un recurso relacionado: **Template Danwor de Seguridad, Roles y DAC**."
+    }
+  },
+  "02_Seguridad_y_Gobernanza::fallback::contame un chiste de programadores": {
+    "route": null
+  },
+  "02_Seguridad_y_Gobernanza::oos_01::cómo configuro espacios y transporte DEV QA PRD": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core#espacios-transportes"
+        }
+      ],
+      "explain_heading": "{dw-black}Espacios & {dw-gold}Transportes",
+      "explain_module": "01_Arquitectura_y_Conectividad",
+      "message": "Este tema está cubierto con más precisión en **01 · Arquitectura y Conectividad**, sección **Espacios & Transportes**."
+    }
+  },
+  "02_Seguridad_y_Gobernanza::section::qué tipo de DAC uso para row level security por usuario": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core#seguridad-de-datos"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQC_KaECHiU5TrOjJBpDhkC7AeH7NJUQhq3AACTGOSpltG8?e=ItlfCX"
+        }
+      ],
+      "explain_heading": "{dw-black}Seguridad de {dw-gold}Datos",
+      "explain_module": "02_Seguridad_y_Gobernanza",
+      "message": "Para esto conviene partir de la sección **Seguridad de Datos**. También encontré un recurso relacionado: **Template Danwor de Seguridad, Roles y DAC**."
+    }
+  },
+  "02_Seguridad_y_Gobernanza::section::restringir acceso por jerarquía organizacional y centro de costos": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core#seguridad-de-datos"
+        }
+      ],
+      "explain_heading": "{dw-black}Seguridad de {dw-gold}Datos",
+      "explain_module": "02_Seguridad_y_Gobernanza",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Seguridad de Datos**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::conceptual::explicame la coexistencia entre HANA db y HDLF": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core#coexistencia-de-paradigmas"
+        }
+      ],
+      "explain_heading": "{dw-black}Coexistencia de {dw-gold}Paradigmas",
+      "explain_module": "01_Arquitectura_y_Conectividad",
+      "message": "Este tema está cubierto con más precisión en **01 · Arquitectura y Conectividad**, sección **Coexistencia de Paradigmas**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::conceptual::qué es ODP y cómo extrae datos de SAP": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#estrategia-de-extraccion"
+        }
+      ],
+      "explain_heading": "{dw-black}Estrategia de {dw-gold}Extracción",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Tu pregunta parece comparativa; conviene responderla desde **Estrategia de Extracción** antes de abrir un how-to puntual."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::fallback::cuánto sale una licencia de datasphere en dólares": {
+    "route": null
+  },
+  "03_Integracion_y_Estrategia_de_Datos::oos_04::qué tipo semántico uso, fact o dimension": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#artefactos-y-uso-semantico"
+        }
+      ],
+      "explain_heading": "{dw-black}Artefactos y uso {dw-gold}Semántico",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Para esto conviene partir de la sección **Artefactos y uso Semántico**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::section::diferencia entre ODP-SAPI y ODP-CDS para extractores": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#estrategia-de-extraccion"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4"
+        }
+      ],
+      "explain_heading": "{dw-black}Estrategia de {dw-gold}Extracción",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Tu pregunta parece comparativa; conviene responderla desde **Estrategia de Extracción** antes de abrir un how-to puntual. También encontré un recurso relacionado: **Template CDS DDIC-based para extracción hacia SAP Datasphere**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::section::qué es clean core y cómo afecta la extracción": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#clean-core-aplicado-a-extraccion"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4"
+        }
+      ],
+      "explain_heading": "Clean Core aplicado a extracción",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Tu pregunta parece comparativa; conviene responderla desde **Clean Core aplicado a extracción** antes de abrir un how-to puntual. También encontré un recurso relacionado: **Template CDS DDIC-based para extracción hacia SAP Datasphere**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::support::extractor 0CUSTOMER_ATTR no aparece en ODQMON tras whitelisteo": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#estrategia-de-extraccion"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4518531178.html"
+        }
+      ],
+      "explain_heading": "{dw-black}Estrategia de {dw-gold}Extracción",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Para esto conviene partir de la sección **Estrategia de Extracción**. También encontré un recurso relacionado: **SAP Help: Check ODQMON for Replication Flow issues | Verificar ODQMON para problemas de Replication Flow**."
+    }
+  },
+  "03_Integracion_y_Estrategia_de_Datos::tree::cómo decido entre federación o persistencia para la integración": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#arquitectura-de-integracion"
+        }
+      ],
+      "explain_heading": "{dw-black}Arquitectura de {dw-gold}Integración",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Arquitectura de Integración**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::cds_delta::necesito mantener los datos actualizados con delta incremental, puntero delta": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core#seguridad-de-datos"
+        }
+      ],
+      "explain_heading": "{dw-black}Seguridad de {dw-gold}Datos",
+      "explain_module": "02_Seguridad_y_Gobernanza",
+      "message": "Este tema está cubierto con más precisión en **02 · Seguridad y Gobernanza**, sección **Seguridad de Datos**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::oos_01::cómo organizo espacios y transporte entre DEV QA PRD": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core#espacios-transportes"
+        }
+      ],
+      "explain_heading": "{dw-black}Espacios & {dw-gold}Transportes",
+      "explain_module": "01_Arquitectura_y_Conectividad",
+      "message": "Este tema está cubierto con más precisión en **01 · Arquitectura y Conectividad**, sección **Espacios & Transportes**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::section::cuál es la convención de nombres de objetos en datasphere": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#convencion-de-nombres"
+        }
+      ],
+      "explain_heading": "{dw-black}Convención de {dw-gold}Nombres",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Convención de Nombres**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::section::cómo escribo una vista CDS DDIC para extracción ODP con delta": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#tipos-de-vistas-cds"
+        },
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso relacionado",
+          "url": "/pack-resources/datasphere_core/templates/cds_extractor_template.abap"
+        }
+      ],
+      "explain_heading": "{dw-black}Tipos de {dw-gold}Vistas CDS",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Para esto conviene partir de la sección **Tipos de Vistas CDS**. También encontré un recurso relacionado: **Template CDS para extracción hacia SAP Datasphere**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::section::cómo modelo por capas ingesta armonización propagación consumo": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#evolucion-de-arquitectura-por-capas"
+        }
+      ],
+      "explain_heading": "{dw-black}Evolución de Arquitectura {dw-gold}por Capas",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Evolución de Arquitectura por Capas**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::support::SAP note 3534086 compatibilidad CDC SAP_BASIS 7.56 falla": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#template-de-extraccion-via-api-corporativa"
+        }
+      ],
+      "explain_heading": "{dw-black}Template de Extracción vía {dw-gold}API Corporativa",
+      "explain_module": "03_Integracion_y_Estrategia_de_Datos",
+      "message": "Este tema está cubierto con más precisión en **03 · Integración y Estrategia**, sección **Template de Extracción vía API Corporativa**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::support::dump RUNTIME_ERROR al activar la vista CDS en el sistema S4HANA": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": true,
+          "label": "Abrir recurso",
+          "url": "/pack-resources/datasphere_core/templates/cds_extractor_template.abap"
+        }
+      ],
+      "explain_heading": "",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Encontré un recurso curado: **Template CDS para extracción hacia SAP Datasphere**."
+    }
+  },
+  "04_Modelado_y_Desarrollo::tree::qué tipo de vista SQL uso, gráfica o SQLScript o table function": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#tipos-de-vistas-sql"
+        }
+      ],
+      "explain_heading": "{dw-black}Tipos de {dw-gold}Vistas SQL",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Para esto conviene partir de la sección **Tipos de Vistas SQL**."
+    }
+  },
+  "05_Reporting_y_Consumo::fallback::recomendame una serie para ver el fin de semana": {
+    "route": null
+  },
+  "05_Reporting_y_Consumo::oos_04::qué es un analytical dataset en la capa de consumption": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#artefactos-y-uso-semantico"
+        }
+      ],
+      "explain_heading": "{dw-black}Artefactos y uso {dw-gold}Semántico",
+      "explain_module": "04_Modelado_y_Desarrollo",
+      "message": "Este tema está cubierto con más precisión en **04 · Modelado y Desarrollo**, sección **Artefactos y uso Semántico**."
+    }
+  },
+  "05_Reporting_y_Consumo::tree::qué herramienta de reporting uso para consumir datasphere": {
+    "route": {
+      "actions": [
+        {
+          "embed": false,
+          "external": false,
+          "label": "Ir a la sección",
+          "url": "/modules/05_Reporting_y_Consumo?pack=datasphere_core#estrategia-de-reporting"
+        }
+      ],
+      "explain_heading": "{dw-black}Estrategia de {dw-gold}Reporting",
+      "explain_module": "05_Reporting_y_Consumo",
+      "message": "Encontré una sección del módulo que puede ayudarte: **Estrategia de Reporting**."
+    }
+  }
+}

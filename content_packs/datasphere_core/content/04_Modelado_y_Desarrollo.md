@@ -151,7 +151,7 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 {{section_meta: keywords="arquitectura por capas, capas modelado, ingesta armonización propagación consumo, separación responsabilidades, capa ingesta, capa armonización, capa propagación, capa reporting, capa consumo, lakehouse SAP, principio capas datasphere, arquitectura modelado datasphere, modelo por capas, cómo modelar datasphere, diseño capas, capa 1 2 3, tablas remotas capa, vistas capa, persistencia capas, federación capas"}}
 
 >Implementamos la arquitectura de modelado por capas con separación de responsabilidades, adaptada a un enfoque Lakehouse moderno en SAP Datasphere:
-{{html_embed: ../assets/danwor-arquitectura-capas.html height=830}}
+{{html_embed: ../assets/danwor-arquitectura-capas.html height=960}}
 
 ## {dw-black}Arquitectura por Capas: {dw-gold}Guia Operativa
 {{section_meta: keywords="arquitectura por capas, responabilidad del dato"}}

@@ -121,9 +121,13 @@ Runtime Metrics muestra el plan de ejecución HANA subyacente. Las vistas gráfi
 {{/callout_row}}
 
 ## HANA Triggers y CDC Buffer
-{{section_meta: keywords="HANA triggers, CDC buffer, /1DH/, tablas buffer ODP, ODQMON, delta queue, ODQ, cola delta, triggers HANA inválidos, triggers IS_VALID FALSE, DROP TRIGGER, CREATE TRIGGER, limpiar buffer CDC, desuscribir punteros ODQMON, buffer acumulado, PRCD_ELEMENTS, incidente ODP, nota SAP 3231210, nota SAP 3366715, troubleshooting ODP, problema delta ODP CDS"}}
+{{section_meta: keywords="HANA triggers, CDC buffer, /1DH/, tablas buffer ODP, ODQMON, delta queue, ODQ, cola delta, triggers HANA inválidos, triggers IS_VALID FALSE, DROP TRIGGER, CREATE TRIGGER, limpiar buffer CDC, desuscribir punteros ODQMON, buffer acumulado, PRCD_ELEMENTS, incidente ODP, nota SAP 3231210, nota SAP 3366715, troubleshooting ODP, problema delta ODP CDS, Master Logging Table, Subscriber Logging Table, Resilient Data Buffer, RDB, RMS, APE, DHADM, DHCDCMON, DHRDBMON, replication flow CDC delta atascado"}}
 
 El framework ODP/ODQ usa **HANA Triggers** para detectar cambios en las tablas origen. Cuando un extractor CDS tiene el CDC habilitado, HANA crea triggers que escriben en tablas buffer (`/1DH/SL*`) los registros modificados. La delta queue (ODQMON) luego consume esos buffers para armar el delta incremental.
+
+{{callout: title="Replication Flow con CDC (RMS/APE)" tone="note" icon="🔹"}}
+Para Replication Flows que usan Change Data Capture sobre una CDS view custom, el pipeline interno documentado por SAP es más granular que "trigger → buffer": los triggers escriben en una **Master Logging Table** (`/1DH/ML<n>`, una por mapping de CDC); el job `/1DH/OBSERVE_LOGTAB` (reprograma cada ~1h por defecto) la mueve a una **Subscriber Logging Table** (`/1DH/SL<n>`); y el job `/1DH/PUSH_CDS_DELTA` (~6h por defecto) la combina con la tabla base para poblar una **Resilient Data Buffer Table** (`/1DH/RDB<n>`) — recién ahí el Replication Flow consume el delta. Monitoreo específico de este camino: **DHADM** (tablas creadas por CDS+flujo), **DHCDCMON** (profundidad de las logging tables) y **DHRDBMON** (latencia del buffer); si el delta se atrasa, ajustar la frecuencia de esos jobs coordinando con Basis antes de sospechar del Replication Flow. No verificado si este es el mismo mecanismo que consume ODQMON más abajo con otro nombre, o un camino específico de RMS/APE para CDC sobre CDS custom — tratar ambos monitoreos como complementarios hasta confirmar contra SAP Help.
+{{/callout}}
 
 **Caso real — Incidente en producción:**
 

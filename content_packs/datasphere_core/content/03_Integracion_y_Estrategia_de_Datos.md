@@ -47,6 +47,7 @@ guardrails:
   - "La extracción directa de tablas base no debe presentarse como recomendación. Si el cliente la espera, explicar por qué no conviene y ofrecer alternativas gobernadas mediante APIs/extractores liberados, CDS u ODP."
   - "Extracción CDS/ODP: CDS DDIC-based es el baseline productivo por compatibilidad amplia con el framework ODP. La incrementalidad avanzada (CDC con mapping) requiere validar SAP_BASIS >= 7.56 y Nota SAP 3534086 antes de prometerla en Replication Flows; si no se cumple, usar delta byElement con timestamp confiable o full según criticidad, volumen y capacidad de recarga."
   - "Cloud Connector: no dar un procedimiento genérico sin aclarar primero el contexto operativo. Distinguir Cloud Connector administrado por el cliente vs conectividad bajo SAP RISE (que puede requerir Service Request o coordinación con SAP). SCC es túnel seguro y no procesa datos; para federación moderna con S/4HANA validar release, ABAP Platform, FPS y ABAP SQL Service antes de reemplazar DP Agent, y apoyarse en la guía oficial de configuración."
+  - "En Replication Flows con CDC, las columnas internas Change_Type/Change_Date que Datasphere agrega a la tabla local NO son un contrato soportado: no construir transformaciones, Data Products ni lógica de negocio que dependa de ellas fuera de Premium Outbound Integration (Notas SAP 3725855 y 3634750)."
 quick_action_guidance:
   "Guía operativa del módulo":
     context: |
@@ -293,6 +294,8 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 | **@OData.publish: false** | Desactiva servicios Odata (no requeridos para uso en SAP Datasphere) (*2) |
 
 >📌Tip! No forma parte del template, pero en casos donde NO se quiera heredar anotaciones de las capas inferiores: @Metadata.ignorePropagatedAnnotations: true
+
+Del lado del Replication Flow que consume esta CDS: en modo Initial + Delta, Datasphere agrega dos columnas internas a la tabla local (`Change_Type` — L=carga inicial, A=upsert, D=delete — y `Change_Date`) para representar el ciclo de vida del registro. Son un objeto interno, no un contrato: no conviene construir transformaciones ni Data Products que dependan de ellas fuera de Premium Outbound Integration (Notas SAP 3725855, 3634750). La frecuencia con la que el flujo reintenta el delta también es configurable — default 1 hora, bajable a minutos o a modo near-real-time con 0/0 — conviene ajustarla al SLA real de consumo en vez de dejarla por inercia.
 
 {{callout: title="CDC Avanzado" tone="punch" icon="💡"}}
 El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_BASIS (>= 7.56) y no está garantizado en todos los escenarios de extracción. Para mas información ver Nota SAP 3534086
