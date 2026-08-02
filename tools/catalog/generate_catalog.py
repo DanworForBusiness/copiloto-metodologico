@@ -29,6 +29,37 @@ from pathlib import Path
 
 import yaml
 
+# Portabilidad BDC (dimensión cross-runtime; standalone, mismo dir). Import defensivo
+# para no acoplar el generador si el módulo/PYTHONPATH no está disponible.
+try:
+    from portability_bdc import evaluate_portability as _eval_portability, load_matrix as _load_port_matrix
+except Exception:  # pragma: no cover
+    try:
+        from tools.catalog.portability_bdc import evaluate_portability as _eval_portability, load_matrix as _load_port_matrix
+    except Exception:
+        _eval_portability = _load_port_matrix = None
+
+_PORT_MATRIX_CACHE: dict = {}
+
+
+def _portability_matrix(pack: str = "datasphere_core") -> dict | None:
+    """Matriz de portabilidad del pack (cacheada). None si el módulo no está disponible."""
+    if _load_port_matrix is None:
+        return None
+    if pack not in _PORT_MATRIX_CACHE:
+        _PORT_MATRIX_CACHE[pack] = _load_port_matrix(pack)
+    return _PORT_MATRIX_CACHE[pack]
+
+
+def portability_columns(entities: dict) -> list[dict]:
+    """Aplana los campos de todas las entidades a columnas para el evaluador de
+    portabilidad, cada una etiquetada con su artefacto. Reusable por ambos generadores."""
+    cols: list[dict] = []
+    for e in entities.values():
+        for f in (getattr(e, "fields", None) or []):
+            cols.append({**f, "artefacto": e.name})
+    return cols
+
 from tools.catalog.compliance_criteria import APTO_CANONICAL, classify_extraction
 
 
@@ -252,6 +283,67 @@ def _fk_assoc_name(e: dict) -> str:
     return str(fk or "") if isinstance(fk, str) else ""
 
 
+def _native_type(e: dict) -> str:
+    """@DataWarehouse.native.dataType (p. ej. DECIMAL/DECFLOAT), string o {'#': ...}.
+    Portabilidad BDC lo usa para distinguir un DecimalFloat que el `type` CDS oculta."""
+    nt = e.get("@DataWarehouse.native.dataType")
+    if isinstance(nt, dict):
+        return str(nt.get("#") or "")
+    return str(nt or "") if isinstance(nt, str) else ""
+
+
+def _assoc_on_map(assoc_name: str, on_clause) -> dict:
+    """Del `on` de una asociación, mapa {columna_origen: columna_target}. El `on` es una
+    lista plana de tokens; cada '=' une dos refs. El ref cuyo primer elemento es el nombre
+    de la asociación (o tiene &gt;1 segmento) es el TARGET; el otro (col simple) es el origen.
+    Es lo que permite comparar el tipo de una FK contra el de su PK (portabilidad relacional)."""
+    if not isinstance(on_clause, list):
+        return {}
+    refs = [tok.get("ref") for tok in on_clause
+            if isinstance(tok, dict) and isinstance(tok.get("ref"), list)]
+    out: dict[str, str] = {}
+    # Emparejamos refs de a dos en el orden en que aparecen (lhs = col local, rhs = target).
+    for j in range(0, len(refs) - 1, 2):
+        a, b = refs[j], refs[j + 1]
+        a = [x for x in a if isinstance(x, str)]
+        b = [x for x in b if isinstance(x, str)]
+        if not a or not b:
+            continue
+        # target = el ref con prefijo de la asociación (o multi-segmento); origen = el otro.
+        if b and (b[0] == assoc_name or len(b) > 1):
+            src, tgt = a[-1], b[-1]
+        elif a and (a[0] == assoc_name or len(a) > 1):
+            src, tgt = b[-1], a[-1]
+        else:
+            src, tgt = a[-1], b[-1]
+        out[src] = tgt
+    return out
+
+
+def _extract_cast(node) -> str:
+    """Primer CAST explícito dentro de la expresión de una columna
+    ({'cast': {'type':'cds.Decimal','precision':p,'scale':s}}) → 'Decimal(p,s)'. "" si no
+    hay. Portabilidad BDC lo usa para saber si un campo derivado FIJÓ su tipo (vs inferido)."""
+    if isinstance(node, dict):
+        c = node.get("cast")
+        if isinstance(c, dict) and c.get("type"):
+            t = str(c["type"]).split(".")[-1]
+            p, s = c.get("precision"), c.get("scale")
+            if p is not None and s is not None:
+                return f"{t}({p},{s})"
+            return f"{t}({p})" if p is not None else t
+        for v in node.values():
+            r = _extract_cast(v)
+            if r:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _extract_cast(v)
+            if r:
+                return r
+    return ""
+
+
 def _extract_elements(defn: dict, ent: Entity) -> None:
     elems = defn.get("elements") or {}
     ent.n_elements = len(elems)
@@ -260,12 +352,17 @@ def _extract_elements(defn: dict, ent: Entity) -> None:
     # (type cds.Association) NO son atributos visibles: respaldan al atributo FK.
     assoc_target = {en: e.get("target", "") for en, e in elems.items()
                     if isinstance(e, dict) and str(e.get("type", "")).endswith("Association")}
+    # Columna target por FK (portabilidad relacional PK/FK): {assoc_name: {src_col: tgt_col}}.
+    assoc_on = {en: _assoc_on_map(en, e.get("on"))
+                for en, e in elems.items()
+                if isinstance(e, dict) and str(e.get("type", "")).endswith("Association")}
     seen = {f["campo"] for f in ent.fields}   # dedupe si la entidad aparece en >1 archivo
     for ename, e in elems.items():
         if not isinstance(e, dict):
             continue
         if str(e.get("type", "")).endswith("Association"):
-            ent.associations.append({"campo": ename, "target": e.get("target", "")})
+            ent.associations.append({"campo": ename, "target": e.get("target", ""),
+                                     "on": assoc_on.get(ename, {})})
             continue
         if e.get("key"):
             ent.keys.append(ename)
@@ -278,11 +375,16 @@ def _extract_elements(defn: dict, ent: Entity) -> None:
             ent.dimensions.append(ename)
         if ename not in seen:
             tipo, longitud = _type_length(e)
-            assoc = assoc_target.get(_fk_assoc_name(e), "")   # dimensión destino si es FK
+            _fk = _fk_assoc_name(e)
+            assoc = assoc_target.get(_fk, "")                 # dimensión destino si es FK
+            assoc_col = (assoc_on.get(_fk, {}) or {}).get(ename, "")   # columna PK referenciada
             ent.fields.append({
                 "campo": ename, "label": str(e.get("@EndUserText.label") or ""),
                 "tipo": tipo, "longitud": longitud,
                 "key": bool(e.get("key")), "medida": is_measure, "assoc": assoc,
+                # Extensión portabilidad BDC (aditivo, defaults seguros):
+                "native": _native_type(e), "assoc_col": assoc_col,
+                "derived": False, "cast": "",   # los completa el post-pass del query
             })
             seen.add(ename)
 
@@ -294,6 +396,7 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
     df_membership: dict[str, dict] = {}   # DF file → {targets, sources}
     raw_elems: dict[str, dict] = {}       # entidad → dict crudo de elements (para heredar tipos)
     col_refs: dict[str, dict] = {}        # entidad → {alias: ref} de query.SELECT.columns
+    col_expr: dict[str, dict] = {}        # entidad → {alias: {derived, cast}} (columnas calculadas)
     i18n_map: dict[str, str] = {}         # clave i18n → texto (para resolver labels placeholder)
 
     # SQL preview de vistas gráficas: <nombre>.txt
@@ -343,10 +446,18 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
             _q = defn.get("query")
             if isinstance(_q, dict):
                 for _c in ((_q.get("SELECT") or {}).get("columns") or []):
-                    if isinstance(_c, dict) and isinstance(_c.get("ref"), list) and _c["ref"]:
-                        _ref = [x for x in _c["ref"] if isinstance(x, str)]
-                        if _ref:
-                            col_refs.setdefault(name, {})[str(_c.get("as") or _ref[-1])] = _ref
+                    if not isinstance(_c, dict):
+                        continue
+                    _has_ref = isinstance(_c.get("ref"), list) and _c["ref"]
+                    _ref = [x for x in _c["ref"] if isinstance(x, str)] if _has_ref else []
+                    if _ref:
+                        col_refs.setdefault(name, {})[str(_c.get("as") or _ref[-1])] = _ref
+                    # Columna CALCULADA (xpr/func/val o un ref con cast) → registrar que es
+                    # derivada y si fijó su tipo con CAST explícito (portabilidad BDC).
+                    _alias = str(_c.get("as") or (_ref[-1] if _ref else "")).strip()
+                    _cast = _extract_cast(_c)
+                    if _alias and (("xpr" in _c) or ("func" in _c) or ("val" in _c) or _cast):
+                        col_expr.setdefault(name, {})[_alias] = {"derived": True, "cast": _cast}
             # el target de un DF es la entidad "principal" del archivo (mismo stem sin DF_)
             if is_df:
                 slot = df_membership.setdefault(jf.stem, {"targets": set(), "sources": set()})
@@ -365,6 +476,16 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
         ent.label = _resolve_label(ent.label, name, i18n_map)
         for f in ent.fields:
             f["label"] = _resolve_label(f.get("label"), "", i18n_map)
+
+    # Post-pass portabilidad: marcar campos derivados + su cast explícito (de col_expr).
+    for name, ent in entities.items():
+        exprs = col_expr.get(name) or {}
+        for f in ent.fields:
+            info = exprs.get(f.get("campo"))
+            if info:
+                f["derived"] = True
+                if info.get("cast"):
+                    f["cast"] = info["cast"]
 
     # Herencia de tipo/longitud vía el ref del query: un artefacto que proyecta una
     # columna sin cast inline (típico del Analytic Model / cubo, cuyos elements solo
@@ -761,6 +882,14 @@ def render_flujo(cliente: str, proyecto: str, dominio: str, entities: dict,
                           for f in findings],
         },
     }
+    # Dimensión PARALELA: portabilidad BDC (preventiva para un dominio). No toca el
+    # veredicto de extracción; se persiste aparte y el runtime la renderiza.
+    if _eval_portability is not None:
+        try:
+            auto["portabilidad_bdc"] = _eval_portability(
+                portability_columns(entities), "dominio", _portability_matrix())
+        except Exception:
+            pass
     manual = {"cliente": cliente, "proyecto": proyecto,
               "dominio": "",   # override del senior: si lo completa, gana sobre auto.dominio
               "intent_negocio": "", "extraccion_corporativa": "",

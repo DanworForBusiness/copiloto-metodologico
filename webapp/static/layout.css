@@ -89,6 +89,33 @@
   width: 100%; height: 100%; border: 0; display: block;
   background: transparent; border-radius: inherit;
 }
+/* Botón "pantalla completa" (solo Danwor Academy, no módulos/catálogo): minimalista,
+   se camufla con el tile (mismo fondo, sin borde) y usa un gris apagado —no el
+   dorado del header— para no competir visualmente con el contenido. El offset
+   horizontal repite el clamp() del rail de puntos del propio asset (dw-academy.css
+   .rail: right:clamp(1rem,3vw,2.5rem)) para quedar en la misma línea vertical. */
+.academy-standalone-btn {
+  position: absolute; top: 14px; right: clamp(1rem, 3vw, 2.5rem); z-index: 2;
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: transparent;
+  opacity: .7; transition: opacity .15s, color .15s;
+}
+.academy-standalone-btn:hover { opacity: 1; color: var(--gold); }
+.academy-standalone-btn svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.content-theme-light .academy-standalone-btn { background: #fff; color: #9a9aa4; }
+.content-theme-dark .academy-standalone-btn { background: #181819; color: #5c5c66; }
+/* "← Volver" embebido: mismo icon-button que .academy-standalone-btn, espejado
+   a la izquierda (mismo top, sin repetir declaraciones de color/fondo/hover). */
+.academy-back-btn {
+  position: absolute; top: 14px; left: 14px; z-index: 2;
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: transparent;
+  opacity: .7; transition: opacity .15s, color .15s;
+}
+.academy-back-btn:hover { opacity: 1; color: var(--gold); }
+.academy-back-btn svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.content-theme-light .academy-back-btn { background: #fff; color: #9a9aa4; }
+.content-theme-dark .academy-back-btn { background: #181819; color: #5c5c66; }
 .resize-right { grid-column: 4; }
 .copilot-panel { grid-column: 5; }
 .resize-handle {

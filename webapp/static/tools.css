@@ -1136,3 +1136,6 @@
 .catalog-security-lineage .security-dac-node { stroke: var(--gold); }
 
 .ln-edge--hana { stroke-dasharray: 5 5; opacity: .58; }
+/* Leyenda sutil sobre las punteadas cross-band (publicación HANA→HDLF vía TF). */
+.ln-edge-legend { font: 500 .58rem var(--mono); letter-spacing: .04em; fill: var(--soft); opacity: .72; }
+.content-theme-dark .ln-edge-legend { fill: #9a9aa2; }

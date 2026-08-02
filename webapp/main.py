@@ -200,50 +200,57 @@ def _diagnostic(request: Request) -> bool:
 
 
 def _academy_feedback_html(stem: str, pack: str, *, submitted: bool = False, rating: str = "", form: bool = False, error: str = "") -> str:
-    """Fragmento autocontenido para el iframe de Danwor Academy."""
+    """Fragmento autocontenido para el iframe de Danwor Academy.
+
+    Mismas clases que partials/module_feedback.html (estilo único en
+    feedback.css) para que el cierre de Academy se vea IDÉNTICO al de módulo/
+    catálogo — nada de tipografía/botones propio acá. Solo cambia el copy
+    ("recorrido" en vez de "módulo") y el transporte: este HTML no carga htmx,
+    así que el submit va por fetch()+outerHTML (ver _academy_feedback_assets)
+    en vez de hx-post."""
     safe_stem = quote(stem, safe="")
     safe_pack = quote(pack, safe="")
     if submitted:
         icon = "&#128077;" if rating == "up" else "&#128078;"
         return (
-            '<section id="academy-feedback" class="dw-academy-feedback is-thanks is-visible">'
-            '<div class="dw-af-inner">'
-            '<p class="dw-af-eyebrow"><span class="dw-af-dot"></span>Gracias por tu recorrido</p>'
-            f'<p class="dw-af-prompt"><span class="dw-af-thanks-icon">{icon}</span> ¡Gracias!</p>'
-            '<p class="dw-af-note">Registramos tu opinión sobre este contenido.</p>'
+            '<section id="academy-feedback" class="module-feedback is-visible">'
+            '<div class="module-feedback__inner module-feedback__inner--thanks">'
+            '<p class="module-feedback__eyebrow"><span></span>Gracias por tu recorrido</p>'
+            f'<p class="module-feedback__prompt"><span>{icon}</span> ¡Gracias!</p>'
+            '<p class="module-feedback__note">Registramos tu opinión sobre este contenido.</p>'
             '</div></section>'
         )
     if form:
-        error_html = f'<p class="dw-af-error">{error}</p>' if error else ""
+        error_html = f'<p class="module-feedback__error">{error}</p>' if error else ""
         return (
-            '<section id="academy-feedback" class="dw-academy-feedback is-form is-visible">'
-            '<div class="dw-af-inner">'
-            '<p class="dw-af-eyebrow"><span class="dw-af-dot"></span>Contanos un poco más</p>'
-            '<p class="dw-af-prompt">¿Qué faltó o qué mejorarías?</p>'
+            '<section id="academy-feedback" class="module-feedback is-visible">'
+            '<div class="module-feedback__inner module-feedback__inner--form">'
+            '<p class="module-feedback__eyebrow"><span></span>Contanos un poco más</p>'
+            '<p class="module-feedback__prompt">¿Qué faltó o qué mejorarías?</p>'
             '<form data-academy-feedback-form method="post" '
             f'action="/academy/{safe_stem}/feedback/submit">'
             f'<input type="hidden" name="pack" value="{safe_pack}">'
             '<input type="hidden" name="rating" value="down">'
             f'{error_html}'
             '<textarea name="comment" rows="3" placeholder="Ej.: faltó contexto, un ejemplo práctico, más claridad o profundidad..." required></textarea>'
-            '<div class="dw-af-actions">'
-            f'<button type="button" class="dw-af-ghost" data-academy-feedback-cancel data-url="/academy/{safe_stem}/feedback/cancel" data-pack="{safe_pack}">Cancelar</button>'
-            '<button type="submit" class="dw-af-primary">Enviar</button>'
+            '<div class="module-feedback__actions">'
+            f'<button type="button" class="module-feedback__ghost" data-academy-feedback-cancel data-url="/academy/{safe_stem}/feedback/cancel" data-pack="{safe_pack}">Cancelar</button>'
+            '<button type="submit" class="module-feedback__primary">Enviar</button>'
             '</div></form></div></section>'
         )
     return (
-        '<section id="academy-feedback" class="dw-academy-feedback">'
-        '<div class="dw-af-inner">'
-        '<p class="dw-af-eyebrow"><span class="dw-af-dot"></span>Fin del recorrido</p>'
-        '<p class="dw-af-prompt">¿Qué te pareció este contenido?</p>'
+        '<section id="academy-feedback" class="module-feedback">'
+        '<div class="module-feedback__inner">'
+        '<p class="module-feedback__eyebrow"><span></span>Fin del recorrido</p>'
+        '<p class="module-feedback__prompt">¿Qué te pareció este contenido?</p>'
         '<form data-academy-feedback-form method="post" '
         f'action="/academy/{safe_stem}/feedback">'
         f'<input type="hidden" name="pack" value="{safe_pack}">'
-        '<div class="dw-af-reactions">'
-        '<button type="submit" name="rating" value="up" class="dw-af-react" aria-label="Me sirvió">'
-        '<span class="dw-af-emoji">&#128077;</span><span class="dw-af-label">Me sirvió</span></button>'
-        '<button type="submit" name="rating" value="down" class="dw-af-react" aria-label="Puede mejorar">'
-        '<span class="dw-af-emoji">&#128078;</span><span class="dw-af-label">Puede mejorar</span></button>'
+        '<div class="module-feedback__reactions">'
+        '<button type="submit" name="rating" value="up" class="module-feedback__react" aria-label="Me sirvió" title="Me sirvió">'
+        '<span class="module-feedback__emoji">&#128077;</span><span class="module-feedback__label">Me sirvió</span></button>'
+        '<button type="submit" name="rating" value="down" class="module-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">'
+        '<span class="module-feedback__emoji">&#128078;</span><span class="module-feedback__label">Puede mejorar</span></button>'
         '</div></form></div></section>'
     )
 
@@ -251,33 +258,25 @@ def _academy_feedback_html(stem: str, pack: str, *, submitted: bool = False, rat
 def _academy_feedback_assets(stem: str, pack: str) -> str:
     initial = _academy_feedback_html(stem, pack).replace("</", "<\\/")
     return """
+<link rel="stylesheet" href="/static/feedback.css" />
 <style>
-/* Cierre del recorrido: beat final en el lenguaje de Academy (usa las variables de
-   dw-academy.css → hereda tema claro/oscuro y branding solo). Aparece con reveal al
-   llegar al final, en vez de una card pegada abajo. */
-.dw-academy-feedback { border-top: 1px solid var(--line); margin-top: clamp(3rem,8vw,6rem); padding: clamp(3rem,7vw,5rem) 1.5rem clamp(4rem,9vw,6rem); text-align: center; opacity: 0; transform: translateY(22px); transition: opacity .7s var(--ease-out, ease), transform .7s var(--ease-out, ease); }
-.dw-academy-feedback.is-visible { opacity: 1; transform: none; }
-.dw-af-inner { max-width: 620px; margin: 0 auto; }
-.dw-af-eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); display: inline-flex; align-items: center; gap: .5rem; margin: 0 0 1rem; }
-.dw-af-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold-glow); }
-.dw-af-prompt { font-family: var(--sans); font-size: clamp(1.35rem,2.4vw,1.95rem); font-weight: 800; letter-spacing: -.01em; line-height: 1.15; color: var(--ink); margin: 0 0 1.9rem; }
-.dw-af-thanks-icon { font-size: 1.5rem; }
-.dw-af-note { font-family: var(--sans); font-size: .92rem; color: var(--ink-soft); margin: .3rem 0 0; }
-.dw-af-reactions { display: flex; justify-content: center; gap: 1rem; }
-.dw-af-react { display: flex; flex-direction: column; align-items: center; gap: .55rem; min-width: 138px; padding: 1.25rem 1.5rem; border: 1px solid var(--line); border-radius: var(--radius, 14px); background: var(--bg-card); color: var(--ink-soft); font-family: var(--sans); cursor: pointer; transition: border-color .2s, transform .2s, color .2s; }
-.dw-af-react:hover { border-color: var(--gold); transform: translateY(-3px); color: var(--ink); }
-.dw-af-emoji { font-size: 1.7rem; line-height: 1; }
-.dw-af-label { font-size: .82rem; font-weight: 650; }
-.dw-academy-feedback.is-form textarea { width: 100%; min-height: 92px; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-card); color: var(--ink); font: 500 .95rem/1.5 var(--sans); resize: vertical; box-sizing: border-box; }
-.dw-academy-feedback.is-form textarea:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-dim); }
-.dw-af-actions { display: flex; justify-content: center; gap: .7rem; margin-top: 1rem; }
-.dw-af-actions button { min-height: 40px; padding: .55rem 1.4rem; border-radius: 999px; font: 650 .85rem var(--sans); cursor: pointer; }
-.dw-af-ghost { border: 1px solid var(--line); background: transparent; color: var(--ink-soft); }
-.dw-af-ghost:hover { color: var(--ink); border-color: var(--ink-soft); }
-.dw-af-primary { border: 1px solid var(--gold); background: var(--gold); color: #1a1400; }
-.dw-af-primary:hover { filter: brightness(1.06); }
-.dw-af-error { margin: 0 0 .7rem; padding: .5rem .7rem; border-left: 2px solid #c95d5d; background: rgba(201,93,93,.10); color: #d98a8a; font: 500 .85rem var(--sans); border-radius: 4px; }
-@media (max-width: 560px) { .dw-af-reactions { flex-direction: column; align-items: stretch; } .dw-af-react { flex-direction: row; justify-content: center; gap: .7rem; } }
+/* feedback.css es la ÚNICA fuente de .module-feedback* (botonera de cierre):
+   la usan fin de módulo, catálogo, how-to Y este cierre de Academy — mismas
+   clases en los tres para que se vean IDÉNTICOS, nada de tipografía/botones
+   propio acá (ver tools.css comment y catalog_guide_slides.html, mismo shim).
+   Shim: feedback.css usa las variables del copiloto (--card/--soft);
+   dw-academy.css no las define con ese nombre (usa --bg-card/--ink-soft). */
+:root{ --card: var(--bg-card); --soft: var(--ink-soft); }
+/* Reveal al llegar al final: propio de Academy (storytelling de una sola
+   scrolleada); el cierre de módulo no lo necesita porque ya vive en un
+   documento normal. Solo anima el wrapper — el resto es feedback.css. */
+#academy-feedback { opacity: 0; transform: translateY(22px); transition: opacity .7s var(--ease-out, ease), transform .7s var(--ease-out, ease); }
+#academy-feedback.is-visible { opacity: 1; transform: none; }
+/* .module-feedback trae border-top:0 a propósito: en módulo esa línea la
+   aporta el border-bottom de la ÚLTIMA sección de contenido. En Academy el
+   último .stop/.topic tiene border-bottom:none (":last-of-type"), así que acá
+   SÍ hace falta un borde propio para no perder el separador antes del cierre. */
+#academy-feedback { border-top: 1px solid var(--line); }
 </style>
 <script>
 (function() {
@@ -500,8 +499,12 @@ def pack_asset(request: Request, pack_name: str, asset_path: str):
         # Soporte de tema común a TODOS los embeds: en modo oscuro vuelve
         # transparente el fondo del asset (mata el recuadro blanco; se ve el
         # canvas oscuro detrás) y escucha el cambio en vivo del copiloto.
+        # OJO: scopeado a [data-dw-embed] — standalone (sin embed=1, botón
+        # "pantalla completa") no tiene canvas del copiloto detrás; si se deja
+        # transparente ahí, el body queda sin fondo (blanco del navegador) pese
+        # a que las variables de color sí resuelven a la paleta oscura.
         theme_support = (
-            '<style>html[data-dw-theme="dark"],html[data-dw-theme="dark"] body'
+            '<style>html[data-dw-embed][data-dw-theme="dark"],html[data-dw-embed][data-dw-theme="dark"] body'
             '{background:transparent!important}'
             # Scrollbars sutiles en dark (thumb claro translúcido, track transparente).
             'html[data-dw-theme="dark"]{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}'
@@ -881,6 +884,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "readonly": _readonly(request),
             "page_title": current.title if current else "Danwor Academy",
             "iframe_src": iframe_src,
+            "asset": asset,
             "show_panel": False,
             "diagnostic": diagnostic,
             "is_owner": _is_owner(request),
@@ -1970,7 +1974,10 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
                 "num": num,
                 "is_factcube": False,
                 "runtime": runtime,
-                "subtext": "delta capable" if raw_node.get("delta_capable") else "",
+                "subtext": " · ".join(filter(None, [
+                    "delta capable" if raw_node.get("delta_capable") else "",
+                    "compartido" if raw_node.get("shared") else "",
+                ])),
             })
         if lineage_nodes:
             product_label = getattr(product, "business_name", "") or getattr(product, "title", "") or getattr(product, "product_id", "")
@@ -3086,7 +3093,13 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
 
     def _node_dims(n):
         disp = (n["label"][:33] + "…") if len(n["label"]) > 34 else n["label"]
-        w = max(WMIN, min(WMAX, int(NUM_W + len(disp) * CHAR + PAD_R)))
+        w_label = NUM_W + len(disp) * CHAR + PAD_R
+        # El subtexto (.ln-node-subtext ≈ 9px) arranca en x+32; también debe caber → el
+        # ancho toma el MAYOR de nombre y subtexto (SUB_CHAR levemente sobreestimado para
+        # no cortar "DELTA CAPABLE · COMPARTIDO").
+        sub = str(n.get("subtext") or "")
+        w_sub = (32 + len(sub) * 5.2 + PAD_R) if sub else 0
+        w = max(WMIN, min(WMAX, int(max(w_label, w_sub))))
         return w, disp
 
     node_w, node_disp, col_width = {}, {}, {}
@@ -3103,6 +3116,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
         acc += col_width[d] + COLGAP
     pos, max_rows = {}, 0
     is_data_product_lineage = any(str(n.get("runtime") or "") == "object_store" for n in shown) and any(str(n.get("subtext") or "") == "Data Product" for n in shown)
+    _band_gap_y = None   # y del gap entre bandas HANA/HDLF (para la leyenda "vía TF")
     if is_data_product_lineage:
         hana_cols = [d for d in cols if any(str(n.get("runtime") or "") == "hana" for n in by_col[d])]
         object_cols = [d for d in cols if any(str(n.get("runtime") or "") != "hana" for n in by_col[d])]
@@ -3131,6 +3145,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
 
         hana_height = band_label_h + max(1, hana_rows) * (H + VGAP) - VGAP + 18
         object_top = hana_height + 22
+        _band_gap_y = hana_height + (object_top - hana_height) / 2 + 3   # centro del gap
         for d in object_cols:
             object_idx = 0
             for n in by_col[d]:
@@ -3187,6 +3202,8 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
             for k in sorted(duplicate_lineage_keys)
         ) + "</style>")
 
+    _tf_label_x: list = []   # posiciones ya ocupadas por la leyenda "vía Transformation Flow"
+
     def _edge(up, tgt, cls):
         if up not in pos or tgt not in pos:
             return
@@ -3207,8 +3224,30 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
             sx, sy = x1 + node_w[up] / 2, y1 + H
             tx, ty = x2 + node_w[tgt] / 2, y2
             dy = max(18, abs(ty - sy) / 2)
+            # Punteada cross-band = publicación HANA→HDLF vía Transformation Flow. Tooltip
+            # on-hover (robusto) + leyenda inline sutil en el gap (dedupe de posición).
             p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx:.0f},{sy+dy:.0f} '
-                     f'{tx:.0f},{ty-dy:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
+                     f'{tx:.0f},{ty-dy:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)">'
+                     f'<title>vía Transformation Flow</title></path>')
+            my = _band_gap_y if _band_gap_y is not None else (sy + ty) / 2   # en el gap
+            # X = donde el edge CRUZA el gap (sobre la curva bezier), NO el midpoint: dos
+            # punteadas que en el gap están separadas reciben cada una su leyenda.
+            mx = (sx + tx) / 2
+            if _band_gap_y is not None:
+                _bt, _bd = 0.5, 1e9
+                for _i in range(101):
+                    _t = _i / 100.0
+                    _mt = 1 - _t
+                    _yy = (_mt**3 * sy + 3 * _mt**2 * _t * (sy + dy)
+                           + 3 * _mt * _t**2 * (ty - dy) + _t**3 * ty)
+                    if abs(_yy - my) < _bd:
+                        _bd, _bt = abs(_yy - my), _t
+                _mt = 1 - _bt
+                mx = _mt**3 * sx + 3 * _mt**2 * _bt * sx + 3 * _mt * _bt**2 * tx + _bt**3 * tx
+            if all(abs(mx - px) > 130 for px in _tf_label_x):   # ancho de la leyenda (evita solape)
+                _tf_label_x.append(mx)
+                p.append(f'<text class="ln-edge-legend" x="{mx:.0f}" y="{my:.0f}" '
+                         f'text-anchor="middle">vía Transformation Flow</text>')
         else:
             sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
             dx = max(24, abs(tx - sx) / 2)
@@ -3432,6 +3471,82 @@ def _catalog_compliance_table_html(source: str) -> str:
         '</div>'
     )
 
+_PORT_CLASIF_LABEL = {
+    "plena": "Plena", "buena": "Buena", "condicionada": "Condicionada",
+    "inspiracional": "Inspiracional / Referencia",
+    "no_recomendable": "No recomendable para réplica directa",
+    "no_evaluable": "No evaluable",
+}
+_PORT_HALLAZGO_LABEL = {
+    "riesgo": "Riesgo", "adaptacion": "Adaptación", "buena_practica": "Buena práctica",
+    "hint": "Hint", "no_evaluable": "No evaluable",
+}
+
+
+def _catalog_portability_table_html(findings: list, asset_type: str) -> str:
+    """Tabla de portabilidad AGRUPADA por regla (semáforo por hallazgo). Reusa las clases
+    .catalog-compliance* / .catalog-status--* existentes. Muchos campos de la misma regla
+    se resumen en una fila (evita listar 80 filas) — como el ejemplo '3 campos DecimalFloat'."""
+    if not findings:
+        return ""
+    order = {"red": 0, "orange": 1, "amber": 2, "blue": 3, "green": 4}
+    groups: dict[str, list] = {}
+    for f in sorted(findings, key=lambda x: order.get(x.get("semaforo"), 5)):
+        groups.setdefault(f.get("regla"), []).append(f)
+    rows = []
+    for _regla, fs in groups.items():
+        f0 = fs[0]
+        estado = _PORT_HALLAZGO_LABEL.get(f0.get("tipo_hallazgo"), "Nota")
+        nombres = list(dict.fromkeys(
+            (f"{x.get('artefacto')}.{x.get('campo')}" if x.get("artefacto") else str(x.get("campo") or ""))
+            for x in fs))
+        campos = ", ".join(nombres)
+        if len(campos) > 160:
+            campos = campos[:157] + "…"
+        titulo = f"{len(fs)} campo(s) · {html.escape(str(f0.get('titulo') or ''))}"
+        ev = html.escape(campos)
+        if f0.get("recomendacion"):
+            ev += f" — <em>{html.escape(str(f0['recomendacion']))}</em>"
+        rows.append(
+            f'<tr><td class="catalog-compliance__state"><span class="catalog-status catalog-status--{f0.get("semaforo","amber")}">{estado}</span></td>'
+            f'<td class="catalog-compliance__finding">{titulo}</td>'
+            f'<td class="catalog-compliance__evidence">{ev}</td></tr>')
+    return ('<div class="catalog-compliance"><table class="catalog-compliance-table">'
+            '<thead><tr><th>Tipo</th><th>Hallazgo</th><th>Campos · Recomendación</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>')
+
+
+def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | None = None) -> str:
+    """Sección markdown '## Portabilidad BDC' (dimensión cross-runtime, SEPARADA del
+    cumplimiento de extracción). "" si no hay datos. El asset_type distingue el diagnóstico
+    preventivo (dominio) del retrospectivo (data product: safety check + adaptaciones)."""
+    if not port or not isinstance(port, dict):
+        return ""
+    findings = port.get("findings") or []
+    clasif = str(port.get("clasificacion") or "no_evaluable")
+    label = _PORT_CLASIF_LABEL.get(clasif, clasif.replace("_", " ").title())
+    semaforo = port.get("semaforo") or "amber"
+    conf = str(port.get("confianza") or "media").title()
+    score = port.get("score")
+    rev, noeval = port.get("campos_revisados", 0), port.get("campos_no_evaluables", 0)
+    nrisk, nadapt = port.get("n_riesgos", 0), port.get("n_adaptaciones", 0)
+    pill = f'<span class="catalog-status catalog-status--{semaforo}">{html.escape(label)}</span>'
+    score_txt = f" · Score **{score}/100**" if isinstance(score, int) else ""
+    scope = ("Análisis retrospectivo del contrato publicado — safety check de incompatibilidades "
+             "residuales y detección de adaptaciones/workarounds (los hints no penalizan)."
+             if asset_type == "data_product"
+             else "Diagnóstico PREVENTIVO de portabilidad hacia HDLF / SAP BDC / Databricks.")
+    intro = (f"> {pill}{score_txt} · Confianza **{conf}**. {scope}\n>\n"
+             f"> Revisados **{rev}** campos · **{nrisk}** riesgo(s) · **{nadapt}** adaptación/hint"
+             + (f" · **{noeval}** no evaluable(s)" if noeval else "") + ".")
+    ack_note = ""
+    if acks:
+        ack_note = f"\n\n> _{len(acks)} acknowledgement(s) registrados por el equipo._"
+    table = _catalog_portability_table_html(findings, asset_type)
+    body = table if table else "> Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes."
+    return f"## Portabilidad BDC\n\n{intro}\n\n{body}{ack_note}\n"
+
+
 def _catalog_clean_label(raw, fallback: str) -> str:
     """Runtime twin de `_clean_label` del generador: descarta un label que en realidad
     es un placeholder i18n sin resolver (p. ej. '{i18n>Remote.X@ENDUSERTEXT.LABEL}')
@@ -3555,6 +3670,12 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
             f"el dominio {entry.dominio} de {entry.cliente}",
         )
         parts.append("## Cumplimiento\n\n" + intro + "\n\n" + _catalog_compliance_table_html(mh.group(1)))
+    # Dimensión PARALELA: Portabilidad BDC (cross-runtime). Sección propia, no altera el
+    # cumplimiento de extracción. Se muestra sólo si el generador la computó.
+    _port_md = _catalog_portability_section_md(
+        getattr(entry, "portabilidad_bdc", None), "dominio", getattr(entry, "portabilidad_ack", None))
+    if _port_md:
+        parts.append(_port_md)
     composed = "\n\n".join(parts)
     # Linkear en las tablas → ancla de su sección, solo para artefactos VISIBLES
     # (evita links muertos a secciones filtradas por el toggle).
@@ -3628,6 +3749,10 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
     from webapp.services.content_service import render_sections
     body = _catalog_dp_inject_cds_buttons(entry.body, entry.lineage_nodes, selected)
     body = _catalog_dp_render_compliance(body, entry)
+    _port_md = _catalog_portability_section_md(
+        getattr(entry, "portabilidad_bdc", None), "data_product", getattr(entry, "portabilidad_ack", None))
+    if _port_md:
+        body = body + "\n\n" + _port_md
     sections = render_sections(body, pack_name="", stem="", base=0)
     show_lineage = bool(lineage)
     lineage_svg = _catalog_data_product_lineage_svg(entry, show_lineage)

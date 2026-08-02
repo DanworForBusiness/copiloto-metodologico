@@ -272,6 +272,22 @@ def _reconciliation_line(out_dir: str) -> str:
         return f"[reconciliación] no ejecutada: {type(exc).__name__}: {exc}"
 
 
+def _portability_line(out_dir: str) -> str:
+    """Agrega la telemetría de Portabilidad BDC del catálogo recién generado y devuelve
+    una línea de estado. Determinístico; nunca bloquea la regeneración."""
+    try:
+        import sys as _sys
+        from config import BASE_DIR as _BD
+        _tc = str(_BD / "tools" / "catalog")
+        if _tc not in _sys.path:
+            _sys.path.insert(0, _tc)
+        import portability_telemetry as tele
+        _report, line = tele.run(Path(out_dir))
+        return line
+    except Exception as exc:  # noqa: BLE001
+        return f"[portabilidad BDC] no ejecutada: {type(exc).__name__}: {exc}"
+
+
 def run_catalog_generation_locked(graph_token: str = "") -> tuple[bool, str]:
     """Como run_catalog_generation pero serializado. Devuelve (corrió, mensaje):
     corrió=False si ya había una regeneración en curso (no corre ni espera)."""
@@ -333,6 +349,7 @@ def run_catalog_generation(graph_token: str = "") -> str:
             # criterio se re-espeja solo (ya no es un botón manual). Marca fuerte si hay
             # divergencia auto↔senior. Nunca bloquea la regeneración.
             parts.append(_reconciliation_line(out))
+            parts.append(_portability_line(out))
             return "\n".join(parts)
 
         if graph_token and csn_url:

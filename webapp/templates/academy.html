@@ -43,6 +43,29 @@
   <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
 
   <main id="content" class="academy-stage">
+    {# "← Volver" embebido: al navegar DENTRO del iframe a otro asset (p. ej.
+       paradigmas → datasphere) no queda ningún "atrás" a mano (el historial que
+       se mueve es el del iframe, no el del copiloto — el botón Atrás del
+       navegador no ayuda). Se muestra SOLO cuando el asset actual (academyAsset,
+       vía postMessage) difiere del de aterrizaje de esta página — nunca en el
+       landing de ningún contenido (ni bien entrás a Academy, ni si volvés a
+       llegar ahí). NO se gatea contando mensajes: el x-init="init()" del shell +
+       el auto-init de Alpine llaman init() dos veces, así que un contador de
+       mensajes recibidos queda desfasado (ver bitácora). Retrocede el historial
+       del iframe. Mismo patrón que "← Volver" del catálogo (volver sin recargar),
+       adaptado a icon-button por vivir flotando sobre el iframe. #}
+    <a class="academy-back-btn" x-show="academyAsset && academyAsset !== '{{ asset }}'" x-cloak href="#" @click.prevent="academyGoBack()" title="Volver" aria-label="Volver a la página anterior de Danwor Academy">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+    </a>
+    {# academyAsset (Alpine, en copilotLayout) se actualiza vía postMessage cuando
+       se navega DENTRO del iframe a otro asset (p. ej. paradigmas → datasphere,
+       mismo mecanismo que sincroniza el nav izquierdo); si todavía no llegó
+       ningún mensaje, cae al asset con el que se sirvió esta página. Así el
+       botón siempre apunta al standalone de lo que se está viendo AHORA, no al
+       de aterrizaje. #}
+    <a class="academy-standalone-btn" :href="'/pack-assets/{{ pack }}/academy/' + (academyAsset || '{{ asset }}') + '?branding=danwor&theme=' + contentTheme" target="_blank" rel="noopener" title="Abrir en pantalla completa" aria-label="Abrir Danwor Academy en pantalla completa">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+    </a>
     <iframe class="content-embed academy-embed" src="{{ iframe_src }}" title="{{ page_title }}" loading="lazy"></iframe>
   </main>
 </div>

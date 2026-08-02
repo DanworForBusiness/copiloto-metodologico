@@ -22,6 +22,11 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
     navAppendix: activeGroup === "appendix",
     navAcademy: activeGroup === "academy",
     contentTheme: localStorage.getItem("dw-content-theme") || "light",
+    // Asset de Academy actualmente visible DENTRO del iframe (puede diferir del
+    // que sirvió la página si se navegó internamente, p. ej. paradigmas→datasphere).
+    // Lo alimenta el mismo postMessage "danwor-academy-nav" de más abajo; lo usa
+    // el botón "pantalla completa" para apuntar siempre a lo que se está viendo.
+    academyAsset: null,
     init() {
       const shell = this.$root;
       const savedLeft = Number(localStorage.getItem("dw-nav-width"));
@@ -49,6 +54,7 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
       window.addEventListener("message", event => {
         const data = event.data;
         if (!data || data.type !== "danwor-academy-nav") return;
+        if (data.asset) this.academyAsset = data.asset;
         let matched = null;
         shell.querySelectorAll(".module-link[data-asset]").forEach(link => {
           const isCurrent = !!data.asset && link.dataset.asset === data.asset;
@@ -166,6 +172,14 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
     openSection() {
       if (!this.activeSection) return;
       document.getElementById(this.activeSection)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    // "← Volver" de Danwor Academy embebida: al navegar DENTRO del iframe a otro
+    // asset (p. ej. paradigmas→datasphere) no hay forma de volver — el historial
+    // que se mueve es el del iframe, no el del copiloto, así que el botón Atrás
+    // del navegador no ayuda. Retrocede el historial PROPIO del iframe.
+    academyGoBack() {
+      const frame = this.$root.querySelector(".academy-embed");
+      try { frame && frame.contentWindow.history.back(); } catch (e) {}
     },
     sectionChanged() {
       this.openSection();

@@ -1,0 +1,211 @@
+# Matriz de Portabilidad SAP BDC / cross-runtime (HANA → HDLF/Object Store → Databricks).
+#
+# FUENTE ÚNICA y CONFIGURABLE de las reglas de portabilidad. El copiloto SOLO la LEE;
+# se puede ampliar con nuevas reglas SIN tocar código (append a `reglas`). Si el archivo
+# falta, el evaluador cae a los seeds hardcodeados en tools/catalog/portability_matrix.py.
+#
+# NO son reglas oficiales/universales de SAP: son patrones basados en EVIDENCIA interna
+# Danwor (incidentes reales), con estado de validación y confianza explícitos.
+#
+# Cada regla evalúa un CAMPO (columna) de un artefacto. El evaluador distingue dos
+# contextos y NO los mezcla:
+#   • dominio      → diagnóstico PREVENTIVO (¿este dominio será portable a BDC?).
+#   • data_product → análisis RETROSPECTIVO (ya publicado): safety check (residuales,
+#                    penalizan) + detección de adaptaciones/workarounds (hint, NO penaliza).
+#
+# tipo_hallazgo (5, no un warning genérico):
+#   riesgo | adaptacion | buena_practica | hint | no_evaluable
+# severidad: alto | medio | nota
+# estado_validacion: observado | reproducido | validado | recomendado | pendiente | deprecado
+
+version: 1
+
+config:
+  # Bandas de score (0-100) → clasificación de portabilidad. Preserva la terminología
+  # de la app (plena/buena/…); agrega "condicionada"/"no_recomendable" para esta dimensión.
+  bandas:
+    - { desde: 90, clasificacion: plena,           semaforo: green }
+    - { desde: 75, clasificacion: buena,           semaforo: green }
+    - { desde: 50, clasificacion: condicionada,    semaforo: amber }
+    - { desde: 25, clasificacion: inspiracional,   semaforo: orange }
+    - { desde: 0,  clasificacion: no_recomendable, semaforo: red }
+  # Peso de la dimensión de portabilidad en el score/veredicto GLOBAL del activo.
+  # 0 = dimensión PARALELA (se muestra aparte; NO altera el veredicto de extracción
+  # histórico). >0 habilita una mezcla configurable sin recalcular lo ya probado.
+  peso_global: 0
+  # Score arranca en 100 y se penaliza; la falta de metadata penaliza de forma ACOTADA.
+  score_base: 100
+  penalizacion_metadata_max: 12
+  # Penalización por hallazgo = peso_regla * factor_severidad * confianza (0..1).
+  factor_severidad: { alto: 1.0, medio: 0.5, nota: 0.15 }
+  # Reconocimiento (suma) por normalización contractual explícita / consistencia.
+  bonus_normalizacion: 4
+  bonus_max: 12
+  # Cap de penalización por regla: muchos hallazgos menores de la MISMA regla NO deben
+  # hundir el score de forma desproporcionada.
+  penalizacion_max_por_regla: 20
+  # Semántica funcional inferida por nombre/label. Se matchea contra TOKENS (palabras
+  # completas), no substring, para no confundir 'account'≠'count' ni 'corporate'≠'rate'.
+  semantica:
+    monetario: [amount, importe, monto, price, precio, cost, costo, valor, betrag, wrbtr, dmbtr]
+    porcentaje_ratio: [percent, porcentaje, ratio, coverage, cobertura, rate, tasa, proportion]
+    cantidad: [quantity, cantidad, qty, menge, weight, peso, volume, volumen]
+  # Umbrales de "escala/precisión inusualmente elevada" (incidente 2: DECIMAL(37,19)).
+  escala_alta: 10
+  precision_alta: 30
+
+reglas:
+  - id: PB-001
+    nombre: "DecimalFloat en campo monetario"
+    descripcion: >-
+      Campos monetarios que llegan como DecimalFloat/DECFLOAT (precisión flotante
+      decimal). Válido en HANA, pero su representación no es un contrato portable
+      confiable hacia HDLF/Databricks: durante la publicación puede convertirse de
+      forma impredecible (se observó traducción a String(10) y falla de carga).
+    cuando:
+      semantica: monetario
+      tipo_o_native_in: [DecimalFloat, DECFLOAT, DECIMAL_FLOAT, DECFLOAT16, DECFLOAT34]
+    dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 22 }
+    data_product: { tipo_hallazgo: riesgo, severidad: medio, peso: 14, control: safety_check }
+    recomendacion: "Normalizar a DECIMAL(38,6) en la capa contractual, antes de la publicación."
+    capa_correccion: "Capa contractual (antes del artefacto físico destinado a HDLF)."
+    normalizacion_observada: "DECIMAL(38,6)"
+    confianza: alta
+    estado_validacion: validado
+    fuente_evidencia: "Incidente interno Danwor — campos monetarios S/4HANA en data product de posiciones comerciales."
+    incidentes: [caso-1-decimalfloat]
+    habilitada: true
+    version: 1
+
+  - id: PB-002
+    nombre: "Escala/precisión inferida elevada en derivado (ratio/porcentaje)"
+    descripcion: >-
+      Resultado de una división/ratio/porcentaje cuyo tipo fue INFERIDO por HANA con
+      escala/precisión inusualmente alta (ej. observado DECIMAL(37,19)). El tipo es
+      formalmente válido pero el Transformation Flow HANA→HDLF puede fallar antes de
+      procesar en Spark. Un cast tardío en la publicación no siempre lo corrige.
+    cuando:
+      # El smell es la ESCALA inferida alta (ej. 19), NO la precisión: DECIMAL(38,6)
+      # (precisión 38, escala 6) es la normalización BUENA y no debe caer acá.
+      tipo_base: decimal
+      escala_min: 10
+    dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 20 }
+    data_product: { tipo_hallazgo: riesgo, severidad: medio, peso: 12, control: safety_check }
+    recomendacion: >-
+      Tipificar el campo explícitamente (CAST) en la MISMA expresión y capa donde nace
+      (p. ej. DECIMAL(15,6) según la necesidad funcional), no sólo en la publicación.
+    capa_correccion: "En la expresión que origina el campo (flujo Datasphere previo a la publicación)."
+    normalizacion_observada: "DECIMAL(15,6)"
+    confianza: alta
+    estado_validacion: validado
+    fuente_evidencia: "Incidente interno Danwor — ConfirmationCoveragePercent = ConfirmedQuantity/OrderQuantity*100."
+    incidentes: [caso-2-decimal-37-19]
+    habilitada: true
+    version: 1
+
+  - id: PB-003
+    nombre: "Campo con semántica numérica representado como String"
+    descripcion: >-
+      Atributo cuya semántica (nombre/label) es numérica pero cuyo tipo es String.
+      Puede implicar pérdida de capacidad numérica, ordenamiento incorrecto,
+      truncamiento o un workaround técnico de compatibilidad. NO es error automático.
+    cuando:
+      tipo_base: string
+      semantica_en: [monetario, porcentaje_ratio, cantidad]
+    dominio:      { tipo_hallazgo: riesgo, severidad: nota, peso: 6 }
+    data_product: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Revisar si el tipo String responde a una limitación técnica; preferir el tipo numérico contractual."
+    capa_correccion: "Capa contractual o expresión de origen."
+    confianza: media
+    estado_validacion: recomendado
+    fuente_evidencia: "Buena práctica Danwor — evitar degradar semántica numérica a texto por compatibilidad."
+    habilitada: true
+    version: 1
+
+  - id: PB-004
+    nombre: "Campo derivado sin cast contractual explícito"
+    descripcion: >-
+      Campo calculado (división, multiplicación monetaria, porcentaje, ROUND, CASE con
+      ramas de tipos distintos, COALESCE con literales, concatenación usada como clave)
+      cuyo tipo quedó INFERIDO, sin un CAST explícito en su expresión de origen. No se
+      marcan todos los derivados: sólo los de riesgo (semántica sensible o escala alta).
+    cuando:
+      derivado: true
+      sin_cast: true
+      o:
+        - { semantica_en: [monetario, porcentaje_ratio] }
+        - { escala_min: 10 }
+    dominio:      { tipo_hallazgo: riesgo, severidad: medio, peso: 8 }
+    data_product: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Fijar el tipo con CAST explícito en la misma capa/expresión donde nace el campo."
+    capa_correccion: "Expresión de origen del campo derivado."
+    confianza: media
+    estado_validacion: recomendado
+    fuente_evidencia: "Aprendizaje metodológico — el cast debe aplicarse donde nace el atributo, no en la publicación."
+    habilitada: true
+    version: 1
+
+  - id: PB-005
+    nombre: "Tipo distinto entre foreign key y su primary key relacionada"
+    descripcion: >-
+      Una columna FK cuyo tipo/longitud difiere del de la primary key que referencia.
+      Riesgo alto para asociaciones y portabilidad relacional (joins, integridad,
+      representación estable cross-runtime).
+    cuando:
+      pk_fk_tipo_distinto: true
+    dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 18, bloqueante: true }
+    data_product: { tipo_hallazgo: riesgo, severidad: alto, peso: 18, control: safety_check, bloqueante: true }
+    recomendacion: "Alinear el tipo/longitud de la FK con su PK en la capa contractual."
+    capa_correccion: "Capa contractual (definición de la relación)."
+    confianza: alta
+    estado_validacion: recomendado
+    fuente_evidencia: "Buena práctica Danwor — consistencia PK/FK para portabilidad relacional."
+    habilitada: true
+    version: 1
+
+  # ── Reconocimiento de NORMALIZACIONES (no penalizan; validan o dan hint) ───────────
+  - id: PB-010
+    nombre: "Monetario normalizado a DECIMAL(38,6)"
+    descripcion: >-
+      Campo monetario publicado como DECIMAL(38,6). En un dominio es la normalización
+      contractual CORRECTA (buena práctica). En un data product publicado sugiere una
+      normalización probable por portabilidad cross-runtime: revisar y documentar antes
+      de reutilizar/modificar. No penaliza.
+    cuando:
+      semantica: monetario
+      tipo_base: decimal
+      precision_eq: 38
+      escala_eq: 6
+    dominio:      { tipo_hallazgo: buena_practica, severidad: nota, peso: 0 }
+    data_product: { tipo_hallazgo: adaptacion, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Conservar el tipo y documentar la decisión antes de reutilizar el contrato."
+    capa_correccion: "Ya normalizado en la capa contractual."
+    confianza: media
+    estado_validacion: validado
+    fuente_evidencia: "Normalización observada como resolución del incidente 1."
+    incidentes: [caso-1-decimalfloat]
+    habilitada: true
+    version: 1
+
+  - id: PB-011
+    nombre: "Ratio/porcentaje normalizado a DECIMAL(15,6)"
+    descripcion: >-
+      Porcentaje o ratio publicado como DECIMAL(15,6), con lineage hacia una división de
+      cantidades. Normalización contractual probable (evita una inferencia DECIMAL de
+      escala alta durante la publicación a HDLF). No penaliza; se recomienda conservar
+      el cast y documentar.
+    cuando:
+      semantica: porcentaje_ratio
+      tipo_base: decimal
+      precision_eq: 15
+      escala_eq: 6
+    dominio:      { tipo_hallazgo: buena_practica, severidad: nota, peso: 0 }
+    data_product: { tipo_hallazgo: adaptacion, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Conservar el cast en la capa donde nace el indicador y documentar la decisión."
+    capa_correccion: "Ya normalizado en la expresión de origen."
+    confianza: media
+    estado_validacion: validado
+    fuente_evidencia: "Normalización observada como resolución del incidente 2."
+    incidentes: [caso-2-decimal-37-19]
+    habilitada: true
+    version: 1

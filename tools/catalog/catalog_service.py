@@ -68,6 +68,8 @@ class CatalogEntry:
     hallazgos: list = field(default_factory=list)
     origenes: list = field(default_factory=list)
     capas: list = field(default_factory=list)
+    portabilidad_bdc: dict = field(default_factory=dict)   # dimensión BDC (auto)
+    portabilidad_ack: list = field(default_factory=list)   # acknowledgements (manual, senior)
     body: str = ""
     _search: str = ""
 
@@ -150,6 +152,8 @@ class CatalogDataProductEntry:
     fields: list[dict] = field(default_factory=list)
     lineage_nodes: list[dict] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
+    portabilidad_bdc: dict = field(default_factory=dict)   # dimensión BDC (auto)
+    portabilidad_ack: list = field(default_factory=list)   # acknowledgements (manual, senior)
     body: str = ""
     _search: str = ""
 
@@ -269,6 +273,8 @@ def _parse_md(text: str, path: str) -> CatalogEntry | None:
         hallazgos=[{"severidad": h.get("severidad", ""), "titulo": h.get("titulo", ""),
                     "evidencia": h.get("evidencia", "")} for h in hallazgos],
         origenes=list(auto.get("origenes") or []),
+        portabilidad_bdc=dict(auto.get("portabilidad_bdc") or {}),
+        portabilidad_ack=list(manual.get("portabilidad_ack") or []),
         body=m.group(2),
     )
     from collections import Counter
@@ -854,6 +860,8 @@ def _parse_data_product_md(path: Path) -> CatalogDataProductEntry | None:
         fields=list(auto.get("campos") or []),
         lineage_nodes=list(auto.get("lineage_nodes") or []),
         files=list(auto.get("archivos") or []),
+        portabilidad_bdc=dict(auto.get("portabilidad_bdc") or {}),
+        portabilidad_ack=list(manual.get("portabilidad_ack") or []),
         body=body,
     )
     entry._search = " ".join([

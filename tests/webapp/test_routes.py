@@ -376,29 +376,58 @@ def test_academy_group_present_on_module_pages_but_out_of_pager():
     assert "/academy/" not in pager
 
 
-def test_academy_asset_injects_embed_flag_and_theme():
-    response = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&embed=1")
+def test_academy_page_has_standalone_button_pointing_to_non_embedded_asset():
+    response = client.get("/academy/ACAD01_Paradigmas")
     assert response.status_code == 200
-    assert "window.DANWOR_EMBED_PROPS" in response.text
-    assert "data-dw-embed" in response.text          # el script marca el modo embebido
-    assert "data-dw-theme" in response.text          # theme del copiloto inyectado
+    assert 'class="academy-standalone-btn"' in response.text
+    button = response.text.split('class="academy-standalone-btn"', 1)[1].split("</a>", 1)[0]
+    assert 'target="_blank"' in button
+    assert "/pack-assets/datasphere_core/academy/" in button
+    assert "branding=danwor" in button
+    # Standalone = SIN embed=1 (así conserva su propio topbar); solo el iframe
+    # embebido lo lleva.
+    assert "embed=1" not in button
+    # El theme viaja vivo por query, atado al contentTheme de Alpine (no hardcodeado).
+    assert "theme=' + contentTheme" in button
+    # El asset objetivo es DINÁMICO (academyAsset, Alpine — actualizado por el
+    # postMessage "danwor-academy-nav" cuando se navega dentro del iframe a otro
+    # asset, p. ej. paradigmas→datasphere), con fallback al asset de aterrizaje:
+    # nunca queda fijo en el de la carga inicial de la página.
+    assert "(academyAsset || 'paradigmas.html')" in button
 
 
-def test_academy_shared_stylesheet_is_served():
-    response = client.get("/pack-assets/datasphere_core/academy/dw-academy.css")
+def test_academy_page_has_embedded_back_button_hidden_on_landing_asset():
+    # Sin "Volver" no hay forma de salir de un asset al que se navegó DENTRO del
+    # iframe (paradigmas→datasphere): el historial que se mueve es el del iframe,
+    # no el del copiloto. Se muestra SOLO cuando academyAsset (el asset que el
+    # iframe está mostrando AHORA, vía postMessage) difiere del de aterrizaje de
+    # esta página — nunca en el landing (ni bien entrás, ni si volviste a él).
+    response = client.get("/academy/ACAD01_Paradigmas")
     assert response.status_code == 200
-    assert 'branding-danwor' in response.text
+    assert 'class="academy-back-btn"' in response.text
+    button = response.text.split('class="academy-back-btn"', 1)[1].split("</a>", 1)[0]
+    assert "x-show=\"academyAsset && academyAsset !== 'paradigmas.html'\"" in button
+    assert '@click.prevent="academyGoBack()"' in button
+
+
+def test_academy_standalone_button_absent_on_module_pages():
+    # El botón es exclusivo de Danwor Academy: no debe aparecer en módulos
+    # (ni siquiera los inmersivos, que reusan el mismo .academy-stage/iframe).
+    response = client.get("/modules/01_Arquitectura_y_Conectividad")
+    assert response.status_code == 200
+    assert "academy-standalone-btn" not in response.text
+    assert "academy-back-btn" not in response.text
 
 
 def test_pack_asset_and_pack_resource_require_session():
-    # Si abrís contenido de un pack (Academy u otro), copiás el link directo y te
-    # desloguéas, ese link seguía sirviendo contenido sin sesión — pack_asset y
-    # pack_resource no chequeaban auth, a diferencia de /academy/{stem} y el resto
-    # de las rutas protegidas. Ahora deben redirigir a /?...#acceso, preservando
-    # el destino en `next` (mismo mecanismo que las demás rutas).
+    # Joe: si abrís el contenido standalone de Academy, copiás el link, volvés al
+    # copiloto y te desloguéas, ese link seguía sirviendo contenido sin sesión
+    # (pack_asset/pack_resource no chequeaban auth — a diferencia de /academy/{stem}
+    # y el resto de las rutas protegidas). Ahora deben redirigir a /?...#acceso,
+    # preservando el destino en `next` (mismo mecanismo que las demás rutas).
     anon = TestClient(app)
     asset = anon.get(
-        "/pack-assets/datasphere_core/academy/dw-academy.css", follow_redirects=False
+        "/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor", follow_redirects=False
     )
     assert asset.status_code == 307
     assert "acceso" in asset.headers["location"]
@@ -409,9 +438,67 @@ def test_pack_asset_and_pack_resource_require_session():
     assert resource.status_code == 307
     assert "acceso" in resource.headers["location"]
     # Con sesión, sigue sirviendo el contenido real (sin regresión).
-    authed = client.get("/pack-assets/datasphere_core/academy/dw-academy.css")
+    authed = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor")
     assert authed.status_code == 200
-    assert "branding-danwor" in authed.text
+    assert "window.DANWOR_EMBED_PROPS" in authed.text
+
+
+def test_academy_asset_standalone_route_respects_theme_query_with_cookie_fallback():
+    # Sin cookie ni query: fallback a "light" (default de pack_asset).
+    default = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor")
+    assert default.status_code == 200
+    assert '"theme": "light"' in default.text
+    # Query param explícito manda por sobre la cookie.
+    dark = client.get(
+        "/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&theme=dark",
+        cookies={"dw-content-theme": "light"},
+    )
+    assert dark.status_code == 200
+    assert '"theme": "dark"' in dark.text
+    # Sin query, cae a la cookie.
+    from_cookie = client.get(
+        "/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor",
+        cookies={"dw-content-theme": "dark"},
+    )
+    assert '"theme": "dark"' in from_cookie.text
+    # Standalone (sin embed=1 en la query) conserva su propio topbar: el prop
+    # "embed" no viaja, así que el script nunca setea el atributo data-dw-embed.
+    assert '"embed"' not in default.text
+
+
+def test_academy_asset_injects_embed_flag_and_theme():
+    response = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&embed=1")
+    assert response.status_code == 200
+    assert "window.DANWOR_EMBED_PROPS" in response.text
+    assert "data-dw-embed" in response.text          # el script marca el modo embebido
+    assert "data-dw-theme" in response.text          # theme del copiloto inyectado
+
+
+def test_academy_asset_dark_theme_keeps_opaque_background_when_standalone():
+    # Bug real: el CSS "en dark, fondo transparente" (pensado para que se vea el
+    # canvas oscuro del copiloto DETRÁS del iframe embebido) estaba sin scopear a
+    # [data-dw-embed] → en standalone (sin canvas detrás, pestaña propia) el body
+    # quedaba transparente y el navegador mostraba blanco pese a theme=dark.
+    standalone = client.get(
+        "/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&theme=dark"
+    )
+    assert standalone.status_code == 200
+    assert '"theme": "dark"' in standalone.text
+    assert 'html[data-dw-embed][data-dw-theme="dark"]' in standalone.text
+    # La regla vieja (sin scopear a [data-dw-embed]) ya no debe existir tal cual.
+    assert 'html[data-dw-theme="dark"],html[data-dw-theme="dark"] body{background:transparent' not in standalone.text
+    # Embebido sigue igual que siempre: transparente en dark (se ve el canvas del copiloto).
+    embedded = client.get(
+        "/pack-assets/datasphere_core/academy/paradigmas.html?branding=danwor&embed=1&theme=dark"
+    )
+    assert 'html[data-dw-embed][data-dw-theme="dark"]' in embedded.text
+    assert "background:transparent!important" in embedded.text
+
+
+def test_academy_shared_stylesheet_is_served():
+    response = client.get("/pack-assets/datasphere_core/academy/dw-academy.css")
+    assert response.status_code == 200
+    assert 'branding-danwor' in response.text
 
 
 def test_unknown_academy_page_returns_404():
@@ -532,6 +619,33 @@ def test_invite_dialog_renders_only_with_cookie():
         assert "dw-invite-overlay" in academy.text
     finally:
         client.cookies.delete("dw-desafio")
+
+
+def test_academy_feedback_reuses_module_feedback_classes_and_stylesheet():
+    # Joe: los cierres de módulo y de Academy se veían distintos (tipografía,
+    # tamaños, padding) pese a decir lo mismo — doble mantenimiento. Fix real
+    # (no un mirror manual): el fragmento de Academy reusa las MISMAS clases
+    # module-feedback__* que partials/module_feedback.html, estilizadas por la
+    # ÚNICA fuente feedback.css (mismo patrón ya probado en
+    # catalog_guide_slides.html para el how-to). Nada de dw-af-* debe quedar.
+    response = client.get("/pack-assets/datasphere_core/academy/paradigmas.html?academy_feedback=ACAD01_Paradigmas")
+    assert response.status_code == 200
+    assert '<link rel="stylesheet" href="/static/feedback.css" />' in response.text
+    assert 'class="module-feedback"' in response.text
+    assert 'class="module-feedback__inner"' in response.text
+    assert 'module-feedback__reactions' in response.text
+    assert 'module-feedback__react' in response.text
+    assert "dw-af-" not in response.text
+    assert "dw-academy-feedback" not in response.text
+    # Shim de variables (feedback.css usa --card/--soft; dw-academy.css no los
+    # define con ese nombre) para que resuelva igual que en el copiloto.
+    assert "--card: var(--bg-card)" in response.text
+    assert "--soft: var(--ink-soft)" in response.text
+    # feedback.css pone border-top:0 a propósito (en módulo esa línea la aporta
+    # el border-bottom de la última sección de contenido); el último .stop/.topic
+    # de Academy no tiene ese border (":last-of-type"), así que acá se repone
+    # localmente para no perder el separador antes del cierre.
+    assert "#academy-feedback { border-top: 1px solid var(--line); }" in response.text
 
 
 def test_desafio_hidden_from_nav_but_direct_url_and_feedback_work(monkeypatch, tmp_path):

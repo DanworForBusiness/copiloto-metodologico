@@ -31,14 +31,18 @@ try:
     # inyecta lo suyo (capa HANA/HDLF, origen vía Replication Flow). Ver artifact_metadata_rows.
     from tools.catalog.generate_catalog import artifact_metadata_rows as _artifact_metadata_rows
     from tools.catalog.generate_catalog import parse_name as _parse_name, CAPA as _CAPA
+    from tools.catalog.generate_catalog import _portability_matrix as _port_matrix
+    from tools.catalog.portability_bdc import evaluate_portability as _eval_portability
 except Exception:  # pragma: no cover - keeps the standalone generator tolerant
     _load_domain_folder = None
     _sync_domain_apis = None
     _artifact_metadata_rows = None
     _parse_name = None
     _CAPA = {}
+    _port_matrix = None
+    _eval_portability = None
 
-GENERATOR_VERSION = "data-products-v14"
+GENERATOR_VERSION = "data-products-v15"
 
 DATA_PRODUCT_SUPPORT_DOCUMENT_URLS = {
     "additionalDocuments.pptx": "https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAuQ_sKiXWKSoy_pXz3Fe5yAUZKhdR-NjSKMCRcu_M5F5Q?e=5yWev3",
@@ -359,8 +363,16 @@ def _layer_num(name: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _load_lineage_entities(folder: Path, published: list[dict[str, str]],
+                           files: list[Path] | None = None,
+                           own_folder: str | None = None) -> tuple[list[dict[str, Any]], set[str]]:
     """Serializa linaje de Data Product reutilizando el parser del catálogo de dominios.
+
+    `files` permite AUMENTAR el set de archivos con artefactos compartidos resueltos de
+    otras carpetas (resolución cross-DP por nombre): así el linaje de un data product se
+    completa sin duplicar el contrato base común. Cada nodo lleva su carpeta de origen; un
+    nodo cuyo origen != `own_folder` es "compartido/heredado". Devuelve
+    `(nodes, unresolved)` donde `unresolved` son los nombres aguas arriba aún no resueltos.
 
     Diferencias clave vs. dominios:
     - HANA y Object Store pueden tener el mismo nombre técnico; usamos IDs internos
@@ -371,7 +383,9 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
       `delta capable` sobre la entidad base.
     """
     if _load_domain_folder is None:
-        return []
+        return [], set()
+    files = list(files) if files is not None else sorted(folder.glob("*.json"))
+    own_folder = own_folder or folder.name
 
     published_display: set[str] = set()
     for ent in published:
@@ -388,7 +402,11 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
     published_display_norm = {x.lower() for x in published_display if x}
 
     contract_names = {"productcsn.json", "servicedefinitionobject.json", "serviceentities.json"}
-    rf_sources = _replication_sources(folder)   # {tabla_local(lower) -> CDS de extracción}
+    # El vínculo CDS (Replication Flow) puede vivir en la carpeta propia o en la del
+    # contrato compartido: se toma de todas las carpetas que aportan archivos.
+    rf_sources: dict[str, str] = {}
+    for _parent in {f.parent for f in files}:
+        rf_sources.update(_replication_sources(_parent))
     records: dict[str, dict[str, Any]] = {}
     delta_capable: set[str] = set()
     per_file_entities: dict[str, list[tuple[str, str]]] = {}
@@ -431,7 +449,7 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
             node["role"] = kind_label or node["role"]
         return node
 
-    for jf in sorted(folder.glob("*.json")):
+    for jf in files:
         if jf.name.lower() in contract_names:
             continue
         payload = _read_json(jf)
@@ -439,6 +457,7 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
             continue   # los RF aportan el vínculo CDS (rf_sources), no son artefactos del linaje
         runtime_by_def = _entity_runtime_from_payload(payload, jf.name)
         parsed = _parse_domain_json_file(jf)
+        _src_folder = jf.parent.name   # carpeta de origen (para marcar compartido/heredado)
         file_nodes: list[tuple[str, str]] = []
         for name, ent in sorted(parsed.items()):
             if str(getattr(ent, "kind", "") or "").strip().lower() != "entity":
@@ -451,6 +470,11 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
                 delta_capable.add(_runtime_id(runtime, base_name))
                 continue
             node = ensure_node(runtime, name, ent)
+            # Origen = la carpeta del archivo PROPIO del artefacto (stem == nombre); un
+            # FT_* que sólo lo menciona no define su pertenencia. Así "compartido" refleja
+            # dónde vive la definición real, no dónde se lo referencia.
+            if jf.stem.upper() == name.upper() or not node.get("_source"):
+                node["_source"] = _src_folder
             file_nodes.append((runtime, name))
 
             for up in list(getattr(ent, "upstreams", []) or []):
@@ -531,8 +555,16 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
             node["slug"] = _lineage_section_slug(str(node.get("display") or ""), "Entidad publicada")
             anchors.append(str(node["name"]))
 
+    # Refs aguas arriba aún NO resueltos (su archivo no está en el set actual): el llamador
+    # los busca en el índice global cross-DP y aumenta `files` para completar el linaje.
+    _present = set(records.keys())
+    _referenced: set[str] = set()
+    for _n in records.values():
+        _referenced |= set(_n.get("upstreams") or []) | set(_n.get("assoc_upstreams") or [])
+    unresolved = {rid.split("::", 1)[-1] for rid in _referenced if rid not in _present}
+
     if not anchors:
-        return []
+        return [], unresolved
 
     reachable: set[str] = set()
     temp_seen: set[str] = set()
@@ -572,6 +604,10 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
             "published": bool(node.get("published")),
             "runtime": node.get("runtime") or "hana",
             "delta_capable": bool(node.get("delta_capable")),
+            # Compartido/heredado: el artefacto vino de OTRA carpeta (contrato base común
+            # resuelto por nombre), no de la propia del data product. No hay duplicación.
+            "shared": bool(node.get("_source") and node.get("_source") != own_folder),
+            "shared_from": str(node.get("_source") or "") if node.get("_source") != own_folder else "",
             # CDS de extracción que alimenta esta tabla local (vía Replication Flow).
             # Análogo del origen_remoto de Dominios; el runtime lo usa para el botón
             # "Abrir CDS View" si existe APIs/<origen_cds>.md.
@@ -585,7 +621,52 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]]) -> lis
                      else _lineage_section_slug(str(node.get("display") or ""),
                                                 str(node.get("role") or "Artefacto de linaje"))),
         })
+    return nodes, unresolved
+
+
+def _dp_artifact_index(folders: list[Path]) -> dict[str, list[dict]]:
+    """Índice global {NOMBRE_ARTEFACTO(upper) -> [{folder, path, hash}]} sobre todas las
+    carpetas de Data Products (+ contrato común). Permite resolver un artefacto por NOMBRE
+    sin importar en qué carpeta esté físicamente (robusto al placement humano). El hash
+    detecta drift (mismo nombre, contenido distinto) y duplicación (mismo nombre e igual)."""
+    contract_names = {"productcsn.json", "servicedefinitionobject.json", "serviceentities.json"}
+    index: dict[str, list[dict]] = {}
+    for folder in folders:
+        for jf in sorted(folder.glob("*.json")):
+            if jf.name.lower() in contract_names:
+                continue
+            try:
+                h = hashlib.sha256(jf.read_bytes()).hexdigest()[:16]
+            except Exception:
+                h = ""
+            index.setdefault(jf.stem.upper(), []).append(
+                {"folder": folder.name, "path": jf, "hash": h})
+    return index
+
+
+def _resolve_lineage(folder: Path, published: list[dict[str, str]],
+                     index: dict[str, list[dict]] | None) -> list[dict[str, Any]]:
+    """Arma el linaje de un data product sobre la UNIÓN de archivos (propios + todas las
+    demás carpetas de DP + contrato común). El linaje se ancla en las entidades publicadas
+    del DP y la reachability aguas arriba selecciona SÓLO su subgrafo — los artefactos base
+    compartidos entran resueltos por nombre (sin duplicar), y los artefactos propios de
+    OTROS data products, al no ser upstream de este, quedan afuera solos. Los archivos
+    propios se parsean primero para ganar en colisión de nombre. Sin índice → sólo la
+    carpeta propia (comportamiento previo, resolución cross-DP desactivada)."""
+    own = sorted(folder.glob("*.json"))
+    if not index:
+        nodes, _ = _load_lineage_entities(folder, published, files=own, own_folder=folder.name)
+        return nodes
+    own_res = {p.resolve() for p in own}
+    extra = []
+    for entries in index.values():
+        for e in entries:
+            if e["path"].resolve() not in own_res:
+                extra.append(e["path"])
+    files = own + extra   # propios primero
+    nodes, _ = _load_lineage_entities(folder, published, files=files, own_folder=folder.name)
     return nodes
+
 
 def _published_entities(entities: list[dict[str, str]]) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
@@ -698,7 +779,8 @@ def _dp_artefacto(runtime: str, kind_label: str) -> str:
 
 
 def _dp_property_table(*, display: str, runtime: str, kind_label: str, deriva_de: list,
-                       asociaciones: list, modeling_pattern: str, origen_cds: str) -> list[str]:
+                       asociaciones: list, modeling_pattern: str, origen_cds: str,
+                       shared_from: str = "", shared_with: list | None = None) -> list[str]:
     """Tabla de propiedades de un artefacto DP con el MISMO contrato que Dominios
     (`artifact_metadata_rows`: orden/labels compartidos). El nombre técnico va en el
     heading, no como fila. DP solo inyecta lo suyo: capa HDLF/Object Store y el origen
@@ -713,6 +795,13 @@ def _dp_property_table(*, display: str, runtime: str, kind_label: str, deriva_de
     # HDLF/Object Store se publica desde su homónima HANA vía un Transformation Flow;
     # lo anotamos en "Deriva de" (simétrico al "Origen · vía Replication Flow").
     deriva_via = "Transformation Flow" if runtime == "object_store" else None
+    extra = []
+    if shared_from or shared_with:
+        scope = ", ".join(f"`{x}`" for x in (shared_with or [])) or "otros data products"
+        val = f"Compartido con {scope}"
+        if shared_from:
+            val += f" · resuelto de `{shared_from}` (sin duplicar)"
+        extra.append(("Contrato base", val))
     rows = _artifact_metadata_rows(
         capa=capa,
         artefacto=_dp_artefacto(runtime, kind_label),
@@ -722,20 +811,32 @@ def _dp_property_table(*, display: str, runtime: str, kind_label: str, deriva_de
         deriva_via=deriva_via,
         asociaciones=asociaciones,
         modeling_pattern=modeling_pattern or None,
+        extra_rows=extra,
     )
     return ["| Propiedad | Valor |", "|---|---|"] + [f"| {k} | {v} |" for k, v in rows]
 
 
-def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
-    product_id = folder.name
+def _contract_payloads(folder: Path) -> tuple[dict, dict]:
+    """(payloads, contract_payloads) de una carpeta de DP."""
     payloads = {p.name: _read_json(p) for p in sorted(folder.glob("*.json"))}
     payloads = {name: payload for name, payload in payloads.items() if payload is not None}
     contract_names = {"productcsn.json", "servicedefinitionobject.json", "serviceentities.json"}
-    contract_payloads = {
-        name: payload
-        for name, payload in payloads.items()
-        if name.lower() in contract_names
-    } or payloads
+    contract = {n: p for n, p in payloads.items() if n.lower() in contract_names} or payloads
+    return payloads, contract
+
+
+def _product_lineage(folder: Path, index: dict | None) -> list[dict]:
+    """Resuelve el linaje de un DP (con resolución cross-DP si hay índice). Usado en la
+    primera pasada de generate_all para computar el uso global antes de renderizar."""
+    _payloads, contract = _contract_payloads(folder)
+    published = _published_entities(_extract_entities(contract))
+    return _resolve_lineage(folder, published, index)
+
+
+def _render_product(folder: Path, out_root: Path, index: dict | None = None,
+                    lineage_nodes: list[dict] | None = None) -> tuple[str, str, list[dict]]:
+    product_id = folder.name
+    payloads, contract_payloads = _contract_payloads(folder)
     title = _extract_product_title(product_id, contract_payloads)
     business_name = _extract_business_name(product_id, contract_payloads) or title
     details = _extract_product_details(contract_payloads)
@@ -744,7 +845,8 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
     fields = _extract_fields(contract_payloads)
     files = sorted(payloads)
     published = _published_entities(entities)
-    lineage_nodes = _load_lineage_entities(folder, published)
+    if lineage_nodes is None:   # standalone: resolvé acá (generate_all los pre-resuelve)
+        lineage_nodes = _resolve_lineage(folder, published, index)
 
     out_dir = out_root / "data_products"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -766,6 +868,21 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
         "lineage_nodes": lineage_nodes,
         "source_signature": _sha_folder(folder),
     }
+    # Portabilidad BDC (retrospectiva: safety check + detección de adaptaciones/workarounds).
+    # Se evalúa el CONTRATO PUBLICADO (nodos Object Store/publicados), NO el upstream HANA
+    # de construcción — para no mezclar el análisis retrospectivo del producto con el
+    # diagnóstico preventivo de un dominio. Fallback: todos los nodos si no hay publicados.
+    if _eval_portability is not None:
+        try:
+            _pub = [n for n in lineage_nodes
+                    if n.get("published") or n.get("runtime") == "object_store"]
+            _src = _pub or lineage_nodes
+            _port_cols = [{**f, "artefacto": n.get("technical_name") or n.get("display") or ""}
+                          for n in _src for f in (n.get("fields") or [])]
+            auto["portabilidad_bdc"] = _eval_portability(
+                _port_cols, "data_product", _port_matrix() if _port_matrix else None)
+        except Exception:
+            pass
 
     md: list[str] = [
         _fm(auto, _read_manual(out)),
@@ -838,6 +955,8 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
                 asociaciones=_refs_from_node(node, "assoc_upstreams"),
                 modeling_pattern=str(node.get("modeling_pattern") or ""),
                 origen_cds=str(node.get("origen_cds") or ""),
+                shared_from=str(node.get("shared_from") or ""),
+                shared_with=list(node.get("shared_with") or []),
             ),
             "",
         ]
@@ -869,6 +988,8 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
                 asociaciones=_refs_from_node(node, "assoc_upstreams"),
                 modeling_pattern=str(node.get("modeling_pattern") or ""),
                 origen_cds=str(node.get("origen_cds") or ""),
+                shared_from=str(node.get("shared_from") or ""),
+                shared_with=list(node.get("shared_with") or []),
             ),
             "",
         ]
@@ -902,27 +1023,48 @@ def _render_product(folder: Path, out_root: Path) -> tuple[str, str]:
                 f"{len(fields)} campo(s) detectado(s)"),
     ]
     out.write_text("\n".join(md) + "\n", encoding="utf-8")
-    return product_id, title
+    return product_id, title, lineage_nodes
 
 
 
-def _product_folders(inbound_root: Path) -> list[Path]:
-    folders: dict[str, Path] = {}
+def _clean_folder_name(name: str) -> str:
+    clean = re.sub(r"^[^\w\d]+", "", name).strip()
+    clean = re.sub(r"^\s*\d+\s*[\.\-_]\s*", "", clean).strip().lower()
+    return clean.replace("-", " ").replace("_", " ").strip()
+
+
+def _is_shared_folder(name: str) -> bool:
+    """Carpeta de CONTRATO BASE compartido (no es un data product). Es opcional: la
+    resolución funciona igual si el contrato común vive dentro de un DP; esta carpeta
+    es sólo higiene sugerida."""
+    return name.startswith("_") or _clean_folder_name(name) in {
+        "shared", "common", "comun", "común", "contrato base", "base", "compartido"}
+
+
+def _dp_child_folders(inbound_root: Path) -> list[Path]:
+    """Todas las carpetas hijas con .json bajo los wrappers 'Data Products' (+ layout DP_*
+    en raíz), sin distinguir producto vs contrato común."""
+    out: dict[str, Path] = {}
     for wrapped in sorted(p for p in inbound_root.iterdir() if inbound_root.is_dir() and p.is_dir()):
-        clean_name = re.sub(r"^[^\w\d]+", "", wrapped.name).strip()
-        clean_name = re.sub(r"^\s*\d+\s*[\.\-_]\s*", "", clean_name).strip().lower()
-        clean_name = clean_name.replace("-", " ").replace("_", " ")
-        if clean_name not in {"data products"}:
+        if _clean_folder_name(wrapped.name) != "data products":
             continue
         for child in sorted(wrapped.iterdir()):
             if child.is_dir() and any(child.glob("*.json")):
-                folders[child.name] = child
-    # Layout alternativo: cuando el link compartido apunta directamente al root
-    # que contiene los productos, Graph puede descargar DP_* en la raíz.
+                out[child.name] = child
     for child in sorted(inbound_root.iterdir() if inbound_root.is_dir() else []):
         if child.is_dir() and child.name.upper().startswith("DP_") and any(child.glob("*.json")):
-            folders.setdefault(child.name, child)
-    return [folders[name] for name in sorted(folders)]
+            out.setdefault(child.name, child)
+    return [out[name] for name in sorted(out)]
+
+
+def _product_folders(inbound_root: Path) -> list[Path]:
+    """Carpetas de data products (excluye el contrato base compartido `_shared`)."""
+    return [f for f in _dp_child_folders(inbound_root) if not _is_shared_folder(f.name)]
+
+
+def _shared_folders(inbound_root: Path) -> list[Path]:
+    """Carpetas de contrato base compartido (`_shared`/común), si existen."""
+    return [f for f in _dp_child_folders(inbound_root) if _is_shared_folder(f.name)]
 
 
 def _sync_data_product_apis(inbound_root: Path, out_root: Path) -> int:
@@ -941,18 +1083,86 @@ def _sync_data_product_apis(inbound_root: Path, out_root: Path) -> int:
     return total
 
 
+def _shared_governance(index: dict, usage: dict, shared_folder_names: set[str],
+                       out_root: Path) -> str:
+    """Deriva la compartición desde el USO (artefacto usado por ≥2 DPs = contrato base
+    compartido), detecta drift (mismo nombre, contenido distinto), duplicación redundante,
+    y "base atrapada" (artefacto compartido que vive sólo dentro de un DP, no en `_shared`
+    → riesgo si se borra ese DP). Escribe reports/data_products_shared.yaml y devuelve una
+    línea de estado. NO bloquea ni mueve nada: sólo señala (gobierno, no imposición)."""
+    shared_by_use = {nm for nm, dps in usage.items() if len(dps) >= 2}
+    conflictos, duplicados, atrapadas = [], [], []
+    for nm, entries in index.items():
+        hashes = {e["hash"] for e in entries if e["hash"]}
+        if len(entries) > 1 and len(hashes) > 1:
+            conflictos.append({"artefacto": nm, "carpetas": sorted(e["folder"] for e in entries)})
+        elif len(entries) > 1:
+            duplicados.append({"artefacto": nm, "carpetas": sorted(e["folder"] for e in entries)})
+        if nm in shared_by_use and not any(e["folder"] in shared_folder_names for e in entries):
+            atrapadas.append({"artefacto": nm, "usado_por": sorted(usage[nm]),
+                              "vive_en": sorted({e["folder"] for e in entries})})
+    report = {
+        "contrato_base_compartido": sorted(shared_by_use),
+        "base_atrapada_en_un_dp": atrapadas,
+        "conflictos_drift": conflictos,
+        "duplicados_redundantes": duplicados,
+    }
+    if yaml is not None:
+        try:
+            rep_dir = out_root.parent / "reports"
+            rep_dir.mkdir(parents=True, exist_ok=True)
+            (rep_dir / "data_products_shared.yaml").write_text(
+                yaml.safe_dump(report, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        except Exception:
+            pass
+    parts = []
+    if shared_by_use:
+        parts.append(f"{len(shared_by_use)} artefacto(s) de contrato base compartido")
+    if atrapadas:
+        parts.append(f"ATENCIÓN: {len(atrapadas)} base atrapada en un solo DP (considerá mover a _shared)")
+    if conflictos:
+        parts.append(f"ATENCIÓN: {len(conflictos)} conflicto(s) de drift (mismo nombre, contenido distinto)")
+    if duplicados:
+        parts.append(f"{len(duplicados)} duplicado(s) redundante(s) (desduplicable)")
+    return "[data products · contrato compartido] " + ("; ".join(parts) if parts else "sin compartición cross-DP detectada")
+
+
 def generate_all(inbound_root, out_root) -> str:
     inbound_root = Path(inbound_root)
     out_root = Path(out_root)
     folders = _product_folders(inbound_root)
     if not folders:
         return "Catálogo de Data Products: sin productos para generar."
-    lines: list[str] = []
+    # Índice global por nombre (DPs + contrato común) → resolución cross-DP sin duplicar.
+    shared = _shared_folders(inbound_root)
+    index = _dp_artifact_index(folders + shared)
+    shared_names = {f.name for f in shared}
+    from collections import defaultdict
+    # Pasada 1: resolver linajes y computar el USO global (qué DPs comparten cada artefacto).
+    prepared: list[tuple[Path, list[dict]]] = []
+    usage: dict[str, set] = defaultdict(set)
     for folder in folders:
-        product_id, title = _render_product(folder, out_root)
+        nodes = _product_lineage(folder, index)
+        prepared.append((folder, nodes))
+        for n in nodes:
+            tn = str(n.get("technical_name") or "").upper()
+            if tn:
+                usage[tn].add(folder.name)
+    # "Compartido" DERIVA del uso (≥2 DPs); alcance = los OTROS DPs que lo usan.
+    for folder, nodes in prepared:
+        for n in nodes:
+            others = sorted(usage.get(str(n.get("technical_name") or "").upper(), set()) - {folder.name})
+            n["shared_with"] = others
+            if others:
+                n["shared"] = True
+    # Pasada 2: renderizar con los nodos ya etiquetados (linaje resuelto una sola vez).
+    lines: list[str] = []
+    for folder, nodes in prepared:
+        product_id, title, _ = _render_product(folder, out_root, index, lineage_nodes=nodes)
         lines.append(f"[OK] {product_id}: {title}")
     synced = _sync_data_product_apis(inbound_root, out_root)
-    tail = f"\n[APIs] {synced} CDS de extracción sincronizada(s)." if synced else ""
+    gov = _shared_governance(index, usage, shared_names, out_root)
+    tail = (f"\n[APIs] {synced} CDS de extracción sincronizada(s)." if synced else "") + "\n" + gov
     return f"Catálogo de Data Products regenerado ({len(lines)} producto(s)):\n" + "\n".join(lines) + tail
 
 

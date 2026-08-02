@@ -75,8 +75,10 @@ img{max-width:100%; display:block;}
 
 .scroll-progress{position:fixed; top:0; left:0; height:3px; width:0%; background:linear-gradient(90deg,var(--gold-2),var(--gold-glow)); z-index:200; transition:width .1s linear;}
 
-/* top bar (variante "subpágina") — siempre visible: carries back-nav + habilidad tag; logo solo con branding */
-.topbar{position:fixed; top:0; left:0; right:0; z-index:100; padding:1rem 0; background:var(--bg); border-bottom:1px solid var(--line);}
+/* top bar (variante "subpágina") — siempre visible: carries back-nav + habilidad tag; logo solo con branding.
+   Fondo SIEMPRE oscuro (no var(--bg)): el logo Danwor está pensado para fondo oscuro y se
+   pierde en tema claro si el topbar sigue el fondo del contenido. */
+.topbar{position:fixed; top:0; left:0; right:0; z-index:100; padding:1rem 0; background:#0c0c0d; border-bottom:1px solid var(--line);}
 .topbar-inner{display:flex; align-items:center;}
 .topbar-logo{height:26px; display:none;}
 html.branding-danwor .topbar-logo{display:block;}
