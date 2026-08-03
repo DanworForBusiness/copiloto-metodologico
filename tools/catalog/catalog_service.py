@@ -23,6 +23,19 @@ from pathlib import Path
 
 import yaml
 
+# yaml.safe_load() siempre usa el SafeLoader puro-Python de PyYAML, incluso
+# cuando libyaml (CSafeLoader, en C) está instalado. Para frontmatter grande
+# (ej. Data Products con ~150+ campos embebidos) eso es ~8x más lento medido
+# (400ms vs 50ms). Mismo resultado, mismo modo seguro — solo el loader cambia.
+try:
+    _YAML_LOADER = yaml.CSafeLoader
+except AttributeError:  # libyaml no instalado en este entorno
+    _YAML_LOADER = yaml.SafeLoader
+
+
+def _yaml_load(text: str):
+    return yaml.load(text, Loader=_YAML_LOADER)
+
 
 _STOPWORDS = {
     "a", "al", "algun", "alguna", "como", "con", "de", "del", "el", "en", "hay",
@@ -237,7 +250,7 @@ def _parse_md(text: str, path: str) -> CatalogEntry | None:
     if not m:
         return None
     try:
-        fm = yaml.safe_load(m.group(1)) or {}
+        fm = _yaml_load(m.group(1)) or {}
     except Exception:
         return None
     auto = fm.get("auto") or {}
@@ -294,7 +307,7 @@ def _frontmatter_and_body(text: str) -> tuple[dict, str] | tuple[None, str]:
     if not m:
         return None, text
     try:
-        return yaml.safe_load(m.group(1)) or {}, m.group(2)
+        return _yaml_load(m.group(1)) or {}, m.group(2)
     except Exception:
         return None, m.group(2)
 

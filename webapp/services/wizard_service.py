@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from threading import RLock
 from uuid import uuid4
 import yaml
@@ -10,8 +11,34 @@ from webapp.services.case_library import CaseLibraryRepository
 
 from core.content_registry import iter_pack_files
 
+# yaml.safe_load() usa siempre el SafeLoader puro-Python, incluso con libyaml
+# instalado. CSafeLoader es igual de seguro y notablemente más rápido en
+# árboles grandes — ver mismo patrón en tools/catalog/catalog_service.py.
+try:
+    _YAML_LOADER = yaml.CSafeLoader
+except AttributeError:  # libyaml no instalado en este entorno
+    _YAML_LOADER = yaml.SafeLoader
+
+
+def _yaml_load(text: str):
+    return yaml.load(text, Loader=_YAML_LOADER)
+
 
 ROUTING_ONLY_TREE_IDS = frozenset({"m03_clean_core_guardrails", "framework_assessment"})
+
+
+@lru_cache(maxsize=8)
+def _all_trees(pack_name: str) -> tuple[dict, ...]:
+    """Todos los árboles de trees/*.yaml de un pack, parseados una sola vez.
+
+    Cacheado: `trees_for_module`/`tree_by_id` releían y reparseaban TODO el
+    directorio en cada llamada — una por cada módulo abierto — aunque ese
+    módulo solo matcheara 0-2 árboles. Mismo criterio que load_module: el
+    contenido es estático mientras el proceso corre."""
+    return tuple(
+        _yaml_load(path.read_text(encoding="utf-8", errors="ignore")) or {}
+        for path in iter_pack_files("trees", "*.yaml", pack_name)
+    )
 
 
 def _format_score(value: float):
@@ -221,8 +248,7 @@ class WizardStore:
         include_assessment: bool = False,
     ) -> tuple[dict, ...]:
         trees = []
-        for path in iter_pack_files("trees", "*.yaml", pack_name):
-            tree = yaml.safe_load(path.read_text(encoding="utf-8", errors="ignore")) or {}
+        for tree in _all_trees(pack_name):
             links = tree.get("links") or {}
             linked = str(links.get("module") or "")
             linked_modules = {str(item) for item in (links.get("modules") or [])}
@@ -245,8 +271,7 @@ class WizardStore:
 
     @staticmethod
     def tree_by_id(tree_id: str, pack_name: str = "datasphere_core", *, include_routing_only: bool = False) -> dict | None:
-        for path in iter_pack_files("trees", "*.yaml", pack_name):
-            tree = yaml.safe_load(path.read_text(encoding="utf-8", errors="ignore")) or {}
+        for tree in _all_trees(pack_name):
             if not (_tree_id_aliases(str(tree.get("id") or "")) & _tree_id_aliases(str(tree_id or ""))):
                 continue
             if not include_routing_only and tree.get("id") in ROUTING_ONLY_TREE_IDS:

@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from functools import lru_cache
 from urllib.parse import quote, urlencode
 from uuid import uuid4
 import html
@@ -1815,9 +1816,15 @@ def admin_reconciliation_analyze(request: Request):
     return _admin_result(request, "Reconciliación diagnóstico ⇄ automatización", output)
 
 
+@lru_cache(maxsize=1)
 def _catalog_entries():
     """Carga el catálogo local (catalog_local) vía el servicio del piloto.
-    Determinístico, sin IA. Devuelve (módulo, entradas) o (None, [])."""
+    Determinístico, sin IA. Devuelve (módulo, entradas) o (None, []).
+
+    Cacheado: antes se releía y reparseaba TODO catalog_local en cada request
+    a /modules/{stem} (aunque esa persona nunca abriera la pestaña Catálogo),
+    ~230ms por click. Mismo criterio que load_module: contenido estático
+    mientras el proceso corre, se invalida solo con un restart."""
     try:
         import sys as _sys
         from config import BASE_DIR
@@ -1831,11 +1838,23 @@ def _catalog_entries():
         return None, []
 
 
+def _invalidate_catalog_cache() -> None:
+    """Limpia los @lru_cache de lectura del catálogo tras una regeneración
+    (self-service /catalog/regenerate o /admin/catalog/generate) — si no, la
+    página de módulos seguiría sirviendo el catalog_local viejo hasta un
+    restart del proceso."""
+    _catalog_entries.cache_clear()
+    _catalog_architecture_connections.cache_clear()
+    _catalog_data_products_entries.cache_clear()
+    _catalog_security_entries.cache_clear()
+
+
 def _catalog_domains() -> list:
     mod, entries = _catalog_entries()
     return mod.domains(entries) if mod else []
 
 
+@lru_cache(maxsize=1)
 def _catalog_architecture_connections():
     try:
         import sys as _sys
@@ -1857,7 +1876,11 @@ def _catalog_connection_types() -> list:
 
 
 
+@lru_cache(maxsize=1)
 def _catalog_data_products_entries():
+    """Cacheado: el parser de Data Products lee frontmatter YAML grande
+    (ej. ~150+ campos embebidos) y era el costo dominante medido (~830ms
+    por request, sin cachear)."""
     try:
         import sys as _sys
         from config import BASE_DIR
@@ -2032,6 +2055,7 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
     ]
     return "".join(p)
 
+@lru_cache(maxsize=1)
 def _catalog_security_entries():
     try:
         import sys as _sys
@@ -3919,6 +3943,8 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
         raise HTTPException(401, "Sin sesión")
     ran, message = admin_tools.run_catalog_generation_locked(graph_token=graph_token)
     ok = ran
+    if ran:
+        _invalidate_catalog_cache()
     # Token de Graph vencido → SharePoint responde 401. Lo traducimos a una acción
     # clara para el colaborador (el token no se puede refrescar sin re-login).
     if ran and "401" in message and "unauthorized" in message.lower():
@@ -3933,6 +3959,7 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
 def admin_catalog_generate(request: Request, graph_token: str = Form("")):
     _require_diagnostic(request)
     output = admin_tools.run_catalog_generation(graph_token=graph_token)
+    _invalidate_catalog_cache()
     return _admin_result(request, "Catálogo CSN — regeneración", output)
 
 
