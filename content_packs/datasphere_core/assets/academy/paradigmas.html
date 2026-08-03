@@ -68,6 +68,13 @@ html.branding-danwor .topbar{display:block;}
 .hero-title .ht-pre{display:block; font-size:.44em; font-weight:600; color:var(--ink-soft); letter-spacing:0; margin-bottom:.45rem;}
 .hero-sub{font-size:clamp(1.05rem,1.4vw,1.3rem); max-width:71ch;}
 
+/* La franja del timeline ahora tiene 10 paradas (antes 9): a los 1180px del
+   .container compartido, "10 Roles" quedaba huérfano en una segunda fila. Se
+   ensancha SOLO el contenedor del hero (no el .container global de
+   dw-academy.css, que comparten las demás páginas de Academy) para que las
+   10 entradas entren en una sola fila. */
+.hero-inner{max-width:1320px;}
+
 /* timeline strip */
 .timeline{margin-top:4rem; display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--line); border-radius:14px; overflow:hidden;}
 .timeline a{flex:1 1 auto; min-width:110px; text-align:center; padding:.9rem .6rem; font-family:var(--mono); font-size:.72rem; letter-spacing:.03em; color:var(--ink-dim); border-right:1px solid var(--line); text-decoration:none; transition:color .25s, background .25s;}
@@ -118,6 +125,7 @@ html.branding-danwor .topbar{display:block;}
   <a href="#bridge" data-label="Sintesis"><span>Síntesis</span></a>
   <a href="#contrato" data-label="Contrato"><span>Contrato de Datos</span></a>
   <a href="#producto" data-label="Producto"><span>Data Product</span></a>
+  <a href="#semantica" data-label="Semantica"><span>Semántica</span></a>
   <a href="#bdc" data-label="BDC"><span>SAP BDC</span></a>
   <a href="#roles" data-label="Roles"><span>Roles del proyecto</span></a>
   <a href="#rosetta" data-label="Diccionario"><span>Diccionario del consultor</span></a>
@@ -167,8 +175,9 @@ html.branding-danwor .topbar{display:block;}
         <a href="#mesh">05 Mesh</a>
         <a href="#contrato">06 Contrato</a>
         <a href="#producto">07 Data Product</a>
-        <a href="#bdc">08 SAP BDC</a>
-        <a href="#roles">09 Roles</a>
+        <a href="#semantica">08 Semántica</a>
+        <a href="#bdc">09 SAP BDC</a>
+        <a href="#roles">10 Roles</a>
       </div>
     </div>
   </section>
@@ -178,7 +187,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">01 / 09 · Paradigma fundacional</span>
+          <span class="stop-num reveal">01 / 10 · Paradigma fundacional</span>
           <p class="kicker reveal">Data Warehouse</p>
           <h2 class="stop-title reveal">La planta potabilizadora <em>del dato</em></h2>
         </div>
@@ -259,7 +268,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">02 / 09 · Cuando la planta ya no alcanzaba</span>
+          <span class="stop-num reveal">02 / 10 · Cuando la planta ya no alcanzaba</span>
           <p class="kicker reveal">Data Lake</p>
           <h2 class="stop-title reveal">El dique, <em>antes</em> de la planta</h2>
         </div>
@@ -329,7 +338,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">03 / 09 · Cuando no querías elegir entre confianza y costo</span>
+          <span class="stop-num reveal">03 / 10 · Cuando no querías elegir entre confianza y costo</span>
           <p class="kicker reveal">Data Lakehouse</p>
           <h2 class="stop-title reveal">La represa: el mismo <em>embalse</em>, usos distintos</h2>
         </div>
@@ -393,7 +402,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">04 / 09 · La red que no mueve el origen</span>
+          <span class="stop-num reveal">04 / 10 · La red que no mueve el origen</span>
           <p class="kicker reveal">Data Fabric</p>
           <h2 class="stop-title reveal">La red troncal: no importa <em>qué planta</em> la trató</h2>
         </div>
@@ -462,7 +471,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">05 / 09 · El federalismo del dato</span>
+          <span class="stop-num reveal">05 / 10 · El federalismo del dato</span>
           <p class="kicker reveal">Data Mesh</p>
           <h2 class="stop-title reveal">Cada provincia, <em>su tramo del río</em></h2>
         </div>
@@ -548,7 +557,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">06 / 09 · Lo que sostiene todo lo anterior</span>
+          <span class="stop-num reveal">06 / 10 · Lo que sostiene todo lo anterior</span>
           <p class="kicker reveal">Contrato de Datos</p>
           <h2 class="stop-title reveal">La norma de <em>potabilidad</em>, sea cual sea la planta</h2>
         </div>
@@ -593,7 +602,7 @@ html.branding-danwor .topbar{display:block;}
     <div class="container">
       <div class="sec-head">
         <div class="sec-head-text">
-          <span class="stop-num reveal">07 / 09 · El contrato hecho consumible</span>
+          <span class="stop-num reveal">07 / 10 · El contrato hecho consumible</span>
           <p class="kicker reveal">Data Product</p>
           <h2 class="stop-title reveal">El agua potable, <em>ya en tu canilla</em></h2>
         </div>
@@ -645,10 +654,63 @@ html.branding-danwor .topbar{display:block;}
     </div>
   </section>
 
-  <!-- 08 BDC -->
+  <!-- 08 CAPA SEMÁNTICA -->
+  <section class="stop" id="semantica">
+    <div class="container">
+      <div class="sec-head">
+        <div class="sec-head-text">
+          <span class="stop-num reveal">08 / 10 · Lenguaje de negocio</span>
+          <p class="kicker reveal">Capa Semántica</p>
+          <h2 class="stop-title reveal">La etiqueta de la botella, <em>no el análisis químico</em></h2>
+        </div>
+        <div class="section-art reveal reveal-d1">
+          <svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="La etiqueta de la botella — capa semántica">
+            <ellipse cx="170" cy="106" rx="152" ry="86" fill="var(--gold-dim)"/>
+            <g fill="var(--line-2)">
+              <circle cx="58" cy="34" r="7"/><circle cx="70" cy="29" r="10"/><circle cx="82" cy="34" r="6"/><rect x="50" y="31" width="42" height="9" rx="4.5"/>
+            </g>
+            <rect x="140" y="24" width="20" height="20" rx="4" fill="var(--ink-dim)"/>
+            <rect x="128" y="44" width="44" height="14" rx="5" fill="var(--ink)"/>
+            <path d="M120 58 h60 q10 0 10 12 v96 q0 16 -16 16 h-48 q-16 0 -16 -16 v-96 q0 -12 10 -12 Z" fill="var(--art-water)" opacity=".92"/>
+            <rect x="112" y="92" width="76" height="66" rx="7" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="2.5"/>
+            <rect x="124" y="102" width="7" height="16" rx="2" fill="var(--gold)"/>
+            <rect x="135" y="96" width="7" height="22" rx="2" fill="var(--gold)"/>
+            <rect x="146" y="106" width="7" height="12" rx="2" fill="var(--gold)"/>
+            <rect x="124" y="128" width="10" height="10" rx="2" fill="var(--ink-dim)"/>
+            <rect x="138" y="128" width="10" height="10" rx="2" fill="var(--ink-dim)"/>
+            <rect x="124" y="142" width="10" height="10" rx="2" fill="var(--ink-dim)"/>
+            <rect x="138" y="142" width="10" height="10" rx="2" fill="var(--ink-dim)"/>
+            <path d="M156 138 l7 8 12 -16" fill="none" stroke="var(--art-green-deep)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="228" y="38" width="94" height="46" rx="16" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="2.5"/>
+            <path d="M231 78 l-10 16 18 -10 Z" fill="var(--bg-card-2)" stroke="var(--line-2)" stroke-width="2.5"/>
+            <text x="266" y="69" font-size="26" font-weight="900" fill="var(--gold)" font-family="var(--mono)">?</text>
+          </svg>
+        </div>
+      </div>
+      <div class="stop-grid">
+        <div class="analogy reveal reveal-d1">
+          <p class="lede">Que el agua sea potable no te dice todavía si es la que necesitás, ahora, para lo que estás por hacer.</p>
+          <p>Ahí está la etiqueta: "agua mineral, sodio bajo, apta para consumo diario". No es un análisis químico de laboratorio — es la traducción de ese análisis a algo que cualquiera puede leer y usar para decidir, sin tener que saber de química. La etiqueta no cambia el agua: la hace legible.</p>
+          <div class="stop-quote">"¿Qué sucursal tuvo mayor venta del mes?" — no la responde el agua ni la botella. La responde la etiqueta, que ya sabe qué es "sucursal" y qué es "venta" antes de que preguntes.</div>
+        </div>
+        <div class="spec-card reveal reveal-d2">
+          <p class="spec-label">En términos técnicos</p>
+          <p class="spec-name">Capa Semántica</p>
+          <ul>
+            <li>Traduce tablas y columnas técnicas en <strong>métricas, dimensiones y reglas de negocio</strong> — una única definición, gane quien pregunte</li>
+            <li>No es una vista ni una consulta SQL: combina <strong>arquitectura, gobierno, metadatos y conocimiento de negocio</strong></li>
+            <li>Es lo que le permite a un asistente de IA responder con datos gobernados, en vez de improvisar sobre la estructura técnica cruda</li>
+          </ul>
+          <p class="spec-limit">Conectar una IA a una base de datos es fácil. Lo difícil — y lo que hace la capa semántica — es enseñarle qué significan los datos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 BDC -->
   <section class="finale" id="bdc">
     <div class="container">
-      <p class="kicker reveal">08 / 09 · Donde todo esto converge</p>
+      <p class="kicker reveal">09 / 10 · Donde todo esto converge</p>
       <div class="finale-head">
         <h2 class="finale-title reveal reveal-d1">SAP Business Data Cloud: <em>una sola plataforma</em>, todos los eslabones</h2>
         <p class="finale-body reveal reveal-d2">Imaginate una plataforma que fuera, a la vez, la potabilizadora, la represa y la red troncal de distribución — todas bajo un mismo gobierno, sin que cada una tuviera que reinventar su infraestructura desde cero. Eso es lo que hace SAP BDC con tus datos: una pieza central dentro de SAP Business AI Platform (BAIP), que consolida BTP, BDC y Business AI bajo una misma plataforma.</p>
@@ -691,10 +753,10 @@ html.branding-danwor .topbar{display:block;}
     </div>
   </section>
 
-  <!-- 09 ROLES -->
+  <!-- 10 ROLES -->
   <section class="finale" id="roles">
     <div class="container">
-      <p class="kicker reveal">09 / 09 · ¿Quién arma esto en un proyecto real?</p>
+      <p class="kicker reveal">10 / 10 · ¿Quién arma esto en un proyecto real?</p>
       <div class="finale-head">
         <h2 class="finale-title reveal reveal-d1" style="max-width:28ch;">Roles y <em>responsabilidades</em> en un proyecto BDC</h2>
         <p class="finale-body reveal reveal-d2">Cada eslabón de la historia que contamos tiene, del otro lado, a alguien que lo sostiene. Ningún rol resuelve todo el recorrido solo.</p>
@@ -751,6 +813,7 @@ html.branding-danwor .topbar{display:block;}
             <tr><td>El comité de cuenca (Mesh)</td><td>Espacios + Cross-Sharing + DAC a nivel dominio</td><td><a class="rosetta-cta" href="/modules/02_Seguridad_y_Gobernanza?pack=datasphere_core" target="_parent">Profundizar →</a></td></tr>
             <tr><td>La norma de potabilidad (Contrato)</td><td>Contrato de datos / Modelo Danwor — árbol "Resolución de Contrato"</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#contrato-de-datos-vs-data-product" target="_parent">Profundizar →</a></td></tr>
             <tr><td>El agua envasada (Data Product)</td><td>Linaje: tabla → CDS básica → CDS compuesta → vista de consumo → Data Product</td><td><a class="rosetta-cta" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#contrato-de-datos-vs-data-product" target="_parent">Profundizar →</a></td></tr>
+            <tr><td>La etiqueta de la botella (Capa Semántica)</td><td>Modelo Analítico (medidas, dimensiones, jerarquías) — capa de Consumo</td><td><a class="rosetta-cta" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#arquitectura-por-capas-guia-operativa" target="_parent">Profundizar →</a></td></tr>
           </tbody>
         </table>
       </div>

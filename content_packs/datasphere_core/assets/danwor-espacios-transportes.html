@@ -236,13 +236,19 @@
     display: flex; flex-direction: column; gap: 6px;
   }
   .hdlf-label { font-size: 10px; font-weight: 700; color: var(--dw-gold-900); font-family: var(--mono); letter-spacing: .3px; }
+  .hdlf-info-tip { display: inline-flex; align-items: center; margin-left: 4px; cursor: help; opacity: .6; transition: opacity var(--tr); vertical-align: -1px; }
+  .hdlf-info-tip:hover { opacity: 1; }
   .hdlf-file {
     border-radius: var(--r-sm); padding: 7px 10px;
-    font-size: 11px; font-weight: 600; border: 1px solid;
-    background: #fff; color: var(--dw-text);
+    font-size: 11px; font-weight: 700; border: 1.5px solid;
   }
-  .hdlf-file.delta { border-color: var(--dw-blue-200); }
-  .hdlf-file.parquet { border-color: var(--dw-purple-200); }
+  .hdlf-file.delta   { background: #eff6ff; border-color: #93c5fd; color: #1a73e8; }
+  .hdlf-file.parquet { background: #faf5ff; border-color: #c4b5fd; color: #6d28d9; }
+  /* Delta Table SE CONSTRUYE sobre Parquet (Delta = Parquet + transaction log);
+     no son dos archivos paralelos, por eso van apiladas con un chevron entre
+     medio — mismo criterio que danwor-arquitectura-capas.html. */
+  .hdlf-stack { display: flex; flex-direction: column; gap: 3px; }
+  .hdlf-stack-link { text-align: center; font-size: 10px; color: var(--dw-muted); line-height: 1; }
   .hdlf-note {
     font-size: 10.5px; color: var(--dw-gold-900); display: flex; align-items: flex-start; gap: 5px; margin-top: 2px;
   }
@@ -389,10 +395,17 @@
 
           <!-- HDLF -->
           <div class="hdlf-zone">
-            <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
-              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
+            <div class="hdlf-label">
+              HDLF — HANA Data Lake Files
+              <span class="has-tip hdlf-info-tip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>
+                <div class="tip-content"><strong>HDLF (HANA Data Lake Files)</strong><br>Object store de Datasphere donde vive el data lake — el archivo físico que materializan los flujos de integración, fuera del motor HANA. Es un espacio único, no replica DEV/QA/PRD.</div>
+              </span>
+            </div>
+            <div class="hdlf-stack">
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Se construye SOBRE los Parquet Files agregando transaction log (versionado transaccional) — mismo archivo físico, con metadata adicional. Puede replicarse de vuelta a HANA o compartirse externamente.</div></div>
+              <div class="hdlf-stack-link" aria-hidden="true">▲</div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivo físico columnar que los flujos de integración materializan en el data lake (HDLF) — la base sobre la que se construye la Delta Table.</div></div>
             </div>
             <div class="hdlf-note">
               <span>⚠️</span>
@@ -468,10 +481,17 @@
           </div>
 
           <div class="hdlf-zone">
-            <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
-              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
+            <div class="hdlf-label">
+              HDLF — HANA Data Lake Files
+              <span class="has-tip hdlf-info-tip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>
+                <div class="tip-content"><strong>HDLF (HANA Data Lake Files)</strong><br>Object store de Datasphere donde vive el data lake — el archivo físico que materializan los flujos de integración, fuera del motor HANA. Es un espacio único, no replica DEV/QA/PRD.</div>
+              </span>
+            </div>
+            <div class="hdlf-stack">
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Se construye SOBRE los Parquet Files agregando transaction log (versionado transaccional) — mismo archivo físico, con metadata adicional. Puede replicarse de vuelta a HANA o compartirse externamente.</div></div>
+              <div class="hdlf-stack-link" aria-hidden="true">▲</div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivo físico columnar que los flujos de integración materializan en el data lake (HDLF) — la base sobre la que se construye la Delta Table.</div></div>
             </div>
             <div class="hdlf-note"><span>⚠️</span><span>Espacio único de aterrizaje de datos</span></div>
           </div>
@@ -507,10 +527,17 @@
           </div>
 
           <div class="hdlf-zone">
-            <div class="hdlf-label">HDLF — HANA Data Lake Files</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Tablas Delta en el data lake (HDLF): formato transaccional/versionado, eficiente para grandes volúmenes.</div></div>
-              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivos Parquet en el data lake (HDLF): almacenamiento columnar para analítica sobre grandes volúmenes.</div></div>
+            <div class="hdlf-label">
+              HDLF — HANA Data Lake Files
+              <span class="has-tip hdlf-info-tip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11.5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>
+                <div class="tip-content"><strong>HDLF (HANA Data Lake Files)</strong><br>Object store de Datasphere donde vive el data lake — el archivo físico que materializan los flujos de integración, fuera del motor HANA. Es un espacio único, no replica DEV/QA/PRD.</div>
+              </span>
+            </div>
+            <div class="hdlf-stack">
+              <div class="hdlf-file delta has-tip">Delta Tables<div class="tip-content"><strong>Delta Tables</strong><br>Se construye SOBRE los Parquet Files agregando transaction log (versionado transaccional) — mismo archivo físico, con metadata adicional. Puede replicarse de vuelta a HANA o compartirse externamente.</div></div>
+              <div class="hdlf-stack-link" aria-hidden="true">▲</div>
+              <div class="hdlf-file parquet has-tip">Parquet Files<div class="tip-content"><strong>Parquet Files</strong><br>Archivo físico columnar que los flujos de integración materializan en el data lake (HDLF) — la base sobre la que se construye la Delta Table.</div></div>
             </div>
             <div class="hdlf-note"><span>⚠️</span><span>Espacio único de aterrizaje de datos</span></div>
           </div>
@@ -621,7 +648,7 @@ function returnArrow(svg, sx, sy, vx, ty, tx, by, color) {
   const el = document.createElementNS('http://www.w3.org/2000/svg','path');
   el.setAttribute('d', d);
   el.setAttribute('stroke', color);
-  el.setAttribute('stroke-width', '2.4');
+  el.setAttribute('stroke-width', '1.8');
   el.setAttribute('fill', 'none');
   el.setAttribute('marker-end', `url(#${markId})`);
   el.classList.add('arr');
