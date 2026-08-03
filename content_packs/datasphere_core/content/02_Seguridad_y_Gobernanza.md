@@ -135,7 +135,7 @@ out_of_scope_redirect:
 
 {{tree_button: Seguridad de Roles}}
 
-## {dw-black}Seguridad de {dw-gold}Datos 
+## {dw-black}Seguridad de {dw-gold}Datos
 {{section_meta: keywords="DAC, data access control, seguridad datos, seguridad de datos, seguridad fila, seguridad columna, row level security, column level security, valores individuales, operadores y valores, jerarquía, jerarquia, tipos DAC, tipos de permisos, permisos DAC, acceso a datos, restricción de datos, qué tipo de DAC, cómo restringir datos, acceso dinámico, regla acceso, reglas acceso, seguridad SAP Datasphere, BDC seguridad, filtro datos, filtro por usuario, jerarquía organizacional, centro de costos, organigrama"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html" Pin=true}}
 

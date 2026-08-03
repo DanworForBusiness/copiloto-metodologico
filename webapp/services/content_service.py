@@ -39,6 +39,14 @@ CALLOUT_ROW_RE = re.compile(
     re.I | re.M | re.S,
 )
 CALLOUT_ATTR_RE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
+# Bloque plegable on-demand. El cuerpo se conserva como markdown (fenced code,
+# tablas, headings) y se envuelve en <details>/<summary> DESPUES de renderizar,
+# para que el codigo siga tomando el copy-button y el resaltado normales.
+COLLAPSIBLE_RE = re.compile(r"\{\{collapsible:(.*?)\}\}(.*?)\{\{/collapsible\}\}", re.I | re.S)
+COLLAPSIBLE_OPEN_HTML_RE = re.compile(
+    r"(?:<p>\s*)?<!--DWCOLL:(OPEN|SHUT):(.*?)-->(?:\s*</p>)?", re.S
+)
+COLLAPSIBLE_CLOSE_HTML_RE = re.compile(r"(?:<p>\s*)?<!--DWCOLL:/-->(?:\s*</p>)?")
 CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
 TREE_BUTTON_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I | re.M)
 INTERNAL_TOKEN_LINE_RE = re.compile(r"^\s*\{\{.*?\}\}\s*$", re.M)
@@ -68,12 +76,34 @@ class ModuleSection:
 
 
 @dataclass(frozen=True)
+class RoadmapLink:
+    number: int
+    title: str
+    slug: str
+
+
+@dataclass(frozen=True)
+class RoadmapStage:
+    """Un arco del roadmap del módulo: agrupa varias secciones bajo una etapa
+    narrativa (p. ej. 'Contrato'). Se define en el front-matter y se resuelve
+    contra las secciones ya renderizadas, así el índice deja de ser una lista
+    plana y gana espina conceptual sin sacar contenido del DOM."""
+    index: int
+    stage: str
+    tagline: str
+    links: tuple[RoadmapLink, ...]
+    slugs: tuple[str, ...]
+    optional: bool = False
+
+
+@dataclass(frozen=True)
 class ModuleDocument:
     summary: ModuleSummary
     scope: str
     guardrails: tuple[str, ...]
     sections: tuple[ModuleSection, ...]
     source: str
+    roadmap: tuple[RoadmapStage, ...] = ()
 
 
 def split_front_matter(source: str) -> tuple[dict, str]:
@@ -399,8 +429,33 @@ def _callout_body_html(body: str) -> str:
     return "".join(parts)
 
 
+def _collapsible_html(rendered: str) -> str:
+    """Convierte los centinelas DWCOLL (dejados por `_prepare`) en un bloque
+    <details>/<summary>. Corre DESPUES de markdown: el cuerpo ya es HTML con su
+    copy-button, y el plegado no afecta anchors/Ctrl+F (el contenido sigue en DOM)."""
+    def _open(match: re.Match[str]) -> str:
+        state, title = match.group(1), html.escape(match.group(2).strip())
+        attr = " open" if state == "OPEN" else ""
+        return (
+            f'<details class="content-collapsible"{attr}>'
+            f'<summary class="content-collapsible__summary">{title}</summary>'
+            f'<div class="content-collapsible__body">'
+        )
+    rendered = COLLAPSIBLE_OPEN_HTML_RE.sub(_open, rendered)
+    return COLLAPSIBLE_CLOSE_HTML_RE.sub("</div></details>", rendered)
+
+
 def _prepare(source: str, pack_name: str, stem: str = "") -> str:
     source = SEMANTIC_RE.sub("", META_RE.sub("", source))
+
+    def collapsible(match: re.Match[str]) -> str:
+        attrs = {item.group(1).lower(): item.group(2) for item in CALLOUT_ATTR_RE.finditer(match.group(1))}
+        title = (attrs.get("title") or "Ver más").replace("--", "—")
+        state = "OPEN" if str(attrs.get("open", "")).strip().lower() in {"true", "1", "yes", "si", "sí"} else "SHUT"
+        body = match.group(2).strip("\n")
+        return f"\n\n<!--DWCOLL:{state}:{title}-->\n\n{body}\n\n<!--DWCOLL:/-->\n\n"
+
+    source = COLLAPSIBLE_RE.sub(collapsible, source)
 
     def callout(match: re.Match[str]) -> str:
         attrs = {item.group(1).lower(): item.group(2) for item in CALLOUT_ATTR_RE.finditer(match.group(1))}
@@ -511,7 +566,43 @@ def load_module(stem: str, pack_name: str = "datasphere_core") -> ModuleDocument
         tuple(map(str, meta.get("guardrails") or ())),
         sections,
         source,
+        _build_roadmap(meta.get("roadmap"), sections),
     )
+
+
+def _build_roadmap(spec, sections: tuple[ModuleSection, ...]) -> tuple[RoadmapStage, ...]:
+    """Resuelve el `roadmap:` del front-matter (etapas → títulos de sección)
+    contra las secciones renderizadas. Los títulos se matchean normalizados
+    (sin acentos/case) para que el editor los escriba tal como los lee, sin
+    pelear con tildes ni tags de tono. Secciones inexistentes se ignoran."""
+    if not isinstance(spec, (list, tuple)) or not spec:
+        return ()
+
+    def _key(text: str) -> str:
+        return " ".join(_norm(str(text or "")).split())
+
+    by_title = {_key(sec.title): sec for sec in sections}
+    stages = []
+    for order, raw in enumerate(spec, start=1):
+        if not isinstance(raw, dict):
+            continue
+        stage_name = str(raw.get("stage") or raw.get("title") or "").strip()
+        tagline = str(raw.get("tagline") or raw.get("subtitle") or "").strip()
+        links = []
+        for title in raw.get("sections") or ():
+            sec = by_title.get(_key(title))
+            if sec is not None:
+                links.append(RoadmapLink(sec.number, sec.title, sec.slug))
+        if not stage_name or not links:
+            continue
+        optional = bool(raw.get("optional"))
+        stages.append(
+            RoadmapStage(
+                order, stage_name, tagline, tuple(links),
+                tuple(link.slug for link in links), optional,
+            )
+        )
+    return tuple(stages)
 
 
 def render_sections(body: str, pack_name: str = "", stem: str = "", base: int = 0) -> tuple[ModuleSection, ...]:
@@ -531,6 +622,7 @@ def render_sections(body: str, pack_name: str = "", stem: str = "", base: int = 
         rendered = _table_group_rows_html(rendered)
         rendered = _fixed_column_tables_html(rendered)
         rendered = _copyable_code_blocks_html(rendered)
+        rendered = _collapsible_html(rendered)
         if has_subtitle:
             rendered = rendered.replace("<blockquote>", '<blockquote class="section-subtitle">', 1)
         number = base + offset + 1

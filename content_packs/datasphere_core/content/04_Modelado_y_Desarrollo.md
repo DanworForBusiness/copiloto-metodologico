@@ -151,7 +151,7 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 {{section_meta: keywords="arquitectura por capas, capas modelado, ingesta armonización propagación consumo, separación responsabilidades, capa ingesta, capa armonización, capa propagación, capa reporting, capa consumo, lakehouse SAP, principio capas datasphere, arquitectura modelado datasphere, modelo por capas, cómo modelar datasphere, diseño capas, capa 1 2 3, tablas remotas capa, vistas capa, persistencia capas, federación capas"}}
 
 >Implementamos la arquitectura de modelado por capas con separación de responsabilidades, adaptada a un enfoque Lakehouse moderno en SAP Datasphere:
-{{html_embed: ../assets/danwor-arquitectura-capas.html height=960}}
+{{html_embed: ../assets/danwor-arquitectura-capas.html height=970}}
 
 ## {dw-black}Arquitectura por Capas: {dw-gold}Guia Operativa
 {{section_meta: keywords="arquitectura por capas, responabilidad del dato"}}
@@ -165,8 +165,8 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 | **(3) Propagacion** | Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones. - Permitir reutilización en otras vistas. - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
 | **(4) Consumo** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
 
-{{callout: title="La 'Publicación' del principio se implementa en dos capas" tone="punch" icon="🔗"}}
-Arriba, en la vista de principios, hablamos de una sola etapa de **Publicación** — el momento en que el dato se vuelve consumible. En la operación esa misma responsabilidad se implementa en dos capas complementarias: **(3) Propagación**, que expone el data product gobernado hacia otros sistemas o consumo directo, y **(4) Consumo**, que arma los modelos analíticos finales para el negocio. No son dos conceptos nuevos: son la misma Publicación, desglosada según cuánto falta preparar el dato antes de que llegue a destino.
+{{callout: title="La Publicación del principio se implementa en dos capas (3 + 4)" tone="punch" icon="🔗"}}
+Antes hablamos de la etapa de **Publicación** — el momento en que el dato se vuelve consumible. En la operación esa misma responsabilidad se implementa en dos capas complementarias: **(3) Propagación**, que expone el data product gobernado hacia otros sistemas o consumo directo, y **(4) Consumo**, que arma los modelos analíticos finales para el negocio. No son dos conceptos nuevos: son la misma Publicación, desglosada según cuánto falta preparar el dato antes de que llegue a destino.
 {{/callout}}
 
 ## {dw-black}Artefactos y uso {dw-gold}Semántico
@@ -273,7 +273,7 @@ A diferencia de **tablas y vistas** (que usan el patrón por capas de más arrib
 {{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
 
-En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano: **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
 
 | Tipo | Cuándo usarlo | Cuándo evitarlo |
 |---|---|---|

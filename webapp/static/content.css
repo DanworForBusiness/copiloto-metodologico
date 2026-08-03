@@ -25,6 +25,162 @@
 .callout-row .callout { height: 100%; margin: 0; }
 @media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
 
+/* Bloque plegable: contenido tecnico on-demand (codigo de referencia, detalle
+   avanzado). Colapsado por defecto para no cargar el flujo de lectura; el cuerpo
+   sigue en DOM (Ctrl+F, deep-links y scroll-spy no se rompen).
+   Los colores son THEME-AWARE: en claro el contenedor es gris claro (distinto
+   del fondo del codigo que va adentro), en oscuro es una card elevada. NO usar
+   var(--ink)/var(--card) para color aca: son valores fijos oscuros, no cambian
+   con el tema y dejaban el contenedor negro con texto negro en claro. */
+.content-collapsible {
+  margin: 18px 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.content-collapsible__summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: .92rem;
+  user-select: none;
+}
+.content-collapsible__summary::-webkit-details-marker { display: none; }
+.content-collapsible__summary::before {
+  content: "▸";
+  color: var(--gold, #d3a000);
+  font-size: .85rem;
+  transition: transform .2s ease;
+}
+.content-collapsible[open] > .content-collapsible__summary::before { transform: rotate(90deg); }
+.content-collapsible__body {
+  padding: 2px 18px 16px;
+  border-top: 1px solid transparent;
+}
+.content-collapsible__body > :first-child { margin-top: 14px; }
+
+/* Tema claro: contenedor gris claro, texto oscuro. El bloque de codigo interior
+   (.code-copybox pre) es #f6f7f9, mas claro que este gris → contraste visible. */
+.content-theme-light .content-collapsible { background: #e8eaee; border-color: #d5d8de; }
+.content-theme-light .content-collapsible__summary { color: #19191b; }
+.content-theme-light .content-collapsible__summary:hover { background: rgba(16,23,40,.05); }
+.content-theme-light .content-collapsible__body { border-top-color: #d5d8de; }
+.content-theme-light .content-collapsible__body h3,
+.content-theme-light .content-collapsible__body h4 { color: #19191b; }
+
+/* Tema oscuro: card elevada (mas clara que el codigo interior, que es casi negro). */
+.content-theme-dark .content-collapsible { background: var(--card); border-color: var(--line); }
+.content-theme-dark .content-collapsible__summary { color: var(--ink); }
+.content-theme-dark .content-collapsible__summary:hover { background: rgba(255,255,255,.05); }
+.content-theme-dark .content-collapsible__body { border-top-color: var(--line); }
+
+/* Roadmap del módulo: reemplaza el índice plano por un recorrido de arcos
+   (etapas narrativas). Navega in-document (anchors) y usa el scroll-spy existente
+   (activeSection) para "completar" el camino en dorado a medida que se avanza:
+   tramos y nodos pasados en dorado, nodo actual dorado sólido, lo que falta en gris.
+   Colapsa a vertical en mobile. El color base del conector es THEME-AWARE (var(--line)
+   es invisible sobre blanco, así que en claro se sube a un gris visible). */
+.module-roadmap { --rm-track: var(--line); --rm-mask: var(--bg); padding: 28px 0 34px; border-bottom: 1px solid var(--line); }
+.module-roadmap__eyebrow {
+  margin: 0 0 20px; color: var(--gold);
+  font: 500 .67rem var(--mono, monospace); text-transform: uppercase; letter-spacing: .14em;
+}
+.module-roadmap__track {
+  position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 22px;
+  list-style: none; margin: 0; padding: 0;
+}
+.module-roadmap__stage { position: relative; min-width: 0; }
+/* Tramo conector ENTRANTE de cada etapa (desde el nodo anterior hasta el propio,
+   de centro a centro). width = 100% de la columna + el gap (22px). Se pinta de
+   dorado cuando la etapa ya fue alcanzada (is-done), completando el camino. */
+.module-roadmap__stage:not(:first-child)::before {
+  content: ""; position: absolute; z-index: 0; top: 13px;
+  right: calc(100% - 13px); width: calc(100% + 22px); height: 2px;
+  background: var(--rm-track); transition: background .25s;
+}
+.module-roadmap__stage.is-done:not(:first-child)::before { background: var(--gold); }
+/* Tramo hacia una etapa OPCIONAL (apéndice): punteado en vez de sólido, para
+   señalar que es una rama complementaria y no un paso obligatorio del recorrido. */
+.module-roadmap__stage.is-optional::before {
+  background: repeating-linear-gradient(90deg, var(--rm-track) 0 5px, transparent 5px 10px);
+}
+.module-roadmap__stage.is-optional.is-done::before {
+  background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 10px);
+}
+.module-roadmap__stage.is-optional .module-roadmap__num { border-style: dashed; }
+.module-roadmap__marker { position: relative; z-index: 1; margin-bottom: 14px; }
+.module-roadmap__num {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--rm-track); background: var(--rm-mask);
+  font: 600 .72rem var(--mono, monospace);
+  transition: background .2s, border-color .2s, color .2s;
+}
+.module-roadmap__stage-title { margin: 0 0 10px; font-size: .82rem; font-weight: 700; line-height: 1.2; }
+/* El tagline vive en un tooltip sobre el número (desktop) para no recargar el
+   recorrido; en mobile se muestra inline porque no hay hover (ver media query). */
+.module-roadmap__tagline { display: none; margin: 0 0 12px; color: var(--soft); font-size: .72rem; line-height: 1.35; }
+.module-roadmap__marker[data-tip] { cursor: help; outline: none; }
+.module-roadmap__marker[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: -4px; top: calc(100% + 9px); z-index: 6;
+  width: max-content; max-width: 230px; padding: 9px 11px; border-radius: 9px;
+  font: 500 .72rem/1.4 var(--sans, sans-serif); text-transform: none; letter-spacing: normal;
+  background: #1c1c22; color: #f1f1f5; box-shadow: 0 12px 30px rgba(0,0,0,.3);
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease;
+}
+.module-roadmap__marker[data-tip]::before {
+  content: ""; position: absolute; left: 9px; top: calc(100% + 4px); z-index: 6;
+  border: 5px solid transparent; border-bottom-color: #1c1c22;
+  opacity: 0; transition: opacity .16s ease; pointer-events: none;
+}
+.module-roadmap__marker[data-tip]:hover::after, .module-roadmap__marker[data-tip]:focus-visible::after { opacity: 1; transform: none; }
+.module-roadmap__marker[data-tip]:hover::before, .module-roadmap__marker[data-tip]:focus-visible::before { opacity: 1; }
+/* Última columna: el tooltip abre hacia la izquierda para no desbordar el panel. */
+.module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::after { left: auto; right: -4px; }
+.module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::before { left: auto; right: 9px; }
+.module-roadmap__links { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.module-roadmap__links a {
+  display: grid; grid-template-columns: 22px 1fr; gap: 2px; align-items: baseline;
+  color: var(--soft); font-size: .72rem; line-height: 1.25;
+}
+.module-roadmap__links a span { color: var(--gold); font: 500 .66rem var(--mono, monospace); }
+.module-roadmap__links a:hover { color: var(--ink); }
+
+/* Nodo completado (ya pasamos) → contorno dorado. Nodo actual → dorado sólido. */
+.module-roadmap__stage.is-done .module-roadmap__num { border-color: var(--gold); color: var(--gold); }
+.module-roadmap__stage.is-active .module-roadmap__num { background: var(--gold); border-color: var(--gold); color: #0c0c0d; }
+.module-roadmap__stage.is-active .module-roadmap__stage-title { color: var(--gold); }
+.module-roadmap__links a.is-current { color: var(--gold); }
+
+/* Tematización: gris visible del track + máscara del círculo según el fondo del panel. */
+.content-theme-light .module-roadmap { --rm-track: #d9d9d3; --rm-mask: #f7f7f4; border-color: #d9d9d3; }
+.content-theme-light .module-roadmap__num { color: #54545b; }
+.content-theme-light .module-roadmap__stage-title { color: #19191b; }
+.content-theme-light .module-roadmap__tagline,
+.content-theme-light .module-roadmap__links a { color: #54545b; }
+.content-theme-light .module-roadmap__links a:hover { color: #111113; }
+.content-theme-dark .module-roadmap { --rm-track: rgba(226,232,245,.16); --rm-mask: var(--bg); }
+.content-theme-dark .module-roadmap__num { color: var(--soft); }
+.content-theme-dark .module-roadmap__stage-title { color: var(--ink); }
+/* El nodo dorado (pasado o actual) mantiene número legible en ambos temas. */
+.module-roadmap__stage.is-done .module-roadmap__num { color: var(--gold); }
+.module-roadmap__stage.is-active .module-roadmap__num { color: #0c0c0d; }
+
+@media (max-width: 900px) {
+  .module-roadmap__track { grid-template-columns: 1fr 1fr; }
+  .module-roadmap__stage:not(:first-child)::before { display: none; }
+  /* Sin hover en touch: el tagline vuelve inline y se apaga el tooltip. */
+  .module-roadmap__tagline { display: block; }
+  .module-roadmap__marker[data-tip]::after, .module-roadmap__marker[data-tip]::before { content: none; }
+}
+@media (max-width: 560px) {
+  .module-roadmap__track { grid-template-columns: 1fr; }
+}
+
 /* Reveal sutil del contenido metodologico. El panel conserva el layout completo:
    solo cambian opacidad y transform, por lo que anchors y lazy embeds no saltan. */
 .content-reveal {

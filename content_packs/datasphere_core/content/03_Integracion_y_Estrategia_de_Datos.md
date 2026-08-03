@@ -16,6 +16,32 @@ key_topics:
   - id: cds_views
     label: Vistas CDS
     heading: "Tipos de Vistas CDS"
+roadmap:
+  - stage: "Contrato"
+    tagline: "Qué te comprometés a entregar y bajo qué arquitectura"
+    sections:
+      - "Modelo de Integración Danwor"
+      - "Contrato de Datos vs. Data Product"
+      - "Arquitectura de Integración"
+  - stage: "Extracción"
+    tagline: "Cómo sacás el dato de origen sin romper clean core"
+    sections:
+      - "Estrategia de Extracción"
+      - "Tipos de Vistas CDS"
+      - "Template de Extracción vía API Corporativa"
+      - "Clean Core aplicado a extracción"
+  - stage: "Materialización"
+    tagline: "Dónde vive el dato: federar, persistir o híbrido, y por qué conexión"
+    sections:
+      - "Integración Legacy vs. Moderna"
+      - "Federación vs. Persistencia"
+      - "Modelo de Integración Híbrido"
+      - "Tipos de Conexión"
+  - stage: "Referencia"
+    tagline: "Patrones de código y templates listos para bajar"
+    optional: true
+    sections:
+      - "Referencia Técnica"
 scope: |
   Cubre extracción e integración desde sistemas origen hacia SAP Datasphere:
   frameworks ODP y ABAP CDS, mecanismos de extracción (Full/Delta/CDC),
@@ -287,10 +313,10 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 | **@Analytics.dataExtraction.delta.byElement** | Define el campo lógico como puntero delta (extractor clásico) (usar solo si no se implementa CDC) (*1) | 
 | **@Analytics.dataExtraction.delta.changeDataCapture** | Habilita CDC automático o manual (sujeto a compatibilidad de release y tipo de CDS) (*1) | 
 | **@AccessControl.authorizationCheck:** | #NOT_REQUIRED > El control de acceso se gestiona desde Datasphere | 
-| **@Analytics.dataCategory: #XXX** | Define el tipo semántico de objetos transaccionales o dimensionales (#FACT, #DIMENSION). ODP genera sufijos: $F | $P |
-| **@ObjectModel.dataCategory: #X** | #S (<1000), #M (<100,000), #L (<10,000,000), #XL (<100,000,000), #XXL (>= 100M) |
+| **@Analytics.dataCategory: #XXX** | Define el tipo semántico de objetos transaccionales o dimensionales (#FACT, #DIMENSION). ODP genera sufijos: $F \| $P |
+| **@ObjectModel.dataCategory: #X** | Define el tipo semántico de objetos de texto o jerarquía (#TEXT, #HIERARCHY). ODP genera sufijos: $T \| $H |
 | **@ObjectModel.supportedCapabilities:** | #EXTRACTION_DATA_SOURCE > No habilita funcionalidad, sino metadata declarativa/capability |
-| **@ObjectModel.usageType.sizeCategory** | Define el tipo semántico de objetos de texto o jerarquia (#TEXT, #HIERARCHY). ODP genera sufijos: $T | $H |
+| **@ObjectModel.usageType.sizeCategory** | Define la categoría de tamaño del objeto: #S (<1000), #M (<100,000), #L (<10,000,000), #XL (<100,000,000), #XXL (>= 100M) |
 | **@OData.publish: false** | Desactiva servicios Odata (no requeridos para uso en SAP Datasphere) (*2) |
 
 >📌Tip! No forma parte del template, pero en casos donde NO se quiera heredar anotaciones de las capas inferiores: @Metadata.ignorePropagatedAnnotations: true
@@ -374,19 +400,42 @@ Es fundamental no verlas como alternativas (una u otra), sino que coexisten y tr
 | **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. | Requiere mínimo 128GB de memoria HANA habilitados (Nota SAP 3648786). Sin separación de ambientes DEV/QA/PRD en el storage (el lifecycle se gestiona desde los flujos). Mayor latencia que HANA in-memory para consultas analíticas frecuentes. El ciclo de vida del dato depende del flujo que lo genera, no del objeto en sí |
 | **Role en Danwor** | Acceso al Dato | Construccion del Data Product | Lakehouse / Aterrizaje BDC-ready |
 
+{{callout: title="Portabilidad del contrato hacia HDLF/BDC" tone="warn" icon="⚠️"}}
+Cuando el Data Product aterriza en Object Store / HDLF (o se comparte vía Delta Sharing hacia Databricks), **un tipo válido en HANA no es necesariamente un contrato portable confiable cross-runtime**. Aprendizajes de campo Danwor:
+
+- Campos monetarios `DecimalFloat` pueden convertirse de forma impredecible al publicar → **normalizar a `DECIMAL(38,6)` en la capa contractual**.
+- Un ratio/porcentaje derivado con escala inferida alta (ej. `DECIMAL(37,19)`) puede romper el Transformation Flow HANA→HDLF → **tipificar con `CAST` en la misma expresión donde nace el campo**, no tarde en la publicación.
+
+Regla: el tipo del campo derivado se fija **donde nace** (capa contractual / expresión de origen), no en la publicación. El copiloto evalúa esto automáticamente en la tab **Catálogo → Data Products → Portabilidad BDC**, marcando riesgos, normalizaciones y campos a revisar.
+{{/callout}}
+
 Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través de un **árbol determinístico** de decisión guiada.
 {{tree_button: Federación vs Persistencia vs Híbrido}}
 
 ## {dw-black}Tipos de {dw-gold}Conexión
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
-El siguiente **árbol determinístico** de decisión guiada puede servir como soporte para distintos casos de uso y contexto técnico en cuanto al tipo de conexión a utilizar, considerando sus compatibilidades y limitaciones de acuerdo al 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>
-{{tree_button: Opciones de Extracción}}
+La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>. Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*.
 
 ## {dw-black}Referencia {dw-gold}Técnica
-Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. A continuación, los patrones de referencia.
+Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. Lo primero es decidir **qué patrón** aplica según la tabla origen; el código es referencia ilustrativa que baja del template mantenido.
 
-### Patrón 1 — Extracción FULL
+### Cuándo usar cada patrón
+
+| Escenario | Patrón recomendado |
+|---|---|
+| Tabla sin campo de cambio confiable | Full únicamente |
+| Tabla con `changed_at` o `last_changed_at` | Delta byElement |
+| Vista con joins entre tablas | CDC con mapping |
+| Volumen bajo, sin requisito de incremental | Full |
+
+Los **templates versionados** (DDIC-based y CDS View Entity) viven en SharePoint y son la fuente autoritativa: se mantienen una sola vez y el asistente te los ofrece cuando pedís código CDS. Los ejemplos de abajo son ilustrativos para entender la anatomía de cada patrón.
+
+{{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7"}}
+
+{{collapsible: title="Ver los 3 patrones de código (referencia ilustrativa)"}}
+
+#### Patrón 1 — Extracción FULL
 ```abap
 @EndUserText.label: 'Ventas para Datasphere - Full'
 @AbapCatalog.sqlViewName: 'ZDSVTAFULL'
@@ -407,7 +456,7 @@ define view ZI_DS_VENTAS
 }
 ```
 
-### Patrón 2 — Extracción FULL + Delta por campo timestamp
+#### Patrón 2 — Extracción FULL + Delta por campo timestamp
 Requiere un campo `last_changed_at` confiable que se actualice en cada modificación del registro.
 
 ```abap
@@ -435,7 +484,7 @@ define view ZI_DS_VENTAS_DELTA
 }
 ```
 
-### Patrón 3 — CDC con join (Change Data Capture)
+#### Patrón 3 — CDC con join (Change Data Capture)
 
 Para vistas con joins, el delta se configura con mapeo explícito de tablas base.
 
@@ -469,14 +518,7 @@ define view ZI_DS_VENTAS_CDC
 }
 ```
 
-### Cuándo usar cada patrón
-
-| Escenario | Patrón recomendado |
-|---|---|
-| Tabla sin campo de cambio confiable | Full únicamente |
-| Tabla con `changed_at` o `last_changed_at` | Delta byElement |
-| Vista con joins entre tablas | CDC con mapping |
-| Volumen bajo, sin requisito de incremental | Full |
+{{/collapsible}}
 
 {{subtitle: no-gap}}
 > La elección entre Full y Delta impacta directamente en la estrategia de replicación en Datasphere (Replication Flow vs Data Flow) y en la capacidad de mantener datos actualizados sin recargas completas.

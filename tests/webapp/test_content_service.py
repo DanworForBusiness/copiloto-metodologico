@@ -71,3 +71,41 @@ def test_callout_row_groups_parameterized_callouts():
     assert 'class="callout callout--note"' in rendered
     assert 'class="callout callout--punch"' in rendered
     assert 'class="callout callout--success"' in rendered
+
+
+def test_collapsible_directive_wraps_code_as_details_on_demand():
+    document = load_module("03_Integracion_y_Estrategia_de_Datos")
+    section = next(item for item in document.sections if item.title == "Referencia Técnica")
+
+    # El bloque colapsable envuelve el codigo; el fenced code sigue renderizado
+    # (pre) y no queda ningun token/centinela sin consumir.
+    assert '<details class="content-collapsible"' in section.html
+    assert section.html.count("<details") == section.html.count("</details>")
+    assert "<pre" in section.html
+    assert "DWCOLL" not in section.html and "{{collapsible" not in section.html
+    # La tabla de decision queda ANTES del codigo colapsado (pedagogia primero).
+    assert section.html.index("Escenario") < section.html.index("<details")
+
+
+def test_module_roadmap_groups_every_section_into_stages():
+    document = load_module("03_Integracion_y_Estrategia_de_Datos")
+
+    assert len(document.roadmap) == 4
+    assert [stage.stage for stage in document.roadmap] == [
+        "Contrato", "Extracción", "Materialización", "Referencia",
+    ]
+    # Cada seccion del modulo aparece exactamente una vez en el roadmap.
+    linked = [link.slug for stage in document.roadmap for link in stage.links]
+    assert sorted(linked) == sorted(section.slug for section in document.sections)
+    assert len(linked) == len(set(linked))
+    # "Referencia" es un apendice opcional (tramo punteado); el resto no.
+    optional = {stage.stage: stage.optional for stage in document.roadmap}
+    assert optional == {
+        "Contrato": False, "Extracción": False,
+        "Materialización": False, "Referencia": True,
+    }
+
+
+def test_modules_without_roadmap_meta_have_empty_roadmap():
+    document = load_module("01_Arquitectura_y_Conectividad")
+    assert document.roadmap == ()

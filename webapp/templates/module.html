@@ -85,10 +85,32 @@
         {% if diagnostic_trees %}<span>{{ diagnostic_trees|length }} {{ "diagnóstico" if diagnostic_trees|length == 1 else "diagnósticos" }}</span>{% endif %}
       </div>
     </section>
+    {% if document.roadmap %}
+    {# Mapa slug de sección -> ordinal de su arco, para que el scroll-spy "complete"
+       el camino en dorado a medida que se avanza (activeSection lo provee copilotLayout). #}
+    {% set _rm = namespace(pairs=[]) %}
+    {% for stage in document.roadmap %}{% for link in stage.links %}{% set _ = _rm.pairs.append("'" ~ link.slug ~ "':" ~ stage.index) %}{% endfor %}{% endfor %}
+    <nav class="module-roadmap" aria-label="Recorrido del módulo" x-data="{ rmMap: {{ '{' ~ _rm.pairs|join(',') ~ '}' }} }">
+      <p class="module-roadmap__eyebrow">Recorrido del módulo</p>
+      <ol class="module-roadmap__track">
+        {% for stage in document.roadmap %}
+        <li class="module-roadmap__stage{{ ' is-optional' if stage.optional else '' }}" :class="{ 'is-active': (rmMap[activeSection]||0) === {{ stage.index }}, 'is-done': (rmMap[activeSection]||0) >= {{ stage.index }} }">
+          <div class="module-roadmap__marker" data-tip="{{ stage.tagline }}" tabindex="0" role="note" aria-label="{{ stage.stage }}: {{ stage.tagline }}"><span class="module-roadmap__num">{{ stage.index }}</span></div>
+          <p class="module-roadmap__stage-title">{{ stage.stage }}</p>
+          <p class="module-roadmap__tagline">{{ stage.tagline }}</p>
+          <ul class="module-roadmap__links">
+            {% for link in stage.links %}<li><a href="#{{ link.slug }}" :class="activeSection === '{{ link.slug }}' && 'is-current'"><span>{{ "%02d"|format(link.number) }}</span>{{ link.title }}</a></li>{% endfor %}
+          </ul>
+        </li>
+        {% endfor %}
+      </ol>
+    </nav>
+    {% else %}
     <nav class="section-index" aria-label="En este módulo">
       <p>En este módulo</p>
       {% for section in document.sections %}<a href="#{{ section.slug }}"><span>{{ "%02d"|format(section.number) }}</span>{{ section.title }}</a>{% endfor %}
     </nav>
+    {% endif %}
     <article class="methodology">{% for section in document.sections %}<section id="{{ section.slug }}" class="content-section">{{ section.html|safe }}{% set stem = document.summary.stem %}{% include "partials/section_feedback.html" %}</section>{% endfor %}</article>
     {% include "partials/module_feedback.html" %}
     {% if next_module %}
