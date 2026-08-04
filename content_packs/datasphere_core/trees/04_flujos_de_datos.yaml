@@ -1,0 +1,252 @@
+id: m04_flujos_de_datos
+title: Flujos de Datos
+version: "0.1"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+links:
+  module: 04_Modelado_y_Desarrollo
+  topics: ["flujos_datos", "capas"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M04", "modeling", "flows", "replication-flow", "data-flow", "transformation-flow", "development"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+keywords: [
+  "flujos de datos", "flujo de datos", "qué flujo usar", "que flujo usar",
+  "replication flow", "data flow", "transformation flow",
+  "diferencia replication flow data flow", "diferencia data flow transformation flow",
+  "cuándo usar replication flow", "cuando usar replication flow",
+  "cuándo usar data flow", "cuando usar data flow",
+  "cuándo usar transformation flow", "cuando usar transformation flow",
+  "carga delta", "captura delta", "delta capture",
+  "replicar datos datasphere", "mover datos hacia HDLF", "materializar tabla local",
+  "transformation flow vs data flow", "replication flow vs data flow",
+  "árbol flujos de datos", "arbol flujos de datos", "qué flujo elegir", "que flujo elegir"
+]
+
+# exclude_if: palabras de intención operacional (el usuario quiere HACER algo, no DECIDIR)
+exclude_if: [
+  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet",
+  "como nombro", "como se llama", "prefijo", "convención", "naming"
+]
+
+start: q1_delta
+
+nodes:
+  q1_delta:
+    type: single_choice
+    question: "¿Necesitás cargar los datos con compatibilidad delta?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": q2_origen
+      "No": q3a_operadores
+
+  q2_origen:
+    type: single_choice
+    question: "¿Cuál es la fuente?"
+    options: ["SAP/ABAP", "Datasphere", "Otra"]
+    next:
+      "ERP SAP": q2_b
+      "Datasphere": leaf_transformation_flow_delta
+      "Otra": q2c_conector
+
+  q2_b:
+    type: single_choice
+    question: "¿Dispones de vista CDS habilitada para extracción, extractor ODP/BW, o tabla con clave primaria del que vas a traer uno o más objetos, sin necesidad de transformarlos?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_replication_flow
+      "No": q3a_operadores
+
+  q2c_conector:
+    type: single_choice
+    question: "¿Qué tipo de conexión es la fuente? (agrupadas por compatibilidad de carga soportada como origen)"
+    options:
+      - "Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP genérico, Microsoft OneLake, Snowflake, Local Table File — solo carga inicial (Initial Only) como fuente"
+      - "Azure SQL Database, SQL Server, Oracle, SAP HANA (conexión externa) — carga inicial y delta completos (Initial Only / Initial and Delta / Delta Only)"
+      - "Confluent, REST API — solo delta (Initial and Delta / Delta Only), sin carga inicial simple"
+      - "SAP HANA Cloud, Data Lake Files (HDLFS directo) — fuente y destino, carga inicial y delta completos"
+      - "Apache Kafka, Google BigQuery, SAP Signavio — no soportadas como fuente (solo como destino)"
+    next:
+      "Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP genérico, Microsoft OneLake, Snowflake, Local Table File — solo carga inicial (Initial Only) como fuente": leaf_replication_flow_initial_only
+      "Azure SQL Database, SQL Server, Oracle, SAP HANA (conexión externa) — carga inicial y delta completos (Initial Only / Initial and Delta / Delta Only)": leaf_replication_flow_full_delta_external
+      "Confluent, REST API — solo delta (Initial and Delta / Delta Only), sin carga inicial simple": leaf_replication_flow_delta_only
+      "SAP HANA Cloud, Data Lake Files (HDLFS directo) — fuente y destino, carga inicial y delta completos": leaf_replication_flow_hdlfs_native
+      "Apache Kafka, Google BigQuery, SAP Signavio — no soportadas como fuente (solo como destino)": leaf_replication_flow_unsupported_source
+
+  q3a_operadores:
+    type: single_choice
+    question: "¿La transformación necesita operadores que una Vista SQL no ofrece?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": q3b_python
+      "No": q4_persistencia
+
+  q3b_python:
+    type: single_choice
+    question: "¿Necesitás transformar los datos con lógica en código — un operador de Script (Python)?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_data_flow_python
+      "No": q3c_joins
+
+  q3c_joins:
+    type: single_choice
+    question: "¿Necesitás combinar múltiples fuentes con Join o Unión?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_data_flow_joins
+      "No": q3d_graficos
+
+  q3d_graficos:
+    type: single_choice
+    question: "¿Te alcanza con pasos gráficos de Proyección o Agregación (agregar/quitar columnas, SUM/AVG/COUNT) en vez de escribirlo en SQL?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_data_flow_visual
+      "No": q4_persistencia
+
+  q4_persistencia:
+    type: single_choice
+    question: "¿Necesitás persistir el resultado en una tabla local — en vez de resolverlo en tiempo de consulta con una vista?"
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_transformation_flow_simple
+      "No": leaf_vista_sql
+
+leaves:
+  leaf_replication_flow:
+    decision: "Replication Flow — compatibilidad delta nativa."
+    notes:
+      - "Fuentes soportadas: vistas CDS habilitadas para extracción, objetos ODP (BW/extractores), tablas con clave primaria."
+      - "Transformación deliberadamente limitada: filtros, mapeo de columnas, proyección personalizada — sin joins ni SQL. Si hace falta transformar de verdad, no es el artefacto adecuado."
+      - "No admite parámetros de entrada."
+      - "También puede exportar hacia HDLF, pero vía una conexión externa dedicada (SAP HANA Cloud, Data Lake, Files — Parquet, con delta), no el storage del propio espacio."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Ver Estrategia de Extracción y CDC en el módulo 03"
+        - "Definir frecuencia de carga delta según el SLA real de consumo (no la dejes por default)"
+
+  leaf_replication_flow_initial_only:
+    decision: "Replication Flow — pero desde esta fuente solo carga inicial (Initial Only), sin delta."
+    notes:
+      - "Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP genérico, Microsoft OneLake, Snowflake y Local Table File soportan Replication Flow como fuente, pero únicamente en modo Initial Only."
+      - "Si necesitás delta real desde uno de estos orígenes, no es alcanzable con Replication Flow — revisar si el sistema que alimenta ese storage (ej. la base de datos detrás de un data lake) tiene su propio conector con soporte Initial and Delta / Delta Only."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Confirmar que una recarga completa periódica (Initial Only) es aceptable para el caso de uso"
+
+  leaf_replication_flow_full_delta_external:
+    decision: "Replication Flow — fuente con soporte completo: Initial Only, Initial and Delta y Delta Only."
+    notes:
+      - "Azure SQL Database, SQL Server, Oracle y SAP HANA (como conexión externa, no la del propio espacio) soportan los tres modos de carga como fuente."
+      - "Elegir el modo según el caso: Initial Only para una copia puntual, Initial and Delta para mantener sincronizado, Delta Only si el histórico ya se cargó por otro medio."
+    post_actions:
+      mode: resolved
+
+  leaf_replication_flow_delta_only:
+    decision: "Replication Flow — esta fuente solo soporta delta (Initial and Delta / Delta Only), sin carga inicial simple."
+    notes:
+      - "Confluent y REST API no ofrecen el modo Initial Only, por su naturaleza de streaming/API — el primer registro ya llega como parte del flujo delta."
+      - "Definir bien el modo (Initial and Delta vs. Delta Only) según si necesitás un snapshot inicial del histórico o solo los cambios desde ahora."
+    post_actions:
+      mode: resolved
+
+  leaf_replication_flow_hdlfs_native:
+    decision: "Replication Flow — SAP HANA Cloud, Data Lake Files (HDLFS) como conexión dedicada: soporte completo de fuente y destino."
+    notes:
+      - "Es el único conector con Initial Only / Initial and Delta / Delta Only en AMBAS columnas (fuente y destino) — permite replicar entre artefactos del object store sin pasar por HANA."
+      - "Distinto de 'SAP Datasphere (file space)': esa conexión (el HDLF del propio espacio) solo puede usarse como DESTINO, nunca como fuente. Para leer desde HDLFS hace falta la conexión dedicada 'SAP HANA Cloud, Data Lake Files' — host, root path y autenticación por keystore propios, no la del espacio."
+      - "Formato de intercambio: Parquet."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Crear la conexión dedicada 'SAP HANA Cloud, Data Lake Files' (no reusar la conexión implícita del espacio) para poder leerla como fuente"
+
+  leaf_replication_flow_unsupported_source:
+    decision: "Replication Flow no aplica desde esta fuente — Apache Kafka, Google BigQuery y SAP Signavio no están soportados como origen, solo como destino."
+    notes:
+      - "Con estos conectores, Replication Flow solo puede usarlos como DESTINO — nunca como fuente de la que leer."
+      - "Si el dato ya está en uno de estos sistemas y necesitás traerlo, buscar el origen real de ese dato (por ejemplo, el sistema que publica hacia el tópico de Kafka), no el conector intermedio."
+    post_actions:
+      mode: needs_human_review
+      reason: "El conector elegido no soporta uso como fuente — replantear de dónde viene realmente el dato antes de definir el flujo."
+
+  leaf_transformation_flow_delta:
+    decision: "Transformation Flow — la fuente ya está en Datasphere y necesitás delta incremental."
+    notes:
+      - "Requiere Captura Delta habilitada tanto en la tabla origen como en la tabla destino."
+      - "No soporta carga delta desde vistas — solo desde tablas con Captura Delta activa."
+      - "Definir la transformación con Vista Gráfica o Vista SQL — la Vista SQL es más mantenible y versionable."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Confirmar Captura Delta activa en origen y destino antes de desplegar"
+
+  leaf_transformation_flow_simple:
+    decision: "Transformation Flow — sin necesidad de delta, pero sí de persistir."
+    notes:
+      - "La transformación se define con Vista Gráfica o Vista SQL (preferente SQL para mantenibilidad y versionado)"
+      - "Si más adelante hace falta delta, ya estás en el artefacto correcto: solo hay que activar Captura Delta en origen y destino."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Evaluar si conviene definir la transformación como Vista SQL en vez de Vista Gráfica"
+
+  leaf_data_flow_python:
+    decision: "Data Flow — si necesitás el operador de Script (Python) y tu destino vive en un espacio HANA."
+    notes:
+      - "Si el espacio destino es de tipo Archivos de Data Lake (HDLF), Transformation Flow también ofrece Script Python — y además llega directo al HDLF del propio espacio. Confirmá el tipo de espacio antes de descartar Transformation Flow."
+      - "No soporta carga delta — si además necesitás delta, replantear con Replication Flow para la adquisición y Data Flow solo para la transformación."
+      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF) como destino — restricción explícita, no evitarla con configuración."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_data_flow_joins:
+    decision: "Data Flow — necesitás combinar múltiples fuentes con Join o Unión en una interfaz gráfica."
+    notes:
+      - "Antes de resolverlo acá, evaluar si una Vista SQL Estándar con JOINs no alcanza — suele ser más mantenible."
+      - "No soporta carga delta — si lo vas a necesitar, reconsiderá tu diseño y elección."
+      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF)"
+    post_actions:
+      mode: llm_value_add
+
+  leaf_data_flow_visual:
+    decision: "Data Flow — pasos gráficos de Proyección/Agregación son suficientes, sin necesidad de SQL."
+    notes:
+      - "Evaluar igual si una Vista SQL Estándar (con agregaciones simples) no resuelve el caso con menos artefactos."
+      - "No soporta carga delta en absoluto."
+      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF) — restricción explícita."
+      - "Escribe a una única tabla local en el repositorio."
+    post_actions:
+      mode: llm_value_add
+
+  leaf_vista_sql:
+    decision: "No necesitás un flujo de datos. Podés resolverlo con una vista."
+    notes:
+      - "Si en el futuro aparece necesidad de persistencia o delta — ahí sí correspondería Transformation Flow."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Abrir el árbol 'Tipos de Vistas SQL' para evaluar tu escenario y elegir el tipo de vista"
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu caso de movimiento/transformación de datos"
+  fields:
+    - id: context_description
+      label: "¿Qué necesitás resolver con el flujo?"
+      required: true
+    - id: decision_taken
+      label: "¿Qué flujo elegiste?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

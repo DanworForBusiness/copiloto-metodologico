@@ -29,7 +29,7 @@ CASES = [
     ("05_Reporting_y_Consumo", "como nombro un objeto?", "convencion-de-nombres", []),
     # how-to con intención — deben seguir liderando con el recurso
     ("04_Modelado_y_Desarrollo", "como creo una vista CDS?", "cds_extractor_template", []),
-    ("03_Integracion_y_Estrategia_de_Datos", "template CDS para extraccion", "template-de-extraccion", []),
+    ("03_Integracion_y_Estrategia_de_Datos", "template CDS para extraccion", "extraccion-via-api-corporativa", []),
     ("01_Arquitectura_y_Conectividad", "como configuro el DP agent?", "Instalar y Configurar DP Agent", []),
     ("05_Reporting_y_Consumo", "como conecto SAC a datasphere?", "Conectar SAC", []),
     ("05_Reporting_y_Consumo", "como conecto power bi?", "Power BI", []),

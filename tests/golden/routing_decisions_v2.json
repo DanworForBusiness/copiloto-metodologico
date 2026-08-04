@@ -414,12 +414,12 @@
           "embed": false,
           "external": false,
           "label": "Ir a la sección",
-          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#template-de-extraccion-via-api-corporativa"
+          "url": "/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#extraccion-via-api-corporativa"
         }
       ],
-      "explain_heading": "{dw-black}Template de Extracción vía {dw-gold}API Corporativa",
+      "explain_heading": "{dw-black}Extracción vía {dw-gold}API Corporativa",
       "explain_module": "03_Integracion_y_Estrategia_de_Datos",
-      "message": "Este tema está cubierto con más precisión en **03 · Integración y Estrategia**, sección **Template de Extracción vía API Corporativa**."
+      "message": "Este tema está cubierto con más precisión en **03 · Integración y Estrategia**, sección **Extracción vía API Corporativa**."
     }
   },
   "04_Modelado_y_Desarrollo::support::dump RUNTIME_ERROR al activar la vista CDS en el sistema S4HANA": {

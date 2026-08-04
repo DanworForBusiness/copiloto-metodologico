@@ -16,6 +16,9 @@ key_topics:
   - id: cds_views
     label: Vistas CDS
     heading: "Tipos de Vistas CDS"
+  - id: tablas_remotas
+    label: Tablas Remotas
+    heading: "Tablas Remotas"
 roadmap:
   - stage: "Contrato"
     tagline: "Qué te comprometés a entregar y bajo qué arquitectura"
@@ -23,17 +26,18 @@ roadmap:
       - "Modelo de Integración Danwor"
       - "Contrato de Datos vs. Data Product"
       - "Arquitectura de Integración"
+      - "Integración Legacy vs. Moderna"
   - stage: "Extracción"
     tagline: "Cómo sacás el dato de origen sin romper clean core"
     sections:
       - "Estrategia de Extracción"
       - "Tipos de Vistas CDS"
-      - "Template de Extracción vía API Corporativa"
+      - "Extracción vía API Corporativa"
       - "Clean Core aplicado a extracción"
   - stage: "Materialización"
     tagline: "Dónde vive el dato: federar, persistir o híbrido, y por qué conexión"
     sections:
-      - "Integración Legacy vs. Moderna"
+      - "Tablas Remotas"
       - "Federación vs. Persistencia"
       - "Modelo de Integración Híbrido"
       - "Tipos de Conexión"
@@ -84,7 +88,7 @@ quick_action_guidance:
       - Mencionar que CDS View Entity es una alternativa más moderna, pero no asumirla como default para ODP/CDS de extracción sin validar release, notas SAP y compatibilidad. Referenciar la sección "Tipos de Vistas CDS" cuando aparezca esta decisión.
       - No reducir DP Agent vs Cloud Connector a "nuevo vs obsoleto": DP Agent es legacy válido si el contexto lo exige; Cloud Connector/SCC + HTTPS + ABAP SQL Service puede reducir operación y acoplamiento si el landscape lo soporta. Referenciar la sección "Integración Legacy vs. Moderna".
       - Incluir readiness técnico: Note Analyzer / CNV_NA_DI, estado de notas SAP, usuario/servicio de integración y compatibilidad ABAP -> Datasphere antes de prometer Replication Flows o conectividad productiva.
-      - Para delta, no limitarse a timestamp: diferenciar delta byElement vs CDC con mapping. CDC avanzado depende de release/SAP_BASIS, tipo de CDS y Nota SAP 3534086. Referenciar la sección "Template de Extracción vía API Corporativa".
+      - Para delta, no limitarse a timestamp: diferenciar delta byElement vs CDC con mapping. CDC avanzado depende de release/SAP_BASIS, tipo de CDS y Nota SAP 3534086. Referenciar la sección "Extracción vía API Corporativa".
       - Mantener como guardrail fuerte que la extracción directa de tablas base no es recomendación Danwor; si aparece, ofrecer alternativa gobernada mediante ODP-SAPI, ODP-CDS, CDS Views liberadas o API corporativa.
     prompt: |
       INSTRUCCIÓN ESPECÍFICA PARA MÓDULO 03 - GUÍA OPERATIVA:
@@ -260,6 +264,23 @@ El movimiento de datos puede resolverse tanto on-premise (donde el cliente provi
 {{/callout}}
 {{/callout_row}}
 
+## {dw-black}Integración Legacy vs. {dw-gold}Moderna
+{{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, configurar cloud connector, configuración cloud connector, cloud connector datasphere, cloud connector on premise, cloud connector RISE, SAP RISE cloud connector, ABAP SQL service, cloud to on premise, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
+{{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST" Config Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
+
+{{subtitle: no-gap}}
+> Comparación de propósito, despliegue y alcance en SAP Datasphere
+
+| Característica | DP Agent | Cloud Connector |
+|---|---|---|
+| **Propósito Principal** | Proveer datos desde sistemas fuente hacia SAP Datasphere | Habilitar comunicación segura entre sistemas locales y la nube |
+| **Manejo de Datos** | Extracción, transformación y carga (ETL) | No procesa datos (*), solo comunicación segura |
+| **Despliegue** | Se instala en la red del sistema fuente para ejecutar integración y ETL. En SAP on RISE esto lo hace SAP vía Service Request | Se instala en la red corporativa como “túnel seguro” hacia la nube, sin procesar datos |
+| **Protocolos de Conexión** | Soporta ODP, RFC, SOAP para la extracción de datos | Soporta HTTP/HTTPS (ABAP SQL Service), RFC para la comunicación segura |
+| **Alcance** | Integración de datos, operaciones ETL | Seguridad y comunicación para integración entre nube y sistemas locales |
+
+(*) acceso federado vía servicios ABAP (HTTPS) requiere S/4HANA (ABAP Platform 2021 FPS01 o superior)
+
 ## {dw-black}Estrategia de {dw-gold}Extracción
 {{section_meta: keywords="ODP, ODP-SAPI, ODP-CDS, extractores BW, extractores estándar, extractor SAP, SAPI, CDS extracción, mecanismo extracción, opciones extracción, whitelisteo, whitelist extractores, nota SAP compatibilidad, 0CUSTOMER_ATTR, 0MATERIAL_ATTR, datasource BW, BW extractor, ODP framework, ODQ, Operational Delta Queue, diferencia SAPI CDS, qué es ODP, cómo extrae ODP, ECC extracción, S4HANA extracción, BW modernización, origen datos SAP"}}
 
@@ -301,7 +322,7 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 {{subtitle: no-gap}}
 > Postura Danwor: para extractores ODP-CDS orientados a Datasphere, usar CDS DDIC-based como patrón conservador por compatibilidad amplia y porque muchas CDS estándar liberadas para extracción siguen ese modelo. Usar `define view entity` solo si el release ABAP/SAP, la nota aplicable y el mecanismo de consumo confirman soporte para ese escenario.
 
-## {dw-black}Template de Extracción vía {dw-gold}API Corporativa
+## {dw-black}Extracción vía {dw-gold}API Corporativa
 {{section_meta: keywords="template extracción, template CDS, API corporativa, CDS extracción, anotaciones extracción, @Analytics.dataExtraction, delta byElement, change data capture, CDC mapping, SAP_BASIS 7.56, nota SAP 3534086, compatibilidad CDC, delta avanzado, extractor CDS, ABAP CDS Datasphere"}}
 {{support: Template CDS DDIC="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQCpgsn98NNWQLd3WDj4SsNkAWEQMUwcLRS0EtKL6Y1oiew?e=n2OdL4" Template CDS View Entity="https://danwor.sharepoint.com/:t:/s/PrcticaAnalytics/IQBVd62iU6Q5RYWiHrFkDxuPAbAfk-hkIFCeAoBmeGUC7Vc?e=cPFjN7" SAP Help CDS Annotations="https://help.sap.com/docs/ABAP_PLATFORM_BW4HANA/cc0c305d2fab47bd808adcad3ca7ee9d/630ce9b386b84e80bfade96779fbaeec.html?locale=en-US&version=LATEST" Nota SAP="https://me.sap.com/notes/3534086"}}
 {{subtitle: no-gap}}
@@ -349,33 +370,44 @@ ODP es un mecanismo estándar para extracción con colas delta, compatible con D
 {{/callout}}
 {{/callout_row}}
 
-## {dw-black}Integración Legacy vs. {dw-gold}Moderna
-{{section_meta: keywords="DP agent, cloud connector, diferencia DP agent cloud connector, DP agent vs cloud connector, qué es DP agent, qué es cloud connector, cuándo usar DP agent, cuándo usar cloud connector, configurar cloud connector, configuración cloud connector, cloud connector datasphere, cloud connector on premise, cloud connector RISE, SAP RISE cloud connector, ABAP SQL service, cloud to on premise, tipos conexión datasphere, conexión segura datasphere, ETL datasphere, tunnel SAP"}}
-{{support: SAP Help DP Agent="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/f1a39d1a763e48c8872f45c110a5a4e2.html?locale=es-ES&q=DP+Agent&version=LATEST" SAP Help Cloud Connector="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/35141e7668774958b5e59495f7a7828e.html?locale=es-ES&q=DP+Agent&version=LATEST" Config Cloud Connector="https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4576253846.html?locale=en-US&version=LATEST"}}
+## {dw-black}Tablas {dw-gold}Remotas
+{{section_meta: keywords="tabla remota, remote table, SDA, SDI, smart data access, smart data integration, acceso federado, replicar tabla remota, replicación tabla remota, filtros estáticos, filtro tabla remota, storage disco memoria, in-memory tabla, diferencia tabla remota tabla local, puente acceso federado, tabla virtual datasphere"}}
+{{section_exclude: "tipo semántico, tipo semantico, uso semántico, uso semantico, fact o dimension, fact o dimensión, semantic usage, qué tipo semántico"}}
+{{support: Importar Tablas Remotas="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/fd04efbac29c44fb8cfeaf2166b3d882.html" Replicar Datos de Tabla Remota="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7e258a7554f84bf386c1bb029df5413f.html" Restringir Cargas="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/bd1ece5c9f78444c87708ef11eed0a31.html" Propiedades de Tabla="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/75cea7b1cbeb4c9dba0ac13605c527b3.html"}}
 
-{{subtitle: no-gap}}
-> Comparación de propósito, despliegue y alcance en SAP Datasphere
+> Una tabla remota es el artefacto en Datasphere que materializa la federación: actúa como un objeto virtual que expone datos del sistema origen sin copiarlos. Existen dos adaptadores primarios para tablas remotas (SDA/SDI), explicados gráficamente y tooltips en [Arquitectura de Integración →](#arquitectura-de-integracion) si querés profundizar.
 
-| Característica | DP Agent | Cloud Connector |
-|---|---|---|
-| **Propósito Principal** | Proveer datos desde sistemas fuente hacia SAP Datasphere | Habilitar comunicación segura entre sistemas locales y la nube |
-| **Manejo de Datos** | Extracción, transformación y carga (ETL) | No procesa datos (*), solo comunicación segura |
-| **Despliegue** | Se instala en la red del sistema fuente para ejecutar integración y ETL. En SAP on RISE esto lo hace SAP vía Service Request | Se instala en la red corporativa como “túnel seguro” hacia la nube, sin procesar datos |
-| **Protocolos de Conexión** | Soporta ODP, RFC, SOAP para la extracción de datos | Soporta HTTP/HTTPS (ABAP SQL Service), RFC para la comunicación segura |
-| **Alcance** | Integración de datos, operaciones ETL | Seguridad y comunicación para integración entre nube y sistemas locales |
+Una misma tabla remota puede vivir en cualquiera de estos tres estados — se cambia desde el editor, sin necesidad de recrear el objeto:
 
-(*) acceso federado vía servicios ABAP (HTTPS) requiere S/4HANA (ABAP Platform 2021 FPS01 o superior)
+| Estado | Qué significa |
+|---|---|
+| **Remoto** | Federado: se lee la tabla virtual, los datos nunca salen del origen (predeterminado al importar) |
+| **Replicado (Snapshot)** | Los datos se copian una vez (o por schedule) a una tabla de réplica en Datasphere — no se actualizan solos |
+| **Replicado (Real-time)** | Los datos se copian y se mantienen sincronizados en tiempo real |
+
+{{callout: title="Replicar la tabla remota vs. Replication Flow" tone="warn" icon="🔀"}}
+La gestión de "Replicado" en una tabla remota (vía SDI) es el mecanismo inicial del producto — previo flujos de replicación. Se gestiona una tabla a la vez, sin las capacidades de Replication Flow (como carga masiva de objetos, conectores, recuperación desde el punto donde falló, etc.). Para traer datos con delta hacia Datasphere, recomendamos te apoyes en Replication Flows. El toggle de la tabla remota sigue vigente para casos puntuales o legados, no como opción preferencial.
+{{/callout}}
+
+### Controlar volumen y performance
+
+- **Filtros estáticos**: reducen lo que se carga a la tabla remota — solo admiten condiciones *Igual a* y *Entre* (nada dinámico como "últimos 3 años"), y qué columnas se pueden filtrar depende del tipo de fuente (por ejemplo, con conexiones CDI solo se filtra sobre NVARCHAR, Date, Boolean, Integer, BigInt). Un registro con valor nulo en una columna filtrada nunca se replica. No es buena práctica abusar de esta capacidad: el dato debe gobernarse desde su contrato, no desde un filtro escondido en la capa de conectividad.
+- **Storage — Disco vs. En Memoria**: por default los datos viven en disco; pasar a En Memoria mejora performance de lectura a costa de consumo de memoria del espacio — mismo toggle que ya se ve como "HANA DB Disk | In-Memory" en los diagramas de arquitectura.
+- **Uso semántico**: una tabla remota se clasifica igual que cualquier otro artefacto de modelado (Relacional, Fact, Dimensión, Jerarquía, Texto) — ver [Modelado y Desarrollo →](/modules/04_Modelado_y_Desarrollo?pack={{pack}}#artefactos-y-uso-semantico)
+
+{{callout: title="Tabla Remota vs. Tabla Local" tone="punch" icon="🔲"}}
+La Tabla Remota es el artefacto de **Ingesta federada**: apunta al origen, con la opción de replicarse. La Tabla Local es el resultado de **persistir** — ya sea por Replication Flow, Transformation Flow o Data Flow (ver [Modelado y Desarrollo →](/modules/04_Modelado_y_Desarrollo?pack={{pack}}#flujos-de-datos)). Una vez replicada, una tabla remota deja de comportarse como tal — en el sentido estricto — pero el objeto sigue siendo el mismo, con su vínculo al origen. 
+{{/callout}}
 
 ## {dw-black}Federación vs. {dw-gold}Persistencia
 {{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere, federo, persisto, federo o persisto, federar o persistir, conviene federar o persistir"}}
 
 {{subtitle: no-gap}}
-> Diferencias prácticas según escenario de integración: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento
+> La mecánica de cada una ya la vimos en Tablas Remotas — acá el foco es cuándo conviene una sobre la otra: empezar con vistas federadas y complementar con persistencia según volumen y rendimiento
 
 | Federación | Persistencia |
 |---|---|
-| Al crear tablas remotas en SAP Datasphere desde sistemas SAP (ECC, S/4HANA, BW, etc.) el método de acceso a la información predeterminado es a través de la federación de datos.  Es decir, que los datos se alojan en el sistema fuente, y datasphere funciona como capa de modelado y reporting en tiempo real | En contextos donde se requiera un fuerte reproceso de volúmenes grandes de datos que no impacten el rendimiento del sistema fuente, el método de acceso a la información es a través de la persistencia de datos.  Es decir, que los datos se replican desde el sistema fuente y alojan físicamente en datasphere |
-| ✅ Real-time | ✅ Performance (ya no golpean al origen, corren en Datasphere) |
+| ✅ Siempre actualizado (consulta en vivo, sin latencia de sincronización) | ✅ Performance (ya no golpean al origen, corren en Datasphere) |
 | ✅ No-Redundancia de datos  | ✅ Escalabilidad |
 | ✅ Costos (Licenciamiento Datapshere a través de CU) | ✅ Pre-agregación y modelado (optimizados para reporting) | 
 | ❌ Performance (depende de los recursos en el sistema fuente) | ❌ Redundancia |
@@ -400,13 +432,12 @@ Es fundamental no verlas como alternativas (una u otra), sino que coexisten y tr
 | **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. | Requiere mínimo 128GB de memoria HANA habilitados (Nota SAP 3648786). Sin separación de ambientes DEV/QA/PRD en el storage (el lifecycle se gestiona desde los flujos). Mayor latencia que HANA in-memory para consultas analíticas frecuentes. El ciclo de vida del dato depende del flujo que lo genera, no del objeto en sí |
 | **Role en Danwor** | Acceso al Dato | Construccion del Data Product | Lakehouse / Aterrizaje BDC-ready |
 
-{{callout: title="Portabilidad del contrato hacia HDLF/BDC" tone="warn" icon="⚠️"}}
+{{callout: title="Portabilidad HDLF/BDC" tone="warn" icon="⚠️"}}
 Cuando el Data Product aterriza en Object Store / HDLF (o se comparte vía Delta Sharing hacia Databricks), **un tipo válido en HANA no es necesariamente un contrato portable confiable cross-runtime**. Aprendizajes de campo Danwor:
 
-- Campos monetarios `DecimalFloat` pueden convertirse de forma impredecible al publicar → **normalizar a `DECIMAL(38,6)` en la capa contractual**.
-- Un ratio/porcentaje derivado con escala inferida alta (ej. `DECIMAL(37,19)`) puede romper el Transformation Flow HANA→HDLF → **tipificar con `CAST` en la misma expresión donde nace el campo**, no tarde en la publicación.
-
-Regla: el tipo del campo derivado se fija **donde nace** (capa contractual / expresión de origen), no en la publicación. El copiloto evalúa esto automáticamente en la tab **Catálogo → Data Products → Portabilidad BDC**, marcando riesgos, normalizaciones y campos a revisar.
+- Campos monetarios `DecimalFloat` pueden convertirse de forma impredecible (String(10)) al publicar → **normalizar a `DECIMAL(38,6)` en la capa contractual**.
+- Un KPI con escala inferida alta (ej. `DECIMAL(37,19)`) puede romper el Transformation Flow → **castear `CAST` en la misma expresión donde nace el campo**.
+- Regla: el tipo del campo derivado se fija **donde nace** (capa contractual / expresión de origen), no en la publicación. 
 {{/callout}}
 
 Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través de un **árbol determinístico** de decisión guiada.
@@ -416,6 +447,8 @@ Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
 La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>. Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*.
+
+{{tree_button: Opciones de Extracción}}
 
 ## {dw-black}Referencia {dw-gold}Técnica
 Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. Lo primero es decidir **qué patrón** aplica según la tabla origen; el código es referencia ilustrativa que baja del template mantenido.

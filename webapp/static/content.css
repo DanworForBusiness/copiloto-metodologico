@@ -78,6 +78,20 @@
 .content-theme-dark .content-collapsible__summary:hover { background: rgba(255,255,255,.05); }
 .content-theme-dark .content-collapsible__body { border-top-color: var(--line); }
 
+/* Tokens compartidos por los DOS índices de módulo — el plano (.section-index,
+   "En este módulo") y el agrupado (.module-roadmap, "Recorrido del módulo"). Son
+   clases distintas con estilos espejados; centralizar acá las medidas evita que
+   vuelvan a divergir. Un índice quiere aire y legibilidad, no compresión: font
+   más grande y gaps más generosos que la versión previa. */
+:root {
+  --idx-link-fs: .8rem;    /* texto del ítem — deliberadamente menor al subtext de sección (.9rem) */
+  --idx-num-fs: .72rem;    /* número (mono, dorado) */
+  --idx-title-fs: .95rem;  /* título de arco (solo roadmap) */
+  --idx-row-gap: 13px;     /* separación vertical entre ítems */
+  --idx-num-gap: 6px;      /* número ↔ título */
+  --idx-num-col: 2.2em;    /* ancho de la columna del número (2 dígitos) */
+}
+
 /* Roadmap del módulo: reemplaza el índice plano por un recorrido de arcos
    (etapas narrativas). Navega in-document (anchors) y usa el scroll-spy existente
    (activeSection) para "completar" el camino en dorado a medida que se avanza:
@@ -90,7 +104,7 @@
   font: 500 .67rem var(--mono, monospace); text-transform: uppercase; letter-spacing: .14em;
 }
 .module-roadmap__track {
-  position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 22px;
+  position: relative; display: grid; grid-template-columns: repeat(var(--rm-cols, 4), 1fr); gap: 4px 22px;
   list-style: none; margin: 0; padding: 0;
 }
 .module-roadmap__stage { position: relative; min-width: 0; }
@@ -112,6 +126,20 @@
   background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 10px);
 }
 .module-roadmap__stage.is-optional .module-roadmap__num { border-style: dashed; }
+/* Tramo FINAL: continúa desde el último nodo hasta el borde del panel, para que
+   el recorrido ocupe todo el ancho (como el índice plano) y no "termine antes".
+   Hereda sólido/punteado y gris/dorado del estado del último arco. */
+.module-roadmap__stage:last-child::after {
+  content: ""; position: absolute; z-index: 0; top: 13px; left: 13px; right: 0; height: 2px;
+  background: var(--rm-track); transition: background .25s;
+}
+.module-roadmap__stage.is-done:last-child::after { background: var(--gold); }
+.module-roadmap__stage.is-optional:last-child::after {
+  background: repeating-linear-gradient(90deg, var(--rm-track) 0 5px, transparent 5px 10px);
+}
+.module-roadmap__stage.is-optional.is-done:last-child::after {
+  background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 10px);
+}
 .module-roadmap__marker { position: relative; z-index: 1; margin-bottom: 14px; }
 .module-roadmap__num {
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
@@ -119,7 +147,7 @@
   font: 600 .72rem var(--mono, monospace);
   transition: background .2s, border-color .2s, color .2s;
 }
-.module-roadmap__stage-title { margin: 0 0 10px; font-size: .82rem; font-weight: 700; line-height: 1.2; }
+.module-roadmap__stage-title { margin: 0 0 10px; font-size: var(--idx-title-fs); font-weight: 700; line-height: 1.2; }
 /* El tagline vive en un tooltip sobre el número (desktop) para no recargar el
    recorrido; en mobile se muestra inline porque no hay hover (ver media query). */
 .module-roadmap__tagline { display: none; margin: 0 0 12px; color: var(--soft); font-size: .72rem; line-height: 1.35; }
@@ -142,12 +170,12 @@
 /* Última columna: el tooltip abre hacia la izquierda para no desbordar el panel. */
 .module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::after { left: auto; right: -4px; }
 .module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::before { left: auto; right: 9px; }
-.module-roadmap__links { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.module-roadmap__links { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--idx-row-gap); }
 .module-roadmap__links a {
-  display: grid; grid-template-columns: 22px 1fr; gap: 2px; align-items: baseline;
-  color: var(--soft); font-size: .72rem; line-height: 1.25;
+  display: grid; grid-template-columns: var(--idx-num-col) 1fr; gap: var(--idx-num-gap); align-items: baseline;
+  color: var(--soft); font-size: var(--idx-link-fs); line-height: 1.4;
 }
-.module-roadmap__links a span { color: var(--gold); font: 500 .66rem var(--mono, monospace); }
+.module-roadmap__links a span { color: var(--gold); font: 500 var(--idx-num-fs) var(--mono, monospace); }
 .module-roadmap__links a:hover { color: var(--ink); }
 
 /* Nodo completado (ya pasamos) → contorno dorado. Nodo actual → dorado sólido. */
@@ -172,7 +200,8 @@
 
 @media (max-width: 900px) {
   .module-roadmap__track { grid-template-columns: 1fr 1fr; }
-  .module-roadmap__stage:not(:first-child)::before { display: none; }
+  .module-roadmap__stage:not(:first-child)::before,
+  .module-roadmap__stage:last-child::after { display: none; }
   /* Sin hover en touch: el tagline vuelve inline y se apaga el tooltip. */
   .module-roadmap__tagline { display: block; }
   .module-roadmap__marker[data-tip]::after, .module-roadmap__marker[data-tip]::before { content: none; }
@@ -193,6 +222,25 @@
 
 @media (prefers-reduced-motion: reduce) {
   .content-reveal { opacity: 1; transform: none; transition: none; will-change: auto; }
+}
+
+/* Links markdown planos [texto](url) DENTRO DE PROSA (párrafos, listas,
+   blockquotes, celdas de tabla) — gold por default, ej. cross-references "→"
+   entre secciones/módulos. Acotado a esos contenedores a propósito: NO debe
+   alcanzar a otros <a> del área de contenido que no son texto escrito, como
+   los botones .support-link (con su propio --soft) o cualquier otro chip/CTA
+   que a futuro viva dentro de .methodology. reference-text-link/sap-note-link
+   quedan afuera porque son subtiles a propósito y solo pasan a gold en hover. */
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link) {
+  color: var(--gold);
+  text-decoration: none;
+  transition: text-decoration-color .16s ease;
+}
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):hover,
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 3px;
 }
 
 .methodology a.reference-text-link {

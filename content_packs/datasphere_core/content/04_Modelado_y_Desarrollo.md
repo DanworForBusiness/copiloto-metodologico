@@ -16,11 +16,34 @@ key_topics:
   - id: naming
     label: Naming
     heading: "Convención de Nombres"
+  - id: flujos_datos
+    label: Flujos de Datos
+    heading: "Flujos de Datos"
+roadmap:
+  - stage: "Capas"
+    tagline: "Por qué separamos responsabilidades, y qué hace cada una"
+    sections:
+      - "Evolución de Arquitectura por Capas"
+      - "Aplicación de Arquitectura por Capas"
+      - "Arquitectura por Capas: Guia Operativa"
+  - stage: "Artefactos"
+    tagline: "Qué construís en cada capa, y con qué herramienta"
+    sections:
+      - "Artefactos y uso Semántico"
+      - "Tipos de Vistas SQL"
+      - "Flujos de Datos"
+  - stage: "Gobierno del Modelo"
+    tagline: "Cómo lo nombrás y cómo validás que esté listo"
+    sections:
+      - "Convención de Nombres"
+      - "Checklist de Desarrollo"
 
 scope: |
   Cubre el modelo de desarrollo en SAP Datasphere: arquitectura por capas
   (ingesta, armonización, propagación, consumo), tipos de vistas SQL (Estándar,
-  Gráfica, Table Function, Data Flow), tipos de uso semántico (Relacional,
+  Gráfica, Table Function, Data Flow), Flujos de Datos (Replication Flow,
+  Data Flow y Transformation Flow: capacidades, carga delta y el puente
+  HANA↔HDLF), tipos de uso semántico (Relacional,
   Dimensional, Fact), convención de nombres de artefactos, y buenas prácticas
   de desarrollo. No cubre configuración de espacios ni transportes (módulo 01),
   seguridad de roles o DAC (módulo 02), ni extracción desde sistemas origen
@@ -270,23 +293,67 @@ A diferencia de **tablas y vistas** (que usan el patrón por capas de más arrib
 
 
 ## {dw-black}Tipos de {dw-gold}Vistas SQL
-{{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, data flow, replication flow, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, cuándo usar data flow, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
-{{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet"}}
+{{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
+{{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet, data flow, replication flow, transformation flow"}}
 
-En SAP Datasphere conviven distintos tipos de vistas y artefactos de transformación, cada uno con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+En SAP Datasphere conviven distintos tipos de vistas, cada una con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
 
 | Tipo | Cuándo usarlo | Cuándo evitarlo |
 |---|---|---|
 | **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |
 | **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
 | **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |
-| **Data Flow** | Snapshot, persistencia, transformaciones pesadas, particionar por rendimiento | Acceso federado real-time — no es una vista, es un proceso de carga |
+
+> Si la necesidad no se resuelve con una vista — persistencia, carga delta, o transformación pesada — ver [Flujos de Datos →](#flujos-de-datos): Replication Flow, Data Flow y Transformation Flow.
 
 {{callout: title="Cada vista debe justificarse" tone="warn" icon="🔸"}}
 Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.
 {{/callout}}
 
 {{tree_button: Tipos de Vistas SQL}}
+
+## {dw-black}Flujos de {dw-gold}Datos
+{{section_meta: keywords="replication flow, data flow, transformation flow, flujos de datos datasphere, diferencia replication flow data flow transformation flow, carga delta, captura delta, delta capture, vista SQL en flujo de transformación, runtime HANA Spark, materializar tabla local, cuándo usar transformation flow, transformation flow vs data flow, tabla local delta, transformation flow HDLF, movimiento HANA HDLF, mover datos hacia HDLF, integración HANA data lake, flujo de transformación SQL, data flow no soporta delta, data flow HDLF, replication flow delta, qué flujo usar"}}
+{{section_exclude: "nombro, nombre, como se llama, cómo se llama, como llamo, cómo llamo, llamar objeto, prefijo, naming, convención, puntero delta, delta byelement, delta.byelement"}}
+{{support: Replication Flow="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/25e2bd7a70d44ac5b05e844f9e913471.html?locale=es-ES&version=LATEST" Data Flow="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/e30fd1417e954577baae3246ea470c3f.html?locale=es-ES&version=LATEST" Transformation Flow="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/f7161e6c20204672ac4a6d90c81762e4.html?locale=es-ES&version=LATEST" Comparativa oficial="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/34ae0a2ea6e94483b19f632a2843d56d.html?locale=en-US&version=LATEST"}}
+
+> Datasphere ofrece tres flujos de datos, cada uno resolviendo una necesidad diferente: **Replication Flow** para el movimiento de datos desde sistemas origen con delta nativo, **Data Flow** transforma con la interfaz gráfica más completa pero sin capacidad delta. Por último, **Transformation Flow** persiste con transformación (gráfica o SQL) y compatibilidad delta.
+
+{{callout: title="SAP ya no recomienda Data Flow como primera opción" tone="punch" icon="📣"}}
+La documentación oficial es explícita: Replication Flow y Transformation Flow **"son ahora las formas preferidas de cargar y escribir datos"** en tablas locales, incluido el object store — por encima de Data Flow. Cuando un Data Flow existente es candidato a convertirse en Transformation Flow (o en la combinación Replication + Transformation Flow), el propio editor de Data Flow muestra un banner sugiriendo la migración.
+{{/callout}}
+
+| Dimensión | Replication Flow | Data Flow | Transformation Flow |
+|---|---|---|---|
+| **Qué hace** | Mueve datos para uno o más objetos de un origen a un destino | Mueve y transforma datos en una interfaz gráfica (drag & drop) | Carga desde 1+ fuentes, transforma y escribe a **una** tabla local |
+| **Fuentes** | Vistas CDS habilitadas para extracción, objetos ODP (BW/extractores), tablas con clave primaria — más una amplia matriz de conectores no-SAP | Cualquier objeto del navegador de fuentes (tablas, vistas locales/remotas, Open SQL) | Solo SAP Datasphere: de una tabla local a otra tabla local |
+| **Transformación** | Mínima: expresiones de filtro, mapeo de columnas, proyección personalizada — sin joins | Completa: Join, Unión, Proyección, Columnas Calculadas, Agregación, Script Python | Join, Agregación, Filtro, Proyección, Columnas Calculadas, Vista SQL — **y Script Python si el espacio destino es de archivos (HDLF)** |
+| **Carga delta** | Sí — nativa, es la razón de ser del artefacto | **No soportada** (Initial, Batch load) | Sí (Initial Only / Initial and Delta), pero requiere Captura Delta encendido en **origen y destino**; no soporta delta desde vistas |
+| **Destino** | Tabla local, o destino externo — amplia matriz de conectores SAP y no-SAP (S3, Kafka, Azure, GCS, HDLFS, etc.) | Solo tabla local | Solo una tabla local |
+| **Runtime / HDLF** | No selecciona runtime — pero puede exportar hacia HDLF vía una conexión dedicada (`SAP HANA Cloud, Data Lake, Files`), como Parquet, con delta | **No compatible con espacios de archivo (HDLF)** — restricción explícita | HANA o Spark, según storage del espacio destino — materializa directo en el HDLF del espacio |
+| **Paralelización** | Sí — particiona la carga inicial para paralelizarla | Parcial | Sí — se pueden definir batches (en el monitor de flujos) para dividir datasets grandes |
+| **Recuperación ante fallos** | Sí — reinicia desde el punto de falla; permite pausar/reanudar a nivel de flujo u objeto | No — reinicia desde el principio (salvo "Automatic Restart on Failure" activado) | No |
+| **Parámetros de entrada** | No soportados | Sí | Sí (nombre técnico con restricciones) |
+| **Cuándo usarlo** | Ingesta desde orígenes soportados y necesidad incremental; también exportar hacia HDLFS externo (Parquet) para archiving o interoperabilidad | Transformaciones complejas sin requisito de delta ni recuperación ante fallos | Persistencia con transformación mantenible + delta, incluida materialización hacia el HDLF del propio espacio |
+
+> Para adquisición de Replication Flow y captura de cambios (CDC) desde el sistema origen — puntero delta, ODP-CDS, Change_Type/Change_Date — ver [Estrategia de Extracción →](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#estrategia-de-extraccion) en el módulo 03.
+
+### Transformation Flow
+
+**Límites a tener en cuenta:**
+
+| Límite | Detalle |
+|---|---|
+| Timeout | Falla si una ejecución supera 48 horas |
+| Deletes + joins internos | Un registro eliminado en el origen no se propaga al destino — el join no puede matchear el delete marker contra un registro que ya no existe |
+| Deletes + left join filtrado | Si la vista de registros activos está del lado derecho de un LEFT JOIN con filtro NOT NULL, el delete tampoco se propaga |
+| Destino | Solo tablas locales del repositorio de Datasphere — no compatible con objetos externos / outbound |
+
+{{callout: title="¿Por qué Transformation Flow sobre Data Flow?" tone="note" icon="🔀"}}
+Para transformaciones de carga con persistencia, Transformation Flow suele ser la opción más sólida: soporta delta nativo (Data Flow no soporta ninguno), llega a HDLF (Data Flow no puede), y recupera desde el punto de falla en vez de reiniciar desde cero. Incluso Script Python — antes exclusivo de Data Flow — está disponible en Transformation Flow cuando el espacio destino es de archivos (HDLF). Data Flow sigue siendo la opción correcta cuando la transformación necesita orígenes SAP/no-SAP mezclados o corre exclusivamente en HANA sin requisito de delta ni recuperación.
+{{/callout}}
+
+{{tree_button: Flujos de Datos}}
 
 ## {dw-black}Checklist de {dw-gold}Desarrollo
 {{section_meta: keywords="checklist desarrollo, checklist modelado, lista verificación modelado, oportunidad mejora modelado, revisión modelo, buenas practicas desarrollo datasphere, puntos control desarrollo, checklist capas, checklist naming, checklist semántico, checklist vistas, verificar modelo"}}

@@ -48,6 +48,10 @@ COLLAPSIBLE_OPEN_HTML_RE = re.compile(
 )
 COLLAPSIBLE_CLOSE_HTML_RE = re.compile(r"(?:<p>\s*)?<!--DWCOLL:/-->(?:\s*</p>)?")
 CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
+# Markdown [texto](url) plano dentro de callouts — _callout_inline_html no pasa
+# por el pipeline de markdown.markdown() del resto del contenido, así que sin esto
+# un link estándar quedaba escapado como texto literal en vez de renderizarse.
+MD_INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 TREE_BUTTON_RE = re.compile(r"^\s*\{\{\s*tree_button\s*:\s*(.+?)\s*\}\}\s*$", re.I | re.M)
 INTERNAL_TOKEN_LINE_RE = re.compile(r"^\s*\{\{.*?\}\}\s*$", re.M)
 PIPE_LINK_RE = re.compile(r"^([ \t]*(?:[-*]\s+)?)?(.+?)\s*\|\s*\[Link\]\((https?://[^)]+)\)\s*$", re.I | re.M)
@@ -381,7 +385,14 @@ def _callout_inline_html(text: str) -> str:
 
     def basic(chunk: str) -> str:
         safe = html.escape(chunk or "")
-        return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
+        safe = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
+        # Markdown [texto](url) plano — mismo link normal (sin target=_blank)
+        # que ya usamos afuera de los callouts. Distinto del tag <link url="">
+        # de arriba, que es a propósito para referencias externas en nueva pestaña.
+        return MD_INLINE_LINK_RE.sub(
+            lambda m: f'<a href="{html.escape(m.group(2), quote=True)}">{m.group(1)}</a>',
+            safe,
+        )
 
     for match in CUSTOM_LINK_RE.finditer(text or ""):
         parts.append(basic(text[position:match.start()]))
@@ -446,6 +457,10 @@ def _collapsible_html(rendered: str) -> str:
 
 
 def _prepare(source: str, pack_name: str, stem: str = "") -> str:
+    # Placeholder para links internos cross-módulo: [Texto →](/modules/04_Modulo?pack={{pack}}#slug)
+    # resuelve al pack ACTUALMENTE en render, en vez de hardcodear datasphere_core
+    # (rompería si un pack derivado como bdc_next hereda/overlaya este contenido).
+    source = source.replace("{{pack}}", pack_name)
     source = SEMANTIC_RE.sub("", META_RE.sub("", source))
 
     def collapsible(match: re.Match[str]) -> str:

@@ -92,7 +92,7 @@
     {% for stage in document.roadmap %}{% for link in stage.links %}{% set _ = _rm.pairs.append("'" ~ link.slug ~ "':" ~ stage.index) %}{% endfor %}{% endfor %}
     <nav class="module-roadmap" aria-label="Recorrido del módulo" x-data="{ rmMap: {{ '{' ~ _rm.pairs|join(',') ~ '}' }} }">
       <p class="module-roadmap__eyebrow">Recorrido del módulo</p>
-      <ol class="module-roadmap__track">
+      <ol class="module-roadmap__track" style="--rm-cols: {{ document.roadmap|length }}">
         {% for stage in document.roadmap %}
         <li class="module-roadmap__stage{{ ' is-optional' if stage.optional else '' }}" :class="{ 'is-active': (rmMap[activeSection]||0) === {{ stage.index }}, 'is-done': (rmMap[activeSection]||0) >= {{ stage.index }} }">
           <div class="module-roadmap__marker" data-tip="{{ stage.tagline }}" tabindex="0" role="note" aria-label="{{ stage.stage }}: {{ stage.tagline }}"><span class="module-roadmap__num">{{ stage.index }}</span></div>
