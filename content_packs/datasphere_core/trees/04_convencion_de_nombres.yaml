@@ -1,0 +1,779 @@
+id: m04_convencion_de_nombres
+title: Convencion de Nombres
+version: '2.0'
+links:
+  module: 04_Modelado_y_Desarrollo
+  topics:
+  - convencion de nombres
+  - nomenclatura
+  - capas de datos
+  - artefactos datasphere
+  - linaje tecnico
+tags:
+- M04
+- nomenclatura
+- naming conventions
+- convencion de nombres
+- nombres tecnicos
+- capas datasphere
+- naming conventions SAP Datasphere
+- linaje
+- data product
+keywords:
+- como nombrar una tabla
+- como nombrar una vista
+- nombre tecnico datasphere
+- convencion de nombres
+- naming convention
+- que prefijo corresponde
+- que capa corresponde
+- 1TR
+- 2VF
+- 2VD
+- 3VF
+- 4VA
+- tabla remota
+- tabla local
+- tabla replicada
+- remote table
+- federado o persistido
+- nombre replication flow
+- nombre transformation flow
+- nombre data flow
+- nombre task chain
+- nombre analytic model
+- nombre DAC
+- sufijo PBI
+- sufijo SPM
+- camel case datasphere
+- versionado de vistas
+- nombre data product
+- nombre artefacto
+exclude_if:
+- optimizar query
+- error de deploy
+- error de ejecucion
+- escribir SQL
+- corregir SQL
+- crear conexion
+- configurar replication flow
+- configurar data flow
+- problema de performance
+principles:
+- id: stable_identity
+  rule: El nombre identifica responsabilidad, naturaleza, semantica, procedencia y entidad logica; no la implementacion
+    operativa mutable.
+- id: ingestion_default
+  rule: En capa 1 solo se admiten tablas remotas o locales y adoptan variante Relacional (1TR). La naturaleza del
+    objeto fuente (tabla, CDS view, extractor, endpoint o archivo) no convierte el artefacto importado en una vista
+    de Datasphere.
+- id: layer_boundary
+  rule: La capa 1 preserva el contrato tecnico, granularidad y significado del origen mediante tablas remotas o
+    locales. Toda vista creada en Datasphere, asi como renombrado semantico, joins, limpieza, armonizacion, casts
+    contractuales o preparacion para consumo, pertenece a capa 2 o superior.
+- id: origin_is_derived
+  rule: 'En capa 1 el codigo de origen no constituye una decision de naming: se deriva del sistema, conexion u objeto
+    fuente que el consultor ya esta nombrando. Solo se solicita una aclaracion cuando el contexto no permite determinarlo
+    de forma inequivoca.'
+- id: operational_suffix
+  rule: FED, PST, CUR, HIST u otros calificadores solo se usan cuando coexisten variantes del mismo objeto de origen
+    con diferente comportamiento, cobertura o responsabilidad tecnica.
+- id: role_over_technology
+  rule: Ante coexistencia, se prefieren roles estables como CUR/HIST por sobre tecnologias como FED/PST.
+- id: canonical_interface
+  rule: Cuando coexisten varias tablas de ingesta del mismo objeto y deben consumirse como una sola entidad, su
+    convergencia se resuelve mediante una vista de capa 2. La capa 1 no crea vistas de abstraccion.
+- id: reusable_contract
+  rule: La capa 2 nombra entidades y contratos estables, no reportes, pantallas ni consumidores.
+- id: l2_free_text
+  rule: En capa 2, el LoB y otros prefijos aprobados forman parte opcional de <LibreConLineamientos>; se derivan
+    del contexto cuando aportan claridad y no justifican una pregunta obligatoria.
+- id: consumer_suffix
+  rule: PBI, SPM u otro consumidor solo se agrega cuando el objeto es verdaderamente exclusivo de ese canal.
+- id: camel_case
+  rule: La parte libre utiliza CamelCase y evita cadenas extensas separadas por guion bajo.
+- id: versioning_exception
+  rule: El versionado se utiliza solo cuando deben coexistir versiones por ciclo de vida controlado; no como historial
+    ordinario de cambios.
+- id: no_environment
+  rule: No incluir DEV, QAS, PRD ni nombres de ambiente en el artefacto. El transporte conserva el mismo nombre
+    tecnico.
+- id: decision_economy
+  rule: El arbol solo formula una pregunta cuando la respuesta cambia la clasificacion, un componente del nombre,
+    una advertencia o la accion recomendada. Los datos inferibles se derivan del contexto y las preguntas que conducen
+    a la misma salida sin modificarla se colapsan.
+- id: l3_free_text
+  rule: En capa 3, luego de determinar artefacto y variante, el nombre se completa mediante <LibreConLineamientos>.
+    El LoB, el consumidor exclusivo y el versionado se derivan del contexto o se aplican como calificadores opcionales;
+    no justifican preguntas obligatorias.
+- id: l4_free_text
+  rule: En capa 4, las tablas o vistas son adaptadores finales y excepcionales. Luego de determinar artefacto y
+    variante, el consumidor exclusivo, el LoB y el versionado se resuelven desde el contexto y los lineamientos,
+    sin nuevas ramas.
+- id: analytic_model_direct
+  rule: Analytic Model pertenece a la familia de modelos y se nombra directamente como AM_[<LoB>_]<LibreConLineamientos>[_Vnn];
+    no se ofrece como alternativa dentro del recorrido Tabla o vista.
+- id: flow_model_context
+  rule: En flujos (DF/RF/FT/IL/TC) y modelos (EM/DAC) el LoB y el versionado se derivan del contexto o se aplican como
+    calificador opcional; no justifican preguntas obligatorias. Mismo criterio de economia de decision que en capas 2-4,
+    donde el tipo de flujo o modelo se elige pero dominio y version no abren ramas.
+naming_patterns:
+  table_or_view: <Capa><Artefacto><Variante>_[<Origen>_][<LoB>_]<LibreCamelCase>[_<Calificador>][_Vnn]
+  ingestion_table: 1TR_<Origen>_<NombreTecnicoOrigen>[_<Calificador>]
+  governed_object: <2|3|4><T|V><Variante>_[<LoB>_]<LibreCamelCase>[_<Consumidor>][_Vnn]
+  other_artifact: <Abreviacion>_<LoB>_<LibreCamelCase>[_Vnn]
+  transformation_flow_explicit: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>[_Vnn]
+  analytic_model: AM_[<LoB>_]<LibreCamelCase>[_Vnn]
+codes:
+  layers:
+    '1': 'Ingesta: tabla remota o local que representa el contrato tecnico recibido desde el origen, sin transformarlo.'
+    '2': 'Armonizacion: contrato limpio, estandarizado, gobernado y reutilizable.'
+    '3': 'Propagacion: contrato materializado, compuesto o adaptado como data product.'
+    '4': 'Consumo: adaptadores y modelos finales; no crea un contrato nuevo.'
+  artifacts:
+    T: Tabla local o remota.
+    V: Vista SQL estandar o grafica.
+  semantic_variants:
+    F: 'Fact: eventos o transacciones con granularidad y medidas definidos.'
+    R: 'Relacional: dataset sin compromiso analitico adicional.'
+    D: 'Dimension: entidad maestra reutilizable.'
+    A: 'Analitica: dataset analitico explicito; usar de forma excepcional frente a Fact + Analytic Model.'
+    T: 'Texto: descripciones dependientes de idioma o clave de texto.'
+    H: 'Jerarquia: relaciones padre-hijo o niveles jerarquicos gobernados.'
+  origins:
+    SAP: SAP ECC, S/4HANA, BW u otra aplicacion SAP.
+    DSP: Objeto genuinamente generado dentro de Datasphere; no usar solo porque un flow se ejecuta alli.
+    EDB: Base de datos externa, por ejemplo Oracle o SQL Server.
+    TXT: Archivo plano, por ejemplo CSV o TXT.
+    API: API no clasificada como SAP u otro origen especifico.
+  lob_prefixes:
+    MD: Master Data / Datos maestros.
+    FNC: Finanzas.
+    IVT: Inventarios.
+    PUR: Compras.
+    SND: Ventas y Distribucion.
+  consumer_suffixes:
+    PBI: Exclusivo para Power BI.
+    SPM: Exclusivo para outbound o consumo SPM.
+  coexistence_qualifiers:
+    CUR: Ventana corriente, caliente o de baja latencia.
+    HIST: Historico consolidado.
+    FED: Representacion federada, solo si no existe un rol mas estable.
+    PST: Representacion persistida, solo si no existe un rol mas estable.
+  other_artifacts:
+    DF: Data Flow.
+    RF: Replication Flow.
+    FT: Transformation Flow.
+    IL: Intelligent Look-up.
+    TC: Task Chain.
+    AM: Analytic Model.
+    EM: Entity Relationship Model.
+    DAC: Data Access Control.
+origin_resolution:
+  mode: derive_from_context
+  description: Resolver <Origen> a partir del sistema fuente, tipo de conexion, objeto tecnico o metadata ya disponible.
+    No incorporar una pregunta al recorrido cuando la procedencia sea evidente.
+  mapping:
+    SAP application, SAP connection, CDS, extractor or BW object: SAP
+    Object genuinely generated inside Datasphere: DSP
+    External relational database: EDB
+    Flat file such as CSV or TXT: TXT
+    Non-SAP API without a more specific approved origin: API
+  fallback: Si el origen no puede inferirse, conservar <Origen> como pendiente y advertirlo, o pedir una unica aclaracion
+    solo cuando sea indispensable producir el nombre final.
+output_contract:
+  required_fields:
+  - proposed_name
+  - name_decomposition
+  - layer_rationale
+  - semantic_rationale
+  - warnings
+  optional_fields:
+  - convergence_view
+  - alternative_name
+  - metadata_to_document
+  resolution_rules:
+  - El patron metodologico puede conservar placeholders para explicar la convencion, pero proposed_name debe sustituir
+    todos los componentes ya determinados o inferidos durante el recorrido.
+  - Resolver <Origen> automaticamente desde el sistema, conexion, objeto o metadata fuente; no formular una pregunta
+    cuando la procedencia sea evidente.
+  - Mantener como placeholder solo un valor que no haya sido informado ni pueda inferirse, por ejemplo <NombreTecnicoOrigen>
+    o, excepcionalmente, <Origen>.
+  - Reflejar en name_decomposition tanto las respuestas seleccionadas como los componentes derivados del contexto.
+  - Aplicar en proposed_name cada componente capturado por una pregunta con sets_component.
+  - No formular preguntas cuya respuesta no cambie la clasificacion, el nombre, una advertencia o la accion recomendada.
+  - En capas 2, 3 y 4, derivar el LoB desde el contexto cuando sea evidente; no formular una pregunta obligatoria
+    solo para completar un prefijo opcional.
+  - En capa 3, derivar el sufijo de consumidor desde el caso de uso cuando la salida sea exclusiva; si es reutilizable,
+    omitirlo.
+  - En capa 4, el consumidor exclusivo debe reflejarse en proposed_name y se deriva del contexto del adaptador;
+    si no existe exclusividad, reclasificar a capa 3.
+  - El versionado _Vnn se aplica como excepcion de ciclo de vida y no requiere una pregunta obligatoria en cada
+    rama.
+  decomposition_example:
+    proposed_name: 2VF_SND_SalesDocumentItem
+    name_decomposition:
+      layer: 2 - Armonizacion
+      artifact: V - Vista
+      variant: F - Fact
+      lob: SND - Ventas y Distribucion
+      free_text: SalesDocumentItem
+  ingestion_resolution_example:
+    source_context: CDS C_SalesDocumentItemDEX_1 publicada por SAP S/4HANA
+    derived_origin: SAP
+    name_pattern: 1TR_<Origen>_<NombreTecnicoOrigen>
+    proposed_name: 1TR_SAP_CSalesDocumentItemDEX1
+    name_decomposition:
+      layer: 1 - Ingesta
+      artifact: T - Tabla
+      variant: R - Relacional
+      origin: SAP - derivado del contexto fuente
+      source_object: CSalesDocumentItemDEX1
+question_design:
+  rule: Toda pregunta activa debe tener un efecto verificable sobre la clasificacion, el nombre propuesto, las advertencias
+    o la accion posterior.
+  allowed_purposes:
+  - 'branch_decision: cambia la rama o clasificacion metodologica.'
+  - 'name_component: determina un segmento del nombre, por ejemplo artefacto, variante, LoB, consumidor o version.'
+  - 'validation: detecta una violacion y deriva a correccion o revision humana.'
+  maintenance_check: Si todas las opciones conducen al mismo nodo, la pregunta solo se conserva cuando declara sets_component
+    y dicho componente se aplica en proposed_name.
+  avoid:
+  - Preguntar detalles que solo reiteran la explicacion de una hoja.
+  - Preguntar datos que pueden derivarse inequivocamente del contexto.
+  - Separar opciones que producen exactamente la misma recomendacion, advertencia y nombre.
+start: q_family
+nodes:
+  q_family:
+    type: single_choice
+    question: ¿Que tipo de artefacto necesitas nombrar?
+    options:
+    - Tabla o vista
+    - Flujo u orquestacion
+    - Modelo, relacion o control
+    - No estoy seguro
+    next:
+      Tabla o vista: q_tv_layer
+      Flujo u orquestacion: q_flow_type
+      Modelo, relacion o control: q_model_type
+      No estoy seguro: leaf_needs_classification
+    purpose: branch_decision
+  q_tv_layer:
+    type: single_choice
+    question: ¿Que responsabilidad arquitectonica cumple el objeto?
+    help: 'Capa 1 (Ingesta): tabla espejo del origen, sin transformar. Capa 2 (Armonizacion):
+      contrato limpio, gobernado y reutilizable. Capa 3 (Propagacion): data product materializado,
+      compuesto o adaptado. Capa 4 (Consumo): adaptador final para una herramienta o canal.'
+    options:
+    - Ingesta (1)
+    - Armonizacion / contrato (2)
+    - Propagacion / data product (3)
+    - Consumo final (4)
+    next:
+      Ingesta (1): q_l1_boundary
+      Armonizacion / contrato (2): q_l2_artifact
+      Propagacion / data product (3): q_l3_artifact
+      Consumo final (4): q_l4_kind
+    purpose: branch_decision
+  q_l1_boundary:
+    type: single_choice
+    question: ¿El objeto es una tabla remota o local que preserva sin cambios el contrato tecnico, granularidad
+      y significado del origen?
+    options:
+    - Si, es una tabla espejo del origen
+    - No, crea una vista o transforma, combina o redefine el origen
+    next:
+      Si, es una tabla espejo del origen: q_l1_variant_coexistence
+      No, crea una vista o transforma, combina o redefine el origen: leaf_reclassify_layer2
+    purpose: validation
+  q_l1_variant_coexistence:
+    type: single_choice
+    question: ¿Existe o esta prevista otra variante del mismo objeto de origen que coexistira con un comportamiento
+      diferente?
+    options:
+    - No, habra una unica representacion vigente
+    - Si, coexistiran variantes con distinto comportamiento
+    next:
+      No, habra una unica representacion vigente: leaf_l1_single
+      Si, coexistiran variantes con distinto comportamiento: leaf_l1_multi
+    purpose: branch_decision
+  q_l2_artifact:
+    type: single_choice
+    question: ¿El contrato se calcula al consultar o se materializa?
+    options:
+    - Vista logica (V)
+    - Tabla materializada (T)
+    next:
+      Vista logica (V): q_l2_semantic
+      Tabla materializada (T): q_l2_semantic
+    purpose: name_component
+    sets_component: artifact
+  q_l2_semantic:
+    type: single_choice
+    question: ¿Que responsabilidad semantica tiene el contrato?
+    options:
+    - 'Fact: grain y medidas definidos (F)'
+    - 'Dimension: entidad maestra (D)'
+    - Texto dependiente de idioma (T)
+    - Jerarquia gobernada (H)
+    - Relacional sin rol analitico (R)
+    - Dataset analitico explicito (A)
+    next:
+      'Fact: grain y medidas definidos (F)': leaf_l2_governed
+      'Dimension: entidad maestra (D)': leaf_l2_governed
+      Texto dependiente de idioma (T): leaf_l2_governed
+      Jerarquia gobernada (H): leaf_l2_governed
+      Relacional sin rol analitico (R): leaf_l2_governed
+      Dataset analitico explicito (A): leaf_l2_governed
+    purpose: name_component
+    sets_component: semantic_variant
+  q_l3_artifact:
+    type: single_choice
+    question: ¿El data product se expone como vista o tabla materializada?
+    options:
+    - Vista logica (V)
+    - Tabla materializada (T)
+    next:
+      Vista logica (V): q_l3_semantic
+      Tabla materializada (T): q_l3_semantic
+    purpose: name_component
+    sets_component: artifact
+  q_l3_semantic:
+    type: single_choice
+    question: ¿Que responsabilidad semantica tiene la salida?
+    options:
+    - Fact o subset transaccional (F)
+    - Dimension orientada a producto (D)
+    - Texto (T)
+    - Jerarquia (H)
+    - Relacional compuesto (R)
+    - Dataset analitico explicito (A)
+    next:
+      Fact o subset transaccional (F): leaf_l3_product
+      Dimension orientada a producto (D): leaf_l3_product
+      Texto (T): leaf_l3_product
+      Jerarquia (H): leaf_l3_product
+      Relacional compuesto (R): leaf_l3_product
+      Dataset analitico explicito (A): leaf_l3_product
+    purpose: name_component
+    sets_component: semantic_variant
+  q_l4_kind:
+    type: single_choice
+    question: ¿Que tipo de adaptador final de consumo estas nombrando?
+    options:
+    - Vista adaptadora exclusiva de consumo (V)
+    - Tabla persistida exclusiva de consumo (T)
+    - Objeto reutilizable o nuevo contrato
+    next:
+      Vista adaptadora exclusiva de consumo (V): q_l4_semantic
+      Tabla persistida exclusiva de consumo (T): q_l4_semantic
+      Objeto reutilizable o nuevo contrato: leaf_reclassify_layer3
+    purpose: name_component
+    sets_component: artifact
+  q_l4_semantic:
+    type: single_choice
+    question: ¿Que semantica conserva el adaptador de consumo?
+    options:
+    - Fact (F)
+    - Dimension (D)
+    - Relacional (R)
+    - Analitica (A)
+    - Texto (T)
+    - Jerarquia (H)
+    next:
+      Fact (F): leaf_l4_adapter
+      Dimension (D): leaf_l4_adapter
+      Relacional (R): leaf_l4_adapter
+      Analitica (A): leaf_l4_adapter
+      Texto (T): leaf_l4_adapter
+      Jerarquia (H): leaf_l4_adapter
+    purpose: name_component
+    sets_component: semantic_variant
+  q_flow_type:
+    type: single_choice
+    question: ¿Que artefacto de movimiento u orquestacion es?
+    options:
+    - Data Flow (DF)
+    - Replication Flow (RF)
+    - Transformation Flow (FT)
+    - Intelligent Look-up (IL)
+    - Task Chain (TC)
+    next:
+      Data Flow (DF): leaf_df
+      Replication Flow (RF): leaf_rf
+      Transformation Flow (FT): q_ft_lineage
+      Intelligent Look-up (IL): leaf_il
+      Task Chain (TC): leaf_tc
+    purpose: name_component
+    sets_component: artifact_abbreviation
+  q_ft_lineage:
+    type: single_choice
+    question: ¿Conviene explicitar origen y destino para distinguir etapas?
+    options:
+    - Si, es un flujo entre capas o tablas materializadas
+    - No, el proposito simple es suficiente
+    next:
+      Si, es un flujo entre capas o tablas materializadas: leaf_ft_explicit
+      No, el proposito simple es suficiente: leaf_ft_simple
+    purpose: name_component
+    sets_component: flow_naming_pattern
+  q_model_type:
+    type: single_choice
+    question: ¿Que artefacto de modelado o gobierno es?
+    options:
+    - Analytic Model (AM)
+    - Entity Relationship Model (EM)
+    - Data Access Control (DAC)
+    next:
+      Analytic Model (AM): leaf_am
+      Entity Relationship Model (EM): leaf_em
+      Data Access Control (DAC): leaf_dac
+    purpose: name_component
+    sets_component: artifact_abbreviation
+leaves:
+  leaf_needs_classification:
+    decision: Primero clasificar la responsabilidad del artefacto antes de asignar un nombre.
+    name_pattern: No proponer nombre definitivo todavia.
+    notes:
+    - 'Si representa filas del origen: tabla/vista de ingesta.'
+    - 'Si define el contrato gobernado: capa 2.'
+    - 'Si materializa o adapta el contrato como producto: capa 3.'
+    - 'Si es un modelo o adaptador final: capa 4 u otro artefacto AM/EM/DAC.'
+    post_actions:
+      mode: needs_human_review
+      reason: Falta identificar la responsabilidad arquitectonica principal.
+  leaf_reclassify_layer2:
+    decision: No cumple metodología de ingesta. Reclasificar como capa 2 o superior.
+    name_pattern: 2<T|V><Variante>_<LoB>_<EntidadCamelCase>
+    notes:
+    - Esta salida es una validacion de limite de capa, no una variante posible de ingesta.
+    - La capa 1 contiene exclusivamente tablas remotas o locales que reflejan el contrato tecnico del origen.
+    - Toda vista creada en Datasphere pertenece a capa 2 o superior, aun cuando su fuente sea una CDS view de SAP.
+    - Joins, limpieza, estandarizacion, renombrado semantico y casts contractuales pertenecen a armonizacion.
+    post_actions:
+      mode: llm_value_add
+      next_steps:
+      - Reiniciar la decision desde Armonizacion / contrato (2).
+  leaf_reclassify_layer3:
+    decision: El objeto no es consumo final si crea una salida reutilizable o un nuevo contrato. Reclasificar como
+      capa 3.
+    name_pattern: 3<T|V><Variante>_<LoB>_<DataProductCamelCase>
+    notes:
+    - La capa 4 consume; no redefine el contrato ni crea un producto reutilizable.
+    post_actions:
+      mode: llm_value_add
+  leaf_l1_single:
+    decision: Tabla relacional de ingesta con una unica representacion; no incluir el modo federado, replicado o
+      local en el nombre.
+    name_pattern: 1TR_<Origen>_<NombreTecnicoOrigen>
+    proposed_name_rule: Derivar <Origen> del sistema, conexion u objeto fuente y sustituirlo en el nombre. Mantener
+      <NombreTecnicoOrigen> solo si el identificador concreto de la API u objeto aun no fue informado.
+    resolved_examples:
+      SAP: 1TR_SAP_<NombreTecnicoOrigen>
+      DSP: 1TR_DSP_<NombreTecnicoOrigen>
+      EDB: 1TR_EDB_<NombreTecnicoOrigen>
+      TXT: 1TR_TXT_<NombreTecnicoOrigen>
+      API: 1TR_API_<NombreTecnicoOrigen>
+    examples:
+    - 1TR_SAP_CSalesDocumentItemDEX1
+    - 1TR_EDB_CUSTOMER
+    - 1TR_TXT_ExchangeRates
+    notes:
+    - El codigo de origen se deriva del contexto fuente; no requiere una pregunta de decision cuando SAP, DSP, EDB,
+      TXT o API ya son evidentes.
+    - Si el origen no puede inferirse de forma inequivoca, dejarlo pendiente con una advertencia o solicitar una
+      aclaracion puntual.
+    - La variante es 'R' — Relacional porque la ingesta debe preservar el contrato técnico del origen sin asumir
+      prematuramente una responsabilidad semántica. La clasificación como hecho, dimensión, texto o jerarquía requiere
+      definir granularidad, claves, medidas, asociaciones y reglas de consumo, decisiones que corresponden a la
+      armonización y a las capas posteriores. Mantener la ingesta como relacional evita acoplamientos innecesarios
+      y permite que un mismo objeto de origen sea reutilizado por distintos contratos y casos de uso.
+    post_actions:
+      mode: llm_value_add
+      next_steps:
+      - Construir proposed_name con el codigo de origen derivado y el nombre tecnico del objeto fuente.
+      - Documentar access_mode, load_type, delta_method y freshness fuera del nombre.
+  leaf_l1_multi:
+    decision: Las variantes coexistentes requieren un calificador para distinguir cada tabla. Preferir un rol estable;
+      usar tecnologia solo cuando no exista una responsabilidad temporal o funcional mas durable. Si deben exponerse
+      como una sola entidad, resolver la convergencia mediante una vista relacional de capa 2.
+    name_pattern: 1TR_<Origen>_<NombreTecnicoOrigen>_<Calificador>
+    qualifier_guidance:
+      preferred: <RolEstable>, por ejemplo CUR o HIST.
+      fallback: <Tecnologia>, por ejemplo FED o PST, solo si no existe un rol mas estable.
+      unresolved: Si las variantes aun no tienen responsabilidades diferenciadas, no finalizar el nombre hasta definirlas.
+    proposed_name_rule: Derivar <Origen> del contexto. Si el rol o implementacion puede inferirse, sustituir <Calificador>;
+      de lo contrario conservarlo como pendiente y emitir una advertencia.
+    examples:
+    - 1TR_SAP_CSalesDocumentItemDEX1_CUR
+    - 1TR_SAP_CSalesDocumentItemDEX1_HIST
+    - 1TR_SAP_CSalesDocumentItemDEX1_FED
+    - 1TR_SAP_CSalesDocumentItemDEX1_PST
+    - 2VR_SND_SalesDocumentItem
+    notes:
+    - CUR/HIST u otro rol estable sobreviven mejor a cambios tecnologicos que FED/PST.
+    - 'No usar _R para Remote: R ya significa Relacional.'
+    - La union, prioridad, solapamiento o deduplicacion entre variantes constituye convergencia y pertenece a capa
+      2.
+    - Las capas superiores deben consumir la vista de convergencia de capa 2, no las variantes fisicas directamente.
+    post_actions:
+      mode: llm_value_add
+      next_steps:
+      - Proponer nombres para todas las tablas coexistentes cuando sus calificadores sean conocidos.
+      - Si no estan diferenciadas, pedir que se defina ventana, SLA, autoridad, prioridad o regla de cobertura.
+      - Si requieren una interfaz unificada, reiniciar desde Armonizacion / contrato (2) para nombrar la vista 2VR.
+    convergence_pattern: 2VR_<LoB>_<EntidadCamelCase>
+  leaf_l2_governed:
+    decision: 'Objeto gobernado de armonizacion: el nombre combina su naturaleza fisica, su responsabilidad semantica
+      y un texto libre sujeto a lineamientos.'
+    name_pattern: 2<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>[_Vnn]
+    proposed_name_rule: 'Construir el nombre con la capa 2, el artefacto y la variante ya seleccionados. Completar
+      <LibreConLineamientos> con una entidad o contrato estable en CamelCase. Incorporar un prefijo LoB aprobado
+      solo cuando aporte claridad y pueda derivarse del contexto; no solicitarlo como decision obligatoria.
+
+      '
+    examples:
+    - 2VF_SND_SalesDocumentItem
+    - 2VD_MD_Customer
+    - 2VT_MD_CustomerGroupText
+    - 2TR_FNC_ExchangeRateContract
+    - 2VR_SalesDocumentConvergence
+    notes:
+    - El texto libre debe describir una entidad o contrato estable y reutilizable, no un reporte, pantalla, KPI
+      ni consumidor particular.
+    - MD, FNC, IVT, PUR, SND u otro codigo aprobado pueden utilizarse como prefijo dentro de <LibreConLineamientos>
+      cuando aporten trazabilidad; no son obligatorios.
+    - No incluir SAP, PBI, SPM ni tecnologia de carga salvo que formen parte justificada de otro lineamiento vigente.
+    - Usar singular y CamelCase cuando corresponda.
+    - La variante A debe utilizarse de forma excepcional cuando exista una razon concreta para no modelar Fact o
+      Dimension y explotar la semantica mediante un Analytic Model.
+    - Agregar _Vnn solo cuando diferentes versiones deban coexistir por un ciclo de vida controlado; no preguntarlo
+      en el recorrido normal.
+    - El contrato puede tener vista y tabla materializada con la misma entidad logica, diferenciadas por V/T.
+    post_actions:
+      mode: llm_value_add
+      next_steps:
+      - Construir proposed_name usando capa, artefacto y variante seleccionados, mas el texto libre derivado del
+        contexto o provisto por el consultor.
+      - Explicar brevemente la granularidad, claves y responsabilidad contractual cuando sean relevantes.
+      - Advertir, sin abrir una nueva rama, si el texto propuesto parece nombrar un reporte, KPI, pantalla o consumidor.
+  leaf_l3_product:
+    decision: Nombrar el objeto de propagacion segun su naturaleza fisica y responsabilidad semantica como data
+      product o salida orientada a consumo.
+    name_pattern: 3<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>[_<Consumidor>][_Vnn]
+    examples:
+    - 3VF_SND_SalesDocumentItemCore
+    - 3VD_MD_Customer_PBI
+    - 3VF_SND_Topline_SPM
+    notes:
+    - El texto libre debe describir el data product, composicion, subset o salida estable que se propaga.
+    - El LoB es opcional dentro de <LibreConLineamientos> y se deriva del contexto cuando aporta claridad.
+    - Agregar _PBI, _SPM u otro consumidor solo si la salida es verdaderamente exclusiva; si es reutilizable, no
+      usar sufijo.
+    - La composicion, joins, reagregacion y subsets orientados a consumo pertenecen a esta capa cuando parten del
+      contrato armonizado.
+    - La variante A es excepcional; preferir Fact o Dimension mas Analytic Model cuando corresponda.
+    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
+    post_actions:
+      mode: llm_value_add
+  leaf_l4_adapter:
+    decision: Nombrar el adaptador final de consumo segun su naturaleza fisica y la semantica que conserva, sin
+      introducir un contrato nuevo.
+    name_pattern: 4<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>_<Consumidor>[_Vnn]
+    examples:
+    - 4VA_SND_SalesPerformance_PBI
+    - 4VR_FNC_ProfitabilityExport_SPM
+    notes:
+    - Las tablas o vistas de capa 4 son excepcionales y deben responder a una necesidad concreta de la herramienta
+      o canal de consumo.
+    - El consumidor exclusivo forma parte del nombre y se deriva del contexto; si la salida es reutilizable, debe
+      reclasificarse a capa 3.
+    - El LoB es opcional dentro de <LibreConLineamientos> y se incorpora cuando aporta claridad.
+    - La capa 4 consume el data product y no introduce un nuevo contrato.
+    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
+    - Un Analytic Model se nombra AM_[<LoB>_]<LibreConLineamientos>, sin prefijo numerico.
+    post_actions:
+      mode: llm_value_add
+  leaf_df:
+    decision: Data Flow nombrado por dominio y proposito estable.
+    name_pattern: DF_<LoB>_<PropositoCamelCase>[_Vnn]
+    examples:
+    - DF_SND_SalesDocumentPreparation
+    notes:
+    - No usar prefijo numerico de capa.
+    - El nombre debe explicar que produce o transforma, no la herramienta grafica utilizada.
+    post_actions:
+      mode: llm_value_add
+  leaf_rf:
+    decision: Replication Flow nombrado por dominio y entidad replicada.
+    name_pattern: RF_<LoB>_<EntidadCamelCase>[_Vnn]
+    examples:
+    - RF_SND_SalesDocumentItem
+    notes:
+    - 'No usar 1RF: la abreviacion del artefacto ya identifica el flow.'
+    - Origen, conexion, delta y destino se documentan como metadata.
+    - Si existen varios RF para la misma entidad, agregar un calificador estable dentro del texto libre.
+    post_actions:
+      mode: llm_value_add
+  leaf_ft_explicit:
+    decision: Transformation Flow con linaje de origen y destino explicito.
+    name_pattern: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>[_Vnn]
+    examples:
+    - FT_1TR_2TF_SND_SalesDocumentItem
+    - FT_2TF_3TF_SND_SalesDocumentItem
+    notes:
+    - FT se utiliza para evitar colision con TF, que en tablas/vistas significa Tabla Fact.
+    - RolOrigen y RolDestino pueden expresar capa, artefacto y variante cuando agregan trazabilidad.
+    - Esta forma es preferida en pipelines con varias materializaciones.
+    post_actions:
+      mode: llm_value_add
+  leaf_ft_simple:
+    decision: Transformation Flow simple nombrado por dominio y proposito.
+    name_pattern: FT_<LoB>_<PropositoCamelCase>[_Vnn]
+    examples:
+    - FT_FNC_ExchangeRateSnapshot
+    notes:
+    - Usar la variante explicita con origen/destino cuando haya mas de una etapa para la misma entidad.
+    post_actions:
+      mode: llm_value_add
+  leaf_il:
+    decision: Intelligent Look-up nombrado por dominio y entidad o proposito de matching.
+    name_pattern: IL_<LoB>_<EntidadOPurposeCamelCase>[_Vnn]
+    examples:
+    - IL_MNF_NotificationMatching
+    notes:
+    - Si MNF no esta en el catalogo LoB vigente, debe aprobarse antes de usarlo.
+    post_actions:
+      mode: llm_value_add
+  leaf_tc:
+    decision: Task Chain nombrada por dominio y proceso orquestado.
+    name_pattern: TC_<LoB>_<ProcesoCamelCase>[_Vnn]
+    examples:
+    - TC_SND_SalesDocumentPipeline
+    notes:
+    - Evitar nombres demasiado genericos como TC_SND.
+    - El nombre debe permitir distinguir cadenas iniciales, incrementales, publicacion o scoring cuando coexistan.
+    post_actions:
+      mode: llm_value_add
+  leaf_am:
+    decision: Nombrar el Analytic Model por el proceso, subject area o proposito analitico estable que expone.
+    name_pattern: AM_[<LoB>_]<LibreConLineamientos>[_Vnn]
+    examples:
+    - AM_SND_SalesPerformance
+    - AM_FNC_Profitability
+    notes:
+    - 'No lleva prefijo 4: la abreviacion AM identifica el tipo de artefacto y su rol de consumo.'
+    - El LoB se deriva del contexto cuando aporta claridad; no requiere una pregunta obligatoria.
+    - El texto libre debe describir un proceso o subject area analitico, no una visualizacion o reporte puntual.
+    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
+    post_actions:
+      mode: llm_value_add
+  leaf_em:
+    decision: Entity Relationship Model nombrado por dominio y alcance del modelo.
+    name_pattern: EM_<LoB>_<DominioOEntidadCamelCase>[_Vnn]
+    examples:
+    - EM_SND_Delivery
+    notes:
+    - No lleva prefijo numerico de capa.
+    post_actions:
+      mode: llm_value_add
+  leaf_dac:
+    decision: Data Access Control nombrado por dominio y alcance de seguridad.
+    name_pattern: DAC_<LoB>_<ScopeCamelCase>[_Vnn]
+    examples:
+    - DAC_SND_SalesOrganization
+    - DAC_FNC_CompanyCode
+    notes:
+    - El texto libre debe indicar el criterio protegido, no el nombre de una persona o ambiente.
+    - No lleva prefijo numerico de capa.
+    post_actions:
+      mode: llm_value_add
+validation_checks:
+- id: layer_consistency
+  question: ¿El objeto realiza tareas que pertenecen a una capa superior?
+  fail_action: Reclasificar antes de nombrar.
+- id: layer1_table_only
+  question: ¿El objeto clasificado como capa 1 es una tabla remota o local?
+  fail_action: Toda vista creada en Datasphere debe reclasificarse como capa 2 o superior.
+- id: origin_resolution
+  question: ¿El codigo de origen puede derivarse inequívocamente del sistema, conexion u objeto fuente?
+  fail_action: Marcar <Origen> como pendiente o pedir una aclaracion puntual; no agregar una pregunta preventiva
+    al recorrido normal.
+- id: mutable_implementation
+  question: ¿El nombre cambiaria si pasa de federado a persistido o de full a delta?
+  fail_action: Eliminar la implementacion del nombre, salvo coexistencia simultanea.
+- id: duplicate_meaning
+  question: ¿Alguna letra o sufijo tiene dos significados?
+  fail_action: Evitar ambiguedad; por ejemplo, no usar R para Remote porque ya significa Relacional.
+- id: report_coupling
+  question: ¿El nombre describe un reporte en una capa contractual?
+  fail_action: Renombrar por entidad, proceso o data product.
+- id: consumer_exclusivity
+  question: ¿El sufijo de consumidor representa exclusividad real?
+  fail_action: Quitar el sufijo si el objeto es reutilizable.
+- id: version_need
+  question: ¿La version debe coexistir de forma controlada?
+  fail_action: No agregar Vnn si el versionado normal ya se resuelve con transporte o repositorio.
+- id: camel_case
+  question: ¿La parte libre usa CamelCase legible?
+  fail_action: Reducir guiones bajos y abreviaturas no gobernadas.
+- id: environment_free
+  question: ¿El nombre contiene DEV, QAS, PRD o tenant?
+  fail_action: Eliminar referencias de ambiente.
+- id: question_effect
+  question: ¿Cada pregunta cambia una rama, un componente del nombre, una advertencia o una accion?
+  fail_action: Derivar el dato del contexto o colapsar la pregunta y trasladar el detalle a la hoja explicativa.
+metadata_recommendation:
+  fields:
+  - source_system
+  - source_object
+  - connection
+  - 'access_mode: federated | persisted | local'
+  - 'load_mechanism: remote_table | replication_flow | data_flow | transformation_flow'
+  - 'load_type: initial | full | delta | initial_and_delta'
+  - delta_method
+  - refresh_frequency
+  - freshness_sla
+  - retention
+  - convergence_object
+  - business_owner
+  - technical_owner
+capture_uncharted:
+  type: free_capture
+  prompt: Describi el artefacto que necesitas nombrar
+  fields:
+  - id: artifact_purpose
+    label: ¿Que responsabilidad cumple y que produce?
+    required: true
+  - id: source_and_target
+    label: ¿Cual es su origen y quien lo consume?
+    required: true
+  - id: persistence_behavior
+    label: ¿Es federado, persistido o combina representaciones?
+    required: false
+  - id: proposed_name
+    label: ¿Existe ya un nombre propuesto?
+    required: false
+  - id: outcome
+    label: ¿El caso quedo resuelto por el arbol?
+    type: select
+    options:
+    - resuelto
+    - requiere excepcion
+    - requiere nuevo codigo
+    - inconcluso
+    required: true
+context_resolution:
+  lob:
+    mode: derive_when_evident
+    description: Resolver el prefijo LoB desde el dominio funcional del objeto cuando aporte claridad. Si no es
+      evidente o la entidad es transversal, omitirlo o conservarlo como parte pendiente de <LibreConLineamientos>
+      sin abrir una rama obligatoria.
+  consumer:
+    mode: derive_when_exclusive
+    description: Agregar PBI, SPM u otro sufijo aprobado solo cuando el contexto indique que la salida es exclusiva
+      de ese consumidor. En capa 4, la exclusividad es requisito; en capa 3, su ausencia implica salida reutilizable
+      sin sufijo.
+  version:
+    mode: apply_only_if_required
+    description: Agregar Vnn solamente cuando deban coexistir versiones por un ciclo de vida controlado.
