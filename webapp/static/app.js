@@ -161,6 +161,7 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
     toggleTheme() {
       this.contentTheme = this.contentTheme === "light" ? "dark" : "light";
       localStorage.setItem("dw-content-theme", this.contentTheme);
+      dwBeacon("theme_change", { theme: this.contentTheme });
       // El tema vive en <html> (lo aplica un script síncrono del <head> para
       // evitar el flash en cada navegación SSR); acá solo lo conmutamos.
       document.cookie = "dw-content-theme=" + this.contentTheme + ";path=/;max-age=31536000;samesite=lax";
@@ -290,10 +291,31 @@ function dwBeacon(event, payload = {}, once = false) {
   } catch (e) { /* nunca romper la experiencia por telemetría */ }
 }
 
-// "Usó" el cue para pasar al siguiente módulo (click en el enlace .module-continue).
+// Interacciones de navegación/consumo (VERBOSE). Un solo listener delegado en
+// captura: continuar al módulo, saltar por el índice/roadmap, y links externos
+// del contenido (qué activo se llevó al usuario fuera del copiloto).
 document.addEventListener("click", event => {
-  const cont = event.target.closest && event.target.closest(".module-continue");
-  if (cont) dwBeacon("module_continue", { via: "click", href: cont.getAttribute("href") || "" });
+  const el = event.target;
+  if (!el || !el.closest) return;
+  const cont = el.closest(".module-continue");
+  if (cont) { dwBeacon("module_continue", { via: "click", href: cont.getAttribute("href") || "" }); return; }
+  const nav = el.closest(".section-index a, .module-roadmap__links a");
+  if (nav) { dwBeacon("nav_jump", { href: nav.getAttribute("href") || "" }); return; }
+  const ext = el.closest(".methodology a[target='_blank']");
+  if (ext) { dwBeacon("link_external", { href: ext.getAttribute("href") || "", cls: (ext.className || "").trim() }); }
+}, true);
+
+// Apertura/cierre de bloques colapsables del contenido (referencia técnica,
+// "¿qué hace cada acción?"). El evento toggle no burbujea → captura en document.
+document.addEventListener("toggle", event => {
+  const d = event.target;
+  if (!d || d.tagName !== "DETAILS") return;
+  if (d.classList.contains("content-collapsible") || d.classList.contains("section-action-help")) {
+    dwBeacon("disclosure_toggle", {
+      kind: d.classList.contains("content-collapsible") ? "collapsible" : "action-help",
+      open: !!d.open,
+    });
+  }
 }, true);
 
 let sectionAnalysisLoadingTimer = null;

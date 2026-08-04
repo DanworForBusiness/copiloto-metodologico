@@ -1516,7 +1516,10 @@ def assistant_chat(
     )
 
 
-_TELEMETRY_EVENTS = {"module_reached_end", "module_continue"}
+_TELEMETRY_EVENTS = {
+    "module_reached_end", "module_continue",
+    "nav_jump", "link_external", "disclosure_toggle", "theme_change",
+}
 
 
 @app.post("/telemetry/event", include_in_schema=False)
@@ -1685,6 +1688,11 @@ def start_diagnostic_orchestrator(
     if tree is None:
         raise HTTPException(404, "Diagn\u00f3stico transversal no encontrado")
     run = store.start(tree, selected)
+    log_verbose(
+        "tree_started", user=(auth_service.session_user(request) or {}),
+        stem=stem, tree_id="framework_assessment", tree_title=str(tree.get("title") or ""),
+        panel="diagnostic-orchestrator",
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/wizard.html",
@@ -1756,6 +1764,7 @@ def answer(request: Request, run_id: str, answer: str = Form("")):
             tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
             reached_leaf=bool(leaf),
             leaf=str(leaf.get("id") or leaf.get("title") or "") if leaf else "",
+            score=(getattr(run, "assessment_score", None) if leaf else None),
         )
         return _fragment(request, _follow_wizard_redirect(run))
     except KeyError as exc:
@@ -3806,7 +3815,7 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
                  pack: str = Query(DEFAULT_PACK), assoc: int = 0, frag: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="flow", ref=f"{cliente}/{dominio}")
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="flow", ref=f"{cliente}/{dominio}", assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
@@ -3853,7 +3862,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
 
 @app.get("/catalog/data-product", response_class=HTMLResponse, include_in_schema=False)
 def catalog_data_product(request: Request, product_id: str = "", pack: str = Query(DEFAULT_PACK), lineage: int = 0):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="data_product", ref=product_id)
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="data_product", ref=product_id, lineage=bool(lineage))
     """Detalle central de un Data Product del catálogo BDC."""
     user = auth_service.session_user(request)
     if not user:
@@ -3945,6 +3954,7 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
 @app.get("/catalog/guide/{slug}", response_class=HTMLResponse, include_in_schema=False)
 def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
                   embed: int = 0, theme: str = ""):
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="guide", ref=slug)
     """Guía (autoservicio) para publicar un catálogo. GENÉRICA por `slug`: cada
     how-to es un `guides/<slug>.yaml` del pack (dominios, orígenes/conexiones, …) —
     agregar una guía nueva NO requiere código, solo el YAML + un link. Se cuenta como
