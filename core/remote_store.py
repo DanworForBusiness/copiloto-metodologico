@@ -180,6 +180,31 @@ def push_path(local_path: str | Path) -> bool:
     return False
 
 
+def delete_path(local_path: str | Path) -> bool:
+    """Borra en el bucket el objeto correspondiente a un archivo local (mismo mapeo
+    que push_path). Pensado para reflejar un purge local en el bucket, así el
+    borrado es consistente de punta a punta. Best-effort; no-op si está deshabilitado.
+    Funciona aunque el archivo local ya no exista (las rutas son operación pura)."""
+    if not enabled():
+        return False
+    path = Path(local_path).resolve()
+    for name, local in _persist_dirs():
+        try:
+            rel = path.relative_to(local.resolve()).as_posix()
+        except ValueError:
+            continue
+        try:
+            client = _get_client()
+            key = f"{_key(name)}/{rel}"
+            client.delete_object(Bucket=config.SPACES_BUCKET, Key=key)
+            _signatures.pop(key, None)
+            return True
+        except Exception as exc:
+            log.warning("remote_store.delete_path: fallo borrando '%s': %s", path, exc)
+            return False
+    return False
+
+
 async def sync_loop() -> None:
     """Loop periódico de mirror_up para correr como background task del app.
     Cada mirror corre en un thread para no bloquear el event loop."""

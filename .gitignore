@@ -41,9 +41,12 @@ activity_log/
 # Agente local / venv del poc (no subir)
 .claude/
 .venv-poc/
-# Datos runtime/locales generados por la app (no deployar)
+# Datos runtime/locales generados por la app (no deployar).
+# La memoria vive en DO Spaces (core/remote_store.py), no en git.
 case_library/
-reports/feedback/
+reports/*
+!reports/reports_README.txt
 catalog_local/
 catalog_inbound/
 .scratch_*
+scratch_preview.html

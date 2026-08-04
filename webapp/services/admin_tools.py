@@ -31,6 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from config import ACTIVITY_LOG_DIR, CASE_LIBRARY_DIR, FEEDBACK_LOG_DIR
+from core import remote_store
 
 
 # =========================================================
@@ -154,6 +155,7 @@ def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: boo
     lines: list[str] = []
     total_files = 0
     total_size = 0
+    remote_deleted = 0
     for label, root in _RUNTIME_EXPORT_DIRS:
         if label not in chosen:
             continue
@@ -170,6 +172,11 @@ def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: boo
                     path.unlink()
                 except OSError:
                     lines.append(f"  [ERROR] no se pudo eliminar {path.name}")
+                    continue
+                # Reflejar el borrado en el bucket para que la limpieza sea
+                # consistente (si no, restore() los repondría en el próximo deploy).
+                if remote_store.delete_path(path):
+                    remote_deleted += 1
         total_files += len(hits)
         total_size += size
 
@@ -180,7 +187,9 @@ def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: boo
                   "Nada fue borrado todavía.")
         footer = "\n\nSi está OK, ejecutá 'Eliminar' (conviene bajar el Export ZIP antes)."
     else:
-        header = f"BORRADO EJECUTADO — {span}\nEliminados {total_files} archivo(s) ({_format_bytes(total_size)})."
+        remote_note = f" · {remote_deleted} en el bucket" if remote_store.enabled() else ""
+        header = (f"BORRADO EJECUTADO — {span}\n"
+                  f"Eliminados {total_files} archivo(s) ({_format_bytes(total_size)}){remote_note}.")
         footer = ""
     return header + "".join(f"\n{line}" if not line.startswith("\n") else line for line in lines) + footer
 
