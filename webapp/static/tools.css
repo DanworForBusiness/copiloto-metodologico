@@ -297,6 +297,38 @@
 .section-index a { display: grid; grid-template-columns: var(--idx-num-col) 1fr; gap: var(--idx-num-gap); align-items: baseline; line-height: 1.4; font-size: var(--idx-link-fs); }
 .section-index a span { margin: 0; text-align: left; font: 500 var(--idx-num-fs) var(--mono, monospace); }
 
+/* Leaf de árbol: patrón de nombre sugerido + ejemplos (p. ej. Convención de
+   Nombres). Condicionales — solo aparecen si el leaf define esos campos. */
+.decision-pattern, .decision-examples { margin: 12px 0 0; }
+.decision-pattern__label {
+  display: block; margin: 0 0 4px; color: var(--soft);
+  font: 500 .62rem var(--mono, monospace); text-transform: uppercase; letter-spacing: .1em;
+}
+.decision-pattern code, .decision-examples code {
+  font-family: var(--mono, monospace); font-size: .78rem; color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  padding: 2px 6px; border-radius: 5px; word-break: break-word;
+}
+.decision-examples ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.decision-examples li { color: var(--soft); }
+/* Separador sutil entre el "qué nombre" (decisión/patrón/ejemplos) y las
+   notas/aclaraciones. Mismo criterio que el divisor de "Próximos pasos". Solo
+   la lista de notas es hija directa de .decision-result (los ejemplos van
+   anidados en .decision-examples, así que no se ven afectados). */
+.decision-result > ul { margin-top: 16px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--gold) 22%, transparent); }
+/* Notas colapsables (leaves answer-first: patrón/ejemplos primero, notas on-demand).
+   Mismo card que .section-action-help para leerse consistente en el panel. */
+.decision-notes { margin-top: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); overflow: hidden; }
+.decision-notes summary {
+  padding: 10px 12px; color: var(--ink); font-size: .74rem; cursor: pointer;
+  list-style: none; display: flex; align-items: center; gap: 8px; user-select: none;
+}
+.decision-notes summary::-webkit-details-marker { display: none; }
+.decision-notes summary::before { content: "▸"; color: var(--gold); font-size: .78rem; transition: transform .2s ease; }
+.decision-notes[open] summary::before { transform: rotate(90deg); }
+.decision-notes ul { margin: 0; padding: 10px 14px 12px 28px; border-top: 1px solid var(--line); }
+.decision-notes li { color: var(--soft); }
+
 /* ── Heading de sección: el número se alinea al cap del título y escala con
    el viewport (antes padding-top fijo de .6rem desalineaba en clamp()). ── */
 .content-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 20px; }
