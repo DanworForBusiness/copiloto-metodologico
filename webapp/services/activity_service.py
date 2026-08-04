@@ -23,7 +23,15 @@ from typing import Any
 
 from config import ACTIVITY_LOG_DIR, LOG_ACTIVITY
 
-_ENABLED_VALUES = {"1", "ON", "TRUE", "YES", "SI", "SÍ"}
+# Niveles de logging. OFF=0 (nada), BASIC=1 (adopción: login/módulos/…),
+# VERBOSE=2 (BASIC + interacción fina: preguntas al asistente, pasos de árbol,
+# navegación de catálogo, errores). ON/TRUE/1 = BASIC por compatibilidad.
+_LEVELS = {
+    "": 0, "OFF": 0, "NO": 0, "FALSE": 0, "0": 0,
+    "BASIC": 1, "ON": 1, "1": 1, "TRUE": 1, "YES": 1, "SI": 1, "SÍ": 1,
+    "VERBOSE": 2, "FULL": 2, "2": 2,
+}
+_ENABLED_VALUES = {"1", "ON", "TRUE", "YES", "SI", "SÍ", "BASIC", "VERBOSE", "FULL", "2"}
 _SENSITIVE_KEYS = {
     "token",
     "access_token",
@@ -37,8 +45,18 @@ _SENSITIVE_KEYS = {
 _MAX_STRING_LEN = 4000
 
 
+def _level() -> int:
+    return _LEVELS.get((LOG_ACTIVITY or "").strip().upper(), 0)
+
+
 def is_activity_logging_enabled() -> bool:
-    return (LOG_ACTIVITY or "").strip().upper() in _ENABLED_VALUES
+    """True desde nivel BASIC (adopción). Los callsites existentes no cambian."""
+    return _level() >= 1
+
+
+def is_verbose() -> bool:
+    """True solo en VERBOSE (interacción fina). Gatea los eventos nuevos."""
+    return _level() >= 2
 
 
 def _safe_value(value: Any) -> Any:
@@ -82,3 +100,11 @@ def log_activity(event_type: str, user: dict | None = None, **payload: Any) -> N
     except Exception:
         # Nunca bloqueamos la experiencia por un problema de logging.
         return
+
+
+def log_verbose(event_type: str, user: dict | None = None, **payload: Any) -> None:
+    """Evento de interacción fina (pregunta al asistente, paso de árbol, vista de
+    catálogo, error). Solo registra en nivel VERBOSE; en BASIC/OFF es no-op."""
+    if not is_verbose():
+        return
+    log_activity(event_type, user=user, **payload)

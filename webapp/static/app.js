@@ -117,7 +117,11 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
             continueEl.classList.add("is-armed");
             clearTimeout(idle);
             idle = setTimeout(() => { overscroll = 0; continueEl.classList.remove("is-armed"); }, 700);
-            if (overscroll > 320) { navigating = true; window.location.href = continueEl.getAttribute("href"); }
+            if (overscroll > 320) {
+              navigating = true;
+              dwBeacon("module_continue", { via: "overscroll", href: continueEl.getAttribute("href") || "" });
+              window.location.href = continueEl.getAttribute("href");
+            }
           } else {
             overscroll = 0;
             continueEl.classList.remove("is-armed");
@@ -250,6 +254,11 @@ function initContentReveals(shell) {
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       entry.target.classList.toggle("is-visible", entry.isIntersecting);
+      // Telemetría: el cue de "scroll para continuar" entrando en viewport = el
+      // usuario llegó al final del módulo (lectura completa). Una vez por carga.
+      if (entry.isIntersecting && entry.target.classList.contains("module-continue")) {
+        dwBeacon("module_reached_end", {}, true);
+      }
     });
   }, {
     root: container,
@@ -258,6 +267,34 @@ function initContentReveals(shell) {
   });
   elements.forEach(element => observer.observe(element));
 }
+
+// ── Telemetría cliente (solo VERBOSE) ────────────────────────────────────────
+// Envía un beacon liviano a /telemetry/event. sendBeacon sobrevive a la
+// navegación (para el evento "continuar"). Gateado por window.DW_VERBOSE, que el
+// template setea según el nivel de LOG_ACTIVITY; si está off, no hace nada.
+const _dwFired = new Set();
+function dwBeacon(event, payload = {}, once = false) {
+  if (!window.DW_VERBOSE) return;
+  if (once) {
+    if (_dwFired.has(event)) return;
+    _dwFired.add(event);
+  }
+  try {
+    const stem = (location.pathname.match(/\/modules\/([^/?#]+)/) || [])[1] || "";
+    const body = JSON.stringify({ event, stem, ...payload });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/telemetry/event", new Blob([body], { type: "application/json" }));
+    } else {
+      fetch("/telemetry/event", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+    }
+  } catch (e) { /* nunca romper la experiencia por telemetría */ }
+}
+
+// "Usó" el cue para pasar al siguiente módulo (click en el enlace .module-continue).
+document.addEventListener("click", event => {
+  const cont = event.target.closest && event.target.closest(".module-continue");
+  if (cont) dwBeacon("module_continue", { via: "click", href: cont.getAttribute("href") || "" });
+}, true);
 
 let sectionAnalysisLoadingTimer = null;
 

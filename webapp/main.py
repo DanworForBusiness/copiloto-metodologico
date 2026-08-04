@@ -41,7 +41,7 @@ from core.prompts import (
 )
 from core.utils import slugify
 from webapp.services import auth_service
-from webapp.services.activity_service import log_activity
+from webapp.services.activity_service import log_activity, log_verbose, is_verbose
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -134,6 +134,7 @@ class _StaticVersion:
 
 
 templates.env.globals["static_version"] = _StaticVersion()
+templates.env.globals["verbose_telemetry"] = is_verbose()
 store = WizardStore(case_repository=CaseLibraryRepository())
 section_analysis_service = SectionAnalysisService()
 assistant_chat_service = AssistantChatService()
@@ -1041,6 +1042,11 @@ def analyze_section(
         reply = None
         user_message = ""
         error = str(exc)
+    log_verbose(
+        "section_analyze", user=user,
+        stem=stem, section=section_slug, action=action,
+        ok=(reply is not None), error=(error or ""),
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/section_analysis_result.html",
@@ -1426,6 +1432,7 @@ def assistant_chat(
     first_name = str(user.get("first_name") or "").strip()
     if not first_name:
         first_name = str(user.get("name") or "Tú").strip().split()[0]
+    ia_blocked = False
     try:
         document = load_module(stem, selected)
         history = assistant_store.history(conversation_id, stem, selected)
@@ -1473,6 +1480,22 @@ def assistant_chat(
         route = None
         answer_html = ""
         error = str(exc)
+    # Telemetría fina (VERBOSE): qué preguntaron y cómo resolvió el copiloto.
+    # La señal más rica para el ejercicio "romper/buscar fallas".
+    log_verbose(
+        "assistant_query", user=user,
+        stem=stem, section=(active_section or ""),
+        question=question.strip(),
+        routed=(route is not None),
+        route_module=(getattr(route, "module", "") or route_module or "") if route else route_module,
+        route_heading=(getattr(route, "explain_heading", "") or getattr(route, "heading", "") or route_heading) if route else route_heading,
+        intent=getattr(route, "intent", "") if route else "",
+        bypass=bool(routing_bypass),
+        readonly=bool(readonly),
+        ia_blocked=bool(ia_blocked),
+        llm=(route is None and reply is not None and not readonly),
+        error=(error or ""),
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/section_analysis_result.html",
@@ -1491,6 +1514,30 @@ def assistant_chat(
             "llm_answer": route is None and reply is not None and not readonly,
         },
     )
+
+
+_TELEMETRY_EVENTS = {"module_reached_end", "module_continue"}
+
+
+@app.post("/telemetry/event", include_in_schema=False)
+async def telemetry_event(request: Request):
+    """Beacon liviano de interacción cliente (fin de módulo, uso del cue de
+    continuar). Solo registra en LOG_ACTIVITY=VERBOSE; en otro caso es no-op.
+    Siempre responde 204 para no ensuciar la consola del navegador."""
+    if not is_verbose():
+        return Response(status_code=204)
+    user = auth_service.session_user(request)
+    if not user:
+        return Response(status_code=204)
+    try:
+        data = await request.json()
+    except Exception:
+        return Response(status_code=204)
+    event = str((data or {}).get("event") or "").strip()
+    if event in _TELEMETRY_EVENTS:
+        payload = {k: v for k, v in data.items() if k != "event"}
+        log_verbose(event, user=user, **payload)
+    return Response(status_code=204)
 
 
 def _assistant_feedback_template(request, name, reply, **context):
@@ -1604,6 +1651,11 @@ def start_tree(
     if tree is None:
         raise HTTPException(404, "Árbol no encontrado")
     run = store.start(tree, selected)
+    log_verbose(
+        "tree_started", user=(auth_service.session_user(request) or {}),
+        stem=stem, tree_id=str(tree.get("id") or ""), tree_title=str(tree.get("title") or tree_title or ""),
+        panel=panel,
+    )
     partial_name = "partials/diagnostic_tab.html" if panel == "diagnostic" else "partials/tree_tab.html"
     return templates.TemplateResponse(
         request=request,
@@ -1696,6 +1748,15 @@ def _fragment(request, run):
 def answer(request: Request, run_id: str, answer: str = Form("")):
     try:
         run = store.answer(run_id, answer)
+        leaf = run.leaf or {}
+        log_verbose(
+            "tree_outcome" if leaf else "tree_step",
+            user=(auth_service.session_user(request) or {}),
+            run_id=run_id, answer=answer,
+            tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
+            reached_leaf=bool(leaf),
+            leaf=str(leaf.get("id") or leaf.get("title") or "") if leaf else "",
+        )
         return _fragment(request, _follow_wizard_redirect(run))
     except KeyError as exc:
         raise HTTPException(410, str(exc)) from exc
@@ -3017,6 +3078,7 @@ def whats_new_dismiss(request: Request):
 
 @app.get("/catalog/domain", response_class=HTMLResponse, include_in_schema=False)
 def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: str = Query(DEFAULT_PACK)):
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="domain", ref=(dominio or modulo))
     # Determinístico y sin tokens → disponible para cualquier usuario logueado
     # (incluido el perfil de solo lectura), como Árbol/Diagnóstico.
     if not auth_service.session_user(request):
@@ -3744,6 +3806,7 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
                  pack: str = Query(DEFAULT_PACK), assoc: int = 0, frag: str = ""):
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="flow", ref=f"{cliente}/{dominio}")
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
@@ -3790,6 +3853,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
 
 @app.get("/catalog/data-product", response_class=HTMLResponse, include_in_schema=False)
 def catalog_data_product(request: Request, product_id: str = "", pack: str = Query(DEFAULT_PACK), lineage: int = 0):
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="data_product", ref=product_id)
     """Detalle central de un Data Product del catálogo BDC."""
     user = auth_service.session_user(request)
     if not user:
@@ -3839,6 +3903,7 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
 @app.get("/catalog/cds", response_class=HTMLResponse, include_in_schema=False)
 def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: str = "",
                 pack: str = Query(DEFAULT_PACK)):
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="cds", ref=name)
     """Código de una CDS view (extractor corporativo), renderizado en el panel
     central con el mismo pipeline de contenido. Se abre desde el botón "Abrir CDS
     View" del detalle de un flujo; "Volver" re-abre ese flujo (cliente+dominio)."""
