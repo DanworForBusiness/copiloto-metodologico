@@ -29,6 +29,27 @@ CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
 ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
 
+# ── Persistencia en DO Spaces ────────────────────────────────────────────────
+# App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo
+# lo que el copiloto genera (catálogo, casos, feedback, adopción, analítica). Este
+# bloque configura el respaldo/restore contra un bucket S3-compatible (DO Spaces).
+# Si faltan credenciales, TODO queda deshabilitado (no-op) → dev local sin cambios.
+# Las CLAVES son secretas: definir SPACES_KEY/SPACES_SECRET por entorno, nunca acá.
+SPACES_ENDPOINT   = _env("SPACES_ENDPOINT", "")          # https://atl1.digitaloceanspaces.com (sin el bucket)
+SPACES_REGION     = _env("SPACES_REGION", "atl1")
+SPACES_BUCKET     = _env("SPACES_BUCKET", "")            # danwor-copiloto-memory
+SPACES_KEY        = _env("SPACES_KEY", "")
+SPACES_SECRET     = _env("SPACES_SECRET", "")
+SPACES_PREFIX     = _env("SPACES_PREFIX", "").strip("/")  # opcional, p.ej. "prod" para separar ambientes
+SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entre mirror periódico
+# Dirs runtime a persistir (relativas a BASE_DIR). El catálogo puede vivir en otra
+# ruta vía DANWOR_CATALOG_DIR; el remote_store lo resuelve en runtime. (Se parsea
+# inline porque _csv_env se define más abajo en este módulo.)
+PERSIST_PATHS     = [p.strip() for p in _env(
+    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports"
+).split(",") if p.strip()]
+PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
+
 # LLM
 MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_EXECUTION_MODE = _env("DANWOR_EXECUTION_MODE", "API Real")

@@ -1,10 +1,13 @@
 from pathlib import Path
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from urllib.parse import quote, urlencode
 from uuid import uuid4
+import asyncio
 import html
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -23,6 +26,7 @@ from core.content_registry import (
     resolve_pack_file,
     roots_for_kind,
 )
+from core import remote_store
 from config import (
     FEEDBACK_LOG_DIR,
     APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DESAFIO_CLOSE_URL,
@@ -136,7 +140,32 @@ assistant_chat_service = AssistantChatService()
 assistant_routing_service = AssistantRoutingService()
 assistant_store = AssistantConversationStore()
 assistant_feedback_repository = AssistantFeedbackRepository()
-app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Boot: restaurar el estado persistido en DO Spaces (el FS de App Platform
+    # arranca vacío en cada deploy/reciclado). No-op si Spaces no está configurado.
+    try:
+        await asyncio.to_thread(remote_store.restore)
+    except Exception as exc:
+        logging.getLogger("danwor.remote_store").warning("restore al boot falló: %s", exc)
+    sync_task = asyncio.create_task(remote_store.sync_loop()) if remote_store.enabled() else None
+    try:
+        yield
+    finally:
+        if sync_task:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                pass
+        # Flush final best-effort (cubre deploys/recycles graceful).
+        try:
+            await asyncio.to_thread(remote_store.mirror_up)
+        except Exception:
+            pass
+
+
+app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 
 
