@@ -1,0 +1,254 @@
+<div id="activity-dashboard">
+{% if summary.total_events %}
+{# Sin datos, el hero (título grande + meta de rango) no aporta nada y solo empuja
+   "← Volver" hacia el medio de una página casi vacía — se oculta en ese caso. #}
+<section class="module-hero">
+  <p class="eyebrow">Analítica interna · Solo owner</p>
+  <h1>Actividad y métricas de uso</h1>
+  <p class="hero-lead">Resumen de adopción y navegación a partir de los eventos registrados en <code>activity_log/</code>: logins, módulos vistos, preguntas al asistente, árboles de diagnóstico y vistas de catálogo.</p>
+  <div class="hero-meta">
+    <span>Rango efectivo <code>{{ (summary.ts_min or '—')[:10] }}</code> → <code>{{ (summary.ts_max or '—')[:10] }}</code></span>
+    <span>{{ summary.files_scanned }} archivo(s) escaneado(s)</span>
+  </div>
+</section>
+{% endif %}
+
+{# "← Volver" + filtros quedan pegados juntos arriba al scrollear (mismo truco de
+   top:-48px que .catalog-back ya usa solo, acá aplicado al bloque entero). #}
+<div class="dashboard-sticky-header">
+  <a class="catalog-back" href="#" onclick="history.back();return false;">← Volver</a>
+  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">
+    <label class="whatsnew-filter">
+      <span>Desde</span>
+      <input type="date" name="date_from" value="{{ date_from }}">
+    </label>
+    <label class="whatsnew-filter">
+      <span>Hasta</span>
+      <input type="date" name="date_to" value="{{ date_to }}">
+    </label>
+    <label class="whatsnew-filter">
+      <span>Usuario</span>
+      <select name="user">
+        <option value="">Todos</option>
+        {% for u in summary.available_users %}
+        <option value="{{ u.value }}" {% if u.value == summary.selected_user %}selected{% endif %}>{{ u.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Módulo</span>
+      <select name="module">
+        <option value="">Todos</option>
+        {% for m in summary.available_modules %}
+        <option value="{{ m }}" {% if m == summary.selected_module %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="btn-primary">Actualizar</button>
+    {% if date_from or date_to or summary.selected_user or summary.selected_module %}
+    <button type="button" class="whatsnew-filter__clear"
+            hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
+    {% endif %}
+  </form>
+</div>
+
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+
+{% if summary.total_events == 0 %}
+<div class="dashboard-empty">
+  <span class="dashboard-empty__label">Sin actividad</span>
+  <p>Todavía no hay eventos registrados para ese filtro. Probá ampliar el rango de fechas, o revisar que <code>LOG_ACTIVITY</code> esté habilitado — en cuanto haya actividad, vas a verla acá.</p>
+</div>
+{% else %}
+
+<div class="dashboard-sections" data-dashboard-key="activity">
+<details class="dashboard-section" data-section-id="resumen" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Resumen</span>
+    <span class="dashboard-section__count">{{ summary.total_events }} evento(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi">
+        <span class="activity-kpi__value">{{ summary.total_events }}</span>
+        <span class="activity-kpi__label">Eventos totales</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value">{{ summary.unique_users }}</span>
+        <span class="activity-kpi__label">Usuarios únicos</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value">{{ summary.avg_per_day }}</span>
+        <span class="activity-kpi__label">Eventos / día ({{ summary.total_days }} día(s))</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value">{{ summary.assistant_query_count }}</span>
+        <span class="activity-kpi__label">Preguntas al asistente</span>
+      </div>
+      <div class="activity-kpi" title="Conversaciones donde al menos una respuesta vino de OpenAI (no del router ni de una simulación) — el resto de las preguntas al asistente no tuvo costo.">
+        <span class="activity-kpi__value">{{ summary.assistant_api_cost_count }}</span>
+        <span class="activity-kpi__label">Consultas a IA (con costo)</span>
+      </div>
+    </div>
+  </div>
+</details>
+
+{% if summary.daily_series %}
+<details class="dashboard-section" data-section-id="tendencia" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Tendencia diaria</span>
+    <span class="dashboard-section__count">{{ summary.total_days }} día(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <div class="activity-chart">
+      {% for row in summary.daily_series %}
+      <div class="activity-chart__col" title="{{ row.day }}: {{ row.count }} evento(s)">
+        <span class="activity-chart__count">{{ row.count }}</span>
+        <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
+        <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}
+
+<details class="dashboard-section" data-section-id="eventos-catalogo" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Eventos y catálogo</span>
+    <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <div class="activity-grid-2">
+      <div>
+        <p class="dashboard-subhead">Eventos por tipo</p>
+        {% for row in summary.event_counts %}
+        <div class="activity-bar-row">
+          <span class="activity-bar-label"><code>{{ row.event }}</code></span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ (100 * row.count / summary.event_counts[0].count)|round }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <p class="dashboard-subhead">Vistas de catálogo por tipo</p>
+        {% if summary.catalog_kind_counts %}
+        {% for row in summary.catalog_kind_counts %}
+        <div class="activity-dot-row">
+          <span class="catalog-meta-dot"></span>
+          <span class="activity-dot-label">{{ row.kind }}</span>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="empty-panel">Sin vistas de catálogo en el rango.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</details>
+
+{% if summary.top_modules or summary.top_users %}
+<details class="dashboard-section" data-section-id="modulos-usuarios" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Módulos y usuarios</span>
+    <span class="dashboard-section__count">{{ summary.top_modules|length }} módulo(s) · {{ summary.top_users|length }} usuario(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <div class="activity-grid-2">
+      <div>
+        <p class="dashboard-subhead">Top módulos</p>
+        {% for row in summary.top_modules %}
+        <div class="activity-bar-row">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <p class="dashboard-subhead">Top usuarios</p>
+        {% for row in summary.top_users %}
+        <div class="activity-bar-row">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</details>
+{% endif %}
+
+{% if summary.assistant_stories %}
+<details class="dashboard-section" data-section-id="preguntas" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Historia de preguntas al asistente</span>
+    <span class="dashboard-section__count">{{ summary.assistant_stories|length }} pregunta(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    {# Cada pregunta puede tener varios "turnos": el router contesta primero (a
+       veces "pobre"), y si el usuario apretó "Explícame vos" hay un segundo
+       turno con la respuesta del LLM — mismo texto de pregunta, dos eventos
+       reales. El feedback 👍/👎 (+comentario) queda pegado al turno exacto que
+       lo recibió, correlacionado por reply_id (ver activity_analytics.py). #}
+    <ul class="activity-feed">
+      {% for story in summary.assistant_stories %}
+      <li class="activity-feed__item">
+        <details class="assistant-story">
+          <summary class="assistant-story__row">
+            <span class="activity-feed__ts"><code>{{ story.turns[0].ts_utc[:19]|replace('T', ' · ') }}</code></span>
+            <span class="activity-feed__user">{{ story.user }}</span>
+            <span class="activity-feed__text">{{ story.question }}</span>
+            <span class="assistant-story__icons">
+              {% if story.turn_count > 1 %}<span title="{{ story.turn_count }} turnos en esta conversación (p. ej. router y después &quot;Explícame vos&quot;)">↻ {{ story.turn_count }}</span>{% endif %}
+              {% if story.has_api_cost %}<span title="Al menos una respuesta consumió la API de OpenAI (con costo)">🪙</span>{% endif %}
+              {% if story.has_down_feedback %}<span title="El usuario calificó negativamente una respuesta">👎</span>{% endif %}
+            </span>
+          </summary>
+          <div class="assistant-story__detail">
+            {% for turn in story.turns %}
+            <div class="assistant-story__turn">
+              <span class="assistant-story__badge"
+                    title="{% if turn.routed %}El router determinista contestó con contenido curado (sin IA){% elif turn.bypass %}El usuario apretó el botón &quot;Explícame vos&quot; para saltear el router y pedirle la respuesta al LLM{% elif turn.llm %}El asistente respondió directo con el LLM{% else %}Respuesta sin clasificar{% endif %}">
+                {%- if turn.routed -%}
+                  Router{% if turn.route_heading %} → {{ turn.route_heading }}{% endif %}
+                {%- elif turn.bypass -%}
+                  Explícame vos → IA
+                {%- elif turn.llm -%}
+                  Asistente (IA)
+                {%- else -%}
+                  Respuesta
+                {%- endif -%}
+              </span>
+              {% if turn.api_cost %}<span class="assistant-story__badge" title="Esta respuesta consumió la API de OpenAI (con costo)">🪙 con costo</span>{% endif %}
+              {% if turn.feedback %}
+              <span class="assistant-story__fb assistant-story__fb--{{ turn.feedback.rating }}" title="Así reaccionó el usuario a esta respuesta">{{ '👍' if turn.feedback.rating == 'up' else '👎' }}</span>
+              {% if turn.feedback.comment %}<span class="assistant-story__fb-comment">"{{ turn.feedback.comment }}"</span>{% endif %}
+              {% endif %}
+            </div>
+            {% if turn.answer %}<p class="assistant-story__answer">{{ turn.answer }}</p>{% endif %}
+            {% endfor %}
+          </div>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</details>
+{% endif %}
+
+</div>
+{% endif %}
+</div>

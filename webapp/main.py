@@ -67,6 +67,7 @@ from webapp.services.section_analysis import (
 )
 from webapp.services.wizard_service import WizardStore
 from webapp.services import admin_tools
+from webapp.services import activity_analytics
 from webapp.services import whats_new_service as whatsnew
 from webapp.services import guides_service as guides
 
@@ -1505,6 +1506,10 @@ def assistant_chat(
         "assistant_query", user=user,
         stem=stem, section=(active_section or ""),
         question=question.strip(),
+        # Texto de la respuesta (router o LLM) para poder verla en la "historia" del
+        # dashboard, no solo saber QUE se contestó. reply.answer siempre existe cuando
+        # reply no es None (reply=None solo en el except de arriba).
+        answer=(reply.answer[:600] if reply else ""),
         routed=(route is not None),
         route_module=(getattr(route, "module", "") or route_module or "") if route else route_module,
         route_heading=(getattr(route, "explain_heading", "") or getattr(route, "heading", "") or route_heading) if route else route_heading,
@@ -1514,6 +1519,18 @@ def assistant_chat(
         ia_blocked=bool(ia_blocked),
         llm=(route is None and reply is not None and not readonly),
         error=(error or ""),
+        # Correlación con feedback_log (ver AssistantFeedbackRepository.save): permite
+        # reconstruir en el dashboard de actividad la historia completa de una conversación
+        # (turno router → turno "Explícame vos" → feedback 👍/👎 con comentario).
+        reply_id=(reply.id if reply else ""),
+        conversation_id=conversation_id,
+        # Distingue consumo REAL de OpenAI (con costo) del router/simulación: "llm" da
+        # True en ambos casos (ver AssistantChatService.ask, modo simulación no llama a
+        # la API), así que acá se resta explícitamente ese modo para el KPI de costo.
+        api_cost=bool(
+            route is None and reply is not None and not readonly
+            and not assistant_chat_service.execution_mode.lower().startswith("simul")
+        ),
     )
     return templates.TemplateResponse(
         request=request,
@@ -1583,7 +1600,7 @@ def assistant_feedback(request: Request, reply_id: str, rating: str = Form("")):
             request, "partials/assistant_feedback_form.html", reply, error="",
         )
     try:
-        assistant_feedback_repository.save(reply, "up")
+        assistant_feedback_repository.save(reply, "up", user=auth_service.session_user(request))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _assistant_feedback_template(
@@ -1599,7 +1616,7 @@ def assistant_feedback_submit(
 ):
     try:
         reply = assistant_store.reply_for_feedback(reply_id)
-        assistant_feedback_repository.save(reply, "down", comment)
+        assistant_feedback_repository.save(reply, "down", comment, user=auth_service.session_user(request))
     except KeyError as exc:
         raise HTTPException(410, "La respuesta ya no está disponible") from exc
     except StaleAssistantReplyError as exc:
@@ -1876,6 +1893,40 @@ def _admin_result(request: Request, title: str, output: str):
         request=request,
         name="partials/admin_result.html",
         context={"title": title, "output": output},
+    )
+
+
+@app.get("/admin/activity", response_class=HTMLResponse, include_in_schema=False)
+def admin_activity(
+    request: Request, date_from: str = "", date_to: str = "",
+    user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+):
+    _require_diagnostic(request)
+    # Gating más estricto que el resto del panel admin: esta vista expone
+    # nombre/mail real por evento (incluidas preguntas textuales al asistente).
+    if not _is_owner(request):
+        raise HTTPException(403, "Solo disponible para el owner")
+    summary = activity_analytics.build_summary(date_from, date_to, user_filter, module_filter)
+    ctx = {"summary": summary, "date_from": date_from, "date_to": date_to}
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/admin_activity_content.html", context=ctx,
+        )
+    session_user = auth_service.session_user(request)
+    selected = DEFAULT_PACK
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    return templates.TemplateResponse(
+        request=request, name="admin_activity_page.html",
+        context={
+            "modules": list_modules(selected),
+            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+            "academy": academy,
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+            "active_group": "", "active_stem": "",
+            "readonly": _readonly(request),
+            "pack_label": content_pack_short_label(selected), "pack": selected, "user": session_user,
+            **ctx,
+        },
     )
 
 

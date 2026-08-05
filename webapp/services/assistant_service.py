@@ -249,7 +249,7 @@ class AssistantFeedbackRepository:
     def __init__(self, root: Path = FEEDBACK_LOG_DIR) -> None:
         self.root = Path(root)
 
-    def save(self, reply: AssistantReply, rating: str, comment: str = "") -> Path:
+    def save(self, reply: AssistantReply, rating: str, comment: str = "", user: dict | None = None) -> Path:
         if rating not in {"up", "down"}:
             raise ValueError("Rating inválido")
         if rating == "down" and not comment.strip():
@@ -257,6 +257,7 @@ class AssistantFeedbackRepository:
         self.root.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         path = self.root / f"feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        user = user or {}
         payload = {
             "type": "assistant_response",
             "module": reply.module,
@@ -266,6 +267,15 @@ class AssistantFeedbackRepository:
             "comment": comment.strip(),
             "question": reply.question[:300],
             "ts": now.isoformat(),
+            # Correlación con activity_log (ver webapp/main.py assistant_chat, que loguea
+            # los mismos reply_id/conversation_id en el evento assistant_query): permite
+            # reconstruir la "historia" completa pregunta → router → feedback → Explícame
+            # vos en el dashboard de actividad. Opcional: YAML viejos no lo tienen y
+            # simplemente no correlacionan (se ven sueltos, como antes).
+            "reply_id": reply.id,
+            "conversation_id": reply.conversation_id,
+            "user": str(user.get("sub") or user.get("email") or ""),
+            "name": str(user.get("name") or ""),
         }
         temporary = path.with_suffix(".yaml.tmp")
         temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")

@@ -170,8 +170,8 @@ SESSION_COOKIE_SAMESITE = _env("SESSION_COOKIE_SAMESITE", "lax").lower()
 SESSION_COOKIE_SECURE   = _env("SESSION_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
 
 # Logging liviano de adopción inicial.
-# OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios.
-LOG_ACTIVITY = _env("LOG_ACTIVITY", "OFF").upper()
+# OFF: no escribe nada. ON/TRUE/1/YES: registra eventos JSONL diarios. VERBOSE regostra también el detalle de cada request (para debug de adopción).
+LOG_ACTIVITY = _env("LOG_ACTIVITY", "VERBOSE").upper()
 
 # SharePoint / Graph — Casos SAP internos.
 # Se leen con token delegado del usuario autenticado. No se usa client_secret.

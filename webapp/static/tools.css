@@ -476,6 +476,135 @@
 .admin-table th { color: var(--gold); font: 600 .66rem var(--mono); text-transform: uppercase; letter-spacing: .05em; }
 .admin-tool--pending { opacity: .85; }
 
+/* Dashboard de Actividad y métricas de uso (panel central, /admin/activity).
+   Todo CSS/HTML — sin librería de charts. Reusa el lenguaje visual y las
+   clases de "What's New" (.whatsnew-filters/.whatsnew-day) para no reinventar
+   la estructura de filtro-arriba + grupos colapsables; los componentes propios
+   (KPI, chart, barras rankeadas, feed) siguen la MISMA convención de esos
+   bloques: colores literales light-first, override en .content-theme-dark
+   (los tokens --card/--soft/--ink de más arriba son solo del panel derecho,
+   NO aplican acá en el panel central). */
+button.catalog-back { border: 0; background: transparent; cursor: pointer; font-family: inherit; }
+
+/* Reusa el look de .whatsnew-filter select para los date-picker del dashboard
+   (no se toca la regla original de What's New, se suma el selector). */
+.whatsnew-filter input[type="date"] { min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: inherit; font: .8rem var(--mono); }
+.whatsnew-filter select, .whatsnew-filter input[type="date"] { color: #1f1f24; }
+.content-theme-dark .whatsnew-filter select, .content-theme-dark .whatsnew-filter input[type="date"] { color: #e4e4ec; }
+
+/* Grupos colapsables (equivalente a .whatsnew-day, pero con <details> nativo
+   en vez de Alpine: acá el filtro es server-side, no hace falta JS de cliente). */
+.dashboard-section { margin: 12px 0; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; overflow: hidden; }
+.dashboard-section__head { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px 16px;
+  cursor: pointer; list-style: none; color: #1f1f24; font-weight: 700; font-size: .96rem; }
+.dashboard-section__head::-webkit-details-marker { display: none; }
+.dashboard-section__head:hover { background: rgba(128,128,128,.07); }
+.content-theme-dark .dashboard-section__head { color: #e4e4ec; }
+.dashboard-section__caret { color: var(--gold); font-size: .8rem; width: 12px; }
+.dashboard-section__caret::before { content: "▸"; }
+.dashboard-section[open] > .dashboard-section__head .dashboard-section__caret::before { content: "▾"; }
+.dashboard-section__count { margin-left: auto; color: #7a7a82; font: 500 .7rem var(--mono); }
+.content-theme-dark .dashboard-section__count { color: #8b8b96; }
+.dashboard-section__body { padding: 4px 16px 20px; }
+
+/* Estados de arrastre (reordenamiento drag-and-drop, ver app.js initDashboardSections). */
+.dashboard-section__head { cursor: grab; }
+.dashboard-section__head:active { cursor: grabbing; }
+.dashboard-section__grip { color: rgba(128,128,128,.5); font-size: .8rem; letter-spacing: -2px; user-select: none; }
+.dashboard-section.is-dragging { opacity: .45; }
+.dashboard-section.is-drop-target { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+.dashboard-section__drop-line { height: 2px; margin: 5px 2px; border-radius: 1px; background: rgba(128,128,128,.65); }
+
+/* "← Volver" + filtros pegados juntos al scrollear: mismo truco de top:-48px que
+   .catalog-back ya usa solo (cancela el padding-top de .module-content), acá
+   aplicado a todo el bloque para que ambos queden fijos y el contenido de abajo
+   scrollee por detrás. */
+/* El "aire" de abajo va como padding-bottom (parte de la caja fija/opaca), no
+   margin: un margin se "consume" a medida que scrolleás y el contenido de abajo
+   termina pegado al header apenas avanzás un poco — el padding en cambio queda
+   siempre pintado con el fondo del header, así el contenido nunca lo toca. */
+.dashboard-sticky-header { position: sticky; top: -48px; z-index: 6; padding: 10px 0 4px; }
+.content-theme-light .dashboard-sticky-header { background: #fff; }
+.content-theme-dark .dashboard-sticky-header { background: #181819; }
+.dashboard-sticky-header .catalog-back { position: static; margin: 0; background: none; }
+.dashboard-sticky-header .whatsnew-filters { margin: 10px 0 4px; }
+.dashboard-subhead { margin: 0 0 10px; color: #7a7a82; font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.content-theme-dark .dashboard-subhead { color: #8b8b96; }
+
+/* Estado vacío del dashboard: mismo lenguaje visual que .tool-empty (panel derecho) —
+   caja de borde punteado + eyebrow dorado — pero con colores propios porque acá (panel
+   central) --soft/--line no cambian de tema fuera de .copilot-panel. */
+.dashboard-empty { margin-top: 8px; padding: 26px 22px; border: 1px dashed rgba(128,128,128,.35); border-radius: 12px; text-align: center; }
+.dashboard-empty__label { display: block; margin-bottom: 8px; color: var(--gold); font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.dashboard-empty p { margin: 0 auto; max-width: 480px; color: #55555c; font-size: .82rem; line-height: 1.55; }
+.content-theme-dark .dashboard-empty p { color: #b2b2bc; }
+
+.activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.activity-kpi { padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--gold); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.activity-kpi__value { font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em; }
+.content-theme-dark .activity-kpi__value { color: #e4e4ec; }
+.activity-kpi__label { color: var(--gold); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+
+.activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+/* Serie diaria: barras verticales — se lee como un gráfico real, no una lista. */
+.activity-chart { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 18px; }
+.activity-chart__col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.activity-chart__count { font: 600 .64rem var(--mono); color: #7a7a82; margin-bottom: 3px; }
+.content-theme-dark .activity-chart__count { color: #8b8b96; }
+.activity-chart__bar { width: 100%; max-width: 26px; min-height: 2px; background: var(--gold); border-radius: 3px 3px 0 0; }
+.activity-chart__label { margin-top: 6px; font: .6rem var(--mono); color: #7a7a82; white-space: nowrap; }
+.content-theme-dark .activity-chart__label { color: #8b8b96; }
+
+.activity-bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .73rem; }
+.activity-bar-label { min-width: 110px; flex-shrink: 0; color: #1f1f24; overflow-wrap: anywhere; }
+.content-theme-dark .activity-bar-label { color: #e4e4ec; }
+.activity-bar { flex: 1; height: 8px; background: rgba(128,128,128,.2); border-radius: 4px; overflow: hidden; }
+.activity-bar__fill { display: block; height: 100%; background: var(--gold); border-radius: 4px; }
+.activity-bar-count { min-width: 28px; text-align: right; font: .72rem var(--mono); color: #55555c; }
+.content-theme-dark .activity-bar-count { color: #b2b2bc; }
+
+.activity-dot-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: .78rem; color: #1f1f24; }
+.content-theme-dark .activity-dot-row { color: #e4e4ec; }
+.activity-dot-label { flex: 1; }
+
+.activity-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.activity-feed__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 12px 0; border-top: 1px solid rgba(128,128,128,.16); font-size: .82rem; }
+.activity-feed__item:first-child { border-top: none; }
+.activity-feed__ts { color: #7a7a82; font-size: .66rem; }
+.content-theme-dark .activity-feed__ts { color: #9a9aa2; }
+.activity-feed__user { color: var(--gold); font-weight: 600; }
+.activity-feed__text { color: #1f1f24; flex: 1 1 260px; }
+.content-theme-dark .activity-feed__text { color: #e4e4ec; }
+
+/* Historia de preguntas al asistente: pregunta + turnos (router / Explícame vos-IA)
+   + feedback correlacionado por reply_id. Ver activity_analytics.py. */
+/* Historia de preguntas: cada conversación es un <details> — una línea colapsada
+   (fecha · usuario · pregunta · íconos de estado con tooltip) que expande al click
+   al detalle turno a turno. Escala a conversaciones de 1 o varios turnos sin
+   necesitar una tabla de columnas fijas. */
+.assistant-story { width: 100%; }
+.assistant-story__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+.assistant-story__row::-webkit-details-marker { display: none; }
+.assistant-story__row::before { content: "▸"; color: var(--gold); font-size: .7rem; align-self: center; }
+.assistant-story[open] > .assistant-story__row::before { content: "▾"; }
+.assistant-story__icons { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #7a7a82; white-space: nowrap; }
+.content-theme-dark .assistant-story__icons { color: #9a9aa2; }
+.assistant-story__detail { margin: 8px 0 2px 18px; }
+.assistant-story__turn { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; font-size: .78rem; }
+.assistant-story__badge { display: inline-flex; align-items: center; color: #7a7a82; font: 650 .62rem var(--mono); text-transform: uppercase; letter-spacing: .03em; border: 1px solid rgba(128,128,128,.32); border-radius: 4px; padding: 2px 6px; cursor: help; }
+.content-theme-dark .assistant-story__badge { color: #9a9aa2; }
+.assistant-story__fb { font-size: .82rem; cursor: help; }
+.assistant-story__fb-comment { color: #c25a2b; font-size: .78rem; font-style: italic; }
+.assistant-story__answer { margin: 2px 0 10px; color: #55555c; font-size: .78rem; line-height: 1.55; white-space: pre-line; }
+.content-theme-dark .assistant-story__answer { color: #b2b2bc; }
+
+@media (max-width: 900px) {
+  .activity-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .activity-grid-2 { grid-template-columns: 1fr; }
+}
+
 /* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →
    abre ese árbol en el panel derecho (pestaña Árbol). */
 .tree-launch {

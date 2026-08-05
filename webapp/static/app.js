@@ -548,3 +548,73 @@ document.body.addEventListener("htmx:afterSwap", event => {
   }
 });
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
+
+// Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.
+// Genérico: cualquier futuro dashboard que envuelva sus <details class="dashboard-section">
+// en un contenedor [data-dashboard-key="algo"] queda reordenable gratis. Orden persistido
+// en sessionStorage (volátil a propósito: se pierde al cerrar la pestaña, no es preferencia
+// permanente). Cada filtro server-side reemplaza el contenedor entero (outerHTML), por eso
+// esto se reaplica en cada htmx:load, que dispara tanto en la carga inicial de página
+// completa como después de cualquier swap.
+function initDashboardSections(scope) {
+  scope.querySelectorAll("[data-dashboard-key]").forEach(container => {
+    const storageKey = `dw-dash-order:${container.dataset.dashboardKey}`;
+    applyStoredSectionOrder(container, storageKey);
+    if (container.dataset.dashWired) return;
+    container.dataset.dashWired = "1";
+    let dragging = null;
+    // Línea de inserción: marca el punto EXACTO donde caería la sección (antes/después
+    // del tile sobre el que estás), además del resaltado del tile en sí — el resaltado
+    // solo no era suficientemente intuitivo (no distinguía "antes" de "después").
+    const dropLine = document.createElement("div");
+    dropLine.className = "dashboard-section__drop-line";
+    container.addEventListener("dragstart", event => {
+      const section = event.target.closest(".dashboard-section");
+      if (!event.target.closest(".dashboard-section__head") || !section) { event.preventDefault(); return; }
+      dragging = section;
+      section.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+    });
+    container.addEventListener("dragend", () => {
+      dragging?.classList.remove("is-dragging");
+      dragging = null;
+      container.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+      dropLine.remove();
+    });
+    // dragenter/dragover DEBEN llamar preventDefault para que el navegador considere
+    // válido el drop en esa posición — si no, al soltar justo sobre la línea o en un
+    // hueco entre tiles (donde event.target no resuelve a un .dashboard-section), el
+    // navegador cancela el drag y la sección "vuelve a su lugar" sin moverse.
+    container.addEventListener("dragenter", event => { if (dragging) event.preventDefault(); });
+    container.addEventListener("dragover", event => {
+      if (!dragging) return;
+      event.preventDefault();
+      const target = event.target.closest(".dashboard-section");
+      if (!target || target === dragging) return;
+      container.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+      target.classList.add("is-drop-target");
+      const before = (event.clientY - target.getBoundingClientRect().top) < target.offsetHeight / 2;
+      container.insertBefore(dropLine, before ? target : target.nextSibling);
+    });
+    container.addEventListener("drop", event => {
+      event.preventDefault();
+      if (!dragging || !dropLine.isConnected) return;
+      container.insertBefore(dragging, dropLine);
+      dropLine.remove();
+      container.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+      saveSectionOrder(container, storageKey);
+    });
+  });
+}
+function applyStoredSectionOrder(container, storageKey) {
+  let order;
+  try { order = JSON.parse(sessionStorage.getItem(storageKey) || "null"); } catch (e) { order = null; }
+  if (!Array.isArray(order)) return;
+  const byId = new Map([...container.querySelectorAll(":scope > .dashboard-section")].map(el => [el.dataset.sectionId, el]));
+  order.forEach(id => { const el = byId.get(id); if (el) container.appendChild(el); });
+}
+function saveSectionOrder(container, storageKey) {
+  const order = [...container.querySelectorAll(":scope > .dashboard-section")].map(el => el.dataset.sectionId);
+  try { sessionStorage.setItem(storageKey, JSON.stringify(order)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
+}
+document.body.addEventListener("htmx:load", () => initDashboardSections(document));
