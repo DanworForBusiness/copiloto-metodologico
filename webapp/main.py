@@ -143,20 +143,32 @@ assistant_store = AssistantConversationStore()
 assistant_feedback_repository = AssistantFeedbackRepository()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Boot: restaurar el estado persistido en DO Spaces (el FS de App Platform
-    # arranca vacío en cada deploy/reciclado). No-op si Spaces no está configurado.
-    try:
-        await asyncio.to_thread(remote_store.restore)
-    except Exception as exc:
-        logging.getLogger("danwor.remote_store").warning("restore al boot falló: %s", exc)
-    sync_task = asyncio.create_task(remote_store.sync_loop()) if remote_store.enabled() else None
+    # El estado persistido en DO Spaces se restaura EN BACKGROUND, no bloqueando el
+    # arranque: esperar la descarga completa antes de servir hacía que el health
+    # check fallara ("Waiting for application startup" hasta el timeout → connection
+    # refused). Ahora la app responde /health de inmediato y el restore corre detrás
+    # (la memoria queda disponible a los pocos segundos). No-op si Spaces no está
+    # configurado.
+    log = logging.getLogger("danwor.remote_store")
+
+    async def _restore_bg():
+        try:
+            await asyncio.to_thread(remote_store.restore)
+        except Exception as exc:
+            log.warning("restore en background falló: %s", exc)
+
+    tasks = []
+    if remote_store.enabled():
+        tasks.append(asyncio.create_task(_restore_bg()))
+        tasks.append(asyncio.create_task(remote_store.sync_loop()))
     try:
         yield
     finally:
-        if sync_task:
-            sync_task.cancel()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             try:
-                await sync_task
+                await task
             except asyncio.CancelledError:
                 pass
         # Flush final best-effort (cubre deploys/recycles graceful).
