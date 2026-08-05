@@ -185,8 +185,8 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 |---|---|---|---|
 | **(1) Ingesta** | Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente. | Capturar los datos crudos directamente desde las fuentes externas (sea S/4HANA, u otras bases de datos y/o sistemas externos) | - Ingestar datos directamente desde sistemas fuente. - Preservar datos originales para auditoría. |
 | **(2) Armonizacion** | Alta. Limpieza y estandarización | Transformar, limpiar, y unificar los datos para asegurar consistencia semántica y su re-utilización alineado con las reglas de negocio | - Unificar datos de sistemas heterogéneos. - Reutilizacion - Normalizar formatos, eliminar duplicados, enriquecer datos. |
-| **(3) Propagacion** | Baja. Ajustes mínimos. Limitado a joins, unions, agregacion y filtros | Exponer datos consistentes y ligeramente transformados para consumo directo (Ej: PBI) o integraciones con otros sistemas (Ej: SPM/SN Distribuidores,etc.) | - Publicar datos listos para consumo por otras aplicaciones. - Permitir reutilización en otras vistas. - Una capa 3V* extra (sufijo *_PBI) como fuente gobernada para Power BI (vistas planas con columnas duplicadas de ID+Descripción) |
-| **(4) Consumo** | Alta. Optimización para consumo. | Preparar modelos analíticos finales optimizados para reporting y visualización | - Crear vistas con medidas y dimensiones. - Proveer datos listos para dashboards y herramientas BI. - Para SAC con Modelos Analíticos (multidimensional nativo) |
+| **(3) Propagacion** | Baja. Ajustes mínimos: joins, unions, agregación y filtros | Exponer **data products gobernados** para consumo externo, open sharing e integraciones, y como fuente del modelado analítico. Los data products **nacen acá** (no llevan una capa 4 encima). | - **Consumo externo / open sharing**: Delta Sharing → Databricks, SPM/SN Distribuidores, outbound. - **Consumo analítico por vista / DirectQuery**: capa de ownership `3V..._PBI` (vista plana ID+Descripción) gobernada para Power BI. - Reutilización por otras vistas y como input de capa 4. |
+| **(4) Consumo** | Alta. Modelado analítico final. | **Modelar** la experiencia analítica final que consume el data product; no publica un data product ni un contrato nuevo. | - **SAC**: Modelo Analítico (`AM`, multidimensional nativo, sin número de capa). - Vista/tabla `4V/4T` con medidas y dimensiones **solo** como adaptador excepcional de un canal que no puede consumir el data product o el `AM` directamente. |
 
 {{callout: title="La Publicación del principio se implementa en dos capas (3 + 4)" tone="punch" icon="🔗"}}
 Antes hablamos de la etapa de **Publicación** — el momento en que el dato se vuelve consumible. En la operación esa misma responsabilidad se implementa en dos capas complementarias: **(3) Propagación**, que expone el data product gobernado hacia otros sistemas o consumo directo, y **(4) Consumo**, que arma los modelos analíticos finales para el negocio. No son dos conceptos nuevos: son la misma Publicación, desglosada según cuánto falta preparar el dato antes de que llegue a destino.
@@ -195,7 +195,7 @@ Antes hablamos de la etapa de **Publicación** — el momento en que el dato se 
 ## {dw-black}Artefactos y uso {dw-gold}Semántico
 {{section_meta: keywords="tipo semántico, tipos semanticos, uso semántico, semantic type, fact, dimension, texto dimension, relacional, jerarquía datasphere, capa business, capa consumption, business layer, consumption layer, semantic usage, modelo analitico, vista analitica, entidad de negocio, business entity, qué tipo semántico usar, cuándo usar fact, cuándo usar dimension"}}
 
-El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
+> El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y expone el objeto en la capa de modelado. Asignarlo correctamente habilita el autoservicio analítico y la navegación semántica en herramientas de consumo.
 
 | Tipo Semántico | Uso | Notas |
 |---|---|---|
@@ -220,7 +220,9 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 - `1` — **Ingesta**: datos crudos del origen, sin transformar (tablas remotas o locales replicadas).
 - `2` — **Armonización**: donde nace el contrato de datos — entidades limpias, estandarizadas, gobernadas y reutilizables (el *qué prometemos entregar*).
 - `3` — **Propagación**: el contrato materializado y expuesto como data product — composición (cruces/joins), reagregación y subsets orientados a casos de consumo. 
-- `4` — **Consumo**: modelos analíticos finales para el negocio (SAC/Power BI). Consume el data product; no introduce un contrato nuevo.
+- `4` — **Consumo**: adaptadores finales y modelos. 
+
+> Los **modelos analíticos** se nombran como `AM` (artefacto tipado, **sin número de capa**). Un `4V`/`4T` es el **adaptador excepcional y exclusivo** de un canal que no puede consumir el data product o el `AM` directamente; si la salida es reutilizable, es Capa 3. Consume; no introduce un contrato nuevo.
 
 **Artefacto** (letra):
 
@@ -251,9 +253,10 @@ El **tipo semántico** (Semantic Usage) define cómo Datasphere interpreta y exp
 **Texto Libre con Lineamientos:**
 Salvo por la capa de ingesta donde se mantiene la convencion de nombre del origen, es un texto libre que describe el objeto en cuestión pero con ciertos lineamientos para darle mayor robustez
 
-- Sufijos: 
-    - *_PBI (exclusivo consumo PBI)
+- Sufijos (consumidor exclusivo — lista gobernada y extensible; un consumidor nuevo se aprueba antes de usarlo): 
+    - *_PBI (exclusivo consumo Power BI)
     - *_SPM (exclusivo outbound SPM)
+    - *_DBX (exclusivo Databricks / lakehouse externo)
   
 - Prefijos: 
     - MD_* (Master Data)
@@ -271,14 +274,15 @@ Salvo por la capa de ingesta donde se mantiene la convencion de nombre del orige
 |---|---|
 | `1TT_SAP_T151T` | Capa 1 · Tabla · Origen SAP · T151T (textos grupos cliente) |
 | `2VD_CLIENTES_CABECERA` | Capa 2 · Vista · Dimensión Clientes Cabecera (armonización) |
-| `3VF_TOPLINE_SPM` | Capa 3 · Vista Fact · Topline para SPM (consumo) |
-| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer para Power BI |
+| `3VF_TOPLINE_SPM` | Capa 3 · Vista Fact · Topline para SPM (data product reutilizable) |
+| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer para Power BI (reutilizable) |
+| `4VF_SND_DESPACHOS_DBX` | Capa 4 · Vista Fact · adaptador **exclusivo** de Databricks (no reutilizable) |
 
 {{subtitle: no-gap}}
 > Aunque no estemos del todo acostumbrados, usar CamelCase para la parte libre (`<LibreConLineamientos>`) ayuda/mejora la legibilidad por sobre nombres extensos separados con guion bajo.
 
 ### Otros Artefactos
-A diferencia de **tablas y vistas** (que usan el patrón por capas de más arriba), estos artefactos **no llevan prefijo de capa**. Siguen un patrón simple: `<Abreviación>_<Prefijo LoB>_<TextoLibre>` — la abreviación del artefacto, el prefijo de línea de negocio (MD/FNC/IVT/PUR/SND…) y el texto libre con lineamientos. Por ejemplo, un Replication Flow de Ventas se nombra `RF_SND_ENTREGAS` (no `1RF...`). Referencia:
+A diferencia de **tablas y vistas** (que usan el patrón por capas de más arriba), estos artefactos **no llevan prefijo de capa**. El número de capa responde a una pregunta que solo tiene sentido para un contenedor genérico — *"¿qué rol juega esta tabla/vista?"* — y un artefacto tipado ya lo responde con su abreviación. Siguen un patrón simple: `<Abreviación>_<Prefijo LoB>_<TextoLibre>` — la abreviación del artefacto, el prefijo de línea de negocio (MD/FNC/IVT/PUR/SND…) y el texto libre con lineamientos. Por ejemplo, un Replication Flow de Ventas se nombra `RF_SND_ENTREGAS` (no `1RF...`), y un Analytic Model `AM_SND_FACTURACION` (no `4AM...`). Referencia:
 
 | Artefacto | Abreviación | Ejemplo
 |---|---|---|
@@ -291,12 +295,21 @@ A diferencia de **tablas y vistas** (que usan el patrón por capas de más arrib
 | **Entity Rel'ship Model** | EM | EM_SND_ENTREGAS |
 | **Data Access Controls** | DAC | DAC_SND |
 
+{{callout: title="Frontera de consumo: dónde vive cada salida" tone="note" icon="🎯"}}
+Una misma información puede exponerse de tres formas, y el naming lo refleja:
+- **Modelo semántico** → `AM_<LoB>_<Nombre>` (sin número; es la vía preferida).
+- **Producto reutilizable y gobernado** → Capa 3 `3V/3T`, con sufijo de consumidor *opcional* (`3VF_SND_Despachos` o `3VF_SND_Despachos_PBI`).
+- **Adaptador exclusivo e irreusable de un canal** que no puede consumir el `AM` o el data product directamente → Capa 4 `4V/4T` con sufijo *obligatorio* (`4VF_SND_Despachos_DBX`). Si resultara reutilizable, es Capa 3.
+
+Clave: el **shaping de negocio** (reagrupaciones, filtros, subsets) para un consumidor **sigue siendo Capa 3** — una capa de *ownership* por consumidor (`3V..._PBI`), gobernada y con dueño. La Capa 4 es solo el último eslabón **técnico e irreusable**; nunca una Capa 4 "vacía" por completitud.
+{{/callout}}
+
 
 ## {dw-black}Tipos de {dw-gold}Vistas SQL
 {{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet, data flow, replication flow, transformation flow"}}
 
-En SAP Datasphere conviven distintos tipos de vistas, cada una con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+> En SAP Datasphere conviven distintos tipos de vistas, cada una con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
 
 | Tipo | Cuándo usarlo | Cuándo evitarlo |
 |---|---|---|

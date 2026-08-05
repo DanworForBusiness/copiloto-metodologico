@@ -111,19 +111,29 @@ principles:
     variante, el consumidor exclusivo, el LoB y el versionado se resuelven desde el contexto y los lineamientos,
     sin nuevas ramas.
 - id: analytic_model_direct
-  rule: Analytic Model pertenece a la familia de modelos y se nombra directamente como AM_[<LoB>_]<LibreConLineamientos>[_Vnn];
+  rule: Analytic Model pertenece a la familia de modelos y se nombra directamente como AM_<LoB>_<LibreConLineamientos>{_Vnn};
     no se ofrece como alternativa dentro del recorrido Tabla o vista.
 - id: flow_model_context
   rule: En flujos (DF/RF/FT/IL/TC) y modelos (EM/DAC) el LoB y el versionado se derivan del contexto o se aplican como
     calificador opcional; no justifican preguntas obligatorias. Mismo criterio de economia de decision que en capas 2-4,
     donde el tipo de flujo o modelo se elige pero dominio y version no abren ramas.
+- id: typed_artifact_no_layer
+  rule: 'El prefijo numerico de capa aplica solo a los contenedores genericos Tabla y Vista (T/V), cuyo rol no es evidente
+    por si mismo y podria vivir en distintas capas. Los artefactos tipados (AM, EM, DAC, DF, RF, FT, IL, TC) llevan su
+    abreviatura en lugar del numero, porque el tipo ya expresa que son y su rol; el numero seria redundante. Por eso un
+    Analytic Model es AM_..., nunca 4AM_...'
+- id: consumption_boundary
+  rule: 'La salida de consumo se resuelve en tres formas. Modelo semantico: Analytic Model (AM), sin numero, via preferida.
+    Producto reutilizable y gobernado: data product de capa 3 (3V/3T), con sufijo de consumidor opcional. Adaptador
+    exclusivo e irreusable de un canal que no puede consumir el AM o el data product directamente: vista o tabla de capa
+    4 (4V/4T) con sufijo de consumidor obligatorio. Si un 4V/4T resulta reutilizable, reclasificar a capa 3.'
 naming_patterns:
-  table_or_view: <Capa><Artefacto><Variante>_[<Origen>_][<LoB>_]<LibreCamelCase>[_<Calificador>][_Vnn]
-  ingestion_table: 1TR_<Origen>_<NombreTecnicoOrigen>[_<Calificador>]
-  governed_object: <2|3|4><T|V><Variante>_[<LoB>_]<LibreCamelCase>[_<Consumidor>][_Vnn]
-  other_artifact: <Abreviacion>_<LoB>_<LibreCamelCase>[_Vnn]
-  transformation_flow_explicit: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>[_Vnn]
-  analytic_model: AM_[<LoB>_]<LibreCamelCase>[_Vnn]
+  table_or_view: <Capa><Artefacto><Variante>_<Origen>_<LoB>_<LibreCamelCase>{_Vnn}
+  ingestion_table: 1TR_<Origen>_<NombreTecnicoOrigen>
+  governed_object: <2|3|4><T|V><Variante>_<LoB>_<LibreCamelCase>{_Vnn}
+  other_artifact: <Abreviacion>_<LoB>_<LibreCamelCase>{_Vnn}
+  transformation_flow_explicit: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>{_Vnn}
+  analytic_model: AM_<LoB>_<LibreCamelCase>{_Vnn}
 codes:
   layers:
     '1': 'Ingesta: tabla remota o local que representa el contrato tecnico recibido desde el origen, sin transformarlo.'
@@ -155,6 +165,8 @@ codes:
   consumer_suffixes:
     PBI: Exclusivo para Power BI.
     SPM: Exclusivo para outbound o consumo SPM.
+    DBX: Exclusivo para Databricks o lakehouse externo.
+  consumer_suffixes_note: Lista gobernada y extensible; un consumidor nuevo se aprueba antes de usarlo como sufijo.
   coexistence_qualifiers:
     CUR: Ventana corriente, caliente o de baja latencia.
     HIST: Historico consolidado.
@@ -421,11 +433,11 @@ nodes:
     type: single_choice
     question: ¿Que artefacto de modelado o gobierno es?
     options:
-    - Analytic Model (AM)
+    - Modelo Analítico (AM)
     - Entity Relationship Model (EM)
     - Data Access Control (DAC)
     next:
-      Analytic Model (AM): leaf_am
+      Modelo Analítico (AM): leaf_am
       Entity Relationship Model (EM): leaf_em
       Data Access Control (DAC): leaf_dac
     purpose: name_component
@@ -526,7 +538,7 @@ leaves:
   leaf_l2_governed:
     decision: 'Objeto gobernado de armonizacion: el nombre combina su naturaleza fisica, su responsabilidad semantica
       y un texto libre sujeto a lineamientos.'
-    name_pattern: 2<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>[_Vnn]
+    name_pattern: 2<T|V><F|R|D|A|T|H>_<LoB>_<LibreConLineamientos>{_Vnn}
     proposed_name_rule: 'Construir el nombre con la capa 2, el artefacto y la variante ya seleccionados. Completar
       <LibreConLineamientos> con una entidad o contrato estable en CamelCase. Incorporar un prefijo LoB aprobado
       solo cuando aporte claridad y pueda derivarse del contexto; no solicitarlo como decision obligatoria.
@@ -539,6 +551,7 @@ leaves:
     - 2TR_FNC_ExchangeRateContract
     - 2VR_SalesDocumentConvergence
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.    
     - El texto libre debe describir una entidad o contrato estable y reutilizable, no un reporte, pantalla, KPI
       ni consumidor particular.
     - MD, FNC, IVT, PUR, SND u otro codigo aprobado pueden utilizarse como prefijo dentro de <LibreConLineamientos>
@@ -547,8 +560,6 @@ leaves:
     - Usar singular y CamelCase cuando corresponda.
     - La variante A debe utilizarse de forma excepcional cuando exista una razon concreta para no modelar Fact o
       Dimension y explotar la semantica mediante un Analytic Model.
-    - Agregar _Vnn solo cuando diferentes versiones deban coexistir por un ciclo de vida controlado; no preguntarlo
-      en el recorrido normal.
     - El contrato puede tener vista y tabla materializada con la misma entidad logica, diferenciadas por V/T.
     post_actions:
       mode: llm_value_add
@@ -560,7 +571,7 @@ leaves:
   leaf_l3_product:
     decision: Nombrar el objeto de propagacion segun su naturaleza fisica y responsabilidad semantica como data
       product o salida orientada a consumo.
-    name_pattern: 3<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>[_<Consumidor>][_Vnn]
+    name_pattern: 3<T|V><F|R|D|A|T|H>_<LoB>_<LibreConLineamientos>{_Vnn}
     examples:
     - 3VF_SND_SalesDocumentItemCore
     - 3VD_MD_Customer_PBI
@@ -573,43 +584,48 @@ leaves:
     - La composicion, joins, reagregacion y subsets orientados a consumo pertenecen a esta capa cuando parten del
       contrato armonizado.
     - La variante A es excepcional; preferir Fact o Dimension mas Analytic Model cuando corresponda.
-    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     post_actions:
       mode: llm_value_add
   leaf_l4_adapter:
     decision: Nombrar el adaptador final de consumo segun su naturaleza fisica y la semantica que conserva, sin
       introducir un contrato nuevo.
-    name_pattern: 4<T|V><F|R|D|A|T|H>_[<LoB>_]<LibreConLineamientos>_<Consumidor>[_Vnn]
+    name_pattern: 4<T|V><F|R|D|A|T|H>_<LoB>_<LibreConLineamientos>_<Consumidor>{_Vnn}
     examples:
     - 4VA_SND_SalesPerformance_PBI
     - 4VR_FNC_ProfitabilityExport_SPM
+    - 4VF_SND_Despachos_DBX
     notes:
+    - Preferir el Analytic Model (AM) o el data product de capa 3 antes que un adaptador 4V/4T; este ultimo es la via
+      excepcional cuando el canal no puede consumir el AM o el data product directamente.
     - Las tablas o vistas de capa 4 son excepcionales y deben responder a una necesidad concreta de la herramienta
       o canal de consumo.
     - El consumidor exclusivo forma parte del nombre y se deriva del contexto; si la salida es reutilizable, debe
       reclasificarse a capa 3.
     - El LoB es opcional dentro de <LibreConLineamientos> y se incorpora cuando aporta claridad.
     - La capa 4 consume el data product y no introduce un nuevo contrato.
-    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
-    - Un Analytic Model se nombra AM_[<LoB>_]<LibreConLineamientos>, sin prefijo numerico.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
+    - Un Analytic Model se nombra AM_<LoB>_<LibreConLineamientos>, sin prefijo numerico.
     post_actions:
       mode: llm_value_add
   leaf_df:
     decision: Data Flow nombrado por dominio y proposito estable.
-    name_pattern: DF_<LoB>_<PropositoCamelCase>[_Vnn]
+    name_pattern: DF_<LoB>_<PropositoCamelCase>{_Vnn}
     examples:
     - DF_SND_SalesDocumentPreparation
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - No usar prefijo numerico de capa.
     - El nombre debe explicar que produce o transforma, no la herramienta grafica utilizada.
     post_actions:
       mode: llm_value_add
   leaf_rf:
     decision: Replication Flow nombrado por dominio y entidad replicada.
-    name_pattern: RF_<LoB>_<EntidadCamelCase>[_Vnn]
+    name_pattern: RF_<LoB>_<EntidadCamelCase>{_Vnn}
     examples:
     - RF_SND_SalesDocumentItem
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - 'No usar 1RF: la abreviacion del artefacto ya identifica el flow.'
     - Origen, conexion, delta y destino se documentan como metadata.
     - Si existen varios RF para la misma entidad, agregar un calificador estable dentro del texto libre.
@@ -617,11 +633,12 @@ leaves:
       mode: llm_value_add
   leaf_ft_explicit:
     decision: Transformation Flow con linaje de origen y destino explicito.
-    name_pattern: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>[_Vnn]
+    name_pattern: FT_<RolOrigen>_<RolDestino>_<LoB>_<EntidadCamelCase>{_Vnn}
     examples:
     - FT_1TR_2TF_SND_SalesDocumentItem
     - FT_2TF_3TF_SND_SalesDocumentItem
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - FT se utiliza para evitar colision con TF, que en tablas/vistas significa Tabla Fact.
     - RolOrigen y RolDestino pueden expresar capa, artefacto y variante cuando agregan trazabilidad.
     - Esta forma es preferida en pipelines con varias materializaciones.
@@ -629,63 +646,67 @@ leaves:
       mode: llm_value_add
   leaf_ft_simple:
     decision: Transformation Flow simple nombrado por dominio y proposito.
-    name_pattern: FT_<LoB>_<PropositoCamelCase>[_Vnn]
+    name_pattern: FT_<LoB>_<PropositoCamelCase>{_Vnn}
     examples:
     - FT_FNC_ExchangeRateSnapshot
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - Usar la variante explicita con origen/destino cuando haya mas de una etapa para la misma entidad.
     post_actions:
       mode: llm_value_add
   leaf_il:
     decision: Intelligent Look-up nombrado por dominio y entidad o proposito de matching.
-    name_pattern: IL_<LoB>_<EntidadOPurposeCamelCase>[_Vnn]
+    name_pattern: IL_<LoB>_<EntidadOPurposeCamelCase>{_Vnn}
     examples:
     - IL_MNF_NotificationMatching
     notes:
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - Si MNF no esta en el catalogo LoB vigente, debe aprobarse antes de usarlo.
     post_actions:
       mode: llm_value_add
   leaf_tc:
     decision: Task Chain nombrada por dominio y proceso orquestado.
-    name_pattern: TC_<LoB>_<ProcesoCamelCase>[_Vnn]
+    name_pattern: TC_<LoB>_<ProcesoCamelCase>{_Vnn}
     examples:
     - TC_SND_SalesDocumentPipeline
     notes:
-    - Evitar nombres demasiado genericos como TC_SND.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     - El nombre debe permitir distinguir cadenas iniciales, incrementales, publicacion o scoring cuando coexistan.
     post_actions:
       mode: llm_value_add
   leaf_am:
-    decision: Nombrar el Analytic Model por el proceso, subject area o proposito analitico estable que expone.
-    name_pattern: AM_[<LoB>_]<LibreConLineamientos>[_Vnn]
+    decision: Nombrar el Modelo Analítico por el proceso, dominio o proposito analitico que expone.
+    name_pattern: AM_<LoB>_<LibreConLineamientos>{_Vnn}
     examples:
     - AM_SND_SalesPerformance
     - AM_FNC_Profitability
     notes:
     - 'No lleva prefijo 4: la abreviacion AM identifica el tipo de artefacto y su rol de consumo.'
     - El LoB se deriva del contexto cuando aporta claridad; no requiere una pregunta obligatoria.
-    - El texto libre debe describir un proceso o subject area analitico, no una visualizacion o reporte puntual.
-    - Agregar _Vnn solo cuando distintas versiones deban coexistir por un ciclo de vida controlado.
+    - El texto libre debe describir un proceso o dominio analitico, no una visualizacion o reporte puntual.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     post_actions:
       mode: llm_value_add
   leaf_em:
     decision: Entity Relationship Model nombrado por dominio y alcance del modelo.
-    name_pattern: EM_<LoB>_<DominioOEntidadCamelCase>[_Vnn]
+    name_pattern: EM_<LoB>_<DominioOEntidadCamelCase>{_Vnn}
     examples:
     - EM_SND_Delivery
     notes:
     - No lleva prefijo numerico de capa.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     post_actions:
       mode: llm_value_add
   leaf_dac:
     decision: Data Access Control nombrado por dominio y alcance de seguridad.
-    name_pattern: DAC_<LoB>_<ScopeCamelCase>[_Vnn]
+    name_pattern: DAC_<LoB>_<ScopeCamelCase>{_Vnn}
     examples:
     - DAC_SND_SalesOrganization
     - DAC_FNC_CompanyCode
     notes:
     - El texto libre debe indicar el criterio protegido, no el nombre de una persona o ambiente.
     - No lleva prefijo numerico de capa.
+    - En este caso {_Vnn} es opcional, ante necesidad de versionado sin modificar el nombre inicial.
     post_actions:
       mode: llm_value_add
 validation_checks:
