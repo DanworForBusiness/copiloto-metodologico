@@ -385,7 +385,11 @@ def _callout_inline_html(text: str) -> str:
 
     def basic(chunk: str) -> str:
         safe = html.escape(chunk or "")
+        # Inline code `...` PRIMERO, para que su contenido no lo toquen bold/italic.
+        safe = re.sub(r"`([^`]+)`", r"<code>\1</code>", safe)
+        # Bold antes que italic: así el italic (asterisco simple) no rompe los **.
         safe = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", safe)
+        safe = re.sub(r"\*([^*\n]+?)\*", r"<em>\1</em>", safe)
         # Markdown [texto](url) plano — mismo link normal (sin target=_blank)
         # que ya usamos afuera de los callouts. Distinto del tag <link url="">
         # de arriba, que es a propósito para referencias externas en nueva pestaña.
