@@ -95,7 +95,10 @@ def restore() -> int:
         return 0
 
     bucket = config.SPACES_BUCKET
-    downloaded = 0
+    # 1) Listar todo lo persistido (rápido) y 2) bajar en paralelo: el restore
+    # corre en background al boot, y cuanto antes termine, antes queda disponible
+    # la memoria (menos ventana con catálogo/casos vacíos tras un deploy).
+    jobs: list[tuple[str, Path]] = []
     for name, local in _persist_dirs():
         root_key = _key(name)
         paginator = client.get_paginator("list_objects_v2")
@@ -106,15 +109,28 @@ def restore() -> int:
                     sub = key[len(root_key) + 1:]
                     if not sub or key.endswith("/"):
                         continue  # marcador de carpeta
-                    dest = local / sub
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    client.download_file(bucket, key, str(dest))
-                    # Sembramos la firma para que el primer mirror_up no re-suba lo
-                    # que acabamos de bajar sin cambios.
-                    _signatures[key] = _sig(dest)
-                    downloaded += 1
+                    jobs.append((key, local / sub))
         except Exception as exc:
-            log.warning("remote_store.restore: fallo bajando '%s': %s", name, exc)
+            log.warning("remote_store.restore: fallo listando '%s': %s", name, exc)
+
+    downloaded = 0
+    if jobs:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _download(job: tuple[str, Path]) -> None:
+            key, dest = job
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            client.download_file(bucket, key, str(dest))
+            # Sembramos la firma para que el primer mirror_up no re-suba lo bajado.
+            _signatures[key] = _sig(dest)
+
+        with ThreadPoolExecutor(max_workers=min(16, len(jobs))) as pool:
+            for future in as_completed(pool.submit(_download, job) for job in jobs):
+                try:
+                    future.result()
+                    downloaded += 1
+                except Exception as exc:
+                    log.warning("remote_store.restore: fallo bajando un objeto: %s", exc)
     log.info("remote_store.restore: %d archivos restaurados desde Spaces", downloaded)
     return downloaded
 

@@ -153,7 +153,14 @@ async def lifespan(app: FastAPI):
 
     async def _restore_bg():
         try:
-            await asyncio.to_thread(remote_store.restore)
+            restored = await asyncio.to_thread(remote_store.restore)
+            # El restore corre DESPUÉS de que la app empezó a servir, así que los
+            # @lru_cache del catálogo pueden haberse poblado vacíos en la ventana
+            # inicial. Al terminar, se invalidan para que el catálogo restaurado se
+            # sirva sin necesidad de regenerarlo a mano.
+            if restored:
+                _invalidate_catalog_cache()
+                log.info("restore en background completo: %d archivos, cache de catálogo invalidado", restored)
         except Exception as exc:
             log.warning("restore en background falló: %s", exc)
 
