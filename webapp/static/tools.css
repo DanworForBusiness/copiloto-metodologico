@@ -561,7 +561,9 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-chart__col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
 .activity-chart__count { font: 600 .64rem var(--mono); color: #7a7a82; margin-bottom: 3px; }
 .content-theme-dark .activity-chart__count { color: #8b8b96; }
-.activity-chart__bar { width: 100%; max-width: 26px; min-height: 2px; background: var(--gold); border-radius: 3px 3px 0 0; }
+/* Serie diaria = tiempo (no ranking): dorado PLANO para no sugerir una
+   progresión falsa; el dato es la altura. */
+.activity-chart__bar { width: 100%; max-width: 26px; min-height: 2px; background: hsl(45,83%,52%); border-radius: 3px 3px 0 0; }
 .activity-chart__label { margin-top: 6px; font: .6rem var(--mono); color: #7a7a82; white-space: nowrap; }
 .content-theme-dark .activity-chart__label { color: #8b8b96; }
 
@@ -576,7 +578,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-label { min-width: 110px; flex-shrink: 0; color: #1f1f24; overflow-wrap: anywhere; }
 .content-theme-dark .activity-bar-label { color: #e4e4ec; }
 .activity-bar { flex: 1; height: 8px; background: rgba(128,128,128,.2); border-radius: 4px; overflow: hidden; }
-.activity-bar__fill { display: block; height: 100%; background: var(--gold); border-radius: 4px; }
+.activity-bar__fill { display: block; height: 100%; background: hsl(47,74%,66%); border-radius: 4px; }
+/* Rampa de dorado por POSICIÓN (las listas van ordenadas de mayor a menor):
+   escalón sutil y desaturado hacia el claro — las barras se diferencian sin
+   "vender". La #1 (mayor) es la más intensa. nth-of-type cuenta solo los <div>
+   (el <p> subhead no cuenta), y se reinicia por cada lista/panel. Sirve igual
+   en tema claro y oscuro (dorados medios). Fallback (>10 filas) = base de arriba. */
+.activity-bar-row:nth-of-type(1) .activity-bar__fill { background: hsl(45,88%,43%); }
+.activity-bar-row:nth-of-type(2) .activity-bar__fill { background: hsl(45,86%,47%); }
+.activity-bar-row:nth-of-type(3) .activity-bar__fill { background: hsl(45,85%,51%); }
+.activity-bar-row:nth-of-type(4) .activity-bar__fill { background: hsl(45,83%,55%); }
+.activity-bar-row:nth-of-type(5) .activity-bar__fill { background: hsl(46,81%,59%); }
+.activity-bar-row:nth-of-type(6) .activity-bar__fill { background: hsl(46,79%,62%); }
+.activity-bar-row:nth-of-type(7) .activity-bar__fill { background: hsl(46,77%,65%); }
+.activity-bar-row:nth-of-type(8) .activity-bar__fill { background: hsl(47,75%,68%); }
+.activity-bar-row:nth-of-type(9) .activity-bar__fill { background: hsl(47,73%,71%); }
+.activity-bar-row:nth-of-type(10) .activity-bar__fill { background: hsl(48,71%,73%); }
 .activity-bar-count { min-width: 28px; text-align: right; font: .72rem var(--mono); color: #55555c; }
 .content-theme-dark .activity-bar-count { color: #b2b2bc; }
 

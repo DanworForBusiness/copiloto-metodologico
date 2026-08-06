@@ -111,7 +111,7 @@
          el valor baja — anda igual en tema claro y oscuro. #}
       <div class="activity-chart__col" title="{{ row.day }}: {{ row.count }} evento(s)">
         <span class="activity-chart__count">{{ row.count }}</span>
-        <div class="activity-chart__bar" style="height:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></div>
+        <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
         <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
       </div>
       {% endfor %}
@@ -140,7 +140,7 @@
         {% set pct = (100 * row.count / summary.event_counts[0].count)|round %}
         <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
           <span class="activity-bar-label"><code>{{ row.event }}</code></span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ pct }}%; background:hsl(45,92%,{{ (44 + (100 - pct) * 0.28)|round|int }}%)"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ pct }}%"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
@@ -153,7 +153,7 @@
           {% for r in bd.rows %}
           <div class="activity-bar-row">
             <span class="activity-bar-label">{{ r.label }}</span>
-            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%; background:hsl(45,92%,{{ (44 + (100 - r.pct) * 0.28)|round|int }}%)"></span></div>
+            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%"></span></div>
             <span class="activity-bar-count">{{ r.count }}</span>
           </div>
           {% endfor %}
@@ -185,7 +185,7 @@
         {% for row in summary.top_modules %}
         <div class="activity-bar-row">
           <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
@@ -195,7 +195,7 @@
         {% for row in summary.top_users %}
         <div class="activity-bar-row">
           <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
@@ -219,7 +219,7 @@
     {% for row in summary.tree_started %}
     <div class="activity-bar-row">
       <span class="activity-bar-label">{{ row.title }}{% if row.panels %} <span class="tree-panel-chip">{{ row.panels }}</span>{% endif %}</span>
-      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
+      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
       <span class="activity-bar-count">{{ row.count }}</span>
     </div>
     {% endfor %}

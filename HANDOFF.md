@@ -145,14 +145,19 @@ pierde al cerrar la pestaña, a propósito).
 
 > **Abiertos (pulido, no bugs):**
 >
-> - **[ABIERTO] Tonos de los gráficos.** Se implementó un gradiente de dorado
->   por valor (barra más grande = dorado más intenso, va aclarando) — inline
->   `background:hsl(45,92%,L%)` con `L = 44 + (100-pct)*0.28` en serie diaria,
->   eventos por tipo, top módulos, top usuarios y árboles iniciados
->   (`admin_activity_content.html`). **Al usuario no lo termina de convencer** —
->   dijo "después lo repasamos". Margen para explorar: más contraste (bajar el
->   piso de L), o tono distinto por bloque en vez de gradiente por valor (era su
->   opción B). No tocar la paleta de KPIs (esa quedó OK).
+> - **[RESUELTO 2026-08-05 (6)] Tonos de los gráficos.** El usuario pidió "lo
+>   mejor para UX/claridad, sutil, sin vender". Solución final: monocromo dorado
+>   con **escalón por posición** (las listas van ordenadas desc), desaturando
+>   hacia el claro — la barra #1 es la más intensa. Ya NO es inline por valor:
+>   se movió a CSS (`tools.css`) vía `.activity-bar-row:nth-of-type(1..10)
+>   .activity-bar__fill` (rampa de 10 pasos, fallback en `.activity-bar__fill`).
+>   Se sacaron TODOS los `background:hsl(...)` inline del template. La **serie
+>   diaria** quedó en dorado PLANO (`.activity-chart__bar`), porque es tiempo (no
+>   ranking) y un gradiente ahí sugeriría una progresión falsa. Verificado:
+>   7 barras → 7 tonos distintos (staircase), serie diaria 1 tono. `nth-of-type`
+>   cuenta solo los `<div>`, el `<p>` subhead no desfasa. Si se quiere revisar de
+>   nuevo: los 10 valores de la rampa están juntos en `tools.css` (buscar
+>   "Rampa de dorado por POSICIÓN").
 > - **[ABIERTO — parcialmente resuelto] Outcome de los árboles ("Resultado: —").**
 >   El recorrido mostraba `Resultado: —` aunque el árbol llegara a una hoja.
 >   Causa: en `main.py` `answer()` (~línea 1816) el log de `tree_outcome` tomaba
@@ -232,6 +237,24 @@ este dashboard, agregá una entrada a la Bitácora (fecha, qué cambiaste,
 estado, qué falta) y actualizá "Pendientes" si resolviste algo de la lista.
 
 ## Bitácora
+
+### 2026-08-05 (6) — Claude — Tonos de gráficos: monocromo con escalón por posición. PUSHEADO.
+**Estado: verificado (estilos computados en browser: 7 barras → 7 tonos; serie
+diaria plana; sin errores de consola; `pytest -q` 225 passed / 1 skipped) y
+pusheado a prod.**
+
+- Cierra el pendiente de tonos. El gradiente por valor inline anterior no
+  convencía; el usuario pidió "lo mejor para UX/claridad, sutil, sin vender".
+- Solución: **monocromo dorado, escalón por POSICIÓN** (listas ordenadas desc →
+  #1 la más intensa, aclara hacia abajo), desaturando hacia el claro para que
+  sea calmo. Movido de inline a CSS: `.activity-bar-row:nth-of-type(1..10)
+  .activity-bar__fill` en `tools.css`. Se eliminaron todos los `hsl(...)` inline
+  del template (más prolijo). **Serie diaria** → dorado plano
+  (`.activity-chart__bar`), es tiempo, no ranking.
+- Por qué por posición y no por valor: garantiza que barras vecinas siempre se
+  diferencien (la cola de valores iguales —muchos "1"— con el modo por valor
+  volvía a verse monótona). El largo sigue codificando la magnitud; el color es
+  ordinal/decorativo.
 
 ### 2026-08-05 (5) — Claude — Panel de eventos interactivo (clic → desglose). PUSHEADO.
 **Estado: verificado (backend reconcilia, toggle probado en browser sin errores
