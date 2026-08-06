@@ -14,24 +14,34 @@
           <span class="activity-feed__user">{{ story.user }}</span>
           <span class="activity-feed__text">{{ story.question }}</span>
           <span class="assistant-story__icons">
-            {% if story.turn_count > 1 %}<span title="{{ story.turn_count }} turnos en esta conversación (p. ej. router y después &quot;Explícame vos&quot;)">↻ {{ story.turn_count }}</span>{% endif %}
-            {% if story.has_api_cost %}<span title="Al menos una respuesta consumió la API de OpenAI (con costo)">🪙</span>{% endif %}
-            {% if story.has_down_feedback %}<span title="El usuario calificó negativamente una respuesta">👎</span>{% endif %}
+            {% if story.turn_count > 1 %}<span title="{{ story.turn_count }} turnos en esta conversación">↻ {{ story.turn_count }}</span>{% endif %}
+            {% if story.has_api_cost %}<span title="Al menos una respuesta consumió la API de OpenAI">🪙</span>{% endif %}
+            {% if story.feedback_summary == 'up' %}<span title="El usuario calificó positivamente">👍</span>
+            {% elif story.feedback_summary == 'down' %}<span title="El usuario calificó negativamente">👎</span>
+            {% elif story.feedback_summary == 'mixed' %}<span title="Reacciones encontradas en el mismo hilo: alguna respuesta le sirvió y otra no">🤔</span>
+            {% endif %}
           </span>
         </summary>
         <div class="assistant-story__detail">
           {# Relato secuencial: se lee de arriba a abajo como una línea de tiempo —
              preguntó → cómo respondió cada turno (router / "Explícame vos" / IA) →
-             qué contestó → cómo lo calificó. Toda la data ya viene en story.turns. #}
+             qué contestó → cómo lo calificó. Cada turno tiene su PROPIA pregunta:
+             si es la misma que la anterior (router → "Explícame vos" reenvía el
+             mismo texto) no se repite; si el usuario siguió charlando con algo
+             distinto, se muestra como un paso "preguntó" nuevo. #}
           <ol class="story-timeline">
+            {% set ns = namespace(last_question=None) %}
+            {% for turn in story.turns %}
+            {% if turn.question and turn.question != ns.last_question %}
             <li class="story-timeline__step story-timeline__step--ask">
               <span class="story-timeline__dot" aria-hidden="true">💬</span>
               <div class="story-timeline__body">
                 <p class="story-timeline__lead">El usuario preguntó</p>
-                <p class="story-timeline__quote">{{ story.question }}</p>
+                <p class="story-timeline__quote">{{ turn.question }}</p>
               </div>
             </li>
-            {% for turn in story.turns %}
+            {% set ns.last_question = turn.question %}
+            {% endif %}
             <li class="story-timeline__step">
               <span class="story-timeline__dot" aria-hidden="true">{% if turn.routed %}🧭{% elif turn.bypass %}✨{% elif turn.llm %}🤖{% else %}•{% endif %}</span>
               <div class="story-timeline__body">

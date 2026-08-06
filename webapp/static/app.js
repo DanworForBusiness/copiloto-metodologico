@@ -631,13 +631,55 @@ function initEventBreakdown(scope) {
       panels.forEach(p => { p.hidden = p.dataset.breakdown !== ev; });
       rows.forEach(r => r.classList.toggle("is-active", r.dataset.event === ev));
     };
+    // Clic en la fila YA activa la des-selecciona (vuelve al estado "sin
+    // desglose elegido") en vez de dejarla pegada — mismo espíritu que el
+    // reset del filtro de módulo.
     rows.forEach(r => {
-      r.addEventListener("click", () => show(r.dataset.event));
+      r.addEventListener("click", () => show(r.classList.contains("is-active") ? "" : r.dataset.event));
       r.addEventListener("keydown", event => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(r.dataset.event); }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          show(r.classList.contains("is-active") ? "" : r.dataset.event);
+        }
       });
+    });
+    // Botón "✕" explícito en el header de cada panel (mismo patrón visible que
+    // el reset del filtro de módulo) — alternativa al toggle de la fila.
+    group.querySelectorAll("[data-event-reset]").forEach(btn => {
+      btn.addEventListener("click", () => show(""));
     });
     if (rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
   });
 }
 document.body.addEventListener("htmx:load", () => initEventBreakdown(document));
+
+// Conecta "Módulos y usuarios" con "Eventos y catálogo": clic en un módulo filtra
+// la lista "Eventos por tipo" a los eventos de ese módulo. A diferencia de
+// initEventBreakdown, trigger y paneles NO comparten un ancestro [data-breakdown-group]
+// (viven en <details> distintos), así que acá se buscan en todo `scope` y se
+// conectan por el valor del atributo, no por jerarquía DOM.
+function initModuleFilter(scope) {
+  const rows = [...scope.querySelectorAll("[data-module]")];
+  const panels = [...scope.querySelectorAll("[data-module-breakdown]")];
+  if (!rows.length || !panels.length) return;
+  const labelWrap = scope.querySelector("[data-module-filter-label]");
+  const labelText = labelWrap ? labelWrap.querySelector("strong") : null;
+  const resetBtn = labelWrap ? labelWrap.querySelector("[data-module-reset]") : null;
+  const show = mod => {
+    panels.forEach(p => { p.hidden = p.dataset.moduleBreakdown !== mod; });
+    rows.forEach(r => r.classList.toggle("is-active", !!mod && r.dataset.module === mod));
+    if (labelWrap) {
+      labelWrap.hidden = !mod;
+      if (mod && labelText) labelText.textContent = mod;
+    }
+  };
+  rows.forEach(r => {
+    r.addEventListener("click", () => show(r.dataset.module));
+    r.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(r.dataset.module); }
+    });
+  });
+  if (resetBtn) resetBtn.addEventListener("click", () => show(""));
+  show(""); // default: vista global, sin módulo seleccionado
+}
+document.body.addEventListener("htmx:load", () => initModuleFilter(document));

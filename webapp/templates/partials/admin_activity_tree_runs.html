@@ -1,0 +1,87 @@
+{% set base_qs = "date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode) %}
+<div id="tree-runs-body">
+  {% if summary.tree_runs %}
+  {# Cada recorrido se reconstruye por run_id: el camino de respuestas nodo a
+     nodo (tree_step) + el resultado final (tree_outcome). Colapsado en una
+     línea, expande al detalle — mismo patrón que la historia de preguntas. #}
+  <ul class="activity-feed">
+    {% for run in summary.tree_runs %}
+    <li class="activity-feed__item">
+      <details class="assistant-story">
+        <summary class="assistant-story__row">
+          <span class="activity-feed__ts"><code>{{ run.ts_utc[:19]|replace('T', ' · ') }}</code></span>
+          <span class="activity-feed__user">{{ run.user }}</span>
+          <span class="activity-feed__text">{{ run.title }}</span>
+          <span class="assistant-story__icons">
+            <span title="Respuestas registradas en este recorrido">➜ {{ run.steps|length }}</span>
+            {% if run.outcome %}<span title="Llegó a un resultado">🏁</span>{% else %}<span title="No llegó a un resultado (recorrido sin cerrar)">⋯</span>{% endif %}
+          </span>
+        </summary>
+        <div class="assistant-story__detail">
+          <ol class="story-timeline">
+            <li class="story-timeline__step story-timeline__step--ask">
+              <span class="story-timeline__dot" aria-hidden="true">🌳</span>
+              <div class="story-timeline__body">
+                <p class="story-timeline__lead">Inició el árbol <strong>{{ run.title }}</strong></p>
+              </div>
+            </li>
+            {% for step in run.steps %}
+            <li class="story-timeline__step">
+              <span class="story-timeline__dot" aria-hidden="true">➜</span>
+              <div class="story-timeline__body">
+                <p class="story-timeline__lead">Respondió <strong>{{ step }}</strong></p>
+              </div>
+            </li>
+            {% endfor %}
+            {% if run.outcome %}
+            <li class="story-timeline__step">
+              <span class="story-timeline__dot" aria-hidden="true">🏁</span>
+              <div class="story-timeline__body">
+                <p class="story-timeline__lead">Resultado: <strong>{{ run.outcome.leaf or '—' }}</strong>{% if run.outcome.score %} · score <strong>{{ run.outcome.score }}</strong>{% endif %}</p>
+              </div>
+            </li>
+            {% endif %}
+          </ol>
+        </div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {% if summary.tree_runs_total_pages > 1 %}
+  <nav class="activity-pager" aria-label="Paginación de recorridos">
+    <button type="button" class="activity-pager__btn" title="Primera página"
+            {% if summary.tree_runs_page > 1 %}hx-get="/admin/activity/tree-runs?{{ base_qs }}&run_page=1&run_page_size={{ summary.tree_runs_page_size }}" hx-target="#tree-runs-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>«</button>
+    <button type="button" class="activity-pager__btn" title="Anterior"
+            {% if summary.tree_runs_page > 1 %}hx-get="/admin/activity/tree-runs?{{ base_qs }}&run_page={{ summary.tree_runs_page - 1 }}&run_page_size={{ summary.tree_runs_page_size }}" hx-target="#tree-runs-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>‹</button>
+    {% for p in summary.tree_runs_page_window %}
+      {% if p is none %}
+      <span class="activity-pager__ellipsis">…</span>
+      {% elif p == summary.tree_runs_page %}
+      <span class="activity-pager__page is-active" aria-current="page">{{ p }}</span>
+      {% else %}
+      <button type="button" class="activity-pager__page"
+              hx-get="/admin/activity/tree-runs?{{ base_qs }}&run_page={{ p }}&run_page_size={{ summary.tree_runs_page_size }}"
+              hx-target="#tree-runs-body" hx-swap="outerHTML">{{ p }}</button>
+      {% endif %}
+    {% endfor %}
+    <button type="button" class="activity-pager__btn" title="Siguiente"
+            {% if summary.tree_runs_page < summary.tree_runs_total_pages %}hx-get="/admin/activity/tree-runs?{{ base_qs }}&run_page={{ summary.tree_runs_page + 1 }}&run_page_size={{ summary.tree_runs_page_size }}" hx-target="#tree-runs-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>›</button>
+    <button type="button" class="activity-pager__btn" title="Última página"
+            {% if summary.tree_runs_page < summary.tree_runs_total_pages %}hx-get="/admin/activity/tree-runs?{{ base_qs }}&run_page={{ summary.tree_runs_total_pages }}&run_page_size={{ summary.tree_runs_page_size }}" hx-target="#tree-runs-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>»</button>
+    <select class="activity-pager__size" name="run_page_size" aria-label="Recorridos por página"
+            hx-get="/admin/activity/tree-runs?{{ base_qs }}" hx-trigger="change"
+            hx-target="#tree-runs-body" hx-swap="outerHTML">
+      {% for size in summary.tree_runs_page_sizes %}
+      <option value="{{ size }}" {% if size == summary.tree_runs_page_size %}selected{% endif %}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="dashboard-empty">
+    <span class="dashboard-empty__label">Sin recorridos</span>
+    <p>Todavía no hay recorridos con respuestas en el rango. Se registran cuando el usuario responde los nodos del árbol (no solo al abrirlo).</p>
+  </div>
+  {% endif %}
+</div>

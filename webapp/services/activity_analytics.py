@@ -230,11 +230,26 @@ def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
     return rows
 
 
+def _event_breakdown_rows(counter: Counter) -> list[dict]:
+    """Igual que _top() pero con clave `event` en vez de `label` (y sin tope N:
+    la cantidad de tipos de evento distintos es chica) — mismo shape para el
+    panel global de "Eventos por tipo" y cada panel module-scoped, así el
+    template comparte un solo bloque Jinja para los dos casos."""
+    total_max = counter.most_common(1)[0][1] if counter else 0
+    return [
+        {"event": event, "count": count, "pct": round(100 * count / total_max) if total_max else 0}
+        for event, count in counter.most_common()
+    ]
+
+
 _TREE_START_EVENT = "tree_started"
 _TREE_PATH_EVENTS = {"tree_step", "tree_outcome"}
 
 
-def _tree_summary(all_events: list[dict], user: str, module: str) -> dict:
+def _tree_summary(
+    all_events: list[dict], user: str, module: str,
+    run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+) -> dict:
     """Reconstruye la actividad de árboles de decisión a partir de dos eventos:
     - `tree_started` (BASIC-VERBOSE): trae `tree_id`, `tree_title`, `panel`, `stem`
       → sabemos QUÉ árbol se abrió y desde dónde.
@@ -317,12 +332,33 @@ def _tree_summary(all_events: list[dict], user: str, module: str) -> dict:
             }
     run_rows = [runs[k] for k in order]
     run_rows.sort(key=lambda r: r["ts_utc"] or "", reverse=True)
-    return {"tree_started": started_rows, "tree_runs": run_rows[:_RECENT_QUESTIONS_N]}
+
+    # Misma paginación server-side que "Historia de preguntas" (activity_pager):
+    # los recorridos crecen igual que las conversaciones, un cap fijo se vuelve
+    # inmanejable con actividad real.
+    runs_total = len(run_rows)
+    page_size = run_page_size if run_page_size in _STORY_PAGE_SIZES else _DEFAULT_STORY_PAGE_SIZE
+    total_pages = max(1, -(-runs_total // page_size)) if runs_total else 1
+    page = max(1, min(run_page or 1, total_pages))
+    start = (page - 1) * page_size
+    run_page_rows = run_rows[start:start + page_size]
+
+    return {
+        "tree_started": started_rows,
+        "tree_runs": run_page_rows,
+        "tree_runs_total": runs_total,
+        "tree_runs_page": page,
+        "tree_runs_page_size": page_size,
+        "tree_runs_total_pages": total_pages,
+        "tree_runs_page_sizes": _STORY_PAGE_SIZES,
+        "tree_runs_page_window": _page_window(page, total_pages),
+    }
 
 
 def build_summary(
     date_from: str, date_to: str, user: str = "", module: str = "",
     story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+    run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
 ) -> dict:
     all_events = _read_events(date_from, date_to)
     available_users, available_modules = _facets(all_events)
@@ -346,6 +382,10 @@ def build_summary(
     # evento, quién lo generó cuántas veces (catalog_view usa su propio desglose
     # por `kind`, ver más abajo).
     event_user_counts: dict[str, Counter] = {}
+    # Desglose de "Eventos por tipo" POR MÓDULO, para conectar el clic en un
+    # módulo (sección "Módulos y usuarios") con un filtro de esta lista — mismo
+    # patrón client-side que event_user_counts, ver initModuleFilter en app.js.
+    module_event_counts: dict[str, Counter] = {}
     # Conversaciones del asistente agrupadas por conversation_id: cada "turno" es un
     # assistant_query (router, o el bypass de "Explícame vos"), con su feedback si
     # hubo. Eventos viejos sin conversation_id quedan como conversación de un solo
@@ -373,6 +413,7 @@ def build_summary(
 
         if ev["module"]:
             module_counts[ev["module"]] += 1
+            module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
 
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
@@ -393,6 +434,11 @@ def build_summary(
                     assistant_order.append(key)
                 assistant_conversations[key]["turns"].append({
                     "ts_utc": ev["ts_utc"],
+                    # Cada turno guarda SU propia pregunta: dentro de una misma
+                    # conversación puede repetirse (router → "Explícame vos" reenvía
+                    # el mismo texto) o ser una pregunta nueva (el usuario siguió
+                    # charlando) — el template decide si la vuelve a mostrar.
+                    "question": question[:200],
                     "routed": bool(ev["payload"].get("routed")),
                     "route_heading": _TONE_TAG_RE.sub("", str(ev["payload"].get("route_heading") or "")).strip(),
                     "bypass": bool(ev["payload"].get("bypass")),
@@ -416,7 +462,20 @@ def build_summary(
     for conv in assistant_conversations.values():
         turns = conv["turns"]
         conv["turn_count"] = len(turns)
-        conv["has_down_feedback"] = any(t["feedback"] and t["feedback"]["rating"] == "down" for t in turns)
+        up_count = sum(1 for t in turns if t["feedback"] and t["feedback"]["rating"] == "up")
+        down_count = sum(1 for t in turns if t["feedback"] and t["feedback"]["rating"] == "down")
+        # Un solo ícono de feedback por conversación (no uno por turno): si todas las
+        # reacciones coinciden (o hay una sola), se muestra esa; si hay opiniones
+        # encontradas dentro del mismo hilo, se muestra un ícono neutral distinto
+        # ("mixed") en vez de mostrar 👍 y 👎 juntos, que sería confuso.
+        if up_count and down_count:
+            conv["feedback_summary"] = "mixed"
+        elif up_count:
+            conv["feedback_summary"] = "up"
+        elif down_count:
+            conv["feedback_summary"] = "down"
+        else:
+            conv["feedback_summary"] = ""
         conv["has_api_cost"] = any(t["api_cost"] for t in turns)
         if conv["has_api_cost"]:
             assistant_api_cost_count += 1
@@ -432,7 +491,7 @@ def build_summary(
     start = (page - 1) * page_size
     assistant_stories = [assistant_conversations[k] for k in all_keys_desc[start:start + page_size]]
 
-    trees = _tree_summary(all_events, user, module)
+    trees = _tree_summary(all_events, user, module, run_page, run_page_size)
 
     # Desglose interactivo: al clickear un evento en el panel izquierdo, el
     # derecho muestra su detalle. catalog_view abre por tipo de vista (`kind`);
@@ -461,12 +520,16 @@ def build_summary(
         "assistant_api_cost_count": assistant_api_cost_count,
         "ts_min": ts_min,
         "ts_max": ts_max,
-        "event_counts": [
-            {"event": event, "count": count}
-            for event, count in event_counts.most_common()
-        ],
+        "event_counts": _event_breakdown_rows(event_counts),
         "top_modules": _top(module_counts),
         "top_users": _top(user_counts),
+        # Mismo tope que top_modules (los módulos que realmente aparecen como fila
+        # clickeable): no tiene sentido precalcular el desglose de un módulo que
+        # ni se muestra.
+        "module_event_breakdowns": {
+            row["label"]: _event_breakdown_rows(module_event_counts.get(row["label"], Counter()))
+            for row in _top(module_counts)
+        },
         "catalog_kind_counts": [
             {"kind": kind, "count": count}
             for kind, count in catalog_kind_counts.most_common()
@@ -481,6 +544,12 @@ def build_summary(
         "assistant_stories_page_window": _page_window(page, total_pages),
         "tree_started": trees["tree_started"],
         "tree_runs": trees["tree_runs"],
+        "tree_runs_total": trees["tree_runs_total"],
+        "tree_runs_page": trees["tree_runs_page"],
+        "tree_runs_page_size": trees["tree_runs_page_size"],
+        "tree_runs_total_pages": trees["tree_runs_total_pages"],
+        "tree_runs_page_sizes": trees["tree_runs_page_sizes"],
+        "tree_runs_page_window": trees["tree_runs_page_window"],
         "event_breakdowns": event_breakdowns,
         "event_descriptions": _EVENT_DESCRIPTIONS,
     }

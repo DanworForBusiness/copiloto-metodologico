@@ -132,23 +132,41 @@
        elegir uno, la derecha muestra su desglose (catalog_view → por tipo de
        vista; el resto → por usuario). Todos los desgloses vienen precalculados
        en summary.event_breakdowns y el toggle es JS (initEventBreakdown en
-       app.js), sin request extra. #}
+       app.js), sin request extra. Además, un clic en un módulo de "Módulos y
+       usuarios" filtra ESTA lista a los eventos de ese módulo — mismo patrón,
+       ahora cross-sección, vía initModuleFilter (data-module-breakdown). Nota:
+       "Vistas de catálogo por tipo" no reacciona: catalog_view no lleva módulo
+       en el payload. #}
+    {% macro event_rows(rows) %}
+    {% for row in rows %}
+    <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
+      <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ row.event }}</code></span>
+      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+      <span class="activity-bar-count">{{ row.count }}</span>
+    </div>
+    {% endfor %}
+    {% endmacro %}
     <div class="activity-grid-2" data-breakdown-group>
       <div>
-        <p class="dashboard-subhead">Eventos por tipo <span class="dashboard-subhead__hint">· clic para desglosar →</span></p>
-        {% for row in summary.event_counts %}
-        {% set pct = (100 * row.count / summary.event_counts[0].count)|round %}
-        <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
-          <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ row.event }}</code></span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ pct }}%"></span></div>
-          <span class="activity-bar-count">{{ row.count }}</span>
-        </div>
+        <p class="dashboard-subhead">
+          Eventos por tipo <span class="dashboard-subhead__hint">· click para desglosar →</span>
+          <span class="dashboard-subhead__filter" data-module-filter-label hidden>· Filtrado por <strong></strong> <button type="button" class="dashboard-subhead__reset" data-module-reset title="Volver a todos los módulos">✕</button></span>
+        </p>
+        <div data-module-breakdown="">{{ event_rows(summary.event_counts) }}</div>
+        {% for mod, rows in summary.module_event_breakdowns.items() %}
+        <div data-module-breakdown="{{ mod }}" hidden>{{ event_rows(rows) }}</div>
         {% endfor %}
       </div>
       <div>
+        <div class="activity-breakdown__panel" data-breakdown="" hidden>
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin selección</span>
+            <p>Elegí un evento a la izquierda para ver su desglose (o volvé a hacer click en el elegido para des-seleccionarlo).</p>
+          </div>
+        </div>
         {% for event, bd in summary.event_breakdowns.items() %}
         <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
-          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ event }}</code> · por {{ bd.dim }}</p>
+          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ event }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
           {% if bd.rows %}
           {% for r in bd.rows %}
           <div class="activity-bar-row">
@@ -181,9 +199,9 @@
   <div class="dashboard-section__body">
     <div class="activity-grid-2">
       <div>
-        <p class="dashboard-subhead">Top módulos</p>
+        <p class="dashboard-subhead">Top módulos <span class="dashboard-subhead__hint">· click para filtro en cascada →</span></p>
         {% for row in summary.top_modules %}
-        <div class="activity-bar-row">
+        <div class="activity-bar-row activity-bar-row--clickable" data-module="{{ row.label }}" role="button" tabindex="0" aria-label="Filtrar eventos por {{ row.label }}">
           <span class="activity-bar-label">{{ row.label }}</span>
           <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
@@ -211,7 +229,7 @@
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
     <span class="dashboard-section__caret"></span>
     <span class="dashboard-section__title">Árboles de decisión</span>
-    <span class="dashboard-section__count">{{ summary.tree_started|length }} iniciado(s) · {{ summary.tree_runs|length }} recorrido(s)</span>
+    <span class="dashboard-section__count">{{ summary.tree_started|length }} iniciado(s) · {{ summary.tree_runs_total }} recorrido(s)</span>
   </summary>
   <div class="dashboard-section__body">
     <p class="dashboard-subhead">Árboles iniciados</p>
@@ -231,59 +249,7 @@
     {% endif %}
 
     <p class="dashboard-subhead" style="margin-top:20px">Recorridos</p>
-    {% if summary.tree_runs %}
-    {# Cada recorrido se reconstruye por run_id: el camino de respuestas nodo a
-       nodo (tree_step) + el resultado final (tree_outcome). Colapsado en una
-       línea, expande al detalle — mismo patrón que la historia de preguntas. #}
-    <ul class="activity-feed">
-      {% for run in summary.tree_runs %}
-      <li class="activity-feed__item">
-        <details class="assistant-story">
-          <summary class="assistant-story__row">
-            <span class="activity-feed__ts"><code>{{ run.ts_utc[:19]|replace('T', ' · ') }}</code></span>
-            <span class="activity-feed__user">{{ run.user }}</span>
-            <span class="activity-feed__text">{{ run.title }}</span>
-            <span class="assistant-story__icons">
-              <span title="Respuestas registradas en este recorrido">➜ {{ run.steps|length }}</span>
-              {% if run.outcome %}<span title="Llegó a un resultado">🏁</span>{% else %}<span title="No llegó a un resultado (recorrido sin cerrar)">⋯</span>{% endif %}
-            </span>
-          </summary>
-          <div class="assistant-story__detail">
-            <ol class="story-timeline">
-              <li class="story-timeline__step story-timeline__step--ask">
-                <span class="story-timeline__dot" aria-hidden="true">🌳</span>
-                <div class="story-timeline__body">
-                  <p class="story-timeline__lead">Inició el árbol <strong>{{ run.title }}</strong></p>
-                </div>
-              </li>
-              {% for step in run.steps %}
-              <li class="story-timeline__step">
-                <span class="story-timeline__dot" aria-hidden="true">➜</span>
-                <div class="story-timeline__body">
-                  <p class="story-timeline__lead">Respondió <strong>{{ step }}</strong></p>
-                </div>
-              </li>
-              {% endfor %}
-              {% if run.outcome %}
-              <li class="story-timeline__step">
-                <span class="story-timeline__dot" aria-hidden="true">🏁</span>
-                <div class="story-timeline__body">
-                  <p class="story-timeline__lead">Resultado: <strong>{{ run.outcome.leaf or '—' }}</strong>{% if run.outcome.score %} · score <strong>{{ run.outcome.score }}</strong>{% endif %}</p>
-                </div>
-              </li>
-              {% endif %}
-            </ol>
-          </div>
-        </details>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <div class="dashboard-empty">
-      <span class="dashboard-empty__label">Sin recorridos</span>
-      <p>Todavía no hay recorridos con respuestas en el rango. Se registran cuando el usuario responde los nodos del árbol (no solo al abrirlo).</p>
-    </div>
-    {% endif %}
+    {% include "partials/admin_activity_tree_runs.html" %}
   </div>
 </details>
 {% endif %}

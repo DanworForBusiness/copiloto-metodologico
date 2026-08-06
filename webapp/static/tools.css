@@ -585,6 +585,9 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
 .activity-bar-row--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .dashboard-subhead__hint { font-weight: 400; letter-spacing: 0; text-transform: none; opacity: .75; }
+.dashboard-subhead__filter { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--gold); }
+.dashboard-subhead__reset { border: 0; background: transparent; padding: 0; margin-left: 2px; color: var(--gold); font: inherit; cursor: pointer; }
+.dashboard-subhead__reset:hover { text-decoration: underline; }
 /* Pista de que el nombre del evento tiene tooltip (qué mide): subrayado punteado
    sutil + cursor de ayuda. El tooltip en sí es el title nativo. */
 .activity-event-name { border-bottom: 1px dotted currentColor; cursor: help; }
@@ -684,7 +687,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    Botones/páginas chicos, consistentes con .whatsnew-filter select y demás
    controles del dashboard — light-first + override dark, sin tokens de --card. */
 .activity-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(128,128,128,.16); }
-.activity-pager__btn, .activity-pager__page { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid rgba(128,128,128,.32); border-radius: 6px; background: transparent; color: #1f1f24; font: 600 .74rem var(--mono); cursor: pointer; }
+.activity-pager__btn, .activity-pager__page { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid rgba(128,128,128,.32); border-radius: 6px; background: transparent; color: #1f1f24; font: 600 .74rem var(--mono); line-height: 1; cursor: pointer; box-sizing: border-box; }
 .content-theme-dark .activity-pager__btn, .content-theme-dark .activity-pager__page { color: #e4e4ec; }
 .activity-pager__btn:disabled { opacity: .35; cursor: default; }
 .activity-pager__btn:not(:disabled):hover, .activity-pager__page:not(.is-active):hover { border-color: var(--gold); color: var(--gold); }

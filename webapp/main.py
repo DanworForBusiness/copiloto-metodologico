@@ -1970,6 +1970,28 @@ def admin_activity_stories(
     )
 
 
+@app.get("/admin/activity/tree-runs", response_class=HTMLResponse, include_in_schema=False)
+def admin_activity_tree_runs(
+    request: Request, date_from: str = "", date_to: str = "",
+    user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    run_page: int = 1, run_page_size: int = 10,
+):
+    """Fragment liviano de solo 'Recorridos' (árboles de decisión) — mismo
+    patrón que admin_activity_stories: pasar de página no toca el resto del
+    dashboard."""
+    _require_diagnostic(request)
+    if not _is_owner(request):
+        raise HTTPException(403, "Solo disponible para el owner")
+    summary = activity_analytics.build_summary(
+        date_from, date_to, user_filter, module_filter,
+        run_page=run_page, run_page_size=run_page_size,
+    )
+    return templates.TemplateResponse(
+        request=request, name="partials/admin_activity_tree_runs.html",
+        context={"summary": summary, "date_from": date_from, "date_to": date_to},
+    )
+
+
 @app.get("/admin/runtime/inventory", response_class=HTMLResponse)
 def admin_runtime_inventory(request: Request):
     _require_diagnostic(request)
