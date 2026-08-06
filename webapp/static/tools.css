@@ -529,8 +529,18 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-sticky-header { background: #181819; }
 .dashboard-sticky-header .catalog-back { position: static; margin: 0; background: none; }
 .dashboard-sticky-header .whatsnew-filters { margin: 10px 0 4px; }
+/* El botón "Actualizar" traía min-height:42px (base de .btn-primary), más alto
+   que los inputs/selects del filtro (35px). Lo igualamos a esa altura para que
+   la fila quede pareja. Solo en la barra del dashboard, no toca otros botones. */
+.dashboard-sticky-header .whatsnew-filters .btn-primary { min-height: 0; height: 35px; padding: 0 18px; display: inline-flex; align-items: center; }
 .dashboard-subhead { margin: 0 0 10px; color: #7a7a82; font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .content-theme-dark .dashboard-subhead { color: #8b8b96; }
+/* Los <code> (fechas del rango, nombre de evento en "Desglose de …") caían en
+   el monospace por defecto del navegador/Tailwind (ui-monospace), que se ve
+   distinto a la JetBrains Mono del resto. font:inherit los unifica con su
+   contexto (misma familia/tamaño/peso). */
+#activity-dashboard .hero-meta code,
+.dashboard-subhead code { font: inherit; }
 
 /* Estado vacío del dashboard: mismo lenguaje visual que .tool-empty (panel derecho) —
    caja de borde punteado + eyebrow dorado — pero con colores propios porque acá (panel

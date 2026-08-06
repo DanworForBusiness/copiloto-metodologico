@@ -238,6 +238,23 @@ estado, qué falta) y actualizá "Pendientes" si resolviste algo de la lista.
 
 ## Bitácora
 
+### 2026-08-05 (7) — Claude — Pulidos cosméticos (tipografía de code + altura del botón). PUSHEADO.
+**Estado: CSS puro (`tools.css`), verificado por estilos computados en browser +
+`pytest -q` 225 passed / 1 skipped. Pusheado.**
+
+Tres retoques que pidió el usuario:
+- **`<code>` con tipografía distinta** (fechas del "Rango efectivo" y nombre de
+  evento en "Desglose de …"): NO era tamaño (medían igual, 10.88/10.24px) sino
+  la FAMILIA — el resto usa `JetBrains Mono` y los `<code>` caían en
+  `ui-monospace` (default de Tailwind/navegador). Fix: `font: inherit` en
+  `#activity-dashboard .hero-meta code` y `.dashboard-subhead code`.
+- **Botón "Actualizar" más alto que la fila** (42px vs inputs de 35px): la base
+  `.btn-primary` trae `min-height:42px; padding:10px`. Override scopeado a
+  `.dashboard-sticky-header .whatsnew-filters .btn-primary` → `height:35px;
+  padding:0 18px; inline-flex; align-items:center`. Ahora empareja inputs/selects.
+- Todo scopeado al dashboard para no afectar otras páginas (otros heroes, la
+  página de What's New que también usa `.whatsnew-filters`).
+
 ### 2026-08-05 (6) — Claude — Tonos de gráficos: monocromo con escalón por posición. PUSHEADO.
 **Estado: verificado (estilos computados en browser: 7 barras → 7 tonos; serie
 diaria plana; sin errores de consola; `pytest -q` 225 passed / 1 skipped) y
