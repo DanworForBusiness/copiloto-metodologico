@@ -618,3 +618,26 @@ function saveSectionOrder(container, storageKey) {
   try { sessionStorage.setItem(storageKey, JSON.stringify(order)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
 }
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
+
+// Panel interactivo de "Eventos y catálogo": clic en un evento de la izquierda →
+// muestra su desglose (precalculado en summary.event_breakdowns) a la derecha.
+// Sin request extra; el swap de htmx recrea el grupo, por eso se re-cablea en
+// cada htmx:load igual que initDashboardSections.
+function initEventBreakdown(scope) {
+  scope.querySelectorAll("[data-breakdown-group]").forEach(group => {
+    const rows = [...group.querySelectorAll("[data-event]")];
+    const panels = [...group.querySelectorAll("[data-breakdown]")];
+    const show = ev => {
+      panels.forEach(p => { p.hidden = p.dataset.breakdown !== ev; });
+      rows.forEach(r => r.classList.toggle("is-active", r.dataset.event === ev));
+    };
+    rows.forEach(r => {
+      r.addEventListener("click", () => show(r.dataset.event));
+      r.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(r.dataset.event); }
+      });
+    });
+    if (rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
+  });
+}
+document.body.addEventListener("htmx:load", () => initEventBreakdown(document));

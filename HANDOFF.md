@@ -233,6 +233,34 @@ estado, qué falta) y actualizá "Pendientes" si resolviste algo de la lista.
 
 ## Bitácora
 
+### 2026-08-05 (5) — Claude — Panel de eventos interactivo (clic → desglose). PUSHEADO.
+**Estado: verificado (backend reconcilia, toggle probado en browser sin errores
+de consola, `pytest -q` 225 passed / 1 skipped) y pusheado a prod.**
+
+- **"Eventos y catálogo" ahora es interactivo** (pedido del usuario). Antes el
+  panel derecho mostraba SIEMPRE "Vistas de catálogo por tipo" (desglose fijo de
+  `catalog_view`), lo que se veía inconsistente: catalog era el único evento
+  desglosado. Ahora: las filas de "Eventos por tipo" (izquierda) son
+  clickeables y el panel derecho muestra el desglose del evento elegido.
+  - Regla de dimensión: `catalog_view` → por `kind` (tipo de vista, como antes);
+    **cualquier otro evento** → por usuario (quién lo generó cuántas veces).
+    Ej.: `module_selected = 5` → clic → Jose 3 / Ana 2.
+  - Backend: `activity_analytics.build_summary` agrega `event_user_counts`
+    (Counter por evento) y arma `summary.event_breakdowns` = {event: {dim, rows}}
+    reutilizando `_top()`. Todos los desgloses se precalculan (volumen chico).
+  - Front: `admin_activity_content.html` — izquierda con `data-event` +
+    `role=button`/`tabindex`; derecha con un `.activity-breakdown__panel`
+    `[data-breakdown]` por evento (todos `hidden`, JS muestra el activo).
+    Toggle en `app.js` `initEventBreakdown()` (vanilla, se re-cablea en cada
+    `htmx:load` igual que `initDashboardSections`; sin request extra). Por
+    defecto muestra el evento más frecuente. CSS nuevo: `.activity-bar-row--clickable`
+    (hover/active/focus) + `.dashboard-subhead__hint`.
+  - Reconciliación garantizada: la suma del desglose == el count del evento
+    (verificado: module_selected 5 = 3+2, catalog_view 3 = 2+1).
+  - Nota: el desglose "por usuario" es universal; se podría enriquecer con
+    dimensiones propias por evento (p. ej. `section_analyze` por sección/acción,
+    `tree_started` por árbol) — quedó como mejora futura, no pedida.
+
 ### 2026-08-05 (4) — Claude — Mejoras: gradiente de gráficos + sección "Árboles de decisión" + fix outcome. PUSHEADO.
 **Estado: todo verificado (`pytest -q` 225 passed / 1 skipped, render sintético
 + estilos computados en browser con Tailwind) y PUSHEADO a prod junto con la

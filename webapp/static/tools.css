@@ -566,6 +566,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .activity-chart__label { color: #8b8b96; }
 
 .activity-bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .73rem; }
+/* Filas de "Eventos por tipo" clickeables: al elegir una, el panel derecho
+   muestra su desglose (ver initEventBreakdown en app.js). */
+.activity-bar-row--clickable { cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px; transition: background .12s ease; }
+.activity-bar-row--clickable:hover { background: rgba(128,128,128,.10); }
+.activity-bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
+.activity-bar-row--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.dashboard-subhead__hint { font-weight: 400; letter-spacing: 0; text-transform: none; opacity: .75; }
 .activity-bar-label { min-width: 110px; flex-shrink: 0; color: #1f1f24; overflow-wrap: anywhere; }
 .content-theme-dark .activity-bar-label { color: #e4e4ec; }
 .activity-bar { flex: 1; height: 8px; background: rgba(128,128,128,.2); border-radius: 4px; overflow: hidden; }

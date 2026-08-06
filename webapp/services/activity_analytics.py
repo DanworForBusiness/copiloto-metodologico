@@ -288,6 +288,10 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
     module_counts: Counter = Counter()
     user_counts: Counter = Counter()
     catalog_kind_counts: Counter = Counter()
+    # Desglose por evento para el panel derecho interactivo: por cada tipo de
+    # evento, quién lo generó cuántas veces (catalog_view usa su propio desglose
+    # por `kind`, ver más abajo).
+    event_user_counts: dict[str, Counter] = {}
     # Conversaciones del asistente agrupadas por conversation_id: cada "turno" es un
     # assistant_query (router, o el bypass de "Explícame vos"), con su feedback si
     # hubo. Eventos viejos sin conversation_id quedan como conversación de un solo
@@ -305,7 +309,9 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
 
         if ev["user"]:
             users_seen.add(ev["user"])
-            user_counts[ev["name"] or ev["user"]] += 1
+            label = ev["name"] or ev["user"]
+            user_counts[label] += 1
+            event_user_counts.setdefault(ev["event"], Counter())[label] += 1
 
         if ev["ts_utc"]:
             ts_min = ev["ts_utc"] if ts_min is None else min(ts_min, ev["ts_utc"])
@@ -366,6 +372,17 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
 
     trees = _tree_summary(all_events, user, module)
 
+    # Desglose interactivo: al clickear un evento en el panel izquierdo, el
+    # derecho muestra su detalle. catalog_view abre por tipo de vista (`kind`);
+    # el resto abre por usuario (quién lo generó). Se precalculan todos y el
+    # front togglea con JS (sin request extra) — ver initEventBreakdown en app.js.
+    event_breakdowns: dict[str, dict] = {}
+    for event, _count in event_counts.most_common():
+        if event == "catalog_view":
+            event_breakdowns[event] = {"dim": "tipo de vista", "rows": _top(catalog_kind_counts)}
+        else:
+            event_breakdowns[event] = {"dim": "usuario", "rows": _top(event_user_counts.get(event, Counter()))}
+
     return {
         "date_from": date_from,
         "date_to": date_to,
@@ -396,4 +413,5 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
         "assistant_stories": assistant_stories,
         "tree_started": trees["tree_started"],
         "tree_runs": trees["tree_runs"],
+        "event_breakdowns": event_breakdowns,
     }

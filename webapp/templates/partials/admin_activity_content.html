@@ -128,12 +128,17 @@
     <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
   </summary>
   <div class="dashboard-section__body">
-    <div class="activity-grid-2">
+    {# Panel interactivo: la izquierda es el censo de eventos (clickeable); al
+       elegir uno, la derecha muestra su desglose (catalog_view → por tipo de
+       vista; el resto → por usuario). Todos los desgloses vienen precalculados
+       en summary.event_breakdowns y el toggle es JS (initEventBreakdown en
+       app.js), sin request extra. #}
+    <div class="activity-grid-2" data-breakdown-group>
       <div>
-        <p class="dashboard-subhead">Eventos por tipo</p>
+        <p class="dashboard-subhead">Eventos por tipo <span class="dashboard-subhead__hint">· clic para desglosar →</span></p>
         {% for row in summary.event_counts %}
         {% set pct = (100 * row.count / summary.event_counts[0].count)|round %}
-        <div class="activity-bar-row">
+        <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
           <span class="activity-bar-label"><code>{{ row.event }}</code></span>
           <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ pct }}%; background:hsl(45,92%,{{ (44 + (100 - pct) * 0.28)|round|int }}%)"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
@@ -141,21 +146,25 @@
         {% endfor %}
       </div>
       <div>
-        <p class="dashboard-subhead">Vistas de catálogo por tipo</p>
-        {% if summary.catalog_kind_counts %}
-        {% for row in summary.catalog_kind_counts %}
-        <div class="activity-dot-row">
-          <span class="catalog-meta-dot"></span>
-          <span class="activity-dot-label">{{ row.kind }}</span>
-          <span class="activity-bar-count">{{ row.count }}</span>
+        {% for event, bd in summary.event_breakdowns.items() %}
+        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
+          <p class="dashboard-subhead">Desglose de <code>{{ event }}</code> · por {{ bd.dim }}</p>
+          {% if bd.rows %}
+          {% for r in bd.rows %}
+          <div class="activity-bar-row">
+            <span class="activity-bar-label">{{ r.label }}</span>
+            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%; background:hsl(45,92%,{{ (44 + (100 - r.pct) * 0.28)|round|int }}%)"></span></div>
+            <span class="activity-bar-count">{{ r.count }}</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin desglose</span>
+            <p>Este evento no tiene un desglose disponible en el rango seleccionado.</p>
+          </div>
+          {% endif %}
         </div>
         {% endfor %}
-        {% else %}
-        <div class="dashboard-empty">
-          <span class="dashboard-empty__label">Sin vistas</span>
-          <p>No hubo vistas de catálogo en el rango seleccionado.</p>
-        </div>
-        {% endif %}
       </div>
     </div>
   </div>
