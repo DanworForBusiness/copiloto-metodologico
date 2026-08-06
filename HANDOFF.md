@@ -6,13 +6,15 @@
 > `C:\Users\Joe\.claude\plans\pure-mapping-coral.md` — leelo si necesitás el
 > "por qué" de una decisión de arquitectura, no solo el "qué".
 
-> **📍 Estado al 2026-08-05:** todo el trabajo previo de esta sesión (fixes de
-> índices/roadmap, contenido, árbol de decisión) quedó resuelto y ya está en
-> producción — el usuario lo confirmó y pusheó él mismo, **no es parte de este
-> handoff**. El foco actual y único de este documento es el **dashboard de
-> Actividad** (`/admin/activity`), nacido de logging que ya se había extendido
-> para el lanzamiento reducido. Está funcional y probado por el usuario con
-> datos reales, pero **queda un pedido de UX sin resolver** (ver "Pendientes").
+> **📍 Estado al 2026-08-05:** el foco de este documento es el **dashboard de
+> Actividad** (`/admin/activity`). Está funcional y probado por el usuario con
+> datos reales. En esta última ronda se cerró el Pendiente #1 (relato
+> secuencial), una tanda de bugs con capturas, el truncado de respuestas largas,
+> y se agregaron dos mejoras (gradiente de dorado en los gráficos + sección
+> "Árboles de decisión"). **Todo esto YA ESTÁ PUSHEADO a prod** (commit del
+> 2026-08-05, ver Bitácora 2026-08-05 (3)). **No quedan bugs abiertos**, pero
+> quedan 2 pendientes de pulido (ver Pendientes #1 tonos y #2 outcome de árboles
+> — este último es un fix de origen que solo aplica a eventos NUEVOS).
 
 ## Qué hace
 
@@ -69,9 +71,11 @@ pierde al cerrar la pestaña, a propósito).
   respuesta ya tenía un `reply.id` único (`AssistantReply`, en memoria,
   `webapp/services/assistant_service.py`), pero NINGUNO de los dos llegaba a
   los logs. Se agregó:
-  - `webapp/main.py` `assistant_chat()` (~línea 1505): el `log_verbose("assistant_query", ...)`
-    ahora incluye `reply_id`, `conversation_id`, `answer` (texto de la
-    respuesta, primeros 600 chars), y `api_cost` (bool: hubo llamada REAL a
+  - `webapp/main.py` `assistant_chat()` (~línea 1505) **y `analyze_section()`
+    (~línea 1526)**: el `log_verbose("assistant_query", ...)` ahora incluye
+    `reply_id`, `conversation_id`, `answer` (texto COMPLETO de la respuesta —
+    ya NO recortado a 600; el único tope que queda es el de `_safe_value` del
+    logger, 4000 chars, ver Pendiente #1), y `api_cost` (bool: hubo llamada REAL a
     OpenAI, no router ni modo simulación — `llm=True` no alcanza para esto
     porque el modo simulación de `AssistantChatService.ask()` también da
     `llm=True` sin gastar tokens).
@@ -139,24 +143,82 @@ pierde al cerrar la pestaña, a propósito).
 
 ## Pendientes
 
-1. **[ACTIVO — lo último que pidió el usuario, sin resolver]** El detalle
-   expandido de cada conversación muestra los turnos como badges sueltos
-   (`Router 👍` / `Router → Tipos de Vistas CDS` / `Explícame vos → IA`) pero
-   **no se lee como un relato secuencial**. Cita textual del usuario: *"sin
-   darme señales claras de storytelling y relato secuencial de hechos no me
-   sirve de mucho"*. Falta rediseñar `.assistant-story__detail` en
-   `admin_activity_content.html` para que se lea como una línea de tiempo
-   narrativa (p. ej. "1. Preguntó → 2. El router respondió con X (el usuario
-   calificó 👎: 'motivo') → 3. Pidió 'Explícame vos' → la IA respondió con
-   Y"), no una lista plana de badges. Es la continuación directa de todo el
-   trabajo de correlación (`assistant_stories`, ya tiene toda la data
-   necesaria: `turns[].answer`, `.feedback`, `.routed`, `.bypass` — es un
-   problema de TEMPLATE/presentación, no de datos faltantes).
-2. Datos anteriores a esta sesión (sin `reply_id`/`conversation_id`) nunca van
+> **Abiertos (pulido, no bugs):**
+>
+> - **[ABIERTO] Tonos de los gráficos.** Se implementó un gradiente de dorado
+>   por valor (barra más grande = dorado más intenso, va aclarando) — inline
+>   `background:hsl(45,92%,L%)` con `L = 44 + (100-pct)*0.28` en serie diaria,
+>   eventos por tipo, top módulos, top usuarios y árboles iniciados
+>   (`admin_activity_content.html`). **Al usuario no lo termina de convencer** —
+>   dijo "después lo repasamos". Margen para explorar: más contraste (bajar el
+>   piso de L), o tono distinto por bloque en vez de gradiente por valor (era su
+>   opción B). No tocar la paleta de KPIs (esa quedó OK).
+> - **[ABIERTO — parcialmente resuelto] Outcome de los árboles ("Resultado: —").**
+>   El recorrido mostraba `Resultado: —` aunque el árbol llegara a una hoja.
+>   Causa: en `main.py` `answer()` (~línea 1816) el log de `tree_outcome` tomaba
+>   `leaf.get("id") or leaf.get("title")`, pero las hojas guardan el resultado en
+>   **`leaf.decision`** (el `<h3>` "Decisión recomendada" de `wizard.html`). Ya
+>   se cambió a `leaf.get("decision") or leaf.get("title") or leaf.get("id")`.
+>   **OJO: solo aplica a eventos NUEVOS** — los `tree_outcome` ya logueados con
+>   leaf vacío no se pueden backfillear; hay que completar un árbol NUEVO para
+>   verlo. Mejoras posibles a futuro: (a) capturar también `leaf.name_pattern` /
+>   `leaf.notes` / `post_actions.next_steps` para un outcome más rico; (b) en
+>   árboles de assessment el resultado es el `score` (un dict) — hoy la
+>   reconstrucción en `activity_analytics._tree_summary` solo guarda `score` si
+>   es escalar, así que el score de assessment no se muestra (habría que
+>   extraer `score`/`max_score` del dict). (c) opcional: loguear `stem` en
+>   `tree_step`/`tree_outcome` (existe `run.module_stem`) para no depender del
+>   mapa `tree_id`→módulo al atribuir recorridos por módulo.
+
+1. **[RESUELTO 2026-08-05 (3)] Respuestas largas se cortaban con `…[truncated]`.**
+   Se tomó la **opción (b)** de abajo (tope por-campo): en
+   `activity_service.py` se agregó `_LONG_TEXT_KEYS = {"answer"}` +
+   `_MAX_TEXT_LEN = 20000`, y `_safe_value(value, max_len=_MAX_STRING_LEN)` ahora
+   recibe un tope; en la rama de dict, si la clave está en `_LONG_TEXT_KEYS` usa
+   20000, si no sigue en 4000. Así SOLO `answer` crece (el log no se infla en el
+   resto) y las guías/árboles largos se guardan completos. Verificado: `answer`
+   de 6000 → completo, `question`/`route_heading` de 6000 → cortan a 4000,
+   `answer` de 25000 → corta a 20000. `pytest -q` 225 passed / 1 skipped.
+   Nota sobre la regla "no tocar el logger": este cambio NO agrega I/O ni nada
+   que pueda bloquear (sigue best-effort), es solo un tope de tamaño por clave —
+   por eso se consideró dentro del espíritu de la regla. El texto de abajo queda
+   como registro histórico del diagnóstico y las alternativas evaluadas.
+   **Causa raíz** (confirmada): NO era
+   el viejo `[:600]` (ese se sacó y quedó resuelto — respuestas cortas ahora se
+   ven enteras). Es `_safe_value()` en `webapp/services/activity_service.py:64`,
+   que corta CUALQUIER string del payload a `_MAX_STRING_LEN = 4000` y le agrega
+   `"…[truncated]"`. Esa guía supera los 4000 chars → se corta al persistir el
+   evento (no en el render). **Restricción dura**: hay una regla explícita de NO
+   tocar `activity_service.py` más allá de campos opcionales — sigue siendo
+   "best effort", nunca bloquea la app. Subir `_MAX_STRING_LEN` a secas afecta
+   TODOS los campos de TODOS los eventos (infla el log). Opciones para el
+   próximo asistente (elegir con el usuario, no asumir):
+   - (a) Subir `_MAX_STRING_LEN` (global, simple, pero infla todo el log).
+   - (b) Tope por-campo más alto solo para `answer` (más quirúrgico; requiere
+     tocar levemente `_safe_value`/el punto de log — ojo con la regla de arriba).
+   - (c) **Recomendada arquitectónicamente**: NO guardar la respuesta completa
+     en el log. Guardar solo `reply_id`/`conversation_id` (ya se guardan) y que
+     el dashboard lea la respuesta canónica completa del `assistant_store`
+     (`AssistantReply`, en memoria en `assistant_service.py`) por ese id. Deja
+     el log liviano (coherente con la regla "best effort") y muestra el texto
+     completo sin tope. Contra: el store es en memoria — respuestas de sesiones
+     ya expiradas/reiniciadas no estarían (para eventos históricos habría que
+     caer al `answer` truncado del log igual). Evaluar si vale la pena.
+2. **[RESUELTO 2026-08-05]** El detalle expandido ahora se lee como **línea de
+   tiempo narrativa**: `<ol class="story-timeline">` con un paso inicial
+   "El usuario preguntó" + un paso por turno que describe en prosa qué pasó
+   ("El router respondió con contenido curado — sección X" / "Pidió 'Explícame
+   vos' y respondió la IA" / con 🪙 si tuvo costo), la respuesta indentada, y el
+   feedback en la misma narrativa ("El usuario lo calificó 👎 no útil: 'motivo'").
+   Markup en `admin_activity_content.html` (sección "Historia de preguntas") +
+   CSS `.story-timeline*` en `tools.css` (light-first + override dark, línea
+   conectora vertical). Reemplazó los badges sueltos (`.assistant-story__turn/
+   __badge/__answer/__fb`, ya removidos del CSS).
+3. Datos anteriores a esta sesión (sin `reply_id`/`conversation_id`) nunca van
    a correlacionar retroactivamente — comportamiento esperado, no arreglar.
-3. El contrato de drag-and-drop (`data-dashboard-key`) es genérico pero
+4. El contrato de drag-and-drop (`data-dashboard-key`) es genérico pero
    todavía no se retrofiteó a ningún otro dashboard (no existe otro hoy).
-4. No hay test end-to-end real logueado (Azure AD, no automatizable desde el
+5. No hay test end-to-end real logueado (Azure AD, no automatizable desde el
    asistente) — toda la verificación de esta sesión fue: unit tests
    sintéticos de `build_summary()` (incluido el escenario real de 3 turnos
    reportado por el usuario), render Jinja con datos sintéticos, y arranque
@@ -170,6 +232,125 @@ este dashboard, agregá una entrada a la Bitácora (fecha, qué cambiaste,
 estado, qué falta) y actualizá "Pendientes" si resolviste algo de la lista.
 
 ## Bitácora
+
+### 2026-08-05 (4) — Claude — Mejoras: gradiente de gráficos + sección "Árboles de decisión" + fix outcome. PUSHEADO.
+**Estado: todo verificado (`pytest -q` 225 passed / 1 skipped, render sintético
++ estilos computados en browser con Tailwind) y PUSHEADO a prod junto con la
+ronda (3). Quedan 2 pendientes de pulido, ver "Abiertos" arriba.**
+
+- **Gráficos con gradiente de dorado (pedido del usuario).** Antes todas las
+  barras eran el mismo amarillo. Ahora cada barra toma un tono según su valor
+  (más grande = dorado más intenso, va aclarando): inline
+  `background:hsl(45,92%,{{ (44 + (100 - pct) * 0.28)|round|int }}%)` en serie
+  diaria, eventos por tipo, top módulos, top usuarios y árboles iniciados. Se
+  eligió "por valor" y no "por posición" para no engañar en la serie temporal.
+  Verificado: barras horizontales pasaron de 1 tono a 4 (`rgb(215,164,9)` →
+  `rgb(248,211,98)`). **El usuario dijo que no lo convence del todo — a repasar
+  (ver Pendiente abierto de tonos).**
+- **Nueva sección "Árboles de decisión"** (`data-section-id="arboles"`, entre
+  "Módulos y usuarios" e "Historia de preguntas"). Dos partes: (1) *Árboles
+  iniciados* — qué árbol se abrió (título real + chip del panel + count, barra
+  con gradiente); (2) *Recorridos* — reconstrucción por `run_id` del camino de
+  respuestas nodo a nodo (`tree_step`) + resultado (`tree_outcome`), colapsable
+  con `story-timeline` (mismo patrón que la historia de preguntas). Data nueva
+  en `activity_analytics._tree_summary(all_events, user, module)` →
+  `summary.tree_started[]` / `summary.tree_runs[]`. CSS nuevo mínimo:
+  `.tree-panel-chip`. **Atribución por módulo**: los eventos de recorrido NO
+  traen módulo en el payload, así que se mapea `tree_id`→módulo desde
+  `tree_started`; verificado que con filtro de módulo el recorrido sigue
+  apareciendo (si no, se caía).
+- **Fix "Resultado: —"** (lo marcó el usuario): el `tree_outcome` logueaba
+  `leaf.get("id") or leaf.get("title")`, pero las hojas guardan el resultado en
+  `leaf.decision`. Cambiado en `main.py` `answer()`. **Solo aplica a eventos
+  nuevos** (ver Pendiente abierto). Ver ahí las mejoras futuras (name_pattern,
+  score de assessment, loguear stem).
+
+### 2026-08-05 (3) — Claude — Tanda de bugs post-relato + 1 bug abierto (truncado). SIN COMMITEAR.
+**Estado: todos los ítems de abajo verificados salvo el último (bug abierto).
+El batch NO está commiteado/pusheado — el usuario se quedó sin créditos
+semanales y sigue con otro asistente. Ver "⚠️ Estado sin commitear" arriba
+para la lista exacta de archivos y el flujo de commit/push.**
+
+Bugs reportados por el usuario con capturas y resueltos en esta ronda:
+- **Acciones de la tab "Sección" no aparecían en "Historia de preguntas".** La
+  tab Sección logueaba un evento `section_analyze`, distinto de `assistant_query`
+  (la fuente de la historia). Fix: `analyze_section()` en `webapp/main.py`
+  (~línea 1065) ahora loguea `assistant_query` (con `section`, `action`,
+  `question=(user_message or "{action} · {section_slug}")`, `answer`, `routed=False`,
+  `bypass=False`, `llm=(reply is not None)`, `reply_id`, `conversation_id`,
+  `api_cost`). Así todo lo que pasa por la tab asistente Y por la tab sección
+  cae en la misma historia. `_MODULE_KEY_EVENTS` en `activity_analytics.py`
+  incluye `assistant_query`.
+- **La respuesta salía cortada (a 600) y con markdown crudo (`**`).** (1) Se
+  sacó el `[:600]` del `answer` en los dos puntos de log (`assistant_chat()` y
+  `analyze_section()`) → `answer=(reply.answer if reply else "")`. (2) Se agregó
+  `answer_html` a cada turno en `build_summary` vía helper `_answer_html()`
+  (import lazy de `render_llm_html`), y el template usa `turn.answer_html|safe`
+  con fallback a texto plano. Ahora renderiza igual que el panel del asistente
+  (negritas, listas). **OJO retro**: eventos viejos ya truncados a 600 siguen
+  cortos (dato ya perdido en origen); solo eventos nuevos guardan completo.
+- **Viñetas/números desaparecían tras renderizar el markdown.** Tailwind
+  (preflight en `base.html`) resetea `ol, ul { list-style: none }` global. Fix:
+  en `tools.css`, `.story-timeline__answer ul { list-style: disc }` /
+  `ol { list-style: decimal }` (+ padding). Gana por especificidad
+  (0,1,1 vs 0,0,1 de Tailwind). Verificado con `getComputedStyle` en una previa
+  que carga Tailwind (raw `<ol>` = none; `.story-timeline__answer ol` = decimal).
+- **Ingestas fake reaparecían (167/día).** No era el bucket (localhost usa
+  carpetas locales). Causa: la suite pytest (TestClient como test@/junior@/
+  senior@) + entorno con `LOG_ACTIVITY=VERBOSE` + sin aislar `ACTIVITY_LOG_DIR`
+  escribía eventos reales en cada corrida. Fix: fixture autouse en
+  `tests/conftest.py` (`_isolate_runtime_logs`) que fuerza `LOG_ACTIVITY="OFF"`
+  y redirige `ACTIVITY_LOG_DIR` a un tmp. El `activity_log` local se limpió a
+  mano (se quitaron las personas fake, backup `.bak`) — el `.bak` NO se
+  commitea.
+- **KPI "Consultas a IA (con costo)" en 0 mientras el relato decía "respondió
+  la IA".** Se alineó el criterio: `api_cost = (reply is not None) and not
+  execution_mode.startswith("simul")` (llamada REAL a OpenAI). El relato marca
+  🪙 con costo / "· simulación, sin costo" en consecuencia.
+- **Tiles de KPI todos con borde dorado.** Se les dio paleta propia
+  (`--kpi-accent` + `.activity-kpi:nth-child(1..5)`: azul/verde/ámbar/naranja/
+  dorado) alineada al stylesheet del copiloto.
+- **Empty-state del catálogo distinto al global.** Se unificó al
+  `.dashboard-empty` canónico (mismo que usa el dashboard cuando no hay datos).
+
+- **Respuestas largas se cortaban con `…[truncated]` — RESUELTO en esta misma
+  ronda.** El usuario reinició el server, repitió un prompt largo (árbol de
+  diagnóstico de DAC) y seguía cortando. Se midió el evento real logueado:
+  `len(answer) = 4012` = exactamente el tope `_MAX_STRING_LEN = 4000` de
+  `_safe_value` en `activity_service.py` + `…[truncated]` (NO era el `[:600]`,
+  ese ya estaba sacado). Fix: tope por-campo — `_LONG_TEXT_KEYS = {"answer"}` +
+  `_MAX_TEXT_LEN = 20000`, `_safe_value` recibe `max_len`; solo `answer` sube a
+  20000, el resto sigue en 4000 (log liviano). Ver Pendiente #1 para el detalle
+  y la justificación frente a la regla de "no tocar el logger". Verificado por
+  unit check de `_safe_value` + `pytest -q` (225 passed / 1 skipped). **Importa
+  para la confirmación visual**: eventos viejos ya truncados a 4000 siguen
+  cortos (dato perdido en origen); hay que reiniciar local + generar un prompt
+  largo NUEVO para verlo completo.
+
+Verificación de esta ronda: `getComputedStyle` con Tailwind cargado (viñetas),
+render Jinja de la historia con `answer_html`, unit tests sintéticos de
+`build_summary` (escenario real preservando answer de 1202 chars), `pytest -q`
+= 225 passed / 1 skipped. Confirmación visual del usuario: el caso corto OK; el
+largo pendiente por el bug de arriba.
+
+### 2026-08-05 (2) — Claude — Pendiente #1 resuelto: relato secuencial + fix de test
+**Estado: funcional, verificado por render Jinja + suite; falta confirmación
+visual del usuario en su sesión real.**
+
+- **Historia de preguntas → timeline narrativo** (Pendiente #1): el detalle
+  expandido de cada conversación pasó de badges sueltos a un `<ol
+  class="story-timeline">` que se lee de arriba a abajo (preguntó → cómo
+  respondió cada turno en prosa → respuesta → cómo lo calificó). Data intacta
+  (`assistant_stories[].turns[]`), solo TEMPLATE + CSS. CSS nuevo `.story-timeline*`
+  siguiendo el patrón light-first + `.content-theme-dark` (los badges viejos
+  `.assistant-story__turn/__badge/__answer/__fb` se removieron del CSS).
+- **Fix de test frágil**: `test_activity_log_disabled_by_default` asumía
+  `LOG_ACTIVITY` OFF por default y fallaba en entornos con la var en VERBOSE
+  (dev/prod). Ahora forza `monkeypatch.setattr(activity_service, "LOG_ACTIVITY",
+  "OFF")`. Suite 225 verdes con el entorno real (VERBOSE).
+- Verificación: render Jinja del bloque con el escenario real (router 👎 →
+  "Explícame vos" IA 🪙 👍) OK; `pytest` 225 passed. Confirmación visual: pendiente
+  del usuario.
 
 ### 2026-08-05 — Claude (sesión completa: de la idea a "Historia de preguntas")
 **Estado: funcional, verificado por el usuario con datos reales en su sesión

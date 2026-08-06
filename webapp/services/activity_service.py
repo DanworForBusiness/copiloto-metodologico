@@ -43,6 +43,13 @@ _SENSITIVE_KEYS = {
     "secret",
 }
 _MAX_STRING_LEN = 4000
+# Campos de texto "largo": la respuesta del asistente (`answer`) se muestra
+# COMPLETA en el dashboard de actividad (historia de preguntas), así que se le
+# da un tope mucho más alto que al resto de los campos para no cortar guías
+# operativas / árboles de diagnóstico largos. El resto de los campos sigue en
+# _MAX_STRING_LEN (el log se mantiene liviano: solo este campo crece).
+_LONG_TEXT_KEYS = {"answer"}
+_MAX_TEXT_LEN = 20000
 
 
 def _level() -> int:
@@ -59,9 +66,9 @@ def is_verbose() -> bool:
     return _level() >= 2
 
 
-def _safe_value(value: Any) -> Any:
+def _safe_value(value: Any, max_len: int = _MAX_STRING_LEN) -> Any:
     if isinstance(value, str):
-        return value[:_MAX_STRING_LEN] + "…[truncated]" if len(value) > _MAX_STRING_LEN else value
+        return value[:max_len] + "…[truncated]" if len(value) > max_len else value
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     if isinstance(value, dict):
@@ -71,7 +78,8 @@ def _safe_value(value: Any) -> Any:
             if key_str.lower() in _SENSITIVE_KEYS:
                 clean[key_str] = "[redacted]"
             else:
-                clean[key_str] = _safe_value(item)
+                limit = _MAX_TEXT_LEN if key_str.lower() in _LONG_TEXT_KEYS else _MAX_STRING_LEN
+                clean[key_str] = _safe_value(item, limit)
         return clean
     if isinstance(value, (list, tuple, set)):
         return [_safe_value(item) for item in list(value)[:50]]

@@ -1062,10 +1062,24 @@ def analyze_section(
         reply = None
         user_message = ""
         error = str(exc)
+    # Se loguea como assistant_query (no un evento aparte): una acción de la tab
+    # "Sección" ES una interacción con el asistente (aparece en la conversación),
+    # así que debe entrar a la "Historia de preguntas" y al KPI de IA igual que un
+    # chat. Lleva section/action en el payload para no perder ese detalle.
     log_verbose(
-        "section_analyze", user=user,
+        "assistant_query", user=user,
         stem=stem, section=section_slug, action=action,
-        ok=(reply is not None), error=(error or ""),
+        question=(user_message or f"{action} · {section_slug}"),
+        answer=(reply.answer if reply else ""),
+        routed=False, route_heading="", bypass=False,
+        llm=(reply is not None),
+        reply_id=(reply.id if reply else ""),
+        conversation_id=conversation_id,
+        api_cost=bool(
+            reply is not None
+            and not section_analysis_service.execution_mode.lower().startswith("simul")
+        ),
+        error=(error or ""),
     )
     return templates.TemplateResponse(
         request=request,
@@ -1509,7 +1523,7 @@ def assistant_chat(
         # Texto de la respuesta (router o LLM) para poder verla en la "historia" del
         # dashboard, no solo saber QUE se contestó. reply.answer siempre existe cuando
         # reply no es None (reply=None solo en el except de arriba).
-        answer=(reply.answer[:600] if reply else ""),
+        answer=(reply.answer if reply else ""),
         routed=(route is not None),
         route_module=(getattr(route, "module", "") or route_module or "") if route else route_module,
         route_heading=(getattr(route, "explain_heading", "") or getattr(route, "heading", "") or route_heading) if route else route_heading,
@@ -1799,7 +1813,12 @@ def answer(request: Request, run_id: str, answer: str = Form("")):
             run_id=run_id, answer=answer,
             tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
             reached_leaf=bool(leaf),
-            leaf=str(leaf.get("id") or leaf.get("title") or "") if leaf else "",
+            # El resultado del árbol vive en `leaf.decision` (el <h3> "Decisión
+            # recomendada" en wizard.html), NO en id/title — las hojas no tienen
+            # esos campos, por eso el dashboard mostraba "Resultado: —". Fallback
+            # a title/id por si alguna hoja vieja los usara. (Los árboles de
+            # assessment no tienen `decision`: su resultado es el `score`.)
+            leaf=str(leaf.get("decision") or leaf.get("title") or leaf.get("id") or "") if leaf else "",
             score=(getattr(run, "assessment_score", None) if leaf else None),
         )
         return _fragment(request, _follow_wizard_redirect(run))

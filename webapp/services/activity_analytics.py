@@ -36,6 +36,19 @@ _TONE_TAG_RE = re.compile(r"\{dw-(black|gold|white|green|red)\}", re.I)
 # Eventos que llevan una referencia de módulo/stem en el payload (module_selected
 # usa "module", el resto usa "stem"). El resto de los eventos (login, catalog_view,
 # tree_*) no son atribuibles a un módulo puntual.
+def _answer_html(text: str) -> str:
+    """Renderiza la respuesta (markdown) a HTML para mostrarla en la historia con
+    el MISMO formato que el panel del asistente (negritas, listas), no texto plano
+    con asteriscos. Import lazy para evitar ciclos en el import de arranque."""
+    if not text:
+        return ""
+    try:
+        from webapp.services.section_analysis import render_llm_html
+        return render_llm_html(text)
+    except Exception:
+        return ""
+
+
 _MODULE_KEY_EVENTS = {"module_selected", "section_analyze", "assistant_query", "tree_started"}
 _TOP_N = 10
 _RECENT_QUESTIONS_N = 20
@@ -166,6 +179,96 @@ def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
     return rows
 
 
+_TREE_START_EVENT = "tree_started"
+_TREE_PATH_EVENTS = {"tree_step", "tree_outcome"}
+
+
+def _tree_summary(all_events: list[dict], user: str, module: str) -> dict:
+    """Reconstruye la actividad de árboles de decisión a partir de dos eventos:
+    - `tree_started` (BASIC-VERBOSE): trae `tree_id`, `tree_title`, `panel`, `stem`
+      → sabemos QUÉ árbol se abrió y desde dónde.
+    - `tree_step`/`tree_outcome` (VERBOSE): traen `run_id`, `answer` (opción
+      elegida en cada nodo), `leaf`/`score` en el outcome → reconstruimos el
+      RECORRIDO (camino de respuestas + resultado).
+
+    Los eventos de recorrido NO llevan módulo en el payload (solo `tree_started`
+    lo tiene, vía `stem`), así que la atribución por módulo de un recorrido se
+    hace mapeando su `tree_id` al módulo del `tree_started` correspondiente. Por
+    eso este resumen se calcula sobre `all_events` (pre-filtro) y aplica los
+    filtros de usuario/módulo acá adentro, no sobre la lista ya filtrada (donde
+    los step/outcome se caerían al filtrar por módulo)."""
+    title_by_id: dict[str, str] = {}
+    module_by_id: dict[str, str] = {}
+    for ev in all_events:
+        if ev["event"] != _TREE_START_EVENT:
+            continue
+        payload = ev["payload"]
+        tid = str(payload.get("tree_id") or "").strip()
+        if not tid:
+            continue
+        title_by_id.setdefault(tid, str(payload.get("tree_title") or "").strip() or tid)
+        if ev["module"]:
+            module_by_id.setdefault(tid, ev["module"])
+
+    started: dict[str, dict] = {}
+    for ev in all_events:
+        if ev["event"] != _TREE_START_EVENT:
+            continue
+        if (user and ev["user"] != user) or (module and ev["module"] != module):
+            continue
+        payload = ev["payload"]
+        tid = str(payload.get("tree_id") or "").strip() or "—"
+        row = started.setdefault(tid, {"tree_id": tid, "title": title_by_id.get(tid, tid), "panels": set(), "count": 0})
+        row["count"] += 1
+        panel = str(payload.get("panel") or "").strip()
+        if panel:
+            row["panels"].add(panel)
+    started_rows = sorted(started.values(), key=lambda r: r["count"], reverse=True)
+    max_start = started_rows[0]["count"] if started_rows else 0
+    for row in started_rows:
+        row["panels"] = ", ".join(sorted(row["panels"]))
+        row["pct"] = round(100 * row["count"] / max_start) if max_start else 0
+
+    runs: dict[str, dict] = {}
+    order: list[str] = []
+    for ev in all_events:
+        if ev["event"] not in _TREE_PATH_EVENTS:
+            continue
+        payload = ev["payload"]
+        run_id = str(payload.get("run_id") or "").strip()
+        if not run_id:
+            continue
+        tid = str(payload.get("tree_id") or "").strip()
+        run_module = module_by_id.get(tid, "")
+        if (user and ev["user"] != user) or (module and run_module != module):
+            continue
+        if run_id not in runs:
+            runs[run_id] = {
+                "tree_id": tid,
+                "title": title_by_id.get(tid, tid or "—"),
+                "module": run_module,
+                "user": ev["name"] or ev["user"],
+                "ts_utc": ev["ts_utc"],
+                "steps": [],
+                "outcome": None,
+            }
+            order.append(run_id)
+        run = runs[run_id]
+        answer = _TONE_TAG_RE.sub("", str(payload.get("answer") or "")).strip()
+        if answer:
+            run["steps"].append(answer)
+        if ev["event"] == "tree_outcome" or payload.get("reached_leaf"):
+            score = payload.get("score")
+            score_display = str(score) if isinstance(score, (int, float, str)) and str(score).strip() else ""
+            run["outcome"] = {
+                "leaf": _TONE_TAG_RE.sub("", str(payload.get("leaf") or "").strip()),
+                "score": score_display,
+            }
+    run_rows = [runs[k] for k in order]
+    run_rows.sort(key=lambda r: r["ts_utc"] or "", reverse=True)
+    return {"tree_started": started_rows, "tree_runs": run_rows[:_RECENT_QUESTIONS_N]}
+
+
 def build_summary(date_from: str, date_to: str, user: str = "", module: str = "") -> dict:
     all_events = _read_events(date_from, date_to)
     available_users, available_modules = _facets(all_events)
@@ -235,7 +338,8 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
                     "bypass": bool(ev["payload"].get("bypass")),
                     "llm": bool(ev["payload"].get("llm")),
                     "api_cost": bool(ev["payload"].get("api_cost")),
-                    "answer": _TONE_TAG_RE.sub("", str(ev["payload"].get("answer") or "")).strip(),
+                    "answer": (_ans := _TONE_TAG_RE.sub("", str(ev["payload"].get("answer") or "")).strip()),
+                    "answer_html": _answer_html(_ans),
                     "feedback": feedback_by_reply.get(reply_id),
                 })
 
@@ -259,6 +363,8 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
 
     recent_keys = assistant_order[-_RECENT_QUESTIONS_N:]
     assistant_stories = [assistant_conversations[k] for k in reversed(recent_keys)]
+
+    trees = _tree_summary(all_events, user, module)
 
     return {
         "date_from": date_from,
@@ -288,4 +394,6 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
         ],
         "daily_series": daily_series,
         "assistant_stories": assistant_stories,
+        "tree_started": trees["tree_started"],
+        "tree_runs": trees["tree_runs"],
     }

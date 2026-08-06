@@ -106,9 +106,12 @@
   <div class="dashboard-section__body">
     <div class="activity-chart">
       {% for row in summary.daily_series %}
+      {# Tono del dorado según el valor (más alto = más intenso; van aclarando).
+         Mismo criterio en todos los gráficos: hsl gold, la claridad sube cuando
+         el valor baja — anda igual en tema claro y oscuro. #}
       <div class="activity-chart__col" title="{{ row.day }}: {{ row.count }} evento(s)">
         <span class="activity-chart__count">{{ row.count }}</span>
-        <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
+        <div class="activity-chart__bar" style="height:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></div>
         <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
       </div>
       {% endfor %}
@@ -129,9 +132,10 @@
       <div>
         <p class="dashboard-subhead">Eventos por tipo</p>
         {% for row in summary.event_counts %}
+        {% set pct = (100 * row.count / summary.event_counts[0].count)|round %}
         <div class="activity-bar-row">
           <span class="activity-bar-label"><code>{{ row.event }}</code></span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ (100 * row.count / summary.event_counts[0].count)|round }}%"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ pct }}%; background:hsl(45,92%,{{ (44 + (100 - pct) * 0.28)|round|int }}%)"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
@@ -147,7 +151,10 @@
         </div>
         {% endfor %}
         {% else %}
-        <p class="empty-panel">Sin vistas de catálogo en el rango.</p>
+        <div class="dashboard-empty">
+          <span class="dashboard-empty__label">Sin vistas</span>
+          <p>No hubo vistas de catálogo en el rango seleccionado.</p>
+        </div>
         {% endif %}
       </div>
     </div>
@@ -169,7 +176,7 @@
         {% for row in summary.top_modules %}
         <div class="activity-bar-row">
           <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
@@ -179,12 +186,95 @@
         {% for row in summary.top_users %}
         <div class="activity-bar-row">
           <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
       </div>
     </div>
+  </div>
+</details>
+{% endif %}
+
+{% if summary.tree_started or summary.tree_runs %}
+<details class="dashboard-section" data-section-id="arboles" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Árboles de decisión</span>
+    <span class="dashboard-section__count">{{ summary.tree_started|length }} iniciado(s) · {{ summary.tree_runs|length }} recorrido(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <p class="dashboard-subhead">Árboles iniciados</p>
+    {% if summary.tree_started %}
+    {% for row in summary.tree_started %}
+    <div class="activity-bar-row">
+      <span class="activity-bar-label">{{ row.title }}{% if row.panels %} <span class="tree-panel-chip">{{ row.panels }}</span>{% endif %}</span>
+      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%; background:hsl(45,92%,{{ (44 + (100 - row.pct) * 0.28)|round|int }}%)"></span></div>
+      <span class="activity-bar-count">{{ row.count }}</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="dashboard-empty">
+      <span class="dashboard-empty__label">Sin inicios</span>
+      <p>No se inició ningún árbol de decisión en el rango seleccionado.</p>
+    </div>
+    {% endif %}
+
+    <p class="dashboard-subhead" style="margin-top:20px">Recorridos</p>
+    {% if summary.tree_runs %}
+    {# Cada recorrido se reconstruye por run_id: el camino de respuestas nodo a
+       nodo (tree_step) + el resultado final (tree_outcome). Colapsado en una
+       línea, expande al detalle — mismo patrón que la historia de preguntas. #}
+    <ul class="activity-feed">
+      {% for run in summary.tree_runs %}
+      <li class="activity-feed__item">
+        <details class="assistant-story">
+          <summary class="assistant-story__row">
+            <span class="activity-feed__ts"><code>{{ run.ts_utc[:19]|replace('T', ' · ') }}</code></span>
+            <span class="activity-feed__user">{{ run.user }}</span>
+            <span class="activity-feed__text">{{ run.title }}</span>
+            <span class="assistant-story__icons">
+              <span title="Respuestas registradas en este recorrido">➜ {{ run.steps|length }}</span>
+              {% if run.outcome %}<span title="Llegó a un resultado">🏁</span>{% else %}<span title="No llegó a un resultado (recorrido sin cerrar)">⋯</span>{% endif %}
+            </span>
+          </summary>
+          <div class="assistant-story__detail">
+            <ol class="story-timeline">
+              <li class="story-timeline__step story-timeline__step--ask">
+                <span class="story-timeline__dot" aria-hidden="true">🌳</span>
+                <div class="story-timeline__body">
+                  <p class="story-timeline__lead">Inició el árbol <strong>{{ run.title }}</strong></p>
+                </div>
+              </li>
+              {% for step in run.steps %}
+              <li class="story-timeline__step">
+                <span class="story-timeline__dot" aria-hidden="true">➜</span>
+                <div class="story-timeline__body">
+                  <p class="story-timeline__lead">Respondió <strong>{{ step }}</strong></p>
+                </div>
+              </li>
+              {% endfor %}
+              {% if run.outcome %}
+              <li class="story-timeline__step">
+                <span class="story-timeline__dot" aria-hidden="true">🏁</span>
+                <div class="story-timeline__body">
+                  <p class="story-timeline__lead">Resultado: <strong>{{ run.outcome.leaf or '—' }}</strong>{% if run.outcome.score %} · score <strong>{{ run.outcome.score }}</strong>{% endif %}</p>
+                </div>
+              </li>
+              {% endif %}
+            </ol>
+          </div>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="dashboard-empty">
+      <span class="dashboard-empty__label">Sin recorridos</span>
+      <p>Todavía no hay recorridos con respuestas en el rango. Se registran cuando el usuario responde los nodos del árbol (no solo al abrirlo).</p>
+    </div>
+    {% endif %}
   </div>
 </details>
 {% endif %}
@@ -218,28 +308,43 @@
             </span>
           </summary>
           <div class="assistant-story__detail">
-            {% for turn in story.turns %}
-            <div class="assistant-story__turn">
-              <span class="assistant-story__badge"
-                    title="{% if turn.routed %}El router determinista contestó con contenido curado (sin IA){% elif turn.bypass %}El usuario apretó el botón &quot;Explícame vos&quot; para saltear el router y pedirle la respuesta al LLM{% elif turn.llm %}El asistente respondió directo con el LLM{% else %}Respuesta sin clasificar{% endif %}">
-                {%- if turn.routed -%}
-                  Router{% if turn.route_heading %} → {{ turn.route_heading }}{% endif %}
-                {%- elif turn.bypass -%}
-                  Explícame vos → IA
-                {%- elif turn.llm -%}
-                  Asistente (IA)
-                {%- else -%}
-                  Respuesta
-                {%- endif -%}
-              </span>
-              {% if turn.api_cost %}<span class="assistant-story__badge" title="Esta respuesta consumió la API de OpenAI (con costo)">🪙 con costo</span>{% endif %}
-              {% if turn.feedback %}
-              <span class="assistant-story__fb assistant-story__fb--{{ turn.feedback.rating }}" title="Así reaccionó el usuario a esta respuesta">{{ '👍' if turn.feedback.rating == 'up' else '👎' }}</span>
-              {% if turn.feedback.comment %}<span class="assistant-story__fb-comment">"{{ turn.feedback.comment }}"</span>{% endif %}
-              {% endif %}
-            </div>
-            {% if turn.answer %}<p class="assistant-story__answer">{{ turn.answer }}</p>{% endif %}
-            {% endfor %}
+            {# Relato secuencial: se lee de arriba a abajo como una línea de tiempo —
+               preguntó → cómo respondió cada turno (router / "Explícame vos" / IA) →
+               qué contestó → cómo lo calificó. Toda la data ya viene en story.turns. #}
+            <ol class="story-timeline">
+              <li class="story-timeline__step story-timeline__step--ask">
+                <span class="story-timeline__dot" aria-hidden="true">💬</span>
+                <div class="story-timeline__body">
+                  <p class="story-timeline__lead">El usuario preguntó</p>
+                  <p class="story-timeline__quote">{{ story.question }}</p>
+                </div>
+              </li>
+              {% for turn in story.turns %}
+              <li class="story-timeline__step">
+                <span class="story-timeline__dot" aria-hidden="true">{% if turn.routed %}🧭{% elif turn.bypass %}✨{% elif turn.llm %}🤖{% else %}•{% endif %}</span>
+                <div class="story-timeline__body">
+                  <p class="story-timeline__lead">
+                    {%- if turn.routed -%}
+                      El <strong>router</strong> respondió con contenido curado{% if turn.route_heading %} — sección <strong>{{ turn.route_heading }}</strong>{% endif %}
+                    {%- elif turn.bypass -%}
+                      Pidió <strong>“Explícame vos”</strong> y respondió la <strong>IA</strong>
+                    {%- elif turn.llm -%}
+                      El asistente respondió con <strong>IA</strong>
+                    {%- else -%}
+                      Respondió
+                    {%- endif -%}
+                    {% if turn.api_cost %} <span class="story-timeline__cost" title="Esta respuesta consumió la API de OpenAI (con costo) — suma al KPI &quot;Consultas a IA (con costo)&quot;">🪙 con costo</span>{% elif turn.bypass or turn.llm %} <span class="story-timeline__cost story-timeline__cost--free" title="La IA respondió en modo simulación: no llamó a OpenAI, sin costo — por eso NO suma al KPI &quot;Consultas a IA (con costo)&quot;">· simulación, sin costo</span>{% endif %}
+                  </p>
+                  {% if turn.answer_html %}<div class="story-timeline__answer">{{ turn.answer_html|safe }}</div>{% elif turn.answer %}<p class="story-timeline__answer">{{ turn.answer }}</p>{% endif %}
+                  {% if turn.feedback %}
+                  <p class="story-timeline__fb story-timeline__fb--{{ turn.feedback.rating }}">
+                    El usuario lo calificó {{ '👍 útil' if turn.feedback.rating == 'up' else '👎 no útil' }}{% if turn.feedback.comment %}: <span class="story-timeline__fb-comment">“{{ turn.feedback.comment }}”</span>{% endif %}
+                  </p>
+                  {% endif %}
+                </div>
+              </li>
+              {% endfor %}
+            </ol>
           </div>
         </details>
       </li>

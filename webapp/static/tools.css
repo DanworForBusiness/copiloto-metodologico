@@ -541,10 +541,18 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
 
 .activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.activity-kpi { padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--gold); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.activity-kpi { padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
 .activity-kpi__value { font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em; }
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
-.activity-kpi__label { color: var(--gold); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+/* Acento distinto por tile — paleta canónica de estados de catálogo (mismos
+   colores que .catalog-status--*), para que se diferencien sin romper la
+   identidad. Solo borde + label; el valor queda neutro por legibilidad. */
+.activity-kpi:nth-child(1) { --kpi-accent: #2f6fbd; }  /* azul */
+.activity-kpi:nth-child(2) { --kpi-accent: #2e9e5b; }  /* verde */
+.activity-kpi:nth-child(3) { --kpi-accent: #c89100; }  /* ámbar */
+.activity-kpi:nth-child(4) { --kpi-accent: #d06f1f; }  /* naranja */
+.activity-kpi:nth-child(5) { --kpi-accent: #e7b008; }  /* dorado (IA / costo) */
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 
@@ -564,6 +572,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar__fill { display: block; height: 100%; background: var(--gold); border-radius: 4px; }
 .activity-bar-count { min-width: 28px; text-align: right; font: .72rem var(--mono); color: #55555c; }
 .content-theme-dark .activity-bar-count { color: #b2b2bc; }
+
+/* Chip del panel desde donde se abrió el árbol (árbol / diagnóstico / etc.). */
+.tree-panel-chip { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(128,128,128,.16); color: #7a7a82; font: 600 .6rem var(--mono); text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
+.content-theme-dark .tree-panel-chip { color: #9a9aa2; background: rgba(200,200,210,.12); }
 
 .activity-dot-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: .78rem; color: #1f1f24; }
 .content-theme-dark .activity-dot-row { color: #e4e4ec; }
@@ -592,13 +604,44 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .assistant-story__icons { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #7a7a82; white-space: nowrap; }
 .content-theme-dark .assistant-story__icons { color: #9a9aa2; }
 .assistant-story__detail { margin: 8px 0 2px 18px; }
-.assistant-story__turn { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; font-size: .78rem; }
-.assistant-story__badge { display: inline-flex; align-items: center; color: #7a7a82; font: 650 .62rem var(--mono); text-transform: uppercase; letter-spacing: .03em; border: 1px solid rgba(128,128,128,.32); border-radius: 4px; padding: 2px 6px; cursor: help; }
-.content-theme-dark .assistant-story__badge { color: #9a9aa2; }
-.assistant-story__fb { font-size: .82rem; cursor: help; }
-.assistant-story__fb-comment { color: #c25a2b; font-size: .78rem; font-style: italic; }
-.assistant-story__answer { margin: 2px 0 10px; color: #55555c; font-size: .78rem; line-height: 1.55; white-space: pre-line; }
-.content-theme-dark .assistant-story__answer { color: #b2b2bc; }
+/* Timeline narrativo del detalle: se lee de arriba a abajo (preguntó → respondió
+   → calificó). Colores literales light-first + override dark — los tokens
+   globales no cambian de tema en el panel central (ver HANDOFF). */
+.story-timeline { list-style: none; margin: 6px 0 2px; padding: 0; }
+.story-timeline__step { position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 0 0 14px; }
+.story-timeline__step:last-child { padding-bottom: 2px; }
+.story-timeline__step::before { content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: #e2e0d8; }
+.story-timeline__step:last-child::before { display: none; }
+.content-theme-dark .story-timeline__step::before { background: #34343a; }
+.story-timeline__dot { position: relative; z-index: 1; width: 22px; height: 22px; display: grid; place-items: center; font-size: .74rem; background: #f7f7f4; border: 1px solid #d9d9d3; border-radius: 50%; }
+.content-theme-dark .story-timeline__dot { background: var(--bg); border-color: #34343a; }
+.story-timeline__body { min-width: 0; }
+.story-timeline__lead { margin: 1px 0 0; font-size: .8rem; line-height: 1.45; color: #44444c; }
+.content-theme-dark .story-timeline__lead { color: #c2c2ca; }
+.story-timeline__lead strong { color: #111113; font-weight: 700; }
+.content-theme-dark .story-timeline__lead strong { color: #f1f1f5; }
+.story-timeline__quote { margin: 3px 0 0; font-size: .82rem; font-weight: 600; color: #111113; }
+.content-theme-dark .story-timeline__quote { color: #f1f1f5; }
+.story-timeline__cost { font-size: .72rem; color: #7a7a82; white-space: nowrap; }
+.story-timeline__cost--free { color: #9a9aa2; font-style: italic; }
+.story-timeline__answer { margin: 5px 0 0; padding-left: 11px; border-left: 2px solid #e2e0d8; color: #55555c; font-size: .78rem; line-height: 1.55; }
+.content-theme-dark .story-timeline__answer { color: #b2b2bc; border-left-color: #34343a; }
+.story-timeline__answer > :first-child { margin-top: 0; }
+.story-timeline__answer > :last-child { margin-bottom: 0; }
+.story-timeline__answer p { margin: 0 0 8px; }
+/* Tailwind (preflight en base.html) resetea list-style a none; lo restauramos
+   acá para que las viñetas/números de la respuesta se vean. */
+.story-timeline__answer ul { list-style: disc; margin: 6px 0; padding-left: 20px; }
+.story-timeline__answer ol { list-style: decimal; margin: 6px 0; padding-left: 20px; }
+.story-timeline__answer li { margin: 2px 0; }
+.story-timeline__answer strong { color: #111113; font-weight: 700; }
+.content-theme-dark .story-timeline__answer strong { color: #f1f1f5; }
+.story-timeline__answer code { font-family: var(--mono, monospace); font-size: .95em; }
+.story-timeline__fb { margin: 6px 0 0; font-size: .78rem; color: #55555c; }
+.content-theme-dark .story-timeline__fb { color: #b2b2bc; }
+.story-timeline__fb--down { color: #b4471f; }
+.content-theme-dark .story-timeline__fb--down { color: #e5825f; }
+.story-timeline__fb-comment { font-style: italic; }
 
 @media (max-width: 900px) {
   .activity-kpi-grid { grid-template-columns: repeat(2, 1fr); }

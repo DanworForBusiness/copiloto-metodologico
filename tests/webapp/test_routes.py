@@ -580,7 +580,10 @@ def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
 
 def test_activity_log_disabled_by_default(monkeypatch, tmp_path):
     from webapp.services import activity_service
-    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)  # LOG_ACTIVITY queda OFF
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    # Forzar OFF explícitamente: no depender del LOG_ACTIVITY del entorno (en
+    # dev/prod suele estar en VERBOSE), si no el test es frágil y falla ahí.
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "OFF")
     client.get("/modules/01_Arquitectura_y_Conectividad")
     assert not list(tmp_path.glob("activity_*.jsonl"))
 
