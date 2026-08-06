@@ -585,6 +585,9 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
 .activity-bar-row--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .dashboard-subhead__hint { font-weight: 400; letter-spacing: 0; text-transform: none; opacity: .75; }
+/* Pista de que el nombre del evento tiene tooltip (qué mide): subrayado punteado
+   sutil + cursor de ayuda. El tooltip en sí es el title nativo. */
+.activity-event-name { border-bottom: 1px dotted currentColor; cursor: help; }
 .activity-bar-label { min-width: 110px; flex-shrink: 0; color: #1f1f24; overflow-wrap: anywhere; }
 .content-theme-dark .activity-bar-label { color: #e4e4ec; }
 .activity-bar { flex: 1; height: 8px; background: rgba(128,128,128,.2); border-radius: 4px; overflow: hidden; }

@@ -53,6 +53,30 @@ _MODULE_KEY_EVENTS = {"module_selected", "section_analyze", "assistant_query", "
 _TOP_N = 10
 _RECENT_QUESTIONS_N = 20
 
+# Qué mide cada evento — se muestra como tooltip sobre el nombre del evento en el
+# dashboard, para que quien lee los números sepa exactamente qué está contando
+# (y por qué, p. ej., tree_step > tree_started: un recorrido tiene varios nodos).
+# Fuente de la verdad de los nombres: los log_activity/log_verbose en main.py
+# (+ el beacon /telemetry/event y su _TELEMETRY_EVENTS).
+_EVENT_DESCRIPTIONS = {
+    "login": "Inicios de sesión (una vez por login).",
+    "module_selected": "Veces que se abrió un módulo del marco (una por cada vez que se entra).",
+    "module_continue": "Veces que se usó el cue de “continuar” para avanzar dentro de un módulo.",
+    "module_reached_end": "Veces que se llegó al final de un módulo (lectura completa).",
+    "academy_selected": "Veces que se abrió una página de Academy.",
+    "assistant_query": "Preguntas/acciones enviadas al asistente (chat o acciones de la tab Sección). Cada envío suma una.",
+    "catalog_view": "Fichas del catálogo abiertas (dominio, flujo, data product, CDS o guía). El desglose es por tipo de ficha.",
+    "catalog_regenerate": "Veces que se regeneró el catálogo.",
+    "tree_started": "Árboles de decisión iniciados: cada apertura es un recorrido nuevo. (Ver detalle en la sección “Árboles de decisión”.)",
+    "tree_step": "Respuestas a nodos INTERMEDIOS de un árbol (cada opción elegida que todavía NO cierra en un resultado). Un recorrido de varios nodos suma varias — por eso suele ser mayor que tree_started.",
+    "tree_outcome": "Respuestas que cerraron un árbol en un RESULTADO (hoja). Una por recorrido que llegó al final; los recorridos abandonados no suman acá.",
+    "nav_jump": "Saltos de navegación interna (ir a otra sección/módulo desde un enlace).",
+    "link_external": "Clics en enlaces externos (fuera del copiloto).",
+    "disclosure_toggle": "Veces que se abrió/cerró un desplegable de contenido.",
+    "theme_change": "Veces que se cambió el tema (claro/oscuro).",
+    "section_analyze": "(Histórico) Acción de análisis de sección — reemplazado por assistant_query; puede aparecer en datos previos.",
+}
+
 
 def _bounds(date_from: str, date_to: str) -> tuple[str, str]:
     low = (date_from or "").replace("-", "").strip() or "00000000"
@@ -414,4 +438,5 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
         "tree_started": trees["tree_started"],
         "tree_runs": trees["tree_runs"],
         "event_breakdowns": event_breakdowns,
+        "event_descriptions": _EVENT_DESCRIPTIONS,
     }

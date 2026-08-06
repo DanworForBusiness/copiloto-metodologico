@@ -238,6 +238,24 @@ estado, qué falta) y actualizá "Pendientes" si resolviste algo de la lista.
 
 ## Bitácora
 
+### 2026-08-05 (8) — Claude — Tooltips "qué mide cada evento". PUSHEADO.
+**Estado: verificado (title/underline/cursor por estilos computados en browser +
+`pytest -q` 225 passed / 1 skipped). Pusheado.**
+
+- El usuario pidió claridad sobre qué cuenta cada evento (ej.: por qué
+  `tree_step`=10 con `tree_started`=5). Se agregó un diccionario
+  `_EVENT_DESCRIPTIONS` en `activity_analytics.py` (fuente única, alineado a los
+  eventos reales de `main.py` + el beacon `/telemetry/event`), expuesto como
+  `summary.event_descriptions`. El template pone ese texto como `title` (tooltip
+  nativo) sobre el nombre del evento — tanto en la lista "Eventos por tipo" como
+  en el header "Desglose de …". Afordancia visual: `.activity-event-name`
+  (subrayado punteado + `cursor: help`).
+- Aclaración clave que ahora da el tooltip: `tree_step` = respuestas a nodos
+  INTERMEDIOS (varias por recorrido) vs `tree_started` = recorridos iniciados vs
+  `tree_outcome` = recorridos que cerraron en resultado. Eso reconcilia lo que el
+  usuario no entendía. Si se agregan eventos nuevos en `main.py`, sumar su
+  descripción al dict (si falta, el tooltip cae en "Evento sin descripción").
+
 ### 2026-08-05 (7) — Claude — Pulidos cosméticos (tipografía de code + altura del botón). PUSHEADO.
 **Estado: CSS puro (`tools.css`), verificado por estilos computados en browser +
 `pytest -q` 225 passed / 1 skipped. Pusheado.**
