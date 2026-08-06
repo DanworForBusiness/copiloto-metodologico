@@ -53,6 +53,33 @@ _MODULE_KEY_EVENTS = {"module_selected", "section_analyze", "assistant_query", "
 _TOP_N = 10
 _RECENT_QUESTIONS_N = 20
 
+# Paginación de "Historia de preguntas al asistente": el listado completo (no
+# solo un cap fijo) se pagina server-side para que no se vuelva pesado de
+# escanear a medida que se acumula actividad.
+_STORY_PAGE_SIZES = (10, 15, 25, 50)
+_DEFAULT_STORY_PAGE_SIZE = 10
+
+
+def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int | None]:
+    """Números de página a mostrar en el paginador: siempre primera/última,
+    +/- `radius` alrededor de la actual, con `None` como separador "…" en los
+    huecos. Ej. page=4, total=10, radius=2 → [1, None, 2,3,4,5,6, None, 10]."""
+    if total_pages <= 1:
+        return [1]
+    window = {1, total_pages}
+    for p in range(page - radius, page + radius + 1):
+        if 1 <= p <= total_pages:
+            window.add(p)
+    ordered = sorted(window)
+    result: list[int | None] = []
+    prev = None
+    for p in ordered:
+        if prev is not None and p - prev > 1:
+            result.append(None)
+        result.append(p)
+        prev = p
+    return result
+
 # Qué mide cada evento — se muestra como tooltip sobre el nombre del evento en el
 # dashboard, para que quien lee los números sepa exactamente qué está contando
 # (y por qué, p. ej., tree_step > tree_started: un recorrido tiene varios nodos).
@@ -293,7 +320,10 @@ def _tree_summary(all_events: list[dict], user: str, module: str) -> dict:
     return {"tree_started": started_rows, "tree_runs": run_rows[:_RECENT_QUESTIONS_N]}
 
 
-def build_summary(date_from: str, date_to: str, user: str = "", module: str = "") -> dict:
+def build_summary(
+    date_from: str, date_to: str, user: str = "", module: str = "",
+    story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+) -> dict:
     all_events = _read_events(date_from, date_to)
     available_users, available_modules = _facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
@@ -391,8 +421,16 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
         if conv["has_api_cost"]:
             assistant_api_cost_count += 1
 
-    recent_keys = assistant_order[-_RECENT_QUESTIONS_N:]
-    assistant_stories = [assistant_conversations[k] for k in reversed(recent_keys)]
+    # Paginación real sobre TODA la conversación filtrada (no un cap fijo): más
+    # reciente primero (assistant_order queda en orden de PRIMERA aparición,
+    # se invierte acá).
+    all_keys_desc = list(reversed(assistant_order))
+    assistant_stories_total = len(all_keys_desc)
+    page_size = story_page_size if story_page_size in _STORY_PAGE_SIZES else _DEFAULT_STORY_PAGE_SIZE
+    total_pages = max(1, -(-assistant_stories_total // page_size)) if assistant_stories_total else 1
+    page = max(1, min(story_page or 1, total_pages))
+    start = (page - 1) * page_size
+    assistant_stories = [assistant_conversations[k] for k in all_keys_desc[start:start + page_size]]
 
     trees = _tree_summary(all_events, user, module)
 
@@ -435,6 +473,12 @@ def build_summary(date_from: str, date_to: str, user: str = "", module: str = ""
         ],
         "daily_series": daily_series,
         "assistant_stories": assistant_stories,
+        "assistant_stories_total": assistant_stories_total,
+        "assistant_stories_page": page,
+        "assistant_stories_page_size": page_size,
+        "assistant_stories_total_pages": total_pages,
+        "assistant_stories_page_sizes": _STORY_PAGE_SIZES,
+        "assistant_stories_page_window": _page_window(page, total_pages),
         "tree_started": trees["tree_started"],
         "tree_runs": trees["tree_runs"],
         "event_breakdowns": event_breakdowns,

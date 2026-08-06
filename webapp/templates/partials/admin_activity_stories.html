@@ -1,0 +1,96 @@
+{% set base_qs = "date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode) %}
+<div id="assistant-stories-body">
+  {# Cada pregunta puede tener varios "turnos": el router contesta primero (a
+     veces "pobre"), y si el usuario apretó "Explícame vos" hay un segundo
+     turno con la respuesta del LLM — mismo texto de pregunta, dos eventos
+     reales. El feedback 👍/👎 (+comentario) queda pegado al turno exacto que
+     lo recibió, correlacionado por reply_id (ver activity_analytics.py). #}
+  <ul class="activity-feed">
+    {% for story in summary.assistant_stories %}
+    <li class="activity-feed__item">
+      <details class="assistant-story">
+        <summary class="assistant-story__row">
+          <span class="activity-feed__ts"><code>{{ story.turns[0].ts_utc[:19]|replace('T', ' · ') }}</code></span>
+          <span class="activity-feed__user">{{ story.user }}</span>
+          <span class="activity-feed__text">{{ story.question }}</span>
+          <span class="assistant-story__icons">
+            {% if story.turn_count > 1 %}<span title="{{ story.turn_count }} turnos en esta conversación (p. ej. router y después &quot;Explícame vos&quot;)">↻ {{ story.turn_count }}</span>{% endif %}
+            {% if story.has_api_cost %}<span title="Al menos una respuesta consumió la API de OpenAI (con costo)">🪙</span>{% endif %}
+            {% if story.has_down_feedback %}<span title="El usuario calificó negativamente una respuesta">👎</span>{% endif %}
+          </span>
+        </summary>
+        <div class="assistant-story__detail">
+          {# Relato secuencial: se lee de arriba a abajo como una línea de tiempo —
+             preguntó → cómo respondió cada turno (router / "Explícame vos" / IA) →
+             qué contestó → cómo lo calificó. Toda la data ya viene en story.turns. #}
+          <ol class="story-timeline">
+            <li class="story-timeline__step story-timeline__step--ask">
+              <span class="story-timeline__dot" aria-hidden="true">💬</span>
+              <div class="story-timeline__body">
+                <p class="story-timeline__lead">El usuario preguntó</p>
+                <p class="story-timeline__quote">{{ story.question }}</p>
+              </div>
+            </li>
+            {% for turn in story.turns %}
+            <li class="story-timeline__step">
+              <span class="story-timeline__dot" aria-hidden="true">{% if turn.routed %}🧭{% elif turn.bypass %}✨{% elif turn.llm %}🤖{% else %}•{% endif %}</span>
+              <div class="story-timeline__body">
+                <p class="story-timeline__lead">
+                  {%- if turn.routed -%}
+                    El <strong>router</strong> respondió con contenido curado{% if turn.route_heading %} — sección <strong>{{ turn.route_heading }}</strong>{% endif %}
+                  {%- elif turn.bypass -%}
+                    Pidió <strong>“Explícame vos”</strong> y respondió la <strong>IA</strong>
+                  {%- elif turn.llm -%}
+                    El asistente respondió con <strong>IA</strong>
+                  {%- else -%}
+                    Respondió
+                  {%- endif -%}
+                  {% if turn.api_cost %} <span class="story-timeline__cost" title="Esta respuesta consumió la API de OpenAI (con costo) — suma al KPI &quot;Consultas a IA (con costo)&quot;">🪙 con costo</span>{% elif turn.bypass or turn.llm %} <span class="story-timeline__cost story-timeline__cost--free" title="La IA respondió en modo simulación: no llamó a OpenAI, sin costo — por eso NO suma al KPI &quot;Consultas a IA (con costo)&quot;">· simulación, sin costo</span>{% endif %}
+                </p>
+                {% if turn.answer_html %}<div class="story-timeline__answer">{{ turn.answer_html|safe }}</div>{% elif turn.answer %}<p class="story-timeline__answer">{{ turn.answer }}</p>{% endif %}
+                {% if turn.feedback %}
+                <p class="story-timeline__fb story-timeline__fb--{{ turn.feedback.rating }}">
+                  El usuario lo calificó {{ '👍 útil' if turn.feedback.rating == 'up' else '👎 no útil' }}{% if turn.feedback.comment %}: <span class="story-timeline__fb-comment">“{{ turn.feedback.comment }}”</span>{% endif %}
+                </p>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ol>
+        </div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {% if summary.assistant_stories_total_pages > 1 %}
+  <nav class="activity-pager" aria-label="Paginación de preguntas">
+    <button type="button" class="activity-pager__btn" title="Primera página"
+            {% if summary.assistant_stories_page > 1 %}hx-get="/admin/activity/stories?{{ base_qs }}&story_page=1&story_page_size={{ summary.assistant_stories_page_size }}" hx-target="#assistant-stories-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>«</button>
+    <button type="button" class="activity-pager__btn" title="Anterior"
+            {% if summary.assistant_stories_page > 1 %}hx-get="/admin/activity/stories?{{ base_qs }}&story_page={{ summary.assistant_stories_page - 1 }}&story_page_size={{ summary.assistant_stories_page_size }}" hx-target="#assistant-stories-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>‹</button>
+    {% for p in summary.assistant_stories_page_window %}
+      {% if p is none %}
+      <span class="activity-pager__ellipsis">…</span>
+      {% elif p == summary.assistant_stories_page %}
+      <span class="activity-pager__page is-active" aria-current="page">{{ p }}</span>
+      {% else %}
+      <button type="button" class="activity-pager__page"
+              hx-get="/admin/activity/stories?{{ base_qs }}&story_page={{ p }}&story_page_size={{ summary.assistant_stories_page_size }}"
+              hx-target="#assistant-stories-body" hx-swap="outerHTML">{{ p }}</button>
+      {% endif %}
+    {% endfor %}
+    <button type="button" class="activity-pager__btn" title="Siguiente"
+            {% if summary.assistant_stories_page < summary.assistant_stories_total_pages %}hx-get="/admin/activity/stories?{{ base_qs }}&story_page={{ summary.assistant_stories_page + 1 }}&story_page_size={{ summary.assistant_stories_page_size }}" hx-target="#assistant-stories-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>›</button>
+    <button type="button" class="activity-pager__btn" title="Última página"
+            {% if summary.assistant_stories_page < summary.assistant_stories_total_pages %}hx-get="/admin/activity/stories?{{ base_qs }}&story_page={{ summary.assistant_stories_total_pages }}&story_page_size={{ summary.assistant_stories_page_size }}" hx-target="#assistant-stories-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>»</button>
+    <select class="activity-pager__size" name="story_page_size" aria-label="Preguntas por página"
+            hx-get="/admin/activity/stories?{{ base_qs }}" hx-trigger="change"
+            hx-target="#assistant-stories-body" hx-swap="outerHTML">
+      {% for size in summary.assistant_stories_page_sizes %}
+      <option value="{{ size }}" {% if size == summary.assistant_stories_page_size %}selected{% endif %}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </nav>
+  {% endif %}
+</div>

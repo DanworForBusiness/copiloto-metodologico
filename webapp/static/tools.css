@@ -680,6 +680,20 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .story-timeline__fb--down { color: #e5825f; }
 .story-timeline__fb-comment { font-style: italic; }
 
+/* Paginador de "Historia de preguntas al asistente" (admin_activity_stories.html).
+   Botones/páginas chicos, consistentes con .whatsnew-filter select y demás
+   controles del dashboard — light-first + override dark, sin tokens de --card. */
+.activity-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(128,128,128,.16); }
+.activity-pager__btn, .activity-pager__page { min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid rgba(128,128,128,.32); border-radius: 6px; background: transparent; color: #1f1f24; font: 600 .74rem var(--mono); cursor: pointer; }
+.content-theme-dark .activity-pager__btn, .content-theme-dark .activity-pager__page { color: #e4e4ec; }
+.activity-pager__btn:disabled { opacity: .35; cursor: default; }
+.activity-pager__btn:not(:disabled):hover, .activity-pager__page:not(.is-active):hover { border-color: var(--gold); color: var(--gold); }
+.activity-pager__page.is-active { border-color: var(--gold); background: rgba(231,176,8,.14); color: var(--gold); cursor: default; }
+.activity-pager__ellipsis { padding: 0 2px; color: #7a7a82; font-size: .74rem; }
+.content-theme-dark .activity-pager__ellipsis { color: #9a9aa2; }
+.activity-pager__size { margin-left: auto; height: 30px; padding: 0 8px; border: 1px solid rgba(128,128,128,.32); border-radius: 6px; background: transparent; color: #1f1f24; font: 600 .74rem var(--mono); }
+.content-theme-dark .activity-pager__size { color: #e4e4ec; }
+
 @media (max-width: 900px) {
   .activity-kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .activity-grid-2 { grid-template-columns: 1fr; }
