@@ -1,6 +1,8 @@
 # Copiloto Metodologico | Arquitecto Danwor
 
-Aplicacion Streamlit para navegar contenido metodologico, arboles de decision, assessment tecnico y asistencia con IA para SAP Datasphere / BDC.
+Aplicacion web (FastAPI + Jinja2 SSR + HTMX + Alpine.js) para navegar contenido metodologico, arboles de decision, assessment tecnico y asistencia con IA para SAP Datasphere / BDC.
+
+> El arranque real es Uvicorn/FastAPI (`webapp.main:app`, ver `Procfile`). El runtime original en Streamlit quedo como legacy: ya no se usa ni figura en `requirements.txt`. Directorios remanentes vacios (`ui/`, `engine/`) y `.streamlit/` son de esa epoca.
 
 ## Requisitos
 
@@ -31,7 +33,7 @@ Variables principales:
 ## Ejecucion
 
 ```powershell
-python -m uvicorn webapp.main:app --reload --port 8501
+python -m uvicorn webapp.main:app --reload --port 8082
 ```
 
 En produccion (DigitalOcean) el arranque lo define el `Procfile`:
@@ -39,18 +41,18 @@ En produccion (DigitalOcean) el arranque lo define el `Procfile`:
 
 ## Estructura
 
-- `webapp/`: app FastAPI (main.py + templates + static + services).
+- `webapp/`: app FastAPI (main.py + templates Jinja + static + services).
 - `config.py`: rutas, feature flags y configuracion por entorno.
 - `core/`: estado, contenido, prompts y gateway LLM.
-- `engine/`: carga y render de arboles de decision.
-- `ui/`: paneles visuales de Streamlit.
-- `content/`: modulos Markdown.
-- `trees/`: arboles YAML.
-- `assessment/`: evaluaciones tecnicas.
+- `content_packs/`: packs de contenido (p. ej. `datasphere_core`, `bdc_next`). Cada pack trae `content/` (modulos Markdown), `trees/` (arboles YAML), `assets/`, `guides/`, `templates/` y `pack.yaml`.
+- `tools/`: utilidades (p. ej. `tools/catalog`, generador del catalogo de vistas CDS).
+- `pipeline/`: utilidades compartidas de los scripts de analisis offline (casos, feedback, propuestas de contenido).
+- `tests/`: suite de pytest.
+- `docs/`: documentacion interna.
 
 ## Mantenimiento
 
-No versionar `.env`, `.streamlit/secrets.toml`, archivos `.zip`, `feedback_log/` ni `__pycache__/`.
+No versionar `.env`, claves (`*.key` / `*.pem`), `feedback_log/`, `activity_log/`, archivos `.zip` / `.bak` ni `__pycache__/`. Los directorios de datos runtime (`case_library/`, `reports/`, `catalog_local/`, `catalog_inbound/`) son locales y no se deployan: la memoria persistente vive en DO Spaces (`core/remote_store.py`), no en git.
 
 ## Flujo de decisión del asistente
 
