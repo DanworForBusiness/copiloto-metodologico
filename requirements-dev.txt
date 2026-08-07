@@ -1,0 +1,4 @@
+# Tooling de desarrollo/testing (NO se instala en runtime/producción).
+# Mantener separado de requirements.txt (solo dependencias de runtime).
+# La GitHub Action instala: pip install -r requirements.txt -r requirements-dev.txt
+pytest==9.1.1
