@@ -14,10 +14,11 @@
 > quedó como **ANEXO HISTÓRICO** al final (feature previa, ya en producción; se
 > conserva por su detalle técnico, no es el trabajo en curso).
 >
-> **Estado en una línea (2026-08):** Fase 0 (baseline + CI + route-contract)
-> **CERRADA y GREEN, mergeada a `main`**. Próxima fase activa: **Fase 1 — System
-> Router Pilot** (extraer `/health` y `/favicon.ico` a un `APIRouter`). Ver
-> **A.13**. No avanzar a Fase 2 sin autorización explícita.
+> **Estado en una línea (2026-08):** Fase 0 **CERRADA/GREEN, mergeada a `main`**.
+> **Fase 1 — System Router Pilot: IMPLEMENTADA y pusheada** a
+> `work/architecture-phase-1` (commit `a0bfd8d`); **CI PENDIENTE** (falta abrir
+> el PR manualmente — sin `gh` en el entorno) → **NO cerrada todavía**. Detalle y
+> gates en **A.13.1**. No avanzar a Fase 2 sin autorización explícita.
 
 ## A.1 Contexto de la iniciativa
 
@@ -228,6 +229,38 @@ módulo, preservar exactamente la resolución actual, **no** crear bootstrap/run
 solo para esto, **no** refactorizar paths transversalmente. Si mover favicon
 exige una decisión arquitectónica más amplia → **DETENERSE y explicar** antes de
 ampliar scope.
+
+## A.13.1 Fase 1 — Estado de implementación (IMPLEMENTED / CI PENDING / NOT CLOSED)
+
+**STATUS: IMPLEMENTED LOCALLY / PUSHED · CI PENDING · NOT YET CLOSED.** No marcar
+GREEN/CLOSED hasta que **GitHub CI = GREEN** en el PR.
+
+- **Branch:** `work/architecture-phase-1`. **HEAD:** `a0bfd8d`.
+- **Commits de esta fase:** `8c152b1` (checkpoint del HANDOFF, docs-only) →
+  `a0bfd8d` (implementación) → *(este commit)* `docs(handoff): update architecture
+  phase 1 status`.
+- **Archivos creados:** `webapp/routers/__init__.py`, `webapp/routers/system.py`
+  (`APIRouter` con `/health` y `/favicon.ico`; NO importa `webapp.main`; resuelve
+  el path del favicon localmente = `webapp/`, igual que `WEB_DIR`).
+- **Archivos modificados:** `webapp/main.py` (+`from webapp.routers import system as
+  system_router`, +`app.include_router(system_router.router)`, −los 2 handlers,
+  reemplazados por un comentario); `tests/webapp/test_routes.py` (+`test_favicon`).
+- **Endpoints movidos:** `/health`, `/favicon.ico` (2). Superficie total sin
+  cambios: **75 rutas** (73 `@app.*` directos + 2 vía router).
+- **Route contract:** GREEN, **75 rutas**, `route_surface.json` **NO modificado**
+  (surface antes == después). No se corrió `UPDATE_ROUTE_SURFACE`.
+- **pytest:** **228 passed / 1 skipped / 0 failed** (227 → +1 por `test_favicon`).
+- **Smoke `/health`:** 200 · `{"status":"ok","architecture":"fastapi-ssr-htmx"}`.
+- **Smoke `/favicon.ico`:** 200 · `content-type: image/x-icon` · 19621 bytes.
+- **CI:** PENDIENTE. Abrir PR (sin merge) desde
+  `https://github.com/DanworForBusiness/copiloto-metodologico/pull/new/work/architecture-phase-1`
+  (base `main` ← `work/architecture-phase-1`). El trigger `pull_request` corre la
+  Action; esperado **228 passed / 1 skipped**.
+- **Findings / desviaciones:** ninguna desviación del plan. Único agregado no
+  estrictamente "mover código": un test mínimo de regresión para `/favicon.ico`
+  (no existía; `/health` ya tenía `test_health`) — dentro del alcance autorizado.
+- **Próximo paso:** confirmar CI GREEN en el PR → recién ahí Fase 1 = CLOSED/GREEN.
+  **NO avanzar a Fase 2** sin review + autorización explícita del usuario.
 
 ## A.14 Gates de Fase 1
 
