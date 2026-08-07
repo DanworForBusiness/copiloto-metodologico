@@ -26,13 +26,40 @@ diag_client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
 diag_client.cookies.set("dw-diagnostic", "on")
 
 
+# Caso mínimo REAL para analyze_cases: lo único que exige load_cases() es un dict
+# con `case_id`; el resto de los campos son los que consumen los analizadores
+# (source.tree_id, route[node/answer], leaf_id, outcome, lessons). Con esto la
+# rama de análisis normal corre de forma determinista, sin depender del
+# case_library runtime del desarrollador.
+_MINIMAL_CASE_YAML = """\
+case_id: test-0001
+uncharted: false
+source:
+  tree_id: 01_espacios_topologia
+route:
+  - node: n1
+    answer: "Sí"
+leaf_id: leaf_demo
+outcome: anduvo
+context_description: Caso de prueba para análisis determinista.
+lessons:
+  - Lección de prueba.
+"""
+
+
 @pytest.fixture(autouse=True)
 def _isolate_report_dirs(monkeypatch, tmp_path):
-    """Los scripts escriben en reports/ y trees/proposed/ (archivos trackeados).
+    """Aísla las fuentes y salidas de los scripts de análisis del runtime real.
 
-    Redirigimos sus directorios de salida a tmp para no ensuciar el repo al
-    correr la suite. Las fuentes de lectura (case_library/, feedback_log/) quedan
-    reales para que el análisis tenga datos.
+    - SALIDAS: reports/ y trees/proposed/ se redirigen a tmp para no ensuciar el
+      repo al correr la suite.
+    - FUENTE case_library/: se redirige a un tmp con un caso mínimo real. Antes
+      se dejaba la fuente runtime real, lo que volvía NO determinista a
+      test_cases_analysis_renders_summary: en local (con datos) tomaba la rama de
+      análisis y en CI (checkout limpio, case_library gitignored) tomaba la rama
+      "No hay casos para analizar". Ahora el input es controlado e idéntico en
+      ambos entornos. (feedback_log/ queda real: su test solo verifica el título
+      del panel, que no depende de que haya datos.)
     """
     import analyze_cases
     import analyze_feedback
@@ -45,6 +72,13 @@ def _isolate_report_dirs(monkeypatch, tmp_path):
     monkeypatch.setattr(propose_tree_updates, "REPORTS_DIR", reports, raising=False)
     monkeypatch.setattr(propose_tree_updates, "TREES_DIR", tmp_path / "trees", raising=False)
     monkeypatch.setattr(propose_content_updates, "REPORTS_DIR", tmp_path / "reports_cp", raising=False)
+
+    # Fuente de casos controlada (ver docstring). analyze_cases resuelve CASE_DIR
+    # como default del argparse en runtime, así que el setattr al módulo alcanza.
+    case_dir = tmp_path / "case_library"
+    case_dir.mkdir()
+    (case_dir / "case_test_0001.yaml").write_text(_MINIMAL_CASE_YAML, encoding="utf-8")
+    monkeypatch.setattr(analyze_cases, "CASE_DIR", case_dir, raising=False)
 
 
 _ADMIN_GET = ["/admin/runtime/inventory", "/admin/runtime/export.zip"]
@@ -139,10 +173,27 @@ def test_runtime_inventory_lists_the_three_folders():
 # ── Análisis / propuestas ─────────────────────────────────────────────────
 
 def test_cases_analysis_renders_summary():
+    # Con case_library controlado (fixture) analyze_cases corre la rama normal y
+    # emite el encabezado del reporte: "REPORTE DE CASE LIBRARY — ...".
     response = diag_client.post("/admin/cases/analyze", data={})
     assert response.status_code == 200
     assert "admin-result-output" in response.text
     assert "CASE LIBRARY" in response.text
+
+
+def test_cases_analysis_empty_state_when_no_cases(monkeypatch, tmp_path):
+    """Rama explícita SIN casos: se controla la fuente (CASE_DIR vacío) para no
+    depender del entorno. analyze_cases sale temprano con un mensaje claro y el
+    endpoint responde 200 (SystemExit lo captura admin_tools._capture_main)."""
+    import analyze_cases
+
+    empty_dir = tmp_path / "empty_case_library"
+    empty_dir.mkdir()
+    monkeypatch.setattr(analyze_cases, "CASE_DIR", empty_dir, raising=False)
+
+    response = diag_client.post("/admin/cases/analyze", data={})
+    assert response.status_code == 200
+    assert "No hay casos para analizar" in response.text
 
 
 def test_feedback_analysis_renders_result():
