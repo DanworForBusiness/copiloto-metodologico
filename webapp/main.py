@@ -70,6 +70,7 @@ from webapp.services import admin_tools
 from webapp.services import activity_analytics
 from webapp.services import whats_new_service as whatsnew
 from webapp.services import guides_service as guides
+from webapp.routers import system as system_router
 
 DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
@@ -188,6 +189,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+app.include_router(system_router.router)
 
 
 def _pack(value: str) -> str:
@@ -415,14 +417,8 @@ def _truthy(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-@app.get("/favicon.ico", include_in_schema=False)
-def favicon():
-    return FileResponse(WEB_DIR / "static" / "favicon.ico")
-
-
-@app.get("/health", include_in_schema=False)
-def health():
-    return {"status": "ok", "architecture": "fastapi-ssr-htmx"}
+# /health y /favicon.ico se movieron a webapp/routers/system.py (Fase 1);
+# se incluyen vía app.include_router(system_router.router) arriba.
 
 
 # ── Autenticación Microsoft (Entra ID) ─────────────────────────────────────────

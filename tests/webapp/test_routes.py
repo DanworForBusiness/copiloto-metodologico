@@ -33,6 +33,15 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["architecture"] == "fastapi-ssr-htmx"
 
+def test_favicon():
+    # /health y /favicon.ico se sirven desde webapp/routers/system.py (Fase 1).
+    # Regresión mínima: sirve el asset .ico (status + tipo de imagen + no vacío),
+    # sin acoplar al mimetype exacto que infiere Starlette.
+    response = client.get("/favicon.ico")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/")
+    assert len(response.content) > 0
+
 def test_module_page_renders_server_side():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert response.status_code == 200
