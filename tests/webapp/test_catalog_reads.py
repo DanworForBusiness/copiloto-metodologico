@@ -10,11 +10,37 @@ from webapp.services import catalog_reads
 
 
 def test_domains_returns_list_of_strings():
+    # No asume contenido de catalog_local: en un checkout limpio (CI) ese
+    # directorio está gitignoreado y puede no existir — el contrato acá es
+    # solo la forma (list[str]), no la cantidad. El contenido real, con datos
+    # controlados, se prueba en test_domains_reflects_controlled_fixture.
     result = catalog_reads._catalog_domains()
     assert isinstance(result, list)
-    # catalog_local tiene datos reales (varios clientes) — no debería estar vacío.
-    assert result
     assert all(isinstance(item, str) for item in result)
+
+
+def test_domains_reflects_controlled_fixture(tmp_path, monkeypatch):
+    # Fixture mínima y determinística (no depende de catalog_local del
+    # desarrollador ni del checkout): un solo flujo_*.md con el frontmatter
+    # mínimo que _parse_md exige (auto.tipo=flujo + dominio).
+    domain_dir = tmp_path / "ClienteTest" / "DominioTest"
+    domain_dir.mkdir(parents=True)
+    (domain_dir / "flujo_DominioTest.md").write_text(
+        "---\n"
+        "auto:\n"
+        "  tipo: flujo\n"
+        "  dominio: Fase2ITest\n"
+        "---\n"
+        "Cuerpo de prueba.\n",
+        encoding="utf-8",
+    )
+    catalog_reads._catalog_entries.cache_clear()
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path))
+    try:
+        result = catalog_reads._catalog_domains()
+        assert result == ["Fase2ITest"]
+    finally:
+        catalog_reads._catalog_entries.cache_clear()
 
 
 def test_connection_types_returns_list_semantics():
