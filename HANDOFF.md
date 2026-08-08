@@ -18,7 +18,7 @@
 > **CLOSED / GREEN**, mergeadas a `main`. **Gate PRE-PHASE-2 de reproducibilidad
 > de dependencias: CLOSED / GREEN** (ver A.18) — `.python-version=3.14.3` +
 > `constraints.txt` cross-platform, validado en Windows + CI Linux + DigitalOcean.
-> **Fase 2 (extracción de routers): EN PROGRESO.** **2A — Telemetry router**
+> **Fase 2 (extracción de routers): CLOSED / GREEN.** **2A — Telemetry router**
 > (`POST /telemetry/event`) **CLOSED / GREEN** (CI GREEN, mergeada a `main` vía
 > PR #6). **2B — Auth/session API router** (`/api/auth/*` + `/api/diagnostic`, 5
 > endpoints) **CLOSED / GREEN** (CI GREEN + smoke real de login; ver A.20). **2C —
@@ -36,8 +36,10 @@
 > `webapp.main`; `_home_url`→`nav.home_url`, `_invite_src`→`presentation/invite.py`,
 > `_academy_feedback_*`→`presentation/academy_feedback.py`, con aliases transitorios
 > en main; surface 75; +2 tests; ver A.20). Cada lote requiere autorización explícita; NO
-> avanzar de un lote al siguiente sin OK. **Phase 2 overall: NOT COMPLETE.** Dirección
-> futura de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
+> avanzar de un lote al siguiente sin OK. **Fase 2: CLOSED / GREEN** (2F–2J-D
+> completaron la extracción mecánica y stateful restante; ver bloque de cierre
+> formal más abajo). Dirección futura de plataforma multi-workspace en **A.19**
+> (es dirección, NO scope de Fase 2).
 
 ## A.1 Contexto de la iniciativa
 
@@ -1271,16 +1273,121 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   Catálogo resuelto en 2I; ownership de lifecycle mutable resuelto en 2J-A;
   Assistant/Section extraídas en 2J-B; Trees/Wizard extraídas en 2J-C;
   Module page extraída en 2J-D; residual de Catálogo y de Admin
-  explícitamente diferidos). **Esto NO implica que la Fase 2 esté marcada
-  COMPLETE** — la evidencia sugiere que ningún blocker mandatorio queda
-  pendiente, pero el cierre formal requiere una **PHASE 2 COMPLETION
-  EVALUATION** explícita (no otro lote de extracción funcional, no Phase
-  3/M365, no Operations), autorizada solo después de: este commit de cierre
-  pusheado; CI final GREEN; PR mergeado; containment verificado; branch
-  limpiada.
+  explícitamente diferidos). Esta señal se confirmó con una **PHASE 2
+  COMPLETION EVALUATION** de solo-lectura (sin cambios de código/tests), cuyo
+  veredicto fue **PHASE 2 CAN CLOSE — COMPLETE / GREEN**. Con esa evaluación
+  concluida y autorización explícita del usuario, Fase 2 se cierra
+  formalmente abajo.
 
-**Phase 2 overall: NOT COMPLETE.** Full Catalog decomposition sigue
-**DEFERRED**. Admin sigue **DEFERRED / non-blocking**.
+---
+
+# 🟢 PHASE 2 — CLOSURE (formal, HANDOFF-only)
+
+**Fase 2: CLOSED / GREEN.**
+
+El cierre se evaluó contra los criterios previamente acordados — **NO**
+contra el requisito de que `main.py` tenga cero rutas. Cada criterio
+mandatorio quedó COMPLETE con evidencia de código verificada (no asumida):
+
+1. **Extracción mecánica HTTP** — System, Telemetry, Auth/session API,
+   What's New, Academy, Pack Assets, Landing/session navigation, Feedback
+   Family. Cada uno en su propio router bajo `webapp/routers/`, ninguno
+   importa `webapp.main`.
+2. **Boundary de templating compartido** — `webapp/templating.py` construye
+   la ÚNICA instancia de `Jinja2Templates`; `main.py` re-exporta esa misma
+   identidad (no crea una segunda env).
+3. **Boundaries de ownership de soporte** — `webapp/access.py` (access
+   policy), `webapp/nav.py` (navegación), `core/content_registry.py` (pack),
+   `webapp/presentation/*` (helpers de presentación) — cada uno con dueño
+   explícito, documentado, sin importar `webapp.main`.
+4. **Boundary mínimo de dependencia de Catálogo** — `webapp/services/catalog_reads.py`
+   existe; el Module page ya no depende de los helpers privados de Catálogo
+   a través de `main.py` — los consume directo.
+5. **Ownership del lifecycle mutable del Copiloto** — `webapp/copilot_runtime.py`
+   posee `store` (WizardStore) y `assistant_store` (AssistantConversationStore)
+   como únicos objetos de identidad compartida entre requests.
+6. **Extracción de HTTP Stateful** — Assistant + Section Analysis (2J-B),
+   Trees + Wizard (2J-C), Module page (2J-D). Los tres routers consumen
+   `store`/`assistant_store` directo de `copilot_runtime`, con identidad de
+   objeto verificada explícitamente en cada fase.
+
+## Evidencia final de Fase 2
+
+Python **3.14.3** · FastAPI **0.141.1** · Starlette **1.4.1** · full suite
+**274 passed / 1 skipped** · route surface de la aplicación **75** · route
+snapshot sin cambios (sin `UPDATE_ROUTE_SURFACE`) · CI **GREEN** a través de
+Fase 2J-D · `main.py` con **26 rutas propias** tras 2J-D.
+
+`webapp/main.py`, al cierre de Fase 2:
+- no posee ningún lifecycle mutable de negocio del Copiloto;
+- no construye `WizardStore` ni `AssistantConversationStore`;
+- no consume `store` ni `assistant_store` (cero referencias, verificado);
+- ningún router extraído lo importa;
+- los grupos HTTP que quedan son únicamente **Catálogo** y **Admin**.
+
+## Residuales explícitamente diferidos (deuda real, NO blockers)
+
+**CATALOG** — descomposición completa de Catálogo HTTP/business-data-
+compliance/presentation (helpers de SVG/presentación de Catálogo; mecanismo
+dinámico `sys.path`/import de Catálogo; mutación del entorno Jinja compartido
+con filtros específicos de Catálogo).
+
+**ADMIN** — residual HTTP de Admin/cross-cutting; ya delega sustancialmente
+en `admin_tools`; no crea ninguna ambigüedad de ownership de lifecycle del
+Copiloto sin resolver.
+
+**M365** — consolidación e integración de Microsoft 365/Graph; deuda de
+diseño de token de sesión/browser donde aplique.
+
+**LLM** — consolidación de cliente OpenAI/LLM donde aplique.
+
+**RUNTIME SCALABILITY** — el runtime del Copiloto sigue siendo
+process-local/en memoria; un restart pierde el estado de runtime activo; el
+estado multi-worker sigue aislado por proceso; sin Redis/base de
+datos/TTL introducidos.
+
+Estos ítems son deuda real y quedan explícitamente diferidos — no violan
+ningún criterio acordado de cierre de Fase 2.
+
+## Resultado arquitectónico
+
+```
+main.py
+  → composición de la aplicación / registro de routers
+  → residual de Catálogo + Admin explícitamente diferido
+
+webapp/copilot_runtime.py
+  → COPILOT process-lifetime mutable state
+
+webapp/routers/assistant.py
+  → COPILOT / ASSISTANT HTTP
+
+webapp/routers/wizard.py
+  → COPILOT / TREES & WIZARD HTTP
+
+webapp/routers/modules.py
+  → COPILOT / MODULE HTTP
+
+webapp/services/catalog_reads.py
+  → COPILOT / CATALOG READ CAPABILITY
+```
+
+Capacidades compartidas como `auth_service`/`templating` siguen disponibles
+sin volver compartido el estado o el HTTP específico del Copiloto.
+
+## Operations / Staffing readiness
+
+Conclusión de la Phase 2 Completion Evaluation: Fase 2 removió suficiente
+acoplamiento específico del Copiloto como para que el repositorio avance a
+la siguiente etapa de plataforma **sin forzar a un segundo workspace a
+embeberse dentro de la implementación HTTP/business/state del Copiloto**.
+
+**READY FOR NEXT PLATFORM WORK** — explícitamente **NO** "ALL PLATFORM
+CAPABILITIES COMPLETE" (eso es falso: Catálogo y Admin siguen con residual
+real y sin tocar).
+
+**Phase 2: CLOSED / GREEN.** Full Catalog decomposition sigue **DEFERRED**.
+Admin sigue **DEFERRED / non-blocking**.
 
 ---
 
@@ -1306,32 +1413,39 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
 | 2J-C Trees + Wizard | **CLOSED / GREEN** |
 | 2J-D Module page | **CLOSED / GREEN** |
-| **Phase 2 overall** | **NOT COMPLETE** |
+| **Phase 2** | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2J-D — Module page router
+- **Phase:** Phase 2 — formal closure
 - **Status:** CLOSED / GREEN
-- **Functional commit:** `5a5d98a` (branch `work/architecture-phase-2j-d-module-page`)
-- **Current next candidate:** **PHASE 2 COMPLETION EVALUATION** (no otro lote de
-  extracción funcional — 2J-D era el último planificado; no hay 2J-E)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de 2J-D esté completo
+- **Current next candidate:** **POST-PHASE-2 PLATFORM ACCELERATION DECISION**
+  — decidir el trabajo mínimo de plataforma necesario antes de arrancar
+  delivery real de Operations/Staffing. Candidatos: M365 shared capability /
+  M365-A, y Operations workspace / Staffing enablement.
+- **Next candidate status:** **NOT YET AUTHORIZED.** No asumir automáticamente
+  una nueva fase larga de refactor. No elegir M365-A por default sin primero
+  evaluar si Staffing puede arrancar en paralelo o inmediatamente después de
+  una porción mínima de capacidad compartida.
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **274 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2J-D (`work/architecture-phase-2j-d-module-page` → `main`) — CI ya GREEN.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5a5d98a origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Phase 2J-D solo tras el paso 2 en verde.
-4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-5. Reconstruye el estado y el usuario lo valida.
-6. **Recién entonces** se autoriza la PHASE 2 COMPLETION EVALUATION — o el candidato que el usuario elija.
+1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+2. Reconstruye el estado: Fase 2 CLOSED/GREEN, ningún blocker mandatorio
+   pendiente, Catálogo/Admin/M365/LLM/runtime-scalability explícitamente
+   diferidos (ver bloque de cierre de Fase 2 arriba).
+3. El usuario evalúa y decide la **POST-PHASE-2 PLATFORM ACCELERATION
+   DECISION**: mínimo de plataforma antes de Operations/Staffing, vs.
+   M365-A, vs. arrancar Staffing en paralelo con una porción mínima
+   compartida.
+4. **Recién entonces** se autoriza el próximo lote — no antes.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
-necesidad concreta · cambio de comportamiento o de route-surface.
+necesidad concreta · cambio de comportamiento o de route-surface · se intenta
+comenzar Phase 3/M365-A/Operations/Staffing/Catalog refactor/Admin extraction
+sin autorización explícita de la POST-PHASE-2 PLATFORM ACCELERATION DECISION.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
