@@ -1,20 +1,394 @@
-# HANDOFF — Dashboard de Actividad y Métricas de Uso
+# HANDOFF — Copiloto Metodológico Danwor
 
-> **Documento de traspaso entre asistentes.** Antes de tocar nada, leé este
-> archivo entero y la "Bitácora" al final. El plan de diseño detallado de cada
-> fase (con el razonamiento completo, no solo el resultado) vive en
-> `C:\Users\Joe\.claude\plans\pure-mapping-coral.md` — leelo si necesitás el
-> "por qué" de una decisión de arquitectura, no solo el "qué".
+> **Documento de continuidad entre sesiones de Claude Code.** Si sos una sesión
+> nueva y no tenés el historial de la conversación: **este archivo es tu única
+> fuente de verdad del estado de la iniciativa**. Leelo COMPLETO, después
+> verificá `git status` + branch, y ejecutá **únicamente** la fase que el
+> usuario haya autorizado explícitamente. Ver **A.17 Regla de continuidad**.
 
-> **📍 Estado al 2026-08-05:** el foco de este documento es el **dashboard de
+---
+
+# ARCHITECTURE MODERNIZATION / INTERNAL APPS INITIATIVE
+
+> **⭐ Esta es la iniciativa ACTIVA.** El handoff del *Dashboard de Actividad*
+> quedó como **ANEXO HISTÓRICO** al final (feature previa, ya en producción; se
+> conserva por su detalle técnico, no es el trabajo en curso).
+>
+> **Estado en una línea (2026-08):** Fase 0 **CERRADA/GREEN, mergeada a `main`**.
+> **Fase 1 — System Router Pilot: CLOSED / GREEN.** CI del PR #2 en verde
+> (228 passed / 1 skipped / 0 failed); el fallo inicial del route-contract fue
+> **dependency drift** (FastAPI moderno anida las rutas de `include_router`),
+> resuelto **solo en el test** (`6d1cf94`, collector recursivo). PR #2 *ready to
+> merge* (aún **sin mergear**). Detalle en **A.13.1/A.13.2**. **GATE ABIERTO:
+> A.18 — decisión de reproducibilidad de dependencias REQUERIDA antes de Fase 2.**
+> No avanzar a Fase 2 sin autorización explícita.
+
+## A.1 Contexto de la iniciativa
+
+Danwor está iniciando una **modernización progresiva de aplicativos internos**
+históricamente implementados con Power BI, Power Apps, SharePoint Lists, Excel
+en SharePoint y combinaciones de esas tecnologías.
+
+**No** buscamos migrar tecnología 1:1. Para cada aplicativo se evalúa:
+**KEEP / REFACTOR / RETIRE**. El objetivo es rescatar capacidades funcionales
+válidas y llevarlas a una arquitectura gobernable, reutilizable y escalable —
+evitando reemplazar *"un conjunto de Power BI desordenados"* por *"un conjunto
+de aplicaciones FastAPI desordenadas"*.
+
+El **Copiloto Metodológico** es hoy la base tecnológica más madura; por eso
+preparamos **primero su arquitectura** antes de sumar verticales nuevos.
+
+El primer vertical nuevo posterior al refactor será **STAFFING / ASIGNACIONES DE
+CONSULTORES** (derivado de un Power BI legado ya reverse-engineered). Staffing
+será además el **ARCHITECTURAL INTEGRATION TEST** de la arquitectura nueva: la
+pregunta de diseño es *"¿podemos incorporar Staffing sin contaminar `main.py`,
+sin copiar llamadas a Graph y sin acoplarlo al Copiloto?"*. Si la respuesta es
+NO, el refactor todavía no logró su objetivo. **Staffing NO se implementa
+todavía** — es solo el norte del diseño.
+
+## A.2 Secuencia global de la iniciativa
+
+1. Arquitectura actual del Copiloto (entender/validar). ✅ hecho (diagnóstico).
+2. Refactor estructural **sin cambio funcional**. ⏳ en curso (Fases 0→3).
+3. Validación / regresión.
+4. Staffing como primer vertical.
+5. SharePoint → Repository → Service → HTMX.
+6. Paridad funcional con Power BI.
+7. Mejoras funcionales / UX / IA.
+8. Decommission controlado del legado.
+9. Repetir el patrón para los siguientes aplicativos.
+
+**Principios rectores:** *PARIDAD ANTES DE INNOVACIÓN. DECOMMISSION DESPUÉS DE
+VALIDACIÓN.*
+
+## A.3 Baseline arquitectónico confirmado (FACT — verificado contra el código)
+
+- FastAPI · Uvicorn · Jinja2 SSR · HTMX · Alpine.js · Tailwind (CDN en
+  `base.html`) + CSS Danwor.
+- Auth: **Microsoft Entra ID OAuth2/PKCE, public client (token delegado, sin
+  client_secret)**; sesión propia por **cookie HttpOnly firmada HS256**
+  (`webapp/services/auth_service.py`; JWKS vía `httpx`).
+- Microsoft Graph existente; SharePoint **Lists** y **Files/Drives**.
+- DigitalOcean **App Platform** (deploy por `Procfile`, buildpack) + DigitalOcean
+  **Spaces** para persistencia runtime (`core/remote_store.py`, boto3).
+- **Sin PostgreSQL, sin Redis, sin ORM.** Persistencia = filesystem efímero +
+  mirror a Spaces; formatos YAML/JSONL.
+- `webapp/main.py`: **~4264 líneas, 75 endpoints, CERO `APIRouter`** (todo
+  `@app.*`). `lifespan` maneja restore/sync/mirror de Spaces. Singletons
+  instanciados a nivel de módulo (`store`, `section_analysis_service`,
+  `assistant_chat_service`, `assistant_routing_service`, `assistant_store`,
+  `assistant_feedback_repository`) + `templates` (Jinja).
+- `webapp/services/` (13 módulos) ya es una separación parcial de responsabilidades.
+- **Graph vive en exactamente 3 archivos**, todos con `urllib.request` (no httpx):
+  `core/sharepoint_cases.py` (Lists), `tools/catalog/catalog_service.py` (Drive),
+  `tools/catalog/generate_catalog.py` (shares/drives). Headers/paginación
+  duplicados; error handling distinto por consumidor; sin retries/429.
+- **No existe integración M365 común** todavía.
+- **Dos clientes OpenAI duplicados** (`section_analysis.py`, `assistant_service.py`),
+  sin gateway. Su consolidación **NO está en el critical path de Staffing**.
+- **Catalog concentra ~1900 líneas** de lógica funcional + presentación (SVG por
+  strings) dentro de `main.py` (L2051–3946).
+- Templates mayormente **planos** (`templates/*.html` + `templates/partials/*.html`).
+- **CI:** no existía antes de Fase 0; ahora sí (ver A.10).
+
+## A.4 Decisiones arquitectónicas YA TOMADAS (no son propuestas)
+
+- **Target inmediato:** `routers/` + `services/` + `integrations/`.
+- **NO** introducir todavía `modules/<domain>/`. La eventual co-localización por
+  dominio se decidirá por **cohesión / cantidad de archivos relacionados /
+  dependencias / presión estructural real** — **NO** por un número arbitrario de
+  verticales.
+- **Arquitectura = MODULAR MONOLITH PRAGMÁTICO.** NO microservicios, NO
+  React/Vue, NO PostgreSQL/Redis "por arquitectura", NO CQRS/event-bus/service-mesh,
+  NO Clean Architecture ceremonial. FastAPI+Jinja+HTMX+Alpine es la base deliberada.
+- **`main.py` permanece como COMPOSITION ROOT.** `create_app()` **NO** es
+  prerrequisito; queda diferido hasta que exista beneficio concreto.
+- **Routers:** HTTP/templates/HTMX/status/redirects. **No** reglas de negocio ni Graph.
+- **Services:** casos de uso, reglas funcionales, orquestación.
+- **Integrations:** infraestructura externa (Graph, SharePoint, etc.).
+- **SharePoint es INFRAESTRUCTURA, no dominio.**
+
+## A.5 Decisiones sobre runtime / singletons
+
+En una fase **posterior** (Fase 2) probablemente haya que sacar de `main.py` los
+`templates` y los singletons compartidos para que los routers no importen
+`main.py`. La opción preferida **a evaluar** es un módulo chico `bootstrap.py` o
+`runtime.py` (naming a decidir en Fase 2a) que contenga **únicamente**
+construcción de runtime objects compartidos + `templates` + singletons actuales.
+**NO** debe ser service-locator general, dumping ground, reglas de negocio,
+Graph, helpers genéricos ni lógica HTTP. **NO** mover automáticamente a
+`app.state`. **NO** introducir `Depends`/DI en el mismo movimiento salvo
+necesidad comprobada. Antes de esa fase, **inspeccionar** monkeypatch/imports de
+objetos desde `webapp.main` (tests). **No implementado todavía.**
+
+## A.6 Decisiones Microsoft 365
+
+Se implementará (Fase 3) `webapp/integrations/microsoft365/` como capacidad
+**pequeña** reutilizable. Separación deliberada:
+- **M365-A = CONSOLIDACIÓN ESTRUCTURAL.** Preserva `urllib`, comportamiento,
+  **tipos de excepción observables**, timeouts, **política de error por
+  consumidor**, y paginación actual. Equivalencia estricta.
+- **M365-B = HARDENING POSTERIOR.** Ahí se evalúa 429, `Retry-After`,
+  retries/backoff, `GraphError`, normalización de excepciones, observabilidad,
+  `httpx`, timeouts normalizados.
+
+**NO** mezclar M365-A y M365-B. **NO** solapar Fase 2 y Fase 3.
+
+## A.7 Decisiones sobre el token de Graph
+
+Hoy el access token de Graph fluye `browser → sessionStorage["dw-graph-token"] →
+form-data (`graph_token`) → backend`, protegido por HTTPS. **La deuda NO es
+"plaintext network transport"** (viaja cifrado). La deuda real es: (a) token
+accesible a JavaScript/sessionStorage; (b) propagación manual a endpoints; (c)
+conocimiento de `graph_token` filtrándose a los consumidores. **NO rediseñar
+OAuth ahora.** Los dominios futuros no deberían conocer `graph_token` más de lo
+estrictamente necesario (la capa M365 debería ser la única que lo trate como
+bearer de Graph).
+
+## A.8 Catalog
+
+**Decisión:** NO trasladar las ~1900 líneas de Catalog desde `main.py` a
+`routers/catalog.py` solo para reducir `main.py` — eso mudaría el God Module sin
+resolverlo. Catalog tendrá **su propia fase**, separando: HTTP → `routers/catalog.py`;
+business/compliance/data → `services/catalog_service.py`; SVG/presentation →
+`presentation/catalog_svg.py` (o equivalente). Mientras tanto, Catalog puede
+**permanecer como residual explícito en `main.py`**.
+
+## A.9 Templates
+
+Los verticales **nuevos** usan `templates/<domain>/` (ej.: `templates/staffing/index.html`
++ `templates/staffing/partials/`). **NO** reorganizar los templates existentes
+solo por uniformidad.
+
+## A.10 Resultado de FASE 0 (COMPLETADA / GREEN / mergeada a main)
+
+- **Python:** LOCAL `3.14.3` == PRODUCCIÓN DO `3.14.3` (build log: *"Using cached
+  install of Python 3.14.3"*). DO advierte que a futuro requerirá `.python-version`
+  → **DEFERRED** (ver A.16), NO crear todavía.
+- **Testing:** baseline original **225 passed / 1 skipped / 226 collected** →
+  con route-contract **226 / 1** → con el test explícito de case_library vacío
+  **227 passed / 1 skipped / 228 collected**. `pytest==9.1.1`.
+- **`requirements-dev.txt`** creado con `pytest==9.1.1` (separado de
+  `requirements.txt`, que es solo runtime).
+- **Route contract** (`tests/test_route_contract.py` + `tests/route_surface.json`):
+  **75 rutas propias** protegidas por `MÉTODO + PATH`, comparadas como **set**,
+  sin acople a handler/response_model; excluye `/static`, rutas del framework
+  (`/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc`) y `HEAD/OPTIONS`.
+  **Regla:** durante el refactor, un mismatch es **primero una REGRESIÓN**; NO
+  regenerar `route_surface.json` para hacer pasar el test; `UPDATE_ROUTE_SURFACE=1`
+  solo ante cambio de contrato HTTP deliberado y aprobado.
+- **CI** (`.github/workflows/ci.yml`): Python 3.14; instala `requirements.txt` +
+  `requirements-dev.txt`; corre `pytest -q`; triggers `pull_request` + `push` a
+  `main`. **CI final: GREEN.**
+- **Functional smoke manual (por el usuario): GREEN** — Auth, Landing/nav,
+  Content/módulos, Wizard/árboles, Assistant/análisis, Academy, Catalog, Admin,
+  Feedback, Graph/SharePoint.
+- **Estado:** `LOCAL PYTEST GREEN · ROUTE CONTRACT GREEN · CI GREEN · FUNCTIONAL
+  SMOKE GREEN` → **FASE 0 CLOSED / GREEN.** Mergeada a `main` vía PR #1 (merge
+  commit `e007bb3`; commits `75cbf3e` route-contract, `5ddde40` CI+dev-deps,
+  `9ae1c25` fix determinismo).
+
+## A.11 Hallazgo de determinismo de tests (Fase 0)
+
+`tests/webapp/test_admin_tools.py::test_cases_analysis_renders_summary` dependía
+accidentalmente del `case_library/` runtime local: en local (con datos) tomaba
+la rama de análisis y pasaba; en CI (checkout limpio, `case_library/`
+gitignoreado) tomaba la rama *"No hay casos para analizar"* y fallaba. Se corrigió
+**solo en tests** (fixture que redirige `analyze_cases.CASE_DIR` a un tmp con un
+caso mínimo real + test explícito del empty-state). **No se modificó la
+aplicación.** Este finding **justifica por qué se incorporó CI antes del refactor**.
+
+## A.12 Estado Git (verificado al escribir este checkpoint)
+
+- Branch actual: **`work/architecture-phase-1`**.
+- `main` contiene Fase 0 (merge `e007bb3`, PR #1).
+- Branch `work/architecture-phase-0`: **eliminada local** (ya no figura en
+  `git branch`).
+- Working tree: **limpio** antes de este checkpoint.
+- Este checkpoint se commitea como **docs-only** sobre `work/architecture-phase-1`.
+
+## A.13 FASE ACTIVA — PHASE 1: SYSTEM ROUTER PILOT
+
+**Hipótesis a probar:** *"Podemos extraer una frontera HTTP pequeña y coherente
+de `main.py` hacia `APIRouter` sin modificar contrato ni comportamiento."*
+
+**Único alcance funcional:** `/health` y `/favicon.ico`.
+
+```
+ANTES:  main.py  →  /health, /favicon.ico
+DESPUÉS: main.py → app.include_router(system.router)
+         webapp/routers/__init__.py
+         webapp/routers/system.py  →  /health, /favicon.ico
+```
+
+**NO forma parte de Fase 1:** bootstrap/runtime module, `create_app()`,
+`app.state`, `Depends` nuevos, cualquier otro router (auth/academy/wizard/
+assistant/content/admin/catalog), Graph, M365, httpx, LLM, templates,
+persistence, `.python-version`, ADR.
+
+**`system.py` NO puede importar `webapp.main`.** Si `/favicon.ico` depende de una
+constante/path de `main.py`: primero buscar si ya existe en `config` u otro
+módulo, preservar exactamente la resolución actual, **no** crear bootstrap/runtime
+solo para esto, **no** refactorizar paths transversalmente. Si mover favicon
+exige una decisión arquitectónica más amplia → **DETENERSE y explicar** antes de
+ampliar scope.
+
+## A.13.1 Fase 1 — Estado (CLOSED / GREEN)
+
+**STATUS: CLOSED / GREEN.** Todos los gates cumplidos.
+
+**Evidencia final de cierre:**
+- route-contract: **75 rutas, GREEN** · snapshot: **sin cambios**
+- full suite local (FastAPI 0.115.5 / Starlette 0.41.3): **228 passed / 1 skipped / 0 failed**
+- full suite fresh stack (FastAPI 0.141.1 / Starlette 1.4.1): **228 passed / 1 skipped / 0 failed**
+- `/health`: **GREEN** · `/favicon.ico`: **GREEN**
+- GitHub Actions: **GREEN**
+- **PR #2: ready to merge** (NO mergeado todavía)
+- app behavior: **sin cambios funcionales** (mismas URLs/métodos/respuestas)
+- **dependency drift finding: sigue OPEN** como **PRE-PHASE-2 DECISION REQUIRED** (ver A.18)
+
+- **Branch:** `work/architecture-phase-1`. **HEAD:** `a0bfd8d`.
+- **Commits de esta fase:** `8c152b1` (checkpoint del HANDOFF, docs-only) →
+  `a0bfd8d` (implementación) → *(este commit)* `docs(handoff): update architecture
+  phase 1 status`.
+- **Archivos creados:** `webapp/routers/__init__.py`, `webapp/routers/system.py`
+  (`APIRouter` con `/health` y `/favicon.ico`; NO importa `webapp.main`; resuelve
+  el path del favicon localmente = `webapp/`, igual que `WEB_DIR`).
+- **Archivos modificados:** `webapp/main.py` (+`from webapp.routers import system as
+  system_router`, +`app.include_router(system_router.router)`, −los 2 handlers,
+  reemplazados por un comentario); `tests/webapp/test_routes.py` (+`test_favicon`).
+- **Endpoints movidos:** `/health`, `/favicon.ico` (2). Superficie total sin
+  cambios: **75 rutas** (73 `@app.*` directos + 2 vía router).
+- **Route contract:** GREEN, **75 rutas**, `route_surface.json` **NO modificado**
+  (surface antes == después). No se corrió `UPDATE_ROUTE_SURFACE`.
+- **pytest:** **228 passed / 1 skipped / 0 failed** (227 → +1 por `test_favicon`).
+- **Smoke `/health`:** 200 · `{"status":"ok","architecture":"fastapi-ssr-htmx"}`.
+- **Smoke `/favicon.ico`:** 200 · `content-type: image/x-icon` · 19621 bytes.
+- **CI:** PENDIENTE. Abrir PR (sin merge) desde
+  `https://github.com/DanworForBusiness/copiloto-metodologico/pull/new/work/architecture-phase-1`
+  (base `main` ← `work/architecture-phase-1`). El trigger `pull_request` corre la
+  Action; esperado **228 passed / 1 skipped**.
+- **Findings / desviaciones:** ninguna desviación del plan. Único agregado no
+  estrictamente "mover código": un test mínimo de regresión para `/favicon.ico`
+  (no existía; `/health` ya tenía `test_health`) — dentro del alcance autorizado.
+- **Próximo paso:** confirmar CI GREEN en el PR → recién ahí Fase 1 = CLOSED/GREEN.
+  **NO avanzar a Fase 2** sin review + autorización explícita del usuario.
+
+## A.13.2 Fase 1 — Finding de CI y fix (dependency drift)
+
+**Qué pasó:** la primera CI del PR de Fase 1 dio **1 failed / 227 passed / 1 skipped**.
+El único fallo fue `tests/test_route_contract.py` (reportaba `/health` y
+`/favicon.ico` como "faltantes", surface=73). **Las rutas funcionaban**:
+`test_health` y `test_favicon` **pasaron** en el mismo run.
+
+**Root cause (CONFIRMADO, reproducido en venv fresco):** **dependency drift.**
+- Local dev: **FastAPI 0.115.5 / Starlette 0.41.3** → `include_router` **aplana**
+  las rutas en `app.routes` → el collector viejo (top-level + `isinstance(Route)`)
+  las veía → 75/GREEN.
+- Fresh install / CI / DigitalOcean: **FastAPI 0.141.1 / Starlette 1.4.1** →
+  `include_router` **anida** las rutas en un contenedor de router incluido
+  (no es `Route` ni `Mount`; no expone `.routes`, sino `.original_router.routes`)
+  → el collector viejo lo saltaba → surface=73 → FAIL. Pero el contenedor **sí
+  rutea** (dispatch) → funcionales verdes. `requirements.txt` usa **rangos**, por
+  eso una instalación fresca resolvió un stack más nuevo que el venv local.
+- **Descartado:** doble import de `webapp.main` / problema del APIRouter / cambio
+  de contrato HTTP. El `_iter_leaves` recursivo demostró 75 en AMBOS stacks.
+
+**Fix (commit `6d1cf94`, SOLO test):** `_current_surface` ahora usa `_iter_leaves`,
+un walk recursivo que reconoce hojas HTTP por atributos públicos (`path`+`methods`,
+no por clase), desciende por `.routes` y —fallback de compatibilidad— por
+`.original_router.routes`, con protección por `id()`. **Snapshot intacto (75)**;
+sin `UPDATE_ROUTE_SURFACE`; **sin cambios de app**.
+
+**Validado:** local (0.115.5) route-contract PASS + suite 228/1/0; venv fresco
+(0.141.1/1.4.1) route-contract PASS + `test_health`/`test_favicon` 2 passed +
+suite **228 passed / 1 skipped / 0 failed** (= lo esperado en CI). El venv fresco
+quedó en el scratchpad de la sesión (`.../scratchpad/venv-fresh`).
+
+## A.14 Gates de Fase 1
+
+Fase 1 es GREEN **solo si**: `route contract GREEN` · `pytest completo GREEN` ·
+`/health smoke GREEN` · `/favicon.ico smoke GREEN` · `GitHub CI GREEN`. No
+requiere repetir el functional pack completo (cambia solo 2 endpoints
+infraestructurales). **Al terminar Fase 1 NO avanzar a Fase 2** — requiere review
+explícita del usuario.
+
+## A.15 Siguientes fases planeadas (resumen)
+
+- **Fase 2 — Router boundaries progresivas.** Antes: evaluar el runtime/bootstrap
+  module (A.5). Extraer routers de menor a mayor acoplamiento. **Catalog NO se
+  muda wholesale** (A.8).
+- **Fase 3 — M365-A** (consolidación estructural, A.6). Después: **Staffing
+  readiness review**; luego Staffing como primer vertical.
+
+## A.16 Deferred debt (explícita)
+
+- `.python-version` (DO lo requerirá; probable fijar `3.14.3`).
+- Warnings de FastAPI/Starlette bajo Python 3.14 (baseline 197; no del código
+  propio; no resolver ni ocultar).
+- Fallback `.streamlit/secrets.toml` de `OPENAI_API_KEY` (`section_analysis.py:417`
+  `_legacy_api_key`) → migrar a env/secret store.
+- **Corrección documental pendiente:** el README (commit `df9d6ef`) llama a
+  `.streamlit/` "legacy/de esa época" — impreciso, sigue siendo fallback vivo de
+  la API key. Corregir cuando se autorice tocar docs de nuevo.
+- `AssistantConversationStore` sin TTL (en memoria).
+- Cliente LLM duplicado / LLM sync-bloqueante.
+- M365-B hardening · `urllib→httpx`.
+- `tools/catalog` (piloto) ejecutado desde prod vía `admin_tools`.
+- Limpieza legacy (`ui/`, `engine/` vacíos, etc.) · consolidación de CSS.
+- Eventual `create_app()` · eventual `app.state`/`Depends` (solo si aparece
+  necesidad real).
+
+## A.17 Regla de continuidad (LEER SIEMPRE)
+
+Ante una sesión nueva de Claude Code:
+1. Leer **todo** este HANDOFF.
+2. Verificar `git branch --show-current` + `git status` (no asumir el estado).
+3. **NO** inferir que una fase está autorizada solo porque figura como "next".
+4. Ejecutar **únicamente** la fase que el usuario autorizó explícitamente.
+5. Preservar los gates de cada fase.
+6. **Nunca** avanzar automáticamente a la fase siguiente.
+7. Actualizar este HANDOFF al terminar un checkpoint relevante.
+
+## A.18 PRE-PHASE-2 DECISION REQUIRED — Reproducibilidad de dependencias
+
+**Finding arquitectónico (elevado a gate):** el entorno de desarrollo local **no
+reproduce** las dependencias de una instalación fresca, porque `requirements.txt`
+usa **rangos**:
+- Local dev: **FastAPI 0.115.5 / Starlette 0.41.3**.
+- Fresh install / CI / DigitalOcean: **FastAPI 0.141.1 / Starlette 1.4.1**.
+
+Esto ya causó el fallo de CI de Fase 1 (ver A.13.2) — un cambio de comportamiento
+del framework entre versiones que local no veía. Es deuda de **reproducibilidad**,
+no un bug puntual.
+
+**NO resolver ahora.** Explícitamente NO hacer (sin decisión previa): pinnear
+FastAPI/Starlette, crear lockfile, cambiar `requirements.txt`, actualizar el venv
+local, introducir uv/pip-tools/Poetry, ni cambiar deployment.
+
+**GATE:** **antes de autorizar la Fase 2** (extracción masiva de routers) hay que
+tomar una **decisión consciente** sobre cómo manejar la reproducibilidad
+(dev == CI == runtime). No se debe empezar la Fase 2 con `dev != CI != prod`. Esta
+decisión es del usuario; registrar acá la que se tome.
+
+---
+
+# ANEXO HISTÓRICO — Dashboard de Actividad y Métricas de Uso
+
+> **Feature previa, ya en producción.** Se conserva por su detalle técnico y sus
+> decisiones; **no es la iniciativa activa** (esa es la de arquitectura, arriba).
+> El plan de diseño detallado del dashboard vive en
+> `C:\Users\Joe\.claude\plans\pure-mapping-coral.md`.
+
+> **📍 Estado al 2026-08-05:** el foco de este anexo es el **dashboard de
 > Actividad** (`/admin/activity`). Está funcional y probado por el usuario con
-> datos reales. En esta última ronda se cerró el Pendiente #1 (relato
+> datos reales. En su última ronda se cerró el Pendiente #1 (relato
 > secuencial), una tanda de bugs con capturas, el truncado de respuestas largas,
 > y se agregaron dos mejoras (gradiente de dorado en los gráficos + sección
-> "Árboles de decisión"). **Todo esto YA ESTÁ PUSHEADO a prod** (commit del
-> 2026-08-05, ver Bitácora 2026-08-05 (3)). **No quedan bugs abiertos**, pero
-> quedan 2 pendientes de pulido (ver Pendientes #1 tonos y #2 outcome de árboles
-> — este último es un fix de origen que solo aplica a eventos NUEVOS).
+> "Árboles de decisión"). **Todo esto YA ESTÁ PUSHEADO a prod.** **No quedan bugs
+> abiertos**, pero quedan 2 pendientes de pulido (ver Pendientes #1 tonos y #2
+> outcome de árboles — este último es un fix de origen que solo aplica a eventos
+> NUEVOS).
 
 ## Qué hace
 

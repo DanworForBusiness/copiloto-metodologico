@@ -17,6 +17,12 @@ Alcance deliberadamente GRUESO — solo método + path. NO se acopla a:
   - detalles de implementación,
   - el orden interno de FastAPI (se compara como conjunto, no como lista).
 
+El collector recorre la estructura de routing de forma recursiva y reconoce una
+hoja HTTP por sus atributos públicos (`path` + `methods`), NO por su clase. Esto
+lo hace robusto a cómo FastAPI represente las rutas incluidas vía ``APIRouter``:
+aplanadas en ``app.routes`` (versiones viejas) o anidadas en un contenedor de
+router incluido (versiones modernas). Ver ``_iter_leaves``.
+
 Regenerar el snapshot (SOLO cuando el cambio de superficie sea intencional y
 haya sido revisado):
 
@@ -44,8 +50,6 @@ import json
 import os
 from pathlib import Path
 
-from starlette.routing import Mount, Route
-
 from webapp.main import app
 
 _SNAPSHOT = Path(__file__).parent / "route_surface.json"
@@ -60,20 +64,46 @@ _AUTO_METHODS = {"HEAD", "OPTIONS"}
 _FRAMEWORK_PATHS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 
 
+def _iter_leaves(routes, seen):
+    """Recorre recursivamente la estructura de routing y produce (methods, path)
+    de cada HOJA HTTP: un objeto que expone `path` y `methods`. NO se depende de
+    la clase interna de la ruta (`isinstance`), sino de esos atributos públicos.
+
+    Por qué recursivo: FastAPI representa las rutas incluidas vía `APIRouter` de
+    forma distinta según su versión — en versiones viejas las APLANA en
+    `app.routes`; en versiones modernas las ANIDA en un contenedor de router
+    incluido que NO expone sus rutas por `.routes` sino por `.original_router.routes`.
+    Por eso descendemos por `.routes` y, como fallback de compatibilidad con el
+    FastAPI moderno, por `.original_router.routes` (introspección defensiva por
+    atributo: no se importa ni se referencia ninguna clase interna del framework).
+    El contrato protege MÉTODO+PATH observable, no la representación interna.
+    """
+    for route in routes:
+        rid = id(route)
+        if rid in seen:  # evita revisitar/duplicar/ciclos si un contenedor expone
+            continue      # el mismo contenido por más de una vía
+        seen.add(rid)
+
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if path and methods:  # hoja HTTP utilizable para el contrato
+            yield tuple(sorted(set(methods) - _AUTO_METHODS)), path
+
+        children = getattr(route, "routes", None)
+        if not children:  # fallback: router incluido de FastAPI moderno
+            children = getattr(getattr(route, "original_router", None), "routes", None)
+        if children:
+            yield from _iter_leaves(children, seen)
+
+
 def _current_surface() -> set[str]:
-    """(método(s), path) de cada APIRoute como string 'GET,POST /path'."""
+    """Conjunto de 'MÉTODO(S) PATH' de todas las hojas HTTP de la app (aplanadas
+    o anidadas), excluyendo las rutas del framework (docs/openapi)."""
     surface: set[str] = set()
-    for route in app.routes:
-        # StaticFiles y cualquier sub-app montada no son endpoints de contrato.
-        if isinstance(route, Mount):
+    for methods, path in _iter_leaves(app.routes, set()):
+        if path in _FRAMEWORK_PATHS:
             continue
-        # Solo rutas HTTP (Route/APIRoute); descarta WebSocketRoute u otros.
-        if not isinstance(route, Route):
-            continue
-        if route.path in _FRAMEWORK_PATHS:
-            continue
-        methods = sorted((route.methods or set()) - _AUTO_METHODS)
-        surface.add(f"{','.join(methods)} {route.path}")
+        surface.add(f"{','.join(methods)} {path}")
     return surface
 
 
