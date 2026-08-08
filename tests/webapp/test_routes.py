@@ -776,8 +776,9 @@ def test_module_renders_per_section_feedback_widgets():
 
 
 def test_section_feedback_up_saves_and_down_opens_optional_comment(monkeypatch, tmp_path):
-    from webapp.services import content_service
-    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)
+    # Seam vive ahora en webapp.routers.feedback (Fase 2H), no en web_main.
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
     base = "/modules/01_Arquitectura_y_Conectividad/sections/espacios-transportes/feedback"
 
     # 👍 → guarda al toque y agradece.
@@ -807,12 +808,141 @@ def test_section_feedback_up_saves_and_down_opens_optional_comment(monkeypatch, 
 
 
 def test_section_feedback_unknown_section_404(monkeypatch, tmp_path):
-    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/sections/no-existe/feedback",
         data={"rating": "up", "pack": "datasphere_core"},
     )
     assert response.status_code == 404
+
+
+def test_section_feedback_cancel_renders_bar_without_persisting(monkeypatch, tmp_path):
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/sections/espacios-transportes/feedback/cancel",
+        data={"pack": "datasphere_core"},
+    )
+    assert response.status_code == 200
+    assert "<textarea" not in response.text
+    assert not list(tmp_path.glob("section_feedback_*.yaml"))
+
+
+def test_module_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
+    import yaml
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
+    base = "/modules/01_Arquitectura_y_Conectividad/feedback"
+
+    # 👍 → guarda al toque y agradece.
+    up = client.post(base, data={"rating": "up", "pack": "datasphere_core"})
+    assert up.status_code == 200 and "Gracias" in up.text
+    saved = list(tmp_path.glob("module_feedback_*.yaml"))
+    assert len(saved) == 1
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "module_content"
+    assert payload["module"] == "01_Arquitectura_y_Conectividad"
+    assert payload["rating"] == "up"
+
+    # 👎 → despliega el formulario de comentario, todavía no persiste.
+    down = client.post(base, data={"rating": "down", "pack": "datasphere_core"})
+    assert down.status_code == 200 and "<textarea" in down.text
+    assert len(list(tmp_path.glob("module_feedback_*.yaml"))) == 1  # sigue habiendo 1
+
+    # Enviar el 👎 sin comentario → re-muestra el formulario con error (a diferencia
+    # de section/catalog, module exige comentario no vacío al enviar el 👎).
+    empty_submit = client.post(base + "/submit", data={"rating": "down", "pack": "datasphere_core"})
+    assert empty_submit.status_code == 200
+    assert "module-feedback__error" in empty_submit.text
+    assert len(list(tmp_path.glob("module_feedback_*.yaml"))) == 1  # no se agregó nada
+
+    # Enviar el 👎 con comentario → guarda con el texto.
+    submit = client.post(base + "/submit", data={"rating": "down", "comment": "confuso", "pack": "datasphere_core"})
+    assert submit.status_code == 200 and "Gracias" in submit.text
+    downs = [yaml.safe_load(p.read_text(encoding="utf-8")) for p in tmp_path.glob("module_feedback_*.yaml")]
+    down_entry = next(e for e in downs if e["rating"] == "down")
+    assert down_entry["comment"] == "confuso"
+
+    # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
+    cancel = client.post(base + "/cancel", data={"pack": "datasphere_core"})
+    assert cancel.status_code == 200
+    assert "<textarea" not in cancel.text
+    assert len(list(tmp_path.glob("module_feedback_*.yaml"))) == 2  # igual que antes del cancel
+
+
+def test_catalog_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
+    import yaml
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
+    fields = {"catalog_kind": "cds", "catalog_ref": "Z_CDS_VIEW", "pack": "datasphere_core"}
+
+    # 👍 → guarda al toque y agradece.
+    up = client.post("/catalog/feedback", data={"rating": "up", **fields})
+    assert up.status_code == 200 and "Gracias" in up.text
+    saved = list(tmp_path.glob("catalog_feedback_*.yaml"))
+    assert len(saved) == 1
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "catalog"
+    assert payload["catalog_kind"] == "cds"
+    assert payload["catalog_ref"] == "Z_CDS_VIEW"
+    assert payload["rating"] == "up"
+
+    # 👎 → despliega el formulario de comentario, todavía no persiste.
+    down = client.post("/catalog/feedback", data={"rating": "down", **fields})
+    assert down.status_code == 200 and "<textarea" in down.text
+    assert len(list(tmp_path.glob("catalog_feedback_*.yaml"))) == 1
+
+    # Enviar el 👎 con comentario → guarda con el texto (catalog no exige comentario
+    # no vacío, a diferencia de module).
+    submit = client.post("/catalog/feedback/submit", data={"comment": "faltan ejemplos", **fields})
+    assert submit.status_code == 200 and "Gracias" in submit.text
+    downs = [yaml.safe_load(p.read_text(encoding="utf-8")) for p in tmp_path.glob("catalog_feedback_*.yaml")]
+    down_entry = next(e for e in downs if e["rating"] == "down")
+    assert down_entry["comment"] == "faltan ejemplos"
+
+    # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
+    cancel = client.post("/catalog/feedback/cancel", data=fields)
+    assert cancel.status_code == 200
+    assert "<textarea" not in cancel.text
+    assert len(list(tmp_path.glob("catalog_feedback_*.yaml"))) == 2
+
+
+def test_catalog_section_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
+    import yaml
+    from webapp.routers import feedback as feedback_router
+    monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
+    fields = {"cliente": "AcmeCorp", "dominio": "Finanzas", "slug": "resumen", "pack": "datasphere_core"}
+
+    # 👍 → guarda al toque y agradece.
+    up = client.post("/catalog/section-feedback", data={"rating": "up", **fields})
+    assert up.status_code == 200 and "Gracias" in up.text
+    saved = list(tmp_path.glob("catalog_section_*.yaml"))
+    assert len(saved) == 1
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "catalog_section"
+    assert payload["cliente"] == "AcmeCorp"
+    assert payload["dominio"] == "Finanzas"
+    assert payload["section_slug"] == "resumen"
+    assert payload["rating"] == "up"
+
+    # 👎 → despliega el formulario de comentario, todavía no persiste.
+    down = client.post("/catalog/section-feedback", data={"rating": "down", **fields})
+    assert down.status_code == 200 and "<textarea" in down.text
+    assert len(list(tmp_path.glob("catalog_section_*.yaml"))) == 1
+
+    # Enviar el 👎 con comentario → guarda con el texto.
+    submit = client.post("/catalog/section-feedback/submit", data={"comment": "poco claro", **fields})
+    assert submit.status_code == 200 and "Gracias" in submit.text
+    downs = [yaml.safe_load(p.read_text(encoding="utf-8")) for p in tmp_path.glob("catalog_section_*.yaml")]
+    down_entry = next(e for e in downs if e["rating"] == "down")
+    assert down_entry["comment"] == "poco claro"
+
+    # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
+    cancel = client.post("/catalog/section-feedback/cancel", data=fields)
+    assert cancel.status_code == 200
+    assert "<textarea" not in cancel.text
+    assert len(list(tmp_path.glob("catalog_section_*.yaml"))) == 2
 
 
 def test_intro_module_renders_immersive_embed():

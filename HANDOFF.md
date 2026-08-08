@@ -791,10 +791,72 @@ branch `work/architecture-phase-2g-landing-nav`):
 - **Aliases todavía vigentes en `main`:**
   - `_home_url = nav.home_url` → consumidores restantes: **Module + Catalog**.
   - `_invite_src = invite.invite_src` → consumidor restante: **Module**.
-- **Próximo candidato tras 2G:** Feedback family (module + section + catalog
-  feedback, comparten `_save_*_feedback` + seam `FEEDBACK_LOG_DIR`) —
-  **CANDIDATE / NOT AUTHORIZED**. El gate STATEFUL (`runtime.py`) sigue diferido
-  y **no** es parte de esta fase.
+**2H — Feedback Family router — IMPLEMENTED / PENDING CI** (commit `9d4a89c`,
+branch `work/architecture-phase-2h-feedback-family`; **NO cerrar GREEN hasta CI**):
+- **Delimitation assessment previo** (análisis, sin cambios de código) confirmó
+  exacto: **12 rutas** en 4 familias (MODULE, SECTION, CATALOG, CATALOG SECTION),
+  ninguna con dependencia stateful. Un hallazgo del assessment no anticipado:
+  `POST /trees/suggest` comparte el mismo seam `FEEDBACK_LOG_DIR` pero es feature
+  distinta (Trees/Wizard) — **excluida explícitamente**, permanece en `main`.
+- `POST /modules/{stem}/feedback(+submit,+cancel)`, `POST
+  /modules/{stem}/sections/{section_slug}/feedback(+submit,+cancel)`, `POST
+  /catalog/feedback(+submit,+cancel)` y `POST /catalog/section-feedback(+submit,+cancel)`
+  (12 rutas) extraídas a **`webapp/routers/feedback.py`** (un único APIRouter,
+  las 4 familias comparten forma/dependencias idénticas) como **relocación
+  pura**: payload YAML, metadata de usuario, timestamps, UUID, mkdir/write-tmp/
+  replace/best-effort, fragmentos HTMX y validación de comentario (exclusiva de
+  MODULE) preservados **verbatim**.
+- **Explícitamente EXCLUIDAS** (no forman parte de este lote): Academy feedback
+  (ya extraído en 2E), Assistant response feedback (**STATEFUL** —
+  `assistant_store`/`assistant_feedback_repository`), Wizard/Trees feedback
+  (**STATEFUL** — `store`), Admin feedback analysis (dominio ADMIN,
+  `/admin/feedback/analyze`), `/trees/suggest` (mismo seam, feature distinta).
+- **feature classification: COPILOT.** El router **NO importa `webapp.main`**:
+  importa directo de los dueños explícitos — `core.content_registry.{DEFAULT_PACK,
+  resolve_pack}`, `webapp.services.auth_service`,
+  `webapp.services.content_service.load_module`, `webapp.templating.templates`,
+  `config.FEEDBACK_LOG_DIR` — **sin** consumir ningún alias de `main`.
+- **Duplicación deliberadamente retenida:** los 4 `_save_*` (`_save_module_feedback`,
+  `_save_section_feedback`, `_save_catalog_feedback`, `_save_catalog_section_feedback`)
+  repiten el mismo patrón de persistencia — **no** se consolidaron en un helper
+  genérico. Esta fase establece ownership, no diseña una plataforma de feedback.
+  `_section_or_404`/`_section_feedback_ctx`/`_catalog_feedback_ctx`/
+  `_catalog_section_fb_ctx` co-localizados tal cual (confirmados exclusivos por grep).
+- **FEEDBACK_LOG_DIR:** co-localizado en el router (mismo patrón que
+  `academy_router.FEEDBACK_LOG_DIR`). **`main` retiene su propio import** de
+  `config.FEEDBACK_LOG_DIR` — **no** se limpió — porque `_save_tree_suggestion`
+  (`/trees/suggest`) sigue ahí. Ningún otro import se volvió estrictamente
+  obsoleto en `main` (a diferencia de 2F/2G): `yaml`/`datetime`/`uuid4`/`Form`/
+  `HTMLResponse`/`load_module`/`DEFAULT_PACK`/`resolve_pack`/`templates` siguen
+  con consumidores reales en otras rutas.
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`, sin instancias/servicios nuevos,
+  sin nueva Jinja env, sin nuevo módulo de presentación, **sin cambios** en
+  `access`/`nav`/`content_registry`/`templating`/`auth_service`/
+  `webapp/presentation/invite.py`/`webapp/routers/academy.py`/código de
+  Trees-Wizard. **Route surface 75 sin cambios** (snapshot intacto; sin
+  `UPDATE_ROUTE_SURFACE`).
+- **Tests:** cobertura previa **muy desigual** (hallazgo del assessment): SECTION
+  tenía 2 tests (up/down/submit/comment + 404 sección desconocida); MODULE,
+  CATALOG y CATALOG SECTION (9 de 12 rutas) **sin ningún test**. Migrados los 2
+  seams (`web_main.FEEDBACK_LOG_DIR` → `feedback_router.FEEDBACK_LOG_DIR`, mismo
+  patrón que Academy/Landing). **+4 tests agrupados por comportamiento** (no 1:1
+  por ruta): `test_section_feedback_cancel_renders_bar_without_persisting` (gap
+  real de SECTION), `test_module_feedback_reaction_submit_and_cancel` (incluye la
+  validación de comentario no vacío exclusiva de MODULE),
+  `test_catalog_feedback_reaction_submit_and_cancel`,
+  `test_catalog_section_feedback_reaction_submit_and_cancel`. Cada uno cubre
+  reacción up (persiste + YAML `type`/campos), reacción down (form, no persiste),
+  submit con comentario (persiste) y cancel (vuelve a la barra, no persiste).
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
+  (**75**), **suite 247 passed / 1 skipped** (243 + 4), smoke focal directo de
+  las 4 familias (reacción up→200+persist) GREEN, sanity de `/trees/suggest`
+  (import de `main.FEEDBACK_LOG_DIR` + POST real) GREEN — **sin regresión**.
+  **Pendiente:** GitHub CI. **NO cerrar GREEN hasta confirmarla.**
+- **Próximo candidato tras 2H:** **sin decidir todavía** entre Catalog (fase
+  propia: HTTP / business-data-compliance / presentation-SVG) y el gate
+  STATEFUL (`runtime.py` para `store`/`assistant_store`) — **ninguno
+  autorizado**. Orden a decidir explícitamente en la próxima sesión.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -826,23 +888,25 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2E Academy | **CLOSED / GREEN** |
 | 2F Pack Asset Serving | **CLOSED / GREEN** |
 | 2G Landing / Session Navigation | **CLOSED / GREEN** |
+| 2H Feedback Family | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2G — Landing / Session Navigation
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `069c38f` (branch `work/architecture-phase-2g-landing-nav`)
-- **Current next candidate:** Feedback family (module + section + catalog feedback)
-- **Feedback family status:** **CANDIDATE / NOT AUTHORIZED**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **243 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2H — Feedback Family
+- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Functional commit:** `9d4a89c` (branch `work/architecture-phase-2h-feedback-family`)
+- **Current next candidate:** **sin decidir** — Catalog (fase propia) vs. gate STATEFUL (`runtime.py`)
+- **Next candidate status:** **NOT AUTHORIZED** (ninguno de los dos elegido todavía)
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **247 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 069c38f origin/main` (exit 0 tras el merge).
-2. Cleanup de la branch `work/architecture-phase-2g-landing-nav` (solo tras el paso 1 en verde).
-3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
-4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-5. Reconstruye el estado y el usuario lo valida.
-6. **Recién entonces** se autoriza Feedback family (o el candidato que el usuario elija).
+1. Abrir PR de Phase 2H (`work/architecture-phase-2h-feedback-family` → `main`), esperar CI.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 9d4a89c origin/main` (exit 0 recién tras el merge).
+3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2H solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
+5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+6. Reconstruye el estado y el usuario lo valida.
+7. **El usuario decide explícitamente** si el próximo lote es Catalog o el gate STATEFUL — **no asumir** un orden.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
@@ -850,11 +914,7 @@ working tree sucio · el próximo candidato requiere una dependencia main-privat
 inesperada · aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de
 comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2G)
-**READY / MECHANICAL**
-- **Feedback family** (module + section + catalog feedback); comparten
-  `_save_*_feedback` + seam `FEEDBACK_LOG_DIR` (hoy en main).
-
+## REMAINING PHASE 2 MAP (post-2H)
 **STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
 - Module page / section analysis · Assistant · Trees / Wizard / Diagnostics.
 - **Verdadero mutable lifecycle compartido = exactamente 2 instancias:** `store`
