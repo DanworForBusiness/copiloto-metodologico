@@ -45,10 +45,8 @@ from webapp.services.content_service import (
     load_module,
     split_front_matter,
 )
-from webapp.services.case_library import CaseLibraryRepository
 from webapp.services.assistant_service import (
     AssistantChatService,
-    AssistantConversationStore,
     AssistantFeedbackRepository,
     StaleAssistantReplyError,
 )
@@ -60,7 +58,6 @@ from webapp.services.section_analysis import (
     SectionAnalysisService,
     render_llm_html,
 )
-from webapp.services.wizard_service import WizardStore
 from webapp.services import admin_tools
 from webapp.services import activity_analytics
 from webapp.services import whats_new_service as whatsnew
@@ -72,6 +69,7 @@ from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
+from webapp import copilot_runtime  # estado mutable de proceso del Copiloto (Fase 2J-A)
 from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
 from webapp.routers import landing as landing_router
@@ -127,11 +125,14 @@ templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 # verbose_telemetry) se construyen en webapp/templating.py (Fase 2C); acá se
 # re-exporta `templates` (misma identidad) y se le siguen registrando los
 # filtros de workspace (diagnostic_title, catalog_verdict_*, arriba).
-store = WizardStore(case_repository=CaseLibraryRepository())
+# store y assistant_store se construyen ahora en webapp/copilot_runtime.py
+# (Fase 2J-A) — únicos objetos que requieren identidad compartida entre
+# requests. Alias transicional: misma identidad, ningún cambio de comportamiento.
+store = copilot_runtime.store
+assistant_store = copilot_runtime.assistant_store
 section_analysis_service = SectionAnalysisService()
 assistant_chat_service = AssistantChatService()
 assistant_routing_service = AssistantRoutingService()
-assistant_store = AssistantConversationStore()
 assistant_feedback_repository = AssistantFeedbackRepository()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
