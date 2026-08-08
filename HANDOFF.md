@@ -15,10 +15,13 @@
 > conserva por su detalle técnico, no es el trabajo en curso).
 >
 > **Estado en una línea (2026-08):** Fase 0 **CERRADA/GREEN, mergeada a `main`**.
-> **Fase 1 — System Router Pilot: IMPLEMENTADA y pusheada** a
-> `work/architecture-phase-1` (commit `a0bfd8d`); **CI PENDIENTE** (falta abrir
-> el PR manualmente — sin `gh` en el entorno) → **NO cerrada todavía**. Detalle y
-> gates en **A.13.1**. No avanzar a Fase 2 sin autorización explícita.
+> **Fase 1 — System Router Pilot: IMPLEMENTADA** (`a0bfd8d`). La primera CI del PR
+> **falló solo en el route-contract** por **dependency drift** (FastAPI moderno
+> anida las rutas de `include_router`); se corrigió **solo el test** (`6d1cf94`,
+> collector recursivo) y se pusheó → **CI re-corriendo, PENDIENTE de confirmar
+> GREEN** → Fase 1 **NO cerrada**. Detalle en **A.13.1/A.13.2**. **Gate nuevo:
+> A.18 — decisión de reproducibilidad de dependencias REQUERIDA antes de Fase 2.**
+> No avanzar a Fase 2 sin autorización explícita.
 
 ## A.1 Contexto de la iniciativa
 
@@ -262,6 +265,37 @@ GREEN/CLOSED hasta que **GitHub CI = GREEN** en el PR.
 - **Próximo paso:** confirmar CI GREEN en el PR → recién ahí Fase 1 = CLOSED/GREEN.
   **NO avanzar a Fase 2** sin review + autorización explícita del usuario.
 
+## A.13.2 Fase 1 — Finding de CI y fix (dependency drift)
+
+**Qué pasó:** la primera CI del PR de Fase 1 dio **1 failed / 227 passed / 1 skipped**.
+El único fallo fue `tests/test_route_contract.py` (reportaba `/health` y
+`/favicon.ico` como "faltantes", surface=73). **Las rutas funcionaban**:
+`test_health` y `test_favicon` **pasaron** en el mismo run.
+
+**Root cause (CONFIRMADO, reproducido en venv fresco):** **dependency drift.**
+- Local dev: **FastAPI 0.115.5 / Starlette 0.41.3** → `include_router` **aplana**
+  las rutas en `app.routes` → el collector viejo (top-level + `isinstance(Route)`)
+  las veía → 75/GREEN.
+- Fresh install / CI / DigitalOcean: **FastAPI 0.141.1 / Starlette 1.4.1** →
+  `include_router` **anida** las rutas en un contenedor de router incluido
+  (no es `Route` ni `Mount`; no expone `.routes`, sino `.original_router.routes`)
+  → el collector viejo lo saltaba → surface=73 → FAIL. Pero el contenedor **sí
+  rutea** (dispatch) → funcionales verdes. `requirements.txt` usa **rangos**, por
+  eso una instalación fresca resolvió un stack más nuevo que el venv local.
+- **Descartado:** doble import de `webapp.main` / problema del APIRouter / cambio
+  de contrato HTTP. El `_iter_leaves` recursivo demostró 75 en AMBOS stacks.
+
+**Fix (commit `6d1cf94`, SOLO test):** `_current_surface` ahora usa `_iter_leaves`,
+un walk recursivo que reconoce hojas HTTP por atributos públicos (`path`+`methods`,
+no por clase), desciende por `.routes` y —fallback de compatibilidad— por
+`.original_router.routes`, con protección por `id()`. **Snapshot intacto (75)**;
+sin `UPDATE_ROUTE_SURFACE`; **sin cambios de app**.
+
+**Validado:** local (0.115.5) route-contract PASS + suite 228/1/0; venv fresco
+(0.141.1/1.4.1) route-contract PASS + `test_health`/`test_favicon` 2 passed +
+suite **228 passed / 1 skipped / 0 failed** (= lo esperado en CI). El venv fresco
+quedó en el scratchpad de la sesión (`.../scratchpad/venv-fresh`).
+
 ## A.14 Gates de Fase 1
 
 Fase 1 es GREEN **solo si**: `route contract GREEN` · `pytest completo GREEN` ·
@@ -306,6 +340,27 @@ Ante una sesión nueva de Claude Code:
 5. Preservar los gates de cada fase.
 6. **Nunca** avanzar automáticamente a la fase siguiente.
 7. Actualizar este HANDOFF al terminar un checkpoint relevante.
+
+## A.18 PRE-PHASE-2 DECISION REQUIRED — Reproducibilidad de dependencias
+
+**Finding arquitectónico (elevado a gate):** el entorno de desarrollo local **no
+reproduce** las dependencias de una instalación fresca, porque `requirements.txt`
+usa **rangos**:
+- Local dev: **FastAPI 0.115.5 / Starlette 0.41.3**.
+- Fresh install / CI / DigitalOcean: **FastAPI 0.141.1 / Starlette 1.4.1**.
+
+Esto ya causó el fallo de CI de Fase 1 (ver A.13.2) — un cambio de comportamiento
+del framework entre versiones que local no veía. Es deuda de **reproducibilidad**,
+no un bug puntual.
+
+**NO resolver ahora.** Explícitamente NO hacer (sin decisión previa): pinnear
+FastAPI/Starlette, crear lockfile, cambiar `requirements.txt`, actualizar el venv
+local, introducir uv/pip-tools/Poetry, ni cambiar deployment.
+
+**GATE:** **antes de autorizar la Fase 2** (extracción masiva de routers) hay que
+tomar una **decisión consciente** sobre cómo manejar la reproducibilidad
+(dev == CI == runtime). No se debe empezar la Fase 2 con `dev != CI != prod`. Esta
+decisión es del usuario; registrar acá la que se tome.
 
 ---
 
