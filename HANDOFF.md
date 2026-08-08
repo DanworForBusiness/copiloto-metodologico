@@ -1117,19 +1117,27 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   |---|---|
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
   | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
-  | 2J-C Trees + Wizard | **IMPLEMENTED / PENDING CI** |
+  | 2J-C Trees + Wizard | **CLOSED / GREEN** |
   | 2J-D Module page | **NOT AUTHORIZED** |
   | *(luego)* evaluación de cierre de Phase 2 | — |
 
   Full Catalog decomposition sigue **DEFERRED**. Admin sigue **DEFERRED /
   non-blocking**.
 
-  **2J-D se vuelve elegible solo después de:** el commit de cierre de 2J-C
-  pusheado; CI final de 2J-C se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y la branch de 2J-C esté limpiada.
+  **2J-D se vuelve elegible solo después de:** este commit de cierre pusheado;
+  CI final de 2J-C se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y la branch de 2J-C esté limpiada.
 
-**2J-C — Trees + Wizard router — IMPLEMENTED / PENDING CI** (commit
+**2J-C — Trees + Wizard router — CLOSED / GREEN** (commit
 `40ed75d`; branch `work/architecture-phase-2j-c-trees-wizard`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **271 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  `main.py` pasó de **36 a 27** rutas propias; regresión dirigida de Trees/Wizard
+  **GREEN**; cobertura de lifecycle de Wizard **GREEN**; cobertura del
+  diagnóstico orquestador **GREEN**; cobertura de feedback de Wizard **GREEN**;
+  cobertura de persistencia de sugerencia de árbol **GREEN**; identidad de
+  `store` **preservada**.
 - **Archivos tocados:** `webapp/routers/wizard.py` (nuevo), `webapp/main.py`,
   `tests/webapp/test_routes.py`. Sin otros cambios (el archivo untracked
   `content_packs/datasphere_core/assets/academy/restaurante-danwor.html`
@@ -1171,8 +1179,7 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 - Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
   FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**), **suite
   271 passed / 1 skipped** (265 + 6). `main.py` pasó de **36 a 27** rutas
-  propias. **Cierre:** GitHub CI pendiente de confirmación (push recién
-  realizado).
+  propias. **Cierre:** GitHub CI **GREEN**.
 - **Nota transparente:** se detectó un archivo untracked ajeno a esta fase
   (`content_packs/datasphere_core/assets/academy/restaurante-danwor.html`,
   asset de storytelling de Academy) en el working tree al momento de
@@ -1202,29 +1209,27 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
 | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
-| 2J-C Trees + Wizard | **IMPLEMENTED / PENDING CI** |
+| 2J-C Trees + Wizard | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2J-C — Trees + Wizard router
-- **Status:** IMPLEMENTED / PENDING CI
-- **Functional commit:** `40ed75d` (branch `work/architecture-phase-2j-c-trees-wizard`, pusheada)
+- **Status:** CLOSED / GREEN
+- **Functional commit:** `40ed75d` (branch `work/architecture-phase-2j-c-trees-wizard`)
 - **Current next candidate:** Phase 2J-D — Module page extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: el commit de cierre de
-  2J-C esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y el cleanup de la branch de 2J-C esté completo
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de 2J-C esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **271 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/architecture-phase-2j-c-trees-wizard` (commit `40ed75d`).
-2. Commit de cierre de docs (`docs(handoff): checkpoint phase 2j-c pending ci` o el mensaje que el usuario autorice) tras confirmar CI.
-3. Mergear el PR de Phase 2J-C → `main`.
-4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 40ed75d origin/main` (exit 0 recién tras el merge).
-5. Cleanup de la branch de Phase 2J-C solo tras el paso 4 en verde.
-6. Crear una branch de trabajo nueva y limpia para 2J-D.
-7. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-8. Reconstruye el estado y el usuario lo valida.
-9. **Recién entonces** se autoriza 2J-D (Module page) — o el candidato que el usuario elija.
+1. Mergear el PR de Phase 2J-C (`work/architecture-phase-2j-c-trees-wizard` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 40ed75d origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Phase 2J-C solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para 2J-D.
+5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+6. Reconstruye el estado y el usuario lo valida.
+7. **Recién entonces** se autoriza 2J-D (Module page) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
