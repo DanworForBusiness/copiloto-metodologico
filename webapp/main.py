@@ -16,7 +16,6 @@ import yaml
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from core.content_registry import (
     available_content_packs,
@@ -40,7 +39,7 @@ from core.prompts import (
 )
 from core.utils import slugify
 from webapp.services import auth_service
-from webapp.services.activity_service import log_activity, log_verbose, is_verbose
+from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -72,10 +71,10 @@ from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
 from webapp.routers import auth as auth_router
+from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 
 DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
-templates = Jinja2Templates(directory=WEB_DIR / "templates")
 
 
 def _display_diagnostic_title(title: str) -> str:
@@ -120,24 +119,10 @@ templates.env.filters["catalog_verdict_class"] = _catalog_verdict_key
 templates.env.filters["catalog_verdict_label"] = _catalog_verdict_label
 templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 
-class _StaticVersion:
-    """Cache-busting de estáticos: se recalcula en cada render (mtime actual de
-    /static). Así, tras editar un .css/.js, un simple refresh trae la versión
-    nueva sin reiniciar el server (antes se fijaba al importar el módulo → los
-    cambios locales quedaban cacheados con la URL vieja)."""
-
-    def __str__(self) -> str:
-        try:
-            return str(max(
-                path.stat().st_mtime_ns
-                for path in (WEB_DIR / "static").iterdir() if path.is_file()
-            ))
-        except ValueError:
-            return "0"
-
-
-templates.env.globals["static_version"] = _StaticVersion()
-templates.env.globals["verbose_telemetry"] = is_verbose()
+# La env Jinja compartida y sus globals de plataforma (static_version,
+# verbose_telemetry) se construyen en webapp/templating.py (Fase 2C); acá se
+# re-exporta `templates` (misma identidad) y se le siguen registrando los
+# filtros de workspace (diagnostic_title, catalog_verdict_*, arriba).
 store = WizardStore(case_repository=CaseLibraryRepository())
 section_analysis_service = SectionAnalysisService()
 assistant_chat_service = AssistantChatService()
