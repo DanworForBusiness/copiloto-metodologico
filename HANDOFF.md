@@ -722,9 +722,14 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   - Aliases todavía vigentes en `main` (consumidores reales restantes): `_home_url
     = nav.home_url`, `_invite_src = invite.invite_src`, `INVITE_COOKIE =
     invite.INVITE_COOKIE`.
-**2G — Landing / Session Navigation router — IMPLEMENTED / PENDING CI** (commit
-`069c38f`, branch `work/architecture-phase-2g-landing-nav`; **NO cerrar GREEN
-hasta CI**):
+**2G — Landing / Session Navigation router — CLOSED / GREEN** (commit `069c38f`;
+branch `work/architecture-phase-2g-landing-nav`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **243 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **Landing/Nav focal tests GREEN**; comportamiento actual de redirect/cookie
+  **preservado**; router **no importa `webapp.main`**; **sin runtime/bootstrap**;
+  **sin cambios de comportamiento**.
 - `GET /`, `GET /home`, `GET /login`, `GET /desafio` y `GET /desafio/cerrar`
   extraídos a **`webapp/routers/landing.py`** (APIRouter) como **relocación
   pura**: auth/pack/next-param/open-redirect-guard/cookies/redirects/template
@@ -771,12 +776,25 @@ hasta CI**):
   GREEN (**75**), **suite 243 passed / 1 skipped** (240 + 3), smoke focal directo
   (`/` anónimo 200 / autenticado 307→`/home` · `/home` autenticado→`/modules/00_Intro`
   y anónimo→`/?...#acceso` · `/login`→`/?...#acceso` · `/desafio` set-cookie+307
-  · `/desafio/cerrar` delete-cookie+307 a `DESAFIO_CLOSE_URL`) GREEN. **Pendiente:**
-  GitHub CI. **NO cerrar GREEN hasta confirmarla.**
+  · `/desafio/cerrar` delete-cookie+307 a `DESAFIO_CLOSE_URL`) GREEN. **Cierre:**
+  GitHub CI **GREEN**.
+- **Clasificación multi-workspace (estado actual, NO anticipar):**
+  - `webapp/routers/landing.py` → **CURRENT WEB LANDING / SESSION NAVIGATION**.
+  - `webapp.nav.home_url` → **CURRENT WEB NAVIGATION**; cross-workspace reuse
+    **NOT YET DECIDED**.
+  - `webapp.presentation.invite` → **COPILOT / SHARED PRESENTATION**; **NOT
+    PLATFORM**; cross-workspace reuse **NOT YET DECIDED** (sin cambios; sigue
+    siendo el dueño explícito de `INVITE_COOKIE`/`invite_src`, consumido ahora
+    por el router de landing igual que antes lo consumía `main`).
+- **Cleanup registrado:** alias `INVITE_COOKIE` → **removido de `main`**; no
+  quedan consumidores allí tras la extracción.
+- **Aliases todavía vigentes en `main`:**
+  - `_home_url = nav.home_url` → consumidores restantes: **Module + Catalog**.
+  - `_invite_src = invite.invite_src` → consumidor restante: **Module**.
 - **Próximo candidato tras 2G:** Feedback family (module + section + catalog
   feedback, comparten `_save_*_feedback` + seam `FEEDBACK_LOG_DIR`) —
-  **NOT AUTHORIZED**. El gate STATEFUL (`runtime.py`) sigue diferido y **no**
-  es parte de esta fase.
+  **CANDIDATE / NOT AUTHORIZED**. El gate STATEFUL (`runtime.py`) sigue diferido
+  y **no** es parte de esta fase.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -807,25 +825,24 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2D What's New | **CLOSED / GREEN** |
 | 2E Academy | **CLOSED / GREEN** |
 | 2F Pack Asset Serving | **CLOSED / GREEN** |
-| 2G Landing / Session Navigation | **IMPLEMENTED / PENDING CI** |
+| 2G Landing / Session Navigation | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2G — Landing / Session Navigation
-- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Status:** CLOSED / GREEN
 - **Functional commit:** `069c38f` (branch `work/architecture-phase-2g-landing-nav`)
 - **Current next candidate:** Feedback family (module + section + catalog feedback)
-- **Feedback family status:** **NOT AUTHORIZED**
+- **Feedback family status:** **CANDIDATE / NOT AUTHORIZED**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **243 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Abrir PR de Phase 2G (`work/architecture-phase-2g-landing-nav` → `main`), esperar CI.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 069c38f origin/main` (exit 0 recién tras el merge).
-3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2G solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza Feedback family (o el candidato que el usuario elija).
+1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 069c38f origin/main` (exit 0 tras el merge).
+2. Cleanup de la branch `work/architecture-phase-2g-landing-nav` (solo tras el paso 1 en verde).
+3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. Reconstruye el estado y el usuario lo valida.
+6. **Recién entonces** se autoriza Feedback family (o el candidato que el usuario elija).
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
