@@ -1117,16 +1117,66 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   |---|---|
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
   | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
-  | 2J-C Trees + Wizard | **NOT AUTHORIZED** |
+  | 2J-C Trees + Wizard | **IMPLEMENTED / PENDING CI** |
   | 2J-D Module page | **NOT AUTHORIZED** |
   | *(luego)* evaluación de cierre de Phase 2 | — |
 
   Full Catalog decomposition sigue **DEFERRED**. Admin sigue **DEFERRED /
   non-blocking**.
 
-  **2J-C se vuelve elegible solo después de:** este commit de cierre pusheado;
-  CI final se mantenga GREEN; el PR esté mergeado; se verifique containment; y
-  la branch de 2J-B esté limpiada.
+  **2J-D se vuelve elegible solo después de:** el commit de cierre de 2J-C
+  pusheado; CI final de 2J-C se mantenga GREEN; el PR esté mergeado; se
+  verifique containment; y la branch de 2J-C esté limpiada.
+
+**2J-C — Trees + Wizard router — IMPLEMENTED / PENDING CI** (commit
+`40ed75d`; branch `work/architecture-phase-2j-c-trees-wizard`):
+- **Archivos tocados:** `webapp/routers/wizard.py` (nuevo), `webapp/main.py`,
+  `tests/webapp/test_routes.py`. Sin otros cambios (el archivo untracked
+  `content_packs/datasphere_core/assets/academy/restaurante-danwor.html`
+  encontrado en el working tree es ajeno a esta fase — no se tocó ni se
+  agregó al commit).
+- **9 rutas + 7 helpers** movidos **verbatim** a **`webapp/routers/wizard.py`**:
+  `POST /trees/suggest` (+ helper `_save_tree_suggestion`), `POST
+  /modules/{stem}/trees/start` (+ helpers `_norm_tokens`, `_resolve_tree`),
+  `POST /modules/{stem}/diagnostics/orchestrator`, `POST
+  /wizards/{run_id}/answer|back|restart` (+ helpers `_follow_wizard_redirect`,
+  `_fragment`), `POST /wizards/{run_id}/feedback(+submit,+cancel)` (+ helpers
+  `_thanks`, `_feedback_form`). `/trees/suggest` se incluyó en este router
+  (no en Feedback Family de 2H) porque su dueño de dominio es Trees/Wizard —
+  ver docstring de `wizard.py` para la justificación completa.
+- **`FEEDBACK_LOG_DIR` sin consumidores restantes en `main.py`** tras el
+  movimiento — import removido junto con `datetime`/`timezone`, `uuid4` y
+  `yaml` (verificados uno por uno con grep antes de remover). El router nuevo
+  tiene su propio seam explícito: `from config import FEEDBACK_LOG_DIR`.
+- **Identidad de `store` verificada explícitamente:** `main.store is
+  copilot_runtime.store` → **True**; `wizard_router.store is
+  copilot_runtime.store` → **True**. `main.py` retiene el alias `store` porque
+  `module_page` todavía lo consume (hasta 2J-D). Sin `WizardStore`/
+  `CaseLibraryRepository` nuevos construidos en el router.
+- **Cobertura de comportamiento nueva (+6 tests)** cerrando gaps reales
+  identificados en el assessment de Fase 2J: lifecycle answer/back/restart
+  sobre un árbol real (`extraction_options`, con verificación de que
+  `restart` limpia el historial); diagnóstico transversal orquestador
+  (`framework_assessment` arrancado desde un módulo real); feedback de
+  Wizard 👍 (persiste directo) y 👎→`/submit` con lección (persiste
+  `rating`+`lessons` verificado leyendo el YAML real vía
+  `copilot_runtime.store._case_repository.root` monkeypatcheado a
+  `tmp_path`); `/submit` sin lección re-muestra el formulario con el error
+  de negocio; `/cancel` no setea `rating`; `/trees/suggest` persiste con
+  `wizard_router.FEEDBACK_LOG_DIR` monkeypatcheado a `tmp_path` y confirma el
+  YAML resultante.
+- **Regresión dirigida GREEN:** suite completa de `test_routes.py` (87
+  tests) más los checks de identidad de `store` — ver evidencia de suite
+  abajo.
+- Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
+  FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**), **suite
+  271 passed / 1 skipped** (265 + 6). `main.py` pasó de **36 a 27** rutas
+  propias. **Cierre:** GitHub CI pendiente de confirmación (push recién
+  realizado).
+- **Nota transparente:** se detectó un archivo untracked ajeno a esta fase
+  (`content_packs/datasphere_core/assets/academy/restaurante-danwor.html`,
+  asset de storytelling de Academy) en el working tree al momento de
+  commitear — no se agregó al commit funcional ni se tocó de ningún modo.
 
 **Phase 2 overall: NOT COMPLETE.**
 
@@ -1152,37 +1202,44 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
 | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
+| 2J-C Trees + Wizard | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2J-B — Assistant + Section Analysis
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `040afdd` (branch `work/architecture-phase-2j-b-assistant-section`)
-- **Current next candidate:** Phase 2J-C — Trees + Wizard extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de 2J-B esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **265 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2J-C — Trees + Wizard router
+- **Status:** IMPLEMENTED / PENDING CI
+- **Functional commit:** `40ed75d` (branch `work/architecture-phase-2j-c-trees-wizard`, pusheada)
+- **Current next candidate:** Phase 2J-D — Module page extraction
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: el commit de cierre de
+  2J-C esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
+  verifique containment; y el cleanup de la branch de 2J-C esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **271 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2J-B (`work/architecture-phase-2j-b-assistant-section` → `main`) — CI ya GREEN.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 040afdd origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Phase 2J-B solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para 2J-C.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza 2J-C (Trees + Wizard) — o el candidato que el usuario elija.
+1. Confirmar CI GREEN del push de `work/architecture-phase-2j-c-trees-wizard` (commit `40ed75d`).
+2. Commit de cierre de docs (`docs(handoff): checkpoint phase 2j-c pending ci` o el mensaje que el usuario autorice) tras confirmar CI.
+3. Mergear el PR de Phase 2J-C → `main`.
+4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 40ed75d origin/main` (exit 0 recién tras el merge).
+5. Cleanup de la branch de Phase 2J-C solo tras el paso 4 en verde.
+6. Crear una branch de trabajo nueva y limpia para 2J-D.
+7. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+8. Reconstruye el estado y el usuario lo valida.
+9. **Recién entonces** se autoriza 2J-D (Module page) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
-necesidad concreta · cambio de comportamiento o de route-surface.
+necesidad concreta · cambio de comportamiento o de route-surface. También reportar
+(no bloqueante) el archivo untracked ajeno a esta fase
+`content_packs/datasphere_core/assets/academy/restaurante-danwor.html` visto en el
+working tree — no forma parte de ningún commit de Fase 2J.
 
-## REMAINING PHASE 2 MAP (post-2J-B)
+## REMAINING PHASE 2 MAP (post-2J-C)
 **STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
-- Module page · Trees / Wizard / Diagnostics. (Assistant + Section Analysis
-  **ya extraídos en 2J-B** → `webapp/routers/assistant.py`.)
+- Module page. (Assistant + Section Analysis **ya extraídos en 2J-B** →
+  `webapp/routers/assistant.py`; Trees / Wizard / Diagnostics **ya
+  extraídos en 2J-C** → `webapp/routers/wizard.py`.)
 - **Ownership RESUELTO en 2J-A:** `store` (WizardStore) y `assistant_store`
   (AssistantConversationStore) tienen dueño explícito en
   `webapp/copilot_runtime.py`. **Confirmado con evidencia de código** (no
@@ -1196,9 +1253,9 @@ necesidad concreta · cambio de comportamiento o de route-surface.
   `_catalog_data_products_list`, dueño explícito en `webapp/services/catalog_reads.py`).
   Cuando `module_page` se extraiga (2J-D), puede importar directo desde
   `catalog_reads` **y** `copilot_runtime` — **no** necesita tocar `webapp.main`.
-- **Restante en Fase 2J:** extraer las 9 rutas bloqueadas por `store` en 2J-C
-  (Trees+Wizard), luego `module_page` en 2J-D — ver secuencia y razones en la
-  sección 2J arriba.
+- **Restante en Fase 2J:** extraer `module_page` en 2J-D (último consumidor
+  de los alias `store`/`assistant_store` en `main.py`) — ver secuencia y
+  razones en la sección 2J arriba.
 
 **CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
 (no mover wholesale las ~1900 líneas).
