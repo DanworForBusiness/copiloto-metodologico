@@ -791,8 +791,14 @@ branch `work/architecture-phase-2g-landing-nav`):
 - **Aliases todavía vigentes en `main`:**
   - `_home_url = nav.home_url` → consumidores restantes: **Module + Catalog**.
   - `_invite_src = invite.invite_src` → consumidor restante: **Module**.
-**2H — Feedback Family router — IMPLEMENTED / PENDING CI** (commit `9d4a89c`,
-branch `work/architecture-phase-2h-feedback-family`; **NO cerrar GREEN hasta CI**):
+**2H — Feedback Family router — CLOSED / GREEN** (commit `9d4a89c`; mergeada a
+`main` desde `work/architecture-phase-2h-feedback-family`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **247 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **Feedback Family focal tests GREEN**; **`/trees/suggest` regression sanity
+  GREEN** (sin regresión); router **no importa `webapp.main`**; **sin dependencia
+  stateful**; **sin runtime/bootstrap**; **sin cambios de comportamiento**.
 - **Delimitation assessment previo** (análisis, sin cambios de código) confirmó
   exacto: **12 rutas** en 4 familias (MODULE, SECTION, CATALOG, CATALOG SECTION),
   ninguna con dependencia stateful. Un hallazgo del assessment no anticipado:
@@ -852,11 +858,25 @@ branch `work/architecture-phase-2h-feedback-family`; **NO cerrar GREEN hasta CI*
   (**75**), **suite 247 passed / 1 skipped** (243 + 4), smoke focal directo de
   las 4 familias (reacción up→200+persist) GREEN, sanity de `/trees/suggest`
   (import de `main.FEEDBACK_LOG_DIR` + POST real) GREEN — **sin regresión**.
-  **Pendiente:** GitHub CI. **NO cerrar GREEN hasta confirmarla.**
-- **Próximo candidato tras 2H:** **sin decidir todavía** entre Catalog (fase
-  propia: HTTP / business-data-compliance / presentation-SVG) y el gate
-  STATEFUL (`runtime.py` para `store`/`assistant_store`) — **ninguno
-  autorizado**. Orden a decidir explícitamente en la próxima sesión.
+  **Cierre:** GitHub CI **GREEN**.
+- **Clasificación multi-workspace (estado actual, NO anticipar):**
+  - `webapp/routers/feedback.py` → **COPILOT / FEEDBACK HTTP**.
+  - `FEEDBACK_LOG_DIR` seam para MODULE, SECTION, CATALOG y CATALOG SECTION →
+    dueño **`webapp/routers/feedback.py`** para esas rutas extraídas. `main.py`
+    **retiene** su propio `FEEDBACK_LOG_DIR` porque `_save_tree_suggestion` /
+    `POST /trees/suggest` siguen ahí.
+  - Exclusiones preservadas explícitamente: **Academy feedback** → dueño Fase 2E
+    (`webapp/routers/academy.py`); **Assistant feedback** → **STATEFUL /
+    ASSISTANT**; **Wizard feedback** → **STATEFUL / WIZARD**; **Trees suggestion**
+    (`/trees/suggest`) → dominio **TREES / WIZARD** (permanece en `main`);
+    **Admin feedback analysis** (`/admin/feedback/analyze`) → dominio **ADMIN**.
+- **Próximo candidato tras 2H:** **sin decidir todavía**. Áreas arquitectónicas
+  restantes: **(A) Catalog** — descomposición propia (HTTP / business-data-
+  compliance / presentation-SVG); **(B) STATEFUL ownership/lifecycle** —
+  `WizardStore` (`store`) y `AssistantConversationStore` (`assistant_store`);
+  **(C) Admin/cross-cutting** — último o parcialmente diferible. **Ninguna
+  autorizada.** Próxima acción: un assessment corto post-mecánico para elegir
+  si Catalog o el gate STATEFUL se aborda primero — **no asumir un orden**.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -888,25 +908,24 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2E Academy | **CLOSED / GREEN** |
 | 2F Pack Asset Serving | **CLOSED / GREEN** |
 | 2G Landing / Session Navigation | **CLOSED / GREEN** |
-| 2H Feedback Family | **IMPLEMENTED / PENDING CI** |
+| 2H Feedback Family | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2H — Feedback Family
-- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Status:** CLOSED / GREEN
 - **Functional commit:** `9d4a89c` (branch `work/architecture-phase-2h-feedback-family`)
 - **Current next candidate:** **sin decidir** — Catalog (fase propia) vs. gate STATEFUL (`runtime.py`)
-- **Next candidate status:** **NOT AUTHORIZED** (ninguno de los dos elegido todavía)
+- **Next candidate status:** **NOT AUTHORIZED** (ninguno de los dos elegido todavía; requiere un assessment corto post-mecánico antes de elegir)
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **247 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Abrir PR de Phase 2H (`work/architecture-phase-2h-feedback-family` → `main`), esperar CI.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 9d4a89c origin/main` (exit 0 recién tras el merge).
-3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2H solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-6. Reconstruye el estado y el usuario lo valida.
-7. **El usuario decide explícitamente** si el próximo lote es Catalog o el gate STATEFUL — **no asumir** un orden.
+1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 9d4a89c origin/main` (exit 0 — ya confirmado).
+2. Cleanup de la branch `work/architecture-phase-2h-feedback-family` (solo tras el paso 1 en verde).
+3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. Reconstruye el estado y el usuario lo valida.
+6. **El usuario decide explícitamente** si el próximo lote es Catalog o el gate STATEFUL — **no asumir** un orden. Un assessment corto (análisis, sin código) puede preceder esa decisión.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
