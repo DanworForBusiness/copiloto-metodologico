@@ -263,6 +263,14 @@ def test_local_pack_resource_is_served_and_traversal_is_rejected():
     assert traversal.status_code in {400, 404}
 
 
+def test_pack_asset_traversal_is_rejected():
+    traversal = client.get(
+        "/pack-assets/datasphere_core/academy/../config.py"
+    )
+
+    assert traversal.status_code in {400, 404}
+
+
 def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     conversation = web_main.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"

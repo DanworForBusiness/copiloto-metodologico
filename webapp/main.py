@@ -6,7 +6,6 @@ from urllib.parse import quote, urlencode
 from uuid import uuid4
 import asyncio
 import html
-import json
 import logging
 import os
 import re
@@ -14,7 +13,7 @@ import unicodedata
 import yaml
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from core.content_registry import (
@@ -23,8 +22,6 @@ from core.content_registry import (
     content_pack_label,
     content_pack_short_label,
     resolve_pack,
-    resolve_pack_file,
-    roots_for_kind,
 )
 from core import remote_store
 from config import (
@@ -77,7 +74,8 @@ from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
 from webapp.routers import academy as academy_router
-from webapp.presentation import academy_feedback, invite
+from webapp.routers import pack_assets as pack_assets_router
+from webapp.presentation import invite
 
 WEB_DIR = Path(__file__).parent
 
@@ -185,6 +183,7 @@ app.include_router(telemetry_router.router)
 app.include_router(auth_router.router)
 app.include_router(whats_new_router.router)
 app.include_router(academy_router.router)
+app.include_router(pack_assets_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -203,7 +202,6 @@ _diagnostic = access.is_diagnostic      # webapp.access
 _home_url = nav.home_url                                       # nav (landing/module/catalog)
 _invite_src = invite.invite_src                                # presentation.invite (module)
 INVITE_COOKIE = invite.INVITE_COOKIE                           # presentation.invite (/desafio)
-_academy_feedback_assets = academy_feedback.feedback_assets    # presentation.academy_feedback (/pack-assets)
 
 
 def _truthy(value: str) -> bool:
@@ -222,135 +220,10 @@ def _truthy(value: str) -> bool:
 # (su único consumidor era el token endpoint).
 
 
-@app.get("/brand/dancing/{pack_name}", include_in_schema=False)
-def dancing_logo(pack_name: str):
-    selected = _pack(pack_name)
-    path = resolve_pack_file("assets", "danwor-animated-dancing.html", selected)
-    if not path.exists():
-        raise HTTPException(404, "Logo no encontrado")
-    source = path.read_text(encoding="utf-8", errors="ignore")
-    # El asset original fue diseñado para fondo claro. Esta variante conserva
-    # animaciones y dorados, pero usa la paleta legible del shell oscuro.
-    dark_shell_colors = {
-        "#363636": "#e4e4ec",
-        "#1a1a1a": "#e4e4ec",
-        "#5e6166": "#8b8b96",
-        "#d0d0d0": "rgba(226,232,245,0.18)",
-        "0x36": "0xe4",
-    }
-    for original, replacement in dark_shell_colors.items():
-        source = source.replace(original, replacement)
-    return HTMLResponse(source)
-
-
-@app.get("/pack-assets/{pack_name}/{asset_path:path}", include_in_schema=False)
-def pack_asset(request: Request, pack_name: str, asset_path: str):
-    selected = _pack(pack_name)
-    # Este endpoint sirve el contenido real (storytelling de Academy, imágenes de
-    # módulos, etc.), no solo un shell — sin este chequeo, la URL del botón
-    # "pantalla completa" (o cualquier <iframe src> copiado) queda accesible sin
-    # sesión aunque el usuario se haya deslogueado. `next` preserva el destino
-    # (mismo mecanismo que el resto de las rutas protegidas).
-    if not auth_service.session_user(request):
-        return _login_redirect(request, selected)
-    relative = Path(asset_path)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise HTTPException(400, "Ruta de asset inválida")
-    path = resolve_pack_file("assets", relative, selected).resolve()
-    allowed_roots = [root.resolve() for root in roots_for_kind("assets", selected)]
-    if not path.exists() or not any(path.is_relative_to(root) for root in allowed_roots):
-        raise HTTPException(404, "Asset no encontrado")
-    if path.suffix.lower() == ".html":
-        theme = request.cookies.get("dw-content-theme", "light")
-        props = {"theme": theme if theme in ("light", "dark") else "light"}
-        for key, value in request.query_params.items():
-            normalized = key.lower().replace("-", "_")
-            props[normalized] = value
-            bits = [part for part in re.split(r"[_-]+", normalized) if part]
-            if bits:
-                props[bits[0] + "".join(part.title() for part in bits[1:])] = value
-        payload = json.dumps(props, ensure_ascii=False).replace("</", "<\\/")
-        # Soporte de tema común a TODOS los embeds: en modo oscuro vuelve
-        # transparente el fondo del asset (mata el recuadro blanco; se ve el
-        # canvas oscuro detrás) y escucha el cambio en vivo del copiloto.
-        # OJO: scopeado a [data-dw-embed] — standalone (sin embed=1, botón
-        # "pantalla completa") no tiene canvas del copiloto detrás; si se deja
-        # transparente ahí, el body queda sin fondo (blanco del navegador) pese
-        # a que las variables de color sí resuelven a la paleta oscura.
-        theme_support = (
-            '<style>html[data-dw-embed][data-dw-theme="dark"],html[data-dw-embed][data-dw-theme="dark"] body'
-            '{background:transparent!important}'
-            # Scrollbars sutiles en dark (thumb claro translúcido, track transparente).
-            'html[data-dw-theme="dark"]{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}'
-            'html[data-dw-theme="dark"]::-webkit-scrollbar,html[data-dw-theme="dark"] ::-webkit-scrollbar'
-            '{width:9px;height:9px}'
-            'html[data-dw-theme="dark"]::-webkit-scrollbar-track,html[data-dw-theme="dark"] ::-webkit-scrollbar-track'
-            '{background:transparent}'
-            'html[data-dw-theme="dark"]::-webkit-scrollbar-thumb,html[data-dw-theme="dark"] ::-webkit-scrollbar-thumb'
-            '{background:rgba(255,255,255,.16);border-radius:9px;border:3px solid transparent;background-clip:padding-box}'
-            'html[data-dw-theme="dark"]::-webkit-scrollbar-thumb:hover,html[data-dw-theme="dark"] ::-webkit-scrollbar-thumb:hover'
-            '{background:rgba(255,255,255,.30);background-clip:padding-box}'
-            # Mismo scrollbar sutil en claro (thumb oscuro translúcido, como los paneles).
-            'html[data-dw-theme="light"]{scrollbar-width:thin;scrollbar-color:rgba(20,22,28,.18) transparent}'
-            'html[data-dw-theme="light"]::-webkit-scrollbar,html[data-dw-theme="light"] ::-webkit-scrollbar'
-            '{width:9px;height:9px}'
-            'html[data-dw-theme="light"]::-webkit-scrollbar-track,html[data-dw-theme="light"] ::-webkit-scrollbar-track'
-            '{background:transparent}'
-            'html[data-dw-theme="light"]::-webkit-scrollbar-thumb,html[data-dw-theme="light"] ::-webkit-scrollbar-thumb'
-            '{background:rgba(20,22,28,.16);border-radius:9px;border:3px solid transparent;background-clip:padding-box}'
-            'html[data-dw-theme="light"]::-webkit-scrollbar-thumb:hover,html[data-dw-theme="light"] ::-webkit-scrollbar-thumb:hover'
-            '{background:rgba(20,22,28,.30);background-clip:padding-box}'
-            # Embebido a pantalla completa (embed=1): el shell del copiloto ya da
-            # contexto, así que se ocultan el topbar/progreso/footer propios del HTML.
-            'html[data-dw-embed] .topbar,html[data-dw-embed] .scroll-progress,html[data-dw-embed] footer{display:none!important}'
-            'html[data-dw-embed] .hero{padding-top:2.5rem}</style>'
-            "<script>(function(){function a(t){document.documentElement"
-            ".setAttribute('data-dw-theme',t||'light');}"
-            "var p=window.DANWOR_EMBED_PROPS||{};a(p.theme);"
-            "if(p.embed){document.documentElement.setAttribute('data-dw-embed','1');"
-            # Avisar al copiloto qué página se está viendo (para sincronizar el nav
-            # izquierdo al navegar entre páginas DENTRO del iframe, p. ej. paradigmas→datasphere).
-            # El propio HTML ya arrastra el query completo (branding+embed) a sus cross-links
-            # (data-carry-branding), así que embed=1 persiste al navegar dentro.
-            "try{parent.postMessage({type:'danwor-academy-nav',"
-            "asset:(location.pathname.split('/').pop()||'')},'*');}catch(_){}}"
-            "window.addEventListener('message',function(e){"
-            "if(e.data&&e.data.type==='danwor-theme')a(e.data.theme);});})();</script>"
-        )
-        injection = f"<script>window.DANWOR_EMBED_PROPS = {payload};</script>{theme_support}"
-        source = path.read_text(encoding="utf-8", errors="ignore")
-        academy_feedback_stem = str(request.query_params.get("academy_feedback") or "").strip()
-        academy_feedback = ""
-        if academy_feedback_stem and relative.parts and relative.parts[0].lower() == "academy":
-            academy_feedback = _academy_feedback_assets(academy_feedback_stem, selected)
-        if academy_feedback:
-            if re.search(r"</body>", source, re.I):
-                source = re.sub(r"</body>", academy_feedback + "\n</body>", source, count=1, flags=re.I)
-            else:
-                source = source + "\n" + academy_feedback
-        if re.search(r"</head>", source, re.I):
-            source = re.sub(r"</head>", injection + "\n</head>", source, count=1, flags=re.I)
-        else:
-            source = injection + "\n" + source
-        return HTMLResponse(source)
-    return FileResponse(path)
-
-
-@app.get("/pack-resources/{pack_name}/{kind}/{resource_path:path}", include_in_schema=False)
-def pack_resource(request: Request, pack_name: str, kind: str, resource_path: str):
-    selected = _pack(pack_name)
-    if not auth_service.session_user(request):
-        return _login_redirect(request, selected)
-    if kind not in {"assets", "templates"}:
-        raise HTTPException(404, "Tipo de recurso no encontrado")
-    relative = Path(resource_path)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise HTTPException(400, "Ruta de recurso inválida")
-    path = resolve_pack_file(kind, relative, selected).resolve()
-    allowed_roots = [root.resolve() for root in roots_for_kind(kind, selected)]
-    if not path.exists() or not any(path.is_relative_to(root) for root in allowed_roots):
-        raise HTTPException(404, "Recurso no encontrado")
-    return FileResponse(path)
+# /brand/dancing/{pack_name}, /pack-assets/{pack_name}/{asset_path:path} y
+# /pack-resources/{pack_name}/{kind}/{resource_path:path} se movieron a
+# webapp/routers/pack_assets.py (Fase 2F), incluido vía
+# app.include_router(pack_assets_router.router) arriba.
 
 
 @app.get("/home", include_in_schema=False)
