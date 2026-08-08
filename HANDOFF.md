@@ -1045,9 +1045,14 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
   (**75**), **suite 261 passed / 1 skipped** (255 + 6). **Cierre:** GitHub CI
   **GREEN**.
-**2J-B — Assistant + Section Analysis router — IMPLEMENTED / PENDING CI**
-(commit `040afdd`, branch `work/architecture-phase-2j-b-assistant-section`;
-**NO cerrar GREEN hasta CI**):
+**2J-B — Assistant + Section Analysis router — CLOSED / GREEN** (commit
+`040afdd`; branch `work/architecture-phase-2j-b-assistant-section`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **265 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  `main.py` pasó de **41 a 36** rutas propias; regresión dirigida de Assistant/
+  Section Analysis/Wizard/Module **GREEN**; cobertura de Assistant feedback
+  submit/cancel **GREEN**; identidad de `assistant_store` **preservada**.
 - `POST /modules/{stem}/sections/analyze`, `POST /modules/{stem}/assistant/chat`
   y `POST /assistant/responses/{reply_id}/feedback(+submit,+cancel)` (5 rutas)
   extraídas a **`webapp/routers/assistant.py`** (APIRouter) como **relocación
@@ -1097,21 +1102,31 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   GREEN (75 tests unitarios de wizard/assistant/section-analysis/routing/
   copilot_runtime + 21 tests HTTP de module_page/assistant/section-analysis/
   wizard), identidad `assistant_router.assistant_store is
-  copilot_runtime.assistant_store` verificada. **Pendiente:** GitHub CI. **NO
-  cerrar GREEN hasta confirmarla.**
+  copilot_runtime.assistant_store` verificada. **Cierre:** GitHub CI **GREEN**.
+- **Consecuencia arquitectónica:** Assistant + Section Analysis HTTP ya **no
+  viven en `main.py`**. El router extraído **no importa `webapp.main`** y
+  consume su lifecycle mutable directo de `copilot_runtime`.
+- **Test seams:** `section_analysis_service` y `assistant_chat_service`
+  migrados de `webapp.main` a `webapp.routers.assistant` — **sin** aliases de
+  compatibilidad retenidos en `main` solo para tests. El alias runtime de
+  `assistant_store` en `main` **sigue** (temporal): `module_page` continúa
+  consumiendo ese mismo objeto de lifecycle compartido hasta 2J-D.
 - **Secuencia de Fase 2J:**
 
   | Lote | Estado |
   |---|---|
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
-  | 2J-B Assistant + Section Analysis | **IMPLEMENTED / PENDING CI** |
+  | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
   | 2J-C Trees + Wizard | **NOT AUTHORIZED** |
   | 2J-D Module page | **NOT AUTHORIZED** |
   | *(luego)* evaluación de cierre de Phase 2 | — |
 
+  Full Catalog decomposition sigue **DEFERRED**. Admin sigue **DEFERRED /
+  non-blocking**.
+
   **2J-C se vuelve elegible solo después de:** este commit de cierre pusheado;
-  CI de 2J-B esté GREEN; el PR esté mergeado; se verifique containment; y la
-  branch de 2J-B esté limpiada.
+  CI final se mantenga GREEN; el PR esté mergeado; se verifique containment; y
+  la branch de 2J-B esté limpiada.
 
 **Phase 2 overall: NOT COMPLETE.**
 
@@ -1136,23 +1151,23 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2H Feedback Family | **CLOSED / GREEN** |
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
-| 2J-B Assistant + Section Analysis | **IMPLEMENTED / PENDING CI** |
+| 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2J-B — Assistant + Section Analysis
-- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Status:** CLOSED / GREEN
 - **Functional commit:** `040afdd` (branch `work/architecture-phase-2j-b-assistant-section`)
 - **Current next candidate:** Phase 2J-C — Trees + Wizard extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: CI de 2J-B esté GREEN; el
-  PR esté mergeado; se verifique containment; y el cleanup de la branch de 2J-B
-  esté completo
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de 2J-B esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **265 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Abrir PR de Phase 2J-B (`work/architecture-phase-2j-b-assistant-section` → `main`), esperar CI.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 040afdd origin/main` (exit 0 recién tras el merge).
-3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2J-B solo tras el paso 2 en verde.
+1. Mergear el PR de Phase 2J-B (`work/architecture-phase-2j-b-assistant-section` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 040afdd origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Phase 2J-B solo tras el paso 2 en verde.
 4. Crear una branch de trabajo nueva y limpia para 2J-C.
 5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 6. Reconstruye el estado y el usuario lo valida.
