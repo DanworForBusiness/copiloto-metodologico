@@ -30,7 +30,12 @@
 > runtime/bootstrap; ver A.20). **2D — What's New router** (`GET /whats-new` +
 > `POST /whats-new/dismiss` → `webapp/routers/whats_new.py`) **CLOSED / GREEN**
 > (commit `c119b51`; CI GREEN; feature COPILOT; router sin `webapp.main`; misma env
-> Jinja; surface 75; +3 tests HTTP; ver A.20). Cada lote requiere autorización explícita; NO
+> Jinja; surface 75; +3 tests HTTP; ver A.20). **2E — Academy router** (`GET
+> /academy/{stem}` + 3 endpoints de feedback → `webapp/routers/academy.py`)
+> **IMPLEMENTED / PENDING CI** (commit `0431caa`; feature COPILOT; router sin
+> `webapp.main`; `_home_url`→`nav.home_url`, `_invite_src`→`presentation/invite.py`,
+> `_academy_feedback_*`→`presentation/academy_feedback.py`, con aliases transitorios
+> en main; surface 75; +2 tests; ver A.20). Cada lote requiere autorización explícita; NO
 > avanzar de un lote al siguiente sin OK. **Phase 2 overall: NOT COMPLETE.** Dirección
 > futura de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
 
@@ -602,6 +607,50 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   **validados por un consumidor real** — un feature COPILOT respaldado por template
   puede ahora vivir **fuera de `main.py`** sin trasladar dependencias privadas de
   `main` a otro god-module. Es el objetivo real de Fase 2D.
+
+**2E — Academy router — IMPLEMENTED / PENDING CI** (commit `0431caa`):
+- `GET /academy/{stem}` + `POST /academy/{stem}/feedback|feedback/submit|feedback/cancel`
+  extraídos a **`webapp/routers/academy.py`** (APIRouter) como **relocación pura**:
+  auth/pack/diagnostic/readonly/template/context/redirects/feedback y **formato
+  persistido** preservados verbatim.
+- **feature classification: COPILOT** (consume capacidades compartidas sin volverse
+  plataforma). El router **NO importa `webapp.main`**.
+- **Ownership de dependencias compartidas (ampliación de scope autorizada):**
+  - `_home_url` → **`webapp/nav.py`** (`home_url`). Clasif.: **CURRENT WEB NAVIGATION**
+    (NO se afirma PLATFORM/SHARED todavía).
+  - `_invite_src` + `INVITE_STEM` + `INVITE_COOKIE` → **`webapp/presentation/invite.py`**
+    (`invite_src`). Clasif.: **COPILOT / SHARED PRESENTATION** ("shared" = compartido
+    hoy por features del Copiloto; cross-workspace reuse **NOT YET DECIDED**).
+  - `_academy_feedback_html`/`_academy_feedback_assets` → **`webapp/presentation/academy_feedback.py`**
+    (`feedback_html`/`feedback_assets`). Clasif.: **COPILOT / ACADEMY PRESENTATION**
+    (que `/pack-assets` lo consuma NO lo vuelve plataforma).
+  - Ninguno de estos módulos importa `webapp.main`, define rutas, ni se declara
+    PLATFORM/SHARED.
+- **Persistencia:** `_save_academy_feedback` es feature-local → movido al router con
+  **seam propio `academy_router.FEEDBACK_LOG_DIR`** (tests de Academy migran a ese
+  seam). `main` conserva su `FEEDBACK_LOG_DIR` porque las otras familias de feedback
+  (module/section/catalog) siguen ahí. Seam **no** generalizado.
+- **`/pack-assets` NO se movió** (sigue en `main`): consume `_academy_feedback_assets`
+  vía **alias transitorio** hacia `presentation.academy_feedback`. Nota de reporte:
+  `INVITE_COOKIE` tenía consumidores adicionales (`/desafio`, `/desafio/cerrar`, que
+  quedan en main) → se resolvió con alias `INVITE_COOKIE = invite.INVITE_COOKIE`
+  (single source of truth en `presentation/invite.py`).
+- **Aliases transitorios en `main`** (desaparecen cuando salgan sus consumidores):
+  `_home_url = nav.home_url` (landing/module/catalog), `_invite_src = invite.invite_src`
+  (module), `INVITE_COOKIE = invite.INVITE_COOKIE` (/desafio), `_academy_feedback_assets
+  = academy_feedback.feedback_assets` (/pack-assets). **No duplican implementación.**
+- **Tests:** seam de Academy migrado a `academy_router.FEEDBACK_LOG_DIR`; +2 tests
+  (redirect anónimo, submit/cancel). Render autenticado + react-up + **regresión de
+  `/pack-assets`** (inyección de feedback) ya cubiertos por tests previos.
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`, sin nueva Jinja env, sin instancias
+  nuevas, sin cambios en `access`/`content_registry`/`templating`/`auth_service` ni
+  templates físicos. **Route surface 75 sin cambios** (snapshot intacto).
+- Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
+  1.4.1)**: route-contract GREEN, **suite 239 passed / 1 skipped** (237 + 2), smoke
+  focal (academy render / feedback / pack-assets) GREEN. **PENDING:** CI GREEN en el PR.
+- **Phase 2F candidate: Pack Asset Serving** — Academy ya eliminó su último blocker
+  main-private (`_academy_feedback_assets` tiene dueño explícito en presentation).
+  **NOT AUTHORIZED** (requiere OK explícito).
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
