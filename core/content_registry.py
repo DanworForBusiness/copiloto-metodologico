@@ -23,6 +23,11 @@ from config import CONTENT_PACK, CONTENT_PACKS_DIR
 PACK_KINDS = ("content", "trees", "assets", "templates")
 CONTENT_PACK_SESSION_KEY = "content_pack_selector"
 
+# Pack por defecto de la webapp. Se mantiene como literal (no `CONTENT_PACK`)
+# para preservar EXACTAMENTE el fallback histórico del helper `_pack` de la
+# webapp: caer a "datasphere_core" con independencia de DANWOR_CONTENT_PACK.
+DEFAULT_PACK = "datasphere_core"
+
 
 @functools.lru_cache(maxsize=64)
 def _read_pack_meta(pack_name: str) -> dict[str, str]:
@@ -75,6 +80,14 @@ def available_content_packs() -> list[str]:
         if path.is_dir() and (path / "pack.yaml").exists()
     )
     return packs or [CONTENT_PACK]
+
+
+def resolve_pack(value: str) -> str:
+    """Valida un pack pedido por el caller contra los packs instalados y cae a
+    `DEFAULT_PACK` si no existe. Es la semántica exacta del helper `_pack` que
+    vivía en webapp/main.py (validación + fallback), reubicada acá porque el
+    contexto de content-pack pertenece al registro de contenido, no a la web."""
+    return value if value in available_content_packs() else DEFAULT_PACK
 
 
 def content_pack_chain(pack_name: str | None = None) -> list[str]:
