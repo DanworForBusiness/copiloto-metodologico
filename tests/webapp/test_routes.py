@@ -958,3 +958,51 @@ def test_sac_appendix_a06_hidden_from_nav_and_unlinked():
     assert mod05.status_code == 200
     assert "Organización de Contenido en" in mod05.text
     assert "/modules/A06_SAP_Analytics_Cloud" not in mod05.text
+
+
+# --- What's New router (Fase 2D: webapp/routers/whats_new.py) ----------------
+# Tres comportamientos observables reubicados desde main.py sin cambios: render
+# autenticado, redirect de acceso anónimo y emisión de la cookie de "visto" en el
+# dismiss. Clientes AISLADOS (como en logout) para no mutar la cookie
+# dw-whatsnew-seen del cliente compartido.
+
+def test_whats_new_page_authenticated_renders():
+    c = TestClient(app)
+    c.cookies.set(auth_service.COOKIE_NAME, _SESSION)
+    r = c.get("/whats-new")
+    assert r.status_code == 200
+    # Marcador estable del template (título), no del contenido dinámico de entries.
+    assert "Novedades" in r.text
+    assert "{{" not in r.text
+
+
+def test_whats_new_page_anonymous_redirects_to_login():
+    c = TestClient(app)  # sin cookie de sesión
+    r = c.get("/whats-new", follow_redirects=False)
+    # Comportamiento actual de nav.login_redirect: 307 a /?pack=…&next=…#acceso.
+    assert r.status_code == 307
+    location = r.headers["location"]
+    assert location.startswith("/?")
+    assert location.endswith("#acceso")
+    assert "next=%2Fwhats-new" in location
+    assert "pack=datasphere_core" in location
+
+
+def test_whats_new_dismiss_emits_seen_cookie():
+    from webapp.services import whats_new_service
+
+    c = TestClient(app)
+    # latest_ref() depende de git/pack en runtime; se fija para un aserto
+    # determinista sobre la cookie (no sobre el contenido de las novedades).
+    original = whats_new_service.latest_ref
+    whats_new_service.latest_ref = lambda *a, **k: "ref-test-123"
+    try:
+        r = c.post("/whats-new/dismiss")
+    finally:
+        whats_new_service.latest_ref = original
+    assert r.status_code == 200
+    assert r.text == ""
+    assert r.cookies.get(whats_new_service.COOKIE_NAME) == "ref-test-123"
+    set_cookie = r.headers["set-cookie"]
+    assert "Max-Age=31536000" in set_cookie
+    assert "Path=/" in set_cookie
