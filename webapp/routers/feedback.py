@@ -1,0 +1,353 @@
+"""
+feedback.py — Feedback Family: módulo, sección, catálogo, sección de catálogo
+(feature COPILOT).
+
+Router de las 12 rutas de reacción/comentario (👍/👎 + comentario opcional +
+cancelar) de 4 familias: feedback general de módulo, micro-feedback por
+sección de módulo, feedback de cierre de catálogo y micro-feedback por
+sección de catálogo. Extraído de ``webapp/main.py`` (Fase 2H) como relocación
+pura — sin rediseño de auth/persistencia/presentación.
+
+Feature COPILOT que consume capacidades compartidas desde sus dueños explícitos
+(`core.content_registry`, `webapp.services.auth_service`,
+`webapp.services.content_service`, `webapp.templating`, `config`) SIN importar
+``webapp.main``.
+
+Las 4 implementaciones de persistencia (`_save_*`) se mantienen **deliberadamente
+duplicadas** (mismo patrón mkdir + payload YAML + write-tmp + replace + best-effort):
+esta fase establece ownership, no diseña una plataforma de feedback genérica.
+
+NO cubre: Academy feedback (`webapp/routers/academy.py`, Fase 2E), Assistant
+response feedback (stateful, `assistant_store`/`assistant_feedback_repository`),
+Wizard/Trees feedback (stateful, `store`) ni `/trees/suggest` (mismo seam de
+persistencia pero feature distinta — sigue en `main`).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from uuid import uuid4
+
+import yaml
+
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from config import FEEDBACK_LOG_DIR
+from core.content_registry import DEFAULT_PACK, resolve_pack
+from webapp.services import auth_service
+from webapp.services.content_service import load_module
+from webapp.templating import templates
+
+router = APIRouter()
+
+
+# ── Feedback general de módulo (cierre de módulo) ──────────────────────────
+
+def _save_module_feedback(request: Request, document, selected: str, rating: str, comment: str = "") -> None:
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "module_content",
+            "module": document.summary.stem,
+            "module_title": document.summary.title,
+            "pack": selected,
+            "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""),
+            "ts": now.isoformat(),
+        }
+        clean_comment = (comment or "").strip()
+        if clean_comment:
+            payload["comment"] = clean_comment
+        path = FEEDBACK_LOG_DIR / f"module_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        temporary = path.with_suffix(".yaml.tmp")
+        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        temporary.replace(path)
+    except Exception:
+        # El feedback no debe romper la navegacion ni el contenido del modulo.
+        pass
+
+
+@router.post("/modules/{stem}/feedback", response_class=HTMLResponse)
+def module_feedback(
+    request: Request,
+    stem: str,
+    rating: str = Form(""),
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = resolve_pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating invalido")
+    document = load_module(stem, selected)
+    if rating == "down":
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/module_feedback.html",
+            context={"document": document, "pack": selected, "form": True, "error": ""},
+        )
+    _save_module_feedback(request, document, selected, "up")
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected, "submitted": True, "rating": "up"},
+    )
+
+
+@router.post("/modules/{stem}/feedback/submit", response_class=HTMLResponse)
+def module_feedback_submit(
+    request: Request,
+    stem: str,
+    rating: str = Form("down"),
+    comment: str = Form(""),
+    pack: str = Form(DEFAULT_PACK),
+):
+    selected = resolve_pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating invalido")
+    document = load_module(stem, selected)
+    if rating == "down" and not comment.strip():
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/module_feedback.html",
+            context={
+                "document": document,
+                "pack": selected,
+                "form": True,
+                "error": "Contanos brevemente que falto o que mejorarias.",
+            },
+        )
+    _save_module_feedback(request, document, selected, rating, comment)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected, "submitted": True, "rating": rating},
+    )
+
+
+@router.post("/modules/{stem}/feedback/cancel", response_class=HTMLResponse)
+def module_feedback_cancel(request: Request, stem: str, pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    document = load_module(stem, selected)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/module_feedback.html",
+        context={"document": document, "pack": selected},
+    )
+
+
+# ── Feedback por sección (micro-botonera al cierre de cada sección) ────────
+# Granularidad fina: complementa el feedback general de módulo. Es contenido
+# (sin IA/tokens), así que lo ve también el perfil de solo lectura. El comentario
+# del 👎 es OPCIONAL. Escribe type=section_content (lo analiza analyze_feedback).
+
+def _section_or_404(document, section_slug: str):
+    section = next((s for s in document.sections if s.slug == section_slug), None)
+    if section is None:
+        raise HTTPException(404, "Sección no encontrada")
+    return section
+
+
+def _section_feedback_ctx(document, section, selected: str, **extra) -> dict:
+    return {"stem": document.summary.stem, "section": section, "pack": selected, **extra}
+
+
+def _save_section_feedback(request: Request, document, section, selected: str, rating: str, comment: str = "") -> None:
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "section_content",
+            "module": document.summary.stem,
+            "module_title": document.summary.title,
+            "section_slug": section.slug,
+            "section_title": section.title,
+            "pack": selected,
+            "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""),
+            "ts": now.isoformat(),
+        }
+        clean_comment = (comment or "").strip()
+        if clean_comment:
+            payload["comment"] = clean_comment
+        path = FEEDBACK_LOG_DIR / f"section_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        temporary = path.with_suffix(".yaml.tmp")
+        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        temporary.replace(path)
+    except Exception:
+        # El feedback no debe romper la navegación ni el contenido del módulo.
+        pass
+
+
+@router.post("/modules/{stem}/sections/{section_slug}/feedback", response_class=HTMLResponse)
+def section_feedback(request: Request, stem: str, section_slug: str,
+                     rating: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inválido")
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    if rating == "down":
+        # El 👎 despliega la línea de comentario opcional; todavía no persiste.
+        return templates.TemplateResponse(
+            request=request, name="partials/section_feedback.html",
+            context=_section_feedback_ctx(document, section, selected, form=True),
+        )
+    _save_section_feedback(request, document, section, selected, "up")
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected, submitted=True, rating="up"),
+    )
+
+
+@router.post("/modules/{stem}/sections/{section_slug}/feedback/submit", response_class=HTMLResponse)
+def section_feedback_submit(request: Request, stem: str, section_slug: str,
+                            rating: str = Form("down"), comment: str = Form(""),
+                            pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    # Comentario opcional: el 👎 se registra siempre (con o sin texto).
+    _save_section_feedback(request, document, section, selected, "down", comment)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected, submitted=True, rating="down"),
+    )
+
+
+@router.post("/modules/{stem}/sections/{section_slug}/feedback/cancel", response_class=HTMLResponse)
+def section_feedback_cancel(request: Request, stem: str, section_slug: str, pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    document = load_module(stem, selected)
+    section = _section_or_404(document, section_slug)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_section_feedback_ctx(document, section, selected),
+    )
+
+
+# ── Feedback de cierre de catálogo / Novedades (partial catalog_feedback.html) ──
+def _save_catalog_feedback(request: Request, kind: str, ref: str, pack: str, rating: str, comment: str = "") -> None:
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "catalog", "catalog_kind": kind or "", "catalog_ref": ref or "",
+            "pack": pack, "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""), "ts": now.isoformat(),
+        }
+        c = (comment or "").strip()
+        if c:
+            payload["comment"] = c
+        path = FEEDBACK_LOG_DIR / f"catalog_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        tmp = path.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
+        pass
+
+
+def _catalog_feedback_ctx(kind: str, ref: str, pack: str, fb_eyebrow: str = "", fb_prompt: str = "", **extra) -> dict:
+    return {"catalog_kind": kind, "catalog_ref": ref, "pack": pack,
+            "fb_eyebrow": fb_eyebrow, "fb_prompt": fb_prompt, **extra}
+
+
+@router.post("/catalog/feedback", response_class=HTMLResponse, include_in_schema=False)
+def catalog_feedback(request: Request, rating: str = Form(""), catalog_kind: str = Form(""),
+                     catalog_ref: str = Form(""), fb_eyebrow: str = Form(""), fb_prompt: str = Form(""),
+                     pack: str = Form(DEFAULT_PACK)):
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inválido")
+    selected = resolve_pack(pack)
+    if rating == "down":   # el 👎 despliega el comentario opcional; todavía no persiste
+        return templates.TemplateResponse(
+            request=request, name="partials/catalog_feedback.html",
+            context=_catalog_feedback_ctx(catalog_kind, catalog_ref, selected, fb_eyebrow, fb_prompt, form=True))
+    _save_catalog_feedback(request, catalog_kind, catalog_ref, selected, "up")
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_feedback.html",
+        context=_catalog_feedback_ctx(catalog_kind, catalog_ref, selected, fb_eyebrow, fb_prompt, submitted=True, rating="up"))
+
+
+@router.post("/catalog/feedback/submit", response_class=HTMLResponse, include_in_schema=False)
+def catalog_feedback_submit(request: Request, comment: str = Form(""), catalog_kind: str = Form(""),
+                            catalog_ref: str = Form(""), fb_eyebrow: str = Form(""), fb_prompt: str = Form(""),
+                            pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    _save_catalog_feedback(request, catalog_kind, catalog_ref, selected, "down", comment)
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_feedback.html",
+        context=_catalog_feedback_ctx(catalog_kind, catalog_ref, selected, fb_eyebrow, fb_prompt, submitted=True, rating="down"))
+
+
+@router.post("/catalog/feedback/cancel", response_class=HTMLResponse, include_in_schema=False)
+def catalog_feedback_cancel(request: Request, catalog_kind: str = Form(""), catalog_ref: str = Form(""),
+                            fb_eyebrow: str = Form(""), fb_prompt: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_feedback.html",
+        context=_catalog_feedback_ctx(catalog_kind, catalog_ref, resolve_pack(pack), fb_eyebrow, fb_prompt))
+
+
+# ── Micro-feedback por sección del detalle de catálogo (simil módulos) ──────
+def _save_catalog_section_feedback(request: Request, cliente: str, dominio: str, slug: str,
+                                   pack: str, rating: str, comment: str = "") -> None:
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "catalog_section", "cliente": cliente, "dominio": dominio, "section_slug": slug,
+            "pack": pack, "rating": rating,
+            "user": str(user.get("username") or user.get("email") or ""), "ts": now.isoformat(),
+        }
+        c = (comment or "").strip()
+        if c:
+            payload["comment"] = c
+        path = FEEDBACK_LOG_DIR / f"catalog_section_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        tmp = path.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _catalog_section_fb_ctx(cliente: str, dominio: str, slug: str, pack: str, fb_prompt: str = "", **extra) -> dict:
+    return {"cliente": cliente, "dominio": dominio, "slug": slug, "pack": pack, "fb_prompt": fb_prompt, **extra}
+
+
+@router.post("/catalog/section-feedback", response_class=HTMLResponse, include_in_schema=False)
+def catalog_section_feedback(request: Request, cliente: str = Form(""), dominio: str = Form(""),
+                             slug: str = Form(""), rating: str = Form(""), fb_prompt: str = Form(""),
+                             pack: str = Form(DEFAULT_PACK)):
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inválido")
+    selected = resolve_pack(pack)
+    if rating == "down":
+        return templates.TemplateResponse(
+            request=request, name="partials/catalog_section_feedback.html",
+            context=_catalog_section_fb_ctx(cliente, dominio, slug, selected, fb_prompt, form=True))
+    _save_catalog_section_feedback(request, cliente, dominio, slug, selected, "up")
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_section_feedback.html",
+        context=_catalog_section_fb_ctx(cliente, dominio, slug, selected, fb_prompt, submitted=True, rating="up"))
+
+
+@router.post("/catalog/section-feedback/submit", response_class=HTMLResponse, include_in_schema=False)
+def catalog_section_feedback_submit(request: Request, cliente: str = Form(""), dominio: str = Form(""),
+                                    slug: str = Form(""), comment: str = Form(""), fb_prompt: str = Form(""),
+                                    pack: str = Form(DEFAULT_PACK)):
+    selected = resolve_pack(pack)
+    _save_catalog_section_feedback(request, cliente, dominio, slug, selected, "down", comment)
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_section_feedback.html",
+        context=_catalog_section_fb_ctx(cliente, dominio, slug, selected, fb_prompt, submitted=True, rating="down"))
+
+
+@router.post("/catalog/section-feedback/cancel", response_class=HTMLResponse, include_in_schema=False)
+def catalog_section_feedback_cancel(request: Request, cliente: str = Form(""), dominio: str = Form(""),
+                                    slug: str = Form(""), fb_prompt: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_section_feedback.html",
+        context=_catalog_section_fb_ctx(cliente, dominio, slug, resolve_pack(pack), fb_prompt))
