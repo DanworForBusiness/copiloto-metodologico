@@ -76,6 +76,8 @@ from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
+from webapp.routers import academy as academy_router
+from webapp.presentation import academy_feedback, invite
 
 WEB_DIR = Path(__file__).parent
 
@@ -182,6 +184,7 @@ app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
 app.include_router(auth_router.router)
 app.include_router(whats_new_router.router)
+app.include_router(academy_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -194,166 +197,13 @@ _login_redirect = nav.login_redirect    # webapp.nav
 _is_owner = access.is_owner             # webapp.access
 _readonly = access.is_readonly          # webapp.access
 _diagnostic = access.is_diagnostic      # webapp.access
-
-
-def _academy_feedback_html(stem: str, pack: str, *, submitted: bool = False, rating: str = "", form: bool = False, error: str = "") -> str:
-    """Fragmento autocontenido para el iframe de Danwor Academy.
-
-    Mismas clases que partials/module_feedback.html (estilo único en
-    feedback.css) para que el cierre de Academy se vea IDÉNTICO al de módulo/
-    catálogo — nada de tipografía/botones propio acá. Solo cambia el copy
-    ("recorrido" en vez de "módulo") y el transporte: este HTML no carga htmx,
-    así que el submit va por fetch()+outerHTML (ver _academy_feedback_assets)
-    en vez de hx-post."""
-    safe_stem = quote(stem, safe="")
-    safe_pack = quote(pack, safe="")
-    if submitted:
-        icon = "&#128077;" if rating == "up" else "&#128078;"
-        return (
-            '<section id="academy-feedback" class="module-feedback is-visible">'
-            '<div class="module-feedback__inner module-feedback__inner--thanks">'
-            '<p class="module-feedback__eyebrow"><span></span>Gracias por tu recorrido</p>'
-            f'<p class="module-feedback__prompt"><span>{icon}</span> ¡Gracias!</p>'
-            '<p class="module-feedback__note">Registramos tu opinión sobre este contenido.</p>'
-            '</div></section>'
-        )
-    if form:
-        error_html = f'<p class="module-feedback__error">{error}</p>' if error else ""
-        return (
-            '<section id="academy-feedback" class="module-feedback is-visible">'
-            '<div class="module-feedback__inner module-feedback__inner--form">'
-            '<p class="module-feedback__eyebrow"><span></span>Contanos un poco más</p>'
-            '<p class="module-feedback__prompt">¿Qué faltó o qué mejorarías?</p>'
-            '<form data-academy-feedback-form method="post" '
-            f'action="/academy/{safe_stem}/feedback/submit">'
-            f'<input type="hidden" name="pack" value="{safe_pack}">'
-            '<input type="hidden" name="rating" value="down">'
-            f'{error_html}'
-            '<textarea name="comment" rows="3" placeholder="Ej.: faltó contexto, un ejemplo práctico, más claridad o profundidad..." required></textarea>'
-            '<div class="module-feedback__actions">'
-            f'<button type="button" class="module-feedback__ghost" data-academy-feedback-cancel data-url="/academy/{safe_stem}/feedback/cancel" data-pack="{safe_pack}">Cancelar</button>'
-            '<button type="submit" class="module-feedback__primary">Enviar</button>'
-            '</div></form></div></section>'
-        )
-    return (
-        '<section id="academy-feedback" class="module-feedback">'
-        '<div class="module-feedback__inner">'
-        '<p class="module-feedback__eyebrow"><span></span>Fin del recorrido</p>'
-        '<p class="module-feedback__prompt">¿Qué te pareció este contenido?</p>'
-        '<form data-academy-feedback-form method="post" '
-        f'action="/academy/{safe_stem}/feedback">'
-        f'<input type="hidden" name="pack" value="{safe_pack}">'
-        '<div class="module-feedback__reactions">'
-        '<button type="submit" name="rating" value="up" class="module-feedback__react" aria-label="Me sirvió" title="Me sirvió">'
-        '<span class="module-feedback__emoji">&#128077;</span><span class="module-feedback__label">Me sirvió</span></button>'
-        '<button type="submit" name="rating" value="down" class="module-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">'
-        '<span class="module-feedback__emoji">&#128078;</span><span class="module-feedback__label">Puede mejorar</span></button>'
-        '</div></form></div></section>'
-    )
-
-
-def _academy_feedback_assets(stem: str, pack: str) -> str:
-    initial = _academy_feedback_html(stem, pack).replace("</", "<\\/")
-    return """
-<link rel="stylesheet" href="/static/feedback.css" />
-<style>
-/* feedback.css es la ÚNICA fuente de .module-feedback* (botonera de cierre):
-   la usan fin de módulo, catálogo, how-to Y este cierre de Academy — mismas
-   clases en los tres para que se vean IDÉNTICOS, nada de tipografía/botones
-   propio acá (ver tools.css comment y catalog_guide_slides.html, mismo shim).
-   Shim: feedback.css usa las variables del copiloto (--card/--soft);
-   dw-academy.css no las define con ese nombre (usa --bg-card/--ink-soft). */
-:root{ --card: var(--bg-card); --soft: var(--ink-soft); }
-/* Reveal al llegar al final: propio de Academy (storytelling de una sola
-   scrolleada); el cierre de módulo no lo necesita porque ya vive en un
-   documento normal. Solo anima el wrapper — el resto es feedback.css. */
-#academy-feedback { opacity: 0; transform: translateY(22px); transition: opacity .7s var(--ease-out, ease), transform .7s var(--ease-out, ease); }
-#academy-feedback.is-visible { opacity: 1; transform: none; }
-/* .module-feedback trae border-top:0 a propósito: en módulo esa línea la
-   aporta el border-bottom de la ÚLTIMA sección de contenido. En Academy el
-   último .stop/.topic tiene border-bottom:none (":last-of-type"), así que acá
-   SÍ hace falta un borde propio para no perder el separador antes del cierre. */
-#academy-feedback { border-top: 1px solid var(--line); }
-</style>
-<script>
-(function() {
-  function observe(node) {
-    if (!node || node.classList.contains('is-visible')) return;
-    if (!('IntersectionObserver' in window)) { node.classList.add('is-visible'); return; }
-    var io = new IntersectionObserver(function(entries) {
-      entries.forEach(function(e) { if (e.isIntersecting) { e.target.classList.add('is-visible'); io.unobserve(e.target); } });
-    }, { threshold: 0.2 });
-    io.observe(node);
-  }
-  function wireRail(fb) {
-    // Suma un stop final al rail ("¿Qué te pareció?") para que el lector VEA que
-    // hay un tramo más después del último bullet y scrollee hasta el cierre.
-    var rail = document.getElementById('rail');
-    if (!fb || !rail) return;
-    if (!rail.querySelector('[data-af-rail]')) {
-      var anchor = document.createElement('a');
-      anchor.href = '#academy-feedback';
-      anchor.setAttribute('data-af-rail', '');
-      anchor.setAttribute('data-label', 'Cierre');
-      anchor.innerHTML = '<span>¿Qué te pareció?</span>';
-      anchor.addEventListener('click', function(e) {
-        e.preventDefault();
-        var t = document.getElementById('academy-feedback');
-        if (t) t.scrollIntoView({ behavior: 'smooth' });
-      });
-      rail.appendChild(anchor);
-    }
-    if (!('IntersectionObserver' in window)) return;
-    var io = new IntersectionObserver(function(entries) {
-      entries.forEach(function(e) {
-        var dot = rail.querySelector('[data-af-rail]');
-        if (!dot) return;
-        if (e.isIntersecting) {
-          rail.querySelectorAll('a').forEach(function(x) { x.classList.remove('active'); });
-          dot.classList.add('active');
-        } else {
-          dot.classList.remove('active');
-        }
-      });
-    }, { threshold: 0.4 });
-    io.observe(fb);
-  }
-  function hookup(node) { observe(node); wireRail(node); }
-  function replaceFeedback(html) {
-    var node = document.getElementById('academy-feedback');
-    if (node) { node.outerHTML = html; hookup(document.getElementById('academy-feedback')); }
-  }
-  document.addEventListener('submit', function(event) {
-    var form = event.target.closest('[data-academy-feedback-form]');
-    if (!form) return;
-    event.preventDefault();
-    var data = new FormData(form);
-    if (event.submitter && event.submitter.name) {
-      data.set(event.submitter.name, event.submitter.value || '');
-    }
-    fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin' })
-      .then(function(response) { return response.text(); })
-      .then(replaceFeedback);
-  });
-  document.addEventListener('click', function(event) {
-    var button = event.target.closest('[data-academy-feedback-cancel]');
-    if (!button) return;
-    event.preventDefault();
-    var data = new FormData();
-    data.set('pack', button.dataset.pack || '""" + pack + """');
-    fetch(button.dataset.url, { method: 'POST', body: data, credentials: 'same-origin' })
-      .then(function(response) { return response.text(); })
-      .then(replaceFeedback);
-  });
-  document.addEventListener('DOMContentLoaded', function() {
-    if (!document.getElementById('academy-feedback')) {
-      document.body.insertAdjacentHTML('beforeend', '""" + initial + """');
-    }
-    hookup(document.getElementById('academy-feedback'));
-  });
-})();
-</script>
-"""
+# Aliases transitorios (Fase 2E): dueños reales en nav / presentation; se
+# conservan por los consumidores que TODAVÍA viven en main (se irán al
+# extraer esos grupos). No duplican implementación.
+_home_url = nav.home_url                                       # nav (landing/module/catalog)
+_invite_src = invite.invite_src                                # presentation.invite (module)
+INVITE_COOKIE = invite.INVITE_COOKIE                           # presentation.invite (/desafio)
+_academy_feedback_assets = academy_feedback.feedback_assets    # presentation.academy_feedback (/pack-assets)
 
 
 def _truthy(value: str) -> bool:
@@ -503,21 +353,6 @@ def pack_resource(request: Request, pack_name: str, kind: str, resource_path: st
     return FileResponse(path)
 
 
-def _home_url(pack: str) -> str:
-    """URL de entrada a la app tras el login (perfil full): el 00 Intro.
-
-    La intro inmersiva es la puerta narrativa del copiloto; el perfil de solo
-    lectura (ACADEMY_USERS) no pasa por acá — aterriza en Danwor Academy (/home)."""
-    modules = list_modules(pack)
-    if not modules:
-        raise HTTPException(503, "No hay módulos configurados")
-    module = next(
-        (item for item in modules if item.number == "00"),
-        next((item for item in modules if item.number == "01"), modules[0]),
-    )
-    return f"/modules/{module.stem}?pack={pack}"
-
-
 @app.get("/home", include_in_schema=False)
 def home(request: Request, pack: str = Query(DEFAULT_PACK)):
     """Destino post-login, dependiente del perfil. Los usuarios de solo lectura
@@ -539,21 +374,6 @@ def home(request: Request, pack: str = Query(DEFAULT_PACK)):
 # sobre el copiloto. No es navegable: el trigger es una cookie que sobrevive al
 # login (el flujo post-login siempre aterriza en /home) y se borra al cerrar el
 # dialog. Reusable: cada visita a /desafio la vuelve a armar.
-INVITE_COOKIE = "dw-desafio"
-INVITE_STEM = "ACAD05_Desafio"
-
-
-def _invite_src(request: Request, pack: str) -> str:
-    """src del iframe del dialog de invitación, o "" si no corresponde mostrarlo."""
-    if request.cookies.get(INVITE_COOKIE) != "1":
-        return ""
-    asset = academy_asset_for(INVITE_STEM, pack)
-    if not asset:
-        return ""
-    query = urlencode({"branding": "danwor", "embed": "1", "academy_feedback": INVITE_STEM})
-    return f"/pack-assets/{pack}/academy/{asset}?{query}"
-
-
 @app.get("/desafio", include_in_schema=False)
 def desafio_invite(request: Request, pack: str = Query(DEFAULT_PACK)):
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
@@ -763,121 +583,6 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "whatsnew_unseen": whatsnew.is_unseen(request, selected),
         },
     )
-
-
-@app.get("/academy/{stem}", response_class=HTMLResponse, include_in_schema=False)
-def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
-    """Danwor Academy: área de onboarding desconectada de la navegación.
-
-    Embebe un HTML de storytelling autónomo (assets/academy/*.html) a pantalla
-    completa, sin panel de IA (como el módulo 00). El theme del copiloto viaja al
-    iframe por la infra de /pack-assets (data-dw-theme + postMessage)."""
-    diagnostic = _diagnostic(request)
-    selected = _pack(pack) if diagnostic else DEFAULT_PACK
-    user = auth_service.session_user(request)
-    if not user:
-        return _login_redirect(request, selected)
-
-    asset = academy_asset_for(stem, selected)
-    if not asset:
-        raise HTTPException(404, "Página de Academy no encontrada")
-    current = next((item for item in list_academy(selected) if item.stem == stem), None)
-    academy_nav = [item for item in list_academy(selected) if not item.nav_hidden]
-    log_activity("academy_selected", user=user, page=stem, pack=selected)
-
-    # branding=danwor → colores/marca Danwor; embed=1 → oculta el topbar propio del
-    # HTML (el shell del copiloto ya da contexto). El theme lo inyecta pack_asset.
-    iframe_src = (
-        f"/pack-assets/{selected}/academy/{asset}?"
-        f"{urlencode({'branding': 'danwor', 'embed': '1', 'academy_feedback': stem})}"
-    )
-    packs = [
-        {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": _home_url(name)}
-        for name in available_content_packs()
-    ]
-    return templates.TemplateResponse(
-        request=request,
-        name="academy.html",
-        context={
-            "modules": list_modules(selected),
-            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
-            "academy": academy_nav,
-            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy_nav},
-            "active_group": "academy",
-            "active_stem": stem,
-            "readonly": _readonly(request),
-            "page_title": current.title if current else "Danwor Academy",
-            "iframe_src": iframe_src,
-            "asset": asset,
-            "show_panel": False,
-            "diagnostic": diagnostic,
-            "is_owner": _is_owner(request),
-            "pack": selected,
-            "packs": packs,
-            "pack_label": content_pack_short_label(selected),
-            "user": user,
-            "invite_src": _invite_src(request, selected),
-        },
-    )
-
-
-def _save_academy_feedback(request: Request, stem: str, pack: str, rating: str, comment: str = "") -> None:
-    if rating not in {"up", "down"}:
-        raise HTTPException(400, "Rating inválido")
-    selected = _pack(pack)
-    current = next((item for item in list_academy(selected) if item.stem == stem), None)
-    if current is None:
-        raise HTTPException(404, "Página de Academy no encontrada")
-    user = auth_service.session_user(request) or {}
-    now = datetime.now(timezone.utc)
-    try:
-        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "type": "academy_content",
-            "academy_page": current.stem,
-            "academy_title": current.title,
-            "pack": selected,
-            "rating": rating,
-            "comment": comment.strip(),
-            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
-            "ts": now.isoformat(),
-        }
-        path = FEEDBACK_LOG_DIR / f"academy_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
-    except Exception:
-        # El feedback no debe romper la navegación ni el contenido de Academy.
-        pass
-
-
-@app.post("/academy/{stem}/feedback", response_class=HTMLResponse, include_in_schema=False)
-def academy_feedback(request: Request, stem: str, rating: str = Form(""), pack: str = Form(DEFAULT_PACK)):
-    selected = _pack(pack)
-    if rating == "down":
-        return HTMLResponse(_academy_feedback_html(stem, selected, form=True))
-    _save_academy_feedback(request, stem, selected, "up")
-    return HTMLResponse(_academy_feedback_html(stem, selected, submitted=True, rating="up"))
-
-
-@app.post("/academy/{stem}/feedback/submit", response_class=HTMLResponse, include_in_schema=False)
-def academy_feedback_submit(
-    request: Request,
-    stem: str,
-    rating: str = Form("down"),
-    comment: str = Form(""),
-    pack: str = Form(DEFAULT_PACK),
-):
-    selected = _pack(pack)
-    if rating == "down" and not comment.strip():
-        return HTMLResponse(_academy_feedback_html(stem, selected, form=True, error="Contanos brevemente qué faltó."))
-    _save_academy_feedback(request, stem, selected, rating, comment)
-    return HTMLResponse(_academy_feedback_html(stem, selected, submitted=True, rating=rating))
-
-
-@app.post("/academy/{stem}/feedback/cancel", response_class=HTMLResponse, include_in_schema=False)
-def academy_feedback_cancel(stem: str, pack: str = Form(DEFAULT_PACK)):
-    return HTMLResponse(_academy_feedback_html(stem, _pack(pack)))
 
 
 @app.post("/modules/{stem}/sections/analyze", response_class=HTMLResponse)

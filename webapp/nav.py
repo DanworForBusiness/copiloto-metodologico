@@ -17,8 +17,25 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+from webapp.services.content_service import list_modules
+
+
+def home_url(pack: str) -> str:
+    """URL de entrada a la app tras el login (perfil full): el 00 Intro.
+
+    La intro inmersiva es la puerta narrativa del copiloto; el perfil de solo
+    lectura (ACADEMY_USERS) no pasa por acá — aterriza en Danwor Academy (/home)."""
+    modules = list_modules(pack)
+    if not modules:
+        raise HTTPException(503, "No hay módulos configurados")
+    module = next(
+        (item for item in modules if item.number == "00"),
+        next((item for item in modules if item.number == "01"), modules[0]),
+    )
+    return f"/modules/{module.stem}?pack={pack}"
 
 
 def login_redirect(request: Request, pack: str) -> RedirectResponse:

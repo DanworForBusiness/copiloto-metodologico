@@ -723,7 +723,10 @@ def test_desafio_hidden_from_nav_but_direct_url_and_feedback_work(monkeypatch, t
     direct = client.get("/academy/ACAD05_Desafio")
     assert direct.status_code == 200
     assert "desafio.html" in direct.text
-    monkeypatch.setattr(web_main, "FEEDBACK_LOG_DIR", tmp_path)  # no ensuciar runtime real
+    # El save de Academy vive ahora en el router (Fase 2E); su seam es
+    # academy_router.FEEDBACK_LOG_DIR (no web_main).
+    from webapp.routers import academy as academy_router
+    monkeypatch.setattr(academy_router, "FEEDBACK_LOG_DIR", tmp_path)  # no ensuciar runtime real
     thanks = client.post("/academy/ACAD05_Desafio/feedback", data={"rating": "up", "pack": "datasphere_core"})
     assert thanks.status_code == 200
     assert list(tmp_path.glob("academy_feedback_*.yaml"))
@@ -1006,3 +1009,38 @@ def test_whats_new_dismiss_emits_seen_cookie():
     set_cookie = r.headers["set-cookie"]
     assert "Max-Age=31536000" in set_cookie
     assert "Path=/" in set_cookie
+
+
+# --- Academy router (Fase 2E: webapp/routers/academy.py) ---------------------
+# El render autenticado, el feedback react (up) y la regresión de /pack-assets ya
+# están cubiertos por tests previos (embeds/feedback/desafío). Acá se cierran los
+# gaps: redirect anónimo (B) y submit(down)/cancel (D/E), con el seam del router.
+
+def test_academy_page_anonymous_redirects_to_login():
+    c = TestClient(app)  # sin cookie de sesión
+    r = c.get("/academy/ACAD01_Paradigmas", follow_redirects=False)
+    # Sin sesión, academy_page devuelve nav.login_redirect (307 a …#acceso).
+    assert r.status_code == 307
+    assert r.headers["location"].endswith("#acceso")
+
+
+def test_academy_feedback_submit_persists_and_cancel_resets(monkeypatch, tmp_path):
+    from webapp.routers import academy as academy_router
+    monkeypatch.setattr(academy_router, "FEEDBACK_LOG_DIR", tmp_path)
+    # submit 👎 con comentario → persiste YAML academy_content + agradece.
+    submit = client.post(
+        "/academy/ACAD05_Desafio/feedback/submit",
+        data={"rating": "down", "comment": "faltó un ejemplo", "pack": "datasphere_core"},
+    )
+    assert submit.status_code == 200
+    saved = list(tmp_path.glob("academy_feedback_*.yaml"))
+    assert len(saved) == 1
+    import yaml
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "academy_content" and payload["rating"] == "down"
+    assert payload["comment"] == "faltó un ejemplo"
+    # cancel → devuelve la botonera base (reactions) y NO persiste nada nuevo.
+    cancel = client.post("/academy/ACAD05_Desafio/feedback/cancel", data={"pack": "datasphere_core"})
+    assert cancel.status_code == 200
+    assert "module-feedback__reactions" in cancel.text
+    assert len(list(tmp_path.glob("academy_feedback_*.yaml"))) == 1
