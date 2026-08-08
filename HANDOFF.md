@@ -1118,17 +1118,17 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
   | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
   | 2J-C Trees + Wizard | **CLOSED / GREEN** |
-  | 2J-D Module page | **IMPLEMENTED / PENDING CI** |
+  | 2J-D Module page | **CLOSED / GREEN** |
   | *(luego)* **PHASE 2 COMPLETION EVALUATION** | — |
 
-  Full Catalog decomposition sigue **DEFERRED**. Admin sigue **DEFERRED /
-  non-blocking**.
+  **Todo el HTTP Stateful mandatorio identificado para la Fase 2 ya está
+  extraído. No hay 2J-E planificado.** Full Catalog decomposition sigue
+  **DEFERRED**. Admin sigue **DEFERRED / non-blocking**.
 
   **La evaluación de cierre de Phase 2 se vuelve elegible solo después de:**
-  este commit de cierre de 2J-D pusheado; CI final de 2J-D se mantenga
-  GREEN; el PR esté mergeado; se verifique containment; y la branch de 2J-D
-  esté limpiada. **No es 2J-E** — 2J-D es el último lote de extracción
-  funcional planificado de la Fase 2J.
+  este commit de cierre pusheado; CI final de 2J-D se mantenga GREEN; el PR
+  esté mergeado; se verifique containment; y la branch de 2J-D esté
+  limpiada.
 
 **2J-C — Trees + Wizard router — CLOSED / GREEN** (commit
 `40ed75d`; branch `work/architecture-phase-2j-c-trees-wizard`):
@@ -1187,8 +1187,14 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   asset de storytelling de Academy) en el working tree al momento de
   commitear — no se agregó al commit funcional ni se tocó de ningún modo.
 
-**2J-D — Module page router — IMPLEMENTED / PENDING CI** (commit
+**2J-D — Module page router — CLOSED / GREEN** (commit
 `5a5d98a`; branch `work/architecture-phase-2j-d-module-page`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **274 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  `main.py` pasó de **27 a 26** rutas propias; regresión dirigida de Module/
+  runtime **GREEN**; identidad de `store` **GREEN**; identidad de
+  `assistant_store` **GREEN**.
 - **Archivos tocados:** `webapp/routers/modules.py` (nuevo), `webapp/main.py`,
   `tests/webapp/test_routes.py`, `tests/webapp/test_copilot_runtime.py`. Sin
   otros cambios (el archivo untracked de Academy visto en 2J-C ya no está
@@ -1253,20 +1259,28 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   mismo patrón que `/whats-new` y `/academy/{stem}`), que no existía.
 - Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
   FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**), **suite
-  274 passed / 1 skipped** (271 + 3: +1 redirect anónimo, +2 identidad de
-  router). `main.py` pasó de **27 a 26** rutas propias. **Cierre:** GitHub CI
-  pendiente de confirmación (push recién realizado).
-- **Señal de completitud de Fase 2:** con 2J-D implementado, los 7 criterios
-  de cierre previamente identificados quedan satisfechos (extracción
-  mecánica completa; blocker de dependencia de Catálogo resuelto en 2I;
-  ownership de lifecycle mutable resuelto en 2J-A; Assistant/Section
-  extraídas en 2J-B; Trees/Wizard extraídas en 2J-C; Module page extraída en
-  2J-D; residual de Catálogo y de Admin explícitamente diferidos). **Próxima
-  acción esperada tras merge/cleanup: PHASE 2 COMPLETION EVALUATION — no
-  otro lote de extracción funcional, no Phase 3/M365, no Operations.** Esa
-  evaluación NO se inicia automáticamente en este commit.
+  274 passed / 1 skipped**. `main.py` pasó de **27 a 26** rutas propias.
+  **Cierre:** GitHub CI **GREEN**.
+- **Secuencia de Fase 2J — resultado final:** 2J-A CLOSED/GREEN · 2J-B
+  CLOSED/GREEN · 2J-C CLOSED/GREEN · 2J-D CLOSED/GREEN. **Todo el HTTP
+  Stateful mandatorio identificado para la Fase 2 ya está extraído. No hay
+  2J-E planificado.**
+- **Señal de completitud de Fase 2:** con 2J-D cerrado, los 7 criterios de
+  cierre previamente identificados quedan satisfechos en la evidencia
+  disponible (extracción mecánica completa; blocker de dependencia de
+  Catálogo resuelto en 2I; ownership de lifecycle mutable resuelto en 2J-A;
+  Assistant/Section extraídas en 2J-B; Trees/Wizard extraídas en 2J-C;
+  Module page extraída en 2J-D; residual de Catálogo y de Admin
+  explícitamente diferidos). **Esto NO implica que la Fase 2 esté marcada
+  COMPLETE** — la evidencia sugiere que ningún blocker mandatorio queda
+  pendiente, pero el cierre formal requiere una **PHASE 2 COMPLETION
+  EVALUATION** explícita (no otro lote de extracción funcional, no Phase
+  3/M365, no Operations), autorizada solo después de: este commit de cierre
+  pusheado; CI final GREEN; PR mergeado; containment verificado; branch
+  limpiada.
 
-**Phase 2 overall: NOT COMPLETE.**
+**Phase 2 overall: NOT COMPLETE.** Full Catalog decomposition sigue
+**DEFERRED**. Admin sigue **DEFERRED / non-blocking**.
 
 ---
 
@@ -1291,29 +1305,27 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
 | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
 | 2J-C Trees + Wizard | **CLOSED / GREEN** |
-| 2J-D Module page | **IMPLEMENTED / PENDING CI** |
+| 2J-D Module page | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2J-D — Module page router
-- **Status:** IMPLEMENTED / PENDING CI
-- **Functional commit:** `5a5d98a` (branch `work/architecture-phase-2j-d-module-page`, pusheada)
+- **Status:** CLOSED / GREEN
+- **Functional commit:** `5a5d98a` (branch `work/architecture-phase-2j-d-module-page`)
 - **Current next candidate:** **PHASE 2 COMPLETION EVALUATION** (no otro lote de
-  extracción funcional — 2J-D era el último planificado)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: el commit de cierre de
-  2J-D esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y el cleanup de la branch de 2J-D esté completo
+  extracción funcional — 2J-D era el último planificado; no hay 2J-E)
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de 2J-D esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **274 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/architecture-phase-2j-d-module-page` (commit `5a5d98a`).
-2. Commit de cierre de docs (`docs(handoff): checkpoint phase 2j-d pending ci` o el mensaje que el usuario autorice) tras confirmar CI.
-3. Mergear el PR de Phase 2J-D → `main`.
-4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5a5d98a origin/main` (exit 0 recién tras el merge).
-5. Cleanup de la branch de Phase 2J-D solo tras el paso 4 en verde.
-6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-7. Reconstruye el estado y el usuario lo valida.
-8. **Recién entonces** se autoriza la PHASE 2 COMPLETION EVALUATION — o el candidato que el usuario elija.
+1. Mergear el PR de Phase 2J-D (`work/architecture-phase-2j-d-module-page` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5a5d98a origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Phase 2J-D solo tras el paso 2 en verde.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. Reconstruye el estado y el usuario lo valida.
+6. **Recién entonces** se autoriza la PHASE 2 COMPLETION EVALUATION — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
