@@ -19,10 +19,12 @@
 > de dependencias: CLOSED / GREEN** (ver A.18) — `.python-version=3.14.3` +
 > `constraints.txt` cross-platform, validado en Windows + CI Linux + DigitalOcean.
 > **Fase 2 (extracción de routers): EN PROGRESO.** **2A — Telemetry router**
-> (`POST /telemetry/event`) **IMPLEMENTED / PENDING CI** (ver A.20). **2B — Auth
-> router = candidate/recommended, NOT AUTHORIZED.** Cada lote requiere autorización
-> explícita; NO avanzar de un lote al siguiente sin OK. Dirección futura de
-> plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
+> (`POST /telemetry/event`) **CLOSED / GREEN** (CI GREEN, mergeada a `main` vía
+> PR #6). **2B — Auth/session API router** (`/api/auth/*` + `/api/diagnostic`, 5
+> endpoints) **IMPLEMENTED / PENDING CI** (ver A.20). **2C / templates-runtime
+> gate: NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
+> un lote al siguiente sin OK. Dirección futura de plataforma multi-workspace en
+> **A.19** (es dirección, NO scope de Fase 2).
 
 ## A.1 Contexto de la iniciativa
 
@@ -445,7 +447,7 @@ vez, preservando `MÉTODO + PATH` (route-contract, 75) y comportamiento. `main.p
 sigue siendo composition root (sin `create_app()`). Cada lote requiere
 **autorización explícita**; no encadenar lotes.
 
-**2A — Telemetry router — IMPLEMENTED / PENDING CI** (commit `597d47b`):
+**2A — Telemetry router — CLOSED / GREEN** (commit `597d47b`; CI GREEN, mergeada a `main` vía PR #6):
 - `POST /telemetry/event` extraído a `webapp/routers/telemetry.py` (APIRouter),
   incluido con `app.include_router(...)`.
 - **HTTP surface unchanged** (75 rutas; snapshot sin cambios; sin `UPDATE_ROUTE_SURFACE`).
@@ -461,8 +463,28 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - **PENDING:** CI en verde en el PR (branch pusheada; el push a la branch no
   dispara CI — requiere PR). No cerrar 2A hasta GitHub Actions GREEN.
 
-**2B — Auth/session API router (`/api/auth/*` + `/api/diagnostic`, 5 endpoints,
-JSON, sin templates/singletons):** candidate/recommended, **NOT AUTHORIZED**.
+**2B — Auth/session API router — IMPLEMENTED / PENDING CI** (commit `37e56bf`):
+- 5 endpoints extraídos a `webapp/routers/auth.py` (APIRouter): GET
+  `/api/auth/microsoft/config`, POST `/api/auth/microsoft/token`, GET
+  `/api/auth/me`, POST `/api/diagnostic`, POST `/api/auth/logout`.
+- **Relocación pura, sin rediseño de auth**: METHOD+PATH, JSON, cookies/atributos
+  (HttpOnly/SameSite/Secure), verificación de id_token, create/delete session,
+  logging de login y comportamiento de diagnóstico preservados **verbatim**.
+- `_MsTokenBody` co-localizado (único consumidor). `auth.py` **NO importa
+  `webapp.main`**; sin bootstrap/runtime, sin `app.state`, sin instancias nuevas.
+  Usa el mismo `auth_service` + config + `log_activity`.
+- Limpieza de imports estrictamente obsoletos en `main.py` (`BaseModel`,
+  `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `SESSION_MAX_AGE`).
+- **HTTP surface unchanged** (75; snapshot sin cambios). Tests focales agregados
+  para brechas sin cobertura HTTP (config / me auth+anon / logout); `/api/diagnostic`
+  ya estaba cubierto; el token queda en unit + smoke manual (no E2E falso; JWKS = red).
+- Validado en stack reproducible (Python 3.14.3 / FastAPI 0.141.1): route-contract
+  GREEN, focales GREEN, **suite 234 / 1 / 0**, smoke config=200 / me-anon=401 / logout=200.
+- **Establece el boundary HTTP de la capacidad PLATFORM / SHARED "identity +
+  session"** (A.19). NO implementa workspace switcher / permissions registry /
+  navegación / Portal de Operaciones / Staffing / roles nuevos.
+- **PENDING:** CI GREEN en el PR (branch pusheada; el push a la branch no dispara
+  CI — requiere PR). No cerrar 2B hasta GitHub Actions GREEN.
 
 **Antes de cualquier router que renderice templates o use singletons/owner/feedback
 helpers** (landing, academy, wizard, assistant, admin, catalog, whats-new): decidir
