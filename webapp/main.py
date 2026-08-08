@@ -45,19 +45,7 @@ from webapp.services.content_service import (
     load_module,
     split_front_matter,
 )
-from webapp.services.assistant_service import (
-    AssistantChatService,
-    AssistantFeedbackRepository,
-    StaleAssistantReplyError,
-)
-from webapp.services.assistant_routing import AssistantRoutingService
-from webapp.services.section_analysis import (
-    ACTION_DESCRIPTIONS,
-    MODULE_TARGET_SLUG,
-    SectionAnalysisError,
-    SectionAnalysisService,
-    render_llm_html,
-)
+from webapp.services.section_analysis import ACTION_DESCRIPTIONS
 from webapp.services import admin_tools
 from webapp.services import activity_analytics
 from webapp.services import whats_new_service as whatsnew
@@ -74,6 +62,7 @@ from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
 from webapp.routers import landing as landing_router
 from webapp.routers import feedback as feedback_router
+from webapp.routers import assistant as assistant_router
 from webapp.presentation import invite
 
 WEB_DIR = Path(__file__).parent
@@ -130,10 +119,10 @@ templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 # requests. Alias transicional: misma identidad, ningún cambio de comportamiento.
 store = copilot_runtime.store
 assistant_store = copilot_runtime.assistant_store
-section_analysis_service = SectionAnalysisService()
-assistant_chat_service = AssistantChatService()
-assistant_routing_service = AssistantRoutingService()
-assistant_feedback_repository = AssistantFeedbackRepository()
+# section_analysis_service, assistant_chat_service, assistant_routing_service
+# y assistant_feedback_repository se movieron a webapp/routers/assistant.py
+# (Fase 2J-B) junto con sus únicos consumidores — stateless, sin identidad
+# compartida requerida (ver Fase 2J assessment).
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # El estado persistido en DO Spaces se restaura EN BACKGROUND, no bloqueando el
@@ -188,6 +177,7 @@ app.include_router(academy_router.router)
 app.include_router(pack_assets_router.router)
 app.include_router(landing_router.router)
 app.include_router(feedback_router.router)
+app.include_router(assistant_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -384,93 +374,8 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
     )
 
 
-@app.post("/modules/{stem}/sections/analyze", response_class=HTMLResponse)
-def analyze_section(
-    request: Request,
-    stem: str,
-    section_slug: str = Form(""),
-    action: str = Form(""),
-    pack: str = Form(DEFAULT_PACK),
-    conversation_id: str = Form(""),
-):
-    if _readonly(request):
-        return HTMLResponse(
-            '<p class="section-analysis-warning-copy">IA no disponible para Danwor Academy: '
-            'el análisis de sección genera contenido con IA y está deshabilitado en tu perfil por ahora.</p>',
-            status_code=403,
-        )
-    selected = _pack(pack)
-    user = auth_service.session_user(request) or {}
-    first_name = str(user.get("first_name") or "").strip()
-    if not first_name:
-        first_name = str(user.get("name") or "Tú").strip().split()[0]
-    try:
-        document = load_module(stem, selected)
-        if not conversation_id:
-            conversation_id = assistant_store.start(stem, selected).id
-        is_module_target = section_slug == MODULE_TARGET_SLUG
-        valid_action = action in (MODULE_ACTIONS if is_module_target else ALL_ACTIONS)
-        valid_target = is_module_target or any(
-            section.slug == section_slug for section in document.sections
-        )
-        if not valid_action or not valid_target:
-            raise SectionAnalysisError("La sección o acción seleccionada no es válida.")
-        if not assistant_store.claim_section_analysis(
-            conversation_id, stem, selected, section_slug, action,
-        ):
-            return HTMLResponse(
-                '<p class="section-analysis-warning-copy">Ya analizaste esta acción. '
-                'Elegí otra acción o sección para realizar un nuevo análisis.</p>',
-                headers={
-                    "HX-Retarget": "#section-analysis-warning",
-                    "HX-Reswap": "innerHTML",
-                    "X-Danwor-Duplicate": "true",
-                },
-            )
-        result = section_analysis_service.analyze(document, section_slug, action, selected)
-        user_message = f"{result.section_title} → {result.action}"
-        reply = assistant_store.append(
-            conversation_id, stem, selected, user_message, result.answer, result.html,
-            topic=result.section_title, action=result.action,
-        )
-        error = ""
-    except (FileNotFoundError, KeyError, SectionAnalysisError) as exc:
-        result = None
-        reply = None
-        user_message = ""
-        error = str(exc)
-    # Se loguea como assistant_query (no un evento aparte): una acción de la tab
-    # "Sección" ES una interacción con el asistente (aparece en la conversación),
-    # así que debe entrar a la "Historia de preguntas" y al KPI de IA igual que un
-    # chat. Lleva section/action en el payload para no perder ese detalle.
-    log_verbose(
-        "assistant_query", user=user,
-        stem=stem, section=section_slug, action=action,
-        question=(user_message or f"{action} · {section_slug}"),
-        answer=(reply.answer if reply else ""),
-        routed=False, route_heading="", bypass=False,
-        llm=(reply is not None),
-        reply_id=(reply.id if reply else ""),
-        conversation_id=conversation_id,
-        api_cost=bool(
-            reply is not None
-            and not section_analysis_service.execution_mode.lower().startswith("simul")
-        ),
-        error=(error or ""),
-    )
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/section_analysis_result.html",
-        context={
-            "result": result,
-            "reply": reply,
-            "user_message": user_message,
-            "error": error,
-            "diagnostic_mode": _diagnostic(request),
-            "user_first_name": first_name,
-            "llm_answer": reply is not None,
-        },
-    )
+# POST /modules/{stem}/sections/analyze se movió a webapp/routers/assistant.py
+# (Fase 2J-B), incluido vía app.include_router(assistant_router.router) arriba.
 
 
 
@@ -517,195 +422,16 @@ def trees_suggest(request: Request, title: str = Form(""), detail: str = Form(""
                  "sg_kind": kind, "sg_id": sg_id})
 
 
-@app.post("/modules/{stem}/assistant/chat", response_class=HTMLResponse)
-def assistant_chat(
-    request: Request,
-    stem: str,
-    question: str = Form(""),
-    conversation_id: str = Form(""),
-    pack: str = Form(DEFAULT_PACK),
-    active_section: str = Form(""),
-    routing_bypass: bool = Form(False),
-    route_module: str = Form(""),
-    route_heading: str = Form(""),
-    explain_prompt: str = Form(""),
-):
-    # Perfil solo-lectura: el asistente SÍ funciona (el router interno es determinista
-    # y no consume OpenAI), pero cualquier salida que dispararía la API de OpenAI
-    # (chat libre sin ruta, "Explicame vos") se reemplaza por un aviso, sin gastar tokens.
-    readonly = _readonly(request)
-    selected = _pack(pack)
-    user = auth_service.session_user(request) or {}
-    first_name = str(user.get("first_name") or "").strip()
-    if not first_name:
-        first_name = str(user.get("name") or "Tú").strip().split()[0]
-    ia_blocked = False
-    try:
-        document = load_module(stem, selected)
-        history = assistant_store.history(conversation_id, stem, selected)
-        route = None if routing_bypass else assistant_routing_service.route(
-            document, question, selected, active_section,
-        )
-        answer_document = document
-        answer_context = None
-        if routing_bypass and route_module:
-            answer_document = load_module(route_module, selected)
-            if route_heading:
-                target_slug = slugify(route_heading)
-                target_section = next(
-                    (item for item in answer_document.sections if item.slug == target_slug),
-                    None,
-                )
-                answer_context = target_section.markdown if target_section else None
-        ia_blocked = False
-        if route:
-            answer = route.message
-            answer_html = render_llm_html(answer)
-        elif readonly:
-            # El flujo requería OpenAI (sin ruta curada / "Explicame vos") → no disponible.
-            ia_blocked = True
-            answer = (
-                "**IA no disponible para Danwor Academy.** El asistente puede orientarte "
-                "con el contenido curado del marco, pero las respuestas generadas con IA "
-                "están deshabilitadas en tu perfil por ahora."
-            )
-            answer_html = render_llm_html(answer)
-        else:
-            answer, answer_html = assistant_chat_service.ask(
-                answer_document, question, selected, history, context=answer_context,
-                directive=explain_prompt,
-            )
-        reply = assistant_store.append(
-            conversation_id, stem, selected, question.strip(), answer, answer_html,
-            topic=route_heading or "Pregunta libre",
-            action="Routing" if route else ("IA bloqueada" if ia_blocked else "Asistente"),
-            include_user=not routing_bypass,
-        )
-        error = ""
-    except (FileNotFoundError, KeyError, SectionAnalysisError) as exc:
-        reply = None
-        route = None
-        answer_html = ""
-        error = str(exc)
-    # Telemetría fina (VERBOSE): qué preguntaron y cómo resolvió el copiloto.
-    # La señal más rica para el ejercicio "romper/buscar fallas".
-    log_verbose(
-        "assistant_query", user=user,
-        stem=stem, section=(active_section or ""),
-        question=question.strip(),
-        # Texto de la respuesta (router o LLM) para poder verla en la "historia" del
-        # dashboard, no solo saber QUE se contestó. reply.answer siempre existe cuando
-        # reply no es None (reply=None solo en el except de arriba).
-        answer=(reply.answer if reply else ""),
-        routed=(route is not None),
-        route_module=(getattr(route, "module", "") or route_module or "") if route else route_module,
-        route_heading=(getattr(route, "explain_heading", "") or getattr(route, "heading", "") or route_heading) if route else route_heading,
-        intent=getattr(route, "intent", "") if route else "",
-        bypass=bool(routing_bypass),
-        readonly=bool(readonly),
-        ia_blocked=bool(ia_blocked),
-        llm=(route is None and reply is not None and not readonly),
-        error=(error or ""),
-        # Correlación con feedback_log (ver AssistantFeedbackRepository.save): permite
-        # reconstruir en el dashboard de actividad la historia completa de una conversación
-        # (turno router → turno "Explícame vos" → feedback 👍/👎 con comentario).
-        reply_id=(reply.id if reply else ""),
-        conversation_id=conversation_id,
-        # Distingue consumo REAL de OpenAI (con costo) del router/simulación: "llm" da
-        # True en ambos casos (ver AssistantChatService.ask, modo simulación no llama a
-        # la API), así que acá se resta explícitamente ese modo para el KPI de costo.
-        api_cost=bool(
-            route is None and reply is not None and not readonly
-            and not assistant_chat_service.execution_mode.lower().startswith("simul")
-        ),
-    )
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/section_analysis_result.html",
-        context={
-            "result": None,
-            "reply": reply,
-            "user_message": question.strip(),
-            "answer_html": answer_html,
-            "error": error,
-            "diagnostic_mode": _diagnostic(request),
-            "user_first_name": first_name,
-            "route": route,
-            "stem": stem,
-            "pack": selected,
-            "show_user_message": not routing_bypass,
-            "llm_answer": route is None and reply is not None and not readonly,
-        },
-    )
+# POST /modules/{stem}/assistant/chat y las 3 rutas de feedback sobre una
+# respuesta (POST /assistant/responses/{reply_id}/feedback(+submit,+cancel))
+# se movieron a webapp/routers/assistant.py (Fase 2J-B), incluido vía
+# app.include_router(assistant_router.router) arriba. _assistant_feedback_template
+# se co-localizó allí (su único consumidor).
 
 
 # /telemetry/event se movió a webapp/routers/telemetry.py (Fase 2A), incluido
 # vía app.include_router(telemetry_router.router) arriba. La constante
 # _TELEMETRY_EVENTS se co-localizó allí (su único consumidor).
-
-
-def _assistant_feedback_template(request, name, reply, **context):
-    return templates.TemplateResponse(
-        request=request,
-        name=name,
-        context={"reply": reply, **context},
-    )
-
-
-@app.post("/assistant/responses/{reply_id}/feedback", response_class=HTMLResponse)
-def assistant_feedback(request: Request, reply_id: str, rating: str = Form("")):
-    try:
-        reply = assistant_store.reply_for_feedback(reply_id)
-    except KeyError as exc:
-        raise HTTPException(410, "La respuesta ya no está disponible") from exc
-    except StaleAssistantReplyError as exc:
-        raise HTTPException(409, "Solo podés calificar la respuesta más reciente") from exc
-    if rating == "down":
-        return _assistant_feedback_template(
-            request, "partials/assistant_feedback_form.html", reply, error="",
-        )
-    try:
-        assistant_feedback_repository.save(reply, "up", user=auth_service.session_user(request))
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return _assistant_feedback_template(
-        request, "partials/assistant_feedback_thanks.html", reply,
-    )
-
-
-@app.post("/assistant/responses/{reply_id}/feedback/submit", response_class=HTMLResponse)
-def assistant_feedback_submit(
-    request: Request,
-    reply_id: str,
-    comment: str = Form(""),
-):
-    try:
-        reply = assistant_store.reply_for_feedback(reply_id)
-        assistant_feedback_repository.save(reply, "down", comment, user=auth_service.session_user(request))
-    except KeyError as exc:
-        raise HTTPException(410, "La respuesta ya no está disponible") from exc
-    except StaleAssistantReplyError as exc:
-        raise HTTPException(409, "Solo podés calificar la respuesta más reciente") from exc
-    except ValueError as exc:
-        return _assistant_feedback_template(
-            request, "partials/assistant_feedback_form.html", reply, error=str(exc),
-        )
-    return _assistant_feedback_template(
-        request, "partials/assistant_feedback_thanks.html", reply,
-    )
-
-
-@app.post("/assistant/responses/{reply_id}/feedback/cancel", response_class=HTMLResponse)
-def assistant_feedback_cancel(request: Request, reply_id: str):
-    try:
-        reply = assistant_store.reply_for_feedback(reply_id)
-    except KeyError as exc:
-        raise HTTPException(410, "La respuesta ya no está disponible") from exc
-    except StaleAssistantReplyError as exc:
-        raise HTTPException(409, "Solo podés calificar la respuesta más reciente") from exc
-    return _assistant_feedback_template(
-        request, "partials/assistant_feedback.html", reply,
-    )
 
 
 def _norm_tokens(text: str) -> list[str]:

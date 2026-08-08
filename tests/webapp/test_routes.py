@@ -110,8 +110,10 @@ def test_module_page_renders_server_side():
 
 
 def test_section_analysis_endpoint_returns_htmx_fragment(monkeypatch):
+    # Seam vive ahora en webapp.routers.assistant (Fase 2J-B), no en web_main.
+    from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(
-        web_main,
+        assistant_router,
         "section_analysis_service",
         SectionAnalysisService(execution_mode="Simulación"),
     )
@@ -131,8 +133,9 @@ def test_section_analysis_endpoint_returns_htmx_fragment(monkeypatch):
 
 
 def test_module_level_analysis_uses_module_target(monkeypatch):
+    from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(
-        web_main,
+        assistant_router,
         "section_analysis_service",
         SectionAnalysisService(execution_mode="Simulación"),
     )
@@ -166,8 +169,9 @@ def test_module_page_offers_module_target_and_nav_toggles():
 
 
 def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
+    from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(
-        web_main,
+        assistant_router,
         "section_analysis_service",
         SectionAnalysisService(execution_mode="Simulación"),
     )
@@ -224,6 +228,111 @@ def test_assistant_feedback_rejects_an_older_reply():
     assert "respuesta más reciente" in response.text
 
 
+def test_assistant_feedback_up_reaction_persists_and_thanks(monkeypatch, tmp_path):
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
+    conversation = web_main.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    reply = web_main.assistant_store.append(
+        conversation.id, conversation.module, conversation.pack,
+        "una pregunta", "una respuesta", "<p>una respuesta</p>",
+        topic="Pregunta libre", action="Asistente",
+    )
+
+    response = client.post(
+        f"/assistant/responses/{reply.id}/feedback", data={"rating": "up"}
+    )
+
+    assert response.status_code == 200
+    assert "assistant-feedback-thanks" in response.text
+    assert "Gracias, registramos tu feedback." in response.text
+    saved = list(tmp_path.glob("feedback_*.yaml"))
+    assert len(saved) == 1
+    import yaml
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "assistant_response"
+    assert payload["rating"] == "up"
+    assert payload["reply_id"] == reply.id
+    assert payload["conversation_id"] == conversation.id
+
+
+def test_assistant_feedback_down_opens_form_then_submit_persists_comment(monkeypatch, tmp_path):
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
+    conversation = web_main.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    reply = web_main.assistant_store.append(
+        conversation.id, conversation.module, conversation.pack,
+        "otra pregunta", "otra respuesta", "<p>otra respuesta</p>",
+        topic="Pregunta libre", action="Asistente",
+    )
+
+    # 👎 → despliega el formulario de comentario, todavía no persiste.
+    down = client.post(
+        f"/assistant/responses/{reply.id}/feedback", data={"rating": "down"}
+    )
+    assert down.status_code == 200
+    assert "assistant-feedback-expanded" in down.text
+    assert "¿Qué podríamos mejorar?" in down.text
+    assert not list(tmp_path.glob("feedback_*.yaml"))
+
+    # Enviar el 👎 con comentario → guarda con el texto.
+    submit = client.post(
+        f"/assistant/responses/{reply.id}/feedback/submit", data={"comment": "faltó un ejemplo"}
+    )
+    assert submit.status_code == 200
+    assert "assistant-feedback-thanks" in submit.text
+    saved = list(tmp_path.glob("feedback_*.yaml"))
+    assert len(saved) == 1
+    import yaml
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["rating"] == "down"
+    assert payload["comment"] == "faltó un ejemplo"
+    assert payload["reply_id"] == reply.id
+
+
+def test_assistant_feedback_submit_without_comment_reshows_form_with_error(monkeypatch, tmp_path):
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
+    conversation = web_main.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    reply = web_main.assistant_store.append(
+        conversation.id, conversation.module, conversation.pack,
+        "pregunta sin comentario", "respuesta", "<p>respuesta</p>",
+        topic="Pregunta libre", action="Asistente",
+    )
+
+    response = client.post(f"/assistant/responses/{reply.id}/feedback/submit", data={})
+
+    assert response.status_code == 200
+    assert "assistant-feedback-expanded" in response.text
+    assert "feedback-error" in response.text
+    assert not list(tmp_path.glob("feedback_*.yaml"))
+
+
+def test_assistant_feedback_cancel_returns_to_reaction_bar_without_persisting(monkeypatch, tmp_path):
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
+    conversation = web_main.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    reply = web_main.assistant_store.append(
+        conversation.id, conversation.module, conversation.pack,
+        "pregunta a cancelar", "respuesta", "<p>respuesta</p>",
+        topic="Pregunta libre", action="Asistente",
+    )
+
+    response = client.post(f"/assistant/responses/{reply.id}/feedback/cancel")
+
+    assert response.status_code == 200
+    assert "¿Te resultó útil esta respuesta?" in response.text
+    assert "assistant-feedback-expanded" not in response.text
+    assert not list(tmp_path.glob("feedback_*.yaml"))
+
+
 def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch):
     conversation = web_main.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
@@ -232,7 +341,8 @@ def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch)
     def unexpected_llm(*args, **kwargs):
         raise AssertionError("El LLM no debe ejecutarse cuando hay routing curado")
 
-    monkeypatch.setattr(web_main.assistant_chat_service, "ask", unexpected_llm)
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_chat_service, "ask", unexpected_llm)
     response = client.post(
         "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
         data={
@@ -280,8 +390,9 @@ def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
         "tenemos algun template CDS?", "Encontré un recurso curado.",
         "<p>Encontré un recurso curado.</p>", topic="Routing", action="Routing",
     )
+    from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(
-        web_main.assistant_chat_service,
+        assistant_router.assistant_chat_service,
         "ask",
         lambda *args, **kwargs: ("Explicación contextual", "<p>Explicación contextual</p>"),
     )
@@ -1013,9 +1124,10 @@ def test_readonly_profile_reads_content_with_assistant_but_no_llm(monkeypatch):
 
 def test_readonly_assistant_router_works_but_llm_output_is_blocked(monkeypatch):
     ro = _readonly_client(monkeypatch)
+    from webapp.routers import assistant as assistant_router
     # El router NO debe llamar a OpenAI para este perfil: si algo intenta ask(), falla.
     monkeypatch.setattr(
-        web_main.assistant_chat_service, "ask",
+        assistant_router.assistant_chat_service, "ask",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe consumir OpenAI en solo-lectura")),
     )
     conv = web_main.assistant_store.start("01_Arquitectura_y_Conectividad", "datasphere_core")
