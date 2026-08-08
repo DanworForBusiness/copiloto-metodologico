@@ -206,6 +206,29 @@ SHAREPOINT_SECURITY_ROLE_MATRIX_URL = _env(
 )
 SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT = _env("SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT", "Danone")
 
+# SharePoint / Graph — Staffing (Operations, Batch 2 de aceleración post-Fase 2).
+# Sitio "Gestión": Asignaciones por proyecto / Proyectos / Colaboradores.
+# El site ID NO está establecido en este repo/HANDOFF — a diferencia de
+# SHAREPOINT_CASES_SITE_ID/SHAREPOINT_CATALOG_CSN_URL arriba, que sí tienen un
+# valor real conocido, este queda sin default: webapp/services/
+# staffing_repository.py falla explícitamente si se intenta usar sin
+# configurar. Prerequisito de despliegue pendiente antes de Batch 3 (ver
+# HANDOFF, Batch 2).
+SHAREPOINT_GESTION_SITE_ID = _env("SHAREPOINT_GESTION_SITE_ID", "").strip()
+# Los 3 list ID sí fueron provistos como referencia conocida al autorizar este
+# batch; no aparecían antes en repo/HANDOFF (verificado, sin contradicción) —
+# quedan como default configurable, no confirmados todavía contra una lectura
+# real de Graph (ver HANDOFF, Batch 2, prerequisito de validación).
+SHAREPOINT_ASIGNACIONES_LIST_ID = _env(
+    "SHAREPOINT_ASIGNACIONES_LIST_ID", "c7c96b06-b32d-4386-8228-dd8e1f9926b0",
+).strip()
+SHAREPOINT_PROYECTOS_LIST_ID = _env(
+    "SHAREPOINT_PROYECTOS_LIST_ID", "efa2e279-593e-4321-867f-1ff982d800f6",
+).strip()
+SHAREPOINT_COLABORADORES_LIST_ID = _env(
+    "SHAREPOINT_COLABORADORES_LIST_ID", "6e512cd3-394a-461f-abcd-6613f2c21113",
+).strip()
+
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
 #                      aparecer en el cuerpo de la sección para considerar match.
