@@ -47,6 +47,7 @@ from webapp.routers import feedback as feedback_router
 from webapp.routers import assistant as assistant_router
 from webapp.routers import wizard as wizard_router
 from webapp.routers import modules as modules_router
+from webapp.routers import staffing as staffing_router
 
 WEB_DIR = Path(__file__).parent
 
@@ -161,6 +162,7 @@ app.include_router(feedback_router.router)
 app.include_router(assistant_router.router)
 app.include_router(wizard_router.router)
 app.include_router(modules_router.router)
+app.include_router(staffing_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
