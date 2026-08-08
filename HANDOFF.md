@@ -722,8 +722,79 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   - Aliases todavía vigentes en `main` (consumidores reales restantes): `_home_url
     = nav.home_url`, `_invite_src = invite.invite_src`, `INVITE_COOKIE =
     invite.INVITE_COOKIE`.
-- **Próximo candidato tras 2F:** Landing / session navigation (`/`, `/home`,
-  `/login`, `/desafio`, `/desafio/cerrar`) — **CANDIDATE / NOT AUTHORIZED**.
+**2G — Landing / Session Navigation router — CLOSED / GREEN** (commit `069c38f`;
+branch `work/architecture-phase-2g-landing-nav`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **243 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **Landing/Nav focal tests GREEN**; comportamiento actual de redirect/cookie
+  **preservado**; router **no importa `webapp.main`**; **sin runtime/bootstrap**;
+  **sin cambios de comportamiento**.
+- `GET /`, `GET /home`, `GET /login`, `GET /desafio` y `GET /desafio/cerrar`
+  extraídos a **`webapp/routers/landing.py`** (APIRouter) como **relocación
+  pura**: auth/pack/next-param/open-redirect-guard/cookies/redirects/template
+  context preservados **verbatim**. **NO** implementa el futuro modelo de
+  workspace switcher / multi-workspace entry (A.19) — solo conserva la
+  navegación actual.
+- **feature classification: COPILOT.** El router **NO importa `webapp.main`**:
+  importa directo de los dueños explícitos — `core.content_registry.{DEFAULT_PACK,
+  resolve_pack}`, `webapp.access.{is_diagnostic, is_readonly}`,
+  `webapp.nav.{home_url, login_redirect}`, `webapp.services.auth_service`,
+  `webapp.services.content_service.list_academy`,
+  `webapp.presentation.invite.INVITE_COOKIE`, `webapp.templating.templates`,
+  `config.{DESAFIO_CLOSE_URL, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE}` —
+  **sin** consumir ningún alias de `main`.
+- **Alias transitorio removido:** `INVITE_COOKIE` (sus únicos consumidores en
+  `main` eran `/desafio` y `/desafio/cerrar`; búsqueda repo-wide confirmó cero
+  consumidores restantes antes de removerlo). `_home_url`/`_invite_src`
+  **se mantienen** (consumidores reales confirmados por grep: `_home_url` en
+  Module/Catalog; `_invite_src` en Module).
+- **Imports limpiados en `main`** (estrictamente obsoletos, verificados uno por
+  uno antes de tocar): `DESAFIO_CLOSE_URL`, `SESSION_COOKIE_SAMESITE`,
+  `SESSION_COOKIE_SECURE` de `config` (exclusivos de `/desafio`/`/desafio/cerrar`).
+  `HTMLResponse`/`RedirectResponse`/`Query`/`DEFAULT_PACK`/`list_academy`/
+  `templates` **se mantienen** (consumidores reales en otras rutas de `main`).
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`, sin instancias nuevas, sin
+  nueva Jinja env, **sin cambios** en `access`/`nav`/`content_registry`/
+  `templating`/`auth_service`/`webapp/presentation/invite.py`. **No** se
+  reclasificó `nav.py` como PLATFORM ni se implementó selector de workspace.
+  **Route surface 75 sin cambios** (snapshot intacto; sin `UPDATE_ROUTE_SURFACE`).
+- **Tests:** cobertura previa inventariada primero (`/home` por tier, `/desafio`
+  set-cookie + reinvocable + dialog overlay, `/desafio/cerrar` delete-cookie,
+  `/` anónimo vs autenticado). Un test existente (`DESAFIO_CLOSE_URL` seam)
+  migrado de `web_main` a `webapp.routers.landing` (mismo patrón que el seam de
+  Academy en 2E) — necesario porque el import se removió de `main`, no es
+  cobertura nueva. Gaps reales identificados: `/login` no tenía ningún test;
+  el manejo de `next` en `/` (destino seguro para autenticados + guard
+  anti-open-redirect) tampoco → **+3 tests**
+  (`test_login_redirects_to_landing_access_section`,
+  `test_root_authenticated_follows_safe_next_param`,
+  `test_root_rejects_open_redirect_next_param`). No se duplicó cobertura existente.
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1 — el `.venv` persistente del
+  repo sigue en 0.115.5/0.41.3 y **no** se usó para validar): route-contract
+  GREEN (**75**), **suite 243 passed / 1 skipped** (240 + 3), smoke focal directo
+  (`/` anónimo 200 / autenticado 307→`/home` · `/home` autenticado→`/modules/00_Intro`
+  y anónimo→`/?...#acceso` · `/login`→`/?...#acceso` · `/desafio` set-cookie+307
+  · `/desafio/cerrar` delete-cookie+307 a `DESAFIO_CLOSE_URL`) GREEN. **Cierre:**
+  GitHub CI **GREEN**.
+- **Clasificación multi-workspace (estado actual, NO anticipar):**
+  - `webapp/routers/landing.py` → **CURRENT WEB LANDING / SESSION NAVIGATION**.
+  - `webapp.nav.home_url` → **CURRENT WEB NAVIGATION**; cross-workspace reuse
+    **NOT YET DECIDED**.
+  - `webapp.presentation.invite` → **COPILOT / SHARED PRESENTATION**; **NOT
+    PLATFORM**; cross-workspace reuse **NOT YET DECIDED** (sin cambios; sigue
+    siendo el dueño explícito de `INVITE_COOKIE`/`invite_src`, consumido ahora
+    por el router de landing igual que antes lo consumía `main`).
+- **Cleanup registrado:** alias `INVITE_COOKIE` → **removido de `main`**; no
+  quedan consumidores allí tras la extracción.
+- **Aliases todavía vigentes en `main`:**
+  - `_home_url = nav.home_url` → consumidores restantes: **Module + Catalog**.
+  - `_invite_src = invite.invite_src` → consumidor restante: **Module**.
+- **Próximo candidato tras 2G:** Feedback family (module + section + catalog
+  feedback, comparten `_save_*_feedback` + seam `FEEDBACK_LOG_DIR`) —
+  **CANDIDATE / NOT AUTHORIZED**. El gate STATEFUL (`runtime.py`) sigue diferido
+  y **no** es parte de esta fase.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -754,24 +825,24 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2D What's New | **CLOSED / GREEN** |
 | 2E Academy | **CLOSED / GREEN** |
 | 2F Pack Asset Serving | **CLOSED / GREEN** |
+| 2G Landing / Session Navigation | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2F — Pack Asset Serving
+- **Phase:** Phase 2G — Landing / Session Navigation
 - **Status:** CLOSED / GREEN
-- **Functional commit:** `133b49d` (mergeado a `main` vía PR #13, merge commit `ffb7095`)
-- **Current next candidate:** Landing / session navigation
-- **Landing/nav status:** **CANDIDATE / NOT AUTHORIZED**
-- **Known scope:** `GET /`, `GET /home`, `GET /login`, `GET /desafio`, `GET /desafio/cerrar`
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **240 passed / 1 skipped** · route surface **75**
+- **Functional commit:** `069c38f` (branch `work/architecture-phase-2g-landing-nav`)
+- **Current next candidate:** Feedback family (module + section + catalog feedback)
+- **Feedback family status:** **CANDIDATE / NOT AUTHORIZED**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **243 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 133b49d origin/main` (exit 0 — ya confirmado).
-2. Cleanup de la branch `work/architecture-phase-2f-pack-assets` (solo tras el paso 1 en verde).
+1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 069c38f origin/main` (exit 0 tras el merge).
+2. Cleanup de la branch `work/architecture-phase-2g-landing-nav` (solo tras el paso 1 en verde).
 3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
 4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 5. Reconstruye el estado y el usuario lo valida.
-6. **Recién entonces** se autoriza Landing/session navigation (o el candidato que el usuario elija).
+6. **Recién entonces** se autoriza Feedback family (o el candidato que el usuario elija).
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
@@ -779,10 +850,8 @@ working tree sucio · el próximo candidato requiere una dependencia main-privat
 inesperada · aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de
 comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2F)
+## REMAINING PHASE 2 MAP (post-2G)
 **READY / MECHANICAL**
-- **Landing / session navigation** (`/`, `/home`, `/login`, `/desafio`, `/desafio/cerrar`);
-  al extraerla, `_home_url` deja de necesitar alias en main.
 - **Feedback family** (module + section + catalog feedback); comparten
   `_save_*_feedback` + seam `FEEDBACK_LOG_DIR` (hoy en main).
 
