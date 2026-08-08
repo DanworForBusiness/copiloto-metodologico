@@ -26,8 +26,7 @@ from core.content_registry import (
 from core import remote_store
 from config import (
     FEEDBACK_LOG_DIR,
-    DESAFIO_CLOSE_URL,
-    SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
+    ia_enabled_for,
 )
 from core.prompts import (
     ALL_ACTIONS,
@@ -75,6 +74,7 @@ from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
 from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
+from webapp.routers import landing as landing_router
 from webapp.presentation import invite
 
 WEB_DIR = Path(__file__).parent
@@ -184,6 +184,7 @@ app.include_router(auth_router.router)
 app.include_router(whats_new_router.router)
 app.include_router(academy_router.router)
 app.include_router(pack_assets_router.router)
+app.include_router(landing_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -199,9 +200,8 @@ _diagnostic = access.is_diagnostic      # webapp.access
 # Aliases transitorios (Fase 2E): dueños reales en nav / presentation; se
 # conservan por los consumidores que TODAVÍA viven en main (se irán al
 # extraer esos grupos). No duplican implementación.
-_home_url = nav.home_url                                       # nav (landing/module/catalog)
+_home_url = nav.home_url                                       # nav (module/catalog)
 _invite_src = invite.invite_src                                # presentation.invite (module)
-INVITE_COOKIE = invite.INVITE_COOKIE                           # presentation.invite (/desafio)
 
 
 def _truthy(value: str) -> bool:
@@ -226,86 +226,9 @@ def _truthy(value: str) -> bool:
 # app.include_router(pack_assets_router.router) arriba.
 
 
-@app.get("/home", include_in_schema=False)
-def home(request: Request, pack: str = Query(DEFAULT_PACK)):
-    """Destino post-login, dependiente del perfil. Los usuarios de solo lectura
-    (ACADEMY_USERS) aterrizan por defecto en Danwor Academy —su puerta de entrada—;
-    los demás, en el primer módulo del marco. El contenido no se restringe: es solo
-    el punto de aterrizaje inicial."""
-    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
-    if not auth_service.session_user(request):
-        return _login_redirect(request, selected)
-    if _readonly(request):
-        academy = [item for item in list_academy(selected) if not item.nav_hidden]
-        if academy:
-            return RedirectResponse(f"/academy/{academy[0].stem}?pack={selected}", status_code=307)
-    return RedirectResponse(_home_url(selected), status_code=307)
-
-
-# ── Invitación al Desafío (one-off) ──────────────────────────────────────
-# URL directa (enviada por mail) que muestra la página del Desafío como dialog
-# sobre el copiloto. No es navegable: el trigger es una cookie que sobrevive al
-# login (el flujo post-login siempre aterriza en /home) y se borra al cerrar el
-# dialog. Reusable: cada visita a /desafio la vuelve a armar.
-@app.get("/desafio", include_in_schema=False)
-def desafio_invite(request: Request, pack: str = Query(DEFAULT_PACK)):
-    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
-    response = RedirectResponse(f"/home?pack={selected}", status_code=307)
-    # Siempre rearma la invitación: si el consultor vuelve a usar el link del
-    # mail, el dialog debe volver a aparecer. El "no reaparece tras cerrar" no
-    # se resuelve acá sino en el cierre del dialog (base.html): enmascarado en
-    # el frame de danwor.com, la cruz navega el top a la URL limpia del wrapper
-    # y el refresh deja de pasar por /desafio.
-    response.set_cookie(
-        INVITE_COOKIE, "1", max_age=86400, path="/", httponly=False,
-        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
-
-
-@app.get("/desafio/cerrar", include_in_schema=False)
-def desafio_close():
-    """Cierre del dialog cuando la app corre enmascarada en el frame de danwor.com.
-
-    La cruz navega el TOP a este endpoint: al ser una navegación de primer nivel
-    al host de la app, la cookie de invitación se borra en contexto first-party
-    (desde el JS del iframe es third-party y el borrado no es confiable) y recién
-    después se redirige a la URL limpia del wrapper."""
-    response = RedirectResponse(DESAFIO_CLOSE_URL, status_code=307)
-    response.delete_cookie(
-        INVITE_COOKIE, path="/",
-        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
-
-
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def landing(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
-    selected = _pack(pack)
-    # `next` viaja desde _login_redirect cuando el visitante venía de un link directo
-    # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
-    # evitar un open-redirect a un host externo.
-    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
-    default_home = f"/home?pack={selected}"
-    # Con sesión vigente, la raíz sigue de largo al copiloto: el wrapper de
-    # danwor.com (/copiloto/) embebe esta raíz, y un usuario ya logueado debe
-    # aterrizar adentro de la app, no en el landing con la sección de acceso.
-    if auth_service.session_user(request):
-        return RedirectResponse(safe_next or default_home, status_code=307)
-    # data-home apunta a /home por defecto (redirección server-side según perfil), o
-    # al `next` original si el visitante venía de un link directo sin sesión.
-    return templates.TemplateResponse(
-        request=request,
-        name="landing.html",
-        context={"pack": selected, "home_url": safe_next or default_home},
-    )
-
-
-@app.get("/login", include_in_schema=False)
-def login(pack: str = Query(DEFAULT_PACK)):
-    # El acceso vive en la misma página que el landing (misma base, como el sitio
-    # de marca). /login baja directo a la sección de acceso.
-    return RedirectResponse(f"/?pack={_pack(pack)}#acceso", status_code=307)
+# GET /, /home, /login, /desafio y /desafio/cerrar se movieron a
+# webapp/routers/landing.py (Fase 2G), incluido vía
+# app.include_router(landing_router.router) arriba.
 
 
 _MODULE_TABS = {"section", "tree", "catalogo", "assistant"}

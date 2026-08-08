@@ -596,11 +596,13 @@ def test_desafio_cerrar_deletes_cookie_and_redirects_to_wrapper():
     # El cierre pasa por el server: navegación top-level (first-party) que borra
     # la cookie de invitación de forma confiable y recién entonces vuelve al
     # wrapper limpio de danwor.com.
+    # Seam vive ahora en webapp.routers.landing (Fase 2G), no en web_main.
+    from webapp.routers import landing as landing_router
     client.cookies.set("dw-desafio", "1")
     try:
         response = client.get("/desafio/cerrar", follow_redirects=False)
         assert response.status_code == 307
-        assert response.headers["location"] == web_main.DESAFIO_CLOSE_URL
+        assert response.headers["location"] == landing_router.DESAFIO_CLOSE_URL
         set_cookie = response.headers.get("set-cookie", "")
         assert "dw-desafio=" in set_cookie and ('Max-Age=0' in set_cookie or "expires" in set_cookie.lower())
     finally:
@@ -617,6 +619,28 @@ def test_root_forwards_logged_users_into_the_app():
     anonymous = TestClient(app).get("/", follow_redirects=False)
     assert anonymous.status_code == 200
     assert "acceso" in anonymous.text.lower()
+
+
+def test_root_authenticated_follows_safe_next_param():
+    # Con sesión vigente y un `next` propio (p. ej. viniendo de un link directo
+    # sin sesión), la raíz sigue de largo a ese destino en vez del home por defecto.
+    response = client.get("/?next=/academy/ACAD01_Paradigmas", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/academy/ACAD01_Paradigmas"
+
+
+def test_root_rejects_open_redirect_next_param():
+    # `next` que no es un path propio (protocol-relative a un host externo) se
+    # descarta: cae al home por defecto en vez de seguir a `next`.
+    response = client.get("/?next=//evil.com", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"].startswith("/home?pack=")
+
+
+def test_login_redirects_to_landing_access_section():
+    response = client.get("/login?pack=datasphere_core", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/?pack=datasphere_core#acceso"
 
 
 # ── Modo diagnóstico y actividad ──────────────────────────────────────────
