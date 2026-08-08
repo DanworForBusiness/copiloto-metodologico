@@ -21,8 +21,10 @@
 > **Fase 2 (extracción de routers): EN PROGRESO.** **2A — Telemetry router**
 > (`POST /telemetry/event`) **CLOSED / GREEN** (CI GREEN, mergeada a `main` vía
 > PR #6). **2B — Auth/session API router** (`/api/auth/*` + `/api/diagnostic`, 5
-> endpoints) **CLOSED / GREEN** (CI GREEN + smoke real de login; ver A.20). **2C /
-> templates-runtime gate: NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
+> endpoints) **CLOSED / GREEN** (CI GREEN + smoke real de login; ver A.20). **2C —
+> Shared templating gate** (`webapp/templating.py`) **IMPLEMENTED / PENDING CI**
+> (ver A.20; NO movió rutas, surface 75). **2D — What's New router: candidate,
+> NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
 > un lote al siguiente sin OK. Dirección futura de plataforma multi-workspace en
 > **A.19** (es dirección, NO scope de Fase 2).
 
@@ -489,12 +491,33 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   logout/terminación de sesión. **Sin rediseño de auth, sin runtime/bootstrap.**
   Auth/session queda establecida como **capacidad PLATFORM / SHARED**.
 
-**Antes de cualquier router que renderice templates o use singletons/owner/feedback
-helpers** (landing, academy, wizard, assistant, admin, catalog, whats-new): decidir
-deliberadamente el **runtime/bootstrap module** (compartir `templates` + reubicar
-singletons) **+ reajustar el target del monkeypatch en tests** (hoy los tests
-parchean `webapp.main.{APP_OWNER, assistant_store, assistant_chat_service,
-DESAFIO_CLOSE_URL, FEEDBACK_LOG_DIR}`). Ese es el próximo gate estructural.
+**2C — Shared templating gate — IMPLEMENTED / PENDING CI** (commit `a003464`):
+- La construcción de la **única** `Jinja2Templates` + globals de plataforma
+  (`static_version`, `verbose_telemetry`) + `_StaticVersion` se movió a
+  **`webapp/templating.py`**. `main` re-exporta el MISMO objeto
+  (`webapp.main.templates is webapp.templating.templates` = **True**).
+- Los **filtros de workspace** (`diagnostic_title`, `catalog_verdict_*`) **siguen
+  registrándose desde `main`** sobre esa misma `templates.env`.
+- **NO se movió ninguna ruta** (surface **75**, snapshot sin cambios). **No** se
+  creó `runtime.py`/`bootstrap.py`. **Cero cambios de tests** (identidad preservada:
+  `from webapp.main import templates` + `env.get_template` siguen funcionando).
+- Imports obsoletos limpiados en `main` (`Jinja2Templates`, `is_verbose`).
+- Validado (3.14.3 / FastAPI 0.141.1): identidad OK, filtros/globals sobre la misma
+  env, route-contract GREEN, **suite 234 / 1 / 0**, smoke `/modules/01` 200 (base.html
+  + `static_version` aplicado). **PENDING:** CI GREEN en el PR.
+- ⚠️ **Deuda registrada:** `templating.py` es PLATFORM-pure en responsabilidad,
+  pero la env **todavía recibe** filtros Copilot/Catalog desde `main` → **NO está
+  workspace-pure**. Se tratará cuando exista presión real por un 2º workspace.
+
+**Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
+El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
+extraiga el primer router con singleton/estado** (assistant/wizard/section-analysis):
+introducir `webapp/runtime.py` para las **instancias compartidas** (analizando
+individualmente estado real vs stateless; `assistant_store` es claramente stateful,
+el resto se justifica por separado). El monkeypatch de tests **no** cambia mientras
+`main` re-exporte las MISMAS instancias (los tests parchean atributos de la instancia
+/ usan la instancia; solo reasignan los valores de **config** `APP_OWNER` y
+`FEEDBACK_LOG_DIR`, que quedan en `main`).
 
 **Phase 2 overall: NOT COMPLETE.**
 
