@@ -921,13 +921,33 @@ def load_catalog(root: str | Path) -> list[CatalogEntry]:
 # ── Fuente SharePoint (Graph, token delegado) — espejo de sharepoint_cases ─
 # No persiste el token, cache TTL por fingerprint, degradación a [] ante fallo.
 import hashlib
-import json as _json
 import os
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Transporte Graph delegado a core.microsoft365 (boundary compartido, Batch 1
+# de aceleración post-Fase 2) — mismo comportamiento observable (headers,
+# timeout=12, propagación de errores sin normalizar), sin duplicar la
+# construcción de headers/GET acá. Import defensivo: cuando este módulo se
+# corre como script standalone (`python tools/catalog/catalog_service.py`,
+# demo CLI al final del archivo) el repo root puede no estar todavía en
+# sys.path — se agrega recién si el import directo falla, sin tocar el modo
+# de carga habitual (sys.path.insert + `import catalog_service` bare desde
+# webapp/services/catalog_reads.py, donde el root YA está en sys.path).
+try:
+    from core.microsoft365 import graph_get_json as _shared_graph_get_json
+    from core.microsoft365 import graph_headers as _shared_graph_headers
+except ImportError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _repo_root = str(_Path(__file__).resolve().parents[2])
+    if _repo_root not in _sys.path:
+        _sys.path.insert(0, _repo_root)
+    from core.microsoft365 import graph_get_json as _shared_graph_get_json
+    from core.microsoft365 import graph_headers as _shared_graph_headers
 
 _SP_ENABLED = os.getenv("SHAREPOINT_CATALOG_ENABLED", "OFF").upper() in {"ON", "TRUE", "1", "YES"}
 _SP_SITE_ID = os.getenv("SHAREPOINT_CATALOG_SITE_ID", "").strip()
@@ -938,13 +958,11 @@ _sp_lock = threading.Lock()
 
 
 def _graph_headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    return _shared_graph_headers(token)
 
 
 def _graph_get_json(url: str, token: str) -> dict:
-    req = urllib.request.Request(url, headers=_graph_headers(token))
-    with urllib.request.urlopen(req, timeout=12) as r:
-        return _json.loads(r.read().decode("utf-8"))
+    return _shared_graph_get_json(url, token)
 
 
 def _download_text(url: str) -> str:
