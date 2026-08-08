@@ -665,8 +665,14 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
   1.4.1)**: route-contract GREEN, **suite 239 passed / 1 skipped** (237 + 2), smoke
   focal (academy render / feedback / pack-assets) GREEN. **Cierre:** GitHub CI **GREEN**.
-**2F — Pack Asset Serving router — IMPLEMENTED / PENDING CI** (commit `133b49d`,
-branch `work/architecture-phase-2f-pack-assets`; **NO cerrar GREEN hasta CI**):
+**2F — Pack Asset Serving router — CLOSED / GREEN** (commit `133b49d`; mergeada a
+`main` vía PR #13, merge commit `ffb7095`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **240 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **Pack Assets focal regressions GREEN**; **Academy feedback-injection regression
+  GREEN**; router **no importa `webapp.main`**; **sin runtime/bootstrap**; **sin
+  cambios de comportamiento**.
 - `GET /brand/dancing/{pack_name}`, `GET /pack-assets/{pack_name}/{asset_path:path}`
   y `GET /pack-resources/{pack_name}/{kind}/{resource_path:path}` extraídos a
   **`webapp/routers/pack_assets.py`** (APIRouter) como **relocación pura**:
@@ -705,9 +711,19 @@ branch `work/architecture-phase-2f-pack-assets`; **NO cerrar GREEN hasta CI**):
   repo sigue en 0.115.5/0.41.3 y **no** se usó para validar): route-contract
   GREEN (**75**), **suite 240 passed / 1 skipped** (239 + 1), smoke focal directo
   (dancing/pack-assets/pack-resources autenticado + anónimo 307 + traversal
-  400/404) GREEN. **Pendiente:** GitHub CI. **NO cerrar GREEN hasta confirmarla.**
+  400/404) GREEN. **Cierre:** GitHub CI **GREEN**.
+- **Clasificación multi-workspace (estado actual, NO anticipar):**
+  - `webapp/routers/pack_assets.py` → **COPILOT / ASSET & RESOURCE SERVING**.
+  - `webapp.presentation.academy_feedback` → sigue siendo el **dueño explícito**
+    de Academy feedback presentation (sin cambios; consumido ahora por el router
+    de pack assets vía `feedback_assets`, igual que antes lo consumía `main`).
+  - `_academy_feedback_assets` (alias transitorio en `main`) → **eliminado**: no
+    quedan consumidores en `main` tras la extracción.
+  - Aliases todavía vigentes en `main` (consumidores reales restantes): `_home_url
+    = nav.home_url`, `_invite_src = invite.invite_src`, `INVITE_COOKIE =
+    invite.INVITE_COOKIE`.
 - **Próximo candidato tras 2F:** Landing / session navigation (`/`, `/home`,
-  `/login`, `/desafio`, `/desafio/cerrar`) — **NOT AUTHORIZED**.
+  `/login`, `/desafio`, `/desafio/cerrar`) — **CANDIDATE / NOT AUTHORIZED**.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -737,25 +753,25 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | PRE-2D distributed helper/context gate | **CLOSED / GREEN** |
 | 2D What's New | **CLOSED / GREEN** |
 | 2E Academy | **CLOSED / GREEN** |
-| 2F Pack Asset Serving | **IMPLEMENTED / PENDING CI** |
+| 2F Pack Asset Serving | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2F — Pack Asset Serving
-- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
-- **Functional commit:** `133b49d` (branch `work/architecture-phase-2f-pack-assets`)
+- **Status:** CLOSED / GREEN
+- **Functional commit:** `133b49d` (mergeado a `main` vía PR #13, merge commit `ffb7095`)
 - **Current next candidate:** Landing / session navigation
-- **Landing/nav status:** **NOT AUTHORIZED**
+- **Landing/nav status:** **CANDIDATE / NOT AUTHORIZED**
+- **Known scope:** `GET /`, `GET /home`, `GET /login`, `GET /desafio`, `GET /desafio/cerrar`
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **240 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Abrir PR de Phase 2F (`work/architecture-phase-2f-pack-assets` → `main`), esperar CI.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 133b49d origin/main` (exit 0 recién tras el merge).
-3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2F solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza Landing/session navigation (o el candidato que el usuario elija).
+1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 133b49d origin/main` (exit 0 — ya confirmado).
+2. Cleanup de la branch `work/architecture-phase-2f-pack-assets` (solo tras el paso 1 en verde).
+3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. Reconstruye el estado y el usuario lo valida.
+6. **Recién entonces** se autoriza Landing/session navigation (o el candidato que el usuario elija).
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
