@@ -4,13 +4,15 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from webapp.main import app, templates
 import webapp.main as web_main
+from webapp import access
 from webapp.services import auth_service
 from webapp.services.section_analysis import SectionAnalysisService
 from webapp.services.content_service import load_module
 
 # El modo diagnóstico solo lo habilita el dueño (APP_OWNER). En tests, el usuario
-# de prueba ES el owner para poder ejercitar el grupo de gestión / selector.
-web_main.APP_OWNER = "test@danwor.com"
+# de prueba ES el owner para poder ejercitar el grupo de gestión / selector. El
+# seam vive ahora en webapp.access (access policy), no en webapp.main.
+access.APP_OWNER = "test@danwor.com"
 # Baseline de perfil: full para todos (el default de config es ACADEMY_USERS=ALL →
 # solo lectura). Los tests de perfil read-only monkeypatchean estas listas.
 auth_service.ALLOWED_USERS = "ALL"

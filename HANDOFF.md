@@ -22,11 +22,16 @@
 > (`POST /telemetry/event`) **CLOSED / GREEN** (CI GREEN, mergeada a `main` vía
 > PR #6). **2B — Auth/session API router** (`/api/auth/*` + `/api/diagnostic`, 5
 > endpoints) **CLOSED / GREEN** (CI GREEN + smoke real de login; ver A.20). **2C —
-> Shared templating gate** (`webapp/templating.py`) **IMPLEMENTED / PENDING CI**
-> (ver A.20; NO movió rutas, surface 75). **2D — What's New router: candidate,
-> NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
-> un lote al siguiente sin OK. Dirección futura de plataforma multi-workspace en
-> **A.19** (es dirección, NO scope de Fase 2).
+> Shared templating gate** (`webapp/templating.py`) **CLOSED / GREEN** (mergeada a
+> `main` vía PR #8; NO movió rutas, surface 75; ver A.20). **Gate distribuido PRE-2D
+> de contexto** (`resolve_pack`→`content_registry`, access policy→`webapp/access.py`,
+> login redirect→`webapp/nav.py`) **CLOSED / GREEN** (commit `f54acc6`; CI GREEN sobre
+> stack reproducible; sin `deps.py`, sin mover rutas —surface 75—, sin
+> runtime/bootstrap; ver A.20). **2D —
+> What's New router: candidate, NOT AUTHORIZED** (su boundary de helpers, descubierto
+> en el análisis 2D, ya quedó resuelto por el gate distribuido). Cada lote requiere
+> autorización explícita; NO avanzar de un lote al siguiente sin OK. Dirección futura
+> de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
 
 ## A.1 Contexto de la iniciativa
 
@@ -462,8 +467,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   best-effort). Tests focales de regresión agregados (no había).
 - Validado en stack reproducible (Python 3.14.3 / FastAPI 0.141.1): route-contract
   GREEN, focales 2/2, **suite 230 / 1 / 0**, smoke `POST /telemetry/event` → 204.
-- **PENDING:** CI en verde en el PR (branch pusheada; el push a la branch no
-  dispara CI — requiere PR). No cerrar 2A hasta GitHub Actions GREEN.
+- **Cierre:** GitHub Actions **CI GREEN** y mergeada a `main` vía PR #6.
 
 **2B — Auth/session API router — CLOSED / GREEN** (commit `37e56bf`):
 - 5 endpoints extraídos a `webapp/routers/auth.py` (APIRouter): GET
@@ -491,7 +495,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   logout/terminación de sesión. **Sin rediseño de auth, sin runtime/bootstrap.**
   Auth/session queda establecida como **capacidad PLATFORM / SHARED**.
 
-**2C — Shared templating gate — IMPLEMENTED / PENDING CI** (commit `a003464`):
+**2C — Shared templating gate — CLOSED / GREEN** (commit `a003464`; mergeada a `main` vía PR #8):
 - La construcción de la **única** `Jinja2Templates` + globals de plataforma
   (`static_version`, `verbose_telemetry`) + `_StaticVersion` se movió a
   **`webapp/templating.py`**. `main` re-exporta el MISMO objeto
@@ -504,10 +508,59 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - Imports obsoletos limpiados en `main` (`Jinja2Templates`, `is_verbose`).
 - Validado (3.14.3 / FastAPI 0.141.1): identidad OK, filtros/globals sobre la misma
   env, route-contract GREEN, **suite 234 / 1 / 0**, smoke `/modules/01` 200 (base.html
-  + `static_version` aplicado). **PENDING:** CI GREEN en el PR.
+  + `static_version` aplicado). **Cierre:** GitHub CI **GREEN**, mergeada a `main` vía PR #8.
 - ⚠️ **Deuda registrada:** `templating.py` es PLATFORM-pure en responsabilidad,
   pero la env **todavía recibe** filtros Copilot/Catalog desde `main` → **NO está
   workspace-pure**. Se tratará cuando exista presión real por un 2º workspace.
+
+**Gate distribuido PRE-2D de contexto — CLOSED / GREEN** (commit `f54acc6`):
+- **Evidencia de cierre:** GitHub **CI GREEN sobre el stack reproducible**; Python
+  **3.14.3**; full suite **234 passed / 1 skipped**; route surface **75 unchanged**;
+  **no routes moved**. Distribución: content pack resolution → `core.content_registry`;
+  current web access policies → `webapp/access.py`; current navigation helper →
+  `webapp/nav.py`; **`auth_service` sin cambios de responsabilidad**; **sin
+  `deps.py`/`runtime.py`/`bootstrap.py`**.
+- **Corrección de una nota anterior:** el gate de templating (2C) resolvió SOLO el
+  rendering boundary. What's New NO era inmediatamente extraíble después: su handler
+  usa helpers privados de `main` (`_pack`, `_login_redirect`, `_diagnostic`,
+  `_readonly`). Ese **helper/context boundary** se descubrió en el análisis de Fase 2D
+  y es lo que este gate resuelve.
+- El análisis mostró que NO era un cluster único sino **responsabilidades distintas**
+  accidentalmente juntas en `main`. Se distribuyeron a sus dueños naturales (NO se
+  creó `deps.py`):
+  - **pack resolution** → `core.content_registry` (`resolve_pack(value)` + constante
+    `DEFAULT_PACK`, literal `"datasphere_core"` para preservar el fallback exacto sin
+    acoplar a `DANWOR_CONTENT_PACK`). Clasificación: **COPILOT / content context**.
+  - **access policy** (owner/readonly/diagnostic) → **nuevo `webapp/access.py`**
+    (`owner_emails`, `is_owner`, `is_readonly`, `is_diagnostic`). `is_readonly == tier
+    academy` es semántica ACTUAL del Copiloto y por eso **NO** se metió en
+    `auth_service`. Clasificación: **current web access policy** (NO se asume universal).
+  - **login redirect** → **nuevo `webapp/nav.py`** (`login_redirect`). Todavía transporta
+    `pack` → clasificación **PRESENTATION / current web navigation** (NO PLATFORM-pure).
+- **`auth_service` NO recibió policy functions** — queda concentrado en identity /
+  session / tokens / tiers (capacidad PLATFORM / SHARED).
+- **`main` conserva aliases** (`_pack`, `_is_owner`, `_readonly`, `_diagnostic`,
+  `_login_redirect`) para no refactorizar aún las decenas de call-sites del módulo.
+  `_require_diagnostic` (guard HTTP de rutas admin) **permanece en `main`** y ahora
+  llama `access.is_diagnostic(request)`; su ubicación se decidirá al extraer Admin.
+- **Seam `APP_OWNER`**: se movió a `webapp.access.APP_OWNER`; los tests reasignan ahí
+  (mismo patrón que `auth_service.ALLOWED_USERS`/`ACADEMY_USERS`), **sin** compat magic
+  en `main`. `main` ya no importa `APP_OWNER`/`AUTH_DEFAULT_DOMAIN`/`DIAGNOSTIC_MODE`.
+- **NO se movió ninguna ruta** (surface **75**, snapshot sin cambios). **No** se creó
+  `deps.py`/`runtime.py`/`bootstrap.py`. **Sin cambios funcionales.** Test change:
+  solo la migración del seam `APP_OWNER` (2 archivos).
+- Validado local (`.venv`) + **CI GREEN sobre stack reproducible (Python 3.14.3)**:
+  import OK, aliases OK, route-contract GREEN (**75**), **suite 234 / 1 skipped**,
+  26 focales (owner/readonly/diagnostic/pack/login) GREEN.
+- **What's New sigue NOT AUTHORIZED** (su extracción es 2D propiamente; requiere OK).
+- **Clasificación multi-workspace (estado actual, NO anticipar):**
+  - `auth_service` → **PLATFORM / SHARED** (identity + session).
+  - `webapp/templating.py` → **PLATFORM presentation infrastructure**.
+  - `webapp/access.py` → **CURRENT WEB ACCESS POLICY**. Su reuso cross-workspace
+    futuro **NOT YET DECIDED** (no asumir que Operations lo reutilizará).
+  - `webapp/nav.py` → **CURRENT WEB NAVIGATION**; todavía transporta semántica de
+    content-pack del Copiloto. Reuso cross-workspace futuro **NOT YET DECIDED**.
+  - `core.content_registry` → **COPILOT / CONTENT**.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -516,8 +569,8 @@ introducir `webapp/runtime.py` para las **instancias compartidas** (analizando
 individualmente estado real vs stateless; `assistant_store` es claramente stateful,
 el resto se justifica por separado). El monkeypatch de tests **no** cambia mientras
 `main` re-exporte las MISMAS instancias (los tests parchean atributos de la instancia
-/ usan la instancia; solo reasignan los valores de **config** `APP_OWNER` y
-`FEEDBACK_LOG_DIR`, que quedan en `main`).
+/ usan la instancia; reasignan `FEEDBACK_LOG_DIR` en `main` y, tras el gate PRE-2D,
+`APP_OWNER` en `webapp.access`).
 
 **Phase 2 overall: NOT COMPLETE.**
 

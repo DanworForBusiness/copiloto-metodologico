@@ -18,17 +18,18 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from core.content_registry import (
+    DEFAULT_PACK,
     available_content_packs,
     content_pack_label,
     content_pack_short_label,
+    resolve_pack,
     resolve_pack_file,
     roots_for_kind,
 )
 from core import remote_store
 from config import (
     FEEDBACK_LOG_DIR,
-    APP_OWNER, AUTH_DEFAULT_DOMAIN, DESAFIO_CLOSE_URL,
-    DIAGNOSTIC_MODE,
+    DESAFIO_CLOSE_URL,
     SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
 from core.prompts import (
@@ -72,8 +73,9 @@ from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
 from webapp.routers import auth as auth_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
+from webapp import access  # access policy de la web (owner/readonly/diagnostic)
+from webapp import nav     # navegación de la web (login redirect)
 
-DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
 
 
@@ -180,64 +182,16 @@ app.include_router(telemetry_router.router)
 app.include_router(auth_router.router)
 
 
-def _pack(value: str) -> str:
-    return value if value in available_content_packs() else DEFAULT_PACK
-
-
-def _login_redirect(request: Request, pack: str) -> RedirectResponse:
-    """Redirige a la sección de acceso preservando la URL original en `next`,
-    para que tras el login el usuario vuelva a donde quería ir (en vez de
-    aterrizar siempre en el destino por defecto de su perfil)."""
-    next_path = request.url.path
-    if request.url.query:
-        next_path += f"?{request.url.query}"
-    params = {"pack": pack, "next": next_path}
-    return RedirectResponse(f"/?{urlencode(params)}#acceso", status_code=307)
-
-
-def _owner_emails() -> set[str]:
-    """APP_OWNER → set de mails. Acepta CSV y alias sin dominio (joconnor →
-    joconnor@danwor.com), igual que ALLOWED_USERS."""
-    domain = (AUTH_DEFAULT_DOMAIN or "danwor.com").strip().lower().lstrip("@")
-    owners = set()
-    for raw in (APP_OWNER or "").split(","):
-        u = raw.strip().lower()
-        if u:
-            owners.add(u if "@" in u else f"{u}@{domain}")
-    return owners
-
-
-def _is_owner(request: Request) -> bool:
-    """True si el usuario logueado es el dueño de la app (config APP_OWNER)."""
-    owners = _owner_emails()
-    if not owners:
-        return False
-    user = auth_service.session_user(request)
-    return bool(user) and (str(user.get("sub") or "").strip().lower() in owners)
-
-
-def _readonly(request: Request) -> bool:
-    """True si el usuario logueado es perfil SOLO LECTURA (ACADEMY_USERS): navega y
-    lee todo el contenido, pero con la IA apagada (sin asistente ni análisis de
-    sección → sin consumo de tokens). Se deriva del email en cada request, así que
-    mover un usuario entre listas surte efecto sin necesidad de re-login."""
-    user = auth_service.session_user(request)
-    if not user:
-        return False
-    return auth_service.user_tier(str(user.get("sub") or "")) == "academy"
-
-
-def _diagnostic(request: Request) -> bool:
-    """Modo diagnóstico: solo el dueño (APP_OWNER) puede activarlo por cookie.
-
-    Habilita el selector de marco metodológico y la pestaña/grupo de gestión.
-    DANWOR_DIAGNOSTIC_MODE lo fuerza por entorno (dev). Para usuarios no-owner
-    queda siempre off, aunque tengan la cookie seteada a mano.
-    """
-    if DIAGNOSTIC_MODE:
-        return True
-    return _is_owner(request) and request.cookies.get("dw-diagnostic") == "on"
-
+# Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
+# que todavía viven en este módulo usan estos nombres; el comportamiento reside
+# ahora en core.content_registry (pack), webapp.access (access policy) y
+# webapp.nav (navegación). Se conservan como alias para no refactorizar aún las
+# decenas de call-sites que quedan en main.py.
+_pack = resolve_pack                    # core.content_registry
+_login_redirect = nav.login_redirect    # webapp.nav
+_is_owner = access.is_owner             # webapp.access
+_readonly = access.is_readonly          # webapp.access
+_diagnostic = access.is_diagnostic      # webapp.access
 
 
 def _academy_feedback_html(stem: str, pack: str, *, submitted: bool = False, rating: str = "", form: bool = False, error: str = "") -> str:
@@ -1798,7 +1752,7 @@ def tree_feedback_cancel(request: Request, run_id: str):
 # =========================================================
 
 def _require_diagnostic(request: Request) -> None:
-    if not _diagnostic(request):
+    if not access.is_diagnostic(request):
         raise HTTPException(403, "Solo disponible en modo diagnóstico")
 
 
