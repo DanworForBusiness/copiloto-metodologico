@@ -665,9 +665,49 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
   1.4.1)**: route-contract GREEN, **suite 239 passed / 1 skipped** (237 + 2), smoke
   focal (academy render / feedback / pack-assets) GREEN. **Cierre:** GitHub CI **GREEN**.
-- **Phase 2F candidate: Pack Asset Serving** — Academy ya eliminó su último blocker
-  main-private (`_academy_feedback_assets` tiene dueño explícito en presentation).
-  **NOT AUTHORIZED** (requiere OK explícito).
+**2F — Pack Asset Serving router — IMPLEMENTED / PENDING CI** (commit `133b49d`,
+branch `work/architecture-phase-2f-pack-assets`; **NO cerrar GREEN hasta CI**):
+- `GET /brand/dancing/{pack_name}`, `GET /pack-assets/{pack_name}/{asset_path:path}`
+  y `GET /pack-resources/{pack_name}/{kind}/{resource_path:path}` extraídos a
+  **`webapp/routers/pack_assets.py`** (APIRouter) como **relocación pura**:
+  auth/pack/theme/embed/traversal/feedback-injection/content-type preservados
+  **verbatim**.
+- **feature classification: COPILOT.** El router **NO importa `webapp.main`**:
+  importa directo de los dueños explícitos —
+  `core.content_registry.{resolve_pack, resolve_pack_file, roots_for_kind}`,
+  `webapp.services.auth_service`, `webapp.nav.login_redirect`,
+  `webapp.presentation.academy_feedback.feedback_assets` — **sin** consumir
+  ningún alias de `main`.
+- **Alias transitorio removido:** `_academy_feedback_assets` (su único
+  consumidor en `main` era `/pack-assets`; búsqueda repo-wide confirmó cero
+  consumidores restantes antes de removerlo). `_home_url`/`_invite_src`/
+  `INVITE_COOKIE` **se mantienen** (siguen con consumidores en `main`:
+  landing/module/catalog, /desafio).
+- **Imports limpiados en `main`** (estrictamente obsoletos, verificados uno por
+  uno antes de tocar): `import json` (único consumidor era `pack_asset`),
+  `FileResponse` (único consumidor eran `pack_asset`/`pack_resource`),
+  `resolve_pack_file`/`roots_for_kind` de `core.content_registry` (exclusivos
+  de las 3 rutas movidas), el import de módulo `academy_feedback` (queda solo
+  `invite` en `from webapp.presentation import invite`). `re`/`Path`/
+  `HTMLResponse` **se mantienen** (consumidores reales en otras rutas de `main`).
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`, sin instancias nuevas, sin
+  nueva Jinja env, **sin cambios** en `access`/`nav`/`content_registry`/
+  `templating`/`auth_service`/`webapp/presentation/academy_feedback.py`.
+  **Route surface 75 sin cambios** (snapshot intacto; sin `UPDATE_ROUTE_SURFACE`).
+- **Tests:** cobertura previa inventariada primero (extensa: auth-required,
+  traversal de `/pack-resources`, theme query/cookie, embed flag, feedback
+  injection de Academy, dancing logo dark-shell, inherited/nested pack asset).
+  Gap real identificado: `/pack-assets` no tenía test de path-traversal propio
+  (solo `/pack-resources` lo tenía) → **+1 test**
+  (`test_pack_asset_traversal_is_rejected`). No se duplicó cobertura existente.
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1 — el `.venv` persistente del
+  repo sigue en 0.115.5/0.41.3 y **no** se usó para validar): route-contract
+  GREEN (**75**), **suite 240 passed / 1 skipped** (239 + 1), smoke focal directo
+  (dancing/pack-assets/pack-resources autenticado + anónimo 307 + traversal
+  400/404) GREEN. **Pendiente:** GitHub CI. **NO cerrar GREEN hasta confirmarla.**
+- **Próximo candidato tras 2F:** Landing / session navigation (`/`, `/home`,
+  `/login`, `/desafio`, `/desafio/cerrar`) — **NOT AUTHORIZED**.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -697,40 +737,34 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | PRE-2D distributed helper/context gate | **CLOSED / GREEN** |
 | 2D What's New | **CLOSED / GREEN** |
 | 2E Academy | **CLOSED / GREEN** |
+| 2F Pack Asset Serving | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2E — Academy
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `0431caa` (docs de cierre en el commit siguiente)
-- **Current next candidate:** Phase 2F — Pack Asset Serving
-- **Phase 2F status:** **NOT AUTHORIZED**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **239 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2F — Pack Asset Serving
+- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Functional commit:** `133b49d` (branch `work/architecture-phase-2f-pack-assets`)
+- **Current next candidate:** Landing / session navigation
+- **Landing/nav status:** **NOT AUTHORIZED**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **240 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2E tras CI GREEN de los docs.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 0431caa origin/main` (exit 0). *(Al escribir este checkpoint el PR aún NO estaba mergeado → exit ≠ 0 esperado hasta el merge.)*
-3. Cleanup de la branch de Phase 2E (solo tras el paso 2 en verde).
-4. Crear una branch de trabajo nueva y limpia.
-5. El agente N+1 lee **HANDOFF + Git** (no esta conversación).
-6. El agente N+1 reconstruye el estado.
-7. El usuario valida la reconstrucción.
-8. **Recién entonces** se autoriza Phase 2F.
+1. Abrir PR de Phase 2F (`work/architecture-phase-2f-pack-assets` → `main`), esperar CI.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 133b49d origin/main` (exit 0 recién tras el merge).
+3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2F solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
+5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+6. Reconstruye el estado y el usuario lo valida.
+7. **Recién entonces** se autoriza Landing/session navigation (o el candidato que el usuario elija).
 
-### Stop conditions para N+1
+### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
-working tree sucio · Phase 2F requiere una dependencia main-private inesperada ·
-aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de comportamiento o de
-route-surface.
+working tree sucio · el próximo candidato requiere una dependencia main-private
+inesperada · aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de
+comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2E)
+## REMAINING PHASE 2 MAP (post-2F)
 **READY / MECHANICAL**
-- **Phase 2F — Pack Asset Serving** (candidato): `GET /brand/dancing/{pack_name}`,
-  `GET /pack-assets/{pack_name}/{asset_path:path}`, `GET /pack-resources/{pack_name}/{kind}/{resource_path:path}`.
-  Academy ya resolvió el antiguo blocker: `academy_feedback_assets` tiene dueño
-  explícito no-HTTP (`webapp.presentation.academy_feedback`); `/pack-assets` lo consume
-  hoy vía **alias temporal** en main. Sin dependencia de singletons; sin
-  runtime/bootstrap esperado; riesgo **LOW / LOW-MED**; cambio de surface **NONE**.
 - **Landing / session navigation** (`/`, `/home`, `/login`, `/desafio`, `/desafio/cerrar`);
   al extraerla, `_home_url` deja de necesitar alias en main.
 - **Feedback family** (module + section + catalog feedback); comparten
