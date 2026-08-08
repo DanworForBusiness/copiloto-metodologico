@@ -21,8 +21,8 @@
 > **Fase 2 (extracción de routers): EN PROGRESO.** **2A — Telemetry router**
 > (`POST /telemetry/event`) **CLOSED / GREEN** (CI GREEN, mergeada a `main` vía
 > PR #6). **2B — Auth/session API router** (`/api/auth/*` + `/api/diagnostic`, 5
-> endpoints) **IMPLEMENTED / PENDING CI** (ver A.20). **2C / templates-runtime
-> gate: NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
+> endpoints) **CLOSED / GREEN** (CI GREEN + smoke real de login; ver A.20). **2C /
+> templates-runtime gate: NOT AUTHORIZED.** Cada lote requiere autorización explícita; NO avanzar de
 > un lote al siguiente sin OK. Dirección futura de plataforma multi-workspace en
 > **A.19** (es dirección, NO scope de Fase 2).
 
@@ -463,7 +463,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - **PENDING:** CI en verde en el PR (branch pusheada; el push a la branch no
   dispara CI — requiere PR). No cerrar 2A hasta GitHub Actions GREEN.
 
-**2B — Auth/session API router — IMPLEMENTED / PENDING CI** (commit `37e56bf`):
+**2B — Auth/session API router — CLOSED / GREEN** (commit `37e56bf`):
 - 5 endpoints extraídos a `webapp/routers/auth.py` (APIRouter): GET
   `/api/auth/microsoft/config`, POST `/api/auth/microsoft/token`, GET
   `/api/auth/me`, POST `/api/diagnostic`, POST `/api/auth/logout`.
@@ -483,8 +483,11 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - **Establece el boundary HTTP de la capacidad PLATFORM / SHARED "identity +
   session"** (A.19). NO implementa workspace switcher / permissions registry /
   navegación / Portal de Operaciones / Staffing / roles nuevos.
-- **PENDING:** CI GREEN en el PR (branch pusheada; el push a la branch no dispara
-  CI — requiere PR). No cerrar 2B hasta GitHub Actions GREEN.
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; full
+  suite **234 passed / 1 skipped**; route surface **75 unchanged**; **smoke real
+  GREEN** — login real contra Entra, sesión autenticada, `/api/auth/me`, y
+  logout/terminación de sesión. **Sin rediseño de auth, sin runtime/bootstrap.**
+  Auth/session queda establecida como **capacidad PLATFORM / SHARED**.
 
 **Antes de cualquier router que renderice templates o use singletons/owner/feedback
 helpers** (landing, academy, wizard, assistant, admin, catalog, whats-new): decidir
