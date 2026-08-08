@@ -71,6 +71,7 @@ from webapp.services import activity_analytics
 from webapp.services import whats_new_service as whatsnew
 from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
+from webapp.routers import telemetry as telemetry_router
 
 DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
@@ -190,6 +191,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
+app.include_router(telemetry_router.router)
 
 
 def _pack(value: str) -> str:
@@ -1562,31 +1564,9 @@ def assistant_chat(
     )
 
 
-_TELEMETRY_EVENTS = {
-    "module_reached_end", "module_continue",
-    "nav_jump", "link_external", "disclosure_toggle", "theme_change",
-}
-
-
-@app.post("/telemetry/event", include_in_schema=False)
-async def telemetry_event(request: Request):
-    """Beacon liviano de interacción cliente (fin de módulo, uso del cue de
-    continuar). Solo registra en LOG_ACTIVITY=VERBOSE; en otro caso es no-op.
-    Siempre responde 204 para no ensuciar la consola del navegador."""
-    if not is_verbose():
-        return Response(status_code=204)
-    user = auth_service.session_user(request)
-    if not user:
-        return Response(status_code=204)
-    try:
-        data = await request.json()
-    except Exception:
-        return Response(status_code=204)
-    event = str((data or {}).get("event") or "").strip()
-    if event in _TELEMETRY_EVENTS:
-        payload = {k: v for k, v in data.items() if k != "event"}
-        log_verbose(event, user=user, **payload)
-    return Response(status_code=204)
+# /telemetry/event se movió a webapp/routers/telemetry.py (Fase 2A), incluido
+# vía app.include_router(telemetry_router.router) arriba. La constante
+# _TELEMETRY_EVENTS se co-localizó allí (su único consumidor).
 
 
 def _assistant_feedback_template(request, name, reply, **context):

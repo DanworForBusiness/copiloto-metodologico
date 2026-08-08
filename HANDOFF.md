@@ -18,9 +18,11 @@
 > **CLOSED / GREEN**, mergeadas a `main`. **Gate PRE-PHASE-2 de reproducibilidad
 > de dependencias: CLOSED / GREEN** (ver A.18) — `.python-version=3.14.3` +
 > `constraints.txt` cross-platform, validado en Windows + CI Linux + DigitalOcean.
-> **Fase 2 (extracción de routers): READY, pero NOT STARTED** — requiere
-> autorización explícita del usuario. Dirección futura de plataforma multi-workspace
-> en **A.19** (es dirección, NO scope de Fase 2). No avanzar a Fase 2 sin OK.
+> **Fase 2 (extracción de routers): EN PROGRESO.** **2A — Telemetry router**
+> (`POST /telemetry/event`) **IMPLEMENTED / PENDING CI** (ver A.20). **2B — Auth
+> router = candidate/recommended, NOT AUTHORIZED.** Cada lote requiere autorización
+> explícita; NO avanzar de un lote al siguiente sin OK. Dirección futura de
+> plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
 
 ## A.1 Contexto de la iniciativa
 
@@ -435,6 +437,41 @@ Principios:
   reutiliza capacidades transversales **sin contaminar el Copiloto**.
 - Se mantiene el **modular monolith**; se evoluciona por **presión/cohesión real**,
   no anticipadamente.
+
+## A.20 PHASE 2 — Router boundaries (EN PROGRESO)
+
+Extracción incremental de handlers de `webapp/main.py` a `APIRouter`, un lote por
+vez, preservando `MÉTODO + PATH` (route-contract, 75) y comportamiento. `main.py`
+sigue siendo composition root (sin `create_app()`). Cada lote requiere
+**autorización explícita**; no encadenar lotes.
+
+**2A — Telemetry router — IMPLEMENTED / PENDING CI** (commit `597d47b`):
+- `POST /telemetry/event` extraído a `webapp/routers/telemetry.py` (APIRouter),
+  incluido con `app.include_router(...)`.
+- **HTTP surface unchanged** (75 rutas; snapshot sin cambios; sin `UPDATE_ROUTE_SURFACE`).
+- El router **NO importa `webapp.main`**; **sin bootstrap/runtime**, sin `app.state`,
+  sin singletons nuevos. **Primer router respaldado por servicio compartido**
+  (`activity_service`) + auth — patrón para futuros routers service-backed.
+- `_TELEMETRY_EVENTS` co-localizada (único consumidor de código; la mención en
+  `activity_analytics.py` es un comentario).
+- Comportamiento **verbatim** (204 siempre, gate VERBOSE, no-op sin sesión,
+  best-effort). Tests focales de regresión agregados (no había).
+- Validado en stack reproducible (Python 3.14.3 / FastAPI 0.141.1): route-contract
+  GREEN, focales 2/2, **suite 230 / 1 / 0**, smoke `POST /telemetry/event` → 204.
+- **PENDING:** CI en verde en el PR (branch pusheada; el push a la branch no
+  dispara CI — requiere PR). No cerrar 2A hasta GitHub Actions GREEN.
+
+**2B — Auth/session API router (`/api/auth/*` + `/api/diagnostic`, 5 endpoints,
+JSON, sin templates/singletons):** candidate/recommended, **NOT AUTHORIZED**.
+
+**Antes de cualquier router que renderice templates o use singletons/owner/feedback
+helpers** (landing, academy, wizard, assistant, admin, catalog, whats-new): decidir
+deliberadamente el **runtime/bootstrap module** (compartir `templates` + reubicar
+singletons) **+ reajustar el target del monkeypatch en tests** (hoy los tests
+parchean `webapp.main.{APP_OWNER, assistant_store, assistant_chat_service,
+DESAFIO_CLOSE_URL, FEEDBACK_LOG_DIR}`). Ese es el próximo gate estructural.
+
+**Phase 2 overall: NOT COMPLETE.**
 
 ---
 

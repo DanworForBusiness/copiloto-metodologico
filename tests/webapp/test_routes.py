@@ -42,6 +42,30 @@ def test_favicon():
     assert response.headers["content-type"].startswith("image/")
     assert len(response.content) > 0
 
+def test_telemetry_event_noop_when_not_verbose():
+    # /telemetry/event se sirve desde webapp/routers/telemetry.py (Fase 2A).
+    # LOG_ACTIVITY OFF (default del conftest) -> is_verbose False -> no-op 204.
+    response = client.post("/telemetry/event", json={"event": "module_continue"})
+    assert response.status_code == 204
+
+def test_telemetry_event_logs_whitelisted_event_when_verbose(monkeypatch):
+    # Con VERBOSE + sesión, un evento del whitelist registra vía log_verbose;
+    # uno fuera del whitelist responde 204 pero NO registra (preserva el gate).
+    from webapp.services import activity_service
+    from webapp.routers import telemetry as telemetry_router
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE")
+    calls = []
+    monkeypatch.setattr(telemetry_router, "log_verbose", lambda event, **kw: calls.append(event))
+
+    ok = client.post("/telemetry/event", json={"event": "module_continue", "stem": "01"})
+    assert ok.status_code == 204
+    assert calls == ["module_continue"]
+
+    calls.clear()
+    other = client.post("/telemetry/event", json={"event": "not_whitelisted"})
+    assert other.status_code == 204
+    assert calls == []
+
 def test_module_page_renders_server_side():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert response.status_code == 200
