@@ -20,13 +20,6 @@ from core.content_registry import (
     resolve_pack,
 )
 from core import remote_store
-from config import ia_enabled_for
-from core.prompts import (
-    ALL_ACTIONS,
-    MODULE_ACTIONS,
-    MODULE_ACTION_DESCRIPTIONS,
-    get_loading_message,
-)
 from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
@@ -36,13 +29,9 @@ from webapp.services.content_service import (
     list_academy,
     list_appendices,
     list_modules,
-    load_module,
-    split_front_matter,
 )
-from webapp.services.section_analysis import ACTION_DESCRIPTIONS
 from webapp.services import admin_tools
 from webapp.services import activity_analytics
-from webapp.services import whats_new_service as whatsnew
 from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
@@ -51,14 +40,13 @@ from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
-from webapp import copilot_runtime  # estado mutable de proceso del Copiloto (Fase 2J-A)
 from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
 from webapp.routers import landing as landing_router
 from webapp.routers import feedback as feedback_router
 from webapp.routers import assistant as assistant_router
 from webapp.routers import wizard as wizard_router
-from webapp.presentation import invite
+from webapp.routers import modules as modules_router
 
 WEB_DIR = Path(__file__).parent
 
@@ -109,15 +97,13 @@ templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 # verbose_telemetry) se construyen en webapp/templating.py (Fase 2C); acá se
 # re-exporta `templates` (misma identidad) y se le siguen registrando los
 # filtros de workspace (diagnostic_title, catalog_verdict_*, arriba).
-# store y assistant_store se construyen ahora en webapp/copilot_runtime.py
-# (Fase 2J-A) — únicos objetos que requieren identidad compartida entre
-# requests. Alias transicional: misma identidad, ningún cambio de comportamiento.
-store = copilot_runtime.store
-assistant_store = copilot_runtime.assistant_store
-# section_analysis_service, assistant_chat_service, assistant_routing_service
-# y assistant_feedback_repository se movieron a webapp/routers/assistant.py
-# (Fase 2J-B) junto con sus únicos consumidores — stateless, sin identidad
-# compartida requerida (ver Fase 2J assessment).
+# store y assistant_store (webapp/copilot_runtime.py, Fase 2J-A) ya no tienen
+# consumidores en main.py: module_page (su único consumidor acá) se movió a
+# webapp/routers/modules.py (Fase 2J-D), que los consume directo de
+# copilot_runtime. section_analysis_service, assistant_chat_service,
+# assistant_routing_service y assistant_feedback_repository se movieron a
+# webapp/routers/assistant.py (Fase 2J-B) junto con sus únicos consumidores —
+# stateless, sin identidad compartida requerida (ver Fase 2J assessment).
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # El estado persistido en DO Spaces se restaura EN BACKGROUND, no bloqueando el
@@ -174,23 +160,24 @@ app.include_router(landing_router.router)
 app.include_router(feedback_router.router)
 app.include_router(assistant_router.router)
 app.include_router(wizard_router.router)
+app.include_router(modules_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
 # que todavía viven en este módulo usan estos nombres; el comportamiento reside
 # ahora en core.content_registry (pack), webapp.access (access policy) y
 # webapp.nav (navegación). Se conservan como alias para no refactorizar aún las
-# decenas de call-sites que quedan en main.py.
+# decenas de call-sites que quedan en main.py (residual Catalog/Admin).
 _pack = resolve_pack                    # core.content_registry
 _login_redirect = nav.login_redirect    # webapp.nav
 _is_owner = access.is_owner             # webapp.access
 _readonly = access.is_readonly          # webapp.access
 _diagnostic = access.is_diagnostic      # webapp.access
-# Aliases transitorios (Fase 2E): dueños reales en nav / presentation; se
-# conservan por los consumidores que TODAVÍA viven en main (se irán al
-# extraer esos grupos). No duplican implementación.
+# Alias transitorio (Fase 2E): dueño real en nav; se conserva porque el
+# catálogo residual (`/catalog/guide/{slug}`) todavía lo consume. _invite_src
+# se removió (Fase 2J-D): su único consumidor era module_page, que ahora
+# importa `invite.invite_src` directo en webapp/routers/modules.py.
 _home_url = nav.home_url                                       # nav (module/catalog)
-_invite_src = invite.invite_src                                # presentation.invite (module)
 
 
 def _truthy(value: str) -> bool:
@@ -220,154 +207,9 @@ def _truthy(value: str) -> bool:
 # app.include_router(landing_router.router) arriba.
 
 
-_MODULE_TABS = {"section", "tree", "catalogo", "assistant"}
-
-
-@app.get("/modules/{stem}", response_class=HTMLResponse)
-def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = ""):
-    diagnostic = _diagnostic(request)
-    # Fuera de modo diagnóstico, el marco es siempre el productivo (Datasphere).
-    selected = _pack(pack) if diagnostic else DEFAULT_PACK
-    user = auth_service.session_user(request)
-    if not user:  # sin sesión válida → al landing/acceso
-        return _login_redirect(request, selected)
-    modules = list_modules(selected)
-    all_appendices = list_appendices(selected)
-    # Apéndices con nav_hidden (p. ej. A06 en revisión) salen del nav y del pager,
-    # pero la página sigue resoluble por URL directa (para trabajarla). is_appendix
-    # se calcula sobre la lista completa para que su render (eyebrow "Apéndice")
-    # sea correcto si se entra directo.
-    appendices = [a for a in all_appendices if not a.nav_hidden]
-    academy = [item for item in list_academy(selected) if not item.nav_hidden]
-    try:
-        document = load_module(stem, selected)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, "Módulo no encontrado") from exc
-
-    # Pestaña inicial del panel derecho vía URL (?tab=…). Permite que un link (p. ej. de
-    # Novedades) abra el módulo YA posicionado en Catálogo/Árbol/etc. Se valida: si la
-    # pestaña no aplica a este módulo, se ignora (el default de copilotLayout gana).
-    initial_tab = (tab or "").strip().lower()
-    if initial_tab not in _MODULE_TABS:
-        initial_tab = ""
-    elif initial_tab == "catalogo":
-        _num = str(document.summary.number)
-        if not (_catalog_domains() and _num != "05" and not document.summary.stem.startswith("05_")):
-            initial_tab = ""
-    elif initial_tab == "section" and _readonly(request):
-        initial_tab = ""
-    log_activity("module_selected", user=user, module=stem, pack=selected)
-
-    # Nav combinado: módulos principales + apéndices técnicos (módulo final).
-    # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada
-    # de la navegación (no entra en el pager prev/next ni en el bucle de scroll).
-    nav_items = (*modules, *appendices)
-    is_appendix = any(item.stem == stem for item in all_appendices)
-    ia_enabled = ia_enabled_for(stem)
-
-    # Layout inmersivo (p. ej. 00 Intro): en vez de renderizar secciones markdown,
-    # se embebe un HTML de storytelling (formato Academy) a pantalla completa. El
-    # módulo sigue en el nav Core con su pager/loop; solo cambia el cuerpo.
-    _meta, _ = split_front_matter(document.source)
-    immersive = str(_meta.get("layout") or "").strip().lower() == "immersive"
-    embed_asset = str(_meta.get("embed_asset") or "").strip()
-    immersive = immersive and bool(embed_asset) and "/" not in embed_asset and ".." not in embed_asset
-    current_index = next((i for i, item in enumerate(nav_items) if item.stem == stem), None)
-    previous_module = nav_items[current_index - 1] if current_index else None
-    next_module = (
-        nav_items[current_index + 1]
-        if current_index is not None and current_index + 1 < len(nav_items)
-        else None
-    )
-    # Bucle de lectura: en el último documento, la continuación por scroll vuelve
-    # al inicio (Intro) en vez de "morir". Solo aplica al cue de scroll continuo,
-    # no a las flechas del pager (que siguen deshabilitándose al final).
-    loop_home = nav_items[0] if (next_module is None and len(nav_items) > 1) else None
-
-    # En modo inmersivo el scroll ocurre dentro del iframe, así que el cue de
-    # "scroll para continuar" vive en el HTML embebido: le pasamos a dónde ir
-    # (siguiente módulo, o loop al inicio) para que navegue el top al llegar al final.
-    iframe_src = None
-    if immersive:
-        _cont = next_module or loop_home
-        _params = {"branding": "danwor", "embed": "1"}
-        if _cont:
-            _prefix = _cont.stem.split("_")[0]
-            _params["continue_url"] = f"/modules/{_cont.stem}?pack={selected}"
-            _params["continue_label"] = (
-                f"{_prefix} · {_cont.title}" if next_module else f"↻ {_prefix} · {_cont.title}"
-            )
-        iframe_src = f"/pack-assets/{selected}/{embed_asset}?{urlencode(_params)}"
-    trees = store.trees_for_module(stem, selected, include_assessment=True)
-    run = store.start(trees[0], selected) if len(trees) == 1 else None
-    conversation = assistant_store.start(stem, selected)
-    # Perfil de solo lectura (ACADEMY_USERS): lee todo, pero sin IA. Conserva el
-    # panel SOLO si el módulo tiene árboles de decisión (deterministas, sin tokens);
-    # las pestañas Sección/Asistente (IA) se ocultan en el template.
-    readonly = _readonly(request)
-    has_decision_tree = any(t.get("kind") != "assessment" for t in trees)
-    packs = [
-        {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": _home_url(name)}
-        for name in available_content_packs()
-    ]
-    return templates.TemplateResponse(
-        request=request,
-        name="module.html",
-        context={
-            "modules": modules,
-            "appendices": appendices,
-            "academy": academy,
-            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
-            "active_group": "appendix" if is_appendix else "core",
-            "active_stem": stem,
-            "ia_enabled": ia_enabled,
-            "is_appendix": is_appendix,
-            "diagnostic": diagnostic,
-            "is_owner": _is_owner(request),
-            "immersive": immersive,
-            "iframe_src": iframe_src,
-            "readonly": readonly,
-            # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
-            # si está el modo diagnóstico activo (grupo Gestión). Nunca en módulos
-            # inmersivos (p. ej. 00 Intro). Para el perfil de solo lectura se muestra
-            # si hay asistente (router determinista) o árbol; la salida LLM queda gateada.
-            "show_panel": (
-                ((ia_enabled or has_decision_tree) and not immersive) if readonly
-                else ((ia_enabled or diagnostic) and not immersive)
-            ),
-            "document": document,
-            "trees": trees,
-            "run": run,
-            "node": run.node if run else None,
-            "leaf": run.leaf if run else None,
-            "selected_tree_id": run.tree.get("id") if run else "",
-            "pack": selected,
-            "packs": packs,
-            "pack_label": content_pack_short_label(selected),
-            "previous_module": previous_module,
-            "next_module": next_module,
-            "loop_home": loop_home,
-            "section_actions": ALL_ACTIONS,
-            "module_actions": MODULE_ACTIONS,
-            # Descripciones y mensajes de carga combinados (sección + módulo) para el
-            # template, que alterna las acciones según el target activo.
-            "all_action_descriptions": {**ACTION_DESCRIPTIONS, **MODULE_ACTION_DESCRIPTIONS},
-            "all_loading_messages": {
-                action: get_loading_message(action, False)
-                for action in (*ALL_ACTIONS, *MODULE_ACTIONS)
-            },
-            "user": user,
-            "conversation_id": conversation.id,
-            "invite_src": _invite_src(request, selected),
-            "catalog_pilot": os.getenv("DANWOR_CATALOG_PILOT", "").lower() in {"1", "true", "on", "yes"},
-            "catalog_domains": _catalog_domains(),
-            "catalog_connection_types": _catalog_connection_types(),
-            "catalog_security_families": _catalog_security_families(),
-            "catalog_data_products": _catalog_data_products_list(),
-            "initial_tab": initial_tab,
-            "whatsnew_unseen": whatsnew.is_unseen(request, selected),
-        },
-    )
+# GET /modules/{stem} (module_page) se movió a webapp/routers/modules.py
+# (Fase 2J-D), incluido vía app.include_router(modules_router.router) arriba.
+# _MODULE_TABS se co-localizó allí (único consumidor).
 
 
 # POST /modules/{stem}/sections/analyze se movió a webapp/routers/assistant.py
@@ -554,18 +396,19 @@ def admin_reconciliation_analyze(request: Request):
 
 # Las 4 lecturas cacheadas (_catalog_entries, _catalog_architecture_connections,
 # _catalog_data_products_entries, _catalog_security_entries) y sus 5 funciones
-# delgadas de consulta se movieron a webapp/services/catalog_reads.py (Fase 2I)
-# — el cierre mínimo de dependencia que necesita GET /modules/{stem}. Aliases
-# transicionales abajo: los consumidores que TODAVÍA viven en main (rutas de
-# Catalog, module_page) siguen usando estos nombres sin cambios.
+# delgadas de consulta se movieron a webapp/services/catalog_reads.py (Fase 2I).
+# Aliases transicionales abajo: los consumidores que TODAVÍA viven en main
+# (rutas de Catalog residuales) siguen usando estos nombres sin cambios.
+# _catalog_domains, _catalog_connection_types, _catalog_security_families y
+# _catalog_data_products_list se removieron (Fase 2J-D): su único consumidor
+# era module_page, que ahora importa `catalog_reads` directo en
+# webapp/routers/modules.py. _catalog_security_criteria no tiene consumidor
+# en main.py desde antes de esta fase (deuda de Catalog preexistente, fuera
+# de alcance — no se toca).
 _catalog_entries = catalog_reads._catalog_entries
 _catalog_architecture_connections = catalog_reads._catalog_architecture_connections
 _catalog_data_products_entries = catalog_reads._catalog_data_products_entries
 _catalog_security_entries = catalog_reads._catalog_security_entries
-_catalog_domains = catalog_reads._catalog_domains
-_catalog_connection_types = catalog_reads._catalog_connection_types
-_catalog_data_products_list = catalog_reads._catalog_data_products_list
-_catalog_security_families = catalog_reads._catalog_security_families
 _catalog_security_criteria = catalog_reads._catalog_security_criteria
 
 
