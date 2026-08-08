@@ -975,9 +975,14 @@ confirmado por los propios tests existentes (3 tests reemplazan
 existe (Catalog nunca depende de STATEFUL), pero `module_page` (bloqueada por
 STATEFUL) dependía de Catalog — por eso 2I se hizo antes.
 
-**2J-A — Copilot runtime ownership — IMPLEMENTED / PENDING CI** (commit
-`c069300`, branch `work/architecture-phase-2j-a-copilot-runtime`; **NO cerrar
-GREEN hasta CI**):
+**2J-A — Copilot runtime ownership — CLOSED / GREEN** (commit `c069300`;
+branch `work/architecture-phase-2j-a-copilot-runtime`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **261 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **6 tests de ownership/identidad de `copilot_runtime` GREEN**; **regresión de
+  Wizard service GREEN**; **regresión de Assistant service GREEN**; **regresión
+  de rutas Module/Assistant/Section/Wizard GREEN**.
 - `store` y `assistant_store` — los únicos 2 objetos que requieren identidad
   compartida — se movieron **verbatim** a **`webapp/copilot_runtime.py`**
   (mismos constructores exactos: `WizardStore(case_repository=
@@ -1038,13 +1043,21 @@ GREEN hasta CI**):
   section-analysis/wizard en `test_routes.py`.
 - Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
   Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
-  (**75**), **suite 261 passed / 1 skipped** (255 + 6). **Pendiente:** GitHub
-  CI. **NO cerrar GREEN hasta confirmarla.**
-- **Secuencia de Fase 2J planeada:** **2J-A** runtime ownership (esta fase) →
-  **2J-B** Assistant + Section Analysis → **2J-C** Trees + Wizard → **2J-D**
-  Module page → evaluación de cierre de Phase 2. **2J-B NO autorizada** hasta
-  que: CI de 2J-A esté GREEN; el PR esté mergeado; se verifique containment; y
-  el cleanup de la branch de 2J-A esté completo.
+  (**75**), **suite 261 passed / 1 skipped** (255 + 6). **Cierre:** GitHub CI
+  **GREEN**.
+- **Secuencia de Fase 2J planeada:**
+
+  | Lote | Estado |
+  |---|---|
+  | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
+  | 2J-B Assistant + Section Analysis | **NOT AUTHORIZED** |
+  | 2J-C Trees + Wizard | **NOT AUTHORIZED** |
+  | 2J-D Module page | **NOT AUTHORIZED** |
+  | *(luego)* evaluación de cierre de Phase 2 | — |
+
+  **2J-B se vuelve elegible solo después de:** este commit de cierre pusheado;
+  CI final se mantenga GREEN; el PR esté mergeado; se verifique containment;
+  y la branch de 2J-A esté limpiada.
 
 **Phase 2 overall: NOT COMPLETE.**
 
@@ -1068,23 +1081,23 @@ GREEN hasta CI**):
 | 2G Landing / Session Navigation | **CLOSED / GREEN** |
 | 2H Feedback Family | **CLOSED / GREEN** |
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
-| 2J-A Copilot runtime ownership | **IMPLEMENTED / PENDING CI** |
+| 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Phase 2J-A — Copilot runtime ownership
-- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Status:** CLOSED / GREEN
 - **Functional commit:** `c069300` (branch `work/architecture-phase-2j-a-copilot-runtime`)
 - **Current next candidate:** Phase 2J-B — Assistant + Section Analysis extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: CI de 2J-A esté GREEN; el
-  PR esté mergeado; se verifique containment; y el cleanup de la branch de 2J-A
-  esté completo
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de 2J-A esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **261 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Abrir PR de Phase 2J-A (`work/architecture-phase-2j-a-copilot-runtime` → `main`), esperar CI.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor c069300 origin/main` (exit 0 recién tras el merge).
-3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2J-A solo tras el paso 2 en verde.
+1. Mergear el PR de Phase 2J-A (`work/architecture-phase-2j-a-copilot-runtime` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor c069300 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Phase 2J-A solo tras el paso 2 en verde.
 4. Crear una branch de trabajo nueva y limpia para 2J-B.
 5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 6. Reconstruye el estado y el usuario lo valida.
