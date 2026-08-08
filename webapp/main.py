@@ -17,7 +17,6 @@ from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
 
 from core.content_registry import (
     available_content_packs,
@@ -29,9 +28,9 @@ from core.content_registry import (
 from core import remote_store
 from config import (
     FEEDBACK_LOG_DIR,
-    APP_OWNER, AUTH_DEFAULT_DOMAIN, AZURE_CLIENT_ID, AZURE_TENANT_ID, DESAFIO_CLOSE_URL,
+    APP_OWNER, AUTH_DEFAULT_DOMAIN, DESAFIO_CLOSE_URL,
     DIAGNOSTIC_MODE,
-    SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
+    SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE, ia_enabled_for,
 )
 from core.prompts import (
     ALL_ACTIONS,
@@ -72,6 +71,7 @@ from webapp.services import whats_new_service as whatsnew
 from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
+from webapp.routers import auth as auth_router
 
 DEFAULT_PACK = "datasphere_core"
 WEB_DIR = Path(__file__).parent
@@ -192,6 +192,7 @@ app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifes
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
+app.include_router(auth_router.router)
 
 
 def _pack(value: str) -> str:
@@ -424,77 +425,10 @@ def _truthy(value: str) -> bool:
 
 
 # ── Autenticación Microsoft (Entra ID) ─────────────────────────────────────────
-class _MsTokenBody(BaseModel):
-    id_token: str
-
-
-@app.get("/api/auth/microsoft/config", include_in_schema=False)
-def microsoft_config():
-    return {
-        "enabled": auth_service.microsoft_configured(),
-        "tenant_id": AZURE_TENANT_ID,
-        "client_id": AZURE_CLIENT_ID,
-    }
-
-
-@app.post("/api/auth/microsoft/token", include_in_schema=False)
-def microsoft_token(body: _MsTokenBody):
-    try:
-        claims = auth_service.verify_ms_id_token(body.id_token)
-        user = auth_service.user_from_claims(claims)
-    except auth_service.AuthError as exc:
-        detail = {"message": str(exc)}
-        if exc.denied_user:
-            detail = {"code": "microsoft_user_not_authorized", "denied_user": exc.denied_user, "message": str(exc)}
-        return JSONResponse({"detail": detail}, status_code=403 if exc.denied_user else 401)
-    except Exception as exc:  # noqa: BLE001 — fallo de red/JWKS u otro
-        return JSONResponse({"detail": {"message": f"No se pudo validar el login: {exc}"}}, status_code=502)
-
-    log_activity("login", user=user, job_title=str(claims.get("jobTitle") or ""))
-    response = JSONResponse({"ok": True, "first_name": user["first_name"], "name": user["name"]})
-    response.set_cookie(
-        auth_service.COOKIE_NAME, auth_service.create_session(user),
-        max_age=SESSION_MAX_AGE, httponly=True, path="/",
-        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
-
-
-@app.get("/api/auth/me", include_in_schema=False)
-def auth_me(request: Request):
-    user = auth_service.session_user(request)
-    if not user:
-        raise HTTPException(401, "Sin sesión")
-    return {"name": user.get("name"), "first_name": user.get("first_name"), "email": user.get("sub")}
-
-
-@app.post("/api/diagnostic", include_in_schema=False)
-def diagnostic_toggle(request: Request, on: str = Form("")):
-    """Persiste el modo diagnóstico en cookie, emitida por el SERVER.
-
-    Desde el JS del iframe enmascarado (danwor.com) una cookie SameSite=Lax no
-    viaja en requests cross-site y el modo se "apagaba solo" en producción; acá
-    se emite con los mismos atributos que la cookie de sesión (None+Secure en
-    prod). El gate real sigue siendo _diagnostic() (cookie + APP_OWNER)."""
-    if not auth_service.session_user(request):
-        raise HTTPException(401, "Sin sesión")
-    enabled = on == "on"
-    response = JSONResponse({"ok": True, "diagnostic": enabled})
-    response.set_cookie(
-        "dw-diagnostic", "on" if enabled else "off", max_age=31536000, path="/",
-        httponly=False, samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
-
-
-@app.post("/api/auth/logout", include_in_schema=False)
-def auth_logout():
-    response = JSONResponse({"ok": True})
-    response.delete_cookie(
-        auth_service.COOKIE_NAME, path="/",
-        samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
+# /api/auth/microsoft/config|token, /api/auth/me, /api/diagnostic y /api/auth/logout
+# se movieron a webapp/routers/auth.py (Fase 2B), incluido vía
+# app.include_router(auth_router.router) arriba. _MsTokenBody se co-localizó allí
+# (su único consumidor era el token endpoint).
 
 
 @app.get("/brand/dancing/{pack_name}", include_in_schema=False)

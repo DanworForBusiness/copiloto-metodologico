@@ -66,6 +66,35 @@ def test_telemetry_event_logs_whitelisted_event_when_verbose(monkeypatch):
     assert other.status_code == 204
     assert calls == []
 
+# ── Auth/session API (Fase 2B: webapp/routers/auth.py) ─────────────────────
+# /api/diagnostic ya está cubierto más abajo. Estas protegen el contrato
+# observable de las rutas sin cobertura HTTP previa (config/me/logout).
+
+def test_auth_config_returns_azure_ids():
+    response = client.get("/api/auth/microsoft/config")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"enabled", "tenant_id", "client_id"}
+
+def test_auth_me_authenticated():
+    response = client.get("/api/auth/me")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Test User" and body["first_name"] == "Test"
+
+def test_auth_me_anonymous_401():
+    response = TestClient(app).get("/api/auth/me")
+    assert response.status_code == 401
+
+def test_auth_logout_clears_session_cookie():
+    # Cliente propio para no limpiar la cookie del `client` compartido del módulo.
+    c = TestClient(app)
+    c.cookies.set(auth_service.COOKIE_NAME, _SESSION)
+    response = c.post("/api/auth/logout")
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert auth_service.COOKIE_NAME in response.headers.get("set-cookie", "")
+
 def test_module_page_renders_server_side():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert response.status_code == 200
