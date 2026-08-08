@@ -1,7 +1,6 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from functools import lru_cache
 from urllib.parse import quote, urlencode
 from uuid import uuid4
 import asyncio
@@ -36,6 +35,7 @@ from core.prompts import (
 )
 from core.utils import slugify
 from webapp.services import auth_service
+from webapp.services import catalog_reads
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.content_service import (
     academy_asset_for,
@@ -1097,87 +1097,32 @@ def admin_reconciliation_analyze(request: Request):
     return _admin_result(request, "Reconciliación diagnóstico ⇄ automatización", output)
 
 
-@lru_cache(maxsize=1)
-def _catalog_entries():
-    """Carga el catálogo local (catalog_local) vía el servicio del piloto.
-    Determinístico, sin IA. Devuelve (módulo, entradas) o (None, []).
-
-    Cacheado: antes se releía y reparseaba TODO catalog_local en cada request
-    a /modules/{stem} (aunque esa persona nunca abriera la pestaña Catálogo),
-    ~230ms por click. Mismo criterio que load_module: contenido estático
-    mientras el proceso corre, se invalida solo con un restart."""
-    try:
-        import sys as _sys
-        from config import BASE_DIR
-        svc_dir = str(BASE_DIR / "tools" / "catalog")
-        if svc_dir not in _sys.path:
-            _sys.path.insert(0, svc_dir)
-        import catalog_service as mod
-        cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_catalog(cat_dir)
-    except Exception:
-        return None, []
+# Las 4 lecturas cacheadas (_catalog_entries, _catalog_architecture_connections,
+# _catalog_data_products_entries, _catalog_security_entries) y sus 5 funciones
+# delgadas de consulta se movieron a webapp/services/catalog_reads.py (Fase 2I)
+# — el cierre mínimo de dependencia que necesita GET /modules/{stem}. Aliases
+# transicionales abajo: los consumidores que TODAVÍA viven en main (rutas de
+# Catalog, module_page) siguen usando estos nombres sin cambios.
+_catalog_entries = catalog_reads._catalog_entries
+_catalog_architecture_connections = catalog_reads._catalog_architecture_connections
+_catalog_data_products_entries = catalog_reads._catalog_data_products_entries
+_catalog_security_entries = catalog_reads._catalog_security_entries
+_catalog_domains = catalog_reads._catalog_domains
+_catalog_connection_types = catalog_reads._catalog_connection_types
+_catalog_data_products_list = catalog_reads._catalog_data_products_list
+_catalog_security_families = catalog_reads._catalog_security_families
+_catalog_security_criteria = catalog_reads._catalog_security_criteria
 
 
 def _invalidate_catalog_cache() -> None:
-    """Limpia los @lru_cache de lectura del catálogo tras una regeneración
-    (self-service /catalog/regenerate o /admin/catalog/generate) — si no, la
-    página de módulos seguiría sirviendo el catalog_local viejo hasta un
-    restart del proceso."""
+    """Limpia los @lru_cache de lectura del catálogo (ahora en catalog_reads)
+    tras una regeneración (self-service /catalog/regenerate o
+    /admin/catalog/generate) — si no, la página de módulos seguiría sirviendo
+    el catalog_local viejo hasta un restart del proceso."""
     _catalog_entries.cache_clear()
     _catalog_architecture_connections.cache_clear()
     _catalog_data_products_entries.cache_clear()
     _catalog_security_entries.cache_clear()
-
-
-def _catalog_domains() -> list:
-    mod, entries = _catalog_entries()
-    return mod.domains(entries) if mod else []
-
-
-@lru_cache(maxsize=1)
-def _catalog_architecture_connections():
-    try:
-        import sys as _sys
-        from config import BASE_DIR
-        svc_dir = str(BASE_DIR / "tools" / "catalog")
-        if svc_dir not in _sys.path:
-            _sys.path.insert(0, svc_dir)
-        import catalog_service as mod
-        cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_architecture_connections(cat_dir)
-    except Exception:
-        return None, []
-
-
-def _catalog_connection_types() -> list:
-    mod, entries = _catalog_architecture_connections()
-    return mod.connection_types(entries) if mod else []
-
-
-
-
-@lru_cache(maxsize=1)
-def _catalog_data_products_entries():
-    """Cacheado: el parser de Data Products lee frontmatter YAML grande
-    (ej. ~150+ campos embebidos) y era el costo dominante medido (~830ms
-    por request, sin cachear)."""
-    try:
-        import sys as _sys
-        from config import BASE_DIR
-        svc_dir = str(BASE_DIR / "tools" / "catalog")
-        if svc_dir not in _sys.path:
-            _sys.path.insert(0, svc_dir)
-        import catalog_service as mod
-        cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_data_products(cat_dir)
-    except Exception:
-        return None, []
-
-
-def _catalog_data_products_list() -> list:
-    _mod, entries = _catalog_data_products_entries()
-    return entries
 
 
 def _catalog_data_product_artifact_name(name: str) -> str:
@@ -1336,29 +1281,9 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
     ]
     return "".join(p)
 
-@lru_cache(maxsize=1)
-def _catalog_security_entries():
-    try:
-        import sys as _sys
-        from config import BASE_DIR
-        svc_dir = str(BASE_DIR / "tools" / "catalog")
-        if svc_dir not in _sys.path:
-            _sys.path.insert(0, svc_dir)
-        import catalog_service as mod
-        cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_security_catalog(cat_dir)
-    except Exception:
-        return None, []
-
-
-def _catalog_security_families() -> list:
-    mod, entries = _catalog_security_entries()
-    return mod.security_families(entries) if mod else []
-
-
-def _catalog_security_criteria() -> list:
-    mod, entries = _catalog_security_entries()
-    return mod.security_criteria(entries) if mod else []
+# _catalog_security_entries/_catalog_security_families/_catalog_security_criteria
+# se movieron a webapp/services/catalog_reads.py (Fase 2I); alias transicional
+# arriba, junto al resto del cierre mínimo de dependencia.
 
 
 def _catalog_conn_label(conn) -> str:

@@ -870,13 +870,95 @@ branch `work/architecture-phase-2g-landing-nav`):
     ASSISTANT**; **Wizard feedback** → **STATEFUL / WIZARD**; **Trees suggestion**
     (`/trees/suggest`) → dominio **TREES / WIZARD** (permanece en `main`);
     **Admin feedback analysis** (`/admin/feedback/analyze`) → dominio **ADMIN**.
-- **Próximo candidato tras 2H:** **sin decidir todavía**. Áreas arquitectónicas
-  restantes: **(A) Catalog** — descomposición propia (HTTP / business-data-
-  compliance / presentation-SVG); **(B) STATEFUL ownership/lifecycle** —
-  `WizardStore` (`store`) y `AssistantConversationStore` (`assistant_store`);
-  **(C) Admin/cross-cutting** — último o parcialmente diferible. **Ninguna
-  autorizada.** Próxima acción: un assessment corto post-mecánico para elegir
-  si Catalog o el gate STATEFUL se aborda primero — **no asumir un orden**.
+**2I — Catalog minimal read dependency boundary — CLOSED / GREEN**
+(commit `5d29a7e`; branch `work/architecture-phase-2i-catalog-dependency-boundary`):
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **255 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **8 tests de `catalog_reads` GREEN**; **regresión de `module_page` GREEN**;
+  **smoke de rutas representativas de Catalog GREEN**; **sanity de identidad/
+  invalidación de cache GREEN**.
+- **Origen:** el assessment post-mecánico (post-2H) encontró una dependencia
+  asimétrica: `GET /modules/{stem}` (bloqueada por STATEFUL — `store` +
+  `assistant_store`) consume 4 helpers privados de Catalog
+  (`_catalog_domains`, `_catalog_connection_types`, `_catalog_security_families`,
+  `_catalog_data_products_list`), pero Catalog **nunca** depende de STATEFUL.
+  Una segunda assessment de delimitación final trazó el closure completo:
+  **9 funciones, ~87 líneas** (4% del bloque de Catalog de ~2096 líneas) — sin
+  HTTP, sin SVG, sin Graph, sin estado mutable por-request.
+- Las 9 funciones (4 loaders `@lru_cache(maxsize=1)`: `_catalog_entries`,
+  `_catalog_architecture_connections`, `_catalog_data_products_entries`,
+  `_catalog_security_entries`; 5 consultas delgadas: `_catalog_domains`,
+  `_catalog_connection_types`, `_catalog_security_families`,
+  `_catalog_security_criteria`, `_catalog_data_products_list`) se movieron
+  **verbatim** a **`webapp/services/catalog_reads.py`**.
+- **feature classification: COPILOT / CATALOG READ CAPABILITY.** NOT PLATFORM
+  / SHARED. El módulo **NO importa `webapp.main`**, no define rutas, no
+  renderiza templates, no genera SVG, no toca Graph/M365.
+- **Deliberadamente NO tocado:** el mecanismo de import dinámico
+  (`sys.path.insert` + `import catalog_service`, repetido 4 veces idéntico)
+  se relocalizó **sin fix ni rediseño** — es deuda explícita, repo-wide (el
+  mismo patrón vive en `webapp/services/admin_tools.py` porque `tools/catalog/`
+  no tiene `__init__.py`), y queda para una fase de Catalog/M365 futura.
+- **Aliases transicionales en `main`** (identidad de objeto preservada,
+  incluido `.cache_clear`): los 9 nombres siguen existiendo en `main.py` para
+  sus consumidores actuales — las 8 llamadas directas a los 4 loaders desde
+  rutas de Catalog (`/catalog/domain`, `/catalog/flow`, `/catalog/connections`
+  (+`/detail`), `/catalog/security` (+`/detail`), `/catalog/data-product`) y
+  las 6 llamadas de `module_page` (incl. `_catalog_domains()` dos veces:
+  gate de `initial_tab` y valor de contexto). Ninguna ruta de Catalog ni
+  `module_page` se tocó ni se movió.
+- `_invalidate_catalog_cache()` **permanece en `main`** sin cambios de
+  comportamiento — sigue limpiando los mismos 4 objetos de cache, ahora vía
+  alias; verificado que `.cache_clear()` apunta al **mismo objeto** que ve
+  `catalog_reads` (no un wrapper que rompería la identidad del cache).
+- **Import limpiado en `main`** (estrictamente obsoleto, verificado antes de
+  tocar): `from functools import lru_cache` — ningún `@lru_cache` queda en el
+  archivo. `os` se mantiene (consumidores reales en otras rutas de `main`).
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`, sin nueva abstracción de
+  repositorio/servicio genérico, **sin cambios** en ninguna ruta HTTP de
+  Catalog, SVG, filtros de template, Admin, o código de Trees/Wizard/Assistant.
+  **Route surface 75 sin cambios** (snapshot intacto; sin `UPDATE_ROUTE_SURFACE`).
+- **Tests:** **8** tests de contrato observable en `tests/webapp/test_catalog_reads.py`
+  (shape de salida de las 5 consultas, disponibilidad de `_catalog_security_criteria`
+  —comparte cache con `_catalog_security_families`—, identidad de `.cache_clear`
+  en los 4 loaders, degradación graceful con `DANWOR_CATALOG_DIR` inválido, +1
+  fixture controlada — ver "CI failure / fix" abajo). No se construyó suite de
+  Catalog HTTP (fuera de alcance de esta fase).
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
+  (**75**), **suite 255 passed / 1 skipped** (247 + 8), regresión de los 9
+  tests de `module_page` GREEN, smoke real de las 4 rutas representativas de
+  Catalog (`/catalog/domain`, `/catalog/connections`, `/catalog/security`,
+  `/catalog/data-product` con `product_id` válido) GREEN, sanity de invalidación
+  de cache verificada end-to-end (`main._invalidate_catalog_cache()` limpia el
+  mismo objeto que `catalog_reads` ve). **Cierre:** GitHub CI **GREEN**.
+- **CI failure / fix (commit `cfa86d9`):** el primer run de GitHub CI expuso
+  un test dependiente del entorno: `test_domains_returns_list_of_strings`
+  asumía que `catalog_local/` del desarrollador (gitignoreado, no versionado)
+  existiría en un checkout limpio. **Causa raíz: suposición de entorno de
+  test, NO regresión de producción** — `webapp/services/catalog_reads.py`
+  quedó sin cambios; un catálogo vacío degradando a `[]` sigue siendo un
+  resultado válido del contrato de graceful-degradation ya establecido. Fix:
+  el test pasó a afirmar solo la forma estable (`list[str]`), y se agregó
+  una fixture determinística bajo `tmp_path` (con `DANWOR_CATALOG_DIR`
+  apuntado ahí + `cache_clear` antes/después) para probar el comportamiento
+  semántico "no vacío" contra contenido conocido y controlado, no contra
+  datos locales del desarrollador. Verificado con `DANWOR_CATALOG_DIR`
+  apuntando a una ruta inexistente (simulando la condición real de CI) antes
+  de confirmar el fix. Suite final tras el fix: **255 passed / 1 skipped**.
+- **Consecuencia arquitectónica:** Fase 2I removió la dependencia privada de
+  Catalog que de otro modo habría bloqueado una extracción limpia futura de
+  `module_page` — un futuro router de Module puede importar la capacidad de
+  lectura de Catalog directamente desde `catalog_reads`, **sin** tocar
+  `webapp.main`. La descomposición completa de Catalog (HTTP/business/
+  presentation) sigue **explícitamente diferida** a su propia fase futura
+  (decisión A.8 preexistente) — **Fase 2I NO significa que el refactor
+  completo de Catalog haya comenzado.**
+- **Próximo candidato tras 2I:** STATEFUL ownership/lifecycle gate (`store` +
+  `assistant_store`) — **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado; CI se mantenga GREEN; el PR esté mergeado; se verifique containment;
+  y el cleanup de la branch de Fase 2I esté completo.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
@@ -909,23 +991,29 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2F Pack Asset Serving | **CLOSED / GREEN** |
 | 2G Landing / Session Navigation | **CLOSED / GREEN** |
 | 2H Feedback Family | **CLOSED / GREEN** |
+| 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2H — Feedback Family
+- **Phase:** Phase 2I — Catalog minimal read dependency boundary
 - **Status:** CLOSED / GREEN
-- **Functional commit:** `9d4a89c` (branch `work/architecture-phase-2h-feedback-family`)
-- **Current next candidate:** **sin decidir** — Catalog (fase propia) vs. gate STATEFUL (`runtime.py`)
-- **Next candidate status:** **NOT AUTHORIZED** (ninguno de los dos elegido todavía; requiere un assessment corto post-mecánico antes de elegir)
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **247 passed / 1 skipped** · route surface **75**
+- **Functional commit:** `5d29a7e` (branch `work/architecture-phase-2i-catalog-dependency-boundary`;
+  además `eb47797` docs pending-CI, `cfa86d9` fix de determinismo de CI, y este
+  commit de cierre)
+- **Current next candidate:** STATEFUL ownership/lifecycle gate (`store` + `assistant_store`)
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI se mantenga GREEN; el PR esté mergeado; se verifique containment;
+  y el cleanup de la branch de Fase 2I esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **255 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 9d4a89c origin/main` (exit 0 — ya confirmado).
-2. Cleanup de la branch `work/architecture-phase-2h-feedback-family` (solo tras el paso 1 en verde).
-3. Trabajar sobre una branch nueva y limpia para el próximo candidato.
-4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-5. Reconstruye el estado y el usuario lo valida.
-6. **El usuario decide explícitamente** si el próximo lote es Catalog o el gate STATEFUL — **no asumir** un orden. Un assessment corto (análisis, sin código) puede preceder esa decisión.
+1. Mergear el PR de Phase 2I (`work/architecture-phase-2i-catalog-dependency-boundary` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5d29a7e origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Phase 2I solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
+5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+6. Reconstruye el estado y el usuario lo valida.
+7. **Recién entonces** se autoriza el gate STATEFUL (o el candidato que el usuario elija).
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
@@ -933,7 +1021,7 @@ working tree sucio · el próximo candidato requiere una dependencia main-privat
 inesperada · aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de
 comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2H)
+## REMAINING PHASE 2 MAP (post-2I)
 **STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
 - Module page / section analysis · Assistant · Trees / Wizard / Diagnostics.
 - **Verdadero mutable lifecycle compartido = exactamente 2 instancias:** `store`
@@ -941,6 +1029,11 @@ comportamiento o de route-surface.
   (`section_analysis_service`, `assistant_chat_service`, `assistant_routing_service`,
   `assistant_feedback_repository`) parecen stateless / construcción histórica — **NO
   asumir** que necesitan `runtime.py`; justificar caso por caso.
+- **Fase 2I ya resolvió** la única dependencia de `module_page` hacia Catalog
+  (`_catalog_domains`/`_catalog_connection_types`/`_catalog_security_families`/
+  `_catalog_data_products_list`, dueño explícito en `webapp/services/catalog_reads.py`).
+  Cuando `module_page` se extraiga en el gate STATEFUL, puede importar
+  directo desde `catalog_reads` — **no** necesita tocar `webapp.main`.
 
 **CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
 (no mover wholesale las ~1900 líneas).
