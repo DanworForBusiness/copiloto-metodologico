@@ -27,11 +27,12 @@
 > de contexto** (`resolve_pack`→`content_registry`, access policy→`webapp/access.py`,
 > login redirect→`webapp/nav.py`) **CLOSED / GREEN** (commit `f54acc6`; CI GREEN sobre
 > stack reproducible; sin `deps.py`, sin mover rutas —surface 75—, sin
-> runtime/bootstrap; ver A.20). **2D —
-> What's New router: candidate, NOT AUTHORIZED** (su boundary de helpers, descubierto
-> en el análisis 2D, ya quedó resuelto por el gate distribuido). Cada lote requiere
-> autorización explícita; NO avanzar de un lote al siguiente sin OK. Dirección futura
-> de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
+> runtime/bootstrap; ver A.20). **2D — What's New router** (`GET /whats-new` +
+> `POST /whats-new/dismiss` → `webapp/routers/whats_new.py`) **IMPLEMENTED / PENDING
+> CI** (commit `c119b51`; feature COPILOT; router sin `webapp.main`; misma env Jinja;
+> surface 75; +3 tests HTTP; ver A.20). Cada lote requiere autorización explícita; NO
+> avanzar de un lote al siguiente sin OK. **Phase 2 overall: NOT COMPLETE.** Dirección
+> futura de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
 
 ## A.1 Contexto de la iniciativa
 
@@ -552,7 +553,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - Validado local (`.venv`) + **CI GREEN sobre stack reproducible (Python 3.14.3)**:
   import OK, aliases OK, route-contract GREEN (**75**), **suite 234 / 1 skipped**,
   26 focales (owner/readonly/diagnostic/pack/login) GREEN.
-- **What's New sigue NOT AUTHORIZED** (su extracción es 2D propiamente; requiere OK).
+- **What's New:** su extracción es la Fase 2D (abajo).
 - **Clasificación multi-workspace (estado actual, NO anticipar):**
   - `auth_service` → **PLATFORM / SHARED** (identity + session).
   - `webapp/templating.py` → **PLATFORM presentation infrastructure**.
@@ -561,6 +562,40 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   - `webapp/nav.py` → **CURRENT WEB NAVIGATION**; todavía transporta semántica de
     content-pack del Copiloto. Reuso cross-workspace futuro **NOT YET DECIDED**.
   - `core.content_registry` → **COPILOT / CONTENT**.
+
+**2D — What's New router — IMPLEMENTED / PENDING CI** (commit `c119b51`):
+- `GET /whats-new` y `POST /whats-new/dismiss` extraídos a
+  **`webapp/routers/whats_new.py`** (APIRouter) como **relocación pura**: método/
+  path/query/auth/redirect/pack/diagnostic/readonly/contexto de template y cookie
+  (nombre `dw-whatsnew-seen` / valor / `Max-Age=31536000` / SameSite / Secure)/status/
+  body preservados **verbatim**.
+- **feature classification: COPILOT** — sus entradas son pack-scoped
+  (`whats_new_service.entries(pack)`); consume capacidades compartidas **sin**
+  volverse plataforma.
+- El router **NO importa `webapp.main`**: usa dueños explícitos (`auth_service`,
+  `webapp.access`, `webapp.nav`, `core.content_registry`, `whats_new_service`,
+  `content_service`, `webapp.templating`, `config`) — **no** los aliases de `main`.
+- Helpers exclusivos co-localizados: `_whatsnew_mark_seen` + `_WHATSNEW_COOKIE_MAXAGE`.
+- **Misma env Jinja** (`webapp.main.templates is webapp.templating.templates` = True);
+  **sin** filtros nuevos, **sin** tocar `base.html`/`whats_new.html`/`copilot_nav.html`,
+  **sin** segunda env.
+- `main.py`: solo `import` + `include_router` + remoción de los 2 handlers y los 2
+  elementos feature-local. **Sin imports obsoletos** (verificado: `whatsnew`,
+  `content_pack_short_label`, `list_academy`/`academy_asset_for`, `SESSION_COOKIE_*`,
+  `Query`/`HTMLResponse` siguen con consumidores). Aliases PRE-2D **intactos**.
+- **Sin** `runtime.py`/`bootstrap.py`/`deps.py`. **Sin** cambios en `access`/`nav`/
+  `content_registry`/`templating`/`auth_service` ni en templates físicos ni manifests.
+- **+3 tests HTTP de comportamiento** (`test_routes.py`): render autenticado (200 +
+  título estable), redirect anónimo (307 a `/?pack=…&next=%2Fwhats-new#acceso`),
+  dismiss (200 vacío + Set-Cookie con valor y atributos actuales). Clientes aislados.
+- **Route surface 75 sin cambios** (snapshot intacto; sin `UPDATE_ROUTE_SURFACE`).
+- Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
+  1.4.1)**: route-contract GREEN, **suite 237 passed / 1 skipped** (234 + 3), smoke
+  focal de las 3 rutas GREEN. **PENDING:** CI GREEN en el PR.
+- **Aprendizaje arquitectónico:** 2C (templating) + PRE-2D (helper/context) quedaron
+  **validados por un consumidor real** — un feature COPILOT respaldado por template
+  puede ahora vivir **fuera de `main.py`** sin trasladar dependencias privadas de
+  `main` a otro god-module. Es el objetivo real de Fase 2D.
 
 **Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
 El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
