@@ -1415,9 +1415,14 @@ PRIMER HITO REAL DE STAFFING
 El Excel Consultores/Conocimiento (sheet de Operaciones) queda diferido más
 allá de ese hito.
 
-## PLATFORM ACCELERATION — BATCH 1 — THIN M365 INTEGRATION — IMPLEMENTED / PENDING CI
+## PLATFORM ACCELERATION — BATCH 1 — THIN M365 INTEGRATION — CLOSED / GREEN
 (commit `77192e0`; branch `work/platform-acceleration-b1-m365-thin`)
 
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **281 passed / 1 skipped**; **route
+  surface 75 unchanged**; **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`);
+  **7 tests focalizados de `microsoft365`** GREEN; regresión dirigida de
+  Catálogo GREEN.
 - **Owner exacto:** `core/microsoft365.py` (nuevo). Se eligió `core/` — NO un
   paquete `integrations/` nuevo — porque `core/` ya es la capa compartida sin
   dependencia de framework que hoy consumen tanto `webapp/` como `tools/`
@@ -1478,15 +1483,26 @@ allá de ese hito.
 - Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
   FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**,
   **sin cambios** — este batch no agrega rutas), **suite 281 passed / 1
-  skipped** (274 + 7). **Cierre:** GitHub CI pendiente de confirmación (push
-  recién realizado).
+  skipped** (274 + 7). **Cierre:** GitHub CI **GREEN**.
 - **Sin Operations/Staffing código todavía.** Ninguna ruta, servicio ni
   template de Staffing existe en este batch.
+
+**Secuencia de aceleración — estado:**
+
+| Lote | Estado |
+|---|---|
+| Batch 1 — Thin M365 integration | **CLOSED / GREEN** |
+| Batch 2 — Operations/Staffing repository + service | **NOT AUTHORIZED** |
+| Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **NOT AUTHORIZED** |
+| *(luego)* Primer hito real de Staffing | — |
 
 **Batch 2 (Operations/Staffing repository + service): NOT AUTHORIZED** hasta
 que este commit de cierre esté pusheado; CI final se mantenga GREEN; el PR
 esté mergeado; se verifique containment; y el cleanup de la branch de Batch 1
-esté completo.
+esté completo. **Batch 3 (Operations/Staffing HTTP + Jinja/HTMX): NOT
+AUTHORIZED** — depende de Batch 2. El Excel Consultores/Conocimiento sigue
+diferido más allá del primer hito real de Staffing (que llega recién después
+de Batch 3).
 
 ---
 
@@ -1513,27 +1529,25 @@ esté completo.
 | 2J-C Trees + Wizard | **CLOSED / GREEN** |
 | 2J-D Module page | **CLOSED / GREEN** |
 | **Phase 2** | **CLOSED / GREEN** |
-| Platform Acceleration — Batch 1 (Thin M365 integration) | **IMPLEMENTED / PENDING CI** |
+| Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Platform Acceleration — Batch 1 — Thin M365 integration
-- **Status:** IMPLEMENTED / PENDING CI
-- **Functional commit:** `77192e0` (branch `work/platform-acceleration-b1-m365-thin`, pusheada)
+- **Status:** CLOSED / GREEN
+- **Functional commit:** `77192e0` (branch `work/platform-acceleration-b1-m365-thin`)
 - **Current next candidate:** Batch 2 — Operations/Staffing repository +
   service (consume `core.microsoft365` directo; sin routes/UI todavía)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre
-  esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y el cleanup de la branch de Batch 1 esté completo
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de Batch 1 esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **281 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/platform-acceleration-b1-m365-thin` (commit `77192e0`).
-2. Commit de cierre de docs (`docs(handoff): checkpoint platform acceleration batch 1` o el mensaje que el usuario autorice) tras confirmar CI.
-3. Mergear el PR de Batch 1 → `main`.
-4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 77192e0 origin/main` (exit 0 recién tras el merge).
-5. Cleanup de la branch de Batch 1 solo tras el paso 4 en verde.
-6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-7. **Recién entonces** se autoriza Batch 2 (Operations/Staffing repository +
+1. Mergear el PR de Batch 1 (`work/platform-acceleration-b1-m365-thin` → `main`) — CI ya GREEN.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 77192e0 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Batch 1 solo tras el paso 2 en verde.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. **Recién entonces** se autoriza Batch 2 (Operations/Staffing repository +
    service) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
