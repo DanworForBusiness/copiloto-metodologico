@@ -216,9 +216,11 @@ SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT = _env("SHAREPOINT_SECURITY_ROLE_MATRIX_C
 # HANDOFF, Batch 2).
 SHAREPOINT_GESTION_SITE_ID = _env("SHAREPOINT_GESTION_SITE_ID", "").strip()
 # Los 3 list ID sí fueron provistos como referencia conocida al autorizar este
-# batch; no aparecían antes en repo/HANDOFF (verificado, sin contradicción) —
-# quedan como default configurable, no confirmados todavía contra una lectura
-# real de Graph (ver HANDOFF, Batch 2, prerequisito de validación).
+# batch — KNOWN FROM LEGACY SOURCE CONFIGURATION (evidencia de Power Query
+# legado), NO todavía LIVE GRAPH VALIDATED en este entorno. No aparecían
+# antes en repo/HANDOFF (verificado, sin contradicción) — quedan como
+# default configurable, pendientes de confirmar contra una lectura real de
+# Graph (ver HANDOFF, Batch 2, prerequisito de validación).
 SHAREPOINT_ASIGNACIONES_LIST_ID = _env(
     "SHAREPOINT_ASIGNACIONES_LIST_ID", "c7c96b06-b32d-4386-8228-dd8e1f9926b0",
 ).strip()
@@ -228,6 +230,40 @@ SHAREPOINT_PROYECTOS_LIST_ID = _env(
 SHAREPOINT_COLABORADORES_LIST_ID = _env(
     "SHAREPOINT_COLABORADORES_LIST_ID", "6e512cd3-394a-461f-abcd-6613f2c21113",
 ).strip()
+
+# Internal names de columna Graph para las 3 listas de Staffing. A
+# diferencia de los list ID arriba, estos NO tienen ningún valor conocido —
+# ni de Power Query legado ni de ningún otro lugar del repo/HANDOFF — así
+# que NO llevan default (corrective pass, Batch 2): los nombres que se
+# usaban antes (ColaboradorLookupId, ProyectoLookupId, Asignacion, Estado,
+# FechaInicio, FechaFin, y Title para nombre de proyecto/colaborador) eran
+# una inferencia estilística sobre la convención de otras listas
+# (sharepoint_cases.py), NUNCA confirmada contra el sitio Gestión real —
+# quedan removidos como default de producción. Vacíos hasta que alguien con
+# acceso al sitio los confirme (Graph Explorer / `$select` sobre
+# .../lists/{id}/columns) y los configure. La app NO falla al importar por
+# esto — solo webapp/services/staffing_repository.py falla explícito si se
+# intenta LEER Staffing sin esta configuración (ver Batch 2 en HANDOFF).
+SHAREPOINT_ASIGNACIONES_FIELD_COLABORADOR_LOOKUP = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_COLABORADOR_LOOKUP", "",
+).strip()
+SHAREPOINT_ASIGNACIONES_FIELD_PROYECTO_LOOKUP = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_PROYECTO_LOOKUP", "",
+).strip()
+SHAREPOINT_ASIGNACIONES_FIELD_ALLOCATION = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_ALLOCATION", "",
+).strip()
+SHAREPOINT_ASIGNACIONES_FIELD_STATUS = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_STATUS", "",
+).strip()
+SHAREPOINT_ASIGNACIONES_FIELD_START_DATE = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_START_DATE", "",
+).strip()
+SHAREPOINT_ASIGNACIONES_FIELD_END_DATE = _env(
+    "SHAREPOINT_ASIGNACIONES_FIELD_END_DATE", "",
+).strip()
+SHAREPOINT_PROYECTOS_FIELD_TITLE = _env("SHAREPOINT_PROYECTOS_FIELD_TITLE", "").strip()
+SHAREPOINT_COLABORADORES_FIELD_TITLE = _env("SHAREPOINT_COLABORADORES_FIELD_TITLE", "").strip()
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben

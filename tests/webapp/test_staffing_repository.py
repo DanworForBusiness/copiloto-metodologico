@@ -1,26 +1,40 @@
 """
 test_staffing_repository.py — Contrato de StaffingRepository (Batch 2 de
-aceleración post-Fase 2). Determinístico, sin Graph real: monkeypatchea
-`core.microsoft365.graph_get_paged_values` con fixtures fabricadas.
+aceleración post-Fase 2, con corrective pass). Determinístico, sin Graph
+real: monkeypatchea `core.microsoft365.graph_get_paged_values` con fixtures
+fabricadas.
 
-Mapeo canónico de test: usa EXACTAMENTE los mismos internal names que
-`staffing_repository._ASIGNACION_FIELDS`/`_TITLE_FIELD` (ColaboradorLookupId,
-ProyectoLookupId, Asignacion, Estado, FechaInicio, FechaFin, Title) — esos
-nombres NO están confirmados contra el sitio Gestión real (ver docstring del
-módulo); acá se documentan como el mapeo asumido para que el repositorio
-sea probable end-to-end sobre datos determinísticos.
+⚠️ MAPEO DE CAMPOS DE FIXTURE DE TEST — NO SON NOMBRES REALES DE PRODUCCIÓN.
+`_TEST_FIELD_MAPPING` abajo es un `StaffingFieldMapping` inventado para este
+test únicamente (mismo estilo de nombrado que se usaba antes como default
+de producción, ya removido en el corrective pass) — permite probar
+end-to-end el repositorio con datos determinísticos, pero NO es evidencia
+de los internal names reales del sitio Gestión. `StaffingFieldMapping.
+from_config()` (producción) sigue vacío hasta que alguien lo confirme.
 """
 from __future__ import annotations
 
 import pytest
 
 from webapp.services import staffing_repository as repo_module
-from webapp.services.staffing_repository import StaffingRepository
+from webapp.services.staffing_repository import StaffingFieldMapping, StaffingRepository
 
 _SITE_ID = "test-site-id"
 _ASIG_LIST = "asig-list-id"
 _PROY_LIST = "proy-list-id"
 _COLAB_LIST = "colab-list-id"
+
+# Fixture de test — NO validado contra el sitio Gestión real (ver docstring).
+_TEST_FIELD_MAPPING = StaffingFieldMapping(
+    colaborador_lookup_id="ColaboradorLookupId",
+    proyecto_lookup_id="ProyectoLookupId",
+    allocation="Asignacion",
+    status="Estado",
+    start_date="FechaInicio",
+    end_date="FechaFin",
+    proyecto_title="Title",
+    colaborador_title="Title",
+)
 
 _ASIGNACIONES = [
     {
@@ -53,12 +67,13 @@ _COLABORADORES = [
 ]
 
 
-def _make_repository():
+def _make_repository(field_mapping=_TEST_FIELD_MAPPING):
     return StaffingRepository(
         site_id=_SITE_ID,
         asignaciones_list_id=_ASIG_LIST,
         proyectos_list_id=_PROY_LIST,
         colaboradores_list_id=_COLAB_LIST,
+        field_mapping=field_mapping,
     )
 
 
@@ -149,7 +164,73 @@ def test_missing_site_id_fails_clearly_only_when_actually_used():
         asignaciones_list_id=_ASIG_LIST,
         proyectos_list_id=_PROY_LIST,
         colaboradores_list_id=_COLAB_LIST,
+        field_mapping=_TEST_FIELD_MAPPING,
     )
     # Construir el repositorio sin site_id NO rompe — recién falla al leer.
     with pytest.raises(RuntimeError, match="SHAREPOINT_GESTION_SITE_ID"):
         repository.get_allocations("tok")
+
+
+def test_missing_field_mapping_fails_clearly_listing_what_is_missing():
+    # Sin field_mapping explícito -> StaffingFieldMapping.from_config(),
+    # vacío en este entorno de test (sin las env vars de producción seteadas).
+    repository = StaffingRepository(
+        site_id=_SITE_ID,
+        asignaciones_list_id=_ASIG_LIST,
+        proyectos_list_id=_PROY_LIST,
+        colaboradores_list_id=_COLAB_LIST,
+    )
+    with pytest.raises(RuntimeError) as exc_info:
+        repository.get_allocations("tok")
+    message = str(exc_info.value)
+    for missing_key in ("colaborador_lookup_id", "proyecto_lookup_id", "allocation", "proyecto_title"):
+        assert missing_key in message
+
+
+def test_production_config_does_not_silently_synthesize_field_names():
+    # StaffingFieldMapping.from_config() NO debe inventar ningún nombre —
+    # sin las env vars de producción configuradas, todo queda vacío.
+    mapping = repo_module.StaffingFieldMapping.from_config()
+    assert mapping.missing_fields() == [
+        "colaborador_lookup_id",
+        "proyecto_lookup_id",
+        "allocation",
+        "status",
+        "start_date",
+        "end_date",
+        "proyecto_title",
+        "colaborador_title",
+    ]
+
+
+def test_display_fields_are_mapping_driven_not_hardcoded_to_title(monkeypatch):
+    # Si Proyectos/Colaboradores usaran una columna DISTINTA de "Title" para
+    # el nombre, el repositorio debe seguir el mapeo — no asumir "Title".
+    proyectos = [{"id": "10", "fields": {"NombreProyecto": "Proyecto Custom"}}]
+    colaboradores = [{"id": "1", "fields": {"NombreColaborador": "Consultor Custom"}}]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES[:1]
+        if _PROY_LIST in url:
+            return proyectos
+        if _COLAB_LIST in url:
+            return colaboradores
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    custom_mapping = StaffingFieldMapping(
+        colaborador_lookup_id="ColaboradorLookupId",
+        proyecto_lookup_id="ProyectoLookupId",
+        allocation="Asignacion",
+        status="Estado",
+        start_date="FechaInicio",
+        end_date="FechaFin",
+        proyecto_title="NombreProyecto",
+        colaborador_title="NombreColaborador",
+    )
+    records = _make_repository(field_mapping=custom_mapping).get_allocations("tok")
+
+    assert records[0].project_name == "Proyecto Custom"
+    assert records[0].consultant_name == "Consultor Custom"
