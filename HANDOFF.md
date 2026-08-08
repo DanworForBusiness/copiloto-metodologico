@@ -15,11 +15,11 @@
 > conserva por su detalle técnico, no es el trabajo en curso).
 >
 > **Estado en una línea (2026-08):** Fase 0 **CERRADA/GREEN, mergeada a `main`**.
-> **Fase 1 — System Router Pilot: IMPLEMENTADA** (`a0bfd8d`). La primera CI del PR
-> **falló solo en el route-contract** por **dependency drift** (FastAPI moderno
-> anida las rutas de `include_router`); se corrigió **solo el test** (`6d1cf94`,
-> collector recursivo) y se pusheó → **CI re-corriendo, PENDIENTE de confirmar
-> GREEN** → Fase 1 **NO cerrada**. Detalle en **A.13.1/A.13.2**. **Gate nuevo:
+> **Fase 1 — System Router Pilot: CLOSED / GREEN.** CI del PR #2 en verde
+> (228 passed / 1 skipped / 0 failed); el fallo inicial del route-contract fue
+> **dependency drift** (FastAPI moderno anida las rutas de `include_router`),
+> resuelto **solo en el test** (`6d1cf94`, collector recursivo). PR #2 *ready to
+> merge* (aún **sin mergear**). Detalle en **A.13.1/A.13.2**. **GATE ABIERTO:
 > A.18 — decisión de reproducibilidad de dependencias REQUERIDA antes de Fase 2.**
 > No avanzar a Fase 2 sin autorización explícita.
 
@@ -233,10 +233,19 @@ solo para esto, **no** refactorizar paths transversalmente. Si mover favicon
 exige una decisión arquitectónica más amplia → **DETENERSE y explicar** antes de
 ampliar scope.
 
-## A.13.1 Fase 1 — Estado de implementación (IMPLEMENTED / CI PENDING / NOT CLOSED)
+## A.13.1 Fase 1 — Estado (CLOSED / GREEN)
 
-**STATUS: IMPLEMENTED LOCALLY / PUSHED · CI PENDING · NOT YET CLOSED.** No marcar
-GREEN/CLOSED hasta que **GitHub CI = GREEN** en el PR.
+**STATUS: CLOSED / GREEN.** Todos los gates cumplidos.
+
+**Evidencia final de cierre:**
+- route-contract: **75 rutas, GREEN** · snapshot: **sin cambios**
+- full suite local (FastAPI 0.115.5 / Starlette 0.41.3): **228 passed / 1 skipped / 0 failed**
+- full suite fresh stack (FastAPI 0.141.1 / Starlette 1.4.1): **228 passed / 1 skipped / 0 failed**
+- `/health`: **GREEN** · `/favicon.ico`: **GREEN**
+- GitHub Actions: **GREEN**
+- **PR #2: ready to merge** (NO mergeado todavía)
+- app behavior: **sin cambios funcionales** (mismas URLs/métodos/respuestas)
+- **dependency drift finding: sigue OPEN** como **PRE-PHASE-2 DECISION REQUIRED** (ver A.18)
 
 - **Branch:** `work/architecture-phase-1`. **HEAD:** `a0bfd8d`.
 - **Commits de esta fase:** `8c152b1` (checkpoint del HANDOFF, docs-only) →
