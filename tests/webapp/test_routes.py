@@ -531,6 +531,147 @@ def test_selected_tree_starts_via_htmx_fragment():
     assert "Continuar" not in response.text
 
 
+def test_wizard_answer_back_restart_lifecycle():
+    # Interactúa con el store compartido real (webapp.copilot_runtime.store) —
+    # sin monkeypatch de identidad, run_id fresco por corrida (uuid4 en .start()).
+    from webapp import copilot_runtime
+    tree = copilot_runtime.store.tree_by_id("extraction_options", "datasphere_core")
+    run = copilot_runtime.store.start(tree, "datasphere_core")
+
+    answered = client.post(f"/wizards/{run.id}/answer", data={"answer": "ERP"})
+    assert answered.status_code == 200
+    assert "¿Qué versión?" in answered.text  # avanzó a q2_erp_version
+
+    back = client.post(f"/wizards/{run.id}/back")
+    assert back.status_code == 200
+    assert "¿Cuál es el sistema fuente?" in back.text  # volvió a q1
+
+    # Reavanzar antes de restart para probar que restart limpia el historial.
+    client.post(f"/wizards/{run.id}/answer", data={"answer": "ERP"})
+    restart = client.post(f"/wizards/{run.id}/restart")
+    assert restart.status_code == 200
+    assert "¿Cuál es el sistema fuente?" in restart.text
+    assert copilot_runtime.store.get(run.id).history == []
+
+
+def test_diagnostics_orchestrator_starts_framework_assessment():
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/diagnostics/orchestrator",
+        data={"pack": "datasphere_core"},
+    )
+    assert response.status_code == 200
+    assert 'id="wizard-shell"' in response.text
+    assert "Diagn" in response.text  # eyebrow "Diagnóstico YAML" (run.is_assessment)
+
+
+def test_wizard_feedback_up_persists_case_and_down_then_submit_persists_lesson(monkeypatch, tmp_path):
+    from webapp import copilot_runtime
+    monkeypatch.setattr(copilot_runtime.store._case_repository, "root", tmp_path)
+    tree = copilot_runtime.store.tree_by_id("extraction_options", "datasphere_core")
+
+    def _drive_to_leaf():
+        run = copilot_runtime.store.start(tree, "datasphere_core")
+        copilot_runtime.store.answer(run.id, "ERP")
+        copilot_runtime.store.answer(run.id, "ECC")
+        run = copilot_runtime.store.answer(run.id, "No sé")
+        assert run.leaf is not None
+        return run
+
+    import yaml
+
+    # 👍 → persiste directo.
+    run_up = _drive_to_leaf()
+    up = client.post(f"/wizards/{run_up.id}/feedback", data={"rating": "up"})
+    assert up.status_code == 200
+    saved_up = list(tmp_path.glob(f"case_*_{run_up.id[:8]}.yaml"))
+    assert len(saved_up) == 1
+    payload_up = yaml.safe_load(saved_up[0].read_text(encoding="utf-8"))
+    assert payload_up["rating"] == "up"
+
+    # 👎 → despliega el formulario (todavía no persiste el rating). El caso ya
+    # existe (create_for_run se dispara al llegar a la hoja, dentro de .answer()).
+    run_down = _drive_to_leaf()
+    down = client.post(f"/wizards/{run_down.id}/feedback", data={"rating": "down"})
+    assert down.status_code == 200
+    case_before = yaml.safe_load(
+        next(tmp_path.glob(f"case_*_{run_down.id[:8]}.yaml")).read_text(encoding="utf-8")
+    )
+    assert case_before.get("rating") is None
+
+    # Enviar el 👎 con lección → persiste con los campos del formulario.
+    submit = client.post(
+        f"/wizards/{run_down.id}/feedback/submit",
+        data={"rating": "down", "lesson": "faltó documentación del sistema fuente"},
+    )
+    assert submit.status_code == 200
+    saved_down = list(tmp_path.glob(f"case_*_{run_down.id[:8]}.yaml"))
+    assert len(saved_down) == 1
+    payload_down = yaml.safe_load(saved_down[0].read_text(encoding="utf-8"))
+    assert payload_down["rating"] == "down"
+    assert payload_down["lessons"] == ["faltó documentación del sistema fuente"]
+
+
+def test_wizard_feedback_submit_without_lesson_reshows_form_with_error(monkeypatch, tmp_path):
+    # Monkeypatch root aunque el ValueError se dispare antes de escribir: llegar
+    # a la hoja ya dispara create_for_run() dentro de .answer(), que sí escribe.
+    from webapp import copilot_runtime
+    monkeypatch.setattr(copilot_runtime.store._case_repository, "root", tmp_path)
+    tree = copilot_runtime.store.tree_by_id("extraction_options", "datasphere_core")
+    run = copilot_runtime.store.start(tree, "datasphere_core")
+    copilot_runtime.store.answer(run.id, "ERP")
+    copilot_runtime.store.answer(run.id, "ECC")
+    copilot_runtime.store.answer(run.id, "No sé")
+
+    response = client.post(f"/wizards/{run.id}/feedback/submit", data={"rating": "down"})
+
+    assert response.status_code == 200
+    assert "lección clave" in response.text or "obligatoria" in response.text
+
+
+def test_wizard_feedback_cancel_shows_thanks_without_recording_rating(monkeypatch, tmp_path):
+    # Llegar a la hoja ya dispara create_for_run() (dentro de .answer()) — el
+    # caso existe de antemano; lo que cancel NO debe hacer es setear rating.
+    from webapp import copilot_runtime
+    monkeypatch.setattr(copilot_runtime.store._case_repository, "root", tmp_path)
+    tree = copilot_runtime.store.tree_by_id("extraction_options", "datasphere_core")
+    run = copilot_runtime.store.start(tree, "datasphere_core")
+    copilot_runtime.store.answer(run.id, "ERP")
+    copilot_runtime.store.answer(run.id, "ECC")
+    copilot_runtime.store.answer(run.id, "No sé")
+
+    response = client.post(f"/wizards/{run.id}/feedback/cancel")
+
+    assert response.status_code == 200
+    import yaml
+    case = yaml.safe_load(
+        next(tmp_path.glob(f"case_*_{run.id[:8]}.yaml")).read_text(encoding="utf-8")
+    )
+    assert case.get("rating") is None
+
+
+def test_trees_suggest_persists_and_confirms(monkeypatch, tmp_path):
+    from webapp.routers import wizard as wizard_router
+    monkeypatch.setattr(wizard_router, "FEEDBACK_LOG_DIR", tmp_path)
+
+    response = client.post(
+        "/trees/suggest",
+        data={
+            "title": "¿Falta un árbol de X?", "module": "03_Integracion_y_Estrategia_de_Datos",
+            "pack": "datasphere_core", "kind": "tree",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Registramos tu sugerencia" in response.text  # partials/tree_suggest.html, suggested=True
+    saved = list(tmp_path.glob("tree_suggestion_*.yaml"))
+    assert len(saved) == 1
+    import yaml
+    payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert payload["type"] == "tree_suggestion"
+    assert payload["title"] == "¿Falta un árbol de X?"
+    assert payload["module"] == "03_Integracion_y_Estrategia_de_Datos"
+
+
 def test_academy_page_embeds_asset_full_height_without_panel():
     response = client.get("/academy/ACAD01_Paradigmas")
     assert response.status_code == 200
