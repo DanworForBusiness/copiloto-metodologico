@@ -1045,19 +1045,73 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
   (**75**), **suite 261 passed / 1 skipped** (255 + 6). **Cierre:** GitHub CI
   **GREEN**.
-- **Secuencia de Fase 2J planeada:**
+**2J-B — Assistant + Section Analysis router — IMPLEMENTED / PENDING CI**
+(commit `040afdd`, branch `work/architecture-phase-2j-b-assistant-section`;
+**NO cerrar GREEN hasta CI**):
+- `POST /modules/{stem}/sections/analyze`, `POST /modules/{stem}/assistant/chat`
+  y `POST /assistant/responses/{reply_id}/feedback(+submit,+cancel)` (5 rutas)
+  extraídas a **`webapp/routers/assistant.py`** (APIRouter) como **relocación
+  pura**: status codes, redirects, HTMX, templates/contexto, semántica de
+  reacción de feedback, manejo de stale-reply, comportamiento readonly,
+  logging/telemetría y fallback de errores preservados **verbatim**.
+- **Section Analysis vive intencionalmente en este mismo router** (no uno
+  propio): usa `assistant_store`, el código ya la loguea como
+  `assistant_query`, comparte conversación/reply con Assistant. Un router de
+  una sola ruta no se justificaba solo por pureza de archivo. **Esto NO
+  vuelve a Assistant una capacidad platform/shared.**
+- **feature classification: COPILOT / ASSISTANT HTTP.** El router **NO
+  importa `webapp.main`**: consume `assistant_store` directo de
+  `webapp.copilot_runtime` (2J-A) — **misma identidad de objeto verificada**,
+  sin construir otra instancia. Los 4 servicios stateless que estas rutas
+  necesitan (`SectionAnalysisService`, `AssistantChatService`,
+  `AssistantRoutingService`, `AssistantFeedbackRepository`) se **construyen
+  en el router** — no viven en `copilot_runtime` (ese módulo posee
+  únicamente estado mutable compartido, no config/repository objects).
+  `_assistant_feedback_template` co-localizado (único consumidor).
+- **Aliases/imports en `main`:** `assistant_store` **se mantiene** (alias a
+  `copilot_runtime.assistant_store`; `module_page` todavía lo usa hasta
+  2J-D). Las 4 construcciones de servicios stateless se **removieron sin
+  alias** (cero consumidores restantes en `main`). Imports limpiados
+  (estrictamente obsoletos, verificados uno por uno):
+  `MODULE_TARGET_SLUG`, `SectionAnalysisError`, `render_llm_html`,
+  `AssistantChatService`, `AssistantFeedbackRepository`,
+  `AssistantRoutingService`, `StaleAssistantReplyError`. `ALL_ACTIONS`/
+  `MODULE_ACTIONS`/`slugify`/`log_verbose`/`load_module` **se mantienen**
+  (consumidores reales compartidos con `module_page`/Catalog/Trees-Wizard).
+- **Sin** `runtime.py` nuevo, sin `app.state`, sin `Depends()`, sin
+  duplicar construcción de ninguno de los 5 servicios entre `main` y el
+  router (verificado). **Route surface 75 sin cambios** (snapshot intacto;
+  sin `UPDATE_ROUTE_SURFACE`; `main.py` pasó de 41 a 36 rutas propias).
+- **Tests:** migrados los 6 seams que monkeypatcheaban
+  `web_main.section_analysis_service`/`web_main.assistant_chat_service` a
+  `assistant_router.*` (mismo patrón que Academy/Landing/Feedback/Catalog).
+  **+4 tests** cerrando los gaps reales de cobertura de Assistant feedback
+  identificados en el assessment de Fase 2J (antes solo el camino de reply
+  obsoleto — 409 — estaba cubierto): reacción "up" con persistencia real +
+  YAML, "down"→formulario→`/submit` con comentario persistido, `/submit` sin
+  comentario re-muestra el formulario con error, `/cancel` vuelve a la barra
+  de reacción sin persistir.
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
+  (**75**), **suite 265 passed / 1 skipped** (261 + 4), regresión dirigida
+  GREEN (75 tests unitarios de wizard/assistant/section-analysis/routing/
+  copilot_runtime + 21 tests HTTP de module_page/assistant/section-analysis/
+  wizard), identidad `assistant_router.assistant_store is
+  copilot_runtime.assistant_store` verificada. **Pendiente:** GitHub CI. **NO
+  cerrar GREEN hasta confirmarla.**
+- **Secuencia de Fase 2J:**
 
   | Lote | Estado |
   |---|---|
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
-  | 2J-B Assistant + Section Analysis | **NOT AUTHORIZED** |
+  | 2J-B Assistant + Section Analysis | **IMPLEMENTED / PENDING CI** |
   | 2J-C Trees + Wizard | **NOT AUTHORIZED** |
   | 2J-D Module page | **NOT AUTHORIZED** |
   | *(luego)* evaluación de cierre de Phase 2 | — |
 
-  **2J-B se vuelve elegible solo después de:** este commit de cierre pusheado;
-  CI final se mantenga GREEN; el PR esté mergeado; se verifique containment;
-  y la branch de 2J-A esté limpiada.
+  **2J-C se vuelve elegible solo después de:** este commit de cierre pusheado;
+  CI de 2J-B esté GREEN; el PR esté mergeado; se verifique containment; y la
+  branch de 2J-B esté limpiada.
 
 **Phase 2 overall: NOT COMPLETE.**
 
@@ -1082,26 +1136,27 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2H Feedback Family | **CLOSED / GREEN** |
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
+| 2J-B Assistant + Section Analysis | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2J-A — Copilot runtime ownership
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `c069300` (branch `work/architecture-phase-2j-a-copilot-runtime`)
-- **Current next candidate:** Phase 2J-B — Assistant + Section Analysis extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de 2J-A esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **261 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2J-B — Assistant + Section Analysis
+- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Functional commit:** `040afdd` (branch `work/architecture-phase-2j-b-assistant-section`)
+- **Current next candidate:** Phase 2J-C — Trees + Wizard extraction
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: CI de 2J-B esté GREEN; el
+  PR esté mergeado; se verifique containment; y el cleanup de la branch de 2J-B
+  esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **265 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2J-A (`work/architecture-phase-2j-a-copilot-runtime` → `main`) — CI ya GREEN.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor c069300 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Phase 2J-A solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para 2J-B.
+1. Abrir PR de Phase 2J-B (`work/architecture-phase-2j-b-assistant-section` → `main`), esperar CI.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 040afdd origin/main` (exit 0 recién tras el merge).
+3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2J-B solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para 2J-C.
 5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza 2J-B (Assistant + Section Analysis) — o el candidato que el usuario elija.
+7. **Recién entonces** se autoriza 2J-C (Trees + Wizard) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
@@ -1109,26 +1164,26 @@ working tree sucio · el próximo candidato requiere una dependencia main-privat
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
 necesidad concreta · cambio de comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2J-A)
+## REMAINING PHASE 2 MAP (post-2J-B)
 **STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
-- Module page / section analysis · Assistant · Trees / Wizard / Diagnostics.
-- **Ownership YA RESUELTO en 2J-A:** `store` (WizardStore) y `assistant_store`
+- Module page · Trees / Wizard / Diagnostics. (Assistant + Section Analysis
+  **ya extraídos en 2J-B** → `webapp/routers/assistant.py`.)
+- **Ownership RESUELTO en 2J-A:** `store` (WizardStore) y `assistant_store`
   (AssistantConversationStore) tienen dueño explícito en
   `webapp/copilot_runtime.py`. **Confirmado con evidencia de código** (no
-  solo "parecen"): las otras 4 (`section_analysis_service`,
-  `assistant_chat_service`, `assistant_routing_service`,
-  `assistant_feedback_repository`) son stateless — **no** necesitan
-  `copilot_runtime.py` ni ningún módulo de ownership; su ubicación final se
-  decide cuando se extraiga su router consumidor (2J-B/2J-C).
+  solo "parecen"): los 4 servicios que consumía Assistant
+  (`section_analysis_service`, `assistant_chat_service`,
+  `assistant_routing_service`, `assistant_feedback_repository`) eran
+  stateless — **no** necesitaban `copilot_runtime.py`; ahora tienen dueño
+  explícito en `webapp/routers/assistant.py` (2J-B).
 - **Fase 2I ya resolvió** la única dependencia de `module_page` hacia Catalog
   (`_catalog_domains`/`_catalog_connection_types`/`_catalog_security_families`/
   `_catalog_data_products_list`, dueño explícito en `webapp/services/catalog_reads.py`).
   Cuando `module_page` se extraiga (2J-D), puede importar directo desde
   `catalog_reads` **y** `copilot_runtime` — **no** necesita tocar `webapp.main`.
-- **Restante en Fase 2J:** extraer las 14 rutas bloqueadas por `store`/
-  `assistant_store` en 3 lotes (2J-B Assistant+Section Analysis, 2J-C
-  Trees+Wizard, 2J-D Module page) — ver secuencia y razones en la sección 2J
-  arriba.
+- **Restante en Fase 2J:** extraer las 9 rutas bloqueadas por `store` en 2J-C
+  (Trees+Wizard), luego `module_page` en 2J-D — ver secuencia y razones en la
+  sección 2J arriba.
 
 **CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
 (no mover wholesale las ~1900 líneas).
