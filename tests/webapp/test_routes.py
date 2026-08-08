@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from webapp.main import app, templates
 import webapp.main as web_main
 from webapp import access
+from webapp import copilot_runtime
 from webapp.services import auth_service
 from webapp.services.section_analysis import SectionAnalysisService
 from webapp.services.content_service import load_module
@@ -109,6 +110,20 @@ def test_module_page_renders_server_side():
     assert "¿Qué hace cada acción?" in response.text
 
 
+def test_module_page_anonymous_redirects_to_login():
+    # Gap real (Fase 2J-D): module_page nunca tuvo un test de redirect anónimo
+    # propio (a diferencia de /whats-new y /academy/{stem}).
+    c = TestClient(app)  # sin cookie de sesión
+    r = c.get("/modules/01_Arquitectura_y_Conectividad", follow_redirects=False)
+    # Comportamiento actual de nav.login_redirect: 307 a /?pack=…&next=…#acceso.
+    assert r.status_code == 307
+    location = r.headers["location"]
+    assert location.startswith("/?")
+    assert location.endswith("#acceso")
+    assert "next=%2Fmodules%2F01_Arquitectura_y_Conectividad" in location
+    assert "pack=datasphere_core" in location
+
+
 def test_section_analysis_endpoint_returns_htmx_fragment(monkeypatch):
     # Seam vive ahora en webapp.routers.assistant (Fase 2J-B), no en web_main.
     from webapp.routers import assistant as assistant_router
@@ -176,7 +191,7 @@ def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
         SectionAnalysisService(execution_mode="Simulación"),
     )
     document = load_module("01_Arquitectura_y_Conectividad")
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         document.summary.stem, "datasphere_core"
     )
     payload = {
@@ -200,21 +215,21 @@ def test_section_analysis_rejects_same_section_and_action_twice(monkeypatch):
     assert "assistant-feedback" not in duplicate.text
     assert duplicate.headers["hx-retarget"] == "#section-analysis-warning"
     assert duplicate.headers["x-danwor-duplicate"] == "true"
-    assert len(web_main.assistant_store.history(
+    assert len(copilot_runtime.assistant_store.history(
         conversation.id, conversation.module, conversation.pack,
     )) == 2
 
 
 def test_assistant_feedback_rejects_an_older_reply():
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    first = web_main.assistant_store.append(
+    first = copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "Primera pregunta", "Primera respuesta", "<p>Primera respuesta</p>",
         topic="Pregunta libre", action="Asistente",
     )
-    web_main.assistant_store.append(
+    copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "Pregunta siguiente", "Respuesta siguiente", "<p>Respuesta siguiente</p>",
         topic="Pregunta libre", action="Asistente",
@@ -231,10 +246,10 @@ def test_assistant_feedback_rejects_an_older_reply():
 def test_assistant_feedback_up_reaction_persists_and_thanks(monkeypatch, tmp_path):
     from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    reply = web_main.assistant_store.append(
+    reply = copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "una pregunta", "una respuesta", "<p>una respuesta</p>",
         topic="Pregunta libre", action="Asistente",
@@ -260,10 +275,10 @@ def test_assistant_feedback_up_reaction_persists_and_thanks(monkeypatch, tmp_pat
 def test_assistant_feedback_down_opens_form_then_submit_persists_comment(monkeypatch, tmp_path):
     from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    reply = web_main.assistant_store.append(
+    reply = copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "otra pregunta", "otra respuesta", "<p>otra respuesta</p>",
         topic="Pregunta libre", action="Asistente",
@@ -296,10 +311,10 @@ def test_assistant_feedback_down_opens_form_then_submit_persists_comment(monkeyp
 def test_assistant_feedback_submit_without_comment_reshows_form_with_error(monkeypatch, tmp_path):
     from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    reply = web_main.assistant_store.append(
+    reply = copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "pregunta sin comentario", "respuesta", "<p>respuesta</p>",
         topic="Pregunta libre", action="Asistente",
@@ -316,10 +331,10 @@ def test_assistant_feedback_submit_without_comment_reshows_form_with_error(monke
 def test_assistant_feedback_cancel_returns_to_reaction_bar_without_persisting(monkeypatch, tmp_path):
     from webapp.routers import assistant as assistant_router
     monkeypatch.setattr(assistant_router.assistant_feedback_repository, "root", tmp_path)
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    reply = web_main.assistant_store.append(
+    reply = copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "pregunta a cancelar", "respuesta", "<p>respuesta</p>",
         topic="Pregunta libre", action="Asistente",
@@ -334,7 +349,7 @@ def test_assistant_feedback_cancel_returns_to_reaction_bar_without_persisting(mo
 
 
 def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch):
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
 
@@ -382,10 +397,10 @@ def test_pack_asset_traversal_is_rejected():
 
 
 def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
-    conversation = web_main.assistant_store.start(
+    conversation = copilot_runtime.assistant_store.start(
         "01_Arquitectura_y_Conectividad", "datasphere_core"
     )
-    web_main.assistant_store.append(
+    copilot_runtime.assistant_store.append(
         conversation.id, conversation.module, conversation.pack,
         "tenemos algun template CDS?", "Encontré un recurso curado.",
         "<p>Encontré un recurso curado.</p>", topic="Routing", action="Routing",
@@ -412,7 +427,7 @@ def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     assert "Explicación contextual" in response.text
     assert "assistant-message--user" not in response.text
     assert "assistant-llm-disclaimer" in response.text
-    assert web_main.assistant_store.history(
+    assert copilot_runtime.assistant_store.history(
         conversation.id, conversation.module, conversation.pack,
     ).count(("user", "tenemos algun template CDS?")) == 1
 
@@ -1271,7 +1286,7 @@ def test_readonly_assistant_router_works_but_llm_output_is_blocked(monkeypatch):
         assistant_router.assistant_chat_service, "ask",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe consumir OpenAI en solo-lectura")),
     )
-    conv = web_main.assistant_store.start("01_Arquitectura_y_Conectividad", "datasphere_core")
+    conv = copilot_runtime.assistant_store.start("01_Arquitectura_y_Conectividad", "datasphere_core")
     # Pregunta que resuelve el router (contenido curado, determinista) → responde igual.
     routed = ro.post(
         "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
