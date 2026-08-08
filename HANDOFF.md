@@ -1520,15 +1520,25 @@ allá de ese hito.
   provistos al autorizar este batch, verificados sin contradicción contra
   repo/HANDOFF (tampoco aparecían antes), pero **no confirmados contra una
   lectura real de Graph** — mismo prerequisito pendiente.
-- **Mapeo de field names — establecido vs. pendiente de validar:** `Title`
-  (nombre de Proyecto/Colaborador) es una convención real de SharePoint, no
-  una adivinanza. `ColaboradorLookupId`/`ProyectoLookupId`/`Asignacion`/
-  `Estado`/`FechaInicio`/`FechaFin` (los 6 campos de Asignaciones) son
-  **provisorios, sin validar contra el sitio Gestión real** — aislados en
-  una única constante (`_ASIGNACION_FIELDS` en `staffing_repository.py`)
-  para que corregirlos sea un cambio de una sola línea por campo. Este es el
-  prerequisito de validación de campos pendiente antes de que Batch 3
-  muestre datos reales.
+- **Mapeo de field names — CORRECTIVE PASS (commit `2dd42c5`):** la versión
+  inicial de este batch usaba `ColaboradorLookupId`/`ProyectoLookupId`/
+  `Asignacion`/`Estado`/`FechaInicio`/`FechaFin`, y `Title` para AMBOS
+  nombres de Proyecto y Colaborador, como **defaults de producción** — un
+  micro-pass correctivo los removió: que `sharepoint_cases.py` use esos
+  nombres en OTRO sitio/lista no prueba que Gestión los use igual, y que
+  SharePoint tenga una columna `Title` estándar tampoco prueba que Proyectos
+  o Colaboradores la usen como nombre de display. Ahora el mapeo es un
+  objeto explícito **`StaffingFieldMapping`** (8 campos: los 6 de
+  Asignaciones + `proyecto_title` + `colaborador_title`) **sin ningún
+  default** — `StaffingFieldMapping.from_config()` (producción) queda vacío
+  hasta que alguien confirme los 8 internal names reales contra el sitio
+  Gestión; construirlo vacío NO rompe el import de la app (verificado:
+  `import webapp.main` sigue OK sin Staffing configurado). Los tests usan
+  su propio `StaffingFieldMapping` fixture, explícitamente etiquetado como
+  NO-producción. Este es el prerequisito de validación de campos pendiente
+  antes de que Batch 3 muestre datos reales — sin corregir, cualquier
+  intento de leer Staffing en producción falla explícito listando los 8
+  campos faltantes (no lee un campo equivocado silenciosamente).
 - **Contrato del repositorio:** `StaffingRepository.get_allocations(access_token)
   -> list[StaffingAllocationRecord]`. Nunca expone JSON crudo de Graph más
   allá del módulo. Consume `core.microsoft365.graph_get_paged_values`
@@ -1567,22 +1577,29 @@ allá de ese hito.
 - **Real-data smoke:** **no realizado** — falta `SHAREPOINT_GESTION_SITE_ID`
   configurado y no hay un token Graph delegado disponible en este entorno.
   Aceptable para Batch 2 según lo autorizado; no se fabricó evidencia.
-- **Tests (+13):** repositorio (6: URLs correctas, `access_token` explícito,
-  normalización + joins, degradación sin dropear fila, propagación de
-  errores de transporte, falla explícita solo al leer sin `site_id`
-  configurado) + servicio (7: filas estables, `capacity_percentage` en
-  `None`, orden determinístico, fechas/estados correctos, placeholder de
-  nombre sin resolver, resultado vacío sin excepción, token forwarding).
-  Todo con fixtures determinísticas — sin Graph real en CI.
+- **Tests (+13, luego +3 en el corrective pass → +16):** repositorio (9:
+  URLs correctas, `access_token` explícito, normalización + joins,
+  degradación sin dropear fila, propagación de errores de transporte,
+  falla explícita solo al leer sin `site_id` configurado, falla explícita
+  listando los campos faltantes del field mapping, `from_config()` no
+  sintetiza ningún nombre en este entorno, los campos de display siguen el
+  mapeo y no un `"Title"` hardcodeado) + servicio (7: filas estables,
+  `capacity_percentage` en `None`, orden determinístico, fechas/estados
+  correctos, placeholder de nombre sin resolver, resultado vacío sin
+  excepción, token forwarding). Todo con fixtures determinísticas — sin
+  Graph real en CI.
 - Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
   FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**,
-  **sin cambios** — este batch no agrega rutas), **suite 294 passed / 1
-  skipped** (281 + 13). **Cierre:** GitHub CI pendiente de confirmación
-  (push recién realizado).
+  **sin cambios** — este batch no agrega rutas), **suite 297 passed / 1
+  skipped** (281 + 16). **Estado:** **IMPLEMENTED / PENDING CI** — NO
+  cerrado todavía (el corrective pass se hizo sobre la misma branch/PR
+  abiertos; CI del commit corrective pendiente de confirmación).
 - **Prerequisitos exactos pendientes antes de Batch 3:** (1) confirmar
-  `SHAREPOINT_GESTION_SITE_ID` real; (2) confirmar los 3 list ID contra una
-  lectura real de Graph; (3) confirmar los 6 internal names de
-  `_ASIGNACION_FIELDS`; (4) confirmar la unidad real de `Asignacion` (horas/
+  `SHAREPOINT_GESTION_SITE_ID` real (sin default a propósito); (2) confirmar
+  los 3 list ID contra una lectura real de Graph (KNOWN FROM LEGACY SOURCE
+  CONFIGURATION, no LIVE GRAPH VALIDATED todavía); (3) confirmar los 8
+  internal names de `StaffingFieldMapping` (sin default a propósito, ni
+  siquiera `Title`); (4) confirmar la unidad real de `Asignacion` (horas/
   %/otra) antes de implementar `capacity_percentage`.
 
 **Batch 3 (Operations/Staffing HTTP + Jinja/HTMX): NOT AUTHORIZED** hasta
@@ -1623,17 +1640,18 @@ después de Batch 3).
 ## CURRENT EXECUTION POINT
 - **Phase:** Platform Acceleration — Batch 2 — Operations/Staffing repository + service
 - **Status:** IMPLEMENTED / PENDING CI
-- **Functional commit:** `96e41e3` (branch `work/platform-acceleration-b2-staffing-domain`, pusheada)
+- **Functional commit:** `96e41e3`, corrective pass `2dd42c5` (branch
+  `work/platform-acceleration-b2-staffing-domain`, pusheada)
 - **Current next candidate:** Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
   (`GET /operations/staffing`, `POST /operations/staffing/data` → primer
   hito real de Staffing)
 - **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre
   esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
   verifique containment; y el cleanup de la branch de Batch 2 esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **294 passed / 1 skipped** · route surface **75**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **297 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/platform-acceleration-b2-staffing-domain` (commit `96e41e3`).
+1. Confirmar CI GREEN del push de `work/platform-acceleration-b2-staffing-domain` (commits `96e41e3` + `2dd42c5`).
 2. Commit de cierre de docs (`docs(handoff): checkpoint platform acceleration batch 2` o el mensaje que el usuario autorice) tras confirmar CI.
 3. Mergear el PR de Batch 2 → `main`.
 4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 96e41e3 origin/main` (exit 0 recién tras el merge).
