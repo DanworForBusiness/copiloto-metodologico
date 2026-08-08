@@ -28,9 +28,9 @@
 > login redirect→`webapp/nav.py`) **CLOSED / GREEN** (commit `f54acc6`; CI GREEN sobre
 > stack reproducible; sin `deps.py`, sin mover rutas —surface 75—, sin
 > runtime/bootstrap; ver A.20). **2D — What's New router** (`GET /whats-new` +
-> `POST /whats-new/dismiss` → `webapp/routers/whats_new.py`) **IMPLEMENTED / PENDING
-> CI** (commit `c119b51`; feature COPILOT; router sin `webapp.main`; misma env Jinja;
-> surface 75; +3 tests HTTP; ver A.20). Cada lote requiere autorización explícita; NO
+> `POST /whats-new/dismiss` → `webapp/routers/whats_new.py`) **CLOSED / GREEN**
+> (commit `c119b51`; CI GREEN; feature COPILOT; router sin `webapp.main`; misma env
+> Jinja; surface 75; +3 tests HTTP; ver A.20). Cada lote requiere autorización explícita; NO
 > avanzar de un lote al siguiente sin OK. **Phase 2 overall: NOT COMPLETE.** Dirección
 > futura de plataforma multi-workspace en **A.19** (es dirección, NO scope de Fase 2).
 
@@ -563,7 +563,13 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
     content-pack del Copiloto. Reuso cross-workspace futuro **NOT YET DECIDED**.
   - `core.content_registry` → **COPILOT / CONTENT**.
 
-**2D — What's New router — IMPLEMENTED / PENDING CI** (commit `c119b51`):
+**2D — What's New router — CLOSED / GREEN** (commit `c119b51`):
+- **Evidencia de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **237 passed / 1 skipped**; route
+  surface **75 unchanged**; **3 behavioral What's New tests GREEN** — authenticated
+  render GREEN, anonymous redirect GREEN, dismiss cookie GREEN. El router **no
+  importa `webapp.main`**; **misma env Jinja** preservada; **sin runtime/bootstrap**;
+  feature classification permanece **COPILOT**.
 - `GET /whats-new` y `POST /whats-new/dismiss` extraídos a
   **`webapp/routers/whats_new.py`** (APIRouter) como **relocación pura**: método/
   path/query/auth/redirect/pack/diagnostic/readonly/contexto de template y cookie
@@ -591,7 +597,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
 - **Route surface 75 sin cambios** (snapshot intacto; sin `UPDATE_ROUTE_SURFACE`).
 - Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
   1.4.1)**: route-contract GREEN, **suite 237 passed / 1 skipped** (234 + 3), smoke
-  focal de las 3 rutas GREEN. **PENDING:** CI GREEN en el PR.
+  focal de las 3 rutas GREEN. **Cierre:** GitHub CI **GREEN**.
 - **Aprendizaje arquitectónico:** 2C (templating) + PRE-2D (helper/context) quedaron
   **validados por un consumidor real** — un feature COPILOT respaldado por template
   puede ahora vivir **fuera de `main.py`** sin trasladar dependencias privadas de
