@@ -1493,8 +1493,8 @@ allá de ese hito.
 |---|---|
 | Batch 1 — Thin M365 integration | **CLOSED / GREEN** |
 | Batch 2 — Operations/Staffing repository + service | **CLOSED / GREEN** |
-| Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **NOT AUTHORIZED** |
-| *(luego)* Primer hito real de Staffing | — |
+| Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **IMPLEMENTED / PENDING REAL-DATA VALIDATION + CI** |
+| *(luego)* Primer hito real de Staffing | **NO alcanzado todavía** (real Graph smoke NOT RUN) |
 
 ## PLATFORM ACCELERATION — BATCH 2 — OPERATIONS/STAFFING REPOSITORY + SERVICE — CLOSED / GREEN
 (commit funcional original `96e41e3`, corrective pass `2dd42c5`; branch
@@ -1647,14 +1647,107 @@ allá de ese hito.
   necesitará una forma controlada de validar estos 3 puntos con datos
   reales — no se resuelve en este commit de docs.**
 
-**Batch 3 (Operations/Staffing HTTP + Jinja/HTMX): NOT AUTHORIZED** hasta
-que este commit de cierre de Batch 2 esté pusheado; CI final se mantenga
-GREEN; el PR esté mergeado; se verifique containment; y el cleanup de la
-branch de Batch 2 esté completo. Forma esperada de Batch 3: `GET
-/operations/staffing` (shell autenticado) + `POST /operations/staffing/data`
-(recibe `graph_token`, llama `StaffingService`, devuelve fragmento HTMX) →
-**primer hito real de Staffing**. El Excel Consultores/Conocimiento sigue
-diferido más allá de ese hito.
+## PLATFORM ACCELERATION — BATCH 3 — OPERATIONS/STAFFING HTTP + JINJA/HTMX — IMPLEMENTED / PENDING REAL-DATA VALIDATION + CI
+(commit `878f8e8`; branch `work/platform-acceleration-b3-staffing-http`)
+
+- **Rutas agregadas:** `GET /operations/staffing` (shell autenticado) y
+  `POST /operations/staffing/data` (fragmento HTMX). **Route surface: 75 →
+  77** (intencional; `tests/route_surface.json` regenerado con
+  `UPDATE_ROUTE_SURFACE=1`; el diff contiene únicamente estas 2 rutas).
+- **Owner:** `webapp/routers/staffing.py` → **OPERATIONS / STAFFING HTTP**.
+  No importa `webapp.main`, no construye URLs de Graph, no posee el field
+  mapping, no posee transporte Graph, no calcula negocio — delega 100% en
+  `StaffingService` (Batch 2). `main.py` solo recibió las 2 líneas de
+  registro esperadas (`import` + `include_router`), sin lógica de negocio.
+- **Access policy de Operations:** `webapp/operations_access.py` →
+  `is_staffing_authorized(request)` — regla mínima y explícitamente
+  provisoria: sesión válida + `auth_service.user_tier(...) == "full"`
+  (excluye tier "academy" y no-autenticados). Separada de
+  `webapp/access.py` (política actual del Copiloto, no reutilizada a
+  propósito, per la clasificación de Fase 2). NO es RBAC ni workspace
+  registry.
+- **Deep-link no autenticado:** `GET /operations/staffing` sin sesión usa
+  `nav.login_redirect(request, DEFAULT_PACK)` — el mismo mecanismo genérico
+  que ya consumen `modules.py`/`wizard.py` (verificado con código, no
+  supuesto: `login_redirect` preserva `next` para cualquier path, no solo
+  rutas del Copiloto). **No se creó ningún helper nuevo** — no hizo falta.
+- **Token Graph delegado — mecanismo del browser reutilizado sin cambios:**
+  `sessionStorage["dw-graph-token"]` (ya seteado por `webapp/static/auth.js`
+  en cada login, global a toda la app) + el mismo patrón HTMX
+  `hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") ||
+  ""}'` que ya usa `partials/admin_panel.html`. **Cero extracción de JS
+  compartido** — no hizo falta: el mecanismo ya era genérico, no
+  Copilot-específico. El token nunca viaja en la URL (POST + `hx-vals`,
+  igual que Admin), nunca se loguea, nunca se persiste server-side.
+- **Templates:** `webapp/templates/operations/staffing.html` (página
+  completa) y `webapp/templates/operations/staffing_rows.html` (fragmento
+  HTMX). Usan `webapp.templating.templates` (misma env compartida). **Sin
+  `partials/copilot_nav.html`**, sin `x-data="copilotLayout(...)"`, topbar
+  propio y mínimo.
+- **CSS — cero archivos nuevos:** se auditaron las hojas existentes antes
+  de escribir cualquier CSS y resultaron suficientes: `.topbar`,
+  `.header-tools`, `.theme-toggle.logout-btn` (genéricas, ya usadas en
+  todas las páginas), `.module-content`/`.module-hero`/`.eyebrow` (theme-
+  aware vía `--content-theme-*`, sin dependencia de `.app-shell`/grid de
+  nav), `.empty-panel` y `.admin-table` (genérica pese al nombre — solo
+  estilo de tabla, sin lógica de Admin). No se creó ningún stylesheet de
+  Operations.
+- **Integración con el servicio:** `GET` nunca llama a `StaffingService`
+  (verificado con test — monkeypatchear el servicio para que reviente si
+  se llama, el `GET` sigue en 200); el `POST` construye `StaffingService()`
+  y llama `get_overview(graph_token)` — token explícito, sin storage.
+- **Estados controlados (UX de error, sección 14):** `graph_token` vacío →
+  "no pudimos obtener tu token…" (sin tocar el servicio); `RuntimeError`
+  del repositorio (site ID/field mapping incompletos) → "Staffing
+  configuration incomplete…"; cualquier otra excepción (Graph/transporte)
+  → mensaje neutro genérico, **nunca el texto crudo de la excepción**
+  (verificado con test: un mensaje de excepción con "sensitive detail"
+  nunca llega al HTML); resultado vacío → mensaje neutro, no excepción;
+  resultado con filas → tabla. **Ningún caso devuelve 500** para estos
+  escenarios esperados. El token tampoco se ecoa nunca en el HTML
+  (verificado con test usando un token "secreto" de prueba).
+- **UI — parity deliberadamente diferida:** se muestran consultor,
+  proyecto, `allocation_value (allocation_unit)` (honesto: `unit` sigue
+  "unknown", **sin capacidad % fabricada**), estado, fechas. Sin Gantt,
+  vacaciones, clientes, proyecciones de 35/45/90/30 días, ranking, KPIs,
+  filtros avanzados, bookmarks — todo eso queda fuera a propósito.
+- **State/runtime:** sin runtime singleton de Staffing, sin
+  `copilot_runtime`, sin cache, sin base de datos/Redis — `StaffingService`/
+  `StaffingRepository` se construyen por request, tal como en Batch 2.
+- **Tests (+15):** GET (6: redirect anónimo con `next` preservado, 200
+  autorizado, 403 tier academy, NO llama al servicio, template correcto,
+  sin requerir `graph_token`) + POST (9: token explícito al servicio,
+  fragmento con filas, estado vacío válido, config incompleta controlada,
+  falla de Graph controlada sin filtrar el texto de la excepción, token
+  nunca ecoado en éxito NI en error, token vacío sin llamar al servicio,
+  POST no autenticado no llega al servicio, POST tier academy no llega al
+  servicio). Todo mockeando `StaffingService` en el boundary del router —
+  sin Graph real en CI.
+- Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
+  FastAPI 0.141.1 / Starlette 1.4.1): **suite 312 passed / 1 skipped** (297
+  + 15), route-contract GREEN tras regenerar el snapshot intencionalmente
+  (**77**). **Cierre:** GitHub CI pendiente de confirmación (push recién
+  realizado).
+- **SHELL SMOKE: GREEN.** Corrido sobre el `.venv` real del proyecto
+  (`uvicorn webapp.main:app` puerto 8082, vía el launch config `copiloto`
+  existente): Copiloto sigue abriendo normal; `/operations/staffing` sin
+  sesión → 307 a `/?pack=...&next=%2Foperations%2Fstaffing#acceso`
+  (confirmado en logs del server); con una cookie de sesión válida inyectada
+  → 200, template correcto, el HTMX `hx-trigger="load"` disparó el `POST`
+  automáticamente y devolvió 200 con el estado "sin token" (no hay
+  `dw-graph-token` real en este entorno) — **sin traceback, sin error de
+  servidor**, confirmado en `preview_logs` y sin errores de consola.
+- **REAL GRAPH SMOKE: NOT RUN.** No hay `SHAREPOINT_GESTION_SITE_ID`
+  configurado, no hay token Graph delegado real disponible en este entorno
+  de implementación, y los field mappings de producción siguen sin
+  validar. **No se fabricó evidencia de datos reales.**
+- **PRIMER HITO REAL DE STAFFING: NO alcanzado todavía** — requiere REAL
+  GRAPH SMOKE = GREEN, que no ocurrió en este batch.
+
+**Batch 3 — LEVEL A (implementación) COMPLETE; LEVEL B (primer hito real)
+PENDIENTE.** Excel Consultores/Conocimiento, vacaciones, clientes, Gantt,
+ranking, KPIs, filtros avanzados, workspace switcher, rediseño de login/nav
+y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 
 ---
 
@@ -1683,40 +1776,42 @@ diferido más allá de ese hito.
 | **Phase 2** | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
+| Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **IMPLEMENTED / PENDING REAL-DATA VALIDATION + CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Platform Acceleration — Batch 2 — Operations/Staffing repository + service
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `96e41e3`, corrective pass `2dd42c5` (branch
-  `work/platform-acceleration-b2-staffing-domain`)
-- **Current next candidate:** Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
-  (`GET /operations/staffing`, `POST /operations/staffing/data` → primer
-  hito real de Staffing)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de Batch 2 esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **297 passed / 1 skipped** · route surface **75**
+- **Phase:** Platform Acceleration — Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
+- **Status:** IMPLEMENTED / PENDING REAL-DATA VALIDATION + CI
+- **Functional commit:** `878f8e8` (branch `work/platform-acceleration-b3-staffing-http`, pusheada)
+- **Current next candidate:** validar el primer hito real de Staffing
+  (site ID real + field mapping confirmado + smoke de Graph con token
+  delegado real) — NO es "Batch 4" nuevo, es cerrar Batch 3 a LEVEL B.
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre
+  esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
+  verifique containment; y el cleanup de la branch de Batch 3 esté completo.
+  La validación real de datos requiere además que alguien con acceso al
+  sitio Gestión provea site ID + confirme los 8 internal names — no es un
+  paso que este agente pueda completar sin esa información.
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **312 passed / 1 skipped** · route surface **77**
 
 ### Expected next workflow
-1. Mergear el PR de Batch 2 (`work/platform-acceleration-b2-staffing-domain` → `main`) — CI ya GREEN.
-2. **Verificar containment** de ambos commits funcionales: `git merge-base --is-ancestor 2dd42c5 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Batch 2 solo tras el paso 2 en verde.
-4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-5. Antes de autorizar Batch 3: idealmente resolver los 3 prerequisitos de
-   esquema pendientes (site ID real, 3 list ID live-Graph-validados, 8
-   internal names de `StaffingFieldMapping` confirmados) y definir una forma
-   controlada de validarlos — o autorizar Batch 3 sabiendo que la primera
-   página mostrará datos con mapeo sin validar.
-6. **Recién entonces** se autoriza Batch 3 — o el candidato que el usuario elija.
+1. Confirmar CI GREEN del push de `work/platform-acceleration-b3-staffing-http` (commit `878f8e8`).
+2. Commit de cierre de docs (`docs(handoff): checkpoint platform acceleration batch 3` o el mensaje que el usuario autorice) tras confirmar CI.
+3. Mergear el PR de Batch 3 → `main`.
+4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 878f8e8 origin/main` (exit 0 recién tras el merge).
+5. Cleanup de la branch de Batch 3 solo tras el paso 4 en verde.
+6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+7. Para llegar al PRIMER HITO REAL DE STAFFING: obtener `SHAREPOINT_GESTION_SITE_ID` real, confirmar los 8 internal names de `StaffingFieldMapping`, y correr un smoke read-only con un token Graph delegado real — solo entonces se puede marcar REAL GRAPH SMOKE = GREEN.
+8. **Recién entonces** el usuario decide el siguiente paso (parity increments, u otro candidato).
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
-necesidad concreta · cambio de comportamiento o de route-surface · se intenta
-comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin extraction sin
-autorización explícita, o se intenta implementar rutas/UI de Staffing antes de
-autorización explícita de Batch 3.
+necesidad concreta · cambio de comportamiento o de route-surface no anticipado ·
+se intenta comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin
+extraction/workspace switcher/rediseño de login-nav sin autorización explícita ·
+se declara el PRIMER HITO REAL DE STAFFING alcanzado sin un REAL GRAPH SMOKE
+efectivamente GREEN.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
