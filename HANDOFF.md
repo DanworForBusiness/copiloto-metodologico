@@ -960,15 +960,91 @@ branch `work/architecture-phase-2g-landing-nav`):
   pusheado; CI se mantenga GREEN; el PR esté mergeado; se verifique containment;
   y el cleanup de la branch de Fase 2I esté completo.
 
-**Próximo gate estructural (aún NO autorizado): `runtime.py` para singletons.**
-El gate de templating ya resolvió la mitad de presentación. Falta, **cuando se
-extraiga el primer router con singleton/estado** (assistant/wizard/section-analysis):
-introducir `webapp/runtime.py` para las **instancias compartidas** (analizando
-individualmente estado real vs stateless; `assistant_store` es claramente stateful,
-el resto se justifica por separado). El monkeypatch de tests **no** cambia mientras
-`main` re-exporte las MISMAS instancias (los tests parchean atributos de la instancia
-/ usan la instancia; reasignan `FEEDBACK_LOG_DIR` en `main` y, tras el gate PRE-2D,
-`APP_OWNER` en `webapp.access`).
+## PHASE 2J — STATEFUL OWNERSHIP / LIFECYCLE (EN PROGRESO)
+
+**Assessment previo** (análisis, sin cambios de código) revalidó con evidencia
+de código que **solo 2** de los 6 objetos creados en `main.py` requieren
+identidad compartida entre requests: `store` (WizardStore) y `assistant_store`
+(AssistantConversationStore). Los otros 4 (`section_analysis_service`,
+`assistant_chat_service`, `assistant_routing_service`,
+`assistant_feedback_repository`) son objetos config/repository stateless —
+confirmado por los propios tests existentes (3 tests reemplazan
+`section_analysis_service` por una instancia nueva sin romper nada;
+`assistant_routing_service` no tiene `__init__` propio ni un solo atributo
+`self.`). Encontró además una dependencia asimétrica: `store`→Catalog nunca
+existe (Catalog nunca depende de STATEFUL), pero `module_page` (bloqueada por
+STATEFUL) dependía de Catalog — por eso 2I se hizo antes.
+
+**2J-A — Copilot runtime ownership — IMPLEMENTED / PENDING CI** (commit
+`c069300`, branch `work/architecture-phase-2j-a-copilot-runtime`; **NO cerrar
+GREEN hasta CI**):
+- `store` y `assistant_store` — los únicos 2 objetos que requieren identidad
+  compartida — se movieron **verbatim** a **`webapp/copilot_runtime.py`**
+  (mismos constructores exactos: `WizardStore(case_repository=
+  CaseLibraryRepository())`, `AssistantConversationStore()`).
+- **Decisión de naming deliberada:** `webapp/copilot_runtime.py`, **NO**
+  `webapp/runtime.py` (el nombre que HANDOFF venía anticipando desde A.5,
+  antes de tener evidencia). Razón: el estado que posee es **COPILOT-específico**,
+  no infraestructura platform/shared — a diferencia de `webapp/templating.py`
+  (2C), que sí es platform porque cualquier workspace necesitaría un env Jinja.
+- **feature classification: COPILOT / PROCESS-LIFETIME STATE COMPOSITION.**
+  **NOT PLATFORM / SHARED.** `store` → **COPILOT / WIZARD** mutable lifecycle.
+  `assistant_store` → **COPILOT / ASSISTANT** mutable lifecycle. Un futuro
+  workspace de Operaciones/Staffing no reutilizaría estas INSTANCIAS (son
+  conceptos de negocio del Copiloto sin análogo en su roadmap); podría
+  eventualmente reutilizar el PATRÓN (un módulo chico de composición que
+  construye y re-exporta sus propias instancias) — no este módulo ni estos
+  objetos.
+- **Explícitamente excluidos** (permanecen en `main.py` sin cambios):
+  `section_analysis_service`, `assistant_chat_service`,
+  `assistant_routing_service`, `assistant_feedback_repository` — ninguno
+  requiere identidad compartida; no forman parte de este boundary.
+- **Sin cambios de semántica** (verificado explícitamente, no asumido):
+  mismo `_runs`/`_conversations`/`_replies` en memoria de proceso, mismo
+  `RLock` por objeto, mismo `CaseLibraryRepository` inyectado, restart sigue
+  perdiendo runs/conversaciones activas, múltiples workers siguen aislando
+  estado por proceso, sin TTL/cleanup agregado. **Ninguna de estas
+  limitaciones pre-existentes se resolvió — están deliberadamente fuera de
+  alcance.**
+- **`app.state` evaluado y descartado** (no por ser "scoped a request" —
+  aclaración correcta: `app.state` es application-lifetime, técnicamente
+  viable): se descarta porque la ownership por módulo simple ya preserva la
+  identidad de proceso requerida, no hay variabilidad por-request que
+  necesite resolverse, y `app.state` agregaría acoplamiento a FastAPI +
+  churn de tests sin beneficio actual — no por ser prematuro en el sentido de
+  "no aplica", sino porque no hay necesidad concreta hoy.
+- **Aliases transicionales en `main`** (identidad de objeto verificada
+  explícitamente — `main.store is copilot_runtime.store` y
+  `main.assistant_store is copilot_runtime.assistant_store` → **True** ambos):
+  las 14 rutas bloqueadas por estos objetos (module_page, sections/analyze,
+  assistant/chat, assistant/responses/feedback×3, trees/start,
+  diagnostics/orchestrator, wizards/answer,back,restart,feedback×3) **NO se
+  movieron** — siguen en `main.py` sin cambios de comportamiento.
+- **Imports limpiados en `main`** (estrictamente obsoletos, verificados uno
+  por uno antes de tocar): `CaseLibraryRepository`, `WizardStore`,
+  `AssistantConversationStore` — sus únicos consumidores eran las 2 líneas de
+  construcción movidas. `StaleAssistantReplyError` **se mantiene** (consumidor
+  real en las 3 rutas de assistant feedback).
+- **Sin** `app.state`, sin `Depends()`, sin lifespan/startup-shutdown hooks,
+  sin service locator, sin registry, sin persistencia/Redis/DB/TTL/estado
+  distribuido, sin clases wrapper. **Route surface 75 sin cambios** (snapshot
+  intacto; sin `UPDATE_ROUTE_SURFACE`).
+- **Tests:** +6 en `tests/webapp/test_copilot_runtime.py` (tipo de cada
+  instancia, identidad `main.*` == `copilot_runtime.*`, sanity de que un run
+  de Wizard / una conversación de Assistant creados vía una referencia son
+  visibles vía la otra — exactamente lo que las rutas existentes necesitan).
+  Regresión dirigida GREEN: 6 tests de `test_wizard_service.py`, 6 de
+  `test_assistant_service.py`, 17 tests HTTP de module_page/assistant/
+  section-analysis/wizard en `test_routes.py`.
+- Validado sobre **stack reproducible** (venv fresco con `constraints.txt`:
+  Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN
+  (**75**), **suite 261 passed / 1 skipped** (255 + 6). **Pendiente:** GitHub
+  CI. **NO cerrar GREEN hasta confirmarla.**
+- **Secuencia de Fase 2J planeada:** **2J-A** runtime ownership (esta fase) →
+  **2J-B** Assistant + Section Analysis → **2J-C** Trees + Wizard → **2J-D**
+  Module page → evaluación de cierre de Phase 2. **2J-B NO autorizada** hasta
+  que: CI de 2J-A esté GREEN; el PR esté mergeado; se verifique containment; y
+  el cleanup de la branch de 2J-A esté completo.
 
 **Phase 2 overall: NOT COMPLETE.**
 
@@ -992,48 +1068,54 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 | 2G Landing / Session Navigation | **CLOSED / GREEN** |
 | 2H Feedback Family | **CLOSED / GREEN** |
 | 2I Catalog minimal read dependency boundary | **CLOSED / GREEN** |
+| 2J-A Copilot runtime ownership | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2I — Catalog minimal read dependency boundary
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `5d29a7e` (branch `work/architecture-phase-2i-catalog-dependency-boundary`;
-  además `eb47797` docs pending-CI, `cfa86d9` fix de determinismo de CI, y este
-  commit de cierre)
-- **Current next candidate:** STATEFUL ownership/lifecycle gate (`store` + `assistant_store`)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI se mantenga GREEN; el PR esté mergeado; se verifique containment;
-  y el cleanup de la branch de Fase 2I esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **255 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2J-A — Copilot runtime ownership
+- **Status:** IMPLEMENTED / PENDING CI (no cerrar GREEN hasta confirmar CI)
+- **Functional commit:** `c069300` (branch `work/architecture-phase-2j-a-copilot-runtime`)
+- **Current next candidate:** Phase 2J-B — Assistant + Section Analysis extraction
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: CI de 2J-A esté GREEN; el
+  PR esté mergeado; se verifique containment; y el cleanup de la branch de 2J-A
+  esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **261 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2I (`work/architecture-phase-2i-catalog-dependency-boundary` → `main`) — CI ya GREEN.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5d29a7e origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Phase 2I solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para el próximo candidato.
+1. Abrir PR de Phase 2J-A (`work/architecture-phase-2j-a-copilot-runtime` → `main`), esperar CI.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor c069300 origin/main` (exit 0 recién tras el merge).
+3. Mergear el PR tras CI GREEN. Cleanup de la branch de Phase 2J-A solo tras el paso 2 en verde.
+4. Crear una branch de trabajo nueva y limpia para 2J-B.
 5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza el gate STATEFUL (o el candidato que el usuario elija).
+7. **Recién entonces** se autoriza 2J-B (Assistant + Section Analysis) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
-inesperada · aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de
-comportamiento o de route-surface.
+inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
+necesidad concreta · cambio de comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2I)
+## REMAINING PHASE 2 MAP (post-2J-A)
 **STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
 - Module page / section analysis · Assistant · Trees / Wizard / Diagnostics.
-- **Verdadero mutable lifecycle compartido = exactamente 2 instancias:** `store`
-  (WizardStore) y `assistant_store` (AssistantConversationStore). Las otras 4
-  (`section_analysis_service`, `assistant_chat_service`, `assistant_routing_service`,
-  `assistant_feedback_repository`) parecen stateless / construcción histórica — **NO
-  asumir** que necesitan `runtime.py`; justificar caso por caso.
+- **Ownership YA RESUELTO en 2J-A:** `store` (WizardStore) y `assistant_store`
+  (AssistantConversationStore) tienen dueño explícito en
+  `webapp/copilot_runtime.py`. **Confirmado con evidencia de código** (no
+  solo "parecen"): las otras 4 (`section_analysis_service`,
+  `assistant_chat_service`, `assistant_routing_service`,
+  `assistant_feedback_repository`) son stateless — **no** necesitan
+  `copilot_runtime.py` ni ningún módulo de ownership; su ubicación final se
+  decide cuando se extraiga su router consumidor (2J-B/2J-C).
 - **Fase 2I ya resolvió** la única dependencia de `module_page` hacia Catalog
   (`_catalog_domains`/`_catalog_connection_types`/`_catalog_security_families`/
   `_catalog_data_products_list`, dueño explícito en `webapp/services/catalog_reads.py`).
-  Cuando `module_page` se extraiga en el gate STATEFUL, puede importar
-  directo desde `catalog_reads` — **no** necesita tocar `webapp.main`.
+  Cuando `module_page` se extraiga (2J-D), puede importar directo desde
+  `catalog_reads` **y** `copilot_runtime` — **no** necesita tocar `webapp.main`.
+- **Restante en Fase 2J:** extraer las 14 rutas bloqueadas por `store`/
+  `assistant_store` en 3 lotes (2J-B Assistant+Section Analysis, 2J-C
+  Trees+Wizard, 2J-D Module page) — ver secuencia y razones en la sección 2J
+  arriba.
 
 **CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
 (no mover wholesale las ~1900 líneas).
