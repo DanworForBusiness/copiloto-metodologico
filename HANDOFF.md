@@ -1492,13 +1492,28 @@ allá de ese hito.
 | Lote | Estado |
 |---|---|
 | Batch 1 — Thin M365 integration | **CLOSED / GREEN** |
-| Batch 2 — Operations/Staffing repository + service | **IMPLEMENTED / PENDING CI** |
+| Batch 2 — Operations/Staffing repository + service | **CLOSED / GREEN** |
 | Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **NOT AUTHORIZED** |
 | *(luego)* Primer hito real de Staffing | — |
 
-## PLATFORM ACCELERATION — BATCH 2 — OPERATIONS/STAFFING REPOSITORY + SERVICE — IMPLEMENTED / PENDING CI
-(commit `96e41e3`; branch `work/platform-acceleration-b2-staffing-domain`)
+## PLATFORM ACCELERATION — BATCH 2 — OPERATIONS/STAFFING REPOSITORY + SERVICE — CLOSED / GREEN
+(commit funcional original `96e41e3`, corrective pass `2dd42c5`; branch
+`work/platform-acceleration-b2-staffing-domain`)
 
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **297 passed / 1 skipped**;
+  **16 tests focalizados de Staffing** GREEN; **route surface 75 unchanged**;
+  **route snapshot unchanged** (sin `UPDATE_ROUTE_SURFACE`).
+- **Ownership final:** `webapp/services/staffing_repository.py` →
+  **OPERATIONS / STAFFING DATA ACCESS** (consume `core.microsoft365`; conoce
+  la estructura fuente del sitio Gestión; conoce los list ID; posee el
+  mapeo de field names; posee los joins de lookup de SharePoint; devuelve
+  `StaffingAllocationRecord` normalizado — ningún JSON de Graph escapa del
+  boundary del repositorio). `webapp/services/staffing_service.py` →
+  **OPERATIONS / STAFFING DOMAIN / READ MODEL** (consume records
+  normalizados; semántica defensiva de fechas; orden estable; shaping de
+  read-model/display; sin conocimiento de URLs de Graph, list ID ni field
+  names internos).
 - **Archivos creados:** `webapp/services/staffing_repository.py`,
   `webapp/services/staffing_service.py`,
   `tests/webapp/test_staffing_repository.py`,
@@ -1574,9 +1589,13 @@ allá de ese hito.
   para una página read-only no justifican un framework de cache todavía).
   Explícitamente distinto del `@lru_cache`/TTL-cache que sí tienen
   `catalog_reads.py`/`sharepoint_cases.py`.
-- **Real-data smoke:** **no realizado** — falta `SHAREPOINT_GESTION_SITE_ID`
-  configurado y no hay un token Graph delegado disponible en este entorno.
+- **Estado de datos reales — NOT RUN, no confundir con cierre de CI:** el
+  real Graph smoke **NO se ejecutó** — falta `SHAREPOINT_GESTION_SITE_ID`
+  configurado, no hay token Graph delegado disponible en este entorno de
+  implementación, y los field mappings de producción siguen sin validar.
   Aceptable para Batch 2 según lo autorizado; no se fabricó evidencia.
+  **Batch 2 se cierra CLOSED/GREEN sobre CI y tests — NO sobre datos reales
+  validados.**
 - **Tests (+13, luego +3 en el corrective pass → +16):** repositorio (9:
   URLs correctas, `access_token` explícito, normalización + joins,
   degradación sin dropear fila, propagación de errores de transporte,
@@ -1591,23 +1610,51 @@ allá de ese hito.
 - Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
   FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**,
   **sin cambios** — este batch no agrega rutas), **suite 297 passed / 1
-  skipped** (281 + 16). **Estado:** **IMPLEMENTED / PENDING CI** — NO
-  cerrado todavía (el corrective pass se hizo sobre la misma branch/PR
-  abiertos; CI del commit corrective pendiente de confirmación).
+  skipped** (281 + 16). **Cierre:** GitHub CI **GREEN** (commit original
+  `96e41e3` + corrective pass `2dd42c5`, mismo PR/branch).
+- **Estado del esquema de SharePoint (explícito):** **KNOWN FROM LEGACY
+  SOURCE CONFIGURATION** — Asignaciones por proyecto
+  (`c7c96b06-b32d-4386-8228-dd8e1f9926b0`), Proyectos
+  (`efa2e279-593e-4321-867f-1ff982d800f6`), Colaboradores
+  (`6e512cd3-394a-461f-abcd-6613f2c21113`) — estos 3 list ID vienen de
+  evidencia de Power Query legado provista al autorizar el batch; **NO
+  LIVE GRAPH VALIDATED** todavía en este entorno. **Sin resolver para
+  producción:** `SHAREPOINT_GESTION_SITE_ID`, y los 8 internal names de
+  `StaffingFieldMapping` (colaborador lookup, proyecto lookup, allocation,
+  status, start date, end date, project display/name, collaborator
+  display/name) — **ningún default inventado existe**; `StaffingFieldMapping`
+  exige valores explícitos. Los tests usan un fixture mapping explícitamente
+  etiquetado como NO-la-realidad-de-Gestión.
+- **Semántica de negocio — implementada:** allocation records normalizados,
+  joins de fuente, degradación determinística de lookup sin resolver,
+  status passthrough, parseo defensivo de fechas, orden estable
+  consultor/proyecto. **Deliberadamente diferida:** allocation→capacity %,
+  conversión de 160hs FT, proyección +35 días, aviso de fin a 45 días,
+  timeline de 90 días, lookback de vacaciones a 30 días, vacaciones,
+  enriquecimiento de cliente, Gantt/timeline, ranking, KPIs — razón: el
+  campo/unidad real de allocation en producción no está validado todavía;
+  **no se introdujo ningún cálculo de capacidad falso.**
+- **State/cache:** sin cache agregada; sin runtime singleton de Staffing;
+  sin storage de token; `access_token` sigue siendo input explícito del
+  caller; sin base de datos/Redis/persistencia.
 - **Prerequisitos exactos pendientes antes de Batch 3:** (1) confirmar
   `SHAREPOINT_GESTION_SITE_ID` real (sin default a propósito); (2) confirmar
-  los 3 list ID contra una lectura real de Graph (KNOWN FROM LEGACY SOURCE
-  CONFIGURATION, no LIVE GRAPH VALIDATED todavía); (3) confirmar los 8
+  los 3 list ID contra una lectura real de Graph — KNOWN FROM LEGACY SOURCE
+  CONFIGURATION, todavía no LIVE GRAPH VALIDATED; (3) confirmar los 8
   internal names de `StaffingFieldMapping` (sin default a propósito, ni
   siquiera `Title`); (4) confirmar la unidad real de `Asignacion` (horas/
-  %/otra) antes de implementar `capacity_percentage`.
+  %/otra) antes de implementar `capacity_percentage`. **Batch 3 también
+  necesitará una forma controlada de validar estos 3 puntos con datos
+  reales — no se resuelve en este commit de docs.**
 
 **Batch 3 (Operations/Staffing HTTP + Jinja/HTMX): NOT AUTHORIZED** hasta
 que este commit de cierre de Batch 2 esté pusheado; CI final se mantenga
 GREEN; el PR esté mergeado; se verifique containment; y el cleanup de la
-branch de Batch 2 esté completo. El Excel Consultores/Conocimiento sigue
-diferido más allá del primer hito real de Staffing (que llega recién
-después de Batch 3).
+branch de Batch 2 esté completo. Forma esperada de Batch 3: `GET
+/operations/staffing` (shell autenticado) + `POST /operations/staffing/data`
+(recibe `graph_token`, llama `StaffingService`, devuelve fragmento HTMX) →
+**primer hito real de Staffing**. El Excel Consultores/Conocimiento sigue
+diferido más allá de ese hito.
 
 ---
 
@@ -1635,34 +1682,32 @@ después de Batch 3).
 | 2J-D Module page | **CLOSED / GREEN** |
 | **Phase 2** | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
-| Platform Acceleration — Batch 2 (Staffing repository + service) | **IMPLEMENTED / PENDING CI** |
+| Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Platform Acceleration — Batch 2 — Operations/Staffing repository + service
-- **Status:** IMPLEMENTED / PENDING CI
+- **Status:** CLOSED / GREEN
 - **Functional commit:** `96e41e3`, corrective pass `2dd42c5` (branch
-  `work/platform-acceleration-b2-staffing-domain`, pusheada)
+  `work/platform-acceleration-b2-staffing-domain`)
 - **Current next candidate:** Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
   (`GET /operations/staffing`, `POST /operations/staffing/data` → primer
   hito real de Staffing)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre
-  esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y el cleanup de la branch de Batch 2 esté completo
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
+  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
+  containment; y el cleanup de la branch de Batch 2 esté completo
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **297 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/platform-acceleration-b2-staffing-domain` (commits `96e41e3` + `2dd42c5`).
-2. Commit de cierre de docs (`docs(handoff): checkpoint platform acceleration batch 2` o el mensaje que el usuario autorice) tras confirmar CI.
-3. Mergear el PR de Batch 2 → `main`.
-4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 96e41e3 origin/main` (exit 0 recién tras el merge).
-5. Cleanup de la branch de Batch 2 solo tras el paso 4 en verde.
-6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-7. Antes de autorizar Batch 3: idealmente resolver los 4 prerequisitos
-   pendientes (site ID real, 3 list ID confirmados, 6 field names de
-   `_ASIGNACION_FIELDS` confirmados, unidad real de `Asignacion`) — o
-   autorizar Batch 3 sabiendo que la primera página mostrará datos con
-   mapeo sin validar.
-8. **Recién entonces** se autoriza Batch 3 — o el candidato que el usuario elija.
+1. Mergear el PR de Batch 2 (`work/platform-acceleration-b2-staffing-domain` → `main`) — CI ya GREEN.
+2. **Verificar containment** de ambos commits funcionales: `git merge-base --is-ancestor 2dd42c5 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
+3. Cleanup de la branch de Batch 2 solo tras el paso 2 en verde.
+4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+5. Antes de autorizar Batch 3: idealmente resolver los 3 prerequisitos de
+   esquema pendientes (site ID real, 3 list ID live-Graph-validados, 8
+   internal names de `StaffingFieldMapping` confirmados) y definir una forma
+   controlada de validarlos — o autorizar Batch 3 sabiendo que la primera
+   página mostrará datos con mapeo sin validar.
+6. **Recién entonces** se autoriza Batch 3 — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
@@ -1671,7 +1716,7 @@ inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
 necesidad concreta · cambio de comportamiento o de route-surface · se intenta
 comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin extraction sin
 autorización explícita, o se intenta implementar rutas/UI de Staffing antes de
-que Batch 2 esté cerrado.
+autorización explícita de Batch 3.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
