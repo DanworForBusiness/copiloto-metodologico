@@ -1391,6 +1391,105 @@ Admin sigue **DEFERRED / non-blocking**.
 
 ---
 
+# 🟡 POST-PHASE-2 PLATFORM ACCELERATION
+
+> North star: entregar Operations/Staffing como el segundo workspace real lo
+> antes posible, extrayendo solo la infraestructura compartida que un
+> consumidor real justifique — no una nueva fase larga de refactor.
+
+**Decisión arquitectónica evaluada (análisis de solo-lectura, sin cambios de
+código):** de las 3 opciones (A. M365-A primero, B. Staffing primero, C. slice
+delgado de M365 + Staffing inmediato), se eligió **C**. Secuencia acordada:
+
+```
+Batch 1 — Thin M365 integration
+  ↓
+Batch 2 — Operations / Staffing repository + service
+  ↓
+Batch 3 — GET /operations/staffing, POST /operations/staffing/data,
+          página Jinja/HTMX read-only
+  ↓
+PRIMER HITO REAL DE STAFFING
+```
+
+El Excel Consultores/Conocimiento (sheet de Operaciones) queda diferido más
+allá de ese hito.
+
+## PLATFORM ACCELERATION — BATCH 1 — THIN M365 INTEGRATION — IMPLEMENTED / PENDING CI
+(commit `77192e0`; branch `work/platform-acceleration-b1-m365-thin`)
+
+- **Owner exacto:** `core/microsoft365.py` (nuevo). Se eligió `core/` — NO un
+  paquete `integrations/` nuevo — porque `core/` ya es la capa compartida sin
+  dependencia de framework que hoy consumen tanto `webapp/` como `tools/`
+  (`core/sharepoint_cases.py` ya hace Graph calls desde ahí), `core` nunca
+  importa `webapp` (verificado con grep), y crear un paquete nuevo hubiera
+  sido estructura prematura sin necesidad concreta.
+  **Clasificación: SHARED PLATFORM / MICROSOFT 365 INTEGRATION.**
+- **Primitivas creadas (exactas):** `graph_headers(access_token)`,
+  `graph_get_json(url, access_token, *, timeout=12)`,
+  `graph_get_paged_values(url, access_token, *, timeout=12)` (sigue
+  `@odata.nextLink` acumulando `value`, generalizando el patrón ya probado en
+  `core/sharepoint_cases.py::_fetch_sap_cases_cached`). `urllib.request`
+  preservado como transporte (sin migrar a `httpx`). **Sin** retry/backoff,
+  **sin** jerarquía de errores, **sin** manejo de 429/Retry-After, **sin**
+  autenticación app-only, **sin** refresh/storage de tokens — explícitamente
+  fuera de alcance de este batch (M365 hardening futuro, si hace falta).
+- **Token ownership:** el módulo NO posee ni recupera tokens — cada llamada
+  recibe `access_token` explícito del caller. Arquitectura sin cambios:
+  MSAL en el browser → `sessionStorage` → el caller pasa el token explícito
+  por request. Verificado: sin logging del token, sin token embebido en URL,
+  sin estado a nivel de módulo (ni variable global, ni `app.state`, ni cache
+  de conexión). **Restricción registrada para el próximo batch:** un `GET`
+  server-side NO puede asumir que tiene el token Graph del browser — la forma
+  esperada de Staffing es `GET /operations/staffing` (shell autenticado) +
+  `POST /operations/staffing/data` (recibe `graph_token`, consulta Graph,
+  devuelve fragmento HTMX) — routes NO implementadas todavía.
+- **Boundary de cache:** NO se movió. `sharepoint_cases.py`'s TTL cache y
+  `catalog_reads.py`'s `@lru_cache` siguen donde estaban — la política de
+  cache sigue siendo responsabilidad de cada repositorio/consumidor, no del
+  transporte compartido.
+- **Consumidor existente migrado:** `tools/catalog/catalog_service.py` —
+  `_graph_headers`/`_graph_get_json` ahora delegan en
+  `core.microsoft365.graph_headers`/`graph_get_json` (mismo nombre/firma,
+  mismo comportamiento observable: headers, timeout=12, propagación de
+  errores sin normalizar). `generate_catalog.py` no necesitó ningún cambio
+  (sigue llamando `cs._graph_get_json`/`cs._graph_headers` sin saber que
+  delegan). Import defensivo (`try` directo, `except ImportError` inserta el
+  repo root en `sys.path` y reintenta) para no romper el modo demo CLI
+  standalone del archivo (`python tools/catalog/catalog_service.py`), que no
+  tiene el repo root en `sys.path` por defecto — verificado que **ambos**
+  modos de carga (proceso de la webapp vía el hack de
+  `webapp/services/catalog_reads.py`, y el demo CLI standalone) siguen
+  funcionando después del cambio.
+- **`core/sharepoint_cases.py` sin cambios** — se queda temporalmente en su
+  implementación actual (su propio `get_graph_headers` + loop de paginación
+  inline), tal como autorizado. El propósito de este batch era establecer el
+  boundary, no terminar M365-A.
+- **Tests (+7):** `tests/test_microsoft365.py` — headers, `graph_get_json`
+  (request/timeout esperados, decodificación JSON, propagación de errores de
+  `urllib` sin normalizar), `graph_get_paged_values` (sigue `nextLink` y
+  agrega, se detiene sin `nextLink`), y compatibilidad de
+  `catalog_service._graph_headers`/`_graph_get_json` tras la delegación. Todo
+  con `monkeypatch` sobre `urllib.request.urlopen` — sin dependencia de Graph
+  real en CI.
+- **Regresión dirigida GREEN:** `tests/webapp/test_catalog_reads.py`,
+  `tests/test_compliance_rubric.py`, `tests/test_catalog_artifact_type.py`
+  (31 tests) — sin regresión en el comportamiento existente de Catálogo.
+- Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
+  FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**,
+  **sin cambios** — este batch no agrega rutas), **suite 281 passed / 1
+  skipped** (274 + 7). **Cierre:** GitHub CI pendiente de confirmación (push
+  recién realizado).
+- **Sin Operations/Staffing código todavía.** Ninguna ruta, servicio ni
+  template de Staffing existe en este batch.
+
+**Batch 2 (Operations/Staffing repository + service): NOT AUTHORIZED** hasta
+que este commit de cierre esté pusheado; CI final se mantenga GREEN; el PR
+esté mergeado; se verifique containment; y el cleanup de la branch de Batch 1
+esté completo.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -1414,38 +1513,37 @@ Admin sigue **DEFERRED / non-blocking**.
 | 2J-C Trees + Wizard | **CLOSED / GREEN** |
 | 2J-D Module page | **CLOSED / GREEN** |
 | **Phase 2** | **CLOSED / GREEN** |
+| Platform Acceleration — Batch 1 (Thin M365 integration) | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2 — formal closure
-- **Status:** CLOSED / GREEN
-- **Current next candidate:** **POST-PHASE-2 PLATFORM ACCELERATION DECISION**
-  — decidir el trabajo mínimo de plataforma necesario antes de arrancar
-  delivery real de Operations/Staffing. Candidatos: M365 shared capability /
-  M365-A, y Operations workspace / Staffing enablement.
-- **Next candidate status:** **NOT YET AUTHORIZED.** No asumir automáticamente
-  una nueva fase larga de refactor. No elegir M365-A por default sin primero
-  evaluar si Staffing puede arrancar en paralelo o inmediatamente después de
-  una porción mínima de capacidad compartida.
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **274 passed / 1 skipped** · route surface **75**
+- **Phase:** Platform Acceleration — Batch 1 — Thin M365 integration
+- **Status:** IMPLEMENTED / PENDING CI
+- **Functional commit:** `77192e0` (branch `work/platform-acceleration-b1-m365-thin`, pusheada)
+- **Current next candidate:** Batch 2 — Operations/Staffing repository +
+  service (consume `core.microsoft365` directo; sin routes/UI todavía)
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre
+  esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
+  verifique containment; y el cleanup de la branch de Batch 1 esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **281 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-2. Reconstruye el estado: Fase 2 CLOSED/GREEN, ningún blocker mandatorio
-   pendiente, Catálogo/Admin/M365/LLM/runtime-scalability explícitamente
-   diferidos (ver bloque de cierre de Fase 2 arriba).
-3. El usuario evalúa y decide la **POST-PHASE-2 PLATFORM ACCELERATION
-   DECISION**: mínimo de plataforma antes de Operations/Staffing, vs.
-   M365-A, vs. arrancar Staffing en paralelo con una porción mínima
-   compartida.
-4. **Recién entonces** se autoriza el próximo lote — no antes.
+1. Confirmar CI GREEN del push de `work/platform-acceleration-b1-m365-thin` (commit `77192e0`).
+2. Commit de cierre de docs (`docs(handoff): checkpoint platform acceleration batch 1` o el mensaje que el usuario autorice) tras confirmar CI.
+3. Mergear el PR de Batch 1 → `main`.
+4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 77192e0 origin/main` (exit 0 recién tras el merge).
+5. Cleanup de la branch de Batch 1 solo tras el paso 4 en verde.
+6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+7. **Recién entonces** se autoriza Batch 2 (Operations/Staffing repository +
+   service) — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
 necesidad concreta · cambio de comportamiento o de route-surface · se intenta
-comenzar Phase 3/M365-A/Operations/Staffing/Catalog refactor/Admin extraction
-sin autorización explícita de la POST-PHASE-2 PLATFORM ACCELERATION DECISION.
+comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin extraction sin
+autorización explícita, o se intenta implementar rutas/UI de Staffing antes de
+Batch 2/3.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
