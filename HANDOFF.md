@@ -1118,15 +1118,17 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
   | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
   | 2J-C Trees + Wizard | **CLOSED / GREEN** |
-  | 2J-D Module page | **NOT AUTHORIZED** |
-  | *(luego)* evaluación de cierre de Phase 2 | — |
+  | 2J-D Module page | **IMPLEMENTED / PENDING CI** |
+  | *(luego)* **PHASE 2 COMPLETION EVALUATION** | — |
 
   Full Catalog decomposition sigue **DEFERRED**. Admin sigue **DEFERRED /
   non-blocking**.
 
-  **2J-D se vuelve elegible solo después de:** este commit de cierre pusheado;
-  CI final de 2J-C se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y la branch de 2J-C esté limpiada.
+  **La evaluación de cierre de Phase 2 se vuelve elegible solo después de:**
+  este commit de cierre de 2J-D pusheado; CI final de 2J-D se mantenga
+  GREEN; el PR esté mergeado; se verifique containment; y la branch de 2J-D
+  esté limpiada. **No es 2J-E** — 2J-D es el último lote de extracción
+  funcional planificado de la Fase 2J.
 
 **2J-C — Trees + Wizard router — CLOSED / GREEN** (commit
 `40ed75d`; branch `work/architecture-phase-2j-c-trees-wizard`):
@@ -1185,6 +1187,85 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
   asset de storytelling de Academy) en el working tree al momento de
   commitear — no se agregó al commit funcional ni se tocó de ningún modo.
 
+**2J-D — Module page router — IMPLEMENTED / PENDING CI** (commit
+`5a5d98a`; branch `work/architecture-phase-2j-d-module-page`):
+- **Archivos tocados:** `webapp/routers/modules.py` (nuevo), `webapp/main.py`,
+  `tests/webapp/test_routes.py`, `tests/webapp/test_copilot_runtime.py`. Sin
+  otros cambios (el archivo untracked de Academy visto en 2J-C ya no está
+  presente en el working tree — ajeno a esta fase de todos modos).
+- **`GET /modules/{stem}` (module_page)** movida **verbatim** a
+  **`webapp/routers/modules.py`**, incluyendo `_MODULE_TABS` (helper
+  module-exclusivo, co-localizado). Sin cambios de auth/pack/tabs/layout
+  inmersivo/Catálogo-tab/Novedades/invite — mismo template `module.html`,
+  mismo contexto completo, mismos status codes.
+- **`store`/`assistant_store` consumidos directo de `webapp.copilot_runtime`**
+  (`from webapp.copilot_runtime import assistant_store, store` — mismo
+  patrón que `wizard.py`/`assistant.py`). Identidad verificada explícitamente:
+  `modules_router.store is copilot_runtime.store` → **True**;
+  `modules_router.assistant_store is copilot_runtime.assistant_store` →
+  **True**. Sin `WizardStore`/`AssistantConversationStore` nuevos construidos.
+- **Catálogo consumido directo de `webapp.services.catalog_reads`**
+  (`catalog_reads._catalog_domains/_catalog_connection_types/
+  _catalog_security_families/_catalog_data_products_list()`) — no de los
+  alias transicionales de `main.py`. Mismos shapes/degradación/orden/
+  comportamiento de validez de tab preservados (relocación pura).
+- **`_home_url`/`_invite_src` (aliases Fase 2E):** `_home_url` **se
+  mantiene** en `main.py` — tiene un segundo consumidor real, la ruta
+  residual `/catalog/guide/{slug}`, verificado con grep antes de decidir.
+  `_invite_src` **se removió**: su único consumidor era `module_page`;
+  `modules.py` importa `invite.invite_src` directo. El import
+  `from webapp.presentation import invite` en `main.py` se removió junto
+  con él (sin otro consumidor).
+- **Alias runtime `main.store`/`main.assistant_store` (Fase 2J-A) removidos**:
+  `module_page` era su único consumidor de producción en `main.py`
+  (verificado con grep); su única razón para seguir vivos habría sido
+  compatibilidad de tests, no producción. Se migraron en cambio los ~20
+  usos de `web_main.assistant_store` en `tests/webapp/test_routes.py` a
+  `copilot_runtime.assistant_store`, y `tests/webapp/test_copilot_runtime.py`
+  se reescribió: las 2 aserciones de "alias de `main` == `copilot_runtime`"
+  se reemplazaron por 4 aserciones equivalentes sobre los alias de router
+  (`wizard_router.store`, `modules_router.store`,
+  `assistant_router.assistant_store`, `modules_router.assistant_store`, todos
+  `is copilot_runtime.*`); las 2 pruebas de visibilidad cruzada de estado se
+  actualizaron para usar esos mismos alias de router en vez de `web_main.*`.
+  El import `from webapp import copilot_runtime` en `main.py` se removió
+  (sin otro consumidor). **`copilot_runtime.store`/`copilot_runtime.assistant_store`
+  quedan como dueño único** — ya no hay ninguna referencia a estos objetos
+  en `webapp.main`.
+- **Imports adicionales limpiados en `main.py`** (estrictamente obsoletos,
+  verificados uno por uno, sin otro consumidor tras la relocación):
+  `config.ia_enabled_for`, `core.prompts.{ALL_ACTIONS, MODULE_ACTIONS,
+  MODULE_ACTION_DESCRIPTIONS, get_loading_message}`,
+  `webapp.services.content_service.{load_module, split_front_matter}`
+  (`split_front_matter` sigue importado localmente donde se necesita, sin
+  cambios ahí), `webapp.services.section_analysis.ACTION_DESCRIPTIONS`,
+  `webapp.services.whats_new_service as whatsnew`. Los 4 alias
+  `_catalog_domains`/`_catalog_connection_types`/`_catalog_security_families`/
+  `_catalog_data_products_list` en `main.py` también se removieron (único
+  consumidor era `module_page`); `_catalog_security_criteria` se deja
+  intacto — ya estaba sin consumidor ANTES de esta fase (deuda de Catalog
+  preexistente, fuera de alcance).
+- **Cobertura nueva:** la cobertura HTTP existente de `module_page` (render
+  autenticado, pack/query, tabs, Catálogo-tab, contexto de Assistant/Wizard,
+  perfil readonly) ya era fuerte y sigue en pie sin cambios — es cobertura a
+  nivel HTTP, indiferente a dónde vive el handler. Único gap real cerrado:
+  **+1 test** de redirect anónimo (`test_module_page_anonymous_redirects_to_login`,
+  mismo patrón que `/whats-new` y `/academy/{stem}`), que no existía.
+- Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
+  FastAPI 0.141.1 / Starlette 1.4.1): route-contract GREEN (**75**), **suite
+  274 passed / 1 skipped** (271 + 3: +1 redirect anónimo, +2 identidad de
+  router). `main.py` pasó de **27 a 26** rutas propias. **Cierre:** GitHub CI
+  pendiente de confirmación (push recién realizado).
+- **Señal de completitud de Fase 2:** con 2J-D implementado, los 7 criterios
+  de cierre previamente identificados quedan satisfechos (extracción
+  mecánica completa; blocker de dependencia de Catálogo resuelto en 2I;
+  ownership de lifecycle mutable resuelto en 2J-A; Assistant/Section
+  extraídas en 2J-B; Trees/Wizard extraídas en 2J-C; Module page extraída en
+  2J-D; residual de Catálogo y de Admin explícitamente diferidos). **Próxima
+  acción esperada tras merge/cleanup: PHASE 2 COMPLETION EVALUATION — no
+  otro lote de extracción funcional, no Phase 3/M365, no Operations.** Esa
+  evaluación NO se inicia automáticamente en este commit.
+
 **Phase 2 overall: NOT COMPLETE.**
 
 ---
@@ -1210,57 +1291,51 @@ branch `work/architecture-phase-2j-a-copilot-runtime`):
 | 2J-A Copilot runtime ownership | **CLOSED / GREEN** |
 | 2J-B Assistant + Section Analysis | **CLOSED / GREEN** |
 | 2J-C Trees + Wizard | **CLOSED / GREEN** |
+| 2J-D Module page | **IMPLEMENTED / PENDING CI** |
 | **Phase 2 overall** | **NOT COMPLETE** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Phase 2J-C — Trees + Wizard router
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `40ed75d` (branch `work/architecture-phase-2j-c-trees-wizard`)
-- **Current next candidate:** Phase 2J-D — Module page extraction
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de 2J-C esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **271 passed / 1 skipped** · route surface **75**
+- **Phase:** Phase 2J-D — Module page router
+- **Status:** IMPLEMENTED / PENDING CI
+- **Functional commit:** `5a5d98a` (branch `work/architecture-phase-2j-d-module-page`, pusheada)
+- **Current next candidate:** **PHASE 2 COMPLETION EVALUATION** (no otro lote de
+  extracción funcional — 2J-D era el último planificado)
+- **Next candidate status:** **NOT AUTHORIZED** hasta que: el commit de cierre de
+  2J-D esté pusheado; CI final se mantenga GREEN; el PR esté mergeado; se
+  verifique containment; y el cleanup de la branch de 2J-D esté completo
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **274 passed / 1 skipped** · route surface **75**
 
 ### Expected next workflow
-1. Mergear el PR de Phase 2J-C (`work/architecture-phase-2j-c-trees-wizard` → `main`) — CI ya GREEN.
-2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 40ed75d origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Phase 2J-C solo tras el paso 2 en verde.
-4. Crear una branch de trabajo nueva y limpia para 2J-D.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-6. Reconstruye el estado y el usuario lo valida.
-7. **Recién entonces** se autoriza 2J-D (Module page) — o el candidato que el usuario elija.
+1. Confirmar CI GREEN del push de `work/architecture-phase-2j-d-module-page` (commit `5a5d98a`).
+2. Commit de cierre de docs (`docs(handoff): checkpoint phase 2j-d pending ci` o el mensaje que el usuario autorice) tras confirmar CI.
+3. Mergear el PR de Phase 2J-D → `main`.
+4. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 5a5d98a origin/main` (exit 0 recién tras el merge).
+5. Cleanup de la branch de Phase 2J-D solo tras el paso 4 en verde.
+6. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+7. Reconstruye el estado y el usuario lo valida.
+8. **Recién entonces** se autoriza la PHASE 2 COMPLETION EVALUATION — o el candidato que el usuario elija.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
-necesidad concreta · cambio de comportamiento o de route-surface. También reportar
-(no bloqueante) el archivo untracked ajeno a esta fase
-`content_packs/datasphere_core/assets/academy/restaurante-danwor.html` visto en el
-working tree — no forma parte de ningún commit de Fase 2J.
+necesidad concreta · cambio de comportamiento o de route-surface.
 
-## REMAINING PHASE 2 MAP (post-2J-C)
-**STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
-- Module page. (Assistant + Section Analysis **ya extraídos en 2J-B** →
-  `webapp/routers/assistant.py`; Trees / Wizard / Diagnostics **ya
-  extraídos en 2J-C** → `webapp/routers/wizard.py`.)
-- **Ownership RESUELTO en 2J-A:** `store` (WizardStore) y `assistant_store`
-  (AssistantConversationStore) tienen dueño explícito en
-  `webapp/copilot_runtime.py`. **Confirmado con evidencia de código** (no
-  solo "parecen"): los 4 servicios que consumía Assistant
-  (`section_analysis_service`, `assistant_chat_service`,
-  `assistant_routing_service`, `assistant_feedback_repository`) eran
-  stateless — **no** necesitaban `copilot_runtime.py`; ahora tienen dueño
-  explícito en `webapp/routers/assistant.py` (2J-B).
-- **Fase 2I ya resolvió** la única dependencia de `module_page` hacia Catalog
-  (`_catalog_domains`/`_catalog_connection_types`/`_catalog_security_families`/
-  `_catalog_data_products_list`, dueño explícito en `webapp/services/catalog_reads.py`).
-  Cuando `module_page` se extraiga (2J-D), puede importar directo desde
-  `catalog_reads` **y** `copilot_runtime` — **no** necesita tocar `webapp.main`.
-- **Restante en Fase 2J:** extraer `module_page` en 2J-D (último consumidor
-  de los alias `store`/`assistant_store` en `main.py`) — ver secuencia y
-  razones en la sección 2J arriba.
+## REMAINING PHASE 2 MAP (post-2J-D)
+**STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
+(2J-B) y Trees/Wizard/Diagnostics (2J-C) están todos extraídos; `store`/
+`assistant_store` no tienen ninguna referencia en `webapp.main` — dueño
+único en `webapp/copilot_runtime.py`, consumido directo por
+`webapp/routers/{wizard,assistant,modules}.py`.
+- **Fase 2I ya resolvió** la dependencia de Catálogo que bloqueaba esta
+  extracción (`catalog_reads._catalog_domains/_catalog_connection_types/
+  _catalog_security_families/_catalog_data_products_list`, dueño explícito
+  en `webapp/services/catalog_reads.py`) — confirmado en 2J-D: `modules.py`
+  los consume directo, sin tocar `webapp.main`.
+- **Restante en Fase 2J:** ninguno. Los 3 lotes planificados (2J-B, 2J-C,
+  2J-D) están todos IMPLEMENTED/PENDING CI o CLOSED/GREEN. El siguiente paso
+  no es otro lote — es la **PHASE 2 COMPLETION EVALUATION** (ver sección 2J
+  arriba para los 7 criterios y su estado).
 
 **CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
 (no mover wholesale las ~1900 líneas).
