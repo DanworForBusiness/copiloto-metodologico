@@ -72,6 +72,7 @@ from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
 from webapp.routers import auth as auth_router
+from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
@@ -180,6 +181,7 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
 app.include_router(auth_router.router)
+app.include_router(whats_new_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -3016,54 +3018,6 @@ def catalog_security_detail(
             "catalog_ref": f"{entry.cliente} · {entry.criterio}",
         },
     )
-
-_WHATSNEW_COOKIE_MAXAGE = 60 * 60 * 24 * 365
-
-
-def _whatsnew_mark_seen(response, hash_: str) -> None:
-    if hash_:
-        response.set_cookie(
-            whatsnew.COOKIE_NAME, hash_, max_age=_WHATSNEW_COOKIE_MAXAGE, path="/",
-            httponly=False, samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-        )
-
-
-@app.get("/whats-new", response_class=HTMLResponse, include_in_schema=False)
-def whats_new_page(request: Request, pack: str = Query(DEFAULT_PACK)):
-    """Página de Novedades: los commits marcados con trailer `Novedad:`, renderizados
-    con el pipeline de contenido. Visitarla marca todo como visto (avanza la cookie)."""
-    user = auth_service.session_user(request)
-    if not user:
-        return _login_redirect(request, _pack(pack))
-    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
-    items = whatsnew.entries(selected)
-    categorias = sorted({e["categoria"] for e in items if e.get("categoria")})
-    academy = [a for a in list_academy(selected) if not a.nav_hidden]
-    resp = templates.TemplateResponse(
-        request=request, name="whats_new.html",
-        context={
-            "modules": list_modules(selected),
-            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
-            "academy": academy,
-            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
-            "active_group": "", "active_stem": "",
-            "readonly": _readonly(request), "pack": selected,
-            "pack_label": content_pack_short_label(selected), "user": user,
-            # El detalle lo arma Alpine desde este JSON (filtros + colapsables por fecha).
-            "whatsnew_items": items, "categorias": categorias, "n_novedades": len(items),
-        },
-    )
-    _whatsnew_mark_seen(resp, items[0]["ref"] if items else "")
-    return resp
-
-
-@app.post("/whats-new/dismiss", response_class=HTMLResponse, include_in_schema=False)
-def whats_new_dismiss(request: Request):
-    """Cierra el banner y no lo vuelve a mostrar hasta que haya una novedad más nueva
-    (avanza la cookie al anuncio más reciente). Devuelve vacío → HTMX quita el banner."""
-    resp = HTMLResponse("")
-    _whatsnew_mark_seen(resp, whatsnew.latest_ref())
-    return resp
 
 
 @app.get("/catalog/domain", response_class=HTMLResponse, include_in_schema=False)
