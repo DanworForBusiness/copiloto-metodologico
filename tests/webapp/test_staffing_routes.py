@@ -55,7 +55,7 @@ class _RecordingService:
 def _row(**overrides):
     base = dict(
         assignment_id="1", consultant_name="Ana Pérez", project_name="Proyecto Alfa",
-        allocation_value=50.0, allocation_unit="unknown", capacity_percentage=None,
+        allocation_value=50.0, allocation_unit="hours_per_month", capacity_percentage=None,
         status="Active", start_date=None, end_date=None,
     )
     base.update(overrides)
@@ -127,6 +127,19 @@ def test_post_successful_rows_render_fragment(monkeypatch):
     assert response.status_code == 200
     assert "Zulema Diaz" in response.text
     assert "Proyecto Z" in response.text
+
+
+def test_post_renders_honest_hours_per_month_label_without_capacity_percentage(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row(allocation_value=40.0, allocation_unit="hours_per_month")]),
+    )
+    response = client.post("/operations/staffing/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    assert "40 h/mes" in response.text
+    # Ninguna capacidad/porcentaje inventada — solo la unidad validada.
+    assert "%" not in response.text
+    assert "capacity" not in response.text.lower()
 
 
 def test_post_empty_rows_render_valid_empty_state(monkeypatch):

@@ -21,7 +21,7 @@
     <tr>
       <td>{{ row.consultant_name }}</td>
       <td>{{ row.project_name }}</td>
-      <td>{% if row.allocation_value is not none %}{{ row.allocation_value }} ({{ row.allocation_unit }}){% else %}—{% endif %}</td>
+      <td>{% if row.allocation_value is not none %}{% if row.allocation_unit == "hours_per_month" %}{{ "%g" % row.allocation_value }} h/mes{% else %}{{ row.allocation_value }} ({{ row.allocation_unit }}){% endif %}{% else %}—{% endif %}</td>
       <td>{{ row.status or "—" }}</td>
       <td>{{ row.start_date or "—" }}</td>
       <td>{{ row.end_date or "—" }}</td>

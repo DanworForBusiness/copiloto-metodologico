@@ -1,6 +1,7 @@
 """
 staffing_repository.py — Acceso a datos de Staffing en SharePoint (sitio
-"Gestión"). Fase de aceleración post-Fase 2 (Batch 2, con corrective pass).
+"Gestión"). Fase de aceleración post-Fase 2 (Batch 2/3; campos validados
+contra Graph real en Batch 3).
 
 Sabe DÓNDE viven las tres fuentes del primer slice de Staffing
 (Asignaciones por proyecto / Proyectos / Colaboradores), cómo construir las
@@ -14,24 +15,20 @@ importa `webapp.main`, `fastapi`, templates ni nada de autenticación/sesión.
 Cada operación de Graph recibe `access_token` explícito — este módulo NO lo
 posee, no lo persiste, no lo loguea.
 
-⚠️ MAPEO DE CAMPOS — SIN DEFAULT DE PRODUCCIÓN: los internal names de
-columna que Graph expone (`fields.<InternalName>`) NO son el label en
-español que ve el usuario, y ninguno de los 8 nombres que necesita este
-repositorio (6 de Asignaciones + el nombre de Proyecto + el de Colaborador)
-está confirmado en ningún lugar del repo/HANDOFF. La primera versión de
-este módulo usaba nombres inferidos por convención (`ColaboradorLookupId`,
-`Asignacion`, `Title` para ambos nombres, etc.) como default — un
-corrective pass los removió: ni siquiera `Title` se asume, porque que
-SharePoint tenga una columna `Title` estándar NO prueba que Proyectos o
-Colaboradores la usen como el nombre que Staffing debe mostrar. Ahora el
-mapeo es un objeto explícito (`StaffingFieldMapping`) sin ningún default —
-`StaffingFieldMapping.from_config()` lo construye desde `config.py` (vacío
-si no está configurado; construirlo NO falla, así el import de la app no se
-rompe por Staffing sin configurar), y `StaffingRepository.get_allocations`
-falla explícito, listando exactamente qué falta, si se intenta leer sin
-mapeo completo. Los tests inyectan su propio mapeo fixture (ver
-`tests/webapp/test_staffing_repository.py`) — determinístico, pero
-explícitamente NO una prueba de los nombres reales.
+MAPEO DE CAMPOS — sin default de producción en el CÓDIGO, pero YA
+VALIDADO contra el sitio Gestión real (Batch 3): los 8 internal names de
+`StaffingFieldMapping` (`ColaboradorLookupId`, `ProyectoLookupId`,
+`Horaspormes`, `Status`, `Fechainicio`, `FechaFin`, `Title`×2) se
+confirmaron leyendo `/sites/{id}/lists/{id}/columns` con un token Graph
+real — no son una inferencia por convención. Siguen sin default en
+`config.py` (mismo mecanismo de la Fase 2 corrective pass: no hardcodear un
+mapeo específico de un tenant como default de producción) — el entorno
+local los provee vía `.env` (git-ignored, ver HANDOFF Batch 3). Si el
+mapeo no está configurado, `StaffingRepository.get_allocations` sigue
+fallando explícito, listando exactamente qué falta — construir el objeto
+vacío no rompe el import de la app. Los tests inyectan su propio mapeo
+fixture (ver `tests/webapp/test_staffing_repository.py`), estilísticamente
+igual al real pero declarado como fixture, no como prueba del esquema.
 """
 from __future__ import annotations
 
@@ -83,8 +80,9 @@ class StaffingFieldMapping:
 class StaffingAllocationRecord:
     """Representación normalizada y estable de una fila de Asignaciones por
     proyecto, ya resuelta contra Proyectos/Colaboradores. `allocation_unit`
-    queda "unknown" hasta que se confirme si el valor fuente es horas,
-    porcentaje u otra unidad — ver Batch 2 en HANDOFF."""
+    es "hours_per_month" — validado contra el sitio Gestión real (Batch 3):
+    el campo `Horaspormes` (displayName "Horas por mes", type `number`) es
+    la fuente de `allocation_value`. Confirmado, no una inferencia."""
 
     assignment_id: str
     consultant_id: str | None
@@ -204,7 +202,7 @@ class StaffingRepository:
                     project_id=proyecto_id,
                     project_name=_resolved_title(proyecto_item, mapping.proyecto_title),
                     allocation_value=_to_float(fields.get(mapping.allocation)),
-                    allocation_unit="unknown",
+                    allocation_unit="hours_per_month",
                     status=_stringify(fields.get(mapping.status)),
                     start_date=_stringify(fields.get(mapping.start_date)),
                     end_date=_stringify(fields.get(mapping.end_date)),

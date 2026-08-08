@@ -1,6 +1,6 @@
 """
 staffing_service.py — Read-model de Staffing para la primera página
-read-only. Fase de aceleración post-Fase 2 (Batch 2).
+read-only. Fase de aceleración post-Fase 2 (Batch 2/3).
 
 Consume `StaffingAllocationRecord`s ya normalizados/unidos de
 `staffing_repository.py` y les da el significado de negocio mínimo que
@@ -13,13 +13,17 @@ SHARED. NO importa `core.microsoft365` directo (aísla esa dependencia
 detrás de `StaffingRepository`), NO importa FastAPI/Jinja, NO define rutas,
 NO mantiene estado mutable de proceso.
 
-⚠️ Semántica histórica (Power BI legado) documentada como referencia, pero
-NO aplicada: `FT_MONTHLY_CAPACITY_HOURS_HISTORICAL`/`KNOWN_HISTORICAL_STATUSES`
-no están confirmadas contra la fuente actual. En particular, NO se calcula
-`capacity_percentage` todavía — `allocation_unit` sigue "unknown" (ver
-staffing_repository.py); exponer un % ahora sería una cuenta falsa
-maquillada de dato real. Se implementa recién cuando la unidad esté
-confirmada (prerequisito de Batch 3, ver HANDOFF).
+`allocation_unit` es "hours_per_month" — validado contra Graph real en
+Batch 3 (campo `Horaspormes`). **Aun así, `capacity_percentage` sigue
+`None` a propósito**: conocer la unidad no resuelve la semántica de
+negocio de capacidad (baseline FT/PT, over-allocation, etc.) — eso es el
+PRÓXIMO incremento funcional, no este batch. `FT_MONTHLY_CAPACITY_HOURS_HISTORICAL`/
+`KNOWN_HISTORICAL_STATUSES` siguen siendo referencia histórica (Power BI
+legado) documentada pero NO aplicada — de hecho, los valores reales de
+`Status` observados en Batch 3 (Inactivo/Activo/Tentativo) NO coinciden
+literalmente con `KNOWN_HISTORICAL_STATUSES` (Active/Inactive/Tentative/
+Vaca, en inglés) — `status` sigue siendo passthrough puro del valor fuente,
+nunca se compara contra esa constante.
 """
 from __future__ import annotations
 
@@ -90,6 +94,8 @@ class StaffingService:
 
     @staticmethod
     def _capacity_percentage(record: StaffingAllocationRecord) -> float | None:
-        # allocation_unit == "unknown" hasta confirmar la fuente real (ver
-        # docstring del módulo) — deliberadamente None, no una cuenta falsa.
+        # allocation_unit ya es "hours_per_month" (validado, Batch 3) — pero
+        # la semántica de CAPACIDAD (baseline FT/PT, over-allocation, etc.)
+        # es el próximo incremento funcional, no este batch. Deliberadamente
+        # None, no una cuenta falsa (ver docstring del módulo).
         return None
