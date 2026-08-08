@@ -32,7 +32,7 @@
 > (commit `c119b51`; CI GREEN; feature COPILOT; router sin `webapp.main`; misma env
 > Jinja; surface 75; +3 tests HTTP; ver A.20). **2E — Academy router** (`GET
 > /academy/{stem}` + 3 endpoints de feedback → `webapp/routers/academy.py`)
-> **IMPLEMENTED / PENDING CI** (commit `0431caa`; feature COPILOT; router sin
+> **CLOSED / GREEN** (commit `0431caa`; CI GREEN; feature COPILOT; router sin
 > `webapp.main`; `_home_url`→`nav.home_url`, `_invite_src`→`presentation/invite.py`,
 > `_academy_feedback_*`→`presentation/academy_feedback.py`, con aliases transitorios
 > en main; surface 75; +2 tests; ver A.20). Cada lote requiere autorización explícita; NO
@@ -608,7 +608,24 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   puede ahora vivir **fuera de `main.py`** sin trasladar dependencias privadas de
   `main` a otro god-module. Es el objetivo real de Fase 2D.
 
-**2E — Academy router — IMPLEMENTED / PENDING CI** (commit `0431caa`):
+**2E — Academy router — CLOSED / GREEN** (commit `0431caa`):
+- **Evidencia de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI **0.141.1**;
+  Starlette **1.4.1**; full suite **239 passed / 1 skipped**; **route surface 75
+  unchanged** (snapshot unchanged); Academy focal regression GREEN; **Pack Assets
+  regression GREEN**; router **no importa `webapp.main`**; **sin runtime/bootstrap**;
+  **sin cambios de comportamiento**.
+- **Ownership final:**
+  - `webapp/routers/academy.py` → **COPILOT / ACADEMY HTTP**.
+  - `webapp/presentation/academy_feedback.py` → **COPILOT / ACADEMY PRESENTATION**.
+  - `webapp/presentation/invite.py` → **COPILOT / SHARED PRESENTATION** (shared dentro
+    del Copiloto, **NOT PLATFORM**; cross-workspace reuse **NOT YET DECIDED**).
+  - `webapp/nav.py:home_url` → **CURRENT WEB NAVIGATION** (cross-workspace reuse
+    **NOT YET DECIDED**).
+- **Aliases transitorios que SIGUEN en `main`** (sin lógica, solo re-export para
+  consumidores todavía NO extraídos; desaparecen cuando esos grupos salgan de main):
+  `_home_url = nav.home_url` (landing/module/catalog), `_invite_src = invite.invite_src`
+  (module), `INVITE_COOKIE = invite.INVITE_COOKIE` (/desafio, /desafio/cerrar),
+  `_academy_feedback_assets = academy_feedback.feedback_assets` (/pack-assets).
 - `GET /academy/{stem}` + `POST /academy/{stem}/feedback|feedback/submit|feedback/cancel`
   extraídos a **`webapp/routers/academy.py`** (APIRouter) como **relocación pura**:
   auth/pack/diagnostic/readonly/template/context/redirects/feedback y **formato
@@ -647,7 +664,7 @@ sigue siendo composition root (sin `create_app()`). Cada lote requiere
   templates físicos. **Route surface 75 sin cambios** (snapshot intacto).
 - Validado sobre **stack reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette
   1.4.1)**: route-contract GREEN, **suite 239 passed / 1 skipped** (237 + 2), smoke
-  focal (academy render / feedback / pack-assets) GREEN. **PENDING:** CI GREEN en el PR.
+  focal (academy render / feedback / pack-assets) GREEN. **Cierre:** GitHub CI **GREEN**.
 - **Phase 2F candidate: Pack Asset Serving** — Academy ya eliminó su último blocker
   main-private (`_academy_feedback_assets` tiene dueño explícito en presentation).
   **NOT AUTHORIZED** (requiere OK explícito).
@@ -663,6 +680,104 @@ el resto se justifica por separado). El monkeypatch de tests **no** cambia mient
 `APP_OWNER` en `webapp.access`).
 
 **Phase 2 overall: NOT COMPLETE.**
+
+---
+
+# ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
+
+> Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
+> estado con **HANDOFF.md + Git + repo**, sin esta conversación.
+
+## Estado de fases (inequívoco)
+| Fase | Estado |
+|---|---|
+| 2A Telemetry | **CLOSED / GREEN** |
+| 2B Auth/session | **CLOSED / GREEN** |
+| 2C Shared templating | **CLOSED / GREEN** |
+| PRE-2D distributed helper/context gate | **CLOSED / GREEN** |
+| 2D What's New | **CLOSED / GREEN** |
+| 2E Academy | **CLOSED / GREEN** |
+| **Phase 2 overall** | **NOT COMPLETE** |
+
+## CURRENT EXECUTION POINT
+- **Phase:** Phase 2E — Academy
+- **Status:** CLOSED / GREEN
+- **Functional commit:** `0431caa` (docs de cierre en el commit siguiente)
+- **Current next candidate:** Phase 2F — Pack Asset Serving
+- **Phase 2F status:** **NOT AUTHORIZED**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **239 passed / 1 skipped** · route surface **75**
+
+### Expected next workflow
+1. Mergear el PR de Phase 2E tras CI GREEN de los docs.
+2. **Verificar containment** del commit funcional: `git merge-base --is-ancestor 0431caa origin/main` (exit 0). *(Al escribir este checkpoint el PR aún NO estaba mergeado → exit ≠ 0 esperado hasta el merge.)*
+3. Cleanup de la branch de Phase 2E (solo tras el paso 2 en verde).
+4. Crear una branch de trabajo nueva y limpia.
+5. El agente N+1 lee **HANDOFF + Git** (no esta conversación).
+6. El agente N+1 reconstruye el estado.
+7. El usuario valida la reconstrucción.
+8. **Recién entonces** se autoriza Phase 2F.
+
+### Stop conditions para N+1
+Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
+working tree sucio · Phase 2F requiere una dependencia main-private inesperada ·
+aparece necesidad de `runtime.py`/`bootstrap.py` · cambio de comportamiento o de
+route-surface.
+
+## REMAINING PHASE 2 MAP (post-2E)
+**READY / MECHANICAL**
+- **Phase 2F — Pack Asset Serving** (candidato): `GET /brand/dancing/{pack_name}`,
+  `GET /pack-assets/{pack_name}/{asset_path:path}`, `GET /pack-resources/{pack_name}/{kind}/{resource_path:path}`.
+  Academy ya resolvió el antiguo blocker: `academy_feedback_assets` tiene dueño
+  explícito no-HTTP (`webapp.presentation.academy_feedback`); `/pack-assets` lo consume
+  hoy vía **alias temporal** en main. Sin dependencia de singletons; sin
+  runtime/bootstrap esperado; riesgo **LOW / LOW-MED**; cambio de surface **NONE**.
+- **Landing / session navigation** (`/`, `/home`, `/login`, `/desafio`, `/desafio/cerrar`);
+  al extraerla, `_home_url` deja de necesitar alias en main.
+- **Feedback family** (module + section + catalog feedback); comparten
+  `_save_*_feedback` + seam `FEEDBACK_LOG_DIR` (hoy en main).
+
+**STATEFUL** (requieren decidir el boundary de lifecycle antes de extraer)
+- Module page / section analysis · Assistant · Trees / Wizard / Diagnostics.
+- **Verdadero mutable lifecycle compartido = exactamente 2 instancias:** `store`
+  (WizardStore) y `assistant_store` (AssistantConversationStore). Las otras 4
+  (`section_analysis_service`, `assistant_chat_service`, `assistant_routing_service`,
+  `assistant_feedback_repository`) parecen stateless / construcción histórica — **NO
+  asumir** que necesitan `runtime.py`; justificar caso por caso.
+
+**CATALOG** — fase propia: separar **HTTP / business-data-compliance / presentation-SVG**
+(no mover wholesale las ~1900 líneas).
+
+**ADMIN** — último o parcialmente diferible según evaluación.
+
+## ARCHITECTURAL NORTH STAR — Danwor Internal Platform
+El **platform composition root** (hoy `webapp/main.py`, sin `create_app()`): **compone,
+registra capacidades, resuelve entrada/workspace y delega.** NO es dueño funcional de
+cada workspace. Principio: *"The platform decides where to delegate. Each workspace
+decides what to do after receiving control."* **Shared capability ≠ owned by `main.py`.**
+
+Clasificación de capacidades (preservar):
+- `auth_service` → **PLATFORM / SHARED** identity + session.
+- `webapp/templating.py` → **PLATFORM presentation infrastructure**.
+- `webapp/access.py` → **CURRENT WEB ACCESS POLICY** (cross-workspace reuse **NOT YET DECIDED**).
+- `webapp/nav.py` → **CURRENT WEB NAVIGATION** (cross-workspace reuse **NOT YET DECIDED**).
+- `core.content_registry` → **COPILOT / CONTENT**.
+- Academy / What's New → **COPILOT features**.
+- Future **Operations / Staffing** → **NOT IMPLEMENTED**.
+
+## SHARED UI DIRECTION (diferida)
+NO confundir la **infraestructura de templating Jinja** con un futuro **design system**.
+Los patrones reutilizables (documentación compartida, analytics/reporting, UI operativa)
+deben **derivarse de consumidores reales** — Usage Analytics + Staffing serán evidencia
+clave. **NO implementar todavía.**
+
+## BRANCH SAFETY RULE (aprendida del incidente Phase 2D)
+**NUNCA** borrar la branch de una fase hasta confirmar que su commit funcional está
+contenido en `origin/main`:
+```
+git merge-base --is-ancestor <functional-commit> origin/main   # exit code 0 requerido
+```
+El incidente 2D (branch borrada con commits sin mergear; recuperados vía PR #11) es la
+razón de esta regla.
 
 ---
 
