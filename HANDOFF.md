@@ -14,14 +14,13 @@
 > quedó como **ANEXO HISTÓRICO** al final (feature previa, ya en producción; se
 > conserva por su detalle técnico, no es el trabajo en curso).
 >
-> **Estado en una línea (2026-08):** Fase 0 **CERRADA/GREEN, mergeada a `main`**.
-> **Fase 1 — System Router Pilot: CLOSED / GREEN.** CI del PR #2 en verde
-> (228 passed / 1 skipped / 0 failed); el fallo inicial del route-contract fue
-> **dependency drift** (FastAPI moderno anida las rutas de `include_router`),
-> resuelto **solo en el test** (`6d1cf94`, collector recursivo). PR #2 *ready to
-> merge* (aún **sin mergear**). Detalle en **A.13.1/A.13.2**. **GATE ABIERTO:
-> A.18 — decisión de reproducibilidad de dependencias REQUERIDA antes de Fase 2.**
-> No avanzar a Fase 2 sin autorización explícita.
+> **Estado en una línea (2026-08):** Fase 0 y **Fase 1** (System Router Pilot)
+> **CLOSED / GREEN**, mergeadas a `main`. **Gate PRE-PHASE-2 de reproducibilidad
+> de dependencias: CLOSED / GREEN** (ver A.18) — `.python-version=3.14.3` +
+> `constraints.txt` cross-platform, validado en Windows + CI Linux + DigitalOcean.
+> **Fase 2 (extracción de routers): READY, pero NOT STARTED** — requiere
+> autorización explícita del usuario. Dirección futura de plataforma multi-workspace
+> en **A.19** (es dirección, NO scope de Fase 2). No avanzar a Fase 2 sin OK.
 
 ## A.1 Contexto de la iniciativa
 
@@ -350,26 +349,92 @@ Ante una sesión nueva de Claude Code:
 6. **Nunca** avanzar automáticamente a la fase siguiente.
 7. Actualizar este HANDOFF al terminar un checkpoint relevante.
 
-## A.18 PRE-PHASE-2 DECISION REQUIRED — Reproducibilidad de dependencias
+## A.18 PRE-PHASE-2 DEPENDENCY REPRODUCIBILITY — CLOSED / GREEN
 
-**Finding arquitectónico (elevado a gate):** el entorno de desarrollo local **no
-reproduce** las dependencias de una instalación fresca, porque `requirements.txt`
-usa **rangos**:
-- Local dev: **FastAPI 0.115.5 / Starlette 0.41.3**.
-- Fresh install / CI / DigitalOcean: **FastAPI 0.141.1 / Starlette 1.4.1**.
+**Origen del gate:** durante Fase 1, el entorno local (FastAPI 0.115.5 / Starlette
+0.41.3) **no reproducía** la instalación fresca de CI/prod (FastAPI 0.141.1 /
+Starlette 1.4.1), porque `requirements.txt` usa **rangos**. Ese drift causó el
+fallo de CI de Fase 1 (ver A.13.2). Se decidió **congelar la resolución que
+CI/prod ya usan** (no es un upgrade), con `pip` puro — sin Poetry/uv/Docker.
 
-Esto ya causó el fallo de CI de Fase 1 (ver A.13.2) — un cambio de comportamiento
-del framework entre versiones que local no veía. Es deuda de **reproducibilidad**,
-no un bug puntual.
+**Implementación (commit `ad6d675` en `work/architecture-phase-2`; closeout en
+`work/dependency-reproducibility-closeout`):**
+- **NEW `constraints.txt`** — superset cross-platform de **51 paquetes** (49
+  comunes con versiones idénticas + `colorama==0.4.6` Windows-only +
+  `uvloop==0.22.1` Linux-only). Excluye `pip` (tooling de entorno). Sin hashes,
+  sin markers. Un constraint no instala por sí solo: `colorama`/`uvloop` conviven
+  y cada plataforma instala el que le corresponde.
+- **NEW `.python-version` = `3.14.3`** — source of truth del intérprete.
+- **`requirements.txt` / `requirements-dev.txt`** — solo se agregó `-c constraints.txt`;
+  ranges/extras (`uvicorn[standard]`, `python-jose[cryptography]`), `openai>=1.30.0`
+  y `pytest==9.1.1` intactos.
+- **`.github/workflows/ci.yml`** — `setup-python` lee `python-version-file: ".python-version"`.
+- **DELETE `.github/workflows/_diag-linux-freeze.yml`** — workflow diagnóstico temporal, ya no queda en el repo.
 
-**NO resolver ahora.** Explícitamente NO hacer (sin decisión previa): pinnear
-FastAPI/Starlette, crear lockfile, cambiar `requirements.txt`, actualizar el venv
-local, introducir uv/pip-tools/Poetry, ni cambiar deployment.
+**Evidencia final (validado end-to-end):**
+- **Windows / local (validado en esta sesión):** venv limpio desde requirements+constraints;
+  Python 3.14.3; FastAPI 0.141.1 / Starlette 1.4.1 / OpenAI 2.53.0; `colorama`
+  instalado, `uvloop` NO (correcto); route-contract GREEN; suite **228 / 1 / 0**;
+  boot Uvicorn GREEN; `/health` GREEN; **functional smoke GREEN** (Auth Entra,
+  Assistant/OpenAI real, Wizard, Catalog/SharePoint, HTMX).
+- **GitHub Actions / Linux (confirmado por el equipo):** Python **3.14.3** leído
+  de `.python-version`; CI GREEN; suite **228 / 1 / 0**; constraints cross-platform
+  OK; `uvloop` Linux-only, `colorama` Windows-only; grafo común con mismas versiones.
+- **DigitalOcean / producción (confirmado por el equipo):** build log explícito
+  **“Using Python 3.14.3 specified in .python-version”**; cache descartada por
+  cambio de `requirements.txt`; Python 3.14.3 instalado; dependencias desde
+  `requirements.txt` aplicando `constraints.txt`; deployment/runtime GREEN;
+  **production smoke GREEN**.
 
-**GATE:** **antes de autorizar la Fase 2** (extracción masiva de routers) hay que
-tomar una **decisión consciente** sobre cómo manejar la reproducibilidad
-(dev == CI == runtime). No se debe empezar la Fase 2 con `dev != CI != prod`. Esta
-decisión es del usuario; registrar acá la que se tome.
+**Decisión arquitectónica registrada:**
+- `.python-version` = **3.14.3** es la source of truth de Python.
+- `requirements*.txt` expresan **intención/dependencias directas**; `constraints.txt`
+  fija la **resolución validada**. **Un único** constraints cross-platform.
+- Grafo normalizado: **49 comunes iguales**; Windows-only `colorama==0.4.6`;
+  Linux-only `uvloop==0.22.1`. `pip` fuera del constraints.
+- GitHub Actions consume `.python-version`; DigitalOcean confirmó `.python-version`.
+- OpenAI: requirement `openai>=1.30.0`, constrained **`openai==2.53.0`**, con
+  **smoke real GREEN**.
+
+**Principio (invariante de reproducibilidad):**
+> *Same source + declared Python + validated dependency resolution must reproduce
+> equivalent application behavior across Windows development and Linux CI/production.*
+
+**Dependency update policy (disciplina, sin bots/tooling nuevo):** las
+dependencias congeladas **no** se actualizan incidentalmente. Para actualizar:
+(1) branch dedicada; (2) fresh resolution; (3) inspeccionar diff; (4) `pytest`;
+(5) CI; (6) smoke focal según paquetes afectados; (7) actualizar `constraints.txt`;
+(8) merge. También **revisar ante una vulnerabilidad de seguridad relevante**
+(constraints congela versiones que reciben security/compat fixes, así que la
+revisión periódica es parte de la disciplina).
+
+**ESTADO: A.18 CLOSED / GREEN.** Gate PRE-PHASE-2 cerrado. **Fase 2 READY FOR
+EXPLICIT AUTHORIZATION — NOT STARTED.**
+
+## A.19 Dirección arquitectónica futura — plataforma modular multi-workspace
+
+**Es DIRECCIÓN, no scope de Fase 2 inmediato. No reestructurar carpetas ni
+introducir microservicios por esto todavía.**
+
+La app evoluciona hacia una plataforma interna modular con múltiples workspaces:
+```
+Danwor Internal Platform
+├── Shared Platform Capabilities
+├── Copiloto Metodológico
+├── Portal de Operaciones
+└── futuros servicios/workspaces
+```
+Principios:
+- El **Copiloto es consumidor** de capacidades comunes, no dueño de ellas.
+- **Operaciones** tendrá landing y navegación propias.
+- Auth, session, permissions, Microsoft 365, integrations y el **shell visual**
+  pueden ser **capacidades compartidas**.
+- Un futuro **workspace/product switcher** cambiará entre áreas autorizadas; la
+  navegación interna de cada workspace sigue siendo independiente.
+- **Staffing** será el primer caso real que demuestre que un segundo workspace
+  reutiliza capacidades transversales **sin contaminar el Copiloto**.
+- Se mantiene el **modular monolith**; se evoluciona por **presión/cohesión real**,
+  no anticipadamente.
 
 ---
 
