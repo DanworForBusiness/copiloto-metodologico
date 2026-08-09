@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Staffing · Operations · Danwor{% endblock %}
+{% block body %}
+<header class="topbar">
+  <span class="eyebrow">Danwor · Operations</span>
+  <div class="header-tools">
+    <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+  </div>
+</header>
+<main id="content" class="module-content">
+  <section class="module-hero">
+    <p class="eyebrow">Operations · Staffing</p>
+    <h1>Asignaciones de consultores</h1>
+    <p>Primera versión de solo lectura — Asignaciones por proyecto, Proyectos y Colaboradores desde SharePoint (sitio Gestión).</p>
+  </section>
+  <div id="staffing-rows"
+       hx-post="/operations/staffing/data"
+       hx-trigger="load"
+       hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+       hx-target="this"
+       hx-swap="innerHTML">
+    <p class="empty-panel">Cargando asignaciones…</p>
+  </div>
+</main>
+{% endblock %}

@@ -1493,8 +1493,8 @@ allá de ese hito.
 |---|---|
 | Batch 1 — Thin M365 integration | **CLOSED / GREEN** |
 | Batch 2 — Operations/Staffing repository + service | **CLOSED / GREEN** |
-| Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **NOT AUTHORIZED** |
-| *(luego)* Primer hito real de Staffing | — |
+| Batch 3 — Operations/Staffing HTTP + Jinja/HTMX | **IMPLEMENTED / PENDING REAL-DATA VALIDATION + CI** |
+| *(luego)* Primer hito real de Staffing | **NO alcanzado todavía** (real Graph smoke NOT RUN) |
 
 ## PLATFORM ACCELERATION — BATCH 2 — OPERATIONS/STAFFING REPOSITORY + SERVICE — CLOSED / GREEN
 (commit funcional original `96e41e3`, corrective pass `2dd42c5`; branch
@@ -1647,14 +1647,200 @@ allá de ese hito.
   necesitará una forma controlada de validar estos 3 puntos con datos
   reales — no se resuelve en este commit de docs.**
 
-**Batch 3 (Operations/Staffing HTTP + Jinja/HTMX): NOT AUTHORIZED** hasta
-que este commit de cierre de Batch 2 esté pusheado; CI final se mantenga
-GREEN; el PR esté mergeado; se verifique containment; y el cleanup de la
-branch de Batch 2 esté completo. Forma esperada de Batch 3: `GET
-/operations/staffing` (shell autenticado) + `POST /operations/staffing/data`
-(recibe `graph_token`, llama `StaffingService`, devuelve fragmento HTMX) →
-**primer hito real de Staffing**. El Excel Consultores/Conocimiento sigue
-diferido más allá de ese hito.
+## PLATFORM ACCELERATION — BATCH 3 — OPERATIONS/STAFFING HTTP + JINJA/HTMX — CLOSED / GREEN
+(commits `878f8e8`, `98490e7`; docs de hito real `5473b27`; branch
+`work/platform-acceleration-b3-staffing-http`)
+
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **313 passed / 1 skipped**;
+  **32 tests focalizados de Staffing** GREEN; **route surface 77**; route
+  snapshot actualizado intencionalmente solo para `GET /operations/staffing`
+  y `POST /operations/staffing/data`.
+
+**REAL GRAPH SMOKE: GREEN. FIRST REAL STAFFING MILESTONE: ACHIEVED.** El
+usuario completó el login real de Microsoft en su propio browser
+autenticado y navegó a `/operations/staffing`; la página mostró filas
+reales del sitio Gestión a través del flujo completo: browser autenticado
+→ `dw-graph-token` real → `POST /operations/staffing/data` →
+`StaffingService` → `StaffingRepository` → `core.microsoft365` → Microsoft
+Graph → datos reales de Gestión → fragmento HTMX. Verificado por
+observación directa del usuario en su browser — este agente NUNCA
+inspeccionó, solicitó ni tocó su cookie de sesión ni su token Graph (ver
+sección de validación de esquema abajo).
+
+- **Rutas agregadas:** `GET /operations/staffing` (shell autenticado) y
+  `POST /operations/staffing/data` (fragmento HTMX). **Route surface: 75 →
+  77** (intencional; `tests/route_surface.json` regenerado con
+  `UPDATE_ROUTE_SURFACE=1`; el diff contiene únicamente estas 2 rutas).
+- **Owner:** `webapp/routers/staffing.py` → **OPERATIONS / STAFFING HTTP**.
+  No importa `webapp.main`, no construye URLs de Graph, no posee el field
+  mapping, no posee transporte Graph, no calcula negocio — delega 100% en
+  `StaffingService` (Batch 2). `main.py` solo recibió las 2 líneas de
+  registro esperadas (`import` + `include_router`), sin lógica de negocio.
+- **Access policy de Operations:** `webapp/operations_access.py` →
+  `is_staffing_authorized(request)` — regla mínima y explícitamente
+  provisoria: sesión válida + `auth_service.user_tier(...) == "full"`
+  (excluye tier "academy" y no-autenticados). Separada de
+  `webapp/access.py` (política actual del Copiloto, no reutilizada a
+  propósito, per la clasificación de Fase 2). NO es RBAC ni workspace
+  registry.
+- **Deep-link no autenticado:** `GET /operations/staffing` sin sesión usa
+  `nav.login_redirect(request, DEFAULT_PACK)` — el mismo mecanismo genérico
+  que ya consumen `modules.py`/`wizard.py` (verificado con código, no
+  supuesto: `login_redirect` preserva `next` para cualquier path, no solo
+  rutas del Copiloto). **No se creó ningún helper nuevo** — no hizo falta.
+- **Token Graph delegado — mecanismo del browser reutilizado sin cambios:**
+  `sessionStorage["dw-graph-token"]` (ya seteado por `webapp/static/auth.js`
+  en cada login, global a toda la app) + el mismo patrón HTMX
+  `hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") ||
+  ""}'` que ya usa `partials/admin_panel.html`. **Cero extracción de JS
+  compartido** — no hizo falta: el mecanismo ya era genérico, no
+  Copilot-específico. El token nunca viaja en la URL (POST + `hx-vals`,
+  igual que Admin), nunca se loguea, nunca se persiste server-side.
+- **Templates:** `webapp/templates/operations/staffing.html` (página
+  completa) y `webapp/templates/operations/staffing_rows.html` (fragmento
+  HTMX). Usan `webapp.templating.templates` (misma env compartida). **Sin
+  `partials/copilot_nav.html`**, sin `x-data="copilotLayout(...)"`, topbar
+  propio y mínimo.
+- **CSS — cero archivos nuevos:** se auditaron las hojas existentes antes
+  de escribir cualquier CSS y resultaron suficientes: `.topbar`,
+  `.header-tools`, `.theme-toggle.logout-btn` (genéricas, ya usadas en
+  todas las páginas), `.module-content`/`.module-hero`/`.eyebrow` (theme-
+  aware vía `--content-theme-*`, sin dependencia de `.app-shell`/grid de
+  nav), `.empty-panel` y `.admin-table` (genérica pese al nombre — solo
+  estilo de tabla, sin lógica de Admin). No se creó ningún stylesheet de
+  Operations.
+- **Integración con el servicio:** `GET` nunca llama a `StaffingService`
+  (verificado con test — monkeypatchear el servicio para que reviente si
+  se llama, el `GET` sigue en 200); el `POST` construye `StaffingService()`
+  y llama `get_overview(graph_token)` — token explícito, sin storage.
+- **Estados controlados (UX de error, sección 14):** `graph_token` vacío →
+  "no pudimos obtener tu token…" (sin tocar el servicio); `RuntimeError`
+  del repositorio (site ID/field mapping incompletos) → "Staffing
+  configuration incomplete…"; cualquier otra excepción (Graph/transporte)
+  → mensaje neutro genérico, **nunca el texto crudo de la excepción**
+  (verificado con test: un mensaje de excepción con "sensitive detail"
+  nunca llega al HTML); resultado vacío → mensaje neutro, no excepción;
+  resultado con filas → tabla. **Ningún caso devuelve 500** para estos
+  escenarios esperados. El token tampoco se ecoa nunca en el HTML
+  (verificado con test usando un token "secreto" de prueba).
+- **UI — parity deliberadamente diferida:** se muestran consultor,
+  proyecto, asignación, estado, fechas. Sin Gantt, vacaciones, clientes,
+  proyecciones de 35/45/90/30 días, ranking, KPIs, filtros avanzados,
+  bookmarks — todo eso queda fuera a propósito.
+- **State/runtime:** sin runtime singleton de Staffing, sin
+  `copilot_runtime`, sin cache, sin base de datos/Redis — `StaffingService`/
+  `StaffingRepository` se construyen por request, tal como en Batch 2.
+- **Tests (+15):** GET (6: redirect anónimo con `next` preservado, 200
+  autorizado, 403 tier academy, NO llama al servicio, template correcto,
+  sin requerir `graph_token`) + POST (9: token explícito al servicio,
+  fragmento con filas, estado vacío válido, config incompleta controlada,
+  falla de Graph controlada sin filtrar el texto de la excepción, token
+  nunca ecoado en éxito NI en error, token vacío sin llamar al servicio,
+  POST no autenticado no llega al servicio, POST tier academy no llega al
+  servicio). Todo mockeando `StaffingService` en el boundary del router —
+  sin Graph real en CI.
+- Validado sobre **stack reproducible** (venv fresco: Python 3.14.3 /
+  FastAPI 0.141.1 / Starlette 1.4.1): **suite 313 passed / 1 skipped** (297
+  + 16), route-contract GREEN tras regenerar el snapshot intencionalmente
+  (**77**, sin cambios en la corrección de semántica). **Cierre:** GitHub
+  CI **GREEN**.
+- **SHELL SMOKE: GREEN** (previo a la validación real). Corrido sobre el
+  `.venv` real del proyecto (`uvicorn webapp.main:app` puerto 8082, vía el
+  launch config `copiloto` existente): Copiloto sigue abriendo normal;
+  `/operations/staffing` sin sesión → 307 a
+  `/?pack=...&next=%2Foperations%2Fstaffing#acceso`; con sesión válida →
+  200, template correcto, HTMX auto-`POST` sin traceback.
+- **REAL GRAPH SMOKE: GREEN.** Ver sección "Validación real de esquema y
+  primer hito de Staffing" abajo para la evidencia completa (config
+  validada, semántica de allocation corregida, observación no-bloqueante
+  de datos fuente).
+- **PRIMER HITO REAL DE STAFFING: ACHIEVED.**
+
+## Validación real de esquema y primer hito de Staffing (Batch 3)
+
+**Diagnóstico temporal:** se creó y usó `webapp/static/staffing-schema-debug.html`
+(servido vía el mount `/static` existente, SIN ruta nueva) para leer
+metadata de columnas de Graph con un token delegado real del usuario —
+nunca mostrado, logueado, persistido ni commiteado. **Ya se borró** y
+**nunca estuvo tracked** (verificado con `git status` antes y después).
+
+**Sitio Gestión — validado, no adivinado:**
+```
+danwor.sharepoint.com,a4171082-702b-4f78-b9f4-6b4a0d3757f2,0d7e68b2-cabe-48af-991a-51bd1a5f0afc
+```
+(`https://danwor.sharepoint.com/sites/Gestion`)
+
+**Los 3 list ID — live-Graph validated** (ya no solo "known from legacy
+source configuration"): Asignaciones por proyecto
+(`c7c96b06-b32d-4386-8228-dd8e1f9926b0`), Proyectos
+(`efa2e279-593e-4321-867f-1ff982d800f6`), Colaboradores
+(`6e512cd3-394a-461f-abcd-6613f2c21113`) — los 3 resolvieron correctamente
+contra Graph real.
+
+**Los 8 internal names de `StaffingFieldMapping` — validados contra
+`/sites/{id}/lists/{id}/columns` real** (ya no provisorios):
+`ColaboradorLookupId`, `ProyectoLookupId`, `Horaspormes`, `Status`,
+`Fechainicio`, `FechaFin`, `Title` (Proyecto), `Title` (Colaborador). Nota
+importante: `ColaboradorLookupId`/`ProyectoLookupId` NO son nombres
+adivinados — son cómo Graph `fieldValueSet` representa el ID de un lookup
+column cuyo nombre real ES `Colaborador`/`Proyecto` (sufijo `LookupId`
+agregado por Graph, no por este repo).
+
+**Semántica de allocation — validada y corregida (commit `98490e7`):**
+`Horaspormes` (displayName "Horas por mes", type `number`) confirma que la
+unidad es **horas por mes**, no una incógnita. `StaffingAllocationRecord.allocation_unit`
+pasó de `"unknown"` a `"hours_per_month"`; el fragmento HTMX renderiza
+`"40 h/mes"` en vez de `"40.0 (unknown)"`. **`capacity_percentage` sigue
+`None` a propósito** — conocer la unidad no resuelve la semántica de
+capacidad (baseline FT/PT, over-allocation), que queda como el PRÓXIMO
+incremento funcional. NO se implementó ningún cálculo `allocation / 160`
+ni ninguna regla de capacidad en este batch.
+
+**Valores reales de `Status` observados:** Inactivo / Activo / Tentativo —
+**no coinciden literalmente** con la referencia histórica documentada en
+`staffing_service.py` (`KNOWN_HISTORICAL_STATUSES` = Active/Inactive/
+Tentative/Vaca, en inglés, del Power BI legado). Sin impacto de
+comportamiento: `status` siempre fue passthrough puro del valor fuente,
+nunca se comparó contra esa constante — se corrigió el docstring para no
+confundir a futuros lectores.
+
+**Evidencia futura únicamente (NO consumida en este slice):** Colaboradores
+tiene un campo real `Disponibilidaddeasignaci_x00f3_n` (displayName
+"Disponibilidad de asignación"), choices `Part Time`/`Full Time` — relevante
+para una futura semántica de capacidad, pero deliberadamente fuera de
+alcance de Batch 3.
+
+**Observación de datos fuente — NO BLOQUEANTE:** algunas asignaciones
+reales tienen el lookup de consultor o proyecto sin resolver (referencia a
+un item que no aparece en la lista relacionada). Clasificación:
+**NON-BLOCKING SOURCE DATA / REFERENTIAL QUALITY OBSERVATION**. La regla de
+degradación determinística del repositorio (Batch 2, testeada) funcionó
+exactamente como se diseñó: la fila permaneció visible (con el nombre
+resuelto en blanco) en vez de descartar todo el resultado. No se investigó
+ni se corrigió esta calidad referencial de origen — no es una feature de
+Batch 3.
+
+**Configuración local usada para la validación:** los 9 valores (site ID +
+8 field names) se cargaron vía `.env` (git-ignored, `load_dotenv()` en
+`config.py`) — NO como default de producción en el código.
+`config.py` sigue sin ningún default hardcodeado para estos 9 valores; el
+mecanismo de `StaffingFieldMapping` sin defaults (corrective pass de Batch
+2) queda intacto.
+
+**Corrección de aislamiento de tests descubierta durante esta validación:**
+con el `.env` real presente, dos tests que asumían un entorno local
+"sin configurar" (`test_missing_field_mapping_fails_clearly_listing_what_is_missing`,
+`test_production_config_does_not_silently_synthesize_field_names`) dejaron
+de ser deterministas — uno de ellos llegó a hacer una llamada real (fallida,
+401) contra Microsoft Graph durante una corrida de tests. Corregido: ambos
+ahora monkeypatchean explícitamente los 8 nombres de config a vacío en vez
+de asumir el ambiente — ya no dependen de si existe o no un `.env` local.
+
+**Batch 3 — LEVEL A (implementación) COMPLETE; LEVEL B (primer hito real)
+ACHIEVED.** Excel Consultores/Conocimiento, vacaciones, clientes, Gantt,
+ranking, KPIs, filtros avanzados, workspace switcher, rediseño de login/nav
+y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 
 ---
 
@@ -1683,40 +1869,48 @@ diferido más allá de ese hito.
 | **Phase 2** | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
+| Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Platform Acceleration — Batch 2 — Operations/Staffing repository + service
-- **Status:** CLOSED / GREEN
-- **Functional commit:** `96e41e3`, corrective pass `2dd42c5` (branch
-  `work/platform-acceleration-b2-staffing-domain`)
-- **Current next candidate:** Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
-  (`GET /operations/staffing`, `POST /operations/staffing/data` → primer
-  hito real de Staffing)
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: este commit de cierre esté
-  pusheado (✅); CI final se mantenga GREEN; el PR esté mergeado; se verifique
-  containment; y el cleanup de la branch de Batch 2 esté completo
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **297 passed / 1 skipped** · route surface **75**
+- **Phase:** Platform Acceleration — Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
+- **Status:** CLOSED / GREEN — **REAL GRAPH SMOKE: GREEN. FIRST REAL
+  STAFFING MILESTONE: ACHIEVED.**
+- **Functional commits:** `878f8e8` (HTTP view), `98490e7` (corrección
+  allocation_unit → hours_per_month); docs de hito real `5473b27` (branch
+  `work/platform-acceleration-b3-staffing-http`)
+- **Current next candidate:** **PLATFORM ACCELERATION RESULT** — con Batch
+  1/2/3 CLOSED/GREEN y el primer hito real alcanzado, queda demostrado que
+  el segundo workspace real puede consumir capacidades de plataforma
+  compartidas sin embeberse en HTTP/business/state del Copiloto. El
+  próximo paso es una DECISIÓN del usuario, no un lote automático:
+  semántica de capacidad/disponibilidad (FT/PT,
+  `Disponibilidaddeasignaci_x00f3_n`, over-allocation), filtros, vistas de
+  asignación activa/actual, enriquecimiento de cliente, vacaciones,
+  timeline/Gantt, o el rediseño de navegación/login de workspace que el
+  usuario explícitamente quiere revisitar después de este hito. **Ninguno
+  autorizado todavía.**
+- **Next candidate status:** **NOT AUTHORIZED.**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **313 passed / 1 skipped** · route surface **77**
 
 ### Expected next workflow
-1. Mergear el PR de Batch 2 (`work/platform-acceleration-b2-staffing-domain` → `main`) — CI ya GREEN.
-2. **Verificar containment** de ambos commits funcionales: `git merge-base --is-ancestor 2dd42c5 origin/main` (exit 0 recién tras el merge — al escribir este checkpoint aún NO estaba mergeado).
-3. Cleanup de la branch de Batch 2 solo tras el paso 2 en verde.
-4. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
-5. Antes de autorizar Batch 3: idealmente resolver los 3 prerequisitos de
-   esquema pendientes (site ID real, 3 list ID live-Graph-validados, 8
-   internal names de `StaffingFieldMapping` confirmados) y definir una forma
-   controlada de validarlos — o autorizar Batch 3 sabiendo que la primera
-   página mostrará datos con mapeo sin validar.
-6. **Recién entonces** se autoriza Batch 3 — o el candidato que el usuario elija.
+1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+2. Reconstruye el estado: Batch 1/2/3 CLOSED/GREEN, primer hito real de
+   Staffing ACHIEVED, mapeo de esquema y semántica de allocation validados
+   contra Graph real, observación no-bloqueante de calidad referencial de
+   origen registrada (no resuelta a propósito).
+3. El usuario decide el próximo incremento funcional o la revisión de
+   navegación/login de workspace — ninguno de estos está autorizado por
+   este documento.
+4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
 working tree sucio · el próximo candidato requiere una dependencia main-private
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
-necesidad concreta · cambio de comportamiento o de route-surface · se intenta
-comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin extraction sin
-autorización explícita, o se intenta implementar rutas/UI de Staffing antes de
-autorización explícita de Batch 3.
+necesidad concreta · cambio de comportamiento o de route-surface no anticipado ·
+se intenta comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin
+extraction/workspace switcher/rediseño de login-nav/cálculo de capacidad sin
+autorización explícita.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis

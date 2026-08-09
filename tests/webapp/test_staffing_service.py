@@ -28,7 +28,7 @@ def _record(**overrides):
         project_id="10",
         project_name="Proyecto Z",
         allocation_value=50.0,
-        allocation_unit="unknown",
+        allocation_unit="hours_per_month",
         status="Active",
         start_date="2026-01-01",
         end_date="2026-06-30",
@@ -46,12 +46,16 @@ def test_normalized_records_become_stable_overview_rows():
     assert row.consultant_name == "Zulema"
     assert row.project_name == "Proyecto Z"
     assert row.allocation_value == 50.0
-    assert row.allocation_unit == "unknown"
+    assert row.allocation_unit == "hours_per_month"
 
 
-def test_capacity_percentage_stays_none_until_unit_is_confirmed():
+def test_capacity_percentage_stays_none_even_though_unit_is_now_confirmed():
+    # allocation_unit ya es "hours_per_month" (validado, Batch 3) — pero
+    # capacity_percentage sigue None a propósito: la SEMÁNTICA de capacidad
+    # (no solo la unidad) queda para el próximo incremento funcional.
     service = StaffingService(repository=_FakeRepository([_record()]))
     row = service.get_overview("tok")[0]
+    assert row.allocation_unit == "hours_per_month"
     assert row.capacity_percentage is None
 
 

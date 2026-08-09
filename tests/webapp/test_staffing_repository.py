@@ -127,7 +127,7 @@ def test_fields_normalize_and_joins_resolve_correctly(monkeypatch):
     assert resolved.project_id == "10"
     assert resolved.project_name == "Proyecto Alfa"
     assert resolved.allocation_value == 50.0
-    assert resolved.allocation_unit == "unknown"
+    assert resolved.allocation_unit == "hours_per_month"
     assert resolved.status == "Active"
     assert resolved.start_date == "2026-01-01"
     assert resolved.end_date == "2026-06-30"
@@ -171,9 +171,33 @@ def test_missing_site_id_fails_clearly_only_when_actually_used():
         repository.get_allocations("tok")
 
 
-def test_missing_field_mapping_fails_clearly_listing_what_is_missing():
+_FIELD_CONFIG_NAMES = (
+    "SHAREPOINT_ASIGNACIONES_FIELD_COLABORADOR_LOOKUP",
+    "SHAREPOINT_ASIGNACIONES_FIELD_PROYECTO_LOOKUP",
+    "SHAREPOINT_ASIGNACIONES_FIELD_ALLOCATION",
+    "SHAREPOINT_ASIGNACIONES_FIELD_STATUS",
+    "SHAREPOINT_ASIGNACIONES_FIELD_START_DATE",
+    "SHAREPOINT_ASIGNACIONES_FIELD_END_DATE",
+    "SHAREPOINT_PROYECTOS_FIELD_TITLE",
+    "SHAREPOINT_COLABORADORES_FIELD_TITLE",
+)
+
+
+def _clear_field_mapping_config(monkeypatch):
+    # Aísla el test del entorno local (p. ej. un .env real de Batch 3 con el
+    # mapeo ya validado) — sin esto, from_config() dejaría de estar vacío
+    # apenas alguien configure Staffing localmente, y este test perdería su
+    # sentido (o peor: un repositorio "sin mapeo" pasaría a llamar a Graph
+    # real con esos valores).
+    import config as config_module
+    for name in _FIELD_CONFIG_NAMES:
+        monkeypatch.setattr(config_module, name, "")
+
+
+def test_missing_field_mapping_fails_clearly_listing_what_is_missing(monkeypatch):
+    _clear_field_mapping_config(monkeypatch)
     # Sin field_mapping explícito -> StaffingFieldMapping.from_config(),
-    # vacío en este entorno de test (sin las env vars de producción seteadas).
+    # forzado vacío arriba (aislado del entorno local real).
     repository = StaffingRepository(
         site_id=_SITE_ID,
         asignaciones_list_id=_ASIG_LIST,
@@ -187,7 +211,8 @@ def test_missing_field_mapping_fails_clearly_listing_what_is_missing():
         assert missing_key in message
 
 
-def test_production_config_does_not_silently_synthesize_field_names():
+def test_production_config_does_not_silently_synthesize_field_names(monkeypatch):
+    _clear_field_mapping_config(monkeypatch)
     # StaffingFieldMapping.from_config() NO debe inventar ningún nombre —
     # sin las env vars de producción configuradas, todo queda vacío.
     mapping = repo_module.StaffingFieldMapping.from_config()

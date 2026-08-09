@@ -1,0 +1,34 @@
+{% if state == "missing_token" %}
+<p class="empty-panel">No pudimos obtener tu token de acceso a Microsoft. Volvé a iniciar sesión e intentá de nuevo.</p>
+{% elif state == "config_incomplete" %}
+<p class="empty-panel">Staffing configuration incomplete — todavía falta terminar de configurar el origen de datos de Staffing.</p>
+{% elif state == "graph_error" %}
+<p class="empty-panel">No pudimos leer Staffing desde SharePoint en este momento. Probá de nuevo en unos minutos.</p>
+{% elif rows %}
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th>Consultor</th>
+      <th>Proyecto</th>
+      <th>Asignación</th>
+      <th>Estado</th>
+      <th>Desde</th>
+      <th>Hasta</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.consultant_name }}</td>
+      <td>{{ row.project_name }}</td>
+      <td>{% if row.allocation_value is not none %}{% if row.allocation_unit == "hours_per_month" %}{{ "%g" % row.allocation_value }} h/mes{% else %}{{ row.allocation_value }} ({{ row.allocation_unit }}){% endif %}{% else %}—{% endif %}</td>
+      <td>{{ row.status or "—" }}</td>
+      <td>{{ row.start_date or "—" }}</td>
+      <td>{{ row.end_date or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-panel">No hay asignaciones para mostrar todavía.</p>
+{% endif %}
