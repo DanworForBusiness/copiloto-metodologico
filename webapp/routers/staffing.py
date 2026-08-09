@@ -49,6 +49,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
@@ -82,6 +83,12 @@ def staffing_page(request: Request):
         context={
             "current_workspace": workspaces.OPERATIONS,
             "available_workspaces": workspaces.available_workspaces(user),
+            # Operaciones no tiene concepto de "pack" propio — la identidad
+            # animada compartida (ver platform_topbar.html) es un asset físico
+            # bajo content_packs/, así que se resuelve contra el pack por
+            # defecto de la webapp (mismo mecanismo que ya usa Copiloto, sin
+            # inventar un registro de packs para Operaciones).
+            "pack": DEFAULT_PACK,
         },
     )
 

@@ -1,14 +1,27 @@
 """
 test_platform_topbar.py — Contrato del header transversal compartido
 (`partials/platform_topbar.html`), batch Shared Workspace Shell +
-Operaciones Structure. Sucesor de test_workspace_switcher.py: el switcher
-standalone en `header-tools` fue reemplazado por el switcher attached a la
-marca/logo — ver HANDOFF.
+Operaciones Structure — corrective pass "VISUAL CONTRACT CORRECTION".
+
+Geometría final (recuperada de la versión histórica pre-Batch-B vía git,
+ver HANDOFF): IZQUIERDA = identidad animada única (mark I+D + título +
+subtítulo, config-driven, MISMO componente para cualquier workspace) — NUNCA
+es el trigger del switcher. DERECHA (`.header-tools`) = pager → marca
+compacta con switcher de workspace → selector interno (caller) → theme →
+logout → mobile-menu.
+
+Sucesor de test_workspace_switcher.py: el switcher standalone en
+`header-tools` fue reemplazado por el switcher attached a la marca
+compacta (ya no a la identidad animada) — ver HANDOFF.
 """
 from __future__ import annotations
 
+import re
+from urllib.parse import parse_qs, urlparse
+
 from fastapi.testclient import TestClient
 
+import config
 from webapp.main import app
 from webapp.services import auth_service
 from webapp import workspaces
@@ -40,23 +53,56 @@ def _academy_client(monkeypatch):
     return c
 
 
-# --- A/D: shared topbar en páginas standalone de Copilot ---------------------
+def _identity_query(html: str) -> dict:
+    """Extrae title/subtitle del <iframe src="/brand/dancing/...?title=...&subtitle=..."> — decodificado, sin importar el estilo de encoding que use el filtro `urlencode` de Jinja."""
+    match = re.search(r'<a href="[^"]*" class="animated-brand"[^>]*><iframe src="([^"]+)"', html)
+    assert match, "identidad animada (LEFT) no encontrada en el topbar"
+    query = parse_qs(urlparse(match.group(1)).query)
+    return {"title": query.get("title", [""])[0], "subtitle": query.get("subtitle", [""])[0]}
 
-def test_module_page_uses_shared_topbar_with_animated_brand():
+
+# --- A/B: LEFT — identidad animada única, config-driven ---------------------
+
+def test_copilot_left_identity_is_animated_and_config_driven():
     response = _full_client().get(_MODULE_URL)
     assert response.status_code == 200
     assert '<header class="topbar">' in response.text
-    assert 'class="animated-brand"' in response.text
-    assert "/brand/dancing/" in response.text  # marca animada real, sin regresión
+    left_idx = response.text.index('class="animated-brand"')
+    header_idx = response.text.index('<header class="topbar">')
+    tools_idx = response.text.index('class="header-tools"')
+    assert header_idx < left_idx < tools_idx  # LEFT precede a RIGHT
+    identity = _identity_query(response.text)
+    assert identity["title"] == config.APP_TITLE
+    assert identity["subtitle"] == config.APP_SUBTITLE
 
 
-# --- B: shared topbar en Operaciones ------------------------------------------
-
-def test_operations_page_uses_shared_topbar():
+def test_operations_left_identity_is_same_component_with_operations_config():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     assert response.status_code == 200
     assert '<header class="topbar">' in response.text
-    assert 'class="animated-brand"' in response.text
+    identity = _identity_query(response.text)
+    assert identity["title"] == config.OPERATIONS_APP_TITLE
+    assert identity["subtitle"] == config.OPERATIONS_APP_SUBTITLE
+    # MISMO componente (asset /brand/dancing/, no una imagen estática distinta).
+    assert "/brand/dancing/" in response.text
+
+
+def test_dancing_logo_route_substitutes_configured_title_and_subtitle():
+    response = _full_client().get("/brand/dancing/datasphere_core?title=Hola+Mundo&subtitle=Sub+Test")
+    assert response.status_code == 200
+    assert "const TITLE    = 'Hola Mundo';" in response.text
+    assert "const SUBTITLE = 'Sub Test';" in response.text
+    # El texto original hardcodeado ya no debe sobrevivir.
+    assert "Copiloto Metodológico · Arquitecto Danwor" not in response.text
+
+
+def test_dancing_logo_route_without_params_keeps_original_asset_text():
+    # Sin title/subtitle explícitos, el asset conserva su contenido (no-op) —
+    # ningún consumidor real omite estos params hoy, pero la ruta no debe
+    # romper si alguien la pide "pelada".
+    response = _full_client().get("/brand/dancing/datasphere_core")
+    assert response.status_code == 200
+    assert "const TITLE    = 'Copiloto Metodológico · Arquitecto Danwor';" in response.text
 
 
 # --- C: back/forward reales de módulo, preservados --------------------------
@@ -98,29 +144,48 @@ def test_operations_page_renders_pager_disabled_both_sides():
     assert '<span aria-hidden="true">&rarr;</span>' in response.text
 
 
-# --- E/F: workspace switching desde la marca ---------------------------------
+# --- D: orden interno de RIGHT (.header-tools) -------------------------------
 
-def test_multi_workspace_copilot_user_gets_switcher_on_brand():
+def test_operations_right_zone_order_pager_brand_context_theme_logout():
+    response = _full_client().get("/operaciones/staffing/asignaciones")
+    text = response.text
+    tools_idx = text.index('class="header-tools"')
+    pager_idx = text.index('class="module-pager"')
+    brand_idx = text.index('class="workspace-switch topbar-brand-compact"')
+    context_idx = text.index('aria-label="Área operativa"')
+    theme_idx = text.index('class="theme-toggle"')
+    logout_idx = text.index('class="theme-toggle logout-btn"')
+    assert tools_idx < pager_idx < brand_idx < context_idx < theme_idx < logout_idx
+
+
+# --- E/F: workspace switching desde la marca compacta (RIGHT), no la identidad ---
+
+def test_multi_workspace_copilot_user_gets_switcher_on_compact_brand():
     response = _full_client().get(_MODULE_URL)
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand">' in response.text
+    assert '<details class="workspace-switch topbar-brand-compact">' in response.text
+    assert '<summary class="brand-compact"' in response.text
     assert f'href="{workspaces.OPERATIONS.home_url}"' in response.text
     assert workspaces.OPERATIONS.label in response.text
+    # La identidad animada (LEFT) nunca es el trigger del switcher.
+    assert '<summary class="animated-brand"' not in response.text
 
 
-def test_multi_workspace_operations_user_gets_switcher_on_brand():
+def test_multi_workspace_operations_user_gets_switcher_on_compact_brand():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand">' in response.text
+    assert '<details class="workspace-switch topbar-brand-compact">' in response.text
     assert f'href="{workspaces.COPILOT.home_url}"' in response.text
     assert workspaces.COPILOT.label in response.text
 
 
-def test_single_workspace_user_gets_no_dropdown_on_brand(monkeypatch):
+def test_single_workspace_user_gets_no_dropdown_but_keeps_identity(monkeypatch):
     academy = _academy_client(monkeypatch)
     response = academy.get(_MODULE_URL)
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand">' not in response.text
+    assert '<details class="workspace-switch topbar-brand-compact">' not in response.text
+    assert 'class="brand-compact-link"' in response.text
+    # La identidad animada sigue presente aunque no haya switch posible.
     assert 'class="animated-brand"' in response.text
 
 
@@ -136,16 +201,13 @@ def test_brand_switcher_links_to_onedanwor():
 
 def test_no_duplicate_standalone_switcher_remains():
     response = _full_client().get(_MODULE_URL)
-    # El viejo control de texto separado (`.eyebrow` + `.workspace-switch`
-    # como control independiente en header-tools) ya no existe — solo el
-    # attached a la marca. `.count` con el atributo completo evita el falso
-    # positivo de `workspace-switch-menu` (que también empieza con el mismo
-    # prefijo de clase).
-    assert response.text.count('class="workspace-switch topbar-brand"') == 1
-    assert 'class="workspace-switch"' not in response.text
+    # Solo un switcher attached a la marca compacta; nada más se llama
+    # "workspace-switch" como control independiente en header-tools.
+    assert response.text.count('class="workspace-switch topbar-brand-compact"') == 1
+    assert response.text.count('class="workspace-switch"') == 0
 
 
-# --- Section 27: selector interno (Copilot pack / Operaciones área) ---------
+# --- I: selector interno (Copilot pack / Operaciones área) ------------------
 
 def test_copilot_pack_selector_still_renders_in_diagnostic_mode(monkeypatch):
     from webapp import access

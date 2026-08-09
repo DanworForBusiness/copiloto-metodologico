@@ -7,14 +7,16 @@
   x-init="init()"
   class="app-shell no-copilot"
 >
-  {# Brand estático: todavía no existe un asset animado propio de
-     Operaciones/One Danwor (ver HANDOFF — OPERACIONES ANIMATED BRAND
-     ASSET: PENDING DESIGN ASSET). Se usa el logo estático de Danwor ya
-     existente (el mismo de landing.html) en vez de fabricar una
-     animación — el contrato del topbar (brand_html/brand_href) hace
-     trivial reemplazarlo cuando exista. #}
-  {% set _brand_html %}<img src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor" class="topbar-brand-static">{% endset %}
-  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _brand_html, "Menú") %}
+  {# Identidad IZQUIERDA: MISMO componente animado histórico que Copiloto
+     (ver assets/danwor-animated-dancing.html vía /brand/dancing/{pack}) —
+     no es un asset por-workspace, es el mark I+D + título + subtítulo
+     transversal de Danwor, parametrizado acá con la identidad de
+     Operaciones (config.OPERATIONS_APP_TITLE/SUBTITLE) en vez de la de
+     Copiloto. `pack` llega como DEFAULT_PACK desde staffing.py (Operaciones
+     no tiene concepto de pack propio; ver su router). #}
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% set _switch_brand_html %}<img src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor" class="brand-compact">{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, _switch_brand_html, "Menú") %}
     <select class="pack-select" aria-label="Área operativa" disabled>
       <option selected>Staffing</option>
     </select>

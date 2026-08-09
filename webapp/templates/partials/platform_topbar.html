@@ -1,10 +1,21 @@
 {# platform_topbar.html — PLATFORM / SHARED PRESENTATION.
 
    Header transversal para el chrome autenticado de CUALQUIER workspace
-   (Copiloto, Operaciones). Owns SOLO presentación: back/forward, marca +
-   switcher de workspace, theme, logout, mobile-menu. NO decide
-   autorización, NO conoce Graph/pack/Staffing/secuencia de rutas — todo
-   eso lo provee quien llama el macro.
+   (Copiloto, Operaciones). Owns SOLO presentación: identidad animada,
+   back/forward, marca compacta + switcher de workspace, theme, logout,
+   mobile-menu. NO decide autorización, NO conoce Graph/pack/Staffing/
+   secuencia de rutas — todo eso lo provee quien llama el macro.
+
+   Geometría (recuperada de la versión histórica pre-Batch-B vía git —
+   ver HANDOFF): DOS zonas.
+     IZQUIERDA (identidad): el componente animado histórico único
+     (mark I+D + título + subtítulo, ver assets/danwor-animated-dancing.html,
+     servido vía /brand/dancing/{pack}) — SIEMPRE el mismo componente para
+     cualquier workspace, parametrizado con `identity_html`. NUNCA es el
+     trigger del switcher — es identidad pura, no acción.
+     DERECHA (`.header-tools`): pager → marca compacta con switcher de
+     workspace (`switch_brand_html`) → selector interno (caller) → theme →
+     logout → mobile-menu.
 
    Contrato de navegación (back/forward): el macro es puramente visual —
    recibe `pager_previous`/`pager_next`, cada uno `None` (deshabilitado,
@@ -17,32 +28,38 @@
    El selector interno (pack de Copiloto, área de Operaciones) es
    contenido de CALLER — el macro no sabe qué es un "pack" ni un "área".
 
+   `identity_html`/`switch_brand_html` son fragmentos de presentación que
+   arma el CALLER (mismo patrón ya usado para `brand_html` antes de esta
+   corrección) — el macro no hardcodea ninguna identidad de workspace ni
+   construye URLs de asset.
+
    Uso:
      {% from "partials/platform_topbar.html" import platform_topbar %}
      {% call platform_topbar(current_workspace, available_workspaces,
-                              brand_href, brand_html, mobile_menu_label,
-                              pager_previous, pager_next) %}
+                              identity_href, identity_html, switch_brand_html,
+                              mobile_menu_label, pager_previous, pager_next) %}
        <select class="pack-select">...</select>   [selector interno, opcional]
      {% endcall %}
 #}
-{% macro platform_topbar(current_workspace, available_workspaces, brand_href, brand_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
+{% macro platform_topbar(current_workspace, available_workspaces, identity_href, identity_html, switch_brand_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
 <header class="topbar">
-  <div class="module-pager" aria-label="Navegación">
-    {% if pager_previous %}<a href="{{ pager_previous.href }}" aria-label="{{ pager_previous.label }}" title="{{ pager_previous.label }}">&larr;</a>{% else %}<span aria-hidden="true">&larr;</span>{% endif %}
-    {% if pager_next %}<a href="{{ pager_next.href }}" aria-label="{{ pager_next.label }}" title="{{ pager_next.label }}">&rarr;</a>{% else %}<span aria-hidden="true">&rarr;</span>{% endif %}
-  </div>
-  {% if available_workspaces and available_workspaces|length > 1 %}
-  <details class="workspace-switch topbar-brand">
-    <summary class="animated-brand" aria-label="Cambiar de espacio de trabajo">{{ brand_html | safe }}</summary>
-    <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
-      {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
-      <a class="workspace-switch-platform" href="/onedanwor">Todos los espacios</a>
-    </nav>
-  </details>
-  {% else %}
-  <a href="{{ brand_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ brand_html | safe }}</a>
-  {% endif %}
+  <a href="{{ identity_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ identity_html | safe }}</a>
   <div class="header-tools">
+    <div class="module-pager" aria-label="Navegación">
+      {% if pager_previous %}<a href="{{ pager_previous.href }}" aria-label="{{ pager_previous.label }}" title="{{ pager_previous.label }}">&larr;</a>{% else %}<span aria-hidden="true">&larr;</span>{% endif %}
+      {% if pager_next %}<a href="{{ pager_next.href }}" aria-label="{{ pager_next.label }}" title="{{ pager_next.label }}">&rarr;</a>{% else %}<span aria-hidden="true">&rarr;</span>{% endif %}
+    </div>
+    {% if available_workspaces and available_workspaces|length > 1 %}
+    <details class="workspace-switch topbar-brand-compact">
+      <summary class="brand-compact" aria-label="Cambiar de espacio de trabajo">{{ switch_brand_html | safe }}</summary>
+      <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
+        {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
+        <a class="workspace-switch-platform" href="/onedanwor">Todos los espacios</a>
+      </nav>
+    </details>
+    {% else %}
+    <a href="{{ identity_href }}" class="brand-compact-link" aria-label="Danwor · Inicio">{{ switch_brand_html | safe }}</a>
+    {% endif %}
     {{ caller() }}
     <button class="theme-toggle" @click="toggleTheme()" :title="contentTheme === 'light' ? 'Usar contenido oscuro' : 'Usar contenido claro'" aria-label="Alternar tema del contenido">
       <svg x-cloak x-show="contentTheme === 'light'" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3V1m0 22v-2M3 12H1m22 0h-2M4.2 4.2 2.8 2.8m18.4 18.4-1.4-1.4m0-15.6 1.4-1.4M2.8 21.2l1.4-1.4M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z"/></svg>

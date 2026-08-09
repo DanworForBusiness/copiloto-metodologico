@@ -8,10 +8,11 @@
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
 >
-  {% set _brand_html %}<iframe src="/brand/dancing/{{ pack }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% set _switch_brand_html %}<img src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor" class="brand-compact">{% endset %}
   {% set _pager_previous = {"href": "/modules/" ~ previous_module.stem ~ "?pack=" ~ pack, "label": "Módulo anterior"} if previous_module else None %}
   {% set _pager_next = {"href": "/modules/" ~ next_module.stem ~ "?pack=" ~ pack, "label": "Módulo siguiente"} if next_module else None %}
-  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _brand_html, "Módulos", _pager_previous, _pager_next) %}
+  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, _switch_brand_html, "Módulos", _pager_previous, _pager_next) %}
     {% if diagnostic %}
     <select class="pack-select" aria-label="Marco metodológico" onchange="if(this.value)location.href=this.value">
       {% for item in packs %}
