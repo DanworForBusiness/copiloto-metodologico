@@ -383,3 +383,198 @@ def test_display_fields_are_mapping_driven_not_hardcoded_to_title(monkeypatch):
 
     assert records[0].project_name == "Proyecto Custom"
     assert records[0].consultant_name == "Consultor Custom"
+
+
+# --- Cliente (revisión PBI, ver HANDOFF) — Proyecto.EmpresaLookupId → -------
+# Cliente.Title. LIVE-GRAPH-CONFIRMED (metadata real, sitio Gestión), a
+# diferencia del resto de este archivo (fixtures de test, no nombres reales).
+# Enriquecimiento OPCIONAL: ambos campos (proyecto_empresa_lookup +
+# cliente_title) deben estar configurados para que se resuelva — su
+# ausencia NUNCA bloquea la carga de Staffing ni agrega una llamada a Graph.
+
+_CLIENTE_LIST = "cliente-list-id"
+
+_MAPPING_WITH_CLIENTE = StaffingFieldMapping(
+    **{
+        **_TEST_FIELD_MAPPING.__dict__,
+        "proyecto_empresa_lookup": "EmpresaLookupId",
+        "cliente_title": "Title",
+    }
+)
+
+
+def _make_repository_with_cliente(field_mapping=_MAPPING_WITH_CLIENTE):
+    return StaffingRepository(
+        site_id=_SITE_ID,
+        asignaciones_list_id=_ASIG_LIST,
+        proyectos_list_id=_PROY_LIST,
+        colaboradores_list_id=_COLAB_LIST,
+        cliente_list_id=_CLIENTE_LIST,
+        field_mapping=field_mapping,
+    )
+
+
+def _fake_fetch_with_cliente(calls, *, proyectos=None, clientes=None):
+    proyectos = proyectos if proyectos is not None else _PROYECTOS
+    clientes = clientes if clientes is not None else []
+
+    def fake(url, access_token, **kwargs):
+        calls.append((url, access_token))
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES
+        if _PROY_LIST in url:
+            return proyectos
+        if _COLAB_LIST in url:
+            return _COLABORADORES
+        if _CLIENTE_LIST in url:
+            return clientes
+        raise AssertionError(f"unexpected url {url}")
+
+    return fake
+
+
+def test_project_with_empresa_lookup_resolves_client_id_and_name(monkeypatch):
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa", "EmpresaLookupId": 2}}]
+    clientes = [{"id": "2", "fields": {"Title": "Albanesi"}}]
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=clientes),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].client_id == "2"
+    assert by_id["101"].client_name == "Albanesi"
+
+
+def test_two_projects_pointing_to_the_same_client_both_resolve(monkeypatch):
+    proyectos = [
+        {"id": "10", "fields": {"Title": "Albanesi - Implementacion DWC + PBI", "EmpresaLookupId": 2}},
+        {"id": "11", "fields": {"Title": "Albanesi - Mantenimiento BI", "EmpresaLookupId": 2}},
+    ]
+    clientes = [{"id": "2", "fields": {"Title": "Albanesi"}}]
+    asignaciones = [
+        {"id": "201", "fields": {"ColaboradorLookupId": 1, "ProyectoLookupId": 10, "Asignacion": "40",
+                                  "Estado": "Activo", "FechaInicio": "2026-01-01", "FechaFin": ""}},
+        {"id": "202", "fields": {"ColaboradorLookupId": 1, "ProyectoLookupId": 11, "Asignacion": "20",
+                                  "Estado": "Activo", "FechaInicio": "2026-01-01", "FechaFin": ""}},
+    ]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return asignaciones
+        if _PROY_LIST in url:
+            return proyectos
+        if _COLAB_LIST in url:
+            return _COLABORADORES
+        if _CLIENTE_LIST in url:
+            return clientes
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["201"].client_id == "2"
+    assert by_id["201"].client_name == "Albanesi"
+    assert by_id["202"].client_id == "2"
+    assert by_id["202"].client_name == "Albanesi"
+
+
+def test_project_without_empresa_lookup_value_degrades_client_to_none(monkeypatch):
+    # El proyecto existe y resuelve, pero no tiene EmpresaLookupId (campo
+    # vacío en la fuente) — degrada a client_id/client_name None, NUNCA
+    # rompe la fila ni el resto de sus datos.
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa"}}]  # sin EmpresaLookupId
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].project_name == "Proyecto Alfa"  # el resto de la fila sigue intacto
+    assert by_id["101"].client_id is None
+    assert by_id["101"].client_name is None
+
+
+def test_broken_client_lookup_keeps_raw_id_without_inventing_a_name(monkeypatch):
+    # EmpresaLookupId apunta a un id que NO existe en Cliente (lookup roto,
+    # referencial) — degradación determinística: se conserva el id crudo,
+    # el nombre resuelto queda None. Nunca se fabrica una identidad.
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa", "EmpresaLookupId": 999}}]
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].client_id == "999"
+    assert by_id["101"].client_name is None
+
+
+def test_unresolved_project_never_synthesizes_a_client(monkeypatch):
+    # La asignación 102 apunta a un proyecto (999) que no existe en
+    # _PROYECTOS — sin proyecto resuelto, tampoco hay cliente (nunca se
+    # deriva client_id/client_name de un proyecto que no resolvió).
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["102"].project_name is None
+    assert by_id["102"].client_id is None
+    assert by_id["102"].client_name is None
+
+
+def test_client_fields_none_when_mapping_not_configured_and_no_extra_graph_call(monkeypatch):
+    # Sin proyecto_empresa_lookup/cliente_title configurados (mapeo por
+    # defecto de este archivo) — cero llamadas a Cliente, comportamiento
+    # histórico intacto.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    records = _make_repository().get_allocations("tok")
+
+    assert all(r.client_id is None and r.client_name is None for r in records)
+    assert not any(_CLIENTE_LIST in url for url, _tok in calls)
+    assert len(calls) == 3  # Asignaciones + Proyectos + Colaboradores, nada más
+
+
+def test_proyectos_request_selects_empresa_lookup_when_cliente_configured(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, clientes=[]),
+    )
+
+    _make_repository_with_cliente().get_allocations("tok")
+
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert "$expand=fields($select=" in proy_url
+    assert "EmpresaLookupId" in proy_url
+    assert "Title" in proy_url
+
+
+def test_proyectos_request_unchanged_when_cliente_not_configured(monkeypatch):
+    # Regresión explícita: la request de Proyectos NO cambia para el caso
+    # ya validado contra Graph real (Batch 3) si Cliente no está configurado.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    _make_repository().get_allocations("tok")
+
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert proy_url.endswith("/items?$expand=fields")

@@ -170,6 +170,14 @@ class StaffingOverviewRow:
     # el mapeo no está configurado o el valor fuente viene vacío; NUNCA se
     # deriva una regla de capacidad a partir de este campo.
     consultant_availability: str | None = None
+    # Enriquecimiento OPCIONAL (revisión PBI, ver HANDOFF) — resuelto vía el
+    # Proyecto (Proyecto.EmpresaLookupId → Cliente.Title), NUNCA vía el
+    # nombre de proyecto. A diferencia de consultant_name/project_name, NO
+    # tiene fallback a "(sin resolver)" — se queda `None` cuando no resuelve
+    # (la presentación decide mostrarlo condicionalmente, nunca inventa una
+    # identidad de cliente).
+    client_id: str | None = None
+    client_name: str | None = None
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -216,6 +224,11 @@ class StaffingService:
             # decisión de PRESENTACIÓN (ver build_dashboard_payload), igual
             # que `status` se guarda "crudo" y el template decide el "—".
             consultant_availability=record.consultant_availability,
+            # Passthrough puro — client_id conserva el id crudo aunque
+            # client_name no resuelva (mismo criterio que consultant_id/
+            # project_id); client_name se queda None, sin fallback textual.
+            client_id=record.client_id,
+            client_name=record.client_name,
         )
 
     @staticmethod
@@ -267,6 +280,11 @@ def build_dashboard_payload(rows: list[StaffingOverviewRow], *, today: date | No
             "project_id": row.project_id,
             "project_name": row.project_name,
             "project_unresolved": row.project_name == _UNRESOLVED_LABEL,
+            # Sin fallback textual (a diferencia de consultant_name/
+            # project_name) — `None` cuando no resuelve, el consumidor
+            # (app.js) ya trata esto como "ausente" (x-show / operador ||).
+            "client_id": row.client_id,
+            "client_name": row.client_name,
             "allocation_value": row.allocation_value,
             "allocation_label": _allocation_label(row),
             "allocation_unit": row.allocation_unit,

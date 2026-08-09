@@ -170,10 +170,11 @@ def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detai
     assert response.status_code == 200
     # Mount point del dashboard client-side — un solo dataset normalizado.
     assert "staffingDashboard(" in text
-    # Filtros (Cliente/Tipo de Proyecto deliberadamente NO están).
+    # Filtros (Cliente confirmado contra Graph real, ver HANDOFF — Tipo de
+    # Proyecto sigue deliberadamente fuera de alcance).
     assert "Consultor" in text and "Proyecto" in text and "Estado" in text
     assert "Disponibilidad de asignación" in text
-    assert "Cliente" not in text
+    assert "<span>Cliente</span>" in text
     assert "Tipo de Proyecto" not in text
     # KPIs (sin capacidad/porcentaje — ver test dedicado más abajo).
     for label in ("Consultores", "Proyectos", "Asignaciones activas", "Asignaciones tentativas", "Horas activas"):
@@ -362,6 +363,26 @@ def test_post_dashboard_status_filter_is_compact_vertical_group(monkeypatch):
     # labels accesibles por checkbox.
     assert 'class="whatsnew-filter whatsnew-filter--compact"' in text
     assert "'Estado ' + s" in text
+
+
+def test_post_dashboard_client_filter_present_between_project_and_availability(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Contrato Cliente confirmado (revisión PBI, ver HANDOFF): Proyecto →
+    # EmpresaLookupId → Cliente.Title, LIVE-GRAPH-CONFIRMED. Filtro CLIENTE
+    # entre Proyecto y Disponibilidad, mismo patrón que Consultor/Proyecto
+    # (select + clientOptions), nunca un valor "(sin resolver)" sintético.
+    assert 'x-model="filters.client"' in text
+    assert "clientOptions" in text
+    proyecto_idx = text.index("<span>Proyecto</span>")
+    cliente_idx = text.index("<span>Cliente</span>")
+    disponibilidad_idx = text.index("<span>Disponibilidad de asignación</span>")
+    assert proyecto_idx < cliente_idx < disponibilidad_idx
+    assert '<template x-for="c in clientOptions" :key="c.id">' in text
 
 
 def test_post_dashboard_today_marker_present_and_not_a_capacity_percentage(monkeypatch):

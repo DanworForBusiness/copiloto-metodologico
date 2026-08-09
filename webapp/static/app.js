@@ -732,6 +732,7 @@ function staffingDashboard(payload) {
     filters: {
       consultant: "",
       project: "",
+      client: "",
       availability: "",
       // Default V1 congelado: Activo + Tentativo ÚNICAMENTE seleccionados.
       // Inactivo y "Sin estado" quedan disponibles pero NO seleccionados —
@@ -751,6 +752,7 @@ function staffingDashboard(payload) {
     resetFilters() {
       this.filters.consultant = "";
       this.filters.project = "";
+      this.filters.client = "";
       this.filters.availability = "";
       this.filters.status = defaultStatusFilter();
     },
@@ -767,10 +769,9 @@ function staffingDashboard(payload) {
     // Densidad de información restaurada vs. el Power BI legado (revisión
     // PBI, ver HANDOFF): "Estado (Horas)" + "Cliente - Proyecto" como DOS
     // segmentos separados (nunca un string opaco concatenado) para permitir
-    // estilos distintos por segmento. `client_name` todavía no existe en el
-    // contrato normalizado (pendiente confirmación de metadata real de
-    // Cliente) — undefined/falsy degrada con gracia a solo Proyecto, sin
-    // separador feo.
+    // estilos distintos por segmento. `client_name` es `None` cuando no
+    // resuelve (contrato confirmado contra Graph real, ver HANDOFF) —
+    // degrada con gracia a solo Proyecto, sin separador feo.
     rowStatusHoursLabel(row) {
       const status = row.status || "Sin estado";
       if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) {
@@ -842,6 +843,20 @@ function staffingDashboard(payload) {
         .map(([id, label]) => ({ id, label }))
         .sort((a, b) => a.label.localeCompare(b.label));
     },
+    // Cliente (revisión PBI, ver HANDOFF) — a diferencia de
+    // consultant/project, SOLO valores RESUELTOS (client_id Y client_name
+    // presentes). Nunca se sintetiza una opción "(sin resolver)": una
+    // asignación sin cliente resuelto simplemente no aporta una opción,
+    // pero sigue visible con Cliente = Todos (ver filteredAssignments).
+    get clientOptions() {
+      const seen = new Map();
+      this.assignments.forEach(a => {
+        if (a.client_id && a.client_name && !seen.has(a.client_id)) seen.set(a.client_id, a.client_name);
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
     get availabilityOptions() {
       return [...new Set(this.assignments.map(a => a.availability))].sort();
     },
@@ -853,6 +868,7 @@ function staffingDashboard(payload) {
       return this.assignments.filter(a => {
         if (this.filters.consultant && a.consultant_id !== this.filters.consultant) return false;
         if (this.filters.project && a.project_id !== this.filters.project) return false;
+        if (this.filters.client && a.client_id !== this.filters.client) return false;
         if (this.filters.availability && a.availability !== this.filters.availability) return false;
         const statusKey = a.status || "Sin estado";
         if (this.filters.status[statusKey] === false) return false;

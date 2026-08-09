@@ -43,6 +43,15 @@
           </select>
         </label>
         <label class="whatsnew-filter">
+          <span>Cliente</span>
+          <select x-model="filters.client">
+            <option value="">Todos</option>
+            <template x-for="c in clientOptions" :key="c.id">
+              <option :value="c.id" x-text="c.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="whatsnew-filter">
           <span>Disponibilidad de asignación</span>
           <select x-model="filters.availability">
             <option value="">Todos</option>

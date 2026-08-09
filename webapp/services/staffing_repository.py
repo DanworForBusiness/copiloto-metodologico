@@ -44,7 +44,9 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # de carga. Su ausencia NUNCA debe aparecer en `missing_fields()` (eso
 # bloquearía TODO Staffing por una feature de presentación adicional). Ver
 # `colaborador_disponibilidad` (Asignaciones Dashboard v1).
-_OPTIONAL_MAPPING_FIELDS = frozenset({"colaborador_disponibilidad"})
+_OPTIONAL_MAPPING_FIELDS = frozenset({
+    "colaborador_disponibilidad", "proyecto_empresa_lookup", "cliente_title",
+})
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,14 @@ class StaffingFieldMapping:
     proyecto_title: str
     colaborador_title: str
     colaborador_disponibilidad: str = ""
+    # Cliente (revisión PBI, ver HANDOFF) — OPCIONAL, mismo mecanismo que
+    # `colaborador_disponibilidad`: confirmado contra Graph real (Proyectos
+    # lookup real name "Empresa", `fieldValueSet` property "EmpresaLookupId"
+    # → Cliente.Title), pero sin default de producción. Ambos deben estar
+    # configurados para resolver cliente; si falta cualquiera, degrada a
+    # client_id/client_name = None (nunca bloquea Staffing).
+    proyecto_empresa_lookup: str = ""
+    cliente_title: str = ""
 
     @classmethod
     def from_config(cls) -> "StaffingFieldMapping":
@@ -85,6 +95,8 @@ class StaffingFieldMapping:
             proyecto_title=config.SHAREPOINT_PROYECTOS_FIELD_TITLE,
             colaborador_title=config.SHAREPOINT_COLABORADORES_FIELD_TITLE,
             colaborador_disponibilidad=config.SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD,
+            proyecto_empresa_lookup=config.SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP,
+            cliente_title=config.SHAREPOINT_CLIENTE_FIELD_TITLE,
         )
 
     def missing_fields(self) -> list[str]:
@@ -116,6 +128,14 @@ class StaffingAllocationRecord:
     # del valor real de Colaboradores. None si el mapeo no está configurado
     # O el valor fuente viene vacío — nunca deriva una regla de capacidad.
     consultant_availability: str | None = None
+    # Enriquecimiento OPCIONAL (revisión PBI) — resuelto vía el Proyecto de
+    # esta asignación (Proyecto.EmpresaLookupId → Cliente.Title), NUNCA vía
+    # el nombre de proyecto. `client_id` conserva el id crudo del lookup aun
+    # si `client_name` no resuelve (mismo criterio de degradación
+    # determinística que consultant_id/project_id) — nunca se fabrica una
+    # identidad de cliente sintética.
+    client_id: str | None = None
+    client_name: str | None = None
 
 
 def _list_items_url(site_id: str, list_id: str, select_fields: list[str] | None = None) -> str:
@@ -168,12 +188,14 @@ class StaffingRepository:
         asignaciones_list_id: str | None = None,
         proyectos_list_id: str | None = None,
         colaboradores_list_id: str | None = None,
+        cliente_list_id: str | None = None,
         field_mapping: StaffingFieldMapping | None = None,
     ):
         self.site_id = site_id if site_id is not None else config.SHAREPOINT_GESTION_SITE_ID
         self.asignaciones_list_id = asignaciones_list_id or config.SHAREPOINT_ASIGNACIONES_LIST_ID
         self.proyectos_list_id = proyectos_list_id or config.SHAREPOINT_PROYECTOS_LIST_ID
         self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
+        self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.field_mapping = field_mapping if field_mapping is not None else StaffingFieldMapping.from_config()
 
     def _require_site_id(self) -> str:
@@ -205,9 +227,23 @@ class StaffingRepository:
         asignaciones = microsoft365.graph_get_paged_values(
             _list_items_url(site_id, self.asignaciones_list_id), access_token,
         )
-        proyectos = microsoft365.graph_get_paged_values(
-            _list_items_url(site_id, self.proyectos_list_id), access_token,
-        )
+        # Proyectos: bare `$expand=fields` mientras Cliente no está
+        # configurado (comportamiento sin cambios, sin necesidad comprobada
+        # de `$select` para Title). Si `proyecto_empresa_lookup` SÍ está
+        # configurado, se selecciona explícito junto con Title — mismo
+        # motivo defensivo que Colaboradores (columnas lookup/choice custom
+        # pueden quedar fuera de la proyección default de Graph).
+        if mapping.proyecto_empresa_lookup:
+            proyectos = microsoft365.graph_get_paged_values(
+                _list_items_url(
+                    site_id, self.proyectos_list_id,
+                    [mapping.proyecto_title, mapping.proyecto_empresa_lookup],
+                ), access_token,
+            )
+        else:
+            proyectos = microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.proyectos_list_id), access_token,
+            )
         # Colaboradores SÍ pide `$select` explícito (a diferencia de
         # Asignaciones/Proyectos, que ya funcionan correctamente con
         # `$expand=fields` sin selección — no se tocan, sin necesidad
@@ -230,6 +266,25 @@ class StaffingRepository:
         proyectos_by_id = {str(item.get("id")): item for item in proyectos if item.get("id") is not None}
         colaboradores_by_id = {str(item.get("id")): item for item in colaboradores if item.get("id") is not None}
 
+        # Cliente (revisión PBI, ver HANDOFF) — lectura ADICIONAL de Graph
+        # durante la carga inicial, SOLO si el mapeo está completo (lookup +
+        # título del destino). Resuelto una vez POR PROYECTO (no por
+        # asignación) y cacheado en `project_client_by_id`, reusado en el
+        # loop de abajo — nunca una segunda llamada por asignación. Cero
+        # llamadas si Cliente no está configurado (comportamiento histórico
+        # intacto).
+        project_client_by_id: dict[str, tuple[str | None, str | None]] = {}
+        if mapping.proyecto_empresa_lookup and mapping.cliente_title:
+            clientes = microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.cliente_list_id, [mapping.cliente_title]), access_token,
+            )
+            clientes_by_id = {str(item.get("id")): item for item in clientes if item.get("id") is not None}
+            for pid, pitem in proyectos_by_id.items():
+                pfields = pitem.get("fields") or {}
+                empresa_id = _stringify(pfields.get(mapping.proyecto_empresa_lookup))
+                cliente_item = clientes_by_id.get(empresa_id) if empresa_id else None
+                project_client_by_id[pid] = (empresa_id, _resolved_title(cliente_item, mapping.cliente_title))
+
         records: list[StaffingAllocationRecord] = []
         for item in asignaciones:
             fields = item.get("fields") or {}
@@ -241,6 +296,10 @@ class StaffingRepository:
             # mostrarlo, p. ej. "(sin resolver)").
             consultor_item = colaboradores_by_id.get(consultor_id) if consultor_id else None
             proyecto_item = proyectos_by_id.get(proyecto_id) if proyecto_id else None
+            # Cliente se resuelve vía el PROYECTO, nunca vía el nombre de
+            # proyecto — si el proyecto mismo no resolvió, tampoco hay
+            # cliente (sin identidad sintética).
+            client_id, client_name = project_client_by_id.get(proyecto_id, (None, None)) if proyecto_id else (None, None)
             records.append(
                 StaffingAllocationRecord(
                     assignment_id=str(item.get("id") or ""),
@@ -258,6 +317,8 @@ class StaffingRepository:
                     # consultant_name, sin lógica especial para el campo
                     # opcional.
                     consultant_availability=_resolved_title(consultor_item, mapping.colaborador_disponibilidad),
+                    client_id=client_id,
+                    client_name=client_name,
                 )
             )
         return records

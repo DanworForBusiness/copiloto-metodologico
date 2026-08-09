@@ -337,3 +337,42 @@ def test_dashboard_payload_never_synthesizes_consultant_id_from_name():
     assert row["consultant_id"] is None
     assert row["consultant_name"] == "(sin resolver)"
     assert row["consultant_unresolved"] is True
+
+
+# --- Cliente (revisión PBI, ver HANDOFF) -----------------------------------
+# Passthrough puro desde StaffingAllocationRecord — a diferencia de
+# consultant_name/project_name, client_name NO tiene fallback textual
+# ("(sin resolver)"): se queda None cuando el repositorio no lo resolvió,
+# la presentación (app.js) decide mostrarlo condicionalmente.
+
+def test_overview_row_passes_through_client_fields():
+    record = _record(client_id="2", client_name="Albanesi")
+    rows = StaffingService(repository=_FakeRepository([record])).get_overview("tok")
+    assert rows[0].client_id == "2"
+    assert rows[0].client_name == "Albanesi"
+
+
+def test_overview_row_client_fields_default_to_none():
+    rows = StaffingService(repository=_FakeRepository([_record()])).get_overview("tok")
+    assert rows[0].client_id is None
+    assert rows[0].client_name is None
+
+
+def test_dashboard_payload_includes_resolved_client():
+    record = _record(client_id="2", client_name="Albanesi")
+    rows = StaffingService(repository=_FakeRepository([record])).get_overview("tok")
+    payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
+    row = payload["assignments"][0]
+    assert row["client_id"] == "2"
+    assert row["client_name"] == "Albanesi"
+
+
+def test_dashboard_payload_client_is_none_without_a_fallback_string(monkeypatch):
+    # A diferencia de consultant_name/project_name, client faltante NO cae a
+    # "(sin resolver)" en el payload — se queda None; el template decide
+    # mostrarlo condicionalmente (x-show), nunca inventa texto.
+    rows = StaffingService(repository=_FakeRepository([_record()])).get_overview("tok")
+    payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
+    row = payload["assignments"][0]
+    assert row["client_id"] is None
+    assert row["client_name"] is None
