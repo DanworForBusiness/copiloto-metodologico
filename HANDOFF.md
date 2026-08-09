@@ -2305,6 +2305,315 @@ usuario. Candidato identificado (NO autorizado, NO empezado):
 
 ---
 
+## SHARED WORKSPACE SHELL + OPERACIONES STRUCTURE — CLOSED / GREEN
+(commits funcionales `e2c8743`, `71bb101`, `2489ac4`, `56019be`,
+`8108914`; checkpoints de docs `2fa2249`, `94508fe`, `2ab1e70`, `52636b9`;
+branch `work/shared-shell-operaciones`)
+
+**Evidencia final de cierre:** GitHub **CI GREEN** sobre el estado final
+de la rama (confirmado por el usuario); Python **3.14.3**; full suite
+**376 passed / 1 skipped**; tests dirigidos del topbar compartido **19
+GREEN** (`tests/webapp/test_platform_topbar.py`); **route surface 82**
+(80→82, único delta intencional: `GET /operaciones/staffing/asignaciones`
++ `POST /operaciones/staffing/asignaciones/data` — sin `POST /platform`
+ni `POST /onedanwor`); **hardening de seguridad del brand animado
+parametrizado: GREEN** (ver bullet dedicado más abajo — `</script>`
+breakout, comillas/backslashes, newlines/Unicode).
+
+**Commit final funcional de este batch:** `8108914` — `fix(platform):
+escape script-context breakout in parameterized brand asset` (hardening
+de seguridad, ver más abajo). El commit de docs que cierra este batch es
+el que crea este mismo bloque.
+
+Precedido por un **targeted assessment** (análisis, sin código) que dejó
+este batch explícitamente diferido de Batch A (One Danwor Entry
+Experience). Durante la implementación, el usuario corrigió un hallazgo
+del assessment: los controles de back/forward SON reales (prev/next de
+módulo en `module.html`), no chrome de browser — pero su alcance es
+module.html-específico, no transversal. La decisión final (confirmada por
+el usuario a mitad de implementación): el topbar compartido posee la
+UBICACIÓN visual transversal de esos controles, pero CERO conocimiento de
+secuencia — el caller decide si hay destino real o si quedan
+deshabilitados (nunca fabrica un orden inexistente).
+
+- **Dueño del topbar compartido:** `webapp/templates/partials/platform_topbar.html`
+  → macro Jinja `platform_topbar(current_workspace, available_workspaces,
+  identity_href, identity_html, mobile_menu_label, pager_previous=None,
+  pager_next=None)` + `{% call %}` para el selector interno (contenido de
+  CALLER). Clasificación: PLATFORM / SHARED PRESENTATION. Sin
+  auth/Graph/pack/Staffing/secuencia de rutas — todo lo provee quien
+  llama. **Firma corregida DOS VECES por el pase "VISUAL CONTRACT
+  CORRECTION" (ver más abajo)** — la firma original de este batch
+  (`brand_href, brand_html`, un solo bloque de marca) fue una geometría
+  incorrecta; una firma intermedia (`switch_brand_html`, logo completo
+  como trigger del switcher) también se corrigió antes del commit final —
+  ver el ajuste de UX descripto abajo.
+  - **Contrato de back/forward:** `pager_previous`/`pager_next`, cada uno
+    `None` (deshabilitado, mismo marcado `<span aria-hidden>` que
+    `module.html` ya usaba) o `{"href", "label"}`. `module.html` es el
+    ÚNICO caller con datos reales (prev/next module real, verbatim del
+    comportamiento histórico). Los otros 7 templates Copilot y
+    Operaciones pasan `None`/`None` — ambos controles se muestran
+    deshabilitados, sin inventar secuencia.
+  - **Workspace switcher — botón-ícono de RIGHT, no en la identidad
+    animada, NO el logo completo:** el control de texto standalone del
+    batch anterior (`partials/workspace_switcher.html`, **eliminado**) se
+    reemplaza por un botón más en `.header-tools` — MISMA caja visual que
+    theme/logout (`.theme-toggle`, 34×34px), con un ícono de grilla
+    (4 cuadrados, mismo lenguaje visual stroke-based que los demás
+    íconos), actuando de trigger cuando `available_workspaces|length > 1`
+    (`<details class="workspace-switch"><summary class="theme-toggle"
+    aria-label="Cambiar de espacio de trabajo">`); con 1 solo workspace,
+    es un link plano a su home con el mismo ícono (sin dropdown). Menú =
+    otros workspaces autorizados + "Todos los espacios" → `/onedanwor`.
+    Reusa `available_workspaces(user)`/`Workspace.home_url` sin duplicar
+    autorización ni destinos. La identidad animada IZQUIERDA
+    (`identity_html`) NUNCA es el trigger del switcher — sigue siendo pura
+    identidad, sin acción. **Nota de UX (corrección post-implementación):**
+    la primera versión de este pase usaba el logo estático completo
+    (`brand/danwor-logo.png`) como trigger — el usuario aclaró que la idea
+    era un botón-caja del mismo tamaño que theme/logout, no el logo; se
+    reemplazó por el ícono de grilla, sin volver a tocar identidad/config/
+    ruteo.
+- **Templates Copilot migrados (8, mecánico):** `module.html`,
+  `academy.html`, `catalog_cds.html`, `catalog_connection.html`,
+  `catalog_flow.html`, `catalog_guide.html`, `admin_activity_page.html`,
+  `whats_new.html` — topbar duplicado → llamada al macro. Cada página
+  preserva sus diferencias reales vía parámetros/slot (mobile-menu label
+  "Módulos" vs "Academy"; pack-select+diag-toggle solo donde ya existían:
+  module/academy/catalog_guide). **Marca animada, pack, back/forward
+  reales, theme, logout, mobile-menu: sin regresión** (verificado con
+  smoke real + tests).
+- **Asset animado de Operaciones — RESUELTO por el pase "VISUAL CONTRACT
+  CORRECTION" (ver más abajo):** ya NO es "pending design asset". La
+  identidad animada IZQUIERDA de Operaciones reusa el MISMO componente
+  histórico único (`assets/danwor-animated-dancing.html`, servido vía
+  `/brand/dancing/{pack}`) que Copiloto — no es un asset por-workspace, es
+  transversal, parametrizado con `OPERATIONS_APP_TITLE`/
+  `OPERATIONS_APP_SUBTITLE` en vez de `APP_TITLE`/`APP_SUBTITLE`. El logo
+  estático de Danwor (`brand/danwor-logo.png`) sigue usándose SOLO en
+  `landing.html` (sin relación con este batch) — el topbar compartido no
+  lo referencia en absoluto: el switcher de RIGHT es un ícono, no una
+  imagen.
+- **Selector interno:** Copilot sin cambios (pack-select/diag-toggle
+  exactamente donde ya estaban). Operaciones: `<select class="pack-select"
+  disabled><option selected>Staffing</option></select>` — misma posición
+  estructural que el selector de Copilot, identifica el área real sin
+  fingir alternativas (sin Projects/Reporting inventados); queda
+  trivialmente habilitable cuando exista una segunda área real.
+- **Shell de Operaciones:** adoptó la convención YA existente
+  (`.app-shell.no-copilot`, `.module-content`, `.module-nav`) en vez de
+  crear un framework nuevo — Copilot no se tocó, Operaciones simplemente
+  la adoptó por primera vez (antes era una página plana sin grid/nav/
+  Alpine). `webapp/templates/partials/operations_nav.html` (NUEVO): grupo
+  estático "STAFFING" + un solo link "Asignaciones" — sin acordeón (un
+  solo item no lo justifica), sin Projects/Reporting/Vacations.
+- **Hero de Asignaciones simplificado** (evita apilar
+  Operaciones/Staffing/Asignaciones tres veces cuando el chrome ya dice
+  las dos primeras): eyebrow "Staffing", `<h1>Asignaciones</h1>`, copy
+  concisa.
+- **Loading state:** el placeholder plano "Cargando asignaciones…" pasa a
+  reusar `.section-analysis-spinner`/`.section-analysis-loading` (YA
+  existentes, cero CSS nuevo) — mismo lenguaje visual que el spinner de
+  Asistente/Análisis de sección. Empty/error states (`.empty-panel`) sin
+  cambios.
+- **Rutas canónicas:** `GET /operaciones/staffing/asignaciones` +
+  `POST /operaciones/staffing/asignaciones/data` (workspace → área →
+  capacidad). Históricas `GET/POST /operations/staffing(/data)` quedan
+  como alias de compatibilidad — SIEMPRE 307 a la ruta canónica
+  correspondiente, method+body preservados, sin reimplementar lógica.
+  `OPERATIONS.home_url` (`webapp/workspaces.py`) actualizado a la
+  canónica — único cambio ahí, sin expandir presentación/marketing.
+- **Bug real descubierto, corregido, y CORREGIDO DE NUEVO (pase
+  correctivo, commit `71bb101`):** un test de cadena completa
+  (`follow_redirects=True`) expuso que un POST no-autenticado a la ruta
+  canónica de Staffing, al redirigir en cascada vía
+  `platform_login_redirect` → `/platform` → `/onedanwor`, terminaba en
+  **405** porque ambos (Batch A) solo aceptaban GET — un 307 preserva el
+  método, así que un POST podía llegar hasta ahí. La PRIMERA corrección
+  (revertida) ensanchó `/platform`/`/onedanwor` a GET+POST — funcionaba,
+  pero borraba una distinción real: esas rutas son superficies de
+  NAVEGACIÓN, nunca deberían recibir una acción de Staffing. La
+  corrección FINAL cambia `platform_login_redirect` (`webapp/workspaces.py`)
+  para responder **303** (no 307) — la transición de autenticación
+  SIEMPRE se vuelve GET en el siguiente hop, sin importar qué método la
+  disparó — y acepta un `next_path` explícito para que el POST de datos
+  de Staffing apunte `next` a la PÁGINA canónica, no al endpoint de datos
+  que disparó el redirect (que nunca vuelve a ser golpeado con ese mismo
+  POST — el `graph_token` original se descarta sin más). `/platform` y
+  `/onedanwor` vuelven a ser GET-only. El alias histórico POST→POST
+  (`/operations/staffing/data` → canónica) sigue en 307, sin cambios —
+  es una canonicalización de recurso, no una transición de auth.
+- **Rutas agregadas:** `GET /operaciones/staffing/asignaciones`,
+  `POST /operaciones/staffing/asignaciones/data`. **Route surface: 80 →
+  82** (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`). El
+  diff final contra `main` de Batch A es EXACTAMENTE estas 2 líneas —
+  `/platform`/`/onedanwor` quedan sin cambios de método.
+
+### Pase correctivo "VISUAL CONTRACT CORRECTION" (geometría transversal del topbar)
+
+El pase funcional inicial (`e2c8743`) implementó una geometría de topbar
+INCORRECTA: movió el pager al primer hijo de `.topbar` (antes de la marca) y
+fusionó identidad animada + switcher en un solo `<details>`. El usuario
+señaló la regresión visual (pager en el borde izquierdo real, delante de
+la marca) y, tras dos rondas de investigación en Git (`git show
+574e790:webapp/templates/module.html` + lectura directa de
+`assets/danwor-animated-dancing.html`), se confirmó el hallazgo clave: el
+"mark I+D + título + subtítulo" que el usuario describía SIEMPRE fue un
+único componente animado autocontenido (panel-left DANWOR→"Innovación +
+Desarrollo"→"Data & AI for Business", divisor, panel-right título+
+subtítulo) — nunca existió como markup Jinja separado, y `APP_TITLE`/
+`APP_SUBTITLE` (`config.py`) nunca tuvieron consumidor real; el asset traía
+su propio texto hardcodeado en JS (`const TITLE = '...'`).
+
+**Contrato final (recuperado, no rediseñado):**
+- **IZQUIERDA:** el componente animado histórico único, intacto, SIEMPRE
+  primer hijo de `.topbar` — NUNCA es el trigger del switcher. Su
+  título/subtítulo (antes hardcodeados en el asset) ahora se parametrizan
+  vía query string del propio `GET /brand/dancing/{pack}` (`?title=...
+  &subtitle=...`, `webapp/routers/pack_assets.py`) — reusa el MISMO
+  mecanismo de sustitución de texto que ya existía ahí (`dark_shell_colors`)
+  para reemplazar las constantes JS `TITLE`/`SUBTITLE` del asset, con
+  escaping seguro para JS string literal. Sin params, el asset conserva su
+  texto original (no-op, compatibilidad).
+- **`config.py`:** `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE`
+  (NUEVAS, mismo patrón `_env(...)` que `APP_TITLE`/`APP_SUBTITLE`,
+  defaults "Gestión Inteligente · Operaciones" / "Analítica y gestión
+  operativa | Danwor Transversal"). Sin mutación per-request — Copiloto
+  SIEMPRE usa `APP_TITLE`/`APP_SUBTITLE`, Operaciones SIEMPRE usa las
+  suyas; son constantes de proceso distintas, no un valor compartido que
+  se pisa.
+- **`webapp/templating.py`:** nuevo global Jinja `config` (el módulo
+  completo, de solo lectura) — permite a las templates leer
+  `config.APP_TITLE`/`config.OPERATIONS_APP_TITLE` sin que cada router
+  reinyecte esos valores en su contexto.
+- **DERECHA (`.header-tools`):** pager → switcher de workspace (botón-
+  ícono, `<details class="workspace-switch"><summary class="theme-toggle"
+  aria-label="Cambiar de espacio de trabajo">` con 2+ workspaces, link
+  plano con el mismo ícono con 1 solo) → selector interno (`{{ caller() }}`)
+  → theme → logout → mobile-menu. CSS: `.workspace-switch > summary.
+  theme-toggle` (list-style/cursor/marker-hide/hover) — el botón reusa
+  `.theme-toggle` TAL CUAL (34×34px, mismo lenguaje visual que theme/
+  logout), sin CSS de tamaño propio. **Iteración de UX dentro de este
+  mismo pase:** la primera versión usaba una clase `.brand-compact` con
+  el logo completo (`brand/danwor-logo.png`) como trigger; el usuario
+  aclaró que quería la caja-ícono, no el logo — se reemplazó por un ícono
+  SVG de grilla (4 cuadrados, stroke-based) DENTRO de `.theme-toggle`,
+  eliminando `.brand-compact`/`.brand-compact-link`/`.topbar-brand-compact`
+  sin dejar rastro. Regla muerta previa `.animated-brand:has(.topbar-brand-static)`
+  también eliminada.
+- **9 templates actualizados** (8 Copilot + `operations/staffing.html`):
+  `_identity_html` (iframe con `title`/`subtitle` urlencoded desde
+  `config`) reemplaza el viejo `_brand_html` único — el switcher ya NO
+  recibe presentación del caller (es 100% del macro, como theme/logout).
+  `webapp/routers/staffing.py` agrega `pack: DEFAULT_PACK` al contexto de
+  `staffing_page` (Operaciones no tiene concepto de pack propio; el asset
+  animado es un archivo físico bajo `content_packs/`) — presentación
+  pura, **sin tocar redirect/auth** (freeze respetado).
+- **Sin cambios de ruteo:** route surface sigue en **82**, diff contra
+  Batch A idéntico al de antes de este pase.
+- **Tests:** `tests/webapp/test_platform_topbar.py` reescrito con el
+  contrato final — identidad animada única (LEFT) config-driven para
+  ambos workspaces, orden RIGHT (pager→switcher-ícono→selector
+  interno→theme→logout), switcher como botón-ícono 34×34 igual a theme/
+  logout (nunca la identidad, nunca el logo completo), sustitución real de
+  `TITLE`/`SUBTITLE` vía la ruta `/brand/dancing/{pack}`, back/forward/
+  selector interno sin regresión.
+- **SMOKE VISUAL MANUAL: GREEN.** `/modules/00_Intro?pack=datasphere_core`
+  y `/operaciones/staffing/asignaciones` vía sesión inyectada: orden DOM
+  confirmado por accesibilidad (identidad → pager → switcher-ícono →
+  selector interno → theme → logout → mobile-menu) en ambos workspaces;
+  request real a `/brand/dancing/datasphere_core` con `title`/`subtitle`
+  urlencoded correctos para cada workspace (verificado vía Network);
+  sustitución de texto confirmada byte a byte (UTF-8 correcto — un
+  mojibake inicial fue artefacto del codepage de la consola de smoke, no
+  un bug real); `getBoundingClientRect()` del switcher = 34×34px, idéntico
+  a theme/logout, cero `<img>` en el topbar. Viewport 375px: sin overflow,
+  `.module-pager` sigue en `display:none` (regla preexistente, sin tocar).
+  Sin errores de consola en ningún paso.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  3.14.3): **suite 373 passed / 1 skipped** (370 + 3 netos del pase de
+  geometría visual — algunos tests viejos se reescribieron en vez de
+  sumar, por eso el neto es menor a los 16 tests nuevos de
+  `test_platform_topbar.py`), route-contract GREEN, snapshot sin cambios
+  (**82** — este pase es presentación pura).
+- **SMOKE VISUAL MANUAL: GREEN.** Módulo real de Copilot → back/forward
+  reales con hrefs correctos, brand animado, switcher del brand con
+  Operaciones + Todos los espacios, sin errores de consola. Click al
+  brand → Operaciones real (Asignaciones, hero simplificado, nav STAFFING/
+  Asignaciones, selector interno "Staffing" deshabilitado, intento real de
+  SharePoint con "no token" esperado sin credenciales reales). Click de
+  vuelta a Copiloto → home real (`/modules/00_Intro`). Compatibilidad
+  `/operations/staffing` → cadena real hasta la página canónica. Deep link
+  canónico logged-out → `/onedanwor?next=...` con `data-home` canónico
+  (sin selector interpuesto). Viewport 375px: sin overflow horizontal en
+  Copilot ni Operaciones; mobile-menu de Operaciones revela su nav
+  izquierdo correctamente (verificado vía clase `is-open` + `display:
+  block` computado). Academy/Catalog/What's New re-verificados: pager
+  deshabilitado en ambos lados, brand intacto. Sin errores de consola en
+  ningún paso.
+- **Workspace switcher — corrección de UX (commits `56019be` +
+  `52636b9`):** la primera versión del botón-ícono de RIGHT usaba el logo
+  completo de Danwor (`brand/danwor-logo.png`) como trigger del switcher.
+  El usuario aclaró que la intención era una caja del mismo tamaño que
+  theme/logout, no el logo — se reemplazó por un ícono SVG de grilla (4
+  cuadrados, mismo estilo stroke-based) DENTRO de la clase `.theme-toggle`
+  ya existente (34×34px, cero CSS de tamaño nuevo). `platform_topbar` ya
+  no recibe `switch_brand_html` del caller — el switcher es 100% del
+  macro, igual que theme/logout. Verificado con
+  `getBoundingClientRect()`: switcher = 34×34px, idéntico a theme/logout,
+  cero `<img>` en el topbar, en ambos workspaces.
+- **Hardening de seguridad del brand animado parametrizado (commit
+  `8108914`):** verificación puntual pre-PR de la sustitución de
+  `title`/`subtitle` en `/brand/dancing/{pack}` (ver arriba). Hallazgo: el
+  escaping inicial (`_js_single_quoted`) protegía correctamente el
+  contexto de string JS (comillas simples, backslashes) pero NO el
+  contexto real de embedding — un `<script>` dentro de un documento HTML.
+  El parser de HTML tokeniza `</script>` de forma literal e insensible a
+  mayúsculas ANTES de que exista noción de "string JS": un `title`/
+  `subtitle` con `</script>` cerraba el script real y el resto se
+  parseaba como markup nuevo, ejecutando código inyectado — aunque el
+  valor estuviera sintácticamente bien escapado como literal JS.
+  Corrección: `"</"` → `"<\/"` (MISMO patrón que `pack_asset()` ya usa un
+  poco más abajo en el mismo archivo para su payload de embed —
+  reutilizado, no una nueva defensa) + normalización de saltos de línea
+  crudos a `\n` escapado (un literal `'...'` de JS no admite un salto de
+  línea crudo). Regresión agregada: intento de breakout
+  `</script><script>...</script>`, comillas+backslashes combinados,
+  multilinea, Unicode normal preservado — **GREEN**, sin afectar
+  identidad/config/ruteo.
+- **Validación final de cierre:** Python **3.14.3**; full suite **376
+  passed / 1 skipped** (373 + 3 netos del hardening de seguridad);
+  tests dirigidos del topbar compartido **19 GREEN**; route-contract
+  GREEN, snapshot sin cambios (**82**); GitHub **CI GREEN** sobre el
+  estado final de la rama (confirmado por el usuario).
+
+### Próxima decisión (NO autorizada en este commit de docs)
+
+Con este batch **CLOSED / GREEN**, el objetivo de shell/topbar
+transversal de plataforma queda completo — la iniciativa vuelve a valor
+de producto funcional. Candidato identificado (NO autorizado, NO
+empezado):
+
+- **STAFFING FUNCTIONAL PARITY** — empezando por un **assessment
+  funcional** (análisis, sin código) de horas de asignación/mes,
+  disponibilidad Full Time/Part Time de consultores, semántica de
+  capacidad y de disponibilidad, ANTES de introducir cualquier regla
+  basada en el umbral de 160h/mes.
+
+Explícitamente diferido, sin autorizar implementación: capacidad/
+disponibilidad de Staffing, reportes/herramientas adicionales de
+Staffing, Projects, Reporting, vacaciones, filtros, Gantt, contenido real
+del right rail de Operaciones, asset animado dedicado futuro de
+Operaciones (`PENDING DESIGN ASSET`, no bloqueante), recordar-último-
+workspace, última-ruta-por-workspace, RBAC generalizado, rediseño de
+OAuth, flip de `/` a One Danwor, descomposición de Catalog/Admin, diseño-
+system generalizado.
+
+**No autorizado todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -2334,46 +2643,77 @@ usuario. Candidato identificado (NO autorizado, NO empezado):
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 | In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
 | One Danwor Entry Experience (Batch A) | **CLOSED / GREEN** |
+| Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** One Danwor Entry Experience — Batch A de dos (targeted
-  assessment previo determinó el límite: A = entrada/naming/auth; B =
-  shell/topbar/rename de rutas de Operations, explícitamente diferido)
-- **Status:** **CLOSED / GREEN.** GitHub CI GREEN, mergeada a `main` vía
-  PR #30; suite 354 passed / 1 skipped; route surface 80; **REAL
-  MICROSOFT OAUTH ROUND-TRIP: GREEN** (validado por el usuario con
-  credenciales reales desde `/onedanwor` — ver detalle arriba).
-- **Functional commits:** `78357b5` — `feat(platform): introduce One
-  Danwor entry experience`; `f22e1f4` — `fix(platform): version One
-  Danwor auth script`; `df8d4de` — `fix(platform): isolate neutral auth
-  callback presentation` (corrección final tras la validación real del
-  usuario — ver detalle arriba). Branch `work/onedanwor-entry-experience`,
-  mergeada a `main`.
-- **Naming:** término interno `platform` sin cambios. Marca visible "One
-  Danwor". Canónica: `GET /onedanwor`. `/platform` = alias de
-  compatibilidad, siempre 307 a `/onedanwor`. `/` y `/copilot` sin
-  cambios. Operations pasa a mostrarse como "Operaciones" (solo
-  `Workspace.label`; `key`/`home_url`/módulos internos sin tocar).
-- **Auth-popup — corregido de punta a punta:** el popup de `auth.js` ya
-  no hardcodea `/`, abre la página que inició el login. `render_landing()`
-  sirve un documento separado y totalmente neutro
-  (`auth_callback.html`) para los estados `auth_popup`/`code` — no un
-  overlay sobre la landing con marca (esa primera corrección resultó
-  insuficiente: el marcado seguía existiendo en el DOM debajo). Azure
-  `redirect_uri` (fijo en `/`) sin tocar. La entrega del `auth.js`
-  corregido quedó garantizada por el mismo cache-busting
-  `?v={{ static_version }}` que ya usa `base.html`.
-- **Deferred a Batch B (NO autorizado):** shared `platform_topbar` macro,
-  switcher logo-attached, asset animado de Operations, selector de área
-  interno de Operations, shell compartido, rename de rutas a
-  `/operaciones/staffing/asignaciones` + aliases de `/operations`,
-  rediseño del loading state de Staffing, y CUALQUIER trabajo sobre los
-  controles de back/forward reales del header actual del Copiloto — el
-  usuario señaló explícitamente que esos son controles in-app reales, no
-  chrome de browser; Batch B debe inspeccionar su implementación real
-  antes de tocarlos.
+- **Phase:** Shared Workspace Shell + Operaciones Structure (Batch B de
+  dos — Batch A, One Danwor Entry Experience, CLOSED/GREEN)
+- **Status:** **CLOSED / GREEN.** Suite local **376 passed / 1 skipped**,
+  tests dirigidos del topbar compartido **19 GREEN**, route surface **82**
+  (80→82, único delta intencional — ver detalle arriba), smoke visual
+  manual GREEN, hardening de seguridad del brand animado GREEN, GitHub
+  **CI GREEN** sobre el estado final de la rama (confirmado por el
+  usuario).
+- **Functional commits:** `e2c8743` — `feat(platform): shared workspace
+  topbar + Operaciones structure` (commit funcional inicial); `71bb101` —
+  `fix(platform): normalize Staffing auth redirect semantics` (pase
+  correctivo 1, redirect/auth); `2489ac4` — `fix(platform): preserve
+  config-driven transversal header geometry` (pase correctivo 2, geometría
+  visual); `56019be` — `fix(platform): workspace switcher as icon button,
+  not full logo` (ajuste de UX del switcher); `8108914` — `fix(platform):
+  escape script-context breakout in parameterized brand asset` (hardening
+  de seguridad, commit final funcional de este batch). Checkpoints de
+  docs: `2fa2249`, `94508fe`, `2ab1e70`, `52636b9` (el commit que crea este
+  mismo bloque es el docs-close final). Branch
+  `work/shared-shell-operaciones`, pusheado a origin.
+- **Topbar compartido:** `partials/platform_topbar.html`, macro
+  presentación-pura, sin auth/Graph/pack/secuencia de rutas. Firma final
+  (post pase correctivo 2): `platform_topbar(current_workspace,
+  available_workspaces, identity_href, identity_html, mobile_menu_label,
+  pager_previous=None, pager_next=None)`. Back/forward transversal en
+  POSICIÓN pero NO en lógica — el caller decide destino o deshabilitado;
+  `module.html` es el único con datos reales. `identity_html` (IZQUIERDA,
+  identidad animada única) es lo único que sigue siendo presentación del
+  CALLER — el switcher de workspace es 100% del macro: un botón-ícono más
+  en `.header-tools` (MISMA caja `.theme-toggle` que theme/logout, 34×34px,
+  ícono de grilla SVG), nunca el logo completo ni la identidad animada.
+- **8 templates Copilot migrados** (topbar duplicado → llamada al macro,
+  mecánico, sin regresión de marca/pack/back-forward/theme/logout/
+  mobile-menu). **Operaciones** adoptó la misma convención
+  `.app-shell.no-copilot` que Copilot ya usaba — nav real
+  (`operations_nav.html`, Staffing → Asignaciones), hero simplificado,
+  loading state con el spinner ya existente.
+- **Asset animado de Operaciones:** **RESUELTO** (pase correctivo 2) —
+  reusa el MISMO componente animado histórico que Copiloto
+  (`/brand/dancing/{pack}`), parametrizado con
+  `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE` (`config.py`). El logo
+  estático (`brand/danwor-logo.png`) NO se usa en el topbar compartido — el
+  switcher de RIGHT es un botón-ícono (`.theme-toggle` + grilla SVG),
+  igual en ambos workspaces; ese logo sigue existiendo solo para
+  `landing.html` (sin relación con este batch).
+- **Rutas canónicas:** `GET/POST /operaciones/staffing/asignaciones(/data)`.
+  `GET/POST /operations/staffing(/data)` = alias de compatibilidad,
+  siempre 307, method+body preservados. `OPERATIONS.home_url` actualizado.
+- **Bug real descubierto, y corrección normalizada (commit `71bb101`):**
+  `/platform`/`/onedanwor` (Batch A) eran GET-only; un POST no-autenticado
+  a Staffing, redirigiendo en cascada vía 307 (que preserva método),
+  llegaba ahí como POST y daba 405. La corrección FINAL no ensancha esas
+  rutas (siguen GET-only) — `platform_login_redirect` responde **303**
+  (fuerza GET en el siguiente hop) y recibe un `next_path` explícito
+  apuntando a la PÁGINA canónica, no al endpoint de datos. El diff de
+  route-contract contra `main` de Batch A es EXACTAMENTE las 2 rutas
+  canónicas nuevas — nada más. **Congelado sin cambios en el pase
+  correctivo 2** (geometría visual, ver arriba).
+- **Next candidate:** con Batch B CLOSED/GREEN, el objetivo de shell/topbar
+  transversal de plataforma queda completo — candidato identificado es
+  **STAFFING FUNCTIONAL PARITY**, empezando por un assessment funcional
+  (sin código) de horas de asignación/mes, disponibilidad FT/PT,
+  semántica de capacidad/disponibilidad, ANTES de cualquier regla basada
+  en 160h/mes. Streams pendientes conocidos (sin elegir): Projects,
+  Reporting, vacaciones, filtros, Gantt, right rail real de Operaciones,
+  asset animado dedicado futuro de Operaciones (no bloqueante).
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **354 passed / 1 skipped** · route surface **80**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **376 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).

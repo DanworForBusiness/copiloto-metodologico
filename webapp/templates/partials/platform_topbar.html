@@ -1,0 +1,80 @@
+{# platform_topbar.html — PLATFORM / SHARED PRESENTATION.
+
+   Header transversal para el chrome autenticado de CUALQUIER workspace
+   (Copiloto, Operaciones). Owns SOLO presentación: identidad animada,
+   back/forward, switcher de workspace, theme, logout, mobile-menu. NO
+   decide autorización, NO conoce Graph/pack/Staffing/secuencia de rutas —
+   todo eso lo provee quien llama el macro.
+
+   Geometría (recuperada de la versión histórica pre-Batch-B vía git —
+   ver HANDOFF): DOS zonas.
+     IZQUIERDA (identidad): el componente animado histórico único
+     (mark I+D + título + subtítulo, ver assets/danwor-animated-dancing.html,
+     servido vía /brand/dancing/{pack}) — SIEMPRE el mismo componente para
+     cualquier workspace, parametrizado con `identity_html`. NUNCA es el
+     trigger del switcher — es identidad pura, no acción.
+     DERECHA (`.header-tools`): pager → switcher de workspace (botón-ícono,
+     MISMA caja visual que theme/logout — ver `.theme-toggle`, NO el logo
+     completo) → selector interno (caller) → theme → logout → mobile-menu.
+
+   Contrato de navegación (back/forward): el macro es puramente visual —
+   recibe `pager_previous`/`pager_next`, cada uno `None` (deshabilitado,
+   con el mismo marcado ya usado por module.html) o un dict
+   `{"href": ..., "label": ...}`. El macro NUNCA calcula "página
+   anterior/siguiente" — eso es responsabilidad exclusiva de quien llama
+   (hoy: module.html, con módulos/apéndices reales; el resto pasa
+   `None`/`None` en vez de inventar una secuencia que no existe).
+
+   El selector interno (pack de Copiloto, área de Operaciones) es
+   contenido de CALLER — el macro no sabe qué es un "pack" ni un "área".
+
+   `identity_html` es un fragmento de presentación que arma el CALLER
+   (mismo patrón ya usado para `brand_html` antes de esta corrección) — el
+   macro no hardcodea ninguna identidad de workspace ni construye URLs de
+   asset. El switcher de workspace, en cambio, es 100% del macro (mismo
+   ícono para cualquier workspace, igual que theme/logout ya lo son) — no
+   recibe presentación del caller.
+
+   Uso:
+     {% from "partials/platform_topbar.html" import platform_topbar %}
+     {% call platform_topbar(current_workspace, available_workspaces,
+                              identity_href, identity_html,
+                              mobile_menu_label, pager_previous, pager_next) %}
+       <select class="pack-select">...</select>   [selector interno, opcional]
+     {% endcall %}
+#}
+{% macro platform_topbar(current_workspace, available_workspaces, identity_href, identity_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
+<header class="topbar">
+  <a href="{{ identity_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ identity_html | safe }}</a>
+  <div class="header-tools">
+    <div class="module-pager" aria-label="Navegación">
+      {% if pager_previous %}<a href="{{ pager_previous.href }}" aria-label="{{ pager_previous.label }}" title="{{ pager_previous.label }}">&larr;</a>{% else %}<span aria-hidden="true">&larr;</span>{% endif %}
+      {% if pager_next %}<a href="{{ pager_next.href }}" aria-label="{{ pager_next.label }}" title="{{ pager_next.label }}">&rarr;</a>{% else %}<span aria-hidden="true">&rarr;</span>{% endif %}
+    </div>
+    {% if available_workspaces and available_workspaces|length > 1 %}
+    <details class="workspace-switch">
+      <summary class="theme-toggle" aria-label="Cambiar de espacio de trabajo" title="Cambiar de espacio de trabajo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      </summary>
+      <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
+        {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
+        <a class="workspace-switch-platform" href="/onedanwor">Todos los espacios</a>
+      </nav>
+    </details>
+    {% else %}
+    <a href="{{ identity_href }}" class="theme-toggle" aria-label="Danwor · Inicio" title="Danwor · Inicio">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    </a>
+    {% endif %}
+    {{ caller() }}
+    <button class="theme-toggle" @click="toggleTheme()" :title="contentTheme === 'light' ? 'Usar contenido oscuro' : 'Usar contenido claro'" aria-label="Alternar tema del contenido">
+      <svg x-cloak x-show="contentTheme === 'light'" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3V1m0 22v-2M3 12H1m22 0h-2M4.2 4.2 2.8 2.8m18.4 18.4-1.4-1.4m0-15.6 1.4-1.4M2.8 21.2l1.4-1.4M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0Z"/></svg>
+      <svg x-cloak x-show="contentTheme === 'dark'" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 15.5A9 9 0 0 1 8.5 3.5a9 9 0 1 0 12 12Z"/></svg>
+    </button>
+    <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+    <button class="mobile-menu" @click="navOpen=!navOpen">{{ mobile_menu_label }}</button>
+  </div>
+</header>
+{% endmacro %}

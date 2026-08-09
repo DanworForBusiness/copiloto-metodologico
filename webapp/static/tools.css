@@ -421,6 +421,10 @@
   border: 1px solid var(--line); background: var(--card); color: var(--ink);
   font: 500 .7rem var(--sans); cursor: pointer;
 }
+/* Selector interno de Operaciones (área) — hoy solo "Staffing", sin
+   alternativas reales todavía; se muestra deshabilitado en vez de fingir
+   un desplegable con una sola opción. */
+.pack-select:disabled { opacity: .55; cursor: default; }
 .diag-toggle { display: inline-flex; align-items: center; height: 34px; cursor: pointer; }
 .diag-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .diag-track {

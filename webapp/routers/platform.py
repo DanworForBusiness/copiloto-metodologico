@@ -142,7 +142,14 @@ def platform_compat_redirect(next: str = Query("")):
     """Alias de compatibilidad — SIEMPRE 307 a `/onedanwor`, preservando
     `next` si es un path relativo seguro (mismas reglas de `render_landing`).
     Nunca renderiza landing/selector directamente: un solo punto de entrada
-    real evita que ambos diverjan."""
+    real evita que ambos diverjan.
+
+    GET-only a propósito: `/platform` y `/onedanwor` son superficies de
+    NAVEGACIÓN, no endpoints de acción/datos. Un POST no-autenticado hacia
+    una acción (p. ej. `/operaciones/staffing/asignaciones/data`) nunca
+    debería reaparecer acá como POST — `workspaces.platform_login_redirect`
+    resuelve esa transición con 303 (no 307), que fuerza GET en el
+    siguiente hop. Ver su docstring."""
     safe_next = next if next.startswith("/") and not next.startswith("//") else ""
     target = f"/onedanwor?{urlencode({'next': safe_next})}" if safe_next else "/onedanwor"
     return RedirectResponse(target, status_code=307)

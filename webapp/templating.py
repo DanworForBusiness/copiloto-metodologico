@@ -2,10 +2,14 @@
 templating.py — entorno Jinja2 compartido (capacidad de presentación de plataforma).
 
 Construye la ÚNICA instancia de ``Jinja2Templates`` de la webapp y registra los
-globals de PLATAFORMA: `static_version` (cache-busting de estáticos) y
-`verbose_telemetry` (flag de observabilidad). Se extrajo de ``webapp/main.py``
-(Fase 2C) para que los routers puedan renderizar sin importar ``webapp.main``;
-``main`` re-exporta ESTA MISMA instancia (identidad única, una sola env).
+globals de PLATAFORMA: `static_version` (cache-busting de estáticos),
+`verbose_telemetry` (flag de observabilidad) y `config` (módulo de
+configuración raíz, de solo lectura — permite a templates compartidas como
+`partials/platform_topbar.html` leer identidad de app config-driven, p. ej.
+`config.APP_TITLE`/`config.OPERATIONS_APP_TITLE`, sin que cada router tenga
+que reinyectarla en su contexto). Se extrajo de ``webapp/main.py`` (Fase 2C)
+para que los routers puedan renderizar sin importar ``webapp.main``; ``main``
+re-exporta ESTA MISMA instancia (identidad única, una sola env).
 
 Alcance PLATFORM-pure en RESPONSABILIDAD: acá NO se registran filtros específicos
 de workspace (`diagnostic_title`, `catalog_verdict_*`). Esos los sigue registrando
@@ -24,6 +28,7 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+import config
 from webapp.services.activity_service import is_verbose
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -49,3 +54,4 @@ class _StaticVersion:
 
 templates.env.globals["static_version"] = _StaticVersion()
 templates.env.globals["verbose_telemetry"] = is_verbose()
+templates.env.globals["config"] = config

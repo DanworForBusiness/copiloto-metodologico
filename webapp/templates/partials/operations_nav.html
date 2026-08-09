@@ -1,0 +1,13 @@
+{# Nav izquierdo de Operaciones — mismo idioma visual que copilot_nav.html
+   (.module-nav/.nav-kicker/.module-link), sin acordeón: hoy hay UN área
+   (Staffing) con UNA página real (Asignaciones), así que no hace falta
+   colapsar nada. No renderiza Projects/Reporting ni otros futuros —
+   se agregan cuando existan de verdad. #}
+<aside class="module-nav" :class="navOpen&&'is-open'">
+  <nav aria-label="Operaciones">
+    <p class="nav-kicker">STAFFING</p>
+    <a href="/operaciones/staffing/asignaciones" class="module-link is-active">
+      <span>01</span><strong>Asignaciones</strong>
+    </a>
+  </nav>
+</aside>

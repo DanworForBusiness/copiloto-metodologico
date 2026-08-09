@@ -19,7 +19,7 @@ import json
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 from core.content_registry import resolve_pack, resolve_pack_file, roots_for_kind
@@ -29,9 +29,35 @@ from webapp.presentation.academy_feedback import feedback_assets
 
 router = APIRouter()
 
+# Constantes JS hardcodeadas en el asset original (identidad animada I+D +
+# título + subtítulo, ver danwor-animated-dancing.html) — se sustituyen por
+# los valores config-driven del workspace que embebe el iframe (Copiloto:
+# APP_TITLE/APP_SUBTITLE; Operaciones: OPERATIONS_APP_TITLE/SUBTITLE). Sin
+# `title`/`subtitle` explícitos, el asset conserva su texto original (no-op).
+_TITLE_PATTERN = re.compile(r"const TITLE\s*=\s*'(?:[^'\\]|\\.)*';")
+_SUBTITLE_PATTERN = re.compile(r"const SUBTITLE\s*=\s*'(?:[^'\\]|\\.)*';")
+
+
+def _js_single_quoted(value: str) -> str:
+    """Escapa `value` para insertarlo como literal JS de comillas simples
+    DENTRO de un `<script>` embebido en HTML — no alcanza con escapar para
+    el parser de JS (comillas/backslashes): el parser de HTML tokeniza
+    `</script>` de forma literal e insensible a mayúsculas ANTES de que
+    exista noción de "string JS", así que un valor con `</script>` cierra
+    el bloque real aunque esté sintácticamente dentro de un string válido —
+    mismo escape ("</" → "<\\/") que ya usa `pack_asset` más abajo para el
+    mismo problema (`payload.replace("</", "<\\/")`), reutilizado acá. Los
+    saltos de línea también se escapan: un literal `'...'` de JS no admite
+    un salto de línea crudo (rompería el script, aunque sin ejecutar nada
+    inyectado)."""
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    escaped = escaped.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+    escaped = escaped.replace("</", "<\\/")
+    return "'" + escaped + "'"
+
 
 @router.get("/brand/dancing/{pack_name}", include_in_schema=False)
-def dancing_logo(pack_name: str):
+def dancing_logo(pack_name: str, title: str = Query(""), subtitle: str = Query("")):
     selected = resolve_pack(pack_name)
     path = resolve_pack_file("assets", "danwor-animated-dancing.html", selected)
     if not path.exists():
@@ -48,6 +74,10 @@ def dancing_logo(pack_name: str):
     }
     for original, replacement in dark_shell_colors.items():
         source = source.replace(original, replacement)
+    if title:
+        source = _TITLE_PATTERN.sub(lambda m: f"const TITLE    = {_js_single_quoted(title)};", source, count=1)
+    if subtitle:
+        source = _SUBTITLE_PATTERN.sub(lambda m: f"const SUBTITLE = {_js_single_quoted(subtitle)};", source, count=1)
     return HTMLResponse(source)
 
 

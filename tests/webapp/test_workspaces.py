@@ -61,5 +61,5 @@ def test_operations_only_is_not_representable_under_current_policy():
 
 def test_workspace_metadata_matches_expected_routing():
     assert workspaces.COPILOT.home_url == "/"
-    assert workspaces.OPERATIONS.home_url == "/operations/staffing"
+    assert workspaces.OPERATIONS.home_url == "/operaciones/staffing/asignaciones"
     assert {ws.key for ws in workspaces.available_workspaces(_user("x"))} <= {"copilot", "operations"}

@@ -17,6 +17,13 @@ APP_TITLE    = _env("DANWOR_APP_TITLE", "Copiloto Metodológico | Arquitecto Dan
 APP_SUBTITLE = _env("DANWOR_APP_SUBTITLE", "SAP Datasphere · BDC-Ready · Inteligencia metodológica")
 LOGO_URL     = _env("DANWOR_LOGO_URL", "https://certificaciones.greatplacetowork.com.ar/hubfs/Danwor%20LOGO.png")
 
+# App identity — workspace Operaciones (mismo patrón que APP_TITLE/APP_SUBTITLE
+# arriba; NO se reutilizan esas mismas variables porque un solo proceso sirve
+# ambos workspaces — no hay "config activo" que mutar por request, ver
+# webapp/workspaces.py y platform_topbar.html).
+OPERATIONS_APP_TITLE    = _env("DANWOR_OPERATIONS_APP_TITLE", "Gestión Inteligente · Operaciones")
+OPERATIONS_APP_SUBTITLE = _env("DANWOR_OPERATIONS_APP_SUBTITLE", "Analítica y gestión operativa | Danwor Transversal")
+
 # Paths
 BASE_DIR          = Path(__file__).parent
 CONTENT_PACKS_DIR = BASE_DIR / "content_packs"

@@ -1,12 +1,19 @@
 """
-staffing.py — Operations / Staffing HTTP (Batch 3 de aceleración post-Fase 2).
+staffing.py — Operations / Staffing HTTP.
 
-Router de las 2 rutas del primer slice read-only de Staffing:
-`GET /operations/staffing` (shell autenticado, sin Graph) y
-`POST /operations/staffing/data` (recibe `graph_token` explícito del
-browser, delega en `StaffingService`, devuelve un fragmento HTML para
-HTMX). Namespace `/operations/...` deliberado: primer HTTP real del
-workspace Operations.
+Rutas canónicas (batch Shared Workspace Shell + Operaciones Structure):
+`GET /operaciones/staffing/asignaciones` (shell autenticado, sin Graph) y
+`POST /operaciones/staffing/asignaciones/data` (recibe `graph_token`
+explícito del browser, delega en `StaffingService`, devuelve un
+fragmento HTML para HTMX). El nombre refleja la jerarquía real: workspace
+Operaciones → área Staffing → capacidad Asignaciones.
+
+`GET /operations/staffing` y `POST /operations/staffing/data` (nombres
+históricos en inglés, de Batch 3 de aceleración) quedan como alias de
+COMPATIBILIDAD — SIEMPRE 307 a la ruta canónica correspondiente, method y
+body preservados (307, no 302/303). Nunca vuelven a implementar la lógica
+de la página/fragmento — un solo punto de verdad evita que ambos
+diverjan.
 
 El token Graph delegado sigue viviendo en `sessionStorage` del browser
 (mismo mecanismo de `webapp/static/auth.js` que ya usa el panel de Admin —
@@ -24,16 +31,25 @@ eso vive en `StaffingService`/`StaffingRepository`/`core.microsoft365`
 provisoria, separada de `webapp.access`).
 
 El deep-link no autenticado entra por `webapp.workspaces.platform_login_redirect`
-(batch de transición multi-workspace) — NO por `webapp.nav.login_redirect`
-(Copilot-específico): Operations es un workspace distinto del Copiloto, así
-que su puerta de entrada es la platform-neutral (`/platform`), preservando
-`next` con el mismo mecanismo de siempre.
+(apunta a `/platform`, alias de compatibilidad que a su vez redirige a
+`/onedanwor` — ver Batch A) — NO por `webapp.nav.login_redirect`
+(Copilot-específico): Operaciones es un workspace distinto del Copiloto.
+
+`_require_operations_session` distingue PÁGINA de ACCIÓN al armar `next`:
+`staffing_page` (GET) no pasa `next_path` — `request.url.path` YA es la
+página, corresponde tal cual. `staffing_data` (POST) pasa
+`next_path="/operaciones/staffing/asignaciones"` EXPLÍCITO — sin sesión,
+`next` debe apuntar a la PÁGINA, nunca al endpoint de datos que disparó
+el redirect (el `graph_token` del POST original se descarta sin más:
+nunca se lee, nunca se propaga a la URL de login — tras el login la
+página real se re-inicializa y dispara su propio POST de HTMX fresco).
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
+from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
@@ -43,17 +59,20 @@ from webapp.templating import templates
 router = APIRouter()
 
 
-def _require_operations_session(request: Request):
+def _require_operations_session(request: Request, *, next_path: str | None = None):
     """Redirect (sin sesión) o 403 (sesión sin tier "full") — o None si OK.
-    Compartido por GET y POST para no duplicar la regla de acceso."""
+    Compartido por GET y POST para no duplicar la regla de acceso.
+    `next_path` explícito (solo lo pasa el POST de datos): ver docstring
+    del módulo — sin sesión, `next` debe apuntar a la página, no al
+    endpoint de acción que disparó el redirect."""
     if not auth_service.session_user(request):
-        return workspaces.platform_login_redirect(request)
+        return workspaces.platform_login_redirect(request, next_path=next_path)
     if not operations_access.is_staffing_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Staffing")
     return None
 
 
-@router.get("/operations/staffing", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/operaciones/staffing/asignaciones", response_class=HTMLResponse, include_in_schema=False)
 def staffing_page(request: Request):
     redirect = _require_operations_session(request)
     if redirect is not None:
@@ -64,13 +83,19 @@ def staffing_page(request: Request):
         context={
             "current_workspace": workspaces.OPERATIONS,
             "available_workspaces": workspaces.available_workspaces(user),
+            # Operaciones no tiene concepto de "pack" propio — la identidad
+            # animada compartida (ver platform_topbar.html) es un asset físico
+            # bajo content_packs/, así que se resuelve contra el pack por
+            # defecto de la webapp (mismo mecanismo que ya usa Copiloto, sin
+            # inventar un registro de packs para Operaciones).
+            "pack": DEFAULT_PACK,
         },
     )
 
 
-@router.post("/operations/staffing/data", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/operaciones/staffing/asignaciones/data", response_class=HTMLResponse, include_in_schema=False)
 def staffing_data(request: Request, graph_token: str = Form("")):
-    redirect = _require_operations_session(request)
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
     if redirect is not None:
         return redirect
 
@@ -97,3 +122,19 @@ def staffing_data(request: Request, graph_token: str = Form("")):
     return templates.TemplateResponse(
         request=request, name="operations/staffing_rows.html", context={"state": "ok", "rows": rows},
     )
+
+
+# --- Compatibilidad histórica (nombres en inglés, Batch 3) ------------------
+# 307 preserva method + body — el POST con `graph_token` en el form sigue
+# llegando correctamente a la ruta canónica, HTMX incluido (el browser sigue
+# la redirección de forma transparente). Nunca reimplementan la lógica de
+# arriba: un solo punto de verdad.
+
+@router.get("/operations/staffing", include_in_schema=False)
+def staffing_page_compat():
+    return RedirectResponse("/operaciones/staffing/asignaciones", status_code=307)
+
+
+@router.post("/operations/staffing/data", include_in_schema=False)
+def staffing_data_compat():
+    return RedirectResponse("/operaciones/staffing/asignaciones/data", status_code=307)
