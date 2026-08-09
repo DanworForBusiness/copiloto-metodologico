@@ -910,6 +910,36 @@ def test_login_redirects_to_landing_access_section():
     assert response.headers["location"] == "/?pack=datasphere_core#acceso"
 
 
+# ── /copilot: alias explícito de / (batch de transición multi-workspace) ──
+
+def test_copilot_alias_renders_the_same_experience_as_root():
+    root = TestClient(app).get("/")
+    copilot = TestClient(app).get("/copilot")
+    assert copilot.status_code == root.status_code == 200
+    assert copilot.text == root.text
+
+
+def test_copilot_alias_forwards_logged_users_into_the_app():
+    logged = client.get("/copilot", follow_redirects=False)
+    assert logged.status_code == 307
+    assert "/home" in logged.headers["location"]
+
+
+def test_copilot_alias_preserves_next_like_root():
+    response = client.get("/copilot?next=/academy/ACAD01_Paradigmas", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/academy/ACAD01_Paradigmas"
+
+
+def test_root_still_serves_module_flow_untouched():
+    # Guard de no-regresión: /modules/{stem}?pack=... sigue funcionando
+    # exactamente igual tras el batch de transición multi-workspace (pack
+    # nunca se tocó).
+    response = client.get("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core")
+    assert response.status_code == 200
+    assert "Arquitectura y Conectividad" in response.text
+
+
 # ── Modo diagnóstico y actividad ──────────────────────────────────────────
 
 def test_diagnostic_toggle_sets_cookie_server_side():

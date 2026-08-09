@@ -88,6 +88,13 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)
 }
 @media (prefers-reduced-motion:reduce){.hero-scroll-line{animation:none}}
 
+/* ── Selector de workspace (2+ espacios disponibles, /platform) ── */
+.workspace-tiles{width:min(1080px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:22px;margin-top:22px}
+.workspace-tile{display:block;padding:34px 28px;text-decoration:none;color:var(--ink);transition:border-color .16s ease,transform .16s ease}
+.workspace-tile:hover{border-color:rgba(231,176,8,.5);transform:translateY(-2px)}
+.workspace-tile h2{margin:0;font-size:1.3rem;font-weight:800;letter-spacing:-.02em}
+.workspace-tile .sub{margin:10px 0 0;color:var(--ink-soft);font-size:.88rem;line-height:1.5}
+
 /* ── Overlay "Completando acceso…" (mientras se procesa el callback de Microsoft) ── */
 .auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;
   align-items:center;justify-content:center;background:rgba(12,12,13,.94);color:var(--ink);

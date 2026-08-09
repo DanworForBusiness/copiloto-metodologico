@@ -1,13 +1,21 @@
 """
 landing.py — Landing / session navigation (feature COPILOT).
 
-Router de las 5 rutas de entrada/navegación de sesión: la raíz (`GET /`), el
-destino post-login dependiente de perfil (`GET /home`), el atajo a la sección
-de acceso (`GET /login`) y la invitación one-off al Desafío (`GET /desafio`,
-`GET /desafio/cerrar`). Extraído de ``webapp/main.py`` (Fase 2G) como
-relocación pura — sin rediseño de auth/pack/navegación/invite. NO implementa
-el futuro modelo de workspace switcher / multi-workspace entry (ver HANDOFF
-A.19) — Fase 2G solo conserva la navegación actual.
+Router de las 6 rutas de entrada/navegación de sesión: la raíz (`GET /`), su
+alias explícito (`GET /copilot`), el destino post-login dependiente de
+perfil (`GET /home`), el atajo a la sección de acceso (`GET /login`) y la
+invitación one-off al Desafío (`GET /desafio`, `GET /desafio/cerrar`).
+Extraído de ``webapp/main.py`` (Fase 2G) como relocación pura — sin
+rediseño de auth/pack/navegación/invite.
+
+`/copilot` (batch de transición multi-workspace) es un alias EXPLÍCITO de
+`/`, no un segundo producto: comparte la misma `render_landing()` — mismo
+auth, misma sesión, mismo mecanismo de `next`, mismo template, misma copy —
+así que no puede divergir de `/` por construcción. `/` sigue siendo la
+puerta del Copiloto sin cambios (decisión de producto: NO se flipea a
+Platform en este batch). La puerta platform-neutral (`/platform`,
+selección de workspace) vive en `webapp/routers/platform.py` y reutiliza
+`render_landing()` con una copy distinta — sin duplicar la lógica acá.
 
 Feature COPILOT que consume capacidades compartidas desde sus dueños explícitos
 (`core.content_registry`, `webapp.services.auth_service`, `webapp.access`,
@@ -29,6 +37,50 @@ from webapp.services.content_service import list_academy
 from webapp.templating import templates
 
 router = APIRouter()
+
+# Copy EXACTA del texto hardcodeado histórico de landing.html — extraída acá
+# para que `/` y `/copilot` sigan renderizando byte a byte lo mismo de
+# siempre. `webapp/routers/platform.py` define su propia copy (distinta,
+# platform-neutral) sin tocar esta.
+_COPILOT_LANDING_COPY = {
+    "title": "Copiloto Metodológico · Danwor",
+    "eyebrow_ink": "Copiloto Metodológico",
+    "eyebrow_gold": "Arquitecto Danwor",
+    "brand_title": "Copiloto Metodológico",
+    "brand_subtitle": "Arquitecto Danwor",
+    "brand_description": (
+        "Un entorno guiado para recorrer nuestro marco metodológico, consultar "
+        "decisiones técnicas y acelerar entregables con criterio arquitectónico "
+        "y mirada Danwor."
+    ),
+    "feature_list": [
+        "Marco metodológico navegable",
+        "Árboles de decisión y asistencia IA",
+        "Criterios técnicos para proyectos SAP",
+    ],
+    "login_sub_lines": [
+        "Copiloto Metodológico · Arquitecto Danwor",
+        "SAP Datasphere · BDC-Ready · Inteligencia metodológica",
+    ],
+}
+
+
+def render_landing(request: Request, selected_pack: str, next: str, *, default_home: str, copy: dict):
+    """Comportamiento COMPLETO de la landing histórica (auth + redirect +
+    template), parametrizado por `default_home`/`copy` para que `/`,
+    `/copilot` y (desde `webapp/routers/platform.py`) `/platform` sin
+    sesión compartan exactamente la misma lógica — nunca duplicada."""
+    # `next` viaja desde login_redirect cuando el visitante venía de un link directo
+    # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
+    # evitar un open-redirect a un host externo.
+    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    if auth_service.session_user(request):
+        return RedirectResponse(safe_next or default_home, status_code=307)
+    return templates.TemplateResponse(
+        request=request,
+        name="landing.html",
+        context={"pack": selected_pack, "home_url": safe_next or default_home, "login_copy": copy},
+    )
 
 
 @router.get("/home", include_in_schema=False)
@@ -86,23 +138,24 @@ def desafio_close():
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 def landing(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
-    selected = resolve_pack(pack)
-    # `next` viaja desde login_redirect cuando el visitante venía de un link directo
-    # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
-    # evitar un open-redirect a un host externo.
-    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
-    default_home = f"/home?pack={selected}"
     # Con sesión vigente, la raíz sigue de largo al copiloto: el wrapper de
     # danwor.com (/copiloto/) embebe esta raíz, y un usuario ya logueado debe
     # aterrizar adentro de la app, no en el landing con la sección de acceso.
-    if auth_service.session_user(request):
-        return RedirectResponse(safe_next or default_home, status_code=307)
     # data-home apunta a /home por defecto (redirección server-side según perfil), o
     # al `next` original si el visitante venía de un link directo sin sesión.
-    return templates.TemplateResponse(
-        request=request,
-        name="landing.html",
-        context={"pack": selected, "home_url": safe_next or default_home},
+    selected = resolve_pack(pack)
+    return render_landing(
+        request, selected, next, default_home=f"/home?pack={selected}", copy=_COPILOT_LANDING_COPY,
+    )
+
+
+@router.get("/copilot", response_class=HTMLResponse, include_in_schema=False)
+def copilot_entry(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
+    """Alias explícito de `/` para el batch de transición multi-workspace —
+    misma auth/sesión/next/template/copy, cero comportamiento nuevo."""
+    selected = resolve_pack(pack)
+    return render_landing(
+        request, selected, next, default_home=f"/home?pack={selected}", copy=_COPILOT_LANDING_COPY,
     )
 
 

@@ -21,16 +21,20 @@ importa `webapp.main`, no construye URLs de Graph, no posee el mapeo de
 campos, no posee transporte Graph, no realiza cálculos de negocio — todo
 eso vive en `StaffingService`/`StaffingRepository`/`core.microsoft365`
 (Batch 1/2). Consume `webapp.operations_access` (política mínima y
-provisoria, separada de `webapp.access`) y `webapp.nav.login_redirect`
-(mecanismo genérico de deep-link ya usado por `modules.py`/`wizard.py`).
+provisoria, separada de `webapp.access`).
+
+El deep-link no autenticado entra por `webapp.workspaces.platform_login_redirect`
+(batch de transición multi-workspace) — NO por `webapp.nav.login_redirect`
+(Copilot-específico): Operations es un workspace distinto del Copiloto, así
+que su puerta de entrada es la platform-neutral (`/platform`), preservando
+`next` con el mismo mecanismo de siempre.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from core.content_registry import DEFAULT_PACK
-from webapp import nav, operations_access
+from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
 from webapp.services.staffing_service import StaffingService
@@ -43,7 +47,7 @@ def _require_operations_session(request: Request):
     """Redirect (sin sesión) o 403 (sesión sin tier "full") — o None si OK.
     Compartido por GET y POST para no duplicar la regla de acceso."""
     if not auth_service.session_user(request):
-        return nav.login_redirect(request, DEFAULT_PACK)
+        return workspaces.platform_login_redirect(request)
     if not operations_access.is_staffing_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Staffing")
     return None

@@ -1844,6 +1844,161 @@ y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 
 ---
 
+## PLATFORM ENTRY / WORKSPACE RESOLUTION — CLOSED / GREEN
+(commit funcional `bd5b0f8` — `feat(platform): add workspace-aware entry
+flow`; checkpoint previo `221b82d`; branch
+`work/platform-entry-workspace-resolution`)
+
+**Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; full
+suite **332 passed / 1 skipped**; **route surface 79**; route snapshot
+expandido intencionalmente solo con `GET /platform` y `GET /copilot`
+(anterior: 77); **smoke visual manual: GREEN**.
+
+Primer paso de la dirección de plataforma multi-workspace descripta en
+**A.19**: entrada transicional, sin todavía decidir la identidad final de
+`/` ni construir un workspace switcher.
+
+- **Modelo de routing transicional (intencional, no definitivo):** `/`
+  sigue siendo EXACTAMENTE la entrada del Copiloto (verificado por
+  comparación de string byte-a-byte contra la versión histórica — **cero
+  regresión visual/funcional**). `/copilot` es un alias explícito nuevo que
+  renderiza la misma experiencia (mismo `render_landing()`, mismo
+  auth/next/pack). `/platform` es la nueva entrada platform-agnostic. El
+  deep link existente `/operations/staffing` no cambió de URL.
+- **`webapp/workspaces.py`** → **PLATFORM / WORKSPACE DISCOVERY & ROUTING
+  METADATA.** No importa `webapp.main`, no posee estado mutable, no posee
+  auth/sesión. Representación mínima e inmutable `Workspace(key, label,
+  subtitle, home_url, is_authorized)` para exactamente 2 workspaces
+  (`COPILOT`, `OPERATIONS`). **NO** es una base de datos, ni un plugin
+  registry, ni discovery dinámico, ni RBAC.
+- **Predicados de autorización — reutilizados, no duplicados:** Copilot =
+  `user is not None` (cualquier sesión válida); Operations = predicado puro
+  nuevo `operations_access.is_staffing_authorized_user(user)`, extraído del
+  `is_staffing_authorized(request)` existente de Batch 3 (que ahora delega
+  en él) — **cero regresión**, verificado contra los 16 tests de Staffing
+  ya existentes.
+- **Invariante de sesión (verificado por lectura de código, no supuesto):**
+  `auth_service.py` exige `user_tier(email) is not None` para CREAR la
+  sesión — ningún request con cookie de sesión válida puede tener tier
+  `None`. Consecuencia: **"Operations-only" y "0 workspaces autenticado" NO
+  son representables** bajo la política actual (Operations es un
+  subconjunto estricto de Copilot). Documentado como invariante ejecutable
+  en `tests/webapp/test_workspaces.py`
+  (`test_operations_only_is_not_representable_under_current_policy`) — **no
+  se fabricó ningún tier falso** para simular esa combinación imposible,
+  por instrucción explícita.
+- **Fuente de autorización — deliberadamente desacoplada:** el resolver NO
+  usa variables de entorno como modelo permanente de asignación
+  usuario→workspace; reutiliza las políticas server-side existentes. Cuando
+  la fuente real cambie a futuro (grupos de Entra, app roles, allowlists),
+  ese cambio no debería requerir tocar routing/UI de plataforma.
+- **Resolución 0/1/2+ en `/platform` autenticado:** 0 workspaces →
+  `platform_no_access.html` (estado controlado, sin loop de redirect); 1
+  workspace → redirect directo 307 a su `home_url` (sin selector
+  intermedio); 2+ → `platform_selector.html` con tiles solo de lo que
+  devuelve `available_workspaces(user)` (nunca hardcodeado — verificado con
+  test que monkeypatchea el resolver). Sin "recordar último workspace", sin
+  localStorage — explícitamente diferido.
+- **Precedencia de deep link:** un `next` explícito y seguro SIEMPRE gana
+  sobre la resolución de selector, incluso autenticado con 2+ workspaces
+  (verificado con test). Reutiliza el mecanismo de `next` YA existente
+  (`safe_next` relativo, sin `//`) — no se introdujo un segundo sistema de
+  post-login state, no se debilitó la protección de open-redirect.
+- **Deep link de Operations — cambio de entrada de login, NO de URL de
+  destino:** `GET/POST /operations/staffing(/data)` sin sesión ahora
+  redirige a `/platform?next=...` (antes: `/` con el branding del
+  Copiloto) vía `workspaces.platform_login_redirect(request)`, preservando
+  `next` end-to-end. **El deep link de Copilot NO cambió** — sigue usando
+  `nav.login_redirect` hacia `/`. Verificado con test end-to-end
+  (`test_operations_deep_link_round_trip_via_platform_entry`) y con smoke
+  visual manual en browser real (logged out → `/operations/staffing` →
+  `/platform?next=%2Foperations%2Fstaffing`, sin branding del Copiloto,
+  `data-home="/operations/staffing"` → tras login volvería directo a
+  Staffing, sin pasar por el selector).
+- **Naming provisorio, explícitamente cuestionable:** "Plataforma Danwor"
+  (título, eyebrow, CTA genérico "Ingresar con tu cuenta Danwor" — sin
+  mencionar workspaces específicos en el login). No es un ejercicio de
+  branding definitivo.
+- **Presentación reutilizada, no duplicada:** se parametrizó
+  `landing.html` existente (75 líneas, autocontenido) con un diccionario de
+  copy (`login_copy`) en vez de crear una plantilla hermana — reduce a cero
+  el riesgo de divergencia entre `/`, `/copilot` y `/platform` para todo lo
+  que no sea texto. Se extrajo `render_landing()` en `landing.py`,
+  reutilizado por `platform.py` sin import circular
+  (`platform.py`→`landing.py`, nunca al revés). Identidad visual
+  (`.glass`, `.access-grid`, fondo hero) reutilizada de `brand-hero.css`
+  existente (98 líneas ya auditadas) — solo se agregaron ~6 líneas nuevas
+  (`.workspace-tile(s)`) para los tiles del selector, sin nuevo stylesheet.
+- **Token Graph delegado — mecanismo sin cambios:**
+  `sessionStorage["dw-graph-token"]` sigue siendo seteado exactamente igual
+  por `auth.js`; Copilot y Operations siguen compartiendo la misma sesión
+  de browser autenticada. Sin segundo OAuth, sin segunda sesión, sin
+  transferencia server-side, sin nuevos scopes.
+- **`pack` — sin tocar:** sigue siendo un selector de contenido
+  Copilot-interno (`?pack=datasphere_core`); nunca se usó para identificar
+  Operations ni ningún otro workspace.
+- **Explícitamente diferido (NO en este batch):** workspace switcher
+  in-app, flip de `/` a Platform, "recordar último workspace", RBAC
+  generalizado, rediseño de Entra groups/app roles, base de datos de
+  asignación usuario↔workspace, rediseño completo de login, rediseño de
+  Graph token, landing de Operations, Projects/Reporting, paridad de
+  capacidad/disponibilidad de Staffing.
+- **Rutas agregadas:** `GET /platform`, `GET /copilot`. **Route surface: 77
+  → 79** (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`; el
+  diff contiene únicamente estas 2 líneas, en su posición alfabética
+  correcta).
+- **Tests (+19):** resolver de workspaces (5, incluyendo el invariante
+  ejecutable de no-representabilidad), `/platform` (10: render
+  no-autenticado, ausencia de branding Copilot, next válido/inválido,
+  redirect directo con 1 workspace, selector con 2+, precedencia de next
+  explícito, selector puramente derivado del resolver, estado 0-workspaces
+  controlado, round-trip completo del deep link de Operations), `/copilot`
+  (4: byte-idéntico a `/`, forward de sesión, preservación de next, `/`
+  intacto). Más 2 tests existentes de Staffing actualizados para reflejar
+  el nuevo destino de redirect (`/platform?next=...` en vez de `/?...`).
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  3.14.3): **suite 332 passed / 1 skipped** (313 + 19), route-contract
+  GREEN tras regenerar el snapshot intencionalmente (**79**).
+- **SMOKE VISUAL MANUAL: GREEN.** Corrido en browser real contra
+  `uvicorn webapp.main:app` (puerto 8082, `.venv` del proyecto): `/`
+  visualmente idéntico al histórico; `/copilot` misma experiencia; `/platform`
+  no-autenticado con copy platform-neutral correcto; sesión inyectada
+  (JWT firmado con el `.venv` del proyecto, nunca credenciales reales del
+  usuario) → `/platform` autenticado con 2 workspaces → selector con ambos
+  tiles → click en Operations → `/operations/staffing` correcto; click en
+  Copilot → experiencia real del Copiloto; deep link logged-out →
+  `/operations/staffing` → `/platform?next=%2Foperations%2Fstaffing`
+  confirmado. Sin errores de consola en ningún paso.
+- **Invariante de autorización actual (observado, no elegido):** Copilot =
+  cualquier usuario actualmente autenticado; Operations = el predicado de
+  autorización de Operations/Staffing ya existente. Por lo tanto, un
+  **"usuario solo-Operations" NO es representable** por el modelo de
+  autorización actual. Esto es un invariante observado del modelo actual —
+  **no es una limitación del resolver ni fue trabajado artificialmente
+  alrededor**. La fuente de autorización futura puede cambiar (grupos de
+  Entra, app roles, allowlists explícitas, u otra fuente server-side) sin
+  cambiar el contrato del resolver de workspaces; **no se elige ninguna en
+  este cierre**.
+- **CI:** GitHub CI **GREEN** sobre el estado final de la rama.
+
+### Próxima decisión (NO autorizada automáticamente)
+
+Con este batch **CLOSED / GREEN**, el próximo paso es una decisión del
+usuario, no una continuación automática. Candidatos, sin elegir entre
+ellos en este commit de docs:
+
+- **IN-APP WORKSPACE NAVIGATION / PLATFORM EXPERIENCE** — dónde vive un
+  switcher de workspace, cómo se relaciona la navegación de plataforma con
+  la navegación local de cada workspace, el eventual flip de `/` a
+  Platform, la evolución de la fuente de autorización, y el naming final
+  de la plataforma (hoy "Plataforma Danwor", provisorio).
+- **Paridad funcional de Staffing** (capacidad/disponibilidad, filtros,
+  Gantt, vacaciones) — disponible como stream de producto separado.
+
+**Ninguno autorizado todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -1870,27 +2025,34 @@ y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
+| Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Platform Acceleration — Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
-- **Status:** CLOSED / GREEN — **REAL GRAPH SMOKE: GREEN. FIRST REAL
-  STAFFING MILESTONE: ACHIEVED.**
-- **Functional commits:** `878f8e8` (HTTP view), `98490e7` (corrección
-  allocation_unit → hours_per_month); docs de hito real `5473b27` (branch
-  `work/platform-acceleration-b3-staffing-http`)
-- **Current next candidate:** **PLATFORM ACCELERATION RESULT** — con Batch
-  1/2/3 CLOSED/GREEN y el primer hito real alcanzado, queda demostrado que
-  el segundo workspace real puede consumir capacidades de plataforma
-  compartidas sin embeberse en HTTP/business/state del Copiloto. El
-  próximo paso es una DECISIÓN del usuario, no un lote automático:
-  semántica de capacidad/disponibilidad (FT/PT,
-  `Disponibilidaddeasignaci_x00f3_n`, over-allocation), filtros, vistas de
-  asignación activa/actual, enriquecimiento de cliente, vacaciones,
-  timeline/Gantt, o el rediseño de navegación/login de workspace que el
-  usuario explícitamente quiere revisitar después de este hito. **Ninguno
-  autorizado todavía.**
+- **Phase:** Platform Entry / Workspace Resolution — entrada transicional
+  multi-workspace (`/platform`, `/copilot`, deep link de Operations
+  platform-neutral)
+- **Status:** **CLOSED / GREEN.** GitHub CI GREEN sobre el estado final de
+  la rama; suite 332 passed / 1 skipped; route surface 79; smoke visual
+  manual GREEN.
+- **Functional commit:** `bd5b0f8` — `feat(platform): add workspace-aware
+  entry flow`. **Docs checkpoint previo:** `221b82d`. **Docs de cierre:**
+  ver commit de este mismo cambio (branch
+  `work/platform-entry-workspace-resolution`, pusheado a origin).
+- **Transitional route model (vigente, no definitivo):** `GET /` → entrada
+  existente del Copiloto, preservada intencionalmente por compatibilidad de
+  lanzamiento (**NO** es todavía "Platform"); `GET /copilot` → alias
+  explícito del Copiloto, mismo comportamiento visual/auth/sesión; `GET
+  /platform` → entrada platform-neutral de Danwor; `GET /operations/staffing`
+  → deep link de Operations. El futuro flip de `/` a Platform sigue
+  explícitamente diferido.
+- **Current next candidate:** **IN-APP WORKSPACE NAVIGATION / PLATFORM
+  EXPERIENCE** (switcher in-app, relación entre navegación de plataforma y
+  navegación local de cada workspace, eventual flip de `/`, evolución de la
+  fuente de autorización, naming final) — o, como stream de producto
+  separado, **paridad funcional de Staffing** (capacidad/disponibilidad,
+  filtros, Gantt, vacaciones). Ninguno elegido todavía.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **313 passed / 1 skipped** · route surface **77**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **332 passed / 1 skipped** · route surface **79**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
