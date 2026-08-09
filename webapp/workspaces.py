@@ -25,6 +25,18 @@ selector de contenido interno del Copiloto (ver `core.content_registry`),
 sin significado para otros workspaces. `webapp.nav.login_redirect`
 (Copilot-específico) NO se modifica ni se reemplaza — los deep links del
 Copiloto siguen usándolo sin cambios.
+
+Usa 303 (no 307): esta es una transición de AUTENTICACIÓN, no una
+canonicalización de recurso — la siguiente request SIEMPRE debe volverse
+GET, incluso si la request original que disparó el redirect era un POST
+(p. ej. el POST de datos de Staffing sin sesión). Reemplazar el body de
+un POST por una navegación GET a la entrada de login es exactamente lo
+que 303 See Other significa — 307/308 hubieran preservado el método,
+propagando un POST de datos hacia una superficie de navegación que nunca
+debería recibirlo. `next_path`, si se pasa explícito, permite que el
+caller apunte a la PÁGINA (no al endpoint de acción/datos que disparó el
+redirect) — por default usa `request.url.path` (+query), correcto para
+deep-links GET normales, donde la página y la request son la misma cosa.
 """
 from __future__ import annotations
 
@@ -81,11 +93,16 @@ def available_workspaces(user: dict | None) -> list[Workspace]:
     return [ws for ws in _ALL_WORKSPACES if ws.is_authorized(user)]
 
 
-def platform_login_redirect(request: Request) -> RedirectResponse:
-    """Redirige a `/platform` preservando el destino original en `next` —
-    igual mecanismo que `webapp.nav.login_redirect`, pero sin `pack` (no
-    aplica fuera del Copiloto) y apuntando a la puerta platform-neutral."""
-    next_path = request.url.path
-    if request.url.query:
-        next_path += f"?{request.url.query}"
-    return RedirectResponse(f"/platform?{urlencode({'next': next_path})}", status_code=307)
+def platform_login_redirect(request: Request, *, next_path: str | None = None) -> RedirectResponse:
+    """Redirige a `/platform` preservando el destino en `next` — 303
+    (transición de autenticación, no canonicalización de recurso; ver
+    docstring del módulo). `next_path` explícito permite al caller apuntar
+    a la PÁGINA en vez del endpoint de acción/datos que disparó el
+    redirect; sin él, usa `request.url.path` (+query) como hasta ahora."""
+    if next_path is not None:
+        target_next = next_path
+    else:
+        target_next = request.url.path
+        if request.url.query:
+            target_next += f"?{request.url.query}"
+    return RedirectResponse(f"/platform?{urlencode({'next': target_next})}", status_code=303)

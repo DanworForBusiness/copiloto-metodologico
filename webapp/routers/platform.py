@@ -132,30 +132,24 @@ def _resolve_onedanwor(request: Request, pack: str, next: str):
     )
 
 
-@router.api_route(
-    "/onedanwor", methods=["GET", "POST"], response_class=HTMLResponse, include_in_schema=False,
-)
+@router.get("/onedanwor", response_class=HTMLResponse, include_in_schema=False)
 def onedanwor_entry(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
-    # Acepta POST por la misma razón que `/platform` (ver ese docstring):
-    # `_resolve_onedanwor` nunca lee el body — solo query/sesión — así que
-    # aceptar ambos métodos es seguro y evita un 405 cuando una cadena de
-    # redirects 307 que arrancó en un POST no-autenticado llega hasta acá.
     return _resolve_onedanwor(request, pack, next)
 
 
-@router.api_route("/platform", methods=["GET", "POST"], include_in_schema=False)
+@router.get("/platform", include_in_schema=False)
 def platform_compat_redirect(next: str = Query("")):
     """Alias de compatibilidad — SIEMPRE 307 a `/onedanwor`, preservando
     `next` si es un path relativo seguro (mismas reglas de `render_landing`).
     Nunca renderiza landing/selector directamente: un solo punto de entrada
     real evita que ambos diverjan.
 
-    Acepta GET y POST: `workspaces.platform_login_redirect` (usado por deep
-    links no-Copilot como Operaciones) también responde 307, que preserva
-    el método — una cadena que arrancó en un POST no-autenticado (p. ej.
-    `/operaciones/staffing/asignaciones/data`) puede llegar acá todavía
-    como POST. Como esta ruta nunca lee el body, aceptar ambos métodos es
-    seguro y evita un 405 en ese salto intermedio."""
+    GET-only a propósito: `/platform` y `/onedanwor` son superficies de
+    NAVEGACIÓN, no endpoints de acción/datos. Un POST no-autenticado hacia
+    una acción (p. ej. `/operaciones/staffing/asignaciones/data`) nunca
+    debería reaparecer acá como POST — `workspaces.platform_login_redirect`
+    resuelve esa transición con 303 (no 307), que fuerza GET en el
+    siguiente hop. Ver su docstring."""
     safe_next = next if next.startswith("/") and not next.startswith("//") else ""
     target = f"/onedanwor?{urlencode({'next': safe_next})}" if safe_next else "/onedanwor"
     return RedirectResponse(target, status_code=307)

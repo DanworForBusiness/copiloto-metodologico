@@ -33,9 +33,16 @@ provisoria, separada de `webapp.access`).
 El deep-link no autenticado entra por `webapp.workspaces.platform_login_redirect`
 (apunta a `/platform`, alias de compatibilidad que a su vez redirige a
 `/onedanwor` — ver Batch A) — NO por `webapp.nav.login_redirect`
-(Copilot-específico): Operaciones es un workspace distinto del Copiloto,
-preservando `next` (ya canonicalizado, porque se lee de `request.url.path`
-en el momento de la request) con el mismo mecanismo de siempre.
+(Copilot-específico): Operaciones es un workspace distinto del Copiloto.
+
+`_require_operations_session` distingue PÁGINA de ACCIÓN al armar `next`:
+`staffing_page` (GET) no pasa `next_path` — `request.url.path` YA es la
+página, corresponde tal cual. `staffing_data` (POST) pasa
+`next_path="/operaciones/staffing/asignaciones"` EXPLÍCITO — sin sesión,
+`next` debe apuntar a la PÁGINA, nunca al endpoint de datos que disparó
+el redirect (el `graph_token` del POST original se descarta sin más:
+nunca se lee, nunca se propaga a la URL de login — tras el login la
+página real se re-inicializa y dispara su propio POST de HTMX fresco).
 """
 from __future__ import annotations
 
@@ -51,11 +58,14 @@ from webapp.templating import templates
 router = APIRouter()
 
 
-def _require_operations_session(request: Request):
+def _require_operations_session(request: Request, *, next_path: str | None = None):
     """Redirect (sin sesión) o 403 (sesión sin tier "full") — o None si OK.
-    Compartido por GET y POST para no duplicar la regla de acceso."""
+    Compartido por GET y POST para no duplicar la regla de acceso.
+    `next_path` explícito (solo lo pasa el POST de datos): ver docstring
+    del módulo — sin sesión, `next` debe apuntar a la página, no al
+    endpoint de acción que disparó el redirect."""
     if not auth_service.session_user(request):
-        return workspaces.platform_login_redirect(request)
+        return workspaces.platform_login_redirect(request, next_path=next_path)
     if not operations_access.is_staffing_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Staffing")
     return None
@@ -78,7 +88,7 @@ def staffing_page(request: Request):
 
 @router.post("/operaciones/staffing/asignaciones/data", response_class=HTMLResponse, include_in_schema=False)
 def staffing_data(request: Request, graph_token: str = Form("")):
-    redirect = _require_operations_session(request)
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
     if redirect is not None:
         return redirect
 
