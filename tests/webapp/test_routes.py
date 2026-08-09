@@ -931,6 +931,33 @@ def test_copilot_alias_preserves_next_like_root():
     assert response.headers["location"] == "/academy/ACAD01_Paradigmas"
 
 
+# ── Auth-popup first-paint: cubre la corrección del batch One Danwor ──────
+# (el popup de auth.js abre la landing con `?auth_popup=1`, y Microsoft
+# vuelve con `?code=...` — ambos casos deben pintar el overlay neutro desde
+# el HTML inicial, sin esperar al JS, para no exponer la marca de la página
+# que abrió el login).
+
+def test_auth_popup_state_renders_body_already_in_auth_completing_mode():
+    anon = TestClient(app)
+    response = anon.get("/?auth_popup=1")
+    assert response.status_code == 200
+    assert '<body class="auth-completing">' in response.text
+
+
+def test_code_callback_state_renders_body_already_in_auth_completing_mode():
+    anon = TestClient(app)
+    response = anon.get("/?code=fake-oauth-code&state=fake-state")
+    assert response.status_code == 200
+    assert '<body class="auth-completing">' in response.text
+
+
+def test_normal_landing_does_not_render_auth_completing_mode():
+    anon = TestClient(app)
+    response = anon.get("/")
+    assert response.status_code == 200
+    assert "auth-completing" not in response.text
+
+
 def test_root_still_serves_module_flow_untouched():
     # Guard de no-regresión: /modules/{stem}?pack=... sigue funcionando
     # exactamente igual tras el batch de transición multi-workspace (pack

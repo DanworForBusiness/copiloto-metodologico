@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', path='brand-hero.css') }}">
 </head>
-<body>
+<body{% if auth_completing %} class="auth-completing"{% endif %}>
   <!-- Fondo animado compartido (verbatim del sitio de marca) -->
   <div class="hero-bg" aria-hidden="true">
     <div class="hero-gradient"></div>

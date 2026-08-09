@@ -66,7 +66,7 @@ COPILOT = Workspace(
 
 OPERATIONS = Workspace(
     key="operations",
-    label="Operations",
+    label="Operaciones",
     subtitle="Staffing",
     home_url="/operations/staffing",
     is_authorized=operations_access.is_staffing_authorized_user,

@@ -28,6 +28,7 @@
   "GET /home",
   "GET /login",
   "GET /modules/{stem}",
+  "GET /onedanwor",
   "GET /operations/staffing",
   "GET /pack-assets/{pack_name}/{asset_path:path}",
   "GET /pack-resources/{pack_name}/{kind}/{resource_path:path}",

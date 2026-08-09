@@ -63,7 +63,7 @@ def test_multi_workspace_user_on_copilot_sees_operations_destination():
     assert workspaces.COPILOT.label in response.text
     assert f'href="{workspaces.OPERATIONS.home_url}"' in response.text
     assert workspaces.OPERATIONS.label in response.text
-    assert 'href="/platform"' in response.text
+    assert 'href="/onedanwor"' in response.text
     assert "Todos los espacios" in response.text
 
 
@@ -76,7 +76,7 @@ def test_multi_workspace_user_on_operations_sees_copilot_destination():
     assert workspaces.OPERATIONS.label in response.text
     assert f'href="{workspaces.COPILOT.home_url}"' in response.text
     assert workspaces.COPILOT.label in response.text
-    assert 'href="/platform"' in response.text
+    assert 'href="/onedanwor"' in response.text
 
 
 # --- D: el partial renderiza EXACTAMENTE lo que devuelve el resolver -----
