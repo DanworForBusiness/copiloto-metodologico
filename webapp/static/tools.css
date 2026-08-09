@@ -799,9 +799,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    exactamente bajo su mes. `.staffing-timeline__body` es el ancla
    `position:relative` del overlay del marcador de "hoy" (se estira solo
    con el contenido — sin JS midiendo alturas). */
+.staffing-timeline {--timeline-label-width: 280px;}   
 .staffing-timeline__body { position: relative; }
 .staffing-timeline__header, .staffing-timeline__row {
-  display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center;
+  display: grid;  grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; align-items: center;
 }
 .staffing-timeline__header { padding-bottom: 8px; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
 .staffing-timeline__header-months, .staffing-timeline__track { display: grid; grid-template-columns: repeat(8, 1fr); }
@@ -890,16 +891,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    columna de mes), estirado por el contenido real del timeline (sin JS
    midiendo alturas: position:absolute + top/bottom:0 dentro de un padre
    position:relative ya hace esto). Complementario al resaltado de mes
-   actual, no un reemplazo. */
+   actual, no un reemplazo. SOLO la línea vertical — decisión de producto
+   (revisión con dato real, ver HANDOFF): sin chip de texto "HOY", nunca se
+   reintroduce ni se reemplaza por otra etiqueta. */
 .staffing-timeline__today-overlay {
   position: absolute; inset: 0; display: grid; grid-template-columns: 190px 1fr; pointer-events: none;
 }
 .staffing-timeline__today-track { position: relative; overflow: hidden; }
 .staffing-timeline__today { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--gold); z-index: 2; }
-.staffing-timeline__today-label {
-  position: absolute; top: -2px; left: 3px; color: var(--gold); background: rgba(231,176,8,.14);
-  font: 700 .58rem var(--mono); letter-spacing: .04em; padding: 0 3px; border-radius: 2px; white-space: nowrap;
-}
 @media (max-width: 900px) {
   .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { grid-template-columns: 120px 1fr; }
 }
@@ -1531,6 +1530,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .catalog-verdict-line .catalog-card__verdict { margin: 0; }
 
 /* Catalog hero meta: el separador pertenece entre piezas de metadata, no antes del badge interno. */
+.module-hero .hero-lead.full-page-subtitle {max-width: none;width: 100%;}
 .module-hero .hero-meta .catalog-verdict-line > span::before,
 .module-hero .hero-meta .catalog-verdict-line .catalog-card__verdict::before {
   content: none !important;

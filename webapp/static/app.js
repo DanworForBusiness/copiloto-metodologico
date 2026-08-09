@@ -747,6 +747,33 @@ function staffingDashboard(payload) {
       this.$watch("filters.consultant", (value) => {
         if (value) this.collapsedConsultants[value] = false;
       });
+      // Filtrado FACETADO (revisión con dato real, ver HANDOFF): cambiar
+      // CUALQUIER filtro puede volver imposible la selección vigente de
+      // OTRO (p. ej. Estado deja fuera todas las filas del Proyecto
+      // elegido) — cada cambio revalida las 4 selecciones "entidad" contra
+      // su propio option-set YA recalculado, y resetea a "Todos" la que ya
+      // no aparece ahí, en vez de dejar una selección fantasma que
+      // produzca un vacío inexplicado.
+      this.$watch("filters.consultant", () => this._reconcileSelections());
+      this.$watch("filters.project", () => this._reconcileSelections());
+      this.$watch("filters.client", () => this._reconcileSelections());
+      this.$watch("filters.availability", () => this._reconcileSelections());
+      this.$watch("filters.status", () => this._reconcileSelections());
+    },
+
+    _reconcileSelections() {
+      if (this.filters.consultant && !this.consultantOptions.some(o => o.id === this.filters.consultant)) {
+        this.filters.consultant = "";
+      }
+      if (this.filters.project && !this.projectOptions.some(o => o.id === this.filters.project)) {
+        this.filters.project = "";
+      }
+      if (this.filters.client && !this.clientOptions.some(o => o.id === this.filters.client)) {
+        this.filters.client = "";
+      }
+      if (this.filters.availability && !this.availabilityOptions.includes(this.filters.availability)) {
+        this.filters.availability = "";
+      }
     },
 
     resetFilters() {
@@ -822,13 +849,37 @@ function staffingDashboard(payload) {
       this.collapsedConsultants = {};
     },
 
-    // Opciones derivadas del dataset cargado — nunca hardcodeadas. Value =
-    // id estable (sobrevive lookups sin resolver); label = nombre para
-    // mostrar (ya con el fallback "(sin resolver)" si corresponde).
+    // Filtrado FACETADO (revisión con dato real, ver HANDOFF): cada
+    // dropdown de entidad se calcula sobre el universo de asignaciones
+    // filtrado por TODOS los OTROS filtros activos (nunca por sí mismo) —
+    // así nunca ofrece un valor que produciría cero filas bajo el resto de
+    // la selección vigente (p. ej. un proyecto cuyas únicas asignaciones
+    // están en un Estado ya destildado). Estado NO se excluye de acá aparte
+    // de cuando se calcula su propio universo — sus opciones son la lista
+    // fija de estados conocidos, no se recalculan dinámicamente.
+    // `excludeKey` es el ÚNICO filtro que no se aplica en esta pasada.
+    facetedAssignments(excludeKey) {
+      return this.assignments.filter(a => {
+        if (excludeKey !== "consultant" && this.filters.consultant && a.consultant_id !== this.filters.consultant) return false;
+        if (excludeKey !== "project" && this.filters.project && a.project_id !== this.filters.project) return false;
+        if (excludeKey !== "client" && this.filters.client && a.client_id !== this.filters.client) return false;
+        if (excludeKey !== "availability" && this.filters.availability && a.availability !== this.filters.availability) return false;
+        const statusKey = a.status || "Sin estado";
+        if (this.filters.status[statusKey] === false) return false;
+        return true;
+      });
+    },
+
+    // Opciones derivadas del universo facetado — nunca hardcodeadas. Value
+    // = id estable (sobrevive lookups sin resolver en el DATO, pero ver
+    // exclusión de no-resueltos abajo: un id sin resolver NUNCA se ofrece
+    // como OPCIÓN de filtro, aunque la fila sí siga visible en Todos).
     get consultantOptions() {
       const seen = new Map();
-      this.assignments.forEach(a => {
-        if (a.consultant_id && !seen.has(a.consultant_id)) seen.set(a.consultant_id, a.consultant_name);
+      this.facetedAssignments("consultant").forEach(a => {
+        if (a.consultant_id && !a.consultant_unresolved && !seen.has(a.consultant_id)) {
+          seen.set(a.consultant_id, a.consultant_name);
+        }
       });
       return [...seen.entries()]
         .map(([id, label]) => ({ id, label }))
@@ -836,8 +887,10 @@ function staffingDashboard(payload) {
     },
     get projectOptions() {
       const seen = new Map();
-      this.assignments.forEach(a => {
-        if (a.project_id && !seen.has(a.project_id)) seen.set(a.project_id, a.project_name);
+      this.facetedAssignments("project").forEach(a => {
+        if (a.project_id && !a.project_unresolved && !seen.has(a.project_id)) {
+          seen.set(a.project_id, a.project_name);
+        }
       });
       return [...seen.entries()]
         .map(([id, label]) => ({ id, label }))
@@ -850,7 +903,7 @@ function staffingDashboard(payload) {
     // pero sigue visible con Cliente = Todos (ver filteredAssignments).
     get clientOptions() {
       const seen = new Map();
-      this.assignments.forEach(a => {
+      this.facetedAssignments("client").forEach(a => {
         if (a.client_id && a.client_name && !seen.has(a.client_id)) seen.set(a.client_id, a.client_name);
       });
       return [...seen.entries()]
@@ -858,22 +911,16 @@ function staffingDashboard(payload) {
         .sort((a, b) => a.label.localeCompare(b.label));
     },
     get availabilityOptions() {
-      return [...new Set(this.assignments.map(a => a.availability))].sort();
+      return [...new Set(this.facetedAssignments("availability").map(a => a.availability))].sort();
     },
 
     // ÚNICA colección filtrada — KPIs, timeline, disponibilidad y detalle
     // leen TODOS de acá, nunca de una copia independiente (evita que los
-    // componentes queden en desacuerdo sobre el filtro vigente).
+    // componentes queden en desacuerdo sobre el filtro vigente). Aplica
+    // TODOS los filtros — mismo mecanismo que facetedAssignments, sin
+    // excluir ninguno.
     get filteredAssignments() {
-      return this.assignments.filter(a => {
-        if (this.filters.consultant && a.consultant_id !== this.filters.consultant) return false;
-        if (this.filters.project && a.project_id !== this.filters.project) return false;
-        if (this.filters.client && a.client_id !== this.filters.client) return false;
-        if (this.filters.availability && a.availability !== this.filters.availability) return false;
-        const statusKey = a.status || "Sin estado";
-        if (this.filters.status[statusKey] === false) return false;
-        return true;
-      });
+      return this.facetedAssignments(null);
     },
 
     get kpis() {

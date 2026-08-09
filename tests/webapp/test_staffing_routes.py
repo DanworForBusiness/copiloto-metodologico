@@ -385,6 +385,23 @@ def test_post_dashboard_client_filter_present_between_project_and_availability(m
     assert '<template x-for="c in clientOptions" :key="c.id">' in text
 
 
+def test_post_dashboard_filtered_empty_state_component_still_present(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Filtrado facetado (ver HANDOFF) reduce qué combinaciones IMPOSIBLES se
+    # ofrecen, pero combinaciones legítimas que el usuario construye a
+    # propósito (p. ej. Cliente + Disponibilidad sin intersección real)
+    # siguen pudiendo vaciar el dashboard — el componente de estado vacío
+    # filtrado NO se elimina.
+    assert 'class="dashboard-empty"' in text
+    assert "filteredAssignments.length === 0" in text
+    assert "Sin resultados" in text
+
+
 def test_post_dashboard_today_marker_present_and_not_a_capacity_percentage(monkeypatch):
     monkeypatch.setattr(
         staffing_router, "StaffingService",
@@ -393,9 +410,13 @@ def test_post_dashboard_today_marker_present_and_not_a_capacity_percentage(monke
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     text = response.text
     assert 'class="staffing-timeline__today-overlay"' in text
-    assert ">HOY<" in text
+    assert 'class="staffing-timeline__today"' in text
     assert "todayMarker.visible" in text
     assert '"today_marker_pct":' in text  # viene del payload server-side
+    # Decisión de producto explícita (revisión con dato real, ver HANDOFF):
+    # SOLO la línea vertical — sin chip de texto "HOY". No reintroducir.
+    assert "staffing-timeline__today-label" not in text
+    assert ">HOY<" not in text
 
 
 def test_post_dashboard_payload_embeds_real_availability_value(monkeypatch):
