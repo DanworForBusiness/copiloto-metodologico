@@ -182,13 +182,20 @@
     return true;
   }
 
-  // Click "Ingresar": abre el popup (top-level, fuera del iframe).
+  // Click "Ingresar": abre el popup (top-level, fuera del iframe). Se abre en
+  // la MISMA página que inició el login (no siempre "/"), preservando su
+  // query actual (p. ej. `next`/`pack`) y agregando `auth_popup=1` — así el
+  // popup no fuerza la marca del Copiloto cuando el login arrancó desde
+  // "/onedanwor" (o cualquier otra puerta). El redirect_uri de Microsoft
+  // sigue fijo en "/" (ver `redirectUri()`) — no cambia acá.
   window.loginWithMicrosoft = function (event) {
     if (event) event.preventDefault();
     const btn = document.getElementById("microsoft-login-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Abriendo Microsoft…"; }
+    const popupParams = new URLSearchParams(window.location.search);
+    popupParams.set("auth_popup", "1");
     const popup = window.open(
-      window.location.origin + "/?auth_popup=1",
+      window.location.pathname + "?" + popupParams.toString(),
       "dwMsLogin",
       "width=520,height=720,menubar=no,toolbar=no,location=yes,status=no"
     );

@@ -13,9 +13,10 @@ rediseño de auth/pack/navegación/invite.
 auth, misma sesión, mismo mecanismo de `next`, mismo template, misma copy —
 así que no puede divergir de `/` por construcción. `/` sigue siendo la
 puerta del Copiloto sin cambios (decisión de producto: NO se flipea a
-Platform en este batch). La puerta platform-neutral (`/platform`,
-selección de workspace) vive en `webapp/routers/platform.py` y reutiliza
-`render_landing()` con una copy distinta — sin duplicar la lógica acá.
+Platform en este batch). La puerta "One Danwor" (`/onedanwor`, selección de
+workspace; `/platform` como alias de compatibilidad que redirige ahí) vive
+en `webapp/routers/platform.py` y reutiliza `render_landing()` con una copy
+distinta — sin duplicar la lógica acá.
 
 Feature COPILOT que consume capacidades compartidas desde sus dueños explícitos
 (`core.content_registry`, `webapp.services.auth_service`, `webapp.access`,
@@ -68,7 +69,7 @@ _COPILOT_LANDING_COPY = {
 def render_landing(request: Request, selected_pack: str, next: str, *, default_home: str, copy: dict):
     """Comportamiento COMPLETO de la landing histórica (auth + redirect +
     template), parametrizado por `default_home`/`copy` para que `/`,
-    `/copilot` y (desde `webapp/routers/platform.py`) `/platform` sin
+    `/copilot` y (desde `webapp/routers/platform.py`) `/onedanwor` sin
     sesión compartan exactamente la misma lógica — nunca duplicada."""
     # `next` viaja desde login_redirect cuando el visitante venía de un link directo
     # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
@@ -76,10 +77,25 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
     safe_next = next if next.startswith("/") and not next.startswith("//") else ""
     if auth_service.session_user(request):
         return RedirectResponse(safe_next or default_home, status_code=307)
+    home_url = safe_next or default_home
+    # `auth_popup`/`code`: esta misma landing es también la página que el POPUP
+    # de Microsoft abre en ambos extremos del flujo (auth.js abre `<page
+    # actual>?auth_popup=1`; Microsoft redirige de vuelta a `/?code=...`, fijo
+    # por el redirect_uri registrado en Azure — no se puede variar por página).
+    # Cubrir la landing con un overlay NO alcanza: el marcado con la marca de
+    # ESTA página (Copilot, One Danwor, lo que sea) seguía existiendo debajo
+    # del overlay, presente en el DOM. En vez de eso, se sirve un documento
+    # SEPARADO y neutro (`auth_callback.html`) que nunca incluye ese copy —
+    # no un segundo mecanismo de auth, solo un documento de presentación
+    # distinto para ese estado técnico.
+    if request.query_params.get("auth_popup") or request.query_params.get("code"):
+        return templates.TemplateResponse(
+            request=request, name="auth_callback.html", context={"home_url": home_url},
+        )
     return templates.TemplateResponse(
         request=request,
         name="landing.html",
-        context={"pack": selected_pack, "home_url": safe_next or default_home, "login_copy": copy},
+        context={"pack": selected_pack, "home_url": home_url, "login_copy": copy},
     )
 
 

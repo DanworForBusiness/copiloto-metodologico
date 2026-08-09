@@ -1,19 +1,23 @@
 """
-platform.py — Entrada de plataforma multi-workspace (batch de transición,
-posterior al primer hito real de Staffing).
+platform.py — Entrada de plataforma multi-workspace: "One Danwor".
 
-`GET /platform`:
+`GET /onedanwor` es la entrada canónica user-facing de la plataforma:
 - SIN sesión → renderiza la misma landing histórica
-  (`webapp.routers.landing.render_landing`) con copy platform-neutral —
-  mismo auth, mismo mecanismo de `next`, mismo template, sin segundo
+  (`webapp.routers.landing.render_landing`) con copy One Danwor — mismo
+  auth, mismo mecanismo de `next`, mismo template, sin segundo
   OAuth/session/token.
 - CON sesión → resuelve workspaces disponibles (`webapp.workspaces`) y
   decide: 0 → estado de sin-acceso controlado (la autoridad sigue siendo
   server-side — no hay redirect-loop); 1 → redirect directo a su
-  `home_url`; 2+ → selector de workspaces. Si `next` es válido y
+  `home_url`; 2+ → selector rico de workspaces. Si `next` es válido y
   explícito, tiene precedencia sobre la resolución de workspace (deep-link
   intent siempre gana) — la autorización real se sigue verificando en el
   destino, esto es solo una decisión de navegación.
+
+`GET /platform` es un alias de COMPATIBILIDAD — nunca vuelve a renderizar
+la landing directamente: SIEMPRE redirige 307 a `/onedanwor`, preservando
+`next` si es seguro (mismas reglas que ya usa `render_landing`). Evita que
+existan dos puntos de entrada capaces de divergir.
 
 Clasificación: PLATFORM / ENTRY HTTP. NO importa `webapp.main`, NO conoce
 Graph, NO conoce `pack` más allá de resolverlo para pasarlo al helper
@@ -21,8 +25,16 @@ compartido de landing (mismo mecanismo que `/`/`/copilot`, para que el
 `data-home` del botón de login funcione igual). Delega TODA la
 disponibilidad de workspaces a `webapp.workspaces` — no duplica ninguna
 regla de autorización acá.
+
+`_WORKSPACE_CARD_COPY` es presentación PURA (eyebrow/título/acento/
+descripción/features) para el selector — deliberadamente separada de
+`Workspace` (`webapp/workspaces.py`), que sigue siendo la ÚNICA fuente de
+identidad/home/autorización. Si un workspace no tiene entrada acá, el
+selector simplemente no muestra esos campos ricos (no rompe).
 """
 from __future__ import annotations
+
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -35,43 +47,102 @@ from webapp.workspaces import available_workspaces
 
 router = APIRouter()
 
-# Copy platform-neutral — deliberadamente SIN mencionar "Copiloto
-# Metodológico"/"Arquitecto Danwor" como identidad de plataforma (ver
-# HANDOFF): "Plataforma Danwor" es un nombre EXPLÍCITAMENTE provisorio, no
-# una decisión de branding final.
-_PLATFORM_LANDING_COPY = {
-    "title": "Plataforma Danwor",
-    "eyebrow_ink": "Plataforma",
-    "eyebrow_gold": "Danwor",
-    "brand_title": "Plataforma",
+# Copy de "One Danwor" — identidad visible del paraguas de plataforma
+# (provisoria en el naming interno "platform", pero YA decidida como marca
+# visible). Reusa la MISMA grilla visual que la landing histórica del
+# Copiloto (kicker/h1+acento/descripción/checklist) vía `render_landing`.
+_ONEDANWOR_LANDING_COPY = {
+    "title": "One Danwor · Danwor",
+    "eyebrow_ink": "Una plataforma",
+    "eyebrow_gold": "Todos los servicios Danwor",
+    "brand_title": "One",
     "brand_subtitle": "Danwor",
     "brand_description": "Un único acceso a los espacios de trabajo y herramientas internas Danwor.",
-    "feature_list": None,
-    "login_sub_lines": ["Plataforma Danwor"],
+    "feature_list": [
+        "Un único acceso con tu cuenta Danwor",
+        "Espacios de trabajo según tu perfil",
+        "Navegación integrada entre servicios",
+    ],
+    "login_sub_lines": ["One Danwor"],
+}
+
+# Presentación rica del selector, keyed por `Workspace.key`. Describe el
+# ALCANCE del workspace (no una lista de módulos ya implementados) — ver
+# docstring del módulo.
+_WORKSPACE_CARD_COPY = {
+    "copilot": {
+        "eyebrow": "Data & AI for Business",
+        "title": "Copiloto Metodológico",
+        "accent": "Arquitecto Danwor",
+        "description": (
+            "Un entorno guiado para recorrer nuestro marco metodológico, consultar "
+            "decisiones técnicas y acelerar entregables con criterio arquitectónico "
+            "y mirada Danwor."
+        ),
+        "features": [
+            "Marco metodológico navegable",
+            "Árboles de decisión y asistencia IA",
+            "Criterios técnicos para proyectos SAP",
+        ],
+    },
+    "operations": {
+        "eyebrow": "Data & AI for Business",
+        "title": "Gestión Inteligente",
+        "accent": "Operaciones",
+        "description": (
+            "El espacio operativo de Danwor: gestión y analítica interna, hoy con "
+            "Staffing y asignaciones como primera capacidad implementada."
+        ),
+        "features": [
+            "Staffing y asignaciones",
+            "Gestión de proyectos",
+            "Analítica operativa",
+        ],
+    },
 }
 
 
-@router.get("/platform", response_class=HTMLResponse, include_in_schema=False)
-def platform_entry(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
+def _resolve_onedanwor(request: Request, pack: str, next: str):
     user = auth_service.session_user(request)
     if not user:
         selected = resolve_pack(pack)
-        # default_home="/platform": sin `next` explícito, tras el login el
+        # default_home="/onedanwor": sin `next` explícito, tras el login el
         # browser vuelve a ESTE mismo endpoint (ahora autenticado), que
         # recién ahí resuelve qué workspace(s) corresponden.
         return render_landing(
-            request, selected, next, default_home="/platform", copy=_PLATFORM_LANDING_COPY,
+            request, selected, next, default_home="/onedanwor", copy=_ONEDANWOR_LANDING_COPY,
         )
 
     safe_next = next if next.startswith("/") and not next.startswith("//") else ""
     if safe_next:
         return RedirectResponse(safe_next, status_code=307)
 
-    workspaces = available_workspaces(user)
-    if len(workspaces) == 1:
-        return RedirectResponse(workspaces[0].home_url, status_code=307)
-    if not workspaces:
+    available = available_workspaces(user)
+    if len(available) == 1:
+        return RedirectResponse(available[0].home_url, status_code=307)
+    if not available:
         return templates.TemplateResponse(request=request, name="platform_no_access.html", context={})
+    # Ojo: la clave NO puede llamarse "copy" — `dict` ya tiene un método
+    # `.copy()`, y Jinja resuelve `card.copy` como atributo (ese método)
+    # ANTES de probar `card["copy"]`, dejando el diccionario real
+    # inalcanzable por dot-notation. "meta" evita la colisión.
+    cards = [{"workspace": ws, "meta": _WORKSPACE_CARD_COPY.get(ws.key, {})} for ws in available]
     return templates.TemplateResponse(
-        request=request, name="platform_selector.html", context={"workspaces": workspaces},
+        request=request, name="platform_selector.html", context={"cards": cards},
     )
+
+
+@router.get("/onedanwor", response_class=HTMLResponse, include_in_schema=False)
+def onedanwor_entry(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query("")):
+    return _resolve_onedanwor(request, pack, next)
+
+
+@router.get("/platform", include_in_schema=False)
+def platform_compat_redirect(next: str = Query("")):
+    """Alias de compatibilidad — SIEMPRE 307 a `/onedanwor`, preservando
+    `next` si es un path relativo seguro (mismas reglas de `render_landing`).
+    Nunca renderiza landing/selector directamente: un solo punto de entrada
+    real evita que ambos diverjan."""
+    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    target = f"/onedanwor?{urlencode({'next': safe_next})}" if safe_next else "/onedanwor"
+    return RedirectResponse(target, status_code=307)

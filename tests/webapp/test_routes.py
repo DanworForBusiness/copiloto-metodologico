@@ -910,6 +910,18 @@ def test_login_redirects_to_landing_access_section():
     assert response.headers["location"] == "/?pack=datasphere_core#acceso"
 
 
+def test_landing_versions_its_auth_and_brand_scripts():
+    # Mismo mecanismo `?v={{ static_version }}` que ya usa base.html — sin
+    # esto, un browser con auth.js cacheado puede seguir ejecutando lógica
+    # vieja del popup de login tras un deploy (bug real observado en el
+    # smoke manual de One Danwor).
+    anon = TestClient(app)
+    response = anon.get("/")
+    assert response.status_code == 200
+    assert "/static/auth.js?v=" in response.text
+    assert "/static/brand-hero.js?v=" in response.text
+
+
 # ── /copilot: alias explícito de / (batch de transición multi-workspace) ──
 
 def test_copilot_alias_renders_the_same_experience_as_root():
@@ -929,6 +941,67 @@ def test_copilot_alias_preserves_next_like_root():
     response = client.get("/copilot?next=/academy/ACAD01_Paradigmas", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/academy/ACAD01_Paradigmas"
+
+
+# ── Auth-popup/callback: documento neutro separado (corrective pass) ──────
+# (el popup de auth.js abre la landing con `?auth_popup=1`, y Microsoft
+# vuelve con `?code=...` — un overlay NO alcanza, porque el marcado de la
+# landing con marca seguía existiendo debajo; ambos casos deben servir
+# `auth_callback.html`, que nunca incluye ese copy en absoluto).
+
+def test_normal_root_still_contains_copilot_identity():
+    anon = TestClient(app)
+    response = anon.get("/")
+    assert response.status_code == 200
+    assert "Copiloto Metodológico" in response.text
+    assert "Arquitecto Danwor" in response.text
+
+
+def test_auth_popup_state_serves_neutral_document_not_copilot_landing():
+    anon = TestClient(app)
+    response = anon.get("/?auth_popup=1")
+    assert response.status_code == 200
+    assert "Copiloto Metodológico" not in response.text
+    assert "Arquitecto Danwor" not in response.text
+    assert 'class="auth-completing"' in response.text
+    assert "Completando acceso" in response.text
+    assert "/static/auth.js?v=" in response.text
+
+
+def test_code_callback_state_serves_neutral_document_not_copilot_landing():
+    anon = TestClient(app)
+    response = anon.get("/?code=fake-oauth-code&state=fake-state")
+    assert response.status_code == 200
+    assert "Copiloto Metodológico" not in response.text
+    assert "Arquitecto Danwor" not in response.text
+    assert 'class="auth-completing"' in response.text
+    assert "Completando acceso" in response.text
+
+
+def test_copilot_alias_auth_popup_also_serves_neutral_document():
+    anon = TestClient(app)
+    response = anon.get("/copilot?auth_popup=1")
+    assert response.status_code == 200
+    assert "Copiloto Metodológico" not in response.text
+    assert "Arquitecto Danwor" not in response.text
+    assert 'class="auth-completing"' in response.text
+
+
+def test_copilot_alias_normal_still_unchanged():
+    anon = TestClient(app)
+    response = anon.get("/copilot")
+    assert response.status_code == 200
+    assert "Copiloto Metodológico" in response.text
+
+
+def test_auth_callback_preserves_home_url_for_no_opener_fallback():
+    # auth.js lee `data-home` de este botón oculto en el raro caso sin
+    # `window.opener` (fallback en handleRedirect) — sin esto, ese camino
+    # perdería el destino real (next/pack) y caería siempre a "/".
+    anon = TestClient(app)
+    response = anon.get("/?auth_popup=1&next=/academy/ACAD01_Paradigmas")
+    assert response.status_code == 200
+    assert 'data-home="/academy/ACAD01_Paradigmas"' in response.text
 
 
 def test_root_still_serves_module_flow_untouched():

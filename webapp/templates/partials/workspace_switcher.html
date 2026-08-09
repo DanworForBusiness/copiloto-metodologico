@@ -10,7 +10,7 @@
   <summary class="eyebrow">{{ current_workspace.label }}<span class="workspace-switch-chevron" aria-hidden="true">&#9662;</span></summary>
   <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
     {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
-    <a class="workspace-switch-platform" href="/platform">Todos los espacios</a>
+    <a class="workspace-switch-platform" href="/onedanwor">Todos los espacios</a>
   </nav>
 </details>
 {% else %}
