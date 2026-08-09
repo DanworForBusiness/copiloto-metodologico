@@ -28,7 +28,7 @@ from webapp.services.content_service import (
     list_appendices,
     list_modules,
 )
-from webapp import access, nav
+from webapp import access, nav, workspaces
 from webapp.templating import templates
 from core.content_registry import (
     DEFAULT_PACK,
@@ -71,6 +71,8 @@ def whats_new_page(request: Request, pack: str = Query(DEFAULT_PACK)):
             "active_group": "", "active_stem": "",
             "readonly": access.is_readonly(request), "pack": selected,
             "pack_label": content_pack_short_label(selected), "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             # El detalle lo arma Alpine desde este JSON (filtros + colapsables por fecha).
             "whatsnew_items": items, "categorias": categorias, "n_novedades": len(items),
         },

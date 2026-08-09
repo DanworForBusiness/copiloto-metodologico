@@ -58,7 +58,14 @@ def staffing_page(request: Request):
     redirect = _require_operations_session(request)
     if redirect is not None:
         return redirect
-    return templates.TemplateResponse(request=request, name="operations/staffing.html", context={})
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="operations/staffing.html",
+        context={
+            "current_workspace": workspaces.OPERATIONS,
+            "available_workspaces": workspaces.available_workspaces(user),
+        },
+    )
 
 
 @router.post("/operations/staffing/data", response_class=HTMLResponse, include_in_schema=False)

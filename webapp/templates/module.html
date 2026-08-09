@@ -13,6 +13,7 @@
     </a>
 
     <div class="header-tools">
+      {% include "partials/workspace_switcher.html" %}
       <div class="module-pager" aria-label="Navegación entre módulos">
         {% if previous_module %}
         <a href="/modules/{{ previous_module.stem }}?pack={{ pack }}" aria-label="Módulo anterior" title="Módulo anterior">←</a>
