@@ -205,6 +205,24 @@ def test_post_dashboard_sticky_filters_reuse_activity_mechanism(monkeypatch):
     assert sticky_idx < filters_idx
 
 
+def test_post_dashboard_clear_button_is_bar_action_not_a_filter_field(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Corrección de alineación (ver HANDOFF): Limpiar vive FUERA de
+    # .whatsnew-filters (ya no es "otro campo" al lado de Estado) — es una
+    # acción de la barra, separada en .staffing-filter-bar, después de que
+    # se cierra el <label> de Estado (el último campo).
+    estado_marker_idx = text.index("'Estado ' + s")
+    estado_field_close = text.index("</label>", estado_marker_idx)
+    clear_idx = text.index("staffing-filter-bar__clear")
+    assert clear_idx > estado_field_close
+    assert 'class="staffing-filter-bar"' in text
+
+
 def test_post_dashboard_kpis_and_timeline_are_collapsible_sections(monkeypatch):
     monkeypatch.setattr(
         staffing_router, "StaffingService",

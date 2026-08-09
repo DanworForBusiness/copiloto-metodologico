@@ -769,6 +769,20 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .staffing-sticky-filters { background: #181819; }
 .staffing-sticky-filters .whatsnew-filters { margin: 10px 0 4px; }
 
+/* Corrección de alineación (ver HANDOFF): con Estado ahora compacto y
+   vertical, .whatsnew-filters heredado (align-items:flex-end, pensado para
+   controles de una sola línea) hacía que las labels NO compartieran un
+   mismo baseline superior — quedaban ancladas contra la base del stack de
+   checkboxes, que es más alto. Override SOLO en el scope de Staffing (no
+   se toca la regla base de .whatsnew-filter, compartida con What's New /
+   admin) para que cada control arranque justo debajo de su propia label. */
+.staffing-filter-bar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.staffing-filter-bar .whatsnew-filters { align-items: flex-start; flex: 1 1 auto; margin: 0; }
+/* Limpiar es una ACCIÓN de la barra, no otro campo — separado del grupo de
+   campos (margin-left:auto lo empuja a la derecha) y ya no comparte
+   columna con el stack de Estado, para no leerse como una opción más. */
+.staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+
 /* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
    sección entera). */

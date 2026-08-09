@@ -22,46 +22,48 @@
 <div x-data='staffingDashboard({{ payload | tojson }})' x-cloak>
 
   <div class="staffing-sticky-filters">
-    <div class="whatsnew-filters">
-      <label class="whatsnew-filter">
-        <span>Consultor</span>
-        <select x-model="filters.consultant">
-          <option value="">Todos</option>
-          <template x-for="c in consultantOptions" :key="c.id">
-            <option :value="c.id" x-text="c.label"></option>
-          </template>
-        </select>
-      </label>
-      <label class="whatsnew-filter">
-        <span>Proyecto</span>
-        <select x-model="filters.project">
-          <option value="">Todos</option>
-          <template x-for="p in projectOptions" :key="p.id">
-            <option :value="p.id" x-text="p.label"></option>
-          </template>
-        </select>
-      </label>
-      <label class="whatsnew-filter">
-        <span>Disponibilidad de asignación</span>
-        <select x-model="filters.availability">
-          <option value="">Todos</option>
-          <template x-for="av in availabilityOptions" :key="av">
-            <option :value="av" x-text="av"></option>
-          </template>
-        </select>
-      </label>
-      <label class="whatsnew-filter whatsnew-filter--compact">
-        <span>Estado</span>
-        <div class="staffing-status-toggle">
-          <template x-for="s in statusOptions" :key="s">
-            <label class="staffing-status-chip">
-              <input type="checkbox" x-model="filters.status[s]" :aria-label="'Estado ' + s">
-              <span x-text="s"></span>
-            </label>
-          </template>
-        </div>
-      </label>
-      <button type="button" class="whatsnew-filter__clear" @click="resetFilters()">✕ Limpiar</button>
+    <div class="staffing-filter-bar">
+      <div class="whatsnew-filters">
+        <label class="whatsnew-filter">
+          <span>Consultor</span>
+          <select x-model="filters.consultant">
+            <option value="">Todos</option>
+            <template x-for="c in consultantOptions" :key="c.id">
+              <option :value="c.id" x-text="c.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="whatsnew-filter">
+          <span>Proyecto</span>
+          <select x-model="filters.project">
+            <option value="">Todos</option>
+            <template x-for="p in projectOptions" :key="p.id">
+              <option :value="p.id" x-text="p.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="whatsnew-filter">
+          <span>Disponibilidad de asignación</span>
+          <select x-model="filters.availability">
+            <option value="">Todos</option>
+            <template x-for="av in availabilityOptions" :key="av">
+              <option :value="av" x-text="av"></option>
+            </template>
+          </select>
+        </label>
+        <label class="whatsnew-filter whatsnew-filter--compact">
+          <span>Estado</span>
+          <div class="staffing-status-toggle">
+            <template x-for="s in statusOptions" :key="s">
+              <label class="staffing-status-chip">
+                <input type="checkbox" x-model="filters.status[s]" :aria-label="'Estado ' + s">
+                <span x-text="s"></span>
+              </label>
+            </template>
+          </div>
+        </label>
+      </div>
+      <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" @click="resetFilters()">✕ Limpiar</button>
     </div>
   </div>
 
