@@ -2325,11 +2325,14 @@ deshabilitados (nunca fabrica un orden inexistente).
 
 - **Dueño del topbar compartido:** `webapp/templates/partials/platform_topbar.html`
   → macro Jinja `platform_topbar(current_workspace, available_workspaces,
-  brand_href, brand_html, mobile_menu_label, pager_previous=None,
-  pager_next=None)` + `{% call %}` para el selector interno (contenido de
-  CALLER). Clasificación: PLATFORM / SHARED PRESENTATION. Sin
-  auth/Graph/pack/Staffing/secuencia de rutas — todo lo provee quien
-  llama.
+  identity_href, identity_html, switch_brand_html, mobile_menu_label,
+  pager_previous=None, pager_next=None)` + `{% call %}` para el selector
+  interno (contenido de CALLER). Clasificación: PLATFORM / SHARED
+  PRESENTATION. Sin auth/Graph/pack/Staffing/secuencia de rutas — todo lo
+  provee quien llama. **Firma corregida por el pase "VISUAL CONTRACT
+  CORRECTION" (ver más abajo) — la firma original de este batch
+  (`brand_href, brand_html`, un solo bloque de marca) fue una geometría
+  incorrecta, corregida antes de CLOSED/GREEN.**
   - **Contrato de back/forward:** `pager_previous`/`pager_next`, cada uno
     `None` (deshabilitado, mismo marcado `<span aria-hidden>` que
     `module.html` ya usaba) o `{"href", "label"}`. `module.html` es el
@@ -2337,15 +2340,18 @@ deshabilitados (nunca fabrica un orden inexistente).
     comportamiento histórico). Los otros 7 templates Copilot y
     Operaciones pasan `None`/`None` — ambos controles se muestran
     deshabilitados, sin inventar secuencia.
-  - **Workspace switcher — movido al brand:** el control de texto
-    standalone del batch anterior (`partials/workspace_switcher.html`,
-    **eliminado**) se reemplaza por el brand/logo mismo actuando de
-    trigger cuando `available_workspaces|length > 1` (`<details
-    class="workspace-switch topbar-brand">`); con 1 solo workspace, el
-    brand sigue siendo un link plano a su home (sin dropdown). Menú =
-    otros workspaces autorizados + "Todos los espacios" → `/onedanwor`.
-    Reusa `available_workspaces(user)`/`Workspace.home_url` sin
-    duplicar autorización ni destinos.
+  - **Workspace switcher — en la marca COMPACTA de RIGHT, no en la
+    identidad animada:** el control de texto standalone del batch anterior
+    (`partials/workspace_switcher.html`, **eliminado**) se reemplaza por
+    una marca compacta (`switch_brand_html`, logo estático chico) actuando
+    de trigger cuando `available_workspaces|length > 1` (`<details
+    class="workspace-switch topbar-brand-compact">`); con 1 solo workspace,
+    es un link plano a su home (sin dropdown, `class="brand-compact-link"`).
+    Menú = otros workspaces autorizados + "Todos los espacios" →
+    `/onedanwor`. Reusa `available_workspaces(user)`/`Workspace.home_url`
+    sin duplicar autorización ni destinos. La identidad animada IZQUIERDA
+    (`identity_html`) NUNCA es el trigger del switcher — ver corrección
+    abajo.
 - **Templates Copilot migrados (8, mecánico):** `module.html`,
   `academy.html`, `catalog_cds.html`, `catalog_connection.html`,
   `catalog_flow.html`, `catalog_guide.html`, `admin_activity_page.html`,
@@ -2355,11 +2361,16 @@ deshabilitados (nunca fabrica un orden inexistente).
   module/academy/catalog_guide). **Marca animada, pack, back/forward
   reales, theme, logout, mobile-menu: sin regresión** (verificado con
   smoke real + tests).
-- **Asset animado de Operaciones:** **PENDING DESIGN ASSET** — no existe
-  todavía un asset propio (animado o no) para Operaciones/One Danwor. Se
-  usa temporalmente el logo estático de Danwor (`brand/danwor-logo.png`,
-  el mismo de `landing.html`) en el mismo slot `brand_html` — el contrato
-  del macro hace trivial reemplazarlo cuando exista, sin tocar el topbar.
+- **Asset animado de Operaciones — RESUELTO por el pase "VISUAL CONTRACT
+  CORRECTION" (ver más abajo):** ya NO es "pending design asset". La
+  identidad animada IZQUIERDA de Operaciones reusa el MISMO componente
+  histórico único (`assets/danwor-animated-dancing.html`, servido vía
+  `/brand/dancing/{pack}`) que Copiloto — no es un asset por-workspace, es
+  transversal, parametrizado con `OPERATIONS_APP_TITLE`/
+  `OPERATIONS_APP_SUBTITLE` en vez de `APP_TITLE`/`APP_SUBTITLE`. El logo
+  estático de Danwor (`brand/danwor-logo.png`) sigue en uso, pero solo como
+  la marca COMPACTA de RIGHT (trigger del switcher) — igual en ambos
+  workspaces, nunca como identidad.
 - **Selector interno:** Copilot sin cambios (pack-select/diag-toggle
   exactamente donde ya estaban). Operaciones: `<select class="pack-select"
   disabled><option selected>Staffing</option></select>` — misma posición
@@ -2414,6 +2425,81 @@ deshabilitados (nunca fabrica un orden inexistente).
   82** (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`). El
   diff final contra `main` de Batch A es EXACTAMENTE estas 2 líneas —
   `/platform`/`/onedanwor` quedan sin cambios de método.
+
+### Pase correctivo "VISUAL CONTRACT CORRECTION" (geometría transversal del topbar)
+
+El pase funcional inicial (`e2c8743`) implementó una geometría de topbar
+INCORRECTA: movió el pager al primer hijo de `.topbar` (antes de la marca) y
+fusionó identidad animada + switcher en un solo `<details>`. El usuario
+señaló la regresión visual (pager en el borde izquierdo real, delante de
+la marca) y, tras dos rondas de investigación en Git (`git show
+574e790:webapp/templates/module.html` + lectura directa de
+`assets/danwor-animated-dancing.html`), se confirmó el hallazgo clave: el
+"mark I+D + título + subtítulo" que el usuario describía SIEMPRE fue un
+único componente animado autocontenido (panel-left DANWOR→"Innovación +
+Desarrollo"→"Data & AI for Business", divisor, panel-right título+
+subtítulo) — nunca existió como markup Jinja separado, y `APP_TITLE`/
+`APP_SUBTITLE` (`config.py`) nunca tuvieron consumidor real; el asset traía
+su propio texto hardcodeado en JS (`const TITLE = '...'`).
+
+**Contrato final (recuperado, no rediseñado):**
+- **IZQUIERDA:** el componente animado histórico único, intacto, SIEMPRE
+  primer hijo de `.topbar` — NUNCA es el trigger del switcher. Su
+  título/subtítulo (antes hardcodeados en el asset) ahora se parametrizan
+  vía query string del propio `GET /brand/dancing/{pack}` (`?title=...
+  &subtitle=...`, `webapp/routers/pack_assets.py`) — reusa el MISMO
+  mecanismo de sustitución de texto que ya existía ahí (`dark_shell_colors`)
+  para reemplazar las constantes JS `TITLE`/`SUBTITLE` del asset, con
+  escaping seguro para JS string literal. Sin params, el asset conserva su
+  texto original (no-op, compatibilidad).
+- **`config.py`:** `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE`
+  (NUEVAS, mismo patrón `_env(...)` que `APP_TITLE`/`APP_SUBTITLE`,
+  defaults "Gestión Inteligente · Operaciones" / "Analítica y gestión
+  operativa | Danwor Transversal"). Sin mutación per-request — Copiloto
+  SIEMPRE usa `APP_TITLE`/`APP_SUBTITLE`, Operaciones SIEMPRE usa las
+  suyas; son constantes de proceso distintas, no un valor compartido que
+  se pisa.
+- **`webapp/templating.py`:** nuevo global Jinja `config` (el módulo
+  completo, de solo lectura) — permite a las templates leer
+  `config.APP_TITLE`/`config.OPERATIONS_APP_TITLE` sin que cada router
+  reinyecte esos valores en su contexto.
+- **DERECHA (`.header-tools`):** pager → marca COMPACTA con switcher
+  (`switch_brand_html`, el logo estático `brand/danwor-logo.png`, MISMO
+  para ambos workspaces — `<details class="workspace-switch
+  topbar-brand-compact">` con 2+ workspaces, `class="brand-compact-link"`
+  con 1 solo) → selector interno (`{{ caller() }}`) → theme → logout →
+  mobile-menu. CSS: `.brand-compact`/`.topbar-brand-compact` nuevas,
+  reemplazan `.topbar-brand-static` y los selectores
+  `.workspace-switch.topbar-brand > summary.animated-brand` (ahora
+  `.workspace-switch.topbar-brand-compact > summary.brand-compact`); regla
+  muerta `.animated-brand:has(.topbar-brand-static)` eliminada.
+- **9 templates actualizados** (8 Copilot + `operations/staffing.html`):
+  `_identity_html` (iframe con `title`/`subtitle` urlencoded desde
+  `config`) + `_switch_brand_html` (logo compacto) reemplazan el viejo
+  `_brand_html` único. `webapp/routers/staffing.py` agrega `pack:
+  DEFAULT_PACK` al contexto de `staffing_page` (Operaciones no tiene
+  concepto de pack propio; el asset animado es un archivo físico bajo
+  `content_packs/`) — presentación pura, **sin tocar redirect/auth**
+  (freeze respetado).
+- **Sin cambios de ruteo:** route surface sigue en **82**, diff contra
+  Batch A idéntico al de antes de este pase.
+- **Tests:** `tests/webapp/test_platform_topbar.py` reescrito con el
+  contrato final — identidad animada única (LEFT) config-driven para
+  ambos workspaces, orden RIGHT (pager→marca compacta→selector
+  interno→theme→logout), switcher en la marca compacta (nunca en la
+  identidad), sustitución real de `TITLE`/`SUBTITLE` vía la ruta
+  `/brand/dancing/{pack}`, back/forward/selector interno sin regresión.
+- **SMOKE VISUAL MANUAL: GREEN.** `/modules/00_Intro?pack=datasphere_core`
+  y `/operaciones/staffing/asignaciones` vía sesión inyectada: orden
+  DOM confirmado por accesibilidad (identidad → pager → marca compacta+
+  switcher → selector interno → theme → logout → mobile-menu) en ambos
+  workspaces; request real a `/brand/dancing/datasphere_core` con
+  `title`/`subtitle` urlencoded correctos para cada workspace (verificado
+  vía Network); sustitución de texto confirmada byte a byte (UTF-8
+  correcto — un mojibake inicial fue artefacto del codepage de la consola
+  de smoke, no un bug real). Viewport 375px: sin overflow, `.module-pager`
+  sigue en `display:none` (regla preexistente, sin tocar), marca compacta
+  visible y proporcionada. Sin errores de consola en ningún paso.
 - **Tests:** `tests/webapp/test_platform_topbar.py` (NUEVO, sucesor de
   `test_workspace_switcher.py` — eliminado junto con el partial que
   probaba) — topbar compartido en páginas Copilot y Operaciones,
@@ -2426,9 +2512,11 @@ deshabilitados (nunca fabrica un orden inexistente).
   o hasta el fragmento real). `tests/webapp/test_workspaces.py`
   (actualizado) — `OPERATIONS.home_url` canónico.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
-  3.14.3): **suite 370 passed / 1 skipped** (354 + 16 netos, incluye el
-  pase correctivo de redirect semantics), route-contract
-  GREEN tras regenerar el snapshot intencionalmente (**82**).
+  3.14.3): **suite 373 passed / 1 skipped** (370 + 3 netos del pase de
+  geometría visual — algunos tests viejos se reescribieron en vez de
+  sumar, por eso el neto es menor a los 16 tests nuevos de
+  `test_platform_topbar.py`), route-contract GREEN, snapshot sin cambios
+  (**82** — este pase es presentación pura).
 - **SMOKE VISUAL MANUAL: GREEN.** Módulo real de Copilot → back/forward
   reales con hrefs correctos, brand animado, switcher del brand con
   Operaciones + Todos los espacios, sin errores de consola. Click al
@@ -2482,33 +2570,39 @@ deshabilitados (nunca fabrica un orden inexistente).
 ## CURRENT EXECUTION POINT
 - **Phase:** Shared Workspace Shell + Operaciones Structure (Batch B de
   dos — Batch A, One Danwor Entry Experience, CLOSED/GREEN)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 370 passed / 1
-  skipped, route surface 82 (80→82, intencional — diff final contra
-  `main` de Batch A es EXACTAMENTE las 2 rutas canónicas nuevas, ver
-  detalle arriba), smoke visual manual GREEN — falta la confirmación de
-  CI real en GitHub antes de CLOSED/GREEN.
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 373 passed / 1
+  skipped, route surface 82 (sin cambios en el pase de geometría visual —
+  ver detalle arriba), smoke visual manual GREEN — falta la confirmación
+  de CI real en GitHub antes de CLOSED/GREEN.
 - **Functional commits:** `e2c8743` — `feat(platform): shared workspace
-  topbar + Operaciones structure` (un solo commit funcional inicial — per
-  instrucción explícita, ya que el topbar compartido y la estructura de
-  Operaciones comparten CSS/`workspaces.py`/tests, separarlos habría
-  forzado breakage intermedio artificial); `71bb101` — `fix(platform):
-  normalize Staffing auth redirect semantics` (pase correctivo — ver
-  arriba). Branch `work/shared-shell-operaciones`, pusheado a origin.
+  topbar + Operaciones structure` (un solo commit funcional inicial); 
+  `71bb101` — `fix(platform): normalize Staffing auth redirect semantics`
+  (pase correctivo 1, redirect/auth); `2489ac4` — `fix(platform): preserve
+  config-driven transversal header geometry` (pase correctivo 2, geometría
+  visual — ver sección dedicada arriba). Branch
+  `work/shared-shell-operaciones`, pusheado a origin.
 - **Topbar compartido:** `partials/platform_topbar.html`, macro
-  presentación-pura, sin auth/Graph/pack/secuencia de rutas. Back/forward
+  presentación-pura, sin auth/Graph/pack/secuencia de rutas. Firma final
+  (post pase correctivo 2): `platform_topbar(current_workspace,
+  available_workspaces, identity_href, identity_html, switch_brand_html,
+  mobile_menu_label, pager_previous=None, pager_next=None)`. Back/forward
   transversal en POSICIÓN pero NO en lógica — el caller decide destino o
-  deshabilitado; `module.html` es el único con datos reales. Switcher de
-  workspace movido del control de texto standalone (batch anterior,
-  eliminado) al brand/logo mismo.
+  deshabilitado; `module.html` es el único con datos reales. DOS bloques
+  de marca distintos: `identity_html` (IZQUIERDA, identidad animada única,
+  nunca switcher) y `switch_brand_html` (marca compacta de RIGHT, SÍ es el
+  trigger del switcher de workspace).
 - **8 templates Copilot migrados** (topbar duplicado → llamada al macro,
   mecánico, sin regresión de marca/pack/back-forward/theme/logout/
   mobile-menu). **Operaciones** adoptó la misma convención
   `.app-shell.no-copilot` que Copilot ya usaba — nav real
   (`operations_nav.html`, Staffing → Asignaciones), hero simplificado,
   loading state con el spinner ya existente.
-- **Asset animado de Operaciones:** **PENDING DESIGN ASSET** — usa el
-  logo estático de Danwor temporalmente; el contrato del topbar hace
-  trivial swapearlo después.
+- **Asset animado de Operaciones:** **RESUELTO** (pase correctivo 2) —
+  reusa el MISMO componente animado histórico que Copiloto
+  (`/brand/dancing/{pack}`), parametrizado con
+  `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE` (`config.py`). El logo
+  estático (`brand/danwor-logo.png`) quedó como la marca COMPACTA de
+  RIGHT en ambos workspaces (trigger del switcher), no como identidad.
 - **Rutas canónicas:** `GET/POST /operaciones/staffing/asignaciones(/data)`.
   `GET/POST /operations/staffing(/data)` = alias de compatibilidad,
   siempre 307, method+body preservados. `OPERATIONS.home_url` actualizado.
@@ -2520,14 +2614,15 @@ deshabilitados (nunca fabrica un orden inexistente).
   (fuerza GET en el siguiente hop) y recibe un `next_path` explícito
   apuntando a la PÁGINA canónica, no al endpoint de datos. El diff de
   route-contract contra `main` de Batch A es EXACTAMENTE las 2 rutas
-  canónicas nuevas — nada más.
+  canónicas nuevas — nada más. **Congelado sin cambios en el pase
+  correctivo 2** (geometría visual, ver arriba).
 - **Next candidate:** ninguno propuesto todavía — este era el último
   batch identificado de la iniciativa de plataforma multi-workspace.
   Streams pendientes conocidos (sin elegir): paridad funcional de
   Staffing (capacidad/disponibilidad/filtros/Gantt/vacaciones),
-  Projects/Reporting, asset animado real de Operaciones.
+  Projects/Reporting.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **370 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **373 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
