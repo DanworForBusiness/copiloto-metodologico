@@ -2615,9 +2615,12 @@ system generalizado.
 ---
 
 ## STAFFING — ASIGNACIONES DASHBOARD V1 — IMPLEMENTED / PENDING CI
-(commit funcional `33cff8c` — `feat(staffing): add Asignaciones Dashboard
-v1 (Power BI replacement)`; branch `work/staffing-assignments-dashboard-v1`,
-pusheado a origin, PR no abierto todavía)
+(commits funcionales `33cff8c` — `feat(staffing): add Asignaciones
+Dashboard v1 (Power BI replacement)` + `a79c4a5` — `fix(staffing): refine
+assignments dashboard interactions` (pase correctivo, revisión con dato
+real — ver sección dedicada más abajo); checkpoint de docs `f3d8b9f`;
+branch `work/staffing-assignments-dashboard-v1`, pusheado a origin, PR no
+abierto todavía)
 
 > **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
 > GitHub. El cierre formal es un mensaje separado del usuario después de
@@ -2799,8 +2802,108 @@ preguntas operativas (NO recreación pixel-perfect).
   esta sesión), no con un bug de esta implementación. Excluidos
   deliberadamente de este commit (`git add` explícito, sin `-A`); quedan
   sin commitear en el working tree.
+### Pase correctivo — revisión con dato real (commit `a79c4a5`)
+
+El usuario revisó el dashboard con datos reales de SharePoint en
+`localhost:8082` y encontró varios gaps contra el contrato V1. Todos
+corregidos en un solo commit funcional; suite y route surface
+actualizados abajo.
+
+- **Bug real corregido — invariante Consultores vs Disponibilidad (53 vs
+  54 observado):** `availabilityGroups`/`timelineGroups` (app.js) caían a
+  `consultant_name` como key de agrupación cuando `consultant_id` era
+  `None` — eso sintetiza un "consultor distinto" fantasma a partir de un
+  nombre que MÚLTIPLES filas sin resolver distintas podían compartir.
+  Ahora ambos agrupan ESTRICTAMENTE por `consultant_id` (igual que
+  `kpis.consultants`, que ya excluía esas filas via `.filter(Boolean)`):
+  una fila sin id consigue su propio grupo de timeline sin fusionarse
+  (`"unresolved-" + assignment_id`) y queda EXCLUIDA de Disponibilidad —
+  el invariante `Full Time + Part Time + Sin dato === Consultores` ahora
+  se cumple por construcción. Sigue visible en todos lados como
+  "(sin resolver)" — nunca se pierde la fila, solo deja de inflar un
+  conteo de consultores que no le corresponde.
+- **Hipótesis de bug corregida — Disponibilidad en 0/0/54 pese a mapeo
+  correcto:** `webapp/services/staffing_repository.py` pedía Colaboradores
+  con `$expand=fields` SIN `$select` — Graph puede omitir columnas custom
+  tipo Choice de esa proyección default aunque otras columnas custom de
+  la MISMA lista (Title) sí aparezcan. El fetch de Colaboradores ahora
+  pide explícito `$expand=fields($select=colaborador_title,
+  colaborador_disponibilidad)` (solo si el campo opcional está
+  configurado). Asignaciones/Proyectos NO se tocaron — ya funcionan
+  correctamente, sin necesidad comprobada de tocarlos. **Sin confirmar
+  contra Graph real en este entorno** (sandbox sin credenciales) —
+  reportado como hipótesis fundamentada, no como hecho verificado;
+  pendiente del próximo smoke con dato real del usuario.
+- **Default de Estado corregido:** el filtro default ahora es
+  ESTRICTAMENTE Activo+Tentativo (antes, cualquier bucket "Sin estado"
+  presente en el dato real quedaba seleccionado por default también,
+  visible en el screenshot de revisión del usuario).
+- **Filtros sticky:** reusan el mismo mecanismo de Actividad
+  (`.dashboard-sticky-header` → renombrado `.staffing-sticky-filters`,
+  `position:sticky; top:-48px`), no un sistema paralelo.
+- **Resumen (KPIs) y Timeline ahora son `dashboard-section` colapsables**,
+  mismo grammar que Detalle/Actividad — antes eran un grid suelto y una
+  subsección plana sin esa identidad visual compartida.
+- **Proporción operativa 2/3 · 1/3** (`.staffing-operational-grid`,
+  `grid-template-columns: 2fr 1fr`) — antes 1fr/1fr, demasiado pareja.
+- **Expand/collapse por consultor:** cada nombre de consultor es un
+  disclosure clickeable (caret ▸/▾); "Expandir todo"/"Contraer todo"
+  arriba del timeline. Estado 100% de presentación (`collapsedConsultants`,
+  nunca toca `filteredAssignments`) — expandido por default; elegir un
+  consultor puntual vía el filtro fuerza su expansión aunque estuviera
+  colapsado (`$watch` en `init()`).
+- **Paleta determinística por asignación** (`paletteClass`, hash de
+  `project_id`, 6 tonos) — antes el color de la barra era SOLO el estado,
+  haciendo que asignaciones distintas del mismo consultor se vieran casi
+  iguales. El estado se superpone aparte (borde punteado + opacidad para
+  Tentativo, opacidad para Inactivo) — nunca reemplaza la identidad de
+  color.
+- **Marcador de "hoy" real:** `compute_today_marker` (función pura,
+  `webapp/services/staffing_service.py`) calcula la posición % exacta del
+  día actual dentro del horizonte (mes + fracción del día, nunca solo
+  "resaltar el mes") — antes el resaltado de mes actual era el único
+  indicador. Línea punteada + label "HOY", `None` fuera del horizonte,
+  complementa (no reemplaza) el resaltado de mes.
+- **Tests:** `tests/webapp/test_staffing_repository.py` (+3, `$select`
+  explícito con/sin campo opcional, Asignaciones/Proyectos sin cambios),
+  `tests/webapp/test_staffing_service.py` (+8, marcador de hoy con fechas
+  fijas: primer día/mitad de mes/límite de mes/último día visible/antes/
+  después del horizonte, más el insumo del invariante — `consultant_id`
+  nunca se sintetiza desde el nombre), `tests/webapp/test_staffing_routes.py`
+  (+6, filtros sticky, 3 secciones colapsables, grid 2/3·1/3, controles
+  expand/collapse, paleta+estado como clases independientes, marcador de
+  hoy presente sin ser una métrica de capacidad — 2 tests preexistentes
+  ajustados: el `%` del binding CSS del marcador rompía su aserción
+  original "% en ningún lado", corregidos a verificar la AUSENCIA de
+  patrones de capacidad específicos en vez de prohibir el carácter).
+- **SMOKE MANUAL: GREEN (servidor propio en puerto separado — el
+  servidor del usuario en :8082 no se tocó).** Dataset representativo con
+  múltiples asignaciones por consultor, una fila con fecha de hoy real, y
+  DOS filas sin resolver distintas (ids `None` distintos) inyectado sobre
+  el DOM/Alpine/CSS reales. Verificado leyendo `_x_dataStack` directo:
+  default `{Activo:true, Tentativo:true, Inactivo:false}`; invariante
+  `2 = 1(FT) + 1(PT) + 0(Sin dato)` — sostiene; las 2 filas sin resolver
+  NUNCA se fusionan (`timelineGroupKeys` mostró grupos separados, uno
+  filtrado por default-Inactivo); paleta con índices distintos por
+  proyecto en las 4 barras visibles, clases de estado combinadas aparte;
+  `todayMarker.visible=true` con el % exacto del payload; sticky
+  (`position:sticky` computado); 3 `dashboard-section` presentes;
+  "Contraer todo" colapsó los 3 grupos (carets ▸, 0 filas visibles);
+  elegir un consultor vía filtro lo expandió pese al colapso previo; CERO
+  requests nuevos durante filtro/colapso (confirmado en Network); 375px
+  sin overflow horizontal en el body, timeline con `overflow-x:auto`
+  propio, grid operativo a 1 columna.
+- **Edición en paralelo detectada, NO tocada (pase anterior):**
+  `webapp/templates/platform_selector.html`/`webapp/routers/platform.py`
+  — ya no aparecen en el working tree al empezar este pase correctivo
+  (resueltos/commiteados por el usuario fuera de esta sesión).
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**): **suite 421 passed / 1 skipped** (403 + 18 netos),
+  route-contract GREEN, snapshot sin cambios (**82**).
 - **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
-  No se abrió el PR.
+  No se abrió el PR. El fix de `$select` de Colaboradores queda sin
+  confirmar contra Graph real — el próximo smoke del usuario debería
+  revisar si Full Time/Part Time ahora traen valores reales.
 
 ### Próxima decisión (NO autorizada en este commit de código)
 
