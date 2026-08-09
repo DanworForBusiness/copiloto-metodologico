@@ -2127,12 +2127,21 @@ ellos en este commit de docs:
 
 ---
 
-## ONE DANWOR ENTRY EXPERIENCE (BATCH A) — IMPLEMENTED / PENDING CI
-(commits `78357b5` + `f22e1f4`; branch `work/onedanwor-entry-experience`)
+## ONE DANWOR ENTRY EXPERIENCE (BATCH A) — CLOSED / GREEN
+(commits funcionales `78357b5` — `feat(platform): introduce One Danwor
+entry experience`; `f22e1f4` — `fix(platform): version One Danwor auth
+script`; `df8d4de` — `fix(platform): isolate neutral auth callback
+presentation`; checkpoints previos `2292aba`, `d43b527`; branch
+`work/onedanwor-entry-experience`, mergeada a `main` vía PR #30)
 
-> **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
-> GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
-> después de que CI corra verde.
+**Evidencia final de cierre:** GitHub **CI GREEN**; **REAL MICROSOFT
+OAUTH ROUND-TRIP: GREEN** (validado por el usuario con sus propias
+credenciales reales, desde `/onedanwor` — sin landing del Copiloto
+visible durante el popup/callback, overlay neutro "Completando
+acceso…", login completado, resolución de workspace post-login
+correcta, Copiloto y Operaciones disponibles según autorización);
+Python **3.14.3**; full suite **354 passed / 1 skipped**; **route
+surface 80** (79→80, intencional, única adición `GET /onedanwor`).
 
 Precedido por un **targeted assessment** (análisis únicamente, sin código)
 que determinó el límite seguro de implementación entre dos batches (A:
@@ -2152,30 +2161,39 @@ explícitamente diferido). Esto es SOLO Batch A.
   contiene TODA la lógica de resolución (antes en `platform_entry`), ahora
   usada por `GET /onedanwor`; `GET /platform` quedó como un handler
   minúsculo que solo redirige. Cero duplicación de lógica de resolución.
-- **Corrección del auth-popup (bug real reportado por el usuario):**
-  causa exacta — `webapp/static/auth.js` abría el popup de OAuth
-  hardcodeado a `window.location.origin + "/?auth_popup=1"`, SIEMPRE la
-  raíz del Copiloto, sin importar si el login arrancó desde `/`,
-  `/copilot` o `/onedanwor`. Como `/` siempre renderiza con la copy del
-  Copiloto, el popup necesariamente mostraba esa marca por el tiempo que
-  tardaba `getConfig()` (fetch async) antes de redirigir a Microsoft.
-  **Corrección mínima, sin segundo mecanismo de auth:**
-  1. `auth.js`: el popup ahora abre `window.location.pathname +
-     "?" + <query actual + auth_popup=1>` — la página que INICIÓ el
-     login, preservando su `next`/`pack` si los tenía.
+- **Corrección del auth-popup (bug real reportado por el usuario, cerrado
+  en dos pasadas):** causa exacta — `webapp/static/auth.js` abría el
+  popup de OAuth hardcodeado a `window.location.origin +
+  "/?auth_popup=1"`, SIEMPRE la raíz del Copiloto, sin importar si el
+  login arrancó desde `/`, `/copilot` o `/onedanwor`; y el callback fijo
+  de Microsoft a `/` (redirect_uri, registrado en Azure) también
+  renderizaba esa landing. **Corrección final (sin segundo mecanismo de
+  auth):**
+  1. `auth.js`: el popup abre `window.location.pathname + "?" + <query
+     actual + auth_popup=1>` — la página que INICIÓ el login,
+     preservando su `next`/`pack` si los tenía.
   2. `render_landing()` (compartida por `/`, `/copilot`, `/onedanwor`):
-     detecta `auth_popup` o `code` en la query y pasa `auth_completing`
-     al contexto.
-  3. `landing.html`: `<body class="auth-completing">` desde el HTML
-     inicial (no esperando al JS) cuando `auth_completing` es true —
-     reutiliza el overlay `.auth-completing`/`.auth-overlay` YA
-     existente (cero CSS nuevo). El overlay neutro "Completando
-     acceso…" cubre la pantalla desde el primer paint, en vez de que se
-     vea la marca de la página por un instante.
-  - **`redirect_uri` de Microsoft (fijo en `/`, registrado en Azure) NO
-    se tocó** — sigue devolviendo el callback a `/?code=...` siempre; el
-    fix cubre ese segundo paint con el mismo mecanismo `auth_completing`.
-    Sin cambios de PKCE, scopes, sesión, ni `sessionStorage["dw-graph-token"]`.
+     cuando la request tiene `auth_popup` o `code`, **no renderiza
+     `landing.html` en absoluto** — sirve un documento SEPARADO y
+     totalmente neutro, `auth_callback.html` (NUEVO). Un overlay sobre
+     la landing no alcanzaba: el marcado con marca (Copiloto o el copy
+     de la página que sea) seguía existiendo en el DOM debajo del
+     overlay — visible en la validación real del usuario. El nuevo
+     template no incluye ese copy en absoluto: solo el fondo oscuro
+     existente, el spinner (`.auth-overlay`/`.auth-spinner`, YA
+     existentes, cero CSS nuevo) y "Completando acceso…", más un botón
+     oculto con `data-home` para que el fallback sin `window.opener` de
+     `auth.js` siga resolviendo el destino correcto.
+  3. Los `<script>` de `landing.html` (`auth.js`, `brand-hero.js`) y de
+     `auth_callback.html` usan `?v={{ static_version }}` — mismo
+     mecanismo de cache-busting que ya usa `base.html` (sin esto, un
+     browser con `auth.js` cacheado de antes del deploy podía seguir
+     ejecutando la lógica vieja del popup).
+  - **`redirect_uri` de Microsoft (fijo en `/`) NO se tocó** — sigue
+    devolviendo el callback a `/?code=...` siempre; ese callback ahora
+    cae en la rama neutra de `render_landing()`. Sin cambios de PKCE,
+    scopes, sesión, ni `sessionStorage["dw-graph-token"]`, sin token en
+    URL, sin persistencia server-side de Graph token.
 - **Login de One Danwor — misma grilla, sin plantilla nueva:**
   `_ONEDANWOR_LANDING_COPY` en `platform.py` ahora incluye los 3 bullets
   reales ("Un único acceso con tu cuenta Danwor", "Espacios de trabajo
@@ -2246,26 +2264,44 @@ explícitamente diferido). Esto es SOLO Batch A.
   versionado nuevo, sin tocar `brand-hero.css` — deliberadamente fuera
   de alcance de este pase). Test agregado:
   `test_landing_versions_its_auth_and_brand_scripts`.
-- **REAL AUTH POPUP SMOKE: GREEN.** Tras la corrección, click real sobre
-  "Ingresar con tu cuenta Danwor" en `/onedanwor` — capturando
-  `window.open` — confirmó que el popup abre
-  `/onedanwor?auth_popup=1` (la página que inició el login, NO la raíz
-  del Copiloto); el script servido en esa carga es la versión corregida
-  (fetch confirmó el contenido, ya no cacheado — la URL versionada es
-  distinta a la cacheada previamente, forzando el fetch real). Repetido
-  en `/` (`/?auth_popup=1`) y `/copilot` (`/copilot?auth_popup=1`) — cada
-  uno abre su propia página, nunca hardcodeado a `/`. El primer render de
-  `/onedanwor?auth_popup=1` confirmado con
-  `document.body.className === "auth-completing"` y el overlay en
-  `display:flex` desde el HTML inicial (sin esperar JS). Sin errores de
-  consola en ningún paso. **Límite de esta verificación:** completar un
-  login real de Microsoft (intercambio de código, `id_token`, sesión)
-  requiere credenciales reales de Azure que este agente no tiene — igual
-  que en batches anteriores, esa mitad del flujo la valida el usuario en
-  su propio browser autenticado; lo verificado acá (por qué página abre
-  el popup, y que el overlay neutro cubre el primer paint) es exactamente
-  el mecanismo del bug reportado, y queda cerrado.
-- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
+- **REAL AUTH POPUP SMOKE: GREEN (verificación del agente, DOM real).**
+  Click real sobre "Ingresar con tu cuenta Danwor" (ejecución real de
+  `loginWithMicrosoft`, sin stub) desde `/onedanwor`, `/` y `/copilot`
+  — cada uno abrió su propia página (`/onedanwor?auth_popup=1`,
+  `/?auth_popup=1`, `/copilot?auth_popup=1`), nunca hardcodeado a `/`.
+  `document.body.innerHTML` confirmado SIN "Copiloto" ni "One Danwor" en
+  ningún caso — no solo cubierto por un overlay, sino ausente del DOM.
+  Sin errores de consola.
+- **REAL MICROSOFT OAUTH ROUND-TRIP: GREEN (validación del usuario, con
+  credenciales reales).** El usuario completó el login real de Microsoft
+  desde `/onedanwor` en su propio browser autenticado: sin landing del
+  Copiloto visible en ningún momento del popup/callback, overlay neutro
+  "Completando acceso…" visible, autenticación de Microsoft completada
+  normalmente, resolución de workspace post-login correcta, con
+  Copiloto y Operaciones disponibles según su autorización real. Esto
+  cierra la mitad del flujo que el agente no puede validar por sí mismo
+  (requiere credenciales reales de Azure) — el defecto original queda
+  confirmado resuelto de punta a punta, no solo por inspección de código
+  ni por DOM del agente.
+- **CI:** GitHub CI **GREEN** sobre el estado final de la rama, mergeada
+  a `main` vía PR #30.
+
+### Próxima decisión (NO autorizada en este commit de docs)
+
+Con este batch **CLOSED / GREEN**, el próximo paso es una decisión del
+usuario. Candidato identificado (NO autorizado, NO empezado):
+
+- **SHARED WORKSPACE SHELL + OPERACIONES STRUCTURE (Batch B)** — header
+  transversal compartido (preservando los controles reales de
+  back/forward in-app del header actual — el usuario señaló
+  explícitamente que NO son chrome de browser; Batch B debe inspeccionar
+  su implementación real antes de tocarlos), switcher de workspace
+  attached al logo, selector interno por workspace, grilla estructural
+  compartida Copiloto/Operaciones, jerarquía canónica `/operaciones`,
+  navegación local de Operaciones, jerarquía Staffing → Asignaciones,
+  presentación de loading compartida donde se justifique.
+
+**No autorizado todavía.**
 
 ---
 
@@ -2297,33 +2333,36 @@ explícitamente diferido). Esto es SOLO Batch A.
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 | In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
-| One Danwor Entry Experience (Batch A) | **IMPLEMENTED / PENDING CI** |
+| One Danwor Entry Experience (Batch A) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** One Danwor Entry Experience — Batch A de dos (targeted
   assessment previo determinó el límite: A = entrada/naming/auth; B =
   shell/topbar/rename de rutas de Operations, explícitamente diferido)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 350 passed / 1
-  skipped, route surface 80 (79→80, intencional), **REAL AUTH POPUP
-  SMOKE: GREEN** (ver detalle arriba) — falta la confirmación de CI real
-  en GitHub antes de CLOSED/GREEN.
+- **Status:** **CLOSED / GREEN.** GitHub CI GREEN, mergeada a `main` vía
+  PR #30; suite 354 passed / 1 skipped; route surface 80; **REAL
+  MICROSOFT OAUTH ROUND-TRIP: GREEN** (validado por el usuario con
+  credenciales reales desde `/onedanwor` — ver detalle arriba).
 - **Functional commits:** `78357b5` — `feat(platform): introduce One
   Danwor entry experience`; `f22e1f4` — `fix(platform): version One
-  Danwor auth script` (pase correctivo tras el smoke real — ver arriba).
-  Branch `work/onedanwor-entry-experience`, pusheado a origin.
+  Danwor auth script`; `df8d4de` — `fix(platform): isolate neutral auth
+  callback presentation` (corrección final tras la validación real del
+  usuario — ver detalle arriba). Branch `work/onedanwor-entry-experience`,
+  mergeada a `main`.
 - **Naming:** término interno `platform` sin cambios. Marca visible "One
   Danwor". Canónica: `GET /onedanwor`. `/platform` = alias de
   compatibilidad, siempre 307 a `/onedanwor`. `/` y `/copilot` sin
   cambios. Operations pasa a mostrarse como "Operaciones" (solo
   `Workspace.label`; `key`/`home_url`/módulos internos sin tocar).
-- **Auth-popup:** bug real corregido — el popup de auth.js ya no
-  hardcodea `/`, abre la página que inició el login; `render_landing()`
-  pone `body.auth-completing` desde el HTML inicial para
-  `auth_popup`/`code`, reutilizando el overlay ya existente. Azure
+- **Auth-popup — corregido de punta a punta:** el popup de `auth.js` ya
+  no hardcodea `/`, abre la página que inició el login. `render_landing()`
+  sirve un documento separado y totalmente neutro
+  (`auth_callback.html`) para los estados `auth_popup`/`code` — no un
+  overlay sobre la landing con marca (esa primera corrección resultó
+  insuficiente: el marcado seguía existiendo en el DOM debajo). Azure
   `redirect_uri` (fijo en `/`) sin tocar. La entrega del `auth.js`
-  corregido en sí quedó garantizada por el mismo cache-busting
-  `?v={{ static_version }}` que ya usa `base.html`, ahora también en los
-  `<script>` de `landing.html` (commit `f22e1f4`).
+  corregido quedó garantizada por el mismo cache-busting
+  `?v={{ static_version }}` que ya usa `base.html`.
 - **Deferred a Batch B (NO autorizado):** shared `platform_topbar` macro,
   switcher logo-attached, asset animado de Operations, selector de área
   interno de Operations, shell compartido, rename de rutas a
@@ -2333,9 +2372,8 @@ explícitamente diferido). Esto es SOLO Batch A.
   usuario señaló explícitamente que esos son controles in-app reales, no
   chrome de browser; Batch B debe inspeccionar su implementación real
   antes de tocarlos.
-- **Next candidate status:** **NOT AUTHORIZED** (Batch B no empieza hasta
-  que este batch confirme CI y se autorice explícitamente).
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **350 passed / 1 skipped** · route surface **80**
+- **Next candidate status:** **NOT AUTHORIZED.**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **354 passed / 1 skipped** · route surface **80**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
