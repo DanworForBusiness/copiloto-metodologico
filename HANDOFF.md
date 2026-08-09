@@ -1999,12 +1999,15 @@ ellos en este commit de docs:
 
 ---
 
-## IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER — IMPLEMENTED / PENDING CI
-(commit `50c671b`; branch `work/platform-inapp-workspace-switcher`)
+## IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER — CLOSED / GREEN
+(commit funcional `50c671b` — `feat(platform): add in-app workspace
+switcher`; checkpoint previo `2c55fe8`; branch
+`work/platform-inapp-workspace-switcher`)
 
-> **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
-> GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
-> después de que CI corra verde.
+**Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; full
+suite **338 passed / 1 skipped**; **route surface 79** (sin cambios, sin
+`UPDATE_ROUTE_SURFACE`); **smoke visual manual: GREEN** (desktop y viewport
+375px, sin overflow horizontal, sin errores de consola).
 
 Precedido por un **targeted assessment** (análisis únicamente, sin código)
 que recomendó la forma de implementación (A: partial compartido + contexto
@@ -2016,6 +2019,12 @@ explícito por ruta) — implementado tal cual acá, un solo batch.
   URLs de workspace — renderiza únicamente lo que el router le pasa
   (`current_workspace`, `available_workspaces`, ambos objetos `Workspace`
   de `webapp/workspaces.py`, que queda **sin cambios** en este batch).
+- **Resultado arquitectónico confirmado:** `available_workspaces(user)` es
+  ahora consumido por **DOS** experiencias de plataforma distintas — el
+  selector/resolución de `/platform` (batch anterior) y este switcher
+  in-app — sin que `workspaces.py` necesitara cambiar una línea para
+  soportar el segundo consumidor. Evidencia de que el descubrimiento de
+  workspaces quedó correctamente desacoplado de su presentación.
 - **Estrategia de contexto:** explícita por ruta, siguiendo el patrón YA
   establecido (`modules.py` ya pasaba `"user": user` a mano) — sin
   middleware, sin context processor, sin `available_workspaces` como
@@ -2098,7 +2107,23 @@ explícito por ruta) — implementado tal cual acá, un solo batch.
   configuración actual, por lo que una sesión academy-only no es
   alcanzable en el browser sin mutar la config del servidor — se
   documenta esta razón en vez de forzarla.
-- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
+- **CI:** GitHub CI **GREEN** sobre el estado final de la rama.
+
+### Próxima decisión (NO autorizada automáticamente)
+
+Con este batch **CLOSED / GREEN**, el próximo paso es una decisión del
+usuario, no una continuación automática. Candidatos, sin elegir entre
+ellos en este commit de docs:
+
+- **A — Paridad funcional de Staffing** (capacidad/disponibilidad,
+  filtros, Gantt, vacaciones).
+- **B — Transición eventual de `/` a Platform** (el flip que este batch y
+  el anterior dejaron explícitamente diferido).
+- **C — Más UX de plataforma** (unificar los topbars duplicados del
+  Copiloto, naming final, recordar el último workspace) — solo si aparece
+  una necesidad concreta, no como trabajo especulativo.
+
+**Ninguno autorizado todavía.**
 
 ---
 
@@ -2129,29 +2154,33 @@ explícito por ruta) — implementado tal cual acá, un solo batch.
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
-| In-App Workspace Navigation / Shared Workspace Switcher | **IMPLEMENTED / PENDING CI** |
+| In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** In-App Workspace Navigation — selector de workspace compartido
   (`partials/workspace_switcher.html`) en el chrome autenticado del
   Copiloto y de Operations/Staffing
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 338 passed / 1
-  skipped, route surface 79 (sin cambios), smoke visual manual GREEN —
-  falta la confirmación de CI real en GitHub antes de CLOSED/GREEN.
+- **Status:** **CLOSED / GREEN.** GitHub CI GREEN sobre el estado final de
+  la rama; suite 338 passed / 1 skipped; route surface 79 (sin cambios);
+  smoke visual manual GREEN (desktop + 375px).
 - **Functional commit:** `50c671b` — `feat(platform): add in-app workspace
-  switcher` (branch `work/platform-inapp-workspace-switcher`), pusheado a
-  origin. Precedido por un targeted assessment (análisis, sin código) que
-  recomendó la forma A (partial compartido + contexto explícito).
+  switcher`. **Docs checkpoint previo:** `2c55fe8`. **Docs de cierre:** ver
+  commit de este mismo cambio (branch
+  `work/platform-inapp-workspace-switcher`, pusheado a origin). Precedido
+  por un targeted assessment (análisis, sin código) que recomendó la forma
+  A (partial compartido + contexto explícito).
 - **Templates/routers tocados:** ver detalle completo en la sección
   "IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER" más arriba —
   8 templates Copilot + 1 Operations + 4 routers dedicados + 5 handlers
   residuales de `main.py` (Catalog/Admin, solo wiring de contexto, sin
-  refactorizar). `webapp/workspaces.py` sin cambios.
-- **Current next candidate:** decisión del usuario tras confirmar CI —
-  candidatos explícitamente NO autorizados todavía: unificar los topbars
-  duplicados del Copiloto, flip de `/` a Platform, rediseño de naming, o
-  paridad funcional de Staffing (capacidad/disponibilidad, filtros, Gantt,
-  vacaciones).
+  refactorizar). `webapp/workspaces.py` sin cambios — su metadata ahora
+  alimenta DOS consumidores de presentación distintos (`/platform` y este
+  switcher) sin haber necesitado cambiar.
+- **Current next candidate:** decisión del usuario — A) paridad funcional
+  de Staffing (capacidad/disponibilidad, filtros, Gantt, vacaciones); B)
+  transición eventual de `/` a Platform; C) más UX de plataforma (topbars
+  unificados, naming final, recordar último workspace) solo ante necesidad
+  concreta. Ninguno elegido en este cierre.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **338 passed / 1 skipped** · route surface **79**
 
