@@ -2127,6 +2127,129 @@ ellos en este commit de docs:
 
 ---
 
+## ONE DANWOR ENTRY EXPERIENCE (BATCH A) — IMPLEMENTED / PENDING CI
+(commit `78357b5`; branch `work/onedanwor-entry-experience`)
+
+> **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
+> GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
+> después de que CI corra verde.
+
+Precedido por un **targeted assessment** (análisis únicamente, sin código)
+que determinó el límite seguro de implementación entre dos batches (A:
+entrada/naming/auth; B: shell/topbar/rename de rutas de Operations,
+explícitamente diferido). Esto es SOLO Batch A.
+
+- **Naming:** término interno arquitectónico sigue siendo `platform` (sin
+  rename de paquetes/módulos). Marca visible: **"One Danwor"**. Entrada
+  canónica: **`GET /onedanwor`**. `/platform` pasa a ser un alias de
+  compatibilidad — **SIEMPRE** 307 a `/onedanwor` (preservando `next` si
+  es un path relativo seguro), **nunca** vuelve a renderizar landing o
+  selector directamente. Un solo punto de resolución real evita que ambos
+  diverjan. `/` y `/copilot` **sin cambios** (verificado con test
+  byte-a-byte y smoke visual — siguen siendo la puerta histórica del
+  Copiloto; NO se flipean a Platform en este batch).
+- **`webapp/routers/platform.py`** — reestructurado: `_resolve_onedanwor()`
+  contiene TODA la lógica de resolución (antes en `platform_entry`), ahora
+  usada por `GET /onedanwor`; `GET /platform` quedó como un handler
+  minúsculo que solo redirige. Cero duplicación de lógica de resolución.
+- **Corrección del auth-popup (bug real reportado por el usuario):**
+  causa exacta — `webapp/static/auth.js` abría el popup de OAuth
+  hardcodeado a `window.location.origin + "/?auth_popup=1"`, SIEMPRE la
+  raíz del Copiloto, sin importar si el login arrancó desde `/`,
+  `/copilot` o `/onedanwor`. Como `/` siempre renderiza con la copy del
+  Copiloto, el popup necesariamente mostraba esa marca por el tiempo que
+  tardaba `getConfig()` (fetch async) antes de redirigir a Microsoft.
+  **Corrección mínima, sin segundo mecanismo de auth:**
+  1. `auth.js`: el popup ahora abre `window.location.pathname +
+     "?" + <query actual + auth_popup=1>` — la página que INICIÓ el
+     login, preservando su `next`/`pack` si los tenía.
+  2. `render_landing()` (compartida por `/`, `/copilot`, `/onedanwor`):
+     detecta `auth_popup` o `code` en la query y pasa `auth_completing`
+     al contexto.
+  3. `landing.html`: `<body class="auth-completing">` desde el HTML
+     inicial (no esperando al JS) cuando `auth_completing` es true —
+     reutiliza el overlay `.auth-completing`/`.auth-overlay` YA
+     existente (cero CSS nuevo). El overlay neutro "Completando
+     acceso…" cubre la pantalla desde el primer paint, en vez de que se
+     vea la marca de la página por un instante.
+  - **`redirect_uri` de Microsoft (fijo en `/`, registrado en Azure) NO
+    se tocó** — sigue devolviendo el callback a `/?code=...` siempre; el
+    fix cubre ese segundo paint con el mismo mecanismo `auth_completing`.
+    Sin cambios de PKCE, scopes, sesión, ni `sessionStorage["dw-graph-token"]`.
+- **Login de One Danwor — misma grilla, sin plantilla nueva:**
+  `_ONEDANWOR_LANDING_COPY` en `platform.py` ahora incluye los 3 bullets
+  reales ("Un único acceso con tu cuenta Danwor", "Espacios de trabajo
+  según tu perfil", "Navegación integrada entre servicios") — el
+  checklist de `landing.html` ya soportaba esto, solo estaba `None` para
+  la copy anterior de "Plataforma Danwor". Cero cambios de template.
+- **Selector rico — misma grilla que la tarjeta de login del Copiloto:**
+  `_WORKSPACE_CARD_COPY` (dict keyed por `Workspace.key`) en `platform.py`
+  — presentación PURA (eyebrow/título/acento/descripción/features),
+  deliberadamente separada de `Workspace` (`webapp/workspaces.py`, que
+  sigue siendo la ÚNICA fuente de identidad/home/autorización — sin
+  cambios salvo el label visible de Operations). `platform_selector.html`
+  reutiliza `.access-brand`/`.access-list`/`.access-check` (YA globales en
+  `brand-hero.css`) dentro de cada tile — solo se agregaron ~6 líneas de
+  CSS para el `h2` de cada tarjeta (el heading principal de la página usa
+  `h1`; las tarjetas usan `h2` para no duplicar el heading semántico,
+  necesitando su propia regla ya que `.access-brand h1` es específica al
+  tag). **Bug encontrado y corregido durante la implementación:** la
+  clave `"copy"` en el dict de cada tarjeta colisionaba con
+  `dict.copy()` — Jinja resuelve `card.copy` como ese método ANTES de
+  probar `card["copy"]`, dejando el diccionario real inalcanzable por
+  dot-notation. Renombrada a `"meta"`.
+- **Naming de Operations:** `Workspace.label` de `OPERATIONS` pasa de
+  "Operations" a **"Operaciones"** (identidad visible únicamente). `key`
+  (`"operations"`), `home_url` (`/operations/staffing`), y todos los
+  identificadores internos (`operations_access.py`, etc.) **sin cambios**
+  — per instrucción explícita, no es un rename de código.
+  "Todos los espacios" (en el switcher in-app, `workspace_switcher.html`)
+  ahora apunta a `/onedanwor` (antes `/platform`) — literal, sin
+  introducir un constante/helper nuevo para un solo uso.
+- **Rutas agregadas:** `GET /onedanwor`. **Route surface: 79 → 80**
+  (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`; el diff
+  contiene únicamente esta línea). `/platform` sigue registrada — cambió
+  su comportamiento (render → redirect), no el conteo de rutas.
+- **Tests:** `tests/webapp/test_onedanwor_routes.py` (NUEVO, 13 tests) —
+  login no-autenticado con los 3 bullets, ausencia de branding Copilot,
+  next válido/inválido, 0/1/2+ workspaces (selector con contenido rico
+  real de ambas tarjetas, verificado con los textos truthful exactos),
+  precedencia de next explícito, selector puramente derivado del resolver
+  (incluye caso con workspace SIN entrada en el mapa de copy — cae a
+  `label`, la presentación no reemplaza autorización), `/` y `/copilot`
+  intactos, y el round-trip COMPLETO de Operations a través de AMBOS saltos
+  (`/operations/staffing` → `/platform?next=...` → `/onedanwor?next=...`
+  → destino). `tests/webapp/test_platform_routes.py` (REESCRITO, 5 tests)
+  — ahora solo prueba el alias de compatibilidad (siempre 307, con/sin
+  `next` seguro/inseguro, autenticado o no). `tests/webapp/test_routes.py`
+  (+3) — `auth_completing` en el HTML inicial para `auth_popup`/`code`,
+  ausente en landing normal. `tests/webapp/test_workspace_switcher.py`
+  (actualizado) — "Todos los espacios" ahora apunta a `/onedanwor`.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  3.14.3): **suite 349 passed / 1 skipped** (338 + 11 netos), route-contract
+  GREEN tras regenerar el snapshot intencionalmente (**80**).
+- **SMOKE VISUAL MANUAL: GREEN.** `/onedanwor` no-autenticado con marca y
+  3 bullets correctos; `/platform` redirige; selector autenticado
+  multi-workspace muestra ambas tarjetas ricas completas; click en
+  Operaciones llega a Staffing real; "Todos los espacios" del switcher
+  apunta a `/onedanwor`; viewport 375px sin overflow horizontal; `/` y
+  `/copilot` re-verificados sin cambios. **Verificación específica del
+  fix de auth-popup:** `/onedanwor?auth_popup=1` confirmado con
+  `document.body.className === "auth-completing"` y el overlay en
+  `display:flex` desde el primer render (sin JS) — el mecanismo del bug
+  reportado queda cerrado. El click-through real del botón de login
+  mostró el comportamiento ANTERIOR en un momento porque el tab del
+  browser tenía `auth.js` cacheado (los `<script>` de `landing.html` no
+  llevan el sufijo `?v={{ static_version }}` que sí usa `base.html` —
+  característica preexistente, fuera de alcance de este batch); una
+  lectura directa del archivo servido (fetch con `cache:'no-store'`)
+  confirmó que el código desplegado es el correcto (usa
+  `window.location.pathname`, nunca hardcodea `/`). Sin errores de
+  consola en ningún paso.
+- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -2155,34 +2278,40 @@ ellos en este commit de docs:
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 | In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
+| One Danwor Entry Experience (Batch A) | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** In-App Workspace Navigation — selector de workspace compartido
-  (`partials/workspace_switcher.html`) en el chrome autenticado del
-  Copiloto y de Operations/Staffing
-- **Status:** **CLOSED / GREEN.** GitHub CI GREEN sobre el estado final de
-  la rama; suite 338 passed / 1 skipped; route surface 79 (sin cambios);
-  smoke visual manual GREEN (desktop + 375px).
-- **Functional commit:** `50c671b` — `feat(platform): add in-app workspace
-  switcher`. **Docs checkpoint previo:** `2c55fe8`. **Docs de cierre:** ver
-  commit de este mismo cambio (branch
-  `work/platform-inapp-workspace-switcher`, pusheado a origin). Precedido
-  por un targeted assessment (análisis, sin código) que recomendó la forma
-  A (partial compartido + contexto explícito).
-- **Templates/routers tocados:** ver detalle completo en la sección
-  "IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER" más arriba —
-  8 templates Copilot + 1 Operations + 4 routers dedicados + 5 handlers
-  residuales de `main.py` (Catalog/Admin, solo wiring de contexto, sin
-  refactorizar). `webapp/workspaces.py` sin cambios — su metadata ahora
-  alimenta DOS consumidores de presentación distintos (`/platform` y este
-  switcher) sin haber necesitado cambiar.
-- **Current next candidate:** decisión del usuario — A) paridad funcional
-  de Staffing (capacidad/disponibilidad, filtros, Gantt, vacaciones); B)
-  transición eventual de `/` a Platform; C) más UX de plataforma (topbars
-  unificados, naming final, recordar último workspace) solo ante necesidad
-  concreta. Ninguno elegido en este cierre.
-- **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **338 passed / 1 skipped** · route surface **79**
+- **Phase:** One Danwor Entry Experience — Batch A de dos (targeted
+  assessment previo determinó el límite: A = entrada/naming/auth; B =
+  shell/topbar/rename de rutas de Operations, explícitamente diferido)
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 349 passed / 1
+  skipped, route surface 80 (79→80, intencional), smoke visual manual
+  GREEN — falta la confirmación de CI real en GitHub antes de CLOSED/GREEN.
+- **Functional commit:** `78357b5` — `feat(platform): introduce One
+  Danwor entry experience` (branch `work/onedanwor-entry-experience`),
+  pusheado a origin.
+- **Naming:** término interno `platform` sin cambios. Marca visible "One
+  Danwor". Canónica: `GET /onedanwor`. `/platform` = alias de
+  compatibilidad, siempre 307 a `/onedanwor`. `/` y `/copilot` sin
+  cambios. Operations pasa a mostrarse como "Operaciones" (solo
+  `Workspace.label`; `key`/`home_url`/módulos internos sin tocar).
+- **Auth-popup:** bug real corregido — el popup de auth.js ya no
+  hardcodea `/`, abre la página que inició el login; `render_landing()`
+  pone `body.auth-completing` desde el HTML inicial para
+  `auth_popup`/`code`, reutilizando el overlay ya existente. Azure
+  `redirect_uri` (fijo en `/`) sin tocar.
+- **Deferred a Batch B (NO autorizado):** shared `platform_topbar` macro,
+  switcher logo-attached, asset animado de Operations, selector de área
+  interno de Operations, shell compartido, rename de rutas a
+  `/operaciones/staffing/asignaciones` + aliases de `/operations`,
+  rediseño del loading state de Staffing, y CUALQUIER trabajo sobre los
+  controles de back/forward reales del header actual del Copiloto — el
+  usuario señaló explícitamente que esos son controles in-app reales, no
+  chrome de browser; Batch B debe inspeccionar su implementación real
+  antes de tocarlos.
+- **Next candidate status:** **NOT AUTHORIZED** (Batch B no empieza hasta
+  que este batch confirme CI y se autorice explícitamente).
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **349 passed / 1 skipped** · route surface **80**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
