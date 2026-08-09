@@ -2,7 +2,7 @@
 {% block title %}Staffing · Operations · Danwor{% endblock %}
 {% block body %}
 <header class="topbar">
-  <span class="eyebrow">Danwor · Operations</span>
+  {% include "partials/workspace_switcher.html" %}
   <div class="header-tools">
     <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

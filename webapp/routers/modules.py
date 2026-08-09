@@ -48,6 +48,7 @@ from core.prompts import (
 from config import ia_enabled_for
 from webapp import access
 from webapp import nav
+from webapp import workspaces
 from webapp.copilot_runtime import assistant_store, store
 from webapp.presentation import invite
 from webapp.services import auth_service
@@ -204,6 +205,8 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
                 for action in (*ALL_ACTIONS, *MODULE_ACTIONS)
             },
             "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             "conversation_id": conversation.id,
             "invite_src": invite.invite_src(request, selected),
             "catalog_pilot": os.getenv("DANWOR_CATALOG_PILOT", "").lower() in {"1", "true", "on", "yes"},

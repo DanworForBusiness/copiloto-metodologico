@@ -34,7 +34,7 @@ from webapp.services.content_service import (
     list_appendices,
     list_modules,
 )
-from webapp import access, nav
+from webapp import access, nav, workspaces
 from webapp.presentation import academy_feedback, invite
 from webapp.templating import templates
 from core.content_registry import (
@@ -100,6 +100,8 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
             "packs": packs,
             "pack_label": content_pack_short_label(selected),
             "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             "invite_src": invite.invite_src(request, selected),
         },
     )

@@ -40,6 +40,7 @@ from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
+from webapp import workspaces  # PLATFORM: identidad/switcher entre workspaces
 from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
 from webapp.routers import landing as landing_router
@@ -295,6 +296,8 @@ def admin_activity(
             "active_group": "", "active_stem": "",
             "readonly": _readonly(request),
             "pack_label": content_pack_short_label(selected), "pack": selected, "user": session_user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(session_user),
             **ctx,
         },
     )
@@ -1195,6 +1198,8 @@ def catalog_connection_detail(
         "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
         "active_group": "", "active_stem": "",
         "readonly": _readonly(request), "user": user,
+        "current_workspace": workspaces.COPILOT,
+        "available_workspaces": workspaces.available_workspaces(user),
         "pack_label": content_pack_short_label(selected),
     })
     return templates.TemplateResponse(
@@ -2211,6 +2216,8 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
             "active_group": "", "active_stem": "",
             "readonly": _readonly(request), "pack": selected,
             "pack_label": content_pack_short_label(selected), "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": len(entry.artefactos), "sections": sections,
@@ -2307,6 +2314,8 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
             "active_group": "", "active_stem": "",
             "readonly": _readonly(request),
             "pack_label": content_pack_short_label(selected), "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             **ctx,
         },
     )
@@ -2383,6 +2392,8 @@ def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
             "diagnostic": diagnostic, "is_owner": _is_owner(request), "packs": packs,
             "readonly": _readonly(request), "pack": selected,
             "pack_label": content_pack_short_label(selected), "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
             "iframe_src": iframe_src, "show_panel": False,
         },
     )

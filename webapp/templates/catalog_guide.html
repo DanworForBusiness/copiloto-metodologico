@@ -16,6 +16,7 @@
       <iframe src="/brand/dancing/{{ pack }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>
     </a>
     <div class="header-tools">
+      {% include "partials/workspace_switcher.html" %}
       {% if diagnostic %}
       <select class="pack-select" aria-label="Marco metodológico" onchange="if(this.value)location.href=this.value">
         {% for item in packs %}

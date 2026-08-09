@@ -1999,6 +1999,134 @@ ellos en este commit de docs:
 
 ---
 
+## IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER — CLOSED / GREEN
+(commit funcional `50c671b` — `feat(platform): add in-app workspace
+switcher`; checkpoint previo `2c55fe8`; branch
+`work/platform-inapp-workspace-switcher`)
+
+**Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; full
+suite **338 passed / 1 skipped**; **route surface 79** (sin cambios, sin
+`UPDATE_ROUTE_SURFACE`); **smoke visual manual: GREEN** (desktop y viewport
+375px, sin overflow horizontal, sin errores de consola).
+
+Precedido por un **targeted assessment** (análisis únicamente, sin código)
+que recomendó la forma de implementación (A: partial compartido + contexto
+explícito por ruta) — implementado tal cual acá, un solo batch.
+
+- **Dueño de presentación compartida:** `webapp/templates/partials/workspace_switcher.html`
+  → **PLATFORM / SHARED PRESENTATION.** No decide autorización, no conoce
+  Graph/pack/lógica de negocio de Copilot ni de Operations, y no hardcodea
+  URLs de workspace — renderiza únicamente lo que el router le pasa
+  (`current_workspace`, `available_workspaces`, ambos objetos `Workspace`
+  de `webapp/workspaces.py`, que queda **sin cambios** en este batch).
+- **Resultado arquitectónico confirmado:** `available_workspaces(user)` es
+  ahora consumido por **DOS** experiencias de plataforma distintas — el
+  selector/resolución de `/platform` (batch anterior) y este switcher
+  in-app — sin que `workspaces.py` necesitara cambiar una línea para
+  soportar el segundo consumidor. Evidencia de que el descubrimiento de
+  workspaces quedó correctamente desacoplado de su presentación.
+- **Estrategia de contexto:** explícita por ruta, siguiendo el patrón YA
+  establecido (`modules.py` ya pasaba `"user": user` a mano) — sin
+  middleware, sin context processor, sin `available_workspaces` como
+  global de Jinja, sin un framework de contexto genérico. Cada owner HTTP
+  sigue resolviendo `user = session_user(request)` y llama
+  `workspaces.available_workspaces(user)` — 2 líneas, sin justificar un
+  helper nuevo.
+- **Comportamiento con 1 workspace disponible:** identidad en texto plano
+  (`.eyebrow`), sin dropdown, sin chevron, sin menú de un solo ítem.
+- **Comportamiento con 2+ workspaces:** `<details>/<summary>` nativo
+  (accesible por teclado, sin Alpine/HTMX, ancla real) con los otros
+  workspaces autorizados + un link final "Todos los espacios" → `/platform`
+  (navegación pura, no crea un dashboard de plataforma).
+- **Destinos:** siempre `Workspace.home_url` (COPILOT → `/`; OPERATIONS →
+  `/operations/staffing`) — nunca hardcodeados en el partial. Verificado
+  con test que compara contra los objetos reales de `workspaces.py`.
+- **`pack` — sin cambios:** el destino a Operations nunca lleva
+  `?pack=...`; los links de Copilot (`/modules/...?pack=...`) siguen
+  intactos. Verificado con test dedicado.
+- **Templates Copilot tocados (8, un `{% include %}` cada uno, sin
+  unificar los topbars duplicados — deuda preexistente, fuera de
+  alcance):** `module.html`, `academy.html`, `catalog_cds.html`,
+  `catalog_connection.html`, `catalog_flow.html`, `catalog_guide.html`,
+  `admin_activity_page.html`, `whats_new.html`.
+- **Template Operations tocado (1):** `operations/staffing.html` — se
+  **reemplazó** el `<span class="eyebrow">Danwor · Operations</span>`
+  hardcodeado por el partial (misma posición, sin identidad duplicada;
+  verificado con test).
+- **Owners de ruta wireados:** `webapp/routers/modules.py`,
+  `webapp/routers/academy.py`, `webapp/routers/whats_new.py`,
+  `webapp/routers/staffing.py` (solo `staffing_page` — el fragmento HTMX
+  `staffing_data`/`staffing_rows.html` NO recibió el switcher, no le
+  corresponde).
+- **Handlers residuales de `main.py` tocados (5, solo wiring de contexto,
+  sin extraer/refactorizar Catalog/Admin):** `admin_activity`,
+  `catalog_connection_detail`, `catalog_flow`, `catalog_cds`,
+  `catalog_guide`. **`catalog_data_product` deliberadamente NO tocado** —
+  se descubrió que su template (`catalog_data_product.html`) sobreescribe
+  `{% block content %}`, un bloque que `base.html` no define (solo define
+  `{% block body %}`); no tiene topbar propio y no es candidato al
+  switcher. Se documenta el hallazgo, **no se corrige** — está fuera de
+  alcance de este batch (no es business logic ni el bug de nadie de este
+  batch).
+- **CSS:** ~30 líneas nuevas en `webapp/static/layout.css` (junto a
+  `.header-tools`/`.animated-brand`, su vecindario natural), reutilizando
+  tokens existentes (`--gold`, `--card`, `--line`, `--soft`, `--ink`) y la
+  clase `.eyebrow` ya existente para la etiqueta — sin nuevo stylesheet,
+  sin design system.
+- **Accesibilidad:** `<details>/<summary>` nativo — alcanzable por
+  teclado, `:focus-visible` con outline dorado, anclas reales, sin
+  JavaScript nuevo.
+- **Mobile:** verificado en viewport 375px — sin overflow horizontal
+  (`topbarScrollWidth == topbarClientWidth`), etiqueta con
+  `max-width`+ellipsis, dropdown/mobile-menu conviven sin romperse.
+- **Entradas NO tocadas (verificado, sin cambios):** `/`, `/copilot`,
+  `/platform` — siguen siendo experiencias de entrada/resolución, no
+  chrome autenticado in-workspace.
+- **Rutas agregadas:** ninguna. **Route surface: sigue 79** (sin
+  `UPDATE_ROUTE_SURFACE`, snapshot intacto, verificado).
+- **Tests (+6, `tests/webapp/test_workspace_switcher.py`):** usuario
+  solo-Copilot ve identidad sin dropdown; usuario multi-workspace en
+  Copilot ve destino Operations; usuario multi-workspace en Operations ve
+  destino Copilot; el switcher NUNCA muestra un workspace que el resolver
+  no devolvió (monkeypatch de `available_workspaces`, prueba que es pura
+  presentación); identidad de Operations aparece una sola vez (sin
+  duplicar la vieja + la nueva); `pack` no viaja al link de Operations.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  3.14.3): **suite 338 passed / 1 skipped** (332 + 6), route-contract
+  GREEN sin regenerar snapshot (**79**).
+- **SMOKE VISUAL MANUAL: GREEN.** Sesión inyectada (JWT firmado con el
+  `.venv` del proyecto) full-tier: módulo real de Copilot → dropdown abre
+  → click Operations → llega a `/operations/staffing` real; desde
+  Operations → dropdown abre → click Copiloto → llega a la home real del
+  Copiloto (`/modules/00_Intro`, vía `/` → `/home`); viewport 375px sin
+  overflow; `/`, `/platform` re-verificados sin cambios tras limpiar la
+  sesión. Sin errores de consola en ningún paso. El caso de un solo
+  workspace (tier academy) se verificó por test automatizado (mismo
+  render Jinja real vía `TestClient`) y no en vivo: el servidor local de
+  desarrollo resuelve cualquier email autenticado a tier "full" con su
+  configuración actual, por lo que una sesión academy-only no es
+  alcanzable en el browser sin mutar la config del servidor — se
+  documenta esta razón en vez de forzarla.
+- **CI:** GitHub CI **GREEN** sobre el estado final de la rama.
+
+### Próxima decisión (NO autorizada automáticamente)
+
+Con este batch **CLOSED / GREEN**, el próximo paso es una decisión del
+usuario, no una continuación automática. Candidatos, sin elegir entre
+ellos en este commit de docs:
+
+- **A — Paridad funcional de Staffing** (capacidad/disponibilidad,
+  filtros, Gantt, vacaciones).
+- **B — Transición eventual de `/` a Platform** (el flip que este batch y
+  el anterior dejaron explícitamente diferido).
+- **C — Más UX de plataforma** (unificar los topbars duplicados del
+  Copiloto, naming final, recordar el último workspace) — solo si aparece
+  una necesidad concreta, no como trabajo especulativo.
+
+**Ninguno autorizado todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -2026,33 +2154,35 @@ ellos en este commit de docs:
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
+| In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Platform Entry / Workspace Resolution — entrada transicional
-  multi-workspace (`/platform`, `/copilot`, deep link de Operations
-  platform-neutral)
+- **Phase:** In-App Workspace Navigation — selector de workspace compartido
+  (`partials/workspace_switcher.html`) en el chrome autenticado del
+  Copiloto y de Operations/Staffing
 - **Status:** **CLOSED / GREEN.** GitHub CI GREEN sobre el estado final de
-  la rama; suite 332 passed / 1 skipped; route surface 79; smoke visual
-  manual GREEN.
-- **Functional commit:** `bd5b0f8` — `feat(platform): add workspace-aware
-  entry flow`. **Docs checkpoint previo:** `221b82d`. **Docs de cierre:**
-  ver commit de este mismo cambio (branch
-  `work/platform-entry-workspace-resolution`, pusheado a origin).
-- **Transitional route model (vigente, no definitivo):** `GET /` → entrada
-  existente del Copiloto, preservada intencionalmente por compatibilidad de
-  lanzamiento (**NO** es todavía "Platform"); `GET /copilot` → alias
-  explícito del Copiloto, mismo comportamiento visual/auth/sesión; `GET
-  /platform` → entrada platform-neutral de Danwor; `GET /operations/staffing`
-  → deep link de Operations. El futuro flip de `/` a Platform sigue
-  explícitamente diferido.
-- **Current next candidate:** **IN-APP WORKSPACE NAVIGATION / PLATFORM
-  EXPERIENCE** (switcher in-app, relación entre navegación de plataforma y
-  navegación local de cada workspace, eventual flip de `/`, evolución de la
-  fuente de autorización, naming final) — o, como stream de producto
-  separado, **paridad funcional de Staffing** (capacidad/disponibilidad,
-  filtros, Gantt, vacaciones). Ninguno elegido todavía.
+  la rama; suite 338 passed / 1 skipped; route surface 79 (sin cambios);
+  smoke visual manual GREEN (desktop + 375px).
+- **Functional commit:** `50c671b` — `feat(platform): add in-app workspace
+  switcher`. **Docs checkpoint previo:** `2c55fe8`. **Docs de cierre:** ver
+  commit de este mismo cambio (branch
+  `work/platform-inapp-workspace-switcher`, pusheado a origin). Precedido
+  por un targeted assessment (análisis, sin código) que recomendó la forma
+  A (partial compartido + contexto explícito).
+- **Templates/routers tocados:** ver detalle completo en la sección
+  "IN-APP WORKSPACE NAVIGATION / SHARED WORKSPACE SWITCHER" más arriba —
+  8 templates Copilot + 1 Operations + 4 routers dedicados + 5 handlers
+  residuales de `main.py` (Catalog/Admin, solo wiring de contexto, sin
+  refactorizar). `webapp/workspaces.py` sin cambios — su metadata ahora
+  alimenta DOS consumidores de presentación distintos (`/platform` y este
+  switcher) sin haber necesitado cambiar.
+- **Current next candidate:** decisión del usuario — A) paridad funcional
+  de Staffing (capacidad/disponibilidad, filtros, Gantt, vacaciones); B)
+  transición eventual de `/` a Platform; C) más UX de plataforma (topbars
+  unificados, naming final, recordar último workspace) solo ante necesidad
+  concreta. Ninguno elegido en este cierre.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **332 passed / 1 skipped** · route surface **79**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **338 passed / 1 skipped** · route surface **79**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
