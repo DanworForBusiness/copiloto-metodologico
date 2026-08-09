@@ -77,24 +77,25 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
     safe_next = next if next.startswith("/") and not next.startswith("//") else ""
     if auth_service.session_user(request):
         return RedirectResponse(safe_next or default_home, status_code=307)
+    home_url = safe_next or default_home
     # `auth_popup`/`code`: esta misma landing es también la página que el POPUP
     # de Microsoft abre en ambos extremos del flujo (auth.js abre `<page
     # actual>?auth_popup=1`; Microsoft redirige de vuelta a `/?code=...`, fijo
     # por el redirect_uri registrado en Azure — no se puede variar por página).
-    # Server-side, desde el PRIMER paint, se pinta el overlay neutro
-    # "Completando acceso…" (`.auth-completing`/`.auth-overlay`, YA existentes)
-    # en vez de la landing con marca — sin esto, el popup mostraba la marca de
-    # ESTA página (Copilot o la que sea) por un instante antes de que el JS
-    # reaccionara. No agrega un segundo mecanismo de auth: solo evita pintar
-    # contenido de marca durante ese instante técnico.
-    auth_completing = bool(request.query_params.get("auth_popup")) or bool(request.query_params.get("code"))
+    # Cubrir la landing con un overlay NO alcanza: el marcado con la marca de
+    # ESTA página (Copilot, One Danwor, lo que sea) seguía existiendo debajo
+    # del overlay, presente en el DOM. En vez de eso, se sirve un documento
+    # SEPARADO y neutro (`auth_callback.html`) que nunca incluye ese copy —
+    # no un segundo mecanismo de auth, solo un documento de presentación
+    # distinto para ese estado técnico.
+    if request.query_params.get("auth_popup") or request.query_params.get("code"):
+        return templates.TemplateResponse(
+            request=request, name="auth_callback.html", context={"home_url": home_url},
+        )
     return templates.TemplateResponse(
         request=request,
         name="landing.html",
-        context={
-            "pack": selected_pack, "home_url": safe_next or default_home, "login_copy": copy,
-            "auth_completing": auth_completing,
-        },
+        context={"pack": selected_pack, "home_url": home_url, "login_copy": copy},
     )
 
 

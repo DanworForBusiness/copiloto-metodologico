@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c0c0d">
+  <title>Completando acceso · Danwor</title>
+  <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='brand-hero.css') }}?v={{ static_version }}">
+</head>
+<body class="auth-completing">
+  <!-- Documento NEUTRO para el popup/callback de Microsoft (auth_popup=1 o
+       code=...) — deliberadamente SIN el copy/branding de "/", "/copilot" ni
+       "/onedanwor": no alcanza con cubrir la landing con un overlay (el
+       marcado seguía existiendo debajo). Este template no la incluye en
+       absoluto. Solo lo necesario para que auth.js complete el flujo. -->
+  <button id="microsoft-login-btn" data-home="{{ home_url }}" style="display:none" aria-hidden="true" tabindex="-1"></button>
+  <div class="auth-overlay" aria-hidden="true"><span class="auth-spinner"></span>Completando acceso…</div>
+  <div id="login-message" class="login-error hidden"></div>
+  <script src="{{ url_for('static', path='auth.js') }}?v={{ static_version }}"></script>
+</body>
+</html>

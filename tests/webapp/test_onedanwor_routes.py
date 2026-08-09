@@ -59,6 +59,20 @@ def test_onedanwor_identity_has_no_copilot_specific_branding():
     assert "SAP Datasphere" not in response.text
 
 
+def test_auth_popup_state_serves_neutral_document_not_rich_landing():
+    # Corrective pass: un overlay sobre la landing no alcanza — el popup de
+    # Microsoft (y su callback, fijo en "/") debe recibir un documento
+    # separado sin NINGÚN copy de marca ("One Danwor" incluido).
+    anon = TestClient(app)
+    response = anon.get("/onedanwor?auth_popup=1")
+    assert response.status_code == 200
+    assert "One Danwor" not in response.text
+    assert "Copiloto Metodológico" not in response.text
+    assert "Una plataforma" not in response.text
+    assert 'class="auth-completing"' in response.text
+    assert "Completando acceso" in response.text
+
+
 def test_valid_next_survives_login_flow_via_existing_mechanism():
     anon = TestClient(app)
     response = anon.get("/onedanwor?next=/operations/staffing")
