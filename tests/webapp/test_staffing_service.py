@@ -246,6 +246,50 @@ def test_today_marker_after_horizon_is_none():
     assert compute_today_marker(date(2026, 10, 1), _HORIZON) is None
 
 
+# --- Regresión real (revisión con dato real, ver HANDOFF): "hoy" caía a la
+# izquierda de AGO 2026 (como si fuera JUL) por un `grid-template-columns`
+# hardcodeado en .staffing-timeline__today-overlay que ya no coincidía con
+# el de .staffing-timeline__header/__row (var(--timeline-label-width), tras
+# que el usuario ensanchó la columna de labels a 280px). El BUG vivía 100%
+# en CSS (dos grids con orígenes distintos) — `compute_today_marker` en sí
+# nunca calculó mal el % (ver los tests de arriba, sin cambios). Estos
+# tests fijan el % esperado para el escenario real reportado (hoy =
+# 2026-08-09) como ancla de regresión explícita, no porque la función
+# hubiera estado mal.
+_HORIZON_AUG = compute_horizon_months(date(2026, 8, 9))  # jul 2026 .. feb 2027
+
+
+def test_today_marker_a_july_date_falls_inside_the_july_cell():
+    pct = compute_today_marker(date(2026, 7, 15), _HORIZON_AUG)
+    assert pct == 5.6452
+    assert 0.0 <= pct < 12.5  # ancho de una columna de 8 = 100/8 = 12.5%
+
+
+def test_today_marker_august_first_falls_at_the_start_of_august():
+    assert compute_today_marker(date(2026, 8, 1), _HORIZON_AUG) == 12.5
+
+
+def test_today_marker_august_ninth_falls_inside_august():
+    pct = compute_today_marker(date(2026, 8, 9), _HORIZON_AUG)
+    assert pct == 15.7258
+    assert 12.5 <= pct < 25.0  # columna de agosto: [12.5, 25.0)
+
+
+def test_today_marker_august_thirty_first_falls_near_the_end_of_august():
+    pct = compute_today_marker(date(2026, 8, 31), _HORIZON_AUG)
+    assert pct == 24.5968
+    assert 12.5 <= pct < 25.0
+    assert pct > 24.0  # "cerca del final", no en cualquier punto de la columna
+
+
+def test_today_marker_before_the_august_horizon_is_none():
+    assert compute_today_marker(date(2026, 6, 30), _HORIZON_AUG) is None
+
+
+def test_today_marker_after_the_august_horizon_is_none():
+    assert compute_today_marker(date(2027, 3, 1), _HORIZON_AUG) is None
+
+
 # --- Payload del dashboard (transformación pura, sin Graph/repositorio) ----
 
 def test_dashboard_payload_shape_and_allocation_label():

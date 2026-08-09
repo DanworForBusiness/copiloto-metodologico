@@ -895,7 +895,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    (revisión con dato real, ver HANDOFF): sin chip de texto "HOY", nunca se
    reintroduce ni se reemplaza por otra etiqueta. */
 .staffing-timeline__today-overlay {
-  position: absolute; inset: 0; display: grid; grid-template-columns: 190px 1fr; pointer-events: none;
+  /* MISMO origen/ancho de columna que .staffing-timeline__header/__row
+     (var(--timeline-label-width) + el mismo gap) — un valor hardcodeado
+     distinto acá desincroniza el marcador de dónde caen las columnas de
+     mes reales (bug real reportado: la línea caía a la izquierda de AGO,
+     como si "hoy" fuera JUL). Nunca duplicar el valor, solo la variable. */
+  position: absolute; inset: 0; display: grid; grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; pointer-events: none;
 }
 .staffing-timeline__today-track { position: relative; overflow: hidden; }
 .staffing-timeline__today { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--gold); z-index: 2; }
