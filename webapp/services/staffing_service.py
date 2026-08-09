@@ -129,6 +129,26 @@ def compute_timeline_position(start: date | None, end: date | None, horizon_mont
     }
 
 
+def compute_today_marker(today: date, horizon_months: list[date]) -> float | None:
+    """Posición porcentual PURA (0..100) del día de hoy dentro del ancho
+    total del horizonte — nunca un simple resaltado de mes. `None` si hoy
+    cae fuera del horizonte visible (no se dibuja marcador). El % es
+    relativo SOLO al área de columnas de mes (el template lo posiciona
+    dentro de un overlay que excluye la columna de etiqueta, así que este
+    cálculo no necesita saber ningún ancho en píxeles)."""
+    total_months = len(horizon_months)
+    horizon_start = horizon_months[0]
+    horizon_end_exclusive = _add_months(horizon_months[-1], 1)
+    if today < horizon_start or today >= horizon_end_exclusive:
+        return None
+    month_start = date(today.year, today.month, 1)
+    month_index = _month_index_clamped(month_start, horizon_months)
+    next_month_start = _add_months(month_start, 1)
+    days_in_month = (next_month_start - month_start).days
+    day_fraction = (today - month_start).days / days_in_month
+    return round((month_index + day_fraction) / total_months * 100, 4)
+
+
 @dataclass(frozen=True)
 class StaffingOverviewRow:
     """Fila lista para el primer read-model de Staffing (Batch 3 la vuelca a
@@ -228,12 +248,14 @@ def build_dashboard_payload(rows: list[StaffingOverviewRow], *, today: date | No
     el router se reemplaza por un test double en varios tests existentes;
     atarla a la clase la haría depender de ese double implementar este
     método también."""
-    horizon_months = compute_horizon_months(today)
-    today_key = _month_key((today or date.today()).replace(day=1))
+    effective_today = today or date.today()
+    horizon_months = compute_horizon_months(effective_today)
+    today_key = _month_key(effective_today.replace(day=1))
     horizon = [
         {"index": i, "label": _month_label(m), "is_current": _month_key(m) == today_key}
         for i, m in enumerate(horizon_months)
     ]
+    today_marker_pct = compute_today_marker(effective_today, horizon_months)
     assignments = []
     for row in rows:
         position = compute_timeline_position(row.start_date, row.end_date, horizon_months)
@@ -254,4 +276,4 @@ def build_dashboard_payload(rows: list[StaffingOverviewRow], *, today: date | No
             "availability": row.consultant_availability or _SIN_DATO,
             **position,
         })
-    return {"assignments": assignments, "horizon": horizon}
+    return {"assignments": assignments, "horizon": horizon, "today_marker_pct": today_marker_pct}

@@ -141,9 +141,14 @@ def test_post_renders_honest_hours_per_month_label_without_capacity_percentage(m
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     assert response.status_code == 200
     assert "40 h/mes" in response.text
-    # Ninguna capacidad/porcentaje inventada — solo la unidad validada.
-    assert "%" not in response.text
+    # Ninguna capacidad/porcentaje inventada — solo la unidad validada. El
+    # único "%" legítimo en el fragmento es el binding CSS del marcador de
+    # "hoy" (posición horizontal, corrective pass — no una métrica de
+    # negocio), por eso se chequea la ausencia de ese % específicamente en
+    # vez de prohibir el carácter "%" en todo el fragmento.
     assert "capacity" not in response.text.lower()
+    assert "40%" not in response.text
+    assert "40 %" not in response.text
 
 
 def test_post_empty_rows_render_valid_empty_state(monkeypatch):
@@ -182,6 +187,92 @@ def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detai
         assert f"<th>{column}</th>" in text
 
 
+# --- Corrective pass (revisión con dato real) --------------------------------
+
+def test_post_dashboard_sticky_filters_reuse_activity_mechanism(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Mismo mecanismo sticky que Actividad — no un sistema sticky paralelo.
+    assert 'class="staffing-sticky-filters"' in text
+    assert '<div class="whatsnew-filters">' in text
+    # Filtros DENTRO del wrapper sticky (no al lado).
+    sticky_idx = text.index('class="staffing-sticky-filters"')
+    filters_idx = text.index('class="whatsnew-filters"')
+    assert sticky_idx < filters_idx
+
+
+def test_post_dashboard_kpis_and_timeline_are_collapsible_sections(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Resumen (KPIs) y Timeline usan la MISMA grilla de sección colapsable
+    # que Detalle (y que Actividad) — no un bloque suelto sin esa gramática.
+    assert 'data-section-id="resumen"' in text
+    assert 'data-section-id="timeline"' in text
+    assert 'data-section-id="detalle"' in text
+    assert text.count('class="dashboard-section"') == 3
+    assert "Resumen" in text
+
+
+def test_post_dashboard_operational_grid_is_two_thirds_one_third(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    assert 'class="staffing-operational-grid"' in text
+    # Ya no es la grilla 50/50 de Actividad para esta zona operativa.
+    assert 'class="activity-grid-2"' not in text
+
+
+def test_post_dashboard_timeline_has_expand_collapse_controls(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    assert "Expandir todo" in text
+    assert "Contraer todo" in text
+    assert "toggleConsultant(" in text
+    assert "expandAllConsultants()" in text
+    assert "collapseAllConsultants()" in text
+
+
+def test_post_dashboard_bars_carry_deterministic_palette_and_status_separately(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # La barra combina paletteClass(row) (identidad) + is-status-* (estado)
+    # como clases INDEPENDIENTES — nunca una reemplaza a la otra.
+    assert "paletteClass(row)" in text
+    assert "'is-status-' + statusSlug(row.status)" in text
+
+
+def test_post_dashboard_today_marker_present_and_not_a_capacity_percentage(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    assert 'class="staffing-timeline__today-overlay"' in text
+    assert ">HOY<" in text
+    assert "todayMarker.visible" in text
+    assert '"today_marker_pct":' in text  # viene del payload server-side
+
+
 def test_post_dashboard_payload_embeds_real_availability_value(monkeypatch):
     monkeypatch.setattr(
         staffing_router, "StaffingService",
@@ -210,7 +301,12 @@ def test_post_dashboard_never_introduces_capacity_semantics(monkeypatch):
     assert "capacity_percentage" not in text_lower.replace(" ", "")
     assert "utilization" not in text_lower
     assert "sobre-asignación" not in text_lower and "sobreasignacion" not in text_lower
-    assert "%" not in response.text
+    # El único "%" legítimo del fragmento es el binding CSS del marcador de
+    # "hoy" (posición, corrective pass) — no una métrica de capacidad. Se
+    # verifica su ausencia como métrica en vez de prohibir el carácter.
+    assert "% capacity" not in text_lower
+    assert "% libre" not in text_lower
+    assert "% disponible" not in text_lower
 
 
 def test_post_missing_config_renders_controlled_state(monkeypatch):

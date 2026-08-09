@@ -743,10 +743,45 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .status-badge--inactivo { color: #9a9aa2; }
 .status-badge--otro { color: #7a7a82; border-color: rgba(128,128,128,.32); }
 
+/* Corrective pass (revisión con dato real, ver HANDOFF): sticky filters,
+   proporción 2/3 · 1/3 timeline/disponibilidad, Timeline como sección
+   colapsable más, expand/collapse por consultor, paleta de identidad por
+   asignación, marcador de "hoy" real. */
+
+/* Filtros sticky — MISMA mecánica que Actividad (.dashboard-sticky-header),
+   reusada tal cual: cancela el padding-top de .module-content con
+   top:-48px, fondo sólido por tema, encima del contenido (z-index) sin
+   tapar KPIs/secciones (que empiezan después, fuera del sticky). */
+.staffing-sticky-filters { position: sticky; top: -48px; z-index: 6; padding: 10px 0 4px; }
+.content-theme-light .staffing-sticky-filters { background: #fff; }
+.content-theme-dark .staffing-sticky-filters { background: #181819; }
+.staffing-sticky-filters .whatsnew-filters { margin: 10px 0 4px; }
+
+/* Proporción operativa timeline/disponibilidad — 2/3 · 1/3 (antes 1/1,
+   demasiado parejo). `fr` en vez de un % fijo: mismo criterio de grid que
+   .activity-grid-2, solo con otra proporción. */
+.staffing-operational-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 4px; }
+@media (max-width: 900px) {
+  .staffing-operational-grid { grid-template-columns: 1fr; }
+}
+
+/* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
+   del <summary> colapsable (evita que un click ahí también toggee la
+   sección entera). */
+.staffing-timeline-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.staffing-timeline-toolbar button {
+  border: 1px solid rgba(128,128,128,.32); background: transparent; border-radius: 6px;
+  padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
+}
+.staffing-timeline-toolbar button:hover { border-color: var(--gold); color: var(--gold); }
+
 /* Timeline mensual — grid CSS puro, coordenadas server-derived (índices de
    mes, nunca píxeles). Header y filas comparten la MISMA proporción
    (etiqueta fija + 8 columnas iguales) para que las barras alineen
-   exactamente bajo su mes. */
+   exactamente bajo su mes. `.staffing-timeline__body` es el ancla
+   `position:relative` del overlay del marcador de "hoy" (se estira solo
+   con el contenido — sin JS midiendo alturas). */
+.staffing-timeline__body { position: relative; }
 .staffing-timeline__header, .staffing-timeline__row {
   display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center;
 }
@@ -759,8 +794,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .staffing-timeline__month { color: #9a9aa2; }
 .staffing-timeline__month.is-current-month { color: var(--gold); background: rgba(231,176,8,.10); }
 .staffing-timeline__group { margin: 14px 0 4px; }
-.staffing-timeline__consultant { margin: 0 0 6px; color: #1f1f24; font: 700 .78rem var(--sans); }
+/* Header de consultor — ahora un disclosure clickeable (chevron entendido,
+   sin inventar un ícono nuevo — mismo glifo ▸/▾ que .dashboard-section). */
+.staffing-timeline__consultant {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 6px; cursor: pointer;
+  color: #1f1f24; font: 700 .78rem var(--sans); user-select: none; background: none; border: 0; padding: 0;
+}
 .content-theme-dark .staffing-timeline__consultant { color: #e4e4ec; }
+.staffing-timeline__consultant-caret { color: var(--gold); font-size: .7rem; width: 10px; display: inline-block; }
 .staffing-timeline__row { margin: 5px 0; }
 .staffing-timeline__row-label {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -768,13 +809,24 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 }
 .content-theme-dark .staffing-timeline__row-label { color: #b2b2bc; }
 .staffing-timeline__track { position: relative; height: 22px; }
-.staffing-timeline__bar {
-  grid-row: 1; align-self: center; height: 16px; border-radius: 4px;
-  background: hsl(47,74%,66%); min-width: 6px;
-}
-.staffing-timeline__bar.is-status-activo { background: #2e9e5b; }
-.staffing-timeline__bar.is-status-tentativo { background: #c89100; }
-.staffing-timeline__bar.is-status-inactivo { background: #9a9aa2; opacity: .7; }
+/* Identidad determinística por asignación/proyecto (paleta, ver app.js
+   paletteClass) — el ESTADO se superpone aparte (borde/opacidad abajo),
+   nunca reemplaza el color de identidad. 6 tonos, restringidos, no
+   "rainbow": profesionales, distinguibles entre sí, misma familia de
+   saturación/luminosidad. */
+.staffing-timeline__bar { grid-row: 1; align-self: center; height: 16px; border-radius: 4px; min-width: 6px; }
+.staffing-palette-0 { background: #4C7EA8; }
+.staffing-palette-1 { background: #3F9C82; }
+.staffing-palette-2 { background: #8B6BB1; }
+.staffing-palette-3 { background: #C1783D; }
+.staffing-palette-4 { background: #7A8C3F; }
+.staffing-palette-5 { background: #5D6B7A; }
+/* Tratamiento de ESTADO, separado de la identidad de color — Activo queda
+   sólido (sin modificador); Tentativo se diferencia con borde punteado +
+   leve transparencia; Inactivo queda visualmente apagado. */
+.staffing-timeline__bar.is-status-tentativo { border: 1.5px dashed rgba(0,0,0,.4); opacity: .85; }
+.staffing-timeline__bar.is-status-inactivo { opacity: .45; }
+.content-theme-dark .staffing-timeline__bar.is-status-tentativo { border-color: rgba(255,255,255,.5); }
 /* Corte visual cuando la fecha real cae fuera del horizonte visible — la
    fecha real NUNCA se altera (queda en el tooltip/detalle); esto solo
    marca que el borde dibujado no es el límite real. */
@@ -785,15 +837,33 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-timeline__off-note { margin-top: 10px; color: #7a7a82; font-size: .72rem; }
 .content-theme-dark .staffing-timeline__off-note { color: #9a9aa2; }
 
-@media (max-width: 900px) {
-  .staffing-timeline__header, .staffing-timeline__row { grid-template-columns: 120px 1fr; }
+/* Marcador de "hoy" — overlay posicionado con la MISMA proporción
+   190px/1fr que header/filas (así el % del día cae exactamente en su
+   columna de mes), estirado por el contenido real del timeline (sin JS
+   midiendo alturas: position:absolute + top/bottom:0 dentro de un padre
+   position:relative ya hace esto). Complementario al resaltado de mes
+   actual, no un reemplazo. */
+.staffing-timeline__today-overlay {
+  position: absolute; inset: 0; display: grid; grid-template-columns: 190px 1fr; pointer-events: none;
 }
+.staffing-timeline__today-track { position: relative; overflow: hidden; }
+.staffing-timeline__today { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--gold); z-index: 2; }
+.staffing-timeline__today-label {
+  position: absolute; top: -2px; left: 3px; color: var(--gold); background: rgba(231,176,8,.14);
+  font: 700 .58rem var(--mono); letter-spacing: .04em; padding: 0 3px; border-radius: 2px; white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { grid-template-columns: 120px 1fr; }
+}
+
 /* ≤640px: en vez de una segunda implementación de timeline, el mismo grid
    se vuelve horizontalmente scrolleable dentro de .staffing-timeline-scroll
-   — no se fuerza el Gantt completo a 375px. */
+   — no se fuerza el Gantt completo a 375px. El overlay del marcador de
+   "hoy" scrollea junto (vive DENTRO de .staffing-timeline-scroll, ver
+   template) y comparte el mismo min-width para seguir alineado. */
 @media (max-width: 640px) {
   .staffing-timeline-scroll { overflow-x: auto; }
-  .staffing-timeline__header, .staffing-timeline__row { min-width: 640px; }
+  .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { min-width: 640px; }
 }
 
 /* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →

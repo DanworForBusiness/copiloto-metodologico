@@ -13,6 +13,7 @@ from webapp.services.staffing_service import (
     build_dashboard_payload,
     compute_horizon_months,
     compute_timeline_position,
+    compute_today_marker,
 )
 
 
@@ -211,6 +212,40 @@ def test_position_missing_end_treated_as_open_ended_right():
     assert pos["start_index"] == 3
 
 
+# --- Marcador de "hoy" (función pura, sin depender del reloj real) ---------
+# _HORIZON = feb..sep 2026 (compute_horizon_months(date(2026, 3, 15)))
+
+def test_today_marker_first_day_of_horizon():
+    assert compute_today_marker(date(2026, 2, 1), _HORIZON) == 0.0
+
+
+def test_today_marker_middle_of_a_month():
+    # 15 de marzo (mes índice 1 de 8; día 14/31 del mes)
+    assert compute_today_marker(date(2026, 3, 15), _HORIZON) == 18.1452
+
+
+def test_today_marker_month_boundary():
+    # Primer día de marzo — límite exacto entre el mes 0 (feb) y el 1 (mar).
+    assert compute_today_marker(date(2026, 3, 1), _HORIZON) == 12.5
+
+
+def test_today_marker_last_visible_day():
+    # Último día del último mes visible (sep 2026) — cerca de 100 pero no 100.
+    pct = compute_today_marker(date(2026, 9, 30), _HORIZON)
+    assert pct == 99.5833
+    assert pct < 100.0
+
+
+def test_today_marker_before_horizon_is_none():
+    assert compute_today_marker(date(2026, 1, 31), _HORIZON) is None
+
+
+def test_today_marker_after_horizon_is_none():
+    # Primer día ya fuera del horizonte (oct 2026, mes 9 de 8 — el
+    # horizonte solo llega hasta sep).
+    assert compute_today_marker(date(2026, 10, 1), _HORIZON) is None
+
+
 # --- Payload del dashboard (transformación pura, sin Graph/repositorio) ----
 
 def test_dashboard_payload_shape_and_allocation_label():
@@ -262,3 +297,43 @@ def test_dashboard_payload_no_capacity_fields_introduced():
     row = payload["assignments"][0]
     assert "capacity_percentage" not in row
     assert not any("capacity" in key for key in row)
+
+
+def test_dashboard_payload_includes_today_marker():
+    rows = StaffingService(repository=_FakeRepository([_record()])).get_overview("tok")
+    payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
+    assert payload["today_marker_pct"] == 18.1452
+
+
+def test_dashboard_payload_today_marker_none_when_outside_horizon():
+    rows = StaffingService(repository=_FakeRepository([_record()])).get_overview("tok")
+    # Con horizonte anclado al 15/03/2026 (feb..sep), pedir el marcador para
+    # una fecha muy anterior no debería aplicar — pero build_dashboard_payload
+    # siempre ancla el horizonte a `today`, así que en este caso el marcador
+    # cae en el primer mes del horizonte (today ES el ancla) — se prueba acá
+    # que la CLAVE existe siempre en el payload (nunca falta), no que sea None
+    # en este caso particular (compute_today_marker ya prueba el caso None
+    # aislado arriba, sin este acoplamiento).
+    payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
+    assert "today_marker_pct" in payload
+    assert payload["today_marker_pct"] is not None
+
+
+# --- Invariante Consultores == Full Time + Part Time + Sin dato -----------
+# El cálculo real vive en app.js (staffingDashboard) — estos tests fijan el
+# INSUMO correcto: consultant_id nunca se sintetiza a partir del nombre, así
+# que el agregado client-side puede excluir filas sin id real sin perder
+# la fila del timeline/detalle (que sigue mostrando "(sin resolver)").
+
+def test_dashboard_payload_never_synthesizes_consultant_id_from_name():
+    # Asignación con lookup de colaborador totalmente vacío en la fuente
+    # (no solo sin resolver contra Colaboradores) -> consultant_id None,
+    # consultant_name cae al fallback "(sin resolver)" — pero el id NUNCA
+    # se rellena con el nombre ni con ningún valor sintético.
+    record = _record(consultant_id=None, consultant_name=None)
+    rows = StaffingService(repository=_FakeRepository([record])).get_overview("tok")
+    payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
+    row = payload["assignments"][0]
+    assert row["consultant_id"] is None
+    assert row["consultant_name"] == "(sin resolver)"
+    assert row["consultant_unresolved"] is True

@@ -250,6 +250,50 @@ def test_optional_availability_field_is_never_a_missing_required_field():
     assert mapping.missing_fields() == []
 
 
+def test_colaboradores_request_explicitly_selects_availability_field_when_configured(monkeypatch):
+    # Corrective pass — hallazgo real-data: Graph puede omitir columnas
+    # custom tipo Choice de la proyección default de $expand=fields aunque
+    # otras columnas custom de la MISMA lista sí aparezcan. Se pide el
+    # campo explícito vía $select en vez de confiar en el default.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+
+    colab_url = next(url for url, _tok in calls if _COLAB_LIST in url)
+    assert "$expand=fields($select=" in colab_url
+    assert "Disponibilidad" in colab_url
+    assert "Title" in colab_url  # colaborador_title sigue seleccionado también
+
+
+def test_colaboradores_request_omits_select_for_availability_when_not_configured(monkeypatch):
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    # _TEST_FIELD_MAPPING no configura colaborador_disponibilidad (default "").
+    _make_repository().get_allocations("tok")
+
+    colab_url = next(url for url, _tok in calls if _COLAB_LIST in url)
+    assert "$expand=fields($select=Title)" in colab_url
+
+
+def test_asignaciones_and_proyectos_requests_unchanged_no_select(monkeypatch):
+    # Ya funcionan correctamente con $expand=fields sin selección (Batch 3,
+    # validado contra Graph real) — no se tocan sin necesidad comprobada.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    _make_repository().get_allocations("tok")
+
+    asig_url = next(url for url, _tok in calls if _ASIG_LIST in url)
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert asig_url.endswith("/items?$expand=fields")
+    assert proy_url.endswith("/items?$expand=fields")
+
+
 def test_availability_resolves_when_mapping_configured_and_source_has_value(monkeypatch):
     colaboradores = [
         {"id": "1", "fields": {"Title": "Ana Pérez", "Disponibilidad": "Full Time"}},

@@ -118,8 +118,18 @@ class StaffingAllocationRecord:
     consultant_availability: str | None = None
 
 
-def _list_items_url(site_id: str, list_id: str) -> str:
-    return f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items?$expand=fields"
+def _list_items_url(site_id: str, list_id: str, select_fields: list[str] | None = None) -> str:
+    """`select_fields`, si se pasa, restringe explícitamente qué internal
+    names de `fields` devuelve Graph (`$expand=fields($select=...)`) en vez
+    de depender de la proyección default de `$expand=fields` sin selección.
+    Ver `_colaboradores_url` — Graph puede omitir columnas custom (p. ej.
+    tipo Choice) de esa proyección default aun cuando otras columnas custom
+    de la MISMA lista sí aparecen; pedir el campo explícito lo hace robusto
+    sin depender de un comportamiento no documentado."""
+    url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items?$expand=fields"
+    if select_fields:
+        url += f"($select={','.join(select_fields)})"
+    return url
 
 
 def _stringify(value) -> str | None:
@@ -198,8 +208,23 @@ class StaffingRepository:
         proyectos = microsoft365.graph_get_paged_values(
             _list_items_url(site_id, self.proyectos_list_id), access_token,
         )
+        # Colaboradores SÍ pide `$select` explícito (a diferencia de
+        # Asignaciones/Proyectos, que ya funcionan correctamente con
+        # `$expand=fields` sin selección — no se tocan, sin necesidad
+        # comprobada). Hallazgo real-data (corrective pass, ver HANDOFF):
+        # Disponibilidad de asignación devolvía "Sin dato" para el 100% de
+        # las filas pese a mapeo correcto — hipótesis más probable: la
+        # proyección default de `$expand=fields` de Graph para SharePoint
+        # puede omitir columnas custom tipo Choice aunque otras columnas
+        # custom de la MISMA lista (Title) sí aparezcan. `colaborador_title`
+        # siempre se selecciona; `colaborador_disponibilidad` solo si está
+        # configurado (campo OPCIONAL — nunca se selecciona una columna
+        # vacía/inexistente).
+        colaboradores_fields = [mapping.colaborador_title]
+        if mapping.colaborador_disponibilidad:
+            colaboradores_fields.append(mapping.colaborador_disponibilidad)
         colaboradores = microsoft365.graph_get_paged_values(
-            _list_items_url(site_id, self.colaboradores_list_id), access_token,
+            _list_items_url(site_id, self.colaboradores_list_id, colaboradores_fields), access_token,
         )
 
         proyectos_by_id = {str(item.get("id")): item for item in proyectos if item.get("id") is not None}

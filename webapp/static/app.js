@@ -692,30 +692,60 @@ function initModuleFilter(scope) {
 function staffingDashboard(payload) {
   const assignments = (payload && payload.assignments) || [];
   const horizon = (payload && payload.horizon) || [];
+  const todayMarkerPct = (payload && payload.today_marker_pct != null) ? payload.today_marker_pct : null;
 
   // Estados conocidos (Batch 3, reales) + cualquier otro que aparezca en el
   // dato real (nunca se inventa uno que no existe, y nunca se pierde uno
-  // real fuera de los 3 conocidos). Blank -> "Sin estado", nunca se oculta
-  // en silencio (default visible, igual que Activo/Tentativo).
+  // real fuera de los 3 conocidos). Blank -> "Sin estado" — sigue siendo
+  // una opción SELECCIONABLE, pero (corrective pass, review con dato real)
+  // el default congelado es EXCLUSIVAMENTE Activo+Tentativo: Inactivo y
+  // "Sin estado" (y cualquier otro status futuro) arrancan destildados.
   const KNOWN_STATUSES = ["Activo", "Tentativo", "Inactivo"];
   const presentStatuses = [...new Set(assignments.map(a => a.status || "Sin estado"))];
   const statusOptions = [...new Set([...KNOWN_STATUSES, ...presentStatuses])];
 
   const defaultStatusFilter = () =>
-    Object.fromEntries(statusOptions.map(s => [s, s !== "Inactivo"]));
+    Object.fromEntries(statusOptions.map(s => [s, s === "Activo" || s === "Tentativo"]));
+
+  // Paleta determinística de identidad (project_id, o assignment_id si no
+  // hay proyecto) — NUNCA aleatoria, mismo hash en cada render/filtro. El
+  // color identifica la asignación/proyecto; el estado se superpone aparte
+  // (borde/opacidad, ver CSS) — nunca se pierde la semántica de estado por
+  // pintar identidad.
+  const PALETTE_SIZE = 6;
+  function paletteIndex(row) {
+    const seed = row.project_id || row.assignment_id || "";
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return hash % PALETTE_SIZE;
+  }
 
   return {
     assignments,
     horizon,
     statusOptions,
+    todayMarkerPct,
+    // Colapso de grupos de consultor en el timeline — SOLO estado visual de
+    // presentación (nunca filtra filteredAssignments). Vacío = todo
+    // expandido (default). Keyed por el mismo `key` de timelineGroups.
+    collapsedConsultants: {},
     filters: {
       consultant: "",
       project: "",
       availability: "",
-      // Default V1: Activo + Tentativo visibles, Inactivo disponible pero
-      // NO seleccionado — decisión explícita y visible, no un descarte
-      // silencioso (ver HANDOFF).
+      // Default V1 congelado: Activo + Tentativo ÚNICAMENTE seleccionados.
+      // Inactivo y "Sin estado" quedan disponibles pero NO seleccionados —
+      // decisión explícita y visible, no un descarte silencioso (ver HANDOFF).
       status: defaultStatusFilter(),
+    },
+
+    init() {
+      // Si el usuario elige un consultor puntual, ese grupo nunca debe
+      // quedar oculto por un colapso previo — el filtro nunca debe
+      // "pelear" contra el estado de presentación.
+      this.$watch("filters.consultant", (value) => {
+        if (value) this.collapsedConsultants[value] = false;
+      });
     },
 
     resetFilters() {
@@ -728,6 +758,29 @@ function staffingDashboard(payload) {
     statusSlug(status) {
       const known = { Activo: "activo", Tentativo: "tentativo", Inactivo: "inactivo" };
       return known[status] || "otro";
+    },
+
+    paletteClass(row) {
+      return "staffing-palette-" + paletteIndex(row);
+    },
+
+    get todayMarker() {
+      return { visible: todayMarkerPct != null, pct: todayMarkerPct };
+    },
+
+    isConsultantCollapsed(key) {
+      return !!this.collapsedConsultants[key];
+    },
+    toggleConsultant(key) {
+      this.collapsedConsultants[key] = !this.collapsedConsultants[key];
+    },
+    collapseAllConsultants() {
+      const next = {};
+      this.timelineGroups.forEach(g => { next[g.key] = true; });
+      this.collapsedConsultants = next;
+    },
+    expandAllConsultants() {
+      this.collapsedConsultants = {};
     },
 
     // Opciones derivadas del dataset cargado — nunca hardcodeadas. Value =
@@ -792,12 +845,19 @@ function staffingDashboard(payload) {
     // Jerarquía consultor → asignación (una barra por asignación, NUNCA
     // superpuestas en la misma fila) — mismo criterio operativo útil del
     // Power BI legado, sin las barras superpuestas que ese reporte tenía.
+    // Key = consultant_id si existe (agrupa asignaciones reales del MISMO
+    // consultor, aunque su nombre no resuelva); si el lookup está
+    // totalmente vacío, cada asignación es su propio grupo por
+    // assignment_id — NUNCA se fusionan dos filas sin id solo porque
+    // comparten el mismo texto "(sin resolver)" (podrían ser personas
+    // distintas cuyo lookup falló por separado — ver invariante de
+    // Disponibilidad más abajo).
     get timelineGroups() {
       const groups = new Map();
       this.filteredAssignments.forEach(a => {
         if (!a.on_timeline) return;
-        const key = a.consultant_id || a.consultant_name;
-        if (!groups.has(key)) groups.set(key, { consultant_name: a.consultant_name, rows: [] });
+        const key = a.consultant_id || ("unresolved-" + a.assignment_id);
+        if (!groups.has(key)) groups.set(key, { key, consultant_name: a.consultant_name, rows: [] });
         groups.get(key).rows.push(a);
       });
       return [...groups.values()].sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
@@ -815,13 +875,22 @@ function staffingDashboard(payload) {
     },
 
     // Disponibilidad de asignación — SOLO hechos: cuenta consultores
-    // DISTINTOS (un consultor con 3 asignaciones cuenta una vez), nunca
-    // asignaciones. Cero % / horas libres / capacidad — ver HANDOFF.
+    // DISTINTOS *resueltos* (un consultor con 3 asignaciones cuenta una
+    // vez), nunca asignaciones. Cero % / horas libres / capacidad — ver
+    // HANDOFF.
+    //
+    // Invariante congelado: Full Time + Part Time + Sin dato === Consultores
+    // (kpis.consultants). Por eso la key es SIEMPRE consultant_id, nunca un
+    // fallback al nombre — una fila sin consultant_id (lookup vacío en la
+    // fuente) NO tiene una identidad de consultor real que contar; se
+    // excluye acá exactamente como `kpis.consultants` ya la excluye
+    // (`.filter(Boolean)`). Sigue visible en timeline/detalle como
+    // "(sin resolver)" — solo no infla ningún conteo de consultores.
     get availabilityGroups() {
       const byConsultant = new Map();
       this.filteredAssignments.forEach(a => {
-        const key = a.consultant_id || a.consultant_name;
-        if (!byConsultant.has(key)) byConsultant.set(key, a.availability);
+        if (!a.consultant_id) return;
+        if (!byConsultant.has(a.consultant_id)) byConsultant.set(a.consultant_id, a.availability);
       });
       const counts = { "Full Time": 0, "Part Time": 0, "Sin dato": 0 };
       byConsultant.forEach(av => { counts[av] = (counts[av] || 0) + 1; });
