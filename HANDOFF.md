@@ -2128,7 +2128,7 @@ ellos en este commit de docs:
 ---
 
 ## ONE DANWOR ENTRY EXPERIENCE (BATCH A) — IMPLEMENTED / PENDING CI
-(commit `78357b5`; branch `work/onedanwor-entry-experience`)
+(commits `78357b5` + `f22e1f4`; branch `work/onedanwor-entry-experience`)
 
 > **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
 > GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
@@ -2226,26 +2226,45 @@ explícitamente diferido). Esto es SOLO Batch A.
   ausente en landing normal. `tests/webapp/test_workspace_switcher.py`
   (actualizado) — "Todos los espacios" ahora apunta a `/onedanwor`.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
-  3.14.3): **suite 349 passed / 1 skipped** (338 + 11 netos), route-contract
+  3.14.3): **suite 350 passed / 1 skipped** (338 + 12 netos, incluye el
+  test de versionado de scripts del pase correctivo), route-contract
   GREEN tras regenerar el snapshot intencionalmente (**80**).
 - **SMOKE VISUAL MANUAL: GREEN.** `/onedanwor` no-autenticado con marca y
   3 bullets correctos; `/platform` redirige; selector autenticado
   multi-workspace muestra ambas tarjetas ricas completas; click en
   Operaciones llega a Staffing real; "Todos los espacios" del switcher
   apunta a `/onedanwor`; viewport 375px sin overflow horizontal; `/` y
-  `/copilot` re-verificados sin cambios. **Verificación específica del
-  fix de auth-popup:** `/onedanwor?auth_popup=1` confirmado con
+  `/copilot` re-verificados sin cambios.
+- **Corrección de entrega de `auth.js` (pase correctivo, commit
+  `f22e1f4`):** el smoke inicial detectó que un tab de browser con
+  sesión previa podía seguir ejecutando una copia cacheada de `auth.js`
+  incluso después de que el server ya serviera la versión corregida —
+  causa: los `<script>` de `landing.html` (`auth.js`, `brand-hero.js`)
+  no llevaban el sufijo `?v={{ static_version }}` que `base.html` YA
+  usa para cada asset estático. Corrección: se agregó el MISMO sufijo a
+  ambos scripts de `landing.html` (mismo mecanismo existente, sin
+  versionado nuevo, sin tocar `brand-hero.css` — deliberadamente fuera
+  de alcance de este pase). Test agregado:
+  `test_landing_versions_its_auth_and_brand_scripts`.
+- **REAL AUTH POPUP SMOKE: GREEN.** Tras la corrección, click real sobre
+  "Ingresar con tu cuenta Danwor" en `/onedanwor` — capturando
+  `window.open` — confirmó que el popup abre
+  `/onedanwor?auth_popup=1` (la página que inició el login, NO la raíz
+  del Copiloto); el script servido en esa carga es la versión corregida
+  (fetch confirmó el contenido, ya no cacheado — la URL versionada es
+  distinta a la cacheada previamente, forzando el fetch real). Repetido
+  en `/` (`/?auth_popup=1`) y `/copilot` (`/copilot?auth_popup=1`) — cada
+  uno abre su propia página, nunca hardcodeado a `/`. El primer render de
+  `/onedanwor?auth_popup=1` confirmado con
   `document.body.className === "auth-completing"` y el overlay en
-  `display:flex` desde el primer render (sin JS) — el mecanismo del bug
-  reportado queda cerrado. El click-through real del botón de login
-  mostró el comportamiento ANTERIOR en un momento porque el tab del
-  browser tenía `auth.js` cacheado (los `<script>` de `landing.html` no
-  llevan el sufijo `?v={{ static_version }}` que sí usa `base.html` —
-  característica preexistente, fuera de alcance de este batch); una
-  lectura directa del archivo servido (fetch con `cache:'no-store'`)
-  confirmó que el código desplegado es el correcto (usa
-  `window.location.pathname`, nunca hardcodea `/`). Sin errores de
-  consola en ningún paso.
+  `display:flex` desde el HTML inicial (sin esperar JS). Sin errores de
+  consola en ningún paso. **Límite de esta verificación:** completar un
+  login real de Microsoft (intercambio de código, `id_token`, sesión)
+  requiere credenciales reales de Azure que este agente no tiene — igual
+  que en batches anteriores, esa mitad del flujo la valida el usuario en
+  su propio browser autenticado; lo verificado acá (por qué página abre
+  el popup, y que el overlay neutro cubre el primer paint) es exactamente
+  el mecanismo del bug reportado, y queda cerrado.
 - **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
 
 ---
@@ -2284,12 +2303,14 @@ explícitamente diferido). Esto es SOLO Batch A.
 - **Phase:** One Danwor Entry Experience — Batch A de dos (targeted
   assessment previo determinó el límite: A = entrada/naming/auth; B =
   shell/topbar/rename de rutas de Operations, explícitamente diferido)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 349 passed / 1
-  skipped, route surface 80 (79→80, intencional), smoke visual manual
-  GREEN — falta la confirmación de CI real en GitHub antes de CLOSED/GREEN.
-- **Functional commit:** `78357b5` — `feat(platform): introduce One
-  Danwor entry experience` (branch `work/onedanwor-entry-experience`),
-  pusheado a origin.
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 350 passed / 1
+  skipped, route surface 80 (79→80, intencional), **REAL AUTH POPUP
+  SMOKE: GREEN** (ver detalle arriba) — falta la confirmación de CI real
+  en GitHub antes de CLOSED/GREEN.
+- **Functional commits:** `78357b5` — `feat(platform): introduce One
+  Danwor entry experience`; `f22e1f4` — `fix(platform): version One
+  Danwor auth script` (pase correctivo tras el smoke real — ver arriba).
+  Branch `work/onedanwor-entry-experience`, pusheado a origin.
 - **Naming:** término interno `platform` sin cambios. Marca visible "One
   Danwor". Canónica: `GET /onedanwor`. `/platform` = alias de
   compatibilidad, siempre 307 a `/onedanwor`. `/` y `/copilot` sin
@@ -2299,7 +2320,10 @@ explícitamente diferido). Esto es SOLO Batch A.
   hardcodea `/`, abre la página que inició el login; `render_landing()`
   pone `body.auth-completing` desde el HTML inicial para
   `auth_popup`/`code`, reutilizando el overlay ya existente. Azure
-  `redirect_uri` (fijo en `/`) sin tocar.
+  `redirect_uri` (fijo en `/`) sin tocar. La entrega del `auth.js`
+  corregido en sí quedó garantizada por el mismo cache-busting
+  `?v={{ static_version }}` que ya usa `base.html`, ahora también en los
+  `<script>` de `landing.html` (commit `f22e1f4`).
 - **Deferred a Batch B (NO autorizado):** shared `platform_topbar` macro,
   switcher logo-attached, asset animado de Operations, selector de área
   interno de Operations, shell compartido, rename de rutas a
@@ -2311,7 +2335,7 @@ explícitamente diferido). Esto es SOLO Batch A.
   antes de tocarlos.
 - **Next candidate status:** **NOT AUTHORIZED** (Batch B no empieza hasta
   que este batch confirme CI y se autorice explícitamente).
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **349 passed / 1 skipped** · route surface **80**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **350 passed / 1 skipped** · route surface **80**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
