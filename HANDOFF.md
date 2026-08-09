@@ -2306,7 +2306,7 @@ usuario. Candidato identificado (NO autorizado, NO empezado):
 ---
 
 ## SHARED WORKSPACE SHELL + OPERACIONES STRUCTURE — IMPLEMENTED / PENDING CI
-(commit `e2c8743`; branch `work/shared-shell-operaciones`)
+(commits funcionales `e2c8743` + `71bb101`; branch `work/shared-shell-operaciones`)
 
 > **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
 > GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
@@ -2389,23 +2389,31 @@ deshabilitados (nunca fabrica un orden inexistente).
   correspondiente, method+body preservados, sin reimplementar lógica.
   `OPERATIONS.home_url` (`webapp/workspaces.py`) actualizado a la
   canónica — único cambio ahí, sin expandir presentación/marketing.
-- **Bug real descubierto y corregido durante la implementación:** un test
-  de cadena completa (`follow_redirects=True`) expuso que un POST
-  no-autenticado a la ruta canónica de Staffing, al redirigir en cascada
-  vía `platform_login_redirect` → `/platform` → `/onedanwor`, terminaba en
-  **405** porque `/platform` y `/onedanwor` (Batch A) solo aceptaban GET —
-  un 307 preserva el método, así que un POST puede llegar hasta ahí. Como
-  ninguno de los dos lee el body, se corrigió aceptando GET+POST en ambos
-  (`@router.api_route(..., methods=["GET","POST"])`). **Esto amplía el
-  diff del route-contract más allá de los 2 renglones nuevos
-  originalmente esperados** (además de las 2 rutas canónicas nuevas, el
-  snapshot registra `GET /platform`→`GET,POST /platform` y `GET
-  /onedanwor`→`GET,POST /onedanwor` como reemplazos in-place — mismo path,
-  método ampliado). Se documenta explícitamente en vez de forzar el diff
-  original a costa de dejar el bug real sin corregir.
+- **Bug real descubierto, corregido, y CORREGIDO DE NUEVO (pase
+  correctivo, commit `71bb101`):** un test de cadena completa
+  (`follow_redirects=True`) expuso que un POST no-autenticado a la ruta
+  canónica de Staffing, al redirigir en cascada vía
+  `platform_login_redirect` → `/platform` → `/onedanwor`, terminaba en
+  **405** porque ambos (Batch A) solo aceptaban GET — un 307 preserva el
+  método, así que un POST podía llegar hasta ahí. La PRIMERA corrección
+  (revertida) ensanchó `/platform`/`/onedanwor` a GET+POST — funcionaba,
+  pero borraba una distinción real: esas rutas son superficies de
+  NAVEGACIÓN, nunca deberían recibir una acción de Staffing. La
+  corrección FINAL cambia `platform_login_redirect` (`webapp/workspaces.py`)
+  para responder **303** (no 307) — la transición de autenticación
+  SIEMPRE se vuelve GET en el siguiente hop, sin importar qué método la
+  disparó — y acepta un `next_path` explícito para que el POST de datos
+  de Staffing apunte `next` a la PÁGINA canónica, no al endpoint de datos
+  que disparó el redirect (que nunca vuelve a ser golpeado con ese mismo
+  POST — el `graph_token` original se descarta sin más). `/platform` y
+  `/onedanwor` vuelven a ser GET-only. El alias histórico POST→POST
+  (`/operations/staffing/data` → canónica) sigue en 307, sin cambios —
+  es una canonicalización de recurso, no una transición de auth.
 - **Rutas agregadas:** `GET /operaciones/staffing/asignaciones`,
   `POST /operaciones/staffing/asignaciones/data`. **Route surface: 80 →
-  82** (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`).
+  82** (intencional; snapshot regenerado con `UPDATE_ROUTE_SURFACE=1`). El
+  diff final contra `main` de Batch A es EXACTAMENTE estas 2 líneas —
+  `/platform`/`/onedanwor` quedan sin cambios de método.
 - **Tests:** `tests/webapp/test_platform_topbar.py` (NUEVO, sucesor de
   `test_workspace_switcher.py` — eliminado junto con el partial que
   probaba) — topbar compartido en páginas Copilot y Operaciones,
@@ -2418,7 +2426,8 @@ deshabilitados (nunca fabrica un orden inexistente).
   o hasta el fragmento real). `tests/webapp/test_workspaces.py`
   (actualizado) — `OPERATIONS.home_url` canónico.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
-  3.14.3): **suite 368 passed / 1 skipped** (354 + 14 netos), route-contract
+  3.14.3): **suite 370 passed / 1 skipped** (354 + 16 netos, incluye el
+  pase correctivo de redirect semantics), route-contract
   GREEN tras regenerar el snapshot intencionalmente (**82**).
 - **SMOKE VISUAL MANUAL: GREEN.** Módulo real de Copilot → back/forward
   reales con hrefs correctos, brand animado, switcher del brand con
@@ -2473,17 +2482,18 @@ deshabilitados (nunca fabrica un orden inexistente).
 ## CURRENT EXECUTION POINT
 - **Phase:** Shared Workspace Shell + Operaciones Structure (Batch B de
   dos — Batch A, One Danwor Entry Experience, CLOSED/GREEN)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 368 passed / 1
-  skipped, route surface 82 (80→82, intencional — ver detalle arriba
-  sobre por qué el diff incluye 2 rutas nuevas MÁS 2 métodos ampliados),
-  smoke visual manual GREEN — falta la confirmación de CI real en GitHub
-  antes de CLOSED/GREEN.
-- **Functional commit:** `e2c8743` — `feat(platform): shared workspace
-  topbar + Operaciones structure` (branch `work/shared-shell-operaciones`),
-  pusheado a origin. Un solo commit funcional (per instrucción explícita:
-  el topbar compartido y la estructura de Operaciones comparten CSS,
-  `workspaces.py` y el archivo de tests del topbar — separarlos habría
-  forzado breakage intermedio artificial).
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 370 passed / 1
+  skipped, route surface 82 (80→82, intencional — diff final contra
+  `main` de Batch A es EXACTAMENTE las 2 rutas canónicas nuevas, ver
+  detalle arriba), smoke visual manual GREEN — falta la confirmación de
+  CI real en GitHub antes de CLOSED/GREEN.
+- **Functional commits:** `e2c8743` — `feat(platform): shared workspace
+  topbar + Operaciones structure` (un solo commit funcional inicial — per
+  instrucción explícita, ya que el topbar compartido y la estructura de
+  Operaciones comparten CSS/`workspaces.py`/tests, separarlos habría
+  forzado breakage intermedio artificial); `71bb101` — `fix(platform):
+  normalize Staffing auth redirect semantics` (pase correctivo — ver
+  arriba). Branch `work/shared-shell-operaciones`, pusheado a origin.
 - **Topbar compartido:** `partials/platform_topbar.html`, macro
   presentación-pura, sin auth/Graph/pack/secuencia de rutas. Back/forward
   transversal en POSICIÓN pero NO en lógica — el caller decide destino o
@@ -2502,19 +2512,22 @@ deshabilitados (nunca fabrica un orden inexistente).
 - **Rutas canónicas:** `GET/POST /operaciones/staffing/asignaciones(/data)`.
   `GET/POST /operations/staffing(/data)` = alias de compatibilidad,
   siempre 307, method+body preservados. `OPERATIONS.home_url` actualizado.
-- **Bug real descubierto y corregido:** `/platform`/`/onedanwor` (Batch A)
-  eran GET-only; un POST no-autenticado a Staffing, redirigiendo en
-  cascada vía 307 (que preserva método), llegaba ahí como POST y daba
-  405. Corregido aceptando GET+POST en ambos — ninguno lee body. Por eso
-  el diff de route-contract incluye 2 rutas nuevas MÁS el ensanche de
-  método en esas 2 rutas existentes, no solo 2 líneas nuevas.
+- **Bug real descubierto, y corrección normalizada (commit `71bb101`):**
+  `/platform`/`/onedanwor` (Batch A) eran GET-only; un POST no-autenticado
+  a Staffing, redirigiendo en cascada vía 307 (que preserva método),
+  llegaba ahí como POST y daba 405. La corrección FINAL no ensancha esas
+  rutas (siguen GET-only) — `platform_login_redirect` responde **303**
+  (fuerza GET en el siguiente hop) y recibe un `next_path` explícito
+  apuntando a la PÁGINA canónica, no al endpoint de datos. El diff de
+  route-contract contra `main` de Batch A es EXACTAMENTE las 2 rutas
+  canónicas nuevas — nada más.
 - **Next candidate:** ninguno propuesto todavía — este era el último
   batch identificado de la iniciativa de plataforma multi-workspace.
   Streams pendientes conocidos (sin elegir): paridad funcional de
   Staffing (capacidad/disponibilidad/filtros/Gantt/vacaciones),
   Projects/Reporting, asset animado real de Operaciones.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **368 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **370 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
