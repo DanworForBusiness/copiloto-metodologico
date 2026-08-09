@@ -1,27 +1,41 @@
 {% extends "base.html" %}
-{% block title %}Staffing · Operations · Danwor{% endblock %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% block title %}Asignaciones · Staffing · Operaciones · Danwor{% endblock %}
 {% block body %}
-<header class="topbar">
-  {% include "partials/workspace_switcher.html" %}
-  <div class="header-tools">
-    <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-    </button>
-  </div>
-</header>
-<main id="content" class="module-content">
-  <section class="module-hero">
-    <p class="eyebrow">Operations · Staffing</p>
-    <h1>Asignaciones de consultores</h1>
-    <p>Primera versión de solo lectura — Asignaciones por proyecto, Proyectos y Colaboradores desde SharePoint (sitio Gestión).</p>
-  </section>
-  <div id="staffing-rows"
-       hx-post="/operations/staffing/data"
-       hx-trigger="load"
-       hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
-       hx-target="this"
-       hx-swap="innerHTML">
-    <p class="empty-panel">Cargando asignaciones…</p>
-  </div>
-</main>
+<div
+  x-data="copilotLayout('staffing')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {# Brand estático: todavía no existe un asset animado propio de
+     Operaciones/One Danwor (ver HANDOFF — OPERACIONES ANIMATED BRAND
+     ASSET: PENDING DESIGN ASSET). Se usa el logo estático de Danwor ya
+     existente (el mismo de landing.html) en vez de fabricar una
+     animación — el contrato del topbar (brand_html/brand_href) hace
+     trivial reemplazarlo cuando exista. #}
+  {% set _brand_html %}<img src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor" class="topbar-brand-static">{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _brand_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Staffing</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Staffing</p>
+      <h1>Asignaciones</h1>
+      <p>Asignaciones por proyecto, Proyectos y Colaboradores desde SharePoint (sitio Gestión) — primera versión de solo lectura.</p>
+    </section>
+    <div id="staffing-rows"
+         hx-post="/operaciones/staffing/asignaciones/data"
+         hx-trigger="load"
+         hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+         hx-target="this"
+         hx-swap="innerHTML">
+      <p class="section-analysis-loading"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Cargando asignaciones…</span></p>
+    </div>
+  </main>
+</div>
 {% endblock %}

@@ -68,7 +68,7 @@ OPERATIONS = Workspace(
     key="operations",
     label="Operaciones",
     subtitle="Staffing",
-    home_url="/operations/staffing",
+    home_url="/operaciones/staffing/asignaciones",
     is_authorized=operations_access.is_staffing_authorized_user,
 )
 
