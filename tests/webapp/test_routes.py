@@ -910,6 +910,18 @@ def test_login_redirects_to_landing_access_section():
     assert response.headers["location"] == "/?pack=datasphere_core#acceso"
 
 
+def test_landing_versions_its_auth_and_brand_scripts():
+    # Mismo mecanismo `?v={{ static_version }}` que ya usa base.html — sin
+    # esto, un browser con auth.js cacheado puede seguir ejecutando lógica
+    # vieja del popup de login tras un deploy (bug real observado en el
+    # smoke manual de One Danwor).
+    anon = TestClient(app)
+    response = anon.get("/")
+    assert response.status_code == 200
+    assert "/static/auth.js?v=" in response.text
+    assert "/static/brand-hero.js?v=" in response.text
+
+
 # ── /copilot: alias explícito de / (batch de transición multi-workspace) ──
 
 def test_copilot_alias_renders_the_same_experience_as_root():
