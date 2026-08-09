@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c0c0d">
+  <title>{% block title %}Plataforma Danwor{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='brand-hero.css') }}">
+</head>
+<body>
+  <!-- Fondo animado compartido (mismo que landing.html) -->
+  <div class="hero-bg" aria-hidden="true">
+    <div class="hero-gradient"></div>
+    <div class="hero-grid"></div>
+    <img class="hero-circuit" src="{{ url_for('static', path='brand/hero-circuit.svg') }}" alt="">
+    <canvas class="hero-particles"></canvas>
+    <div class="hero-grain"></div>
+  </div>
+  {% block content %}{% endblock %}
+  <script src="{{ url_for('static', path='brand-hero.js') }}"></script>
+</body>
+</html>

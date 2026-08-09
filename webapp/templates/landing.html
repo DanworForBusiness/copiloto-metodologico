@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#0c0c0d">
-  <title>Copiloto Metodológico · Danwor</title>
+  <title>{{ login_copy.title }}</title>
   <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,7 +24,7 @@
   <!-- Pantalla 1 — Intro: logo + cue scroll -->
   <section class="screen" id="intro">
     <img class="intro-logo" src="{{ url_for('static', path='brand/danwor-logo.png') }}" alt="Danwor — Data & AI for Business">
-    <p class="intro-eyebrow"><span class="ink">Copiloto Metodológico</span> · <span class="gold">Arquitecto Danwor</span></p>
+    <p class="intro-eyebrow"><span class="ink">{{ login_copy.eyebrow_ink }}</span> · <span class="gold">{{ login_copy.eyebrow_gold }}</span></p>
     <button class="hero-scroll" type="button" aria-label="Ingresar">
       <span>scroll para ingresar</span>
       <span class="hero-scroll-line"></span>
@@ -36,18 +36,20 @@
     <div class="access-grid">
       <div class="glass access-brand">
         <p class="kicker">Data &amp; AI for Business</p>
-        <h1>Copiloto Metodológico<span>Arquitecto Danwor</span></h1>
-        <p>Un entorno guiado para recorrer nuestro marco metodológico, consultar decisiones técnicas y acelerar entregables con criterio arquitectónico y mirada Danwor.</p>
+        <h1>{{ login_copy.brand_title }}<span>{{ login_copy.brand_subtitle }}</span></h1>
+        <p>{{ login_copy.brand_description }}</p>
+        {% if login_copy.feature_list %}
         <ul class="access-list">
-          <li><span class="access-check">&#10003;</span>Marco metodológico navegable</li>
-          <li><span class="access-check">&#10003;</span>Árboles de decisión y asistencia IA</li>
-          <li><span class="access-check">&#10003;</span>Criterios técnicos para proyectos SAP</li>
+          {% for item in login_copy.feature_list %}
+          <li><span class="access-check">&#10003;</span>{{ item }}</li>
+          {% endfor %}
         </ul>
+        {% endif %}
       </div>
 
       <div class="glass access-login">
         <h2>¡Hola, bienvenido!</h2>
-        <p class="sub">Copiloto Metodológico · Arquitecto Danwor<br>SAP Datasphere · BDC-Ready · Inteligencia metodológica</p>
+        <p class="sub">{% for line in login_copy.login_sub_lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
         <button id="microsoft-login-btn" class="login-action" type="button"
                 data-home="{{ home_url }}" onclick="loginWithMicrosoft(event)">
           Ingresar con tu cuenta Danwor

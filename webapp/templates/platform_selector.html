@@ -1,0 +1,21 @@
+{% extends "platform_shell.html" %}
+{% block title %}Elegí tu espacio · Plataforma Danwor{% endblock %}
+{% block content %}
+<section class="screen" id="selector">
+  <div class="access-grid" style="grid-template-columns:1fr">
+    <div class="glass access-brand">
+      <p class="kicker">Data &amp; AI for Business</p>
+      <h1>Plataforma<span>Danwor</span></h1>
+      <p>Elegí el espacio de trabajo al que querés entrar.</p>
+    </div>
+  </div>
+  <div class="workspace-tiles">
+    {% for ws in workspaces %}
+    <a class="glass workspace-tile" href="{{ ws.home_url }}">
+      <h2>{{ ws.label }}</h2>
+      <p class="sub">{{ ws.subtitle }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

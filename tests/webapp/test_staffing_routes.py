@@ -65,13 +65,13 @@ def _row(**overrides):
 # --- GET /operations/staffing ------------------------------------------------
 
 def test_get_anonymous_redirects_to_login():
+    # Batch de transición multi-workspace: Operations entra por la puerta
+    # platform-neutral (/platform), no por la marca del Copiloto (/).
     anon = TestClient(app)
     response = anon.get("/operations/staffing", follow_redirects=False)
     assert response.status_code == 307
     location = response.headers["location"]
-    assert location.startswith("/?")
-    assert location.endswith("#acceso")
-    assert "next=%2Foperations%2Fstaffing" in location
+    assert location == "/platform?next=%2Foperations%2Fstaffing"
 
 
 def test_get_authorized_full_tier_returns_200():
@@ -200,6 +200,7 @@ def test_post_unauthenticated_cannot_use_endpoint_even_with_a_token(monkeypatch)
         "/operations/staffing/data", data={"graph_token": "tok"}, follow_redirects=False,
     )
     assert response.status_code == 307  # redirige a login — nunca llega al service
+    assert response.headers["location"] == "/platform?next=%2Foperations%2Fstaffing%2Fdata"
 
 
 def test_post_academy_tier_cannot_use_endpoint_even_with_a_token(monkeypatch):
