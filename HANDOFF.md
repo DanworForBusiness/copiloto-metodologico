@@ -1844,12 +1844,15 @@ y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 
 ---
 
-## PLATFORM ENTRY / WORKSPACE RESOLUTION — IMPLEMENTED / PENDING CI
-(commit `bd5b0f8`; branch `work/platform-entry-workspace-resolution`)
+## PLATFORM ENTRY / WORKSPACE RESOLUTION — CLOSED / GREEN
+(commit funcional `bd5b0f8` — `feat(platform): add workspace-aware entry
+flow`; checkpoint previo `221b82d`; branch
+`work/platform-entry-workspace-resolution`)
 
-> **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
-> GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
-> después de que CI corra verde.
+**Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; full
+suite **332 passed / 1 skipped**; **route surface 79**; route snapshot
+expandido intencionalmente solo con `GET /platform` y `GET /copilot`
+(anterior: 77); **smoke visual manual: GREEN**.
 
 Primer paso de la dirección de plataforma multi-workspace descripta en
 **A.19**: entrada transicional, sin todavía decidir la identidad final de
@@ -1966,8 +1969,33 @@ Primer paso de la dirección de plataforma multi-workspace descripta en
   Copilot → experiencia real del Copiloto; deep link logged-out →
   `/operations/staffing` → `/platform?next=%2Foperations%2Fstaffing`
   confirmado. Sin errores de consola en ningún paso.
-- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN
-  (ver A.17). Push de branch pendiente de reporte final al usuario.
+- **Invariante de autorización actual (observado, no elegido):** Copilot =
+  cualquier usuario actualmente autenticado; Operations = el predicado de
+  autorización de Operations/Staffing ya existente. Por lo tanto, un
+  **"usuario solo-Operations" NO es representable** por el modelo de
+  autorización actual. Esto es un invariante observado del modelo actual —
+  **no es una limitación del resolver ni fue trabajado artificialmente
+  alrededor**. La fuente de autorización futura puede cambiar (grupos de
+  Entra, app roles, allowlists explícitas, u otra fuente server-side) sin
+  cambiar el contrato del resolver de workspaces; **no se elige ninguna en
+  este cierre**.
+- **CI:** GitHub CI **GREEN** sobre el estado final de la rama.
+
+### Próxima decisión (NO autorizada automáticamente)
+
+Con este batch **CLOSED / GREEN**, el próximo paso es una decisión del
+usuario, no una continuación automática. Candidatos, sin elegir entre
+ellos en este commit de docs:
+
+- **IN-APP WORKSPACE NAVIGATION / PLATFORM EXPERIENCE** — dónde vive un
+  switcher de workspace, cómo se relaciona la navegación de plataforma con
+  la navegación local de cada workspace, el eventual flip de `/` a
+  Platform, la evolución de la fuente de autorización, y el naming final
+  de la plataforma (hoy "Plataforma Danwor", provisorio).
+- **Paridad funcional de Staffing** (capacidad/disponibilidad, filtros,
+  Gantt, vacaciones) — disponible como stream de producto separado.
+
+**Ninguno autorizado todavía.**
 
 ---
 
@@ -1997,22 +2025,32 @@ Primer paso de la dirección de plataforma multi-workspace descripta en
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
-| Platform Entry / Workspace Resolution | **IMPLEMENTED / PENDING CI** |
+| Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Platform Entry / Workspace Resolution — entrada transicional
   multi-workspace (`/platform`, `/copilot`, deep link de Operations
   platform-neutral)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 332 passed / 1
-  skipped, route surface 79, smoke visual manual GREEN — falta la
-  confirmación de CI real en GitHub antes de CLOSED/GREEN (ver A.17).
-- **Functional commit:** `bd5b0f8` (branch
-  `work/platform-entry-workspace-resolution`), pusheado a origin.
-- **Current next candidate:** decisión del usuario tras confirmar CI —
-  candidatos explícitamente NO autorizados todavía: workspace switcher
-  in-app, flip de `/` a Platform, rediseño definitivo de naming
-  ("Plataforma Danwor" es provisorio), o continuar con paridad funcional
-  de Staffing (capacidad/disponibilidad, filtros, Gantt, vacaciones).
+- **Status:** **CLOSED / GREEN.** GitHub CI GREEN sobre el estado final de
+  la rama; suite 332 passed / 1 skipped; route surface 79; smoke visual
+  manual GREEN.
+- **Functional commit:** `bd5b0f8` — `feat(platform): add workspace-aware
+  entry flow`. **Docs checkpoint previo:** `221b82d`. **Docs de cierre:**
+  ver commit de este mismo cambio (branch
+  `work/platform-entry-workspace-resolution`, pusheado a origin).
+- **Transitional route model (vigente, no definitivo):** `GET /` → entrada
+  existente del Copiloto, preservada intencionalmente por compatibilidad de
+  lanzamiento (**NO** es todavía "Platform"); `GET /copilot` → alias
+  explícito del Copiloto, mismo comportamiento visual/auth/sesión; `GET
+  /platform` → entrada platform-neutral de Danwor; `GET /operations/staffing`
+  → deep link de Operations. El futuro flip de `/` a Platform sigue
+  explícitamente diferido.
+- **Current next candidate:** **IN-APP WORKSPACE NAVIGATION / PLATFORM
+  EXPERIENCE** (switcher in-app, relación entre navegación de plataforma y
+  navegación local de cada workspace, eventual flip de `/`, evolución de la
+  fuente de autorización, naming final) — o, como stream de producto
+  separado, **paridad funcional de Staffing** (capacidad/disponibilidad,
+  filtros, Gantt, vacaciones). Ninguno elegido todavía.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **332 passed / 1 skipped** · route surface **79**
 
