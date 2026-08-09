@@ -106,6 +106,52 @@ def test_dancing_logo_route_without_params_keeps_original_asset_text():
     assert "const TITLE    = 'Copiloto Metodológico · Arquitecto Danwor';" in response.text
 
 
+# --- Seguridad: title/subtitle son query params — deben ser inertes ---------
+# (BATCH B — PARAMETERIZED BRAND SAFETY CHECK)
+
+def test_dancing_logo_route_escapes_script_close_tag_breakout():
+    # `</script>` en el valor NO debe cerrar el <script> real del asset — el
+    # parser de HTML tokeniza esa secuencia de forma literal e insensible a
+    # mayúsculas, ANTES de que exista noción de "string JS", así que escapar
+    # solo para JS (comillas/backslashes) no alcanza.
+    payload = "</script><script>window.__pwned=1</script>"
+    response = _full_client().get(
+        "/brand/dancing/datasphere_core", params={"title": payload, "subtitle": "x"},
+    )
+    assert response.status_code == 200
+    # El valor crudo (sin escapar) nunca debe aparecer — de lo contrario
+    # closea el <script> real.
+    assert "</script><script>window.__pwned=1</script>" not in response.text
+    # Debe sobrevivir escapado dentro del literal JS.
+    assert "const TITLE    = '<\\/script><script>window.__pwned=1<\\/script>';" in response.text
+
+
+def test_dancing_logo_route_escapes_quotes_and_backslashes():
+    payload = r"';alert(document.cookie);//\\"
+    response = _full_client().get(
+        "/brand/dancing/datasphere_core", params={"title": payload, "subtitle": "x"},
+    )
+    assert response.status_code == 200
+    # Ni la comilla simple ni el backslash pueden llegar crudos al literal —
+    # de lo contrario cierran el string JS y el resto se ejecuta como código.
+    # (comilla escapada \' + los 2 backslashes originales, cada uno duplicado a \\)
+    assert r"const TITLE    = '\';alert(document.cookie);//\\\\';" in response.text
+
+
+def test_dancing_logo_route_escapes_newlines_and_unicode_passes_through():
+    payload = "Línea 1\nLínea 2 · ó"
+    response = _full_client().get(
+        "/brand/dancing/datasphere_core", params={"title": payload, "subtitle": "x"},
+    )
+    assert response.status_code == 200
+    # Un salto de línea crudo dentro de un literal '...' de JS es inválido
+    # (rompe el script) — debe llegar escapado como \n, nunca crudo.
+    assert "const TITLE    = 'Línea 1\\nLínea 2 · ó';" in response.text
+    assert "Línea 1\nLínea 2" not in response.text
+    # Unicode normal (acentos, ·) sigue viajando sin alterarse.
+    assert "·" in response.text and "ó" in response.text
+
+
 # --- C: back/forward reales de módulo, preservados --------------------------
 
 def test_module_page_pager_links_to_real_previous_and_next_module():

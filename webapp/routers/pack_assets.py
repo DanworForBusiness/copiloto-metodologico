@@ -39,7 +39,21 @@ _SUBTITLE_PATTERN = re.compile(r"const SUBTITLE\s*=\s*'(?:[^'\\]|\\.)*';")
 
 
 def _js_single_quoted(value: str) -> str:
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    """Escapa `value` para insertarlo como literal JS de comillas simples
+    DENTRO de un `<script>` embebido en HTML — no alcanza con escapar para
+    el parser de JS (comillas/backslashes): el parser de HTML tokeniza
+    `</script>` de forma literal e insensible a mayúsculas ANTES de que
+    exista noción de "string JS", así que un valor con `</script>` cierra
+    el bloque real aunque esté sintácticamente dentro de un string válido —
+    mismo escape ("</" → "<\\/") que ya usa `pack_asset` más abajo para el
+    mismo problema (`payload.replace("</", "<\\/")`), reutilizado acá. Los
+    saltos de línea también se escapan: un literal `'...'` de JS no admite
+    un salto de línea crudo (rompería el script, aunque sin ejecutar nada
+    inyectado)."""
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    escaped = escaped.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+    escaped = escaped.replace("</", "<\\/")
+    return "'" + escaped + "'"
 
 
 @router.get("/brand/dancing/{pack_name}", include_in_schema=False)
