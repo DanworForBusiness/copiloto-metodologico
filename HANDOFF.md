@@ -2325,14 +2325,16 @@ deshabilitados (nunca fabrica un orden inexistente).
 
 - **Dueño del topbar compartido:** `webapp/templates/partials/platform_topbar.html`
   → macro Jinja `platform_topbar(current_workspace, available_workspaces,
-  identity_href, identity_html, switch_brand_html, mobile_menu_label,
-  pager_previous=None, pager_next=None)` + `{% call %}` para el selector
-  interno (contenido de CALLER). Clasificación: PLATFORM / SHARED
-  PRESENTATION. Sin auth/Graph/pack/Staffing/secuencia de rutas — todo lo
-  provee quien llama. **Firma corregida por el pase "VISUAL CONTRACT
-  CORRECTION" (ver más abajo) — la firma original de este batch
+  identity_href, identity_html, mobile_menu_label, pager_previous=None,
+  pager_next=None)` + `{% call %}` para el selector interno (contenido de
+  CALLER). Clasificación: PLATFORM / SHARED PRESENTATION. Sin
+  auth/Graph/pack/Staffing/secuencia de rutas — todo lo provee quien
+  llama. **Firma corregida DOS VECES por el pase "VISUAL CONTRACT
+  CORRECTION" (ver más abajo)** — la firma original de este batch
   (`brand_href, brand_html`, un solo bloque de marca) fue una geometría
-  incorrecta, corregida antes de CLOSED/GREEN.**
+  incorrecta; una firma intermedia (`switch_brand_html`, logo completo
+  como trigger del switcher) también se corrigió antes del commit final —
+  ver el ajuste de UX descripto abajo.
   - **Contrato de back/forward:** `pager_previous`/`pager_next`, cada uno
     `None` (deshabilitado, mismo marcado `<span aria-hidden>` que
     `module.html` ya usaba) o `{"href", "label"}`. `module.html` es el
@@ -2340,18 +2342,26 @@ deshabilitados (nunca fabrica un orden inexistente).
     comportamiento histórico). Los otros 7 templates Copilot y
     Operaciones pasan `None`/`None` — ambos controles se muestran
     deshabilitados, sin inventar secuencia.
-  - **Workspace switcher — en la marca COMPACTA de RIGHT, no en la
-    identidad animada:** el control de texto standalone del batch anterior
-    (`partials/workspace_switcher.html`, **eliminado**) se reemplaza por
-    una marca compacta (`switch_brand_html`, logo estático chico) actuando
-    de trigger cuando `available_workspaces|length > 1` (`<details
-    class="workspace-switch topbar-brand-compact">`); con 1 solo workspace,
-    es un link plano a su home (sin dropdown, `class="brand-compact-link"`).
-    Menú = otros workspaces autorizados + "Todos los espacios" →
-    `/onedanwor`. Reusa `available_workspaces(user)`/`Workspace.home_url`
-    sin duplicar autorización ni destinos. La identidad animada IZQUIERDA
-    (`identity_html`) NUNCA es el trigger del switcher — ver corrección
-    abajo.
+  - **Workspace switcher — botón-ícono de RIGHT, no en la identidad
+    animada, NO el logo completo:** el control de texto standalone del
+    batch anterior (`partials/workspace_switcher.html`, **eliminado**) se
+    reemplaza por un botón más en `.header-tools` — MISMA caja visual que
+    theme/logout (`.theme-toggle`, 34×34px), con un ícono de grilla
+    (4 cuadrados, mismo lenguaje visual stroke-based que los demás
+    íconos), actuando de trigger cuando `available_workspaces|length > 1`
+    (`<details class="workspace-switch"><summary class="theme-toggle"
+    aria-label="Cambiar de espacio de trabajo">`); con 1 solo workspace,
+    es un link plano a su home con el mismo ícono (sin dropdown). Menú =
+    otros workspaces autorizados + "Todos los espacios" → `/onedanwor`.
+    Reusa `available_workspaces(user)`/`Workspace.home_url` sin duplicar
+    autorización ni destinos. La identidad animada IZQUIERDA
+    (`identity_html`) NUNCA es el trigger del switcher — sigue siendo pura
+    identidad, sin acción. **Nota de UX (corrección post-implementación):**
+    la primera versión de este pase usaba el logo estático completo
+    (`brand/danwor-logo.png`) como trigger — el usuario aclaró que la idea
+    era un botón-caja del mismo tamaño que theme/logout, no el logo; se
+    reemplazó por el ícono de grilla, sin volver a tocar identidad/config/
+    ruteo.
 - **Templates Copilot migrados (8, mecánico):** `module.html`,
   `academy.html`, `catalog_cds.html`, `catalog_connection.html`,
   `catalog_flow.html`, `catalog_guide.html`, `admin_activity_page.html`,
@@ -2368,9 +2378,10 @@ deshabilitados (nunca fabrica un orden inexistente).
   `/brand/dancing/{pack}`) que Copiloto — no es un asset por-workspace, es
   transversal, parametrizado con `OPERATIONS_APP_TITLE`/
   `OPERATIONS_APP_SUBTITLE` en vez de `APP_TITLE`/`APP_SUBTITLE`. El logo
-  estático de Danwor (`brand/danwor-logo.png`) sigue en uso, pero solo como
-  la marca COMPACTA de RIGHT (trigger del switcher) — igual en ambos
-  workspaces, nunca como identidad.
+  estático de Danwor (`brand/danwor-logo.png`) sigue usándose SOLO en
+  `landing.html` (sin relación con este batch) — el topbar compartido no
+  lo referencia en absoluto: el switcher de RIGHT es un ícono, no una
+  imagen.
 - **Selector interno:** Copilot sin cambios (pack-select/diag-toggle
   exactamente donde ya estaban). Operaciones: `<select class="pack-select"
   disabled><option selected>Staffing</option></select>` — misma posición
@@ -2463,54 +2474,50 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
   completo, de solo lectura) — permite a las templates leer
   `config.APP_TITLE`/`config.OPERATIONS_APP_TITLE` sin que cada router
   reinyecte esos valores en su contexto.
-- **DERECHA (`.header-tools`):** pager → marca COMPACTA con switcher
-  (`switch_brand_html`, el logo estático `brand/danwor-logo.png`, MISMO
-  para ambos workspaces — `<details class="workspace-switch
-  topbar-brand-compact">` con 2+ workspaces, `class="brand-compact-link"`
-  con 1 solo) → selector interno (`{{ caller() }}`) → theme → logout →
-  mobile-menu. CSS: `.brand-compact`/`.topbar-brand-compact` nuevas,
-  reemplazan `.topbar-brand-static` y los selectores
-  `.workspace-switch.topbar-brand > summary.animated-brand` (ahora
-  `.workspace-switch.topbar-brand-compact > summary.brand-compact`); regla
-  muerta `.animated-brand:has(.topbar-brand-static)` eliminada.
+- **DERECHA (`.header-tools`):** pager → switcher de workspace (botón-
+  ícono, `<details class="workspace-switch"><summary class="theme-toggle"
+  aria-label="Cambiar de espacio de trabajo">` con 2+ workspaces, link
+  plano con el mismo ícono con 1 solo) → selector interno (`{{ caller() }}`)
+  → theme → logout → mobile-menu. CSS: `.workspace-switch > summary.
+  theme-toggle` (list-style/cursor/marker-hide/hover) — el botón reusa
+  `.theme-toggle` TAL CUAL (34×34px, mismo lenguaje visual que theme/
+  logout), sin CSS de tamaño propio. **Iteración de UX dentro de este
+  mismo pase:** la primera versión usaba una clase `.brand-compact` con
+  el logo completo (`brand/danwor-logo.png`) como trigger; el usuario
+  aclaró que quería la caja-ícono, no el logo — se reemplazó por un ícono
+  SVG de grilla (4 cuadrados, stroke-based) DENTRO de `.theme-toggle`,
+  eliminando `.brand-compact`/`.brand-compact-link`/`.topbar-brand-compact`
+  sin dejar rastro. Regla muerta previa `.animated-brand:has(.topbar-brand-static)`
+  también eliminada.
 - **9 templates actualizados** (8 Copilot + `operations/staffing.html`):
   `_identity_html` (iframe con `title`/`subtitle` urlencoded desde
-  `config`) + `_switch_brand_html` (logo compacto) reemplazan el viejo
-  `_brand_html` único. `webapp/routers/staffing.py` agrega `pack:
-  DEFAULT_PACK` al contexto de `staffing_page` (Operaciones no tiene
-  concepto de pack propio; el asset animado es un archivo físico bajo
-  `content_packs/`) — presentación pura, **sin tocar redirect/auth**
-  (freeze respetado).
+  `config`) reemplaza el viejo `_brand_html` único — el switcher ya NO
+  recibe presentación del caller (es 100% del macro, como theme/logout).
+  `webapp/routers/staffing.py` agrega `pack: DEFAULT_PACK` al contexto de
+  `staffing_page` (Operaciones no tiene concepto de pack propio; el asset
+  animado es un archivo físico bajo `content_packs/`) — presentación
+  pura, **sin tocar redirect/auth** (freeze respetado).
 - **Sin cambios de ruteo:** route surface sigue en **82**, diff contra
   Batch A idéntico al de antes de este pase.
 - **Tests:** `tests/webapp/test_platform_topbar.py` reescrito con el
   contrato final — identidad animada única (LEFT) config-driven para
-  ambos workspaces, orden RIGHT (pager→marca compacta→selector
-  interno→theme→logout), switcher en la marca compacta (nunca en la
-  identidad), sustitución real de `TITLE`/`SUBTITLE` vía la ruta
-  `/brand/dancing/{pack}`, back/forward/selector interno sin regresión.
+  ambos workspaces, orden RIGHT (pager→switcher-ícono→selector
+  interno→theme→logout), switcher como botón-ícono 34×34 igual a theme/
+  logout (nunca la identidad, nunca el logo completo), sustitución real de
+  `TITLE`/`SUBTITLE` vía la ruta `/brand/dancing/{pack}`, back/forward/
+  selector interno sin regresión.
 - **SMOKE VISUAL MANUAL: GREEN.** `/modules/00_Intro?pack=datasphere_core`
-  y `/operaciones/staffing/asignaciones` vía sesión inyectada: orden
-  DOM confirmado por accesibilidad (identidad → pager → marca compacta+
-  switcher → selector interno → theme → logout → mobile-menu) en ambos
-  workspaces; request real a `/brand/dancing/datasphere_core` con
-  `title`/`subtitle` urlencoded correctos para cada workspace (verificado
-  vía Network); sustitución de texto confirmada byte a byte (UTF-8
-  correcto — un mojibake inicial fue artefacto del codepage de la consola
-  de smoke, no un bug real). Viewport 375px: sin overflow, `.module-pager`
-  sigue en `display:none` (regla preexistente, sin tocar), marca compacta
-  visible y proporcionada. Sin errores de consola en ningún paso.
-- **Tests:** `tests/webapp/test_platform_topbar.py` (NUEVO, sucesor de
-  `test_workspace_switcher.py` — eliminado junto con el partial que
-  probaba) — topbar compartido en páginas Copilot y Operaciones,
-  back/forward reales preservados en module.html, deshabilitados en el
-  resto, marca animada intacta, switcher en el brand con 1/2+ workspaces,
-  link a `/onedanwor`, ausencia del switcher standalone viejo, selector
-  interno de ambos workspaces. `tests/webapp/test_staffing_routes.py`
-  (reescrito) — rutas canónicas completas + compatibilidad (redirect
-  incondicional, preservación de method/body, cadena completa hasta login
-  o hasta el fragmento real). `tests/webapp/test_workspaces.py`
-  (actualizado) — `OPERATIONS.home_url` canónico.
+  y `/operaciones/staffing/asignaciones` vía sesión inyectada: orden DOM
+  confirmado por accesibilidad (identidad → pager → switcher-ícono →
+  selector interno → theme → logout → mobile-menu) en ambos workspaces;
+  request real a `/brand/dancing/datasphere_core` con `title`/`subtitle`
+  urlencoded correctos para cada workspace (verificado vía Network);
+  sustitución de texto confirmada byte a byte (UTF-8 correcto — un
+  mojibake inicial fue artefacto del codepage de la consola de smoke, no
+  un bug real); `getBoundingClientRect()` del switcher = 34×34px, idéntico
+  a theme/logout, cero `<img>` en el topbar. Viewport 375px: sin overflow,
+  `.module-pager` sigue en `display:none` (regla preexistente, sin tocar).
+  Sin errores de consola en ningún paso.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
   3.14.3): **suite 373 passed / 1 skipped** (370 + 3 netos del pase de
   geometría visual — algunos tests viejos se reescribieron en vez de
@@ -2584,13 +2591,14 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
 - **Topbar compartido:** `partials/platform_topbar.html`, macro
   presentación-pura, sin auth/Graph/pack/secuencia de rutas. Firma final
   (post pase correctivo 2): `platform_topbar(current_workspace,
-  available_workspaces, identity_href, identity_html, switch_brand_html,
-  mobile_menu_label, pager_previous=None, pager_next=None)`. Back/forward
-  transversal en POSICIÓN pero NO en lógica — el caller decide destino o
-  deshabilitado; `module.html` es el único con datos reales. DOS bloques
-  de marca distintos: `identity_html` (IZQUIERDA, identidad animada única,
-  nunca switcher) y `switch_brand_html` (marca compacta de RIGHT, SÍ es el
-  trigger del switcher de workspace).
+  available_workspaces, identity_href, identity_html, mobile_menu_label,
+  pager_previous=None, pager_next=None)`. Back/forward transversal en
+  POSICIÓN pero NO en lógica — el caller decide destino o deshabilitado;
+  `module.html` es el único con datos reales. `identity_html` (IZQUIERDA,
+  identidad animada única) es lo único que sigue siendo presentación del
+  CALLER — el switcher de workspace es 100% del macro: un botón-ícono más
+  en `.header-tools` (MISMA caja `.theme-toggle` que theme/logout, 34×34px,
+  ícono de grilla SVG), nunca el logo completo ni la identidad animada.
 - **8 templates Copilot migrados** (topbar duplicado → llamada al macro,
   mecánico, sin regresión de marca/pack/back-forward/theme/logout/
   mobile-menu). **Operaciones** adoptó la misma convención
@@ -2601,8 +2609,10 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
   reusa el MISMO componente animado histórico que Copiloto
   (`/brand/dancing/{pack}`), parametrizado con
   `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE` (`config.py`). El logo
-  estático (`brand/danwor-logo.png`) quedó como la marca COMPACTA de
-  RIGHT en ambos workspaces (trigger del switcher), no como identidad.
+  estático (`brand/danwor-logo.png`) NO se usa en el topbar compartido — el
+  switcher de RIGHT es un botón-ícono (`.theme-toggle` + grilla SVG),
+  igual en ambos workspaces; ese logo sigue existiendo solo para
+  `landing.html` (sin relación con este batch).
 - **Rutas canónicas:** `GET/POST /operaciones/staffing/asignaciones(/data)`.
   `GET/POST /operations/staffing(/data)` = alias de compatibilidad,
   siempre 307, method+body preservados. `OPERATIONS.home_url` actualizado.
