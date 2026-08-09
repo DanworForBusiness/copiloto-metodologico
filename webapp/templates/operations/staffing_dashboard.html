@@ -50,12 +50,12 @@
           </template>
         </select>
       </label>
-      <label class="whatsnew-filter">
+      <label class="whatsnew-filter whatsnew-filter--compact">
         <span>Estado</span>
         <div class="staffing-status-toggle">
           <template x-for="s in statusOptions" :key="s">
             <label class="staffing-status-chip">
-              <input type="checkbox" x-model="filters.status[s]">
+              <input type="checkbox" x-model="filters.status[s]" :aria-label="'Estado ' + s">
               <span x-text="s"></span>
             </label>
           </template>
@@ -101,77 +101,6 @@
             <span class="activity-kpi__value" x-text="kpis.activeHoursLabel"></span>
             <span class="activity-kpi__label">Horas activas / mes</span>
           </div>
-        </div>
-      </div>
-    </details>
-
-    <div class="staffing-operational-grid">
-      <details class="dashboard-section" data-section-id="timeline" open>
-        <summary class="dashboard-section__head">
-          <span class="dashboard-section__caret"></span>
-          <span class="dashboard-section__title">Timeline de asignaciones</span>
-          <span class="dashboard-section__count" x-text="timelineGroups.length + ' consultor(es)'"></span>
-        </summary>
-        <div class="dashboard-section__body">
-          <div class="staffing-timeline-toolbar">
-            <button type="button" @click="expandAllConsultants()">Expandir todo</button>
-            <button type="button" @click="collapseAllConsultants()">Contraer todo</button>
-          </div>
-          <div class="staffing-timeline-scroll">
-            <div class="staffing-timeline">
-              <div class="staffing-timeline__body">
-                <div class="staffing-timeline__header">
-                  <div></div>
-                  <div class="staffing-timeline__header-months">
-                    <template x-for="m in horizon" :key="m.index">
-                      <div class="staffing-timeline__month" :class="{ 'is-current-month': m.is_current }" x-text="m.label"></div>
-                    </template>
-                  </div>
-                </div>
-                <template x-for="group in timelineGroups" :key="group.key">
-                  <div class="staffing-timeline__group">
-                    <button type="button" class="staffing-timeline__consultant" @click="toggleConsultant(group.key)" :aria-expanded="!isConsultantCollapsed(group.key)">
-                      <span class="staffing-timeline__consultant-caret" x-text="isConsultantCollapsed(group.key) ? '▸' : '▾'"></span>
-                      <span x-text="group.consultant_name"></span>
-                    </button>
-                    <template x-if="!isConsultantCollapsed(group.key)">
-                      <div>
-                        <template x-for="row in group.rows" :key="row.assignment_id">
-                          <div class="staffing-timeline__row">
-                            <div class="staffing-timeline__row-label" :title="row.project_name" x-text="row.project_name"></div>
-                            <div class="staffing-timeline__track">
-                              <div class="staffing-timeline__bar"
-                                   :class="[paletteClass(row), 'is-status-' + statusSlug(row.status), row.clipped_start ? 'is-clipped-start' : '', row.clipped_end ? 'is-clipped-end' : '']"
-                                   :style="barStyle(row)"
-                                   :title="(row.start_date || '¿inicio?') + ' → ' + (row.end_date || 'en curso')"></div>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-                <div class="staffing-timeline__today-overlay">
-                  <div></div>
-                  <div class="staffing-timeline__today-track">
-                    <div class="staffing-timeline__today" x-show="todayMarker.visible" :style="'left:' + todayMarker.pct + '%'">
-                      <span class="staffing-timeline__today-label">HOY</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="dashboard-empty" x-show="timelineGroups.length === 0" style="margin-top:10px">
-            <span class="dashboard-empty__label">Sin datos en el timeline</span>
-            <p>Ninguna asignación filtrada tiene fecha real para posicionar.</p>
-          </div>
-          <p class="staffing-timeline__off-note" x-show="offTimelineCount > 0" x-text="offTimelineCount + ' asignación(es) sin fecha — visibles en el detalle, no en el timeline.'"></p>
-        </div>
-      </details>
-      <div>
-        <p class="dashboard-subhead">Disponibilidad de asignación</p>
-        <div class="activity-kpi-grid">
           <div class="activity-kpi">
             <span class="activity-kpi__value" x-text="availabilityGroups['Full Time']"></span>
             <span class="activity-kpi__label">Full Time</span>
@@ -186,7 +115,84 @@
           </div>
         </div>
       </div>
-    </div>
+    </details>
+
+    <details class="dashboard-section" data-section-id="timeline" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Timeline de asignaciones</span>
+        <span class="dashboard-section__count" x-text="timelineGroups.length + ' consultor(es)'"></span>
+      </summary>
+      <div class="dashboard-section__body">
+        <div class="staffing-timeline-toolbar">
+          <button type="button" @click="expandAllConsultants()">Expandir todo</button>
+          <button type="button" @click="collapseAllConsultants()">Contraer todo</button>
+        </div>
+        <div class="staffing-timeline-scroll">
+          <div class="staffing-timeline">
+            <div class="staffing-timeline__body">
+              <div class="staffing-timeline__header">
+                <div></div>
+                <div class="staffing-timeline__header-months">
+                  <template x-for="m in horizon" :key="m.index">
+                    <div class="staffing-timeline__month" :class="{ 'is-current-month': m.is_current }" x-text="m.label"></div>
+                  </template>
+                </div>
+              </div>
+              <template x-for="group in timelineGroups" :key="group.key">
+                <div class="staffing-timeline__group">
+                  <button type="button" class="staffing-timeline__consultant" @click="toggleConsultant(group.key)" :aria-expanded="!isConsultantCollapsed(group.key)">
+                    <span class="staffing-timeline__consultant-caret" x-text="isConsultantCollapsed(group.key) ? '▸' : '▾'"></span>
+                    <span x-text="group.consultant_name"></span>
+                  </button>
+                  <template x-if="!isConsultantCollapsed(group.key)">
+                    <div>
+                      <template x-for="row in group.rows" :key="row.assignment_id">
+                        <div class="staffing-timeline__row">
+                          <div class="staffing-timeline__row-label" :title="rowLabelTitle(row)">
+                            <span class="staffing-timeline__row-status" :class="'is-status-' + statusSlug(row.status)" x-text="rowStatusHoursLabel(row)"></span>
+                            <span class="staffing-timeline__row-clientproject" x-text="rowClientProjectLabel(row)"></span>
+                          </div>
+                          <div class="staffing-timeline__track">
+                            <div class="staffing-timeline__bar"
+                                 :class="[paletteClass(row), 'is-status-' + statusSlug(row.status), row.clipped_start ? 'is-clipped-start' : '', row.clipped_end ? 'is-clipped-end' : '']"
+                                 :style="barStyle(row)"
+                                 tabindex="0"
+                                 :aria-label="barAriaLabel(row)">
+                              <div class="staffing-timeline__tooltip" aria-hidden="true">
+                                <p class="staffing-timeline__tooltip-consultant" x-text="row.consultant_name || '(sin resolver)'"></p>
+                                <p x-text="row.status || 'Sin estado'"></p>
+                                <p x-show="row.allocation_unit === 'hours_per_month' && row.allocation_value != null" x-text="row.allocation_label"></p>
+                                <p x-show="row.client_name" x-text="row.client_name"></p>
+                                <p x-text="row.project_name"></p>
+                                <p x-text="(row.start_date || '¿inicio?') + ' → ' + (row.end_date || 'en curso')"></p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <div class="staffing-timeline__today-overlay">
+                <div></div>
+                <div class="staffing-timeline__today-track">
+                  <div class="staffing-timeline__today" x-show="todayMarker.visible" :style="'left:' + todayMarker.pct + '%'">
+                    <span class="staffing-timeline__today-label">HOY</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dashboard-empty" x-show="timelineGroups.length === 0" style="margin-top:10px">
+          <span class="dashboard-empty__label">Sin datos en el timeline</span>
+          <p>Ninguna asignación filtrada tiene fecha real para posicionar.</p>
+        </div>
+        <p class="staffing-timeline__off-note" x-show="offTimelineCount > 0" x-text="offTimelineCount + ' asignación(es) sin fecha — visibles en el detalle, no en el timeline.'"></p>
+      </div>
+    </details>
 
     <details class="dashboard-section" data-section-id="detalle" open>
       <summary class="dashboard-section__head">

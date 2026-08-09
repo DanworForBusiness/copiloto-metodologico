@@ -221,16 +221,45 @@ def test_post_dashboard_kpis_and_timeline_are_collapsible_sections(monkeypatch):
     assert "Resumen" in text
 
 
-def test_post_dashboard_operational_grid_is_two_thirds_one_third(monkeypatch):
+def test_post_dashboard_active_hours_kpi_binding_carries_no_unit_suffix(monkeypatch):
     monkeypatch.setattr(
         staffing_router, "StaffingService",
         lambda: _RecordingService(rows=[_row()]),
     )
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     text = response.text
-    assert 'class="staffing-operational-grid"' in text
-    # Ya no es la grilla 50/50 de Actividad para esta zona operativa.
-    assert 'class="activity-grid-2"' not in text
+    # Corrección visual (ver HANDOFF): el VALOR grande del KPI es solo el
+    # número (con separador de miles) — la unidad ya está en la etiqueta
+    # "Horas activas / mes", duplicarla ahí rompía la alineación vertical
+    # con el resto de los KPIs. El template solo referencia el binding —
+    # el formateo numérico en sí vive en kpis.activeHoursLabel (app.js).
+    assert 'x-text="kpis.activeHoursLabel"' in text
+    assert "kpis.activeHoursLabel + ' h/mes'" not in text
+    assert "kpis.activeHoursLabel + \" h/mes\"" not in text
+
+
+def test_post_dashboard_resumen_includes_availability_kpis_no_side_panel(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Revisión PBI (ver HANDOFF): Full Time/Part Time/Sin dato son KPIs
+    # generales del mismo universo filtrado — viven DENTRO de Resumen, ya
+    # no en un panel lateral independiente. El filtro de Disponibilidad
+    # sigue en la barra sticky (sin cambios ahí).
+    resumen_idx = text.index('data-section-id="resumen"')
+    timeline_idx = text.index('data-section-id="timeline"')
+    # (búsqueda desde resumen_idx: "Sin dato" también aparece antes, dentro
+    # del payload JSON embebido en x-data — no es el KPI que se busca acá).
+    assert resumen_idx < text.index("Full Time", resumen_idx) < timeline_idx
+    assert resumen_idx < text.index("Part Time", resumen_idx) < timeline_idx
+    assert resumen_idx < text.index("Sin dato", resumen_idx) < timeline_idx
+    # Sin grilla operativa 2/3·1/3 ni panel lateral — Timeline usa el ancho
+    # completo del contenido del reporte.
+    assert 'class="staffing-operational-grid"' not in text
+    assert "Disponibilidad de asignación</p>" not in text
 
 
 def test_post_dashboard_timeline_has_expand_collapse_controls(monkeypatch):
@@ -258,6 +287,63 @@ def test_post_dashboard_bars_carry_deterministic_palette_and_status_separately(m
     # como clases INDEPENDIENTES — nunca una reemplaza a la otra.
     assert "paletteClass(row)" in text
     assert "'is-status-' + statusSlug(row.status)" in text
+
+
+def test_post_dashboard_row_label_shows_status_hours_and_client_project(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Densidad restaurada (revisión PBI, ver HANDOFF): Estado(Horas) y
+    # Cliente-Proyecto como DOS spans separados, nunca un string opaco
+    # concatenado en el template — la composición (y la degradación con
+    # gracia si no hay client_name) vive en los helpers JS.
+    assert 'class="staffing-timeline__row-status"' in text
+    assert "rowStatusHoursLabel(row)" in text
+    assert 'class="staffing-timeline__row-clientproject"' in text
+    assert "rowClientProjectLabel(row)" in text
+    # Nunca un separador "Cliente - Proyecto" hardcodeado en el template —
+    # si existiera, no degradaría con gracia cuando falta client_name.
+    assert "<span> - </span>" not in text
+
+
+def test_post_dashboard_bar_has_tooltip_with_canonical_facts(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Tooltip visual: hover/focus vía CSS puro, contenido con x-text (nunca
+    # x-html) — todos los hechos ya presentes en el objeto canónico, sin
+    # pedir nada nuevo a Graph.
+    assert 'class="staffing-timeline__tooltip" aria-hidden="true"' in text
+    assert "row.consultant_name" in text
+    assert "row.status" in text
+    assert "row.allocation_label" in text
+    assert "row.client_name" in text
+    assert "row.project_name" in text
+    assert "x-html" not in text
+    # Foco por teclado, no solo hover — y un resumen accesible propio, no
+    # solo el duplicado visual (que queda aria-hidden).
+    assert 'tabindex="0"' in text
+    assert "barAriaLabel(row)" in text
+
+
+def test_post_dashboard_status_filter_is_compact_vertical_group(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row()]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    # Revisión PBI: Estado deja de ser una fila de "pills" horizontales que
+    # wrappeaban feo — ahora es un grupo compacto con clase dedicada y
+    # labels accesibles por checkbox.
+    assert 'class="whatsnew-filter whatsnew-filter--compact"' in text
+    assert "'Estado ' + s" in text
 
 
 def test_post_dashboard_today_marker_present_and_not_a_capacity_percentage(monkeypatch):

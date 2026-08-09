@@ -764,6 +764,44 @@ function staffingDashboard(payload) {
       return "staffing-palette-" + paletteIndex(row);
     },
 
+    // Densidad de información restaurada vs. el Power BI legado (revisión
+    // PBI, ver HANDOFF): "Estado (Horas)" + "Cliente - Proyecto" como DOS
+    // segmentos separados (nunca un string opaco concatenado) para permitir
+    // estilos distintos por segmento. `client_name` todavía no existe en el
+    // contrato normalizado (pendiente confirmación de metadata real de
+    // Cliente) — undefined/falsy degrada con gracia a solo Proyecto, sin
+    // separador feo.
+    rowStatusHoursLabel(row) {
+      const status = row.status || "Sin estado";
+      if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) {
+        return `${status} (${row.allocation_label})`;
+      }
+      return status;
+    },
+    rowClientProjectLabel(row) {
+      return row.client_name ? `${row.client_name} - ${row.project_name}` : row.project_name;
+    },
+    rowLabelTitle(row) {
+      return `${this.rowStatusHoursLabel(row)} · ${this.rowClientProjectLabel(row)}`;
+    },
+
+    // Tooltip de la barra — mismos hechos ya presentes en el objeto
+    // canónico de la asignación, sin pedir nada nuevo a Graph. Fechas con
+    // la misma convención ya usada en el título nativo previo de la barra
+    // (nunca se inventa una fecha). `barAriaLabel` es la MISMA información
+    // en texto plano, para foco por teclado / lectores de pantalla — el
+    // tooltip visual queda aria-hidden para no duplicar el anuncio.
+    barAriaLabel(row) {
+      const parts = [row.consultant_name || "(sin resolver)", row.status || "Sin estado"];
+      if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) {
+        parts.push(row.allocation_label);
+      }
+      if (row.client_name) parts.push(row.client_name);
+      parts.push(row.project_name);
+      parts.push((row.start_date || "¿inicio?") + " → " + (row.end_date || "en curso"));
+      return parts.join(" — ");
+    },
+
     get todayMarker() {
       return { visible: todayMarkerPct != null, pct: todayMarkerPct };
     },
@@ -831,14 +869,19 @@ function staffingDashboard(payload) {
       const activeHours = active
         .filter(r => r.allocation_unit === "hours_per_month" && r.allocation_value != null)
         .reduce((sum, r) => sum + r.allocation_value, 0);
+      // Redondeo a 2 decimales solo para evitar basura de punto flotante
+      // (50.1 + 20.2) — nunca una regla de negocio nueva. El valor grande
+      // del KPI es SOLO el número (con separador de miles) — la unidad
+      // "h/mes" ya está en la etiqueta de la tarjeta, duplicarla ahí rompe
+      // la alineación vertical con el resto de los KPIs (revisión visual,
+      // ver HANDOFF).
+      const roundedActiveHours = Math.round(activeHours * 100) / 100;
       return {
         consultants: consultants.size,
         projects: projects.size,
         active: active.length,
         tentative: tentative.length,
-        // Redondeo a 2 decimales solo para evitar basura de punto flotante
-        // (50.1 + 20.2) — nunca una regla de negocio nueva.
-        activeHoursLabel: `${Math.round(activeHours * 100) / 100} h/mes`,
+        activeHoursLabel: roundedActiveHours.toLocaleString("en-US"),
       };
     },
 
