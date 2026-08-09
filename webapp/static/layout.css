@@ -49,21 +49,17 @@
 }
 .header-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
-/* Marca compacta de RIGHT (header-tools): trigger del switcher de workspace
-   (Copiloto/Operaciones) cuando hay 2+ workspaces disponibles; con 1 solo,
-   es un link normal (sin dropdown) — ver partials/platform_topbar.html.
-   Distinta de `.animated-brand` (identidad IZQUIERDA, nunca es trigger).
-   El menú (`.workspace-switch-menu*`) es genérico, reusado tal cual sin
-   importar qué envuelva el `<summary>`. */
-.brand-compact, .brand-compact-link > * { display: block; height: 40px; width: auto; }
-.brand-compact-link { display: flex; align-items: center; }
+/* Switcher de workspace (Copiloto/Operaciones), RIGHT (header-tools): un
+   botón-ícono más — MISMA caja visual que theme/logout (`.theme-toggle`,
+   34x34px), NO el logo completo. Trigger cuando hay 2+ workspaces
+   disponibles; con 1 solo, es un link normal a home (sin dropdown) — ver
+   partials/platform_topbar.html. Distinto de `.animated-brand` (identidad
+   IZQUIERDA, nunca es trigger). El menú (`.workspace-switch-menu*`) es
+   genérico, reusado tal cual sin importar qué envuelva el `<summary>`. */
 .workspace-switch { position: relative; }
-.workspace-switch.topbar-brand-compact > summary.brand-compact {
-  display: flex; align-items: center; list-style: none; cursor: pointer;
-}
-.workspace-switch.topbar-brand-compact > summary.brand-compact::-webkit-details-marker { display: none; }
-.workspace-switch.topbar-brand-compact > summary.brand-compact:focus-visible { outline: 1px solid var(--gold); outline-offset: 3px; }
-.workspace-switch.topbar-brand-compact > summary.brand-compact:hover { opacity: .88; }
+.workspace-switch > summary.theme-toggle { list-style: none; cursor: pointer; }
+.workspace-switch > summary.theme-toggle::-webkit-details-marker { display: none; }
+.workspace-switch > summary.theme-toggle:hover { opacity: .88; }
 .workspace-switch-menu {
   position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
   display: flex; flex-direction: column; min-width: 190px;

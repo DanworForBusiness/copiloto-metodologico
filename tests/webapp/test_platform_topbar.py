@@ -6,13 +6,14 @@ Operaciones Structure — corrective pass "VISUAL CONTRACT CORRECTION".
 Geometría final (recuperada de la versión histórica pre-Batch-B vía git,
 ver HANDOFF): IZQUIERDA = identidad animada única (mark I+D + título +
 subtítulo, config-driven, MISMO componente para cualquier workspace) — NUNCA
-es el trigger del switcher. DERECHA (`.header-tools`) = pager → marca
-compacta con switcher de workspace → selector interno (caller) → theme →
-logout → mobile-menu.
+es el trigger del switcher. DERECHA (`.header-tools`) = pager → switcher de
+workspace (botón-ícono, MISMA caja visual que theme/logout — `.theme-toggle`,
+NO el logo completo) → selector interno (caller) → theme → logout →
+mobile-menu.
 
 Sucesor de test_workspace_switcher.py: el switcher standalone en
-`header-tools` fue reemplazado por el switcher attached a la marca
-compacta (ya no a la identidad animada) — ver HANDOFF.
+`header-tools` fue reemplazado por un botón-ícono más (mismo lenguaje
+visual que theme/logout), nunca por la identidad animada — ver HANDOFF.
 """
 from __future__ import annotations
 
@@ -146,35 +147,39 @@ def test_operations_page_renders_pager_disabled_both_sides():
 
 # --- D: orden interno de RIGHT (.header-tools) -------------------------------
 
-def test_operations_right_zone_order_pager_brand_context_theme_logout():
+def test_operations_right_zone_order_pager_switch_context_theme_logout():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     text = response.text
     tools_idx = text.index('class="header-tools"')
     pager_idx = text.index('class="module-pager"')
-    brand_idx = text.index('class="workspace-switch topbar-brand-compact"')
+    switch_idx = text.index('class="workspace-switch"')
     context_idx = text.index('aria-label="Área operativa"')
-    theme_idx = text.index('class="theme-toggle"')
+    theme_idx = text.index('@click="toggleTheme()"')
     logout_idx = text.index('class="theme-toggle logout-btn"')
-    assert tools_idx < pager_idx < brand_idx < context_idx < theme_idx < logout_idx
+    assert tools_idx < pager_idx < switch_idx < context_idx < theme_idx < logout_idx
 
 
-# --- E/F: workspace switching desde la marca compacta (RIGHT), no la identidad ---
+# --- E/F: workspace switching es un botón-ícono más (RIGHT), no la identidad ---
 
-def test_multi_workspace_copilot_user_gets_switcher_on_compact_brand():
+def test_multi_workspace_copilot_user_gets_switcher_as_icon_button():
     response = _full_client().get(_MODULE_URL)
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand-compact">' in response.text
-    assert '<summary class="brand-compact"' in response.text
+    assert '<details class="workspace-switch">' in response.text
+    # MISMA caja visual que theme/logout — no el logo completo.
+    assert '<summary class="theme-toggle" aria-label="Cambiar de espacio de trabajo"' in response.text
     assert f'href="{workspaces.OPERATIONS.home_url}"' in response.text
     assert workspaces.OPERATIONS.label in response.text
     # La identidad animada (LEFT) nunca es el trigger del switcher.
     assert '<summary class="animated-brand"' not in response.text
+    # El switcher es un ícono, no el logo completo — sin <img> en el topbar.
+    assert "danwor-logo.png" not in response.text
 
 
-def test_multi_workspace_operations_user_gets_switcher_on_compact_brand():
+def test_multi_workspace_operations_user_gets_switcher_as_icon_button():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand-compact">' in response.text
+    assert '<details class="workspace-switch">' in response.text
+    assert '<summary class="theme-toggle" aria-label="Cambiar de espacio de trabajo"' in response.text
     assert f'href="{workspaces.COPILOT.home_url}"' in response.text
     assert workspaces.COPILOT.label in response.text
 
@@ -183,8 +188,8 @@ def test_single_workspace_user_gets_no_dropdown_but_keeps_identity(monkeypatch):
     academy = _academy_client(monkeypatch)
     response = academy.get(_MODULE_URL)
     assert response.status_code == 200
-    assert '<details class="workspace-switch topbar-brand-compact">' not in response.text
-    assert 'class="brand-compact-link"' in response.text
+    assert '<details class="workspace-switch">' not in response.text
+    assert '<a href="/?pack=datasphere_core" class="theme-toggle" aria-label="Danwor · Inicio"' in response.text
     # La identidad animada sigue presente aunque no haya switch posible.
     assert 'class="animated-brand"' in response.text
 
@@ -201,10 +206,11 @@ def test_brand_switcher_links_to_onedanwor():
 
 def test_no_duplicate_standalone_switcher_remains():
     response = _full_client().get(_MODULE_URL)
-    # Solo un switcher attached a la marca compacta; nada más se llama
-    # "workspace-switch" como control independiente en header-tools.
-    assert response.text.count('class="workspace-switch topbar-brand-compact"') == 1
-    assert response.text.count('class="workspace-switch"') == 0
+    # Un solo switcher (el botón-ícono de RIGHT) — nada de un segundo
+    # control de texto standalone (el viejo `workspace_switcher.html`,
+    # eliminado hace dos batches).
+    assert response.text.count('class="workspace-switch">') == 1
+    assert "workspace_switcher" not in response.text
 
 
 # --- I: selector interno (Copilot pack / Operaciones área) ------------------
