@@ -2305,12 +2305,25 @@ usuario. Candidato identificado (NO autorizado, NO empezado):
 
 ---
 
-## SHARED WORKSPACE SHELL + OPERACIONES STRUCTURE — IMPLEMENTED / PENDING CI
-(commits funcionales `e2c8743` + `71bb101`; branch `work/shared-shell-operaciones`)
+## SHARED WORKSPACE SHELL + OPERACIONES STRUCTURE — CLOSED / GREEN
+(commits funcionales `e2c8743`, `71bb101`, `2489ac4`, `56019be`,
+`8108914`; checkpoints de docs `2fa2249`, `94508fe`, `2ab1e70`, `52636b9`;
+branch `work/shared-shell-operaciones`)
 
-> **NO marcar CLOSED/GREEN todavía** — falta la confirmación de CI real en
-> GitHub. Ver **A.17**: el cierre formal es un mensaje separado del usuario
-> después de que CI corra verde.
+**Evidencia final de cierre:** GitHub **CI GREEN** sobre el estado final
+de la rama (confirmado por el usuario); Python **3.14.3**; full suite
+**376 passed / 1 skipped**; tests dirigidos del topbar compartido **19
+GREEN** (`tests/webapp/test_platform_topbar.py`); **route surface 82**
+(80→82, único delta intencional: `GET /operaciones/staffing/asignaciones`
++ `POST /operaciones/staffing/asignaciones/data` — sin `POST /platform`
+ni `POST /onedanwor`); **hardening de seguridad del brand animado
+parametrizado: GREEN** (ver bullet dedicado más abajo — `</script>`
+breakout, comillas/backslashes, newlines/Unicode).
+
+**Commit final funcional de este batch:** `8108914` — `fix(platform):
+escape script-context breakout in parameterized brand asset` (hardening
+de seguridad, ver más abajo). El commit de docs que cierra este batch es
+el que crea este mismo bloque.
 
 Precedido por un **targeted assessment** (análisis, sin código) que dejó
 este batch explícitamente diferido de Batch A (One Danwor Entry
@@ -2539,7 +2552,65 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
   block` computado). Academy/Catalog/What's New re-verificados: pager
   deshabilitado en ambos lados, brand intacto. Sin errores de consola en
   ningún paso.
-- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
+- **Workspace switcher — corrección de UX (commits `56019be` +
+  `52636b9`):** la primera versión del botón-ícono de RIGHT usaba el logo
+  completo de Danwor (`brand/danwor-logo.png`) como trigger del switcher.
+  El usuario aclaró que la intención era una caja del mismo tamaño que
+  theme/logout, no el logo — se reemplazó por un ícono SVG de grilla (4
+  cuadrados, mismo estilo stroke-based) DENTRO de la clase `.theme-toggle`
+  ya existente (34×34px, cero CSS de tamaño nuevo). `platform_topbar` ya
+  no recibe `switch_brand_html` del caller — el switcher es 100% del
+  macro, igual que theme/logout. Verificado con
+  `getBoundingClientRect()`: switcher = 34×34px, idéntico a theme/logout,
+  cero `<img>` en el topbar, en ambos workspaces.
+- **Hardening de seguridad del brand animado parametrizado (commit
+  `8108914`):** verificación puntual pre-PR de la sustitución de
+  `title`/`subtitle` en `/brand/dancing/{pack}` (ver arriba). Hallazgo: el
+  escaping inicial (`_js_single_quoted`) protegía correctamente el
+  contexto de string JS (comillas simples, backslashes) pero NO el
+  contexto real de embedding — un `<script>` dentro de un documento HTML.
+  El parser de HTML tokeniza `</script>` de forma literal e insensible a
+  mayúsculas ANTES de que exista noción de "string JS": un `title`/
+  `subtitle` con `</script>` cerraba el script real y el resto se
+  parseaba como markup nuevo, ejecutando código inyectado — aunque el
+  valor estuviera sintácticamente bien escapado como literal JS.
+  Corrección: `"</"` → `"<\/"` (MISMO patrón que `pack_asset()` ya usa un
+  poco más abajo en el mismo archivo para su payload de embed —
+  reutilizado, no una nueva defensa) + normalización de saltos de línea
+  crudos a `\n` escapado (un literal `'...'` de JS no admite un salto de
+  línea crudo). Regresión agregada: intento de breakout
+  `</script><script>...</script>`, comillas+backslashes combinados,
+  multilinea, Unicode normal preservado — **GREEN**, sin afectar
+  identidad/config/ruteo.
+- **Validación final de cierre:** Python **3.14.3**; full suite **376
+  passed / 1 skipped** (373 + 3 netos del hardening de seguridad);
+  tests dirigidos del topbar compartido **19 GREEN**; route-contract
+  GREEN, snapshot sin cambios (**82**); GitHub **CI GREEN** sobre el
+  estado final de la rama (confirmado por el usuario).
+
+### Próxima decisión (NO autorizada en este commit de docs)
+
+Con este batch **CLOSED / GREEN**, el objetivo de shell/topbar
+transversal de plataforma queda completo — la iniciativa vuelve a valor
+de producto funcional. Candidato identificado (NO autorizado, NO
+empezado):
+
+- **STAFFING FUNCTIONAL PARITY** — empezando por un **assessment
+  funcional** (análisis, sin código) de horas de asignación/mes,
+  disponibilidad Full Time/Part Time de consultores, semántica de
+  capacidad y de disponibilidad, ANTES de introducir cualquier regla
+  basada en el umbral de 160h/mes.
+
+Explícitamente diferido, sin autorizar implementación: capacidad/
+disponibilidad de Staffing, reportes/herramientas adicionales de
+Staffing, Projects, Reporting, vacaciones, filtros, Gantt, contenido real
+del right rail de Operaciones, asset animado dedicado futuro de
+Operaciones (`PENDING DESIGN ASSET`, no bloqueante), recordar-último-
+workspace, última-ruta-por-workspace, RBAC generalizado, rediseño de
+OAuth, flip de `/` a One Danwor, descomposición de Catalog/Admin, diseño-
+system generalizado.
+
+**No autorizado todavía.**
 
 ---
 
@@ -2572,21 +2643,28 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
 | Platform Entry / Workspace Resolution | **CLOSED / GREEN** |
 | In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
 | One Danwor Entry Experience (Batch A) | **CLOSED / GREEN** |
-| Shared Workspace Shell + Operaciones Structure (Batch B) | **IMPLEMENTED / PENDING CI** |
+| Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Shared Workspace Shell + Operaciones Structure (Batch B de
   dos — Batch A, One Danwor Entry Experience, CLOSED/GREEN)
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local 373 passed / 1
-  skipped, route surface 82 (sin cambios en el pase de geometría visual —
-  ver detalle arriba), smoke visual manual GREEN — falta la confirmación
-  de CI real en GitHub antes de CLOSED/GREEN.
+- **Status:** **CLOSED / GREEN.** Suite local **376 passed / 1 skipped**,
+  tests dirigidos del topbar compartido **19 GREEN**, route surface **82**
+  (80→82, único delta intencional — ver detalle arriba), smoke visual
+  manual GREEN, hardening de seguridad del brand animado GREEN, GitHub
+  **CI GREEN** sobre el estado final de la rama (confirmado por el
+  usuario).
 - **Functional commits:** `e2c8743` — `feat(platform): shared workspace
-  topbar + Operaciones structure` (un solo commit funcional inicial); 
-  `71bb101` — `fix(platform): normalize Staffing auth redirect semantics`
-  (pase correctivo 1, redirect/auth); `2489ac4` — `fix(platform): preserve
+  topbar + Operaciones structure` (commit funcional inicial); `71bb101` —
+  `fix(platform): normalize Staffing auth redirect semantics` (pase
+  correctivo 1, redirect/auth); `2489ac4` — `fix(platform): preserve
   config-driven transversal header geometry` (pase correctivo 2, geometría
-  visual — ver sección dedicada arriba). Branch
+  visual); `56019be` — `fix(platform): workspace switcher as icon button,
+  not full logo` (ajuste de UX del switcher); `8108914` — `fix(platform):
+  escape script-context breakout in parameterized brand asset` (hardening
+  de seguridad, commit final funcional de este batch). Checkpoints de
+  docs: `2fa2249`, `94508fe`, `2ab1e70`, `52636b9` (el commit que crea este
+  mismo bloque es el docs-close final). Branch
   `work/shared-shell-operaciones`, pusheado a origin.
 - **Topbar compartido:** `partials/platform_topbar.html`, macro
   presentación-pura, sin auth/Graph/pack/secuencia de rutas. Firma final
@@ -2626,13 +2704,16 @@ su propio texto hardcodeado en JS (`const TITLE = '...'`).
   route-contract contra `main` de Batch A es EXACTAMENTE las 2 rutas
   canónicas nuevas — nada más. **Congelado sin cambios en el pase
   correctivo 2** (geometría visual, ver arriba).
-- **Next candidate:** ninguno propuesto todavía — este era el último
-  batch identificado de la iniciativa de plataforma multi-workspace.
-  Streams pendientes conocidos (sin elegir): paridad funcional de
-  Staffing (capacidad/disponibilidad/filtros/Gantt/vacaciones),
-  Projects/Reporting.
+- **Next candidate:** con Batch B CLOSED/GREEN, el objetivo de shell/topbar
+  transversal de plataforma queda completo — candidato identificado es
+  **STAFFING FUNCTIONAL PARITY**, empezando por un assessment funcional
+  (sin código) de horas de asignación/mes, disponibilidad FT/PT,
+  semántica de capacidad/disponibilidad, ANTES de cualquier regla basada
+  en 160h/mes. Streams pendientes conocidos (sin elegir): Projects,
+  Reporting, vacaciones, filtros, Gantt, right rail real de Operaciones,
+  asset animado dedicado futuro de Operaciones (no bloqueante).
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **373 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **376 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
