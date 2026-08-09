@@ -1647,8 +1647,15 @@ allá de ese hito.
   necesitará una forma controlada de validar estos 3 puntos con datos
   reales — no se resuelve en este commit de docs.**
 
-## PLATFORM ACCELERATION — BATCH 3 — OPERATIONS/STAFFING HTTP + JINJA/HTMX — IMPLEMENTED / PENDING FINAL CI
-(commits `878f8e8`, `98490e7`; branch `work/platform-acceleration-b3-staffing-http`)
+## PLATFORM ACCELERATION — BATCH 3 — OPERATIONS/STAFFING HTTP + JINJA/HTMX — CLOSED / GREEN
+(commits `878f8e8`, `98490e7`; docs de hito real `5473b27`; branch
+`work/platform-acceleration-b3-staffing-http`)
+
+- **Evidencia final de cierre:** GitHub **CI GREEN**; Python **3.14.3**; FastAPI
+  **0.141.1**; Starlette **1.4.1**; full suite **313 passed / 1 skipped**;
+  **32 tests focalizados de Staffing** GREEN; **route surface 77**; route
+  snapshot actualizado intencionalmente solo para `GET /operations/staffing`
+  y `POST /operations/staffing/data`.
 
 **REAL GRAPH SMOKE: GREEN. FIRST REAL STAFFING MILESTONE: ACHIEVED.** El
 usuario completó el login real de Microsoft en su propio browser
@@ -1737,7 +1744,7 @@ sección de validación de esquema abajo).
   FastAPI 0.141.1 / Starlette 1.4.1): **suite 313 passed / 1 skipped** (297
   + 16), route-contract GREEN tras regenerar el snapshot intencionalmente
   (**77**, sin cambios en la corrección de semántica). **Cierre:** GitHub
-  CI pendiente de confirmación final (push recién realizado).
+  CI **GREEN**.
 - **SHELL SMOKE: GREEN** (previo a la validación real). Corrido sobre el
   `.venv` real del proyecto (`uvicorn webapp.main:app` puerto 8082, vía el
   launch config `copiloto` existente): Copiloto sigue abriendo normal;
@@ -1862,34 +1869,39 @@ y limpieza de Catalog/Admin siguen explícitamente fuera de alcance.
 | **Phase 2** | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 1 (Thin M365 integration) | **CLOSED / GREEN** |
 | Platform Acceleration — Batch 2 (Staffing repository + service) | **CLOSED / GREEN** |
-| Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **IMPLEMENTED / PENDING FINAL CI** |
+| Platform Acceleration — Batch 3 (Staffing HTTP + Jinja/HTMX) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
 - **Phase:** Platform Acceleration — Batch 3 — Operations/Staffing HTTP + Jinja/HTMX
-- **Status:** IMPLEMENTED / PENDING FINAL CI — **REAL GRAPH SMOKE: GREEN.
-  FIRST REAL STAFFING MILESTONE: ACHIEVED.** No CLOSED/GREEN todavía —
-  falta únicamente la confirmación final de GitHub CI sobre el commit de
-  corrección de semántica.
+- **Status:** CLOSED / GREEN — **REAL GRAPH SMOKE: GREEN. FIRST REAL
+  STAFFING MILESTONE: ACHIEVED.**
 - **Functional commits:** `878f8e8` (HTTP view), `98490e7` (corrección
-  allocation_unit → hours_per_month) (branch
-  `work/platform-acceleration-b3-staffing-http`, pusheada)
-- **Current next candidate:** confirmar CI GREEN y cerrar Batch 3 a
-  CLOSED/GREEN — NO es "Batch 4" nuevo. Tras eso, el usuario decide el
-  próximo incremento funcional (candidato natural: semántica de capacidad
-  — FT/PT baseline, `Disponibilidaddeasignaci_x00f3_n`, over-allocation —
-  ninguno autorizado todavía).
-- **Next candidate status:** **NOT AUTHORIZED** hasta que: ambos commits estén
-  pusheados (✅); CI final se mantenga GREEN; el PR esté mergeado; se
-  verifique containment; y el cleanup de la branch de Batch 3 esté completo.
+  allocation_unit → hours_per_month); docs de hito real `5473b27` (branch
+  `work/platform-acceleration-b3-staffing-http`)
+- **Current next candidate:** **PLATFORM ACCELERATION RESULT** — con Batch
+  1/2/3 CLOSED/GREEN y el primer hito real alcanzado, queda demostrado que
+  el segundo workspace real puede consumir capacidades de plataforma
+  compartidas sin embeberse en HTTP/business/state del Copiloto. El
+  próximo paso es una DECISIÓN del usuario, no un lote automático:
+  semántica de capacidad/disponibilidad (FT/PT,
+  `Disponibilidaddeasignaci_x00f3_n`, over-allocation), filtros, vistas de
+  asignación activa/actual, enriquecimiento de cliente, vacaciones,
+  timeline/Gantt, o el rediseño de navegación/login de workspace que el
+  usuario explícitamente quiere revisitar después de este hito. **Ninguno
+  autorizado todavía.**
+- **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **313 passed / 1 skipped** · route surface **77**
 
 ### Expected next workflow
-1. Confirmar CI GREEN del push de `work/platform-acceleration-b3-staffing-http` (commits `878f8e8` + `98490e7`).
-2. Mergear el PR de Batch 3 → `main`.
-3. **Verificar containment**: `git merge-base --is-ancestor 98490e7 origin/main` (exit 0 recién tras el merge).
-4. Cleanup de la branch de Batch 3 solo tras el paso 3 en verde.
-5. El agente siguiente lee **HANDOFF + Git** (no la conversación previa) — Batch 3 debería estar CLOSED/GREEN si CI confirmó verde.
-6. **Recién entonces** el usuario decide el siguiente incremento funcional (capacidad, u otro candidato) — ninguno autorizado todavía.
+1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
+2. Reconstruye el estado: Batch 1/2/3 CLOSED/GREEN, primer hito real de
+   Staffing ACHIEVED, mapeo de esquema y semántica de allocation validados
+   contra Graph real, observación no-bloqueante de calidad referencial de
+   origen registrada (no resuelta a propósito).
+3. El usuario decide el próximo incremento funcional o la revisión de
+   navegación/login de workspace — ninguno de estos está autorizado por
+   este documento.
+4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente
 Detenerse y reportar si: contradicción entre HANDOFF/Git/código · branch equivocada ·
