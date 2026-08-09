@@ -57,7 +57,8 @@ class _RecordingService:
 
 def _row(**overrides):
     base = dict(
-        assignment_id="1", consultant_name="Ana Pérez", project_name="Proyecto Alfa",
+        assignment_id="1", consultant_id="1", consultant_name="Ana Pérez",
+        project_id="10", project_name="Proyecto Alfa",
         allocation_value=50.0, allocation_unit="hours_per_month", capacity_percentage=None,
         status="Active", start_date=None, end_date=None,
     )
@@ -150,6 +151,66 @@ def test_post_empty_rows_render_valid_empty_state(monkeypatch):
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     assert response.status_code == 200
     assert "No hay asignaciones" in response.text
+
+
+# --- Asignaciones Dashboard v1 (fragmento) -----------------------------------
+
+def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detail(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row(consultant_availability="Full Time")]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text = response.text
+    assert response.status_code == 200
+    # Mount point del dashboard client-side — un solo dataset normalizado.
+    assert "staffingDashboard(" in text
+    # Filtros (Cliente/Tipo de Proyecto deliberadamente NO están).
+    assert "Consultor" in text and "Proyecto" in text and "Estado" in text
+    assert "Disponibilidad de asignación" in text
+    assert "Cliente" not in text
+    assert "Tipo de Proyecto" not in text
+    # KPIs (sin capacidad/porcentaje — ver test dedicado más abajo).
+    for label in ("Consultores", "Proyectos", "Asignaciones activas", "Asignaciones tentativas", "Horas activas"):
+        assert label in text
+    # Timeline + disponibilidad lado a lado.
+    assert "Timeline de asignaciones" in text
+    assert "Full Time" in text and "Part Time" in text
+    # Detalle colapsable — preserva las columnas históricas.
+    assert "Detalle de asignaciones" in text
+    for column in ("Consultor", "Proyecto", "Asignación", "Estado", "Desde", "Hasta"):
+        assert f"<th>{column}</th>" in text
+
+
+def test_post_dashboard_payload_embeds_real_availability_value(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row(consultant_availability="Part Time")]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert '"availability": "Part Time"' in response.text
+
+
+def test_post_dashboard_payload_defaults_missing_availability_to_sin_dato(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row(consultant_availability=None)]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert '"availability": "Sin dato"' in response.text
+
+
+def test_post_dashboard_never_introduces_capacity_semantics(monkeypatch):
+    monkeypatch.setattr(
+        staffing_router, "StaffingService",
+        lambda: _RecordingService(rows=[_row(consultant_availability="Full Time")]),
+    )
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    text_lower = response.text.lower()
+    assert "capacity_percentage" not in text_lower.replace(" ", "")
+    assert "utilization" not in text_lower
+    assert "sobre-asignación" not in text_lower and "sobreasignacion" not in text_lower
+    assert "%" not in response.text
 
 
 def test_post_missing_config_renders_controlled_state(monkeypatch):

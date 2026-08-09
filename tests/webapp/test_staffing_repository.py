@@ -228,6 +228,86 @@ def test_production_config_does_not_silently_synthesize_field_names(monkeypatch)
     ]
 
 
+# --- Enriquecimiento OPCIONAL FT/PT (Asignaciones Dashboard v1) ------------
+# `colaborador_disponibilidad` NUNCA debe poder romper la carga de
+# Staffing — a diferencia de los 8 campos de arriba, su ausencia degrada a
+# None, nunca a RuntimeError.
+
+def test_optional_availability_field_is_never_a_missing_required_field():
+    # Sin configurar (default "") — no debe aparecer en missing_fields(),
+    # a diferencia de los 8 campos requeridos.
+    mapping = StaffingFieldMapping(
+        colaborador_lookup_id="ColaboradorLookupId",
+        proyecto_lookup_id="ProyectoLookupId",
+        allocation="Asignacion",
+        status="Estado",
+        start_date="FechaInicio",
+        end_date="FechaFin",
+        proyecto_title="Title",
+        colaborador_title="Title",
+        # colaborador_disponibilidad deliberadamente omitido (default "").
+    )
+    assert mapping.missing_fields() == []
+
+
+def test_availability_resolves_when_mapping_configured_and_source_has_value(monkeypatch):
+    colaboradores = [
+        {"id": "1", "fields": {"Title": "Ana Pérez", "Disponibilidad": "Full Time"}},
+        {"id": "2", "fields": {"Title": "Beto Ruiz", "Disponibilidad": "Part Time"}},
+    ]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES
+        if _PROY_LIST in url:
+            return _PROYECTOS
+        if _COLAB_LIST in url:
+            return colaboradores
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    records = _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+    by_consultant = {r.consultant_id: r for r in records}
+
+    assert by_consultant["1"].consultant_availability == "Full Time"
+    assert by_consultant["2"].consultant_availability == "Part Time"
+
+
+def test_availability_is_none_when_source_value_is_blank(monkeypatch):
+    colaboradores = [{"id": "1", "fields": {"Title": "Ana Pérez", "Disponibilidad": ""}}]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES[:1]
+        if _PROY_LIST in url:
+            return _PROYECTOS
+        if _COLAB_LIST in url:
+            return colaboradores
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    records = _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+    assert records[0].consultant_availability is None
+
+
+def test_availability_is_none_when_mapping_not_configured_and_rows_still_load(monkeypatch):
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([]))
+
+    # _TEST_FIELD_MAPPING no incluye colaborador_disponibilidad (default "").
+    records = _make_repository().get_allocations("tok")
+
+    assert len(records) == 2  # las filas existentes siguen cargando sin romper
+    assert all(r.consultant_availability is None for r in records)
+
+
 def test_display_fields_are_mapping_driven_not_hardcoded_to_title(monkeypatch):
     # Si Proyectos/Colaboradores usaran una columna DISTINTA de "Title" para
     # el nombre, el repositorio debe seguir el mapeo — no asumir "Title".

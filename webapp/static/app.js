@@ -682,4 +682,151 @@ function initModuleFilter(scope) {
   if (resetBtn) resetBtn.addEventListener("click", () => show(""));
   show(""); // default: vista global, sin módulo seleccionado
 }
+
+// Asignaciones Dashboard v1 (Operaciones/Staffing) — Alpine x-data, mismo
+// estilo que copilotLayout(). `payload` llega YA normalizado desde el
+// server (webapp.services.staffing_service.build_dashboard_payload):
+// { assignments: [...], horizon: [...] }. A partir de acá, TODO el
+// filtrado (KPIs/timeline/disponibilidad/detalle) es client-side sobre
+// `assignments` — no hay una segunda request a Graph por cambio de filtro.
+function staffingDashboard(payload) {
+  const assignments = (payload && payload.assignments) || [];
+  const horizon = (payload && payload.horizon) || [];
+
+  // Estados conocidos (Batch 3, reales) + cualquier otro que aparezca en el
+  // dato real (nunca se inventa uno que no existe, y nunca se pierde uno
+  // real fuera de los 3 conocidos). Blank -> "Sin estado", nunca se oculta
+  // en silencio (default visible, igual que Activo/Tentativo).
+  const KNOWN_STATUSES = ["Activo", "Tentativo", "Inactivo"];
+  const presentStatuses = [...new Set(assignments.map(a => a.status || "Sin estado"))];
+  const statusOptions = [...new Set([...KNOWN_STATUSES, ...presentStatuses])];
+
+  const defaultStatusFilter = () =>
+    Object.fromEntries(statusOptions.map(s => [s, s !== "Inactivo"]));
+
+  return {
+    assignments,
+    horizon,
+    statusOptions,
+    filters: {
+      consultant: "",
+      project: "",
+      availability: "",
+      // Default V1: Activo + Tentativo visibles, Inactivo disponible pero
+      // NO seleccionado — decisión explícita y visible, no un descarte
+      // silencioso (ver HANDOFF).
+      status: defaultStatusFilter(),
+    },
+
+    resetFilters() {
+      this.filters.consultant = "";
+      this.filters.project = "";
+      this.filters.availability = "";
+      this.filters.status = defaultStatusFilter();
+    },
+
+    statusSlug(status) {
+      const known = { Activo: "activo", Tentativo: "tentativo", Inactivo: "inactivo" };
+      return known[status] || "otro";
+    },
+
+    // Opciones derivadas del dataset cargado — nunca hardcodeadas. Value =
+    // id estable (sobrevive lookups sin resolver); label = nombre para
+    // mostrar (ya con el fallback "(sin resolver)" si corresponde).
+    get consultantOptions() {
+      const seen = new Map();
+      this.assignments.forEach(a => {
+        if (a.consultant_id && !seen.has(a.consultant_id)) seen.set(a.consultant_id, a.consultant_name);
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    get projectOptions() {
+      const seen = new Map();
+      this.assignments.forEach(a => {
+        if (a.project_id && !seen.has(a.project_id)) seen.set(a.project_id, a.project_name);
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    get availabilityOptions() {
+      return [...new Set(this.assignments.map(a => a.availability))].sort();
+    },
+
+    // ÚNICA colección filtrada — KPIs, timeline, disponibilidad y detalle
+    // leen TODOS de acá, nunca de una copia independiente (evita que los
+    // componentes queden en desacuerdo sobre el filtro vigente).
+    get filteredAssignments() {
+      return this.assignments.filter(a => {
+        if (this.filters.consultant && a.consultant_id !== this.filters.consultant) return false;
+        if (this.filters.project && a.project_id !== this.filters.project) return false;
+        if (this.filters.availability && a.availability !== this.filters.availability) return false;
+        const statusKey = a.status || "Sin estado";
+        if (this.filters.status[statusKey] === false) return false;
+        return true;
+      });
+    },
+
+    get kpis() {
+      const rows = this.filteredAssignments;
+      const consultants = new Set(rows.map(r => r.consultant_id).filter(Boolean));
+      const projects = new Set(rows.map(r => r.project_id).filter(Boolean));
+      const active = rows.filter(r => r.status === "Activo");
+      const tentative = rows.filter(r => r.status === "Tentativo");
+      const activeHours = active
+        .filter(r => r.allocation_unit === "hours_per_month" && r.allocation_value != null)
+        .reduce((sum, r) => sum + r.allocation_value, 0);
+      return {
+        consultants: consultants.size,
+        projects: projects.size,
+        active: active.length,
+        tentative: tentative.length,
+        // Redondeo a 2 decimales solo para evitar basura de punto flotante
+        // (50.1 + 20.2) — nunca una regla de negocio nueva.
+        activeHoursLabel: `${Math.round(activeHours * 100) / 100} h/mes`,
+      };
+    },
+
+    // Jerarquía consultor → asignación (una barra por asignación, NUNCA
+    // superpuestas en la misma fila) — mismo criterio operativo útil del
+    // Power BI legado, sin las barras superpuestas que ese reporte tenía.
+    get timelineGroups() {
+      const groups = new Map();
+      this.filteredAssignments.forEach(a => {
+        if (!a.on_timeline) return;
+        const key = a.consultant_id || a.consultant_name;
+        if (!groups.has(key)) groups.set(key, { consultant_name: a.consultant_name, rows: [] });
+        groups.get(key).rows.push(a);
+      });
+      return [...groups.values()].sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
+    },
+
+    // Asignaciones sin ninguna fecha real — no se posicionan en el
+    // timeline (no se puede), pero siguen en KPIs/disponibilidad/detalle.
+    // Contador visible para que no queden "perdidas" en silencio.
+    get offTimelineCount() {
+      return this.filteredAssignments.filter(a => !a.on_timeline).length;
+    },
+
+    barStyle(row) {
+      return `grid-column:${row.start_index + 1} / ${row.end_index + 2}`;
+    },
+
+    // Disponibilidad de asignación — SOLO hechos: cuenta consultores
+    // DISTINTOS (un consultor con 3 asignaciones cuenta una vez), nunca
+    // asignaciones. Cero % / horas libres / capacidad — ver HANDOFF.
+    get availabilityGroups() {
+      const byConsultant = new Map();
+      this.filteredAssignments.forEach(a => {
+        const key = a.consultant_id || a.consultant_name;
+        if (!byConsultant.has(key)) byConsultant.set(key, a.availability);
+      });
+      const counts = { "Full Time": 0, "Part Time": 0, "Sin dato": 0 };
+      byConsultant.forEach(av => { counts[av] = (counts[av] || 0) + 1; });
+      return counts;
+    },
+  };
+}
 document.body.addEventListener("htmx:load", () => initModuleFilter(document));

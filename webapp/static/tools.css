@@ -706,6 +706,96 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
   .activity-grid-2 { grid-template-columns: 1fr; }
 }
 
+/* Asignaciones Dashboard v1 (Operaciones/Staffing, /operaciones/staffing/
+   asignaciones). Reusa la grilla de Actividad (.activity-kpi-grid/
+   .activity-kpi para el panel de disponibilidad, .activity-grid-2 para
+   timeline+disponibilidad, .dashboard-section para el detalle
+   colapsable, .whatsnew-filters para la barra de filtros) — CSS nuevo
+   SOLO para lo genuinamente distinto: el timeline mensual (grid puro,
+   sin librería) y el toggle de Estado (multi-selección, Actividad no
+   tiene un equivalente). Mismo criterio light-first + override
+   .content-theme-dark que ya usa esa sección (vive en .module-content,
+   no en el panel derecho, siempre dark). */
+
+/* Grupo de checkboxes de Estado — único filtro multi-select del dashboard. */
+.staffing-status-toggle { display: flex; gap: 6px; flex-wrap: wrap; }
+.staffing-status-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px;
+  border: 1px solid rgba(128,128,128,.32); border-radius: 999px; cursor: pointer;
+  color: #55555c; font: 600 .68rem var(--mono); user-select: none;
+}
+.content-theme-dark .staffing-status-chip { color: #b2b2bc; }
+.staffing-status-chip input { accent-color: var(--gold); margin: 0; }
+.staffing-status-chip:has(input:checked) { border-color: var(--gold); color: #1f1f24; background: rgba(231,176,8,.10); }
+.content-theme-dark .staffing-status-chip:has(input:checked) { color: #e4e4ec; }
+
+/* Badge de estado — misma forma que .catalog-card__verdict (borde +
+   padding chico + mayúsculas), colores propios y restringidos a 3 (verde/
+   ámbar/gris neutro) — nunca "rainbow". */
+.status-badge {
+  display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px;
+  padding: 1px 4px; line-height: 1.25;
+}
+.status-badge--activo { color: #2e9e5b; border-color: rgba(46,158,91,.42); background: rgba(46,158,91,.08); }
+.status-badge--tentativo { color: #c89100; border-color: rgba(200,145,0,.42); background: rgba(200,145,0,.08); }
+.status-badge--inactivo { color: #7a7a82; border-color: rgba(128,128,128,.32); background: rgba(128,128,128,.08); }
+.content-theme-dark .status-badge--inactivo { color: #9a9aa2; }
+.status-badge--otro { color: #7a7a82; border-color: rgba(128,128,128,.32); }
+
+/* Timeline mensual — grid CSS puro, coordenadas server-derived (índices de
+   mes, nunca píxeles). Header y filas comparten la MISMA proporción
+   (etiqueta fija + 8 columnas iguales) para que las barras alineen
+   exactamente bajo su mes. */
+.staffing-timeline__header, .staffing-timeline__row {
+  display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center;
+}
+.staffing-timeline__header { padding-bottom: 8px; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
+.staffing-timeline__header-months, .staffing-timeline__track { display: grid; grid-template-columns: repeat(8, 1fr); }
+.staffing-timeline__month {
+  text-align: center; color: #7a7a82; font: 600 .62rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; padding: 3px 0; border-radius: 4px;
+}
+.content-theme-dark .staffing-timeline__month { color: #9a9aa2; }
+.staffing-timeline__month.is-current-month { color: var(--gold); background: rgba(231,176,8,.10); }
+.staffing-timeline__group { margin: 14px 0 4px; }
+.staffing-timeline__consultant { margin: 0 0 6px; color: #1f1f24; font: 700 .78rem var(--sans); }
+.content-theme-dark .staffing-timeline__consultant { color: #e4e4ec; }
+.staffing-timeline__row { margin: 5px 0; }
+.staffing-timeline__row-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #55555c; font-size: .74rem;
+}
+.content-theme-dark .staffing-timeline__row-label { color: #b2b2bc; }
+.staffing-timeline__track { position: relative; height: 22px; }
+.staffing-timeline__bar {
+  grid-row: 1; align-self: center; height: 16px; border-radius: 4px;
+  background: hsl(47,74%,66%); min-width: 6px;
+}
+.staffing-timeline__bar.is-status-activo { background: #2e9e5b; }
+.staffing-timeline__bar.is-status-tentativo { background: #c89100; }
+.staffing-timeline__bar.is-status-inactivo { background: #9a9aa2; opacity: .7; }
+/* Corte visual cuando la fecha real cae fuera del horizonte visible — la
+   fecha real NUNCA se altera (queda en el tooltip/detalle); esto solo
+   marca que el borde dibujado no es el límite real. */
+.staffing-timeline__bar.is-clipped-start { border-left: 2px dashed rgba(0,0,0,.35); }
+.staffing-timeline__bar.is-clipped-end { border-right: 2px dashed rgba(0,0,0,.35); }
+.content-theme-dark .staffing-timeline__bar.is-clipped-start { border-left-color: rgba(255,255,255,.4); }
+.content-theme-dark .staffing-timeline__bar.is-clipped-end { border-right-color: rgba(255,255,255,.4); }
+.staffing-timeline__off-note { margin-top: 10px; color: #7a7a82; font-size: .72rem; }
+.content-theme-dark .staffing-timeline__off-note { color: #9a9aa2; }
+
+@media (max-width: 900px) {
+  .staffing-timeline__header, .staffing-timeline__row { grid-template-columns: 120px 1fr; }
+}
+/* ≤640px: en vez de una segunda implementación de timeline, el mismo grid
+   se vuelve horizontalmente scrolleable dentro de .staffing-timeline-scroll
+   — no se fuerza el Gantt completo a 375px. */
+@media (max-width: 640px) {
+  .staffing-timeline-scroll { overflow-x: auto; }
+  .staffing-timeline__header, .staffing-timeline__row { min-width: 640px; }
+}
+
 /* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →
    abre ese árbol en el panel derecho (pestaña Árbol). */
 .tree-launch {

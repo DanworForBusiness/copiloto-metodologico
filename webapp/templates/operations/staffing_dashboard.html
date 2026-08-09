@@ -1,0 +1,194 @@
+{# staffing_dashboard.html — Asignaciones Dashboard v1 (Operaciones ·
+   Staffing). Fragmento servido por POST /operaciones/staffing/asignaciones/data,
+   swapeado dentro de #staffing-rows (ver operations/staffing.html).
+
+   Estados controlados (sin cambios de contrato — mismos 4 de siempre):
+   missing_token / config_incomplete / graph_error / ok. `ok` con
+   `payload.assignments` vacío conserva el mensaje simple histórico (no
+   tiene sentido montar filtros sobre cero datos). `ok` con datos monta UN
+   componente Alpine (`staffingDashboard`, ver app.js) sobre un ÚNICO
+   dataset normalizado (`payload.assignments` + `payload.horizon`) — todo
+   el filtrado (KPIs/timeline/disponibilidad/detalle) es client-side desde
+   ahí; no hay una segunda request a Graph por cambio de filtro. #}
+{% if state == "missing_token" %}
+<p class="empty-panel">No pudimos obtener tu token de acceso a Microsoft. Volvé a iniciar sesión e intentá de nuevo.</p>
+{% elif state == "config_incomplete" %}
+<p class="empty-panel">Staffing configuration incomplete — todavía falta terminar de configurar el origen de datos de Staffing.</p>
+{% elif state == "graph_error" %}
+<p class="empty-panel">No pudimos leer Staffing desde SharePoint en este momento. Probá de nuevo en unos minutos.</p>
+{% elif not payload.assignments %}
+<p class="empty-panel">No hay asignaciones para mostrar todavía.</p>
+{% else %}
+<div x-data='staffingDashboard({{ payload | tojson }})' x-cloak>
+
+  <div class="whatsnew-filters">
+    <label class="whatsnew-filter">
+      <span>Consultor</span>
+      <select x-model="filters.consultant">
+        <option value="">Todos</option>
+        <template x-for="c in consultantOptions" :key="c.id">
+          <option :value="c.id" x-text="c.label"></option>
+        </template>
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Proyecto</span>
+      <select x-model="filters.project">
+        <option value="">Todos</option>
+        <template x-for="p in projectOptions" :key="p.id">
+          <option :value="p.id" x-text="p.label"></option>
+        </template>
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Disponibilidad de asignación</span>
+      <select x-model="filters.availability">
+        <option value="">Todos</option>
+        <template x-for="av in availabilityOptions" :key="av">
+          <option :value="av" x-text="av"></option>
+        </template>
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Estado</span>
+      <div class="staffing-status-toggle">
+        <template x-for="s in statusOptions" :key="s">
+          <label class="staffing-status-chip">
+            <input type="checkbox" x-model="filters.status[s]">
+            <span x-text="s"></span>
+          </label>
+        </template>
+      </div>
+    </label>
+    <button type="button" class="whatsnew-filter__clear" @click="resetFilters()">✕ Limpiar</button>
+  </div>
+
+  <div class="dashboard-empty" x-show="filteredAssignments.length === 0">
+    <span class="dashboard-empty__label">Sin resultados</span>
+    <p>No hay asignaciones para los filtros seleccionados. <button type="button" class="dashboard-subhead__reset" @click="resetFilters()">Limpiar filtros</button></p>
+  </div>
+
+  <div x-show="filteredAssignments.length > 0">
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi">
+        <span class="activity-kpi__value" x-text="kpis.consultants"></span>
+        <span class="activity-kpi__label">Consultores</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value" x-text="kpis.projects"></span>
+        <span class="activity-kpi__label">Proyectos</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value" x-text="kpis.active"></span>
+        <span class="activity-kpi__label">Asignaciones activas</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value" x-text="kpis.tentative"></span>
+        <span class="activity-kpi__label">Asignaciones tentativas</span>
+      </div>
+      <div class="activity-kpi">
+        <span class="activity-kpi__value" x-text="kpis.activeHoursLabel"></span>
+        <span class="activity-kpi__label">Horas activas / mes</span>
+      </div>
+    </div>
+
+    <div class="activity-grid-2" style="margin-top:20px">
+      <div>
+        <p class="dashboard-subhead">Timeline de asignaciones</p>
+        <div class="staffing-timeline-scroll">
+          <div class="staffing-timeline">
+            <div class="staffing-timeline__header">
+              <div></div>
+              <div class="staffing-timeline__header-months">
+                <template x-for="m in horizon" :key="m.index">
+                  <div class="staffing-timeline__month" :class="{ 'is-current-month': m.is_current }" x-text="m.label"></div>
+                </template>
+              </div>
+            </div>
+            <template x-for="group in timelineGroups" :key="group.consultant_name">
+              <div class="staffing-timeline__group">
+                <p class="staffing-timeline__consultant" x-text="group.consultant_name"></p>
+                <template x-for="row in group.rows" :key="row.assignment_id">
+                  <div class="staffing-timeline__row">
+                    <div class="staffing-timeline__row-label" :title="row.project_name" x-text="row.project_name"></div>
+                    <div class="staffing-timeline__track">
+                      <div class="staffing-timeline__bar"
+                           :class="['is-status-' + statusSlug(row.status), row.clipped_start ? 'is-clipped-start' : '', row.clipped_end ? 'is-clipped-end' : '']"
+                           :style="barStyle(row)"
+                           :title="(row.start_date || '¿inicio?') + ' → ' + (row.end_date || 'en curso')"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="dashboard-empty" x-show="timelineGroups.length === 0" style="margin-top:10px">
+          <span class="dashboard-empty__label">Sin datos en el timeline</span>
+          <p>Ninguna asignación filtrada tiene fecha real para posicionar.</p>
+        </div>
+        <p class="staffing-timeline__off-note" x-show="offTimelineCount > 0" x-text="offTimelineCount + ' asignación(es) sin fecha — visibles en el detalle, no en el timeline.'"></p>
+      </div>
+      <div>
+        <p class="dashboard-subhead">Disponibilidad de asignación</p>
+        <div class="activity-kpi-grid">
+          <div class="activity-kpi">
+            <span class="activity-kpi__value" x-text="availabilityGroups['Full Time']"></span>
+            <span class="activity-kpi__label">Full Time</span>
+          </div>
+          <div class="activity-kpi">
+            <span class="activity-kpi__value" x-text="availabilityGroups['Part Time']"></span>
+            <span class="activity-kpi__label">Part Time</span>
+          </div>
+          <div class="activity-kpi">
+            <span class="activity-kpi__value" x-text="availabilityGroups['Sin dato']"></span>
+            <span class="activity-kpi__label">Sin dato</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <details class="dashboard-section" data-section-id="detalle" open style="margin-top:20px">
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Detalle de asignaciones</span>
+        <span class="dashboard-section__count" x-text="filteredAssignments.length + ' fila(s)'"></span>
+      </summary>
+      <div class="dashboard-section__body">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Consultor</th>
+              <th>Proyecto</th>
+              <th>Asignación</th>
+              <th>Estado</th>
+              <th>Desde</th>
+              <th>Hasta</th>
+              <th>Disponibilidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in filteredAssignments" :key="row.assignment_id">
+              <tr>
+                <td>
+                  <span x-text="row.consultant_name"></span>
+                  <span class="tree-panel-chip" x-show="row.consultant_unresolved">sin resolver</span>
+                </td>
+                <td>
+                  <span x-text="row.project_name"></span>
+                  <span class="tree-panel-chip" x-show="row.project_unresolved">sin resolver</span>
+                </td>
+                <td x-text="row.allocation_label"></td>
+                <td><span class="status-badge" :class="'status-badge--' + statusSlug(row.status)" x-text="row.status || '—'"></span></td>
+                <td x-text="row.start_date || '—'"></td>
+                <td x-text="row.end_date || '—'"></td>
+                <td x-text="row.availability"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+{% endif %}

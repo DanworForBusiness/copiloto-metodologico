@@ -40,15 +40,28 @@ from core import microsoft365
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 
+#  Campos OPCIONALES de StaffingFieldMapping — enriquecimiento, no requisito
+# de carga. Su ausencia NUNCA debe aparecer en `missing_fields()` (eso
+# bloquearía TODO Staffing por una feature de presentación adicional). Ver
+# `colaborador_disponibilidad` (Asignaciones Dashboard v1).
+_OPTIONAL_MAPPING_FIELDS = frozenset({"colaborador_disponibilidad"})
+
+
 @dataclass(frozen=True)
 class StaffingFieldMapping:
-    """Internal names de columna Graph para las 3 listas de Staffing. NINGÚN
-    campo tiene default — deben proveerse explícitos: en producción,
-    confirmados contra el sitio Gestión real (`from_config()`, hoy vacío);
-    en tests, por un fixture documentado como tal. Construir esta clase con
-    valores vacíos NO falla (permite `from_config()` sin romper el import
-    de la app); lo que falla es `StaffingRepository.get_allocations` si
-    intenta usarla incompleta."""
+    """Internal names de columna Graph para las 3 listas de Staffing. Los 8
+    campos REQUERIDOS no tienen default — deben proveerse explícitos: en
+    producción, confirmados contra el sitio Gestión real (`from_config()`,
+    hoy vacío); en tests, por un fixture documentado como tal. Construir
+    esta clase con valores vacíos NO falla (permite `from_config()` sin
+    romper el import de la app); lo que falla es
+    `StaffingRepository.get_allocations` si intenta usarla incompleta.
+
+    `colaborador_disponibilidad` es OPCIONAL (ver `_OPTIONAL_MAPPING_FIELDS`)
+    — enriquecimiento FT/PT del Asignaciones Dashboard v1, confirmado contra
+    Graph en Batch 3 pero deliberadamente sin default de producción (mismo
+    mecanismo que los 8 de arriba). Su ausencia NUNCA bloquea la carga de
+    Staffing — degrada a `None`/"Sin dato", nunca a `RuntimeError`."""
 
     colaborador_lookup_id: str
     proyecto_lookup_id: str
@@ -58,6 +71,7 @@ class StaffingFieldMapping:
     end_date: str
     proyecto_title: str
     colaborador_title: str
+    colaborador_disponibilidad: str = ""
 
     @classmethod
     def from_config(cls) -> "StaffingFieldMapping":
@@ -70,10 +84,14 @@ class StaffingFieldMapping:
             end_date=config.SHAREPOINT_ASIGNACIONES_FIELD_END_DATE,
             proyecto_title=config.SHAREPOINT_PROYECTOS_FIELD_TITLE,
             colaborador_title=config.SHAREPOINT_COLABORADORES_FIELD_TITLE,
+            colaborador_disponibilidad=config.SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD,
         )
 
     def missing_fields(self) -> list[str]:
-        return [f.name for f in dataclass_fields(self) if not getattr(self, f.name)]
+        return [
+            f.name for f in dataclass_fields(self)
+            if f.name not in _OPTIONAL_MAPPING_FIELDS and not getattr(self, f.name)
+        ]
 
 
 @dataclass(frozen=True)
@@ -94,6 +112,10 @@ class StaffingAllocationRecord:
     status: str | None
     start_date: str | None
     end_date: str | None
+    # Enriquecimiento OPCIONAL (Asignaciones Dashboard v1) — passthrough puro
+    # del valor real de Colaboradores. None si el mapeo no está configurado
+    # O el valor fuente viene vacío — nunca deriva una regla de capacidad.
+    consultant_availability: str | None = None
 
 
 def _list_items_url(site_id: str, list_id: str) -> str:
@@ -206,6 +228,11 @@ class StaffingRepository:
                     status=_stringify(fields.get(mapping.status)),
                     start_date=_stringify(fields.get(mapping.start_date)),
                     end_date=_stringify(fields.get(mapping.end_date)),
+                    # `_resolved_title` ya maneja item=None y field="" con
+                    # gracia (devuelve None) — mismo helper que resuelve
+                    # consultant_name, sin lógica especial para el campo
+                    # opcional.
+                    consultant_availability=_resolved_title(consultor_item, mapping.colaborador_disponibilidad),
                 )
             )
         return records

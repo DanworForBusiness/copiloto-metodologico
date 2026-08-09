@@ -271,6 +271,16 @@ SHAREPOINT_ASIGNACIONES_FIELD_END_DATE = _env(
 ).strip()
 SHAREPOINT_PROYECTOS_FIELD_TITLE = _env("SHAREPOINT_PROYECTOS_FIELD_TITLE", "").strip()
 SHAREPOINT_COLABORADORES_FIELD_TITLE = _env("SHAREPOINT_COLABORADORES_FIELD_TITLE", "").strip()
+# Enriquecimiento OPCIONAL (Asignaciones Dashboard v1) — campo real de
+# Colaboradores confirmado contra Graph en Batch 3 (displayName
+# "Disponibilidad de asignación", choices Full Time/Part Time), pero
+# deliberadamente sin default de producción, mismo mecanismo que los 8
+# campos de arriba: no hardcodear un mapeo de tenant. A diferencia de esos
+# 8, este NO es requerido — su ausencia degrada a "Sin dato", nunca rompe
+# la carga de Staffing (ver StaffingFieldMapping.missing_fields()).
+SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD = _env(
+    "SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD", "",
+).strip()
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
