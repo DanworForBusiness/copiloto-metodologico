@@ -247,13 +247,25 @@ def test_multi_workspace_operations_user_gets_switcher_as_icon_button():
     assert workspaces.COPILOT.label in response.text
 
 
-def test_single_workspace_user_gets_no_dropdown_but_keeps_identity(monkeypatch):
+def test_single_workspace_user_gets_no_hub_control_but_keeps_identity(monkeypatch):
+    # Danwor Hub en el topbar es una afordancia de CAMBIO de workspace, no
+    # un botón Home genérico — con un solo workspace disponible el control
+    # simplemente no existe (ni dropdown, ni ícono deshabilitado, ni un
+    # fallback a "Danwor · Inicio"/`/onedanwor`).
     academy = _academy_client(monkeypatch)
     response = academy.get(_MODULE_URL)
     assert response.status_code == 200
     assert '<details class="workspace-switch">' not in response.text
-    assert '<a href="/?pack=datasphere_core" class="theme-toggle" aria-label="Danwor · Inicio"' in response.text
-    # La identidad animada sigue presente aunque no haya switch posible.
+    assert 'aria-label="Cambiar de espacio de trabajo"' not in response.text
+    # El fallback "Danwor · Inicio" era un SEGUNDO ícono en RIGHT
+    # (`class="theme-toggle" aria-label="Danwor · Inicio"`) — distinto de
+    # la identidad animada en LEFT, que legítimamente comparte ese mismo
+    # aria-label y debe seguir existiendo.
+    assert 'class="theme-toggle" aria-label="Danwor · Inicio"' not in response.text
+    assert 'href="/onedanwor"' not in response.text
+    # La propia navegación de identidad/home del workspace sigue siendo el
+    # home natural — la identidad animada sigue presente aunque no haya
+    # switch posible.
     assert 'class="animated-brand"' in response.text
 
 
@@ -265,7 +277,17 @@ def test_full_tier_without_operations_listing_also_gets_no_switcher(monkeypatch)
     response = _full_client().get(_MODULE_URL)
     assert response.status_code == 200
     assert '<details class="workspace-switch">' not in response.text
+    assert 'aria-label="Cambiar de espacio de trabajo"' not in response.text
     assert "Operaciones" not in response.text
+
+
+def test_operations_landing_hero_still_renders_canonical_hub_icon():
+    # El ícono canónico de 4 cuadrados sigue siendo la identidad visual del
+    # hero de Danwor Hub — esta corrección es SOLO del topbar compartido.
+    response = _full_client().get("/onedanwor")
+    assert response.status_code == 200
+    assert '<span class="hub-hero__icon">' in response.text
+    assert "<rect" in response.text
 
 
 # --- G: link a /onedanwor -----------------------------------------------------

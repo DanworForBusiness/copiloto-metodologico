@@ -32,8 +32,11 @@ def test_hub_icon_macro_defined_exactly_once_in_the_topbar_partial():
     assert _TOPBAR.count(_ICON_SVG) == 1
 
 
-def test_topbar_switcher_usages_call_the_macro_not_an_inline_svg():
-    assert _TOPBAR.count("{{ hub_icon() }}") == 2
+def test_topbar_switcher_usage_calls_the_macro_not_an_inline_svg():
+    # Un solo uso: el switcher SOLO existe con 2+ workspaces disponibles
+    # (Danwor Hub Workspace Switcher — Single-Workspace UX Correction, ver
+    # HANDOFF) — sin fallback/ícono deshabilitado con 1 solo workspace.
+    assert _TOPBAR.count("{{ hub_icon() }}") == 1
     assert "<rect" not in _TOPBAR.split("{% endmacro %}", 1)[1]
 
 
