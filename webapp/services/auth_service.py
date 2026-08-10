@@ -22,6 +22,7 @@ from config import (
     AUTH_DEFAULT_DOMAIN,
     AZURE_CLIENT_ID,
     AZURE_TENANT_ID,
+    OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
     SESSION_SECRET,
 )
@@ -87,6 +88,36 @@ def user_tier(email: str) -> str | None:
 
 def is_authorized(email: str) -> bool:
     return user_tier(email) is not None
+
+
+def _operations_set() -> set[str] | None:
+    """Allowlist EXPLÍCITA y PROVISORIA de Operations (Operations Workspace
+    Access Gate). Reusa `_csv_users` — MISMA normalización que
+    ALLOWED_USERS (usernames compactos → `@AUTH_DEFAULT_DOMAIN`, CSV,
+    case-insensitive, "ALL" literal si se configura explícito) — nunca un
+    segundo algoritmo de identidad.
+
+    A DIFERENCIA de `_allowed_set()`/`_academy_set()`: acá SIEMPRE se pide
+    `empty_is_all=False`, y a diferencia de esas dos, este módulo NUNCA
+    aplica el fallback histórico "ninguna lista configurada = abierto"
+    (ver `user_tier`) — `OPERATIONS_ALLOWED_USERS` ausente/vacío es
+    SIEMPRE `set()` (nadie), nunca "ALL" implícito. Ese fail-closed es un
+    contrato de seguridad explícito, no un accidente de reuso."""
+    return _csv_users(OPERATIONS_ALLOWED_USERS, empty_is_all=False)
+
+
+def is_operations_user(email: str) -> bool:
+    """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
+    está en `OPERATIONS_ALLOWED_USERS`. Deliberadamente ORTOGONAL a
+    `user_tier`/`is_authorized`: NO es "admisión a la app", es la
+    autorización de UN workspace adicional — un caller debe seguir
+    exigiendo `is_authorized(email)` por separado (ver
+    `webapp.operations_access.is_operations_authorized_user`)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    operations = _operations_set()
+    return operations is None or email in operations
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────

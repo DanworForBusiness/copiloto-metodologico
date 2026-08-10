@@ -6,16 +6,19 @@ real de Staffing).
 Clasificación: PLATFORM / WORKSPACE DISCOVERY & ROUTING METADATA. NO importa
 ``webapp.main``. NO mantiene estado mutable. NO es un motor de autorización
 general — cada `Workspace` apunta a un predicado YA EXISTENTE (Copiloto:
-sesión válida; Operations: `webapp.operations_access.is_staffing_authorized_user`,
-el mismo tier "full" que ya usa Staffing) — este módulo NO inventa una nueva
-semántica de permisos, solo las agrega para poder listarlas.
+sesión válida; Operations: `webapp.operations_access.is_operations_authorized_user`,
+admisión base + allowlist explícita `OPERATIONS_ALLOWED_USERS`, ORTOGONAL
+al tier de Copiloto — ver Operations Workspace Access Gate en HANDOFF) —
+este módulo NO inventa una nueva semántica de permisos, solo las agrega
+para poder listarlas.
 
 El descubrimiento de workspaces queda deliberadamente desacoplado de la
-FUENTE de autorización: hoy la fuente son los tiers de `auth_service`
-(`ALLOWED_USERS`/`ACADEMY_USERS`); en el futuro podría ser grupos de Entra,
-app roles, u otra fuente. Cambiar esa fuente no debería requerir cambiar
-este módulo ni el router de `/platform` — solo el predicado que cada
-`Workspace` referencia.
+FUENTE de autorización: hoy la fuente de Copiloto son los tiers de
+`auth_service` (`ALLOWED_USERS`/`ACADEMY_USERS`) y la de Operations es su
+propia allowlist explícita (`OPERATIONS_ALLOWED_USERS`); en el futuro
+podría ser grupos de Entra, app roles, u otra fuente. Cambiar esa fuente
+no debería requerir cambiar este módulo ni el router de `/platform` —
+solo el predicado que cada `Workspace` referencia.
 
 ``platform_login_redirect`` es el análogo de `webapp.nav.login_redirect`
 pero apuntando a `/platform` en vez de `/` — lo usan consumidores FUERA del
@@ -81,7 +84,7 @@ OPERATIONS = Workspace(
     label="Operaciones",
     subtitle="Staffing",
     home_url="/operaciones/staffing/asignaciones",
-    is_authorized=operations_access.is_staffing_authorized_user,
+    is_authorized=operations_access.is_operations_authorized_user,
 )
 
 _ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS)

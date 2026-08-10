@@ -14,6 +14,11 @@ from webapp.services import auth_service
 from webapp import workspaces
 
 auth_service.ALLOWED_USERS = "ALL"
+# Operations Workspace Access Gate (ver HANDOFF): tier "full" ya no basta
+# por sí solo — este archivo prueba resolución/selector de plataforma, no
+# la frontera de autorización en sí (ver test_operations_access.py), así
+# que el cliente full de módulo se abre explícito con "ALL".
+auth_service.OPERATIONS_ALLOWED_USERS = "ALL"
 
 _FULL_SESSION = auth_service.create_session(
     {"email": "onedanwor-full@danwor.com", "name": "Full", "first_name": "Full", "family_name": "User"}
@@ -29,6 +34,10 @@ def _full_client():
 def _academy_client(monkeypatch):
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "otro@danwor.com")
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    # Sin Operations explícito para ESTE usuario — a diferencia del "ALL"
+    # de módulo (pensado para el cliente full), este fixture sigue
+    # probando el caso "single workspace" (solo Copilot).
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     session = auth_service.create_session(
         {"email": "onedanwor-academy@danwor.com", "name": "Academy", "first_name": "Academy", "family_name": "User"}
     )
@@ -92,6 +101,18 @@ def test_unsafe_next_falls_back_to_onedanwor_default_home():
 def test_authenticated_with_one_workspace_redirects_directly(monkeypatch):
     academy = _academy_client(monkeypatch)
     response = academy.get("/onedanwor", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == workspaces.COPILOT.home_url
+
+
+def test_full_tier_without_operations_listing_also_sees_only_copilot(monkeypatch):
+    # Operations Workspace Access Gate (items N/O del batch): tier "full"
+    # NUNCA es la fuente de esta autorización — un usuario full admitido
+    # pero NO listado en OPERATIONS_ALLOWED_USERS ve exactamente lo mismo
+    # que uno academy sin listar: Danwor Hub lo manda derecho a Copiloto,
+    # Operaciones nunca aparece (ni en el selector, ni en el switcher).
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    response = _full_client().get("/onedanwor", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == workspaces.COPILOT.home_url
 
