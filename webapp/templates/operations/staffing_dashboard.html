@@ -83,9 +83,10 @@
     <p>No hay asignaciones para los filtros seleccionados. <button type="button" class="dashboard-subhead__reset" @click="resetFilters()">Limpiar filtros</button></p>
   </div>
 
-  <div x-show="filteredAssignments.length > 0">
+  <div class="dashboard-sections" data-dashboard-key="staffing" x-show="filteredAssignments.length > 0">
     <details class="dashboard-section" data-section-id="resumen" open>
-      <summary class="dashboard-section__head">
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Resumen</span>
         <span class="dashboard-section__count" x-text="filteredAssignments.length + ' asignación(es)'"></span>
@@ -120,24 +121,26 @@
             <span class="activity-kpi__value" x-text="availabilityGroups['Part Time']"></span>
             <span class="activity-kpi__label">Part Time</span>
           </div>
-          <div class="activity-kpi">
-            <span class="activity-kpi__value" x-text="availabilityGroups['Sin dato']"></span>
-            <span class="activity-kpi__label">Sin dato</span>
+          <div class="activity-kpi activity-kpi--warning" title="Asignaciones marcadas como activas cuya fecha de finalización ya pasó.">
+            <span class="activity-kpi__value" x-text="kpis.activosVencidos"></span>
+            <span class="activity-kpi__label">Activos vencidos</span>
           </div>
         </div>
       </div>
     </details>
 
     <details class="dashboard-section" data-section-id="timeline" open>
-      <summary class="dashboard-section__head">
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Timeline de asignaciones</span>
-        <span class="dashboard-section__count" x-text="timelineGroups.length + ' consultor(es)'"></span>
+        <span class="dashboard-section__count" x-text="timelineGroups.length + (groupBy === 'project' ? ' proyecto(s)' : ' consultor(es)')"></span>
       </summary>
       <div class="dashboard-section__body">
         <div class="staffing-timeline-toolbar">
           <button type="button" @click="expandAllConsultants()">Expandir todo</button>
           <button type="button" @click="collapseAllConsultants()">Contraer todo</button>
+          <button type="button" class="staffing-timeline__group-toggle" @click="toggleGrouping()" x-text="groupToggleLabel"></button>
         </div>
         <div class="staffing-timeline-scroll">
           <div class="staffing-timeline">
@@ -154,7 +157,8 @@
                 <div class="staffing-timeline__group">
                   <button type="button" class="staffing-timeline__consultant" @click="toggleConsultant(group.key)" :aria-expanded="!isConsultantCollapsed(group.key)">
                     <span class="staffing-timeline__consultant-caret" x-text="isConsultantCollapsed(group.key) ? '▸' : '▾'"></span>
-                    <span x-text="group.consultant_name"></span>
+                    <span class="staffing-timeline__consultant-name" x-text="group.consultant_name"></span>
+                    <span class="staffing-timeline__consultant-hours" x-text="group.hours_suffix"></span>
                   </button>
                   <template x-if="!isConsultantCollapsed(group.key)">
                     <div>
@@ -162,7 +166,7 @@
                         <div class="staffing-timeline__row">
                           <div class="staffing-timeline__row-label" :title="rowLabelTitle(row)">
                             <span class="staffing-timeline__row-status" :class="'is-status-' + statusSlug(row.status)" x-text="rowStatusHoursLabel(row)"></span>
-                            <span class="staffing-timeline__row-clientproject" x-text="rowClientProjectLabel(row)"></span>
+                            <span class="staffing-timeline__row-clientproject" x-text="rowGroupSecondaryLabel(row)"></span>
                           </div>
                           <div class="staffing-timeline__track">
                             <div class="staffing-timeline__bar"
@@ -176,7 +180,7 @@
                                 <p x-show="row.allocation_unit === 'hours_per_month' && row.allocation_value != null" x-text="row.allocation_label"></p>
                                 <p x-show="row.client_name" x-text="row.client_name"></p>
                                 <p x-text="row.project_name"></p>
-                                <p x-text="(row.start_date || '¿inicio?') + ' → ' + (row.end_date || 'en curso')"></p>
+                                <p x-text="(formatDateDMY(row.start_date) || '¿inicio?') + ' → ' + (formatDateDMY(row.end_date) || 'en curso')"></p>
                               </div>
                             </div>
                           </div>
@@ -205,18 +209,34 @@
     </details>
 
     <details class="dashboard-section" data-section-id="detalle" open>
-      <summary class="dashboard-section__head">
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Detalle de asignaciones</span>
-        <span class="dashboard-section__count" x-text="filteredAssignments.length + ' fila(s)'"></span>
+        <span class="dashboard-section__count" x-text="aggregatedDetailRows.length + ' consultor(es)'"></span>
       </summary>
       <div class="dashboard-section__body">
-        <table class="admin-table">
+        <div class="staffing-detail-toolbar">
+          <label class="staffing-detail-toolbar__n">
+            <span>Proyección a</span>
+            <input type="number" min="1" max="365" :value="projectionDays" @change="setProjectionDays($event.target.value)">
+            <span>día(s)</span>
+          </label>
+        </div>
+        <table class="admin-table staffing-detail-table">
+          <colgroup>
+            <col style="width:3%"><col style="width:14%"><col style="width:12%"><col style="width:15%">
+            <col style="width:12%"><col style="width:13%"><col style="width:9%"><col style="width:8%">
+            <col style="width:8%"><col style="width:6%">
+          </colgroup>
           <thead>
             <tr>
+              <th></th>
               <th>Consultor</th>
+              <th>Cliente</th>
               <th>Proyecto</th>
-              <th>Asignación</th>
+              <th>Asignación hoy</th>
+              <th x-text="projectionColumnLabel"></th>
               <th>Estado</th>
               <th>Desde</th>
               <th>Hasta</th>
@@ -224,21 +244,25 @@
             </tr>
           </thead>
           <tbody>
-            <template x-for="row in filteredAssignments" :key="row.assignment_id">
-              <tr>
+            <template x-for="item in detailRows" :key="item.key">
+              <tr :class="item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row'">
                 <td>
-                  <span x-text="row.consultant_name"></span>
-                  <span class="tree-panel-chip" x-show="row.consultant_unresolved">sin resolver</span>
+                  <button type="button" class="staffing-detail__expand-btn" x-show="item.is_aggregate" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
+                    <span x-text="item.expanded ? '▾' : '▸'"></span>
+                  </button>
                 </td>
+                <td x-text="item.consultant_label"></td>
+                <td x-text="item.client_label"></td>
                 <td>
-                  <span x-text="row.project_name"></span>
-                  <span class="tree-panel-chip" x-show="row.project_unresolved">sin resolver</span>
+                  <span x-text="item.project_label"></span>
+                  <span class="tree-panel-chip" x-show="item.project_unresolved">sin resolver</span>
                 </td>
-                <td x-text="row.allocation_label"></td>
-                <td><span class="status-badge" :class="'status-badge--' + statusSlug(row.status)" x-text="row.status || '—'"></span></td>
-                <td x-text="row.start_date || '—'"></td>
-                <td x-text="row.end_date || '—'"></td>
-                <td x-text="row.availability"></td>
+                <td x-text="item.hoy_label"></td>
+                <td x-text="item.proyectada_label"></td>
+                <td><span class="status-badge" :class="'status-badge--' + item.estado_slug" x-text="item.estado_label"></span></td>
+                <td x-text="item.desde_label"></td>
+                <td x-text="item.hasta_label"></td>
+                <td x-text="item.disponibilidad_label"></td>
               </tr>
             </template>
           </tbody>
