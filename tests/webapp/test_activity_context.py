@@ -157,39 +157,113 @@ def test_reader_normalizes_historical_and_new(monkeypatch, tmp_path):
     assert ctx["staffing_overview_viewed"] == ("operations", "staffing")  # explícito preservado
 
 
-# ── contrato interino: persistencia platform-wide, lente dashboard = Copiloto ─
+# ── Batch A2: dashboard Danwor Hub-wide (scope/area) ──────────────────────────
 
-def test_operations_activity_persisted_but_excluded_from_copilot_dashboard(monkeypatch, tmp_path):
-    """A1 corrective (pre-A2): la actividad de Operations SE persiste/normaliza en
-    el stream compartido, pero NO contamina el Activity Dashboard Copilot-oriented.
-    `login` (scope=platform) SÍ sigue contando (semántica histórica preservada —
-    no se filtra a copilot-only)."""
+def _seed_hub(monkeypatch, tmp_path):
+    """Dataset mixto Hub-wide para los tests A2. Incluye plataforma, copiloto y
+    operaciones; un evento HISTÓRICO de 5 campos (sin scope/area) y uno de scope
+    desconocido, para probar normalización y fallback explícito."""
     monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
-    _write_jsonl(tmp_path, "20260201", [
-        {"ts_utc": "2026-02-01T10:00:00+00:00", "event": "login", "user": "copi@d.com", "name": "Copi", "scope": "platform", "area": "auth", "payload": {}},
-        {"ts_utc": "2026-02-01T10:01:00+00:00", "event": "module_selected", "user": "copi@d.com", "name": "Copi", "scope": "copilot", "area": "methodology", "payload": {"module": "01"}},
-        {"ts_utc": "2026-02-01T10:02:00+00:00", "event": "staffing_overview_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {}},
-        {"ts_utc": "2026-02-01T10:03:00+00:00", "event": "staffing_overview_error", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {"error_type": "X"}},
+    _write_jsonl(tmp_path, "20260301", [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "login", "user": "copi@d.com", "name": "Copi", "scope": "platform", "area": "auth", "payload": {}},
+        {"ts_utc": "2026-03-01T10:01:00+00:00", "event": "module_selected", "user": "copi@d.com", "name": "Copi", "scope": "copilot", "area": "methodology", "payload": {"module": "01"}},
+        {"ts_utc": "2026-03-01T10:02:00+00:00", "event": "assistant_query", "user": "copi@d.com", "name": "Copi", "scope": "copilot", "area": "assistant", "payload": {"question": "q", "conversation_id": "c1", "reply_id": "r1", "answer": "a", "api_cost": True}},
+        {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "tree_started", "user": "copi@d.com", "name": "Copi", "scope": "copilot", "area": "methodology", "payload": {"stem": "01", "tree_id": "t1", "tree_title": "Árbol 1"}},
+        {"ts_utc": "2026-03-01T10:04:00+00:00", "event": "staffing_overview_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {}},
+        # Histórico de 5 campos (sin scope/area): debe normalizar por clasificación.
+        {"ts_utc": "2026-03-01T10:05:00+00:00", "event": "academy_selected", "user": "copi@d.com", "name": "Copi", "payload": {"page": "ACAD01"}},
+        # Evento de scope desconocido (sin campos, nombre sin evidencia).
+        {"ts_utc": "2026-03-01T10:06:00+00:00", "event": "mystery_event", "user": "x@d.com", "name": "X", "payload": {}},
     ])
 
-    # A) El stream compartido persiste + normaliza la actividad de Operations.
-    read = {(e["event"], e["scope"]) for e in activity_analytics._read_events("", "")}
-    assert ("staffing_overview_viewed", "operations") in read
-    assert ("staffing_overview_error", "operations") in read
 
-    # B) El dashboard actual (Copiloto + plataforma) NO cuenta Operations…
+def test_default_summary_is_hub_wide_including_operations(monkeypatch, tmp_path):
+    # item 1/2: default incluye platform + copilot + operations (exclusión A1 retirada).
+    _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "")
-    assert s["total_events"] == 2                              # login + module_selected (NO los 2 de ops)
-    assert s["unique_users"] == 1                              # solo copi@d.com
-    event_names = {r["event"] for r in s["event_counts"]}
-    assert event_names == {"login", "module_selected"}
-    assert not any(e.startswith("staffing_") for e in event_names)
-    top_user_labels = {r["label"] for r in s["top_users"]}
-    assert top_user_labels == {"Copi"} and "Ops" not in top_user_labels
-    facet_users = {u["label"] if isinstance(u, dict) else u for u in s["available_users"]}
-    assert "Ops" not in facet_users
-    # …y la serie diaria solo suma los 2 eventos Copiloto/plataforma de ese día.
-    assert sum(d["count"] for d in s["daily_series"]) == 2
+    scopes = {f["key"] for f in s["scope_facets"]}
+    assert {"platform", "copilot", "operations"} <= scopes
+    assert all(f["checked"] for f in s["scope_facets"])       # default: todo tildado
+    assert all(f["checked"] for f in s["area_facets"])
+    events = {r["event"] for r in s["event_counts"]}
+    assert "staffing_overview_viewed" in events               # Operations incluido por default
+    assert "login" in events and "module_selected" in events
 
-    # C) `login` (platform) SÍ se preserva en el lente actual (no copilot-only).
-    assert "login" in event_names
+
+def test_filter_scope_operations_returns_operations_only(monkeypatch, tmp_path):
+    # item 3
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["operations"])
+    assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
+    assert s["copilot_present"] is False
+    assert [f["key"] for f in s["area_facets"]] == ["staffing"]   # faceting: área se restringe
+
+
+def test_filter_scope_copilot_excludes_operations_preserves_copilot(monkeypatch, tmp_path):
+    # item 4 + item 13 (Operations no contamina lentes Copilot)
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["copilot"])
+    events = {r["event"] for r in s["event_counts"]}
+    assert "staffing_overview_viewed" not in events
+    assert {"module_selected", "assistant_query", "tree_started"} <= events
+    assert s["copilot_present"] is True
+    assert s["assistant_query_count"] == 1                    # lente Copilot correcta
+    assert s["tree_started"]                                  # árboles presentes
+
+
+def test_filter_scope_platform_preserves_auth(monkeypatch, tmp_path):
+    # item 5
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["platform"])
+    assert {r["event"] for r in s["event_counts"]} == {"login"}
+    assert [f["key"] for f in s["area_facets"]] == ["auth"]
+
+
+def test_filter_area_staffing_returns_staffing_and_facets_scope_to_operations(monkeypatch, tmp_path):
+    # item 6 + item 14 (facets derivados del universo)
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", areas=["staffing"])
+    assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
+    # Área=staffing ⇒ Ámbito compatible resuelve a Operaciones.
+    assert [f["key"] for f in s["scope_facets"]] == ["operations"]
+
+
+def test_scope_and_area_combine(monkeypatch, tmp_path):
+    # item 7
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["copilot"], areas=["methodology"])
+    assert {r["event"] for r in s["event_counts"]} == {"module_selected", "tree_started"}
+
+
+def test_historical_five_field_and_unknown(monkeypatch, tmp_path):
+    # item 8 (histórico 5 campos normaliza) + item 9 (unknown explícito, no copilot)
+    _seed_hub(monkeypatch, tmp_path)
+    read = {e["event"]: (e["scope"], e["area"]) for e in activity_analytics._read_events("", "")}
+    assert read["academy_selected"] == ("copilot", "academy")   # histórico clasificado
+    assert read["mystery_event"] == ("unknown", "unknown")      # fallback explícito
+    # unknown filtrable como su propio ámbito (NO cae en copilot).
+    s = activity_analytics.build_summary("", "", scopes=["unknown"])
+    assert {r["event"] for r in s["event_counts"]} == {"mystery_event"}
+    s_cop = activity_analytics.build_summary("", "", scopes=["copilot"])
+    assert "mystery_event" not in {r["event"] for r in s_cop["event_counts"]}
+
+
+def test_date_user_module_filters_still_behave(monkeypatch, tmp_path):
+    # item 10 + item 11 (module no absorbe Operations)
+    _seed_hub(monkeypatch, tmp_path)
+    # user filter
+    s_user = activity_analytics.build_summary("", "", user="ops@d.com")
+    assert {r["event"] for r in s_user["event_counts"]} == {"staffing_overview_viewed"}
+    # module filter → solo eventos con module (Copilot); Operations nunca tiene module
+    s_mod = activity_analytics.build_summary("", "", module="01")
+    ev_mod = {r["event"] for r in s_mod["event_counts"]}
+    assert "staffing_overview_viewed" not in ev_mod            # module no absorbe Operations
+    assert "module_selected" in ev_mod
+    assert "01" in s_mod["available_modules"]
+
+
+def test_areas_active_kpi_counts_distinct_areas(monkeypatch, tmp_path):
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "")
+    # auth, methodology, assistant, staffing, academy, unknown = 6 áreas distintas
+    assert s["areas_active"] == len({e["area"] for e in activity_analytics._read_events("", "")})

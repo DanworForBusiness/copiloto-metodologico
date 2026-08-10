@@ -1,4 +1,7 @@
-{% set base_qs = "date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode) %}
+{% set _ns = namespace(qs="date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode)) %}
+{% for f in summary.scope_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&scope=" ~ (f.key|urlencode) %}{% endfor %}
+{% for f in summary.area_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&area=" ~ (f.key|urlencode) %}{% endfor %}
+{% set base_qs = _ns.qs %}
 <div id="assistant-stories-body">
   {# Cada pregunta puede tener varios "turnos": el router contesta primero (a
      veces "pobre"), y si el usuario apretó "Explícame vos" hay un segundo

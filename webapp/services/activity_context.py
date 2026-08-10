@@ -79,6 +79,35 @@ _HISTORICAL: dict[str, tuple[str, str]] = {
 }
 
 
+# Labels visibles en español (los keys persistidos quedan estables en inglés).
+# Fuente única del vocabulario para que servicio y templates no diverjan.
+SCOPE_LABELS: dict[str, str] = {
+    SCOPE_PLATFORM: "Plataforma",
+    SCOPE_COPILOT: "Copiloto",
+    SCOPE_OPERATIONS: "Operaciones",
+    SCOPE_UNKNOWN: "Sin clasificar",
+}
+AREA_LABELS: dict[str, str] = {
+    AREA_AUTH: "Autenticación",
+    AREA_METHODOLOGY: "Metodología",
+    AREA_ASSISTANT: "Asistente",
+    AREA_ACADEMY: "Academy",
+    AREA_CATALOG: "Catálogo",
+    AREA_STAFFING: "Staffing",
+    AREA_UNKNOWN: "Sin clasificar",
+}
+
+
+def scope_label(key: str) -> str:
+    """Label visible del ámbito; devuelve el key crudo si no está mapeado (un
+    valor nuevo aún sin label se ve explícito, nunca se esconde)."""
+    return SCOPE_LABELS.get(key, key)
+
+
+def area_label(key: str) -> str:
+    return AREA_LABELS.get(key, key)
+
+
 def classify(event: str) -> tuple[str, str]:
     """(scope, area) para un `event` HISTÓRICO sin campos explícitos. Fallback
     EXPLÍCITO a (unknown, unknown) si no hay evidencia — nunca asume Copiloto."""

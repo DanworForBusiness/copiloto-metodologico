@@ -272,13 +272,17 @@ def _admin_result(request: Request, title: str, output: str):
 def admin_activity(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
 ):
     _require_diagnostic(request)
     # Gating más estricto que el resto del panel admin: esta vista expone
     # nombre/mail real por evento (incluidas preguntas textuales al asistente).
     if not _is_owner(request):
         raise HTTPException(403, "Solo disponible para el owner")
-    summary = activity_analytics.build_summary(date_from, date_to, user_filter, module_filter)
+    summary = activity_analytics.build_summary(
+        date_from, date_to, user_filter, module_filter,
+        scopes=scope_filter, areas=area_filter,
+    )
     ctx = {"summary": summary, "date_from": date_from, "date_to": date_to}
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -308,6 +312,7 @@ def admin_activity(
 def admin_activity_stories(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
     story_page: int = 1, story_page_size: int = 10,
 ):
     """Fragment liviano de solo la 'Historia de preguntas' (lista + paginador),
@@ -318,6 +323,7 @@ def admin_activity_stories(
         raise HTTPException(403, "Solo disponible para el owner")
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter, story_page, story_page_size,
+        scopes=scope_filter, areas=area_filter,
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_stories.html",
@@ -329,6 +335,7 @@ def admin_activity_stories(
 def admin_activity_tree_runs(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
     run_page: int = 1, run_page_size: int = 10,
 ):
     """Fragment liviano de solo 'Recorridos' (árboles de decisión) — mismo
@@ -340,6 +347,7 @@ def admin_activity_tree_runs(
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         run_page=run_page, run_page_size=run_page_size,
+        scopes=scope_filter, areas=area_filter,
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_tree_runs.html",

@@ -44,8 +44,39 @@
         {% endfor %}
       </select>
     </label>
+    {# Ámbito / Área: multi-select (checkbox) faceteados entre sí y contra el
+       universo filtrado (ver build_summary). Default Hub-wide = todo tildado. Las
+       opciones son SOLO las presentes en el dataset (nunca sintéticas). #}
+    {% if summary.scope_facets %}
+    <label class="whatsnew-filter whatsnew-filter--compact">
+      <span>Ámbito</span>
+      <div class="dashboard-checkbox-group">
+        {% for f in summary.scope_facets %}
+        <label class="dashboard-checkbox-option">
+          <input type="checkbox" name="scope" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+          <span>{{ f.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </label>
+    {% endif %}
+    {% if summary.area_facets %}
+    <label class="whatsnew-filter whatsnew-filter--compact">
+      <span>Área</span>
+      <div class="dashboard-checkbox-group">
+        {% for f in summary.area_facets %}
+        <label class="dashboard-checkbox-option">
+          <input type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+          <span>{{ f.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </label>
+    {% endif %}
     <button type="submit" class="btn-primary">Actualizar</button>
-    {% if date_from or date_to or summary.selected_user or summary.selected_module %}
+    {% if date_from or date_to or summary.selected_user or summary.selected_module
+          or (summary.scope_facets | rejectattr('checked') | list)
+          or (summary.area_facets | rejectattr('checked') | list) %}
     <button type="button" class="whatsnew-filter__clear"
             hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
     {% endif %}
@@ -83,6 +114,15 @@
         <span class="activity-kpi__value">{{ summary.avg_per_day }}</span>
         <span class="activity-kpi__label">Eventos / día ({{ summary.total_days }} día(s))</span>
       </div>
+      {# KPI genérico cross-scope (Hub-wide): cuántas áreas funcionales tuvieron
+         actividad en el universo filtrado. #}
+      <div class="activity-kpi">
+        <span class="activity-kpi__value">{{ summary.areas_active }}</span>
+        <span class="activity-kpi__label">Áreas activas</span>
+      </div>
+      {# KPIs Copilot-específicos (lente de dominio, NO métricas genéricas del Hub):
+         solo se muestran cuando hay actividad del Copiloto en la selección. #}
+      {% if summary.copilot_present %}
       <div class="activity-kpi">
         <span class="activity-kpi__value">{{ summary.assistant_query_count }}</span>
         <span class="activity-kpi__label">Preguntas al asistente</span>
@@ -91,6 +131,7 @@
         <span class="activity-kpi__value">{{ summary.assistant_api_cost_count }}</span>
         <span class="activity-kpi__label">Consultas a IA (con costo)</span>
       </div>
+      {% endif %}
     </div>
   </div>
 </details>
