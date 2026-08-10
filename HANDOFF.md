@@ -3052,6 +3052,86 @@ Reporting, librería de Gantt. (Filtro Cliente — antes en esta lista — ya
 
 ---
 
+## DANWOR HUB VISUAL IDENTITY — CLOSED / GREEN
+(commit funcional `8ea2921` — `feat(platform): introduce Danwor Hub visual
+identity`, branch `work/danwor-hub-visual`, pusheado a origin. **Primer CI
+del PR: GREEN.** Cierre formal confirmado por el usuario tras ver el CI
+real en GitHub.)
+
+Batch **visual/product-identity ÚNICAMENTE** — reemplaza el naming visible
+"One Danwor" del selector autenticado por **Danwor Hub**. El contrato de
+arquitectura/ruteo queda intencionalmente sin tocar (ver "Límite de
+alcance explícito" abajo).
+
+- **Identidad visible autenticada:** el hero del selector (`/onedanwor`,
+  2+ workspaces) presenta **Danwor Hub** en vez de "One Danwor" — kicker
+  "Una plataforma · Todos los servicios Danwor" / `<h1>` con ícono +
+  título en una sola línea / subtítulo aprobado ("Un punto de encuentro
+  donde se conectan necesidades, capacidades, conocimiento y
+  operación."+"Elegí el espacio de trabajo al que querés entrar.", en dos
+  renglones). La landing anónima (SIN sesión) sigue mostrando "One Danwor"
+  sin cambios — `_ONEDANWOR_LANDING_COPY` en `platform.py` no se tocó,
+  fuera de alcance de este batch a propósito.
+- **Ícono isotipo — una sola fuente canónica:** el macro `hub_icon()`
+  (`webapp/templates/partials/platform_topbar.html`) es el ÚNICO lugar
+  donde existe el markup del SVG de 4 cuadrados. Reusado por 3 call
+  sites — switcher de workspace, fallback del switcher (sin otros
+  workspaces disponibles), y el hero de Danwor Hub
+  (`platform_selector.html`) — nunca un duplicado visualmente similar.
+  Verificado por `tests/webapp/test_platform_hub_icon_reuse.py` (lee el
+  template fuente: una sola definición del macro, cero `<svg>` inline
+  fuera de él, el hero importa y llama al macro sin chrome de botón del
+  switcher).
+- **Título en una línea:** `.hub-hero h1` pasa a `display:flex` — el
+  ícono (`width/height:1em`, escala directo con el font-size del título)
+  ya no hereda el `display:block` compartido con `.access-brand h1 span`
+  (esa regla sigue intacta para las tarjetas de workspace de abajo, que SÍ
+  quieren su título en dos líneas con acento dorado — scoping vía
+  `.hub-hero`, nunca tocando la regla compartida).
+- **Kicker/subtítulo a ancho completo:** `.hub-hero .kicker`/`.hub-hero
+  p.full-page-subtitle` cancelan el `max-width:46ch` heredado de
+  `.access-brand`/`.access-brand p` — SOLO en este scope. Sin
+  `white-space:nowrap` ni reducción de font-size: en desktop entra en una
+  línea porque hay ancho disponible; en mobile envuelve naturalmente
+  (verificado ~375px: título sigue en una línea, kicker envuelve a 2
+  líneas, sin overflow horizontal del body).
+- **Cards de workspace — eyebrow removido, capacidad intacta:**
+  `_WORKSPACE_CARD_COPY["copilot"|"operations"].eyebrow` pasa de
+  `"Data & AI for Business"` (repetido arriba de cada card, redundante una
+  vez que la jerarquía visual del hero ya lo comunica) a `None`. El
+  template conserva `{% if card.meta.eyebrow %}` — la capacidad de
+  eyebrow por card sigue disponible para un futuro workspace; esto es una
+  decisión de CONTENIDO, no una remoción de feature.
+- **Tests (+2 archivos):** `test_onedanwor_routes.py` (+1 — hero visible,
+  eyebrow ausente, landing anónima sin cambios) y
+  `test_platform_hub_icon_reuse.py` (nuevo, +5 — fuente única del ícono,
+  capacidad opcional de eyebrow preservada, sin chrome de switcher en el
+  hero).
+- **Validado sobre stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**), en el HEAD real del batch (`8ea2921`): **suite 464 passed /
+  1 skipped**, route surface **82** (snapshot sin cambios). Revisión
+  visual desktop GREEN y responsive ~375px GREEN (sin overflow horizontal
+  de body, título+ícono siguen juntos, kicker envuelve naturalmente).
+
+### Límite de alcance explícito — qué NO hizo este batch
+
+- `/onedanwor` **NO** se renombró — sigue siendo la entrada canónica.
+- `/platform` **NO** cambió de semántica — sigue siendo el alias de
+  compatibilidad, siempre 307 a `/onedanwor`.
+- Ninguna `Workspace.key` interna se renombró (`copilot`, `operations`
+  intactas).
+- Autenticación/autorización **NO** cambiaron — cero cambios en
+  `auth_service`/`operations_access`/resolución de workspaces.
+- Staffing (`work/staffing-assignments-dashboard-v1`, PR #33,
+  CLOSED/GREEN — ver sección arriba) **NO** se tocó.
+- **NO** se implementó el gate de acceso de Operaciones — sigue diferido
+  (ver "Next candidate" abajo).
+- Una migración de nombre de ruta (p. ej. `/onedanwor` → `/hub`) queda
+  como decisión FUTURA e independiente — no evaluada ni autorizada en
+  este batch.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -3083,95 +3163,56 @@ Reporting, librería de Gantt. (Filtro Cliente — antes en esta lista — ya
 | One Danwor Entry Experience (Batch A) | **CLOSED / GREEN** |
 | Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
 | Staffing — Asignaciones Dashboard v1 | **CLOSED / GREEN** |
+| Danwor Hub Visual Identity | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Staffing — Asignaciones Dashboard v1 (Power BI replacement).
-  Precedida por Shared Workspace Shell + Operaciones Structure (Batch B,
-  **CLOSED/GREEN** — ver sección dedicada arriba), que dejó el shell/topbar
-  transversal de plataforma completo.
-- **Status:** **CLOSED / GREEN.** PR #33 — primer CI corrido: **GREEN**.
-  Suite local sobre el mismo HEAD (`e4f50d0`): **458 passed / 1 skipped**
-  (403 + 55 netos a lo largo de todo el batch), route surface **82** (sin
-  cambios — ver detalle arriba), smoke real de SharePoint en
-  `localhost:8082` confirmado por el usuario (Cliente + FT/PT con dato
-  real, ver "Evidencia de cierre" arriba).
-- **Functional commits:** `33cff8c` → `a79c4a5` → `8c788e1` → `0e39c82` →
-  `970a6d8` → `c8d7b32` → `7d5ef52` → `e4f50d0` (10 commits en total
-  incluyendo 2 checkpoints de docs — `f3d8b9f`/`33939f7` — ninguno con
-  amend/squash). Branch `work/staffing-assignments-dashboard-v1`, pusheado
-  a origin, **PR #33**.
-- **Enriquecimiento FT/PT opcional:** `consultant_availability` en
-  `StaffingAllocationRecord`/`StaffingOverviewRow`, resuelto desde
-  Colaboradores (`Disponibilidaddeasignaci_x00f3_n`) vía
-  `config.SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD` (sin default de
-  producción, excluido de `missing_fields()` — nunca bloquea Staffing).
-  `consultant_id`/`project_id` ahora también llegan a `StaffingOverviewRow`
-  (existían en el repositorio, nunca en el read-model).
-- **Payload único + dashboard client-side:** `build_dashboard_payload()`
-  (función libre en `staffing_service.py`, no método de clase — varios
-  tests reemplazan `StaffingService` entero por un double) arma
-  `{assignments, horizon}`; `staffingDashboard()` (app.js, mismo estilo
-  que `copilotLayout()`) filtra TODO client-side desde un único
-  `filteredAssignments` — sin volver a golpear Graph por filtro
-  (confirmado en Network durante el smoke). Default de Estado:
-  Activo+Tentativo visibles, Inactivo disponible pero no seleccionado.
-- **KPIs (Resumen, 8 tarjetas) sin regla de negocio:** consultores/
-  proyectos distintos (por id estable), asignaciones activas/tentativas,
-  horas activas/mes (solo número, separador de miles), Full Time/Part
-  Time/Sin dato (mudados a Resumen desde un panel lateral eliminado). Sin
-  capacidad/utilización/horizonte "termina pronto".
-- **Timeline mensual (CSS grid puro), ancho completo del reporte:**
-  horizonte mes anterior→actual→+6, jerarquía consultor→asignación (nunca
-  barras superpuestas), coordenadas server-derived
-  (`compute_horizon_months`/`compute_timeline_position`, funciones puras),
-  clip visual sin alterar fechas reales, tooltip accesible por barra,
-  marcador de "hoy" con coordenadas correctas (fix `7d5ef52`) — SOLO línea
-  vertical, sin chip de texto "HOY" (decisión de producto explícita).
-- **Cliente resuelto (LIVE-GRAPH-CONFIRMED):** `Proyecto.EmpresaLookupId`
-  → `Cliente.Title`, enriquecimiento opcional igual mecanismo que FT/PT —
-  ver `970a6d8`.
-- **Filtrado 100% client-side y FACETADO:** Consultor/Proyecto/Cliente/
-  Disponibilidad calculan sus opciones sobre el universo filtrado por los
-  OTROS filtros activos (nunca ofrecen una opción que produciría cero
-  filas); selecciones invalidadas se resetean solas; nunca una opción
-  "(sin resolver)" sintética. Cero requests a Graph por cambio de filtro
-  (confirmado en Network en cada smoke).
-- **Reuso de Actividad — explícito:** `.module-hero`/`.activity-kpi-grid`/
-  `.activity-kpi`/`.dashboard-section*`/`.whatsnew-filters*`/
-  `.dashboard-empty` reusados tal cual. CSS nuevo SOLO para
-  `.staffing-timeline*`/`.staffing-status-toggle*`/`.status-badge*`/
-  `.staffing-filter-bar*` (sin equivalente en Actividad). Sin dependencia
-  del código Python de Admin Activity.
-- **Sin cambios de ruteo/auth:** `GET/POST /operaciones/staffing/asignaciones(/data)`
-  sin cambios de firma HTTP — el filtrado es 100% client-side, no hay
-  endpoint nuevo de "datos filtrados". Freeze de Batch B respetado
-  íntegramente.
-- **Edición en paralelo, NO tocada ni commiteada:** `webapp/templates/
-  platform_selector.html`, `webapp/routers/platform.py`,
-  `webapp/templates/partials/platform_topbar.html`,
-  `webapp/static/brand-hero.css` — trabajo "Danwor Hub" del usuario,
-  stasheado/revertido antes de este cierre, fuera de PR #33.
-  `webapp/templates/operations/staffing.html` (`e4f50d0`, 1 línea de copy)
-  SÍ es del usuario pero SÍ forma parte de PR #33 — ver commit trail.
-- **Next candidate:** ninguno propuesto todavía — decisiones diferidas
-  explícitamente: regla de capacidad 160h/mes, % de capacidad, horas
-  libres, sobre-asignación, horizonte "termina pronto", filtro Tipo de
-  Proyecto, vacaciones, skills/conocimiento, ranking, profitability,
-  workspace Projects, workspace Reporting, librería de Gantt. (Filtro
-  Cliente ya **IMPLEMENTADO**, ver `970a6d8`.)
+- **Phase:** Danwor Hub Visual Identity. Precedida por Staffing —
+  Asignaciones Dashboard v1 (PR #33, **CLOSED/GREEN** — ver sección
+  dedicada arriba para el detalle completo de esa fase: enriquecimiento
+  FT/PT, payload/dashboard client-side, Cliente LIVE-GRAPH-CONFIRMED,
+  filtrado facetado, fix de coordenadas del marcador de "hoy" — nada de
+  eso se tocó en este batch).
+- **Status:** **CLOSED / GREEN.** Primer CI del PR: **GREEN**. Suite local
+  sobre el HEAD real (`8ea2921`): **464 passed / 1 skipped**, route
+  surface **82** (sin cambios). Revisión visual desktop GREEN, responsive
+  ~375px GREEN (sin overflow horizontal de body). Ver sección dedicada
+  "DANWOR HUB VISUAL IDENTITY — CLOSED / GREEN" arriba para el detalle
+  completo.
+- **Functional commit:** `8ea2921` — `feat(platform): introduce Danwor Hub
+  visual identity` (un solo commit funcional, sin amend/squash). Branch
+  `work/danwor-hub-visual`, pusheado a origin, PR abierto (número no
+  confirmado por el usuario en el cierre — ver commit hash como
+  referencia autoritativa).
+- **Alcance — SOLO identidad visual:** naming visible del selector
+  autenticado (`/onedanwor`, 2+ workspaces) "One Danwor" → "Danwor Hub";
+  ícono canónico único (`hub_icon()`) reusado por switcher + fallback +
+  hero; eyebrow de card de workspace → `None` (capacidad `{% if
+  card.meta.eyebrow %}` intacta). **Ninguna ruta se renombró, ninguna
+  workspace key cambió, auth/autorización sin tocar** — ver "Límite de
+  alcance explícito" en la sección dedicada arriba.
+- **Next candidate:** **Operations Workspace Access Gate** — allowlist
+  provisoria de usuarios vía `OPERATIONS_ALLOWED_USERS` (mencionado en un
+  intento anterior de esta sesión, bloqueado en el precheck: rama sucia /
+  main no estaba en el estado esperado en ese momento — ambas condiciones
+  ya resueltas ahora que Staffing y Danwor Hub cerraron limpio). Solo
+  mencionado como candidato — **NO iniciado, NO autorizado** en este
+  documento.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **458 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **464 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 2. Reconstruye el estado: Batch 1/2/3 CLOSED/GREEN, primer hito real de
    Staffing ACHIEVED, mapeo de esquema y semántica de allocation validados
    contra Graph real, **Staffing — Asignaciones Dashboard v1 CLOSED/GREEN
-   (PR #33)**, observación no-bloqueante de calidad referencial de origen
-   registrada (no resuelta a propósito).
-3. El usuario decide el próximo incremento funcional o la revisión de
-   navegación/login de workspace — ninguno de estos está autorizado por
-   este documento.
+   (PR #33)**, **Danwor Hub Visual Identity CLOSED/GREEN (commit
+   `8ea2921`, branch `work/danwor-hub-visual`)**, observación
+   no-bloqueante de calidad referencial de origen registrada (no resuelta
+   a propósito).
+3. El usuario decide el próximo incremento — el candidato mencionado
+   (Operations Workspace Access Gate) NO está autorizado por este
+   documento; solo queda registrado como referencia para cuando se
+   autorice explícitamente.
 4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente

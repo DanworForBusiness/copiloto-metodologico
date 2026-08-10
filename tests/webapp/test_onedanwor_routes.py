@@ -123,6 +123,23 @@ def test_authenticated_with_two_workspaces_sees_rich_selector():
     assert f'href="{workspaces.OPERATIONS.home_url}"' in response.text
 
 
+def test_authenticated_selector_shows_danwor_hub_hero_not_repeated_card_eyebrow():
+    # Revisión visual Danwor Hub (ver HANDOFF): el hero autenticado
+    # reemplaza "One Danwor" por "Danwor Hub" — SOLO en esta pantalla, la
+    # landing anónima sigue "One Danwor" sin cambios (ver
+    # test_unauthenticated_renders_onedanwor_login, arriba). Las cards NO
+    # repiten más el eyebrow "Data & AI for Business" arriba de cada
+    # título — la jerarquía visual del hero ya lo comunica.
+    response = _full_client().get("/onedanwor")
+    assert response.status_code == 200
+    text = response.text
+    assert "Danwor Hub" in text
+    assert 'class="glass access-brand hub-hero"' in text
+    assert "Una plataforma · Todos los servicios Danwor" in text
+    assert 'class="hub-hero__icon"' in text
+    assert "Data & AI for Business" not in text
+
+
 def test_authenticated_explicit_next_takes_precedence_over_selector():
     response = _full_client().get("/onedanwor?next=/operations/staffing", follow_redirects=False)
     assert response.status_code == 307

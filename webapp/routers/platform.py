@@ -68,10 +68,15 @@ _ONEDANWOR_LANDING_COPY = {
 
 # Presentación rica del selector, keyed por `Workspace.key`. Describe el
 # ALCANCE del workspace (no una lista de módulos ya implementados) — ver
-# docstring del módulo.
+# docstring del módulo. `eyebrow` queda en `None` a propósito (revisión
+# visual Danwor Hub, ver HANDOFF): "Data & AI for Business" repetido arriba
+# de cada card era redundante una vez que la jerarquía visual del hero ya
+# lo comunica. La capacidad de eyebrow por card SIGUE disponible — el
+# template conserva `{% if card.meta.eyebrow %}` — esto es una decisión de
+# CONTENIDO (ningún valor todavía), no una remoción de la feature.
 _WORKSPACE_CARD_COPY = {
     "copilot": {
-        "eyebrow": "Data & AI for Business",
+        "eyebrow": None,
         "title": "Copiloto Metodológico",
         "accent": "Arquitecto Danwor",
         "description": (
@@ -86,7 +91,7 @@ _WORKSPACE_CARD_COPY = {
         ],
     },
     "operations": {
-        "eyebrow": "Data & AI for Business",
+        "eyebrow": None,
         "title": "Gestión Inteligente",
         "accent": "Operaciones",
         "description": (

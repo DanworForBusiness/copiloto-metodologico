@@ -43,6 +43,12 @@
        <select class="pack-select">...</select>   [selector interno, opcional]
      {% endcall %}
 #}
+{% macro hub_icon() %}<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>{% endmacro %}
+{#  `hub_icon()` — ícono canónico del workspace hub (4 cuadrados), usado por
+    el switcher de este macro (dos veces, según haya o no otros workspaces
+    disponibles) Y por el hero de Danwor Hub (platform_selector.html, ver
+    HANDOFF revisión visual). Una sola fuente — nunca duplicar el markup
+    del SVG en un tercer lugar. #}
 {% macro platform_topbar(current_workspace, available_workspaces, identity_href, identity_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
 <header class="topbar">
   <a href="{{ identity_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ identity_html | safe }}</a>
@@ -54,7 +60,7 @@
     {% if available_workspaces and available_workspaces|length > 1 %}
     <details class="workspace-switch">
       <summary class="theme-toggle" aria-label="Cambiar de espacio de trabajo" title="Cambiar de espacio de trabajo">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        {{ hub_icon() }}
       </summary>
       <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
         {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
@@ -63,7 +69,7 @@
     </details>
     {% else %}
     <a href="{{ identity_href }}" class="theme-toggle" aria-label="Danwor · Inicio" title="Danwor · Inicio">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      {{ hub_icon() }}
     </a>
     {% endif %}
     {{ caller() }}
