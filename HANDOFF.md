@@ -3325,13 +3325,14 @@ genérico.
 
 ---
 
-## SHARED WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI
+## SHARED WORKSPACE SIDEBAR FRAME — CLOSED / GREEN
 (commit funcional `dd7f99d` — `refactor(platform): share workspace sidebar
-frame` + corrective `refactor(platform): share sidebar resize handle`
-(posterior, mismo branch, ver bullet dedicado abajo), branch
-`work/shared-workspace-sidebar-frame`. **NO marcar CLOSED/GREEN todavía**
-— falta la confirmación de CI real en GitHub Y la validación visual/de
-producto por el owner, mismo protocolo ya usado en batches anteriores.)
+frame` + corrective `4372625` — `refactor(platform): share sidebar resize
+handle` + docs `f367971`/`2fc20cd`, branch
+`work/shared-workspace-sidebar-frame`, mergeado a `main` vía **PR #38** —
+merge commit `a2f4035`. CI real de GitHub confirmado GREEN y **production
+smoke verificado por el owner en DigitalOcean el 2026-08-10** — ver
+"Evidencia de cierre" al final de esta sección.)
 
 Corrective de arquitectura, disparado por una revisión visual real en
 producción: Copiloto y Operaciones (los DOS consumidores reales de
@@ -3439,18 +3440,27 @@ de reusado.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
   **3.14.3**): **suite 510 passed / 1 skipped** (497 + 13 nuevos),
   route-contract GREEN, snapshot sin cambios (**82**).
-- **Validación visual:** NO realizada vía navegador automatizado — el
-  login real requiere Microsoft Entra ID OAuth con credenciales reales,
-  fuera de alcance de este entorno. Verificación equivalente hecha vía
-  `TestClient` HTTP directo contra el servidor real (mismo motor Jinja,
-  mismo HTML servido): se capturó el render completo del nav de Copiloto y
-  de Operaciones antes/después del cambio y se confirmó que el handle de
-  resize y la bienvenida aparecen en ambos con el HTML esperado. Falta
-  smoke visual real del owner en `localhost:8082`/producción antes de
-  CLOSED/GREEN.
-- **Pendiente:** confirmación de CI real en GitHub + validación
-  visual/de producto por el owner antes de CLOSED/GREEN. No se abrió el PR
-  todavía.
+- **Validación visual durante la implementación:** NO realizada vía
+  navegador automatizado — el login real requiere Microsoft Entra ID
+  OAuth con credenciales reales, fuera de alcance de ese entorno.
+  Verificación equivalente hecha vía `TestClient` HTTP directo contra el
+  servidor real (mismo motor Jinja, mismo HTML servido): se capturó el
+  render completo del nav de Copiloto y de Operaciones antes/después del
+  cambio y se confirmó que el handle de resize y la bienvenida aparecen en
+  ambos con el HTML esperado.
+- **Evidencia de cierre:** CI real de GitHub Actions sobre **PR #38**
+  confirmado GREEN; merge a `main` vía merge commit `a2f4035`. El owner
+  confirmó el **2026-08-10** un **smoke de producción verificado por el
+  usuario** (NO un resultado de test automatizado) en DigitalOcean:
+  - **Copiloto** — bienvenida/identidad de usuario visible; resize del
+    sidebar funcional; navegación y geometría existentes preservadas.
+  - **Operaciones** — bienvenida/identidad de usuario visible (antes
+    ausente); resize del sidebar funcional (antes ausente); geometría del
+    shell compartido alineada con Copiloto; navegación de Operaciones
+    (Staffing/Asignaciones) preservada sin cambios.
+  Suite sobre el HEAD real de `main` tras este batch: **510 passed / 1
+  skipped**, route surface **82** sin cambios (mismo baseline del gate de
+  implementación — sin drift).
 
 ---
 
@@ -3488,47 +3498,45 @@ de reusado.
 | Danwor Hub Visual Identity | **CLOSED / GREEN** |
 | Operations Workspace Access Gate | **CLOSED / GREEN** |
 | Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
-| Shared Workspace Sidebar Frame | **IMPLEMENTED / PENDING CI** |
+| Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Shared Workspace Sidebar Frame — ver sección dedicada arriba.
-  Precedida por Operations Workspace Access Gate y Danwor Hub —
-  Single-Workspace Switcher Correction, **ambos CLOSED/GREEN, mergeados a
-  `main` (vía PR #35/#324b6f2 y PR #36/#979cfc1) y validados en producción
-  DigitalOcean el 2026-08-10**; la docs-only closure de ambos también
-  mergeó vía **PR #37** (merge commit `5d6dba2`). Ninguno de los tres se
-  tocó en este batch.
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
-  (funcional `dd7f99d` + corrective `4372625`): **510 passed / 1 skipped**
-  (497 + 13 nuevos), route surface **82** (sin cambios). Ver sección
-  dedicada "SHARED WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI"
-  arriba para el detalle completo — falta la confirmación de CI real en
-  GitHub Y validación visual/de producto por el owner antes de
-  CLOSED/GREEN. PR no abierto todavía.
-- **Functional commits:** `dd7f99d` (`refactor(platform): share workspace
-  sidebar frame`) + `4372625` (`refactor(platform): share sidebar resize
-  handle`, corrective que extrajo el `<div data-resize>` a
-  `partials/workspace_shell.html::sidebar_resize_handle()` — ver bullet
-  dedicado arriba). Ninguno amendeado/squasheado. Branch
-  `work/shared-workspace-sidebar-frame`.
-- **Alcance combinado (batches previos, sin tocar en este):**
-  `OPERATIONS_ALLOWED_USERS` (allowlist explícita, fail-closed, sin
-  wildcard `"ALL"`, misma normalización que
+- **Phase:** ninguna fase de producto abierta. Los tres últimos batches
+  (Operations Workspace Access Gate, Danwor Hub — Single-Workspace
+  Switcher Correction, y Shared Workspace Sidebar Frame) están **todos
+  CLOSED/GREEN, mergeados a `main` (PR #35/`324b6f2`, PR #36/`979cfc1`,
+  PR #38/`a2f4035`) y validados en producción DigitalOcean el
+  2026-08-10** — ver las secciones dedicadas arriba. La docs-only closure
+  de los primeros dos también mergeó vía **PR #37** (merge commit
+  `5d6dba2`).
+- **Status:** **CLOSED / GREEN** para los tres. CI real de GitHub
+  confirmado GREEN sobre PR #35, PR #36 y PR #38 (Sidebar Frame, merge
+  `a2f4035` — HEAD actual de `main`). El owner confirmó el **2026-08-10**
+  que los tres comportamientos funcionan correctamente en **producción
+  DigitalOcean** — **smoke de producción verificado por el usuario, NO un
+  resultado de test automatizado**. Ver sección dedicada "SHARED
+  WORKSPACE SIDEBAR FRAME — CLOSED / GREEN" arriba para el detalle
+  completo de este último batch.
+- **Functional commits (Sidebar Frame):** `dd7f99d` (`refactor(platform):
+  share workspace sidebar frame`) + `4372625` (`refactor(platform): share
+  sidebar resize handle`, corrective que extrajo el `<div data-resize>` a
+  `partials/workspace_shell.html::sidebar_resize_handle()`). Ninguno
+  amendeado/squasheado. Branch `work/shared-workspace-sidebar-frame`,
+  PR #38.
+- **Alcance combinado:** `OPERATIONS_ALLOWED_USERS` (allowlist explícita,
+  fail-closed, sin wildcard `"ALL"`, misma normalización que
   `ALLOWED_USERS`); `is_operations_authorized_user` = admisión base AND
   allowlist de Operations, ortogonal al tier de Copiloto, sin bypass de
   `APP_OWNER`; MISMO predicado gobierna descubrimiento (`workspaces.py`) y
   enforcement server-side (`routers/staffing.py`); el switcher del topbar
-  compartido ahora expresa ese resultado correctamente (ausente con 1 solo
-  workspace, presente con 2+, ícono del hero de Danwor Hub intacto).
-  **Ninguna ruta se renombró, ningún cambio de auth/OAuth/sesión, route
-  surface sin cambios (82)** — ver "Alcance" en cada sección dedicada
-  arriba. El batch de Sidebar Frame (esta fase) agrega: frame de sidebar
-  YA compartido confirmado por evidencia (no se creó ninguna abstracción
-  nueva de geometría/resize); `user` ahora en el contexto de
-  `staffing_page`; bienvenida de sesión Y handle de resize extraídos a
-  `partials/workspace_shell.html` (macros `nav_welcome`/
-  `sidebar_resize_handle`), importado por Copiloto Y Operaciones — sin
-  tocar navegación workspace-owned de ninguno de los dos.
+  compartido expresa ese resultado correctamente (ausente con 1 solo
+  workspace, presente con 2+, ícono del hero de Danwor Hub intacto); el
+  frame de sidebar compartido (`.app-shell`/`--nav-width`/
+  `copilotLayout()`/`partials/workspace_shell.html`) quedó confirmado y
+  consolidado — el `<div data-resize>` y la bienvenida de sesión ya no se
+  copian entre templates de workspace. **Ninguna ruta se renombró, ningún
+  cambio de auth/OAuth/sesión, route surface sin cambios (82)** en ninguno
+  de los tres batches — ver "Alcance" en cada sección dedicada arriba.
 - **Next candidate:** ninguno nominado por este documento. Los tres
   últimos batches fueron deliberadamente pequeños y no abren una fase
   nueva — el próximo incremento debe partir de una evaluación fresca del
@@ -3544,10 +3552,8 @@ de reusado.
   igualmente diferidos sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **510 passed / 1 skipped** · route surface **82** · commits `dd7f99d` +
-  `4372625` sobre `work/shared-workspace-sidebar-frame` (branchada desde
-  `main` HEAD `5d6dba2d92ad1daf5797971b014aa1850dba0c3d`, que ya incluye la
-  docs-closure PR #37).
+  **510 passed / 1 skipped** · route surface **82** · `main` HEAD
+  `a2f4035` (merge de PR #38, ya incluye Sidebar Frame + su docs-closure).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3561,15 +3567,15 @@ de reusado.
    2026-08-10)**, **Danwor Hub — Single-Workspace Switcher Correction
    CLOSED/GREEN (commit `bd301c0`, branch
    `work/hub-switcher-single-workspace`, PR #36, production-verified
-   2026-08-10)**, **Shared Workspace Sidebar Frame IMPLEMENTED/PENDING CI
-   (commits `dd7f99d` + `4372625`, branch
-   `work/shared-workspace-sidebar-frame` — falta confirmación de CI real Y
-   validación visual/de producto del owner antes de CLOSED/GREEN)**,
-   observación no-bloqueante de calidad referencial de origen registrada
-   (no resuelta a propósito).
+   2026-08-10)**, **Shared Workspace Sidebar Frame CLOSED/GREEN (commits
+   `dd7f99d` + `4372625`, branch `work/shared-workspace-sidebar-frame`,
+   PR #38, production-verified 2026-08-10)**, observación no-bloqueante de
+   calidad referencial de origen registrada (no resuelta a propósito).
 3. El usuario decide el próximo incremento a partir de una evaluación
    fresca — nada queda autorizado por este documento hasta que el usuario
-   lo indique explícitamente.
+   lo indique explícitamente. **Este trabajo NO debe interpretarse como
+   pendiente** — requiere evaluación fresca del próximo candidato, no una
+   continuación asumida.
 4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente
