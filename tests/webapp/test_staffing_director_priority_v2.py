@@ -545,6 +545,29 @@ def test_dashboard_template_detail_table_has_fixed_column_widths():
     ).read_text(encoding="utf-8")
 
 
+def test_projection_column_header_omits_redundant_dias_suffix():
+    # Ajuste presentacional del owner: "días" es redundante con el control
+    # vecino ("Proyección a [N] día(s)") y hacía que "Disponibilidad"
+    # wrappeara a dos líneas en la tabla de layout fijo. La semántica del
+    # cálculo (+N días) NO cambia — solo el texto del header.
+    assert 'get projectionColumnLabel() { return `Asignación +${this.projectionDays}`; },' in _APP_JS
+    assert "días`" not in _APP_JS.split("get projectionColumnLabel()")[1].split("\n")[0]
+
+
+def test_detail_table_column_widths_favor_disponibilidad_over_projection_column():
+    # Angostar la columna de proyección (antes 13%) y dársela a
+    # Disponibilidad (antes 6%) — misma suma de 100%, table-layout fijo
+    # preservado, nunca se asume que acortar el texto solo redistribuye
+    # el ancho.
+    colgroup = _DASHBOARD_HTML[_DASHBOARD_HTML.index("<colgroup>"): _DASHBOARD_HTML.index("</colgroup>")]
+    widths = [int(w) for w in __import__("re").findall(r'width:(\d+)%', colgroup)]
+    assert len(widths) == 10
+    assert sum(widths) == 100
+    projection_width, disponibilidad_width = widths[5], widths[9]
+    assert projection_width < 13  # angostada respecto del ancho previo
+    assert disponibilidad_width > 6  # ensanchada respecto del ancho previo
+
+
 def test_dashboard_template_detail_rows_are_flattened_not_nested_templates():
     # Ver comentario en app.js::detailRows — dos <template x-for> anidados
     # sobre la misma lista NO intercalan filas hijas bajo su agregada
