@@ -67,6 +67,22 @@ from webapp.templating import templates
 router = APIRouter()
 
 
+def _flatten_staffing_diagnostics(diagnostics: dict) -> dict:
+    """Aplana `StaffingRepository.last_diagnostics` (pre-PR corrective, ver
+    HANDOFF) a kwargs planos para `log_verbose` — `{"asignaciones": {"rows":
+    N, ...}}` → `{"asignaciones_rows": N, ...}`. NUNCA incluye token/payload/
+    PII — el diccionario fuente ya es solo conteos/tiempos/booleanos (ver
+    `StaffingRepository`)."""
+    flat: dict = {}
+    for source, stats in diagnostics.items():
+        if source == "total_elapsed_ms":
+            flat["total_elapsed_ms"] = stats
+            continue
+        for key, value in stats.items():
+            flat[f"{source}_{key}"] = value
+    return flat
+
+
 def _require_operations_session(request: Request, *, next_path: str | None = None):
     """Redirect (sin sesión) o 403 (sesión sin tier "full") — o None si OK.
     Compartido por GET y POST para no duplicar la regla de acceso.
@@ -124,8 +140,9 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         )
 
     user = auth_service.session_user(request)
+    service = StaffingService()
     try:
-        rows = StaffingService().get_overview(graph_token)
+        rows = service.get_overview(graph_token)
     except RuntimeError:
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
         log_verbose("staffing_overview_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
@@ -137,6 +154,15 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "graph_error"},
         )
+
+    # Diagnóstico (pre-PR corrective, ver HANDOFF: "measure the real 6
+    # seconds") — SOLO en el camino exitoso, a propósito (mantener el
+    # alcance acotado a lo pedido); rows/pages/elapsed_ms/filter_used/
+    # fallback_used por fuente, nunca token/payload/PII.
+    log_verbose(
+        "staffing_data_diagnostics", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
+    )
 
     # Payload ÚNICO y normalizado (Asignaciones Dashboard v1) — el filtrado
     # de KPIs/timeline/disponibilidad/detalle ocurre 100% client-side (Alpine,
@@ -170,14 +196,23 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
         return JSONResponse({"state": "missing_token"})
 
     user = auth_service.session_user(request)
+    service = StaffingService()
     try:
-        rows = StaffingService().get_overview(graph_token, assignment_scope="historical_inactive")
+        rows = service.get_overview(graph_token, assignment_scope="historical_inactive")
     except RuntimeError:
         log_verbose("staffing_historial_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
         return JSONResponse({"state": "config_incomplete"})
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
         log_verbose("staffing_historial_error", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, error_type=type(exc).__name__)
         return JSONResponse({"state": "graph_error"})
+
+    # Mismo diagnóstico que staffing_data (ver arriba) — prueba explícita de
+    # si el toggle de Inactivo disparó exactamente 1 request y si el
+    # $filter/fallback de esa carga histórica funcionó.
+    log_verbose(
+        "staffing_historial_diagnostics", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
+    )
 
     payload = build_dashboard_payload(rows)
     return JSONResponse({"state": "ok", "assignments": payload["assignments"]})

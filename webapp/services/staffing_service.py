@@ -216,6 +216,11 @@ class StaffingService:
 
     def get_overview(self, access_token: str, *, assignment_scope: str = "operational") -> list[StaffingOverviewRow]:
         records = self._repository.get_allocations(access_token, assignment_scope=assignment_scope)
+        # Diagnóstico (pre-PR corrective, ver HANDOFF) — passthrough puro del
+        # repositorio; `getattr` con default `{}` porque un test double sin
+        # ese atributo (varios existen en tests/webapp/test_staffing_routes.py)
+        # no debe romper get_overview.
+        self.last_diagnostics = getattr(self._repository, "last_diagnostics", {})
         rows = [self._to_row(record) for record in records]
         # Orden estable por consultor luego proyecto — determinístico para
         # que el mismo dato fuente siempre rinda el mismo orden en pantalla.

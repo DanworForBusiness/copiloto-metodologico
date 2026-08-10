@@ -785,6 +785,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    campos (margin-left:auto lo empuja a la derecha) y ya no comparte
    columna con el stack de Estado, para no leerse como una opción más. */
 .staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+/* Fallo de la carga lazy de historial (Staffing Director Priority V2
+   pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
+   del dashboard, solo informa que el próximo toggle puede reintentar. */
+.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
 
 /* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la

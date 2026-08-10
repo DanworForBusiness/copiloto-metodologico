@@ -777,6 +777,8 @@ function staffingDashboard(payload) {
     // presentación (nunca filtra filteredAssignments). Vacío = todo
     // expandido (default). Keyed por el mismo `key` de timelineGroups.
     collapsedConsultants: {},
+    // null | "collapsed" | "expanded" — ver `toggleGrouping`/`collapseAllConsultants`.
+    timelineGlobalCollapseIntent: null,
     filters: {
       consultant: "",
       project: "",
@@ -792,11 +794,16 @@ function staffingDashboard(payload) {
     // inicial del server YA excluye Inactivo — `historyLoaded` marca si el
     // delta histórico ya se pidió/mergeó en esta sesión de dashboard
     // (nunca se vuelve a pedir tras la primera vez, togglear Inactivo de
-    // ida y vuelta no repite el request). `historyLoadError` es solo
-    // presentación (mensaje inline), nunca bloquea el resto del dashboard.
+    // ida y vuelta no repite el request). `historyLoading` (contrato
+    // CONGELADO pre-PR, ver HANDOFF — antes privado `_historyLoading`,
+    // ahora expuesto porque el template necesita mostrar feedback visible
+    // mientras carga) es SOLO true durante el fetch en curso.
+    // `historyLoadError` es solo presentación (mensaje inline), nunca
+    // bloquea el resto del dashboard — y NUNCA marca `historyLoaded=true`
+    // tras una falla (fail-soft: un click posterior puede reintentar).
     historyLoaded: false,
     historyLoadError: false,
-    _historyLoading: false,
+    historyLoading: false,
 
     // Grouping switch (Consultor ↔ Proyecto) — mismo `filteredAssignments`,
     // sin refetch. Ver `timelineGroups`/`groupHoursSuffix`/`rowGroupSecondaryLabel`.
@@ -839,8 +846,8 @@ function staffingDashboard(payload) {
     },
 
     async _loadInactiveHistory() {
-      if (this.historyLoaded || this._historyLoading) return;
-      this._historyLoading = true;
+      if (this.historyLoaded || this.historyLoading) return;
+      this.historyLoading = true;
       this.historyLoadError = false;
       try {
         const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -855,12 +862,14 @@ function staffingDashboard(payload) {
           this.assignments = [...this.assignments, ...fresh];
           this.historyLoaded = true;
         } else {
+          // NUNCA marca historyLoaded=true tras una falla (fail-soft, ver
+          // HANDOFF) — el próximo toggle de Inactivo puede reintentar.
           this.historyLoadError = true;
         }
       } catch (e) {
         this.historyLoadError = true;
       } finally {
-        this._historyLoading = false;
+        this.historyLoading = false;
       }
     },
 
@@ -940,15 +949,27 @@ function staffingDashboard(payload) {
     isConsultantCollapsed(key) {
       return !!this.collapsedConsultants[key];
     },
+    // `timelineGlobalCollapseIntent` (pre-PR corrective, ver HANDOFF):
+    // colapso global es una dimensión INDEPENDIENTE del `groupBy` — antes
+    // "Contraer todo" en Consultor + cambiar a Proyecto volvía a mostrar
+    // todo expandido, porque las keys de `collapsedConsultants` son por
+    // entidad (consultant_id vs project_id) y no coinciden entre modos.
+    // Un toggle MANUAL de un grupo puntual limpia el intent (deja de ser
+    // "todo colapsado/expandido" de forma limpia — pasa a mixto) para que
+    // el próximo cambio de agrupación use el default de la agrupación
+    // nueva, nunca intente mapear identidades cruzadas consultor↔proyecto.
     toggleConsultant(key) {
+      this.timelineGlobalCollapseIntent = null;
       this.collapsedConsultants[key] = !this.collapsedConsultants[key];
     },
     collapseAllConsultants() {
+      this.timelineGlobalCollapseIntent = "collapsed";
       const next = {};
       this.timelineGroups.forEach(g => { next[g.key] = true; });
       this.collapsedConsultants = next;
     },
     expandAllConsultants() {
+      this.timelineGlobalCollapseIntent = "expanded";
       this.collapsedConsultants = {};
     },
 
@@ -1061,6 +1082,19 @@ function staffingDashboard(payload) {
     // Graph. El botón describe la ACCIÓN (a qué modo cambiaría al clickear).
     toggleGrouping() {
       this.groupBy = this.groupBy === "consultant" ? "project" : "consultant";
+      // Colapso global (pedido del owner, ver HANDOFF): si había un intent
+      // limpio de "todo colapsado", el NUEVO groupBy arranca con TODOS sus
+      // grupos colapsados (recalculado con las keys de la agrupación
+      // nueva — nunca mapeando identidades consultor↔proyecto). "Expandido"
+      // o sin intent (mixto) usa el default de la agrupación nueva, que ya
+      // ES expandido (`{}`).
+      if (this.timelineGlobalCollapseIntent === "collapsed") {
+        const next = {};
+        this.timelineGroups.forEach(g => { next[g.key] = true; });
+        this.collapsedConsultants = next;
+      } else {
+        this.collapsedConsultants = {};
+      }
     },
     get groupToggleLabel() {
       return this.groupBy === "consultant" ? "Agrupar por proyecto" : "Agrupar por consultor";

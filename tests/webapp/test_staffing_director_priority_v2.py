@@ -148,7 +148,7 @@ def _make_repo():
 
 
 def _fake_fetch_by_list(calls, *, asignaciones_provider):
-    def fake(url, access_token, *, timeout=12, extra_headers=None):
+    def fake(url, access_token, *, timeout=12, extra_headers=None, on_page=None):
         calls.append((url, extra_headers))
         if _ASIG_LIST in url:
             return asignaciones_provider(url)
@@ -178,7 +178,7 @@ def test_historical_inactive_scope_sends_eq_inactivo_filter():
     calls = []
     import webapp.services.staffing_repository as rm
 
-    def fake(url, access_token, *, timeout=12, extra_headers=None):
+    def fake(url, access_token, *, timeout=12, extra_headers=None, on_page=None):
         calls.append((url, extra_headers))
         if _ASIG_LIST in url:
             return _ASIGNACIONES_MIXED
@@ -203,7 +203,7 @@ def test_operational_scope_falls_back_to_full_fetch_and_python_filter_on_graph_r
     # Inactivo), nunca romper Staffing ni devolver la lista sin filtrar.
     calls = []
 
-    def fake(url, access_token, *, timeout=12, extra_headers=None):
+    def fake(url, access_token, *, timeout=12, extra_headers=None, on_page=None):
         calls.append(url)
         if _ASIG_LIST in url and "$filter" in url:
             raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
@@ -225,7 +225,7 @@ def test_operational_scope_falls_back_to_full_fetch_and_python_filter_on_graph_r
 
 
 def test_historical_inactive_scope_falls_back_correctly_too(monkeypatch):
-    def fake(url, access_token, *, timeout=12, extra_headers=None):
+    def fake(url, access_token, *, timeout=12, extra_headers=None, on_page=None):
         if _ASIG_LIST in url and "$filter" in url:
             raise urllib.error.URLError("boom")
         if _ASIG_LIST in url:
@@ -422,7 +422,7 @@ def test_lazy_history_watcher_triggers_once_and_merges_by_assignment_id():
     assert 'this.$watch("filters.status.Inactivo"' in _APP_JS
     assert "if (value && !this.historyLoaded) this._loadInactiveHistory();" in _APP_JS
     assert "async _loadInactiveHistory()" in _APP_JS
-    assert "if (this.historyLoaded || this._historyLoading) return;" in _APP_JS
+    assert "if (this.historyLoaded || this.historyLoading) return;" in _APP_JS
     assert "/operaciones/staffing/asignaciones/historial" in _APP_JS
     assert "!seen.has(a.assignment_id)" in _APP_JS
     assert "this.historyLoaded = true;" in _APP_JS

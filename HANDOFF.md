@@ -4028,6 +4028,88 @@ alcance.
   cambios — no se fabricó metadata de workbook, no se reclama overlay
   implementado en ninguna parte de este batch.
 
+### Pase correctivo — production behavior corrective (commits `fix(staffing): align status KPIs...`)
+
+El owner validó contra datos/comportamiento reales y reportó 2 bugs de
+producto + 1 pregunta de performance sin resolver. Ninguno se asumió — cada
+uno se trazó en código real y, donde el entorno lo permitió, se verificó en
+vivo contra un servidor aislado (nunca el `:8082` del usuario).
+
+- **Bug 1 — KPI "Asignaciones tentativas" siempre visible (CORREGIDO):**
+  el tile mostraba "0" incluso con Tentativo destildado — nunca desaparecía.
+  Congelado el contrato: KPIs genéricos (Consultores/Proyectos/Full Time/
+  Part Time) SIEMPRE visibles; Activo-dependientes (Asignaciones activas/
+  Horas activas/Activos vencidos) SOLO si `filters.status.Activo`;
+  Tentativo-dependiente (Asignaciones tentativas) SOLO si
+  `filters.status.Tentativo` — ligado DIRECTO al mismo estado canónico que
+  gobierna el resto del dashboard (`x-show`, nunca un getter derivado
+  redundante). `x-show` (display:none) saca el tile del grid por completo —
+  el resto reacomoda solo. **Verificado en vivo:** default Activo-only →
+  Tentativas oculto, resto de Activo-dependientes visible; togglear
+  Tentativo → Tentativas aparece (leído vía `getComputedStyle(tile).display`
+  contra el DOM real, no solo el HTML servido).
+- **Bug 2 — "Cargando historial…" ausente (CAUSA REAL del síntoma
+  "clic en Inactivo no muestra feedback", CORREGIDO):** el mecanismo de
+  lazy-history YA funcionaba (ver batch anterior), pero nunca tenía
+  indicación visible — un fetch de varios segundos sin feedback "parece"
+  instantáneo. `historyLoading` (antes privado `_historyLoading`, ahora
+  parte del contrato congelado) expuesto con spinner
+  (`.section-analysis-loading`/`-spinner`, MISMO primitivo que la carga
+  inicial de `/data` — no se inventó un sistema de diseño nuevo) + mensaje
+  de error visible fail-soft (nunca marca `historyLoaded=true` tras una
+  falla). **Verificado en vivo contra el servidor real** (no un mock):
+  togglear Inactivo con un `graph_token` inválido disparó EXACTAMENTE 1
+  request a `/historial` (confirmado en Network), terminó en
+  `historyLoadError=true`/`historyLoaded=false` (nunca "falso positivo" de
+  éxito), y el mensaje de error se mostró en el DOM real.
+- **Bug 3 — colapso global no sobrevive el cambio de agrupación
+  (CORREGIDO, Part F):** "Contraer todo" en modo Consultor + cambiar a
+  Proyecto volvía a expandir todo — las keys de `collapsedConsultants` son
+  por entidad (consultant_id vs project_id), nunca coinciden entre modos.
+  `timelineGlobalCollapseIntent` (null|"collapsed"|"expanded") nuevo,
+  puramente en memoria: `collapseAllConsultants`/`expandAllConsultants` lo
+  fijan; `toggleGrouping` lo respeta (recalcula colapso para las keys del
+  NUEVO groupBy, nunca mapea identidades cruzadas); un toggle INDIVIDUAL
+  limpia el intent (mixto → default de la agrupación nueva). **Verificado
+  en vivo:** Consultor+Contraer todo→Proyecto sigue todo colapsado;
+  Consultor+Expandir todo→Proyecto sigue todo expandido; el cambio de
+  agrupación en sí nunca dispara Graph.
+- **Pregunta de performance (item E) — instrumentación agregada, causa
+  raíz NO confirmable en este entorno:** `StaffingRepository.
+  last_diagnostics` (rows/pages/elapsed_ms/`filter_used`/`fallback_used`
+  por fuente — Asignaciones/Proyectos/Colaboradores/Cliente — +
+  `total_elapsed_ms`, NUNCA token/payload/PII) logueado VERBOSE-gated
+  (`staffing_data_diagnostics`/`staffing_historial_diagnostics`) en
+  `webapp/routers/staffing.py`. Esto responde "¿el fallback está
+  ocurriendo?" — pero **NO puede confirmar por sí solo si los ~6s
+  reportados por el owner vienen del fallback, de Proyectos/Colaboradores/
+  Cliente, o de latencia de red genérica** sin ver esos logs contra el
+  tráfico real de producción. `core/microsoft365.graph_get_paged_values`
+  gana `on_page` (callback opcional, backward-compatible) para contar
+  páginas sin que ese módulo posea lógica de diagnóstico propia.
+- **Parte B/C — contenido del payload inicial:** trazado el pipeline
+  completo (router → `StaffingService.get_overview(token)` sin scope
+  explícito → default `"operational"` → `StaffingRepository` excluye
+  Inactivo vía `$filter` o, si Graph lo rechaza, vía el fallback Python —
+  AMBOS caminos probados con fixtures). **Diagnóstico honesto: no se puede
+  confirmar contra el tenant real si Tentativo tiene registros vigentes
+  hoy, ni si el `$filter` real se acepta o cae al fallback** — eso
+  requiere una sesión con `graph_token` real, que este entorno no tiene
+  (mismo límite que el overlay de vacaciones). Lo que SÍ se probó y
+  confirma: (a) el código NUNCA envía Inactivo en la carga inicial ni deja
+  fuera a Tentativo, en ningún camino (filtrado exitoso o fallback); (b) no
+  existe ningún watcher/fetch condicionado a Tentativo — togglearlo es
+  100% client-side, cero requests.
+- **Gate:** targeted Staffing (196 passed, incluye el archivo nuevo
+  `tests/webapp/test_staffing_production_corrective.py`, 25 tests) + full
+  suite (**593 passed / 1 skipped**, +25 sobre el baseline previo de 568)
+  + route-contract GREEN (snapshot sin cambios, sigue en **83** — este
+  pase tampoco tocó rutas).
+- **REAL GRAPH FILTER sigue PENDING OWNER/PRODUCTION SMOKE** — sin
+  cambios de estado, ver pase anterior.
+- **Vacaciones (item 9):** sigue **BLOCKED / FOLLOW-UP REQUIRED**, sin
+  tocar.
+
 ### Próxima decisión (NO autorizada en este commit de código)
 
 Con 1-8/10 implementados y 9 explícitamente bloqueado (discovery
@@ -4080,13 +4162,23 @@ prioridad. **No autorizado todavía.**
 ## CURRENT EXECUTION POINT
 - **Último batch trabajado (NO cerrado):** **Staffing Dashboard V2 —
   Director Priority Update** — ver sección dedicada arriba —
-  **IMPLEMENTED / PENDING CI** (commits `2833fa6` + `3fcb75e`, branch
+  **IMPLEMENTED / PENDING CI** (commits `2833fa6` + `3fcb75e` +
+  `265198b` (pre-PR final check) + un corrective final (production
+  behavior corrective — Parts A/B/C/D/E/F), branch
   `work/staffing-director-priority-v2`, arrancada desde `main` `2505da2`).
-  Requerimientos 1-8/10 implementados y validados localmente (566 passed
-  / 1 skipped, route surface 82→83, smoke visual GREEN); requerimiento 9
-  (overlay de vacaciones) BLOQUEADO por falta de acceso Graph real en
-  este entorno — NO autorizar su discovery hasta que exista una sesión
-  con `graph_token` real disponible. **`work/activity-dashboard-hub-v2`
+  Requerimientos 1-8/10 implementados y validados localmente (**593
+  passed / 1 skipped**, route surface 82→83, smoke visual GREEN); dos
+  bugs de producto reportados por el owner tras validación real
+  (KPI "Tentativas" siempre visible; "Cargando historial…" ausente) y un
+  bug de UX de timeline (colapso global no sobrevive el cambio de
+  agrupación) quedaron **CORREGIDOS Y VERIFICADOS EN VIVO** (ver "Pase
+  correctivo — production behavior corrective" arriba); requerimiento 9
+  (overlay de vacaciones) sigue BLOQUEADO por falta de acceso Graph real
+  en este entorno — NO autorizar su discovery hasta que exista una
+  sesión con `graph_token` real disponible. **REAL GRAPH FILTER sigue
+  PENDING OWNER/PRODUCTION SMOKE** — la pregunta de performance de los
+  ~6s reportados NO puede confirmarse sin ver los logs VERBOSE nuevos
+  (`staffing_data_diagnostics`) contra tráfico real. **`work/activity-dashboard-hub-v2`
   (Batch A2) sigue PARKED, sin tocar** — este batch arrancó desde `main`
   directamente, no desde esa rama; A2 necesita su propia reconciliación
   con `main` en algún momento posterior, independiente de este cierre.
@@ -4163,9 +4255,11 @@ prioridad. **No autorizado todavía.**
   surface **82** · `main` HEAD `53277d6` (merge de PR #44, ya incluye A1
   — Context Foundation CLOSED/GREEN).
 - **Baseline (`work/staffing-director-priority-v2`, local, PENDING CI):**
-  tests **566 passed / 1 skipped** · route surface **83** (nueva ruta
+  tests **593 passed / 1 skipped** (tras el pase correctivo de
+  producción — pre-PR final check + production behavior corrective) ·
+  route surface **83** (nueva ruta
   `POST /operaciones/staffing/asignaciones/historial`, snapshot
-  actualizado explícitamente) · HEAD `3fcb75e`.
+  actualizado explícitamente, sin cambios desde su introducción).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
