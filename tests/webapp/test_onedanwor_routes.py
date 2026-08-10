@@ -59,12 +59,31 @@ def test_unauthenticated_renders_onedanwor_login():
     anon = TestClient(app)
     response = anon.get("/onedanwor")
     assert response.status_code == 200
-    assert "One Danwor" in response.text
+    # Danwor Hub Login Identity Alignment (ver HANDOFF): la landing
+    # anónima ya no dice "One Danwor" — dice Danwor Hub, igual que el
+    # resto de la plataforma autenticada.
+    assert "Danwor Hub" in response.text
+    assert "One Danwor" not in response.text
     assert 'id="microsoft-login-btn"' in response.text
-    # Los 3 bullets truthful de One Danwor.
+    # Auth boundary intacto: mismo botón, mismo target, mismo flujo.
+    assert 'onclick="loginWithMicrosoft(event)"' in response.text
+    assert 'data-home="/onedanwor"' in response.text
+    assert "Ingresar con tu cuenta Danwor" in response.text
+    # Los 3 bullets truthful de Danwor Hub (sin cambios de contenido).
     assert "Un único acceso con tu cuenta Danwor" in response.text
     assert "Espacios de trabajo según tu perfil" in response.text
     assert "Navegación integrada entre servicios" in response.text
+
+
+def test_onedanwor_login_reuses_shared_visual_grammar_not_a_second_icon():
+    # No se introdujo un segundo SVG canónico: landing.html no tiene slot
+    # de ícono (a diferencia de platform_selector.html/hub_icon()) — la
+    # identidad Danwor Hub se comunica con el MISMO wordmark de texto de
+    # dos líneas que ya usa la landing del Copiloto, solo con copy propia.
+    anon = TestClient(app)
+    response = anon.get("/onedanwor")
+    assert response.status_code == 200
+    assert '<rect x="3" y="3"' not in response.text
 
 
 def test_onedanwor_identity_has_no_copilot_specific_branding():
@@ -78,10 +97,11 @@ def test_onedanwor_identity_has_no_copilot_specific_branding():
 def test_auth_popup_state_serves_neutral_document_not_rich_landing():
     # Corrective pass: un overlay sobre la landing no alcanza — el popup de
     # Microsoft (y su callback, fijo en "/") debe recibir un documento
-    # separado sin NINGÚN copy de marca ("One Danwor" incluido).
+    # separado sin NINGÚN copy de marca (Danwor Hub incluido).
     anon = TestClient(app)
     response = anon.get("/onedanwor?auth_popup=1")
     assert response.status_code == 200
+    assert "Danwor Hub" not in response.text
     assert "One Danwor" not in response.text
     assert "Copiloto Metodológico" not in response.text
     assert "Una plataforma" not in response.text
@@ -152,12 +172,15 @@ def test_authenticated_with_two_workspaces_sees_rich_selector():
 
 
 def test_authenticated_selector_shows_danwor_hub_hero_not_repeated_card_eyebrow():
-    # Revisión visual Danwor Hub (ver HANDOFF): el hero autenticado
-    # reemplaza "One Danwor" por "Danwor Hub" — SOLO en esta pantalla, la
-    # landing anónima sigue "One Danwor" sin cambios (ver
-    # test_unauthenticated_renders_onedanwor_login, arriba). Las cards NO
-    # repiten más el eyebrow "Data & AI for Business" arriba de cada
-    # título — la jerarquía visual del hero ya lo comunica.
+    # Revisión visual Danwor Hub (ver HANDOFF): el hero autenticado dice
+    # "Danwor Hub" con el ícono canónico (`hub_icon()`) — un wordmark
+    # distinto del de la landing anónima (que usa el mismo `<h1>+<span>`
+    # de texto que el Copiloto, sin ícono; ver Danwor Hub Login Identity
+    # Alignment y test_unauthenticated_renders_onedanwor_login, arriba —
+    # ambas pantallas dicen "Danwor Hub" hoy, pero con presentación
+    # distinta). Las cards NO repiten más el eyebrow "Data & AI for
+    # Business" arriba de cada título — la jerarquía visual del hero ya lo
+    # comunica.
     response = _full_client().get("/onedanwor")
     assert response.status_code == 200
     text = response.text

@@ -3,9 +3,11 @@ platform.py — Entrada de plataforma multi-workspace: "One Danwor".
 
 `GET /onedanwor` es la entrada canónica user-facing de la plataforma:
 - SIN sesión → renderiza la misma landing histórica
-  (`webapp.routers.landing.render_landing`) con copy One Danwor — mismo
-  auth, mismo mecanismo de `next`, mismo template, sin segundo
-  OAuth/session/token.
+  (`webapp.routers.landing.render_landing`) con copy propia de Danwor Hub
+  (`_ONEDANWOR_LANDING_COPY`, ver Danwor Hub Login Identity Alignment en
+  HANDOFF — el nombre interno de ruta/batch "One Danwor" NO cambia, solo
+  el copy visible) — mismo auth, mismo mecanismo de `next`, mismo
+  template, sin segundo OAuth/session/token.
 - CON sesión → resuelve workspaces disponibles (`webapp.workspaces`) y
   decide: 0 → estado de sin-acceso controlado (la autoridad sigue siendo
   server-side — no hay redirect-loop); 1 → redirect directo a su
@@ -47,23 +49,34 @@ from webapp.workspaces import available_workspaces
 
 router = APIRouter()
 
-# Copy de "One Danwor" — identidad visible del paraguas de plataforma
-# (provisoria en el naming interno "platform", pero YA decidida como marca
-# visible). Reusa la MISMA grilla visual que la landing histórica del
-# Copiloto (kicker/h1+acento/descripción/checklist) vía `render_landing`.
+# Copy visible de "Danwor Hub" — identidad del paraguas de plataforma
+# (naming interno "platform"/"onedanwor" sin cambios; ver Danwor Hub Login
+# Identity Alignment en HANDOFF). Reusa la MISMA grilla visual que la
+# landing histórica del Copiloto (kicker/h1+acento/descripción/checklist)
+# vía `render_landing` — mismo `<h1>{{ brand_title }}<span>{{
+# brand_subtitle }}</span></h1>` de dos líneas que ya usa esa landing, sin
+# ícono: `landing.html` no tiene otro slot visual que ese wordmark de
+# texto (ver hero autenticado en `platform_selector.html` para el uso de
+# `hub_icon()`, un template distinto).
 _ONEDANWOR_LANDING_COPY = {
-    "title": "One Danwor · Danwor",
+    "title": "Danwor Hub · Danwor",
     "eyebrow_ink": "Una plataforma",
     "eyebrow_gold": "Todos los servicios Danwor",
-    "brand_title": "One",
-    "brand_subtitle": "Danwor",
-    "brand_description": "Un único acceso a los espacios de trabajo y herramientas internas Danwor.",
+    "brand_title": "Danwor",
+    "brand_subtitle": "Hub",
+    "brand_description": (
+        "Un punto de encuentro donde se conectan necesidades, capacidades, "
+        "conocimiento y operación."
+    ),
     "feature_list": [
         "Un único acceso con tu cuenta Danwor",
         "Espacios de trabajo según tu perfil",
         "Navegación integrada entre servicios",
     ],
-    "login_sub_lines": ["One Danwor"],
+    "login_sub_lines": [
+        "Ingresá con tu cuenta Danwor para acceder a los espacios de trabajo "
+        "disponibles para vos."
+    ],
 }
 
 # Presentación rica del selector, keyed por `Workspace.key`. Describe el

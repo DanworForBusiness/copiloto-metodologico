@@ -53,4 +53,7 @@ def test_platform_redirect_chain_actually_lands_on_onedanwor():
     anon = TestClient(app)
     response = anon.get("/platform")  # follow_redirects=True (default)
     assert response.status_code == 200
-    assert "One Danwor" in response.text
+    # Danwor Hub Login Identity Alignment (ver HANDOFF): la landing anónima
+    # ya no dice "One Danwor" — su nombre visible es Danwor Hub.
+    assert "Danwor Hub" in response.text
+    assert "One Danwor" not in response.text
