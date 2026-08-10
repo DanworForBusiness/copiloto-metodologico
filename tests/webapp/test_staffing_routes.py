@@ -16,6 +16,21 @@ from webapp.services.staffing_service import StaffingOverviewRow
 from webapp import workspaces
 
 auth_service.ALLOWED_USERS = "ALL"
+# Operations Workspace Access Gate (ver HANDOFF): tier "full" YA NO alcanza
+# por sí solo — se requiere además la allowlist explícita de Operations.
+# El cliente principal de este archivo prueba COMPORTAMIENTO de Staffing,
+# no la frontera de autorización en sí (ver test_operations_access.py para
+# eso), así que se abre explícito listando su email — "ALL" ya NO es un
+# wildcard válido para Operations (rechazado deliberadamente, ver
+# auth_service._operations_set). MISMO valor CSV que usan otros archivos
+# de test para esta variable (asignación plana de módulo, no monkeypatch:
+# la última que se ejecute durante el collection de pytest "gana" para
+# cualquier test sin su propio override — deben coincidir entre archivos
+# para no pisarse entre sí, así que el CSV lista los emails default de
+# los tres archivos).
+auth_service.OPERATIONS_ALLOWED_USERS = (
+    "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+)
 
 _SESSION = auth_service.create_session(
     {"email": "staffing-test@danwor.com", "name": "Staffing Test", "first_name": "Staffing", "family_name": "Test"}
@@ -28,8 +43,27 @@ client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
 def _academy_client(monkeypatch):
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "otro@danwor.com")
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    # Sin Operations explícito para ESTE usuario — a diferencia del "ALL"
+    # de módulo (pensado para el cliente full de este archivo), este
+    # fixture prueba "academy sin listar" (ver test_workspaces.py para el
+    # caso NUEVO "academy + Operations listado").
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     session = auth_service.create_session(
         {"email": "academy@danwor.com", "name": "Academy", "first_name": "Academy", "family_name": "User"}
+    )
+    ro = TestClient(app)
+    ro.cookies.set(auth_service.COOKIE_NAME, session)
+    return ro
+
+
+def _unlisted_full_client(monkeypatch):
+    # Admitido full a la app (ALLOWED_USERS="ALL" del módulo), pero
+    # override puntual (monkeypatch, se revierte solo) de
+    # OPERATIONS_ALLOWED_USERS a un valor que NO incluye a este usuario —
+    # Operations Workspace Access Gate: tier "full" ya no alcanza por sí solo.
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "staffing-test@danwor.com")
+    session = auth_service.create_session(
+        {"email": "unlisted-full@danwor.com", "name": "Unlisted", "first_name": "Unlisted", "family_name": "Full"}
     )
     ro = TestClient(app)
     ro.cookies.set(auth_service.COOKIE_NAME, session)
@@ -87,6 +121,58 @@ def test_get_academy_tier_is_denied(monkeypatch):
     ro = _academy_client(monkeypatch)
     response = ro.get("/operaciones/staffing/asignaciones")
     assert response.status_code == 403
+
+
+# --- Operations Workspace Access Gate — enforcement server-side ------------
+# La MISMA regla que gobierna el descubrimiento (workspaces.available_workspaces,
+# ver test_workspaces.py) y el predicado puro (ver test_operations_access.py)
+# también gobierna estas dos rutas canónicas — items J/K/L/M del batch.
+
+def test_get_full_tier_but_not_operations_listed_is_denied(monkeypatch):
+    ro = _unlisted_full_client(monkeypatch)
+    response = ro.get("/operaciones/staffing/asignaciones")
+    assert response.status_code == 403
+
+
+def test_post_full_tier_but_not_operations_listed_is_denied(monkeypatch):
+    ro = _unlisted_full_client(monkeypatch)
+    response = ro.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 403
+
+
+def test_post_graph_token_never_bypasses_operations_authorization(monkeypatch):
+    # Un graph_token válido/presente NUNCA debe saltear la autorización de
+    # workspace — se prueba explícitamente con un StaffingService que
+    # rompería el test si llegara a invocarse.
+    ro = _unlisted_full_client(monkeypatch)
+    monkeypatch.setattr(staffing_router, "StaffingService", _RaisingIfCalledService)
+    response = ro.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "a-real-looking-token"})
+    assert response.status_code == 403
+
+
+def test_operations_allowed_users_blank_denies_the_previously_authorized_user(monkeypatch):
+    # Fail-closed también a nivel de ruta: si OPERATIONS_ALLOWED_USERS
+    # queda vacío, ni siquiera el usuario de sesión de este archivo
+    # conserva acceso.
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    response = client.get("/operaciones/staffing/asignaciones")
+    assert response.status_code == 403
+
+
+def test_get_authorized_after_gate_continues_working(monkeypatch):
+    # Item L: el camino autorizado sigue funcionando sin cambios — mismo
+    # 200 que test_get_authorized_full_tier_returns_200, ahora pasando
+    # explícitamente por la allowlist en vez de solo tier "full".
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "staffing-test@danwor.com")
+    response = client.get("/operaciones/staffing/asignaciones")
+    assert response.status_code == 200
+
+
+def test_post_authorized_after_gate_continues_working(monkeypatch):
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "staffing-test@danwor.com")
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingService(rows=[_row()]))
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
 
 
 def test_get_does_not_call_staffing_service(monkeypatch):

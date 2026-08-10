@@ -22,6 +22,7 @@ from config import (
     AUTH_DEFAULT_DOMAIN,
     AZURE_CLIENT_ID,
     AZURE_TENANT_ID,
+    OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
     SESSION_SECRET,
 )
@@ -87,6 +88,40 @@ def user_tier(email: str) -> str | None:
 
 def is_authorized(email: str) -> bool:
     return user_tier(email) is not None
+
+
+def _operations_set() -> set[str]:
+    """Allowlist EXPLÍCITA y PROVISORIA de Operations (Operations Workspace
+    Access Gate). Reusa `_csv_users` para la normalización — MISMA que
+    ALLOWED_USERS (usernames compactos → `@AUTH_DEFAULT_DOMAIN`, CSV,
+    case-insensitive) — nunca un segundo algoritmo de identidad.
+
+    SIEMPRE devuelve un `set[str]` concreto — NUNCA `None`. A DIFERENCIA
+    de `_allowed_set()`/`_academy_set()`: acá se pide `empty_is_all=False`
+    (ausente/vacío -> `set()`, nadie) Y ADEMÁS se descarta el literal
+    "ALL" que `_csv_users` sí soporta para esas otras dos listas. Con
+    `empty_is_all=False`, `_csv_users` solo devuelve `None` para ese
+    literal "ALL" (case-insensitive, espacios ya recortados) — nunca por
+    otro motivo — así que convertir `None -> set()` acá rechaza el
+    wildcard sin duplicar su detección. Contrato de seguridad explícito:
+    Operations NUNCA puede abrirse a "todos" ni por accidente de reuso del
+    parser compartido ni por configurar `OPERATIONS_ALLOWED_USERS=ALL`."""
+    result = _csv_users(OPERATIONS_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_operations_user(email: str) -> bool:
+    """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
+    está en `OPERATIONS_ALLOWED_USERS`. Deliberadamente ORTOGONAL a
+    `user_tier`/`is_authorized`: NO es "admisión a la app", es la
+    autorización de UN workspace adicional — un caller debe seguir
+    exigiendo `is_authorized(email)` por separado (ver
+    `webapp.operations_access.is_operations_authorized_user`). Nunca
+    "todos" — ver `_operations_set()`."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _operations_set()
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────

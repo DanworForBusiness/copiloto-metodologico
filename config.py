@@ -158,6 +158,20 @@ ALLOWED_USERS    = _env("ALLOWED_USERS", "ALL")
 # está en ambas listas. Para el lanzamiento masivo: vaciar ACADEMY_USERS y/o
 # pasar los usuarios a ALLOWED_USERS.
 ACADEMY_USERS    = _env("ACADEMY_USERS", "")
+# Allowlist EXPLÍCITA y PROVISORIA del workspace Operaciones (Operations
+# Workspace Access Gate) — ortogonal al tier de Copiloto (full/academy):
+# admisión base a la app (ALLOWED_USERS/ACADEMY_USERS) y autorización de
+# Operaciones son dos chequeos independientes, ambos requeridos. MISMA
+# normalización de usernames que ALLOWED_USERS (compactos →
+# @AUTH_DEFAULT_DOMAIN, CSV, case-insensitive — ver auth_service._csv_users)
+# pero A DIFERENCIA de ALLOWED_USERS/ACADEMY_USERS: el default es "" (nunca
+# "ALL"), NUNCA hay fallback a "abierto" si falta configurar, Y el literal
+# "ALL" (mayúscula/minúscula/espacios, el que SÍ abre ALLOWED_USERS a todo
+# el tenant) queda explícitamente RECHAZADO acá — nunca "todos" para
+# Operaciones bajo ninguna configuración. Ausente/vacío/"ALL" = NADIE
+# autorizado (fail-closed explícito). Provisorio hasta que un mecanismo de
+# entitlement central (Entra Groups/App Roles) lo justifique.
+OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # Cierre del dialog de invitación (/desafio) cuando la app corre enmascarada en
 # el frame de danwor.com: la cruz navega la ventana completa (target=_top) a esta
 # URL "limpia" para que el refresh no vuelva a pasar por /desafio. Sin frame

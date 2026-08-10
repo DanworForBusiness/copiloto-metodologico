@@ -27,8 +27,10 @@ Clasificación: OPERATIONS / STAFFING HTTP. NOT PLATFORM / SHARED. NO
 importa `webapp.main`, no construye URLs de Graph, no posee el mapeo de
 campos, no posee transporte Graph, no realiza cálculos de negocio — todo
 eso vive en `StaffingService`/`StaffingRepository`/`core.microsoft365`
-(Batch 1/2). Consume `webapp.operations_access` (política mínima y
-provisoria, separada de `webapp.access`).
+(Batch 1/2). Consume `webapp.operations_access.is_operations_authorized`
+(allowlist explícita `OPERATIONS_ALLOWED_USERS` del workspace Operations,
+separada de `webapp.access` — ver Operations Workspace Access Gate en
+HANDOFF).
 
 El deep-link no autenticado entra por `webapp.workspaces.platform_login_redirect`
 (apunta a `/platform`, alias de compatibilidad que a su vez redirige a
@@ -67,7 +69,7 @@ def _require_operations_session(request: Request, *, next_path: str | None = Non
     endpoint de acción que disparó el redirect."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request, next_path=next_path)
-    if not operations_access.is_staffing_authorized(request):
+    if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Staffing")
     return None
 

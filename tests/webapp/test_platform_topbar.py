@@ -28,6 +28,18 @@ from webapp.services import auth_service
 from webapp import workspaces
 
 auth_service.ALLOWED_USERS = "ALL"
+# Operations Workspace Access Gate (ver HANDOFF): tier "full" ya no basta
+# por sí solo para ver/entrar a Operations — este archivo prueba
+# renderizado del topbar/switcher, no la frontera de autorización en sí
+# (ver test_operations_access.py), así que se abre explícito listando su
+# email — "ALL" ya NO es un wildcard válido para Operations (rechazado
+# deliberadamente, ver auth_service._operations_set). MISMO valor CSV que
+# usan los otros archivos de test para esta variable (asignación plana de
+# módulo: la última que se ejecute durante el collection de pytest "gana"
+# para cualquier test sin su propio override).
+auth_service.OPERATIONS_ALLOWED_USERS = (
+    "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+)
 
 _MODULE_URL = "/modules/01_Arquitectura_y_Conectividad"
 _INTRO_URL = "/modules/00_Intro"  # sin previous_module real
@@ -46,6 +58,11 @@ def _full_client():
 def _academy_client(monkeypatch):
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "otro@danwor.com")
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")
+    # Sin Operations explícito para ESTE usuario — a diferencia del "ALL"
+    # de módulo (pensado para el cliente full), el fixture academy sigue
+    # probando el caso "single workspace" (solo Copilot). Ver
+    # test_workspaces.py para el caso NUEVO "academy + Operations listado".
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     session = auth_service.create_session(
         {"email": "topbar-academy@danwor.com", "name": "Academy", "first_name": "Academy", "family_name": "User"}
     )
@@ -238,6 +255,17 @@ def test_single_workspace_user_gets_no_dropdown_but_keeps_identity(monkeypatch):
     assert '<a href="/?pack=datasphere_core" class="theme-toggle" aria-label="Danwor · Inicio"' in response.text
     # La identidad animada sigue presente aunque no haya switch posible.
     assert 'class="animated-brand"' in response.text
+
+
+def test_full_tier_without_operations_listing_also_gets_no_switcher(monkeypatch):
+    # Item N del batch: tier "full" NUNCA es la fuente de esta
+    # autorización — sin OPERATIONS_ALLOWED_USERS explícito, un usuario
+    # full ve el MISMO switcher ausente que uno academy (arriba).
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    response = _full_client().get(_MODULE_URL)
+    assert response.status_code == 200
+    assert '<details class="workspace-switch">' not in response.text
+    assert "Operaciones" not in response.text
 
 
 # --- G: link a /onedanwor -----------------------------------------------------
