@@ -3802,16 +3802,26 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 
 ---
 
-## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — IMPLEMENTED / PENDING CI
+## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — CLOSED / GREEN
 (commits funcionales `2833fa6` (`feat(staffing): optimize operational
 assignment loading`) + `3fcb75e` (`feat(staffing): add capacity planning
-dashboard controls`), branch `work/staffing-director-priority-v2`, arrancada
-desde `main` `2505da2` — **PARALELA e independiente de
-`work/activity-dashboard-hub-v2` (Batch A2, parked, ver abajo), que este
-batch NO tocó.**)
+dashboard controls`) + `265198b` (pre-PR final check) + `a149c3b`
+(`fix(staffing): align status KPIs and verify lazy history loading`) +
+`20d44f6` (`fix(staffing): shorten projection column header and fit
+Disponibilidad on one line`) — mergeados a `main` vía PR #46/#47/#48,
+**CLOSED / GREEN tras validación real del owner en el entorno de
+producción del owner** (ver "Cierre — validación final del owner" al
+final de esta sección). Branch original
+`work/staffing-director-priority-v2`, arrancada desde `main` `2505da2` —
+**PARALELA e independiente de `work/activity-dashboard-hub-v2` (Batch A2,
+sigue PARKED, ver "SHARED ACTIVITY / OBSERVABILITY — HUB DASHBOARD V2" y
+CURRENT EXECUTION POINT abajo), que este batch NO tocó.**)
 
-Prioridad del director sobre 10 requerimientos de producto (1-8, 10
-implementados; 9 — overlay de vacaciones — **BLOQUEADO**, ver abajo).
+Prioridad del director sobre 10 requerimientos de producto — 1-8 y 10
+**CLOSED/GREEN**; 9 (overlay de vacaciones) se **separa explícitamente**
+de este cierre y queda documentado en su propia sección, "STAFFING —
+VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT STARTED" (ver abajo) — nunca
+fue parte del alcance cerrado acá.
 
 - **1. Carga inicial no histórica + lazy history (IMPLEMENTADO):**
   `StaffingRepository.get_allocations(access_token, *, assignment_scope=
@@ -3901,19 +3911,11 @@ implementados; 9 — overlay de vacaciones — **BLOQUEADO**, ver abajo).
   el detalle (Desde/Hasta). El "short" (dd/mm) queda disponible en el
   helper pero no tiene un consumidor hoy — no se fabricó un uso artificial
   solo para "usarlo".
-- **9. Overlay de vacaciones — BLOQUEADO, discovery NO realizado:** este
-  agente NO tiene acceso a un token Graph delegado real ni a una sesión
-  de browser autenticada contra Microsoft 365 — el discovery pedido
-  (SharePoint site/drive item, workbook, worksheet/tabla, columnas de
-  nombre/fechas, formato real de fecha, cantidad de registros, múltiples
-  períodos por persona) requiere ESE acceso y no puede simularse ni
-  inferirse sin inventar datos. **Solo esta subparte queda bloqueada** —
-  el resto del batch (1-8, 10) se implementó sin depender de ella. Cuando
-  haya una sesión con `graph_token` real disponible (browser del
-  usuario), el próximo agente puede retomar el discovery contra el link
-  de OneDrive/SharePoint que dio el director, con el mismo criterio de
-  normalización determinística (trim/espacios/case, SIN fuzzy-match,
-  SIN reordenar nombres) ya especificado.
+- **9. Overlay de vacaciones — SEPARADO de este cierre, ver sección
+  dedicada "STAFFING — VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT
+  STARTED" más abajo.** Nunca formó parte del alcance CLOSED/GREEN de
+  este batch — el resto (1-8, 10) se implementó y cerró sin depender de
+  ella.
 - **Instrumentación de Graph (parcial, sin credenciales reales):**
   `assignment_scope="operational"` hace 1 llamada paginada a Asignaciones
   (filtrada) + 1 a Proyectos + 1 a Colaboradores (+ 1 a Cliente si está
@@ -4110,14 +4112,87 @@ vivo contra un servidor aislado (nunca el `:8082` del usuario).
 - **Vacaciones (item 9):** sigue **BLOCKED / FOLLOW-UP REQUIRED**, sin
   tocar.
 
-### Próxima decisión (NO autorizada en este commit de código)
+### Cierre — validación final del owner
 
-Con 1-8/10 implementados y 9 explícitamente bloqueado (discovery
-pendiente de acceso Graph real), el próximo paso es una decisión del
-usuario: (a) autorizar el discovery de vacaciones cuando haya sesión con
-`graph_token` real disponible, (b) cerrar este batch como CLOSED/GREEN
-sin vacaciones y tratarlas como un incremento separado, o (c) alguna otra
-prioridad. **No autorizado todavía.**
+El director validó el batch completo en su propio entorno de producción
+(no un smoke de este agente) y autorizó el cierre. Registrado tal cual
+fue reportado:
+
+- carga inicial de Staffing responsiva, sin demora material observada;
+- estado por defecto es únicamente Activo;
+- la visibilidad de KPIs dependientes de estado se comporta
+  correctamente;
+- seleccionar Inactivo muestra el loader/preloader visible;
+- las asignaciones históricas inactivas se cargan tras esa acción;
+- una interacción repetida se comporta como se espera, sin demora
+  repetida visible;
+- el agrupamiento por consultor/proyecto funciona;
+- la intención global de colapsar/expandir sobrevive el cambio de
+  agrupación;
+- el detalle agregado de asignaciones funciona;
+- la proyección a +N días funciona;
+- el layout fijo final de la tabla de detalle es estable;
+- el header de proyección es `ASIGNACIÓN +N`;
+- `DISPONIBILIDAD` se renderiza en una sola línea al ancho de escritorio;
+- no se observó overflow horizontal.
+
+**Baseline automatizado final validado:** **595 passed / 1 skipped** ·
+route surface **83** · route-contract **GREEN** · `main` HEAD `126f663`
+(merge de PR #48, ya incluye PR #46/#47/#48 — commits `2833fa6`,
+`3fcb75e`, `265198b`, `a149c3b`, `20d44f6`).
+
+**Entregado en este cierre (1-8, 10 — ver detalle de cada uno en la
+sección de arriba y en los pases correctivos):**
+1. carga inicial operacional + historial Inactivo lazy;
+2. visibilidad de KPIs dependiente de estado;
+3. Activos vencidos;
+4. horas h/mes del header de grupo congeladas a "efectivo hoy";
+5. agrupamiento por Consultor / Proyecto;
+6. estado de colapso/expansión global preservado entre agrupaciones;
+7. detalle agregado expandible;
+8. Asignación hoy / +N días;
+9. drag/reorder del dashboard compartido, reusado sin cambios;
+10. formato de fecha DMY;
+11. estado visible de carga/error del historial;
+12. diagnósticos de Graph / observabilidad de fallback;
+13. corrective final de layout fijo/presentación de headers.
+
+El requerimiento 9 original (overlay de vacaciones) **NO** forma parte
+de este entregado — ver sección dedicada "STAFFING — VACATION TIMELINE
+OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
+
+---
+
+## STAFFING — VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT STARTED
+
+Separado explícitamente del cierre de Staffing Dashboard V2 — Director
+Priority Update (arriba). Era el requerimiento 9 original del batch de
+director priority; nunca se implementó ni se cerró como parte de ese
+batch.
+
+**Motivo:** este agente no tiene acceso a un token Graph delegado real
+ni a una sesión de browser autenticada contra Microsoft 365 en este
+entorno — el discovery contra el workbook de Operations (SharePoint
+site/drive item, worksheet/tabla, columnas de nombre/fechas, formato
+real de fecha, cantidad de registros, múltiples períodos por persona)
+requiere ESE acceso y no puede simularse ni inferirse sin inventar
+datos.
+
+**Contrato conocido únicamente (sin discovery todavía):**
+- fuente: workbook de SharePoint de Operations, provisto por el owner;
+- el contrato de workbook/tabla/columna todavía requiere discovery;
+- candidato de join actual: nombre completo del consultor normalizado;
+- normalización: solo trim + colapso de espacios + case-normalization;
+- SIN fuzzy-matching;
+- los períodos de vacaciones NO deben alterar horas de asignación ni
+  KPIs de Staffing.
+
+**NO se realizó discovery en este cierre.** Cuando exista una sesión
+con `graph_token` real disponible (browser del usuario), el próximo
+agente puede retomar el discovery contra el link de OneDrive/SharePoint
+que dio el director, con el mismo criterio de normalización
+determinística ya especificado (sin fuzzy-match, sin reordenar
+nombres).
 
 ---
 
@@ -4158,41 +4233,45 @@ prioridad. **No autorizado todavía.**
 | Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
 | Danwor Hub Login Identity | **CLOSED / GREEN** |
 | Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
+| Staffing Dashboard V2 — Director Priority Update | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Último batch trabajado (NO cerrado):** **Staffing Dashboard V2 —
-  Director Priority Update** — ver sección dedicada arriba —
-  **IMPLEMENTED / PENDING CI** (commits `2833fa6` + `3fcb75e` +
-  `265198b` (pre-PR final check) + un corrective final (production
-  behavior corrective — Parts A/B/C/D/E/F), branch
-  `work/staffing-director-priority-v2`, arrancada desde `main` `2505da2`).
-  Requerimientos 1-8/10 implementados y validados localmente (**593
-  passed / 1 skipped**, route surface 82→83, smoke visual GREEN); dos
-  bugs de producto reportados por el owner tras validación real
-  (KPI "Tentativas" siempre visible; "Cargando historial…" ausente) y un
-  bug de UX de timeline (colapso global no sobrevive el cambio de
-  agrupación) quedaron **CORREGIDOS Y VERIFICADOS EN VIVO** (ver "Pase
-  correctivo — production behavior corrective" arriba); requerimiento 9
-  (overlay de vacaciones) sigue BLOQUEADO por falta de acceso Graph real
-  en este entorno — NO autorizar su discovery hasta que exista una
-  sesión con `graph_token` real disponible. **REAL GRAPH FILTER sigue
-  PENDING OWNER/PRODUCTION SMOKE** — la pregunta de performance de los
-  ~6s reportados NO puede confirmarse sin ver los logs VERBOSE nuevos
-  (`staffing_data_diagnostics`) contra tráfico real. **`work/activity-dashboard-hub-v2`
-  (Batch A2) sigue PARKED, sin tocar** — este batch arrancó desde `main`
-  directamente, no desde esa rama; A2 necesita su propia reconciliación
-  con `main` en algún momento posterior, independiente de este cierre.
-  **No mergeado, no hay CI real todavía — no cerrar como CLOSED/GREEN sin
-  esa confirmación.**
-- **Último batch CERRADO:** **Shared Activity / Observability — Context
+- **Estado consolidado de los tres frentes activos:**
+  - **Staffing Dashboard V2 — Director Priority Update = CLOSED / GREEN.**
+  - **Staffing — Vacation Timeline Overlay = FOLLOW-UP / NOT STARTED.**
+  - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
+    AUTHORIZED / PARKED.**
+- **Último batch CERRADO:** **Staffing Dashboard V2 — Director Priority
+  Update** — ver sección dedicada arriba — **CLOSED / GREEN** (commits
+  `2833fa6` + `3fcb75e` + `265198b` (pre-PR final check) + `a149c3b`
+  (production behavior corrective — Parts A/B/C/D/E/F) + `20d44f6`
+  (corrective final de header/layout), **mergeados a `main` vía PR
+  #46/#47/#48**, `main` HEAD `126f663`, **CLOSED/GREEN tras validación
+  real del owner en su entorno de producción** — ver "Cierre —
+  validación final del owner" en la sección dedicada arriba para el
+  detalle completo de los 14 puntos validados y los 13 items
+  entregados). Requerimiento 9 original (overlay de vacaciones)
+  **separado explícitamente** de este cierre — ver sección dedicada
+  "STAFFING — VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT STARTED"
+  arriba; NO autorizar su discovery hasta que exista una sesión con
+  `graph_token` real disponible. **REAL GRAPH FILTER queda
+  PENDING OWNER/PRODUCTION SMOKE** — sin cambio de estado, ya no bloquea
+  el cierre (fallback automático sigue siendo la red de seguridad).
+  **`work/activity-dashboard-hub-v2` (Batch A2) sigue PARKED, sin
+  tocar** — este batch de Staffing arrancó desde `main` directamente, no
+  desde esa rama; **A2 requiere una reconciliación separada con `main`
+  antes de continuar, porque Staffing cambió superficies compartidas:
+  `webapp/static/tools.css`, `webapp/templates/operations/
+  staffing_dashboard.html`, y los tests/primitivas de dashboard
+  compartidas de Staffing.** Esa reconciliación NO se inició.
+- **Batch CERRADO anterior:** **Shared Activity / Observability — Context
   Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
   (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
   `53277d6`**, owner-confirmed CI GREEN). Envelope de actividad ahora
   platform-aware (aditivo `scope`/`area`), Operations emite su primer evento de
   uso (`staffing_overview_viewed`), una sola activity capability, históricos
   legibles sin migración; el corrective preserva el lente Copiloto del dashboard
-  actual (Operations no lo contamina hasta A2). Baseline en `main`: **528 passed
-  / 1 skipped**, route surface **82**. (Next candidate = A2, ver abajo.)
+  actual (Operations no lo contamina hasta A2).
 - **Phase (producto):** ninguna fase de producto abierta. Danwor Hub Login Identity
   — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
   (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
@@ -4237,8 +4316,11 @@ prioridad. **No autorizado todavía.**
   `activity_context.context_of` + los campos `scope`/`area`. **AUTORIZADO por el
   owner**; arranca desde el `main` ya realineado tras este cierre documental
   (branch `work/activity-dashboard-hub-v2`) — NO iniciado todavía; sigue
-  PARKED sin reconciliar con los cambios de Staffing de
-  `work/staffing-director-priority-v2` (ver sección dedicada arriba). Los
+  PARKED y **requiere reconciliación con `main`** ahora que Staffing
+  Dashboard V2 (arriba, CLOSED/GREEN) mergeó cambios en superficies
+  compartidas (`webapp/static/tools.css`,
+  `webapp/templates/operations/staffing_dashboard.html`, tests/primitivas
+  de dashboard de Staffing) — esa reconciliación NO se inició. Los
   hallazgos reportados-pero-diferidos explícitamente en batches previos
   (colisiones de color en el timeline de Staffing; filtro de tipo de
   proyecto; Status Finalización) SIGUEN diferidos/sin autorizar. **Switch
@@ -4250,16 +4332,15 @@ prioridad. **No autorizado todavía.**
   Primitives quedan igualmente diferidos sin autorización.
 - **Next candidate status:** **AUTHORIZED (A2), NOT STARTED** — arranca desde el
   `main` realineado tras el merge de este cierre documental de A1.
-- **Baseline (`main`, sin este batch todavía):** Python 3.14.3 · FastAPI
-  0.141.1 · Starlette 1.4.1 · tests **528 passed / 1 skipped** · route
-  surface **82** · `main` HEAD `53277d6` (merge de PR #44, ya incluye A1
-  — Context Foundation CLOSED/GREEN).
-- **Baseline (`work/staffing-director-priority-v2`, local, PENDING CI):**
-  tests **593 passed / 1 skipped** (tras el pase correctivo de
-  producción — pre-PR final check + production behavior corrective) ·
-  route surface **83** (nueva ruta
-  `POST /operaciones/staffing/asignaciones/historial`, snapshot
-  actualizado explícitamente, sin cambios desde su introducción).
+- **Baseline actual (`main`, incluye Staffing Dashboard V2 CLOSED/GREEN):**
+  Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **595 passed
+  / 1 skipped** · route surface **83** · route-contract **GREEN** ·
+  `main` HEAD `126f663` (merge de PR #48, ya incluye PR #46/#47/#48 —
+  Staffing Dashboard V2 Director Priority Update CLOSED/GREEN completo,
+  y PR #44 — A1 Context Foundation CLOSED/GREEN). Nueva ruta desde el
+  baseline previo a Staffing V2: `POST /operaciones/staffing/asignaciones/historial`
+  (route surface 82→83, snapshot actualizado explícitamente, sin cambios
+  desde su introducción).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
