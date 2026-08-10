@@ -2,8 +2,15 @@
    (.module-nav/.nav-kicker/.module-link), sin acordeón: hoy hay UN área
    (Staffing) con UNA página real (Asignaciones), así que no hace falta
    colapsar nada. No renderiza Projects/Reporting ni otros futuros —
-   se agregan cuando existan de verdad. #}
+   se agregan cuando existan de verdad.
+   La bienvenida de sesión reusa el MISMO macro compartido que
+   copilot_nav.html (partials/workspace_shell.html) — misma fuente de
+   identidad (auth_service/session), nunca un segundo parseo de claims ni
+   una segunda copia del formateo de nombre. Sin `readonly`: Operaciones
+   no tiene el tier academy del Copiloto. #}
+{% from "partials/workspace_shell.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
+  {{ nav_welcome(user) }}
   <nav aria-label="Operaciones">
     <p class="nav-kicker">STAFFING</p>
     <a href="/operaciones/staffing/asignaciones" class="module-link is-active">

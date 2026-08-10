@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}{{ page_title }} · Danwor Academy{% endblock %}
 {% block body %}
 <div
@@ -26,7 +27,7 @@
 
   {% include "partials/copilot_nav.html" %}
 
-  <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
+  {{ sidebar_resize_handle() }}
 
   <main id="content" class="academy-stage">
     {# "← Volver" embebido: al navegar DENTRO del iframe a otro asset (p. ej.

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Asignaciones · Staffing · Operaciones · Danwor{% endblock %}
 {% block body %}
 <div
@@ -22,6 +23,10 @@
   {% endcall %}
 
   {% include "partials/operations_nav.html" %}
+
+  {# MISMO primitivo de resize que Copiloto (module.html/academy.html) —
+     ver partials/workspace_shell.html::sidebar_resize_handle(). #}
+  {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
     <section class="module-hero">

@@ -1,0 +1,30 @@
+{# workspace_shell.html — primitivas MÍNIMAS del shell de workspace,
+   compartidas por Copiloto y Operaciones (y cualquier futuro workspace).
+   Deliberadamente chico: dos macros puntuales, no un componente de layout
+   completo — la geometría real (`.app-shell`, `--nav-width`) vive en
+   `webapp/static/layout.css` y el comportamiento de drag en
+   `webapp/static/app.js::copilotLayout()`; este partial NUNCA reescribe
+   ni mueve esos dos, solo evita que su MARKUP de invocación se copie y
+   pegue entre templates de workspace. #}
+
+{# `sidebar_resize_handle(side)` — el `<div data-resize>` que
+   `copilotLayout().init()` (app.js) busca vía
+   `shell.querySelectorAll("[data-resize]")` para enganchar el drag. Antes
+   de esta corrección, el MISMO markup vivía copiado inline en
+   `module.html` (x2, left+right), `academy.html` (left) y
+   `operations/staffing.html` (left) — cuatro copias literales del mismo
+   `<div>`. Una sola fuente acá; `side` es `"left"` (nav) o `"right"`
+   (panel del Copiloto) — nunca un tercer valor. #}
+{% macro sidebar_resize_handle(side="left") %}<div class="resize-handle resize-{{ side }}" data-resize="{{ side }}" title="Arrastrar para redimensionar" aria-hidden="true"></div>{% endmacro %}
+
+{# `nav_welcome(user, readonly)` — bienvenida de sesión del nav izquierdo,
+   COMPARTIDA por cualquier workspace: la fuente de identidad es la misma
+   sesión (`auth_service.session_user`) para los dos, así que el texto
+   "Bienvenido <nombre>" se formatea UNA sola vez acá en vez de copiarse en
+   cada `*_nav.html` de workspace.
+
+   `readonly` es específico del tier academy del Copiloto (deshabilita el
+   asistente IA) — Operaciones no tiene ese concepto y simplemente no lo
+   pasa (default False). El macro no decide NADA de autorización: solo
+   presenta lo que el caller ya resolvió. #}
+{% macro nav_welcome(user, readonly=False) %}{% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong>{% if readonly %} <span class="nav-readonly" title="Tu perfil navega y lee todo el contenido, pero el asistente IA está deshabilitado por ahora.">Modo lectura</span>{% endif %}</p>{% endif %}{% endmacro %}
