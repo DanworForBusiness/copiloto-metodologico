@@ -1,3 +1,4 @@
+{% from "partials/platform_topbar.html" import hub_brand_lockup %}
 <!doctype html>
 <html lang="es">
 <head>
@@ -34,9 +35,20 @@
   <!-- Pantalla 2 — Acceso: panel de marca + login, sobre el mismo fondo -->
   <section class="screen" id="acceso">
     <div class="access-grid">
-      <div class="glass access-brand">
+      {# `login_copy.hub_brand_lockup` (SOLO en la copy de Danwor Hub —
+         `_ONEDANWOR_LANDING_COPY`) reemplaza el kicker/título histórico
+         por el mismo bloque canónico (`hub_brand_lockup()`) que ya usa el
+         hero autenticado — ver Danwor Hub Login — Canonical Brand Lockup
+         Corrective en HANDOFF. La copy del Copiloto (`_COPILOT_LANDING_COPY`)
+         no define esta clave y sigue con su wordmark de dos líneas de
+         siempre, byte a byte. #}
+      <div class="glass access-brand{% if login_copy.hub_brand_lockup %} hub-hero{% endif %}">
+        {% if login_copy.hub_brand_lockup %}
+        {{ hub_brand_lockup() }}
+        {% else %}
         <p class="kicker">Data &amp; AI for Business</p>
         <h1>{{ login_copy.brand_title }}<span>{{ login_copy.brand_subtitle }}</span></h1>
+        {% endif %}
         <p>{{ login_copy.brand_description }}</p>
         {% if login_copy.feature_list %}
         <ul class="access-list">

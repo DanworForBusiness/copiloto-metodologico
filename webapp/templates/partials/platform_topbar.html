@@ -48,9 +48,26 @@
     el switcher de este macro (SOLO cuando `available_workspaces|length > 1`
     — Danwor Hub es una afordancia de CAMBIO de workspace, nunca un botón
     Home genérico; con 1 solo workspace disponible el control simplemente
-    no existe, sin ícono deshabilitado ni fallback) Y por el hero de Danwor
-    Hub (platform_selector.html, ver HANDOFF revisión visual). Una sola
+    no existe, sin ícono deshabilitado ni fallback), por `hub_brand_lockup()`
+    (abajo) Y directamente por el hero autenticado
+    (platform_selector.html, ver HANDOFF revisión visual). Una sola
     fuente — nunca duplicar el markup del SVG en un tercer lugar. #}
+
+{% macro hub_brand_lockup() %}<p class="kicker">Una plataforma · Todos los servicios Danwor</p>
+<h1><span class="hub-hero__icon">{{ hub_icon() }}</span>Danwor Hub</h1>{% endmacro %}
+{#  `hub_brand_lockup()` — el bloque canónico de identidad Danwor Hub
+    (kicker + ícono + título "Danwor Hub"), COMPARTIDO por el hero
+    autenticado (platform_selector.html) y la landing anónima de Danwor
+    Hub (landing.html, vía `_ONEDANWOR_LANDING_COPY.hub_brand_lockup`,
+    ver Danwor Hub Login — Canonical Brand Lockup Corrective en HANDOFF).
+    Deliberadamente SIN parámetros: el kicker y el título "Danwor Hub" son
+    fijos — esto ES la identidad canónica, no una plantilla genérica de
+    marca. El caller sigue siendo dueño de todo lo que va DESPUÉS (subtítulo
+    del hero, descripción/checklist del login) — el macro nunca decide esa
+    parte. Requiere que el caller envuelva el resultado en un contenedor
+    con clase `.hub-hero` (mismo criterio que ya usa `.hub-hero h1`/
+    `.hub-hero .kicker` en `webapp/static/brand-hero.css`) para la
+    geometría de una sola línea ícono+título. #}
 {% macro platform_topbar(current_workspace, available_workspaces, identity_href, identity_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
 <header class="topbar">
   <a href="{{ identity_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ identity_html | safe }}</a>

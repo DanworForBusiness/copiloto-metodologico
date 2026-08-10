@@ -1,12 +1,11 @@
 {% extends "platform_shell.html" %}
-{% from "partials/platform_topbar.html" import hub_icon %}
+{% from "partials/platform_topbar.html" import hub_brand_lockup %}
 {% block title %}Elegí tu espacio · Danwor Hub{% endblock %}
 {% block content %}
 <section class="screen" id="selector">
   <div class="access-grid" style="grid-template-columns:1fr">
     <div class="glass access-brand hub-hero">
-      <p class="kicker">Una plataforma · Todos los servicios Danwor</p>
-      <h1><span class="hub-hero__icon">{{ hub_icon() }}</span>Danwor Hub</h1>
+      {{ hub_brand_lockup() }}
       <p class="full-page-subtitle">Un punto de encuentro donde se conectan necesidades, capacidades, conocimiento y operación.<br>Elegí el espacio de trabajo al que querés entrar.</p>
     </div>
   </div>

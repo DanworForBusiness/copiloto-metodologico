@@ -51,19 +51,18 @@ router = APIRouter()
 
 # Copy visible de "Danwor Hub" — identidad del paraguas de plataforma
 # (naming interno "platform"/"onedanwor" sin cambios; ver Danwor Hub Login
-# Identity Alignment en HANDOFF). Reusa la MISMA grilla visual que la
-# landing histórica del Copiloto (kicker/h1+acento/descripción/checklist)
-# vía `render_landing` — mismo `<h1>{{ brand_title }}<span>{{
-# brand_subtitle }}</span></h1>` de dos líneas que ya usa esa landing, sin
-# ícono: `landing.html` no tiene otro slot visual que ese wordmark de
-# texto (ver hero autenticado en `platform_selector.html` para el uso de
-# `hub_icon()`, un template distinto).
+# en HANDOFF). `hub_brand_lockup: True` reemplaza el kicker/wordmark
+# histórico de dos líneas por el MISMO bloque canónico (kicker + ícono +
+# "Danwor Hub") que ya renderiza el hero autenticado
+# (`platform_selector.html`) — ver `partials/platform_topbar.html::
+# hub_brand_lockup()`. `_COPILOT_LANDING_COPY` (landing.py) NO define esta
+# clave — su wordmark histórico de dos líneas ("Copiloto Metodológico" /
+# "Arquitecto Danwor") sigue intacto, sin tocar.
 _ONEDANWOR_LANDING_COPY = {
     "title": "Danwor Hub · Danwor",
     "eyebrow_ink": "Una plataforma",
     "eyebrow_gold": "Todos los servicios Danwor",
-    "brand_title": "Danwor",
-    "brand_subtitle": "Hub",
+    "hub_brand_lockup": True,
     "brand_description": (
         "Un punto de encuentro donde se conectan necesidades, capacidades, "
         "conocimiento y operación."
