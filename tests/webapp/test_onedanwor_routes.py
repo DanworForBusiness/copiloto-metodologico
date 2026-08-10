@@ -75,15 +75,44 @@ def test_unauthenticated_renders_onedanwor_login():
     assert "Navegación integrada entre servicios" in response.text
 
 
-def test_onedanwor_login_reuses_shared_visual_grammar_not_a_second_icon():
-    # No se introdujo un segundo SVG canónico: landing.html no tiene slot
-    # de ícono (a diferencia de platform_selector.html/hub_icon()) — la
-    # identidad Danwor Hub se comunica con el MISMO wordmark de texto de
-    # dos líneas que ya usa la landing del Copiloto, solo con copy propia.
+def test_onedanwor_login_reuses_the_canonical_hub_icon_not_a_second_svg():
+    # Danwor Hub Login — Canonical Brand Lockup Corrective (ver HANDOFF):
+    # el batch anterior solo alineó el COPY ("Danwor Hub" en vez de "One
+    # Danwor") pero dejó el wordmark histórico de dos líneas sin ícono.
+    # Ahora la landing anónima consume el MISMO `hub_brand_lockup()` que
+    # el hero autenticado — el ícono canónico de 4 cuadrados está
+    # presente, reusado (nunca un segundo <svg> recreado a mano).
     anon = TestClient(app)
     response = anon.get("/onedanwor")
     assert response.status_code == 200
-    assert '<rect x="3" y="3"' not in response.text
+    assert response.text.count('<rect x="3" y="3" width="7" height="7" rx="1.5"/>') == 1
+
+
+def test_onedanwor_login_renders_canonical_kicker_and_one_line_title():
+    anon = TestClient(app)
+    response = anon.get("/onedanwor")
+    assert response.status_code == 200
+    assert "Una plataforma · Todos los servicios Danwor" in response.text
+    assert '<h1><span class="hub-hero__icon">' in response.text
+    assert "</span>Danwor Hub</h1>" in response.text
+
+
+def test_onedanwor_login_no_longer_uses_historical_split_wordmark_or_kicker():
+    # El kicker histórico vivía hardcodeado en landing.html, INDEPENDIENTE
+    # del dict de copy — por eso el batch anterior (que solo tocó
+    # `_ONEDANWOR_LANDING_COPY`) no lo alineó. El logo de marca en la
+    # pantalla de intro SÍ sigue diciendo "Data & AI for Business" en su
+    # `alt` — eso es la tagline genérica de la compañía, comparte esa
+    # pantalla con el Copiloto, y no es lo que este batch corrige.
+    anon = TestClient(app)
+    response = anon.get("/onedanwor")
+    assert response.status_code == 200
+    assert '<p class="kicker">Data &amp; AI for Business</p>' not in response.text
+    assert "<h1>Danwor<span>Hub</span></h1>" not in response.text
+    # El logo de marca de la pantalla de intro (compartida con el
+    # Copiloto, no parte del bloque de identidad Hub) SÍ sigue con su
+    # tagline genérica en el `alt` — no se tocó, y no debería.
+    assert 'alt="Danwor — Data & AI for Business"' in response.text
 
 
 def test_onedanwor_identity_has_no_copilot_specific_branding():
