@@ -4,9 +4,9 @@
    `active_stem` resalta la entrada actual. Academy está desconectado de la
    navegación metodológica (prev/next/loop) — es un área aparte.
    La bienvenida de sesión ("Bienvenido <nombre>") es un macro COMPARTIDO
-   con Operaciones — ver partials/workspace_nav_identity.html, nunca
-   copiarla de nuevo acá. #}
-{% from "partials/workspace_nav_identity.html" import nav_welcome %}
+   con Operaciones — ver partials/workspace_shell.html, nunca copiarla de
+   nuevo acá. #}
+{% from "partials/workspace_shell.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user, readonly) }}
   <nav aria-label="Módulos metodológicos">

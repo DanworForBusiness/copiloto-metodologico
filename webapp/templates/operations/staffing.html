@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Asignaciones · Staffing · Operaciones · Danwor{% endblock %}
 {% block body %}
 <div
@@ -23,12 +24,9 @@
 
   {% include "partials/operations_nav.html" %}
 
-  {# MISMO mecanismo de resize que Copiloto (module.html/academy.html) —
-     `copilotLayout().init()` ya busca cualquier `[data-resize]` dentro del
-     `.app-shell` (app.js) y persiste el ancho en localStorage
-     (`dw-nav-width`); a Operaciones solo le faltaba este handle, no una
-     segunda implementación. #}
-  <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
+  {# MISMO primitivo de resize que Copiloto (module.html/academy.html) —
+     ver partials/workspace_shell.html::sidebar_resize_handle(). #}
+  {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
     <section class="module-hero">

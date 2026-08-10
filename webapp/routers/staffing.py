@@ -92,7 +92,7 @@ def staffing_page(request: Request):
             # inventar un registro de packs para Operaciones).
             "pack": DEFAULT_PACK,
             # Misma sesión que ya usa Copiloto (modules.py/academy.py) para
-            # la bienvenida del nav izquierdo (partials/workspace_nav_identity.html)
+            # la bienvenida del nav izquierdo (partials/workspace_shell.html)
             # — sin esto, operations_nav.html no puede renderizarla (ver
             # Shared Workspace Sidebar Frame en HANDOFF).
             "user": user,
