@@ -3132,6 +3132,111 @@ alcance explícito" abajo).
 
 ---
 
+## OPERATIONS WORKSPACE ACCESS GATE — IMPLEMENTED / PENDING CI
+(commit funcional `05b5da3` — `feat(operations): add explicit workspace
+access allowlist`, branch `work/operations-access-gate`. **NO marcar
+CLOSED/GREEN todavía** — falta la confirmación de CI real en GitHub, mismo
+protocolo ya usado en Staffing V1 y Danwor Hub.)
+
+Batch de SEGURIDAD, deliberadamente pequeño: introduce la frontera de
+autorización explícita que Operaciones necesitaba antes de exponerse a
+usuarios reales. Precedido por Staffing V1 (PR #33, CLOSED/GREEN) y Danwor
+Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
+
+- **Problema real:** hasta este batch, Operations dependía de
+  `auth_service.user_tier(...) == "full"` — el MISMO tier que decide el
+  producto Copiloto. Operaciones contiene información operativa que no
+  debe estar disponible a todo usuario admitido al Copiloto/aplicación —
+  el tier de Copiloto nunca debería haber sido el modelo de autorización
+  de otro workspace.
+- **`OPERATIONS_ALLOWED_USERS` (`config.py`):** allowlist EXPLÍCITA y
+  PROVISORIA — mismo formato/parser que `ALLOWED_USERS` (usernames
+  compactos → `@AUTH_DEFAULT_DOMAIN`, CSV, "ALL" literal si se configura
+  explícito, case-insensitive; reusa `auth_service._csv_users`, NUNCA un
+  segundo algoritmo de normalización de identidad). A DIFERENCIA de
+  `ALLOWED_USERS`/`ACADEMY_USERS`: default `""` (nunca `"ALL"`) y JAMÁS
+  hereda el fallback histórico "sin config = abierto" — ausente o vacío
+  significa SIEMPRE "nadie autorizado para Operaciones" (fail-closed
+  explícito, sin excepción). Provisorio hasta que un mecanismo de
+  entitlement central (Entra Groups/App Roles) lo justifique.
+- **Política de autorización = admisión base AND allowlist de Operations**
+  (`webapp/operations_access.is_operations_authorized_user`): dos
+  condiciones independientes, AMBAS requeridas —
+  `auth_service.is_authorized(email)` (la política de login existente,
+  SIN modificar) Y `auth_service.is_operations_user(email)` (la nueva
+  allowlist). Estar en `OPERATIONS_ALLOWED_USERS` nunca otorga admisión a
+  la app por sí solo.
+- **Ortogonal al tier de Copiloto — deliberadamente:** `user_tier` NUNCA
+  se usa en el nuevo predicado. Las 4 combinaciones son representables y
+  están testeadas: full sin Operations, academy sin Operations, full con
+  Operations, **academy con Operations** (esta última era IMPOSIBLE bajo
+  el modelo anterior — ahora un usuario Academy legítimamente admitido y
+  listado en `OPERATIONS_ALLOWED_USERS` entra a Operaciones igual que uno
+  full).
+- **`APP_OWNER` — sin bypass implícito:** el predicado nuevo NUNCA
+  referencia `APP_OWNER` (`webapp/access.py`, diagnóstico del Copiloto,
+  módulo distinto). Si el dueño de la app necesita Operations, su
+  identidad debe estar explícita en `OPERATIONS_ALLOWED_USERS` como
+  cualquier otro usuario — auditable en config, sin excepción invisible.
+- **Un solo predicado de workspace, no Staffing-específico:**
+  `is_staffing_authorized_user`/`is_staffing_authorized` renombrados a
+  `is_operations_authorized_user`/`is_operations_authorized` — el
+  predicado permanente vive a nivel de WORKSPACE (Operaciones es más
+  ancho que Staffing), no de área interna. Sin `STAFFING_ALLOWED_USERS` —
+  la frontera de entitlement actual es el workspace completo; permisos
+  por área quedan diferidos hasta que exista una necesidad real de
+  diferenciarlos. Los 2 callers reales (`webapp/workspaces.py`,
+  `webapp/routers/staffing.py`) se migraron DIRECTO al nuevo nombre — sin
+  wrapper de compatibilidad (ningún caller/test lo necesitaba).
+- **MISMA política gobierna descubrimiento Y enforcement:**
+  `workspaces.OPERATIONS.is_authorized` y
+  `staffing.py::_require_operations_session` llaman al MISMO predicado
+  puro — autorizado: Operaciones aparece en el selector/switcher de Danwor
+  Hub Y las rutas canónicas responden; no autorizado: Operaciones
+  desaparece del selector/switcher Y el acceso directo por URL devuelve
+  403 server-side (ocultar en UI nunca fue ni es la autorización real).
+  Protege como mínimo `GET /operaciones/staffing/asignaciones` y
+  `POST /operaciones/staffing/asignaciones/data` — un `graph_token`
+  presente/válido NUNCA saltea esta autorización (testeado explícitamente
+  con un `StaffingService` que rompería el test si se llegara a invocar).
+- **Sin cambios de ruteo/auth/OAuth/sesión:** `/onedanwor`, `/platform`,
+  `/copilot`, las URLs canónicas de `/operaciones`, los redirects de
+  compatibilidad `/operations/*` (307, method+body preservados), las
+  transiciones 303 de autenticación, el ciclo de vida del token de Graph —
+  NADA de esto cambió. Este batch es SOLO autorización. **Route surface:
+  82, sin cambios.**
+- **Tests (+26 netos):** `tests/webapp/test_operations_access.py` (nuevo,
+  +15) — predicado puro: equivalencia username-compacto/email-completo
+  (misma normalización que `ALLOWED_USERS`), fail-closed (ausente/vacío),
+  sin bypass de `APP_OWNER`, academy+Operations-listado autorizado,
+  full+no-listado denegado, allowlist de Operations sola nunca otorga
+  admisión base. `tests/webapp/test_workspaces.py` (reescrito) — las 4
+  combinaciones full/academy × con/sin Operations, fail-closed a nivel de
+  descubrimiento. `tests/webapp/test_staffing_routes.py` (+6) — GET/POST
+  denegados para full-no-listado, graph-token nunca saltea, blank deniega
+  al usuario previamente autorizado, el camino autorizado sigue
+  funcionando GET+POST. `tests/webapp/test_platform_topbar.py`/
+  `test_onedanwor_routes.py` (fixtures actualizados +2) — switcher/
+  selector ocultan Operaciones a un full-tier no listado, igual que ya
+  hacían con academy.
+- **Hallazgo de aislamiento de tests (corregido en este batch):** los
+  archivos de test que asignan `auth_service.OPERATIONS_ALLOWED_USERS`
+  como atributo de MÓDULO (no vía `monkeypatch`) deben coincidir en el
+  mismo valor (`"ALL"`) entre archivos — pytest importa/colecciona TODOS
+  los módulos de test antes de correr ninguno, así que la última
+  asignación plana de módulo en orden de collection "gana" para cualquier
+  test sin su propio override. Mismo patrón ya usado (sin fricción, por
+  coincidir siempre en `"ALL"`) por `ALLOWED_USERS` desde hace varios
+  batches — quedó expuesto acá porque introdujimos valores DISTINTOS entre
+  archivos por error, no porque el patrón en sí sea nuevo.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**): **suite 490 passed / 1 skipped** (464 + 26 netos),
+  route-contract GREEN, snapshot sin cambios (**82**).
+- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
+  No se abrió el PR todavía.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -3164,41 +3269,36 @@ alcance explícito" abajo).
 | Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
 | Staffing — Asignaciones Dashboard v1 | **CLOSED / GREEN** |
 | Danwor Hub Visual Identity | **CLOSED / GREEN** |
+| Operations Workspace Access Gate | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Danwor Hub Visual Identity. Precedida por Staffing —
-  Asignaciones Dashboard v1 (PR #33, **CLOSED/GREEN** — ver sección
-  dedicada arriba para el detalle completo de esa fase: enriquecimiento
-  FT/PT, payload/dashboard client-side, Cliente LIVE-GRAPH-CONFIRMED,
-  filtrado facetado, fix de coordenadas del marcador de "hoy" — nada de
-  eso se tocó en este batch).
-- **Status:** **CLOSED / GREEN.** Primer CI del PR: **GREEN**. Suite local
-  sobre el HEAD real (`8ea2921`): **464 passed / 1 skipped**, route
-  surface **82** (sin cambios). Revisión visual desktop GREEN, responsive
-  ~375px GREEN (sin overflow horizontal de body). Ver sección dedicada
-  "DANWOR HUB VISUAL IDENTITY — CLOSED / GREEN" arriba para el detalle
-  completo.
-- **Functional commit:** `8ea2921` — `feat(platform): introduce Danwor Hub
-  visual identity` (un solo commit funcional, sin amend/squash). Branch
-  `work/danwor-hub-visual`, pusheado a origin, PR abierto (número no
-  confirmado por el usuario en el cierre — ver commit hash como
-  referencia autoritativa).
-- **Alcance — SOLO identidad visual:** naming visible del selector
-  autenticado (`/onedanwor`, 2+ workspaces) "One Danwor" → "Danwor Hub";
-  ícono canónico único (`hub_icon()`) reusado por switcher + fallback +
-  hero; eyebrow de card de workspace → `None` (capacidad `{% if
-  card.meta.eyebrow %}` intacta). **Ninguna ruta se renombró, ninguna
-  workspace key cambió, auth/autorización sin tocar** — ver "Límite de
-  alcance explícito" en la sección dedicada arriba.
-- **Next candidate:** **Operations Workspace Access Gate** — allowlist
-  provisoria de usuarios vía `OPERATIONS_ALLOWED_USERS` (mencionado en un
-  intento anterior de esta sesión, bloqueado en el precheck: rama sucia /
-  main no estaba en el estado esperado en ese momento — ambas condiciones
-  ya resueltas ahora que Staffing y Danwor Hub cerraron limpio). Solo
-  mencionado como candidato — **NO iniciado, NO autorizado** en este
-  documento.
+- **Phase:** Operations Workspace Access Gate. Precedida por Staffing —
+  Asignaciones Dashboard v1 (PR #33, **CLOSED/GREEN**) y Danwor Hub Visual
+  Identity (**CLOSED/GREEN**) — ver secciones dedicadas arriba; ninguna de
+  las dos se tocó en este batch.
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
+  (`05b5da3`): **490 passed / 1 skipped** (464 + 26 netos), route surface
+  **82** (sin cambios). Ver sección dedicada "OPERATIONS WORKSPACE ACCESS
+  GATE — IMPLEMENTED / PENDING CI" arriba para el detalle completo — falta
+  la confirmación de CI real en GitHub antes de CLOSED/GREEN. PR no
+  abierto todavía.
+- **Functional commit:** `05b5da3` — `feat(operations): add explicit
+  workspace access allowlist` (un solo commit funcional, sin amend/squash).
+  Branch `work/operations-access-gate`.
+- **Alcance — SOLO autorización:** `OPERATIONS_ALLOWED_USERS` (allowlist
+  explícita, fail-closed, misma normalización que `ALLOWED_USERS`);
+  `is_operations_authorized_user` = admisión base AND allowlist de
+  Operations, ortogonal al tier de Copiloto, sin bypass de `APP_OWNER`;
+  MISMO predicado gobierna descubrimiento (`workspaces.py`) y enforcement
+  server-side (`routers/staffing.py`). **Ninguna ruta se renombró, ningún
+  cambio de auth/OAuth/sesión, route surface sin cambios** — ver "Alcance"
+  en la sección dedicada arriba.
+- **Next candidate:** ninguno propuesto todavía. Este batch fue
+  explícitamente pequeño y no abre una fase nueva — Entra Groups/App
+  Roles, Projects/Reporting, o cálculo de capacidad quedan diferidos sin
+  autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **464 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **490 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3206,13 +3306,13 @@ alcance explícito" abajo).
    Staffing ACHIEVED, mapeo de esquema y semántica de allocation validados
    contra Graph real, **Staffing — Asignaciones Dashboard v1 CLOSED/GREEN
    (PR #33)**, **Danwor Hub Visual Identity CLOSED/GREEN (commit
-   `8ea2921`, branch `work/danwor-hub-visual`)**, observación
-   no-bloqueante de calidad referencial de origen registrada (no resuelta
-   a propósito).
-3. El usuario decide el próximo incremento — el candidato mencionado
-   (Operations Workspace Access Gate) NO está autorizado por este
-   documento; solo queda registrado como referencia para cuando se
-   autorice explícitamente.
+   `8ea2921`, branch `work/danwor-hub-visual`)**, **Operations Workspace
+   Access Gate IMPLEMENTED/PENDING CI (commit `05b5da3`, branch
+   `work/operations-access-gate` — falta confirmación de CI real antes de
+   CLOSED/GREEN)**, observación no-bloqueante de calidad referencial de
+   origen registrada (no resuelta a propósito).
+3. El usuario decide el próximo incremento — nada queda autorizado por
+   este documento hasta que el usuario lo indique explícitamente.
 4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente
