@@ -29,15 +29,57 @@ fallando explícito, listando exactamente qué falta — construir el objeto
 vacío no rompe el import de la app. Los tests inyectan su propio mapeo
 fixture (ver `tests/webapp/test_staffing_repository.py`), estilísticamente
 igual al real pero declarado como fixture, no como prueba del esquema.
+
+CARGA INICIAL NO HISTÓRICA (Staffing Director Priority V2, ver HANDOFF):
+`get_allocations` acepta `assignment_scope` ("operational" default |
+"historical_inactive") — ver `_fetch_asignaciones` para el filtro Graph
+(`$filter` + `Prefer` header) y su fallback automático a fetch completo +
+filtro Python si Graph rechaza la query. **NO verificado contra el sitio
+Gestión real** (sin credenciales Graph en este entorno) — el fallback
+garantiza corrección sin importar el resultado real de esa verificación
+pendiente.
+
+DIAGNÓSTICO (pre-PR corrective, ver HANDOFF): cada `get_allocations` puebla
+`self.last_diagnostics` — rows/pages/elapsed_ms por fuente (asignaciones/
+proyectos/colaboradores/cliente) + `filter_used`/`fallback_used` para
+asignaciones + `total_elapsed_ms`. NUNCA token/payload/PII — solo conteos y
+tiempos. El caller (`StaffingService`/router) decide si loguearlo
+(VERBOSE-gated, ver `webapp/routers/staffing.py`).
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, fields as dataclass_fields
+from urllib.parse import quote
 
 import config
 from core import microsoft365
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# Staffing Director Priority V2 (ver HANDOFF) — carga inicial NO histórica.
+# `assignment_scope="operational"` (default de `get_allocations`) excluye
+# Inactivo del fetch de Asignaciones; `"historical_inactive"` pide
+# EXCLUSIVAMENTE Inactivo (el delta que el dashboard carga una sola vez,
+# lazy, cuando el usuario tilda el filtro Inactivo por primera vez — ver
+# `webapp/routers/staffing.py::staffing_historial` y `app.js::staffingDashboard`).
+# Ninguno de los dos modos toca Proyectos/Colaboradores/Cliente — son tablas
+# de dimensión (gente/proyectos/clientes VIGENTES), no el registro de ~3
+# años de Asignaciones que motiva este parámetro; se piden completas en
+# ambos casos, sin necesidad de optimización ahí.
+INACTIVE_STATUS_VALUE = "Inactivo"
+
+# Graph puede rechazar `$filter` sobre una columna Choice no indexada del
+# sitio SharePoint real ("Gestión") — este header es el mecanismo
+# DOCUMENTADO por Microsoft para pedirle a Graph que lo intente igual
+# (`HonorNonIndexedQueriesWarningMayFailRandomly`, más lento pero
+# soportado). **Nunca verificado contra el sitio Gestión real desde este
+# entorno** (sin credenciales Graph disponibles) — por eso `_fetch_asignaciones`
+# abajo SIEMPRE envuelve el intento filtrado en un fallback automático a la
+# lista completa + filtro en Python: si Graph rechaza la query igual con
+# este header, Staffing nunca se rompe, solo pierde la optimización de
+# volumen en ese request puntual.
+_HISTORY_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandomly"}
 
 
 #  Campos OPCIONALES de StaffingFieldMapping — enriquecimiento, no requisito
@@ -138,18 +180,33 @@ class StaffingAllocationRecord:
     client_name: str | None = None
 
 
-def _list_items_url(site_id: str, list_id: str, select_fields: list[str] | None = None) -> str:
+def _list_items_url(
+    site_id: str, list_id: str, select_fields: list[str] | None = None, *, filter_expr: str | None = None,
+) -> str:
     """`select_fields`, si se pasa, restringe explícitamente qué internal
     names de `fields` devuelve Graph (`$expand=fields($select=...)`) en vez
     de depender de la proyección default de `$expand=fields` sin selección.
     Ver `_colaboradores_url` — Graph puede omitir columnas custom (p. ej.
     tipo Choice) de esa proyección default aun cuando otras columnas custom
     de la MISMA lista sí aparecen; pedir el campo explícito lo hace robusto
-    sin depender de un comportamiento no documentado."""
+    sin depender de un comportamiento no documentado.
+
+    `filter_expr` (Staffing Director Priority V2) — expresión OData cruda
+    (p. ej. `"fields/Status eq 'Inactivo'"`), URL-encodeada acá; `None`
+    (default) no agrega `$filter` — mismo comportamiento de siempre."""
     url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items?$expand=fields"
     if select_fields:
         url += f"($select={','.join(select_fields)})"
+    if filter_expr:
+        url += f"&$filter={quote(filter_expr, safe='')}"
     return url
+
+
+def _odata_quote(value: str) -> str:
+    """Escape mínimo de literal OData (comilla simple → doble comilla
+    simple) — `value` siempre es una constante interna nuestra (nunca input
+    de usuario), pero escapar es gratis y correcto igual."""
+    return value.replace("'", "''")
 
 
 def _stringify(value) -> str | None:
@@ -197,6 +254,12 @@ class StaffingRepository:
         self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.field_mapping = field_mapping if field_mapping is not None else StaffingFieldMapping.from_config()
+        # Diagnóstico de la ÚLTIMA llamada a `get_allocations` (pre-PR
+        # corrective, ver HANDOFF) — rows/pages/elapsed_ms/filter_used/
+        # fallback_used por fuente, NUNCA token/payload/PII. Instancia
+        # nueva por request (ver `webapp/routers/staffing.py`), así que no
+        # hay estado compartido entre requests concurrentes.
+        self.last_diagnostics: dict = {}
 
     def _require_site_id(self) -> str:
         if not self.site_id:
@@ -220,13 +283,83 @@ class StaffingRepository:
             )
         return self.field_mapping
 
-    def get_allocations(self, access_token: str) -> list[StaffingAllocationRecord]:
+    def _fetch_asignaciones(
+        self, site_id: str, mapping: StaffingFieldMapping, access_token: str, assignment_scope: str,
+    ) -> list[dict]:
+        """Asignaciones filtradas por `assignment_scope` — ver constantes del
+        módulo. `"operational"` (default) excluye Inactivo del fetch inicial;
+        `"historical_inactive"` pide EXCLUSIVAMENTE Inactivo (el delta lazy).
+        Intenta `$filter` + el header `Prefer` primero; si Graph lo rechaza
+        (columna no indexada, `HTTPError`/`URLError`/JSON inválido — nunca
+        confirmado contra el sitio real desde este entorno), cae a pedir la
+        lista COMPLETA sin `$filter` y filtrar en Python — más caro en el
+        camino de excepción, pero SIEMPRE correcto; Staffing nunca se rompe
+        por una query no soportada."""
+        wants_inactive = assignment_scope == "historical_inactive"
+        quoted = _odata_quote(INACTIVE_STATUS_VALUE)
+        filter_expr = f"fields/{mapping.status} eq '{quoted}'" if wants_inactive else f"fields/{mapping.status} ne '{quoted}'"
+        pages = 0
+
+        def _count_page(page_len: int) -> None:
+            nonlocal pages
+            pages += 1
+
+        started = time.monotonic()
+        try:
+            items = microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.asignaciones_list_id, filter_expr=filter_expr),
+                access_token, extra_headers=_HISTORY_PREFER_HEADER, on_page=_count_page,
+            )
+            self.last_diagnostics["asignaciones"] = {
+                "rows": len(items), "pages": pages,
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                "filter_used": True, "fallback_used": False,
+            }
+            return items
+        except Exception:  # noqa: BLE001 — fallback de transporte, nunca una regla de negocio
+            pages = 0
+            all_items = microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.asignaciones_list_id), access_token, on_page=_count_page,
+            )
+            filtered = [
+                item for item in all_items
+                if (_stringify((item.get("fields") or {}).get(mapping.status)) == INACTIVE_STATUS_VALUE) == wants_inactive
+            ]
+            self.last_diagnostics["asignaciones"] = {
+                "rows": len(filtered), "pages": pages,
+                "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                "filter_used": False, "fallback_used": True,
+            }
+            return filtered
+
+    def _timed_fetch(self, diagnostics_key: str, url: str, access_token: str) -> list[dict]:
+        """Wrapper de diagnóstico (pre-PR corrective, ver HANDOFF) para las
+        3 tablas de dimensión (Proyectos/Colaboradores/Cliente) — sin
+        `$filter`, sin fallback: solo mide rows/pages/elapsed_ms. NUNCA
+        loguea token/payload — solo cuenta."""
+        pages = 0
+
+        def _count_page(page_len: int) -> None:
+            nonlocal pages
+            pages += 1
+
+        started = time.monotonic()
+        items = microsoft365.graph_get_paged_values(url, access_token, on_page=_count_page)
+        self.last_diagnostics[diagnostics_key] = {
+            "rows": len(items), "pages": pages,
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        }
+        return items
+
+    def get_allocations(
+        self, access_token: str, *, assignment_scope: str = "operational",
+    ) -> list[StaffingAllocationRecord]:
+        self.last_diagnostics = {}
+        total_started = time.monotonic()
         site_id = self._require_site_id()
         mapping = self._require_field_mapping()
 
-        asignaciones = microsoft365.graph_get_paged_values(
-            _list_items_url(site_id, self.asignaciones_list_id), access_token,
-        )
+        asignaciones = self._fetch_asignaciones(site_id, mapping, access_token, assignment_scope)
         # Proyectos: bare `$expand=fields` mientras Cliente no está
         # configurado (comportamiento sin cambios, sin necesidad comprobada
         # de `$select` para Title). Si `proyecto_empresa_lookup` SÍ está
@@ -234,15 +367,16 @@ class StaffingRepository:
         # motivo defensivo que Colaboradores (columnas lookup/choice custom
         # pueden quedar fuera de la proyección default de Graph).
         if mapping.proyecto_empresa_lookup:
-            proyectos = microsoft365.graph_get_paged_values(
+            proyectos = self._timed_fetch(
+                "proyectos",
                 _list_items_url(
                     site_id, self.proyectos_list_id,
                     [mapping.proyecto_title, mapping.proyecto_empresa_lookup],
                 ), access_token,
             )
         else:
-            proyectos = microsoft365.graph_get_paged_values(
-                _list_items_url(site_id, self.proyectos_list_id), access_token,
+            proyectos = self._timed_fetch(
+                "proyectos", _list_items_url(site_id, self.proyectos_list_id), access_token,
             )
         # Colaboradores SÍ pide `$select` explícito (a diferencia de
         # Asignaciones/Proyectos, que ya funcionan correctamente con
@@ -259,7 +393,8 @@ class StaffingRepository:
         colaboradores_fields = [mapping.colaborador_title]
         if mapping.colaborador_disponibilidad:
             colaboradores_fields.append(mapping.colaborador_disponibilidad)
-        colaboradores = microsoft365.graph_get_paged_values(
+        colaboradores = self._timed_fetch(
+            "colaboradores",
             _list_items_url(site_id, self.colaboradores_list_id, colaboradores_fields), access_token,
         )
 
@@ -275,7 +410,8 @@ class StaffingRepository:
         # intacto).
         project_client_by_id: dict[str, tuple[str | None, str | None]] = {}
         if mapping.proyecto_empresa_lookup and mapping.cliente_title:
-            clientes = microsoft365.graph_get_paged_values(
+            clientes = self._timed_fetch(
+                "cliente",
                 _list_items_url(site_id, self.cliente_list_id, [mapping.cliente_title]), access_token,
             )
             clientes_by_id = {str(item.get("id")): item for item in clientes if item.get("id") is not None}
@@ -321,4 +457,5 @@ class StaffingRepository:
                     client_name=client_name,
                 )
             )
+        self.last_diagnostics["total_elapsed_ms"] = round((time.monotonic() - total_started) * 1000, 1)
         return records

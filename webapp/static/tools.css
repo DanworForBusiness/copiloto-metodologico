@@ -567,14 +567,17 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-kpi:nth-child(3) { --kpi-accent: #c89100; }  /* ámbar */
 .activity-kpi:nth-child(4) { --kpi-accent: #d06f1f; }  /* naranja */
 .activity-kpi:nth-child(5) { --kpi-accent: #e7b008; }  /* dorado (IA / costo) */
-/* Staffing Resumen (8 KPIs, ver HANDOFF): posiciones 6-8 son Full Time/Part
-   Time/Sin dato — reusan los MISMOS tokens de arriba (azul/verde/ámbar),
-   nunca colores nuevos, para agrupar visualmente sin volver la fila un
-   "rainbow". Solo aplica cuando existe un 6º/7º/8º tile (nth-child no
-   afecta grillas de 5 KPIs como Actividad). */
+/* Staffing Resumen (8 KPIs, ver HANDOFF): posiciones 6-7 son Full Time/Part
+   Time — reusan los MISMOS tokens de arriba (azul/verde), nunca colores
+   nuevos, para agrupar visualmente sin volver la fila un "rainbow". Solo
+   aplica cuando existe un 6º/7º tile (nth-child no afecta grillas de 5 KPIs
+   como Actividad). */
 .activity-kpi:nth-child(6) { --kpi-accent: #2f6fbd; }  /* azul — Full Time */
 .activity-kpi:nth-child(7) { --kpi-accent: #2e9e5b; }  /* verde — Part Time */
-.activity-kpi:nth-child(8) { --kpi-accent: #c89100; }  /* ámbar — Sin dato */
+/* Activos vencidos (Staffing Director Priority V2, ver HANDOFF) — anomalía,
+   no un dato neutro: acento de alerta dedicado (rojo/naranja), distinto de
+   los tokens "normales" de arriba a propósito. */
+.activity-kpi--warning { --kpi-accent: #c0392b; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 
@@ -784,6 +787,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    campos (margin-left:auto lo empuja a la derecha) y ya no comparte
    columna con el stack de Estado, para no leerse como una opción más. */
 .staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+/* Fallo de la carga lazy de historial (Staffing Director Priority V2
+   pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
+   del dashboard, solo informa que el próximo toggle puede reintentar. */
+.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
 
 /* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
@@ -794,6 +801,46 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
   padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
 }
 .staffing-timeline-toolbar button:hover { border-color: var(--gold); color: var(--gold); }
+/* Switch de agrupación Consultor ↔ Proyecto (Staffing Director Priority V2,
+   ver HANDOFF) — dorado/negro, deliberadamente DISTINTO de Expandir/Contraer
+   (mismo patrón gold-fill que .tool-suggest__send, nunca un color nuevo). La
+   especificidad (2 clases) es intencional: sin esto, la regla genérica
+   `.staffing-timeline-toolbar button` de arriba (borde gris) le ganaría al
+   fondo dorado por especificidad, sin importar el orden en el archivo. */
+.staffing-timeline-toolbar .staffing-timeline__group-toggle {
+  border: 0; background: var(--gold); color: #0c0c0d; font-weight: 700;
+}
+.staffing-timeline-toolbar .staffing-timeline__group-toggle:hover { border-color: transparent; color: #0c0c0d; opacity: .88; }
+
+/* Toolbar del Detalle agregado (Staffing Director Priority V2) — control
+   numérico de "+N días", recalcula client-side, sin Graph. */
+.staffing-detail-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.staffing-detail-toolbar__n { display: flex; align-items: center; gap: 6px; font: 600 .68rem var(--mono); color: var(--soft); }
+.staffing-detail-toolbar__n input {
+  width: 56px; padding: 3px 6px; border: 1px solid rgba(128,128,128,.35); border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; text-align: center;
+}
+.staffing-detail-toolbar__n input:focus { outline: none; border-color: var(--gold); }
+
+/* Detalle agregado por consultor (default V2) — fila hija visualmente
+   subordinada (fondo sutil + indent), botón de expandir compacto. */
+.staffing-detail__expand-btn {
+  border: 0; background: transparent; cursor: pointer; color: var(--gold); font-size: .72rem;
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+}
+.staffing-detail__child-row { background: rgba(128,128,128,.05); }
+.staffing-detail__child-row td:nth-child(2) { padding-left: 26px; }
+
+/* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): sin esto, el
+   layout automático de <table> recalcula el ancho de cada columna según
+   TODAS las filas presentes en el DOM en ese momento — expandir/contraer
+   un consultor cambia qué filas hay, así que la tabla entera "saltaba" de
+   ancho en cada click. `table-layout:fixed` + `<colgroup>` (ver template)
+   fija el ancho desde la primera fila, para siempre — expandir solo
+   revela/oculta filas, nunca reacomoda columnas. Contenido largo envuelve
+   dentro de su columna en vez de forzar un ancho nuevo. */
+.staffing-detail-table { table-layout: fixed; width: 100%; }
+.staffing-detail-table td, .staffing-detail-table th { overflow-wrap: anywhere; }
 
 /* Timeline mensual — grid CSS puro, coordenadas server-derived (índices de
    mes, nunca píxeles). Header y filas comparten la MISMA proporción
@@ -823,6 +870,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 }
 .content-theme-dark .staffing-timeline__consultant { color: #e4e4ec; }
 .staffing-timeline__consultant-caret { color: var(--gold); font-size: .7rem; width: 10px; display: inline-block; }
+/* Ajuste cosmético (pedido del usuario, ver HANDOFF): el sufijo de horas
+   sumarizadas NO comparte el mismo negro/bold que el nombre — competían
+   visualmente. Gris oscuro + peso normal, separación sutil sin restar
+   jerarquía al nombre. */
+.staffing-timeline__consultant-hours { color: #5a5a63; font-weight: 500; }
+.content-theme-dark .staffing-timeline__consultant-hours { color: #a8a8b2; }
 .staffing-timeline__row { margin: 5px 0; }
 .staffing-timeline__row-label {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Callable
 
 DEFAULT_TIMEOUT = 12
 
@@ -36,25 +37,48 @@ def graph_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
 
-def graph_get_json(url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def graph_get_json(
+    url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
+) -> dict:
     """GET a una URL de Graph, devuelve el JSON decodificado. Los errores de
     `urllib` (HTTPError/URLError) y de decodificación se propagan al caller
     sin normalizar — igual que el comportamiento actual de los tres
-    consumidores existentes."""
-    request = urllib.request.Request(url, headers=graph_headers(access_token))
+    consumidores existentes.
+
+    `extra_headers` (Staffing Director Priority V2, ver HANDOFF): merge
+    explícito sobre los headers Graph estándar — hoy solo lo usa
+    `StaffingRepository` para pedir `Prefer: HonorNonIndexedQueriesWarningMayFailRandomly`
+    al filtrar por `$filter` sobre una columna Choice potencialmente sin
+    indexar. `None` (default) preserva el comportamiento exacto de siempre."""
+    headers = graph_headers(access_token)
+    if extra_headers:
+        headers.update(extra_headers)
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def graph_get_paged_values(url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT) -> list:
+def graph_get_paged_values(
+    url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
+    on_page: Callable[[int], None] | None = None,
+) -> list:
     """Sigue `@odata.nextLink` acumulando `value` de cada página hasta que Graph
     no devuelve una página siguiente. Mismo patrón que
     `core/sharepoint_cases.py::_fetch_sap_cases_cached` — acá generalizado, sin
-    cache (la cache sigue siendo responsabilidad del caller)."""
+    cache (la cache sigue siendo responsabilidad del caller).
+
+    `on_page` (Staffing Director Priority V2 pre-PR corrective, ver HANDOFF)
+    — callback OPCIONAL invocado una vez por página con la cantidad de items
+    de esa página; permite que el caller cuente páginas/filas sin que este
+    módulo posea ninguna noción de diagnóstico/logging propia. `None`
+    (default) preserva el comportamiento exacto de siempre."""
     items: list = []
     next_url = url
     while next_url:
-        payload = graph_get_json(next_url, access_token, timeout=timeout)
-        items.extend(payload.get("value") or [])
+        payload = graph_get_json(next_url, access_token, timeout=timeout, extra_headers=extra_headers)
+        page_items = payload.get("value") or []
+        items.extend(page_items)
+        if on_page is not None:
+            on_page(len(page_items))
         next_url = payload.get("@odata.nextLink") or ""
     return items

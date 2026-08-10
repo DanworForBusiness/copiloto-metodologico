@@ -71,6 +71,7 @@
   "POST /modules/{stem}/sections/{section_slug}/feedback/submit",
   "POST /modules/{stem}/trees/start",
   "POST /operaciones/staffing/asignaciones/data",
+  "POST /operaciones/staffing/asignaciones/historial",
   "POST /operations/staffing/data",
   "POST /telemetry/event",
   "POST /trees/suggest",

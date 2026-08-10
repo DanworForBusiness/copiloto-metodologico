@@ -268,10 +268,14 @@ def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detai
     # Timeline + disponibilidad lado a lado.
     assert "Timeline de asignaciones" in text
     assert "Full Time" in text and "Part Time" in text
-    # Detalle colapsable — preserva las columnas históricas.
+    # Detalle colapsable — agregado por consultor (Staffing Director
+    # Priority V2, ver HANDOFF): "Asignación" única se reemplaza por dos
+    # columnas de capacidad puntual (hoy / +N días).
     assert "Detalle de asignaciones" in text
-    for column in ("Consultor", "Proyecto", "Asignación", "Estado", "Desde", "Hasta"):
+    for column in ("Consultor", "Cliente", "Proyecto", "Estado", "Desde", "Hasta", "Disponibilidad"):
         assert f"<th>{column}</th>" in text
+    assert "<th>Asignación hoy</th>" in text
+    assert 'x-text="projectionColumnLabel"' in text
 
 
 # --- Corrective pass (revisión con dato real) --------------------------------
@@ -359,11 +363,14 @@ def test_post_dashboard_resumen_includes_availability_kpis_no_side_panel(monkeyp
     # sigue en la barra sticky (sin cambios ahí).
     resumen_idx = text.index('data-section-id="resumen"')
     timeline_idx = text.index('data-section-id="timeline"')
-    # (búsqueda desde resumen_idx: "Sin dato" también aparece antes, dentro
-    # del payload JSON embebido en x-data — no es el KPI que se busca acá).
     assert resumen_idx < text.index("Full Time", resumen_idx) < timeline_idx
     assert resumen_idx < text.index("Part Time", resumen_idx) < timeline_idx
-    assert resumen_idx < text.index("Sin dato", resumen_idx) < timeline_idx
+    # Staffing Director Priority V2 (ver HANDOFF): el tile KPI "Sin dato" se
+    # REMUEVE de Resumen (la disponibilidad "Sin dato" como VALOR/filtro
+    # sigue existiendo en otros lados, solo ya no es un tile de Resumen) —
+    # se reemplaza por "Activos vencidos" en la misma posición.
+    assert resumen_idx < text.index("Activos vencidos", resumen_idx) < timeline_idx
+    assert 'x-text="kpis.activosVencidos"' in text
     # Sin grilla operativa 2/3·1/3 ni panel lateral — Timeline usa el ancho
     # completo del contenido del reporte.
     assert 'class="staffing-operational-grid"' not in text
@@ -411,7 +418,12 @@ def test_post_dashboard_row_label_shows_status_hours_and_client_project(monkeypa
     assert 'class="staffing-timeline__row-status"' in text
     assert "rowStatusHoursLabel(row)" in text
     assert 'class="staffing-timeline__row-clientproject"' in text
-    assert "rowClientProjectLabel(row)" in text
+    # Staffing Director Priority V2 (ver HANDOFF): la etiqueta secundaria de
+    # la fila ahora depende del grouping switch (Consultor→Cliente-Proyecto,
+    # Proyecto→Consultor) — `rowGroupSecondaryLabel` reemplaza la llamada
+    # directa a `rowClientProjectLabel` en el template (el método sigue
+    # existiendo, invocado desde adentro de `rowGroupSecondaryLabel`).
+    assert "rowGroupSecondaryLabel(row)" in text
     # Nunca un separador "Cliente - Proyecto" hardcodeado en el template —
     # si existiera, no degradaría con gracia cuando falta client_name.
     assert "<span> - </span>" not in text

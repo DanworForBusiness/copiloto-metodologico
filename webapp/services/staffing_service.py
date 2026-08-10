@@ -24,6 +24,11 @@ legado) documentada pero NO aplicada — de hecho, los valores reales de
 literalmente con `KNOWN_HISTORICAL_STATUSES` (Active/Inactive/Tentative/
 Vaca, en inglés) — `status` sigue siendo passthrough puro del valor fuente,
 nunca se compara contra esa constante.
+
+Staffing Director Priority V2 (ver HANDOFF): `get_overview` gana
+`assignment_scope` (passthrough puro a `StaffingRepository`, ver ahí) y
+`build_dashboard_payload` gana `is_activo_vencido` — anomalía analítica
+derivada de Status+FechaFin, NUNCA una reescritura del Status crudo.
 """
 from __future__ import annotations
 
@@ -39,6 +44,20 @@ KNOWN_HISTORICAL_STATUSES = {"Active", "Inactive", "Tentative", "Vaca"}
 
 _UNRESOLVED_LABEL = "(sin resolver)"
 _SIN_DATO = "Sin dato"
+
+# Staffing Director Priority V2 (ver HANDOFF) — anomalía analítica "activo
+# vencido": Status crudo == Activo pero FechaFin ya pasó. Helper ÚNICO y
+# canónico — NUNCA reescribe el Status de SharePoint (la fuente sigue
+# diciendo Activo), solo lo interpreta para KPI/detalle.
+_ACTIVO_STATUS = "Activo"
+
+
+def is_activo_vencido(status: str | None, end_date: date | None, *, today: date | None = None) -> bool:
+    if (status or "").strip() != _ACTIVO_STATUS:
+        return False
+    if end_date is None:
+        return False
+    return end_date < (today or date.today())
 
 # Mismo estilo de abreviatura ya usado en whats_new_service.py — no se
 # centraliza en un util compartido para un solo consumidor más.
@@ -195,8 +214,13 @@ class StaffingService:
     def __init__(self, repository: StaffingRepository | None = None):
         self._repository = repository if repository is not None else StaffingRepository()
 
-    def get_overview(self, access_token: str) -> list[StaffingOverviewRow]:
-        records = self._repository.get_allocations(access_token)
+    def get_overview(self, access_token: str, *, assignment_scope: str = "operational") -> list[StaffingOverviewRow]:
+        records = self._repository.get_allocations(access_token, assignment_scope=assignment_scope)
+        # Diagnóstico (pre-PR corrective, ver HANDOFF) — passthrough puro del
+        # repositorio; `getattr` con default `{}` porque un test double sin
+        # ese atributo (varios existen en tests/webapp/test_staffing_routes.py)
+        # no debe romper get_overview.
+        self.last_diagnostics = getattr(self._repository, "last_diagnostics", {})
         rows = [self._to_row(record) for record in records]
         # Orden estable por consultor luego proyecto — determinístico para
         # que el mismo dato fuente siempre rinda el mismo orden en pantalla.
@@ -292,6 +316,7 @@ def build_dashboard_payload(rows: list[StaffingOverviewRow], *, today: date | No
             "start_date": row.start_date.isoformat() if row.start_date else None,
             "end_date": row.end_date.isoformat() if row.end_date else None,
             "availability": row.consultant_availability or _SIN_DATO,
+            "activo_vencido": is_activo_vencido(row.status, row.end_date, today=effective_today),
             **position,
         })
     return {"assignments": assignments, "horizon": horizon, "today_marker_pct": today_marker_pct}
