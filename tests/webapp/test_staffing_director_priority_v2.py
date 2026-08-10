@@ -376,6 +376,32 @@ def test_historial_endpoint_denied_when_not_operations_authorized(monkeypatch):
     assert response.status_code == 403
 
 
+class _RaisingIfCalledHistoryService:
+    def get_overview(self, *args, **kwargs):
+        raise AssertionError("StaffingService.get_overview no debería llamarse")
+
+
+def test_historial_endpoint_a_real_looking_graph_token_never_bypasses_operations_authorization(monkeypatch):
+    # Pre-PR final check (ver HANDOFF): MISMO contrato de seguridad que
+    # test_post_graph_token_never_bypasses_operations_authorization (ver
+    # test_staffing_routes.py) — un usuario full-tier pero NO listado en
+    # OPERATIONS_ALLOWED_USERS sigue denegado aunque mande un graph_token
+    # con pinta real. Se prueba explícito con un service que rompería el
+    # test si llegara a invocarse.
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "staffing-test@danwor.com")
+    monkeypatch.setattr(staffing_router, "StaffingService", _RaisingIfCalledHistoryService)
+    session = auth_service.create_session(
+        {"email": "unlisted-full-v2@danwor.com", "name": "Unlisted", "first_name": "Unlisted", "family_name": "Full"}
+    )
+    ro = TestClient(app)
+    ro.cookies.set(auth_service.COOKIE_NAME, session)
+    response = ro.post(
+        "/operaciones/staffing/asignaciones/historial",
+        data={"graph_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9-a-real-looking-token"},
+    )
+    assert response.status_code == 403
+
+
 def test_route_surface_gained_exactly_one_new_route():
     import json
     from pathlib import Path as _P
@@ -449,6 +475,28 @@ def test_aggregated_detail_dashes_only_when_children_genuinely_differ():
 
 def test_kpis_include_activos_vencidos_counting_assignments_not_consultants():
     assert "const activosVencidos = rows.filter(r => r.activo_vencido).length;" in _APP_JS
+
+
+def test_group_header_hours_suffix_counts_only_hours_effective_today():
+    # Pre-PR final check (ver HANDOFF): el total del header de grupo se
+    # CONGELA como horas EFECTIVAS HOY — nunca la suma de toda barra del
+    # dataset filtrado/timeline (eso incluiría asignaciones futuras y
+    # Activo-vencidas). Reusa el MISMO helper canónico que "Asignación
+    # hoy"/"Asignación +N días" (`_hoursIfEffective`) — nunca un segundo
+    # cálculo de efectividad. No hay runtime de JS en esta suite (ver
+    # test_staffing_app_js.py) — la escena de 3 asignaciones (vigente,
+    # futura, Activo-vencida) que pide el director se verificó en vivo
+    # contra Alpine (`_x_dataStack`), ver STOP report; esto fija que esa
+    # implementación específica no se borre/reemplace por accidente.
+    assert "groupHoursSuffix(group) {" in _APP_JS
+    suffix_body = _APP_JS[_APP_JS.index("groupHoursSuffix(group) {"):]
+    suffix_body = suffix_body[: suffix_body.index("},")]
+    assert "const todayIso = _todayISO();" in suffix_body
+    assert "group.rows.reduce((sum, r) => sum + _hoursIfEffective(r, todayIso), 0)" in suffix_body
+    # Nunca el cálculo viejo (suma incondicional de allocation_value sin
+    # pasar por _hoursIfEffective) — si reapareciera, la regresión real
+    # sería contar horas futuras/vencidas en el header.
+    assert "group.rows\n        .filter(r => r.allocation_unit" not in _APP_JS
 
 
 def test_group_header_hours_suffix_is_a_separate_span_from_the_name():

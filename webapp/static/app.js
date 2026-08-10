@@ -1078,10 +1078,16 @@ function staffingDashboard(payload) {
     // cosmético pedido por el usuario): el mismo negro/blanco en bold para
     // ambos competía visualmente — separarlos permite que el sufijo use un
     // gris más suave sin tocar el peso/color del nombre.
+    //
+    // Semántica CONGELADA (pre-PR final check, ver HANDOFF): el total es
+    // horas EFECTIVAS HOY, NUNCA la suma de toda barra que exista en el
+    // dataset filtrado/timeline — eso incluiría asignaciones futuras y
+    // Activo-vencidas, que no representan carga vigente. Reusa el MISMO
+    // helper canónico `_hoursIfEffective` que "Asignación hoy"/"Asignación
+    // +N días" — una sola definición de "efectivo en una fecha", nunca dos.
     groupHoursSuffix(group) {
-      const total = group.rows
-        .filter(r => r.allocation_unit === "hours_per_month" && r.allocation_value != null)
-        .reduce((sum, r) => sum + r.allocation_value, 0);
+      const todayIso = _todayISO();
+      const total = group.rows.reduce((sum, r) => sum + _hoursIfEffective(r, todayIso), 0);
       const rounded = Math.round(total * 100) / 100;
       return `· ${rounded.toLocaleString("en-US")} h/mes`;
     },

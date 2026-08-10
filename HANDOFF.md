@@ -3979,6 +3979,55 @@ implementados; 9 — overlay de vacaciones — **BLOQUEADO**, ver abajo).
   token de Graph, workspace resolver, ni funcionalidad de Copiloto no
   relacionada. Sin DB/Redis/workers/caching ampliado.
 
+### Pase correctivo — pre-PR final check
+
+Tres verificaciones finales pedidas antes de abrir el PR — sin ampliar
+alcance.
+
+- **1. REAL GRAPH FILTER — `PENDING OWNER/PRODUCTION SMOKE`.** Este
+  agente NO tiene acceso a un token Graph delegado real ni a una sesión
+  de browser autenticada contra Microsoft 365 en este entorno (mismo
+  límite ya documentado para el discovery de vacaciones, item 9) — el
+  smoke real contra `Asignaciones` (site/list/field mapping SÍ están
+  configurados en `.env` local, confirmado, pero eso no alcanza sin un
+  `access_token` delegado real) no pudo ejecutarse. **No se reemplazó la
+  implementación por esto** — el fallback automático (fetch completo +
+  filtro Python si Graph rechaza `$filter`) sigue siendo la red de
+  seguridad. Queda **explícitamente pendiente de smoke del owner/CI de
+  producción** antes de considerar el filtro Graph "production-proven".
+- **2. TIMELINE GROUP TOTAL HOURS — CONGELADO Y CORREGIDO.** La
+  implementación previa sumaba TODA barra del grupo (incluyendo futuras y
+  Activo-vencidas). Corregido: `groupHoursSuffix(group)` ahora reusa el
+  MISMO helper canónico `_hoursIfEffective` que "Asignación hoy"/
+  "Asignación +N días" — el total es EXCLUSIVAMENTE horas efectivas HOY.
+  **Prueba en vivo** (servidor aislado :8091, sesión real, 3 asignaciones
+  para un mismo consultor — vigente 20h/mes, futura 50h/mes, Activo-
+  vencida 99h/mes): el header del grupo mostró **"· 20 h/mes"**
+  (verificado leyendo `_x_dataStack` real) — nunca 169h (suma ciega) ni
+  119h (excluyendo solo una de las dos). Regresión de fuente agregada en
+  `test_staffing_director_priority_v2.py::test_group_header_hours_suffix_counts_only_hours_effective_today`
+  (no hay runtime de JS en esta suite — pinnea la implementación exacta;
+  la escena de 3 asignaciones se verificó en vivo, no por ejecución de
+  test).
+- **3. NEW HISTORY ENDPOINT SECURITY CONTRACT — MISMO contrato,
+  confirmado + gap cerrado.** `/historial` ya tenía cobertura para: sin
+  sesión (303 al mismo `next` canónico), Operations no autorizado (403),
+  token nunca ecoado, estados controlados sin fuga de detalle. **Gap
+  cerrado en este pase:** faltaba el test explícito de "un `graph_token`
+  con pinta real NUNCA saltea la autorización" (mismo patrón que
+  `test_post_graph_token_never_bypasses_operations_authorization` de
+  `test_staffing_routes.py` para `/data`) — agregado
+  (`test_historial_endpoint_a_real_looking_graph_token_never_bypasses_operations_authorization`,
+  usuario full-tier no listado + token con pinta real + service que
+  rompe el test si se invoca → 403, service nunca llamado).
+- **Gate:** targeted Staffing (171 passed) + full suite (**568 passed /
+  1 skipped**, +2 sobre el baseline previo de 566) + route-contract
+  GREEN (snapshot sin cambios, sigue en **83** — este pase no tocó
+  rutas).
+- **Vacaciones (item 9):** sigue **BLOCKED / FOLLOW-UP REQUIRED**, sin
+  cambios — no se fabricó metadata de workbook, no se reclama overlay
+  implementado en ninguna parte de este batch.
+
 ### Próxima decisión (NO autorizada en este commit de código)
 
 Con 1-8/10 implementados y 9 explícitamente bloqueado (discovery
