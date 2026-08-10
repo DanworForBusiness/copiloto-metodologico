@@ -3736,6 +3736,16 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   `event`). El lector `activity_analytics._read_events` adjunta `scope`/`area` a
   CADA evento vía `context_of` — **seam único**, sin esparcir `event→scope/area`
   por el dashboard. `build_summary()` **NO** se rediseñó (eso es A2).
+- **Contrato interino de lente (corrective `ce17790`, pre-A2):** el stream de
+  actividad es **platform-wide desde ya** (persiste/normaliza Operations), pero el
+  Activity Dashboard sigue siendo **Copiloto + plataforma** hasta A2. Como
+  `build_summary()` contaba TODO el stream (verificado empíricamente: Operations
+  contaminaba total_events/unique_users/daily_series/event_counts/top_users/facets),
+  se agregó una regla en UN punto — `_DASHBOARD_EXCLUDED_SCOPES = {operations}`,
+  aplicada al tope de `build_summary` antes de facets/conteos. **NO** es copilot-only:
+  `login` (scope=platform) se preserva (semántica histórica). **A2 debe RETIRAR esta
+  exclusión** al convertir el dashboard en Hub-wide. Test de regresión prueba
+  persistencia-sí / contaminación-no simultáneamente. Suite **528 passed / 1 skipped**.
 - **Mapeo histórico explícito (evidence-based):** `login`→platform/auth;
   `module_selected` + beacon (`module_continue`/`module_reached_end`/`nav_jump`/
   `link_external`/`disclosure_toggle`/`theme_change`) + `tree_started`/`tree_step`/
@@ -3775,9 +3785,10 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   `staffing_overview_viewed` con contexto+identidad+sin token/dataset;
   diagnósticos VERBOSE-only + contexto + token nunca logueado). Directorios de
   log temporales aislados (nunca runtime real).
-- **Baseline:** suite **527 passed / 1 skipped** (516 + 11), **route surface 82
-  sin cambios** (snapshot intacto), sobre stack reproducible (Python 3.14.3 /
-  FastAPI 0.141.1 / Starlette 1.4.1). **PENDING:** CI GREEN en el PR.
+- **Baseline:** suite **528 passed / 1 skipped** (516 + 11 + 1 regresión del
+  corrective), **route surface 82 sin cambios** (snapshot intacto), sobre stack
+  reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1). **PENDING:**
+  CI GREEN en el PR.
 - **Batch A2 (Activity Dashboard V2 platform-wide: Ámbito/Área, checkbox/faceted
   filters, KPIs Hub-wide, dedup del sticky-filter) NO fue iniciado.**
 
@@ -3828,9 +3839,10 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   `work/shared-activity-context-foundation`; NO mergeado). Envelope de
   actividad ahora platform-aware (aditivo `scope`/`area`), Operations emite
   su primer evento de uso (`staffing_overview_viewed`), una sola activity
-  capability, históricos legibles sin migración. Suite en la branch: **527
-  passed / 1 skipped**, route surface **82** sin cambios. **Batch A2 (Activity
-  Dashboard V2) NO iniciado.**
+  capability, históricos legibles sin migración; corrective `ce17790` preserva
+  el lente Copiloto del dashboard actual (Operations no lo contamina hasta A2).
+  Suite en la branch: **528 passed / 1 skipped**, route surface **82** sin
+  cambios. **Batch A2 (Activity Dashboard V2) NO iniciado.**
 - **Phase (producto):** ninguna fase de producto abierta. Danwor Hub Login Identity
   — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
   (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
