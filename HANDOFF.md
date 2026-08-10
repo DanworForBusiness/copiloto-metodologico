@@ -3537,6 +3537,76 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
   login intacto (`data-home="/onedanwor"`, `onclick`), cero apariciones de
   "One Danwor", sin un segundo `<rect>` del ícono Hub, y sin overflow
   horizontal a 375px de ancho (viewport móvil).
+- **Corrective posterior (mismo batch, antes de abrir PR) — el commit
+  inicial dejó un hueco de alcance:** la validación de producto del owner
+  detectó que el commit `8e7ee46` solo cubrió la LANDING anónima
+  (`/onedanwor`, alias `/platform`) — pero el paso intermedio real del
+  login (el popup/callback de Microsoft) usa un documento distinto,
+  `auth_callback.html`, que quedó sin tocar.
+  - **Flujo real trazado desde el CTA** (`webapp/static/auth.js`):
+    click en "Ingresar" → `loginWithMicrosoft(event)` abre un POPUP en la
+    MISMA página con `?auth_popup=1` → esa request cae en
+    `render_landing()` (`landing.py`), que intercepta `auth_popup`/`code`
+    ANTES de tocar cualquier copy de landing y devuelve
+    `auth_callback.html` (documento neutro) → dentro del popup, `auth.js`
+    navega (`window.location.replace`) al `authorize` de
+    `login.microsoftonline.com` — **Microsoft-hosted, fuera de nuestro
+    control y fuera de alcance** — → Microsoft redirige de vuelta al
+    `redirect_uri` fijo (`origin + "/"`, registrado en Azure, no
+    parametrizable por página) con `?code=...&state=...` → esa segunda
+    request TAMBIÉN cae en `render_landing()` (vía la ruta `/`) y
+    TAMBIÉN devuelve `auth_callback.html` → `auth.js` completa el
+    intercambio, crea la sesión, y navega/notifica al opener.
+  - **Documento application-owned responsable:** `webapp/templates/
+    auth_callback.html`. Es el ÚNICO template de la app en el tramo
+    intermedio del login, sin importar si arrancó en Copiloto u
+    Operaciones (el `redirect_uri` fijo en `/` garantiza que el tramo de
+    vuelta siempre pasa por ahí).
+  - **Identidad visible antes:** `<title>Completando acceso · Danwor</title>`
+    — genérico, ni "One Danwor" ni "Danwor Hub", body sin ningún
+    logo/wordmark (diseño deliberado de un batch previo para resolver un
+    bug real de branding stale filtrándose detrás de un overlay).
+  - **Por qué el batch anterior no lo detectó:** los tests existentes de
+    este documento (`test_routes.py`, familia "Auth-popup/callback") solo
+    afirmaban la AUSENCIA del copy rico de Copiloto (el bug original que
+    resolvían) — nunca la PRESENCIA de una identidad Hub. El documento
+    pasaba esos tests con o sin "Danwor Hub" en el título: la ausencia de
+    aserciones positivas sobre identidad, no un error de implementación,
+    fue la causa real del hueco.
+  - **Qué se cambió ahora:** `<title>` → `"Completando acceso · Danwor Hub"`
+    — el paraguas de plataforma, no un producto específico. El BODY
+    sigue exactamente igual (sin logo/wordmark) — esto NO es un
+    rediseño, es alinear la única línea de texto visible-en-pestaña que
+    existía.
+  - **Qué queda fuera de nuestra UI (confirmado, no tocado):** las
+    páginas de `login.microsoftonline.com` (selección de cuenta,
+    contraseña, MFA) son 100% Microsoft-hosted — la app nunca las
+    renderiza ni las personaliza.
+  - **Tests nuevos/actualizados:** `test_routes.py` (familia auth-popup/
+    callback de `/` y `/copilot`) ahora afirma `"Danwor Hub" in
+    response.text` además de la ausencia de copy de Copiloto;
+    `test_onedanwor_routes.py::test_auth_popup_state_serves_neutral_document_not_rich_landing`
+    invertido (antes afirmaba la AUSENCIA de "Danwor Hub", ahora afirma
+    su PRESENCIA) + nuevo test dedicado al callback `?code=` de
+    `/onedanwor` (mismo documento, misma identidad).
+  - **Hallazgo relacionado, reportado pero NO corregido (fuera de
+    alcance — es comportamiento de ruta, no de identidad visual):** si
+    `handleRedirect()` no encuentra un `window.opener` vivo (pestaña
+    original cerrada), el popup navega él mismo a `home_url` — que para
+    ESE request (siempre `GET /` por el `redirect_uri` fijo) resuelve a
+    `/home` (Copiloto), nunca a `/onedanwor`, sin importar dónde arrancó
+    el login. Es una inconsistencia de destino de fallback preexistente,
+    no introducida por este batch — requeriría cambiar lógica de
+    redirect/JS, explícitamente fuera del alcance de esta corrección de
+    identidad visual.
+  - Commit: `5674120` — `fix(platform): align auth flow identity with
+    Danwor Hub` (corrective, no amendea `8e7ee46`).
+  - Validado: **suite 512 passed / 1 skipped** (511 + 1 nuevo),
+    route-contract GREEN, route surface **82** sin cambios.
+  - **Validación visual:** confirmada contra servidor real —
+    `GET /onedanwor?auth_popup=1` sirve `auth_callback.html` con tab
+    title "Completando acceso · Danwor Hub" y body sin ningún nombre de
+    producto (solo "Completando acceso…" + spinner).
 - **Pendiente:** confirmación de CI real en GitHub + validación de
   producto por el owner antes de CLOSED/GREEN. No se abrió el PR todavía.
 
@@ -3588,14 +3658,18 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
   el 2026-08-10** — ver las secciones dedicadas arriba. Ninguno de los
   tres se tocó en este batch.
 - **Status:** **IMPLEMENTED / PENDING CI** para Danwor Hub Login Identity
-  (commit `8e7ee46`). Suite local sobre el HEAD real: **511 passed / 1
-  skipped** (510 + 1 nuevo), route surface **82** (sin cambios). Ver
-  sección dedicada "DANWOR HUB LOGIN IDENTITY — IMPLEMENTED / PENDING CI"
-  arriba para el detalle completo — falta la confirmación de CI real en
-  GitHub Y validación de producto por el owner antes de CLOSED/GREEN. PR
-  no abierto todavía.
-- **Functional commit:** `8e7ee46` — `fix(platform): align login identity
-  with Danwor Hub` (un solo commit funcional, sin amend/squash). Branch
+  (commit funcional `8e7ee46` + corrective `5674120`). Suite local sobre
+  el HEAD real: **512 passed / 1 skipped** (511 + 1 nuevo), route surface
+  **82** (sin cambios). Ver sección dedicada "DANWOR HUB LOGIN IDENTITY —
+  IMPLEMENTED / PENDING CI" arriba para el detalle completo — falta la
+  confirmación de CI real en GitHub Y validación de producto por el owner
+  antes de CLOSED/GREEN. PR no abierto todavía.
+- **Functional commits:** `8e7ee46` (`fix(platform): align login identity
+  with Danwor Hub`, landing anónima) + `5674120` (`fix(platform): align
+  auth flow identity with Danwor Hub`, corrective que alineó el
+  `<title>` de `auth_callback.html` — el documento real del tramo
+  intermedio de login, distinto de la landing, ver bullet dedicado
+  arriba). Ninguno amendeado/squasheado. Branch
   `work/danwor-hub-login-identity`.
 - **Alcance combinado (batches previos, sin tocar en este):**
   `OPERATIONS_ALLOWED_USERS` (allowlist explícita, fail-closed, sin
@@ -3606,10 +3680,11 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
   server-side (`routers/staffing.py`); el switcher del topbar compartido
   expresa ese resultado correctamente; el frame de sidebar compartido
   (`.app-shell`/`--nav-width`/`copilotLayout()`/`partials/
-  workspace_shell.html`) quedó consolidado. Este batch agrega: SOLO copy
+  workspace_shell.html`) quedó consolidado. Este batch agrega: copy
   visible de la landing anónima (`_ONEDANWOR_LANDING_COPY` en
   `platform.py`) + dos ocurrencias adyacentes ("One Danwor" en
-  `platform_no_access.html`/`platform_shell.html`) — sin tocar auth,
+  `platform_no_access.html`/`platform_shell.html`) + el `<title>` del
+  documento neutro de callback (`auth_callback.html`) — sin tocar auth,
   OAuth, redirects, `next`, ni ningún router/ruta. **Route surface sin
   cambios (82)** en los cuatro batches — ver "Alcance"/detalle en cada
   sección dedicada arriba.
@@ -3627,9 +3702,10 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
   diferidos sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **511 passed / 1 skipped** · route surface **82** · commit `8e7ee46`
-  sobre `work/danwor-hub-login-identity` (branchada desde `main` HEAD
-  `6f848b7`, merge de PR #39 — ya incluye Sidebar Frame + su docs-closure).
+  **512 passed / 1 skipped** · route surface **82** · commits `8e7ee46` +
+  `5674120` sobre `work/danwor-hub-login-identity` (branchada desde
+  `main` HEAD `6f848b7`, merge de PR #39 — ya incluye Sidebar Frame + su
+  docs-closure).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3646,7 +3722,7 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
    2026-08-10)**, **Shared Workspace Sidebar Frame CLOSED/GREEN (commits
    `dd7f99d` + `4372625`, branch `work/shared-workspace-sidebar-frame`,
    PR #38, production-verified 2026-08-10)**, **Danwor Hub Login Identity
-   IMPLEMENTED/PENDING CI (commit `8e7ee46`, branch
+   IMPLEMENTED/PENDING CI (commits `8e7ee46` + `5674120`, branch
    `work/danwor-hub-login-identity` — falta confirmación de CI real Y
    validación de producto del owner antes de CLOSED/GREEN)**, observación
    no-bloqueante de calidad referencial de origen registrada (no resuelta
