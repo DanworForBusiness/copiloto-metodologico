@@ -3797,8 +3797,74 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   corrective), **route surface 82 sin cambios** (snapshot intacto), sobre stack
   reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1). **Cierre:**
   owner-confirmed CI **GREEN**, mergeado a `main` vía **PR #44 / `53277d6`**.
-- **Batch A2 (Activity Dashboard V2 platform-wide: Ámbito/Área, checkbox/faceted
-  filters, KPIs Hub-wide, dedup del sticky-filter) NO fue iniciado.**
+- **Batch A2 (Activity Dashboard V2 platform-wide) fue implementado — ver sección
+  siguiente.**
+
+---
+
+## SHARED ACTIVITY / OBSERVABILITY — HUB DASHBOARD V2 (Batch A2) — IMPLEMENTED / PENDING CI
+(commit funcional `8ae7593`, branch `work/activity-dashboard-hub-v2`)
+
+Convierte el Activity Dashboard de Copilot-centric a dashboard de uso/adopción de
+**Danwor Hub**. Depende de la fundación A1 (envelope `scope`/`area` + `context_of`).
+
+- **Se RETIRÓ la exclusión interina de A1** (`_DASHBOARD_EXCLUDED_SCOPES`): el
+  default del dashboard es ahora **Hub-wide** — platform + copilot + operations
+  incluidos. Test de regresión prueba la inclusión por default.
+- **Filtros Ámbito (scope) / Área (area)** multi-select con **faceting mutuo**
+  derivado del universo filtrado (opciones nunca sintéticas; una selección que queda
+  inválida al cambiar la otra dimensión se descarta determinísticamente). Ej.
+  Ámbito=Operaciones ⇒ Área se restringe a Staffing; Área=Staffing ⇒ Ámbito resuelve
+  a Operaciones. Default = todo tildado.
+- **Pipeline genérico** (date → user → module → scope/area) + **lentes de dominio
+  separadas**. `module` sigue Copilot-específico (Operations nunca tiene module, no
+  se lo fuerza a la taxonomía de módulos). Las lentes Copilot (módulos/árboles/
+  asistente/catálogo) keyean por eventos Copilot y **se vacían solas** cuando el
+  Ámbito las excluye; `copilot_present` gatea los KPIs de asistente. Operations NO
+  contamina los análisis Copilot (probado).
+- **KPIs:** genéricos cross-scope = Eventos · Usuarios únicos · Eventos/día +
+  **Áreas activas** (nuevo). Los KPIs de asistente (Preguntas/Consultas IA) son
+  **lente Copilot** (solo cuando hay Copiloto en la selección), no métricas Hub
+  genéricas. **NO** se inventaron KPIs de negocio de Operations (proyectos/
+  allocation/capacidad son del dashboard de Staffing, no de éste).
+- **Operations/Staffing** se representa solo por la telemetría que EXISTE
+  (`staffing_overview_viewed` = "Vista de Asignaciones" + diagnósticos): conteos de
+  uso Hub-wide + inclusión en filtros scope/area + desgloses por usuario/fecha/evento.
+- **Vocabulario:** labels ES scope/area en `activity_context` (keys persistidos en
+  inglés, estables). Contexto desconocido queda **explícito** (`unknown`/`unknown`),
+  visible solo si tales eventos existen; nunca se asigna a Copilot en silencio.
+- **Rutas:** `/admin/activity[/stories|/tree-runs]` aceptan `scope`/`area` (multi-
+  valor) y los propagan; **full-page y HTMX comparten el mismo estado de filtro**;
+  los pagers preservan scope/area en `base_qs`. **Gate owner-only + diagnóstico SIN
+  cambios** (no se amplió el acceso pese a ser Hub-wide).
+- **Primitivas de dashboard compartidas:** primitiva de checkbox multi-select
+  extraída (`.dashboard-checkbox-group`/`.dashboard-checkbox-option`, de la botonera
+  de Estado de Staffing, byte-for-byte) — usada por Actividad y **Staffing migrado a
+  ella** (Alpine `x-model` intacto; solo rename de clase). **Sticky consolidado:** se
+  eliminó el duplicado `.staffing-sticky-filters`; ambos dashboards usan
+  `.dashboard-sticky-header`. Se reusan `activity-kpi(-grid)`/`dashboard-section`/
+  `whatsnew-filters`/`dashboard-empty` (ya compartidas). Solo gramática visual — NO
+  se compartió engine de filtro (Actividad = HTMX/form, Staffing = Alpine).
+- **NO se agregaron productores de telemetría** (A2 es reader/dashboard). **NO se
+  inició Staffing V2.**
+- **Tests (+16 neto):** analytics (default Hub-wide incluye Operations; filtros/
+  faceting scope/area; histórico 5-campos; unknown explícito; date/user/module;
+  module no absorbe Operations; lentes Copilot correctas y no contaminadas) + rutas/
+  UI (render de filtros Ámbito/Área; estado sobrevive refresh HTMX; default all-
+  checked; selección inválida determinística; gate sin cambios; paridad full/partial;
+  sin métricas de negocio de Operations; primitivas compartidas). Staffing GREEN
+  (sticky test actualizado). **Route surface 82 sin cambios.**
+- **Baseline:** suite **543 passed / 1 skipped** (stack reproducible 3.14.3 / FastAPI
+  0.141.1 / Starlette 1.4.1), route-contract GREEN.
+- **Validación visual (browser real, harness con ACTIVITY_LOG_DIR temp sembrado —
+  sin tocar historia runtime):** default Hub-wide (todo tildado, KPI Áreas activas,
+  Operations incluido); `scope=operations` (Ámbito→Operaciones, Área→Staffing, KPIs
+  de asistente y secciones Copilot desaparecen, sin métricas de negocio); checkbox
+  state correcto; sin overflow horizontal en desktop (1280) ni mobile (375); primitiva
+  de checkbox/sticky con computed styles correctos. Smoke del dashboard de Staffing
+  en browser requiere token de Graph + allowlist de Operations (no disponible en este
+  entorno) → cubierto por los 135 tests de Staffing (fragmento renderizado con service
+  mockeado) + CSS byte-idéntico. **PENDING:** CI GREEN en el PR + validación en prod.
 
 ---
 
@@ -3839,17 +3905,21 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 | Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
 | Danwor Hub Login Identity | **CLOSED / GREEN** |
 | Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
+| Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Último batch cerrado:** **Shared Activity / Observability — Context
-  Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
-  (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
-  `53277d6`**, owner-confirmed CI GREEN). Envelope de actividad ahora
-  platform-aware (aditivo `scope`/`area`), Operations emite su primer evento de
-  uso (`staffing_overview_viewed`), una sola activity capability, históricos
-  legibles sin migración; el corrective preserva el lente Copiloto del dashboard
-  actual (Operations no lo contamina hasta A2). Baseline en `main`: **528 passed
-  / 1 skipped**, route surface **82**. (Next candidate = A2, ver abajo.)
+- **Batch en curso:** **Shared Activity / Observability — Hub Dashboard V2
+  (Batch A2)** — ver sección dedicada arriba — **IMPLEMENTED / PENDING CI**
+  (commit funcional `8ae7593`, branch `work/activity-dashboard-hub-v2`; NO
+  mergeado). Dashboard ahora Hub-wide (exclusión A1 retirada), filtros Ámbito/Área
+  multi-select faceteados, KPI Áreas activas, lentes Copilot condicionales,
+  primitivas de checkbox/sticky compartidas (Staffing migrado). Gate owner-only sin
+  cambios; sin productores de telemetría nuevos; Staffing V2 NO iniciado. Suite en
+  la branch: **543 passed / 1 skipped**, route surface **82**. Validación visual en
+  browser real OK (default/faceted/mobile).
+- **Último batch cerrado (en `main`):** A1 Context Foundation — **CLOSED / GREEN**
+  (PR #44 / `53277d6`). Baseline en `main`: **528 passed / 1 skipped**, route
+  surface **82**.
 - **Phase (producto):** ninguna fase de producto abierta. Danwor Hub Login Identity
   — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
   (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
@@ -3885,24 +3955,17 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
-- **Next candidate:** **Shared Activity / Observability — Batch A2**
-  (Activity Dashboard V2 Hub-wide: dimensiones Ámbito/Área multi-select,
-  **RETIRO de `_DASHBOARD_EXCLUDED_SCOPES`** —Operations incluido por default—,
-  faceting scope↔área, KPIs Hub-wide genéricos + lentes Copilot-específicos
-  condicionales, dedup del sticky-filter, primitiva de checkbox compartida). A1
-  (fundación de contexto) quedó **CLOSED/GREEN** (PR #44); A2 se apoya en el seam
-  `activity_context.context_of` + los campos `scope`/`area`. **AUTORIZADO por el
-  owner**; arranca desde el `main` ya realineado tras este cierre documental
-  (branch `work/activity-dashboard-hub-v2`) — NO iniciado todavía. Los hallazgos
+- **Next candidate:** ninguno autorizado por este documento. **A2 está IMPLEMENTED /
+  PENDING CI** (branch `work/activity-dashboard-hub-v2`, commit `8ae7593`, NO
+  mergeado) — el próximo paso es CI GREEN + review + merge de A2, y recién después
+  el owner decide el siguiente incremento con evaluación fresca. Los hallazgos
   reportados-pero-diferidos explícitamente en batches previos (colisiones
   de color en el timeline de Staffing; filtro de tipo de proyecto; switch
   de agrupamiento consultor/proyecto; Status Finalización; optimización
-  de ventana histórica de Graph) tampoco están autorizados. Entra
-  Groups/App Roles, Projects/Reporting, cálculo de capacidad, Shared
-  Dashboard Primitives o cambios de Staffing quedan igualmente diferidos
-  sin autorización.
-- **Next candidate status:** **AUTHORIZED (A2), NOT STARTED** — arranca desde el
-  `main` realineado tras el merge de este cierre documental de A1.
+  de ventana histórica de Graph) NO están autorizados. Entra Groups/App Roles,
+  Projects/Reporting, cálculo de capacidad, Staffing V2 y cambios de Staffing
+  quedan igualmente diferidos sin autorización.
+- **Next candidate status:** **NONE AUTHORIZED** (A2 en vuelo, pendiente de CI/merge).
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
   **528 passed / 1 skipped** · route surface **82** · `main` HEAD
   `53277d6` (merge de PR #44, ya incluye A1 — Context Foundation CLOSED/GREEN).
