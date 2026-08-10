@@ -287,11 +287,14 @@ def test_post_dashboard_sticky_filters_reuse_activity_mechanism(monkeypatch):
     )
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     text = response.text
-    # Mismo mecanismo sticky que Actividad — no un sistema sticky paralelo.
-    assert 'class="staffing-sticky-filters"' in text
+    # Mismo mecanismo sticky que Actividad — CONSOLIDADO (Batch A2) en la primitiva
+    # compartida .dashboard-sticky-header (se eliminó el duplicado
+    # .staffing-sticky-filters); no un sistema sticky paralelo.
+    assert 'class="dashboard-sticky-header"' in text
+    assert 'class="staffing-sticky-filters"' not in text
     assert '<div class="whatsnew-filters">' in text
     # Filtros DENTRO del wrapper sticky (no al lado).
-    sticky_idx = text.index('class="staffing-sticky-filters"')
+    sticky_idx = text.index('class="dashboard-sticky-header"')
     filters_idx = text.index('class="whatsnew-filters"')
     assert sticky_idx < filters_idx
 

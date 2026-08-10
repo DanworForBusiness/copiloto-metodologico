@@ -21,7 +21,7 @@
 {% else %}
 <div x-data='staffingDashboard({{ payload | tojson }})' x-cloak>
 
-  <div class="staffing-sticky-filters">
+  <div class="dashboard-sticky-header">
     <div class="staffing-filter-bar">
       <div class="whatsnew-filters">
         <label class="whatsnew-filter">
@@ -62,9 +62,9 @@
         </label>
         <label class="whatsnew-filter whatsnew-filter--compact">
           <span>Estado</span>
-          <div class="staffing-status-toggle">
+          <div class="dashboard-checkbox-group">
             <template x-for="s in statusOptions" :key="s">
-              <label class="staffing-status-chip">
+              <label class="dashboard-checkbox-option">
                 <input type="checkbox" x-model="filters.status[s]" :aria-label="'Estado ' + s">
                 <span x-text="s"></span>
               </label>

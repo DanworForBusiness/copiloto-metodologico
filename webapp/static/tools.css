@@ -734,15 +734,20 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    una columna angosta y compacta, más chica que los selects principales
    (190px) a propósito. */
 .whatsnew-filter--compact { min-width: 0; }
-.staffing-status-toggle { display: flex; flex-direction: column; gap: 3px; }
-.staffing-status-chip {
+/* Primitiva visual COMPARTIDA (Batch A2): multi-select vertical de checkboxes
+   para filtros de dashboard. Extraída de la botonera de Estado de Staffing (misma
+   apariencia, byte-for-byte); la consumen el filtro de Ámbito/Área de Actividad
+   (form checkbox + HTMX) y el filtro de Estado de Staffing (Alpine x-model). Solo
+   gramática visual: el binding es del consumidor, no se comparte engine de filtro. */
+.dashboard-checkbox-group { display: flex; flex-direction: column; gap: 3px; }
+.dashboard-checkbox-option {
   display: inline-flex; align-items: center; gap: 5px; padding: 1px 0;
   cursor: pointer; color: #55555c; font: 600 .66rem var(--mono); user-select: none;
 }
-.content-theme-dark .staffing-status-chip { color: #b2b2bc; }
-.staffing-status-chip input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
-.staffing-status-chip:has(input:checked) { color: #1f1f24; font-weight: 700; }
-.content-theme-dark .staffing-status-chip:has(input:checked) { color: #e4e4ec; }
+.content-theme-dark .dashboard-checkbox-option { color: #b2b2bc; }
+.dashboard-checkbox-option input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
+.dashboard-checkbox-option:has(input:checked) { color: #1f1f24; font-weight: 700; }
+.content-theme-dark .dashboard-checkbox-option:has(input:checked) { color: #e4e4ec; }
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/
@@ -763,14 +768,11 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    colapsable más, expand/collapse por consultor, paleta de identidad por
    asignación, marcador de "hoy" real. */
 
-/* Filtros sticky — MISMA mecánica que Actividad (.dashboard-sticky-header),
-   reusada tal cual: cancela el padding-top de .module-content con
-   top:-48px, fondo sólido por tema, encima del contenido (z-index) sin
-   tapar KPIs/secciones (que empiezan después, fuera del sticky). */
-.staffing-sticky-filters { position: sticky; top: -48px; z-index: 6; padding: 10px 0 4px; }
-.content-theme-light .staffing-sticky-filters { background: #fff; }
-.content-theme-dark .staffing-sticky-filters { background: #181819; }
-.staffing-sticky-filters .whatsnew-filters { margin: 10px 0 4px; }
+/* Sticky de filtros: CONSOLIDADO (Batch A2) en la primitiva canónica compartida
+   `.dashboard-sticky-header` (ver arriba) — Staffing y Actividad usan la misma.
+   Se eliminó el duplicado `.staffing-sticky-filters` (misma mecánica: top:-48px,
+   fondo sólido por tema, z-index). El layout específico de Staffing sigue en
+   `.staffing-filter-bar` (abajo). */
 
 /* Corrección de alineación (ver HANDOFF): con Estado ahora compacto y
    vertical, .whatsnew-filters heredado (align-items:flex-end, pensado para

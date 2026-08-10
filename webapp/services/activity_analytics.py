@@ -22,17 +22,7 @@ from typing import Any
 import yaml
 
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
-from webapp.services.activity_context import SCOPE_OPERATIONS, context_of
-
-# Lente ACTUAL del dashboard = Copiloto + plataforma. La telemetría de Operations
-# (Batch A1: staffing_overview_viewed/_error/_config_incomplete) YA se persiste y
-# normaliza en el stream COMPARTIDO (ver context_of / _read_events) — pero el
-# Activity Dashboard sigue siendo Copilot-oriented hasta Batch A2 (Hub-wide). Regla
-# interina en UN solo punto (build_summary, antes de facets/conteos): se excluye
-# scope=="operations". NO se filtra a copilot-only a propósito: `login` es
-# scope=="platform" y SIEMPRE se contó en este dashboard (ver _EVENT_DESCRIPTIONS),
-# así que la plataforma se preserva; solo se frena la contaminación de Operations.
-_DASHBOARD_EXCLUDED_SCOPES = frozenset({SCOPE_OPERATIONS})
+from webapp.services.activity_context import area_label, context_of, scope_label
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -113,6 +103,10 @@ _EVENT_DESCRIPTIONS = {
     "disclosure_toggle": "Veces que se abrió/cerró un desplegable de contenido.",
     "theme_change": "Veces que se cambió el tema (claro/oscuro).",
     "section_analyze": "(Histórico) Acción de análisis de sección — reemplazado por assistant_query; puede aparecer en datos previos.",
+    # Operaciones · Staffing (Batch A1/A2). Uso vs diagnóstico:
+    "staffing_overview_viewed": "Vista de Asignaciones (Operaciones · Staffing): accesos a la página del dashboard de asignaciones.",
+    "staffing_overview_config_incomplete": "(Diagnóstico) La config de Staffing (site_id / mapeo de campos) estaba incompleta al pedir el overview.",
+    "staffing_overview_error": "(Diagnóstico) Error de Graph/transporte al traer el overview de Staffing.",
 }
 
 
@@ -377,22 +371,49 @@ def build_summary(
     date_from: str, date_to: str, user: str = "", module: str = "",
     story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+    scopes: list[str] | None = None, areas: list[str] | None = None,
 ) -> dict:
-    # Lente Copiloto+plataforma del dashboard actual: se excluye Operations en
-    # este único punto (antes de facets/feedback/conteos) — el stream compartido
-    # ya la persistió; el dashboard Hub-wide es Batch A2. Ver _DASHBOARD_EXCLUDED_SCOPES.
-    all_events = [
-        ev for ev in _read_events(date_from, date_to)
-        if ev["scope"] not in _DASHBOARD_EXCLUDED_SCOPES
-    ]
+    # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
+    # normalizado — la exclusión interina de Operations (A1) fue RETIRADA. Filtros
+    # explícitos: date (a nivel de archivo en _read_events) + user + module y luego
+    # scope (Ámbito) / area (Área) con faceting mutuo.
+    all_events = _read_events(date_from, date_to)
     available_users, available_modules = _facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
 
     user = (user or "").strip()
     module = (module or "").strip()
-    events = [
+    base = [
         ev for ev in all_events
         if (not user or ev["user"] == user) and (not module or ev["module"] == module)
+    ]
+
+    # Ámbito/Área con faceting mutuo, derivado del universo filtrado (nunca
+    # hardcodeado). Selección vacía/None = TODO (default Hub-wide). Una selección
+    # inválida al cambiar la otra dimensión se descarta determinísticamente
+    # (intersección con lo disponible). No se fabrican opciones ausentes del dataset.
+    requested_scopes = {s for s in (scopes or []) if s}
+    requested_areas = {a for a in (areas or []) if a}
+    present_scopes = {ev["scope"] for ev in base}
+    sel_scopes = (requested_scopes & present_scopes) or present_scopes
+    areas_for_scopes = {ev["area"] for ev in base if ev["scope"] in sel_scopes}
+    sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
+    # Opciones ofrecidas: cada dimensión faceteada por la selección de la OTRA.
+    scope_facets = [
+        {"key": k, "label": scope_label(k), "checked": k in sel_scopes}
+        for k in sorted({ev["scope"] for ev in base if ev["area"] in sel_areas})
+    ]
+    area_facets = [
+        {"key": k, "label": area_label(k), "checked": k in sel_areas}
+        for k in sorted(areas_for_scopes)
+    ]
+
+    events = [ev for ev in base if ev["scope"] in sel_scopes and ev["area"] in sel_areas]
+    # Universo scope/area-filtrado (pre user/module) para lentes Copilot con
+    # filtrado interno propio (árboles): así se vacían solas cuando el Ámbito
+    # seleccionado excluye al Copiloto.
+    scoped_all_events = [
+        ev for ev in all_events if ev["scope"] in sel_scopes and ev["area"] in sel_areas
     ]
 
     total_events = 0
@@ -515,7 +536,7 @@ def build_summary(
     start = (page - 1) * page_size
     assistant_stories = [assistant_conversations[k] for k in all_keys_desc[start:start + page_size]]
 
-    trees = _tree_summary(all_events, user, module, run_page, run_page_size)
+    trees = _tree_summary(scoped_all_events, user, module, run_page, run_page_size)
 
     # Desglose interactivo: al clickear un evento en el panel izquierdo, el
     # derecho muestra su detalle. catalog_view abre por tipo de vista (`kind`);
@@ -540,6 +561,12 @@ def build_summary(
         "unique_users": len(users_seen),
         "total_days": total_days,
         "avg_per_day": round(total_events / total_days) if total_days else 0,
+        # Hub-wide (Batch A2): facets de Ámbito/Área + KPI genérico cross-scope +
+        # flag para gatear las lentes Copilot-específicas.
+        "scope_facets": scope_facets,
+        "area_facets": area_facets,
+        "areas_active": len({ev["area"] for ev in events}),
+        "copilot_present": any(ev["scope"] == "copilot" for ev in events),
         "assistant_query_count": event_counts.get("assistant_query", 0),
         "assistant_api_cost_count": assistant_api_cost_count,
         "ts_min": ts_min,
