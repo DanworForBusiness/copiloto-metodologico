@@ -3150,15 +3150,33 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
   el tier de Copiloto nunca debería haber sido el modelo de autorización
   de otro workspace.
 - **`OPERATIONS_ALLOWED_USERS` (`config.py`):** allowlist EXPLÍCITA y
-  PROVISORIA — mismo formato/parser que `ALLOWED_USERS` (usernames
-  compactos → `@AUTH_DEFAULT_DOMAIN`, CSV, "ALL" literal si se configura
-  explícito, case-insensitive; reusa `auth_service._csv_users`, NUNCA un
-  segundo algoritmo de normalización de identidad). A DIFERENCIA de
-  `ALLOWED_USERS`/`ACADEMY_USERS`: default `""` (nunca `"ALL"`) y JAMÁS
-  hereda el fallback histórico "sin config = abierto" — ausente o vacío
-  significa SIEMPRE "nadie autorizado para Operaciones" (fail-closed
-  explícito, sin excepción). Provisorio hasta que un mecanismo de
-  entitlement central (Entra Groups/App Roles) lo justifique.
+  PROVISORIA — MISMA normalización de usernames que `ALLOWED_USERS`
+  (compactos → `@AUTH_DEFAULT_DOMAIN`, CSV, case-insensitive; reusa
+  `auth_service._csv_users`, NUNCA un segundo algoritmo de identidad). A
+  DIFERENCIA de `ALLOWED_USERS`/`ACADEMY_USERS`: default `""` (nunca
+  `"ALL"`), JAMÁS hereda el fallback histórico "sin config = abierto"
+  (ausente/vacío = SIEMPRE "nadie autorizado para Operaciones"), Y —
+  corrección de seguridad post-implementación, ver bullet dedicado abajo
+  — el literal `"ALL"` (el que SÍ abre `ALLOWED_USERS`/`ACADEMY_USERS` a
+  todo el tenant) queda explícitamente RECHAZADO acá también: nunca
+  "todos" para Operaciones, bajo ninguna configuración. Provisorio hasta
+  que un mecanismo de entitlement central (Entra Groups/App Roles) lo
+  justifique.
+- **Corrección de seguridad — `"ALL"` NUNCA es wildcard para Operations
+  (commit `fix(operations): reject wildcard workspace access`, posterior
+  a `05b5da3`, mismo branch):** el chequeo de seguridad previo a abrir el
+  PR encontró que `OPERATIONS_ALLOWED_USERS="ALL"` (o `"all"`/`" ALL "`)
+  SÍ otorgaba acceso a Operaciones a cualquier usuario admitido —
+  `_operations_set()` reusaba `_csv_users(..., empty_is_all=False)` sin
+  notar que ese parser devuelve `None` (="todos") para el literal `"ALL"`
+  INDEPENDIENTEMENTE de `empty_is_all`, y `is_operations_user` trataba
+  `None` como "todos". Corregido: `_operations_set()` ahora SIEMPRE
+  devuelve un `set[str]` concreto (convierte ese `None` en `set()`), así
+  que `"ALL"` en cualquier capitalización/espaciado deniega a todos.
+  `ALLOWED_USERS="ALL"` (comportamiento histórico de admisión base, sin
+  tocar) sigue abriendo la app a todo el tenant exactamente igual — la
+  restricción es SOLO de Operations. Tests nuevos en
+  `test_operations_access.py` prueban ambos lados de esta regresión.
 - **Política de autorización = admisión base AND allowlist de Operations**
   (`webapp/operations_access.is_operations_authorized_user`): dos
   condiciones independientes, AMBAS requeridas —
@@ -3222,16 +3240,22 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
 - **Hallazgo de aislamiento de tests (corregido en este batch):** los
   archivos de test que asignan `auth_service.OPERATIONS_ALLOWED_USERS`
   como atributo de MÓDULO (no vía `monkeypatch`) deben coincidir en el
-  mismo valor (`"ALL"`) entre archivos — pytest importa/colecciona TODOS
-  los módulos de test antes de correr ninguno, así que la última
-  asignación plana de módulo en orden de collection "gana" para cualquier
-  test sin su propio override. Mismo patrón ya usado (sin fricción, por
-  coincidir siempre en `"ALL"`) por `ALLOWED_USERS` desde hace varios
-  batches — quedó expuesto acá porque introdujimos valores DISTINTOS entre
-  archivos por error, no porque el patrón en sí sea nuevo.
+  mismo valor entre archivos — pytest importa/colecciona TODOS los
+  módulos de test antes de correr ninguno, así que la última asignación
+  plana de módulo en orden de collection "gana" para cualquier test sin
+  su propio override. Mismo patrón ya usado (sin fricción, por coincidir
+  siempre) por `ALLOWED_USERS` desde hace varios batches — quedó expuesto
+  acá porque introdujimos valores DISTINTOS entre archivos por error, no
+  porque el patrón en sí sea nuevo. El valor plano compartido era
+  originalmente `"ALL"`; tras la corrección de seguridad de wildcard (ver
+  bullet dedicado arriba) ya no es válido para Operations, así que los
+  tres archivos (`test_staffing_routes.py`, `test_platform_topbar.py`,
+  `test_onedanwor_routes.py`) pasaron a un CSV explícito con los tres
+  emails default de módulo.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
-  **3.14.3**): **suite 490 passed / 1 skipped** (464 + 26 netos),
-  route-contract GREEN, snapshot sin cambios (**82**).
+  **3.14.3**): **suite 496 passed / 1 skipped** (490 + 6 tests de la
+  corrección de wildcard), route-contract GREEN, snapshot sin cambios
+  (**82**).
 - **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
   No se abrió el PR todavía.
 
@@ -3277,14 +3301,17 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
   Identity (**CLOSED/GREEN**) — ver secciones dedicadas arriba; ninguna de
   las dos se tocó en este batch.
 - **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
-  (`05b5da3`): **490 passed / 1 skipped** (464 + 26 netos), route surface
-  **82** (sin cambios). Ver sección dedicada "OPERATIONS WORKSPACE ACCESS
-  GATE — IMPLEMENTED / PENDING CI" arriba para el detalle completo — falta
-  la confirmación de CI real en GitHub antes de CLOSED/GREEN. PR no
-  abierto todavía.
+  (funcional `05b5da3` + corrección `fix(operations): reject wildcard
+  workspace access`): **496 passed / 1 skipped** (490 + 6 de la
+  corrección de wildcard), route surface **82** (sin cambios). Ver sección
+  dedicada "OPERATIONS WORKSPACE ACCESS GATE — IMPLEMENTED / PENDING CI"
+  arriba para el detalle completo — falta la confirmación de CI real en
+  GitHub antes de CLOSED/GREEN. PR no abierto todavía.
 - **Functional commit:** `05b5da3` — `feat(operations): add explicit
-  workspace access allowlist` (un solo commit funcional, sin amend/squash).
-  Branch `work/operations-access-gate`.
+  workspace access allowlist` (un solo commit funcional, sin amend/squash),
+  seguido de una corrección de seguridad pequeña separada (ver bullet
+  dedicado en la sección de arriba) — tampoco amendeada. Branch
+  `work/operations-access-gate`.
 - **Alcance — SOLO autorización:** `OPERATIONS_ALLOWED_USERS` (allowlist
   explícita, fail-closed, misma normalización que `ALLOWED_USERS`);
   `is_operations_authorized_user` = admisión base AND allowlist de
@@ -3298,7 +3325,7 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
   Roles, Projects/Reporting, o cálculo de capacidad quedan diferidos sin
   autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **490 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **496 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
