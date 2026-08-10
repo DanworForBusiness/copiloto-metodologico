@@ -90,20 +90,24 @@ def is_authorized(email: str) -> bool:
     return user_tier(email) is not None
 
 
-def _operations_set() -> set[str] | None:
+def _operations_set() -> set[str]:
     """Allowlist EXPLÍCITA y PROVISORIA de Operations (Operations Workspace
-    Access Gate). Reusa `_csv_users` — MISMA normalización que
+    Access Gate). Reusa `_csv_users` para la normalización — MISMA que
     ALLOWED_USERS (usernames compactos → `@AUTH_DEFAULT_DOMAIN`, CSV,
-    case-insensitive, "ALL" literal si se configura explícito) — nunca un
-    segundo algoritmo de identidad.
+    case-insensitive) — nunca un segundo algoritmo de identidad.
 
-    A DIFERENCIA de `_allowed_set()`/`_academy_set()`: acá SIEMPRE se pide
-    `empty_is_all=False`, y a diferencia de esas dos, este módulo NUNCA
-    aplica el fallback histórico "ninguna lista configurada = abierto"
-    (ver `user_tier`) — `OPERATIONS_ALLOWED_USERS` ausente/vacío es
-    SIEMPRE `set()` (nadie), nunca "ALL" implícito. Ese fail-closed es un
-    contrato de seguridad explícito, no un accidente de reuso."""
-    return _csv_users(OPERATIONS_ALLOWED_USERS, empty_is_all=False)
+    SIEMPRE devuelve un `set[str]` concreto — NUNCA `None`. A DIFERENCIA
+    de `_allowed_set()`/`_academy_set()`: acá se pide `empty_is_all=False`
+    (ausente/vacío -> `set()`, nadie) Y ADEMÁS se descarta el literal
+    "ALL" que `_csv_users` sí soporta para esas otras dos listas. Con
+    `empty_is_all=False`, `_csv_users` solo devuelve `None` para ese
+    literal "ALL" (case-insensitive, espacios ya recortados) — nunca por
+    otro motivo — así que convertir `None -> set()` acá rechaza el
+    wildcard sin duplicar su detección. Contrato de seguridad explícito:
+    Operations NUNCA puede abrirse a "todos" ni por accidente de reuso del
+    parser compartido ni por configurar `OPERATIONS_ALLOWED_USERS=ALL`."""
+    result = _csv_users(OPERATIONS_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
 
 
 def is_operations_user(email: str) -> bool:
@@ -112,12 +116,12 @@ def is_operations_user(email: str) -> bool:
     `user_tier`/`is_authorized`: NO es "admisión a la app", es la
     autorización de UN workspace adicional — un caller debe seguir
     exigiendo `is_authorized(email)` por separado (ver
-    `webapp.operations_access.is_operations_authorized_user`)."""
+    `webapp.operations_access.is_operations_authorized_user`). Nunca
+    "todos" — ver `_operations_set()`."""
     email = (email or "").strip().lower()
     if not email:
         return False
-    operations = _operations_set()
-    return operations is None or email in operations
+    return email in _operations_set()
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────

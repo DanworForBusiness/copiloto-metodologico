@@ -17,8 +17,15 @@ auth_service.ALLOWED_USERS = "ALL"
 # Operations Workspace Access Gate (ver HANDOFF): tier "full" ya no basta
 # por sí solo — este archivo prueba resolución/selector de plataforma, no
 # la frontera de autorización en sí (ver test_operations_access.py), así
-# que el cliente full de módulo se abre explícito con "ALL".
-auth_service.OPERATIONS_ALLOWED_USERS = "ALL"
+# que el cliente full de módulo se abre explícito listando su email —
+# "ALL" ya NO es un wildcard válido para Operations (rechazado
+# deliberadamente, ver auth_service._operations_set). MISMO valor CSV que
+# usan los otros archivos de test para esta variable (asignación plana de
+# módulo: la última que se ejecute durante el collection de pytest "gana"
+# para cualquier test sin su propio override).
+auth_service.OPERATIONS_ALLOWED_USERS = (
+    "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+)
 
 _FULL_SESSION = auth_service.create_session(
     {"email": "onedanwor-full@danwor.com", "name": "Full", "first_name": "Full", "family_name": "User"}

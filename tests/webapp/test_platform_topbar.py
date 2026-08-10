@@ -31,8 +31,15 @@ auth_service.ALLOWED_USERS = "ALL"
 # Operations Workspace Access Gate (ver HANDOFF): tier "full" ya no basta
 # por sí solo para ver/entrar a Operations — este archivo prueba
 # renderizado del topbar/switcher, no la frontera de autorización en sí
-# (ver test_operations_access.py), así que se abre explícito con "ALL".
-auth_service.OPERATIONS_ALLOWED_USERS = "ALL"
+# (ver test_operations_access.py), así que se abre explícito listando su
+# email — "ALL" ya NO es un wildcard válido para Operations (rechazado
+# deliberadamente, ver auth_service._operations_set). MISMO valor CSV que
+# usan los otros archivos de test para esta variable (asignación plana de
+# módulo: la última que se ejecute durante el collection de pytest "gana"
+# para cualquier test sin su propio override).
+auth_service.OPERATIONS_ALLOWED_USERS = (
+    "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+)
 
 _MODULE_URL = "/modules/01_Arquitectura_y_Conectividad"
 _INTRO_URL = "/modules/00_Intro"  # sin previous_module real

@@ -20,12 +20,17 @@ auth_service.ALLOWED_USERS = "ALL"
 # por sí solo — se requiere además la allowlist explícita de Operations.
 # El cliente principal de este archivo prueba COMPORTAMIENTO de Staffing,
 # no la frontera de autorización en sí (ver test_operations_access.py para
-# eso), así que se abre explícito con "ALL" — MISMO valor que usan otros
-# archivos de test para esta variable (asignación plana de módulo, no
-# monkeypatch: la última que se ejecute durante el collection de pytest
-# "gana" para cualquier test sin su propio override — deben coincidir
-# entre archivos para no pisarse entre sí).
-auth_service.OPERATIONS_ALLOWED_USERS = "ALL"
+# eso), así que se abre explícito listando su email — "ALL" ya NO es un
+# wildcard válido para Operations (rechazado deliberadamente, ver
+# auth_service._operations_set). MISMO valor CSV que usan otros archivos
+# de test para esta variable (asignación plana de módulo, no monkeypatch:
+# la última que se ejecute durante el collection de pytest "gana" para
+# cualquier test sin su propio override — deben coincidir entre archivos
+# para no pisarse entre sí, así que el CSV lista los emails default de
+# los tres archivos).
+auth_service.OPERATIONS_ALLOWED_USERS = (
+    "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+)
 
 _SESSION = auth_service.create_session(
     {"email": "staffing-test@danwor.com", "name": "Staffing Test", "first_name": "Staffing", "family_name": "Test"}

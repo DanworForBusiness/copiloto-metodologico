@@ -97,6 +97,62 @@ def test_blank_operations_allowed_users_denies_everyone(monkeypatch):
     assert auth_service.is_operations_user("joconnor@danwor.com") is False
 
 
+# --- ALL nunca es un wildcard para Operations (corrección de seguridad) ---
+# `_csv_users` (reusado por `_allowed_set`/`_academy_set`) SÍ trata el
+# literal "ALL" como "todos" — comportamiento histórico e intencional de
+# ALLOWED_USERS/ACADEMY_USERS, que NO se toca. `_operations_set` reusa el
+# mismo parser para la normalización de usernames pero rechaza
+# explícitamente ese wildcard: Operations es una allowlist EXPLÍCITA de
+# información operativa sensible, nunca "todo usuario admitido".
+
+def test_operations_allowed_users_all_uppercase_denies_everyone(monkeypatch):
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "ALL")
+
+    assert auth_service.is_operations_user("joconnor@danwor.com") is False
+    assert auth_service.is_operations_user("anyone@danwor.com") is False
+
+
+def test_operations_allowed_users_all_lowercase_denies_everyone(monkeypatch):
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "all")
+
+    assert auth_service.is_operations_user("joconnor@danwor.com") is False
+
+
+def test_operations_allowed_users_all_with_surrounding_whitespace_denies_everyone(monkeypatch):
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", " ALL ")
+
+    assert auth_service.is_operations_user("joconnor@danwor.com") is False
+
+
+def test_operations_authorized_user_denied_even_when_all_configured(monkeypatch):
+    # A nivel del predicado completo (admisión base + Operations) — no
+    # solo el helper de bajo nivel — para que la regresión no pueda
+    # esconderse en una capa intermedia.
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "ALL")
+
+    assert operations_access.is_operations_authorized_user(_user("anyone@danwor.com")) is False
+
+
+def test_allowed_users_historical_all_semantics_unchanged(monkeypatch):
+    # Regresión explícita: este hardening es SOLO de Operations —
+    # ALLOWED_USERS="ALL" sigue abriendo la app base a cualquier
+    # autenticado del tenant, exactamente como siempre.
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "")
+
+    assert auth_service.is_authorized("anyone@danwor.com") is True
+    assert auth_service.user_tier("anyone@danwor.com") == "full"
+
+
+def test_operations_allowed_users_compact_username_still_works_after_the_fix(monkeypatch):
+    # El fix rechaza específicamente el wildcard "ALL" — no debe romper el
+    # caso normal de un username compacto real.
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "joconnor")
+
+    assert auth_service.is_operations_user("joconnor@danwor.com") is True
+
+
 def test_fail_closed_never_falls_back_to_allowed_users_or_academy_users(monkeypatch):
     # Alguien admitido full/academy en la app, pero SIN OPERATIONS_ALLOWED_USERS
     # configurado, sigue sin acceso a Operations — nunca hereda ALLOWED_USERS.
