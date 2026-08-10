@@ -3707,8 +3707,16 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
 
 ---
 
-## SHARED ACTIVITY / OBSERVABILITY — CONTEXT FOUNDATION (Batch A1) — IMPLEMENTED / PENDING CI
-(commit funcional `18d4c43`, branch `work/shared-activity-context-foundation`)
+## SHARED ACTIVITY / OBSERVABILITY — CONTEXT FOUNDATION (Batch A1) — CLOSED / GREEN
+(commits funcionales `18d4c43` + corrective `ce17790`, branch
+`work/shared-activity-context-foundation`; **mergeado a `main` vía PR #44 /
+`53277d6`**)
+
+> **CLOSED / GREEN.** Owner-confirmed: PR #44 mergeado, **CI GREEN**, baseline
+> **528 passed / 1 skipped**, route surface **82**, smoke funcional OK. El
+> corrective `ce17790` (lente Copiloto del dashboard actual, ver abajo) entró en
+> el mismo PR. Batch A2 (Hub-wide dashboard) autorizado, arranca desde el `main`
+> ya realineado.
 
 Primer paso de "Shared Activity / Observability": hacer la capacidad de actividad
 existente **platform-aware de forma ADITIVA**, preservando toda la actividad
@@ -3787,8 +3795,8 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   log temporales aislados (nunca runtime real).
 - **Baseline:** suite **528 passed / 1 skipped** (516 + 11 + 1 regresión del
   corrective), **route surface 82 sin cambios** (snapshot intacto), sobre stack
-  reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1). **PENDING:**
-  CI GREEN en el PR.
+  reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1). **Cierre:**
+  owner-confirmed CI **GREEN**, mergeado a `main` vía **PR #44 / `53277d6`**.
 - **Batch A2 (Activity Dashboard V2 platform-wide: Ámbito/Área, checkbox/faceted
   filters, KPIs Hub-wide, dedup del sticky-filter) NO fue iniciado.**
 
@@ -3830,19 +3838,18 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 | Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
 | Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
 | Danwor Hub Login Identity | **CLOSED / GREEN** |
-| Shared Activity / Observability — Context Foundation (Batch A1) | **IMPLEMENTED / PENDING CI** |
+| Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Batch en curso (más reciente):** **Shared Activity / Observability —
-  Context Foundation (Batch A1)** — ver sección dedicada arriba —
-  **IMPLEMENTED / PENDING CI** (commit funcional `18d4c43`, branch
-  `work/shared-activity-context-foundation`; NO mergeado). Envelope de
-  actividad ahora platform-aware (aditivo `scope`/`area`), Operations emite
-  su primer evento de uso (`staffing_overview_viewed`), una sola activity
-  capability, históricos legibles sin migración; corrective `ce17790` preserva
-  el lente Copiloto del dashboard actual (Operations no lo contamina hasta A2).
-  Suite en la branch: **528 passed / 1 skipped**, route surface **82** sin
-  cambios. **Batch A2 (Activity Dashboard V2) NO iniciado.**
+- **Último batch cerrado:** **Shared Activity / Observability — Context
+  Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
+  (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
+  `53277d6`**, owner-confirmed CI GREEN). Envelope de actividad ahora
+  platform-aware (aditivo `scope`/`area`), Operations emite su primer evento de
+  uso (`staffing_overview_viewed`), una sola activity capability, históricos
+  legibles sin migración; el corrective preserva el lente Copiloto del dashboard
+  actual (Operations no lo contamina hasta A2). Baseline en `main`: **528 passed
+  / 1 skipped**, route surface **82**. (Next candidate = A2, ver abajo.)
 - **Phase (producto):** ninguna fase de producto abierta. Danwor Hub Login Identity
   — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
   (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
@@ -3879,12 +3886,14 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
 - **Next candidate:** **Shared Activity / Observability — Batch A2**
-  (Activity Dashboard V2 platform-wide: dimensiones Ámbito/Área, checkbox/
-  faceted filters, KPIs Hub-wide, dedup del sticky-filter). El discovery ya
-  se hizo y la fundación de contexto (A1) quedó IMPLEMENTED/PENDING CI — A2
-  se apoya en el seam `activity_context.context_of` + los campos `scope`/
-  `area`. **NO autorizado** hasta que el owner lo indique explícitamente tras
-  ver CI GREEN de A1. Los hallazgos
+  (Activity Dashboard V2 Hub-wide: dimensiones Ámbito/Área multi-select,
+  **RETIRO de `_DASHBOARD_EXCLUDED_SCOPES`** —Operations incluido por default—,
+  faceting scope↔área, KPIs Hub-wide genéricos + lentes Copilot-específicos
+  condicionales, dedup del sticky-filter, primitiva de checkbox compartida). A1
+  (fundación de contexto) quedó **CLOSED/GREEN** (PR #44); A2 se apoya en el seam
+  `activity_context.context_of` + los campos `scope`/`area`. **AUTORIZADO por el
+  owner**; arranca desde el `main` ya realineado tras este cierre documental
+  (branch `work/activity-dashboard-hub-v2`) — NO iniciado todavía. Los hallazgos
   reportados-pero-diferidos explícitamente en batches previos (colisiones
   de color en el timeline de Staffing; filtro de tipo de proyecto; switch
   de agrupamiento consultor/proyecto; Status Finalización; optimización
@@ -3892,11 +3901,11 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   Groups/App Roles, Projects/Reporting, cálculo de capacidad, Shared
   Dashboard Primitives o cambios de Staffing quedan igualmente diferidos
   sin autorización.
-- **Next candidate status:** **NOT AUTHORIZED.**
+- **Next candidate status:** **AUTHORIZED (A2), NOT STARTED** — arranca desde el
+  `main` realineado tras el merge de este cierre documental de A1.
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **516 passed / 1 skipped** · route surface **82** · `main` HEAD
-  `e5bba900a0ab7a4770177aa49d6ab4ebe2211865` (merge de PR #42, ya incluye
-  el cierre completo de Danwor Hub Login Identity).
+  **528 passed / 1 skipped** · route surface **82** · `main` HEAD
+  `53277d6` (merge de PR #44, ya incluye A1 — Context Foundation CLOSED/GREEN).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
