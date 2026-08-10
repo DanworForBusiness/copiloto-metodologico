@@ -3327,10 +3327,11 @@ genérico.
 
 ## SHARED WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI
 (commit funcional `dd7f99d` — `refactor(platform): share workspace sidebar
-frame`, branch `work/shared-workspace-sidebar-frame`. **NO marcar
-CLOSED/GREEN todavía** — falta la confirmación de CI real en GitHub Y la
-validación visual/de producto por el owner, mismo protocolo ya usado en
-batches anteriores.)
+frame` + corrective `refactor(platform): share sidebar resize handle`
+(posterior, mismo branch, ver bullet dedicado abajo), branch
+`work/shared-workspace-sidebar-frame`. **NO marcar CLOSED/GREEN todavía**
+— falta la confirmación de CI real en GitHub Y la validación visual/de
+producto por el owner, mismo protocolo ya usado en batches anteriores.)
 
 Corrective de arquitectura, disparado por una revisión visual real en
 producción: Copiloto y Operaciones (los DOS consumidores reales de
@@ -3371,15 +3372,31 @@ de reusado.
   el texto "Bienvenido `<nombre>`" vivía como HTML inline solo dentro de
   `copilot_nav.html`. Copiarlo tal cual a `operations_nav.html` habría sido
   la duplicación real que el batch buscaba evitar, así que se extrajo a
-  `webapp/templates/partials/workspace_nav_identity.html` (macro
-  `nav_welcome(user, readonly=False)`) — una sola fuente de verdad,
-  importada por AMBOS `copilot_nav.html` y `operations_nav.html`. La
-  identidad sigue viniendo de la MISMA sesión (`auth_service.session_user`)
-  para los dos — Operaciones nunca parsea claims de Microsoft por su
-  cuenta ni reimplementa el formateo del nombre. `readonly` (tier academy
-  del Copiloto, badge "Modo lectura") es un parámetro opcional del macro
-  que Operaciones simplemente no pasa — no existe ese tier para Operaciones
-  y el macro no lo asume.
+  un macro `nav_welcome(user, readonly=False)` — una sola fuente de
+  verdad, importada por AMBOS `copilot_nav.html` y `operations_nav.html`.
+  La identidad sigue viniendo de la MISMA sesión
+  (`auth_service.session_user`) para los dos — Operaciones nunca parsea
+  claims de Microsoft por su cuenta ni reimplementa el formateo del
+  nombre. `readonly` (tier academy del Copiloto, badge "Modo lectura") es
+  un parámetro opcional del macro que Operaciones simplemente no pasa —
+  no existe ese tier para Operaciones y el macro no lo asume.
+- **Corrective posterior (mismo batch, antes de abrir PR) — el `<div
+  data-resize>` en sí seguía copy-pasteado:** el commit inicial (`dd7f99d`)
+  agregó a `operations/staffing.html` el MISMO markup literal
+  `<div class="resize-handle resize-left" data-resize="left">` que ya
+  existía copiado 3 veces más (`module.html` x2 lado izq/der,
+  `academy.html`) — el mecanismo era compartido, pero el trigger DOM en sí
+  seguía siendo 4 copias del mismo `<div>`. Corregido en un segundo commit
+  chico (`refactor(platform): share sidebar resize handle`): se extrajo a
+  un macro `sidebar_resize_handle(side="left")`, agregado al MISMO partial
+  que ya tenía `nav_welcome` — el archivo se renombró de
+  `workspace_nav_identity.html` a **`webapp/templates/partials/
+  workspace_shell.html`** (ahora contiene las dos primitivas mínimas del
+  shell de workspace, no solo identidad). Los 4 consumidores reales
+  (`module.html` ×2, `academy.html`, `operations/staffing.html`) ahora
+  importan el macro — el `<div>` real vive una sola vez, dentro del
+  partial. Cero cambios de CSS/JS; el HTML renderizado y el comportamiento
+  de resize son idénticos.
 - **Frontera final — frame compartido, contenido workspace-owned (sin
   cambios):** la navegación de Copiloto (acordeón Core/Apéndices/Academy,
   `pack`, numeración de módulos) y la de Operaciones (`STAFFING → 01
@@ -3406,18 +3423,21 @@ de reusado.
 - **Route surface: 82, sin cambios.** Ningún router/ruta nueva —
   `staffing_page` solo agregó una clave al contexto de un template ya
   existente.
-- **Tests (+10, nuevo `tests/webapp/test_workspace_sidebar_frame.py`):**
-  reuso semántico, no snapshots de pixeles/HTML completo — ambos
-  workspaces renderizan el mismo `[data-resize="left"]`; ambos usan el
-  mismo `x-data="copilotLayout(...)"` y `.app-shell`; ningún template
-  declara `--nav-width`/`grid-template-columns` localmente; la bienvenida
-  se renderiza igual para cada usuario real vía `TestClient`; el macro de
-  bienvenida está definido una sola vez e importado por los dos partials
-  (mismo criterio que `test_platform_hub_icon_reuse.py` para `hub_icon()`);
-  Copiloto sigue mostrando su nav de módulos/Academy y Operaciones el suyo
-  de Staffing; ningún markup de un workspace se filtra al otro.
+- **Tests (+13, `tests/webapp/test_workspace_sidebar_frame.py`):** reuso
+  semántico, no snapshots de pixeles/HTML completo — ambos workspaces
+  renderizan el mismo `[data-resize="left"]`; ambos usan el mismo
+  `x-data="copilotLayout(...)"` y `.app-shell`; ningún template declara
+  `--nav-width`/`grid-template-columns` localmente; la bienvenida se
+  renderiza igual para cada usuario real vía `TestClient`; el macro de
+  bienvenida y el de resize-handle están definidos una sola vez cada uno e
+  importados por los templates reales (mismo criterio que
+  `test_platform_hub_icon_reuse.py` para `hub_icon()`); el handle renderiza
+  exactamente una vez por lado (Operations/Academy: solo `left`; módulo
+  con panel: `left` Y `right`, nunca duplicado); Copiloto sigue mostrando
+  su nav de módulos/Academy y Operaciones el suyo de Staffing; ningún
+  markup de un workspace se filtra al otro.
 - Validado sobre **stack reproducible** (`.venv` del proyecto, Python
-  **3.14.3**): **suite 507 passed / 1 skipped** (497 + 10 nuevos),
+  **3.14.3**): **suite 510 passed / 1 skipped** (497 + 13 nuevos),
   route-contract GREEN, snapshot sin cambios (**82**).
 - **Validación visual:** NO realizada vía navegador automatizado — el
   login real requiere Microsoft Entra ID OAuth con credenciales reales,
@@ -3479,14 +3499,17 @@ de reusado.
   mergeó vía **PR #37** (merge commit `5d6dba2`). Ninguno de los tres se
   tocó en este batch.
 - **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
-  (funcional `dd7f99d`): **507 passed / 1 skipped** (497 + 10 nuevos),
-  route surface **82** (sin cambios). Ver sección dedicada "SHARED
-  WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI" arriba para el
-  detalle completo — falta la confirmación de CI real en GitHub Y
-  validación visual/de producto por el owner antes de CLOSED/GREEN. PR no
-  abierto todavía.
-- **Functional commit:** `dd7f99d` — `refactor(platform): share workspace
-  sidebar frame` (un solo commit funcional, sin amend/squash). Branch
+  (funcional `dd7f99d` + corrective `4372625`): **510 passed / 1 skipped**
+  (497 + 13 nuevos), route surface **82** (sin cambios). Ver sección
+  dedicada "SHARED WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI"
+  arriba para el detalle completo — falta la confirmación de CI real en
+  GitHub Y validación visual/de producto por el owner antes de
+  CLOSED/GREEN. PR no abierto todavía.
+- **Functional commits:** `dd7f99d` (`refactor(platform): share workspace
+  sidebar frame`) + `4372625` (`refactor(platform): share sidebar resize
+  handle`, corrective que extrajo el `<div data-resize>` a
+  `partials/workspace_shell.html::sidebar_resize_handle()` — ver bullet
+  dedicado arriba). Ninguno amendeado/squasheado. Branch
   `work/shared-workspace-sidebar-frame`.
 - **Alcance combinado (batches previos, sin tocar en este):**
   `OPERATIONS_ALLOWED_USERS` (allowlist explícita, fail-closed, sin
@@ -3502,10 +3525,10 @@ de reusado.
   arriba. El batch de Sidebar Frame (esta fase) agrega: frame de sidebar
   YA compartido confirmado por evidencia (no se creó ninguna abstracción
   nueva de geometría/resize); `user` ahora en el contexto de
-  `staffing_page`; bienvenida de sesión extraída a
-  `partials/workspace_nav_identity.html`, importada por Copiloto Y
-  Operaciones — sin tocar navegación workspace-owned de ninguno de los
-  dos.
+  `staffing_page`; bienvenida de sesión Y handle de resize extraídos a
+  `partials/workspace_shell.html` (macros `nav_welcome`/
+  `sidebar_resize_handle`), importado por Copiloto Y Operaciones — sin
+  tocar navegación workspace-owned de ninguno de los dos.
 - **Next candidate:** ninguno nominado por este documento. Los tres
   últimos batches fueron deliberadamente pequeños y no abren una fase
   nueva — el próximo incremento debe partir de una evaluación fresca del
@@ -3521,8 +3544,8 @@ de reusado.
   igualmente diferidos sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **507 passed / 1 skipped** · route surface **82** · commit funcional
-  `dd7f99d` sobre `work/shared-workspace-sidebar-frame` (branchada desde
+  **510 passed / 1 skipped** · route surface **82** · commits `dd7f99d` +
+  `4372625` sobre `work/shared-workspace-sidebar-frame` (branchada desde
   `main` HEAD `5d6dba2d92ad1daf5797971b014aa1850dba0c3d`, que ya incluye la
   docs-closure PR #37).
 
@@ -3539,10 +3562,11 @@ de reusado.
    CLOSED/GREEN (commit `bd301c0`, branch
    `work/hub-switcher-single-workspace`, PR #36, production-verified
    2026-08-10)**, **Shared Workspace Sidebar Frame IMPLEMENTED/PENDING CI
-   (commit `dd7f99d`, branch `work/shared-workspace-sidebar-frame` — falta
-   confirmación de CI real Y validación visual/de producto del owner antes
-   de CLOSED/GREEN)**, observación no-bloqueante de calidad referencial de
-   origen registrada (no resuelta a propósito).
+   (commits `dd7f99d` + `4372625`, branch
+   `work/shared-workspace-sidebar-frame` — falta confirmación de CI real Y
+   validación visual/de producto del owner antes de CLOSED/GREEN)**,
+   observación no-bloqueante de calidad referencial de origen registrada
+   (no resuelta a propósito).
 3. El usuario decide el próximo incremento a partir de una evaluación
    fresca — nada queda autorizado por este documento hasta que el usuario
    lo indique explícitamente.
