@@ -228,6 +228,130 @@ def test_production_config_does_not_silently_synthesize_field_names(monkeypatch)
     ]
 
 
+# --- Enriquecimiento OPCIONAL FT/PT (Asignaciones Dashboard v1) ------------
+# `colaborador_disponibilidad` NUNCA debe poder romper la carga de
+# Staffing — a diferencia de los 8 campos de arriba, su ausencia degrada a
+# None, nunca a RuntimeError.
+
+def test_optional_availability_field_is_never_a_missing_required_field():
+    # Sin configurar (default "") — no debe aparecer en missing_fields(),
+    # a diferencia de los 8 campos requeridos.
+    mapping = StaffingFieldMapping(
+        colaborador_lookup_id="ColaboradorLookupId",
+        proyecto_lookup_id="ProyectoLookupId",
+        allocation="Asignacion",
+        status="Estado",
+        start_date="FechaInicio",
+        end_date="FechaFin",
+        proyecto_title="Title",
+        colaborador_title="Title",
+        # colaborador_disponibilidad deliberadamente omitido (default "").
+    )
+    assert mapping.missing_fields() == []
+
+
+def test_colaboradores_request_explicitly_selects_availability_field_when_configured(monkeypatch):
+    # Corrective pass — hallazgo real-data: Graph puede omitir columnas
+    # custom tipo Choice de la proyección default de $expand=fields aunque
+    # otras columnas custom de la MISMA lista sí aparezcan. Se pide el
+    # campo explícito vía $select en vez de confiar en el default.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+
+    colab_url = next(url for url, _tok in calls if _COLAB_LIST in url)
+    assert "$expand=fields($select=" in colab_url
+    assert "Disponibilidad" in colab_url
+    assert "Title" in colab_url  # colaborador_title sigue seleccionado también
+
+
+def test_colaboradores_request_omits_select_for_availability_when_not_configured(monkeypatch):
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    # _TEST_FIELD_MAPPING no configura colaborador_disponibilidad (default "").
+    _make_repository().get_allocations("tok")
+
+    colab_url = next(url for url, _tok in calls if _COLAB_LIST in url)
+    assert "$expand=fields($select=Title)" in colab_url
+
+
+def test_asignaciones_and_proyectos_requests_unchanged_no_select(monkeypatch):
+    # Ya funcionan correctamente con $expand=fields sin selección (Batch 3,
+    # validado contra Graph real) — no se tocan sin necesidad comprobada.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    _make_repository().get_allocations("tok")
+
+    asig_url = next(url for url, _tok in calls if _ASIG_LIST in url)
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert asig_url.endswith("/items?$expand=fields")
+    assert proy_url.endswith("/items?$expand=fields")
+
+
+def test_availability_resolves_when_mapping_configured_and_source_has_value(monkeypatch):
+    colaboradores = [
+        {"id": "1", "fields": {"Title": "Ana Pérez", "Disponibilidad": "Full Time"}},
+        {"id": "2", "fields": {"Title": "Beto Ruiz", "Disponibilidad": "Part Time"}},
+    ]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES
+        if _PROY_LIST in url:
+            return _PROYECTOS
+        if _COLAB_LIST in url:
+            return colaboradores
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    records = _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+    by_consultant = {r.consultant_id: r for r in records}
+
+    assert by_consultant["1"].consultant_availability == "Full Time"
+    assert by_consultant["2"].consultant_availability == "Part Time"
+
+
+def test_availability_is_none_when_source_value_is_blank(monkeypatch):
+    colaboradores = [{"id": "1", "fields": {"Title": "Ana Pérez", "Disponibilidad": ""}}]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES[:1]
+        if _PROY_LIST in url:
+            return _PROYECTOS
+        if _COLAB_LIST in url:
+            return colaboradores
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    mapping_with_availability = StaffingFieldMapping(
+        **{**_TEST_FIELD_MAPPING.__dict__, "colaborador_disponibilidad": "Disponibilidad"}
+    )
+    records = _make_repository(field_mapping=mapping_with_availability).get_allocations("tok")
+    assert records[0].consultant_availability is None
+
+
+def test_availability_is_none_when_mapping_not_configured_and_rows_still_load(monkeypatch):
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([]))
+
+    # _TEST_FIELD_MAPPING no incluye colaborador_disponibilidad (default "").
+    records = _make_repository().get_allocations("tok")
+
+    assert len(records) == 2  # las filas existentes siguen cargando sin romper
+    assert all(r.consultant_availability is None for r in records)
+
+
 def test_display_fields_are_mapping_driven_not_hardcoded_to_title(monkeypatch):
     # Si Proyectos/Colaboradores usaran una columna DISTINTA de "Title" para
     # el nombre, el repositorio debe seguir el mapeo — no asumir "Title".
@@ -259,3 +383,198 @@ def test_display_fields_are_mapping_driven_not_hardcoded_to_title(monkeypatch):
 
     assert records[0].project_name == "Proyecto Custom"
     assert records[0].consultant_name == "Consultor Custom"
+
+
+# --- Cliente (revisión PBI, ver HANDOFF) — Proyecto.EmpresaLookupId → -------
+# Cliente.Title. LIVE-GRAPH-CONFIRMED (metadata real, sitio Gestión), a
+# diferencia del resto de este archivo (fixtures de test, no nombres reales).
+# Enriquecimiento OPCIONAL: ambos campos (proyecto_empresa_lookup +
+# cliente_title) deben estar configurados para que se resuelva — su
+# ausencia NUNCA bloquea la carga de Staffing ni agrega una llamada a Graph.
+
+_CLIENTE_LIST = "cliente-list-id"
+
+_MAPPING_WITH_CLIENTE = StaffingFieldMapping(
+    **{
+        **_TEST_FIELD_MAPPING.__dict__,
+        "proyecto_empresa_lookup": "EmpresaLookupId",
+        "cliente_title": "Title",
+    }
+)
+
+
+def _make_repository_with_cliente(field_mapping=_MAPPING_WITH_CLIENTE):
+    return StaffingRepository(
+        site_id=_SITE_ID,
+        asignaciones_list_id=_ASIG_LIST,
+        proyectos_list_id=_PROY_LIST,
+        colaboradores_list_id=_COLAB_LIST,
+        cliente_list_id=_CLIENTE_LIST,
+        field_mapping=field_mapping,
+    )
+
+
+def _fake_fetch_with_cliente(calls, *, proyectos=None, clientes=None):
+    proyectos = proyectos if proyectos is not None else _PROYECTOS
+    clientes = clientes if clientes is not None else []
+
+    def fake(url, access_token, **kwargs):
+        calls.append((url, access_token))
+        if _ASIG_LIST in url:
+            return _ASIGNACIONES
+        if _PROY_LIST in url:
+            return proyectos
+        if _COLAB_LIST in url:
+            return _COLABORADORES
+        if _CLIENTE_LIST in url:
+            return clientes
+        raise AssertionError(f"unexpected url {url}")
+
+    return fake
+
+
+def test_project_with_empresa_lookup_resolves_client_id_and_name(monkeypatch):
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa", "EmpresaLookupId": 2}}]
+    clientes = [{"id": "2", "fields": {"Title": "Albanesi"}}]
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=clientes),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].client_id == "2"
+    assert by_id["101"].client_name == "Albanesi"
+
+
+def test_two_projects_pointing_to_the_same_client_both_resolve(monkeypatch):
+    proyectos = [
+        {"id": "10", "fields": {"Title": "Albanesi - Implementacion DWC + PBI", "EmpresaLookupId": 2}},
+        {"id": "11", "fields": {"Title": "Albanesi - Mantenimiento BI", "EmpresaLookupId": 2}},
+    ]
+    clientes = [{"id": "2", "fields": {"Title": "Albanesi"}}]
+    asignaciones = [
+        {"id": "201", "fields": {"ColaboradorLookupId": 1, "ProyectoLookupId": 10, "Asignacion": "40",
+                                  "Estado": "Activo", "FechaInicio": "2026-01-01", "FechaFin": ""}},
+        {"id": "202", "fields": {"ColaboradorLookupId": 1, "ProyectoLookupId": 11, "Asignacion": "20",
+                                  "Estado": "Activo", "FechaInicio": "2026-01-01", "FechaFin": ""}},
+    ]
+
+    def fake(url, access_token, **kwargs):
+        if _ASIG_LIST in url:
+            return asignaciones
+        if _PROY_LIST in url:
+            return proyectos
+        if _COLAB_LIST in url:
+            return _COLABORADORES
+        if _CLIENTE_LIST in url:
+            return clientes
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["201"].client_id == "2"
+    assert by_id["201"].client_name == "Albanesi"
+    assert by_id["202"].client_id == "2"
+    assert by_id["202"].client_name == "Albanesi"
+
+
+def test_project_without_empresa_lookup_value_degrades_client_to_none(monkeypatch):
+    # El proyecto existe y resuelve, pero no tiene EmpresaLookupId (campo
+    # vacío en la fuente) — degrada a client_id/client_name None, NUNCA
+    # rompe la fila ni el resto de sus datos.
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa"}}]  # sin EmpresaLookupId
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].project_name == "Proyecto Alfa"  # el resto de la fila sigue intacto
+    assert by_id["101"].client_id is None
+    assert by_id["101"].client_name is None
+
+
+def test_broken_client_lookup_keeps_raw_id_without_inventing_a_name(monkeypatch):
+    # EmpresaLookupId apunta a un id que NO existe en Cliente (lookup roto,
+    # referencial) — degradación determinística: se conserva el id crudo,
+    # el nombre resuelto queda None. Nunca se fabrica una identidad.
+    proyectos = [{"id": "10", "fields": {"Title": "Proyecto Alfa", "EmpresaLookupId": 999}}]
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, proyectos=proyectos, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["101"].client_id == "999"
+    assert by_id["101"].client_name is None
+
+
+def test_unresolved_project_never_synthesizes_a_client(monkeypatch):
+    # La asignación 102 apunta a un proyecto (999) que no existe en
+    # _PROYECTOS — sin proyecto resuelto, tampoco hay cliente (nunca se
+    # deriva client_id/client_name de un proyecto que no resolvió).
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, clientes=[{"id": "2", "fields": {"Title": "Albanesi"}}]),
+    )
+
+    records = _make_repository_with_cliente().get_allocations("tok")
+    by_id = {r.assignment_id: r for r in records}
+
+    assert by_id["102"].project_name is None
+    assert by_id["102"].client_id is None
+    assert by_id["102"].client_name is None
+
+
+def test_client_fields_none_when_mapping_not_configured_and_no_extra_graph_call(monkeypatch):
+    # Sin proyecto_empresa_lookup/cliente_title configurados (mapeo por
+    # defecto de este archivo) — cero llamadas a Cliente, comportamiento
+    # histórico intacto.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    records = _make_repository().get_allocations("tok")
+
+    assert all(r.client_id is None and r.client_name is None for r in records)
+    assert not any(_CLIENTE_LIST in url for url, _tok in calls)
+    assert len(calls) == 3  # Asignaciones + Proyectos + Colaboradores, nada más
+
+
+def test_proyectos_request_selects_empresa_lookup_when_cliente_configured(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        repo_module.microsoft365, "graph_get_paged_values",
+        _fake_fetch_with_cliente(calls, clientes=[]),
+    )
+
+    _make_repository_with_cliente().get_allocations("tok")
+
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert "$expand=fields($select=" in proy_url
+    assert "EmpresaLookupId" in proy_url
+    assert "Title" in proy_url
+
+
+def test_proyectos_request_unchanged_when_cliente_not_configured(monkeypatch):
+    # Regresión explícita: la request de Proyectos NO cambia para el caso
+    # ya validado contra Graph real (Batch 3) si Cliente no está configurado.
+    calls = []
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
+
+    _make_repository().get_allocations("tok")
+
+    proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
+    assert proy_url.endswith("/items?$expand=fields")

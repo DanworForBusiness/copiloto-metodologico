@@ -2614,6 +2614,444 @@ system generalizado.
 
 ---
 
+## STAFFING — ASIGNACIONES DASHBOARD V1 — CLOSED / GREEN
+(commits funcionales `33cff8c` → `f3d8b9f` (docs) → `a79c4a5` →
+`33939f7` (docs) → `8c788e1` → `0e39c82` → `970a6d8` → `c8d7b32` →
+`7d5ef52` → `e4f50d0` (todos en `work/staffing-assignments-dashboard-v1`,
+pusheados a origin) — ver "Pase correctivo" y "Segundo pase correctivo"
+más abajo para el detalle de cada uno. **PR #33 — primer CI corrido:
+GREEN.** Cierre formal confirmado por el usuario tras ver el CI real en
+GitHub, mismo protocolo ya usado en Batch B.)
+
+> **CLOSED/GREEN.** CI real de PR #33 corrió verde sobre el HEAD
+> `e4f50d0`. Suite local a esa misma revisión: **458 passed / 1 skipped**,
+> route surface **82** (snapshot `tests/route_surface.json`, sin cambios
+> desde Batch B). Ver "Evidencia de cierre (PR #33)" al final de esta
+> sección para el detalle completo.
+
+Precedido por un **targeted assessment** (análisis, sin código) que
+recuperó el objetivo de producto original detrás de Operaciones/Staffing:
+reemplazar el reporte Power BI legado "Asignaciones consultores" por una
+capacidad nativa de One Danwor. La tabla plana de Batch 2/3 probó la
+arquitectura (SharePoint → `StaffingRepository` → `StaffingService` →
+HTMX) pero nunca fue el producto final — este batch la reemplaza por un
+dashboard operativo real, usando **Actividad y métricas de uso** como
+referencia de lenguaje visual y el Power BI legado como referencia de
+preguntas operativas (NO recreación pixel-perfect).
+
+- **Enriquecimiento OPCIONAL FT/PT** (`webapp/services/staffing_repository.py`,
+  `config.py`): el campo real de Colaboradores
+  `Disponibilidaddeasignaci_x00f3_n` ("Disponibilidad de asignación",
+  choices `Full Time`/`Part Time`, confirmado contra Graph en Batch 3 pero
+  nunca expuesto) ahora resuelve a `consultant_availability` — passthrough
+  puro, sin fallback a "Sin dato" en esta capa (esa decisión es de
+  `build_dashboard_payload`, no del read-model). `config.
+  SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD` sigue el mismo mecanismo
+  que los 8 campos de mapeo existentes (sin default de producción, `.env`
+  local) pero es explícitamente **OPCIONAL**:
+  `StaffingFieldMapping._OPTIONAL_MAPPING_FIELDS` lo excluye de
+  `missing_fields()` — un ambiente sin esta env var configurada sigue
+  cargando Staffing normalmente (degrada a `None`/"Sin dato", nunca
+  `RuntimeError`). `StaffingOverviewRow` también gana `consultant_id`/
+  `project_id` (existían en `StaffingAllocationRecord` pero nunca
+  llegaban al read-model) — necesarios para contar consultores/proyectos
+  DISTINTOS por id estable, no por nombre (dos personas pueden compartir
+  display name).
+- **Payload único normalizado** (`webapp/services/staffing_service.py`):
+  3 funciones libres nuevas —
+  `compute_horizon_months(today=None)` (horizonte rolling determinístico:
+  mes anterior → mes actual → 6 meses siguientes, 8 columnas — mensual a
+  propósito, coincide con la unidad real `hours_per_month`);
+  `compute_timeline_position(start, end, horizon_months)` (posición pura
+  por índice de mes, NUNCA aritmética de píxeles — clippea visualmente
+  cuando la fecha real cae fuera del horizonte sin alterarla; sin ninguna
+  fecha real, la fila queda fuera del timeline pero sigue en KPIs/detalle;
+  con un solo extremo conocido, el otro se trata como abierto);
+  `build_dashboard_payload(rows, today=None)` (transformación PURA, sin
+  Graph/repositorio, que arma `{assignments, horizon}` — el ÚNICO dataset
+  que consume el dashboard). Deliberadamente **funciones libres, no
+  métodos de `StaffingService`** — el router las importa directo porque
+  varios tests existentes reemplazan `StaffingService` completo por un
+  test double sin esos métodos; atarlas a la clase las habría dejado
+  inalcanzables ahí.
+- **`webapp/routers/staffing.py`:** `staffing_data` (POST, sin cambios de
+  auth/redirect) ahora llama `build_dashboard_payload(rows)` y renderiza
+  `operations/staffing_dashboard.html` (reemplaza `staffing_rows.html`,
+  eliminado) en vez de pasar `rows` crudo. Los 4 estados controlados de
+  siempre (`missing_token`/`config_incomplete`/`graph_error`/`ok`) se
+  preservan exactamente — `ok` con `payload.assignments` vacío conserva el
+  mensaje simple histórico ("No hay asignaciones para mostrar todavía"),
+  sin montar filtros sobre cero datos.
+- **Dashboard 100% client-side sobre UN dataset** (`webapp/static/app.js`
+  → `staffingDashboard(payload)`, mismo estilo de función global plana que
+  `copilotLayout()`): KPIs, timeline agrupado por consultor, panel de
+  disponibilidad y detalle leen TODOS de un único `filteredAssignments`
+  getter — ningún componente puede quedar en desacuerdo sobre el filtro
+  vigente. El HTMX inicial (`hx-trigger="load"`, mismo `graph_token` de
+  siempre) sigue cargando el dataset UNA sola vez; cambiar un filtro es
+  JS puro, **sin volver a golpear Graph** (verificado en Network durante
+  el smoke — ver abajo). Default de Estado: `Activo`+`Tentativo`
+  visibles, `Inactivo` disponible pero no seleccionado — decisión
+  explícita y visible, nunca un descarte silencioso (el dataset completo
+  sigue cargado; togglear el checkbox lo revela).
+- **KPIs, deliberadamente libres de regla de negocio:** consultores
+  distintos (por id), proyectos distintos (por id), asignaciones activas,
+  asignaciones tentativas, horas activas/mes (`sum(allocation_value)`
+  donde `status == "Activo" AND allocation_unit == "hours_per_month"`).
+  **Sin** capacidad, sin utilización, sin horizonte "termina pronto" (ver
+  Deferred).
+- **Timeline — jerarquía consultor → asignación**, nunca barras
+  superpuestas en una misma fila (a diferencia del Power BI legado): grid
+  CSS puro (`webapp/static/tools.css`), sin librería de charting,
+  coordenadas mensuales server-derived. Mes actual resaltado con estilo
+  restringido (mismo dorado que el resto de la app). Asignaciones sin
+  ninguna fecha real quedan fuera del timeline (con un contador visible,
+  "N asignación(es) sin fecha") pero siguen en KPIs/detalle — nunca se
+  pierden en silencio.
+- **Panel de disponibilidad — "Disponibilidad de asignación" (mismo
+  término del campo fuente):** SOLO hechos — cuenta consultores
+  DISTINTOS (no asignaciones) agrupados Full Time/Part Time/Sin dato,
+  reusando `.activity-kpi-grid`/`.activity-kpi` tal cual (mismo lenguaje
+  visual que Actividad, sin CSS nuevo). Cero % / horas libres / capacidad.
+- **Detalle de asignaciones** preservado como sección colapsable de menor
+  jerarquía (`.dashboard-section`, reusado tal cual salvo el grip de
+  drag-and-drop de Actividad, deliberadamente NO copiado — ver alcance de
+  reuso abajo), con las columnas históricas + Disponibilidad. Lookups sin
+  resolver siguen presentes (nunca se descartan), marcados con un chip
+  discreto (`.tree-panel-chip`, reusado) en vez de dominar la fila.
+- **Alcance de reuso de Actividad — explícito:** SÍ reusadas tal cual
+  `.module-hero`/`.activity-kpi-grid`/`.activity-kpi`/`.dashboard-section`/
+  `.dashboard-section__*`/`.whatsnew-filters`/`.whatsnew-filter`/
+  `.dashboard-empty`/`.btn-primary`. CSS nuevo SOLO para lo genuinamente
+  distinto: `.staffing-timeline*` (grid mensual) y
+  `.staffing-status-toggle`/`.staffing-status-chip` (único filtro
+  multi-select del dashboard, Actividad no tiene equivalente) y
+  `.status-badge*` (misma forma que `.catalog-card__verdict`, colores
+  propios). Métricas/lógica/rutas de Actividad NO se tocaron ni se
+  reusaron — Staffing no depende del código Python de Admin Activity.
+- **Sin cambios de ruteo:** `GET/POST /operaciones/staffing/asignaciones(/data)`
+  sin cambios de firma HTTP (el POST sigue recibiendo `graph_token` por
+  form, sin campos de filtro server-side — el filtrado es 100%
+  client-side). **Route surface: sigue en 82** — ninguna ruta nueva, sin
+  cambios de auth/redirect (freeze respetado íntegramente).
+- **Tests:** `tests/webapp/test_staffing_repository.py` (+9) — mapeo
+  configurado con FT/PT, valor fuente en blanco, mapeo ausente (filas
+  existentes siguen cargando), `colaborador_disponibilidad` nunca en
+  `missing_fields()`. `tests/webapp/test_staffing_service.py` (+21) —
+  passthrough de disponibilidad, ids estables, horizonte mensual
+  (cruce de año incluido), posición en el timeline (dentro/antes/después/
+  spanning/futuro/fechas faltantes en ambos sentidos), payload (shape,
+  label de horas, disponibilidad default, múltiples asignaciones del
+  mismo consultor con posiciones independientes, mes actual marcado, sin
+  campos de capacidad). `tests/webapp/test_staffing_routes.py` (+8) —
+  fragmento contiene filtros/KPIs/timeline/disponibilidad/detalle,
+  disponibilidad real embebida en el payload JSON, default a "Sin dato",
+  ninguna semántica de capacidad introducida (sin `%`, sin "utilization",
+  sin "capacity_percentage"). Los 6 tests preexistentes que dependían del
+  fragmento viejo siguen pasando tal cual — el nombre/valor embebido en el
+  JSON del payload satisface las mismas aserciones de substring
+  (`"Zulema Diaz"`, `"40 h/mes"`, `"No hay asignaciones"`, etc.) sin
+  cambiar su intención.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**): **suite 403 passed / 1 skipped** (376 + 27 netos),
+  route-contract GREEN, snapshot sin cambios (**82**).
+- **SMOKE MANUAL: GREEN (browser real, dataset representativo inyectado
+  — sin credenciales Graph reales disponibles en este entorno; ver nota
+  abajo).** Página `/operaciones/staffing/asignaciones` real con sesión
+  inyectada; fragmento del dashboard renderizado vía el mismo
+  `TestClient` + `StaffingService` mockeado que usan los tests
+  (5 filas representativas: 2 consultores con múltiples asignaciones,
+  1 fila `Inactivo`, 1 lookup sin resolver, 1 fila sin fechas), inyectado
+  en `#staffing-rows` del DOM real — Alpine lo montó solo (MutationObserver,
+  sin llamada manual). Verificado leyendo el estado reactivo real de
+  Alpine (`_x_dataStack`), no solo el HTML servido:
+  - Default: `Activo`+`Tentativo` visibles, `Inactivo` oculto — KPIs
+    (3 consultores/4 proyectos/3 activas/1 tentativa/140 h/mes),
+    disponibilidad (2 Full Time/1 Part Time/0 Sin dato), timeline
+    (2 grupos de consultor, fila sin fechas excluida con nota "1
+    asignación(es) sin fecha"), detalle (4 filas) — **los 5 verificados
+    coinciden exactamente con el cálculo manual esperado**.
+  - Cambiar el filtro Consultor → recalculó KPIs/timeline/detalle a la
+    fila única correspondiente; **cero requests nuevos a
+    `/operaciones/staffing/asignaciones/data` ni a Graph** (confirmado en
+    el log de Network — el filtrado es realmente 100% client-side).
+  - Togglear el checkbox `Inactivo` → reveló la 5ª fila en KPIs
+    (4 consultores, Sin dato pasa a 1)/timeline/detalle, sin request
+    nuevo.
+  - "Limpiar" → volvió exactamente al estado default (no a "todo
+    seleccionado").
+  - Viewport ~375px: sin overflow horizontal en el body; `.staffing-
+    timeline-scroll` con `overflow-x:auto` y el grid interno en su ancho
+    mínimo — scrollea en vez de forzar el Gantt completo al ancho de
+    pantalla.
+  - Sin errores de consola en ningún paso.
+  - **Nota explícita:** este smoke NO es el "FIRST REAL STAFFING
+    MILESTONE" (ese hito, con Graph real, sigue siendo válido como
+    evidencia histórica separada — ver más arriba). Este entorno de
+    desarrollo no tiene `SHAREPOINT_GESTION_SITE_ID`/mapeo de campos
+    configurado, así que un POST real devolvería `config_incomplete` —
+    el smoke de arriba prueba el dashboard/Alpine/template reales con un
+    dataset representativo, no un segundo round-trip de Graph. Si el
+    mapeo FT/PT tampoco está configurado en producción, el dashboard
+    **debe seguir funcionando igual**, con disponibilidad degradada a
+    "Sin dato" — eso es un PASS, no una falla (ver bullet de
+    enriquecimiento opcional arriba).
+- **Edición en paralelo detectada, NO tocada:** durante este batch el
+  working tree mostró cambios sin commitear ajenos a Staffing —
+  `webapp/templates/platform_selector.html` y luego
+  `webapp/routers/platform.py` (`_WORKSPACE_CARD_COPY[*].eyebrow`
+  "Data & AI for Business" → `None`, con el template ajustándose en
+  consecuencia) — consistente con edición manual en paralelo (fuera de
+  esta sesión), no con un bug de esta implementación. Excluidos
+  deliberadamente de este commit (`git add` explícito, sin `-A`); quedan
+  sin commitear en el working tree.
+### Pase correctivo — revisión con dato real (commit `a79c4a5`)
+
+El usuario revisó el dashboard con datos reales de SharePoint en
+`localhost:8082` y encontró varios gaps contra el contrato V1. Todos
+corregidos en un solo commit funcional; suite y route surface
+actualizados abajo.
+
+- **Bug real corregido — invariante Consultores vs Disponibilidad (53 vs
+  54 observado):** `availabilityGroups`/`timelineGroups` (app.js) caían a
+  `consultant_name` como key de agrupación cuando `consultant_id` era
+  `None` — eso sintetiza un "consultor distinto" fantasma a partir de un
+  nombre que MÚLTIPLES filas sin resolver distintas podían compartir.
+  Ahora ambos agrupan ESTRICTAMENTE por `consultant_id` (igual que
+  `kpis.consultants`, que ya excluía esas filas via `.filter(Boolean)`):
+  una fila sin id consigue su propio grupo de timeline sin fusionarse
+  (`"unresolved-" + assignment_id`) y queda EXCLUIDA de Disponibilidad —
+  el invariante `Full Time + Part Time + Sin dato === Consultores` ahora
+  se cumple por construcción. Sigue visible en todos lados como
+  "(sin resolver)" — nunca se pierde la fila, solo deja de inflar un
+  conteo de consultores que no le corresponde.
+- **Hipótesis de bug corregida — Disponibilidad en 0/0/54 pese a mapeo
+  correcto:** `webapp/services/staffing_repository.py` pedía Colaboradores
+  con `$expand=fields` SIN `$select` — Graph puede omitir columnas custom
+  tipo Choice de esa proyección default aunque otras columnas custom de
+  la MISMA lista (Title) sí aparezcan. El fetch de Colaboradores ahora
+  pide explícito `$expand=fields($select=colaborador_title,
+  colaborador_disponibilidad)` (solo si el campo opcional está
+  configurado). Asignaciones/Proyectos NO se tocaron — ya funcionan
+  correctamente, sin necesidad comprobada de tocarlos. **Sin confirmar
+  contra Graph real en este entorno** (sandbox sin credenciales) —
+  reportado como hipótesis fundamentada, no como hecho verificado;
+  pendiente del próximo smoke con dato real del usuario.
+- **Default de Estado corregido:** el filtro default ahora es
+  ESTRICTAMENTE Activo+Tentativo (antes, cualquier bucket "Sin estado"
+  presente en el dato real quedaba seleccionado por default también,
+  visible en el screenshot de revisión del usuario).
+- **Filtros sticky:** reusan el mismo mecanismo de Actividad
+  (`.dashboard-sticky-header` → renombrado `.staffing-sticky-filters`,
+  `position:sticky; top:-48px`), no un sistema paralelo.
+- **Resumen (KPIs) y Timeline ahora son `dashboard-section` colapsables**,
+  mismo grammar que Detalle/Actividad — antes eran un grid suelto y una
+  subsección plana sin esa identidad visual compartida.
+- **Proporción operativa 2/3 · 1/3** (`.staffing-operational-grid`,
+  `grid-template-columns: 2fr 1fr`) — antes 1fr/1fr, demasiado pareja.
+- **Expand/collapse por consultor:** cada nombre de consultor es un
+  disclosure clickeable (caret ▸/▾); "Expandir todo"/"Contraer todo"
+  arriba del timeline. Estado 100% de presentación (`collapsedConsultants`,
+  nunca toca `filteredAssignments`) — expandido por default; elegir un
+  consultor puntual vía el filtro fuerza su expansión aunque estuviera
+  colapsado (`$watch` en `init()`).
+- **Paleta determinística por asignación** (`paletteClass`, hash de
+  `project_id`, 6 tonos) — antes el color de la barra era SOLO el estado,
+  haciendo que asignaciones distintas del mismo consultor se vieran casi
+  iguales. El estado se superpone aparte (borde punteado + opacidad para
+  Tentativo, opacidad para Inactivo) — nunca reemplaza la identidad de
+  color.
+- **Marcador de "hoy" real:** `compute_today_marker` (función pura,
+  `webapp/services/staffing_service.py`) calcula la posición % exacta del
+  día actual dentro del horizonte (mes + fracción del día, nunca solo
+  "resaltar el mes") — antes el resaltado de mes actual era el único
+  indicador. Línea punteada + label "HOY", `None` fuera del horizonte,
+  complementa (no reemplaza) el resaltado de mes.
+- **Tests:** `tests/webapp/test_staffing_repository.py` (+3, `$select`
+  explícito con/sin campo opcional, Asignaciones/Proyectos sin cambios),
+  `tests/webapp/test_staffing_service.py` (+8, marcador de hoy con fechas
+  fijas: primer día/mitad de mes/límite de mes/último día visible/antes/
+  después del horizonte, más el insumo del invariante — `consultant_id`
+  nunca se sintetiza desde el nombre), `tests/webapp/test_staffing_routes.py`
+  (+6, filtros sticky, 3 secciones colapsables, grid 2/3·1/3, controles
+  expand/collapse, paleta+estado como clases independientes, marcador de
+  hoy presente sin ser una métrica de capacidad — 2 tests preexistentes
+  ajustados: el `%` del binding CSS del marcador rompía su aserción
+  original "% en ningún lado", corregidos a verificar la AUSENCIA de
+  patrones de capacidad específicos en vez de prohibir el carácter).
+- **SMOKE MANUAL: GREEN (servidor propio en puerto separado — el
+  servidor del usuario en :8082 no se tocó).** Dataset representativo con
+  múltiples asignaciones por consultor, una fila con fecha de hoy real, y
+  DOS filas sin resolver distintas (ids `None` distintos) inyectado sobre
+  el DOM/Alpine/CSS reales. Verificado leyendo `_x_dataStack` directo:
+  default `{Activo:true, Tentativo:true, Inactivo:false}`; invariante
+  `2 = 1(FT) + 1(PT) + 0(Sin dato)` — sostiene; las 2 filas sin resolver
+  NUNCA se fusionan (`timelineGroupKeys` mostró grupos separados, uno
+  filtrado por default-Inactivo); paleta con índices distintos por
+  proyecto en las 4 barras visibles, clases de estado combinadas aparte;
+  `todayMarker.visible=true` con el % exacto del payload; sticky
+  (`position:sticky` computado); 3 `dashboard-section` presentes;
+  "Contraer todo" colapsó los 3 grupos (carets ▸, 0 filas visibles);
+  elegir un consultor vía filtro lo expandió pese al colapso previo; CERO
+  requests nuevos durante filtro/colapso (confirmado en Network); 375px
+  sin overflow horizontal en el body, timeline con `overflow-x:auto`
+  propio, grid operativo a 1 columna.
+- **Edición en paralelo detectada, NO tocada (pase anterior):**
+  `webapp/templates/platform_selector.html`/`webapp/routers/platform.py`
+  — ya no aparecen en el working tree al empezar este pase correctivo
+  (resueltos/commiteados por el usuario fuera de esta sesión).
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**): **suite 421 passed / 1 skipped** (403 + 18 netos),
+  route-contract GREEN, snapshot sin cambios (**82**).
+- **Pendiente en su momento, resuelto después:** confirmación de CI real
+  en GitHub antes de CLOSED/GREEN, y confirmación del fix de `$select` de
+  Colaboradores contra Graph real. Ambos resueltos en el "Segundo pase
+  correctivo" de abajo — el usuario confirmó FT/PT con dato real
+  (Consultores=9, Full Time=8, Part Time=1, Sin dato=0 → invariante
+  `8+1+0=9` sostiene) y PR #33 corrió CI verde.
+
+### Segundo pase correctivo — Cliente, filtrado facetado, coordenadas del marcador de "hoy" (commits `8c788e1`..`e4f50d0`)
+
+Continuación del mismo batch V1, sobre la misma rama, tras una segunda
+ronda de revisión con dato real de SharePoint del usuario. Cada punto es
+su propio commit funcional — sin amend, sin squash.
+
+- **`8c788e1` — Densidad de información restaurada vs. el Power BI legado
+  + KPIs de Resumen simplificados:** la fila del timeline vuelve a mostrar
+  "Estado (Horas) · Cliente - Proyecto" (dos `<span>` separados, nunca un
+  string opaco — degrada con gracia sin Cliente todavía resuelto en ese
+  momento); tooltip accesible por hover/focus en la barra (Consultor,
+  Estado, Horas/mes, Cliente, Proyecto, fechas — CSS puro, sin librería,
+  `x-text` nunca `x-html`). Estado pasa de "pills" horizontales a un grupo
+  vertical compacto. **Full Time/Part Time/Sin dato se mudan de un panel
+  lateral independiente a dentro de Resumen** (mismo `filteredAssignments`
+  que el resto de los KPIs) — Timeline pasa a usar el ancho completo del
+  reporte, se elimina `.staffing-operational-grid` (2/3·1/3). KPI "Horas
+  activas / mes" pasa a ser SOLO el número con separador de miles (la
+  unidad ya está en la etiqueta); últimos 4 KPIs con acentos de color
+  reusados (azul/verde/ámbar, mismos tokens que los primeros 3 — nunca un
+  color nuevo).
+- **`0e39c82` — Alineación de la barra de filtros:** con Estado ahora
+  vertical, `.whatsnew-filters` heredado (`align-items:flex-end`)
+  desalineaba las labels de los otros campos contra la base del stack de
+  checkboxes. Fix scoped a `.staffing-filter-bar` (nunca se tocó la regla
+  compartida `.whatsnew-filter`, usada también por What's New/admin).
+  "Limpiar" se muda a una acción de la barra (top-right, fuera del grupo
+  de campos) en vez de leerse como otra opción de Estado.
+- **`970a6d8` — Cliente resuelto vía `Proyecto.EmpresaLookupId`
+  (LIVE-GRAPH-CONFIRMED):** inspección real de metadata contra el sitio
+  Gestión (mecanismo temporal `staffing-cliente-debug.html`, nunca
+  commiteado, borrado tras el uso) probó la relación real: Proyectos
+  (`efa2e279-593e-4321-867f-1ff982d800f6`) → columna lookup real `Empresa`
+  (`fieldValueSet` property `EmpresaLookupId`) → Cliente
+  (`9c09571c-4fb8-4841-8f0d-4def03b3130d`) → `Title`. `client_id`/
+  `client_name` enriquecimiento OPCIONAL (mismo mecanismo que
+  `consultant_availability`): una lectura ADICIONAL de Graph durante la
+  carga inicial SOLO si `SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP` +
+  `SHAREPOINT_CLIENTE_FIELD_TITLE` están configurados (sin default de
+  producción, mismo mecanismo de los 8 campos requeridos); resuelto UNA
+  vez por proyecto, cacheado — nunca una llamada por asignación. Sin
+  fallback textual a "(sin resolver)": `client_name` se queda `None` si no
+  resuelve (nunca se inventa una identidad de cliente). Filtro CLIENTE
+  agregado a la barra sticky entre Proyecto y Disponibilidad.
+- **`c8d7b32` — Filtrado FACETADO (bug real de la revisión: proyectos
+  Albanesi ofrecidos en el dropdown con cero filas alcanzables bajo el
+  Estado default):** cada dropdown de entidad (Consultor/Proyecto/Cliente/
+  Disponibilidad) ahora calcula sus opciones sobre el universo filtrado
+  por TODOS los OTROS filtros activos (nunca por sí mismo) — `facetedAssignments(excludeKey)`
+  en `app.js`. Consultor/Proyecto excluyen filas no-resueltas de sus
+  opciones (mismo criterio que Cliente ya tenía) — nunca más una opción
+  "(sin resolver)" sintética, aunque la fila sigue visible con "Todos". Una
+  selección que otro filtro vuelve imposible se resetea sola a "Todos"
+  (`$watch` + `_reconcileSelections()`) en vez de dejar un dashboard vacío
+  sin explicación. **Decisión de producto explícita, NO accidental:** el
+  chip de texto "HOY" del marcador de hoy queda removido — la línea
+  vertical del día actual se mantiene, nunca se reemplaza por otra
+  etiqueta textual.
+- **`7d5ef52` — Fix de coordenadas del marcador de "hoy":**
+  `.staffing-timeline__today-overlay` hardcodeaba `190px 1fr` sin `gap`
+  mientras `.staffing-timeline__header`/`__row` ya usaban
+  `var(--timeline-label-width)` (280px, tras un ensanche manual de labels
+  para legibilidad) + `gap:10px` — dos grids con orígenes de columna
+  distintos hacían que la línea cayera a la izquierda del mes real (bug
+  reportado: parecía JUL en vez de AGO). `compute_today_marker` (Python)
+  nunca calculó mal el %; el bug vivía 100% en CSS. Fix: la variable
+  compartida en vez de un segundo literal — header/row/overlay no pueden
+  volver a desincronizarse sin importar qué valor tenga la variable en
+  cualquier breakpoint.
+- **`e4f50d0` — Refinamiento de copy del hero (commit del usuario):**
+  `webapp/templates/operations/staffing.html` — 1 línea, copy del
+  `hero-lead` + clase `full-page-subtitle`. Fuera del alcance de esta
+  sesión, sin impacto de tests (confirmado: mismo 458/1 antes y después).
+- **Tests:** +37 en total sobre estos 5 commits — repository (Cliente
+  resuelve/comparte cliente entre proyectos/degrada sin lookup roto/cero
+  llamadas extra a Graph si no está configurado), service (passthrough de
+  cliente sin fallback textual, marcador de hoy anclado a la fecha real
+  reportada 2026-08-09 con horizonte jul..feb), routes (filtro Cliente
+  posicionado, KPIs de disponibilidad dentro de Resumen, empty-state
+  filtrado sigue presente), y dos archivos nuevos de contrato de fuente
+  (`test_staffing_app_js.py`, `test_staffing_timeline_css.py`) que fijan
+  la lógica de faceting/reconciliación y el invariante de coordenadas del
+  CSS del timeline — este repo no tiene runtime de JS en la suite, así que
+  el comportamiento en sí se verificó inyectando dato sintético real
+  contra el estado interno vivo de Alpine en un servidor aislado (nunca el
+  :8082 del usuario), no solo por lectura de código.
+- **Edición en paralelo, NO tocada:** `webapp/templates/platform_selector.html`,
+  `webapp/routers/platform.py`, `webapp/templates/partials/platform_topbar.html`,
+  `webapp/static/brand-hero.css` — trabajo del usuario "Danwor Hub"
+  (rebranding visual del selector de plataforma), explícitamente **fuera
+  de alcance** de Staffing y **stasheado/revertido** por el usuario antes
+  de este cierre. Ninguno de esos 4 archivos forma parte de PR #33.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**), en el HEAD real de PR #33 (`e4f50d0`): **suite 458 passed /
+  1 skipped** (421 + 37 netos), route-contract GREEN, snapshot sin
+  cambios (**82**).
+
+### Evidencia de cierre (PR #33)
+
+- **CI:** primer corrido de PR #33 — **GREEN**.
+- **Suite local sobre el mismo HEAD:** 458 passed / 1 skipped.
+- **Route surface:** 82 (snapshot `tests/route_surface.json`, sin cambios
+  desde Batch B).
+- **Smoke real de SharePoint en `localhost:8082` (usuario, no esta
+  sesión):** confirmado interactivamente — FT/PT real trae valores
+  (Consultores=9, Full Time=8, Part Time=1, Sin dato=0), Cliente resuelve
+  con dato real de Albanesi (`EmpresaLookupId`→`Cliente.Title`,
+  LIVE-GRAPH-CONFIRMED, ver `970a6d8`), y el proyecto Loma Negra con
+  consultor sin resolver quedó confirmado como calidad referencial de
+  origen real (no un bug de esta implementación) — se mantiene visible
+  como "(sin resolver)", sin inventar una identidad.
+- **Filtrado facetado:** confirmado — dropdowns nunca ofrecen una opción
+  que produciría cero filas bajo el resto de los filtros activos;
+  selecciones invalidadas se resetean solas.
+- **Timeline/tooltip/expand-collapse:** confirmados — jerarquía consultor→
+  asignación, tooltip accesible por hover/foco, expand/collapse por
+  consultor + controles globales, marcador de "hoy" con posición
+  matemáticamente correcta dentro del mes real (fix de coordenadas
+  `7d5ef52`).
+- **Registros de origen sin resolver:** fail-visible en todos los casos —
+  la fila NUNCA se descarta, el id crudo se conserva, el nombre resuelto
+  queda `None`/"(sin resolver)", nunca se sintetiza una identidad ni se
+  ofrece como opción de filtro.
+- **Cero requests a Graph durante interacción client-side:** confirmado en
+  Network en cada smoke de este batch (filtros, expand/collapse, reset) —
+  el único POST a `/operaciones/staffing/asignaciones/data` es el `hx-trigger="load"`
+  inicial.
+
+### Próxima decisión (NO autorizada en este commit de código)
+
+Con Staffing V1 **CLOSED/GREEN**, el próximo paso es una decisión del
+usuario. Explícitamente diferido, sin autorizar implementación: regla de
+capacidad 160h/mes, % de capacidad, horas libres, sobre-asignación,
+horizonte "termina pronto", filtro Tipo de Proyecto, vacaciones,
+skills/conocimiento, ranking, profitability, workspace Projects, workspace
+Reporting, librería de Gantt. (Filtro Cliente — antes en esta lista — ya
+**IMPLEMENTADO**, ver `970a6d8`.)
+
+**No autorizado todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -2644,83 +3082,93 @@ system generalizado.
 | In-App Workspace Navigation / Shared Workspace Switcher | **CLOSED / GREEN** |
 | One Danwor Entry Experience (Batch A) | **CLOSED / GREEN** |
 | Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
+| Staffing — Asignaciones Dashboard v1 | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Shared Workspace Shell + Operaciones Structure (Batch B de
-  dos — Batch A, One Danwor Entry Experience, CLOSED/GREEN)
-- **Status:** **CLOSED / GREEN.** Suite local **376 passed / 1 skipped**,
-  tests dirigidos del topbar compartido **19 GREEN**, route surface **82**
-  (80→82, único delta intencional — ver detalle arriba), smoke visual
-  manual GREEN, hardening de seguridad del brand animado GREEN, GitHub
-  **CI GREEN** sobre el estado final de la rama (confirmado por el
-  usuario).
-- **Functional commits:** `e2c8743` — `feat(platform): shared workspace
-  topbar + Operaciones structure` (commit funcional inicial); `71bb101` —
-  `fix(platform): normalize Staffing auth redirect semantics` (pase
-  correctivo 1, redirect/auth); `2489ac4` — `fix(platform): preserve
-  config-driven transversal header geometry` (pase correctivo 2, geometría
-  visual); `56019be` — `fix(platform): workspace switcher as icon button,
-  not full logo` (ajuste de UX del switcher); `8108914` — `fix(platform):
-  escape script-context breakout in parameterized brand asset` (hardening
-  de seguridad, commit final funcional de este batch). Checkpoints de
-  docs: `2fa2249`, `94508fe`, `2ab1e70`, `52636b9` (el commit que crea este
-  mismo bloque es el docs-close final). Branch
-  `work/shared-shell-operaciones`, pusheado a origin.
-- **Topbar compartido:** `partials/platform_topbar.html`, macro
-  presentación-pura, sin auth/Graph/pack/secuencia de rutas. Firma final
-  (post pase correctivo 2): `platform_topbar(current_workspace,
-  available_workspaces, identity_href, identity_html, mobile_menu_label,
-  pager_previous=None, pager_next=None)`. Back/forward transversal en
-  POSICIÓN pero NO en lógica — el caller decide destino o deshabilitado;
-  `module.html` es el único con datos reales. `identity_html` (IZQUIERDA,
-  identidad animada única) es lo único que sigue siendo presentación del
-  CALLER — el switcher de workspace es 100% del macro: un botón-ícono más
-  en `.header-tools` (MISMA caja `.theme-toggle` que theme/logout, 34×34px,
-  ícono de grilla SVG), nunca el logo completo ni la identidad animada.
-- **8 templates Copilot migrados** (topbar duplicado → llamada al macro,
-  mecánico, sin regresión de marca/pack/back-forward/theme/logout/
-  mobile-menu). **Operaciones** adoptó la misma convención
-  `.app-shell.no-copilot` que Copilot ya usaba — nav real
-  (`operations_nav.html`, Staffing → Asignaciones), hero simplificado,
-  loading state con el spinner ya existente.
-- **Asset animado de Operaciones:** **RESUELTO** (pase correctivo 2) —
-  reusa el MISMO componente animado histórico que Copiloto
-  (`/brand/dancing/{pack}`), parametrizado con
-  `OPERATIONS_APP_TITLE`/`OPERATIONS_APP_SUBTITLE` (`config.py`). El logo
-  estático (`brand/danwor-logo.png`) NO se usa en el topbar compartido — el
-  switcher de RIGHT es un botón-ícono (`.theme-toggle` + grilla SVG),
-  igual en ambos workspaces; ese logo sigue existiendo solo para
-  `landing.html` (sin relación con este batch).
-- **Rutas canónicas:** `GET/POST /operaciones/staffing/asignaciones(/data)`.
-  `GET/POST /operations/staffing(/data)` = alias de compatibilidad,
-  siempre 307, method+body preservados. `OPERATIONS.home_url` actualizado.
-- **Bug real descubierto, y corrección normalizada (commit `71bb101`):**
-  `/platform`/`/onedanwor` (Batch A) eran GET-only; un POST no-autenticado
-  a Staffing, redirigiendo en cascada vía 307 (que preserva método),
-  llegaba ahí como POST y daba 405. La corrección FINAL no ensancha esas
-  rutas (siguen GET-only) — `platform_login_redirect` responde **303**
-  (fuerza GET en el siguiente hop) y recibe un `next_path` explícito
-  apuntando a la PÁGINA canónica, no al endpoint de datos. El diff de
-  route-contract contra `main` de Batch A es EXACTAMENTE las 2 rutas
-  canónicas nuevas — nada más. **Congelado sin cambios en el pase
-  correctivo 2** (geometría visual, ver arriba).
-- **Next candidate:** con Batch B CLOSED/GREEN, el objetivo de shell/topbar
-  transversal de plataforma queda completo — candidato identificado es
-  **STAFFING FUNCTIONAL PARITY**, empezando por un assessment funcional
-  (sin código) de horas de asignación/mes, disponibilidad FT/PT,
-  semántica de capacidad/disponibilidad, ANTES de cualquier regla basada
-  en 160h/mes. Streams pendientes conocidos (sin elegir): Projects,
-  Reporting, vacaciones, filtros, Gantt, right rail real de Operaciones,
-  asset animado dedicado futuro de Operaciones (no bloqueante).
+- **Phase:** Staffing — Asignaciones Dashboard v1 (Power BI replacement).
+  Precedida por Shared Workspace Shell + Operaciones Structure (Batch B,
+  **CLOSED/GREEN** — ver sección dedicada arriba), que dejó el shell/topbar
+  transversal de plataforma completo.
+- **Status:** **CLOSED / GREEN.** PR #33 — primer CI corrido: **GREEN**.
+  Suite local sobre el mismo HEAD (`e4f50d0`): **458 passed / 1 skipped**
+  (403 + 55 netos a lo largo de todo el batch), route surface **82** (sin
+  cambios — ver detalle arriba), smoke real de SharePoint en
+  `localhost:8082` confirmado por el usuario (Cliente + FT/PT con dato
+  real, ver "Evidencia de cierre" arriba).
+- **Functional commits:** `33cff8c` → `a79c4a5` → `8c788e1` → `0e39c82` →
+  `970a6d8` → `c8d7b32` → `7d5ef52` → `e4f50d0` (10 commits en total
+  incluyendo 2 checkpoints de docs — `f3d8b9f`/`33939f7` — ninguno con
+  amend/squash). Branch `work/staffing-assignments-dashboard-v1`, pusheado
+  a origin, **PR #33**.
+- **Enriquecimiento FT/PT opcional:** `consultant_availability` en
+  `StaffingAllocationRecord`/`StaffingOverviewRow`, resuelto desde
+  Colaboradores (`Disponibilidaddeasignaci_x00f3_n`) vía
+  `config.SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD` (sin default de
+  producción, excluido de `missing_fields()` — nunca bloquea Staffing).
+  `consultant_id`/`project_id` ahora también llegan a `StaffingOverviewRow`
+  (existían en el repositorio, nunca en el read-model).
+- **Payload único + dashboard client-side:** `build_dashboard_payload()`
+  (función libre en `staffing_service.py`, no método de clase — varios
+  tests reemplazan `StaffingService` entero por un double) arma
+  `{assignments, horizon}`; `staffingDashboard()` (app.js, mismo estilo
+  que `copilotLayout()`) filtra TODO client-side desde un único
+  `filteredAssignments` — sin volver a golpear Graph por filtro
+  (confirmado en Network durante el smoke). Default de Estado:
+  Activo+Tentativo visibles, Inactivo disponible pero no seleccionado.
+- **KPIs (Resumen, 8 tarjetas) sin regla de negocio:** consultores/
+  proyectos distintos (por id estable), asignaciones activas/tentativas,
+  horas activas/mes (solo número, separador de miles), Full Time/Part
+  Time/Sin dato (mudados a Resumen desde un panel lateral eliminado). Sin
+  capacidad/utilización/horizonte "termina pronto".
+- **Timeline mensual (CSS grid puro), ancho completo del reporte:**
+  horizonte mes anterior→actual→+6, jerarquía consultor→asignación (nunca
+  barras superpuestas), coordenadas server-derived
+  (`compute_horizon_months`/`compute_timeline_position`, funciones puras),
+  clip visual sin alterar fechas reales, tooltip accesible por barra,
+  marcador de "hoy" con coordenadas correctas (fix `7d5ef52`) — SOLO línea
+  vertical, sin chip de texto "HOY" (decisión de producto explícita).
+- **Cliente resuelto (LIVE-GRAPH-CONFIRMED):** `Proyecto.EmpresaLookupId`
+  → `Cliente.Title`, enriquecimiento opcional igual mecanismo que FT/PT —
+  ver `970a6d8`.
+- **Filtrado 100% client-side y FACETADO:** Consultor/Proyecto/Cliente/
+  Disponibilidad calculan sus opciones sobre el universo filtrado por los
+  OTROS filtros activos (nunca ofrecen una opción que produciría cero
+  filas); selecciones invalidadas se resetean solas; nunca una opción
+  "(sin resolver)" sintética. Cero requests a Graph por cambio de filtro
+  (confirmado en Network en cada smoke).
+- **Reuso de Actividad — explícito:** `.module-hero`/`.activity-kpi-grid`/
+  `.activity-kpi`/`.dashboard-section*`/`.whatsnew-filters*`/
+  `.dashboard-empty` reusados tal cual. CSS nuevo SOLO para
+  `.staffing-timeline*`/`.staffing-status-toggle*`/`.status-badge*`/
+  `.staffing-filter-bar*` (sin equivalente en Actividad). Sin dependencia
+  del código Python de Admin Activity.
+- **Sin cambios de ruteo/auth:** `GET/POST /operaciones/staffing/asignaciones(/data)`
+  sin cambios de firma HTTP — el filtrado es 100% client-side, no hay
+  endpoint nuevo de "datos filtrados". Freeze de Batch B respetado
+  íntegramente.
+- **Edición en paralelo, NO tocada ni commiteada:** `webapp/templates/
+  platform_selector.html`, `webapp/routers/platform.py`,
+  `webapp/templates/partials/platform_topbar.html`,
+  `webapp/static/brand-hero.css` — trabajo "Danwor Hub" del usuario,
+  stasheado/revertido antes de este cierre, fuera de PR #33.
+  `webapp/templates/operations/staffing.html` (`e4f50d0`, 1 línea de copy)
+  SÍ es del usuario pero SÍ forma parte de PR #33 — ver commit trail.
+- **Next candidate:** ninguno propuesto todavía — decisiones diferidas
+  explícitamente: regla de capacidad 160h/mes, % de capacidad, horas
+  libres, sobre-asignación, horizonte "termina pronto", filtro Tipo de
+  Proyecto, vacaciones, skills/conocimiento, ranking, profitability,
+  workspace Projects, workspace Reporting, librería de Gantt. (Filtro
+  Cliente ya **IMPLEMENTADO**, ver `970a6d8`.)
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **376 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **458 passed / 1 skipped** · route surface **82**
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
 2. Reconstruye el estado: Batch 1/2/3 CLOSED/GREEN, primer hito real de
    Staffing ACHIEVED, mapeo de esquema y semántica de allocation validados
-   contra Graph real, observación no-bloqueante de calidad referencial de
-   origen registrada (no resuelta a propósito).
+   contra Graph real, **Staffing — Asignaciones Dashboard v1 CLOSED/GREEN
+   (PR #33)**, observación no-bloqueante de calidad referencial de origen
+   registrada (no resuelta a propósito).
 3. El usuario decide el próximo incremento funcional o la revisión de
    navegación/login de workspace — ninguno de estos está autorizado por
    este documento.

@@ -567,6 +567,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-kpi:nth-child(3) { --kpi-accent: #c89100; }  /* ámbar */
 .activity-kpi:nth-child(4) { --kpi-accent: #d06f1f; }  /* naranja */
 .activity-kpi:nth-child(5) { --kpi-accent: #e7b008; }  /* dorado (IA / costo) */
+/* Staffing Resumen (8 KPIs, ver HANDOFF): posiciones 6-8 son Full Time/Part
+   Time/Sin dato — reusan los MISMOS tokens de arriba (azul/verde/ámbar),
+   nunca colores nuevos, para agrupar visualmente sin volver la fila un
+   "rainbow". Solo aplica cuando existe un 6º/7º/8º tile (nth-child no
+   afecta grillas de 5 KPIs como Actividad). */
+.activity-kpi:nth-child(6) { --kpi-accent: #2f6fbd; }  /* azul — Full Time */
+.activity-kpi:nth-child(7) { --kpi-accent: #2e9e5b; }  /* verde — Part Time */
+.activity-kpi:nth-child(8) { --kpi-accent: #c89100; }  /* ámbar — Sin dato */
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 
@@ -704,6 +712,210 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 @media (max-width: 900px) {
   .activity-kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .activity-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Asignaciones Dashboard v1 (Operaciones/Staffing, /operaciones/staffing/
+   asignaciones). Reusa la grilla de Actividad (.activity-kpi-grid/
+   .activity-kpi para el panel de disponibilidad, .activity-grid-2 para
+   timeline+disponibilidad, .dashboard-section para el detalle
+   colapsable, .whatsnew-filters para la barra de filtros) — CSS nuevo
+   SOLO para lo genuinamente distinto: el timeline mensual (grid puro,
+   sin librería) y el toggle de Estado (multi-selección, Actividad no
+   tiene un equivalente). Mismo criterio light-first + override
+   .content-theme-dark que ya usa esa sección (vive en .module-content,
+   no en el panel derecho, siempre dark). */
+
+/* Grupo de checkboxes de Estado — único filtro multi-select del dashboard.
+   Revisión PBI (ver HANDOFF): antes eran "pills" horizontales que
+   wrappeaban feo y ocupaban demasiado ancho de la barra sticky — ahora es
+   una columna angosta y compacta, más chica que los selects principales
+   (190px) a propósito. */
+.whatsnew-filter--compact { min-width: 0; }
+.staffing-status-toggle { display: flex; flex-direction: column; gap: 3px; }
+.staffing-status-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 0;
+  cursor: pointer; color: #55555c; font: 600 .66rem var(--mono); user-select: none;
+}
+.content-theme-dark .staffing-status-chip { color: #b2b2bc; }
+.staffing-status-chip input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
+.staffing-status-chip:has(input:checked) { color: #1f1f24; font-weight: 700; }
+.content-theme-dark .staffing-status-chip:has(input:checked) { color: #e4e4ec; }
+
+/* Badge de estado — misma forma que .catalog-card__verdict (borde +
+   padding chico + mayúsculas), colores propios y restringidos a 3 (verde/
+   ámbar/gris neutro) — nunca "rainbow". */
+.status-badge {
+  display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px;
+  padding: 1px 4px; line-height: 1.25;
+}
+.status-badge--activo { color: #2e9e5b; border-color: rgba(46,158,91,.42); background: rgba(46,158,91,.08); }
+.status-badge--tentativo { color: #c89100; border-color: rgba(200,145,0,.42); background: rgba(200,145,0,.08); }
+.status-badge--inactivo { color: #7a7a82; border-color: rgba(128,128,128,.32); background: rgba(128,128,128,.08); }
+.content-theme-dark .status-badge--inactivo { color: #9a9aa2; }
+.status-badge--otro { color: #7a7a82; border-color: rgba(128,128,128,.32); }
+
+/* Corrective pass (revisión con dato real, ver HANDOFF): sticky filters,
+   proporción 2/3 · 1/3 timeline/disponibilidad, Timeline como sección
+   colapsable más, expand/collapse por consultor, paleta de identidad por
+   asignación, marcador de "hoy" real. */
+
+/* Filtros sticky — MISMA mecánica que Actividad (.dashboard-sticky-header),
+   reusada tal cual: cancela el padding-top de .module-content con
+   top:-48px, fondo sólido por tema, encima del contenido (z-index) sin
+   tapar KPIs/secciones (que empiezan después, fuera del sticky). */
+.staffing-sticky-filters { position: sticky; top: -48px; z-index: 6; padding: 10px 0 4px; }
+.content-theme-light .staffing-sticky-filters { background: #fff; }
+.content-theme-dark .staffing-sticky-filters { background: #181819; }
+.staffing-sticky-filters .whatsnew-filters { margin: 10px 0 4px; }
+
+/* Corrección de alineación (ver HANDOFF): con Estado ahora compacto y
+   vertical, .whatsnew-filters heredado (align-items:flex-end, pensado para
+   controles de una sola línea) hacía que las labels NO compartieran un
+   mismo baseline superior — quedaban ancladas contra la base del stack de
+   checkboxes, que es más alto. Override SOLO en el scope de Staffing (no
+   se toca la regla base de .whatsnew-filter, compartida con What's New /
+   admin) para que cada control arranque justo debajo de su propia label. */
+.staffing-filter-bar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+.staffing-filter-bar .whatsnew-filters { align-items: flex-start; flex: 1 1 auto; margin: 0; }
+/* Limpiar es una ACCIÓN de la barra, no otro campo — separado del grupo de
+   campos (margin-left:auto lo empuja a la derecha) y ya no comparte
+   columna con el stack de Estado, para no leerse como una opción más. */
+.staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+
+/* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
+   del <summary> colapsable (evita que un click ahí también toggee la
+   sección entera). */
+.staffing-timeline-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.staffing-timeline-toolbar button {
+  border: 1px solid rgba(128,128,128,.32); background: transparent; border-radius: 6px;
+  padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
+}
+.staffing-timeline-toolbar button:hover { border-color: var(--gold); color: var(--gold); }
+
+/* Timeline mensual — grid CSS puro, coordenadas server-derived (índices de
+   mes, nunca píxeles). Header y filas comparten la MISMA proporción
+   (etiqueta fija + 8 columnas iguales) para que las barras alineen
+   exactamente bajo su mes. `.staffing-timeline__body` es el ancla
+   `position:relative` del overlay del marcador de "hoy" (se estira solo
+   con el contenido — sin JS midiendo alturas). */
+.staffing-timeline {--timeline-label-width: 280px;}   
+.staffing-timeline__body { position: relative; }
+.staffing-timeline__header, .staffing-timeline__row {
+  display: grid;  grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; align-items: center;
+}
+.staffing-timeline__header { padding-bottom: 8px; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
+.staffing-timeline__header-months, .staffing-timeline__track { display: grid; grid-template-columns: repeat(8, 1fr); }
+.staffing-timeline__month {
+  text-align: center; color: #7a7a82; font: 600 .62rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; padding: 3px 0; border-radius: 4px;
+}
+.content-theme-dark .staffing-timeline__month { color: #9a9aa2; }
+.staffing-timeline__month.is-current-month { color: var(--gold); background: rgba(231,176,8,.10); }
+.staffing-timeline__group { margin: 14px 0 4px; }
+/* Header de consultor — ahora un disclosure clickeable (chevron entendido,
+   sin inventar un ícono nuevo — mismo glifo ▸/▾ que .dashboard-section). */
+.staffing-timeline__consultant {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 6px; cursor: pointer;
+  color: #1f1f24; font: 700 .78rem var(--sans); user-select: none; background: none; border: 0; padding: 0;
+}
+.content-theme-dark .staffing-timeline__consultant { color: #e4e4ec; }
+.staffing-timeline__consultant-caret { color: var(--gold); font-size: .7rem; width: 10px; display: inline-block; }
+.staffing-timeline__row { margin: 5px 0; }
+.staffing-timeline__row-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #55555c; font-size: .74rem;
+}
+.content-theme-dark .staffing-timeline__row-label { color: #b2b2bc; }
+/* Densidad de información restaurada vs. el Power BI legado (revisión PBI,
+   ver HANDOFF): "Estado (Horas)" en su propio segmento con color por
+   estado (misma paleta restringida que .status-badge — verde/ámbar/gris,
+   nunca "rainbow"), "Cliente - Proyecto" en un segundo segmento neutro. */
+.staffing-timeline__row-status { font-weight: 700; margin-right: 4px; }
+.staffing-timeline__row-status.is-status-activo { color: #2e9e5b; }
+.staffing-timeline__row-status.is-status-tentativo { color: #c89100; }
+.staffing-timeline__row-status.is-status-inactivo, .staffing-timeline__row-status.is-status-otro { color: #7a7a82; }
+.content-theme-dark .staffing-timeline__row-status.is-status-inactivo,
+.content-theme-dark .staffing-timeline__row-status.is-status-otro { color: #9a9aa2; }
+.staffing-timeline__track { position: relative; height: 22px; }
+/* Identidad determinística por asignación/proyecto (paleta, ver app.js
+   paletteClass) — el ESTADO se superpone aparte (borde/opacidad abajo),
+   nunca reemplaza el color de identidad. 6 tonos, restringidos, no
+   "rainbow": profesionales, distinguibles entre sí, misma familia de
+   saturación/luminosidad. */
+.staffing-timeline__bar { grid-row: 1; align-self: center; height: 16px; border-radius: 4px; min-width: 6px; position: relative; }
+.staffing-timeline__bar:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
+.staffing-palette-0 { background: #4C7EA8; }
+.staffing-palette-1 { background: #3F9C82; }
+.staffing-palette-2 { background: #8B6BB1; }
+.staffing-palette-3 { background: #C1783D; }
+.staffing-palette-4 { background: #7A8C3F; }
+.staffing-palette-5 { background: #5D6B7A; }
+/* Tratamiento de ESTADO, separado de la identidad de color — Activo queda
+   sólido (sin modificador); Tentativo se diferencia con borde punteado +
+   leve transparencia; Inactivo queda visualmente apagado. */
+.staffing-timeline__bar.is-status-tentativo { border: 1.5px dashed rgba(0,0,0,.4); opacity: .85; }
+.staffing-timeline__bar.is-status-inactivo { opacity: .45; }
+.content-theme-dark .staffing-timeline__bar.is-status-tentativo { border-color: rgba(255,255,255,.5); }
+/* Corte visual cuando la fecha real cae fuera del horizonte visible — la
+   fecha real NUNCA se altera (queda en el tooltip/detalle); esto solo
+   marca que el borde dibujado no es el límite real. */
+.staffing-timeline__bar.is-clipped-start { border-left: 2px dashed rgba(0,0,0,.35); }
+.staffing-timeline__bar.is-clipped-end { border-right: 2px dashed rgba(0,0,0,.35); }
+.content-theme-dark .staffing-timeline__bar.is-clipped-start { border-left-color: rgba(255,255,255,.4); }
+.content-theme-dark .staffing-timeline__bar.is-clipped-end { border-right-color: rgba(255,255,255,.4); }
+.staffing-timeline__off-note { margin-top: 10px; color: #7a7a82; font-size: .72rem; }
+.content-theme-dark .staffing-timeline__off-note { color: #9a9aa2; }
+
+/* Tooltip de la barra (revisión PBI, ver HANDOFF) — CSS puro, sin librería:
+   :hover/:focus en la barra revela el contenido. `.staffing-timeline-scroll`
+   solo tiene overflow (y por lo tanto puede recortar) en el media query
+   ≤640px de abajo; en desktop no hay ancestro con overflow:hidden entre la
+   barra y el body del timeline, así que el tooltip no queda cortado por
+   ningún contenedor — y la barra en sí nunca tiene overflow propio. */
+.staffing-timeline__tooltip {
+  position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  min-width: 200px; max-width: 260px; padding: 8px 10px; border-radius: 6px;
+  background: #1f1f24; color: #f2f2f4; font: 500 .68rem var(--sans); text-align: left;
+  box-shadow: 0 4px 14px rgba(0,0,0,.28); z-index: 30; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .12s ease;
+}
+.staffing-timeline__tooltip p { margin: 0 0 3px; white-space: normal; }
+.staffing-timeline__tooltip p:last-child { margin-bottom: 0; }
+.staffing-timeline__tooltip-consultant { font-weight: 700; }
+.staffing-timeline__bar:hover .staffing-timeline__tooltip,
+.staffing-timeline__bar:focus .staffing-timeline__tooltip { opacity: 1; visibility: visible; }
+
+/* Marcador de "hoy" — overlay posicionado con la MISMA proporción
+   190px/1fr que header/filas (así el % del día cae exactamente en su
+   columna de mes), estirado por el contenido real del timeline (sin JS
+   midiendo alturas: position:absolute + top/bottom:0 dentro de un padre
+   position:relative ya hace esto). Complementario al resaltado de mes
+   actual, no un reemplazo. SOLO la línea vertical — decisión de producto
+   (revisión con dato real, ver HANDOFF): sin chip de texto "HOY", nunca se
+   reintroduce ni se reemplaza por otra etiqueta. */
+.staffing-timeline__today-overlay {
+  /* MISMO origen/ancho de columna que .staffing-timeline__header/__row
+     (var(--timeline-label-width) + el mismo gap) — un valor hardcodeado
+     distinto acá desincroniza el marcador de dónde caen las columnas de
+     mes reales (bug real reportado: la línea caía a la izquierda de AGO,
+     como si "hoy" fuera JUL). Nunca duplicar el valor, solo la variable. */
+  position: absolute; inset: 0; display: grid; grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; pointer-events: none;
+}
+.staffing-timeline__today-track { position: relative; overflow: hidden; }
+.staffing-timeline__today { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--gold); z-index: 2; }
+@media (max-width: 900px) {
+  .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { grid-template-columns: 120px 1fr; }
+}
+
+/* ≤640px: en vez de una segunda implementación de timeline, el mismo grid
+   se vuelve horizontalmente scrolleable dentro de .staffing-timeline-scroll
+   — no se fuerza el Gantt completo a 375px. El overlay del marcador de
+   "hoy" scrollea junto (vive DENTRO de .staffing-timeline-scroll, ver
+   template) y comparte el mismo min-width para seguir alineado. */
+@media (max-width: 640px) {
+  .staffing-timeline-scroll { overflow-x: auto; }
+  .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { min-width: 640px; }
 }
 
 /* Botón lanzador de árbol de decisión: {{tree_button: X}} en el contenido →
@@ -1323,6 +1535,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .catalog-verdict-line .catalog-card__verdict { margin: 0; }
 
 /* Catalog hero meta: el separador pertenece entre piezas de metadata, no antes del badge interno. */
+.module-hero .hero-lead.full-page-subtitle {max-width: none;width: 100%;}
 .module-hero .hero-meta .catalog-verdict-line > span::before,
 .module-hero .hero-meta .catalog-verdict-line .catalog-card__verdict::before {
   content: none !important;

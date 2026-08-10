@@ -237,6 +237,14 @@ SHAREPOINT_PROYECTOS_LIST_ID = _env(
 SHAREPOINT_COLABORADORES_LIST_ID = _env(
     "SHAREPOINT_COLABORADORES_LIST_ID", "6e512cd3-394a-461f-abcd-6613f2c21113",
 ).strip()
+# Cliente — LIVE GRAPH VALIDATED (revisión PBI, ver HANDOFF): confirmado
+# contra el sitio Gestión real con un token delegado real (mismo mecanismo
+# de diagnóstico temporal que Batch 3), no una inferencia. A diferencia de
+# los 3 de arriba (todavía "known from legacy source configuration"), este
+# SÍ tiene evidencia Graph real detrás.
+SHAREPOINT_CLIENTE_LIST_ID = _env(
+    "SHAREPOINT_CLIENTE_LIST_ID", "9c09571c-4fb8-4841-8f0d-4def03b3130d",
+).strip()
 
 # Internal names de columna Graph para las 3 listas de Staffing. A
 # diferencia de los list ID arriba, estos NO tienen ningún valor conocido —
@@ -271,6 +279,25 @@ SHAREPOINT_ASIGNACIONES_FIELD_END_DATE = _env(
 ).strip()
 SHAREPOINT_PROYECTOS_FIELD_TITLE = _env("SHAREPOINT_PROYECTOS_FIELD_TITLE", "").strip()
 SHAREPOINT_COLABORADORES_FIELD_TITLE = _env("SHAREPOINT_COLABORADORES_FIELD_TITLE", "").strip()
+# Enriquecimiento OPCIONAL (Asignaciones Dashboard v1) — campo real de
+# Colaboradores confirmado contra Graph en Batch 3 (displayName
+# "Disponibilidad de asignación", choices Full Time/Part Time), pero
+# deliberadamente sin default de producción, mismo mecanismo que los 8
+# campos de arriba: no hardcodear un mapeo de tenant. A diferencia de esos
+# 8, este NO es requerido — su ausencia degrada a "Sin dato", nunca rompe
+# la carga de Staffing (ver StaffingFieldMapping.missing_fields()).
+SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD = _env(
+    "SHAREPOINT_COLABORADORES_FIELD_DISPONIBILIDAD", "",
+).strip()
+# Cliente (revisión PBI, ver HANDOFF) — mismo mecanismo que
+# `..._DISPONIBILIDAD` arriba: enriquecimiento OPCIONAL, campo real
+# confirmado contra Graph (Proyectos.EmpresaLookupId → Cliente.Title) pero
+# SIN default de producción a propósito. Su ausencia degrada a
+# client_id/client_name = None, nunca bloquea la carga de Staffing.
+SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP = _env(
+    "SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP", "",
+).strip()
+SHAREPOINT_CLIENTE_FIELD_TITLE = _env("SHAREPOINT_CLIENTE_FIELD_TITLE", "").strip()
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben

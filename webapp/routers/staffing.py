@@ -53,7 +53,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
-from webapp.services.staffing_service import StaffingService
+from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
 
 router = APIRouter()
@@ -101,7 +101,7 @@ def staffing_data(request: Request, graph_token: str = Form("")):
 
     if not graph_token:
         return templates.TemplateResponse(
-            request=request, name="operations/staffing_rows.html", context={"state": "missing_token"},
+            request=request, name="operations/staffing_dashboard.html", context={"state": "missing_token"},
         )
 
     user = auth_service.session_user(request)
@@ -111,16 +111,22 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
         log_verbose("staffing_overview_config_incomplete", user=user)
         return templates.TemplateResponse(
-            request=request, name="operations/staffing_rows.html", context={"state": "config_incomplete"},
+            request=request, name="operations/staffing_dashboard.html", context={"state": "config_incomplete"},
         )
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
         log_verbose("staffing_overview_error", user=user, error_type=type(exc).__name__)
         return templates.TemplateResponse(
-            request=request, name="operations/staffing_rows.html", context={"state": "graph_error"},
+            request=request, name="operations/staffing_dashboard.html", context={"state": "graph_error"},
         )
 
+    # Payload ÚNICO y normalizado (Asignaciones Dashboard v1) — el filtrado
+    # de KPIs/timeline/disponibilidad/detalle ocurre 100% client-side (Alpine,
+    # ver app.js::staffingDashboard) sobre este mismo array; no hay un
+    # segundo endpoint de "datos filtrados" que vuelva a golpear Graph.
+    payload = build_dashboard_payload(rows)
     return templates.TemplateResponse(
-        request=request, name="operations/staffing_rows.html", context={"state": "ok", "rows": rows},
+        request=request, name="operations/staffing_dashboard.html",
+        context={"state": "ok", "payload": payload},
     )
 
 

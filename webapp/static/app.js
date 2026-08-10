@@ -682,4 +682,326 @@ function initModuleFilter(scope) {
   if (resetBtn) resetBtn.addEventListener("click", () => show(""));
   show(""); // default: vista global, sin módulo seleccionado
 }
+
+// Asignaciones Dashboard v1 (Operaciones/Staffing) — Alpine x-data, mismo
+// estilo que copilotLayout(). `payload` llega YA normalizado desde el
+// server (webapp.services.staffing_service.build_dashboard_payload):
+// { assignments: [...], horizon: [...] }. A partir de acá, TODO el
+// filtrado (KPIs/timeline/disponibilidad/detalle) es client-side sobre
+// `assignments` — no hay una segunda request a Graph por cambio de filtro.
+function staffingDashboard(payload) {
+  const assignments = (payload && payload.assignments) || [];
+  const horizon = (payload && payload.horizon) || [];
+  const todayMarkerPct = (payload && payload.today_marker_pct != null) ? payload.today_marker_pct : null;
+
+  // Estados conocidos (Batch 3, reales) + cualquier otro que aparezca en el
+  // dato real (nunca se inventa uno que no existe, y nunca se pierde uno
+  // real fuera de los 3 conocidos). Blank -> "Sin estado" — sigue siendo
+  // una opción SELECCIONABLE, pero (corrective pass, review con dato real)
+  // el default congelado es EXCLUSIVAMENTE Activo+Tentativo: Inactivo y
+  // "Sin estado" (y cualquier otro status futuro) arrancan destildados.
+  const KNOWN_STATUSES = ["Activo", "Tentativo", "Inactivo"];
+  const presentStatuses = [...new Set(assignments.map(a => a.status || "Sin estado"))];
+  const statusOptions = [...new Set([...KNOWN_STATUSES, ...presentStatuses])];
+
+  const defaultStatusFilter = () =>
+    Object.fromEntries(statusOptions.map(s => [s, s === "Activo" || s === "Tentativo"]));
+
+  // Paleta determinística de identidad (project_id, o assignment_id si no
+  // hay proyecto) — NUNCA aleatoria, mismo hash en cada render/filtro. El
+  // color identifica la asignación/proyecto; el estado se superpone aparte
+  // (borde/opacidad, ver CSS) — nunca se pierde la semántica de estado por
+  // pintar identidad.
+  const PALETTE_SIZE = 6;
+  function paletteIndex(row) {
+    const seed = row.project_id || row.assignment_id || "";
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return hash % PALETTE_SIZE;
+  }
+
+  return {
+    assignments,
+    horizon,
+    statusOptions,
+    todayMarkerPct,
+    // Colapso de grupos de consultor en el timeline — SOLO estado visual de
+    // presentación (nunca filtra filteredAssignments). Vacío = todo
+    // expandido (default). Keyed por el mismo `key` de timelineGroups.
+    collapsedConsultants: {},
+    filters: {
+      consultant: "",
+      project: "",
+      client: "",
+      availability: "",
+      // Default V1 congelado: Activo + Tentativo ÚNICAMENTE seleccionados.
+      // Inactivo y "Sin estado" quedan disponibles pero NO seleccionados —
+      // decisión explícita y visible, no un descarte silencioso (ver HANDOFF).
+      status: defaultStatusFilter(),
+    },
+
+    init() {
+      // Si el usuario elige un consultor puntual, ese grupo nunca debe
+      // quedar oculto por un colapso previo — el filtro nunca debe
+      // "pelear" contra el estado de presentación.
+      this.$watch("filters.consultant", (value) => {
+        if (value) this.collapsedConsultants[value] = false;
+      });
+      // Filtrado FACETADO (revisión con dato real, ver HANDOFF): cambiar
+      // CUALQUIER filtro puede volver imposible la selección vigente de
+      // OTRO (p. ej. Estado deja fuera todas las filas del Proyecto
+      // elegido) — cada cambio revalida las 4 selecciones "entidad" contra
+      // su propio option-set YA recalculado, y resetea a "Todos" la que ya
+      // no aparece ahí, en vez de dejar una selección fantasma que
+      // produzca un vacío inexplicado.
+      this.$watch("filters.consultant", () => this._reconcileSelections());
+      this.$watch("filters.project", () => this._reconcileSelections());
+      this.$watch("filters.client", () => this._reconcileSelections());
+      this.$watch("filters.availability", () => this._reconcileSelections());
+      this.$watch("filters.status", () => this._reconcileSelections());
+    },
+
+    _reconcileSelections() {
+      if (this.filters.consultant && !this.consultantOptions.some(o => o.id === this.filters.consultant)) {
+        this.filters.consultant = "";
+      }
+      if (this.filters.project && !this.projectOptions.some(o => o.id === this.filters.project)) {
+        this.filters.project = "";
+      }
+      if (this.filters.client && !this.clientOptions.some(o => o.id === this.filters.client)) {
+        this.filters.client = "";
+      }
+      if (this.filters.availability && !this.availabilityOptions.includes(this.filters.availability)) {
+        this.filters.availability = "";
+      }
+    },
+
+    resetFilters() {
+      this.filters.consultant = "";
+      this.filters.project = "";
+      this.filters.client = "";
+      this.filters.availability = "";
+      this.filters.status = defaultStatusFilter();
+    },
+
+    statusSlug(status) {
+      const known = { Activo: "activo", Tentativo: "tentativo", Inactivo: "inactivo" };
+      return known[status] || "otro";
+    },
+
+    paletteClass(row) {
+      return "staffing-palette-" + paletteIndex(row);
+    },
+
+    // Densidad de información restaurada vs. el Power BI legado (revisión
+    // PBI, ver HANDOFF): "Estado (Horas)" + "Cliente - Proyecto" como DOS
+    // segmentos separados (nunca un string opaco concatenado) para permitir
+    // estilos distintos por segmento. `client_name` es `None` cuando no
+    // resuelve (contrato confirmado contra Graph real, ver HANDOFF) —
+    // degrada con gracia a solo Proyecto, sin separador feo.
+    rowStatusHoursLabel(row) {
+      const status = row.status || "Sin estado";
+      if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) {
+        return `${status} (${row.allocation_label})`;
+      }
+      return status;
+    },
+    rowClientProjectLabel(row) {
+      return row.client_name ? `${row.client_name} - ${row.project_name}` : row.project_name;
+    },
+    rowLabelTitle(row) {
+      return `${this.rowStatusHoursLabel(row)} · ${this.rowClientProjectLabel(row)}`;
+    },
+
+    // Tooltip de la barra — mismos hechos ya presentes en el objeto
+    // canónico de la asignación, sin pedir nada nuevo a Graph. Fechas con
+    // la misma convención ya usada en el título nativo previo de la barra
+    // (nunca se inventa una fecha). `barAriaLabel` es la MISMA información
+    // en texto plano, para foco por teclado / lectores de pantalla — el
+    // tooltip visual queda aria-hidden para no duplicar el anuncio.
+    barAriaLabel(row) {
+      const parts = [row.consultant_name || "(sin resolver)", row.status || "Sin estado"];
+      if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) {
+        parts.push(row.allocation_label);
+      }
+      if (row.client_name) parts.push(row.client_name);
+      parts.push(row.project_name);
+      parts.push((row.start_date || "¿inicio?") + " → " + (row.end_date || "en curso"));
+      return parts.join(" — ");
+    },
+
+    get todayMarker() {
+      return { visible: todayMarkerPct != null, pct: todayMarkerPct };
+    },
+
+    isConsultantCollapsed(key) {
+      return !!this.collapsedConsultants[key];
+    },
+    toggleConsultant(key) {
+      this.collapsedConsultants[key] = !this.collapsedConsultants[key];
+    },
+    collapseAllConsultants() {
+      const next = {};
+      this.timelineGroups.forEach(g => { next[g.key] = true; });
+      this.collapsedConsultants = next;
+    },
+    expandAllConsultants() {
+      this.collapsedConsultants = {};
+    },
+
+    // Filtrado FACETADO (revisión con dato real, ver HANDOFF): cada
+    // dropdown de entidad se calcula sobre el universo de asignaciones
+    // filtrado por TODOS los OTROS filtros activos (nunca por sí mismo) —
+    // así nunca ofrece un valor que produciría cero filas bajo el resto de
+    // la selección vigente (p. ej. un proyecto cuyas únicas asignaciones
+    // están en un Estado ya destildado). Estado NO se excluye de acá aparte
+    // de cuando se calcula su propio universo — sus opciones son la lista
+    // fija de estados conocidos, no se recalculan dinámicamente.
+    // `excludeKey` es el ÚNICO filtro que no se aplica en esta pasada.
+    facetedAssignments(excludeKey) {
+      return this.assignments.filter(a => {
+        if (excludeKey !== "consultant" && this.filters.consultant && a.consultant_id !== this.filters.consultant) return false;
+        if (excludeKey !== "project" && this.filters.project && a.project_id !== this.filters.project) return false;
+        if (excludeKey !== "client" && this.filters.client && a.client_id !== this.filters.client) return false;
+        if (excludeKey !== "availability" && this.filters.availability && a.availability !== this.filters.availability) return false;
+        const statusKey = a.status || "Sin estado";
+        if (this.filters.status[statusKey] === false) return false;
+        return true;
+      });
+    },
+
+    // Opciones derivadas del universo facetado — nunca hardcodeadas. Value
+    // = id estable (sobrevive lookups sin resolver en el DATO, pero ver
+    // exclusión de no-resueltos abajo: un id sin resolver NUNCA se ofrece
+    // como OPCIÓN de filtro, aunque la fila sí siga visible en Todos).
+    get consultantOptions() {
+      const seen = new Map();
+      this.facetedAssignments("consultant").forEach(a => {
+        if (a.consultant_id && !a.consultant_unresolved && !seen.has(a.consultant_id)) {
+          seen.set(a.consultant_id, a.consultant_name);
+        }
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    get projectOptions() {
+      const seen = new Map();
+      this.facetedAssignments("project").forEach(a => {
+        if (a.project_id && !a.project_unresolved && !seen.has(a.project_id)) {
+          seen.set(a.project_id, a.project_name);
+        }
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    // Cliente (revisión PBI, ver HANDOFF) — a diferencia de
+    // consultant/project, SOLO valores RESUELTOS (client_id Y client_name
+    // presentes). Nunca se sintetiza una opción "(sin resolver)": una
+    // asignación sin cliente resuelto simplemente no aporta una opción,
+    // pero sigue visible con Cliente = Todos (ver filteredAssignments).
+    get clientOptions() {
+      const seen = new Map();
+      this.facetedAssignments("client").forEach(a => {
+        if (a.client_id && a.client_name && !seen.has(a.client_id)) seen.set(a.client_id, a.client_name);
+      });
+      return [...seen.entries()]
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    get availabilityOptions() {
+      return [...new Set(this.facetedAssignments("availability").map(a => a.availability))].sort();
+    },
+
+    // ÚNICA colección filtrada — KPIs, timeline, disponibilidad y detalle
+    // leen TODOS de acá, nunca de una copia independiente (evita que los
+    // componentes queden en desacuerdo sobre el filtro vigente). Aplica
+    // TODOS los filtros — mismo mecanismo que facetedAssignments, sin
+    // excluir ninguno.
+    get filteredAssignments() {
+      return this.facetedAssignments(null);
+    },
+
+    get kpis() {
+      const rows = this.filteredAssignments;
+      const consultants = new Set(rows.map(r => r.consultant_id).filter(Boolean));
+      const projects = new Set(rows.map(r => r.project_id).filter(Boolean));
+      const active = rows.filter(r => r.status === "Activo");
+      const tentative = rows.filter(r => r.status === "Tentativo");
+      const activeHours = active
+        .filter(r => r.allocation_unit === "hours_per_month" && r.allocation_value != null)
+        .reduce((sum, r) => sum + r.allocation_value, 0);
+      // Redondeo a 2 decimales solo para evitar basura de punto flotante
+      // (50.1 + 20.2) — nunca una regla de negocio nueva. El valor grande
+      // del KPI es SOLO el número (con separador de miles) — la unidad
+      // "h/mes" ya está en la etiqueta de la tarjeta, duplicarla ahí rompe
+      // la alineación vertical con el resto de los KPIs (revisión visual,
+      // ver HANDOFF).
+      const roundedActiveHours = Math.round(activeHours * 100) / 100;
+      return {
+        consultants: consultants.size,
+        projects: projects.size,
+        active: active.length,
+        tentative: tentative.length,
+        activeHoursLabel: roundedActiveHours.toLocaleString("en-US"),
+      };
+    },
+
+    // Jerarquía consultor → asignación (una barra por asignación, NUNCA
+    // superpuestas en la misma fila) — mismo criterio operativo útil del
+    // Power BI legado, sin las barras superpuestas que ese reporte tenía.
+    // Key = consultant_id si existe (agrupa asignaciones reales del MISMO
+    // consultor, aunque su nombre no resuelva); si el lookup está
+    // totalmente vacío, cada asignación es su propio grupo por
+    // assignment_id — NUNCA se fusionan dos filas sin id solo porque
+    // comparten el mismo texto "(sin resolver)" (podrían ser personas
+    // distintas cuyo lookup falló por separado — ver invariante de
+    // Disponibilidad más abajo).
+    get timelineGroups() {
+      const groups = new Map();
+      this.filteredAssignments.forEach(a => {
+        if (!a.on_timeline) return;
+        const key = a.consultant_id || ("unresolved-" + a.assignment_id);
+        if (!groups.has(key)) groups.set(key, { key, consultant_name: a.consultant_name, rows: [] });
+        groups.get(key).rows.push(a);
+      });
+      return [...groups.values()].sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
+    },
+
+    // Asignaciones sin ninguna fecha real — no se posicionan en el
+    // timeline (no se puede), pero siguen en KPIs/disponibilidad/detalle.
+    // Contador visible para que no queden "perdidas" en silencio.
+    get offTimelineCount() {
+      return this.filteredAssignments.filter(a => !a.on_timeline).length;
+    },
+
+    barStyle(row) {
+      return `grid-column:${row.start_index + 1} / ${row.end_index + 2}`;
+    },
+
+    // Disponibilidad de asignación — SOLO hechos: cuenta consultores
+    // DISTINTOS *resueltos* (un consultor con 3 asignaciones cuenta una
+    // vez), nunca asignaciones. Cero % / horas libres / capacidad — ver
+    // HANDOFF.
+    //
+    // Invariante congelado: Full Time + Part Time + Sin dato === Consultores
+    // (kpis.consultants). Por eso la key es SIEMPRE consultant_id, nunca un
+    // fallback al nombre — una fila sin consultant_id (lookup vacío en la
+    // fuente) NO tiene una identidad de consultor real que contar; se
+    // excluye acá exactamente como `kpis.consultants` ya la excluye
+    // (`.filter(Boolean)`). Sigue visible en timeline/detalle como
+    // "(sin resolver)" — solo no infla ningún conteo de consultores.
+    get availabilityGroups() {
+      const byConsultant = new Map();
+      this.filteredAssignments.forEach(a => {
+        if (!a.consultant_id) return;
+        if (!byConsultant.has(a.consultant_id)) byConsultant.set(a.consultant_id, a.availability);
+      });
+      const counts = { "Full Time": 0, "Part Time": 0, "Sin dato": 0 };
+      byConsultant.forEach(av => { counts[av] = (counts[av] || 0) + 1; });
+      return counts;
+    },
+  };
+}
 document.body.addEventListener("htmx:load", () => initModuleFilter(document));
