@@ -3132,11 +3132,14 @@ alcance explícito" abajo).
 
 ---
 
-## OPERATIONS WORKSPACE ACCESS GATE — IMPLEMENTED / PENDING CI
+## OPERATIONS WORKSPACE ACCESS GATE — CLOSED / GREEN
 (commit funcional `05b5da3` — `feat(operations): add explicit workspace
-access allowlist`, branch `work/operations-access-gate`. **NO marcar
-CLOSED/GREEN todavía** — falta la confirmación de CI real en GitHub, mismo
-protocolo ya usado en Staffing V1 y Danwor Hub.)
+access allowlist` + corrección de seguridad `47ee619` — `fix(operations):
+reject wildcard workspace access` + docs `7994bbb`, branch
+`work/operations-access-gate`, mergeado a `main` vía **PR #35** — merge
+commit `324b6f2`. CI real de GitHub confirmado GREEN y **production smoke
+verificado por el owner en DigitalOcean el 2026-08-10** — ver "Evidencia de
+cierre" al final de esta sección.)
 
 Batch de SEGURIDAD, deliberadamente pequeño: introduce la frontera de
 autorización explícita que Operaciones necesitaba antes de exponerse a
@@ -3256,8 +3259,69 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
   **3.14.3**): **suite 496 passed / 1 skipped** (490 + 6 tests de la
   corrección de wildcard), route-contract GREEN, snapshot sin cambios
   (**82**).
-- **Pendiente:** confirmación de CI real en GitHub antes de CLOSED/GREEN.
-  No se abrió el PR todavía.
+- **Evidencia de cierre:** CI real de GitHub Actions sobre **PR #35**
+  confirmado GREEN; merge a `main` vía merge commit `324b6f2`. El owner
+  confirmó el **2026-08-10** que la autorización de Operaciones (allowlist
+  explícita, fail-closed, sin bypass de `APP_OWNER`, sin wildcard `"ALL"`,
+  academy+Operations soportado) funciona correctamente en **producción
+  DigitalOcean** — es un **smoke de producción verificado por el usuario**,
+  NO un resultado de test automatizado. Suite sobre el HEAD real de `main`
+  tras este batch Y el batch posterior de UX (ver sección dedicada abajo):
+  **497 passed / 1 skipped**, route surface **82** sin cambios.
+
+---
+
+## DANWOR HUB — SINGLE-WORKSPACE SWITCHER CORRECTION — CLOSED / GREEN
+(commit funcional `bd301c0` — `fix(platform): hide Hub switcher for single
+workspace`, branch `work/hub-switcher-single-workspace`, mergeado a `main`
+vía **PR #36** — merge commit `979cfc1` (HEAD actual de `main`). CI real de
+GitHub confirmado GREEN y **production smoke verificado por el owner en
+DigitalOcean el 2026-08-10**.)
+
+Corrección de UX chica, posterior al cierre de producción del Operations
+Access Gate: la validación real en producción expuso que un usuario con
+acceso a un solo workspace seguía viendo el ícono de Danwor Hub en el
+topbar compartido, comportándose como un botón "Home" ambiguo — Danwor Hub
+en el topbar es una afordancia de CAMBIO de workspace, nunca un botón Home
+genérico.
+
+- **Contrato final:** `available_workspaces(user)` con **1 solo workspace**
+  → el switcher/ícono de Danwor Hub NO se renderiza en el topbar (nada de
+  ícono deshabilitado, dropdown vacío ni fallback a `/onedanwor`).
+  `available_workspaces(user)` con **2 o más** → el switcher se renderiza
+  exactamente igual que antes (mismo `hub_icon()`, mismo `<details
+  class="workspace-switch">`).
+- **Cambio exacto:** se removió la rama `{% else %}` de
+  `webapp/templates/partials/platform_topbar.html` que renderizaba un
+  segundo `hub_icon()` como link a `identity_href` (`class="theme-toggle"
+  aria-label="Danwor · Inicio"`) cuando no había elección de workspace —
+  ese fallback era exactamente el botón Home ambiguo que se reportó.
+- **El ícono del hero de Danwor Hub NO se tocó:** `platform_selector.html`
+  sigue importando y usando el mismo `hub_icon()` para la identidad visual
+  de la landing — esta corrección es SOLO del topbar compartido en
+  workspace, nunca de la identidad de marca en la landing.
+- **Sin cambios de autorización/ruteo:** el predicado
+  `is_operations_authorized_user` y `available_workspaces` no se tocaron
+  — esta es la expresión visual correcta de un resultado de autorización
+  que ya era servidor-side; la seguridad real sigue viviendo en el gate de
+  Operaciones (sección anterior).
+- **Tests:** `test_platform_topbar.py` — reescrito
+  `test_single_workspace_user_gets_no_hub_control_but_keeps_identity`
+  (antes solo probaba la ausencia del dropdown; ahora también prueba la
+  ausencia específica del fallback) + nuevo
+  `test_operations_landing_hero_still_renders_canonical_hub_icon`.
+  `test_platform_hub_icon_reuse.py` — invariante de conteo de usos del
+  macro actualizado de 2 a 1 (el switcher es ahora el único uso dentro del
+  topbar).
+- Route surface: **82, sin cambios.**
+- Validado sobre stack reproducible: **suite 497 passed / 1 skipped**
+  (496 + 1 test nuevo), route-contract GREEN.
+- **Evidencia de cierre:** CI real de GitHub Actions sobre **PR #36**
+  confirmado GREEN; merge a `main` vía merge commit `979cfc1` (HEAD actual).
+  El owner confirmó el **2026-08-10** que el comportamiento del switcher
+  single-workspace funciona correctamente en **producción DigitalOcean** —
+  **smoke de producción verificado por el usuario**, no un resultado de
+  test automatizado.
 
 ---
 
@@ -3293,39 +3357,51 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
 | Shared Workspace Shell + Operaciones Structure (Batch B) | **CLOSED / GREEN** |
 | Staffing — Asignaciones Dashboard v1 | **CLOSED / GREEN** |
 | Danwor Hub Visual Identity | **CLOSED / GREEN** |
-| Operations Workspace Access Gate | **IMPLEMENTED / PENDING CI** |
+| Operations Workspace Access Gate | **CLOSED / GREEN** |
+| Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Operations Workspace Access Gate. Precedida por Staffing —
-  Asignaciones Dashboard v1 (PR #33, **CLOSED/GREEN**) y Danwor Hub Visual
-  Identity (**CLOSED/GREEN**) — ver secciones dedicadas arriba; ninguna de
-  las dos se tocó en este batch.
-- **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
-  (funcional `05b5da3` + corrección `fix(operations): reject wildcard
-  workspace access`): **496 passed / 1 skipped** (490 + 6 de la
-  corrección de wildcard), route surface **82** (sin cambios). Ver sección
-  dedicada "OPERATIONS WORKSPACE ACCESS GATE — IMPLEMENTED / PENDING CI"
-  arriba para el detalle completo — falta la confirmación de CI real en
-  GitHub antes de CLOSED/GREEN. PR no abierto todavía.
-- **Functional commit:** `05b5da3` — `feat(operations): add explicit
-  workspace access allowlist` (un solo commit funcional, sin amend/squash),
-  seguido de una corrección de seguridad pequeña separada (ver bullet
-  dedicado en la sección de arriba) — tampoco amendeada. Branch
-  `work/operations-access-gate`.
-- **Alcance — SOLO autorización:** `OPERATIONS_ALLOWED_USERS` (allowlist
-  explícita, fail-closed, misma normalización que `ALLOWED_USERS`);
-  `is_operations_authorized_user` = admisión base AND allowlist de
-  Operations, ortogonal al tier de Copiloto, sin bypass de `APP_OWNER`;
-  MISMO predicado gobierna descubrimiento (`workspaces.py`) y enforcement
-  server-side (`routers/staffing.py`). **Ninguna ruta se renombró, ningún
-  cambio de auth/OAuth/sesión, route surface sin cambios** — ver "Alcance"
-  en la sección dedicada arriba.
-- **Next candidate:** ninguno propuesto todavía. Este batch fue
-  explícitamente pequeño y no abre una fase nueva — Entra Groups/App
-  Roles, Projects/Reporting, o cálculo de capacidad quedan diferidos sin
-  autorización.
+- **Phase:** ninguna fase de producto abierta. Los dos últimos batches
+  (Operations Workspace Access Gate y Danwor Hub — Single-Workspace
+  Switcher Correction) están **ambos CLOSED/GREEN, mergeados a `main`, y
+  validados en producción DigitalOcean** — ver las dos secciones dedicadas
+  arriba. Precedidos por Staffing — Asignaciones Dashboard v1 (PR #33,
+  **CLOSED/GREEN**) y Danwor Hub Visual Identity (**CLOSED/GREEN**).
+- **Status:** **CLOSED / GREEN** para ambos batches. CI real de GitHub
+  confirmado GREEN sobre PR #35 (Operations gate, merge `324b6f2`) y PR #36
+  (switcher correction, merge `979cfc1` — HEAD actual de `main`). El owner
+  confirmó el **2026-08-10** que ambos comportamientos funcionan
+  correctamente en **producción DigitalOcean** — **smoke de producción
+  verificado por el usuario, NO un resultado de test automatizado**.
+- **Functional commits:** `05b5da3` (`feat(operations): add explicit
+  workspace access allowlist`) + corrección `47ee619` (`fix(operations):
+  reject wildcard workspace access`) + docs `7994bbb`, branch
+  `work/operations-access-gate`, PR #35. Luego `bd301c0` (`fix(platform):
+  hide Hub switcher for single workspace`), branch
+  `work/hub-switcher-single-workspace`, PR #36. Ningún commit fue
+  amendeado/squasheado.
+- **Alcance combinado:** `OPERATIONS_ALLOWED_USERS` (allowlist explícita,
+  fail-closed, sin wildcard `"ALL"`, misma normalización que
+  `ALLOWED_USERS`); `is_operations_authorized_user` = admisión base AND
+  allowlist de Operations, ortogonal al tier de Copiloto, sin bypass de
+  `APP_OWNER`; MISMO predicado gobierna descubrimiento (`workspaces.py`) y
+  enforcement server-side (`routers/staffing.py`); el switcher del topbar
+  compartido ahora expresa ese resultado correctamente (ausente con 1 solo
+  workspace, presente con 2+, ícono del hero de Danwor Hub intacto).
+  **Ninguna ruta se renombró, ningún cambio de auth/OAuth/sesión, route
+  surface sin cambios (82)** — ver "Alcance" en cada sección dedicada
+  arriba.
+- **Next candidate:** ninguno nominado por este documento. Ambos batches
+  fueron deliberadamente pequeños y no abren una fase nueva — el próximo
+  incremento debe partir de una evaluación fresca del estado actual
+  (código + tests + HANDOFF), no de una continuación asumida. Entra
+  Groups/App Roles, Projects/Reporting, cálculo de capacidad, refactor del
+  sidebar, rebranding de login o cambios de color/agrupamiento de Staffing
+  quedan explícitamente diferidos sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **496 passed / 1 skipped** · route surface **82**
+- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
+  **497 passed / 1 skipped** · route surface **82** · `main` HEAD
+  `979cfc1e6f6b51765a8ab77976d168899b42da85`.
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3334,12 +3410,16 @@ Hub Visual Identity (CLOSED/GREEN) — ambos ya cerrados, ninguno se tocó.
    contra Graph real, **Staffing — Asignaciones Dashboard v1 CLOSED/GREEN
    (PR #33)**, **Danwor Hub Visual Identity CLOSED/GREEN (commit
    `8ea2921`, branch `work/danwor-hub-visual`)**, **Operations Workspace
-   Access Gate IMPLEMENTED/PENDING CI (commit `05b5da3`, branch
-   `work/operations-access-gate` — falta confirmación de CI real antes de
-   CLOSED/GREEN)**, observación no-bloqueante de calidad referencial de
+   Access Gate CLOSED/GREEN (commit `05b5da3` + `47ee619`, branch
+   `work/operations-access-gate`, PR #35, production-verified
+   2026-08-10)**, **Danwor Hub — Single-Workspace Switcher Correction
+   CLOSED/GREEN (commit `bd301c0`, branch
+   `work/hub-switcher-single-workspace`, PR #36, production-verified
+   2026-08-10)**, observación no-bloqueante de calidad referencial de
    origen registrada (no resuelta a propósito).
-3. El usuario decide el próximo incremento — nada queda autorizado por
-   este documento hasta que el usuario lo indique explícitamente.
+3. El usuario decide el próximo incremento a partir de una evaluación
+   fresca — nada queda autorizado por este documento hasta que el usuario
+   lo indique explícitamente.
 4. **Recién entonces** se autoriza el próximo lote.
 
 ### Stop conditions para el próximo agente
