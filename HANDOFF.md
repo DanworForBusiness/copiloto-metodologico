@@ -3707,6 +3707,93 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
 
 ---
 
+## SHARED ACTIVITY / OBSERVABILITY — CONTEXT FOUNDATION (Batch A1) — IMPLEMENTED / PENDING CI
+(commit funcional `18d4c43`, branch `work/shared-activity-context-foundation`)
+
+Primer paso de "Shared Activity / Observability": hacer la capacidad de actividad
+existente **platform-aware de forma ADITIVA**, preservando toda la actividad
+histórica sin migración. **NO** es Activity Dashboard V2, **NO** toca UI, **NO**
+agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2).
+
+- **Envelope viejo (histórico):** `ts_utc, event, user, name, payload`.
+- **Envelope nuevo (aditivo):** `ts_utc, event, user, name, scope, area, payload`.
+  `event` sigue siendo el identificador de acción. **NO** se agregaron
+  `workspace`/`vertical`/`feature`/`action` (rechazados en este batch).
+- **`scope`** = ámbito de Danwor Hub: `platform` | `copilot` | `operations`.
+  La autenticación es de la PLATAFORMA (no de un workspace), por eso `platform`
+  es de primera clase. **`area`** = área funcional: `auth` | `methodology` |
+  `assistant` | `academy` | `catalog` | `staffing`. Sin taxonomía inventada más
+  allá de productores reales.
+- **Un solo activity service.** No hay `copilot_logger`/`operations_logger`/
+  `platform_logger`. `log_activity`/`log_verbose` ganaron `scope`/`area`
+  **keyword-only**, pasados EXPLÍCITOS por cada productor. El sink de bajo nivel
+  (`activity_service`) **NO infiere** contexto ni conoce la taxonomía, ni importa
+  FastAPI/Jinja. Si `scope`/`area` son None se OMITEN (forma histórica de 5
+  campos preservada; el lector normaliza su ausencia).
+- **Normalización histórica (una función canónica):** nuevo módulo hoja
+  `webapp/services/activity_context.py` — constantes + `classify(event)` (mapa
+  histórico) + `context_of(record)` (explícito gana; si falta, clasifica por
+  `event`). El lector `activity_analytics._read_events` adjunta `scope`/`area` a
+  CADA evento vía `context_of` — **seam único**, sin esparcir `event→scope/area`
+  por el dashboard. `build_summary()` **NO** se rediseñó (eso es A2).
+- **Contrato interino de lente (corrective `ce17790`, pre-A2):** el stream de
+  actividad es **platform-wide desde ya** (persiste/normaliza Operations), pero el
+  Activity Dashboard sigue siendo **Copiloto + plataforma** hasta A2. Como
+  `build_summary()` contaba TODO el stream (verificado empíricamente: Operations
+  contaminaba total_events/unique_users/daily_series/event_counts/top_users/facets),
+  se agregó una regla en UN punto — `_DASHBOARD_EXCLUDED_SCOPES = {operations}`,
+  aplicada al tope de `build_summary` antes de facets/conteos. **NO** es copilot-only:
+  `login` (scope=platform) se preserva (semántica histórica). **A2 debe RETIRAR esta
+  exclusión** al convertir el dashboard en Hub-wide. Test de regresión prueba
+  persistencia-sí / contaminación-no simultáneamente. Suite **528 passed / 1 skipped**.
+- **Mapeo histórico explícito (evidence-based):** `login`→platform/auth;
+  `module_selected` + beacon (`module_continue`/`module_reached_end`/`nav_jump`/
+  `link_external`/`disclosure_toggle`/`theme_change`) + `tree_started`/`tree_step`/
+  `tree_outcome`→copilot/methodology; `assistant_query` (+ histórico
+  `section_analyze`)→copilot/assistant; `academy_selected`→copilot/academy;
+  `catalog_view`/`catalog_regenerate`→copilot/catalog; `staffing_overview_*`→
+  operations/staffing. **Evento desconocido → `unknown`/`unknown`** (fallback
+  explícito, NUNCA "copilot" en silencio). No se hallaron eventos históricos sin
+  clasificar en fixtures/tests; un test-guardia verifica que todo nombre emitido
+  por un productor real clasifica ≠ unknown.
+- **Operations = primer productor de USO real:** `staffing_overview_viewed`
+  (BASIC, adopción — como `module_selected`/`academy_selected`) en el GET exitoso
+  de `/operaciones/staffing/asignaciones`. **Un evento por acceso a la página**;
+  usa la sesión ya resuelta; **sin 2ª llamada a Graph, sin loguear el token, sin
+  loguear el dataset, sin clickstream** (el POST /data y las interacciones
+  client-side NO se loguean). Prueba: una capacidad compartida + múltiples scopes
+  reales de plataforma.
+- **Diagnósticos de Staffing** (`staffing_overview_config_incomplete`,
+  `staffing_overview_error`) conservan su semántica **VERBOSE** y ahora reciben
+  `scope=operations`/`area=staffing`. No se convirtieron en eventos BASIC de uso.
+- **Beacon `/telemetry/event`:** el contexto lo fija el servidor
+  (copilot/methodology); se excluyen `scope`/`area`/`event` del body para que el
+  cliente **no pueda inyectar ni colisionar** el contexto de plataforma.
+- **VERBOSE contract sin cambios:** `LOG_ACTIVITY`/`BASIC`/`VERBOSE`/
+  `log_activity`/`log_verbose`/`is_verbose()` intactos. Saneo/redacción de payload
+  (claves sensibles → `[redacted]`, `answer` cap 20000, resto 4000) sin cambios.
+  **Usage analytics, NO audit/security logging.**
+- **Retrocompatibilidad:** JSONL históricos siguen legibles SIN migración ni
+  reescritura; los archivos existentes no se mutan. El lector defaultea lo
+  ausente vía `context_of` (histórico → clasificación por event; Copiloto es el
+  origen de casi todo lo previo, pero se clasifica por familia, no por asunción
+  global).
+- **Tests (+11):** `tests/webapp/test_activity_context.py` (9 — classify/
+  context_of/guardia de cobertura, envelope explícito, forma histórica de 5
+  campos, saneo/redacción, gate BASIC/VERBOSE, normalización lector histórico+
+  nuevo) + `tests/webapp/test_staffing_routes.py` (2 — un solo
+  `staffing_overview_viewed` con contexto+identidad+sin token/dataset;
+  diagnósticos VERBOSE-only + contexto + token nunca logueado). Directorios de
+  log temporales aislados (nunca runtime real).
+- **Baseline:** suite **528 passed / 1 skipped** (516 + 11 + 1 regresión del
+  corrective), **route surface 82 sin cambios** (snapshot intacto), sobre stack
+  reproducible (Python 3.14.3 / FastAPI 0.141.1 / Starlette 1.4.1). **PENDING:**
+  CI GREEN en el PR.
+- **Batch A2 (Activity Dashboard V2 platform-wide: Ámbito/Área, checkbox/faceted
+  filters, KPIs Hub-wide, dedup del sticky-filter) NO fue iniciado.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -3743,9 +3830,20 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
 | Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
 | Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
 | Danwor Hub Login Identity | **CLOSED / GREEN** |
+| Shared Activity / Observability — Context Foundation (Batch A1) | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** ninguna fase de producto abierta. Danwor Hub Login Identity
+- **Batch en curso (más reciente):** **Shared Activity / Observability —
+  Context Foundation (Batch A1)** — ver sección dedicada arriba —
+  **IMPLEMENTED / PENDING CI** (commit funcional `18d4c43`, branch
+  `work/shared-activity-context-foundation`; NO mergeado). Envelope de
+  actividad ahora platform-aware (aditivo `scope`/`area`), Operations emite
+  su primer evento de uso (`staffing_overview_viewed`), una sola activity
+  capability, históricos legibles sin migración; corrective `ce17790` preserva
+  el lente Copiloto del dashboard actual (Operations no lo contamina hasta A2).
+  Suite en la branch: **528 passed / 1 skipped**, route surface **82** sin
+  cambios. **Batch A2 (Activity Dashboard V2) NO iniciado.**
+- **Phase (producto):** ninguna fase de producto abierta. Danwor Hub Login Identity
   — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
   (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
   producción DigitalOcean el 2026-08-10**, igual que Operations Workspace
@@ -3780,10 +3878,13 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
-- **Next candidate:** ninguno autorizado por este documento. Se registra
-  como posible próximo candidato — **NO autorizado, NO descubierto
-  todavía** — **Shared Activity / Observability**: requiere su propia
-  fase de discovery antes de cualquier implementación. Los hallazgos
+- **Next candidate:** **Shared Activity / Observability — Batch A2**
+  (Activity Dashboard V2 platform-wide: dimensiones Ámbito/Área, checkbox/
+  faceted filters, KPIs Hub-wide, dedup del sticky-filter). El discovery ya
+  se hizo y la fundación de contexto (A1) quedó IMPLEMENTED/PENDING CI — A2
+  se apoya en el seam `activity_context.context_of` + los campos `scope`/
+  `area`. **NO autorizado** hasta que el owner lo indique explícitamente tras
+  ver CI GREEN de A1. Los hallazgos
   reportados-pero-diferidos explícitamente en batches previos (colisiones
   de color en el timeline de Staffing; filtro de tipo de proyecto; switch
   de agrupamiento consultor/proyecto; Status Finalización; optimización

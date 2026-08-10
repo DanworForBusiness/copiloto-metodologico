@@ -684,3 +684,58 @@ def test_onedanwor_does_not_accept_post():
 
 def test_operations_workspace_home_url_is_canonical():
     assert workspaces.OPERATIONS.home_url == "/operaciones/staffing/asignaciones"
+
+
+# --- Activity context (Batch A1): primer evento de uso + diagnósticos ---------
+
+def _activity_records(tmp_path):
+    import json
+    return [
+        json.loads(line)
+        for f in tmp_path.glob("activity_*.jsonl")
+        for line in f.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+
+
+def test_staffing_page_emits_exactly_one_usage_event_with_context(monkeypatch, tmp_path):
+    import json
+    from webapp.services import activity_service
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "BASIC")
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    resp = client.get("/operaciones/staffing/asignaciones")
+    assert resp.status_code == 200
+    viewed = [r for r in _activity_records(tmp_path) if r["event"] == "staffing_overview_viewed"]
+    assert len(viewed) == 1                                   # exactamente uno por acceso a la página
+    ev = viewed[0]
+    assert ev["scope"] == "operations" and ev["area"] == "staffing"
+    assert ev["user"] == "staffing-test@danwor.com"           # identidad autenticada de la sesión
+    assert ev["payload"] == {}                                # sin dataset de Staffing
+    assert "graph_token" not in json.dumps(ev) and "token" not in ev["payload"]  # sin token
+
+
+class _ConfigIncompleteService:
+    def get_overview(self, access_token):
+        raise RuntimeError("config de Staffing incompleta")
+
+
+def test_staffing_diagnostics_stay_verbose_only_and_receive_context(monkeypatch, tmp_path):
+    import json
+    from webapp.services import activity_service
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _ConfigIncompleteService())
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    secret_token = "tok-should-not-be-logged"
+
+    # BASIC → log_verbose es no-op: el diagnóstico NO se registra (semántica intacta).
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "BASIC")
+    r1 = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": secret_token})
+    assert r1.status_code == 200
+    assert [r for r in _activity_records(tmp_path) if r["event"] == "staffing_overview_config_incomplete"] == []
+
+    # VERBOSE → se registra CON contexto operations/staffing y SIN el token.
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE")
+    r2 = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": secret_token})
+    assert r2.status_code == 200
+    diag = [r for r in _activity_records(tmp_path) if r["event"] == "staffing_overview_config_incomplete"]
+    assert len(diag) == 1
+    assert diag[0]["scope"] == "operations" and diag[0]["area"] == "staffing"
+    assert secret_token not in json.dumps(diag[0])            # el token nunca se loguea

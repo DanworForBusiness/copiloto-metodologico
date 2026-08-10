@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from webapp.services import auth_service
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_context import SCOPE_PLATFORM, AREA_AUTH
 from config import (
     AZURE_CLIENT_ID, AZURE_TENANT_ID,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE,
@@ -52,7 +53,7 @@ def microsoft_token(body: _MsTokenBody):
     except Exception as exc:  # noqa: BLE001 — fallo de red/JWKS u otro
         return JSONResponse({"detail": {"message": f"No se pudo validar el login: {exc}"}}, status_code=502)
 
-    log_activity("login", user=user, job_title=str(claims.get("jobTitle") or ""))
+    log_activity("login", user=user, scope=SCOPE_PLATFORM, area=AREA_AUTH, job_title=str(claims.get("jobTitle") or ""))
     response = JSONResponse({"ok": True, "first_name": user["first_name"], "name": user["name"]})
     response.set_cookie(
         auth_service.COOKIE_NAME, auth_service.create_session(user),

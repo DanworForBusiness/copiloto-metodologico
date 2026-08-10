@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse
 
 from webapp.services import auth_service
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_ACADEMY
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -67,7 +68,7 @@ def academy_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK)):
         raise HTTPException(404, "Página de Academy no encontrada")
     current = next((item for item in list_academy(selected) if item.stem == stem), None)
     academy_nav = [item for item in list_academy(selected) if not item.nav_hidden]
-    log_activity("academy_selected", user=user, page=stem, pack=selected)
+    log_activity("academy_selected", user=user, scope=SCOPE_COPILOT, area=AREA_ACADEMY, page=stem, pack=selected)
 
     # branding=danwor → colores/marca Danwor; embed=1 → oculta el topbar propio del
     # HTML (el shell del copiloto ya da contexto). El theme lo inyecta pack_asset.

@@ -40,6 +40,7 @@ from webapp import access
 from webapp.copilot_runtime import assistant_store
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_ASSISTANT
 from webapp.services.assistant_service import (
     AssistantChatService,
     AssistantFeedbackRepository,
@@ -123,7 +124,7 @@ def analyze_section(
     # así que debe entrar a la "Historia de preguntas" y al KPI de IA igual que un
     # chat. Lleva section/action en el payload para no perder ese detalle.
     log_verbose(
-        "assistant_query", user=user,
+        "assistant_query", user=user, scope=SCOPE_COPILOT, area=AREA_ASSISTANT,
         stem=stem, section=section_slug, action=action,
         question=(user_message or f"{action} · {section_slug}"),
         answer=(reply.answer if reply else ""),
@@ -225,7 +226,7 @@ def assistant_chat(
     # Telemetría fina (VERBOSE): qué preguntaron y cómo resolvió el copiloto.
     # La señal más rica para el ejercicio "romper/buscar fallas".
     log_verbose(
-        "assistant_query", user=user,
+        "assistant_query", user=user, scope=SCOPE_COPILOT, area=AREA_ASSISTANT,
         stem=stem, section=(active_section or ""),
         question=question.strip(),
         # Texto de la respuesta (router o LLM) para poder verla en la "historia" del
