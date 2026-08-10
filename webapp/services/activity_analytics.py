@@ -22,7 +22,17 @@ from typing import Any
 import yaml
 
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
-from webapp.services.activity_context import context_of
+from webapp.services.activity_context import SCOPE_OPERATIONS, context_of
+
+# Lente ACTUAL del dashboard = Copiloto + plataforma. La telemetría de Operations
+# (Batch A1: staffing_overview_viewed/_error/_config_incomplete) YA se persiste y
+# normaliza en el stream COMPARTIDO (ver context_of / _read_events) — pero el
+# Activity Dashboard sigue siendo Copilot-oriented hasta Batch A2 (Hub-wide). Regla
+# interina en UN solo punto (build_summary, antes de facets/conteos): se excluye
+# scope=="operations". NO se filtra a copilot-only a propósito: `login` es
+# scope=="platform" y SIEMPRE se contó en este dashboard (ver _EVENT_DESCRIPTIONS),
+# así que la plataforma se preserva; solo se frena la contaminación de Operations.
+_DASHBOARD_EXCLUDED_SCOPES = frozenset({SCOPE_OPERATIONS})
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -368,7 +378,13 @@ def build_summary(
     story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
 ) -> dict:
-    all_events = _read_events(date_from, date_to)
+    # Lente Copiloto+plataforma del dashboard actual: se excluye Operations en
+    # este único punto (antes de facets/feedback/conteos) — el stream compartido
+    # ya la persistió; el dashboard Hub-wide es Batch A2. Ver _DASHBOARD_EXCLUDED_SCOPES.
+    all_events = [
+        ev for ev in _read_events(date_from, date_to)
+        if ev["scope"] not in _DASHBOARD_EXCLUDED_SCOPES
+    ]
     available_users, available_modules = _facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
 

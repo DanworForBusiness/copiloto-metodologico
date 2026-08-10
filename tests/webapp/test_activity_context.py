@@ -155,3 +155,41 @@ def test_reader_normalizes_historical_and_new(monkeypatch, tmp_path):
     assert ctx["staffing_overview_error"] == ("operations", "staffing")
     assert ctx["quien_sabe"] == ("unknown", "unknown")        # fallback explícito
     assert ctx["staffing_overview_viewed"] == ("operations", "staffing")  # explícito preservado
+
+
+# ── contrato interino: persistencia platform-wide, lente dashboard = Copiloto ─
+
+def test_operations_activity_persisted_but_excluded_from_copilot_dashboard(monkeypatch, tmp_path):
+    """A1 corrective (pre-A2): la actividad de Operations SE persiste/normaliza en
+    el stream compartido, pero NO contamina el Activity Dashboard Copilot-oriented.
+    `login` (scope=platform) SÍ sigue contando (semántica histórica preservada —
+    no se filtra a copilot-only)."""
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    _write_jsonl(tmp_path, "20260201", [
+        {"ts_utc": "2026-02-01T10:00:00+00:00", "event": "login", "user": "copi@d.com", "name": "Copi", "scope": "platform", "area": "auth", "payload": {}},
+        {"ts_utc": "2026-02-01T10:01:00+00:00", "event": "module_selected", "user": "copi@d.com", "name": "Copi", "scope": "copilot", "area": "methodology", "payload": {"module": "01"}},
+        {"ts_utc": "2026-02-01T10:02:00+00:00", "event": "staffing_overview_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {}},
+        {"ts_utc": "2026-02-01T10:03:00+00:00", "event": "staffing_overview_error", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {"error_type": "X"}},
+    ])
+
+    # A) El stream compartido persiste + normaliza la actividad de Operations.
+    read = {(e["event"], e["scope"]) for e in activity_analytics._read_events("", "")}
+    assert ("staffing_overview_viewed", "operations") in read
+    assert ("staffing_overview_error", "operations") in read
+
+    # B) El dashboard actual (Copiloto + plataforma) NO cuenta Operations…
+    s = activity_analytics.build_summary("", "")
+    assert s["total_events"] == 2                              # login + module_selected (NO los 2 de ops)
+    assert s["unique_users"] == 1                              # solo copi@d.com
+    event_names = {r["event"] for r in s["event_counts"]}
+    assert event_names == {"login", "module_selected"}
+    assert not any(e.startswith("staffing_") for e in event_names)
+    top_user_labels = {r["label"] for r in s["top_users"]}
+    assert top_user_labels == {"Copi"} and "Ops" not in top_user_labels
+    facet_users = {u["label"] if isinstance(u, dict) else u for u in s["available_users"]}
+    assert "Ops" not in facet_users
+    # …y la serie diaria solo suma los 2 eventos Copiloto/plataforma de ese día.
+    assert sum(d["count"] for d in s["daily_series"]) == 2
+
+    # C) `login` (platform) SÍ se preserva en el lente actual (no copilot-only).
+    assert "login" in event_names
