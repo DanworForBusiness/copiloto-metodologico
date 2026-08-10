@@ -54,7 +54,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
-from webapp.services.activity_service import log_verbose
+from webapp.services.activity_service import log_activity, log_verbose
+from webapp.services.activity_context import SCOPE_OPERATIONS, AREA_STAFFING
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
 
@@ -80,6 +81,12 @@ def staffing_page(request: Request):
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
+    # Primer evento de USO real de Operations (Batch A1): un acceso exitoso a la
+    # página de Asignaciones. Adopción (BASIC), como module_selected/academy_selected
+    # — NO un evento de diagnóstico. Un evento por acceso a la página (el GET);
+    # el POST /data y las interacciones client-side NO se loguean (sin clickstream).
+    # Usa la sesión ya resuelta; sin segunda llamada a Graph, sin token, sin dataset.
+    log_activity("staffing_overview_viewed", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
     return templates.TemplateResponse(
         request=request, name="operations/staffing.html",
         context={
@@ -116,12 +123,12 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         rows = StaffingService().get_overview(graph_token)
     except RuntimeError:
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
-        log_verbose("staffing_overview_config_incomplete", user=user)
+        log_verbose("staffing_overview_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "config_incomplete"},
         )
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
-        log_verbose("staffing_overview_error", user=user, error_type=type(exc).__name__)
+        log_verbose("staffing_overview_error", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, error_type=type(exc).__name__)
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "graph_error"},
         )

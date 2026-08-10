@@ -24,6 +24,7 @@ from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services.activity_service import log_activity, log_verbose
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_CATALOG
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -1453,7 +1454,7 @@ def catalog_security_detail(
 
 @app.get("/catalog/domain", response_class=HTMLResponse, include_in_schema=False)
 def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: str = Query(DEFAULT_PACK)):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="domain", ref=(dominio or modulo))
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="domain", ref=(dominio or modulo))
     # Determinístico y sin tokens → disponible para cualquier usuario logueado
     # (incluido el perfil de solo lectura), como Árbol/Diagnóstico.
     if not auth_service.session_user(request):
@@ -2181,7 +2182,7 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
                  pack: str = Query(DEFAULT_PACK), assoc: int = 0, frag: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="flow", ref=f"{cliente}/{dominio}", assoc=bool(assoc))
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=f"{cliente}/{dominio}", assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
@@ -2230,7 +2231,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
 
 @app.get("/catalog/data-product", response_class=HTMLResponse, include_in_schema=False)
 def catalog_data_product(request: Request, product_id: str = "", pack: str = Query(DEFAULT_PACK), lineage: int = 0):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="data_product", ref=product_id, lineage=bool(lineage))
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="data_product", ref=product_id, lineage=bool(lineage))
     """Detalle central de un Data Product del catálogo BDC."""
     user = auth_service.session_user(request)
     if not user:
@@ -2280,7 +2281,7 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
 @app.get("/catalog/cds", response_class=HTMLResponse, include_in_schema=False)
 def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: str = "",
                 pack: str = Query(DEFAULT_PACK)):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="cds", ref=name)
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="cds", ref=name)
     """Código de una CDS view (extractor corporativo), renderizado en el panel
     central con el mismo pipeline de contenido. Se abre desde el botón "Abrir CDS
     View" del detalle de un flujo; "Volver" re-abre ese flujo (cliente+dominio)."""
@@ -2324,7 +2325,7 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
 @app.get("/catalog/guide/{slug}", response_class=HTMLResponse, include_in_schema=False)
 def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
                   embed: int = 0, theme: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), kind="guide", ref=slug)
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="guide", ref=slug)
     """Guía (autoservicio) para publicar un catálogo. GENÉRICA por `slug`: cada
     how-to es un `guides/<slug>.yaml` del pack (dominios, orígenes/conexiones, …) —
     agregar una guía nueva NO requiere código, solo el YAML + un link. Se cuenta como
@@ -2427,7 +2428,7 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
         ok = False
         message = ("Tu token SharePoint expiró, necesitamos que reinicies tu sesión al "
                    "copiloto (logout/login) y vuelvas a repetir esta acción con un token nuevo.")
-    log_activity("catalog_regenerate", user=user, ran=ran, ok=ok)
+    log_activity("catalog_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, ran=ran, ok=ok)
     return JSONResponse({"ok": ok, "message": message})
 
 

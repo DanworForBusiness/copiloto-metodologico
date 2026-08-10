@@ -22,6 +22,7 @@ from typing import Any
 import yaml
 
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
+from webapp.services.activity_context import context_of
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -188,6 +189,11 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
                 payload = {}
             user = str(raw.get("user") or "").strip()
             name = str(raw.get("name") or "").strip()
+            # Seam de normalización de contexto (Batch A1): scope/area para
+            # registros nuevos (campos explícitos) Y viejos (clasificados por
+            # event) vía la ÚNICA función canónica context_of — no se esparce
+            # lógica event→scope/area por las métricas del dashboard.
+            scope, area = context_of(raw)
             events.append({
                 "day": day,
                 "event": event_type,
@@ -196,6 +202,8 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
                 "ts_utc": str(raw.get("ts_utc") or ""),
                 "payload": payload,
                 "module": _module_key(event_type, payload),
+                "scope": scope,
+                "area": area,
             })
     return events
 

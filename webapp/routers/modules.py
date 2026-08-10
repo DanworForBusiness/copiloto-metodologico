@@ -54,6 +54,7 @@ from webapp.presentation import invite
 from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -104,7 +105,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             initial_tab = ""
     elif initial_tab == "section" and access.is_readonly(request):
         initial_tab = ""
-    log_activity("module_selected", user=user, module=stem, pack=selected)
+    log_activity("module_selected", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=stem, pack=selected)
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada

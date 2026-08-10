@@ -40,6 +40,7 @@ from webapp import access
 from webapp.copilot_runtime import store
 from webapp.services import auth_service
 from webapp.services.activity_service import log_verbose
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import load_module
 from webapp.templating import templates
 
@@ -132,6 +133,7 @@ def start_tree(
     run = store.start(tree, selected)
     log_verbose(
         "tree_started", user=(auth_service.session_user(request) or {}),
+        scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
         stem=stem, tree_id=str(tree.get("id") or ""), tree_title=str(tree.get("title") or tree_title or ""),
         panel=panel,
     )
@@ -165,6 +167,7 @@ def start_diagnostic_orchestrator(
     run = store.start(tree, selected)
     log_verbose(
         "tree_started", user=(auth_service.session_user(request) or {}),
+        scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
         stem=stem, tree_id="framework_assessment", tree_title=str(tree.get("title") or ""),
         panel="diagnostic-orchestrator",
     )
@@ -236,6 +239,7 @@ def answer(request: Request, run_id: str, answer: str = Form("")):
         log_verbose(
             "tree_outcome" if leaf else "tree_step",
             user=(auth_service.session_user(request) or {}),
+            scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
             run_id=run_id, answer=answer,
             tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
             reached_leaf=bool(leaf),

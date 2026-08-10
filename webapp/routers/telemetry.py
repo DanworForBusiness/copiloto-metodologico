@@ -17,6 +17,7 @@ from fastapi.responses import Response
 
 from webapp.services import auth_service
 from webapp.services.activity_service import is_verbose, log_verbose
+from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 
 router = APIRouter()
 
@@ -42,6 +43,9 @@ async def telemetry_event(request: Request):
         return Response(status_code=204)
     event = str((data or {}).get("event") or "").strip()
     if event in _TELEMETRY_EVENTS:
-        payload = {k: v for k, v in data.items() if k != "event"}
-        log_verbose(event, user=user, **payload)
+        # El contexto lo fija el servidor (beacon del Copiloto = copilot/methodology);
+        # se excluyen scope/area/event del body para que el cliente NO pueda inyectar
+        # ni colisionar el contexto de plataforma (son keyword-only en log_verbose).
+        payload = {k: v for k, v in data.items() if k not in ("event", "scope", "area")}
+        log_verbose(event, user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, **payload)
     return Response(status_code=204)
