@@ -3464,12 +3464,14 @@ de reusado.
 
 ---
 
-## DANWOR HUB LOGIN IDENTITY — IMPLEMENTED / PENDING CI
-(commit funcional `8e7ee46` — `fix(platform): align login identity with
-Danwor Hub`, branch `work/danwor-hub-login-identity`. **NO marcar
-CLOSED/GREEN todavía** — falta la confirmación de CI real en GitHub Y
-validación de producto por el owner, mismo protocolo ya usado en batches
-anteriores.)
+## DANWOR HUB LOGIN IDENTITY — CLOSED / GREEN
+(commits funcionales `8e7ee46` + `5674120` (branch
+`work/danwor-hub-login-identity`, PR #40/#41) + corrective final
+`7a51c9c` (branch `work/danwor-hub-login-brand-lockup`, PR #42) + docs
+`f3e0657`/`1bb422a`/`a8e487a`. CI real de GitHub confirmado GREEN sobre
+los tres PRs y **production smoke verificado por el owner en
+DigitalOcean el 2026-08-10** — ver "Evidencia de cierre" al final de esta
+sección.)
 
 Corrección chica de copy/identidad visual, disparada por una revisión de
 producción: la experiencia autenticada de plataforma ya dice **Danwor
@@ -3662,8 +3664,46 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
     verificado: "UNA PLATAFORMA · TODOS LOS SERVICIOS DANWOR" → ícono +
     "Danwor Hub" en una línea → "Un punto de encuentro donde se
     conectan..." → checklist → panel de login sin cambios.
-- **Pendiente:** confirmación de CI real en GitHub + validación de
-  producto por el owner antes de CLOSED/GREEN. No se abrió el PR todavía.
+- **Resumen de la evolución (3 pasadas, ninguna un fallo de mecánica de
+  auth — SOLO identidad visual/copy):**
+  1. Batch inicial (`8e7ee46`): cambió el naming visible de "One Danwor"
+     a "Danwor Hub" en la landing anónima (`_ONEDANWOR_LANDING_COPY`).
+  2. Corrective de callback (`5674120`): alineó el `<title>` del
+     documento intermedio real del login (`auth_callback.html`,
+     "Completando acceso · Danwor Hub") — el batch inicial solo había
+     tocado la landing, no este documento distinto que Microsoft
+     realmente muestra durante el popup/callback.
+  3. Corrective final de lockup (`7a51c9c`): la revisión de producción
+     expuso que el login seguía con el tratamiento visual histórico
+     ("DATA & AI FOR BUSINESS", wordmark partido "Danwor"/"Hub" en dos
+     líneas, sin ícono) en vez del lockup canónico del hero autenticado
+     — se rastreó a markup hardcodeado en `landing.html` y se extrajo/
+     reusó el primitivo compartido `hub_brand_lockup()`.
+  OAuth/PKCE/callback/sesión/permisos/resolución de workspace/ciclo de
+  vida del token de Graph **NUNCA cambiaron en ninguna de las 3
+  pasadas** — esto fue, de punta a punta, una corrección de identidad
+  visual/copy, no de mecánica de autenticación.
+- **Evidencia de cierre:** CI real de GitHub Actions confirmado GREEN
+  sobre los tres PRs (PR #40 → merge `4fe4193`; PR #41 → merge
+  `e587609`; PR #42 → merge `e5bba90`, HEAD actual de `main`). El owner
+  confirmó el **2026-08-10** un **smoke de producción verificado por el
+  usuario** (NO un resultado de test automatizado) en DigitalOcean:
+  - kicker canónico visible ("Una plataforma · Todos los servicios
+    Danwor");
+  - ícono canónico Hub (4 cuadrados) visible;
+  - "Danwor Hub" renderizado en una sola línea en desktop;
+  - copy propia del login (explicación + checklist) preservada;
+  - CTA de login preservado;
+  - selector Hub autenticado sigue alineado con el mismo lockup;
+  - sin identidad "One Danwor" visible en ningún punto;
+  - comportamiento responsive/mobile aceptable.
+  Contrato final aceptado: **el MISMO bloque canónico**
+  (`hub_brand_lockup()` → `hub_icon()`, sin un segundo SVG duplicado en
+  ningún template consumidor) — "Una plataforma · Todos los servicios
+  Danwor" + ícono + "Danwor Hub" — para el selector Hub autenticado Y el
+  login anónimo. Suite sobre el HEAD real de `main` tras el cierre:
+  **516 passed / 1 skipped**, route surface **82** sin cambios (mismo
+  baseline del gate de implementación — sin drift).
 
 ---
 
@@ -3702,69 +3742,60 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
 | Operations Workspace Access Gate | **CLOSED / GREEN** |
 | Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
 | Shared Workspace Sidebar Frame | **CLOSED / GREEN** |
-| Danwor Hub Login Identity | **IMPLEMENTED / PENDING CI** |
+| Danwor Hub Login Identity | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** Danwor Hub Login Identity — ver sección dedicada arriba.
-  Precedida por Operations Workspace Access Gate, Danwor Hub —
-  Single-Workspace Switcher Correction, y Shared Workspace Sidebar Frame,
-  **los tres CLOSED/GREEN, mergeados a `main` (PR #35/`324b6f2`, PR
-  #36/`979cfc1`, PR #38/`a2f4035`) y validados en producción DigitalOcean
-  el 2026-08-10** — ver las secciones dedicadas arriba. Ninguno de los
-  tres se tocó en este batch.
-- **Status:** **IMPLEMENTED / PENDING CI** para Danwor Hub Login Identity
-  (commits funcionales `8e7ee46` + `5674120`, PR #40/#41 ya mergeados a
-  `main`, + corrective final `7a51c9c`, sin mergear todavía). Suite local
-  sobre el HEAD real: **516 passed / 1 skipped** (512 + 4 nuevos), route
-  surface **82** (sin cambios). Ver sección dedicada "DANWOR HUB LOGIN
-  IDENTITY — IMPLEMENTED / PENDING CI" arriba para el detalle completo —
-  falta la confirmación de CI real en GitHub Y validación de producto por
-  el owner antes de CLOSED/GREEN. PR no abierto todavía.
-- **Functional commits:** `8e7ee46` (`fix(platform): align login identity
-  with Danwor Hub`, copy de la landing anónima — mergeado, PR #40) +
-  `5674120` (`fix(platform): align auth flow identity with Danwor Hub`,
-  `<title>` de `auth_callback.html` — mergeado, PR #41) + `7a51c9c`
-  (`fix(platform): reuse canonical Hub identity on login`, lockup visual
-  canónico — corrective final, NO mergeado todavía, ver bullet dedicado
-  arriba). Ninguno amendeado/squasheado. El primer batch corrió en la
-  branch `work/danwor-hub-login-identity` (ya mergeada dos veces, PR #40 y
-  PR #41); el corrective final de lockup corrió en una branch NUEVA,
-  `work/danwor-hub-login-brand-lockup` (la anterior ya estaba cerrada).
-- **Alcance combinado (batches previos, sin tocar en este):**
-  `OPERATIONS_ALLOWED_USERS` (allowlist explícita, fail-closed, sin
-  wildcard `"ALL"`, misma normalización que `ALLOWED_USERS`);
-  `is_operations_authorized_user` = admisión base AND allowlist de
-  Operations, ortogonal al tier de Copiloto, sin bypass de `APP_OWNER`;
-  MISMO predicado gobierna descubrimiento (`workspaces.py`) y enforcement
-  server-side (`routers/staffing.py`); el switcher del topbar compartido
-  expresa ese resultado correctamente; el frame de sidebar compartido
-  (`.app-shell`/`--nav-width`/`copilotLayout()`/`partials/
-  workspace_shell.html`) quedó consolidado. Este batch agrega: copy
-  visible de la landing anónima + `<title>` del callback neutro (batches
-  previos, ya mergeados) + el bloque canónico de identidad Hub
-  (`hub_brand_lockup()`) compartido entre el hero autenticado y la landing
-  anónima (corrective final, sin mergear) — sin tocar auth, OAuth,
-  redirects, `next`, ni ningún router/ruta. **Route surface sin cambios
-  (82)** en los cinco batches — ver "Alcance"/detalle en cada sección
-  dedicada arriba.
-- **Next candidate:** ninguno nominado por este documento. Estos batches
-  fueron deliberadamente pequeños y no abren una fase nueva — el próximo
-  incremento debe partir de una evaluación fresca del estado actual
-  (código + tests + HANDOFF), no de una continuación asumida. Los
-  hallazgos reportados-pero-diferidos explícitamente en batches previos
-  (colisiones de color en el timeline de Staffing; filtro de tipo de
-  proyecto; switch de agrupamiento consultor/proyecto; Status
-  Finalización; optimización de ventana histórica de Graph) NO están
-  autorizados por este documento — son candidatos para batches propios.
-  Entra Groups/App Roles, Projects/Reporting, cálculo de capacidad,
-  Shared Dashboard Primitives o cambios de Staffing quedan igualmente
-  diferidos sin autorización.
+- **Phase:** ninguna fase de producto abierta. Danwor Hub Login Identity
+  — ver sección dedicada arriba — está **CLOSED/GREEN, mergeado a `main`
+  (PR #40/`4fe4193`, PR #41/`e587609`, PR #42/`e5bba90`) y validado en
+  producción DigitalOcean el 2026-08-10**, igual que Operations Workspace
+  Access Gate, Danwor Hub — Single-Workspace Switcher Correction, y
+  Shared Workspace Sidebar Frame (PR #35/`324b6f2`, PR #36/`979cfc1`, PR
+  #38/`a2f4035`, mismo 2026-08-10). Ninguno de los otros tres se tocó en
+  este batch.
+- **Status:** **CLOSED / GREEN** para Danwor Hub Login Identity. CI real
+  de GitHub confirmado GREEN sobre PR #40/#41/#42. El owner confirmó el
+  **2026-08-10** que el lockup canónico (kicker + ícono + "Danwor Hub" en
+  una línea) funciona correctamente en **producción DigitalOcean** —
+  **smoke de producción verificado por el usuario, NO un resultado de
+  test automatizado**. Ver sección dedicada "DANWOR HUB LOGIN IDENTITY —
+  CLOSED / GREEN" arriba para el detalle completo (incluye el resumen de
+  las 3 pasadas y por qué ninguna tocó mecánica de auth).
+- **Functional commits:** `8e7ee46` + `5674120` (branch
+  `work/danwor-hub-login-identity`, PR #40/#41) + `7a51c9c` (branch
+  `work/danwor-hub-login-brand-lockup`, PR #42, corrective final del
+  lockup canónico). Ninguno amendeado/squasheado.
+- **Alcance combinado:** `OPERATIONS_ALLOWED_USERS` (allowlist explícita,
+  fail-closed, sin wildcard `"ALL"`, misma normalización que
+  `ALLOWED_USERS`); `is_operations_authorized_user` = admisión base AND
+  allowlist de Operations, ortogonal al tier de Copiloto, sin bypass de
+  `APP_OWNER`; MISMO predicado gobierna descubrimiento (`workspaces.py`) y
+  enforcement server-side (`routers/staffing.py`); el switcher del topbar
+  compartido expresa ese resultado correctamente; el frame de sidebar
+  compartido (`.app-shell`/`--nav-width`/`copilotLayout()`/`partials/
+  workspace_shell.html`) quedó consolidado; el bloque canónico de
+  identidad Hub (`hub_brand_lockup()` → `hub_icon()`, un solo SVG, sin
+  duplicar) es compartido entre el selector Hub autenticado y la landing
+  anónima. **Ninguna ruta se renombró, ningún cambio de auth/OAuth/
+  sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
+  route surface sin cambios (82)** en los cinco batches — ver
+  "Alcance"/detalle en cada sección dedicada arriba.
+- **Next candidate:** ninguno autorizado por este documento. Se registra
+  como posible próximo candidato — **NO autorizado, NO descubierto
+  todavía** — **Shared Activity / Observability**: requiere su propia
+  fase de discovery antes de cualquier implementación. Los hallazgos
+  reportados-pero-diferidos explícitamente en batches previos (colisiones
+  de color en el timeline de Staffing; filtro de tipo de proyecto; switch
+  de agrupamiento consultor/proyecto; Status Finalización; optimización
+  de ventana histórica de Graph) tampoco están autorizados. Entra
+  Groups/App Roles, Projects/Reporting, cálculo de capacidad, Shared
+  Dashboard Primitives o cambios de Staffing quedan igualmente diferidos
+  sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **516 passed / 1 skipped** · route surface **82** · commit `7a51c9c`
-  sobre `work/danwor-hub-login-brand-lockup` (branchada desde `main` HEAD
-  `e587609`, merge de PR #41 — ya incluye los dos primeros commits de
-  este mismo batch de identidad de login).
+  **516 passed / 1 skipped** · route surface **82** · `main` HEAD
+  `e5bba900a0ab7a4770177aa49d6ab4ebe2211865` (merge de PR #42, ya incluye
+  el cierre completo de Danwor Hub Login Identity).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3781,12 +3812,11 @@ Hub** en todos lados, pero la landing anónima (`/onedanwor`, alias
    2026-08-10)**, **Shared Workspace Sidebar Frame CLOSED/GREEN (commits
    `dd7f99d` + `4372625`, branch `work/shared-workspace-sidebar-frame`,
    PR #38, production-verified 2026-08-10)**, **Danwor Hub Login Identity
-   IMPLEMENTED/PENDING CI (commits `8e7ee46`+`5674120`, mergeados PR
-   #40/#41; corrective final `7a51c9c`, branch
-   `work/danwor-hub-login-brand-lockup`, sin mergear — falta confirmación
-   de CI real Y validación de producto del owner antes de CLOSED/GREEN)**,
-   observación no-bloqueante de calidad referencial de origen registrada
-   (no resuelta a propósito).
+   CLOSED/GREEN (commits `8e7ee46` + `5674120` + `7a51c9c`, PR
+   #40/#41/#42, production-verified 2026-08-10 — kicker canónico + ícono
+   Hub + "Danwor Hub" en una línea, MISMO `hub_brand_lockup()` que el
+   selector autenticado)**, observación no-bloqueante de calidad
+   referencial de origen registrada (no resuelta a propósito).
 3. El usuario decide el próximo incremento a partir de una evaluación
    fresca — nada queda autorizado por este documento hasta que el usuario
    lo indique explícitamente. **Este trabajo NO debe interpretarse como
