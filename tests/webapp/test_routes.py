@@ -947,7 +947,16 @@ def test_copilot_alias_preserves_next_like_root():
 # (el popup de auth.js abre la landing con `?auth_popup=1`, y Microsoft
 # vuelve con `?code=...` — un overlay NO alcanza, porque el marcado de la
 # landing con marca seguía existiendo debajo; ambos casos deben servir
-# `auth_callback.html`, que nunca incluye ese copy en absoluto).
+# `auth_callback.html`, que nunca incluye el copy RICO de ninguna landing
+# específica. Corrective posterior (Danwor Hub Login Identity Alignment,
+# ver HANDOFF): ese documento neutro SÍ dice "Danwor Hub" en su <title> —
+# el paraguas de plataforma que cubre este paso intermedio sin importar
+# si el login arrancó en Copiloto u Operaciones, nunca un producto
+# específico ni el histórico "One Danwor". La razón por la que el batch
+# anterior no detectó este hueco: los tests de este bloque solo
+# afirmaban la AUSENCIA de copy rico (Copiloto), nunca la PRESENCIA de
+# una identidad Hub — la doc neutra pasaba esos tests con o sin "Danwor
+# Hub" en el título).
 
 def test_normal_root_still_contains_copilot_identity():
     anon = TestClient(app)
@@ -963,6 +972,8 @@ def test_auth_popup_state_serves_neutral_document_not_copilot_landing():
     assert response.status_code == 200
     assert "Copiloto Metodológico" not in response.text
     assert "Arquitecto Danwor" not in response.text
+    assert "Danwor Hub" in response.text
+    assert "One Danwor" not in response.text
     assert 'class="auth-completing"' in response.text
     assert "Completando acceso" in response.text
     assert "/static/auth.js?v=" in response.text
@@ -974,6 +985,8 @@ def test_code_callback_state_serves_neutral_document_not_copilot_landing():
     assert response.status_code == 200
     assert "Copiloto Metodológico" not in response.text
     assert "Arquitecto Danwor" not in response.text
+    assert "Danwor Hub" in response.text
+    assert "One Danwor" not in response.text
     assert 'class="auth-completing"' in response.text
     assert "Completando acceso" in response.text
 
@@ -984,6 +997,7 @@ def test_copilot_alias_auth_popup_also_serves_neutral_document():
     assert response.status_code == 200
     assert "Copiloto Metodológico" not in response.text
     assert "Arquitecto Danwor" not in response.text
+    assert "Danwor Hub" in response.text
     assert 'class="auth-completing"' in response.text
 
 

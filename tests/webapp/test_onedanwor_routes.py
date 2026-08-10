@@ -97,16 +97,39 @@ def test_onedanwor_identity_has_no_copilot_specific_branding():
 def test_auth_popup_state_serves_neutral_document_not_rich_landing():
     # Corrective pass: un overlay sobre la landing no alcanza — el popup de
     # Microsoft (y su callback, fijo en "/") debe recibir un documento
-    # separado sin NINGÚN copy de marca (Danwor Hub incluido).
+    # separado, sin el copy/branding RICO de ninguna landing específica
+    # (nunca "Una plataforma"/checklist/wordmark de página, nunca
+    # Copiloto). Corrective posterior (Danwor Hub Login Identity
+    # Alignment, ver HANDOFF): el <title> de ESE documento neutro SÍ dice
+    # "Danwor Hub" — el paraguas de plataforma, no un producto específico
+    # ni el histórico "One Danwor" — para que ningún paso de la app
+    # durante el login se sienta desalineado con la identidad Hub.
     anon = TestClient(app)
     response = anon.get("/onedanwor?auth_popup=1")
     assert response.status_code == 200
-    assert "Danwor Hub" not in response.text
+    assert "Danwor Hub" in response.text
     assert "One Danwor" not in response.text
     assert "Copiloto Metodológico" not in response.text
     assert "Una plataforma" not in response.text
     assert 'class="auth-completing"' in response.text
     assert "Completando acceso" in response.text
+
+
+def test_code_callback_state_serves_same_neutral_document_with_hub_identity():
+    # El redirect_uri de Microsoft está fijo en el origen raíz ("/"), así
+    # que el callback real casi siempre vuelve por ahí — pero
+    # `render_landing` intercepta `code=` sin importar QUÉ ruta lo llame,
+    # así que `/onedanwor?code=...` (navegación directa/futura) debe
+    # comportarse igual: mismo documento neutro, misma identidad Danwor
+    # Hub, cero copy rico de ninguna landing específica.
+    anon = TestClient(app)
+    response = anon.get("/onedanwor?code=fake-oauth-code&state=fake-state")
+    assert response.status_code == 200
+    assert "Danwor Hub" in response.text
+    assert "One Danwor" not in response.text
+    assert "Copiloto Metodológico" not in response.text
+    assert "Una plataforma" not in response.text
+    assert 'class="auth-completing"' in response.text
 
 
 def test_valid_next_survives_login_flow_via_existing_mechanism():
