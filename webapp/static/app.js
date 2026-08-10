@@ -1140,7 +1140,11 @@ function staffingDashboard(payload) {
     // fijas) para que cambiar `projectionDays` recalcule solo.
     get todayISOValue() { return _todayISO(); },
     get targetISOValue() { return _addDaysISO(_todayISO(), this.projectionDays); },
-    get projectionColumnLabel() { return `Asignación +${this.projectionDays} días`; },
+    // "días" es redundante en el header — el control vecino ya dice
+    // "Proyección a [N] día(s)" (ajuste presentacional, ver HANDOFF: la
+    // versión larga hacía que "Disponibilidad" wrappeara a dos líneas en
+    // la tabla de layout fijo).
+    get projectionColumnLabel() { return `Asignación +${this.projectionDays}`; },
     setProjectionDays(value) {
       const n = Math.round(Number(value));
       this.projectionDays = Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : this.projectionDays;
