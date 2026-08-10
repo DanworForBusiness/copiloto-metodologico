@@ -683,6 +683,29 @@ function initModuleFilter(scope) {
   show(""); // default: vista global, sin módulo seleccionado
 }
 
+// Ámbito/Área (Activity Dashboard Hub-wide, admin_activity_content.html):
+// una selección vacía enviada al server es indistinguible de "sin filtro
+// tocado todavía" (ambos mandan cero parámetros `scope`/`area`) — el server
+// ya cae a "todos" en ese caso, pero eso deja al owner sin poder realmente
+// destildar el último ámbito/área de un grupo (su clic se revierte a "todo
+// tildado" en vez de "nada"). Contrato preferido (ver HANDOFF, reconciliación
+// A2): jamás permitir destildar la ÚLTIMA opción tildada de un grupo — así el
+// estado ambiguo (cero seleccionados) nunca llega a enviarse. Delegado en
+// `document` (no en `#activity-dashboard`): sobrevive el swap HTMX del
+// fragmento entero sin necesidad de re-cablearse en cada htmx:load. Filtra
+// por `name` ("scope"/"area") para no interferir con los checkboxes de
+// Estado de Staffing (Alpine `x-model`, sin atributo `name`).
+document.addEventListener("change", event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== "checkbox") return;
+  if (input.name !== "scope" && input.name !== "area") return;
+  if (input.checked) return;
+  const group = input.closest(".dashboard-checkbox-group");
+  if (!group) return;
+  const stillChecked = group.querySelector(`input[name="${input.name}"]:checked`);
+  if (!stillChecked) input.checked = true;
+});
+
 // Asignaciones Dashboard v1 (Operaciones/Staffing) — Alpine x-data, mismo
 // estilo que copilotLayout(). `payload` llega YA normalizado desde el
 // server (webapp.services.staffing_service.build_dashboard_payload):

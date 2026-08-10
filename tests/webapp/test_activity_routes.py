@@ -10,6 +10,7 @@ ausencia de métricas de negocio de Operations y reuso de la primitiva de checkb
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,11 @@ from webapp.main import app
 from webapp import access
 from webapp.services import auth_service
 from webapp.services import activity_analytics
+
+# app.js (sin runtime de JS en esta suite) se fija por CONTENIDO DE FUENTE,
+# mismo criterio que test_staffing_director_priority_v2.py ya usa para
+# staffingDashboard().
+_APP_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
 
 _HUB_ROWS = [
     {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "login", "user": "u@d.com", "name": "U", "scope": "platform", "area": "auth", "payload": {}},
@@ -99,6 +105,24 @@ def test_invalid_scope_falls_back_to_all(monkeypatch, tmp_path):
     # …y se cae a todos los ámbitos presentes, tildados.
     for scope in ("platform", "copilot", "operations"):
         assert f'name="scope" value="{scope}" checked' in t
+
+
+# ── Reconciliación A2 (pending check #2): guard de zero-selection ─────────────
+# Server-side ya cae a "todos" cuando llegan cero parámetros scope/area (ver
+# test_default_state_selects_all_scopes_and_areas / test_invalid_scope_falls_back_to_all
+# arriba — CUALQUIER request sin params, incluida la que produciría un
+# "destildar todo" desde el form, se comporta igual). Lo que faltaba era la
+# prevención en el propio checkbox: nunca dejar que el owner destilde la
+# ÚLTIMA opción tildada de un grupo (Ámbito o Área), para que ese estado
+# ambiguo ni siquiera llegue a enviarse. Sin runtime de JS en esta suite —
+# se fija por fuente, igual que el resto de app.js.
+
+def test_zero_selection_guard_prevents_unchecking_last_scope_or_area_option():
+    assert 'if (input.name !== "scope" && input.name !== "area") return;' in _APP_JS
+    assert "if (input.checked) return;" in _APP_JS
+    assert 'input.closest(".dashboard-checkbox-group")' in _APP_JS
+    assert 'group.querySelector(`input[name="${input.name}"]:checked`)' in _APP_JS
+    assert "if (!stillChecked) input.checked = true;" in _APP_JS
 
 
 # ── item 19: gate owner-only + diagnóstico sin cambios ────────────────────────
