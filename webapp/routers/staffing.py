@@ -8,6 +8,11 @@ explícito del browser, delega en `StaffingService`, devuelve un
 fragmento HTML para HTMX). El nombre refleja la jerarquía real: workspace
 Operaciones → área Staffing → capacidad Asignaciones.
 
+`POST /operaciones/staffing/asignaciones/historial` (Staffing Director
+Priority V2, ver HANDOFF) es la ÚNICA ruta nueva del batch — carga lazy del
+historial Inactivo, JSON (no HTML), ver docstring de `staffing_historial`
+para el motivo. Route surface 82→83, documentado explícitamente.
+
 `GET /operations/staffing` y `POST /operations/staffing/data` (nombres
 históricos en inglés, de Batch 3 de aceleración) quedan como alias de
 COMPATIBILIDAD — SIEMPRE 307 a la ruta canónica correspondiente, method y
@@ -49,7 +54,7 @@ página real se re-inicializa y dispara su propio POST de HTMX fresco).
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
@@ -142,6 +147,40 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         request=request, name="operations/staffing_dashboard.html",
         context={"state": "ok", "payload": payload},
     )
+
+
+@router.post("/operaciones/staffing/asignaciones/historial", include_in_schema=False)
+def staffing_historial(request: Request, graph_token: str = Form("")):
+    """Carga LAZY del historial Inactivo (Staffing Director Priority V2, ver
+    HANDOFF) — ruta NUEVA (route surface 82→83, cambio de contrato explícito
+    y documentado, no oculto). Devuelve JSON (no HTML: `staffing_dashboard.html`
+    solo se monta una vez en `#staffing-rows`; un segundo swap HTML
+    remontaría Alpine y perdería todo el estado de filtros/UI vigente) —
+    `app.js::staffingDashboard._loadInactiveHistory()` la llama UNA sola vez
+    (primera vez que el usuario tilda Inactivo) y mergea `assignments` en el
+    dataset ya cargado por assignment_id, nunca reemplaza el array completo
+    de sus propias filas. Misma gate de sesión/autorización y mismo
+    `graph_token` explícito por form que `staffing_data` — nunca un segundo
+    mecanismo de auth."""
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    user = auth_service.session_user(request)
+    try:
+        rows = StaffingService().get_overview(graph_token, assignment_scope="historical_inactive")
+    except RuntimeError:
+        log_verbose("staffing_historial_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
+        return JSONResponse({"state": "config_incomplete"})
+    except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
+        log_verbose("staffing_historial_error", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, error_type=type(exc).__name__)
+        return JSONResponse({"state": "graph_error"})
+
+    payload = build_dashboard_payload(rows)
+    return JSONResponse({"state": "ok", "assignments": payload["assignments"]})
 
 
 # --- Compatibilidad histórica (nombres en inglés, Batch 3) ------------------

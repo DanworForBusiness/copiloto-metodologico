@@ -3802,6 +3802,243 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 
 ---
 
+## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — IMPLEMENTED / PENDING CI
+(commits funcionales `2833fa6` (`feat(staffing): optimize operational
+assignment loading`) + `3fcb75e` (`feat(staffing): add capacity planning
+dashboard controls`), branch `work/staffing-director-priority-v2`, arrancada
+desde `main` `2505da2` — **PARALELA e independiente de
+`work/activity-dashboard-hub-v2` (Batch A2, parked, ver abajo), que este
+batch NO tocó.**)
+
+Prioridad del director sobre 10 requerimientos de producto (1-8, 10
+implementados; 9 — overlay de vacaciones — **BLOQUEADO**, ver abajo).
+
+- **1. Carga inicial no histórica + lazy history (IMPLEMENTADO):**
+  `StaffingRepository.get_allocations(access_token, *, assignment_scope=
+  "operational"|"historical_inactive")` — `"operational"` (default, usado
+  por el POST `/data` de siempre) pide Asignaciones con `$filter=fields/
+  {status} ne 'Inactivo'` + header `Prefer:
+  HonorNonIndexedQueriesWarningMayFailRandomly` (mecanismo documentado de
+  Microsoft para filtrar columnas Choice potencialmente no indexadas).
+  **Fallback automático:** si Graph rechaza esa query (cualquier excepción
+  de transporte), cae a pedir la lista COMPLETA sin `$filter` y filtra en
+  Python — Staffing nunca se rompe, solo pierde la optimización de volumen
+  en ese request puntual. **NO verificado contra el sitio Gestión real**
+  (sin credenciales Graph en este entorno) — reportado como hipótesis
+  fundamentada con red de seguridad, no como hecho confirmado (mismo
+  criterio que otros enriquecimientos opcionales de Staffing, ver
+  secciones previas). Proyectos/Colaboradores/Cliente se piden completos
+  en AMBOS alcances — son tablas de dimensión, no el historial de ~3 años
+  de Asignaciones. Default de Estado client-side pasa de Activo+Tentativo
+  a **SOLO Activo**; Tentativo sigue 100% seleccionable/funcional (ya
+  viene en la carga operacional). Togglear Inactivo por primera vez
+  dispara `_loadInactiveHistory()` (fetch único a la ruta nueva, ver
+  abajo), mergea por `assignment_id` (dedup determinístico), marca
+  `historyLoaded` — toggles siguientes NUNCA refetchean.
+- **Nueva ruta `POST /operaciones/staffing/asignaciones/historial`
+  (route surface 82→83, `tests/route_surface.json` actualizado
+  explícitamente):** JSON (no HTML — un segundo swap de
+  `staffing_dashboard.html` remontaría Alpine y perdería el estado de
+  filtros vigente), misma gate de sesión/autorización que `/data`, mismo
+  `graph_token` explícito por form. Llama `StaffingService().get_overview(
+  token, assignment_scope="historical_inactive")`.
+- **Activo vencido (IMPLEMENTADO):** `is_activo_vencido(status, end_date,
+  today=None)` en `staffing_service.py` — helper ÚNICO y canónico:
+  `Status crudo == "Activo" AND FechaFin < hoy`. NUNCA reescribe el
+  Status de SharePoint — anomalía analítica derivada, calculada una sola
+  vez en `build_dashboard_payload` (`activo_vencido` por fila) para que
+  KPI y detalle coincidan siempre.
+- **2/3. KPI "Sin dato" → "Activos vencidos" (IMPLEMENTADO):** tile
+  removido de Resumen (disponibilidad "Sin dato" como valor/filtro sigue
+  existiendo sin cambios); reemplazado en la misma posición por "Activos
+  vencidos" (`kpis.activosVencidos`, cuenta ASIGNACIONES, no consultores
+  distintos — ver requerimiento del director), con tooltip explicativo.
+- **4/5. Timeline (IMPLEMENTADO):** label de grupo ahora incluye horas
+  sumarizadas del universo filtrado (`groupHoursSuffix`) — nombre y
+  sufijo en `<span>` SEPARADOS (`__consultant-name`/`__consultant-hours`,
+  gris oscuro para el sufijo) por ajuste cosmético pedido por el usuario
+  (el mismo negro/bold para ambos competía visualmente). Switch de
+  agrupación Consultor↔Proyecto: botón dorado/negro
+  (`.staffing-timeline__group-toggle`, visualmente distinto de Expandir/
+  Contraer), UNA sola implementación de `timelineGroups` generalizada por
+  `groupBy` (nunca dos timelines paralelos), `rowGroupSecondaryLabel`
+  cambia qué muestra la fila secundaria según el modo. Sin refetch en
+  ningún caso (mismo `filteredAssignments`).
+- **6/7. Detalle agregado + capacidad puntual (IMPLEMENTADO, con
+  corrección post-revisión del usuario):** agregado por consultor por
+  defecto (`aggregatedDetailRows`/`detailRows`, vista PLANA — dos
+  `<template x-for>` anidados sobre la misma lista NO intercalan filas
+  hijas bajo su agregada, bug real descubierto durante el desarrollo,
+  corregido con una vista plana de un solo `x-for`), expandible a las
+  filas de asignación originales. **Regla de "--" corregida por el
+  usuario:** Cliente/Proyecto/Desde/Hasta muestran "--" SOLO cuando los
+  hijos GENUINAMENTE difieren en ese campo puntual (`_singleValue`,
+  evaluado de forma independiente por campo) — un único valor
+  compartido (Cliente único, o un único "(sin resolver)" compartido) se
+  informa a nivel agregado; fechas iguales con Cliente/Proyecto distintos
+  también informan la fecha. Columnas nuevas "Asignación hoy"/"Asignación
+  +N días" (control numérico, default 35, clamp 1-365,
+  `setProjectionDays`, recalcula sin Graph) — efectividad puntual
+  determinística sobre asignaciones abiertas (`_isEffectiveOn`,
+  comparación de strings ISO, nunca `new Date()`). **Corrección de layout
+  post-revisión del usuario:** la tabla usaba el layout automático de
+  `<table>` — expandir/contraer un consultor cambiaba qué filas había en
+  el DOM y reacomodaba TODAS las columnas (bug real reportado). Fix:
+  `table-layout:fixed` + `<colgroup>` con anchos explícitos
+  (`.staffing-detail-table`) — expandir ahora solo revela/oculta filas,
+  las columnas nunca se mueven (verificado: mismo ancho de columna
+  antes/después de expandir, smoke real).
+- **8. Drag-and-drop (IMPLEMENTADO):** reuso PURO del mecanismo genérico
+  ya existente (`initDashboardSections`/`[data-dashboard-key]`, ver app.js
+  — HANDOFF ya documentaba que este contrato existía pero **nunca se
+  había retrofiteado a ningún otro dashboard**). Staffing es el primero:
+  `data-dashboard-key="staffing"` + `draggable="true"` + grip en los 3
+  `<summary>` — CERO JS nuevo, CERO CSS nuevo (todo ya compartido con
+  Actividad).
+- **10. Fechas dd/mm/yyyy (IMPLEMENTADO):** `formatDateDMY(iso, short)` —
+  parseo puro del string ISO (`split("-")`), NUNCA `new Date(iso)` (evita
+  el corrimiento de un día por UTC). Aplicado en tooltip del timeline y en
+  el detalle (Desde/Hasta). El "short" (dd/mm) queda disponible en el
+  helper pero no tiene un consumidor hoy — no se fabricó un uso artificial
+  solo para "usarlo".
+- **9. Overlay de vacaciones — BLOQUEADO, discovery NO realizado:** este
+  agente NO tiene acceso a un token Graph delegado real ni a una sesión
+  de browser autenticada contra Microsoft 365 — el discovery pedido
+  (SharePoint site/drive item, workbook, worksheet/tabla, columnas de
+  nombre/fechas, formato real de fecha, cantidad de registros, múltiples
+  períodos por persona) requiere ESE acceso y no puede simularse ni
+  inferirse sin inventar datos. **Solo esta subparte queda bloqueada** —
+  el resto del batch (1-8, 10) se implementó sin depender de ella. Cuando
+  haya una sesión con `graph_token` real disponible (browser del
+  usuario), el próximo agente puede retomar el discovery contra el link
+  de OneDrive/SharePoint que dio el director, con el mismo criterio de
+  normalización determinística (trim/espacios/case, SIN fuzzy-match,
+  SIN reordenar nombres) ya especificado.
+- **Instrumentación de Graph (parcial, sin credenciales reales):**
+  `assignment_scope="operational"` hace 1 llamada paginada a Asignaciones
+  (filtrada) + 1 a Proyectos + 1 a Colaboradores (+ 1 a Cliente si está
+  configurado) — mismo conteo de listas que antes, ahora con `$filter` en
+  Asignaciones. `assignment_scope="historical_inactive"` (disparado
+  exactamente una vez por sesión de dashboard, al primer toggle de
+  Inactivo) repite las mismas 4 llamadas pero con el `$filter` invertido —
+  no hay optimización de NO repetir Proyectos/Colaboradores/Cliente en la
+  carga histórica (son tablas pequeñas, no el foco de este batch). No
+  medible en páginas reales sin un tenant con datos — verificado por
+  conteo de llamadas mockeadas en tests (`tests/webapp/
+  test_staffing_director_priority_v2.py`).
+- **Tests:** +36 en `tests/webapp/test_staffing_director_priority_v2.py`
+  (`is_activo_vencido` con casos límite, `assignment_scope` passthrough,
+  filtro Graph con fallback verificado con `HTTPError`/`URLError`
+  simulados, endpoint `/historial` completo — auth/JSON/estados
+  controlados/token nunca ecoado/route surface, y pinning de fuente para
+  toda la lógica que vive 100% en JS/template, mismo criterio que
+  `test_staffing_app_js.py`) + ajustes en 3 archivos existentes
+  (`test_staffing_service.py::_FakeRepository` gana `assignment_scope`;
+  `test_staffing_repository.py` un test actualizado para el `$filter`
+  nuevo en Asignaciones; `test_staffing_routes.py` 3 tests actualizados
+  para las columnas/KPI/label nuevos del template).
+- **Validado sobre stack reproducible** (`.venv`, Python 3.14.3): **566
+  passed / 1 skipped**, route-contract con snapshot actualizado
+  DELIBERADAMENTE (**82→83**, un solo endpoint nuevo, documentado
+  explícito arriba).
+- **SMOKE VISUAL: GREEN** (servidor propio aislado en :8091 — nunca el
+  :8082 del usuario — `.claude/launch.json` local, no versionado, gana
+  una segunda config `danwor-webapp-smoke`; sesión inyectada vía cookie
+  firmada real de `auth_service.create_session`, dataset representativo
+  vía el mismo `TestClient` + `StaffingService` mockeado que usan los
+  tests, inyectado en `#staffing-rows` del DOM real). Verificado leyendo
+  `_x_dataStack` directo (no solo el HTML servido):
+  - Default `{Activo:true, Tentativo:false, Inactivo:false}` — confirmado.
+  - KPIs correctos contra cálculo manual (consultores/activas/horas/
+    activos vencidos) sobre el universo YA filtrado por el default.
+  - Agregación Cliente/Fechas: consultor con 2 asignaciones de MISMO
+    cliente y MISMAS fechas pero proyectos DISTINTOS → Cliente y Fechas
+    agregados correctamente, Proyecto "--" — exactamente el caso "Alejandro
+    Levit/Farmanet" que pidió el usuario. Consultor con 2 asignaciones
+    "(sin resolver)" → agregado muestra "(sin resolver)" con el chip, NO
+    "--" — segundo caso pedido por el usuario, confirmado.
+  - Grouping switch Consultor↔Proyecto: recalculó grupos/labels
+    correctamente, sin request nuevo.
+  - N-days: `setProjectionDays(60)` recalculó `projectionColumnLabel`/
+    `targetISOValue` correctamente, sin Graph.
+  - Drag-and-drop: `data-dashboard-key="staffing"` quedó `dashWired="1"`
+    tras el primer `htmx:load` — reuso confirmado.
+  - Tabla de detalle: ancho de columna IDÉNTICO antes/después de expandir
+    un consultor (verificado en píxeles) — fix de `table-layout:fixed`
+    confirmado, no solo leído en el CSS.
+  - 375px: sin overflow horizontal en `document.body`, timeline con
+    `overflow-x:auto` propio.
+  - Sin errores de consola atribuibles a este batch.
+- **`work/activity-dashboard-hub-v2` (Batch A2) queda PARKED, NO
+  tocado, NO mergeado, NO reconciliado todavía.** Este batch arrancó
+  desde `main` DIRECTAMENTE (no desde esa rama) por instrucción explícita
+  del director. **Requiere una reconciliación separada con `main` después
+  de que esta rama de Staffing se mergee** — nadie debe asumir que A2 ya
+  incluye estos cambios de Staffing, ni viceversa.
+- **DO NOT CHANGE respetado:** sin cambios en Danwor Hub, OAuth/sesión,
+  token de Graph, workspace resolver, ni funcionalidad de Copiloto no
+  relacionada. Sin DB/Redis/workers/caching ampliado.
+
+### Pase correctivo — pre-PR final check
+
+Tres verificaciones finales pedidas antes de abrir el PR — sin ampliar
+alcance.
+
+- **1. REAL GRAPH FILTER — `PENDING OWNER/PRODUCTION SMOKE`.** Este
+  agente NO tiene acceso a un token Graph delegado real ni a una sesión
+  de browser autenticada contra Microsoft 365 en este entorno (mismo
+  límite ya documentado para el discovery de vacaciones, item 9) — el
+  smoke real contra `Asignaciones` (site/list/field mapping SÍ están
+  configurados en `.env` local, confirmado, pero eso no alcanza sin un
+  `access_token` delegado real) no pudo ejecutarse. **No se reemplazó la
+  implementación por esto** — el fallback automático (fetch completo +
+  filtro Python si Graph rechaza `$filter`) sigue siendo la red de
+  seguridad. Queda **explícitamente pendiente de smoke del owner/CI de
+  producción** antes de considerar el filtro Graph "production-proven".
+- **2. TIMELINE GROUP TOTAL HOURS — CONGELADO Y CORREGIDO.** La
+  implementación previa sumaba TODA barra del grupo (incluyendo futuras y
+  Activo-vencidas). Corregido: `groupHoursSuffix(group)` ahora reusa el
+  MISMO helper canónico `_hoursIfEffective` que "Asignación hoy"/
+  "Asignación +N días" — el total es EXCLUSIVAMENTE horas efectivas HOY.
+  **Prueba en vivo** (servidor aislado :8091, sesión real, 3 asignaciones
+  para un mismo consultor — vigente 20h/mes, futura 50h/mes, Activo-
+  vencida 99h/mes): el header del grupo mostró **"· 20 h/mes"**
+  (verificado leyendo `_x_dataStack` real) — nunca 169h (suma ciega) ni
+  119h (excluyendo solo una de las dos). Regresión de fuente agregada en
+  `test_staffing_director_priority_v2.py::test_group_header_hours_suffix_counts_only_hours_effective_today`
+  (no hay runtime de JS en esta suite — pinnea la implementación exacta;
+  la escena de 3 asignaciones se verificó en vivo, no por ejecución de
+  test).
+- **3. NEW HISTORY ENDPOINT SECURITY CONTRACT — MISMO contrato,
+  confirmado + gap cerrado.** `/historial` ya tenía cobertura para: sin
+  sesión (303 al mismo `next` canónico), Operations no autorizado (403),
+  token nunca ecoado, estados controlados sin fuga de detalle. **Gap
+  cerrado en este pase:** faltaba el test explícito de "un `graph_token`
+  con pinta real NUNCA saltea la autorización" (mismo patrón que
+  `test_post_graph_token_never_bypasses_operations_authorization` de
+  `test_staffing_routes.py` para `/data`) — agregado
+  (`test_historial_endpoint_a_real_looking_graph_token_never_bypasses_operations_authorization`,
+  usuario full-tier no listado + token con pinta real + service que
+  rompe el test si se invoca → 403, service nunca llamado).
+- **Gate:** targeted Staffing (171 passed) + full suite (**568 passed /
+  1 skipped**, +2 sobre el baseline previo de 566) + route-contract
+  GREEN (snapshot sin cambios, sigue en **83** — este pase no tocó
+  rutas).
+- **Vacaciones (item 9):** sigue **BLOCKED / FOLLOW-UP REQUIRED**, sin
+  cambios — no se fabricó metadata de workbook, no se reclama overlay
+  implementado en ninguna parte de este batch.
+
+### Próxima decisión (NO autorizada en este commit de código)
+
+Con 1-8/10 implementados y 9 explícitamente bloqueado (discovery
+pendiente de acceso Graph real), el próximo paso es una decisión del
+usuario: (a) autorizar el discovery de vacaciones cuando haya sesión con
+`graph_token` real disponible, (b) cerrar este batch como CLOSED/GREEN
+sin vacaciones y tratarlas como un incremento separado, o (c) alguna otra
+prioridad. **No autorizado todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -3841,7 +4078,21 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 | Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Último batch cerrado:** **Shared Activity / Observability — Context
+- **Último batch trabajado (NO cerrado):** **Staffing Dashboard V2 —
+  Director Priority Update** — ver sección dedicada arriba —
+  **IMPLEMENTED / PENDING CI** (commits `2833fa6` + `3fcb75e`, branch
+  `work/staffing-director-priority-v2`, arrancada desde `main` `2505da2`).
+  Requerimientos 1-8/10 implementados y validados localmente (566 passed
+  / 1 skipped, route surface 82→83, smoke visual GREEN); requerimiento 9
+  (overlay de vacaciones) BLOQUEADO por falta de acceso Graph real en
+  este entorno — NO autorizar su discovery hasta que exista una sesión
+  con `graph_token` real disponible. **`work/activity-dashboard-hub-v2`
+  (Batch A2) sigue PARKED, sin tocar** — este batch arrancó desde `main`
+  directamente, no desde esa rama; A2 necesita su propia reconciliación
+  con `main` en algún momento posterior, independiente de este cierre.
+  **No mergeado, no hay CI real todavía — no cerrar como CLOSED/GREEN sin
+  esa confirmación.**
+- **Último batch CERRADO:** **Shared Activity / Observability — Context
   Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
   (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
   `53277d6`**, owner-confirmed CI GREEN). Envelope de actividad ahora
@@ -3893,19 +4144,28 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
   (fundación de contexto) quedó **CLOSED/GREEN** (PR #44); A2 se apoya en el seam
   `activity_context.context_of` + los campos `scope`/`area`. **AUTORIZADO por el
   owner**; arranca desde el `main` ya realineado tras este cierre documental
-  (branch `work/activity-dashboard-hub-v2`) — NO iniciado todavía. Los hallazgos
-  reportados-pero-diferidos explícitamente en batches previos (colisiones
-  de color en el timeline de Staffing; filtro de tipo de proyecto; switch
-  de agrupamiento consultor/proyecto; Status Finalización; optimización
-  de ventana histórica de Graph) tampoco están autorizados. Entra
-  Groups/App Roles, Projects/Reporting, cálculo de capacidad, Shared
-  Dashboard Primitives o cambios de Staffing quedan igualmente diferidos
-  sin autorización.
+  (branch `work/activity-dashboard-hub-v2`) — NO iniciado todavía; sigue
+  PARKED sin reconciliar con los cambios de Staffing de
+  `work/staffing-director-priority-v2` (ver sección dedicada arriba). Los
+  hallazgos reportados-pero-diferidos explícitamente en batches previos
+  (colisiones de color en el timeline de Staffing; filtro de tipo de
+  proyecto; Status Finalización) SIGUEN diferidos/sin autorizar. **Switch
+  de agrupamiento consultor/proyecto y optimización de la ventana
+  histórica de Graph YA NO están en esta lista — se implementaron en
+  Staffing Dashboard V2 — Director Priority Update (ver arriba).** Entra
+  Groups/App Roles, Projects/Reporting, cálculo de capacidad, overlay de
+  vacaciones (bloqueado por acceso Graph, ver arriba), Shared Dashboard
+  Primitives quedan igualmente diferidos sin autorización.
 - **Next candidate status:** **AUTHORIZED (A2), NOT STARTED** — arranca desde el
   `main` realineado tras el merge de este cierre documental de A1.
-- **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **528 passed / 1 skipped** · route surface **82** · `main` HEAD
-  `53277d6` (merge de PR #44, ya incluye A1 — Context Foundation CLOSED/GREEN).
+- **Baseline (`main`, sin este batch todavía):** Python 3.14.3 · FastAPI
+  0.141.1 · Starlette 1.4.1 · tests **528 passed / 1 skipped** · route
+  surface **82** · `main` HEAD `53277d6` (merge de PR #44, ya incluye A1
+  — Context Foundation CLOSED/GREEN).
+- **Baseline (`work/staffing-director-priority-v2`, local, PENDING CI):**
+  tests **566 passed / 1 skipped** · route surface **83** (nueva ruta
+  `POST /operaciones/staffing/asignaciones/historial`, snapshot
+  actualizado explícitamente) · HEAD `3fcb75e`.
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3942,8 +4202,9 @@ necesidad concreta · cambio de comportamiento o de route-surface no anticipado 
 se intenta comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin
 extraction/rediseño de login-nav/cálculo de capacidad/los hallazgos de UI/
 Staffing diferidos (login "One Danwor", colores del timeline, filtro de
-proyecto, agrupamiento consultor/proyecto, Status Finalización, ventana
-histórica de Graph) sin autorización explícita.
+proyecto, Status Finalización) sin autorización explícita · se retoma el
+discovery de vacaciones (item 9 de Staffing Dashboard V2) sin una sesión
+con `graph_token` real disponible.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis

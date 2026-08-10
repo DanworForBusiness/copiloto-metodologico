@@ -704,8 +704,13 @@ function staffingDashboard(payload) {
   const presentStatuses = [...new Set(assignments.map(a => a.status || "Sin estado"))];
   const statusOptions = [...new Set([...KNOWN_STATUSES, ...presentStatuses])];
 
+  // Staffing Director Priority V2 (ver HANDOFF): default ahora es
+  // EXCLUSIVAMENTE Activo — Tentativo pasa a disponible-pero-no-tildado por
+  // default (sigue 100% funcional/seleccionable, sin restricción de carga:
+  // la carga inicial del server ya lo incluye, solo Inactivo queda excluido
+  // del fetch inicial — ver `_loadInactiveHistory`).
   const defaultStatusFilter = () =>
-    Object.fromEntries(statusOptions.map(s => [s, s === "Activo" || s === "Tentativo"]));
+    Object.fromEntries(statusOptions.map(s => [s, s === "Activo"]));
 
   // Paleta determinística de identidad (project_id, o assignment_id si no
   // hay proyecto) — NUNCA aleatoria, mismo hash en cada render/filtro. El
@@ -718,6 +723,49 @@ function staffingDashboard(payload) {
     let hash = 0;
     for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
     return hash % PALETTE_SIZE;
+  }
+
+  // Staffing Director Priority V2 (ver HANDOFF) — helpers de fecha/efectividad
+  // puros, SIN objetos Date para comparar (las fechas del payload ya son
+  // "YYYY-MM-DD" cero-rellenadas, comparan correctamente como string —
+  // nunca se necesita parsear a Date para eso). `Date` solo se usa para
+  // conocer HOY/HOY+N en la zona horaria LOCAL del browser — siempre
+  // leyendo componentes locales (getFullYear/getMonth/getDate), nunca
+  // `toISOString()` (that convierte a UTC y puede correr un día — el mismo
+  // bug de off-by-one que pide evitar el requerimiento de formato de fecha).
+  function _pad2(n) { return String(n).padStart(2, "0"); }
+  function _isoFromLocalDate(d) { return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`; }
+  function _todayISO() { return _isoFromLocalDate(new Date()); }
+  function _addDaysISO(iso, days) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + days);
+    return _isoFromLocalDate(dt);
+  }
+  // Asignación "efectiva" en una fecha puntual: abierta hacia atrás sin
+  // start_date, abierta hacia adelante sin end_date — mismo criterio
+  // determinístico que ya usa `compute_timeline_position` (Python) para
+  // asignaciones sin un extremo conocido, aplicado acá a una comparación
+  // puntual en vez de un rango visible.
+  function _isEffectiveOn(row, iso) {
+    return (!row.start_date || row.start_date <= iso) && (!row.end_date || row.end_date >= iso);
+  }
+  function _hoursIfEffective(row, iso) {
+    if (!_isEffectiveOn(row, iso)) return 0;
+    if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) return row.allocation_value;
+    return 0;
+  }
+  // Detalle agregado (Staffing Director Priority V2, ver HANDOFF) — "--"
+  // SOLO cuando los hijos genuinamente DIFIEREN en ese campo, nunca porque
+  // el campo "no es agregable en general" (Cliente/Proyecto/Desde/Hasta SÍ
+  // se informan a nivel agregado cuando el grupo entero comparte un único
+  // valor — incluyendo un único "(sin resolver)" compartido, o fechas
+  // iguales aunque Cliente/Proyecto difieran). `undefined` = sin consenso
+  // (los valores reales SÍ pueden ser `null`, p. ej. sin fecha — por eso
+  // `undefined`, nunca `null`, marca "no agregable").
+  function _singleValue(values) {
+    const unique = new Set(values);
+    return unique.size === 1 ? [...unique][0] : undefined;
   }
 
   return {
@@ -734,11 +782,33 @@ function staffingDashboard(payload) {
       project: "",
       client: "",
       availability: "",
-      // Default V1 congelado: Activo + Tentativo ÚNICAMENTE seleccionados.
-      // Inactivo y "Sin estado" quedan disponibles pero NO seleccionados —
-      // decisión explícita y visible, no un descarte silencioso (ver HANDOFF).
+      // Default Director Priority V2: SOLO Activo. Tentativo/Inactivo/"Sin
+      // estado" quedan disponibles pero NO seleccionados — decisión
+      // explícita y visible, no un descarte silencioso (ver HANDOFF).
       status: defaultStatusFilter(),
     },
+
+    // Lazy history (Staffing Director Priority V2, ver HANDOFF): el fetch
+    // inicial del server YA excluye Inactivo — `historyLoaded` marca si el
+    // delta histórico ya se pidió/mergeó en esta sesión de dashboard
+    // (nunca se vuelve a pedir tras la primera vez, togglear Inactivo de
+    // ida y vuelta no repite el request). `historyLoadError` es solo
+    // presentación (mensaje inline), nunca bloquea el resto del dashboard.
+    historyLoaded: false,
+    historyLoadError: false,
+    _historyLoading: false,
+
+    // Grouping switch (Consultor ↔ Proyecto) — mismo `filteredAssignments`,
+    // sin refetch. Ver `timelineGroups`/`groupHoursSuffix`/`rowGroupSecondaryLabel`.
+    groupBy: "consultant",
+
+    // Proyección de capacidad (+N días) — control numérico, recalcula
+    // sobre el dataset ya cargado, sin Graph.
+    projectionDays: 35,
+
+    // Detalle agregado por consultor — expansión de presentación pura
+    // (nunca filtra), keyed igual que collapsedConsultants/timelineGroups.
+    expandedDetailGroups: {},
 
     init() {
       // Si el usuario elige un consultor puntual, ese grupo nunca debe
@@ -759,6 +829,39 @@ function staffingDashboard(payload) {
       this.$watch("filters.client", () => this._reconcileSelections());
       this.$watch("filters.availability", () => this._reconcileSelections());
       this.$watch("filters.status", () => this._reconcileSelections());
+
+      // Lazy history (ver HANDOFF): la PRIMERA vez que el usuario tilda
+      // Inactivo, dispara el fetch del delta histórico — togglear de ida y
+      // vuelta después nunca vuelve a pedirlo (`historyLoaded`).
+      this.$watch("filters.status.Inactivo", (value) => {
+        if (value && !this.historyLoaded) this._loadInactiveHistory();
+      });
+    },
+
+    async _loadInactiveHistory() {
+      if (this.historyLoaded || this._historyLoading) return;
+      this._historyLoading = true;
+      this.historyLoadError = false;
+      try {
+        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const body = new URLSearchParams({ graph_token: token });
+        const response = await fetch("/operaciones/staffing/asignaciones/historial", { method: "POST", body });
+        const data = await response.json();
+        if (data.state === "ok") {
+          // Merge por assignment_id — nunca reemplaza el array completo,
+          // nunca duplica una fila ya presente (dedup determinístico).
+          const seen = new Set(this.assignments.map(a => a.assignment_id));
+          const fresh = (data.assignments || []).filter(a => !seen.has(a.assignment_id));
+          this.assignments = [...this.assignments, ...fresh];
+          this.historyLoaded = true;
+        } else {
+          this.historyLoadError = true;
+        }
+      } catch (e) {
+        this.historyLoadError = true;
+      } finally {
+        this._historyLoading = false;
+      }
     },
 
     _reconcileSelections() {
@@ -810,7 +913,7 @@ function staffingDashboard(payload) {
       return row.client_name ? `${row.client_name} - ${row.project_name}` : row.project_name;
     },
     rowLabelTitle(row) {
-      return `${this.rowStatusHoursLabel(row)} · ${this.rowClientProjectLabel(row)}`;
+      return `${this.rowStatusHoursLabel(row)} · ${this.rowGroupSecondaryLabel(row)}`;
     },
 
     // Tooltip de la barra — mismos hechos ya presentes en el objeto
@@ -826,7 +929,7 @@ function staffingDashboard(payload) {
       }
       if (row.client_name) parts.push(row.client_name);
       parts.push(row.project_name);
-      parts.push((row.start_date || "¿inicio?") + " → " + (row.end_date || "en curso"));
+      parts.push((this.formatDateDMY(row.start_date) || "¿inicio?") + " → " + (this.formatDateDMY(row.end_date) || "en curso"));
       return parts.join(" — ");
     },
 
@@ -939,13 +1042,187 @@ function staffingDashboard(payload) {
       // la alineación vertical con el resto de los KPIs (revisión visual,
       // ver HANDOFF).
       const roundedActiveHours = Math.round(activeHours * 100) / 100;
+      // Activos vencidos (Staffing Director Priority V2, ver HANDOFF):
+      // cuenta ASIGNACIONES (no consultores distintos) — `activo_vencido`
+      // ya viene calculado por el server (`is_activo_vencido`, ÚNICA regla
+      // canónica), acá solo se cuenta sobre el universo YA filtrado.
+      const activosVencidos = rows.filter(r => r.activo_vencido).length;
       return {
         consultants: consultants.size,
         projects: projects.size,
         active: active.length,
         tentative: tentative.length,
         activeHoursLabel: roundedActiveHours.toLocaleString("en-US"),
+        activosVencidos,
       };
+    },
+
+    // Grouping switch (Consultor ↔ Proyecto) — mismo dataset filtrado, sin
+    // Graph. El botón describe la ACCIÓN (a qué modo cambiaría al clickear).
+    toggleGrouping() {
+      this.groupBy = this.groupBy === "consultant" ? "project" : "consultant";
+    },
+    get groupToggleLabel() {
+      return this.groupBy === "consultant" ? "Agrupar por proyecto" : "Agrupar por consultor";
+    },
+    // Etiqueta secundaria de la fila del timeline — depende de qué está
+    // agrupado: agrupado por Consultor, la fila muestra Cliente-Proyecto
+    // (como siempre); agrupado por Proyecto, la fila muestra el Consultor
+    // de esa asignación (mismo dato, ángulo inverso). Una sola
+    // implementación de fila, nunca dos timelines paralelos.
+    rowGroupSecondaryLabel(row) {
+      return this.groupBy === "project" ? (row.consultant_name || "(sin resolver)") : this.rowClientProjectLabel(row);
+    },
+    // Solo el SUFIJO ("· 60 h/mes") — nunca el nombre repetido. El template
+    // renderiza nombre y sufijo en dos <span> separados a propósito (ajuste
+    // cosmético pedido por el usuario): el mismo negro/blanco en bold para
+    // ambos competía visualmente — separarlos permite que el sufijo use un
+    // gris más suave sin tocar el peso/color del nombre.
+    //
+    // Semántica CONGELADA (pre-PR final check, ver HANDOFF): el total es
+    // horas EFECTIVAS HOY, NUNCA la suma de toda barra que exista en el
+    // dataset filtrado/timeline — eso incluiría asignaciones futuras y
+    // Activo-vencidas, que no representan carga vigente. Reusa el MISMO
+    // helper canónico `_hoursIfEffective` que "Asignación hoy"/"Asignación
+    // +N días" — una sola definición de "efectivo en una fecha", nunca dos.
+    groupHoursSuffix(group) {
+      const todayIso = _todayISO();
+      const total = group.rows.reduce((sum, r) => sum + _hoursIfEffective(r, todayIso), 0);
+      const rounded = Math.round(total * 100) / 100;
+      return `· ${rounded.toLocaleString("en-US")} h/mes`;
+    },
+
+    // Fechas Argentina (dd/mm/yyyy completo, dd/mm corto) — parseo puro de
+    // string, SIN `new Date(iso)` (evita el corrimiento de un día por UTC
+    // que castigaría justo a los valores date-only que maneja Staffing).
+    formatDateDMY(iso, short) {
+      if (!iso) return null;
+      const [y, m, d] = iso.split("-");
+      return short ? `${d}/${m}` : `${d}/${m}/${y}`;
+    },
+
+    // Proyección de capacidad (+N días) — mismo dataset filtrado, sin
+    // Graph. `todayISOValue`/`targetISOValue` son getters (no closures
+    // fijas) para que cambiar `projectionDays` recalcule solo.
+    get todayISOValue() { return _todayISO(); },
+    get targetISOValue() { return _addDaysISO(_todayISO(), this.projectionDays); },
+    get projectionColumnLabel() { return `Asignación +${this.projectionDays} días`; },
+    setProjectionDays(value) {
+      const n = Math.round(Number(value));
+      this.projectionDays = Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : this.projectionDays;
+    },
+    // Etiqueta por-asignación en el detalle expandido: "—" si esa asignación
+    // puntual no está vigente en la fecha pedida, nunca un cero engañoso
+    // (una asignación no-efectiva no tiene una carga "de cero horas", no
+    // existe en ese punto del tiempo).
+    rowEffectiveLabel(row, iso) {
+      if (!_isEffectiveOn(row, iso)) return "—";
+      if (row.allocation_unit === "hours_per_month" && row.allocation_value != null) return row.allocation_label;
+      return "—";
+    },
+
+    // Detalle agregado por consultor (default V2, ver HANDOFF) — Cliente/
+    // Proyecto/Desde/Hasta NUNCA se agregan (el template los renderiza
+    // "--" para la fila agregada); Estado agregado es determinístico:
+    // el único status compartido, o "Mixto" si los hijos difieren — nunca
+    // se elige uno arbitrario. Misma key de agrupación que `timelineGroups`
+    // en modo consultor (consultant_id, o "unresolved-"+assignment_id para
+    // no fusionar personas distintas sin id).
+    get aggregatedDetailRows() {
+      const todayIso = this.todayISOValue;
+      const targetIso = this.targetISOValue;
+      const groups = new Map();
+      this.filteredAssignments.forEach(a => {
+        const key = a.consultant_id || ("unresolved-" + a.assignment_id);
+        if (!groups.has(key)) groups.set(key, { key, consultant_name: a.consultant_name, rows: [] });
+        groups.get(key).rows.push(a);
+      });
+      return [...groups.values()].map(g => {
+        const statuses = new Set(g.rows.map(r => r.status || "Sin estado"));
+        const hoy = g.rows.reduce((sum, r) => sum + _hoursIfEffective(r, todayIso), 0);
+        const proyectada = g.rows.reduce((sum, r) => sum + _hoursIfEffective(r, targetIso), 0);
+        // Cliente/Proyecto/Desde/Hasta: "--" SOLO si los hijos difieren en
+        // ESE campo puntual — cada uno se evalúa de forma INDEPENDIENTE
+        // (fechas iguales con clientes distintos igual informan la fecha).
+        const clienteValue = _singleValue(g.rows.map(r => r.client_name || null));
+        const proyectoValue = _singleValue(g.rows.map(r => r.project_name));
+        const desdeValue = _singleValue(g.rows.map(r => r.start_date || null));
+        const hastaValue = _singleValue(g.rows.map(r => r.end_date || null));
+        return {
+          key: g.key,
+          consultant_name: g.consultant_name,
+          rows: g.rows,
+          estado: statuses.size === 1 ? [...statuses][0] : "Mixto",
+          disponibilidad: g.rows[0].availability,
+          asignacion_hoy_label: (Math.round(hoy * 100) / 100).toLocaleString("en-US") + " h/mes",
+          asignacion_proyectada_label: (Math.round(proyectada * 100) / 100).toLocaleString("en-US") + " h/mes",
+          cliente_label: clienteValue === undefined ? "--" : (clienteValue || "—"),
+          proyecto_label: proyectoValue === undefined ? "--" : proyectoValue,
+          // Mismo `project_name` compartido ⇒ mismo estado de resolución
+          // (un proyecto real jamás se llama literalmente "(sin resolver)").
+          proyecto_unresolved: proyectoValue !== undefined && !!g.rows[0].project_unresolved,
+          desde_label: desdeValue === undefined ? "--" : (this.formatDateDMY(desdeValue) || "—"),
+          hasta_label: hastaValue === undefined ? "--" : (this.formatDateDMY(hastaValue) || "—"),
+        };
+      }).sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
+    },
+    isDetailGroupExpanded(key) {
+      return !!this.expandedDetailGroups[key];
+    },
+    toggleDetailGroup(key) {
+      this.expandedDetailGroups[key] = !this.expandedDetailGroups[key];
+    },
+    // Vista PLANA (aggregate row + sus hijos, en orden, intercalados) — un
+    // solo `x-for` en el template, sin anidar dos <template x-for> sobre la
+    // misma lista (eso los renderiza como dos bloques separados, no
+    // intercalados: todas las filas agregadas primero y TODOS los hijos
+    // expandidos al final de la tabla, un bug real de layout, no solo
+    // estético). Todas las filas comparten exactamente las mismas 10
+    // columnas — la fila hija solo difiere en QUÉ contenido pone en cada
+    // celda, nunca en la forma.
+    get detailRows() {
+      const todayIso = this.todayISOValue;
+      const targetIso = this.targetISOValue;
+      const flat = [];
+      this.aggregatedDetailRows.forEach(group => {
+        const expanded = this.isDetailGroupExpanded(group.key);
+        flat.push({
+          is_aggregate: true,
+          key: "agg-" + group.key,
+          toggle_key: group.key,
+          expanded,
+          consultant_label: group.consultant_name,
+          client_label: group.cliente_label,
+          project_label: group.proyecto_label,
+          project_unresolved: group.proyecto_unresolved,
+          hoy_label: group.asignacion_hoy_label,
+          proyectada_label: group.asignacion_proyectada_label,
+          estado_label: group.estado,
+          estado_slug: this.statusSlug(group.estado),
+          desde_label: group.desde_label,
+          hasta_label: group.hasta_label,
+          disponibilidad_label: group.disponibilidad,
+        });
+        if (!expanded) return;
+        group.rows.forEach(row => {
+          flat.push({
+            is_aggregate: false,
+            key: "row-" + row.assignment_id,
+            consultant_label: "",
+            client_label: row.client_name || "—",
+            project_label: row.project_name,
+            project_unresolved: row.project_unresolved,
+            hoy_label: this.rowEffectiveLabel(row, todayIso),
+            proyectada_label: this.rowEffectiveLabel(row, targetIso),
+            estado_label: row.status || "—",
+            estado_slug: this.statusSlug(row.status),
+            desde_label: this.formatDateDMY(row.start_date) || "—",
+            hasta_label: this.formatDateDMY(row.end_date) || "—",
+            disponibilidad_label: row.availability,
+          });
+        });
+      });
+      return flat;
     },
 
     // Jerarquía consultor → asignación (una barra por asignación, NUNCA
@@ -958,15 +1235,24 @@ function staffingDashboard(payload) {
     // comparten el mismo texto "(sin resolver)" (podrían ser personas
     // distintas cuyo lookup falló por separado — ver invariante de
     // Disponibilidad más abajo).
+    // Grouping switch (Staffing Director Priority V2, ver HANDOFF): UNA sola
+    // implementación de agrupación para ambos modos — solo cambia de qué
+    // entidad viene la key/label del grupo, nunca duplica el timeline. Modo
+    // Proyecto usa el mismo criterio "sin id real = grupo propio" que
+    // Consultor (nunca fusiona proyectos sin resolver distintos).
     get timelineGroups() {
+      const byProject = this.groupBy === "project";
       const groups = new Map();
       this.filteredAssignments.forEach(a => {
         if (!a.on_timeline) return;
-        const key = a.consultant_id || ("unresolved-" + a.assignment_id);
-        if (!groups.has(key)) groups.set(key, { key, consultant_name: a.consultant_name, rows: [] });
+        const key = byProject ? (a.project_id || ("unresolved-" + a.assignment_id)) : (a.consultant_id || ("unresolved-" + a.assignment_id));
+        const label = byProject ? a.project_name : a.consultant_name;
+        if (!groups.has(key)) groups.set(key, { key, consultant_name: label, rows: [] });
         groups.get(key).rows.push(a);
       });
-      return [...groups.values()].sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
+      return [...groups.values()]
+        .map(g => ({ ...g, hours_suffix: this.groupHoursSuffix(g) }))
+        .sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
     },
 
     // Asignaciones sin ninguna fecha real — no se posicionan en el
