@@ -3325,6 +3325,115 @@ genérico.
 
 ---
 
+## SHARED WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI
+(commit funcional `dd7f99d` — `refactor(platform): share workspace sidebar
+frame`, branch `work/shared-workspace-sidebar-frame`. **NO marcar
+CLOSED/GREEN todavía** — falta la confirmación de CI real en GitHub Y la
+validación visual/de producto por el owner, mismo protocolo ya usado en
+batches anteriores.)
+
+Corrective de arquitectura, disparado por una revisión visual real en
+producción: Copiloto y Operaciones (los DOS consumidores reales de
+workspace hoy) se compararon lado a lado y aparecieron 3 diferencias —
+resize del nav ausente en Operaciones, bienvenida de sesión ausente en
+Operaciones, y una sospecha de que el markup pudiera estar copiado en vez
+de reusado.
+
+- **Descubrimiento — la sospecha de "copiado vs. reusado" se DESCARTÓ:**
+  el frame real (grid `.app-shell` con `--nav-width`/`--panel-width`,
+  `.module-nav` en `grid-column:1`, el controlador Alpine
+  `copilotLayout()` de `webapp/static/app.js`, la persistencia de ancho en
+  `localStorage["dw-nav-width"]`) YA era compartido antes de este batch —
+  `operations/staffing.html` ya usaba `class="app-shell no-copilot"` (la
+  MISMA clase que `module.html`/`academy.html`) y `x-data="copilotLayout(
+  'staffing')"` (el MISMO componente Alpine, invocado por 9 templates
+  distintas, Copiloto y Operaciones incluidos). `operations_nav.html` ya
+  reusaba `.module-nav`/`.nav-kicker`/`.module-link` (su propio comentario
+  ya decía "mismo idioma visual que copilot_nav.html"). No había una
+  segunda hoja de estilos ni una segunda implementación de resize.
+- **Causa real — dos omisiones puntuales, no un problema de arquitectura:**
+  1. `operations/staffing.html` nunca renderizaba el `<div data-resize=
+     "left">` — `copilotLayout().init()` (`app.js`) ya hace
+     `shell.querySelectorAll("[data-resize]")` y le engancha el drag, pero
+     no había ningún `[data-resize]` que encontrar en la página de
+     Staffing.
+  2. `staffing_page()` (`webapp/routers/staffing.py`) calculaba `user =
+     auth_service.session_user(request)` pero nunca lo pasaba al contexto
+     del template — `operations_nav.html` no tenía forma de saber quién
+     estaba logueado, aun si hubiera querido mostrar la bienvenida.
+- **Corrección — mínima, aditiva, sin tocar CSS/JS compartido:**
+  `webapp/templates/operations/staffing.html` ahora incluye el MISMO
+  `<div class="resize-handle resize-left" data-resize="left">` que
+  `module.html`/`academy.html` (markup idéntico, cero JS/CSS nuevo — el
+  mecanismo ya existía). `staffing_page()` ahora agrega `"user": user` al
+  contexto, igual que ya hacen `modules.py`/`academy.py`.
+- **Bienvenida de sesión — extraída a un macro compartido, no duplicada:**
+  el texto "Bienvenido `<nombre>`" vivía como HTML inline solo dentro de
+  `copilot_nav.html`. Copiarlo tal cual a `operations_nav.html` habría sido
+  la duplicación real que el batch buscaba evitar, así que se extrajo a
+  `webapp/templates/partials/workspace_nav_identity.html` (macro
+  `nav_welcome(user, readonly=False)`) — una sola fuente de verdad,
+  importada por AMBOS `copilot_nav.html` y `operations_nav.html`. La
+  identidad sigue viniendo de la MISMA sesión (`auth_service.session_user`)
+  para los dos — Operaciones nunca parsea claims de Microsoft por su
+  cuenta ni reimplementa el formateo del nombre. `readonly` (tier academy
+  del Copiloto, badge "Modo lectura") es un parámetro opcional del macro
+  que Operaciones simplemente no pasa — no existe ese tier para Operaciones
+  y el macro no lo asume.
+- **Frontera final — frame compartido, contenido workspace-owned (sin
+  cambios):** la navegación de Copiloto (acordeón Core/Apéndices/Academy,
+  `pack`, numeración de módulos) y la de Operaciones (`STAFFING → 01
+  Asignaciones`) siguen siendo 100% de cada workspace — no se importó
+  ningún concepto de Copiloto a Operaciones ni viceversa. No se
+  implementaron Projects/Reporting (fuera de alcance explícito). El
+  geometry contract sigue siendo ÚNICO: `--nav-width`/`--panel-width` en
+  `.app-shell` (`webapp/static/layout.css`) — ningún template declara su
+  propio ancho o `grid-template-columns`.
+- **`copilotLayout()` — nombre histórico, comportamiento ya genérico:**
+  la función se llama `copilotLayout` pero ya opera sobre `this.$root`
+  (el `.app-shell` que sea) sin ninguna referencia a Copiloto específica —
+  9 templates la invocan hoy, incluyendo Operaciones. Renombrarla es
+  cosmético, no funcional; **deliberadamente NO se tocó en este batch**
+  (alcance mínimo) — queda como residual de naming, no como deuda
+  bloqueante.
+- **Copiloto sin regresión:** `module.html`/`academy.html` no se tocaron
+  — el macro compartido reemplaza su línea inline por una llamada
+  equivalente (`nav_welcome(user, readonly)`), mismo HTML resultante,
+  mismo comportamiento de resize, mismo pack/módulo. Confirmado por los
+  tests existentes de `test_routes.py`/`test_platform_topbar.py`
+  (168 tests, todos GREEN sin modificar ninguno) más los nuevos tests
+  dedicados.
+- **Route surface: 82, sin cambios.** Ningún router/ruta nueva —
+  `staffing_page` solo agregó una clave al contexto de un template ya
+  existente.
+- **Tests (+10, nuevo `tests/webapp/test_workspace_sidebar_frame.py`):**
+  reuso semántico, no snapshots de pixeles/HTML completo — ambos
+  workspaces renderizan el mismo `[data-resize="left"]`; ambos usan el
+  mismo `x-data="copilotLayout(...)"` y `.app-shell`; ningún template
+  declara `--nav-width`/`grid-template-columns` localmente; la bienvenida
+  se renderiza igual para cada usuario real vía `TestClient`; el macro de
+  bienvenida está definido una sola vez e importado por los dos partials
+  (mismo criterio que `test_platform_hub_icon_reuse.py` para `hub_icon()`);
+  Copiloto sigue mostrando su nav de módulos/Academy y Operaciones el suyo
+  de Staffing; ningún markup de un workspace se filtra al otro.
+- Validado sobre **stack reproducible** (`.venv` del proyecto, Python
+  **3.14.3**): **suite 507 passed / 1 skipped** (497 + 10 nuevos),
+  route-contract GREEN, snapshot sin cambios (**82**).
+- **Validación visual:** NO realizada vía navegador automatizado — el
+  login real requiere Microsoft Entra ID OAuth con credenciales reales,
+  fuera de alcance de este entorno. Verificación equivalente hecha vía
+  `TestClient` HTTP directo contra el servidor real (mismo motor Jinja,
+  mismo HTML servido): se capturó el render completo del nav de Copiloto y
+  de Operaciones antes/después del cambio y se confirmó que el handle de
+  resize y la bienvenida aparecen en ambos con el HTML esperado. Falta
+  smoke visual real del owner en `localhost:8082`/producción antes de
+  CLOSED/GREEN.
+- **Pendiente:** confirmación de CI real en GitHub + validación
+  visual/de producto por el owner antes de CLOSED/GREEN. No se abrió el PR
+  todavía.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -3359,29 +3468,29 @@ genérico.
 | Danwor Hub Visual Identity | **CLOSED / GREEN** |
 | Operations Workspace Access Gate | **CLOSED / GREEN** |
 | Danwor Hub — Single-Workspace Switcher Correction | **CLOSED / GREEN** |
+| Shared Workspace Sidebar Frame | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Phase:** ninguna fase de producto abierta. Los dos últimos batches
-  (Operations Workspace Access Gate y Danwor Hub — Single-Workspace
-  Switcher Correction) están **ambos CLOSED/GREEN, mergeados a `main`, y
-  validados en producción DigitalOcean** — ver las dos secciones dedicadas
-  arriba. Precedidos por Staffing — Asignaciones Dashboard v1 (PR #33,
-  **CLOSED/GREEN**) y Danwor Hub Visual Identity (**CLOSED/GREEN**).
-- **Status:** **CLOSED / GREEN** para ambos batches. CI real de GitHub
-  confirmado GREEN sobre PR #35 (Operations gate, merge `324b6f2`) y PR #36
-  (switcher correction, merge `979cfc1` — HEAD actual de `main`). El owner
-  confirmó el **2026-08-10** que ambos comportamientos funcionan
-  correctamente en **producción DigitalOcean** — **smoke de producción
-  verificado por el usuario, NO un resultado de test automatizado**.
-- **Functional commits:** `05b5da3` (`feat(operations): add explicit
-  workspace access allowlist`) + corrección `47ee619` (`fix(operations):
-  reject wildcard workspace access`) + docs `7994bbb`, branch
-  `work/operations-access-gate`, PR #35. Luego `bd301c0` (`fix(platform):
-  hide Hub switcher for single workspace`), branch
-  `work/hub-switcher-single-workspace`, PR #36. Ningún commit fue
-  amendeado/squasheado.
-- **Alcance combinado:** `OPERATIONS_ALLOWED_USERS` (allowlist explícita,
-  fail-closed, sin wildcard `"ALL"`, misma normalización que
+- **Phase:** Shared Workspace Sidebar Frame — ver sección dedicada arriba.
+  Precedida por Operations Workspace Access Gate y Danwor Hub —
+  Single-Workspace Switcher Correction, **ambos CLOSED/GREEN, mergeados a
+  `main` (vía PR #35/#324b6f2 y PR #36/#979cfc1) y validados en producción
+  DigitalOcean el 2026-08-10**; la docs-only closure de ambos también
+  mergeó vía **PR #37** (merge commit `5d6dba2`). Ninguno de los tres se
+  tocó en este batch.
+- **Status:** **IMPLEMENTED / PENDING CI.** Suite local sobre el HEAD real
+  (funcional `dd7f99d`): **507 passed / 1 skipped** (497 + 10 nuevos),
+  route surface **82** (sin cambios). Ver sección dedicada "SHARED
+  WORKSPACE SIDEBAR FRAME — IMPLEMENTED / PENDING CI" arriba para el
+  detalle completo — falta la confirmación de CI real en GitHub Y
+  validación visual/de producto por el owner antes de CLOSED/GREEN. PR no
+  abierto todavía.
+- **Functional commit:** `dd7f99d` — `refactor(platform): share workspace
+  sidebar frame` (un solo commit funcional, sin amend/squash). Branch
+  `work/shared-workspace-sidebar-frame`.
+- **Alcance combinado (batches previos, sin tocar en este):**
+  `OPERATIONS_ALLOWED_USERS` (allowlist explícita, fail-closed, sin
+  wildcard `"ALL"`, misma normalización que
   `ALLOWED_USERS`); `is_operations_authorized_user` = admisión base AND
   allowlist de Operations, ortogonal al tier de Copiloto, sin bypass de
   `APP_OWNER`; MISMO predicado gobierna descubrimiento (`workspaces.py`) y
@@ -3390,18 +3499,32 @@ genérico.
   workspace, presente con 2+, ícono del hero de Danwor Hub intacto).
   **Ninguna ruta se renombró, ningún cambio de auth/OAuth/sesión, route
   surface sin cambios (82)** — ver "Alcance" en cada sección dedicada
-  arriba.
-- **Next candidate:** ninguno nominado por este documento. Ambos batches
-  fueron deliberadamente pequeños y no abren una fase nueva — el próximo
-  incremento debe partir de una evaluación fresca del estado actual
-  (código + tests + HANDOFF), no de una continuación asumida. Entra
-  Groups/App Roles, Projects/Reporting, cálculo de capacidad, refactor del
-  sidebar, rebranding de login o cambios de color/agrupamiento de Staffing
-  quedan explícitamente diferidos sin autorización.
+  arriba. El batch de Sidebar Frame (esta fase) agrega: frame de sidebar
+  YA compartido confirmado por evidencia (no se creó ninguna abstracción
+  nueva de geometría/resize); `user` ahora en el contexto de
+  `staffing_page`; bienvenida de sesión extraída a
+  `partials/workspace_nav_identity.html`, importada por Copiloto Y
+  Operaciones — sin tocar navegación workspace-owned de ninguno de los
+  dos.
+- **Next candidate:** ninguno nominado por este documento. Los tres
+  últimos batches fueron deliberadamente pequeños y no abren una fase
+  nueva — el próximo incremento debe partir de una evaluación fresca del
+  estado actual (código + tests + HANDOFF), no de una continuación
+  asumida. Los hallazgos reportados-pero-diferidos explícitamente durante
+  el batch de Sidebar Frame (login no autenticado sigue diciendo "One
+  Danwor"; colisiones de color en el timeline de Staffing; filtro de tipo
+  de proyecto; switch de agrupamiento consultor/proyecto; Status
+  Finalización; optimización de ventana histórica de Graph) NO están
+  autorizados por este documento — son candidatos para batches propios.
+  Entra Groups/App Roles, Projects/Reporting, cálculo de capacidad,
+  rebranding de login o cambios de color/agrupamiento de Staffing quedan
+  igualmente diferidos sin autorización.
 - **Next candidate status:** **NOT AUTHORIZED.**
 - **Baseline:** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests
-  **497 passed / 1 skipped** · route surface **82** · `main` HEAD
-  `979cfc1e6f6b51765a8ab77976d168899b42da85`.
+  **507 passed / 1 skipped** · route surface **82** · commit funcional
+  `dd7f99d` sobre `work/shared-workspace-sidebar-frame` (branchada desde
+  `main` HEAD `5d6dba2d92ad1daf5797971b014aa1850dba0c3d`, que ya incluye la
+  docs-closure PR #37).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
@@ -3415,7 +3538,10 @@ genérico.
    2026-08-10)**, **Danwor Hub — Single-Workspace Switcher Correction
    CLOSED/GREEN (commit `bd301c0`, branch
    `work/hub-switcher-single-workspace`, PR #36, production-verified
-   2026-08-10)**, observación no-bloqueante de calidad referencial de
+   2026-08-10)**, **Shared Workspace Sidebar Frame IMPLEMENTED/PENDING CI
+   (commit `dd7f99d`, branch `work/shared-workspace-sidebar-frame` — falta
+   confirmación de CI real Y validación visual/de producto del owner antes
+   de CLOSED/GREEN)**, observación no-bloqueante de calidad referencial de
    origen registrada (no resuelta a propósito).
 3. El usuario decide el próximo incremento a partir de una evaluación
    fresca — nada queda autorizado por este documento hasta que el usuario
@@ -3428,8 +3554,10 @@ working tree sucio · el próximo candidato requiere una dependencia main-privat
 inesperada · aparece necesidad de `app.state`/`Depends()`/DI no justificada por
 necesidad concreta · cambio de comportamiento o de route-surface no anticipado ·
 se intenta comenzar Phase 3/M365 hardening completo/Catalog refactor/Admin
-extraction/workspace switcher/rediseño de login-nav/cálculo de capacidad sin
-autorización explícita.
+extraction/rediseño de login-nav/cálculo de capacidad/los hallazgos de UI/
+Staffing diferidos (login "One Danwor", colores del timeline, filtro de
+proyecto, agrupamiento consultor/proyecto, Status Finalización, ventana
+histórica de Graph) sin autorización explícita.
 
 ## REMAINING PHASE 2 MAP (post-2J-D)
 **STATEFUL** — completo. Module page (2J-D), Assistant + Section Analysis
