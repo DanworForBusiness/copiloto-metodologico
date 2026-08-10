@@ -2,9 +2,13 @@
    Grupos colapsables: Core + Apéndices + Danwor Academy.
    `active_group` (core|appendix|academy) decide cuál abre inicialmente;
    `active_stem` resalta la entrada actual. Academy está desconectado de la
-   navegación metodológica (prev/next/loop) — es un área aparte. #}
+   navegación metodológica (prev/next/loop) — es un área aparte.
+   La bienvenida de sesión ("Bienvenido <nombre>") es un macro COMPARTIDO
+   con Operaciones — ver partials/workspace_nav_identity.html, nunca
+   copiarla de nuevo acá. #}
+{% from "partials/workspace_nav_identity.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
-  {% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong>{% if readonly %} <span class="nav-readonly" title="Tu perfil navega y lee todo el contenido, pero el asistente IA está deshabilitado por ahora.">Modo lectura</span>{% endif %}</p>{% endif %}
+  {{ nav_welcome(user, readonly) }}
   <nav aria-label="Módulos metodológicos">
     <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
       <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>

@@ -23,6 +23,13 @@
 
   {% include "partials/operations_nav.html" %}
 
+  {# MISMO mecanismo de resize que Copiloto (module.html/academy.html) —
+     `copilotLayout().init()` ya busca cualquier `[data-resize]` dentro del
+     `.app-shell` (app.js) y persiste el ancho en localStorage
+     (`dw-nav-width`); a Operaciones solo le faltaba este handle, no una
+     segunda implementación. #}
+  <div class="resize-handle resize-left" data-resize="left" title="Arrastrar para redimensionar" aria-hidden="true"></div>
+
   <main id="content" class="module-content">
     <section class="module-hero">
       <p class="eyebrow">Staffing</p>
