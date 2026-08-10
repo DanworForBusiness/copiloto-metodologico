@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Callable
 
 DEFAULT_TIMEOUT = 12
 
@@ -59,15 +60,25 @@ def graph_get_json(
 
 def graph_get_paged_values(
     url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
+    on_page: Callable[[int], None] | None = None,
 ) -> list:
     """Sigue `@odata.nextLink` acumulando `value` de cada página hasta que Graph
     no devuelve una página siguiente. Mismo patrón que
     `core/sharepoint_cases.py::_fetch_sap_cases_cached` — acá generalizado, sin
-    cache (la cache sigue siendo responsabilidad del caller)."""
+    cache (la cache sigue siendo responsabilidad del caller).
+
+    `on_page` (Staffing Director Priority V2 pre-PR corrective, ver HANDOFF)
+    — callback OPCIONAL invocado una vez por página con la cantidad de items
+    de esa página; permite que el caller cuente páginas/filas sin que este
+    módulo posea ninguna noción de diagnóstico/logging propia. `None`
+    (default) preserva el comportamiento exacto de siempre."""
     items: list = []
     next_url = url
     while next_url:
         payload = graph_get_json(next_url, access_token, timeout=timeout, extra_headers=extra_headers)
-        items.extend(payload.get("value") or [])
+        page_items = payload.get("value") or []
+        items.extend(page_items)
+        if on_page is not None:
+            on_page(len(page_items))
         next_url = payload.get("@odata.nextLink") or ""
     return items
