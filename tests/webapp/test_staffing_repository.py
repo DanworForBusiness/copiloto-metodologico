@@ -280,9 +280,13 @@ def test_colaboradores_request_omits_select_for_availability_when_not_configured
     assert "$expand=fields($select=Title)" in colab_url
 
 
-def test_asignaciones_and_proyectos_requests_unchanged_no_select(monkeypatch):
-    # Ya funcionan correctamente con $expand=fields sin selección (Batch 3,
-    # validado contra Graph real) — no se tocan sin necesidad comprobada.
+def test_asignaciones_and_proyectos_requests_no_select(monkeypatch):
+    # Proyectos: $expand=fields sin selección, sin cambios (Batch 3,
+    # validado contra Graph real) — no se toca. Asignaciones YA NO termina
+    # en "sin más" — el alcance operacional default (Staffing Director
+    # Priority V2, ver HANDOFF) le agrega $filter para excluir Inactivo del
+    # fetch inicial (ver test_staffing_assignment_scope.py para el contrato
+    # completo de ese filtro); acá solo se confirma que sigue sin $select.
     calls = []
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(calls))
 
@@ -290,7 +294,8 @@ def test_asignaciones_and_proyectos_requests_unchanged_no_select(monkeypatch):
 
     asig_url = next(url for url, _tok in calls if _ASIG_LIST in url)
     proy_url = next(url for url, _tok in calls if _PROY_LIST in url)
-    assert asig_url.endswith("/items?$expand=fields")
+    assert asig_url.startswith(f"{repo_module.GRAPH_BASE}/sites/{_SITE_ID}/lists/{_ASIG_LIST}/items?$expand=fields")
+    assert "$select=" not in asig_url
     assert proy_url.endswith("/items?$expand=fields")
 
 
