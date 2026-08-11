@@ -61,10 +61,17 @@ from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
-    SCOPE_OPERATIONS, AREA_STAFFING, MODULE_ASSIGNMENTS,
+    SCOPE_OPERATIONS, AREA_STAFFING,
     EVENT_MODULE_VIEWED, EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
     EVENT_CONFIGURATION_INCOMPLETE,
 )
+# MODULE IDENTIFIER CONVENTION V2 — Fase 2: los productores de Activity de
+# Staffing persisten el `module_id` canónico directo del registro (dueño
+# único de la identidad de módulo) — ya NO reproducen el mapeo
+# `assignments → OP01` acá ni importan el legacy `MODULE_ASSIGNMENTS` de
+# `activity_context` (ese sigue existiendo solo para la normalización
+# histórica interna de `activity_context`/`activity_analytics`).
+from webapp.services.module_registry import OP01_MODULE_ID
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
 
@@ -115,7 +122,7 @@ def staffing_page(request: Request):
     # reemplaza al histórico `staffing_overview_viewed`, mismo hecho (una vista
     # de módulo), ahora reusando el mismo evento genérico que Copiloto en vez
     # de repetir "staffing" en el nombre del evento.
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=MODULE_ASSIGNMENTS)
+    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=OP01_MODULE_ID)
     return templates.TemplateResponse(
         request=request, name="operations/staffing.html",
         context={
@@ -155,7 +162,7 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
         log_verbose(
             EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
-            area=AREA_STAFFING, module=MODULE_ASSIGNMENTS, operation="initial",
+            area=AREA_STAFFING, module=OP01_MODULE_ID, operation="initial",
         )
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "config_incomplete"},
@@ -166,7 +173,7 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         # historial) queda en `payload.operation`, no en el nombre del evento.
         log_verbose(
             EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
-            module=MODULE_ASSIGNMENTS, operation="initial", error_type=type(exc).__name__,
+            module=OP01_MODULE_ID, operation="initial", error_type=type(exc).__name__,
         )
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "graph_error"},
@@ -180,7 +187,7 @@ def staffing_data(request: Request, graph_token: str = Form("")):
     # `staffing_data_diagnostics`.
     log_verbose(
         EVENT_DATA_LOAD_DIAGNOSTICS, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
-        module=MODULE_ASSIGNMENTS, operation="initial",
+        module=OP01_MODULE_ID, operation="initial",
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 
@@ -222,7 +229,7 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
     except RuntimeError:
         log_verbose(
             EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
-            area=AREA_STAFFING, module=MODULE_ASSIGNMENTS, operation="history",
+            area=AREA_STAFFING, module=OP01_MODULE_ID, operation="history",
         )
         return JSONResponse({"state": "config_incomplete"})
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
@@ -231,7 +238,7 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
         # carga inicial, distinguible por `operation`.
         log_verbose(
             EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
-            module=MODULE_ASSIGNMENTS, operation="history", error_type=type(exc).__name__,
+            module=OP01_MODULE_ID, operation="history", error_type=type(exc).__name__,
         )
         return JSONResponse({"state": "graph_error"})
 
@@ -242,7 +249,7 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
     # `staffing_historial_diagnostics`.
     log_verbose(
         EVENT_DATA_LOAD_DIAGNOSTICS, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
-        module=MODULE_ASSIGNMENTS, operation="history",
+        module=OP01_MODULE_ID, operation="history",
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 

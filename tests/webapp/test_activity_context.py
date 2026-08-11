@@ -290,14 +290,18 @@ def test_reader_normalizes_historical_and_new(monkeypatch, tmp_path):
     assert by_raw["module_selected"]["module"] == "01"          # legacy: viene de payload.module
     assert by_raw["module_selected"]["raw_event"] == "module_selected"
 
-    # test 11: staffing_overview_viewed normaliza a module_viewed/assignments.
+    # test 11: staffing_overview_viewed normaliza a module_viewed/assignments,
+    # y esa key legacy resuelve al module_id canónico OP01 (MODULE IDENTIFIER
+    # CONVENTION V2 — Fase 2) — raw_module preserva el valor legacy intacto.
     assert by_raw["staffing_overview_viewed"]["event"] == "module_viewed"
-    assert by_raw["staffing_overview_viewed"]["module"] == "assignments"
+    assert by_raw["staffing_overview_viewed"]["raw_module"] == "assignments"
+    assert by_raw["staffing_overview_viewed"]["module"] == "OP01"
 
     # test 12: el error histórico normaliza a data_load_failed +
     # operation=initial inyectada en payload (no estaba en el registro crudo).
     assert by_raw["staffing_overview_error"]["event"] == "data_load_failed"
-    assert by_raw["staffing_overview_error"]["module"] == "assignments"
+    assert by_raw["staffing_overview_error"]["raw_module"] == "assignments"
+    assert by_raw["staffing_overview_error"]["module"] == "OP01"
     assert by_raw["staffing_overview_error"]["payload"]["operation"] == "initial"
 
     # test 14: unknown sigue siendo unknown, nunca cae en usage/Copilot en silencio.
@@ -428,14 +432,15 @@ def test_historical_five_field_and_unknown(monkeypatch, tmp_path):
 
 def test_date_user_module_filters_still_behave(monkeypatch, tmp_path):
     # item 10/11 (transversal, corrective A2): module ahora SÍ existe para
-    # Operations ("assignments") — "module no absorbe Operations" pasa a
-    # verificarse por VALOR de módulo (01 vs assignments), no por ausencia.
+    # Operations ("assignments", canónico OP01 desde MODULE IDENTIFIER
+    # CONVENTION V2 — Fase 2) — "module no absorbe Operations" pasa a
+    # verificarse por VALOR de módulo (01 vs OP01), no por ausencia.
     _seed_hub(monkeypatch, tmp_path)
     # user filter — sin cambios de comportamiento, solo el nombre de evento normalizado.
     s_user = activity_analytics.build_summary("", "", user="ops@d.com")
     assert {r["event"] for r in s_user["event_counts"]} == {"module_viewed"}
     # module filter = "01" (Copilot) → excluye el module_viewed de Operations
-    # (module="assignments"), aunque comparta el mismo NOMBRE de evento.
+    # (module="OP01"), aunque comparta el mismo NOMBRE de evento.
     s_mod = activity_analytics.build_summary("", "", module="01")
     # module="01" trae module_viewed (payload.module) Y tree_started (payload.stem
     # también resuelve a "01") — ambos pertenecen al mismo módulo de Copiloto.
@@ -443,22 +448,25 @@ def test_date_user_module_filters_still_behave(monkeypatch, tmp_path):
     assert s_mod["copilot_present"] is True
     assert s_mod["total_events"] == 2                          # module_viewed + tree_started, ambos de Copiloto ("01")
     # El facet de Módulo NO colapsa a la selección actual (mismo criterio que
-    # Área con Ámbito): "assignments" sigue OFRECIDO como opción, aunque el
+    # Área con Ámbito): "OP01" sigue OFRECIDO como opción, aunque el
     # filtro activo (module="01") ya excluya sus eventos de `events`.
     module_keys = {m["key"] for m in s_mod["available_modules"]}
-    assert {"01", "assignments"} <= module_keys
+    assert {"01", "OP01"} <= module_keys
 
 
 def test_module_filter_exposes_assignments_for_staffing(monkeypatch, tmp_path):
     # item 31/36/37/38: Ámbito=Operaciones + Área=Staffing con actividad real
-    # → Módulo debe ofrecer "Asignaciones" (label) / "assignments" (key).
+    # → Módulo debe ofrecer "Asignaciones" (label) / "OP01" (key canónica,
+    # MODULE IDENTIFIER CONVENTION V2 — Fase 2).
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", scopes=["operations"], areas=["staffing"])
     modules = {m["key"]: m["label"] for m in s["available_modules"]}
-    assert modules == {"assignments": "Asignaciones"}
-    s_filtered = activity_analytics.build_summary("", "", scopes=["operations"], areas=["staffing"], module="assignments")
+    assert modules == {"OP01": "Asignaciones"}
+    # El filtro usa la key CANÓNICA internamente (test 12, Fase 2) — "OP01",
+    # no la legacy "assignments" (que ya no existe en `available_modules`).
+    s_filtered = activity_analytics.build_summary("", "", scopes=["operations"], areas=["staffing"], module="OP01")
     assert s_filtered["total_events"] == 1
-    assert s_filtered["selected_module"] == "assignments"
+    assert s_filtered["selected_module"] == "OP01"
 
 
 def test_invalid_module_selection_resets_deterministically(monkeypatch, tmp_path):
@@ -537,3 +545,129 @@ def test_diagnostic_events_do_not_inflate_module_breakdown(monkeypatch, tmp_path
     s = activity_analytics.build_summary("", "")
     rows = s["module_event_breakdowns"].get("Asignaciones", [])
     assert {r["event"] for r in rows} == {"module_viewed"}
+
+
+# ── MODULE IDENTIFIER CONVENTION V2 — Fase 2 (Canonical Module Adoption) ─────
+# `module_registry` (Fase 1, CLOSED/GREEN) es ahora el dueño único de la
+# identidad canónica de módulo — estos tests prueban que Activity lo consume
+# correctamente: normalización en lectura (raw_module/module), labels vía el
+# registro, y que histórico+nuevo agregan en el MISMO bucket de Top Módulos.
+
+def _seed_module_identity(monkeypatch, tmp_path, records):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    _write_jsonl(tmp_path, "20260301", records)
+
+
+# test 1
+def test_historical_copilot_stem_normalizes_to_cpxx(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "01_Arquitectura_y_Conectividad", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    assert ev["raw_module"] == "01_Arquitectura_y_Conectividad"
+    assert ev["module"] == "CP01"
+
+
+# test 2
+def test_historical_appendix_stem_normalizes_to_cpaxx(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "A01_Arquitectura_y_Modelado", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    assert ev["raw_module"] == "A01_Arquitectura_y_Modelado"
+    assert ev["module"] == "CPA01"
+
+
+# test 3
+def test_historical_assignments_normalizes_to_op01(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "operations", "area": "staffing", "module": "assignments", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    assert ev["raw_module"] == "assignments"
+    assert ev["module"] == "OP01"
+
+
+# test 4
+def test_already_canonical_cpxx_remains_canonical(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "CP01", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    assert ev["raw_module"] == "CP01"
+    assert ev["module"] == "CP01"
+
+
+# test 5
+def test_already_canonical_op01_remains_canonical(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "operations", "area": "staffing", "module": "OP01", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    assert ev["raw_module"] == "OP01"
+    assert ev["module"] == "OP01"
+
+
+# test 6
+def test_unknown_module_remains_unchanged_and_preserves_raw_module(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "something_unknown", "payload": {}},
+    ])
+    ev = activity_analytics._read_events("", "")[0]
+    # Nunca se fabrica un module_id para algo que el registro no reconoce.
+    assert ev["raw_module"] == "something_unknown"
+    assert ev["module"] == "something_unknown"
+
+
+# tests 7/8
+def test_module_label_returns_current_product_label_for_canonical_and_legacy():
+    assert ax.module_label("CP01") == "Arquitectura y Conectividad"
+    assert ax.module_label("01_Arquitectura_y_Conectividad") == "Arquitectura y Conectividad"
+
+
+# tests 9/10
+def test_module_label_returns_asignaciones_for_canonical_and_legacy_op01():
+    assert ax.module_label("OP01") == "Asignaciones"
+    assert ax.module_label("assignments") == "Asignaciones"
+
+
+# test 11
+def test_historical_and_canonical_records_aggregate_into_one_top_module_bucket(monkeypatch, tmp_path):
+    _seed_module_identity(monkeypatch, tmp_path, [
+        # Histórico: module=assignments (legacy).
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "a@d.com", "name": "A",
+         "scope": "operations", "area": "staffing", "module": "assignments", "payload": {}},
+        # Nuevo: module=OP01 (canónico, post Fase 2).
+        {"ts_utc": "2026-03-01T10:01:00+00:00", "event": "module_viewed", "user": "b@d.com", "name": "B",
+         "scope": "operations", "area": "staffing", "module": "OP01", "payload": {}},
+    ])
+    s = activity_analytics.build_summary("", "")
+    # UN solo bucket "Asignaciones" con las dos visitas — no dos filas separadas.
+    asignaciones_rows = [r for r in s["top_modules"] if r["label"] == "Asignaciones"]
+    assert len(asignaciones_rows) == 1
+    assert asignaciones_rows[0]["count"] == 2
+    assert asignaciones_rows[0]["key"] == "OP01"
+
+
+# test 20
+def test_historical_jsonl_is_never_rewritten_by_normalization(monkeypatch, tmp_path):
+    records = [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "01_Arquitectura_y_Conectividad", "payload": {}},
+    ]
+    _seed_module_identity(monkeypatch, tmp_path, records)
+    path = next(tmp_path.glob("activity_*.jsonl"))
+    before = path.read_text(encoding="utf-8")
+    activity_analytics._read_events("", "")
+    activity_analytics.build_summary("", "")
+    ax.module_label("01_Arquitectura_y_Conectividad")
+    after = path.read_text(encoding="utf-8")
+    assert before == after
+    # El registro leído sigue con el stem LEGACY crudo — nunca se reescribió.
+    assert json.loads(before.strip())["module"] == "01_Arquitectura_y_Conectividad"

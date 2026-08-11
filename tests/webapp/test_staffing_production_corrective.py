@@ -308,7 +308,7 @@ def test_diagnostics_logged_on_successful_data_load_contains_no_token_or_assignm
     assert len(diag_calls) == 1
     payload = diag_calls[0][1]
     assert payload == {
-        "module": "assignments", "operation": "initial",
+        "module": "OP01", "operation": "initial",
         "asignaciones_rows": 5, "asignaciones_pages": 1, "asignaciones_elapsed_ms": 3000.0,
         "asignaciones_filter_used": True, "asignaciones_fallback_used": False,
         "total_elapsed_ms": 3100.0,
@@ -359,7 +359,7 @@ def test_initial_load_error_persists_canonical_data_load_failed_operation_initia
     failed = [c for c in calls if c[0] == "data_load_failed"]
     assert len(failed) == 1
     _, module, payload = failed[0]
-    assert module == "assignments"
+    assert module == "OP01"
     assert payload["operation"] == "initial"
     assert payload["error_type"] == "ConnectionError"
     assert "tok" not in str(payload)
@@ -381,7 +381,7 @@ def test_historical_load_error_persists_canonical_data_load_failed_operation_his
     failed = [c for c in calls if c[0] == "data_load_failed"]
     assert len(failed) == 1
     _, module, payload = failed[0]
-    assert module == "assignments"
+    assert module == "OP01"
     assert payload["operation"] == "history"
     assert payload["error_type"] == "ConnectionError"
 
@@ -408,7 +408,7 @@ def test_historial_diagnostics_persist_canonical_data_load_diagnostics_operation
     diag = [c for c in calls if c[0] == "data_load_diagnostics"]
     assert len(diag) == 1
     _, module, payload = diag[0]
-    assert module == "assignments"
+    assert module == "OP01"
     assert payload["operation"] == "history"
     assert "tok" not in str(payload)
 
@@ -431,7 +431,7 @@ def test_initial_config_incomplete_persists_canonical_configuration_incomplete_o
     incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
     assert len(incomplete) == 1
     _, module, payload = incomplete[0]
-    assert module == "assignments"
+    assert module == "OP01"
     assert payload["operation"] == "initial"
     assert "tok" not in str(payload)
 
@@ -451,7 +451,7 @@ def test_historial_config_incomplete_persists_canonical_configuration_incomplete
     incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
     assert len(incomplete) == 1
     _, module, payload = incomplete[0]
-    assert module == "assignments"
+    assert module == "OP01"
     assert payload["operation"] == "history"
     assert "tok" not in str(payload)
 
