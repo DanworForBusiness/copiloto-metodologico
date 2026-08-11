@@ -139,7 +139,7 @@ def test_vacaciones_endpoint_schema_mismatch_is_fail_soft_own_state():
         assert response.status_code == 200
         assert response.json() == {
             "state": "schema_error", "stage": "columns",
-            "missing_fields": ["Nombre"], "ambiguous_fields": [],
+            "missing_fields": ["Nombre"], "ambiguous_fields": [], "available_columns": [],
         }
     finally:
         staffing_router.StaffingService = orig
@@ -326,3 +326,84 @@ def test_vacaciones_endpoint_schema_error_response_never_leaks_sensitive_materia
         assert pii not in text
     # Solo el label semántico fijo aparece — nunca un internal name real.
     assert response.json()["missing_fields"] == ["Desde"]
+
+
+# ============================================================================
+# Live SharePoint Column Contract Discovery corrective
+# ============================================================================
+
+def test_vacaciones_endpoint_schema_error_includes_available_columns(monkeypatch):
+    from webapp.services.staffing_repository import VacationSchemaError
+
+    class _SchemaMismatch:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError(
+                stage="columns", missing_fields=["Apellido", "Nombre"], ambiguous_fields=[],
+                available_columns=[
+                    {"display_name": "Apellido y Nombre", "name": "ApellidoYNombre"},
+                    {"display_name": "CUIL", "name": "CUIL_x0020_"},
+                ],
+            )
+    monkeypatch.setattr(staffing_router, "StaffingService", _SchemaMismatch)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["state"] == "schema_error"
+    # test 1/2: available_columns presente, cada entrada SOLO display_name/name.
+    assert data["available_columns"] == [
+        {"display_name": "Apellido y Nombre", "name": "ApellidoYNombre"},
+        {"display_name": "CUIL", "name": "CUIL_x0020_"},
+    ]
+    for entry in data["available_columns"]:
+        assert set(entry.keys()) == {"display_name", "name"}
+
+
+def test_vacaciones_endpoint_available_columns_response_never_leaks_sensitive_material(monkeypatch):
+    from webapp.services.staffing_repository import VacationSchemaError
+    secret_token = "eyJ-super-secret-graph-token-3"
+
+    class _SchemaMismatch:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError(
+                stage="columns", missing_fields=["Apellido"], ambiguous_fields=[],
+                available_columns=[
+                    {"display_name": "CUIL", "name": "CUIL_x0020_"},
+                    {"display_name": "Legajo", "name": "Legajo"},
+                ],
+            )
+    monkeypatch.setattr(staffing_router, "StaffingService", _SchemaMismatch)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": secret_token})
+    text = response.text
+    # test 5/6/7/8/9: la lista de columnas es NOMBRES de columna
+    # (CUIL/Legajo aparecen como labels, nunca como valores de empleado);
+    # nunca el token, Authorization, ni el JSON crudo de Graph.
+    assert secret_token not in text
+    assert "Authorization" not in text and "Bearer" not in text
+    assert "@odata" not in text and "graph.microsoft.com" not in text
+    assert "columnGroup" not in text and '"id":' not in text
+
+
+# test 12: graph_error (VacationGraphError, no schema) NUNCA incluye
+# available_columns — es un campo exclusivo de schema_error.
+def test_vacaciones_endpoint_graph_error_response_has_no_available_columns_key(monkeypatch):
+    from webapp.services.staffing_repository import VacationGraphError
+
+    class _GraphBoom:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationGraphError(stage="items", status_code=403)
+    monkeypatch.setattr(staffing_router, "StaffingService", _GraphBoom)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    assert "available_columns" not in response.json()
+
+
+# test 11: el flujo exitoso (state=ok) sigue exactamente igual — sin
+# available_columns, sin ningún campo nuevo.
+def test_vacaciones_endpoint_successful_flow_unchanged(monkeypatch):
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingVacationService())
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    assert set(response.json().keys()) == {"state", "vacations"}

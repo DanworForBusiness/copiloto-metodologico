@@ -61,8 +61,8 @@ def _make_repository(vacation_field_mapping=_TEST_VACATION_MAPPING):
 # names se descubren en cada request contra /columns con el mismo
 # access_token delegado, cacheados con TTL solo en éxito.
 
-def _column(display_name, technical_name):
-    return {"displayName": display_name, "name": technical_name}
+def _column(display_name, technical_name, *, hidden=False):
+    return {"displayName": display_name, "name": technical_name, "hidden": hidden}
 
 
 _LIVE_COLUMNS = [
@@ -351,6 +351,92 @@ def test_schema_error_missing_fields_are_restricted_to_fixed_display_labels():
         _resolve_vacation_field_mapping_from_columns(columns)
     assert set(exc_info.value.missing_fields) <= set(_VACATION_DISPLAY_NAMES)
     assert exc_info.value.missing_fields == ["Desde", "Estado"]
+
+
+# --- Live SharePoint Column Contract Discovery (tests 1-9) ------------------
+
+# Simula el caso real disclosed por el owner (smoke #2): NINGUNO de los 6
+# labels asumidos existe en la lista real — el schema real usa OTROS
+# nombres. `available_columns` es lo único que le permite al owner leer el
+# contrato real sin adivinar.
+_REAL_LIVE_COLUMNS_NO_MATCH = [
+    _column("Fecha de Solicitud", "FechadeSolicitud"),
+    _column("CUIL", "CUIL_x0020_"),
+    _column("Legajo", "Legajo"),
+    _column("Apellido y Nombre", "ApellidoYNombre"),  # un solo campo combinado, no 2
+    _column("Tipo de Ausencia", "TipoAusencia"),
+    _column("Fecha Desde", "FechaDesde"),
+    _column("Fecha Hasta", "FechaHasta"),
+    _column("Estado de Aprobación", "EstadoAprobacion"),
+    _column("ID", "id", hidden=True),  # columna de sistema oculta
+    _column("Content Type", "ContentType", hidden=True),  # columna de sistema oculta
+]
+
+
+# test 1: la respuesta de schema error contiene available_columns sanitizado.
+def test_schema_error_carries_sanitized_available_columns():
+    from webapp.services.staffing_repository import (
+        VacationSchemaError, _resolve_vacation_field_mapping_from_columns,
+    )
+    with pytest.raises(VacationSchemaError) as exc_info:
+        _resolve_vacation_field_mapping_from_columns(_REAL_LIVE_COLUMNS_NO_MATCH)
+    assert exc_info.value.available_columns  # no vacío
+
+
+# test 2: cada entrada tiene ÚNICAMENTE display_name y name.
+def test_available_columns_entries_have_only_display_name_and_name():
+    from webapp.services.staffing_repository import _sanitize_available_columns
+    result = _sanitize_available_columns(_REAL_LIVE_COLUMNS_NO_MATCH)
+    for entry in result:
+        assert set(entry.keys()) == {"display_name", "name"}
+
+
+# test 3: columnas hidden se omiten.
+def test_hidden_columns_are_omitted_from_available_columns():
+    from webapp.services.staffing_repository import _sanitize_available_columns
+    result = _sanitize_available_columns(_REAL_LIVE_COLUMNS_NO_MATCH)
+    display_names = {entry["display_name"] for entry in result}
+    assert "ID" not in display_names
+    assert "Content Type" not in display_names
+
+
+# test 4: columnas visibles NO relacionadas con el contrato semántico
+# igual aparecen — esto es DESCUBRIMIENTO, no un filtro de relevancia.
+def test_unrelated_visible_columns_are_present_for_discovery():
+    from webapp.services.staffing_repository import _sanitize_available_columns
+    result = _sanitize_available_columns(_REAL_LIVE_COLUMNS_NO_MATCH)
+    display_names = {entry["display_name"] for entry in result}
+    assert "CUIL" in display_names
+    assert "Apellido y Nombre" in display_names
+    assert "Tipo de Ausencia" in display_names
+
+
+# test 5/9: nunca se devuelve el JSON crudo de Graph — cada entrada se
+# construye explícito campo por campo, nunca dict(column) ni un valor de
+# item/PII (CUIL/Legajo/comentarios NUNCA aparecen como VALORES, solo como
+# nombres de columna — que es exactamente lo esperado/seguro).
+def test_available_columns_never_echoes_raw_graph_json_or_item_values():
+    from webapp.services.staffing_repository import _sanitize_available_columns
+    raw_with_extra_graph_fields = [
+        {
+            "displayName": "CUIL", "name": "CUIL_x0020_", "hidden": False,
+            "id": "abc123", "columnGroup": "Custom Columns",
+            "text": {"maxLength": 255},  # metadata de tipo de Graph, no valor
+        },
+    ]
+    result = _sanitize_available_columns(raw_with_extra_graph_fields)
+    assert result == [{"display_name": "CUIL", "name": "CUIL_x0020_"}]
+    for entry in result:
+        assert "id" not in entry and "columnGroup" not in entry and "text" not in entry
+
+
+# test 6/7/8: token/Authorization/cookies nunca son parte de la firma de
+# _sanitize_available_columns — no reciben el token en absoluto.
+def test_available_columns_sanitizer_never_touches_the_access_token():
+    import inspect
+    from webapp.services.staffing_repository import _sanitize_available_columns
+    sig = inspect.signature(_sanitize_available_columns)
+    assert list(sig.parameters) == ["columns"]  # sin token/headers/cookies
 
 
 def test_get_consultants_raises_explicit_when_colaborador_title_missing(monkeypatch):

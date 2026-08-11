@@ -297,6 +297,10 @@ def staffing_vacaciones(request: Request, graph_token: str = Form("")):
         # missing/ambiguous_fields son SIEMPRE labels del contrato semántico
         # fijo (Apellido/Nombre/Motivo/Desde/Hasta/Estado) — nunca internal
         # names ni valores de dato, seguros de loguear y de devolver.
+        # `available_columns` (Live SharePoint Column Contract Discovery
+        # corrective) SOLO va en la respuesta HTTP protegida — no se agrega
+        # al log de Activity (evita crecer el payload persistido sin una
+        # necesidad de diagnóstico agregado real, ver HANDOFF).
         log_verbose(
             EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
             module=OP01_MODULE_ID, operation="vacations", error_type=type(exc).__name__,
@@ -306,6 +310,7 @@ def staffing_vacaciones(request: Request, graph_token: str = Form("")):
         return JSONResponse({
             "state": "schema_error", "stage": exc.stage,
             "missing_fields": exc.missing_fields, "ambiguous_fields": exc.ambiguous_fields,
+            "available_columns": exc.available_columns,
         })
     except VacationGraphError as exc:
         # stage + status_code son los ÚNICOS campos seguros de una falla de

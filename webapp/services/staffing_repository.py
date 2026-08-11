@@ -276,13 +276,26 @@ class VacationSchemaError(Exception):
     corrective, ver HANDOFF) contienen EXCLUSIVAMENTE labels del contrato
     semántico fijo (`_VACATION_DISPLAY_NAMES` — "Apellido", "Nombre", etc.)
     — NUNCA un internal name real ni un valor de dato. Seguros de loguear y
-    de devolver en la respuesta HTTP del endpoint (ver router)."""
+    de devolver en la respuesta HTTP del endpoint (ver router).
 
-    def __init__(self, stage: str, missing_fields: list[str], ambiguous_fields: list[str]):
+    `available_columns` (Live SharePoint Column Contract Discovery
+    corrective, ver HANDOFF) — lista SANITIZADA de `{"display_name",
+    "name"}` de las columnas VISIBLES reales de la lista Vacaciones (ver
+    `_sanitize_available_columns`). Metadata de SCHEMA únicamente — nunca
+    un valor de item, nunca PII, nunca el JSON crudo de Graph. Existe
+    solo para que el owner pueda leer el contrato real de columnas y
+    confirmar (o corregir) los labels esperados — este corrective NO
+    resuelve el mapeo automáticamente a partir de esta lista."""
+
+    def __init__(
+        self, stage: str, missing_fields: list[str], ambiguous_fields: list[str],
+        available_columns: list[dict] | None = None,
+    ):
         self.stage = stage
         self.reason = "schema_error"
         self.missing_fields = missing_fields
         self.ambiguous_fields = ambiguous_fields
+        self.available_columns = available_columns if available_columns is not None else []
         parts = []
         if missing_fields:
             parts.append(f"faltantes: {', '.join(missing_fields)}")
@@ -374,12 +387,35 @@ def _ttl_cache(ttl_seconds: int) -> Callable:
     return decorator
 
 
+def _sanitize_available_columns(columns: list[dict]) -> list[dict]:
+    """Live SharePoint Column Contract Discovery corrective (ver HANDOFF) —
+    metadata de SCHEMA únicamente: `{"display_name", "name"}` por columna
+    VISIBLE, construido EXPLÍCITAMENTE campo por campo (nunca `dict(column)`
+    ni cualquier passthrough del JSON crudo de Graph). Excluye columnas
+    marcadas `hidden` por Graph — sin blacklist manual de columnas de
+    sistema, solo la señal que Graph ya provee. Nunca incluye valores de
+    item, PII, token, headers ni el body crudo — esto es DESCUBRIMIENTO de
+    contrato, no resolución automática (ver `_resolve_vacation_field_
+    mapping_from_columns`, que NO usa este resultado para matchear)."""
+    result: list[dict] = []
+    for column in columns:
+        if column.get("hidden"):
+            continue
+        display_name = (column.get("displayName") or "").strip()
+        technical_name = column.get("name")
+        if display_name and technical_name:
+            result.append({"display_name": display_name, "name": technical_name})
+    return result
+
+
 def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> VacationFieldMapping:
     """Matchea `displayName` EXACTO (whitespace normalizado únicamente —
     sin case-folding, sin fuzzy, sin posición) contra los 6 labels
     conocidos. Un `displayName` con CERO columnas candidatas es "faltante";
     con DOS O MÁS es "ambiguo" — ninguno de los dos elige un candidato al
-    azar, ambos levantan `VacationSchemaError` con el detalle exacto."""
+    azar, ambos levantan `VacationSchemaError` con el detalle exacto +
+    `available_columns` (SOLO para que el owner lea el contrato real, NUNCA
+    usado acá para resolver — ver `_sanitize_available_columns`)."""
     candidates: dict[str, list[str]] = {}
     for column in columns:
         display_name = (column.get("displayName") or "").strip()
@@ -400,7 +436,10 @@ def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> Vacatio
             ambiguous.append(display_name)
 
     if missing or ambiguous:
-        raise VacationSchemaError(stage="columns", missing_fields=missing, ambiguous_fields=ambiguous)
+        raise VacationSchemaError(
+            stage="columns", missing_fields=missing, ambiguous_fields=ambiguous,
+            available_columns=_sanitize_available_columns(columns),
+        )
 
     return VacationFieldMapping(
         apellido=resolved["Apellido"], nombre=resolved["Nombre"], motivo=resolved["Motivo"],
