@@ -29,6 +29,12 @@ Principios congelados (discovery previo — ver HANDOFF):
   legacy (stem, `"assignments"`) o un `module_id` canónico y devuelve el
   MISMO descriptor. Una key desconocida devuelve `None` explícito — nunca se
   fabrica un descriptor para algo no registrado.
+- **Dirección de dependencia:** este módulo es la capa de identidad de MÁS
+  BAJO nivel del Hub — NO importa `webapp.services.activity_context` (ni
+  ningún otro futuro consumidor). Donde eso implicaría duplicar un literal
+  que hoy también vive en `activity_context` (p. ej. la key/label de OP01),
+  la duplicación temporal es preferible a invertir la dependencia — ver
+  `_OP01_LEGACY_KEY`/`_OP01_VISIBLE_LABEL` más abajo.
 
 Namespace reservado, NO implementado en esta fase (sin entradas en el
 registro, sin mapeo): `CPACxx` (Academy de Copiloto — su espacio de
@@ -43,7 +49,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from webapp.services import content_service
-from webapp.services.activity_context import MODULE_ASSIGNMENTS, module_label
 
 
 @dataclass(frozen=True)
@@ -60,8 +65,10 @@ class ModuleDescriptor:
     # Operations/Asignaciones, que es un dashboard, no un documento).
     content_key: str | None
     # Label de producto, independiente del ID — nunca se deriva del
-    # `module_id`. Reusa la fuente existente (content_service `title` /
-    # activity_context `module_label`) en vez de duplicar el texto humano.
+    # `module_id`. Para Copiloto reusa `content_service.title` (fuente
+    # existente, sin duplicar texto humano); para OP01 es un literal propio
+    # del registro (ver `_OP01_VISIBLE_LABEL` — dirección de dependencia,
+    # NO se importa de `activity_context`).
     visible_label: str
     # Orden de navegación EXPLÍCITO — nunca calculado a partir de
     # `module_id`. Ver principios congelados arriba.
@@ -99,6 +106,12 @@ _COPILOT_APPENDIX_IDS: dict[str, str] = {
     "A06_SAP_Analytics_Cloud": "CPA06",
 }
 
+# OP01 — Operations/Asignaciones. Literales propios del registro, NUNCA
+# importados de `activity_context` (ver comentario junto a la entrada OP01
+# en `_build_entries`, más abajo, para la razón de dirección de dependencia).
+_OP01_LEGACY_KEY = "assignments"
+_OP01_VISIBLE_LABEL = "Asignaciones"
+
 
 def _build_entries() -> tuple[ModuleDescriptor, ...]:
     entries: list[ModuleDescriptor] = []
@@ -130,11 +143,21 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # `kind="module"`: no hay evidencia de un consumidor actual que necesite
     # distinguir Asignaciones de un módulo de Copiloto por `kind` — ambos son
     # "un módulo navegable", la diferencia real ya la expresa `workspace`.
+    #
+    # `_OP01_LEGACY_KEY`/`_OP01_VISIBLE_LABEL` (dirección de dependencia,
+    # final foundation dependency check): este registro es la capa de
+    # identidad de MÁS BAJO nivel — no debe depender de ninguno de sus
+    # futuros consumidores. `activity_context.MODULE_ASSIGNMENTS`/
+    # `module_label()` tienen el MISMO valor hoy — es una duplicación
+    # temporal deliberada, preferible a que module_registry importe
+    # activity_context. Fase 2 migrará la resolución de labels de Activity
+    # para leer de ESTE registro y podrá eliminar la entrada redundante en
+    # `activity_context.MODULE_LABELS` donde sea seguro — NO se toca acá.
     entries.append(ModuleDescriptor(
         module_id="OP01", workspace="operations", area="staffing",
         kind="module", content_key=None,
-        visible_label=module_label(MODULE_ASSIGNMENTS),
-        display_order=order, legacy_aliases=(MODULE_ASSIGNMENTS,),
+        visible_label=_OP01_VISIBLE_LABEL,
+        display_order=order, legacy_aliases=(_OP01_LEGACY_KEY,),
     ))
     return tuple(entries)
 
