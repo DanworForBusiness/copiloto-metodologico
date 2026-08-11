@@ -35,10 +35,27 @@ from fastapi.responses import HTMLResponse
 from config import FEEDBACK_LOG_DIR
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp.services import auth_service
+from webapp.services import module_registry
 from webapp.services.content_service import load_module
 from webapp.templating import templates
 
 router = APIRouter()
+
+
+def normalize_feedback_module(raw_module: str) -> tuple[str, str]:
+    """(raw_module, module) para un valor de `module` de feedback — MISMO
+    patrón que `activity_analytics._read_events`: `raw_module` preserva
+    EXACTO el valor persistido (stem legacy o ya canónico); `module` es su
+    `module_id` canónico si `module_registry` lo reconoce, o el mismo valor
+    sin cambios si no (nunca se fabrica un ID). Solo lectura/cómputo — NUNCA
+    reescribe YAML histórico. Se usa tanto para canonicalizar escrituras
+    NUEVAS (ver `_save_module_feedback`/`_save_section_feedback`) como para
+    normalizar en lectura cualquier registro histórico."""
+    raw = (raw_module or "").strip()
+    if not raw:
+        return raw, raw
+    resolved = module_registry.resolve(raw)
+    return raw, (resolved.module_id if resolved else raw)
 
 
 # ── Feedback general de módulo (cierre de módulo) ──────────────────────────
@@ -48,9 +65,14 @@ def _save_module_feedback(request: Request, document, selected: str, rating: str
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        # MODULE IDENTIFIER CONVENTION V2 — Fase 2: escrituras NUEVAS
+        # persisten el `module_id` canónico (mismo criterio que Activity) —
+        # el `stem` sigue siendo la key de TODO lo demás (ruta, `load_module`,
+        # etc., sin cambios); YAML histórico existente nunca se reescribe.
+        _, _canonical_module = normalize_feedback_module(document.summary.stem)
         payload = {
             "type": "module_content",
-            "module": document.summary.stem,
+            "module": _canonical_module,
             "module_title": document.summary.title,
             "pack": selected,
             "rating": rating,
@@ -157,9 +179,12 @@ def _save_section_feedback(request: Request, document, section, selected: str, r
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        # MODULE IDENTIFIER CONVENTION V2 — Fase 2: mismo criterio que
+        # _save_module_feedback (ver ahí) — persiste el `module_id` canónico.
+        _, _canonical_module = normalize_feedback_module(document.summary.stem)
         payload = {
             "type": "section_content",
-            "module": document.summary.stem,
+            "module": _canonical_module,
             "module_title": document.summary.title,
             "section_slug": section.slug,
             "section_title": section.title,
