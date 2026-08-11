@@ -313,6 +313,32 @@ SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP = _env(
 ).strip()
 SHAREPOINT_CLIENTE_FIELD_TITLE = _env("SHAREPOINT_CLIENTE_FIELD_TITLE", "").strip()
 
+# SharePoint / Graph — Vacaciones (Staffing Vacation Timeline Overlay, ver
+# HANDOFF). MISMO sitio "Gestión" que Asignaciones/Proyectos/Colaboradores/
+# Cliente (`SHAREPOINT_GESTION_SITE_ID` arriba) — lista NUEVA y separada
+# ("Solicitud vacaciones"). List ID KNOWN FROM LEGACY SOURCE CONFIGURATION
+# (evidencia de Power Query real del reporte existente, provisto al
+# autorizar este batch), mismo estado que los 3 list ID originales de
+# Batch 2: NO todavía LIVE GRAPH VALIDATED en este entorno.
+SHAREPOINT_VACACIONES_LIST_ID = _env(
+    "SHAREPOINT_VACACIONES_LIST_ID", "36452eea-cc7c-40ce-bf77-80b4bdfa1d47",
+).strip()
+# Internal names de columna Graph para Vacaciones — mismo mecanismo que los
+# 8 campos REQUERIDOS de Asignaciones/Proyectos/Colaboradores (Batch 2
+# corrective): SIN default de producción a propósito, nunca inferir el
+# internal name a partir del display label visible en el export offline
+# (Apellido/Nombre/Motivo/Desde/Hasta/Estado son labels, no necesariamente
+# los internal names reales de SharePoint). Vacíos hasta confirmar contra
+# Graph real (`/sites/{id}/lists/{id}/columns`) — el overlay de vacaciones
+# degrada fail-soft si faltan (ver StaffingRepository.get_vacations), NUNCA
+# rompe el resto de Staffing (Asignaciones sigue funcionando igual).
+SHAREPOINT_VACACIONES_FIELD_APELLIDO = _env("SHAREPOINT_VACACIONES_FIELD_APELLIDO", "").strip()
+SHAREPOINT_VACACIONES_FIELD_NOMBRE = _env("SHAREPOINT_VACACIONES_FIELD_NOMBRE", "").strip()
+SHAREPOINT_VACACIONES_FIELD_MOTIVO = _env("SHAREPOINT_VACACIONES_FIELD_MOTIVO", "").strip()
+SHAREPOINT_VACACIONES_FIELD_DESDE = _env("SHAREPOINT_VACACIONES_FIELD_DESDE", "").strip()
+SHAREPOINT_VACACIONES_FIELD_HASTA = _env("SHAREPOINT_VACACIONES_FIELD_HASTA", "").strip()
+SHAREPOINT_VACACIONES_FIELD_ESTADO = _env("SHAREPOINT_VACACIONES_FIELD_ESTADO", "").strip()
+
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
 #                      aparecer en el cuerpo de la sección para considerar match.

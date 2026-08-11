@@ -45,6 +45,23 @@ proyectos/colaboradores/cliente) + `filter_used`/`fallback_used` para
 asignaciones + `total_elapsed_ms`. NUNCA token/payload/PII — solo conteos y
 tiempos. El caller (`StaffingService`/router) decide si loguearlo
 (VERBOSE-gated, ver `webapp/routers/staffing.py`).
+
+VACACIONES (Staffing Vacation Timeline Overlay, ver HANDOFF): `get_vacations`
+lee la lista NUEVA "Solicitud vacaciones" del MISMO sitio Gestión — offline
+contract verificado contra el export real del owner (sheet "Solicitudes",
+203 filas, 48 con Motivo=Vacaciones), NUNCA todavía LIVE GRAPH VALIDATED en
+este entorno (mismo estado que el mapeo de Asignaciones al momento de su
+propio discovery). Filtra EXCLUSIVAMENTE Motivo=Vacaciones + Estado=Aprobada
+— Cancelada/Rechazada/otro motivo quedan fuera de esta fase, a propósito.
+Devuelve `consultant_name` CRUDO ("Nombre Apellido", sin join contra
+Colaboradores todavía) — el join de identidad determinístico vive en
+`StaffingService` (ver ahí), este módulo solo sabe DÓNDE están los datos y
+cómo leerlos. `get_consultants` lee SOLO Colaboradores (id + nombre, sin
+Asignaciones/Proyectos) — universo de identidad para ese join, separado de
+`get_allocations` para no forzar una lectura completa de Asignaciones solo
+para resolver vacaciones. Ambos fail-soft: mapeo incompleto → `RuntimeError`
+explícito (mismo criterio que `_require_field_mapping`), NUNCA rompe
+Asignaciones — el router captura el error y omite el overlay.
 """
 from __future__ import annotations
 
@@ -80,6 +97,15 @@ INACTIVE_STATUS_VALUE = "Inactivo"
 # este header, Staffing nunca se rompe, solo pierde la optimización de
 # volumen en ese request puntual.
 _HISTORY_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandomly"}
+
+# Staffing Vacation Timeline Overlay (ver HANDOFF) — valores EXACTOS de
+# negocio confirmados contra el export real del owner (Motivo/Estado son
+# columnas Choice de la lista, no internal names que necesiten config por
+# tenant — mismo criterio que `INACTIVE_STATUS_VALUE` arriba). SOLO este par
+# habilita una fila para el timeline; cualquier otro Motivo o Estado
+# (Cancelada/Rechazada/otro tipo de ausencia) queda fuera de esta fase.
+VACATION_MOTIVO_VALUE = "Vacaciones"
+VACATION_ESTADO_APROBADA_VALUE = "Aprobada"
 
 
 #  Campos OPCIONALES de StaffingFieldMapping — enriquecimiento, no requisito
@@ -180,6 +206,52 @@ class StaffingAllocationRecord:
     client_name: str | None = None
 
 
+@dataclass(frozen=True)
+class VacationFieldMapping:
+    """Internal names de columna Graph para la lista de Vacaciones. Los 6
+    campos son REQUERIDOS (a diferencia de los enriquecimientos opcionales
+    de `StaffingFieldMapping` arriba, el overlay de vacaciones es todo-o-nada:
+    sin mapeo completo no hay overlay, pero Asignaciones sigue intacto)."""
+
+    apellido: str
+    nombre: str
+    motivo: str
+    desde: str
+    hasta: str
+    estado: str
+
+    @classmethod
+    def from_config(cls) -> "VacationFieldMapping":
+        return cls(
+            apellido=config.SHAREPOINT_VACACIONES_FIELD_APELLIDO,
+            nombre=config.SHAREPOINT_VACACIONES_FIELD_NOMBRE,
+            motivo=config.SHAREPOINT_VACACIONES_FIELD_MOTIVO,
+            desde=config.SHAREPOINT_VACACIONES_FIELD_DESDE,
+            hasta=config.SHAREPOINT_VACACIONES_FIELD_HASTA,
+            estado=config.SHAREPOINT_VACACIONES_FIELD_ESTADO,
+        )
+
+    def missing_fields(self) -> list[str]:
+        return [f.name for f in dataclass_fields(self) if not getattr(self, f.name)]
+
+
+@dataclass(frozen=True)
+class VacationPeriod:
+    """Un período de vacaciones APROBADO, ya filtrado por Motivo/Estado, con
+    `consultant_name` CRUDO ("Nombre Apellido" tal cual vino de la fuente,
+    sin normalizar ni resolver contra Colaboradores todavía — ese join
+    determinístico vive en `StaffingService`, ver ahí). `start_date`/
+    `end_date` son passthrough puro (mismo criterio que
+    `StaffingAllocationRecord`) — ninguna conversión de fecha ocurre en este
+    módulo; el parseo/validación vive en el servicio, igual que las fechas
+    de Asignaciones."""
+
+    source_id: str
+    consultant_name: str
+    start_date: str | None
+    end_date: str | None
+
+
 def _list_items_url(
     site_id: str, list_id: str, select_fields: list[str] | None = None, *, filter_expr: str | None = None,
 ) -> str:
@@ -247,6 +319,8 @@ class StaffingRepository:
         colaboradores_list_id: str | None = None,
         cliente_list_id: str | None = None,
         field_mapping: StaffingFieldMapping | None = None,
+        vacaciones_list_id: str | None = None,
+        vacation_field_mapping: VacationFieldMapping | None = None,
     ):
         self.site_id = site_id if site_id is not None else config.SHAREPOINT_GESTION_SITE_ID
         self.asignaciones_list_id = asignaciones_list_id or config.SHAREPOINT_ASIGNACIONES_LIST_ID
@@ -254,11 +328,22 @@ class StaffingRepository:
         self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.field_mapping = field_mapping if field_mapping is not None else StaffingFieldMapping.from_config()
+        # Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF) —
+        # MISMO site_id de arriba, lista + mapeo separados: sin default de
+        # producción en el mapeo, mismo criterio que `field_mapping`.
+        self.vacaciones_list_id = vacaciones_list_id or config.SHAREPOINT_VACACIONES_LIST_ID
+        self.vacation_field_mapping = (
+            vacation_field_mapping if vacation_field_mapping is not None else VacationFieldMapping.from_config()
+        )
         # Diagnóstico de la ÚLTIMA llamada a `get_allocations` (pre-PR
         # corrective, ver HANDOFF) — rows/pages/elapsed_ms/filter_used/
         # fallback_used por fuente, NUNCA token/payload/PII. Instancia
         # nueva por request (ver `webapp/routers/staffing.py`), así que no
-        # hay estado compartido entre requests concurrentes.
+        # hay estado compartido entre requests concurrentes. `get_vacations`/
+        # `get_consultants` reusan el MISMO diccionario (keys distintas,
+        # "vacaciones"/"colaboradores_identity") — nunca lo resetean, para
+        # no perder el diagnóstico de `get_allocations` si ambos se llaman
+        # sobre la misma instancia.
         self.last_diagnostics: dict = {}
 
     def _require_site_id(self) -> str:
@@ -282,6 +367,16 @@ class StaffingRepository:
                 + ", ".join(missing)
             )
         return self.field_mapping
+
+    def _require_vacation_field_mapping(self) -> VacationFieldMapping:
+        missing = self.vacation_field_mapping.missing_fields()
+        if missing:
+            raise RuntimeError(
+                "Falta configurar el mapeo de campos de Vacaciones (Staffing "
+                "Vacation Timeline Overlay, ver HANDOFF) — sin default de "
+                "producción a propósito. Faltan: " + ", ".join(missing)
+            )
+        return self.vacation_field_mapping
 
     def _fetch_asignaciones(
         self, site_id: str, mapping: StaffingFieldMapping, access_token: str, assignment_scope: str,
@@ -459,3 +554,80 @@ class StaffingRepository:
             )
         self.last_diagnostics["total_elapsed_ms"] = round((time.monotonic() - total_started) * 1000, 1)
         return records
+
+    def get_vacations(self, access_token: str) -> list[VacationPeriod]:
+        """Vacaciones APROBADAS ("Solicitud vacaciones", ver HANDOFF) — filtra
+        Motivo/Estado en Python (no `$filter` de Graph: la lista es chica, 203
+        filas totales en el export offline verificado, sin necesidad de la
+        optimización que sí justifica `_fetch_asignaciones`). Devuelve
+        `consultant_name` CRUDO ("Nombre Apellido") — el join contra
+        Colaboradores vive en `StaffingService`. Filas sin nombre completo
+        (Nombre+Apellido vacíos) o sin AMBAS fechas se excluyen acá — sin
+        consultor no hay nada que overlayar, y una fecha faltante no es un
+        período válido (fail-soft por fila, nunca rompe el resto)."""
+        site_id = self._require_site_id()
+        mapping = self._require_vacation_field_mapping()
+        pages = 0
+
+        def _count_page(page_len: int) -> None:
+            nonlocal pages
+            pages += 1
+
+        started = time.monotonic()
+        items = microsoft365.graph_get_paged_values(
+            _list_items_url(
+                site_id, self.vacaciones_list_id,
+                [mapping.apellido, mapping.nombre, mapping.motivo, mapping.desde, mapping.hasta, mapping.estado],
+            ),
+            access_token, on_page=_count_page,
+        )
+
+        periods: list[VacationPeriod] = []
+        for item in items:
+            fields = item.get("fields") or {}
+            if _stringify(fields.get(mapping.motivo)) != VACATION_MOTIVO_VALUE:
+                continue
+            if _stringify(fields.get(mapping.estado)) != VACATION_ESTADO_APROBADA_VALUE:
+                continue
+            nombre = _stringify(fields.get(mapping.nombre)) or ""
+            apellido = _stringify(fields.get(mapping.apellido)) or ""
+            full_name = f"{nombre} {apellido}".strip()
+            start = _stringify(fields.get(mapping.desde))
+            end = _stringify(fields.get(mapping.hasta))
+            if not full_name or not start or not end:
+                continue
+            periods.append(VacationPeriod(
+                source_id=str(item.get("id") or ""), consultant_name=full_name,
+                start_date=start, end_date=end,
+            ))
+
+        self.last_diagnostics["vacaciones"] = {
+            "rows": len(periods), "pages": pages,
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+        }
+        return periods
+
+    def get_consultants(self, access_token: str) -> list[tuple[str, str]]:
+        """SOLO Colaboradores (id, nombre) — universo de identidad para el
+        join determinístico de Vacaciones (ver `StaffingService`), sin forzar
+        una lectura completa de Asignaciones/Proyectos solo para resolver
+        nombres. Reusa `colaborador_title` de `StaffingFieldMapping` — el
+        mismo mapeo que ya requiere `get_allocations`, sin un campo nuevo."""
+        site_id = self._require_site_id()
+        title_field = self.field_mapping.colaborador_title
+        if not title_field:
+            raise RuntimeError(
+                "Falta configurar el mapeo de campos de Staffing (Batch 2, ver "
+                "HANDOFF) — colaborador_title es requisito de get_consultants "
+                "igual que de get_allocations."
+            )
+        items = self._timed_fetch(
+            "colaboradores_identity", _list_items_url(site_id, self.colaboradores_list_id, [title_field]), access_token,
+        )
+        result: list[tuple[str, str]] = []
+        for item in items:
+            cid = str(item.get("id") or "")
+            name = _resolved_title(item, title_field)
+            if cid and name:
+                result.append((cid, name))
+        return result
