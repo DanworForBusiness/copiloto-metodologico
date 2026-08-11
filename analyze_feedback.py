@@ -40,6 +40,16 @@ import yaml
 
 from pipeline.common import write_report
 
+# MODULE IDENTIFIER CONVENTION V2 — Fase 2 (final Feedback consumer
+# consistency corrective): import seguro y sin efectos secundarios —
+# `module_registry` no inicializa FastAPI, no toca red, no escribe nada
+# (confirmado: solo depende de `content_service`/`core.content_registry`,
+# lectura de archivos de contenido). Este script sigue sin importar nada de
+# `webapp.routers.*` — la identidad canónica de módulo sigue centralizada
+# en `module_registry`, este archivo solo la CONSUME, igual que
+# `webapp/routers/feedback.py`.
+from webapp.services import module_registry
+
 
 # =========================================================
 # Config
@@ -56,6 +66,24 @@ _TYPE_ALIASES = {
     "secciones": "section_content",
     "academy":   "academy_content",
 }
+
+
+def _canonical_module(raw_module) -> str:
+    """Resuelve un valor `module` persistido (stem legacy o ya `module_id`
+    canónico) a su identidad CANÓNICA — mismo seam genérico que
+    `webapp/routers/feedback.py::normalize_feedback_module`, reimplementado
+    acá en dos líneas en vez de importar ese router: el MAPEO sigue
+    centralizado en `module_registry` (única fuente de verdad), esto es
+    solo orquestación mínima. Histórico (stem legacy) y nuevo (module_id
+    canónico) para el MISMO módulo resuelven al MISMO valor — por eso
+    `analyze_modules`/`analyze_sections`/`analyze_assistant` ya no los
+    separan en dos filas. Un valor desconocido queda sin cambios
+    (lossless) — nunca se fabrica un module_id."""
+    raw = str(raw_module or "")
+    if not raw:
+        return raw
+    descriptor = module_registry.resolve(raw)
+    return descriptor.module_id if descriptor else raw
 
 
 # =========================================================
@@ -109,7 +137,7 @@ def analyze_assistant(entries: list[dict]) -> dict:
     comments_down: list[dict] = []
 
     for e in items:
-        mod    = e.get("module", "?")
+        mod    = _canonical_module(e.get("module", "?"))
         action = e.get("action", "?")
         topic  = e.get("topic", "?")
         rating = e.get("rating", "?")
@@ -163,7 +191,7 @@ def analyze_modules(entries: list[dict]) -> dict:
     by_module: dict[str, Counter] = defaultdict(Counter)
     titles: dict[str, str] = {}
     for e in items:
-        mod = e.get("module", "?")
+        mod = _canonical_module(e.get("module", "?"))
         titles[mod] = e.get("module_title", mod)
         by_module[mod][e.get("rating", "?")] += 1
 
@@ -202,7 +230,7 @@ def analyze_sections(entries: list[dict]) -> dict:
     labels: dict[str, dict] = {}
     comments_down: list[dict] = []
     for e in items:
-        mod = e.get("module", "?")
+        mod = _canonical_module(e.get("module", "?"))
         slug = e.get("section_slug", "?")
         key = f"{mod}::{slug}"
         labels[key] = {
