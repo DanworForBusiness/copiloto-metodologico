@@ -81,6 +81,7 @@ from webapp.services.activity_context import (
 # `activity_context` (ese sigue existiendo solo para la normalización
 # histórica interna de `activity_context`/`activity_analytics`).
 from webapp.services.module_registry import OP01_MODULE_ID
+from webapp.services.staffing_repository import VacationGraphError, VacationSchemaError
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
 
@@ -291,7 +292,32 @@ def staffing_vacaciones(request: Request, graph_token: str = Form("")):
             area=AREA_STAFFING, module=OP01_MODULE_ID, operation="vacations",
         )
         return JSONResponse({"state": "config_incomplete"})
-    except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
+    except VacationSchemaError as exc:
+        # Safe Graph Failure Diagnostics corrective (ver HANDOFF): stage +
+        # missing/ambiguous_fields son SIEMPRE labels del contrato semántico
+        # fijo (Apellido/Nombre/Motivo/Desde/Hasta/Estado) — nunca internal
+        # names ni valores de dato, seguros de loguear y de devolver.
+        log_verbose(
+            EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+            module=OP01_MODULE_ID, operation="vacations", error_type=type(exc).__name__,
+            stage=exc.stage, reason=exc.reason,
+            missing_fields=exc.missing_fields, ambiguous_fields=exc.ambiguous_fields,
+        )
+        return JSONResponse({
+            "state": "schema_error", "stage": exc.stage,
+            "missing_fields": exc.missing_fields, "ambiguous_fields": exc.ambiguous_fields,
+        })
+    except VacationGraphError as exc:
+        # stage + status_code son los ÚNICOS campos seguros de una falla de
+        # transporte Graph (ver VacationGraphError) — nunca el HTTPError/
+        # URLError crudo (podría incluir URL/headers).
+        log_verbose(
+            EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+            module=OP01_MODULE_ID, operation="vacations", error_type=type(exc).__name__,
+            stage=exc.stage, reason=exc.reason, http_status=exc.status_code,
+        )
+        return JSONResponse({"state": "graph_error", "stage": exc.stage, "http_status": exc.status_code})
+    except Exception as exc:  # noqa: BLE001 — falla inesperada, nunca de config
         log_verbose(
             EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
             module=OP01_MODULE_ID, operation="vacations", error_type=type(exc).__name__,

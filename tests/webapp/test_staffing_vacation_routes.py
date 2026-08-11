@@ -120,22 +120,27 @@ def test_vacaciones_endpoint_graph_error_state_never_leaks_details():
         staffing_router.StaffingService = orig
 
 
-def test_vacaciones_endpoint_schema_mismatch_is_fail_soft_not_config_incomplete():
+def test_vacaciones_endpoint_schema_mismatch_is_fail_soft_own_state():
     # Corrective (ver HANDOFF): un schema real que no matchea (columna
     # requerida faltante/ambigua) es un problema de RUNTIME/SOURCE-SCHEMA —
-    # VacationSchemaError NO es RuntimeError, así que cae naturalmente en el
-    # mismo branch que cualquier otra falla de Graph (graph_error), NUNCA en
-    # config_incomplete.
+    # VacationSchemaError NO es RuntimeError, nunca cae en config_incomplete.
+    # Safe Graph Failure Diagnostics corrective: tiene su PROPIO state
+    # ("schema_error", distinto de "graph_error") con stage/missing_fields
+    # seguros — nunca el mensaje crudo de la excepción.
     from webapp.services.staffing_repository import VacationSchemaError
 
     class _SchemaMismatch:
         def get_vacation_overlay(self, *a, **kw):
-            raise VacationSchemaError("faltantes: Nombre")
+            raise VacationSchemaError(stage="columns", missing_fields=["Nombre"], ambiguous_fields=[])
     orig = staffing_router.StaffingService
     staffing_router.StaffingService = _SchemaMismatch
     try:
         response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
-        assert response.json() == {"state": "graph_error"}
+        assert response.status_code == 200
+        assert response.json() == {
+            "state": "schema_error", "stage": "columns",
+            "missing_fields": ["Nombre"], "ambiguous_fields": [],
+        }
     finally:
         staffing_router.StaffingService = orig
 
@@ -238,3 +243,86 @@ def test_vacaciones_graph_failure_persists_canonical_data_load_failed_operation_
     assert module == "OP01"
     assert payload["operation"] == "vacations"
     assert payload["error_type"] == "ConnectionError"
+
+
+# ============================================================================
+# Safe Graph Failure Diagnostics corrective — stage/status expuestos con
+# seguridad, endpoint sigue HTTP 200 fail-soft, sin PII/headers/token/body.
+# ============================================================================
+
+def test_vacaciones_endpoint_graph_error_exposes_safe_stage_and_status(monkeypatch):
+    from webapp.services.staffing_repository import VacationGraphError
+
+    class _GraphBoom:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationGraphError(stage="items", status_code=403)
+    monkeypatch.setattr(staffing_router, "StaffingService", _GraphBoom)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    # test 11: sigue HTTP 200 fail-soft — nunca un 5xx/4xx de FastAPI.
+    assert response.status_code == 200
+    assert response.json() == {"state": "graph_error", "stage": "items", "http_status": 403}
+
+
+def test_vacaciones_endpoint_diagnostics_include_stage_and_http_status(monkeypatch):
+    from webapp.services.staffing_repository import VacationGraphError
+    calls = _fake_log_verbose_recorder(monkeypatch)
+
+    class _GraphBoom:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationGraphError(stage="columns", status_code=404)
+    monkeypatch.setattr(staffing_router, "StaffingService", _GraphBoom)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    assert response.status_code == 200
+
+    # test 13: mismo evento canónico de siempre (data_load_failed,
+    # scope=operations/area=staffing/module=OP01/operation=vacations) — el
+    # corrective SOLO agrega campos, nunca un evento nuevo.
+    failed = [c for c in calls if c[0] == "data_load_failed"]
+    assert len(failed) == 1
+    _, module, payload = failed[0]
+    assert module == "OP01"
+    assert payload["operation"] == "vacations"
+    assert payload["stage"] == "columns"
+    assert payload["http_status"] == 404
+    assert payload["reason"] == "http_error"
+
+
+# test 7/8/9/10: token/Authorization header/raw Graph body/employee data
+# NUNCA aparecen en la respuesta, sin importar el tipo de falla.
+def test_vacaciones_endpoint_graph_error_response_never_leaks_sensitive_material(monkeypatch):
+    from webapp.services.staffing_repository import VacationGraphError
+    secret_token = "eyJ-super-secret-graph-token"
+
+    class _GraphBoom:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationGraphError(stage="items", status_code=401)
+    monkeypatch.setattr(staffing_router, "StaffingService", _GraphBoom)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": secret_token})
+    text = response.text
+    assert secret_token not in text  # test 7: token
+    assert "Authorization" not in text and "Bearer" not in text  # test 8: auth header
+    assert "@odata" not in text and "graph.microsoft.com" not in text  # test 9: raw Graph body/URL
+    for pii in ("CUIL", "Legajo", "Comentario"):  # test 10: datos de empleado
+        assert pii not in text
+
+
+def test_vacaciones_endpoint_schema_error_response_never_leaks_sensitive_material(monkeypatch):
+    from webapp.services.staffing_repository import VacationSchemaError
+    secret_token = "eyJ-super-secret-graph-token-2"
+
+    class _SchemaBoom:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError(stage="columns", missing_fields=["Desde"], ambiguous_fields=[])
+    monkeypatch.setattr(staffing_router, "StaffingService", _SchemaBoom)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": secret_token})
+    assert response.status_code == 200
+    text = response.text
+    assert secret_token not in text
+    for pii in ("CUIL", "Legajo", "Comentario"):
+        assert pii not in text
+    # Solo el label semántico fijo aparece — nunca un internal name real.
+    assert response.json()["missing_fields"] == ["Desde"]

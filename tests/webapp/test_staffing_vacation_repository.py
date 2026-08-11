@@ -35,6 +35,19 @@ _TEST_VACATION_MAPPING = VacationFieldMapping(
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_vacation_schema_cache():
+    # El cache de resolve_vacation_field_mapping es un dict a nivel de
+    # MÓDULO (mismo criterio que core/sharepoint_cases.py) — sin esto, un
+    # test que resuelve exitosamente contra _SITE_ID/_VACA_LIST con un
+    # token reusado (p. ej. "tok") deja cacheado ese resultado para
+    # cualquier test posterior que reuse la misma combinación, aunque
+    # mockee una respuesta distinta.
+    repo_module._fetch_vacation_field_mapping_cached.clear()
+    yield
+    repo_module._fetch_vacation_field_mapping_cached.clear()
+
+
 def _make_repository(vacation_field_mapping=_TEST_VACATION_MAPPING):
     return StaffingRepository(
         site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST,
@@ -227,16 +240,117 @@ def test_failed_metadata_discovery_is_not_cached_as_success(monkeypatch):
 
 
 def test_columns_endpoint_401_remains_fail_soft_through_get_vacations(monkeypatch):
+    # Safe Graph Failure Diagnostics corrective (ver HANDOFF): la falla de
+    # transporte cruda de urllib NUNCA escapa — se traduce a
+    # VacationGraphError(stage="columns", status_code=401), seguro de
+    # loguear/devolver. Ver también los tests dedicados de columns/items
+    # stage más abajo.
     import urllib.error
     from webapp.services import staffing_repository as repo_module
+    from webapp.services.staffing_repository import VacationGraphError
 
     def fake(url, access_token, **kwargs):
         raise urllib.error.HTTPError(url, 401, "Unauthorized", None, None)
 
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
     repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(urllib.error.HTTPError):
+    with pytest.raises(VacationGraphError) as exc_info:
         repo.get_vacations("tok")
+    assert exc_info.value.stage == "columns"
+    assert exc_info.value.status_code == 401
+
+
+# --- Safe Graph Failure Diagnostics — stage x status matrix (tests 1-4) ----
+
+def _http_error_fake(status_code):
+    import urllib.error
+
+    def fake(url, access_token, **kwargs):
+        raise urllib.error.HTTPError(url, status_code, "boom", None, None)
+    return fake
+
+
+# test 1
+def test_columns_http_403_reports_stage_columns_status_403(monkeypatch):
+    from webapp.services import staffing_repository as repo_module
+    from webapp.services.staffing_repository import VacationGraphError
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _http_error_fake(403))
+    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
+    with pytest.raises(VacationGraphError) as exc_info:
+        repo.get_vacations("tok")
+    assert (exc_info.value.stage, exc_info.value.status_code) == ("columns", 403)
+
+
+# test 2
+def test_columns_http_404_reports_stage_columns_status_404(monkeypatch):
+    from webapp.services import staffing_repository as repo_module
+    from webapp.services.staffing_repository import VacationGraphError
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _http_error_fake(404))
+    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
+    with pytest.raises(VacationGraphError) as exc_info:
+        repo.get_vacations("tok")
+    assert (exc_info.value.stage, exc_info.value.status_code) == ("columns", 404)
+
+
+# test 3
+def test_items_http_403_reports_stage_items_status_403(monkeypatch):
+    import urllib.error
+    from webapp.services import staffing_repository as repo_module
+    from webapp.services.staffing_repository import VacationGraphError
+
+    def fake(url, access_token, **kwargs):
+        if "columns" in url:
+            return _LIVE_COLUMNS
+        raise urllib.error.HTTPError(url, 403, "boom", None, None)
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
+    with pytest.raises(VacationGraphError) as exc_info:
+        repo.get_vacations("tok")
+    assert (exc_info.value.stage, exc_info.value.status_code) == ("items", 403)
+
+
+# test 4
+def test_items_http_404_reports_stage_items_status_404(monkeypatch):
+    import urllib.error
+    from webapp.services import staffing_repository as repo_module
+    from webapp.services.staffing_repository import VacationGraphError
+
+    def fake(url, access_token, **kwargs):
+        if "columns" in url:
+            return _LIVE_COLUMNS
+        raise urllib.error.HTTPError(url, 404, "boom", None, None)
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
+    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
+    with pytest.raises(VacationGraphError) as exc_info:
+        repo.get_vacations("tok")
+    assert (exc_info.value.stage, exc_info.value.status_code) == ("items", 404)
+
+
+# test 5: schema error se mantiene DISTINTO de un error HTTP de Graph — dos
+# tipos separados, nunca el mismo branch de manejo.
+def test_schema_error_is_distinct_type_from_graph_http_error():
+    from webapp.services.staffing_repository import VacationGraphError, VacationSchemaError
+    assert not issubclass(VacationSchemaError, VacationGraphError)
+    assert not issubclass(VacationGraphError, VacationSchemaError)
+    schema_exc = VacationSchemaError(stage="columns", missing_fields=["Desde"], ambiguous_fields=[])
+    http_exc = VacationGraphError(stage="columns", status_code=403)
+    assert schema_exc.reason == "schema_error"
+    assert http_exc.reason == "http_error"
+
+
+# test 6: la respuesta/atributos de un schema error SOLO exponen labels del
+# contrato semántico fijo — nunca un internal name ni un valor de dato.
+def test_schema_error_missing_fields_are_restricted_to_fixed_display_labels():
+    from webapp.services.staffing_repository import (
+        _VACATION_DISPLAY_NAMES, VacationSchemaError, _resolve_vacation_field_mapping_from_columns,
+    )
+    columns = [c for c in _LIVE_COLUMNS if c["displayName"] not in ("Desde", "Estado")]
+    with pytest.raises(VacationSchemaError) as exc_info:
+        _resolve_vacation_field_mapping_from_columns(columns)
+    assert set(exc_info.value.missing_fields) <= set(_VACATION_DISPLAY_NAMES)
+    assert exc_info.value.missing_fields == ["Desde", "Estado"]
 
 
 def test_get_consultants_raises_explicit_when_colaborador_title_missing(monkeypatch):

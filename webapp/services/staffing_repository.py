@@ -80,7 +80,22 @@ como `configuration_incomplete`. Solo el List ID de Vacaciones
 resolución exitosa se cachea in-process con TTL (mismo patrón que
 `core/sharepoint_cases.py::_ttl_cache`, keyed por fingerprint de token +
 site/list — NUNCA por el token crudo); fallas (401/403/columna faltante/
-ambigua) NUNCA se cachean. Ambos (`get_vacations`/`get_consultants`)
+ambigua) NUNCA se cachean.
+
+DIAGNÓSTICO SEGURO DE FALLAS DE GRAPH (Safe Graph Failure Diagnostics
+corrective, ver HANDOFF): `_call_vacation_graph(stage, fn)` envuelve TODA
+llamada Graph de Vacaciones (`stage="columns"` para el discovery de schema,
+`stage="items"` para el fetch de filas) — cualquier `HTTPError`/`URLError`
+de `urllib` se traduce a `VacationGraphError(stage, status_code)`, NUNCA
+deja escapar la excepción cruda (que podría incluir la URL completa con
+query string). `VacationSchemaError` (arriba) ahora expone
+`stage`/`reason`/`missing_fields`/`ambiguous_fields` estructurados — estos
+últimos dos SIEMPRE son labels del contrato semántico fijo, nunca un
+internal name real. Ambos son seguros de loguear/devolver en la respuesta
+HTTP tal cual — nunca el `str()`/`repr()` de una excepción de `urllib`,
+nunca el token, nunca datos de fila/PII.
+
+Ambos (`get_vacations`/`get_consultants`)
 fail-soft ante cualquier excepción — el router captura el error y omite
 el overlay, Asignaciones nunca se rompe."""
 from __future__ import annotations
@@ -88,6 +103,7 @@ from __future__ import annotations
 import hashlib
 import threading
 import time
+import urllib.error
 from dataclasses import dataclass, fields as dataclass_fields
 from typing import Callable
 from urllib.parse import quote
@@ -254,7 +270,59 @@ class VacationSchemaError(Exception):
     igual que cualquier otra falla de Graph/transporte
     (`data_load_failed`/`graph_error`), nunca como `configuration_incomplete`
     — la única falla de configuración real de Vacaciones sigue siendo
-    `SHAREPOINT_GESTION_SITE_ID` ausente (ver `_require_site_id`)."""
+    `SHAREPOINT_GESTION_SITE_ID` ausente (ver `_require_site_id`).
+
+    `missing_fields`/`ambiguous_fields` (Safe Graph Failure Diagnostics
+    corrective, ver HANDOFF) contienen EXCLUSIVAMENTE labels del contrato
+    semántico fijo (`_VACATION_DISPLAY_NAMES` — "Apellido", "Nombre", etc.)
+    — NUNCA un internal name real ni un valor de dato. Seguros de loguear y
+    de devolver en la respuesta HTTP del endpoint (ver router)."""
+
+    def __init__(self, stage: str, missing_fields: list[str], ambiguous_fields: list[str]):
+        self.stage = stage
+        self.reason = "schema_error"
+        self.missing_fields = missing_fields
+        self.ambiguous_fields = ambiguous_fields
+        parts = []
+        if missing_fields:
+            parts.append(f"faltantes: {', '.join(missing_fields)}")
+        if ambiguous_fields:
+            parts.append(f"ambiguas (más de una columna con el mismo displayName): {', '.join(ambiguous_fields)}")
+        super().__init__(
+            f"No se pudo resolver el schema de la lista de Vacaciones contra Graph "
+            f"(stage={stage}) — " + "; ".join(parts) + "."
+        )
+
+
+class VacationGraphError(Exception):
+    """Envoltorio SEGURO de una falla de transporte Graph
+    (`urllib.error.HTTPError`/`URLError`) durante Vacaciones — expone
+    ÚNICAMENTE `stage`/`status_code`/`reason`, NUNCA el texto crudo de la
+    excepción original de `urllib` (que puede incluir la URL completa con
+    query string, y en teoría headers de la request/response). El
+    mensaje de `Exception` (`str(self)`) tampoco incluye nada de eso —
+    solo los 3 campos seguros."""
+
+    def __init__(self, stage: str, status_code: int | None):
+        self.stage = stage
+        self.status_code = status_code
+        self.reason = "http_error"
+        super().__init__(f"Vacation Graph error — stage={stage} status_code={status_code}")
+
+
+def _call_vacation_graph(stage: str, fn: Callable[[], list[dict]]) -> list[dict]:
+    """Ejecuta una llamada Graph de Vacaciones (`stage` = "columns" |
+    "items") envolviendo CUALQUIER falla de transporte en
+    `VacationGraphError` — nunca deja escapar el `HTTPError`/`URLError`
+    crudo de `urllib` (ver docstring de `VacationGraphError`). `from None`
+    corta la cadena de excepción explícitamente: nada downstream que
+    inspeccione `__cause__`/`__context__` puede llegar al objeto original."""
+    try:
+        return fn()
+    except urllib.error.HTTPError as exc:
+        raise VacationGraphError(stage=stage, status_code=exc.code) from None
+    except urllib.error.URLError:
+        raise VacationGraphError(stage=stage, status_code=None) from None
 
 
 # Staffing Vacation Timeline Overlay — discovery de campos en runtime (ver
@@ -332,15 +400,7 @@ def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> Vacatio
             ambiguous.append(display_name)
 
     if missing or ambiguous:
-        parts = []
-        if missing:
-            parts.append(f"faltantes: {', '.join(missing)}")
-        if ambiguous:
-            parts.append(f"ambiguas (más de una columna con el mismo displayName): {', '.join(ambiguous)}")
-        raise VacationSchemaError(
-            "No se pudo resolver el schema de la lista de Vacaciones contra Graph "
-            "(columns metadata) — " + "; ".join(parts) + "."
-        )
+        raise VacationSchemaError(stage="columns", missing_fields=missing, ambiguous_fields=ambiguous)
 
     return VacationFieldMapping(
         apellido=resolved["Apellido"], nombre=resolved["Nombre"], motivo=resolved["Motivo"],
@@ -353,9 +413,9 @@ def _fetch_vacation_field_mapping_cached(
     token_fingerprint: str, site_id: str, list_id: str, *, access_token: str,
 ) -> VacationFieldMapping:
     del token_fingerprint  # solo participa de la cache key, ver _ttl_cache
-    columns = microsoft365.graph_get_paged_values(
+    columns = _call_vacation_graph("columns", lambda: microsoft365.graph_get_paged_values(
         f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/columns", access_token,
-    )
+    ))
     return _resolve_vacation_field_mapping_from_columns(columns)
 
 
@@ -707,13 +767,13 @@ class StaffingRepository:
             pages += 1
 
         started = time.monotonic()
-        items = microsoft365.graph_get_paged_values(
+        items = _call_vacation_graph("items", lambda: microsoft365.graph_get_paged_values(
             _list_items_url(
                 site_id, self.vacaciones_list_id,
                 [mapping.apellido, mapping.nombre, mapping.motivo, mapping.desde, mapping.hasta, mapping.estado],
             ),
             access_token, on_page=_count_page,
-        )
+        ))
 
         periods: list[VacationPeriod] = []
         for item in items:
