@@ -263,3 +263,35 @@ def event_class(event: str) -> str:
     if key in _DIAGNOSTIC_EVENTS:
         return EVENT_CLASS_DIAGNOSTIC
     return EVENT_CLASS_UNKNOWN
+
+
+# --- labels visibles de evento (USAGE DASHBOARD SEMANTIC CLEANUP) ---
+# Mismo patrón que MODULE_LABELS/module_label: una key/value chica, sin
+# framework de localización. El dashboard de uso nunca debe mostrar la key
+# técnica cuando existe un label — solo cubre eventos de USO (los de
+# diagnóstico no se renderizan en este dashboard, ver
+# activity_analytics.build_summary). Un evento sin entrada cae a su nombre
+# canónico crudo — fallback seguro, nunca rompe la UI ante un evento nuevo
+# todavía sin label.
+EVENT_LABELS: dict[str, str] = {
+    "login": "Inicio de sesión",
+    EVENT_MODULE_VIEWED: "Vista de módulo",
+    "module_continue": "Continuó módulo",
+    "module_reached_end": "Módulo completado",
+    "nav_jump": "Salto de navegación",
+    "link_external": "Enlace externo",
+    "disclosure_toggle": "Uso de desplegable",
+    "theme_change": "Cambio de tema",
+    "assistant_query": "Consulta al asistente",
+    "section_analyze": "Análisis de sección",  # histórico, reemplazado por assistant_query
+    "academy_selected": "Vista de Academy",
+    "catalog_view": "Vista de catálogo",
+    "catalog_regenerate": "Regeneración de catálogo",
+    "tree_started": "Inicio de recorrido",
+    "tree_step": "Paso de recorrido",
+    "tree_outcome": "Resultado de recorrido",
+}
+
+
+def event_label(event: str) -> str:
+    return EVENT_LABELS.get(event, event)
