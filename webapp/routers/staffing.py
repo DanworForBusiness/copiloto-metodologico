@@ -63,6 +63,7 @@ from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
     SCOPE_OPERATIONS, AREA_STAFFING, MODULE_ASSIGNMENTS,
     EVENT_MODULE_VIEWED, EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
+    EVENT_CONFIGURATION_INCOMPLETE,
 )
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
@@ -152,7 +153,10 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         rows = service.get_overview(graph_token)
     except RuntimeError:
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
-        log_verbose("staffing_overview_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
+        log_verbose(
+            EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
+            area=AREA_STAFFING, module=MODULE_ASSIGNMENTS, operation="initial",
+        )
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "config_incomplete"},
         )
@@ -216,7 +220,10 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
     try:
         rows = service.get_overview(graph_token, assignment_scope="historical_inactive")
     except RuntimeError:
-        log_verbose("staffing_historial_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
+        log_verbose(
+            EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
+            area=AREA_STAFFING, module=MODULE_ASSIGNMENTS, operation="history",
+        )
         return JSONResponse({"state": "config_incomplete"})
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
         # `data_load_failed`/`operation=history` (corrective A2): reemplaza al

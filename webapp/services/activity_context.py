@@ -169,13 +169,17 @@ def module_label(key: str) -> str:
 EVENT_MODULE_VIEWED = "module_viewed"
 EVENT_DATA_LOAD_FAILED = "data_load_failed"
 EVENT_DATA_LOAD_DIAGNOSTICS = "data_load_diagnostics"
+# `configuration_incomplete` (consistency check post-corrective): los
+# `staffing_*_config_incomplete` seguían siendo productores CURRENT (no solo
+# históricos) con la ubicación embebida en el nombre — la config incompleta
+# es un problema DISTINTO de un `data_load_failed` (no es Graph/transporte),
+# así que NO se fuerza a ese evento; gana su propio nombre genérico reusable.
+EVENT_CONFIGURATION_INCOMPLETE = "configuration_incomplete"
 
 # event → (nuevo event canónico, module inyectado o None, operation inyectada
 # o None). SOLO para eventos que renombramos — un evento no listado acá pasa
-# tal cual (incluidos los `_config_incomplete`, que NO forman parte de este
-# corrective: no repiten ubicación de forma escalable-riesgosa y no fueron
-# pedidos explícitamente). NUNCA se reescribe el JSONL persistido — esto es
-# pura normalización de READ-MODEL, consumida por activity_analytics.
+# tal cual. NUNCA se reescribe el JSONL persistido — esto es pura
+# normalización de READ-MODEL, consumida por activity_analytics.
 _EVENT_RENAME: dict[str, tuple[str, str | None, str | None]] = {
     # Copiloto — mismo hecho (vista de módulo), nombre nuevo. El module real
     # sigue viniendo del propio registro (payload.module para históricos,
@@ -192,6 +196,14 @@ _EVENT_RENAME: dict[str, tuple[str, str | None, str | None]] = {
     # para la fase de historial — dejarlo sin normalizar sería inconsistente
     # (diagnóstico de carga inicial normalizado, diagnóstico de historial no).
     "staffing_historial_diagnostics": (EVENT_DATA_LOAD_DIAGNOSTICS, MODULE_ASSIGNMENTS, "history"),
+    # Consistency check post-corrective: estos SEGUÍAN siendo productores
+    # CURRENT (no solo históricos, ver webapp/routers/staffing.py) con la
+    # ubicación embebida en el nombre — quedaron afuera de la primera pasada
+    # por error, no a propósito. Config incompleta es un problema DISTINTO de
+    # un `data_load_failed` (no es Graph/transporte) — no se fuerza a ese
+    # evento, gana su propio nombre genérico reusable.
+    "staffing_overview_config_incomplete": (EVENT_CONFIGURATION_INCOMPLETE, MODULE_ASSIGNMENTS, "initial"),
+    "staffing_historial_config_incomplete": (EVENT_CONFIGURATION_INCOMPLETE, MODULE_ASSIGNMENTS, "history"),
 }
 
 
@@ -235,11 +247,9 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
     EVENT_DATA_LOAD_DIAGNOSTICS,
-    # Config incompleta no es "uso" (no es adopción real) — tampoco se pidió
-    # normalizar su NOMBRE en este corrective, pero igual necesita una
-    # clasificación explícita para no colar en las métricas de adopción.
-    "staffing_overview_config_incomplete",
-    "staffing_historial_config_incomplete",
+    # Config incompleta no es "uso" (no es adopción real). Se clasifica por
+    # el nombre CANÓNICO ya normalizado — ver `_EVENT_RENAME`.
+    EVENT_CONFIGURATION_INCOMPLETE,
 })
 
 

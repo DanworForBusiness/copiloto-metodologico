@@ -413,6 +413,49 @@ def test_historial_diagnostics_persist_canonical_data_load_diagnostics_operation
     assert "tok" not in str(payload)
 
 
+def test_initial_config_incomplete_persists_canonical_configuration_incomplete_operation_initial(monkeypatch):
+    # Consistency check post-corrective: `staffing_overview_config_incomplete`
+    # seguía siendo un productor CURRENT (no solo histórico) — normaliza al
+    # evento canónico reusable `configuration_incomplete` con
+    # `module=assignments`/`operation=initial`. NO se fuerza a
+    # `data_load_failed`: config incompleta no es un fallo de Graph/transporte.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _ConfigIncompleteService:
+        def get_overview(self, token, **kwargs):
+            raise RuntimeError("config de Staffing incompleta")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _ConfigIncompleteService())
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
+    assert len(incomplete) == 1
+    _, module, payload = incomplete[0]
+    assert module == "assignments"
+    assert payload["operation"] == "initial"
+    assert "tok" not in str(payload)
+
+
+def test_historial_config_incomplete_persists_canonical_configuration_incomplete_operation_history(monkeypatch):
+    # Análogo de arriba para el endpoint de historial — mismo evento
+    # canónico, distinguible por `operation=history`.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _ConfigIncompleteHistoryService:
+        def get_overview(self, token, **kwargs):
+            raise RuntimeError("config de Staffing incompleta")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _ConfigIncompleteHistoryService())
+    response = client.post("/operaciones/staffing/asignaciones/historial", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
+    assert len(incomplete) == 1
+    _, module, payload = incomplete[0]
+    assert module == "assignments"
+    assert payload["operation"] == "history"
+    assert "tok" not in str(payload)
+
+
 def test_fallback_usage_is_observable_in_diagnostics_flag(monkeypatch):
     # "We need to know whether production is doing filtered query→success
     # or filtered query→failure→full fetch fallback" — el flag

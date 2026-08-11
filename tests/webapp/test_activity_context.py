@@ -99,6 +99,20 @@ def test_normalize_event_renames_staffing_errors_and_diagnostics_with_operation(
     assert ax.normalize_event("staffing_historial_diagnostics") == ("data_load_diagnostics", "assignments", "history")
 
 
+def test_normalize_event_renames_staffing_config_incomplete_with_operation():
+    # Consistency check post-corrective: ambos `_config_incomplete` seguían
+    # siendo productores CURRENT (no solo históricos) — normalizan al canónico
+    # reusable `configuration_incomplete` + operation=initial/history. NO se
+    # fuerza a `data_load_failed`: config incompleta no es un fallo de
+    # Graph/transporte.
+    assert ax.normalize_event("staffing_overview_config_incomplete") == (
+        "configuration_incomplete", "assignments", "initial",
+    )
+    assert ax.normalize_event("staffing_historial_config_incomplete") == (
+        "configuration_incomplete", "assignments", "history",
+    )
+
+
 def test_normalize_event_passthrough_for_unmapped_events():
     assert ax.normalize_event("catalog_view") == ("catalog_view", None, None)
     assert ax.normalize_event("mystery_event") == ("mystery_event", None, None)
@@ -119,7 +133,12 @@ def test_event_class_diagnostic():
     # test 18/19/20: canónicos nuevos + históricos de Staffing normalizados.
     assert ax.event_class("data_load_failed") == ax.EVENT_CLASS_DIAGNOSTIC
     assert ax.event_class("data_load_diagnostics") == ax.EVENT_CLASS_DIAGNOSTIC
-    for raw in ("staffing_overview_error", "staffing_historial_error", "staffing_data_diagnostics", "staffing_historial_diagnostics"):
+    assert ax.event_class("configuration_incomplete") == ax.EVENT_CLASS_DIAGNOSTIC
+    for raw in (
+        "staffing_overview_error", "staffing_historial_error",
+        "staffing_data_diagnostics", "staffing_historial_diagnostics",
+        "staffing_overview_config_incomplete", "staffing_historial_config_incomplete",
+    ):
         canonical, _, _ = ax.normalize_event(raw)
         assert ax.event_class(canonical) == ax.EVENT_CLASS_DIAGNOSTIC, raw
 

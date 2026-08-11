@@ -119,8 +119,7 @@ _EVENT_DESCRIPTIONS = {
     # `payload.operation` ("initial"/"history"), no en el nombre del evento.
     "data_load_failed": "(Diagnóstico) Error de Graph/transporte al cargar datos de un módulo (ver payload.operation: initial/history).",
     "data_load_diagnostics": "(Diagnóstico) Métricas de la carga de datos de un módulo — filas/páginas/tiempo/fallback (ver payload.operation), nunca token/payload/PII.",
-    "staffing_overview_config_incomplete": "(Diagnóstico) La config de Staffing (site_id / mapeo de campos) estaba incompleta al pedir el overview.",
-    "staffing_historial_config_incomplete": "(Diagnóstico) La config de Staffing estaba incompleta al pedir el historial de Inactivo.",
+    "configuration_incomplete": "(Diagnóstico) La configuración del módulo (ver payload.operation) estaba incompleta al pedir datos — no es un fallo de Graph/transporte.",
 }
 
 
