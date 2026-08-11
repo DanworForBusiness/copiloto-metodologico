@@ -4898,20 +4898,119 @@ futuro dedicado, antes de cualquier mapeo.
 **Baseline final:** suite **672 passed / 1 skipped**, route surface **83**,
 route-contract **GREEN**, `main` HEAD `59ce3fb` (merge de PR #55).
 
-## MODULE IDENTIFIER CONVENTION V2 — PHASE 2 — FOLLOW-UP / NOT STARTED
+## MODULE IDENTIFIER CONVENTION V2 — PHASE 2 — CANONICAL MODULE ADOPTION — IMPLEMENTED / PENDING CI
+(commits funcionales `feat(activity): adopt canonical Hub module identities`
++ `feat(feedback): adopt canonical Hub module identities`, branch
+`work/module-identifier-convention-v2-phase2`, arrancada desde `main`
+`fa49f69` — NO mergeada todavía)
 
-Separado explícitamente del cierre de Fase 1. Alcance candidato únicamente
-(sin diseñar ni implementar en ningún batch hasta ahora):
+Hace load-bearing el registro canónico de Fase 1 en Activity y Feedback —
+ÚNICAMENTE ahí. Sin rename de archivos, sin cambio de rutas/YAML/nav Jinja/
+`assistant_store`, sin tocar la deuda hardcodeada de `stem.startswith(...)`,
+sin migración de Academy.
 
-- adopción canónica de módulo en Activity;
-- adopción canónica de módulo en Feedback;
-- normalización histórica en tiempo de LECTURA (mismo patrón que
-  `_EVENT_RENAME`/`normalize_event` de A2 — nunca reescribir JSONL/YAML);
-- preservación de `raw_module` (análogo a `raw_event`);
-- sin reescritura de JSONL/YAML;
-- sin rename de URL/archivo.
+### Activity — pipeline de normalización
 
-**NO iniciado.**
+`activity_analytics._read_events`: la extracción histórica de módulo NO
+cambia (campo explícito → module inyectado por `normalize_event` →
+`payload.module`/`payload.stem`) — ese mejor valor disponible ahora se llama
+`raw_module` y se resuelve contra `module_registry.resolve()`: si resuelve,
+`module` queda con el `module_id` canónico; si no, `module` queda IGUAL a
+`raw_module` (nunca se fabrica un ID). `raw_module` se agrega como campo
+nuevo del evento leído — JSONL persistido nunca tocado.
+
+`activity_context.module_label()` ahora resuelve PRIMERO contra
+`module_registry` (dueño único de la identidad) y cae a `MODULE_LABELS`/la
+key cruda solo si el registro no reconoce la key. Efecto colateral
+correcto: Top Módulos de Copiloto, que antes mostraba el stem crudo
+("01_Arquitectura_y_Conectividad"), ahora muestra el label de producto
+("Arquitectura y Conectividad") — igual que ya pasaba con Asignaciones.
+`MODULE_ASSIGNMENTS`/`MODULE_LABELS` NO se borraron: `_EVENT_RENAME` sigue
+inyectando `MODULE_ASSIGNMENTS` para históricos de Staffing sin campo
+`module` explícito — consumidor real, no se fuerza su eliminación.
+
+### Activity — productores nuevos
+
+- `webapp/routers/modules.py`: resuelve el `stem` de ruta/contenido contra
+  `module_registry` antes de loguear `module_viewed` — persiste el
+  `module_id` canónico (`CP01`, `CPA01`, ...) si el registro lo reconoce
+  (siempre, para cualquier módulo/apéndice actual), o el mismo `stem` si no.
+  El `stem` sigue siendo la key de TODO lo demás en la función (rutas,
+  trees, assistant, feedback, nav) — sin cambios.
+- `webapp/routers/staffing.py`: los 6 productores (`module_viewed`,
+  `data_load_failed`×2, `data_load_diagnostics`×2,
+  `configuration_incomplete`×2) importan `OP01_MODULE_ID` PÚBLICO directo
+  de `module_registry` (ya no `MODULE_ASSIGNMENTS` de `activity_context`) —
+  persisten `module="OP01"` en vez de `"assignments"`. `scope=operations`/
+  `area=staffing` sin cambios.
+
+### Dirección de dependencia (confirmada, sin excepciones nuevas)
+
+`module_registry` sigue sin importar `activity_context`/`activity_analytics`
+— es `activity_analytics`/`activity_context` quienes ahora dependen DE él
+(exactamente la dirección congelada en el corrective de Fase 1). El único
+literal nuevo público es `OP01_MODULE_ID = "OP01"` en `module_registry.py`.
+
+### Feedback — write path + normalización de lectura
+
+Nuevo seam `webapp/routers/feedback.py::normalize_feedback_module(raw) ->
+(raw_module, module)` — mismo patrón que Activity: `raw_module` preserva el
+valor persistido tal cual; `module` es su `module_id` canónico si el
+registro lo resuelve, o el mismo valor si no. `_save_module_feedback`/
+`_save_section_feedback` (las dos únicas escrituras con campo `module`)
+ahora persisten el `module_id` canónico en vez de `document.summary.stem`.
+YAML histórico NUNCA se reescribe. Feedback de catálogo (`_save_catalog_
+feedback`/`_save_catalog_section_feedback`, sin campo `module`) sin cambios.
+
+**Gap conocido, disclosed explícitamente:** `analyze_feedback.py` (script
+standalone en la raíz del repo, herramienta de reporting offline del owner)
+sigue agrupando/filtrando por el valor `module` CRUDO persistido, sin pasar
+por `module_registry` — sus hermanos (`analyze_cases.py`,
+`propose_tree_updates.py`, `propose_content_updates.py`) tampoco importan
+`webapp.*`, es una convención arquitectónica deliberada (scripts offline
+desacoplados del framework web) que este batch decidió NO romper. Efecto
+concreto: después de este batch, feedback histórico con stem legacy y
+feedback nuevo con `module_id` canónico para el MISMO módulo aparecerán
+como dos filas separadas en `reports/feedback/module_feedback.yaml` hasta
+que ese script adopte el mismo seam — follow-up explícito, no resuelto acá.
+
+### Compatibilidad y deuda
+
+- Rutas (`/modules/{stem}`), YAML de árboles, nav Jinja, `assistant_store`,
+  `pack.yaml`, filenames físicos: sin cambios, cero migración.
+- `stem.startswith("01_"/"02_"/"05_")` en `module.html`/`catalog_tab.html`:
+  sigue sin resolver — regla congelada: identidad de módulo ≠ detección de
+  capacidad, nunca se reemplaza por parsing de `CPxx`.
+- Academy: sin tocar, `CPACxx` sigue reservado sin entradas.
+
+### Validación contra datos reales (solo lectura)
+
+**Activity** (`activity_log/` del owner): 12 valores legacy conocidos
+normalizan correctamente — `00_Intro`(179)→`CP00`, `01_Arquitectura_y_
+Conectividad`(108)→`CP01`, `02_Seguridad_y_Gobernanza`(17)→`CP02`,
+`03_Integracion_y_Estrategia_de_Datos`(17)→`CP03`, `04_Modelado_y_
+Desarrollo`(19)→`CP04`, `05_Reporting_y_Consumo`(7)→`CP05`, `A01`..`A05`
+(3/2/2/2/2)→`CPA01`..`CPA05`, `assignments`(52)→`OP01`. **Un valor sin
+resolver, correctamente preservado sin cambios:** `01_arquitectura_y_
+conectividad` (minúscula, 1 ocurrencia — variante histórica de un typo/
+smoke previo; el resolver compara exacto, sin normalizar mayúsculas, tal
+como documentado) — no se fabricó un ID, quedó lossless. Top Módulos
+"Asignaciones": un solo bucket, `key=OP01`, `count=15` — histórico
+`assignments` y (todavía inexistente en datos reales) nuevo `OP01` ya
+agregarían junto si coexistieran.
+
+**Feedback** (`feedback_log/` del owner): 2 registros con stem legacy
+(`01_Arquitectura_y_Conectividad`, `04_Modelado_y_Desarrollo`), ambos
+normalizan correctamente a `CP01`/`CP04`. Cero valores sin resolver.
+
+### Gate
+
+Targeted: registro canónico (26 tests, Fase 1, sin debilitar) + Activity
+(55 tests, `test_activity_context.py`/`test_activity_routes.py`) + Feedback
+(10 tests nuevos, `test_feedback_module_identity.py`) + Staffing regression
+(123 tests) — todos GREEN. Full suite **693 passed / 1 skipped** (+21 sobre
+el baseline de 672), route-contract GREEN, route surface **83 sin
+cambios**.
 
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
@@ -4996,10 +5095,11 @@ tocar código. **NO iniciado — sin discovery todavía.**
 | Staffing Dashboard V2 — Director Priority Update | **CLOSED / GREEN** |
 | Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **CLOSED / GREEN** |
 | Module Identifier Convention V2 — Registry Foundation (Fase 1) | **CLOSED / GREEN** |
+| Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **IMPLEMENTED / PENDING CI** |
 
 ## CURRENT EXECUTION POINT
-- **Estado consolidado — sin frentes activos, todo lo abierto es un
-  follow-up explícitamente NO iniciado:**
+- **Estado consolidado — un frente en curso (Fase 2, PENDING CI, sin
+  mergear), el resto CLOSED/GREEN o follow-up explícitamente NO iniciado:**
   - **Staffing Director Priority V2 = CLOSED / GREEN.**
   - **Hub Activity Dashboard V2 = CLOSED / GREEN** — mergeada a `main` en
     PR #50/#51/#52 (`cdc690b` → `75fa935` → `39fb236`), validada en
@@ -5012,10 +5112,14 @@ tocar código. **NO iniciado — sin discovery todavía.**
     (`webapp/services/module_registry.py`) puramente aditivo — cero
     consumidores migrados (rutas/Activity/Feedback/nav/YAML/hardcoded
     `startswith` siguen usando sus keys legacy sin cambios).
-  - **Module Identifier Convention V2 Phase 2 = FOLLOW-UP / NOT STARTED**
-    — ver sección dedicada arriba (adopción canónica de Activity/Feedback,
-    normalización histórica en tiempo de lectura, sin reescritura de
-    JSONL/YAML, sin rename de URL/archivo).
+  - **Module Identifier Convention V2 Phase 2 = IMPLEMENTED / PENDING CI**
+    — ver sección dedicada arriba. Activity y Feedback (ÚNICAMENTE esos
+    dos consumidores) ahora persisten/normalizan hacia el `module_id`
+    canónico; JSONL/YAML histórico nunca reescrito; validado (solo
+    lectura) contra `activity_log/`/`feedback_log/` reales. Branch
+    `work/module-identifier-convention-v2-phase2`, **NO mergeada
+    todavía**. Gap disclosed: `analyze_feedback.py` (script standalone) no
+    adoptó el seam — sigue agrupando por valor crudo.
   - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
@@ -5089,13 +5193,16 @@ tocar código. **NO iniciado — sin discovery todavía.**
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
+- **En curso (PENDING CI, sin mergear):** Module Identifier Convention V2
+  Phase 2 — Canonical Module Adoption — ver sección dedicada arriba. Un
+  posible Phase 3 (physical rename) requiere autorización explícita
+  separada, no está ni propuesto.
 - **Next candidates (ninguno autorizado todavía — solo follow-ups
   documentados, NO iniciar sin autorización explícita del owner):**
-  Module Identifier Convention V2 Phase 2 (adopción canónica de
-  consumidores — requiere autorización explícita separada), Activity Admin
-  Shell Ownership, Auth / Graph Session Renewal UX, Staffing — Vacation
-  Timeline Overlay (bloqueado por acceso Graph real). Ver las secciones
-  dedicadas arriba para el contrato conocido de cada uno. Los hallazgos
+  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX,
+  Staffing — Vacation Timeline Overlay (bloqueado por acceso Graph real).
+  Ver las secciones dedicadas arriba para el contrato conocido de cada uno.
+  Los hallazgos
   reportados-pero-diferidos de batches previos (colisiones de color en el
   timeline de Staffing; filtro de tipo de proyecto; Status Finalización)
   SIGUEN diferidos/sin autorizar.
@@ -5103,12 +5210,16 @@ tocar código. **NO iniciado — sin discovery todavía.**
   Dashboard Primitives (más allá de lo ya extraído) quedan igualmente
   diferidos sin autorización.
 - **Baseline actual (`main`, incluye Module Identifier Convention V2 Phase 1
-  CLOSED/GREEN + A2 CLOSED/GREEN + Staffing Dashboard V2 CLOSED/GREEN):**
-  Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **672 passed /
-  1 skipped** · route surface **83** · route-contract **GREEN** · `main`
-  HEAD `59ce3fb` (merge de PR #55, ya incluye PR #50/#51/#52 — A2 completo
-  — y PR #46/#47/#48/#49 — Staffing Dashboard V2 Director Priority Update
-  CLOSED/GREEN completo — y PR #44 — A1 Context Foundation CLOSED/GREEN).
+  CLOSED/GREEN + A2 CLOSED/GREEN + Staffing Dashboard V2 CLOSED/GREEN — NO
+  incluye Fase 2, todavía sin mergear):** Python 3.14.3 · FastAPI 0.141.1 ·
+  Starlette 1.4.1 · tests **672 passed / 1 skipped** · route surface **83**
+  · route-contract **GREEN** · `main` HEAD `fa49f69` (merge de PR #56,
+  docs-only, ya incluye PR #55 — Fase 1 completo —, PR #50/#51/#52 — A2
+  completo —, PR #46/#47/#48/#49 — Staffing Dashboard V2 Director Priority
+  Update CLOSED/GREEN completo —, y PR #44 — A1 Context Foundation
+  CLOSED/GREEN). Baseline en la branch de Fase 2
+  (`work/module-identifier-convention-v2-phase2`, sin mergear): **693
+  passed / 1 skipped** (+21).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
