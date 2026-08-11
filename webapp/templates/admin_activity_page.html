@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Actividad · Analítica interna{% endblock %}
 {% block body %}
 <div
@@ -11,6 +12,8 @@
   {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos") %}{% endcall %}
 
   {% include "partials/copilot_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
     {% include "partials/admin_activity_content.html" %}

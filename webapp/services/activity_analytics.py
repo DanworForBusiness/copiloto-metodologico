@@ -388,20 +388,27 @@ def build_summary(
         if (not user or ev["user"] == user) and (not module or ev["module"] == module)
     ]
 
-    # Ámbito/Área con faceting mutuo, derivado del universo filtrado (nunca
-    # hardcodeado). Selección vacía/None = TODO (default Hub-wide). Una selección
-    # inválida al cambiar la otra dimensión se descarta determinísticamente
-    # (intersección con lo disponible). No se fabrican opciones ausentes del dataset.
+    # Ámbito/Área con faceting UNIDIRECCIONAL (Ámbito → Área), derivado del
+    # universo filtrado (nunca hardcodeado). Selección vacía/None = TODO
+    # (default Hub-wide). Una selección de Área que queda inválida al cambiar
+    # Ámbito se descarta determinísticamente (intersección con lo disponible).
+    # No se fabrican opciones ausentes del dataset.
+    #
+    # Ámbito NO se re-facetea por la selección de Área: si lo hiciera (como
+    # antes), destildar un Ámbito angosta Área, lo que a su vez podía angostar
+    # Ámbito de vuelta y hacer desaparecer su propia opción — sin forma de
+    # volver a tildarla (reportado por el owner). `scope_facets` usa siempre
+    # `present_scopes` (el universo COMPLETO, pre-cualquier selección) para
+    # quedar estable; solo Área reacciona al Ámbito elegido.
     requested_scopes = {s for s in (scopes or []) if s}
     requested_areas = {a for a in (areas or []) if a}
     present_scopes = {ev["scope"] for ev in base}
     sel_scopes = (requested_scopes & present_scopes) or present_scopes
     areas_for_scopes = {ev["area"] for ev in base if ev["scope"] in sel_scopes}
     sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
-    # Opciones ofrecidas: cada dimensión faceteada por la selección de la OTRA.
     scope_facets = [
         {"key": k, "label": scope_label(k), "checked": k in sel_scopes}
-        for k in sorted({ev["scope"] for ev in base if ev["area"] in sel_areas})
+        for k in sorted(present_scopes)
     ]
     area_facets = [
         {"key": k, "label": area_label(k), "checked": k in sel_areas}

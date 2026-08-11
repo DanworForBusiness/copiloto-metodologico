@@ -219,13 +219,21 @@ def test_filter_scope_platform_preserves_auth(monkeypatch, tmp_path):
     assert [f["key"] for f in s["area_facets"]] == ["auth"]
 
 
-def test_filter_area_staffing_returns_staffing_and_facets_scope_to_operations(monkeypatch, tmp_path):
-    # item 6 + item 14 (facets derivados del universo)
+def test_filter_area_staffing_returns_staffing_and_scope_facets_stay_stable(monkeypatch, tmp_path):
+    # item 6 + item 14 (facets derivados del universo). El faceting es
+    # UNIDIRECCIONAL (Ámbito → Área): elegir un Área nunca angosta ni hace
+    # desaparecer opciones de Ámbito — si lo hiciera, destildar Ámbito podía
+    # angostar Área, que a su vez volvía a angostar Ámbito y le hacía
+    # desaparecer su propia opción, sin forma de volver a tildarla (bug
+    # reportado por el owner). `scope_facets` siempre lista el universo
+    # completo de ámbitos presentes.
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", areas=["staffing"])
     assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
-    # Área=staffing ⇒ Ámbito compatible resuelve a Operaciones.
-    assert [f["key"] for f in s["scope_facets"]] == ["operations"]
+    # Ningún Ámbito desapareció ni quedó destildado solo por elegir Área=staffing
+    # (Ámbito nunca fue tocado, sigue en su default de "todo tildado").
+    assert {"copilot", "operations", "platform"} <= {f["key"] for f in s["scope_facets"]}
+    assert all(f["checked"] for f in s["scope_facets"])
 
 
 def test_scope_and_area_combine(monkeypatch, tmp_path):

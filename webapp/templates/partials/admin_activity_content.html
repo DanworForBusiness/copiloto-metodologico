@@ -17,7 +17,13 @@
    top:-48px que .catalog-back ya usa solo, acá aplicado al bloque entero). #}
 <div class="dashboard-sticky-header">
   <a class="catalog-back" href="#" onclick="history.back();return false;">← Volver</a>
-  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">
+  {# `change from:.dashboard-checkbox-group input` — SOLO los checkboxes de
+     Ámbito/Área auto-aplican al tildar/destildar (date/user/módulo siguen
+     requiriendo "Actualizar"). Necesario para que destildar un Ámbito
+     recaliente en el momento el faceting de Área (ver build_summary) — sin
+     esto, un Área que ya no aplica queda visualmente tildada hasta el
+     submit manual, aunque el filtro real ya la excluya. #}
+  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.dashboard-checkbox-group input">
     <label class="whatsnew-filter">
       <span>Desde</span>
       <input type="date" name="date_from" value="{{ date_from }}">
@@ -63,7 +69,7 @@
     {% if summary.area_facets %}
     <label class="whatsnew-filter whatsnew-filter--compact">
       <span>Área</span>
-      <div class="dashboard-checkbox-group">
+      <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
         {% for f in summary.area_facets %}
         <label class="dashboard-checkbox-option">
           <input type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
@@ -136,6 +142,9 @@
   </div>
 </details>
 
+{# Orden default de bloques (antes de cualquier drag/drop manual del owner):
+   Resumen (arriba, fuera de este bloque) → Tendencia → Módulos y usuarios →
+   Eventos y catálogo → Historia de preguntas → Árboles. #}
 {% if summary.daily_series %}
 <details class="dashboard-section" data-section-id="tendencia" open>
   <summary class="dashboard-section__head" draggable="true">
@@ -156,6 +165,41 @@
         <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
       </div>
       {% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}
+
+{% if summary.top_modules or summary.top_users %}
+<details class="dashboard-section" data-section-id="modulos-usuarios" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Módulos y usuarios</span>
+    <span class="dashboard-section__count">{{ summary.top_modules|length }} módulo(s) · {{ summary.top_users|length }} usuario(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <div class="activity-grid-2">
+      <div>
+        <p class="dashboard-subhead">Top módulos <span class="dashboard-subhead__hint">· click para filtro en cascada →</span></p>
+        {% for row in summary.top_modules %}
+        <div class="activity-bar-row activity-bar-row--clickable" data-module="{{ row.label }}" role="button" tabindex="0" aria-label="Filtrar eventos por {{ row.label }}">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <p class="dashboard-subhead">Top usuarios</p>
+        {% for row in summary.top_users %}
+        <div class="activity-bar-row">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 </details>
@@ -229,37 +273,16 @@
   </div>
 </details>
 
-{% if summary.top_modules or summary.top_users %}
-<details class="dashboard-section" data-section-id="modulos-usuarios" open>
+{% if summary.assistant_stories %}
+<details class="dashboard-section" data-section-id="preguntas" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
     <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Módulos y usuarios</span>
-    <span class="dashboard-section__count">{{ summary.top_modules|length }} módulo(s) · {{ summary.top_users|length }} usuario(s)</span>
+    <span class="dashboard-section__title">Historia de preguntas al asistente</span>
+    <span class="dashboard-section__count">{{ summary.assistant_stories_total }} pregunta(s)</span>
   </summary>
   <div class="dashboard-section__body">
-    <div class="activity-grid-2">
-      <div>
-        <p class="dashboard-subhead">Top módulos <span class="dashboard-subhead__hint">· click para filtro en cascada →</span></p>
-        {% for row in summary.top_modules %}
-        <div class="activity-bar-row activity-bar-row--clickable" data-module="{{ row.label }}" role="button" tabindex="0" aria-label="Filtrar eventos por {{ row.label }}">
-          <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
-          <span class="activity-bar-count">{{ row.count }}</span>
-        </div>
-        {% endfor %}
-      </div>
-      <div>
-        <p class="dashboard-subhead">Top usuarios</p>
-        {% for row in summary.top_users %}
-        <div class="activity-bar-row">
-          <span class="activity-bar-label">{{ row.label }}</span>
-          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
-          <span class="activity-bar-count">{{ row.count }}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
+    {% include "partials/admin_activity_stories.html" %}
   </div>
 </details>
 {% endif %}
@@ -291,20 +314,6 @@
 
     <p class="dashboard-subhead" style="margin-top:20px">Recorridos</p>
     {% include "partials/admin_activity_tree_runs.html" %}
-  </div>
-</details>
-{% endif %}
-
-{% if summary.assistant_stories %}
-<details class="dashboard-section" data-section-id="preguntas" open>
-  <summary class="dashboard-section__head" draggable="true">
-    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
-    <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Historia de preguntas al asistente</span>
-    <span class="dashboard-section__count">{{ summary.assistant_stories_total }} pregunta(s)</span>
-  </summary>
-  <div class="dashboard-section__body">
-    {% include "partials/admin_activity_stories.html" %}
   </div>
 </details>
 {% endif %}

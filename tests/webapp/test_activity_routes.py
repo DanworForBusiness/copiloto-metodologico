@@ -90,9 +90,10 @@ def test_checkbox_state_survives_htmx_refresh(monkeypatch, tmp_path):
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot&scope=platform").text
     assert 'name="scope" value="copilot" checked' in t
     assert 'name="scope" value="platform" checked' in t
-    # operations queda faceteado fuera (su única área, staffing, no está en la
-    # selección) — no se ofrece como opción.
-    assert 'name="scope" value="operations"' not in t
+    # Ámbito es estable (nunca desaparece por la selección de Área/de sí mismo):
+    # "operations" sigue OFRECIDO como opción, solo que destildado.
+    assert 'name="scope" value="operations" >' in t
+    assert 'name="scope" value="operations" checked' not in t
 
 
 # ── item 18: selección inválida → fallback determinístico (todo) ──────────────
@@ -123,6 +124,66 @@ def test_zero_selection_guard_prevents_unchecking_last_scope_or_area_option():
     assert 'input.closest(".dashboard-checkbox-group")' in _APP_JS
     assert 'group.querySelector(`input[name="${input.name}"]:checked`)' in _APP_JS
     assert "if (!stillChecked) input.checked = true;" in _APP_JS
+    # CAPTURE (no bubble): tiene que ganarle la carrera al listener de htmx del
+    # auto-apply (ver test_ambito_area_checkboxes_auto_apply_on_change abajo) —
+    # si no, htmx podría leer el checkbox todavía destildado.
+    assert "}, { capture: true });" in _APP_JS
+
+
+# ── feedback del owner: destildar un Ámbito debe recalentar Área en el acto ───
+# El faceting server-side (build_summary) ya excluye correctamente las áreas
+# que no aplican al Ámbito seleccionado — lo que faltaba era que el checkbox
+# de Área lo reflejara ANTES del submit manual ("Actualizar"), no solo después.
+# Auto-aplicar el form al tildar/destildar Ámbito o Área (sin tocar date/user/
+# módulo, que siguen requiriendo el botón) resuelve esto reusando el mismo
+# faceting server-side, sin duplicar la relación ámbito↔área en JS.
+
+def test_ambito_area_checkboxes_auto_apply_on_change(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'hx-trigger="submit, change from:.dashboard-checkbox-group input"' in t
+
+
+def test_deselecting_ambito_deselects_its_exclusive_area(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    # Destildar Operaciones (solo scope=copilot+platform quedan) → Área ya no
+    # debe ofrecer "staffing" (exclusiva de Operaciones), ni tildada ni como opción.
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot&scope=platform").text
+    assert 'name="area" value="staffing"' not in t
+
+
+# ── feedback del owner: Área queda muy alta en una sola columna ───────────────
+
+def test_area_checkbox_group_uses_2column_grid_not_ambito(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span>Área</span>\n      <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">' in t
+    assert '<span>Ámbito</span>\n      <div class="dashboard-checkbox-group">' in t
+
+
+# ── feedback del owner: orden default de bloques ──────────────────────────────
+
+def test_default_section_order_is_tendencia_modulos_eventos_preguntas_arboles(monkeypatch, tmp_path):
+    rows = _HUB_ROWS + [
+        {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "assistant_query", "user": "u@d.com", "name": "U", "scope": "copilot", "area": "assistant", "payload": {"question": "¿Cómo funciona X?"}},
+        {"ts_utc": "2026-03-01T10:04:00+00:00", "event": "tree_started", "user": "u@d.com", "name": "U", "scope": "copilot", "area": "methodology", "payload": {"tree_id": "t1", "tree_title": "Árbol de prueba"}},
+    ]
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    ids = ["tendencia", "modulos-usuarios", "eventos-catalogo", "preguntas", "arboles"]
+    positions = [t.index(f'data-section-id="{sid}"') for sid in ids]
+    assert positions == sorted(positions), f"orden real por posición: {positions}"
+
+
+# ── feedback del owner: el panel izquierdo no era redimensionable en esta página ─
+
+def test_full_page_includes_sidebar_resize_handle(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _owner_client(monkeypatch).get("/admin/activity").text
+    assert 'data-resize="left"' in t
 
 
 # ── item 19: gate owner-only + diagnóstico sin cambios ────────────────────────

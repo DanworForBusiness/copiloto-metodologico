@@ -740,6 +740,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    (form checkbox + HTMX) y el filtro de Estado de Staffing (Alpine x-model). Solo
    gramática visual: el binding es del consumidor, no se comparte engine de filtro. */
 .dashboard-checkbox-group { display: flex; flex-direction: column; gap: 3px; }
+/* Área (Actividad) tiene el doble de opciones que Ámbito — en una sola columna
+   queda mucho más alta que el resto de los filtros de la barra. Modificador
+   opcional (solo lo usa Área, NUNCA Ámbito/Estado) para repartir en 2 columnas
+   y emparejar la altura visualmente. */
+.dashboard-checkbox-group--grid-2 {
+  display: grid; grid-template-columns: repeat(2, auto); column-gap: 14px; row-gap: 3px;
+}
 .dashboard-checkbox-option {
   display: inline-flex; align-items: center; gap: 5px; padding: 1px 0;
   cursor: pointer; color: #55555c; font: 600 .66rem var(--mono); user-select: none;
