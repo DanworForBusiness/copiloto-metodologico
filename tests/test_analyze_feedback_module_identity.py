@@ -1,10 +1,12 @@
 """
 test_analyze_feedback_module_identity.py — MODULE IDENTIFIER CONVENTION V2,
-Phase 2 (final Feedback consumer consistency corrective). Prueba que el
-script standalone `analyze_feedback.py` (reportes offline, fuera de la
-webapp) agrupa feedback histórico (stem legacy) y feedback nuevo (module_id
-canónico) del MISMO módulo en un ÚNICO bucket lógico, en vez de separarlos
-como antes de este corrective.
+Phase 2 (final Feedback consumer consistency corrective + final Feedback CLI
+filter compatibility corrective). Prueba que el script standalone
+`analyze_feedback.py` (reportes offline, fuera de la webapp) trata feedback
+histórico (stem legacy) y feedback nuevo (module_id canónico) del MISMO
+módulo como una sola identidad lógica — tanto al AGRUPAR (`analyze_modules`/
+`analyze_sections`/`analyze_assistant`) como al FILTRAR
+(`load_feedback(module_filter=...)`/`--module`).
 
 NO cubre: analyze_academy (agrupa por academy_page, no por module — fuera
 de alcance), rename de archivos, migración de YAML histórico.
@@ -198,3 +200,110 @@ def test_canonical_module_helper_delegates_to_module_registry(monkeypatch):
 def test_canonical_module_helper_is_lossless_for_empty_value():
     assert af._canonical_module("") == ""
     assert af._canonical_module("?") == "?"
+
+
+# ── --module / load_feedback(module_filter=...) — filtro canónico ───────────
+# MODULE IDENTIFIER CONVENTION V2 — Fase 2 (final Feedback CLI filter
+# compatibility corrective): --module acepta stem legacy o module_id
+# canónico indistintamente — mismo criterio ya validado arriba para el
+# agrupamiento de reportes, ahora aplicado al filtro.
+
+def _seed_cp01_pair(tmp_path):
+    _write(tmp_path, "legacy.yaml", {
+        "type": "module_content", "module": "01_Arquitectura_y_Conectividad",
+        "module_title": "Arquitectura y Conectividad", "rating": "up",
+    })
+    _write(tmp_path, "canonical.yaml", {
+        "type": "module_content", "module": "CP01",
+        "module_title": "Arquitectura y Conectividad", "rating": "down",
+    })
+
+
+# test: filtrar por el stem legacy devuelve AMBOS registros (histórico +
+# nuevo canónico), no solo el histórico.
+def test_module_filter_with_legacy_stem_returns_both_historical_and_canonical(tmp_path):
+    _seed_cp01_pair(tmp_path)
+    entries = af.load_feedback(tmp_path, module_filter="01_Arquitectura_y_Conectividad")
+    assert len(entries) == 2
+    assert {e["module"] for e in entries} == {"01_Arquitectura_y_Conectividad", "CP01"}
+
+
+# test: filtrar por el module_id canónico devuelve AMBOS registros también.
+def test_module_filter_with_canonical_id_returns_both_historical_and_canonical(tmp_path):
+    _seed_cp01_pair(tmp_path)
+    entries = af.load_feedback(tmp_path, module_filter="CP01")
+    assert len(entries) == 2
+    assert {e["module"] for e in entries} == {"01_Arquitectura_y_Conectividad", "CP01"}
+
+
+# test: ambas invocaciones (legacy y canónico) devuelven el MISMO conjunto
+# lógico de registros — no solo el mismo count, los mismos _file.
+def test_module_filter_legacy_and_canonical_return_identical_record_set(tmp_path):
+    _seed_cp01_pair(tmp_path)
+    by_legacy = af.load_feedback(tmp_path, module_filter="01_Arquitectura_y_Conectividad")
+    by_canonical = af.load_feedback(tmp_path, module_filter="CP01")
+    assert {e["_file"] for e in by_legacy} == {e["_file"] for e in by_canonical}
+
+
+# test: otra correspondencia legacy↔canónico (CP04) se comporta igual.
+def test_module_filter_another_mapping_cp04_behaves_identically(tmp_path):
+    _write(tmp_path, "legacy.yaml", {
+        "type": "module_content", "module": "04_Modelado_y_Desarrollo",
+        "module_title": "Modelado y Desarrollo", "rating": "up",
+    })
+    _write(tmp_path, "canonical.yaml", {
+        "type": "module_content", "module": "CP04",
+        "module_title": "Modelado y Desarrollo", "rating": "up",
+    })
+    by_legacy = af.load_feedback(tmp_path, module_filter="04_Modelado_y_Desarrollo")
+    by_canonical = af.load_feedback(tmp_path, module_filter="CP04")
+    assert len(by_legacy) == len(by_canonical) == 2
+
+
+# test: un valor de filtro desconocido sigue matcheando el mismo valor
+# desconocido persistido (pass-through exacto, lossless).
+def test_module_filter_unknown_value_matches_identical_unknown_persisted_value(tmp_path):
+    _write(tmp_path, "a.yaml", {
+        "type": "module_content", "module": "custom_unknown",
+        "module_title": "???", "rating": "up",
+    })
+    entries = af.load_feedback(tmp_path, module_filter="custom_unknown")
+    assert len(entries) == 1
+
+
+# test: un valor de filtro desconocido NO matchea registros no relacionados
+# (ni otros desconocidos distintos, ni valores legacy/canónicos resolubles).
+def test_module_filter_unknown_value_does_not_match_unrelated_records(tmp_path):
+    _seed_cp01_pair(tmp_path)
+    _write(tmp_path, "other_unknown.yaml", {
+        "type": "module_content", "module": "otro_valor_desconocido",
+        "module_title": "???", "rating": "up",
+    })
+    entries = af.load_feedback(tmp_path, module_filter="custom_unknown")
+    assert entries == []
+
+
+# test: el histórico lowercase-typo conocido (variante real observada en
+# datos de producción) NO se adivina como CP01 — sigue sin resolver, y por
+# lo tanto NO matchea --module CP01 ni --module 01_Arquitectura_y_
+# Conectividad (comparación exacta, sin case folding adicional).
+def test_module_filter_does_not_guess_lowercase_typo_variant_into_canonical(tmp_path):
+    _write(tmp_path, "typo.yaml", {
+        "type": "module_content", "module": "01_arquitectura_y_conectividad",
+        "module_title": "Arquitectura y Conectividad", "rating": "up",
+    })
+    assert af.load_feedback(tmp_path, module_filter="CP01") == []
+    assert af.load_feedback(tmp_path, module_filter="01_Arquitectura_y_Conectividad") == []
+    # pero sigue siendo descubrible por su propio valor crudo, sin cambios.
+    entries = af.load_feedback(tmp_path, module_filter="01_arquitectura_y_conectividad")
+    assert len(entries) == 1
+
+
+# test: filtrar con el YAML fuente nunca lo reescribe.
+def test_module_filter_never_rewrites_source_yaml(tmp_path):
+    _seed_cp01_pair(tmp_path)
+    before = {p.name: p.read_text(encoding="utf-8") for p in tmp_path.glob("*.yaml")}
+    af.load_feedback(tmp_path, module_filter="CP01")
+    af.load_feedback(tmp_path, module_filter="01_Arquitectura_y_Conectividad")
+    after = {p.name: p.read_text(encoding="utf-8") for p in tmp_path.glob("*.yaml")}
+    assert after == before

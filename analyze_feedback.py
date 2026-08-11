@@ -98,6 +98,11 @@ def load_feedback(feedback_dir: Path, type_filter: str | None = None,
         return entries
 
     want_type = _TYPE_ALIASES.get(type_filter) if type_filter else None
+    # --module acepta stem legacy o module_id canónico indistintamente
+    # (misma semántica que module_registry.resolve()): se normalizan ambos
+    # lados antes de comparar, para que --module 01_Arquitectura_y_
+    # Conectividad y --module CP01 devuelvan el mismo conjunto lógico.
+    canonical_filter = _canonical_module(module_filter) if module_filter else None
     for p in sorted(feedback_dir.glob("*.yaml")):
         try:
             e = yaml.safe_load(p.read_text(encoding="utf-8"))
@@ -106,7 +111,7 @@ def load_feedback(feedback_dir: Path, type_filter: str | None = None,
             e["_file"] = p.name
             if want_type and e.get("type") != want_type:
                 continue
-            if module_filter and str(e.get("module", "")) != module_filter:
+            if canonical_filter and _canonical_module(e.get("module", "")) != canonical_filter:
                 continue
             entries.append(e)
         except Exception as ex:
