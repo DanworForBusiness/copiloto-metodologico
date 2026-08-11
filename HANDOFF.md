@@ -3993,6 +3993,126 @@ rama de A2 antes de continuar hacia PR, sin rediseñar A2 ni tocar Staffing.
 - **NO se iniciaron vacaciones, NO se inició trabajo nuevo de Staffing, NO
   se agregaron productores de telemetría nuevos** en este pase.
 
+### Corrective — Transversal Module + Event Semantics (antes de abrir el PR de A2)
+
+El owner revisó el Hub Dashboard real y encontró una inconsistencia
+estructural: en Copiloto, entrar a un módulo SE REPRESENTA como actividad de
+módulo (`module_selected`); en Operations/Staffing, entrar a Asignaciones NO
+se representaba como módulo — Actividad solo veía nombres de evento crudos
+con la ubicación repetida (`staffing_overview_viewed`, `staffing_overview_
+error`, `staffing_historial_error`, `staffing_data_diagnostics`), producía
+`0 módulo(s)` con el owner navegando activamente Asignaciones, y no escalaba
+a futuras áreas (Recruiting, Projects, etc.).
+
+**Jerarquía canónica congelada:** `scope → area → module (opcional) →
+event`. `module` deja de ser "Copilot-only" — pasa a ser una dimensión
+TRANSVERSAL opcional (Copilot Y Operations por igual). Regla de nombrado de
+eventos congelada: el EVENTO describe QUÉ pasó, nunca DÓNDE, si scope/area/
+module ya lo representan.
+
+- **Trace previo (antes de tocar código):** `module` NUNCA fue un campo de
+  primera clase del envelope — vivía dentro de `payload` (`payload.module`
+  para `module_selected`, `payload.stem` para `section_analyze`/
+  `assistant_query`/`tree_started`), extraído en `activity_analytics.
+  _module_key` (ahora `_legacy_payload_module`, ver abajo). Staffing nunca
+  pasó `module` en ningún productor.
+- **Envelope persistido (NUEVO):** `activity_service.log_activity`/
+  `log_verbose` ganan `module: str | None = None` keyword-only, aditivo
+  entre `area` y `payload` (mismo criterio que scope/area — se omite si es
+  `None`, callers existentes sin `module` siguen escribiendo el envelope de
+  siempre). **NUNCA se migran/reescriben los JSONL históricos.**
+- **Semántica de módulo — Asignaciones:** `module="assignments"` (key
+  estable) → label visible **"Asignaciones"** (`activity_context.
+  MODULE_LABELS`, mismo patrón que `SCOPE_LABELS`/`AREA_LABELS`). Los
+  módulos de Copiloto (stems de contenido, p. ej.
+  `01_arquitectura_y_conectividad`) NO se tocan ni se renombran — sin
+  entrada en `MODULE_LABELS`, se ven tal cual (fallback al key crudo).
+- **Productores nuevos de Staffing** (`webapp/routers/staffing.py`):
+  - `staffing_overview_viewed` → `module_viewed` / `module=assignments`.
+  - `staffing_overview_error` → `data_load_failed` / `module=assignments` /
+    `payload.operation=initial`.
+  - `staffing_historial_error` → `data_load_failed` / `module=assignments` /
+    `payload.operation=history`.
+  - `staffing_data_diagnostics` → `data_load_diagnostics` /
+    `module=assignments` / `payload.operation=initial`.
+  - `staffing_historial_diagnostics` → `data_load_diagnostics` /
+    `module=assignments` / `payload.operation=history` — **extensión no
+    pedida palabra por palabra en el corrective, pero aplicada por
+    consistencia**: es el análogo exacto de `staffing_data_diagnostics` para
+    la fase de historial; dejarlo sin normalizar habría sido inconsistente.
+  - `staffing_overview_config_incomplete`/`staffing_historial_config_
+    incomplete` **NO se tocan** (no pedidos, no repiten ubicación de forma
+    que escale) — solo se les asigna `event_class=diagnostic` en el
+    read-model para que no infle adopción.
+- **Productor Copiloto** (`webapp/routers/modules.py`): `module_selected` →
+  `module_viewed`, mismo `module=stem` de siempre (ahora campo de primera
+  clase, no solo payload). Un solo evento por navegación (nunca ambos).
+- **Normalización histórica** (`activity_context._EVENT_RENAME` +
+  `normalize_event()`) — SOLO read-model, JSONL nunca tocado:
+  `module_selected`→`module_viewed` (module se sigue extrayendo de
+  `payload`, no se inyecta); `staffing_overview_viewed`→`module_viewed`/
+  `assignments`; `staffing_overview_error`→`data_load_failed`/
+  `assignments`/`operation=initial`; `staffing_historial_error`→
+  `data_load_failed`/`assignments`/`operation=history`;
+  `staffing_data_diagnostics`/`staffing_historial_diagnostics`→
+  `data_load_diagnostics`/`assignments`/`operation=initial`|`history`.
+  `raw_event` se preserva íntegro en cada evento leído (nunca se pierde qué
+  se persistió realmente).
+- **event_class (read-model únicamente, NUNCA en el envelope persistido)** —
+  `activity_context.event_class()`: `usage` (login, module_viewed,
+  assistant_query, academy_selected, catalog_view/regenerate, tree_*, y el
+  resto del uso Copilot ya conocido) vs. `diagnostic` (`data_load_failed`,
+  `data_load_diagnostics`, y los `*_config_incomplete` sin renombrar) vs.
+  `unknown` (fallback explícito — nunca cae en usage en silencio).
+- **Métricas de adopción, uso-only:** Eventos totales, Usuarios únicos,
+  Eventos/día, Tendencia diaria, Top usuarios y Áreas activas ahora se
+  computan EXCLUSIVAMENTE sobre `event_class=="usage"` — un usuario que solo
+  generó errores de Graph ya no aparenta ser un usuario Hub activo.
+- **Top Módulos, transversal:** cuenta ÚNICAMENTE ocurrencias de
+  `event=="module_viewed"` agrupadas por `module` — Copiloto y Asignaciones
+  participan de la MISMA métrica. Un `data_load_failed` dentro de
+  Asignaciones nunca suma otra "visita". `module_event_breakdowns` (drilldown
+  por módulo, al clickear una fila de "Top módulos") sigue incluyendo TODO lo
+  que pasó en ese módulo (uso + diagnóstico) — el drilldown es distinto de la
+  métrica de "visitas".
+- **Filtro Módulo, transversal:** universo faceteado por fecha+usuario+
+  Ámbito+Área (nunca por sí mismo, así el `<select>` no colapsa a su propia
+  selección — mismo criterio que Área con Ámbito); una selección que queda
+  inválida tras un cambio de Ámbito/Área se descarta determinísticamente
+  (mismo criterio, nunca deja el dashboard en "0 eventos" silencioso).
+  Ámbito/Área a su vez dejaron de derivar de un universo que incluía el
+  filtro de Módulo (antes lo hacían — backwards, una dimensión de más abajo
+  en la jerarquía no debe re-facetear a las de arriba).
+- **UI:** sección "Eventos y catálogo" → **"Eventos"** (el nombre anterior
+  era Copilot-centric, catálogo no existe en Operations). Dentro de la
+  MISMA sección, "Eventos de uso" y (solo si hay diagnóstico) "Diagnóstico"
+  quedan separados con la primitiva `dashboard-subhead` ya existente — sin
+  tabs, sin dashboard nuevo, el diagnóstico sigue 100% inspeccionable
+  (drilldown por usuario intacto). El `<select name="module">` ahora
+  renderiza `{key, label}` (antes un string plano) — value=key (round-trip
+  de filtro), texto visible=label.
+- **Validación contra el `activity_log/` REAL del owner (solo lectura, JSONL
+  jamás tocado):** `staffing_overview_viewed` (15) + `module_selected` (316,
+  Copiloto) = **331** `module_viewed` normalizados; `staffing_overview_error`
+  (28) + `staffing_historial_error` (1) = **29** `data_load_failed`;
+  `staffing_data_diagnostics` (8) + `staffing_historial_diagnostics` (0) =
+  **8** `data_load_diagnostics` — conteos ANTES/DESPUÉS coinciden
+  exactamente. Top Módulos (solo `module_viewed`) para `assignments`:
+  **15** (excluye correctamente los 37 eventos de diagnóstico) — validado en
+  vivo en el dashboard real: `1 módulo(s) · 3 usuario(s)` (antes `0
+  módulo(s)`), `<option value="assignments">Asignaciones</option>`, fila
+  "Asignaciones · 15" en Top Módulos, "Eventos de uso"/"Diagnóstico"
+  visualmente separados y ambos inspeccionables.
+- **NO se tocó:** carga de datos de Staffing, historial lazy, filtros
+  Graph, cálculos de KPI/timeline/detalle de Staffing, rutas, auth/sesión,
+  ownership del shell de Actividad, vacaciones, UX de renovación de sesión
+  Microsoft.
+- **Gate:** targeted Activity (30 tests de contexto + 17 de rutas/UI) +
+  targeted Staffing (todos los archivos) + full suite **635 passed / 1
+  skipped** (+24 sobre el baseline de 611 de la reconciliación) +
+  route-contract GREEN, route surface **83 sin cambios** (ningún endpoint
+  nuevo).
+
 ---
 
 ## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — CLOSED / GREEN
@@ -4435,11 +4555,15 @@ nombres).
   - **Staffing — Vacation Timeline Overlay = FOLLOW-UP / NOT STARTED.**
   - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
     IMPLEMENTED / PENDING CI** — reconciliada contra `main` post-Staffing V2
-    (merge `54fc9b2` + corrective de zero-selection guard), **NO
+    (merge `54fc9b2` + corrective de zero-selection guard) Y con el
+    corrective de semántica de módulo/evento transversal ya aplicado
+    (`module` deja de ser Copilot-only; Staffing gana `module_viewed`/
+    `data_load_failed`/`data_load_diagnostics` en vez de nombres con la
+    ubicación repetida; adopción usa-only; Top Módulos transversal), **NO
     mergeada todavía** — ver "Pase de reconciliación — Batch A2 vs `main`
-    post-Staffing V2" en la sección dedicada arriba para el detalle
-    completo (merge/conflictos, checks pendientes resueltos,
-    gate/visual/commits).
+    post-Staffing V2" y "Corrective — Transversal Module + Event Semantics"
+    en la sección dedicada arriba para el detalle completo (merge/
+    conflictos, checks pendientes resueltos, gate/visual/commits).
 - **Último batch CERRADO:** **Staffing Dashboard V2 — Director Priority
   Update** — ver sección dedicada arriba — **CLOSED / GREEN** (commits
   `2833fa6` + `3fcb75e` + `265198b` (pre-PR final check) + `a149c3b`
@@ -4469,11 +4593,20 @@ nombres).
   `webapp/templates/operations/staffing_dashboard.html`, y
   tests/primitivas de dashboard compartidas; ambas evoluciones
   sobrevivieron intactas, confirmado por fuente y gate — ver sección
-  dedicada de reconciliación arriba). Suite en la branch: **611 passed /
-  1 skipped**, route surface **83** sin cambios, route-contract GREEN.
-  Ambos pending pre-PR checks resueltos (shell/ownership → NO CHANGE
-  documentado; zero-selection → corregido). **No mergeada, no hay CI real
-  todavía — no cerrar como CLOSED/GREEN sin esa confirmación.**
+  dedicada de reconciliación arriba). Ambos pending pre-PR checks resueltos
+  (shell/ownership → NO CHANGE documentado; zero-selection → corregido).
+  Después de la reconciliación, un corrective adicional ("Transversal
+  Module + Event Semantics", ver sección dedicada arriba) resolvió una
+  inconsistencia estructural encontrada por el owner en el Hub Dashboard
+  real (`module` Copilot-only, Staffing sin representación de módulo,
+  diagnóstico inflando adopción) — `module` pasa a ser transversal, nuevos
+  eventos canónicos (`module_viewed`/`data_load_failed`/
+  `data_load_diagnostics`) reemplazan los nombres de Staffing con la
+  ubicación repetida, adopción es usa-only, Top Módulos es transversal.
+  Validado contra el `activity_log/` REAL del owner (solo lectura). Suite
+  final en la branch: **635 passed / 1 skipped**, route surface **83** sin
+  cambios, route-contract GREEN. **No mergeada, no hay CI real todavía —
+  no cerrar como CLOSED/GREEN sin esa confirmación.**
 - **Batch CERRADO anterior:** **Shared Activity / Observability — Context
   Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
   (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
@@ -4555,10 +4688,11 @@ nombres).
   baseline previo a Staffing V2: `POST /operaciones/staffing/asignaciones/historial`
   (route surface 82→83, snapshot actualizado explícitamente, sin cambios
   desde su introducción).
-- **Baseline (`work/activity-dashboard-hub-v2`, local, reconciliada,
-  PENDING CI):** tests **611 passed / 1 skipped** (+16 sobre los 595 de
-  `main` — tests de A1/A2 propios de la rama + el nuevo test de
-  zero-selection) · route surface **83** sin cambios · route-contract
+- **Baseline (`work/activity-dashboard-hub-v2`, local, reconciliada +
+  corrective de módulo/evento transversal aplicado, PENDING CI):** tests
+  **635 passed / 1 skipped** (+40 sobre los 595 de `main` — tests de A1/A2
+  propios de la rama + zero-selection + módulo/evento transversal) · route
+  surface **83** sin cambios (ningún endpoint nuevo) · route-contract
   GREEN.
 
 ### Expected next workflow
