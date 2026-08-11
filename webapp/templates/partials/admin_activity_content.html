@@ -75,8 +75,8 @@
       <span>Área</span>
       <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
         {% for f in summary.area_facets %}
-        <label class="dashboard-checkbox-option">
-          <input class="scope-area-checkbox" type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+        <label class="dashboard-checkbox-option{% if f.disabled %} dashboard-checkbox-option--disabled{% endif %}">
+          <input class="scope-area-checkbox" type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %} {% if f.disabled %}disabled title="No aplica al Ámbito seleccionado"{% endif %}>
           <span>{{ f.label }}</span>
         </label>
         {% endfor %}

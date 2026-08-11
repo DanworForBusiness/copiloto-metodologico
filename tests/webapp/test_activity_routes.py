@@ -145,12 +145,15 @@ def test_ambito_area_checkboxes_auto_apply_on_change(monkeypatch, tmp_path):
     assert 'class="scope-area-checkbox"' in t
 
 
-def test_deselecting_ambito_deselects_its_exclusive_area(monkeypatch, tmp_path):
+def test_deselecting_ambito_disables_its_exclusive_area_without_removing_it(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
-    # Destildar Operaciones (solo scope=copilot+platform quedan) → Área ya no
-    # debe ofrecer "staffing" (exclusiva de Operaciones), ni tildada ni como opción.
+    # Destildar Operaciones (solo scope=copilot+platform quedan) → "staffing"
+    # (exclusiva de Operaciones) sigue OFRECIDA (mismo lugar en la grilla,
+    # sin "salto" visual) pero disabled y destildada — nunca desaparece del DOM.
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot&scope=platform").text
-    assert 'name="area" value="staffing"' not in t
+    assert 'name="area" value="staffing"' in t
+    assert 'name="area" value="staffing" checked' not in t
+    assert 'name="area" value="staffing"  disabled' in t
 
 
 # ── feedback del owner: Área queda muy alta en una sola columna ───────────────
@@ -208,9 +211,11 @@ def test_full_page_and_partial_share_filter_semantics(monkeypatch, tmp_path):
     part = _hx(c, "/admin/activity?scope=operations").text           # HTMX fragment
     for t in (full, part):
         assert 'name="scope" value="operations" checked' in t
-        # Área faceteada a staffing en ambos caminos.
+        # Área faceteada a staffing en ambos caminos; methodology sigue
+        # ofrecida (mismo lugar en la grilla) pero disabled/destildada.
         assert 'name="area" value="staffing" checked' in t
-        assert 'name="area" value="methodology"' not in t
+        assert 'name="area" value="methodology" checked' not in t
+        assert 'name="area" value="methodology"  disabled' in t
 
 
 # ── item 21: sin métricas de negocio de Operations en el Activity Dashboard ───

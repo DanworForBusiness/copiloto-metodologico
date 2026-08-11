@@ -400,9 +400,17 @@ def build_summary(
     # volver a tildarla (reportado por el owner). `scope_facets` usa siempre
     # `present_scopes` (el universo COMPLETO, pre-cualquier selección) para
     # quedar estable; solo Área reacciona al Ámbito elegido.
+    # Área tampoco cambia de CANTIDAD de opciones al cambiar Ámbito — listarla
+    # siempre completa (como Ámbito) y marcar `disabled` en vez de sacar del
+    # DOM las que no aplican evita que la grilla salte de alto/columna cada
+    # vez que se toca Ámbito (reportado por el owner). `disabled` (no solo
+    # visual): un checkbox disabled no dispara `change` ni se manda en el
+    # submit, así que la opción incompatible queda de hecho excluida sin
+    # necesitar lógica extra.
     requested_scopes = {s for s in (scopes or []) if s}
     requested_areas = {a for a in (areas or []) if a}
     present_scopes = {ev["scope"] for ev in base}
+    present_areas = {ev["area"] for ev in base}
     sel_scopes = (requested_scopes & present_scopes) or present_scopes
     areas_for_scopes = {ev["area"] for ev in base if ev["scope"] in sel_scopes}
     sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
@@ -411,8 +419,8 @@ def build_summary(
         for k in sorted(present_scopes)
     ]
     area_facets = [
-        {"key": k, "label": area_label(k), "checked": k in sel_areas}
-        for k in sorted(areas_for_scopes)
+        {"key": k, "label": area_label(k), "checked": k in sel_areas, "disabled": k not in areas_for_scopes}
+        for k in sorted(present_areas)
     ]
 
     events = [ev for ev in base if ev["scope"] in sel_scopes and ev["area"] in sel_areas]

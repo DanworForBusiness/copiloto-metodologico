@@ -755,6 +755,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-checkbox-option input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
 .dashboard-checkbox-option:has(input:checked) { color: #1f1f24; font-weight: 700; }
 .content-theme-dark .dashboard-checkbox-option:has(input:checked) { color: #e4e4ec; }
+/* Área incompatible con el Ámbito elegido (Actividad): sigue OCUPANDO SU
+   LUGAR en la grilla (mismo criterio que Ámbito, estable — ver
+   activity_analytics.build_summary) pero read-only, para que destildar un
+   Ámbito no haga "saltar" el resto de las opciones de Área. */
+.dashboard-checkbox-option--disabled { cursor: not-allowed; opacity: .38; }
+.dashboard-checkbox-option--disabled input { cursor: not-allowed; }
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/

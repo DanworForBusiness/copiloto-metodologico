@@ -196,7 +196,12 @@ def test_filter_scope_operations_returns_operations_only(monkeypatch, tmp_path):
     s = activity_analytics.build_summary("", "", scopes=["operations"])
     assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
     assert s["copilot_present"] is False
-    assert [f["key"] for f in s["area_facets"]] == ["staffing"]   # faceting: área se restringe
+    # Área sigue listando TODAS las opciones (mismo criterio que Ámbito,
+    # estable) — las incompatibles quedan disabled en vez de desaparecer.
+    by_key = {f["key"]: f for f in s["area_facets"]}
+    assert by_key["staffing"]["checked"] and not by_key["staffing"]["disabled"]
+    assert by_key["auth"]["disabled"] and not by_key["auth"]["checked"]
+    assert by_key["methodology"]["disabled"] and not by_key["methodology"]["checked"]
 
 
 def test_filter_scope_copilot_excludes_operations_preserves_copilot(monkeypatch, tmp_path):
@@ -216,7 +221,10 @@ def test_filter_scope_platform_preserves_auth(monkeypatch, tmp_path):
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", scopes=["platform"])
     assert {r["event"] for r in s["event_counts"]} == {"login"}
-    assert [f["key"] for f in s["area_facets"]] == ["auth"]
+    by_key = {f["key"]: f for f in s["area_facets"]}
+    assert by_key["auth"]["checked"] and not by_key["auth"]["disabled"]
+    assert by_key["methodology"]["disabled"] and not by_key["methodology"]["checked"]
+    assert by_key["staffing"]["disabled"] and not by_key["staffing"]["checked"]
 
 
 def test_filter_area_staffing_returns_staffing_and_scope_facets_stay_stable(monkeypatch, tmp_path):
