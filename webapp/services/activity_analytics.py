@@ -22,7 +22,11 @@ from typing import Any
 import yaml
 
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
-from webapp.services.activity_context import area_label, context_of, scope_label
+from webapp.services.activity_context import (
+    area_label, context_of, scope_label, module_label,
+    normalize_event, event_class as _classify_event,
+    EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED,
+)
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -88,7 +92,12 @@ def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int | Non
 # (+ el beacon /telemetry/event y su _TELEMETRY_EVENTS).
 _EVENT_DESCRIPTIONS = {
     "login": "Inicios de sesión (una vez por login).",
-    "module_selected": "Veces que se abrió un módulo del marco (una por cada vez que se entra).",
+    # `module_viewed` (corrective A2 — Transversal Module + Event Semantics):
+    # reemplaza al histórico `module_selected` de Copiloto Y al histórico
+    # `staffing_overview_viewed` de Operations/Staffing — mismo hecho (vista
+    # de un módulo), ahora un solo evento genérico y reusable en vez de
+    # repetir la ubicación en el nombre.
+    "module_viewed": "Vista de módulo: se entró a un módulo navegable (Copiloto o, p. ej., Asignaciones en Operaciones). Una por cada vez que se entra.",
     "module_continue": "Veces que se usó el cue de “continuar” para avanzar dentro de un módulo.",
     "module_reached_end": "Veces que se llegó al final de un módulo (lectura completa).",
     "academy_selected": "Veces que se abrió una página de Academy.",
@@ -103,10 +112,15 @@ _EVENT_DESCRIPTIONS = {
     "disclosure_toggle": "Veces que se abrió/cerró un desplegable de contenido.",
     "theme_change": "Veces que se cambió el tema (claro/oscuro).",
     "section_analyze": "(Histórico) Acción de análisis de sección — reemplazado por assistant_query; puede aparecer en datos previos.",
-    # Operaciones · Staffing (Batch A1/A2). Uso vs diagnóstico:
-    "staffing_overview_viewed": "Vista de Asignaciones (Operaciones · Staffing): accesos a la página del dashboard de asignaciones.",
+    # Diagnóstico (Batch A1/A2 corrective) — transversal, NUNCA cuenta como
+    # adopción/uso (ver event_class en activity_context.py). Reemplazan a los
+    # históricos con la ubicación repetida en el nombre (`staffing_overview_
+    # error`, `staffing_data_diagnostics`, etc.) — la fase queda en
+    # `payload.operation` ("initial"/"history"), no en el nombre del evento.
+    "data_load_failed": "(Diagnóstico) Error de Graph/transporte al cargar datos de un módulo (ver payload.operation: initial/history).",
+    "data_load_diagnostics": "(Diagnóstico) Métricas de la carga de datos de un módulo — filas/páginas/tiempo/fallback (ver payload.operation), nunca token/payload/PII.",
     "staffing_overview_config_incomplete": "(Diagnóstico) La config de Staffing (site_id / mapeo de campos) estaba incompleta al pedir el overview.",
-    "staffing_overview_error": "(Diagnóstico) Error de Graph/transporte al traer el overview de Staffing.",
+    "staffing_historial_config_incomplete": "(Diagnóstico) La config de Staffing estaba incompleta al pedir el historial de Inactivo.",
 }
 
 
@@ -130,8 +144,14 @@ def _log_files(low: str, high: str) -> list[tuple[str, Path]]:
     return sorted(hits)
 
 
-def _module_key(event_type: str, payload: dict[str, Any]) -> str:
-    if event_type not in _MODULE_KEY_EVENTS:
+def _legacy_payload_module(raw_event: str, payload: dict[str, Any]) -> str:
+    """Fallback LEGACY para eventos que nunca tuvieron `module` de primera
+    clase en el envelope y lo llevaban dentro de `payload` (`module_selected`
+    → payload.module; `section_analyze`/`assistant_query`/`tree_started` →
+    payload.stem). Se evalúa sobre el RAW event name (antes de
+    `normalize_event`) — el set no cambia por el corrective A2, los eventos
+    NUEVOS ya traen `module` como campo top-level y nunca llegan acá."""
+    if raw_event not in _MODULE_KEY_EVENTS:
         return ""
     return str(payload.get("module") or payload.get("stem") or "").strip()
 
@@ -168,8 +188,16 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
 
 def _read_events(date_from: str, date_to: str) -> list[dict]:
     """Parsea los JSONL del rango a una lista de eventos normalizados (día,
-    tipo, usuario, nombre, ts, payload, module_key). Líneas corruptas se
-    descartan silenciosamente, igual que log_activity nunca rompe la app."""
+    tipo, usuario, nombre, ts, payload, module, event_class). Líneas
+    corruptas se descartan silenciosamente, igual que log_activity nunca
+    rompe la app.
+
+    Normalización de NOMBRE de evento + module + event_class (corrective A2 —
+    Transversal Module + Event Semantics) es semántica de READ-MODEL: el
+    JSONL persistido NUNCA se reescribe. `event` queda con el nombre
+    CANÓNICO (post-`normalize_event`); `raw_event` preserva el nombre
+    realmente persistido, para que el owner pueda seguir inspeccionando qué
+    se guardó de verdad."""
     low, high = _bounds(date_from, date_to)
     events: list[dict] = []
     for day, path in _log_files(low, high):
@@ -185,8 +213,8 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
                 raw = json.loads(line)
             except (json.JSONDecodeError, ValueError):
                 continue
-            event_type = str(raw.get("event") or "").strip()
-            if not event_type:
+            raw_event = str(raw.get("event") or "").strip()
+            if not raw_event:
                 continue
             payload = raw.get("payload") or {}
             if not isinstance(payload, dict):
@@ -196,38 +224,44 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
             # Seam de normalización de contexto (Batch A1): scope/area para
             # registros nuevos (campos explícitos) Y viejos (clasificados por
             # event) vía la ÚNICA función canónica context_of — no se esparce
-            # lógica event→scope/area por las métricas del dashboard.
+            # lógica event→scope/area por las métricas del dashboard. Sigue
+            # evaluándose sobre el RAW event name (`_HISTORICAL` está keyed
+            # por nombres crudos, p. ej. "staffing_overview_viewed").
             scope, area = context_of(raw)
+            canonical_event, injected_module, injected_operation = normalize_event(raw_event)
+            if injected_operation and not payload.get("operation"):
+                payload = {**payload, "operation": injected_operation}
+            explicit_module = str(raw.get("module") or "").strip()
+            module = explicit_module or injected_module or _legacy_payload_module(raw_event, payload)
             events.append({
                 "day": day,
-                "event": event_type,
+                "event": canonical_event,
+                "raw_event": raw_event,
                 "user": user,
                 "name": name,
                 "ts_utc": str(raw.get("ts_utc") or ""),
                 "payload": payload,
-                "module": _module_key(event_type, payload),
+                "module": module,
                 "scope": scope,
                 "area": area,
+                "event_class": _classify_event(canonical_event),
             })
     return events
 
 
-def _facets(events: list[dict]) -> tuple[list[dict], list[str]]:
-    """Usuarios/módulos distintos en el rango de fechas (ANTES de aplicar el
-    filtro de usuario/módulo), para que los <select> no se vacíen al filtrar."""
+def _user_facets(events: list[dict]) -> list[dict]:
+    """Usuarios distintos en el rango de fechas (ANTES de aplicar el filtro de
+    usuario), para que el <select> no se vacíe al filtrar. Módulo se resuelve
+    aparte, en build_summary — es transversal (Copilot Y Operations, ver
+    corrective A2) y necesita facetear contra Ámbito/Área, no solo fecha."""
     users: dict[str, str] = {}
-    modules: set[str] = set()
     for ev in events:
         if ev["user"]:
             users.setdefault(ev["user"], ev["name"] or ev["user"])
-        if ev["module"]:
-            modules.add(ev["module"])
-    available_users = [
+    return [
         {"value": user, "label": label}
         for user, label in sorted(users.items(), key=lambda kv: kv[1].lower())
     ]
-    available_modules = sorted(modules)
-    return available_users, available_modules
 
 
 def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
@@ -242,14 +276,41 @@ def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
     return rows
 
 
+def _top_modules(counter: Counter, n: int = _TOP_N) -> list[dict]:
+    """Como _top() pero con `key` (identificador estable) Y `label` (visible,
+    ver module_label) por separado — el template usa `label` tanto para
+    mostrar como para el cross-reference clickeable con
+    `module_event_breakdowns` (data-module / data-module-breakdown), así que
+    ambos DEBEN construirse juntos acá para no desincronizarse. Para módulos
+    de Copiloto (sin entrada en MODULE_LABELS) label == key, sin cambios."""
+    total_max = counter.most_common(1)[0][1] if counter else 0
+    rows = []
+    for key, count in counter.most_common(n):
+        rows.append({
+            "key": key,
+            "label": module_label(key),
+            "count": count,
+            "pct": round(100 * count / total_max) if total_max else 0,
+        })
+    return rows
+
+
 def _event_breakdown_rows(counter: Counter) -> list[dict]:
     """Igual que _top() pero con clave `event` en vez de `label` (y sin tope N:
     la cantidad de tipos de evento distintos es chica) — mismo shape para el
     panel global de "Eventos por tipo" y cada panel module-scoped, así el
-    template comparte un solo bloque Jinja para los dos casos."""
+    template comparte un solo bloque Jinja para los dos casos. Incluye
+    `event_class` (corrective A2) para que el template module-scoped
+    (module_event_breakdowns, que SÍ mezcla uso+diagnóstico de un módulo) pueda
+    separarlos con `selectattr`/`rejectattr` sin duplicar la lógica de
+    clasificación."""
     total_max = counter.most_common(1)[0][1] if counter else 0
     return [
-        {"event": event, "count": count, "pct": round(100 * count / total_max) if total_max else 0}
+        {
+            "event": event, "count": count,
+            "pct": round(100 * count / total_max) if total_max else 0,
+            "event_class": _classify_event(event),
+        }
         for event, count in counter.most_common()
     ]
 
@@ -375,18 +436,22 @@ def build_summary(
 ) -> dict:
     # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
     # normalizado — la exclusión interina de Operations (A1) fue RETIRADA. Filtros
-    # explícitos: date (a nivel de archivo en _read_events) + user + module y luego
-    # scope (Ámbito) / area (Área) con faceting mutuo.
+    # explícitos: date (a nivel de archivo en _read_events) + user, luego
+    # scope (Ámbito) / area (Área) con faceting UNIDIRECCIONAL, y por último
+    # module (transversal, corrective A2) — ver abajo por qué module se
+    # resuelve DESPUÉS de scope/area en vez de junto con user.
     all_events = _read_events(date_from, date_to)
-    available_users, available_modules = _facets(all_events)
+    available_users = _user_facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
 
     user = (user or "").strip()
     module = (module or "").strip()
-    base = [
-        ev for ev in all_events
-        if (not user or ev["user"] == user) and (not module or ev["module"] == module)
-    ]
+    # Ámbito/Área derivan de fecha+usuario — NUNCA de Módulo. Antes Módulo
+    # SÍ influía qué Ámbitos/Áreas se ofrecían (via el viejo `base`, que ya
+    # incluía el filtro de módulo) — backwards: una dimensión de más abajo en
+    # la jerarquía (scope→area→module→event) no debería re-facetear a las de
+    # arriba. Mismo principio ya aplicado a Ámbito/Área entre sí.
+    user_filtered = [ev for ev in all_events if not user or ev["user"] == user]
 
     # Ámbito/Área con faceting UNIDIRECCIONAL (Ámbito → Área), derivado del
     # universo filtrado (nunca hardcodeado). Selección vacía/None = TODO
@@ -409,10 +474,10 @@ def build_summary(
     # necesitar lógica extra.
     requested_scopes = {s for s in (scopes or []) if s}
     requested_areas = {a for a in (areas or []) if a}
-    present_scopes = {ev["scope"] for ev in base}
-    present_areas = {ev["area"] for ev in base}
+    present_scopes = {ev["scope"] for ev in user_filtered}
+    present_areas = {ev["area"] for ev in user_filtered}
     sel_scopes = (requested_scopes & present_scopes) or present_scopes
-    areas_for_scopes = {ev["area"] for ev in base if ev["scope"] in sel_scopes}
+    areas_for_scopes = {ev["area"] for ev in user_filtered if ev["scope"] in sel_scopes}
     sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
     scope_facets = [
         {"key": k, "label": scope_label(k), "checked": k in sel_scopes}
@@ -423,24 +488,49 @@ def build_summary(
         for k in sorted(present_areas)
     ]
 
-    events = [ev for ev in base if ev["scope"] in sel_scopes and ev["area"] in sel_areas]
-    # Universo scope/area-filtrado (pre user/module) para lentes Copilot con
-    # filtrado interno propio (árboles): así se vacían solas cuando el Ámbito
-    # seleccionado excluye al Copiloto.
+    scope_area_user_filtered = [
+        ev for ev in user_filtered if ev["scope"] in sel_scopes and ev["area"] in sel_areas
+    ]
+    # Módulo (dimensión TRANSVERSAL opcional, corrective A2 — Copilot Y
+    # Operations por igual): universo faceteado por fecha+usuario+Ámbito+Área,
+    # nunca se fabrica una opción ausente del dataset. Si la selección pedida
+    # ya no aplica tras un cambio de Ámbito/Área (mismo criterio determinístico
+    # que Área con Ámbito), se descarta en vez de dejar el dashboard en un
+    # estado "0 eventos" silencioso.
+    module_universe = sorted({ev["module"] for ev in scope_area_user_filtered if ev["module"]})
+    if module and module not in module_universe:
+        module = ""
+    available_modules = [{"key": m, "label": module_label(m)} for m in module_universe]
+
+    events = [ev for ev in scope_area_user_filtered if not module or ev["module"] == module]
+    # Universo scope/area-filtrado SIN usuario (pre user/module) para lentes
+    # Copilot con filtrado interno propio (árboles, que resuelven título/
+    # módulo de CUALQUIER usuario antes de aplicar su propio filtro de
+    # usuario/módulo) — mismo criterio que antes de este corrective, sin
+    # cambios: así se vacían solas cuando el Ámbito seleccionado excluye al
+    # Copiloto.
     scoped_all_events = [
         ev for ev in all_events if ev["scope"] in sel_scopes and ev["area"] in sel_areas
     ]
 
     total_events = 0
     users_seen: set[str] = set()
+    usage_areas_seen: set[str] = set()
     event_counts: Counter = Counter()
+    # "Eventos" (renombrada de "Eventos y catálogo", ver corrective A2): la
+    # UI separa uso de diagnóstico visualmente — dos counters en vez de
+    # filtrar `event_counts` post-hoc en el template (Jinja no tiene
+    # `event_class`, sería lógica de negocio escapándose al template).
+    usage_event_type_counts: Counter = Counter()
+    diagnostic_event_type_counts: Counter = Counter()
     daily_counts: Counter = Counter()
     module_counts: Counter = Counter()
     user_counts: Counter = Counter()
     catalog_kind_counts: Counter = Counter()
     # Desglose por evento para el panel derecho interactivo: por cada tipo de
     # evento, quién lo generó cuántas veces (catalog_view usa su propio desglose
-    # por `kind`, ver más abajo).
+    # por `kind`, ver más abajo). Incluye diagnóstico a propósito — sigue siendo
+    # inspeccionable, solo no infla adopción (ver `total_events`/`is_usage` abajo).
     event_user_counts: dict[str, Counter] = {}
     # Desglose de "Eventos por tipo" POR MÓDULO, para conectar el clic en un
     # módulo (sección "Módulos y usuarios") con un filtro de esta lista — mismo
@@ -457,22 +547,49 @@ def build_summary(
     files_scanned = len({ev["day"] for ev in all_events})
 
     for ev in events:
-        total_events += 1
-        daily_counts[ev["day"]] += 1
+        is_usage = ev["event_class"] == EVENT_CLASS_USAGE
+        # "Eventos por tipo" cuenta TODO (uso + diagnóstico) — se muestran
+        # separados en dos grupos en el template, nunca mezclados en una sola
+        # métrica de adopción.
         event_counts[ev["event"]] += 1
+        if is_usage:
+            usage_event_type_counts[ev["event"]] += 1
+        else:
+            diagnostic_event_type_counts[ev["event"]] += 1
+
+        # Métricas de ADOPCIÓN (Eventos/Usuarios únicos/Eventos por
+        # día/Tendencia diaria/Top usuarios/Áreas activas, ver contrato del
+        # corrective A2): SOLO uso real, nunca diagnóstico — un usuario que
+        # solo generó errores de Graph no debe parecer un usuario activo del
+        # Hub.
+        if is_usage:
+            total_events += 1
+            daily_counts[ev["day"]] += 1
+            usage_areas_seen.add(ev["area"])
+            if ev["user"]:
+                users_seen.add(ev["user"])
+                label = ev["name"] or ev["user"]
+                user_counts[label] += 1
 
         if ev["user"]:
-            users_seen.add(ev["user"])
             label = ev["name"] or ev["user"]
-            user_counts[label] += 1
             event_user_counts.setdefault(ev["event"], Counter())[label] += 1
 
         if ev["ts_utc"]:
             ts_min = ev["ts_utc"] if ts_min is None else min(ts_min, ev["ts_utc"])
             ts_max = ev["ts_utc"] if ts_max is None else max(ts_max, ev["ts_utc"])
 
-        if ev["module"]:
+        # Top Modules (transversal, corrective A2): una VISITA de módulo es
+        # `event == module_viewed`, no cualquier evento que ocurra adentro
+        # del módulo (un data_load_failed dentro de Asignaciones NO suma otra
+        # visita) — "A page/module entry is the module-view metric."
+        if ev["module"] and ev["event"] == EVENT_MODULE_VIEWED:
             module_counts[ev["module"]] += 1
+        # module_event_counts (drilldown por módulo, cross-referenciado desde
+        # "Módulos y usuarios") SÍ incluye todo lo que pasó en ese módulo
+        # (uso + diagnóstico) — clickear "Asignaciones" debe poder mostrar
+        # también sus errores, no solo sus vistas.
+        if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
 
         if ev["event"] == "catalog_view":
@@ -580,21 +697,31 @@ def build_summary(
         # flag para gatear las lentes Copilot-específicas.
         "scope_facets": scope_facets,
         "area_facets": area_facets,
-        "areas_active": len({ev["area"] for ev in events}),
+        # Áreas activas: uso-driven (mismo criterio que el resto de las
+        # métricas de adopción, corrective A2) — un área que solo generó
+        # diagnóstico no cuenta como "activa".
+        "areas_active": len(usage_areas_seen),
         "copilot_present": any(ev["scope"] == "copilot" for ev in events),
         "assistant_query_count": event_counts.get("assistant_query", 0),
         "assistant_api_cost_count": assistant_api_cost_count,
         "ts_min": ts_min,
         "ts_max": ts_max,
         "event_counts": _event_breakdown_rows(event_counts),
-        "top_modules": _top(module_counts),
+        # "Eventos" (corrective A2): mismas filas que event_counts, separadas
+        # por event_class para que el template las muestre en dos grupos
+        # visuales ("Eventos de uso" / "Diagnóstico") sin mezclarlas.
+        "usage_event_counts": _event_breakdown_rows(usage_event_type_counts),
+        "diagnostic_event_counts": _event_breakdown_rows(diagnostic_event_type_counts),
+        "top_modules": _top_modules(module_counts),
         "top_users": _top(user_counts),
         # Mismo tope que top_modules (los módulos que realmente aparecen como fila
         # clickeable): no tiene sentido precalcular el desglose de un módulo que
-        # ni se muestra.
+        # ni se muestra. Keyed por LABEL visible (no por key interno) — así
+        # coincide con `data-module="{{ row.label }}"` en el template; lookup
+        # por `row["key"]` (interno) contra module_event_counts.
         "module_event_breakdowns": {
-            row["label"]: _event_breakdown_rows(module_event_counts.get(row["label"], Counter()))
-            for row in _top(module_counts)
+            row["label"]: _event_breakdown_rows(module_event_counts.get(row["key"], Counter()))
+            for row in _top_modules(module_counts)
         },
         "catalog_kind_counts": [
             {"kind": kind, "count": count}

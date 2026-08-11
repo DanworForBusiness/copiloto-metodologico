@@ -223,7 +223,65 @@ def test_full_page_and_partial_share_filter_semantics(monkeypatch, tmp_path):
 def test_no_operations_business_metrics_invented(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations").text
-    assert "staffing_overview_viewed" in t                           # sí: conteo de uso
+    assert "module_viewed" in t                                      # sí: conteo de uso (canónico, corrective A2)
     # no: KPIs de negocio de Staffing (eso es el dashboard de Staffing, no éste).
     for label in ("Consultores", "Horas activas", "utilization", "capacity", "Disponibilidad de asignación"):
         assert label not in t
+
+
+# ── corrective A2 — Transversal Module + Event Semantics (UI, items 36-41) ──
+
+_TRANSVERSAL_MODULE_ROWS = _HUB_ROWS + [
+    # Diagnóstico de Staffing histórico (raw, sin module/operation explícitos) —
+    # debe normalizar a data_load_failed/assignments/operation=initial y NUNCA
+    # aparecer como "Eventos de uso" ni inflar Top módulos.
+    {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "staffing_overview_error", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {"error_type": "ConnectionError"}},
+]
+
+
+def _seed_transversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in _TRANSVERSAL_MODULE_ROWS) + "\n", encoding="utf-8",
+    )
+
+
+def test_module_filter_renders_asignaciones_for_operations(monkeypatch, tmp_path):
+    # test 36/38: el filtro Módulo expone "Asignaciones" (label) para
+    # module="assignments" (key) cuando hay actividad real de Staffing.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations&area=staffing").text
+    assert '<option value="assignments"' in t
+    assert ">Asignaciones<" in t
+
+
+def test_operations_only_view_shows_nonzero_module_count(monkeypatch, tmp_path):
+    # test 37: ya no dice "0 módulo(s)" para una vista Operations-only —
+    # module_viewed (ex staffing_overview_viewed) cuenta como visita de módulo.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations&area=staffing").text
+    assert "0 módulo(s)" not in t
+    assert "1 módulo(s)" in t
+
+
+def test_eventos_section_title_is_neutral(monkeypatch, tmp_path):
+    # test 39: título de sección neutral (Hub-wide), ya no Copilot-centric.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span class="dashboard-section__title">Eventos</span>' in t
+    assert "Eventos y catálogo" not in t
+
+
+def test_usage_and_diagnostic_events_are_visually_separated(monkeypatch, tmp_path):
+    # test 40/41: uso y diagnóstico en dos grupos separados (misma primitiva
+    # dashboard-subhead) — el diagnóstico sigue inspeccionable, nunca oculto.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert ">Eventos de uso<" in t
+    assert ">Diagnóstico<" in t
+    # El diagnóstico normalizado (data_load_failed) sigue visible/inspeccionable.
+    assert "data_load_failed" in t
+    usage_pos = t.index(">Eventos de uso<")
+    diag_pos = t.index(">Diagnóstico<")
+    diag_event_pos = t.index("data_load_failed")
+    assert usage_pos < diag_pos < diag_event_pos                  # el evento de diagnóstico cae DESPUÉS del subhead Diagnóstico

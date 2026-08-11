@@ -60,7 +60,10 @@ from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
 from webapp.services.activity_service import log_activity, log_verbose
-from webapp.services.activity_context import SCOPE_OPERATIONS, AREA_STAFFING
+from webapp.services.activity_context import (
+    SCOPE_OPERATIONS, AREA_STAFFING, MODULE_ASSIGNMENTS,
+    EVENT_MODULE_VIEWED, EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
+)
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
 
@@ -103,11 +106,15 @@ def staffing_page(request: Request):
         return redirect
     user = auth_service.session_user(request)
     # Primer evento de USO real de Operations (Batch A1): un acceso exitoso a la
-    # página de Asignaciones. Adopción (BASIC), como module_selected/academy_selected
+    # página de Asignaciones. Adopción (BASIC), como module_viewed de Copiloto
     # — NO un evento de diagnóstico. Un evento por acceso a la página (el GET);
     # el POST /data y las interacciones client-side NO se loguean (sin clickstream).
     # Usa la sesión ya resuelta; sin segunda llamada a Graph, sin token, sin dataset.
-    log_activity("staffing_overview_viewed", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
+    # `module_viewed`/`module=assignments` (corrective A2 — Transversal Module):
+    # reemplaza al histórico `staffing_overview_viewed`, mismo hecho (una vista
+    # de módulo), ahora reusando el mismo evento genérico que Copiloto en vez
+    # de repetir "staffing" en el nombre del evento.
+    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=MODULE_ASSIGNMENTS)
     return templates.TemplateResponse(
         request=request, name="operations/staffing.html",
         context={
@@ -150,7 +157,13 @@ def staffing_data(request: Request, graph_token: str = Form("")):
             request=request, name="operations/staffing_dashboard.html", context={"state": "config_incomplete"},
         )
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
-        log_verbose("staffing_overview_error", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, error_type=type(exc).__name__)
+        # `data_load_failed`/`operation=initial` (corrective A2): reemplaza al
+        # histórico `staffing_overview_error` — la FASE (carga inicial vs.
+        # historial) queda en `payload.operation`, no en el nombre del evento.
+        log_verbose(
+            EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+            module=MODULE_ASSIGNMENTS, operation="initial", error_type=type(exc).__name__,
+        )
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "graph_error"},
         )
@@ -158,9 +171,12 @@ def staffing_data(request: Request, graph_token: str = Form("")):
     # Diagnóstico (pre-PR corrective, ver HANDOFF: "measure the real 6
     # seconds") — SOLO en el camino exitoso, a propósito (mantener el
     # alcance acotado a lo pedido); rows/pages/elapsed_ms/filter_used/
-    # fallback_used por fuente, nunca token/payload/PII.
+    # fallback_used por fuente, nunca token/payload/PII. `data_load_diagnostics`/
+    # `operation=initial` (corrective A2) reemplaza al histórico
+    # `staffing_data_diagnostics`.
     log_verbose(
-        "staffing_data_diagnostics", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        EVENT_DATA_LOAD_DIAGNOSTICS, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        module=MODULE_ASSIGNMENTS, operation="initial",
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 
@@ -203,14 +219,23 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
         log_verbose("staffing_historial_config_incomplete", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING)
         return JSONResponse({"state": "config_incomplete"})
     except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
-        log_verbose("staffing_historial_error", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, error_type=type(exc).__name__)
+        # `data_load_failed`/`operation=history` (corrective A2): reemplaza al
+        # histórico `staffing_historial_error` — mismo evento canónico que la
+        # carga inicial, distinguible por `operation`.
+        log_verbose(
+            EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+            module=MODULE_ASSIGNMENTS, operation="history", error_type=type(exc).__name__,
+        )
         return JSONResponse({"state": "graph_error"})
 
     # Mismo diagnóstico que staffing_data (ver arriba) — prueba explícita de
     # si el toggle de Inactivo disparó exactamente 1 request y si el
-    # $filter/fallback de esa carga histórica funcionó.
+    # $filter/fallback de esa carga histórica funcionó. `data_load_diagnostics`/
+    # `operation=history` (corrective A2) reemplaza al histórico
+    # `staffing_historial_diagnostics`.
     log_verbose(
-        "staffing_historial_diagnostics", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        EVENT_DATA_LOAD_DIAGNOSTICS, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        module=MODULE_ASSIGNMENTS, operation="history",
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 

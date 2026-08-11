@@ -47,10 +47,14 @@
     </label>
     <label class="whatsnew-filter">
       <span>Módulo</span>
+      {# Transversal (corrective A2 — Copilot Y Operations): {key, label}, no
+         un string plano — key es el identificador estable (round-trips en la
+         URL), label es lo visible (p. ej. "Asignaciones" para "assignments";
+         los módulos de Copiloto no tienen label mapeado, se ven tal cual). #}
       <select name="module">
         <option value="">Todos</option>
         {% for m in summary.available_modules %}
-        <option value="{{ m }}" {% if m == summary.selected_module %}selected{% endif %}>{{ m }}</option>
+        <option value="{{ m.key }}" {% if m.key == summary.selected_module %}selected{% endif %}>{{ m.label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -213,7 +217,11 @@
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
     <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Eventos y catálogo</span>
+    {# "Eventos" (antes "Eventos y catálogo", corrective A2 — Transversal
+       Module + Event Semantics): el nombre anterior era Copilot-centric
+       (catálogo no existe en Operations) e incorrecto ahora que la sección
+       es Hub-wide. #}
+    <span class="dashboard-section__title">Eventos</span>
     <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
   </summary>
   <div class="dashboard-section__body">
@@ -225,7 +233,12 @@
        usuarios" filtra ESTA lista a los eventos de ese módulo — mismo patrón,
        ahora cross-sección, vía initModuleFilter (data-module-breakdown). Nota:
        "Vistas de catálogo por tipo" no reacciona: catalog_view no lleva módulo
-       en el payload. #}
+       en el payload.
+
+       Eventos de uso / Diagnóstico (corrective A2): separados visualmente con
+       la MISMA primitiva `dashboard-subhead` que ya usa el resto del
+       dashboard — nunca se ocultan los de diagnóstico (siguen inspeccionables,
+       ver HANDOFF), solo no se mezclan con adopción real. #}
     {% macro event_rows(rows) %}
     {% for row in rows %}
     <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
@@ -241,9 +254,27 @@
           Eventos por tipo <span class="dashboard-subhead__hint">· click para desglosar →</span>
           <span class="dashboard-subhead__filter" data-module-filter-label hidden>· Filtrado por <strong></strong> <button type="button" class="dashboard-subhead__reset" data-module-reset title="Volver a todos los módulos">✕</button></span>
         </p>
-        <div data-module-breakdown="">{{ event_rows(summary.event_counts) }}</div>
+        <div data-module-breakdown="">
+          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
+          {{ event_rows(summary.usage_event_counts) }}
+          {% if summary.diagnostic_event_counts %}
+          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
+          {{ event_rows(summary.diagnostic_event_counts) }}
+          {% endif %}
+        </div>
         {% for mod, rows in summary.module_event_breakdowns.items() %}
-        <div data-module-breakdown="{{ mod }}" hidden>{{ event_rows(rows) }}</div>
+        {% set mod_usage = rows | selectattr('event_class', 'equalto', 'usage') | list %}
+        {% set mod_diag = rows | rejectattr('event_class', 'equalto', 'usage') | list %}
+        <div data-module-breakdown="{{ mod }}" hidden>
+          {% if mod_usage %}
+          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
+          {{ event_rows(mod_usage) }}
+          {% endif %}
+          {% if mod_diag %}
+          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
+          {{ event_rows(mod_diag) }}
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
       <div>

@@ -719,10 +719,13 @@ def test_staffing_page_emits_exactly_one_usage_event_with_context(monkeypatch, t
     monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
     resp = client.get("/operaciones/staffing/asignaciones")
     assert resp.status_code == 200
-    viewed = [r for r in _activity_records(tmp_path) if r["event"] == "staffing_overview_viewed"]
+    # `module_viewed`/`module=assignments` (corrective A2) reemplaza al
+    # histórico `staffing_overview_viewed`.
+    viewed = [r for r in _activity_records(tmp_path) if r["event"] == "module_viewed"]
     assert len(viewed) == 1                                   # exactamente uno por acceso a la página
     ev = viewed[0]
     assert ev["scope"] == "operations" and ev["area"] == "staffing"
+    assert ev["module"] == "assignments"
     assert ev["user"] == "staffing-test@danwor.com"           # identidad autenticada de la sesión
     assert ev["payload"] == {}                                # sin dataset de Staffing
     assert "graph_token" not in json.dumps(ev) and "token" not in ev["payload"]  # sin token

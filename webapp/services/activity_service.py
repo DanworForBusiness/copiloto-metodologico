@@ -92,6 +92,7 @@ def log_activity(
     *,
     scope: str | None = None,
     area: str | None = None,
+    module: str | None = None,
     **payload: Any,
 ) -> None:
     """Registra un evento de actividad. `user` es el dict de la sesión FastAPI
@@ -99,11 +100,16 @@ def log_activity(
 
     `scope`/`area` son el CONTEXTO de plataforma (Batch A1), pasados EXPLÍCITOS
     por el productor — este sink NO los infiere ni conoce la taxonomía (esa vive
-    en `activity_context`). Keyword-only para no colisionar con `**payload` ni
-    poder ser inyectados por un caller que reenvía un body arbitrario. Se
-    escriben aditivamente entre `name` y `payload`; si son None se omiten
-    (envelope histórico de 5 campos preservado para callers que no los pasen —
-    el lector normaliza su ausencia)."""
+    en `activity_context`). `module` (Batch A2 corrective) es la dimensión
+    OPCIONAL y TRANSVERSAL de navegación (Copilot Y Operations) — antes solo
+    viajaba dentro de `payload` (`payload.module`/`payload.stem`); ahora es un
+    campo de primera clase del envelope, igual de opcional. Ninguno de los tres
+    se infiere ni se conoce acá la taxonomía real (vive en `activity_context`/
+    `activity_analytics`) — este sink sigue siendo genérico. Keyword-only para
+    no colisionar con `**payload` ni poder ser inyectados por un caller que
+    reenvía un body arbitrario. Se escriben aditivamente entre `name` y
+    `payload`; si son None se omiten (envelope histórico de 5 campos preservado
+    para callers que no los pasen — el lector normaliza su ausencia)."""
     if not is_activity_logging_enabled():
         return
     try:
@@ -119,6 +125,8 @@ def log_activity(
             event["scope"] = str(scope)
         if area is not None:
             event["area"] = str(area)
+        if module is not None:
+            event["module"] = str(module)
         event["payload"] = _safe_value(payload)
         ACTIVITY_LOG_DIR.mkdir(parents=True, exist_ok=True)
         out_path = ACTIVITY_LOG_DIR / f"activity_{now:%Y%m%d}.jsonl"
@@ -135,11 +143,13 @@ def log_verbose(
     *,
     scope: str | None = None,
     area: str | None = None,
+    module: str | None = None,
     **payload: Any,
 ) -> None:
     """Evento de interacción fina (pregunta al asistente, paso de árbol, vista de
     catálogo, error). Solo registra en nivel VERBOSE; en BASIC/OFF es no-op.
-    `scope`/`area` (contexto de plataforma) se propagan tal cual a log_activity."""
+    `scope`/`area`/`module` (contexto de plataforma) se propagan tal cual a
+    log_activity."""
     if not is_verbose():
         return
-    log_activity(event_type, user=user, scope=scope, area=area, **payload)
+    log_activity(event_type, user=user, scope=scope, area=area, module=module, **payload)

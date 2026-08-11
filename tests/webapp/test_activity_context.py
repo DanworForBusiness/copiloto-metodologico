@@ -71,6 +71,71 @@ def test_every_emitted_event_name_is_classified():
         assert scope != ax.SCOPE_UNKNOWN and area != ax.AREA_UNKNOWN, name
 
 
+# ── module / event canónico / event_class (corrective A2 — Transversal
+# Module + Event Semantics) ────────────────────────────────────────────────
+
+def test_normalize_event_renames_copilot_module_selected():
+    # test 10: histórico module_selected normaliza a module_viewed.
+    event, module, operation = ax.normalize_event("module_selected")
+    assert event == "module_viewed"
+    assert module is None    # el module real viene del propio registro (payload), no se inyecta
+    assert operation is None
+
+
+def test_normalize_event_renames_staffing_viewed_with_injected_module():
+    # test 11: histórico staffing_overview_viewed normaliza a module_viewed/assignments.
+    event, module, operation = ax.normalize_event("staffing_overview_viewed")
+    assert event == "module_viewed"
+    assert module == "assignments"
+    assert operation is None
+
+
+def test_normalize_event_renames_staffing_errors_and_diagnostics_with_operation():
+    # test 12: errores/diagnósticos históricos de Staffing normalizan a los
+    # eventos canónicos + operation=initial/history.
+    assert ax.normalize_event("staffing_overview_error") == ("data_load_failed", "assignments", "initial")
+    assert ax.normalize_event("staffing_historial_error") == ("data_load_failed", "assignments", "history")
+    assert ax.normalize_event("staffing_data_diagnostics") == ("data_load_diagnostics", "assignments", "initial")
+    assert ax.normalize_event("staffing_historial_diagnostics") == ("data_load_diagnostics", "assignments", "history")
+
+
+def test_normalize_event_passthrough_for_unmapped_events():
+    assert ax.normalize_event("catalog_view") == ("catalog_view", None, None)
+    assert ax.normalize_event("mystery_event") == ("mystery_event", None, None)
+
+
+def test_event_class_usage():
+    # test 15/16/17: module_viewed, login y el resto del uso Copilot conocido.
+    for name in (
+        "login", "module_viewed", "module_continue", "module_reached_end",
+        "nav_jump", "link_external", "disclosure_toggle", "theme_change",
+        "assistant_query", "section_analyze", "academy_selected",
+        "catalog_view", "catalog_regenerate", "tree_started", "tree_step", "tree_outcome",
+    ):
+        assert ax.event_class(name) == ax.EVENT_CLASS_USAGE, name
+
+
+def test_event_class_diagnostic():
+    # test 18/19/20: canónicos nuevos + históricos de Staffing normalizados.
+    assert ax.event_class("data_load_failed") == ax.EVENT_CLASS_DIAGNOSTIC
+    assert ax.event_class("data_load_diagnostics") == ax.EVENT_CLASS_DIAGNOSTIC
+    for raw in ("staffing_overview_error", "staffing_historial_error", "staffing_data_diagnostics", "staffing_historial_diagnostics"):
+        canonical, _, _ = ax.normalize_event(raw)
+        assert ax.event_class(canonical) == ax.EVENT_CLASS_DIAGNOSTIC, raw
+
+
+def test_event_class_unknown_for_unrecognized_event():
+    # test 21: un evento no reconocido nunca cae en "usage" en silencio.
+    assert ax.event_class("quien_sabe_que_es_esto") == ax.EVENT_CLASS_UNKNOWN
+
+
+def test_module_label_maps_assignments_and_falls_back_to_raw_key():
+    assert ax.module_label(ax.MODULE_ASSIGNMENTS) == "Asignaciones"
+    # Módulos de Copiloto (stems de contenido) no tienen entrada — se muestran
+    # tal cual, nunca se renombran como parte de este corrective.
+    assert ax.module_label("01_arquitectura_y_conectividad") == "01_arquitectura_y_conectividad"
+
+
 # ── envelope del sink ────────────────────────────────────────────────────────
 
 def test_new_event_persists_explicit_scope_area(monkeypatch, tmp_path):
@@ -86,6 +151,33 @@ def test_new_event_persists_explicit_scope_area(monkeypatch, tmp_path):
     assert rec["event"] == "staffing_overview_viewed"
     assert rec["user"] == "a@danwor.com" and rec["name"] == "A"
     assert rec["payload"] == {}
+
+
+def test_new_event_persists_optional_module_as_top_level_field(monkeypatch, tmp_path):
+    # test 1: el envelope NUEVO soporta `module` de primera clase (corrective
+    # A2), aditivo entre `area` y `payload` — mismo criterio que scope/area.
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE")
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    activity_service.log_activity(
+        "module_viewed", user={"sub": "a@danwor.com", "name": "A"},
+        scope="operations", area="staffing", module="assignments",
+    )
+    (rec,) = _read_only_file(tmp_path)
+    assert list(rec.keys()) == ["ts_utc", "event", "user", "name", "scope", "area", "module", "payload"]
+    assert rec["module"] == "assignments"
+
+
+def test_existing_callers_without_module_remain_compatible(monkeypatch, tmp_path):
+    # test 2: callers que NO pasan module (todos los preexistentes) siguen
+    # escribiendo el envelope sin ese campo — nunca se fuerza module=None.
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE")
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    activity_service.log_activity(
+        "login", user={"sub": "a@danwor.com", "name": "A"}, scope="platform", area="auth",
+    )
+    (rec,) = _read_only_file(tmp_path)
+    assert "module" not in rec
+    assert list(rec.keys()) == ["ts_utc", "event", "user", "name", "scope", "area", "payload"]
 
 
 def test_envelope_omits_context_when_not_passed(monkeypatch, tmp_path):
@@ -146,15 +238,38 @@ def test_reader_normalizes_historical_and_new(monkeypatch, tmp_path):
         {"ts_utc": "2026-01-01T00:06:00+00:00", "event": "staffing_overview_viewed", "user": "u@d.com", "name": "U", "scope": "operations", "area": "staffing", "payload": {}},
     ])
     events = activity_analytics._read_events("", "")
-    ctx = {e["event"]: (e["scope"], e["area"]) for e in events}
+    # Keyed por RAW event (nunca por el canónico): module_selected y
+    # staffing_overview_viewed normalizan AMBOS a "module_viewed" — colisionarían
+    # si se indexara por evento canónico.
+    by_raw = {e["raw_event"]: e for e in events}
     assert len(events) == 7                                   # 5-field históricos legibles
-    assert ctx["login"] == ("platform", "auth")
-    assert ctx["module_selected"] == ("copilot", "methodology")
-    assert ctx["academy_selected"] == ("copilot", "academy")
-    assert ctx["catalog_view"] == ("copilot", "catalog")
-    assert ctx["staffing_overview_error"] == ("operations", "staffing")
-    assert ctx["quien_sabe"] == ("unknown", "unknown")        # fallback explícito
-    assert ctx["staffing_overview_viewed"] == ("operations", "staffing")  # explícito preservado
+    assert (by_raw["login"]["scope"], by_raw["login"]["area"]) == ("platform", "auth")
+    assert (by_raw["academy_selected"]["scope"], by_raw["academy_selected"]["area"]) == ("copilot", "academy")
+    assert (by_raw["catalog_view"]["scope"], by_raw["catalog_view"]["area"]) == ("copilot", "catalog")
+    assert (by_raw["staffing_overview_error"]["scope"], by_raw["staffing_overview_error"]["area"]) == ("operations", "staffing")
+    assert (by_raw["quien_sabe"]["scope"], by_raw["quien_sabe"]["area"]) == ("unknown", "unknown")  # fallback explícito
+    assert (by_raw["staffing_overview_viewed"]["scope"], by_raw["staffing_overview_viewed"]["area"]) == ("operations", "staffing")  # explícito preservado
+
+    # test 9/10/13: raw_event se preserva íntegro (inspeccionable) aunque
+    # `event` quede normalizado al canónico.
+    assert by_raw["module_selected"]["event"] == "module_viewed"
+    assert by_raw["module_selected"]["module"] == "01"          # legacy: viene de payload.module
+    assert by_raw["module_selected"]["raw_event"] == "module_selected"
+
+    # test 11: staffing_overview_viewed normaliza a module_viewed/assignments.
+    assert by_raw["staffing_overview_viewed"]["event"] == "module_viewed"
+    assert by_raw["staffing_overview_viewed"]["module"] == "assignments"
+
+    # test 12: el error histórico normaliza a data_load_failed +
+    # operation=initial inyectada en payload (no estaba en el registro crudo).
+    assert by_raw["staffing_overview_error"]["event"] == "data_load_failed"
+    assert by_raw["staffing_overview_error"]["module"] == "assignments"
+    assert by_raw["staffing_overview_error"]["payload"]["operation"] == "initial"
+
+    # test 14: unknown sigue siendo unknown, nunca cae en usage/Copilot en silencio.
+    assert by_raw["quien_sabe"]["event_class"] == ax.EVENT_CLASS_UNKNOWN
+    assert by_raw["login"]["event_class"] == ax.EVENT_CLASS_USAGE
+    assert by_raw["staffing_overview_error"]["event_class"] == ax.EVENT_CLASS_DIAGNOSTIC
 
 
 # ── Batch A2: dashboard Danwor Hub-wide (scope/area) ──────────────────────────
@@ -186,15 +301,17 @@ def test_default_summary_is_hub_wide_including_operations(monkeypatch, tmp_path)
     assert all(f["checked"] for f in s["scope_facets"])       # default: todo tildado
     assert all(f["checked"] for f in s["area_facets"])
     events = {r["event"] for r in s["event_counts"]}
-    assert "staffing_overview_viewed" in events               # Operations incluido por default
-    assert "login" in events and "module_selected" in events
+    # module_selected (Copilot) y staffing_overview_viewed (Operations)
+    # normalizan AMBOS a module_viewed (corrective A2) — uno solo, transversal.
+    assert "module_viewed" in events
+    assert "login" in events
 
 
 def test_filter_scope_operations_returns_operations_only(monkeypatch, tmp_path):
     # item 3
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", scopes=["operations"])
-    assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
+    assert {r["event"] for r in s["event_counts"]} == {"module_viewed"}
     assert s["copilot_present"] is False
     # Área sigue listando TODAS las opciones (mismo criterio que Ámbito,
     # estable) — las incompatibles quedan disabled en vez de desaparecer.
@@ -209,11 +326,17 @@ def test_filter_scope_copilot_excludes_operations_preserves_copilot(monkeypatch,
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", scopes=["copilot"])
     events = {r["event"] for r in s["event_counts"]}
-    assert "staffing_overview_viewed" not in events
-    assert {"module_selected", "assistant_query", "tree_started"} <= events
+    assert "module_viewed" in events
+    assert {"assistant_query", "tree_started"} <= events
     assert s["copilot_present"] is True
     assert s["assistant_query_count"] == 1                    # lente Copilot correcta
     assert s["tree_started"]                                  # árboles presentes
+    # module_viewed de este universo (solo Copiloto) debe ser el de Copiloto
+    # ("01"), nunca el de Operations ("assignments") — filtrar por Ámbito
+    # SÍ debe excluir la instancia de Operations aunque comparta nombre de evento.
+    modules_in_universe = {m["key"] for m in s["available_modules"]}
+    assert "01" in modules_in_universe
+    assert "assignments" not in modules_in_universe
 
 
 def test_filter_scope_platform_preserves_auth(monkeypatch, tmp_path):
@@ -237,7 +360,7 @@ def test_filter_area_staffing_returns_staffing_and_scope_facets_stay_stable(monk
     # completo de ámbitos presentes.
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", areas=["staffing"])
-    assert {r["event"] for r in s["event_counts"]} == {"staffing_overview_viewed"}
+    assert {r["event"] for r in s["event_counts"]} == {"module_viewed"}
     # Ningún Ámbito desapareció ni quedó destildado solo por elegir Área=staffing
     # (Ámbito nunca fue tocado, sigue en su default de "todo tildado").
     assert {"copilot", "operations", "platform"} <= {f["key"] for f in s["scope_facets"]}
@@ -248,7 +371,7 @@ def test_scope_and_area_combine(monkeypatch, tmp_path):
     # item 7
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "", scopes=["copilot"], areas=["methodology"])
-    assert {r["event"] for r in s["event_counts"]} == {"module_selected", "tree_started"}
+    assert {r["event"] for r in s["event_counts"]} == {"module_viewed", "tree_started"}
 
 
 def test_historical_five_field_and_unknown(monkeypatch, tmp_path):
@@ -265,21 +388,55 @@ def test_historical_five_field_and_unknown(monkeypatch, tmp_path):
 
 
 def test_date_user_module_filters_still_behave(monkeypatch, tmp_path):
-    # item 10 + item 11 (module no absorbe Operations)
+    # item 10/11 (transversal, corrective A2): module ahora SÍ existe para
+    # Operations ("assignments") — "module no absorbe Operations" pasa a
+    # verificarse por VALOR de módulo (01 vs assignments), no por ausencia.
     _seed_hub(monkeypatch, tmp_path)
-    # user filter
+    # user filter — sin cambios de comportamiento, solo el nombre de evento normalizado.
     s_user = activity_analytics.build_summary("", "", user="ops@d.com")
-    assert {r["event"] for r in s_user["event_counts"]} == {"staffing_overview_viewed"}
-    # module filter → solo eventos con module (Copilot); Operations nunca tiene module
+    assert {r["event"] for r in s_user["event_counts"]} == {"module_viewed"}
+    # module filter = "01" (Copilot) → excluye el module_viewed de Operations
+    # (module="assignments"), aunque comparta el mismo NOMBRE de evento.
     s_mod = activity_analytics.build_summary("", "", module="01")
-    ev_mod = {r["event"] for r in s_mod["event_counts"]}
-    assert "staffing_overview_viewed" not in ev_mod            # module no absorbe Operations
-    assert "module_selected" in ev_mod
-    assert "01" in s_mod["available_modules"]
+    # module="01" trae module_viewed (payload.module) Y tree_started (payload.stem
+    # también resuelve a "01") — ambos pertenecen al mismo módulo de Copiloto.
+    assert {r["event"] for r in s_mod["event_counts"]} == {"module_viewed", "tree_started"}
+    assert s_mod["copilot_present"] is True
+    assert s_mod["total_events"] == 2                          # module_viewed + tree_started, ambos de Copiloto ("01")
+    # El facet de Módulo NO colapsa a la selección actual (mismo criterio que
+    # Área con Ámbito): "assignments" sigue OFRECIDO como opción, aunque el
+    # filtro activo (module="01") ya excluya sus eventos de `events`.
+    module_keys = {m["key"] for m in s_mod["available_modules"]}
+    assert {"01", "assignments"} <= module_keys
+
+
+def test_module_filter_exposes_assignments_for_staffing(monkeypatch, tmp_path):
+    # item 31/36/37/38: Ámbito=Operaciones + Área=Staffing con actividad real
+    # → Módulo debe ofrecer "Asignaciones" (label) / "assignments" (key).
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["operations"], areas=["staffing"])
+    modules = {m["key"]: m["label"] for m in s["available_modules"]}
+    assert modules == {"assignments": "Asignaciones"}
+    s_filtered = activity_analytics.build_summary("", "", scopes=["operations"], areas=["staffing"], module="assignments")
+    assert s_filtered["total_events"] == 1
+    assert s_filtered["selected_module"] == "assignments"
+
+
+def test_invalid_module_selection_resets_deterministically(monkeypatch, tmp_path):
+    # Mismo criterio determinístico que Área/Ámbito: una selección de Módulo
+    # que ya no aplica tras cambiar Ámbito se descarta, no deja el dashboard
+    # en un "0 eventos" silencioso ni rompe.
+    _seed_hub(monkeypatch, tmp_path)
+    s = activity_analytics.build_summary("", "", scopes=["copilot"], module="assignments")
+    assert s["selected_module"] == ""                            # "assignments" no aplica a Copiloto → se descarta
+    assert s["total_events"] > 0                                 # no queda en 0 eventos por la selección inválida
 
 
 def test_areas_active_kpi_counts_distinct_areas(monkeypatch, tmp_path):
+    # test 27: Áreas activas es uso-driven (corrective A2) — "unknown" (área
+    # del único evento no-usage, mystery_event) NO cuenta como área activa.
     _seed_hub(monkeypatch, tmp_path)
     s = activity_analytics.build_summary("", "")
-    # auth, methodology, assistant, staffing, academy, unknown = 6 áreas distintas
-    assert s["areas_active"] == len({e["area"] for e in activity_analytics._read_events("", "")})
+    # auth, methodology, assistant, staffing, academy = 5 áreas de USO distintas
+    # (unknown queda afuera: mystery_event es event_class=unknown, no usage).
+    assert s["areas_active"] == 5

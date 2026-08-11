@@ -1054,7 +1054,9 @@ def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
     for path in tmp_path.glob("activity_*.jsonl"):
         lines += [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     events = {entry["event"] for entry in lines}
-    assert "module_selected" in events and "academy_selected" in events
+    # `module_viewed` (corrective A2 — Transversal Module + Event Semantics):
+    # reemplaza al histórico `module_selected` como nombre de evento persistido.
+    assert "module_viewed" in events and "academy_selected" in events
     assert all(entry["user"] == "test@danwor.com" for entry in lines)
 
 
