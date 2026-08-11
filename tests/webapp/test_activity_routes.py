@@ -248,10 +248,11 @@ def _seed_transversal(monkeypatch, tmp_path):
 
 def test_module_filter_renders_asignaciones_for_operations(monkeypatch, tmp_path):
     # test 36/38: el filtro Módulo expone "Asignaciones" (label) para
-    # module="assignments" (key) cuando hay actividad real de Staffing.
+    # module="OP01" (key canónica, MODULE IDENTIFIER CONVENTION V2 — Fase 2)
+    # cuando hay actividad real de Staffing.
     _seed_transversal(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations&area=staffing").text
-    assert '<option value="assignments"' in t
+    assert '<option value="OP01"' in t
     assert ">Asignaciones<" in t
 
 
@@ -340,3 +341,23 @@ def test_copilot_usage_events_remain_visible(monkeypatch, tmp_path):
     _seed_transversal(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot").text
     assert ">Vista de módulo<" in t
+
+
+# ── MODULE IDENTIFIER CONVENTION V2 — Fase 2 (Canonical Module Adoption) ─────
+
+def test_top_modules_shows_product_label_not_raw_stem_for_copilot(monkeypatch, tmp_path):
+    # test 13: el filtro Módulo y Top Módulos muestran el LABEL de producto
+    # (via module_registry), nunca la key técnica cruda — ni el stem legacy
+    # de Copiloto ni el module_id canónico donde exista un label.
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    rows = [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "u@d.com", "name": "U",
+         "scope": "copilot", "area": "methodology", "module": "01_Arquitectura_y_Conectividad", "payload": {}},
+    ]
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot").text
+    assert ">Arquitectura y Conectividad<" in t
+    assert "01_Arquitectura_y_Conectividad" not in t
+    assert '<option value="CP01"' in t

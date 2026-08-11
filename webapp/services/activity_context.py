@@ -154,6 +154,20 @@ MODULE_LABELS: dict[str, str] = {
 
 
 def module_label(key: str) -> str:
+    """Label visible para un `module` (legacy stem, `"assignments"`, o ya
+    canónico) — Fase 2 (Canonical Module Adoption): resuelve PRIMERO contra
+    el registro canónico (`module_registry`, dueño único de la identidad de
+    módulo — ver "Registry Ownership" en HANDOFF), que ya sabe labelear
+    tanto Copiloto (reusa `content_service.title`) como Operations. Cae a
+    `MODULE_LABELS`/la key cruda solo si el registro no reconoce la key —
+    fallback seguro, nunca rompe ante un módulo desconocido. NO se borra
+    `MODULE_LABELS` (`_EVENT_RENAME` de más abajo sigue necesitando
+    `MODULE_ASSIGNMENTS` como valor histórico inyectado) — solo deja de ser
+    la PRIMERA fuente de verdad."""
+    from webapp.services import module_registry
+    resolved = module_registry.resolve(key) if key else None
+    if resolved:
+        return resolved.visible_label
     return MODULE_LABELS.get(key, key)
 
 

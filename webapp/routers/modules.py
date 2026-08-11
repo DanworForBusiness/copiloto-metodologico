@@ -53,6 +53,7 @@ from webapp.copilot_runtime import assistant_store, store
 from webapp.presentation import invite
 from webapp.services import auth_service
 from webapp.services import catalog_reads
+from webapp.services import module_registry
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import (
@@ -107,10 +108,16 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
         initial_tab = ""
     # `module_viewed` (nombre canónico transversal — ver activity_context /
     # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
-    # disparador (una vista de módulo). El identificador estable (`stem`) NO
-    # cambia — se sigue pasando en `module`, ahora como campo de primera clase
-    # del envelope en vez de vivir solo en `payload`.
-    log_activity("module_viewed", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=stem, pack=selected)
+    # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —
+    # Fase 2 (Canonical Module Adoption): el `stem` de ruta/contenido sigue
+    # siendo la key de TODO lo demás en esta función (rutas, trees,
+    # assistant, feedback, nav — sin cambios) — solo lo persistido en
+    # Activity pasa a ser el `module_id` canónico si el registro lo
+    # reconoce (siempre, para cualquier módulo/apéndice actual), o el
+    # mismo `stem` sin cambios si no (nunca se fabrica un ID).
+    _module_descriptor = module_registry.resolve(stem)
+    _persisted_module = _module_descriptor.module_id if _module_descriptor else stem
+    log_activity("module_viewed", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=_persisted_module, pack=selected)
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada

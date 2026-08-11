@@ -1058,6 +1058,10 @@ def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
     # reemplaza al histórico `module_selected` como nombre de evento persistido.
     assert "module_viewed" in events and "academy_selected" in events
     assert all(entry["user"] == "test@danwor.com" for entry in lines)
+    # test 14 (MODULE IDENTIFIER CONVENTION V2 — Fase 2): el productor NUEVO
+    # de Copiloto persiste el module_id CANÓNICO (CP01), no el stem legacy.
+    module_viewed = next(e for e in lines if e["event"] == "module_viewed")
+    assert module_viewed["module"] == "CP01"
 
 
 def test_activity_log_disabled_by_default(monkeypatch, tmp_path):
@@ -1228,7 +1232,9 @@ def test_module_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
     assert len(saved) == 1
     payload = yaml.safe_load(saved[0].read_text(encoding="utf-8"))
     assert payload["type"] == "module_content"
-    assert payload["module"] == "01_Arquitectura_y_Conectividad"
+    # MODULE IDENTIFIER CONVENTION V2 — Fase 2: escrituras nuevas persisten
+    # el module_id canónico (CP01), no el stem legacy.
+    assert payload["module"] == "CP01"
     assert payload["rating"] == "up"
 
     # 👎 → despliega el formulario de comentario, todavía no persiste.

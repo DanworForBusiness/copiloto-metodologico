@@ -22,6 +22,7 @@ from typing import Any
 import yaml
 
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
+from webapp.services import module_registry
 from webapp.services.activity_context import (
     area_label, context_of, scope_label, module_label,
     normalize_event, event_class as _classify_event,
@@ -187,16 +188,28 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
 
 def _read_events(date_from: str, date_to: str) -> list[dict]:
     """Parsea los JSONL del rango a una lista de eventos normalizados (día,
-    tipo, usuario, nombre, ts, payload, module, event_class). Líneas
-    corruptas se descartan silenciosamente, igual que log_activity nunca
-    rompe la app.
+    tipo, usuario, nombre, ts, payload, module, raw_module, event_class).
+    Líneas corruptas se descartan silenciosamente, igual que log_activity
+    nunca rompe la app.
 
     Normalización de NOMBRE de evento + module + event_class (corrective A2 —
     Transversal Module + Event Semantics) es semántica de READ-MODEL: el
     JSONL persistido NUNCA se reescribe. `event` queda con el nombre
     CANÓNICO (post-`normalize_event`); `raw_event` preserva el nombre
     realmente persistido, para que el owner pueda seguir inspeccionando qué
-    se guardó de verdad."""
+    se guardó de verdad.
+
+    MODULE IDENTIFIER CONVENTION V2 — Fase 2 (Canonical Module Adoption):
+    mismo criterio para `module`. La extracción histórica (campo explícito →
+    module inyectado por `normalize_event` → `payload.module`/`payload.stem`)
+    NO cambia — sigue produciendo el mejor valor histórico disponible, ahora
+    llamado `raw_module`. Ese valor se resuelve contra `module_registry`
+    (dueño único de la identidad canónica — dirección de dependencia:
+    `activity_analytics` DEPENDE de `module_registry`, nunca al revés): si
+    resuelve, `module` queda con el `module_id` canónico (`CP01`/`OP01`/...);
+    si no (valor desconocido, p. ej. contenido todavía sin ID asignado),
+    `module` queda IGUAL a `raw_module`, sin fabricar un ID — nunca se
+    pierde silenciosamente un módulo no reconocido."""
     low, high = _bounds(date_from, date_to)
     events: list[dict] = []
     for day, path in _log_files(low, high):
@@ -231,7 +244,14 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
             if injected_operation and not payload.get("operation"):
                 payload = {**payload, "operation": injected_operation}
             explicit_module = str(raw.get("module") or "").strip()
-            module = explicit_module or injected_module or _legacy_payload_module(raw_event, payload)
+            raw_module = explicit_module or injected_module or _legacy_payload_module(raw_event, payload)
+            # MODULE IDENTIFIER CONVENTION V2 — Fase 2: `raw_module` preserva
+            # el mejor valor histórico disponible (igual que antes, sin
+            # tocar la extracción); `module` es su resolución canónica si
+            # `module_registry` la reconoce, o el mismo valor sin cambios si
+            # no — nunca se fabrica un ID para un módulo desconocido.
+            resolved_module = module_registry.resolve(raw_module) if raw_module else None
+            module = resolved_module.module_id if resolved_module else raw_module
             events.append({
                 "day": day,
                 "event": canonical_event,
@@ -241,6 +261,7 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
                 "ts_utc": str(raw.get("ts_utc") or ""),
                 "payload": payload,
                 "module": module,
+                "raw_module": raw_module,
                 "scope": scope,
                 "area": area,
                 "event_class": _classify_event(canonical_event),

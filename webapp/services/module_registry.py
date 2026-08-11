@@ -122,7 +122,13 @@ _COPILOT_APPENDIX_IDS: dict[str, tuple[str, int]] = {
 # en `_build_entries`, más abajo, para la razón de dirección de dependencia).
 # Colección propia (Operations), separada de las dos de arriba — único
 # módulo hoy, `display_order=1` dentro de SU colección.
-_OP01_MODULE_ID = "OP01"
+#
+# `OP01_MODULE_ID` es PÚBLICO (Fase 2 — Canonical Module Adoption): los
+# productores de Activity de Staffing (`webapp/routers/staffing.py`) lo
+# importan directo para persistir el ID canónico en vez de reproducir el
+# mapeo `assignments → OP01` fuera del registro (ver "Registry Ownership"
+# en HANDOFF — toda resolución de identidad canónica pasa por acá).
+OP01_MODULE_ID = "OP01"
 _OP01_LEGACY_KEY = "assignments"
 _OP01_VISIBLE_LABEL = "Asignaciones"
 _OP01_DISPLAY_ORDER = 1
@@ -177,7 +183,7 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # para leer de ESTE registro y podrá eliminar la entrada redundante en
     # `activity_context.MODULE_LABELS` donde sea seguro — NO se toca acá.
     entries.append(ModuleDescriptor(
-        module_id=_OP01_MODULE_ID, workspace="operations", area="staffing",
+        module_id=OP01_MODULE_ID, workspace="operations", area="staffing",
         kind="module", content_key=None,
         visible_label=_OP01_VISIBLE_LABEL,
         display_order=_OP01_DISPLAY_ORDER, legacy_aliases=(_OP01_LEGACY_KEY,),
