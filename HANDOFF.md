@@ -4135,6 +4135,68 @@ disparó esa rama de error en producción hasta ahora. Commit funcional
 `fix(activity): complete Staffing event normalization` — +3 tests sobre
 el baseline (638 passed / 1 skipped), route surface 83 sin cambios.
 
+#### USAGE DASHBOARD SEMANTIC CLEANUP — boundary de producto del dashboard de Actividad
+
+Con el modelo de evento/module ya correcto (arriba), el owner señaló que el
+dashboard **Actividad y métricas de uso** seguía mostrando diagnóstico
+técnico (fallas de Graph, config incompleta) dentro de una pantalla de
+adopción — semánticamente incorrecto: esa pantalla responde *"quién usa
+Danwor Hub, qué usa, cómo evoluciona"*, nunca *"¿falló Graph?"*.
+
+**Boundary congelado** (`webapp/services/activity_analytics.py`,
+`build_summary`): TODO el read-model que alimenta este dashboard —
+`event_counts`, métricas de adopción (Eventos/Usuarios únicos/Eventos por
+día/Tendencia diaria/Áreas activas/Top usuarios), `event_user_counts`,
+`module_event_counts` (y por lo tanto `module_event_breakdowns`) — filtra a
+`event_class == usage` con un solo `continue` temprano al inicio del loop.
+`diagnostic` y `unknown` simplemente nunca entran: no hay dos counters, no
+hay split visual, no hay lógica condicional repartida por el template.
+`unknown` (evento sin clasificar) tampoco entra — nunca contamina adopción
+en silencio, ni siquiera cuando se filtra explícitamente por
+Ámbito=unknown.
+
+**El diagnóstico NO se borra ni deja de emitirse** — `data_load_failed`,
+`data_load_diagnostics`, `configuration_incomplete` siguen 100%
+persistidos/normalizados/clasificables (`activity_service`/
+`activity_context`, sin cambios), disponibles para una futura herramienta
+owner-only que este batch **no crea** (sin tabs, sin "Mostrar
+diagnóstico", sin accordion, sin query-string de diagnóstico).
+
+**UI simplificada** (`admin_activity_content.html`): la sección "Eventos"
+colapsa el anidamiento `Eventos → Eventos por tipo → Eventos de
+uso/Diagnóstico` en un solo listado, "Acciones de usuario · click para
+desglosar →" — sin heading "Eventos de uso" ni "Diagnóstico". El drilldown
+por usuario (panel derecho) y el filtro cruzado por módulo (clic en
+"Asignaciones" en "Módulos y usuarios") siguen funcionando igual, ahora
+usage-only en ambos lados.
+
+**Labels visibles de evento** (nuevo seam, `EVENT_LABELS`/`event_label` en
+`activity_context.py`, mismo patrón que `MODULE_LABELS`/`module_label`): la
+key técnica canónica (`module_viewed`, `assistant_query`, `catalog_view`,
+`tree_started`, ...) ya no se muestra cruda en la UI — se reemplaza por su
+label visible en español ("Vista de módulo", "Consulta al asistente", "Vista
+de catálogo", "Inicio de recorrido"). Sin framework de localización — un
+dict chico con fallback seguro al nombre crudo para eventos sin entrada. La
+key técnica queda en el tooltip (`event_descriptions`, sin cambios) y en los
+atributos `data-*` que usa el JS (`initEventBreakdown`/`initModuleFilter`,
+sin cambios — el toggle sigue por atributo, nunca por texto visible).
+
+**Validación real (solo lectura, `activity_log/` del owner, JSONL jamás
+tocado):** con el dataset real (516 eventos de uso, 337 `module_viewed`),
+`event_counts`/`event_breakdowns`/`module_event_breakdowns` no contienen
+NINGÚN evento diagnóstico — confirmado que los ~29 `data_load_failed`/8
+`data_load_diagnostics` históricos normalizados (ver corrective arriba)
+desaparecen de la UI de uso sin desaparecer del log. Top usuarios refleja
+volumen de uso real (`Jose O'Connor` 463), nunca ruido diagnóstico. Vista
+Operations/Staffing-only: "Asignaciones" 15 en Top módulos, "Vista de
+módulo" 15 en Acciones de usuario, drilldown por usuario funcional — sin
+subgrupo diagnóstico, igual al mockup visual pedido por el owner.
+
+**Gate:** targeted Activity (56 tests) + targeted Staffing (122 tests) +
+full suite **646 passed / 1 skipped** (+8 sobre el baseline de 638) +
+route-contract GREEN, route surface **83 sin cambios**. Commit funcional
+`fix(activity): keep usage dashboard focused on user activity`.
+
 ---
 
 ## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — CLOSED / GREEN
