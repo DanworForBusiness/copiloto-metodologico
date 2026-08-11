@@ -272,16 +272,71 @@ def test_eventos_section_title_is_neutral(monkeypatch, tmp_path):
     assert "Eventos y catálogo" not in t
 
 
-def test_usage_and_diagnostic_events_are_visually_separated(monkeypatch, tmp_path):
-    # test 40/41: uso y diagnóstico en dos grupos separados (misma primitiva
-    # dashboard-subhead) — el diagnóstico sigue inspeccionable, nunca oculto.
+# ── USAGE DASHBOARD SEMANTIC CLEANUP ──────────────────────────────────────────
+# El Activity Dashboard responde "quién usa Danwor Hub", nunca "¿falló Graph?"
+# ni "¿faltó config?" — el diagnóstico normalizado sigue persistido/
+# clasificable (activity_service/activity_context), pero esta pantalla de uso
+# no lo renderiza en ninguna forma: ni fila, ni heading, ni opción de
+# drilldown. No hay tabs/accordion/query-string de diagnóstico en este batch.
+
+def test_diagnostic_events_do_not_render_anywhere_in_activity_dashboard(monkeypatch, tmp_path):
+    # tests 4/5/13/14: el evento diagnóstico normalizado (data_load_failed) no
+    # aparece como fila de "Acciones de usuario", no aparece como opción de
+    # drilldown (data-event=), y los headings viejos de split usage/diagnóstico
+    # ("Eventos de uso" / "Diagnóstico" / "Eventos por tipo") ya no existen.
     _seed_transversal(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    assert ">Eventos de uso<" in t
-    assert ">Diagnóstico<" in t
-    # El diagnóstico normalizado (data_load_failed) sigue visible/inspeccionable.
-    assert "data_load_failed" in t
-    usage_pos = t.index(">Eventos de uso<")
-    diag_pos = t.index(">Diagnóstico<")
-    diag_event_pos = t.index("data_load_failed")
-    assert usage_pos < diag_pos < diag_event_pos                  # el evento de diagnóstico cae DESPUÉS del subhead Diagnóstico
+    assert "data_load_failed" not in t
+    assert 'data-event="data_load_failed"' not in t
+    assert "Eventos de uso" not in t
+    assert "Diagnóstico" not in t
+    assert "Eventos por tipo" not in t
+    assert "Mostrar diagnóstico" not in t
+
+
+def test_module_viewed_renders_with_visible_label(monkeypatch, tmp_path):
+    # test 9: la key técnica canónica nunca se muestra cruda cuando hay label
+    # — "module_viewed" se ve como "Vista de módulo".
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert ">Vista de módulo<" in t
+    assert ">module_viewed<" not in t
+
+
+def test_event_drilldown_by_user_still_works_for_usage_event(monkeypatch, tmp_path):
+    # test 15: el drilldown-por-usuario (panel derecho) sigue funcionando
+    # para un evento de uso — mismo mecanismo data-breakdown/data-event de
+    # siempre, ahora con la key técnica solo en atributos, nunca en texto.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="module_viewed"' in t
+    assert 'data-breakdown="module_viewed"' in t
+    assert ">Ops<" in t                                            # usuario del module_viewed sembrado
+
+
+def test_diagnostic_only_user_does_not_appear_in_top_usuarios(monkeypatch, tmp_path):
+    # test 6: un usuario que solo generó diagnóstico no debe parecer un
+    # usuario activo del Hub.
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    rows = _HUB_ROWS + [
+        {"ts_utc": "2026-03-01T10:05:00+00:00", "event": "staffing_overview_config_incomplete",
+         "user": "diag-only@d.com", "name": "DiagOnly", "scope": "operations", "area": "staffing", "payload": {}},
+    ]
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    # DiagOnly SÍ puede aparecer en el <select> de filtro de usuario (facet
+    # general, no una métrica de adopción) — lo que no debe pasar es que
+    # aparezca como fila dentro de "Top usuarios".
+    top_users_start = t.index(">Top usuarios<")
+    top_users_block = t[top_users_start:top_users_start + 400]
+    assert "DiagOnly" not in top_users_block
+
+
+def test_copilot_usage_events_remain_visible(monkeypatch, tmp_path):
+    # test 12: el corte usage-only no es Operations-específico — los eventos
+    # de uso de Copiloto siguen visibles con su label.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot").text
+    assert ">Vista de módulo<" in t

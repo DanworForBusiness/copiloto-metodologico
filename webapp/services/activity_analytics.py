@@ -25,7 +25,7 @@ from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
 from webapp.services.activity_context import (
     area_label, context_of, scope_label, module_label,
     normalize_event, event_class as _classify_event,
-    EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED,
+    EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED, EVENT_LABELS,
 )
 
 # Misma convención de nombre/rango que admin_tools._file_date /
@@ -515,25 +515,30 @@ def build_summary(
     total_events = 0
     users_seen: set[str] = set()
     usage_areas_seen: set[str] = set()
+    # "USAGE DASHBOARD SEMANTIC CLEANUP": este dashboard responde "quién usa
+    # Danwor Hub, qué usa, cómo evoluciona" — NUNCA "¿falló Graph?" o "¿faltó
+    # config?". Por eso el read-model completo de acá abajo (event_counts,
+    # métricas de adopción, desgloses por usuario/módulo) filtra a
+    # event_class == usage, con un solo `continue` temprano en el loop — no
+    # dos counters ni un split visual. `unknown` tampoco entra: un evento sin
+    # clasificar nunca contamina adopción en silencio. El diagnóstico sigue
+    # 100% persistido/normalizado/clasificable (activity_service/
+    # activity_context) para una futura herramienta owner-only — este batch
+    # no la crea, solo saca el diagnóstico de ESTE dashboard.
     event_counts: Counter = Counter()
-    # "Eventos" (renombrada de "Eventos y catálogo", ver corrective A2): la
-    # UI separa uso de diagnóstico visualmente — dos counters en vez de
-    # filtrar `event_counts` post-hoc en el template (Jinja no tiene
-    # `event_class`, sería lógica de negocio escapándose al template).
-    usage_event_type_counts: Counter = Counter()
-    diagnostic_event_type_counts: Counter = Counter()
     daily_counts: Counter = Counter()
     module_counts: Counter = Counter()
     user_counts: Counter = Counter()
     catalog_kind_counts: Counter = Counter()
     # Desglose por evento para el panel derecho interactivo: por cada tipo de
     # evento, quién lo generó cuántas veces (catalog_view usa su propio desglose
-    # por `kind`, ver más abajo). Incluye diagnóstico a propósito — sigue siendo
-    # inspeccionable, solo no infla adopción (ver `total_events`/`is_usage` abajo).
+    # por `kind`, ver más abajo). Usage-only, igual que el resto de este loop.
     event_user_counts: dict[str, Counter] = {}
-    # Desglose de "Eventos por tipo" POR MÓDULO, para conectar el clic en un
-    # módulo (sección "Módulos y usuarios") con un filtro de esta lista — mismo
-    # patrón client-side que event_user_counts, ver initModuleFilter en app.js.
+    # Desglose de "Acciones de usuario" POR MÓDULO, para conectar el clic en
+    # un módulo (sección "Módulos y usuarios") con un filtro de esta lista —
+    # mismo patrón client-side que event_user_counts, ver initModuleFilter en
+    # app.js. Usage-only: un data_load_failed dentro de Asignaciones no debe
+    # aparecer al clickear "Asignaciones" en este dashboard.
     module_event_counts: dict[str, Counter] = {}
     # Conversaciones del asistente agrupadas por conversation_id: cada "turno" es un
     # assistant_query (router, o el bypass de "Explícame vos"), con su feedback si
@@ -546,48 +551,34 @@ def build_summary(
     files_scanned = len({ev["day"] for ev in all_events})
 
     for ev in events:
-        is_usage = ev["event_class"] == EVENT_CLASS_USAGE
-        # "Eventos por tipo" cuenta TODO (uso + diagnóstico) — se muestran
-        # separados en dos grupos en el template, nunca mezclados en una sola
-        # métrica de adopción.
+        # Boundary del dashboard de USO (ver comentario arriba de los
+        # counters): todo lo que sigue en este loop — event_counts, métricas
+        # de adopción, event_user_counts, module_event_counts — es
+        # exclusivamente event_class == usage. `diagnostic` y `unknown`
+        # simplemente nunca entran acá; siguen existiendo en `events`/
+        # `all_events` para quien los necesite (árboles vía scoped_all_events,
+        # o una futura herramienta owner-only).
+        if ev["event_class"] != EVENT_CLASS_USAGE:
+            continue
+
         event_counts[ev["event"]] += 1
-        if is_usage:
-            usage_event_type_counts[ev["event"]] += 1
-        else:
-            diagnostic_event_type_counts[ev["event"]] += 1
-
-        # Métricas de ADOPCIÓN (Eventos/Usuarios únicos/Eventos por
-        # día/Tendencia diaria/Top usuarios/Áreas activas, ver contrato del
-        # corrective A2): SOLO uso real, nunca diagnóstico — un usuario que
-        # solo generó errores de Graph no debe parecer un usuario activo del
-        # Hub.
-        if is_usage:
-            total_events += 1
-            daily_counts[ev["day"]] += 1
-            usage_areas_seen.add(ev["area"])
-            if ev["user"]:
-                users_seen.add(ev["user"])
-                label = ev["name"] or ev["user"]
-                user_counts[label] += 1
-
+        total_events += 1
+        daily_counts[ev["day"]] += 1
+        usage_areas_seen.add(ev["area"])
         if ev["user"]:
+            users_seen.add(ev["user"])
             label = ev["name"] or ev["user"]
+            user_counts[label] += 1
             event_user_counts.setdefault(ev["event"], Counter())[label] += 1
 
         if ev["ts_utc"]:
             ts_min = ev["ts_utc"] if ts_min is None else min(ts_min, ev["ts_utc"])
             ts_max = ev["ts_utc"] if ts_max is None else max(ts_max, ev["ts_utc"])
 
-        # Top Modules (transversal, corrective A2): una VISITA de módulo es
-        # `event == module_viewed`, no cualquier evento que ocurra adentro
-        # del módulo (un data_load_failed dentro de Asignaciones NO suma otra
-        # visita) — "A page/module entry is the module-view metric."
+        # Top Modules: una VISITA de módulo es `event == module_viewed`, no
+        # cualquier evento de uso que ocurra adentro del módulo.
         if ev["module"] and ev["event"] == EVENT_MODULE_VIEWED:
             module_counts[ev["module"]] += 1
-        # module_event_counts (drilldown por módulo, cross-referenciado desde
-        # "Módulos y usuarios") SÍ incluye todo lo que pasó en ese módulo
-        # (uso + diagnóstico) — clickear "Asignaciones" debe poder mostrar
-        # también sus errores, no solo sus vistas.
         if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
 
@@ -705,12 +696,15 @@ def build_summary(
         "assistant_api_cost_count": assistant_api_cost_count,
         "ts_min": ts_min,
         "ts_max": ts_max,
+        # "Eventos" (USAGE DASHBOARD SEMANTIC CLEANUP): usage-only — ver el
+        # `continue` temprano del loop de arriba. Un solo set de filas, sin
+        # split visual de uso/diagnóstico.
         "event_counts": _event_breakdown_rows(event_counts),
-        # "Eventos" (corrective A2): mismas filas que event_counts, separadas
-        # por event_class para que el template las muestre en dos grupos
-        # visuales ("Eventos de uso" / "Diagnóstico") sin mezclarlas.
-        "usage_event_counts": _event_breakdown_rows(usage_event_type_counts),
-        "diagnostic_event_counts": _event_breakdown_rows(diagnostic_event_type_counts),
+        # Label visible por evento canónico (p. ej. module_viewed → "Vista de
+        # módulo") — mismo seam que event_descriptions, fallback seguro al
+        # nombre crudo si no hay entrada (ver EVENT_LABELS/event_label en
+        # activity_context.py). Sin framework de localización.
+        "event_labels": EVENT_LABELS,
         "top_modules": _top_modules(module_counts),
         "top_users": _top(user_counts),
         # Mismo tope que top_modules (los módulos que realmente aparecen como fila

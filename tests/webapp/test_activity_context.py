@@ -155,6 +155,21 @@ def test_module_label_maps_assignments_and_falls_back_to_raw_key():
     assert ax.module_label("01_arquitectura_y_conectividad") == "01_arquitectura_y_conectividad"
 
 
+# ── labels visibles de evento (USAGE DASHBOARD SEMANTIC CLEANUP) ─────────────
+
+def test_event_label_maps_known_usage_events():
+    assert ax.event_label("module_viewed") == "Vista de módulo"
+    assert ax.event_label("assistant_query") == "Consulta al asistente"
+    assert ax.event_label("catalog_view") == "Vista de catálogo"
+    assert ax.event_label("tree_started") == "Inicio de recorrido"
+
+
+def test_event_label_falls_back_to_raw_name_for_unmapped_event():
+    # Un evento de uso sin label mapeado (o cualquier evento futuro todavía
+    # sin clasificar) nunca rompe la UI — se muestra tal cual.
+    assert ax.event_label("un_evento_nuevo_sin_label") == "un_evento_nuevo_sin_label"
+
+
 # ── envelope del sink ────────────────────────────────────────────────────────
 
 def test_new_event_persists_explicit_scope_area(monkeypatch, tmp_path):
@@ -399,9 +414,14 @@ def test_historical_five_field_and_unknown(monkeypatch, tmp_path):
     read = {e["event"]: (e["scope"], e["area"]) for e in activity_analytics._read_events("", "")}
     assert read["academy_selected"] == ("copilot", "academy")   # histórico clasificado
     assert read["mystery_event"] == ("unknown", "unknown")      # fallback explícito
-    # unknown filtrable como su propio ámbito (NO cae en copilot).
+    # USAGE DASHBOARD SEMANTIC CLEANUP: unknown NUNCA entra al read-model del
+    # dashboard (event_counts/adopción), sin importar el filtro de Ámbito —
+    # "unknown" es filtrable como Ámbito (scope_facets/area_facets siguen
+    # ofreciéndolo), pero mystery_event (sin clasificar) queda afuera de
+    # event_counts en los dos escenarios: elegido explícitamente o no.
     s = activity_analytics.build_summary("", "", scopes=["unknown"])
-    assert {r["event"] for r in s["event_counts"]} == {"mystery_event"}
+    assert {r["event"] for r in s["event_counts"]} == set()
+    assert any(f["key"] == "unknown" for f in s["scope_facets"])
     s_cop = activity_analytics.build_summary("", "", scopes=["copilot"])
     assert "mystery_event" not in {r["event"] for r in s_cop["event_counts"]}
 
@@ -459,3 +479,61 @@ def test_areas_active_kpi_counts_distinct_areas(monkeypatch, tmp_path):
     # auth, methodology, assistant, staffing, academy = 5 áreas de USO distintas
     # (unknown queda afuera: mystery_event es event_class=unknown, no usage).
     assert s["areas_active"] == 5
+
+
+# ── USAGE DASHBOARD SEMANTIC CLEANUP ──────────────────────────────────────────
+
+def _seed_usage_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    _write_jsonl(tmp_path, "20260301", [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {}},
+    ])
+
+
+def test_diagnostic_events_do_not_affect_adoption_metrics(monkeypatch, tmp_path):
+    # tests 1-3/7: data_load_failed/data_load_diagnostics/configuration_incomplete
+    # siguen persistidos/clasificados diagnostic, pero agregarlos NO cambia ni
+    # un solo número de adopción (Eventos/Usuarios únicos/Eventos por
+    # día/Tendencia diaria/Áreas activas) frente al mismo día con solo uso.
+    _seed_usage_only(monkeypatch, tmp_path)
+    before = activity_analytics.build_summary("", "")
+    _write_jsonl(tmp_path, "20260301", [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {}},
+        {"ts_utc": "2026-03-01T10:01:00+00:00", "event": "data_load_failed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {"operation": "initial"}},
+        {"ts_utc": "2026-03-01T10:02:00+00:00", "event": "data_load_diagnostics", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {"operation": "initial"}},
+        {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "configuration_incomplete", "user": "diag-only@d.com", "name": "DiagOnly", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {"operation": "initial"}},
+    ])
+    after = activity_analytics.build_summary("", "")
+    # Persistidos y clasificados como diagnostic (nunca desaparecen del log ni
+    # de la clasificación read-model, solo quedan afuera del dashboard).
+    read = {e["event"]: e["event_class"] for e in activity_analytics._read_events("", "")}
+    assert read["data_load_failed"] == ax.EVENT_CLASS_DIAGNOSTIC
+    assert read["data_load_diagnostics"] == ax.EVENT_CLASS_DIAGNOSTIC
+    assert read["configuration_incomplete"] == ax.EVENT_CLASS_DIAGNOSTIC
+    # Ningún número de adopción cambia con 3 eventos diagnostic más en el log.
+    assert after["total_events"] == before["total_events"]
+    assert after["unique_users"] == before["unique_users"]
+    assert after["total_days"] == before["total_days"]
+    assert after["daily_series"] == before["daily_series"]
+    assert after["areas_active"] == before["areas_active"]
+    # No aparecen en la lista de "Acciones de usuario" ni en su drilldown.
+    assert {r["event"] for r in after["event_counts"]} == {"module_viewed"}
+    assert "data_load_failed" not in after["event_breakdowns"]
+    assert "data_load_diagnostics" not in after["event_breakdowns"]
+    assert "configuration_incomplete" not in after["event_breakdowns"]
+    # El usuario que solo generó diagnóstico no aparece en Top usuarios.
+    assert "DiagOnly" not in {r["label"] for r in after["top_users"]}
+
+
+def test_diagnostic_events_do_not_inflate_module_breakdown(monkeypatch, tmp_path):
+    # Un data_load_failed dentro de "Asignaciones" no debe aparecer en el
+    # desglose module-scoped de ese módulo (module_event_breakdowns) — mismo
+    # criterio que Top módulos, ahora también en el drilldown por módulo.
+    _seed_usage_only(monkeypatch, tmp_path)
+    _write_jsonl(tmp_path, "20260301", [
+        {"ts_utc": "2026-03-01T10:00:00+00:00", "event": "module_viewed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {}},
+        {"ts_utc": "2026-03-01T10:01:00+00:00", "event": "data_load_failed", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "module": "assignments", "payload": {"operation": "initial"}},
+    ])
+    s = activity_analytics.build_summary("", "")
+    rows = s["module_event_breakdowns"].get("Asignaciones", [])
+    assert {r["event"] for r in rows} == {"module_viewed"}

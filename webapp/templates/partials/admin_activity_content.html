@@ -225,24 +225,26 @@
     <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
   </summary>
   <div class="dashboard-section__body">
-    {# Panel interactivo: la izquierda es el censo de eventos (clickeable); al
-       elegir uno, la derecha muestra su desglose (catalog_view → por tipo de
-       vista; el resto → por usuario). Todos los desgloses vienen precalculados
-       en summary.event_breakdowns y el toggle es JS (initEventBreakdown en
-       app.js), sin request extra. Además, un clic en un módulo de "Módulos y
-       usuarios" filtra ESTA lista a los eventos de ese módulo — mismo patrón,
-       ahora cross-sección, vía initModuleFilter (data-module-breakdown). Nota:
-       "Vistas de catálogo por tipo" no reacciona: catalog_view no lleva módulo
-       en el payload.
+    {# Panel interactivo: la izquierda es el censo de ACCIONES DE USUARIO
+       (clickeable); al elegir una, la derecha muestra su desglose
+       (catalog_view → por tipo de vista; el resto → por usuario). Todos los
+       desgloses vienen precalculados en summary.event_breakdowns y el toggle
+       es JS (initEventBreakdown en app.js), sin request extra. Además, un
+       clic en un módulo de "Módulos y usuarios" filtra ESTA lista a los
+       eventos de ese módulo — mismo patrón, ahora cross-sección, vía
+       initModuleFilter (data-module-breakdown). Nota: "Vistas de catálogo
+       por tipo" no reacciona: catalog_view no lleva módulo en el payload.
 
-       Eventos de uso / Diagnóstico (corrective A2): separados visualmente con
-       la MISMA primitiva `dashboard-subhead` que ya usa el resto del
-       dashboard — nunca se ocultan los de diagnóstico (siguen inspeccionables,
-       ver HANDOFF), solo no se mezclan con adopción real. #}
+       USAGE DASHBOARD SEMANTIC CLEANUP: esta sección es 100% uso — nunca
+       diagnóstico (Graph/config), ver el filtro event_class==usage en
+       build_summary. Los canónicos técnicos (module_viewed, assistant_query,
+       ...) se muestran con su label visible (summary.event_labels), nunca la
+       key cruda — la key técnica queda solo en el tooltip
+       (event_descriptions) y en los atributos data-* para JS. #}
     {% macro event_rows(rows) %}
     {% for row in rows %}
-    <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
-      <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ row.event }}</code></span>
+    <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ summary.event_labels.get(row.event, row.event) }}">
+      <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ summary.event_labels.get(row.event, row.event) }}</code></span>
       <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
       <span class="activity-bar-count">{{ row.count }}</span>
     </div>
@@ -251,29 +253,15 @@
     <div class="activity-grid-2" data-breakdown-group>
       <div>
         <p class="dashboard-subhead">
-          Eventos por tipo <span class="dashboard-subhead__hint">· click para desglosar →</span>
+          Acciones de usuario <span class="dashboard-subhead__hint">· click para desglosar →</span>
           <span class="dashboard-subhead__filter" data-module-filter-label hidden>· Filtrado por <strong></strong> <button type="button" class="dashboard-subhead__reset" data-module-reset title="Volver a todos los módulos">✕</button></span>
         </p>
         <div data-module-breakdown="">
-          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
-          {{ event_rows(summary.usage_event_counts) }}
-          {% if summary.diagnostic_event_counts %}
-          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
-          {{ event_rows(summary.diagnostic_event_counts) }}
-          {% endif %}
+          {{ event_rows(summary.event_counts) }}
         </div>
         {% for mod, rows in summary.module_event_breakdowns.items() %}
-        {% set mod_usage = rows | selectattr('event_class', 'equalto', 'usage') | list %}
-        {% set mod_diag = rows | rejectattr('event_class', 'equalto', 'usage') | list %}
         <div data-module-breakdown="{{ mod }}" hidden>
-          {% if mod_usage %}
-          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
-          {{ event_rows(mod_usage) }}
-          {% endif %}
-          {% if mod_diag %}
-          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
-          {{ event_rows(mod_diag) }}
-          {% endif %}
+          {{ event_rows(rows) }}
         </div>
         {% endfor %}
       </div>
@@ -286,7 +274,7 @@
         </div>
         {% for event, bd in summary.event_breakdowns.items() %}
         <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
-          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ event }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
+          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ summary.event_labels.get(event, event) }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
           {% if bd.rows %}
           {% for r in bd.rows %}
           <div class="activity-bar-row">
