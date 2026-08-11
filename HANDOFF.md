@@ -4693,10 +4693,14 @@ nombres).
 
 ---
 
-## MODULE IDENTIFIER CONVENTION V2 — REGISTRY FOUNDATION — IMPLEMENTED / PENDING CI
-(commit funcional `feat(modules): add canonical Hub module registry`, branch
-`work/module-identifier-convention-v2`, arrancada desde `main` `68abe57` —
-NO mergeada todavía)
+## MODULE IDENTIFIER CONVENTION V2 — REGISTRY FOUNDATION — CLOSED / GREEN
+(commits funcionales `feat(modules): add canonical Hub module registry`
+(`7ddfc57`) + `fix(modules): keep canonical registry dependency-neutral`
+(`9a5d2cb`) + `fix(modules): make display order explicit registry metadata`
+(`9235944`), branch `work/module-identifier-convention-v2`, arrancada desde
+`main` `68abe57` — **mergeada a `main` vía PR #55 (`59ce3fb`)**, los tres
+commits funcionales confirmados CONTAINED en `main` post-merge. Ver "FINAL
+HANDOFF CLOSURE" al final de esta sección para el contrato final entregado.)
 
 ### Discovery (read-only, previo a esta implementación)
 
@@ -4825,14 +4829,89 @@ chico, cacheado con `lru_cache`, igual que el resto de `content_service`.
 
 ### Gate
 
-Nuevos tests: `tests/webapp/test_module_registry.py` (20 tests — cobertura
-completa de resolución legacy↔canónica, no-duplicados, metadata por campo,
-opacidad del resolver, anclaje de la deuda hardcodeada, guardia de drift de
-inventario). Full suite **666 passed / 1 skipped** (+20 sobre el baseline de
-646), route-contract GREEN, route surface **83 sin cambios** (ningún archivo
-de rutas tocado). Cero archivos existentes modificados — solo 2 archivos
-nuevos (`webapp/services/module_registry.py` +
-`tests/webapp/test_module_registry.py`).
+`tests/webapp/test_module_registry.py` (26 tests tras las dos pasadas
+correctivas — cobertura completa de resolución legacy↔canónica,
+no-duplicados, metadata por campo, opacidad del resolver ante `module_id`/
+`content_key`/enumeración, `display_order` explícito por colección, anclaje
+de la deuda hardcodeada, guardia de drift de inventario). Full suite en la
+branch antes de mergear: **672 passed / 1 skipped** (+26 sobre el baseline
+de 646), route-contract GREEN, route surface **83 sin cambios** (ningún
+archivo de rutas tocado en ninguna de las tres pasadas). Archivos tocados en
+total: 2 nuevos (`webapp/services/module_registry.py` +
+`tests/webapp/test_module_registry.py`) — cero archivos existentes de
+aplicación modificados.
+
+### FINAL HANDOFF CLOSURE
+
+Fase 1 mergeada y verificada CONTAINED en `main` — cierre formal de esta
+fase. Fase 1 entregó ÚNICAMENTE el registro canónico aditivo — ningún
+consumidor migrado, ningún archivo renombrado.
+
+**Contrato final de IDs canónicos** (idéntico a la tabla de arriba, congelado):
+`CP00`–`CP05` (Copiloto principal), `CPA01`–`CPA06` (apéndices de
+Copiloto), `OP01` = Staffing/Asignaciones. Reservados conceptualmente, SIN
+implementar/migrar: `CPACxx` (Academy de Copiloto), `CMxx` (Comercial),
+`CHxx` (Capital Humano).
+
+**Semántica de identidad congelada:** `module_id` es canónico, estable,
+inmutable, independiente del label visible, independiente del filename/
+`content_key`, e independiente de `display_order`. La parte numérica es un
+código de identidad estable — NUNCA posición de navegación en vivo. Los IDs
+son legibles para humanos pero OPACOS para la lógica de aplicación —
+ningún código debe parsear `CP`/`CPA`/`OP` ni su sufijo numérico para
+decidir comportamiento.
+
+**Descriptor final:** `module_id, workspace, area, kind, content_key,
+visible_label, display_order, legacy_aliases` — sin campos especulativos
+agregados. **Dirección de dependencia confirmada:** `module_registry.py` es
+dependency-neutral — NO depende de `activity_context` (corregido en
+`9a5d2cb`); futuros consumidores dependerán DE él, nunca al revés.
+
+**Contrato de `display_order` congelado:** metadata explícita, con alcance
+a la colección navegable ACTUAL del propio descriptor — nunca Hub-wide,
+nunca parseada de `module_id`, nunca parseada de filename/`content_key`,
+nunca derivada de orden lexical de filesystem, nunca derivada de posición
+de iteración genérica del registro (corregido en `9235944`). Valores
+vigentes: Copiloto principal `CP00=0`…`CP05=5`; apéndices `CPA01=1`…
+`CPA06=6`; Operations `OP01=1`.
+
+**Boundary de compatibilidad:** Fase 1 deliberadamente NO migró: filenames
+Markdown, YAML de árboles, `/modules/{stem}`, rutas de
+feedback/tree/assistant, nav Jinja, productores de Activity, JSONL de
+Activity, YAML de Feedback, `assistant_store`, `pack.yaml`, fixtures
+golden, ni la lógica de negocio hardcodeada por stem. Los legacy aliases
+siguen siendo el input de compatibilidad del resolver — ej.
+`01_Arquitectura_y_Conectividad`→`CP01`, `assignments`→`OP01`.
+
+**Deuda conocida, explícitamente sin resolver:** `stem.startswith("01_"/
+"02_"/"05_")` en `module.html`/`catalog_tab.html` sigue determinando
+comportamiento de negocio (qué catálogo mostrar) — regla congelada para el
+futuro: identidad de módulo ≠ detección de capacidad/feature; esas ramas
+NUNCA deben reemplazarse por parsing de `CPxx`, deben resolverse por
+metadata explícita del descriptor cuando se migren.
+
+**Academy:** namespace `CPACxx` reservado SOLO conceptualmente — Academy
+tiene su propio espacio de identidad ya existente (gap `ACAD10` faltante,
+`Funnel-como-faro.md` rompe la convención) que requiere su propio discovery
+futuro dedicado, antes de cualquier mapeo.
+
+**Baseline final:** suite **672 passed / 1 skipped**, route surface **83**,
+route-contract **GREEN**, `main` HEAD `59ce3fb` (merge de PR #55).
+
+## MODULE IDENTIFIER CONVENTION V2 — PHASE 2 — FOLLOW-UP / NOT STARTED
+
+Separado explícitamente del cierre de Fase 1. Alcance candidato únicamente
+(sin diseñar ni implementar en ningún batch hasta ahora):
+
+- adopción canónica de módulo en Activity;
+- adopción canónica de módulo en Feedback;
+- normalización histórica en tiempo de LECTURA (mismo patrón que
+  `_EVENT_RENAME`/`normalize_event` de A2 — nunca reescribir JSONL/YAML);
+- preservación de `raw_module` (análogo a `raw_event`);
+- sin reescritura de JSONL/YAML;
+- sin rename de URL/archivo.
+
+**NO iniciado.**
 
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
@@ -4916,35 +4995,42 @@ tocar código. **NO iniciado — sin discovery todavía.**
 | Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
 | Staffing Dashboard V2 — Director Priority Update | **CLOSED / GREEN** |
 | Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **CLOSED / GREEN** |
+| Module Identifier Convention V2 — Registry Foundation (Fase 1) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Estado consolidado — un frente en curso (registro de módulos, PENDING
-  CI, sin mergear), el resto son follow-ups explícitamente NO iniciados:**
-  - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
-    CLOSED / GREEN** — mergeada a `main` en PR #50/#51/#52 (`cdc690b` →
-    `75fa935` → `39fb236`), validada en producción por el owner. Ver
-    "FINAL HANDOFF CLOSURE" en la sección dedicada arriba para el modelo
-    final entregado completo.
-  - **Staffing Dashboard V2 — Director Priority Update = CLOSED / GREEN.**
-  - **Module Identifier Convention V2 — Registry Foundation (Fase 1) =
-    IMPLEMENTED / PENDING CI** — ver sección dedicada arriba. Discovery
-    read-only completo + registro/resolver canónico (`webapp/services/
-    module_registry.py`) puramente aditivo, branch
-    `work/module-identifier-convention-v2`, **NO mergeada todavía**. Cero
+- **Estado consolidado — sin frentes activos, todo lo abierto es un
+  follow-up explícitamente NO iniciado:**
+  - **Staffing Director Priority V2 = CLOSED / GREEN.**
+  - **Hub Activity Dashboard V2 = CLOSED / GREEN** — mergeada a `main` en
+    PR #50/#51/#52 (`cdc690b` → `75fa935` → `39fb236`), validada en
+    producción por el owner. Ver "FINAL HANDOFF CLOSURE" en la sección
+    dedicada arriba para el modelo final entregado completo.
+  - **Module Identifier Convention V2 Phase 1 = CLOSED / GREEN** — ver
+    "FINAL HANDOFF CLOSURE" en la sección dedicada arriba. Mergeada a
+    `main` vía PR #55 (`59ce3fb`), los tres commits funcionales
+    confirmados CONTAINED. Registro/resolver canónico
+    (`webapp/services/module_registry.py`) puramente aditivo — cero
     consumidores migrados (rutas/Activity/Feedback/nav/YAML/hardcoded
-    `startswith` siguen usando sus keys legacy sin cambios) — Fase 2
-    (adopción de consumidores) explícitamente NO autorizada.
-  - **Staffing — Vacation Timeline Overlay = FOLLOW-UP / NOT STARTED.**
+    `startswith` siguen usando sus keys legacy sin cambios).
+  - **Module Identifier Convention V2 Phase 2 = FOLLOW-UP / NOT STARTED**
+    — ver sección dedicada arriba (adopción canónica de Activity/Feedback,
+    normalización histórica en tiempo de lectura, sin reescritura de
+    JSONL/YAML, sin rename de URL/archivo).
+  - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
   - **Auth / Graph Session Renewal UX = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba, sin discovery todavía.
-- **Último batch CERRADO:** **Shared Activity / Observability — Hub
-  Dashboard V2 (Batch A2)** — ver "FINAL HANDOFF CLOSURE" en la sección
-  dedicada arriba — **CLOSED / GREEN** (mergeada vía PR #50/#51/#52,
-  `main` HEAD `39fb236`, validación de producción del owner recorded). El
-  batch previo cerrado es **Staffing Dashboard V2 — Director Priority
+- **Último batch CERRADO:** **Module Identifier Convention V2 — Registry
+  Foundation (Fase 1)** — ver "FINAL HANDOFF CLOSURE" en la sección
+  dedicada arriba — **CLOSED / GREEN** (mergeada vía PR #55, `main` HEAD
+  `59ce3fb`, los tres commits funcionales confirmados CONTAINED). El batch
+  previo cerrado es **Shared Activity / Observability — Hub Dashboard V2
+  (Batch A2)** — ver "FINAL HANDOFF CLOSURE" en su sección dedicada arriba
+  — **CLOSED / GREEN** (mergeada vía PR #50/#51/#52, `main` HEAD `39fb236`,
+  validación de producción del owner recorded). El batch anterior a ese es
+  **Staffing Dashboard V2 — Director Priority
   Update** — ver sección dedicada arriba — **CLOSED / GREEN** (commits
   `2833fa6` + `3fcb75e` + `265198b` (pre-PR final check) + `a149c3b`
   (production behavior corrective — Parts A/B/C/D/E/F) + `20d44f6`
@@ -5003,27 +5089,26 @@ tocar código. **NO iniciado — sin discovery todavía.**
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
-- **En curso (PENDING CI, sin mergear):** Module Identifier Convention V2 —
-  Registry Foundation (Fase 1) — ver sección dedicada arriba. Fase 2
-  (adopción de consumidores) requiere autorización explícita separada.
 - **Next candidates (ninguno autorizado todavía — solo follow-ups
   documentados, NO iniciar sin autorización explícita del owner):**
-  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX,
-  Staffing — Vacation Timeline Overlay (bloqueado por acceso Graph real).
-  Ver las secciones dedicadas arriba para el contrato conocido de cada uno.
-  Los hallazgos reportados-pero-diferidos de batches previos (colisiones de
-  color en el timeline de Staffing; filtro de tipo de proyecto; Status
-  Finalización) SIGUEN diferidos/sin autorizar.
+  Module Identifier Convention V2 Phase 2 (adopción canónica de
+  consumidores — requiere autorización explícita separada), Activity Admin
+  Shell Ownership, Auth / Graph Session Renewal UX, Staffing — Vacation
+  Timeline Overlay (bloqueado por acceso Graph real). Ver las secciones
+  dedicadas arriba para el contrato conocido de cada uno. Los hallazgos
+  reportados-pero-diferidos de batches previos (colisiones de color en el
+  timeline de Staffing; filtro de tipo de proyecto; Status Finalización)
+  SIGUEN diferidos/sin autorizar.
   Groups/App Roles, Projects/Reporting, cálculo de capacidad, y Shared
   Dashboard Primitives (más allá de lo ya extraído) quedan igualmente
   diferidos sin autorización.
-- **Baseline actual (`main`, incluye A2 CLOSED/GREEN + Staffing Dashboard
-  V2 CLOSED/GREEN):** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 ·
-  tests **646 passed / 1 skipped** · route surface **83** · route-contract
-  **GREEN** · `main` HEAD `39fb236` (merge de PR #52, ya incluye PR
-  #50/#51 — A2 completo — y PR #46/#47/#48/#49 — Staffing Dashboard V2
-  Director Priority Update CLOSED/GREEN completo — y PR #44 — A1 Context
-  Foundation CLOSED/GREEN).
+- **Baseline actual (`main`, incluye Module Identifier Convention V2 Phase 1
+  CLOSED/GREEN + A2 CLOSED/GREEN + Staffing Dashboard V2 CLOSED/GREEN):**
+  Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **672 passed /
+  1 skipped** · route surface **83** · route-contract **GREEN** · `main`
+  HEAD `59ce3fb` (merge de PR #55, ya incluye PR #50/#51/#52 — A2 completo
+  — y PR #46/#47/#48/#49 — Staffing Dashboard V2 Director Priority Update
+  CLOSED/GREEN completo — y PR #44 — A1 Context Foundation CLOSED/GREEN).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
