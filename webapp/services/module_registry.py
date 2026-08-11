@@ -14,12 +14,19 @@ Principios congelados (discovery previo — ver HANDOFF):
 - `module_id` es un código de identidad ESTABLE asignado en la creación,
   nunca derivado de la posición de nav ni del título visible — no cambia si
   el módulo se reordena o se renombra.
-- `display_order` es metadata EXPLÍCITA e independiente — nunca se calcula a
-  partir de los dígitos de `module_id`. Este registro captura fielmente el
-  orden ACTUAL de navegación (Copiloto: orden de archivo, que hoy coincide
-  con el número visible para los módulos principales pero NO para los
-  apéndices — ver "known appendix display-number inconsistency" en HANDOFF;
-  esta fase no reordena nada, solo lo documenta).
+- `display_order` es metadata EXPLÍCITA, declarada literalmente en el
+  registro (NUNCA calculada — ni de los dígitos de `module_id`, ni del
+  filename/`content_key`, ni de la posición de enumeración al construir el
+  registro). Significa "orden DENTRO de la colección navegable actual del
+  propio descriptor" — Copiloto principal, apéndices de Copiloto, y
+  Operations son tres colecciones SEPARADAS hoy (no existe una secuencia
+  Hub-wide única todavía), así que `CP01`, `CPA01` y `OP01` comparten
+  legítimamente `display_order=1` sin colisionar — `module_id`/`workspace`/
+  `kind` ya los distinguen. Los valores declarados preservan el orden de
+  nav ACTUAL (Copiloto: orden de archivo, que hoy coincide con el número
+  visible para los módulos principales pero NO para los apéndices — ver
+  "known appendix display-number inconsistency" en HANDOFF; esta fase no
+  reordena nada, solo lo documenta).
 - Los IDs son OPACOS para la lógica de aplicación: ningún código de este
   archivo (ni de ningún consumidor futuro) debe hacer `.startswith` sobre el
   prefijo de dos letras, ni slicing, para decidir comportamiento — toda
@@ -79,66 +86,82 @@ class ModuleDescriptor:
     legacy_aliases: tuple[str, ...]
 
 
-# Asignación canónica de IDs — Copiloto principal. El orden de este dict
-# importa: define `display_order` vía el orden de iteración de
-# `content_service.list_modules()` (que ya ordena por archivo, el mismo
-# orden que hoy renderiza el nav) filtrado por esta asignación.
-_COPILOT_MODULE_IDS: dict[str, str] = {
-    "00_Intro": "CP00",
-    "01_Arquitectura_y_Conectividad": "CP01",
-    "02_Seguridad_y_Gobernanza": "CP02",
-    "03_Integracion_y_Estrategia_de_Datos": "CP03",
-    "04_Modelado_y_Desarrollo": "CP04",
-    "05_Reporting_y_Consumo": "CP05",
+# Asignación canónica de IDs — Copiloto principal. `display_order` es el
+# SEGUNDO elemento de la tupla, declarado literalmente acá — NUNCA se deriva
+# de enumerar este dict ni de ningún otro cálculo (final display-order
+# semantics corrective). Preserva el orden de nav ACTUAL (que hoy coincide
+# con los dígitos del stem para los módulos principales, por disciplina de
+# contenido, no por una regla que el código enforce).
+_COPILOT_MODULE_IDS: dict[str, tuple[str, int]] = {
+    "00_Intro": ("CP00", 0),
+    "01_Arquitectura_y_Conectividad": ("CP01", 1),
+    "02_Seguridad_y_Gobernanza": ("CP02", 2),
+    "03_Integracion_y_Estrategia_de_Datos": ("CP03", 3),
+    "04_Modelado_y_Desarrollo": ("CP04", 4),
+    "05_Reporting_y_Consumo": ("CP05", 5),
 }
 
 # Apéndices — el orden de nav actual es por ARCHIVO (A01..A06), NO por el
 # número de frontmatter (`module:`, que hoy va "10","08","09","07","06","A06"
-# — ver HANDOFF, inconsistencia conocida, NO corregida en esta fase). Fase 1
-# es behavior-preserving: `display_order` refleja el nav real de HOY (orden
-# de archivo), no el número de frontmatter.
-_COPILOT_APPENDIX_IDS: dict[str, str] = {
-    "A01_Arquitectura_y_Modelado": "CPA01",
-    "A02_Modernizacion_BW_Greenfield": "CPA02",
-    "A03_Hub_de_Integracion_AWS": "CPA03",
-    "A04_Biblioteca_de_Referencias": "CPA04",
-    "A05_Troubleshooting_y_Performance": "CPA05",
-    "A06_SAP_Analytics_Cloud": "CPA06",
+# — ver HANDOFF, inconsistencia conocida, NO corregida en esta fase). Los
+# `display_order` de abajo son una colección PROPIA (empieza en 1, separada
+# de Copiloto principal) — preservan ese orden de archivo declarándolo
+# literalmente, nunca parseando el número de frontmatter ni el nombre del
+# archivo.
+_COPILOT_APPENDIX_IDS: dict[str, tuple[str, int]] = {
+    "A01_Arquitectura_y_Modelado": ("CPA01", 1),
+    "A02_Modernizacion_BW_Greenfield": ("CPA02", 2),
+    "A03_Hub_de_Integracion_AWS": ("CPA03", 3),
+    "A04_Biblioteca_de_Referencias": ("CPA04", 4),
+    "A05_Troubleshooting_y_Performance": ("CPA05", 5),
+    "A06_SAP_Analytics_Cloud": ("CPA06", 6),
 }
 
 # OP01 — Operations/Asignaciones. Literales propios del registro, NUNCA
 # importados de `activity_context` (ver comentario junto a la entrada OP01
 # en `_build_entries`, más abajo, para la razón de dirección de dependencia).
+# Colección propia (Operations), separada de las dos de arriba — único
+# módulo hoy, `display_order=1` dentro de SU colección.
+_OP01_MODULE_ID = "OP01"
 _OP01_LEGACY_KEY = "assignments"
 _OP01_VISIBLE_LABEL = "Asignaciones"
+_OP01_DISPLAY_ORDER = 1
 
 
 def _build_entries() -> tuple[ModuleDescriptor, ...]:
+    # `display_order` viene SIEMPRE del segundo elemento de la tupla
+    # declarada en _COPILOT_MODULE_IDS/_COPILOT_APPENDIX_IDS/
+    # _OP01_DISPLAY_ORDER — nunca de `enumerate`, de una posición de
+    # iteración, ni de parsear `module_id`/`content_key` (final
+    # display-order semantics corrective). Iterar
+    # `content_service.list_modules()`/`list_appendices()` acá SOLO decide
+    # qué stems existen y les provee `title` (label) — el orden de esa
+    # iteración es irrelevante para `display_order`, que ya viene fijo en
+    # el mapeo.
     entries: list[ModuleDescriptor] = []
-    order = 0
     for m in content_service.list_modules():
-        module_id = _COPILOT_MODULE_IDS.get(m.stem)
-        if module_id is None:
+        mapped = _COPILOT_MODULE_IDS.get(m.stem)
+        if mapped is None:
             # Contenido sin ID canónico asignado todavía — Fase 1 NO inventa
             # uno; el módulo simplemente no aparece en este registro (sigue
             # 100% funcional por su stem legacy, sin cambios).
             continue
+        module_id, display_order = mapped
         entries.append(ModuleDescriptor(
             module_id=module_id, workspace="copilot", area="methodology",
             kind="module", content_key=m.stem, visible_label=m.title,
-            display_order=order, legacy_aliases=(m.stem,),
+            display_order=display_order, legacy_aliases=(m.stem,),
         ))
-        order += 1
     for a in content_service.list_appendices():
-        module_id = _COPILOT_APPENDIX_IDS.get(a.stem)
-        if module_id is None:
+        mapped = _COPILOT_APPENDIX_IDS.get(a.stem)
+        if mapped is None:
             continue
+        module_id, display_order = mapped
         entries.append(ModuleDescriptor(
             module_id=module_id, workspace="copilot", area="methodology",
             kind="appendix", content_key=a.stem, visible_label=a.title,
-            display_order=order, legacy_aliases=(a.stem,),
+            display_order=display_order, legacy_aliases=(a.stem,),
         ))
-        order += 1
     # Operations/Asignaciones — sin Markdown backing (`content_key=None`).
     # `kind="module"`: no hay evidencia de un consumidor actual que necesite
     # distinguir Asignaciones de un módulo de Copiloto por `kind` — ambos son
@@ -154,10 +177,10 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # para leer de ESTE registro y podrá eliminar la entrada redundante en
     # `activity_context.MODULE_LABELS` donde sea seguro — NO se toca acá.
     entries.append(ModuleDescriptor(
-        module_id="OP01", workspace="operations", area="staffing",
+        module_id=_OP01_MODULE_ID, workspace="operations", area="staffing",
         kind="module", content_key=None,
         visible_label=_OP01_VISIBLE_LABEL,
-        display_order=order, legacy_aliases=(_OP01_LEGACY_KEY,),
+        display_order=_OP01_DISPLAY_ORDER, legacy_aliases=(_OP01_LEGACY_KEY,),
     ))
     return tuple(entries)
 

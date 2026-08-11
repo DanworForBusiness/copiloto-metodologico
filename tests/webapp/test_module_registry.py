@@ -7,6 +7,7 @@ físico (esos consumidores NO se migran en esta fase, ver HANDOFF).
 from __future__ import annotations
 
 import inspect
+import re
 
 from webapp.services import module_registry as mr
 
@@ -103,8 +104,10 @@ def test_no_canonical_id_collides_with_another_entrys_alias():
 
 # test 10
 def test_current_visible_labels_are_preserved():
-    # Reusa la fuente existente (content_service.title / activity_context.
-    # module_label) — no duplica texto humano a mano en el registro.
+    # Copiloto reusa la fuente existente (content_service.title) — no
+    # duplica texto humano a mano. OP01 es un literal propio del registro
+    # (ver dirección de dependencia) que hoy coincide con
+    # activity_context.MODULE_LABELS — duplicación temporal deliberada.
     assert mr.resolve("CP01").visible_label == "Arquitectura y Conectividad"
     assert mr.resolve("CPA01").visible_label == "Fundamentos EA y Paradigmas"
     assert mr.resolve("OP01").visible_label == "Asignaciones"
@@ -150,17 +153,78 @@ def test_op01_supports_content_key_none():
     assert mr.resolve("assignments").content_key is None
 
 
-# test 16
-def test_display_order_is_independent_metadata_not_derived_from_module_id():
-    orders = [e.display_order for e in mr.all_entries()]
-    # Asignado por POSICIÓN de iteración (orden de nav actual), no parseado
-    # de los dígitos del module_id — secuencial y sin huecos.
-    assert orders == list(range(len(orders)))
-    # Ningún módulo con ID no-numérico consistente (OP01 comparte "01" con
-    # CP01/CPA01) tiene el mismo display_order — si display_order viniera de
-    # parsear el ID, CP01/CPA01/OP01 colisionarían en "1".
-    by_id = {e.module_id: e.display_order for e in mr.all_entries()}
-    assert len({by_id["CP01"], by_id["CPA01"], by_id["OP01"]}) == 3
+# final display-order semantics corrective — display_order means "orden
+# DENTRO de la colección navegable actual del propio descriptor", NUNCA una
+# secuencia Hub-wide. Copiloto principal, apéndices de Copiloto y Operations
+# son tres colecciones separadas hoy — comparten legítimamente los mismos
+# números (display_order=1 en las tres) sin colisionar, porque module_id/
+# workspace/kind ya distinguen cada entrada.
+
+# tests 1/2/3
+def test_display_order_is_scoped_per_collection_not_global():
+    cp01 = mr.resolve("CP01")
+    cpa01 = mr.resolve("CPA01")
+    op01 = mr.resolve("OP01")
+    assert cp01.display_order == 1
+    assert cpa01.display_order == 1
+    assert op01.display_order == 1
+    # Comparten el número "1" en sus propias colecciones — no es una colisión:
+    # module_id/workspace/kind ya los distinguen sin ambigüedad.
+    assert {cp01.module_id, cpa01.module_id, op01.module_id} == {"CP01", "CPA01", "OP01"}
+    assert {cp01.kind, cpa01.kind} == {"module", "appendix"}
+    assert {cp01.workspace, op01.workspace} == {"copilot", "operations"}
+
+
+# test 4
+def test_copilot_main_modules_have_explicit_current_display_order():
+    expected = {"CP00": 0, "CP01": 1, "CP02": 2, "CP03": 3, "CP04": 4, "CP05": 5}
+    for module_id, order in expected.items():
+        assert mr.resolve(module_id).display_order == order, module_id
+
+
+# test 5
+def test_copilot_appendices_have_explicit_current_display_order():
+    expected = {"CPA01": 1, "CPA02": 2, "CPA03": 3, "CPA04": 4, "CPA05": 5, "CPA06": 6}
+    for module_id, order in expected.items():
+        assert mr.resolve(module_id).display_order == order, module_id
+    # Los valores NO son los números de frontmatter por entrada ("10","08",
+    # "09","07","06" para A01..A05) — esa inconsistencia de presentación es
+    # un problema separado, documentado, NO corregido en esta fase.
+    frontmatter_numbers = {"CPA01": 10, "CPA02": 8, "CPA03": 9, "CPA04": 7, "CPA05": 6}
+    for module_id, frontmatter_number in frontmatter_numbers.items():
+        assert mr.resolve(module_id).display_order != frontmatter_number, module_id
+
+
+# test 6
+def test_op01_has_explicit_display_order_one():
+    assert mr.resolve("OP01").display_order == 1
+
+
+# test 7
+def test_source_never_derives_display_order_from_module_id():
+    source = inspect.getsource(mr)
+    forbidden_patterns = ("module_id[", "module_id.split", "int(module_id")
+    for pattern in forbidden_patterns:
+        assert pattern not in source, pattern
+
+
+# test 8
+def test_source_never_derives_display_order_from_content_key_or_filename():
+    source = inspect.getsource(mr)
+    forbidden_patterns = (
+        "content_key[", "content_key.split", "int(content_key",
+        "m.stem.split", "a.stem.split", "m.stem[", "a.stem[",
+    )
+    for pattern in forbidden_patterns:
+        assert pattern not in source, pattern
+
+
+# test 9
+def test_registry_construction_never_uses_enumeration_position_for_display_order():
+    source = inspect.getsource(mr)
+    assert "enumerate(" not in source
+    assert re.search(r"\border\s*=\s*0\b", source) is None
+    assert re.search(r"\border\s*\+=", source) is None
 
 
 # test 17
