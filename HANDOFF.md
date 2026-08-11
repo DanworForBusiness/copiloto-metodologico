@@ -4750,9 +4750,27 @@ real en el repo hoy — son puramente aspiracionales.
   (`methodology`/`staffing`), `kind` (`module`/`appendix` — sin valor
   `application`/tercer tipo para OP01: ningún consumidor actual lo necesita),
   `content_key` (stem físico, `None` para OP01 — Asignaciones no tiene
-  Markdown backing), `visible_label` (reusa `content_service.title`/
-  `activity_context.module_label` — no duplica texto humano), `legacy_
-  aliases` (contrato de compatibilidad explícito, nunca labels).
+  Markdown backing), `visible_label` (para Copiloto reusa
+  `content_service.title` — no duplica texto humano; para OP01 es un
+  literal PROPIO del registro, `"Asignaciones"` — ver "Dirección de
+  dependencia" abajo), `legacy_aliases` (contrato de compatibilidad
+  explícito, nunca labels).
+- **Dirección de dependencia (final foundation dependency check,
+  corrective post-implementación):** `module_registry.py` es la capa de
+  identidad de MÁS BAJO nivel del Hub — NO debe depender de ninguno de sus
+  futuros consumidores. La primera versión importaba `MODULE_ASSIGNMENTS`/
+  `module_label` de `activity_context` para el label de OP01 — exactamente
+  al revés de la dirección deseada (Activity, en Fase 2, será quien
+  dependa del registro, no el registro de Activity). Corregido: OP01 ahora
+  usa literales propios (`_OP01_LEGACY_KEY="assignments"`,
+  `_OP01_VISIBLE_LABEL="Asignaciones"`) — duplican temporalmente el mismo
+  valor que ya vive en `activity_context.MODULE_ASSIGNMENTS`/
+  `MODULE_LABELS`, una duplicación deliberadamente aceptada en vez de
+  invertir la dependencia. Fase 2 migrará la resolución de labels de
+  Activity para leer de este registro y podrá eliminar la entrada
+  redundante en `MODULE_LABELS` donde sea seguro — no se tocó `activity_
+  context.py` en este corrective. Commit `fix(modules): keep canonical
+  registry dependency-neutral`.
 - **Un solo resolver canónico** (`resolve(key)`): acepta indistintamente una
   key legacy o un `module_id` canónico y devuelve el MISMO descriptor;
   key desconocida → `None` determinístico, nunca se fabrica un descriptor.
