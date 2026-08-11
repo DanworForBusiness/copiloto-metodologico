@@ -4985,6 +4985,20 @@ canónico para el MISMO módulo ahora agregan en UNA sola fila en
 `ia_feedback.yaml`. `feedback_log/*.yaml` fuente NUNCA se reescribe —
 normalización solo en el read-model del reporte generado.
 
+**Filtro `--module`/`load_feedback(module_filter=...)` — corrective
+adicional** (commit `fix(feedback): canonicalize offline module filters`):
+el filtro por módulo ahora normaliza AMBOS lados (el valor pedido por CLI y
+el valor `module` persistido de cada registro) contra `module_registry`
+antes de comparar — `--module 01_Arquitectura_y_Conectividad` y
+`--module CP01` devuelven el mismo conjunto lógico de registros (histórico +
+nuevo). Operadores existentes que sigan usando el stem legacy en la CLI no
+necesitan migrar. Un valor desconocido sigue matcheando por pass-through
+exacto, sin inventar IDs; la variante histórica lowercase-typo conocida
+(`01_arquitectura_y_conectividad`) sigue sin resolver — no se agregó case
+folding, la comparación sigue siendo exacta tras la normalización canónica.
+Reporting offline de Feedback ahora tiene semántica canónica completa: tanto
+para AGRUPAR como para FILTRAR.
+
 ### Compatibilidad y deuda
 
 - Rutas (`/modules/{stem}`), YAML de árboles, nav Jinja, `assistant_store`,
@@ -5018,16 +5032,22 @@ mismos 2 registros re-validados (solo lectura) tras el corrective de
 `CP04: up=1` (son `assistant_response`, no `module_content`/
 `section_content` — el owner no tiene todavía feedback real de esos dos
 tipos). YAML fuente confirmado sin cambios tras leer + generar reportes.
+Re-validado otra vez tras el corrective del filtro CLI: `--module
+01_Arquitectura_y_Conectividad` y `--module CP01` devuelven exactamente el
+mismo archivo (`feedback_20260806_103529_bedd9d48.yaml`); `--module
+04_Modelado_y_Desarrollo` y `--module CP04` devuelven exactamente el mismo
+archivo (`feedback_20260805_162000_cf7f051f.yaml`). YAML fuente confirmado
+sin cambios.
 
 ### Gate
 
 Targeted: registro canónico (26 tests, Fase 1, sin debilitar) + Activity
 (55 tests, `test_activity_context.py`/`test_activity_routes.py`) + Feedback
-web (10 tests, `test_feedback_module_identity.py`) + Feedback offline (11
-tests nuevos, `test_analyze_feedback_module_identity.py`) + Staffing
-regression (123 tests) — todos GREEN. Full suite **704 passed / 1 skipped**
-(+32 sobre el baseline de 672), route-contract GREEN, route surface **83
-sin cambios**.
+web (10 tests, `test_feedback_module_identity.py`) + Feedback offline (19
+tests, `test_analyze_feedback_module_identity.py` — 11 de agrupamiento + 8
+nuevos de filtro CLI) + Staffing regression (123 tests) — todos GREEN. Full
+suite **712 passed / 1 skipped** (+40 sobre el baseline de 672),
+route-contract GREEN, route surface **83 sin cambios**.
 
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
@@ -5137,9 +5157,11 @@ tocar código. **NO iniciado — sin discovery todavía.**
     reescrito; validado (solo lectura) contra `activity_log/`/
     `feedback_log/` reales. Branch
     `work/module-identifier-convention-v2-phase2`, **NO mergeada
-    todavía**. Gap previamente disclosed (`analyze_feedback.py` sin
-    adoptar el seam) **cerrado** con el corrective `fix(feedback):
-    normalize canonical modules in offline reports`.
+    todavía**. Gaps previamente disclosed en `analyze_feedback.py`
+    **cerrados** con dos correctives: agrupamiento (`fix(feedback):
+    normalize canonical modules in offline reports`) y filtro CLI
+    `--module` (`fix(feedback): canonicalize offline module filters`) —
+    ambos AGRUPAR y FILTRAR ahora tienen semántica canónica completa.
   - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
