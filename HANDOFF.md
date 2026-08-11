@@ -4898,11 +4898,16 @@ futuro dedicado, antes de cualquier mapeo.
 **Baseline final:** suite **672 passed / 1 skipped**, route surface **83**,
 route-contract **GREEN**, `main` HEAD `59ce3fb` (merge de PR #55).
 
-## MODULE IDENTIFIER CONVENTION V2 — PHASE 2 — CANONICAL MODULE ADOPTION — IMPLEMENTED / PENDING CI
+## MODULE IDENTIFIER CONVENTION V2 — PHASE 2 — CANONICAL MODULE ADOPTION — CLOSED / GREEN
 (commits funcionales `feat(activity): adopt canonical Hub module identities`
-+ `feat(feedback): adopt canonical Hub module identities`, branch
++ `feat(feedback): adopt canonical Hub module identities` +
+`fix(feedback): normalize canonical modules in offline reports` +
+`fix(feedback): canonicalize offline module filters`, branch
 `work/module-identifier-convention-v2-phase2`, arrancada desde `main`
-`fa49f69` — NO mergeada todavía)
+`fa49f69` — **mergeada a `main` vía PR #57, merge commit `0d1c138`**, los
+cuatro commits funcionales confirmados CONTAINED en `main`
+(`git merge-base --is-ancestor` GREEN sobre el HEAD de la rama y sobre el
+primer commit funcional))
 
 Hace load-bearing el registro canónico de Fase 1 en Activity y Feedback —
 ÚNICAMENTE ahí. Sin rename de archivos, sin cambio de rutas/YAML/nav Jinja/
@@ -5049,6 +5054,113 @@ nuevos de filtro CLI) + Staffing regression (123 tests) — todos GREEN. Full
 suite **712 passed / 1 skipped** (+40 sobre el baseline de 672),
 route-contract GREEN, route surface **83 sin cambios**.
 
+### FINAL HANDOFF CLOSURE
+
+Fase 2 mergeada y verificada CONTAINED en `main` (PR #57, merge commit
+`0d1c138`) — cierre formal de esta fase. Fase 2 hizo load-bearing el
+registro canónico de Fase 1 en Activity y en el dominio completo de
+Feedback — ÚNICAMENTE esos dos consumidores.
+
+**Modelo final entregado — registro canónico:**
+`CP00`–`CP05` (Copiloto principal), `CPA01`–`CPA06` (apéndices de
+Copiloto), `OP01` (Staffing/Asignaciones). Reservados conceptualmente, SIN
+implementar: `CPACxx` (Academy), `CMxx` (Comercial), `CHxx` (Capital
+Humano). Contrato de identidad congelado desde Fase 1, sin cambios: `module_id`
+es estable, inmutable, independiente del label visible, del `content_key` y
+del `display_order`, y opaco a la lógica de negocio de la aplicación
+(ningún código parsea `CP`/`CPA`/`OP` ni su sufijo numérico para decidir
+comportamiento). Descriptor final sin campos nuevos: `module_id, workspace,
+area, kind, content_key, visible_label, display_order, legacy_aliases`.
+
+**Activity — contrato final:** el JSONL histórico nunca se reescribió.
+Read-model: `raw_module` = valor persistido exacto (campo explícito →
+`normalize_event` → `payload.module`/`payload.stem`); `module` = `module_id`
+canónico cuando `module_registry.resolve()` lo reconoce, o el mismo
+`raw_module` si no (nunca se fabrica un ID). Ejemplos reales:
+`01_Arquitectura_y_Conectividad`→`raw_module=01_Arquitectura_y_
+Conectividad`/`module=CP01`; `assignments`→`raw_module=assignments`/
+`module=OP01`. Productores nuevos (`webapp/routers/modules.py` para
+Copiloto, `webapp/routers/staffing.py` para Operations) persisten el
+`module_id` canónico directo, sin pasar por el stem. Dashboard: IDs
+canónicos son identidad interna, los labels visibles siguen siendo labels
+de producto (`module_label()` resuelve primero contra el registro);
+histórico + nuevo agregan en un solo bucket de módulo — `assignments` +
+`OP01` ya conviven como un solo `Asignaciones`. Semántica usage-only del
+dashboard sin cambios; diagnósticos siguen excluidos de las métricas de
+adopción.
+
+**Feedback — contrato final:** cubre el dominio COMPLETO de Feedback
+existente — (1) escrituras nuevas de la webapp (`normalize_feedback_module`
+persiste el `module_id` canónico), (2) compatibilidad de lectura de
+Feedback web histórico, (3) agrupamiento del consumidor offline
+`analyze_feedback.py`, (4) filtro `--module` del mismo consumidor offline.
+`feedback_log/*.yaml` histórico NUNCA se reescribió, en ningún punto. Ejemplo
+congelado: legacy `01_Arquitectura_y_Conectividad` + nuevo `CP01` normalizan
+al mismo módulo lógico, tanto al agrupar reportes como al filtrar por
+cualquiera de las dos formas (`--module 01_Arquitectura_y_Conectividad` ==
+`--module CP01`, mismo conjunto de registros). Valores desconocidos
+preservan pass-through exacto, sin case folding adicional — la variante
+histórica lowercase-typo real (`01_arquitectura_y_conectividad`) sigue sin
+resolver, por diseño.
+
+**Dirección de dependencia congelada:** `Activity`, `Feedback web` y
+`analyze_feedback.py` dependen DE `module_registry` — nunca al revés.
+`module_registry` sigue dependency-neutral (no importa ninguno de sus
+consumidores). Ningún mapeo canónico se duplicó en ningún consumidor; donde
+un consumidor no pudo importar el seam de otro (`analyze_feedback.py` no
+importa `webapp.routers.feedback`), reimplementó únicamente la orquestación
+mínima de `resolve()`, nunca el mapeo.
+
+**Boundary de compatibilidad (deliberadamente NO migrado en Fase 2):**
+filenames Markdown, YAML de contenido, YAML de árboles, rutas
+(`/modules/{stem}` y firmas de ruta en general), nav Jinja,
+`assistant_store`, `pack.yaml`, JSONL de Activity persistido, YAML de
+Feedback persistido, identidad de Academy, la lógica hardcodeada actual de
+detección de capacidad por stem. Los legacy aliases siguen siendo inputs de
+compatibilidad soportados en todos los seams (web y CLI).
+
+**Deuda hardcodeada por stem — sin resolver, por diseño:**
+`stem.startswith("01_"/"02_"/"05_")` en `module.html`/`catalog_tab.html`
+sigue determinando comportamiento de negocio. Regla congelada: identidad de
+módulo ≠ detección de capacidad/feature — esas ramas NUNCA deben
+reemplazarse por parsing de `CPxx`; una corrección futura debe usar
+metadata semántica de capacidad explícita en el descriptor, u otro seam
+basado en evidencia, nunca parsing del ID.
+
+**Rename físico de módulo/contenido:** **OPCIONAL, FUTURO, NO
+PLANIFICADO.** La arquitectura entregada en Fase 1+2 elimina la necesidad de
+renombrar contenido físico solo para tener identidad canónica — el registro
+ya resuelve legacy↔canónico sin tocar un solo archivo. Un rename físico
+debería considerarse más adelante SOLO si un beneficio operativo/de
+mantenimiento concreto justifica el riesgo de esa migración. Ninguna Fase 3
+está autorizada ni es requerida actualmente — esto NO es "el próximo paso
+automático".
+
+**Academy:** `CPACxx` sigue **RESERVADO SOLO conceptualmente**, sin
+entradas. Academy tiene su propio espacio de identidad ya existente (gap
+`ACAD10` faltante, `Funnel-como-faro.md` rompe la convención) que requiere
+su propio discovery dedicado antes de cualquier mapeo futuro — discovery NO
+iniciado en este batch ni autorizado todavía.
+
+**Validación de producción del owner recorded:** navegación de módulos de
+Copiloto funcional; Staffing/Asignaciones funcional; Activity muestra
+labels de producto en vez de IDs técnicos crudos/canónicos; Asignaciones
+sigue siendo un solo bucket de módulo entre legacy y `OP01`; Feedback nuevo
+compatible con Feedback histórico; agrupamiento offline de Feedback agrega
+identidades legacy/canónicas; filtros `--module` legacy y canónico devuelven
+los mismos registros lógicos; ninguna migración de JSONL de Activity ni de
+YAML de Feedback ocurrió; rutas sin cambios.
+
+**Baseline final:** suite **712 passed / 1 skipped**, route surface **83**,
+route-contract **GREEN**, `main` HEAD `0d1c138` (merge de PR #57).
+
+**MODULE IDENTIFIER CONVENTION V2 — ALCANCE ACTUALMENTE AUTORIZADO =
+COMPLETE / GREEN** (Fase 1 + Fase 2, ambas CLOSED/GREEN y mergeadas). Otros
+follow-ups permanecen independientes y explícitamente NO iniciados:
+Staffing Vacation Timeline Overlay, Activity Admin Shell Ownership, Auth /
+Graph Session Renewal UX, discovery de identidad canónica de Academy. No se
+seleccionó ni inició ningún follow-up en este batch de cierre.
+
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
 Ya documentado como "Pending pre-PR check #1" en la sección de
@@ -5132,11 +5244,13 @@ tocar código. **NO iniciado — sin discovery todavía.**
 | Staffing Dashboard V2 — Director Priority Update | **CLOSED / GREEN** |
 | Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **CLOSED / GREEN** |
 | Module Identifier Convention V2 — Registry Foundation (Fase 1) | **CLOSED / GREEN** |
-| Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **IMPLEMENTED / PENDING CI** |
+| Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
+| **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Estado consolidado — un frente en curso (Fase 2, PENDING CI, sin
-  mergear), el resto CLOSED/GREEN o follow-up explícitamente NO iniciado:**
+- **Estado consolidado — Module Identifier Convention V2 CERRADO por
+  completo (Fase 1 + Fase 2), el resto CLOSED/GREEN o follow-up
+  explícitamente NO iniciado:**
   - **Staffing Director Priority V2 = CLOSED / GREEN.**
   - **Hub Activity Dashboard V2 = CLOSED / GREEN** — mergeada a `main` en
     PR #50/#51/#52 (`cdc690b` → `75fa935` → `39fb236`), validada en
@@ -5149,30 +5263,36 @@ tocar código. **NO iniciado — sin discovery todavía.**
     (`webapp/services/module_registry.py`) puramente aditivo — cero
     consumidores migrados (rutas/Activity/Feedback/nav/YAML/hardcoded
     `startswith` siguen usando sus keys legacy sin cambios).
-  - **Module Identifier Convention V2 Phase 2 = IMPLEMENTED / PENDING CI**
-    — ver sección dedicada arriba. Activity y Feedback (ÚNICAMENTE esos
-    dos consumidores, incluyendo tanto el comportamiento web app como el
-    consumidor de reporting offline `analyze_feedback.py`) ahora persisten/
-    normalizan hacia el `module_id` canónico; JSONL/YAML histórico nunca
-    reescrito; validado (solo lectura) contra `activity_log/`/
-    `feedback_log/` reales. Branch
-    `work/module-identifier-convention-v2-phase2`, **NO mergeada
-    todavía**. Gaps previamente disclosed en `analyze_feedback.py`
-    **cerrados** con dos correctives: agrupamiento (`fix(feedback):
-    normalize canonical modules in offline reports`) y filtro CLI
-    `--module` (`fix(feedback): canonicalize offline module filters`) —
-    ambos AGRUPAR y FILTRAR ahora tienen semántica canónica completa.
+  - **Module Identifier Convention V2 Phase 2 = CLOSED / GREEN** — ver
+    "FINAL HANDOFF CLOSURE" en la sección dedicada arriba. Mergeada a
+    `main` vía PR #57 (`0d1c138`), los cuatro commits funcionales
+    confirmados CONTAINED. Activity y el dominio COMPLETO de Feedback
+    (web + `analyze_feedback.py` — agrupamiento y filtro `--module`) ahora
+    persisten/normalizan hacia el `module_id` canónico; JSONL/YAML
+    histórico nunca reescrito; validado (solo lectura) contra
+    `activity_log/`/`feedback_log/` reales.
+  - **MODULE IDENTIFIER CONVENTION V2 — ALCANCE ACTUALMENTE AUTORIZADO =
+    COMPLETE / GREEN.** Rename físico de módulo/contenido: **OPCIONAL,
+    FUTURO, NO PLANIFICADO** — ver "FINAL HANDOFF CLOSURE" de Fase 2 para
+    el razonamiento completo. Academy: `CPACxx` sigue reservado solo
+    conceptualmente, discovery dedicado NO iniciado.
   - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
   - **Auth / Graph Session Renewal UX = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba, sin discovery todavía.
-- **Último batch CERRADO:** **Module Identifier Convention V2 — Registry
-  Foundation (Fase 1)** — ver "FINAL HANDOFF CLOSURE" en la sección
-  dedicada arriba — **CLOSED / GREEN** (mergeada vía PR #55, `main` HEAD
-  `59ce3fb`, los tres commits funcionales confirmados CONTAINED). El batch
-  previo cerrado es **Shared Activity / Observability — Hub Dashboard V2
+- **Último batch CERRADO:** **Module Identifier Convention V2 — Canonical
+  Module Adoption (Fase 2)** — ver "FINAL HANDOFF CLOSURE" en la sección
+  dedicada arriba — **CLOSED / GREEN** (mergeada vía PR #57, `main` HEAD
+  `0d1c138`, los cuatro commits funcionales confirmados CONTAINED). Con este
+  cierre, **Module Identifier Convention V2 (Fase 1 + Fase 2) queda
+  COMPLETE / GREEN** en su alcance actualmente autorizado. El batch previo
+  cerrado es **Module Identifier Convention V2 — Registry Foundation (Fase
+  1)** — ver "FINAL HANDOFF CLOSURE" en su sección dedicada arriba —
+  **CLOSED / GREEN** (mergeada vía PR #55, `main` HEAD `59ce3fb`, los tres
+  commits funcionales confirmados CONTAINED). El batch previo a ese es
+  **Shared Activity / Observability — Hub Dashboard V2
   (Batch A2)** — ver "FINAL HANDOFF CLOSURE" en su sección dedicada arriba
   — **CLOSED / GREEN** (mergeada vía PR #50/#51/#52, `main` HEAD `39fb236`,
   validación de producción del owner recorded). El batch anterior a ese es
