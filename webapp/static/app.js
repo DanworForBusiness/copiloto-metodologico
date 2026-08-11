@@ -834,6 +834,16 @@ function staffingDashboard(payload) {
     historyLoadError: false,
     historyLoading: false,
 
+    // Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF) — carga
+    // LAZY e INDEPENDIENTE de las asignaciones (arrancan a cargar en init(),
+    // sin bloquear el render de asignaciones que ya llegó en el payload
+    // inicial). ADITIVO/presentacional puro: una falla acá NUNCA toca
+    // filteredAssignments/kpis/timelineGroups de asignaciones — solo omite
+    // el overlay y muestra su propio aviso no bloqueante.
+    vacations: [],
+    vacationsLoading: false,
+    vacationsLoadError: false,
+
     // Grouping switch (Consultor ↔ Proyecto) — mismo `filteredAssignments`,
     // sin refetch. Ver `timelineGroups`/`groupHoursSuffix`/`rowGroupSecondaryLabel`.
     groupBy: "consultant",
@@ -872,6 +882,34 @@ function staffingDashboard(payload) {
       this.$watch("filters.status.Inactivo", (value) => {
         if (value && !this.historyLoaded) this._loadInactiveHistory();
       });
+
+      // Vacaciones (ver HANDOFF): arranca sola, independiente de cualquier
+      // interacción del usuario — a diferencia del historial de Inactivo
+      // (que espera el primer toggle), el overlay de vacaciones es
+      // contextual y se carga apenas el dashboard existe.
+      this._loadVacations();
+    },
+
+    async _loadVacations() {
+      this.vacationsLoading = true;
+      this.vacationsLoadError = false;
+      try {
+        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const body = new URLSearchParams({ graph_token: token });
+        const response = await fetch("/operaciones/staffing/asignaciones/vacaciones", { method: "POST", body });
+        const data = await response.json();
+        if (data.state === "ok") {
+          this.vacations = data.vacations || [];
+        } else {
+          // Fail-soft (ver HANDOFF): las asignaciones siguen 100% usables,
+          // solo se omite el overlay + aviso propio no bloqueante.
+          this.vacationsLoadError = true;
+        }
+      } catch (e) {
+        this.vacationsLoadError = true;
+      } finally {
+        this.vacationsLoading = false;
+      }
     },
 
     async _loadInactiveHistory() {
@@ -1317,9 +1355,34 @@ function staffingDashboard(payload) {
         if (!groups.has(key)) groups.set(key, { key, consultant_name: label, rows: [] });
         groups.get(key).rows.push(a);
       });
+      // Vacaciones (ver HANDOFF): SOLO en agrupación Consultor — son
+      // person-specific, nunca se duplican bajo cada proyecto. Mismo dato ya
+      // cargado (this.vacations), sin refetch — cambiar groupBy solo cambia
+      // qué se adjunta acá, nunca dispara un nuevo POST.
+      const vacationsByConsultant = byProject ? null : this.vacationsByConsultant;
       return [...groups.values()]
-        .map(g => ({ ...g, hours_suffix: this.groupHoursSuffix(g) }))
+        .map(g => ({
+          ...g,
+          hours_suffix: this.groupHoursSuffix(g),
+          vacations: vacationsByConsultant ? (vacationsByConsultant.get(g.key) || []) : [],
+        }))
         .sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
+    },
+
+    // Vacaciones agrupadas por consultant_id — puro sobre this.vacations, sin
+    // I/O (el fetch ya ocurrió en _loadVacations). Un consultor sin
+    // vacaciones simplemente no aparece en el Map (grupo sin lane extra).
+    get vacationsByConsultant() {
+      const byConsultant = new Map();
+      this.vacations.forEach(v => {
+        if (!byConsultant.has(v.consultant_id)) byConsultant.set(v.consultant_id, []);
+        byConsultant.get(v.consultant_id).push(v);
+      });
+      return byConsultant;
+    },
+
+    vacationBarAriaLabel(vacation) {
+      return "Vacaciones — " + (this.formatDateDMY(vacation.start_date) || "?") + " → " + (this.formatDateDMY(vacation.end_date) || "?");
     },
 
     // Asignaciones sin ninguna fecha real — no se posicionan en el

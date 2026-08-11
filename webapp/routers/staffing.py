@@ -13,6 +13,15 @@ Priority V2, ver HANDOFF) es la ÚNICA ruta nueva del batch — carga lazy del
 historial Inactivo, JSON (no HTML), ver docstring de `staffing_historial`
 para el motivo. Route surface 82→83, documentado explícitamente.
 
+`POST /operaciones/staffing/asignaciones/vacaciones` (Staffing Vacation
+Timeline Overlay, ver HANDOFF) — ruta NUEVA (route surface 83→84,
+documentado explícito), MISMO patrón que `staffing_historial`: JSON, carga
+LAZY e INDEPENDIENTE de `staffing_data` (las asignaciones renderizan
+primero; el overlay de vacaciones llega después, sin bloquear nada),
+mismo `graph_token` explícito por form, misma gate de sesión/autorización.
+Vacaciones es ADITIVO/presentacional — una falla acá nunca degrada
+Asignaciones (ver `staffing_vacaciones`).
+
 `GET /operations/staffing` y `POST /operations/staffing/data` (nombres
 históricos en inglés, de Batch 3 de aceleración) quedan como alias de
 COMPATIBILIDAD — SIEMPRE 307 a la ruta canónica correspondiente, method y
@@ -255,6 +264,51 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
 
     payload = build_dashboard_payload(rows)
     return JSONResponse({"state": "ok", "assignments": payload["assignments"]})
+
+
+@router.post("/operaciones/staffing/asignaciones/vacaciones", include_in_schema=False)
+def staffing_vacaciones(request: Request, graph_token: str = Form("")):
+    """Overlay de vacaciones (Staffing Vacation Timeline Overlay, ver
+    HANDOFF) — carga LAZY e INDEPENDIENTE de `staffing_data`, MISMO patrón
+    JSON que `staffing_historial`. ADITIVO/presentacional a propósito: una
+    falla acá (config incompleta, error de Graph) nunca degrada Asignaciones
+    — `app.js::staffingDashboard._loadVacations()` omite el overlay y
+    muestra un aviso propio, sin afectar KPIs/timeline/detalle existentes."""
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    user = auth_service.session_user(request)
+    service = StaffingService()
+    try:
+        overlay = service.get_vacation_overlay(graph_token)
+    except RuntimeError:
+        log_verbose(
+            EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
+            area=AREA_STAFFING, module=OP01_MODULE_ID, operation="vacations",
+        )
+        return JSONResponse({"state": "config_incomplete"})
+    except Exception as exc:  # noqa: BLE001 — falla de Graph/transporte, no de config
+        log_verbose(
+            EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+            module=OP01_MODULE_ID, operation="vacations", error_type=type(exc).__name__,
+        )
+        return JSONResponse({"state": "graph_error"})
+
+    # Mismo diagnóstico canónico que initial/history — nunca nombres/PII, solo
+    # conteos/tiempos + match/unmatched/ambiguous (ya son conteos puros en el
+    # payload, ver StaffingService.get_vacation_overlay).
+    log_verbose(
+        EVENT_DATA_LOAD_DIAGNOSTICS, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        module=OP01_MODULE_ID, operation="vacations",
+        unmatched_count=overlay["unmatched_count"], ambiguous_count=overlay["ambiguous_count"],
+        **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
+    )
+
+    return JSONResponse({"state": "ok", "vacations": overlay["vacations"]})
 
 
 # --- Compatibilidad histórica (nombres en inglés, Batch 3) ------------------
