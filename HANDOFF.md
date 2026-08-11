@@ -4663,7 +4663,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 ## STAFFING — VACATION TIMELINE OVERLAY — IMPLEMENTED / PENDING CI
 (commits funcionales `feat(staffing): add vacation source integration` +
 `feat(staffing): overlay vacations on consultant timeline` +
-`fix(staffing): discover vacation fields from Graph metadata`, branch
+`fix(staffing): discover vacation fields from Graph metadata` +
+`fix(staffing): expose safe vacation Graph diagnostics`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4797,35 +4798,56 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — OWNER LIVE SMOKE PENDIENTE
+### Validación contra datos reales — OWNER LIVE SMOKE #1 (parcial)
 
-Este agente sigue sin browser autenticado propio (ver discovery previo:
-sin Chrome conectado vía "Claude in Chrome", el link de SharePoint
-redirige a login sin SSO) — pero YA NO es un blocker de discovery manual:
-con el corrective de Runtime Field Discovery, la PRIMERA vez que el owner
-use el overlay de vacaciones desde su propia sesión autenticada, la
-aplicación resuelve el schema real por sí sola. Queda como el ÚNICO ítem
-pendiente antes de production-ready: que el owner ejercite
-`POST /operaciones/staffing/asignaciones/vacaciones` una vez desde su
-sesión real y confirme — (1) el schema resuelve sin `VacationSchemaError`,
-(2) la representación real de fecha que devuelve Graph es compatible con
-`StaffingService._parse_date` (asume ISO 8601 igual que Asignaciones,
-degrada a `None` sin romper nada si el formato real difiere), (3)
-match/unmatched/ambiguous contra el universo real de Colaboradores. **NO
-se requiere ninguna acción de discovery manual previa del owner** — el
-overlay resuelve todo solo en ese primer request.
+El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
+Field Discovery ya desbloqueaba esto sin acción manual previa):
+
+- **Asignaciones**: GREEN, sin cambios, 100% usable.
+- **Endpoint de vacaciones**: fail-soft GREEN — `POST /operaciones/staffing/
+  asignaciones/vacaciones` → HTTP 200, `{"state":"graph_error"}`, aviso
+  propio visible, Asignaciones nunca se degradó.
+- **Causa raíz observada** (lectura solo-lectura de `activity_log/` real,
+  ver corrective de diagnóstico abajo): el evento `data_load_failed`/
+  `operation=vacations` real ya mostraba `error_type=VacationSchemaError`
+  — es decir, la fuente/lista/site SÍ son alcanzables y el token SÍ es
+  válido; la falla real es un **schema mismatch** (columna requerida
+  faltante o ambigua), NO un problema de auth/permisos. Antes de este
+  corrective, sin embargo, no había forma de saber CUÁL de los 6 labels
+  (`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) fallaba, ni de
+  distinguir un futuro 401/403/404 real de un schema mismatch — ambos
+  caían en el mismo `{"state":"graph_error"}` genérico.
+
+**Corrective — Safe Graph Failure Diagnostics** (ver HANDOFF): `Vacation
+SchemaError` ahora expone `stage`/`missing_fields`/`ambiguous_fields`
+estructurados (labels del contrato semántico fijo, nunca internal names) y
+tiene su PROPIO estado HTTP (`{"state":"schema_error", "stage":"columns",
+"missing_fields":[...]}`), distinto de `graph_error`. `VacationGraphError`
+(nuevo) envuelve cualquier `HTTPError`/`URLError` de `urllib` con
+`stage`("columns"|"items")/`status_code` seguros — nunca el texto crudo de
+la excepción (que podría incluir la URL completa). Ambos se loguean con los
+mismos eventos canónicos de siempre (`data_load_failed`, `operation=
+vacations`), solo con más campos seguros.
+
+**Root cause sigue PENDIENTE de owner live smoke #2**: con este corrective
+pusheado, la PRÓXIMA vez que el owner ejercite el overlay, la respuesta le
+va a decir exactamente cuál de los 6 labels no resolvió (o, si el problema
+era en realidad de permisos, el status HTTP real). Ningún cambio de negocio
+se hizo en este corrective — sigue pendiente arreglar la causa real una vez
+que `missing_fields`/`stage`/`http_status` la revelen.
 
 ### Gate
 
-Targeted: Vacaciones repository (31 tests, incluye 12 de metadata
-resolution + 4 de integration flow del corrective) + Vacaciones service
-(21 tests) + Vacaciones routes (14 tests, incluye 1 nuevo de
-`VacationSchemaError`) + Vacaciones UI/contenido (14 tests) — 80 tests de
-Vacaciones en total, todos GREEN. Staffing regression completo (todos los
-archivos `test_staffing_*.py`) + module-registry + Activity — GREEN, sin
-debilitar ningún test existente. Full suite **792 passed / 1 skipped**
-(+80 sobre el baseline de 712), route-contract GREEN, route surface **84,
-SIN CAMBIOS** en este corrective (no se agregó ninguna ruta nueva).
+Targeted: Vacaciones repository (37 tests, incluye 12 de metadata
+resolution + 4 de integration flow + 6 de la matriz stage×status del
+corrective de diagnóstico) + Vacaciones service (21 tests) + Vacaciones
+routes (18 tests, incluye 4 nuevos de safe diagnostics) + Vacaciones
+UI/contenido (14 tests) — 90 tests de Vacaciones en total, todos GREEN.
+Staffing regression completo (todos los archivos `test_staffing_*.py`) +
+module-registry + Activity — GREEN, sin debilitar ningún test existente.
+Full suite **802 passed / 1 skipped** (+90 sobre el baseline de 712),
+route-contract GREEN, route surface **84, SIN CAMBIOS** (ningún corrective
+de Vacaciones agregó una ruta nueva).
 
 ---
 
