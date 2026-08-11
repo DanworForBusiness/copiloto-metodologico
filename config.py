@@ -323,21 +323,13 @@ SHAREPOINT_CLIENTE_FIELD_TITLE = _env("SHAREPOINT_CLIENTE_FIELD_TITLE", "").stri
 SHAREPOINT_VACACIONES_LIST_ID = _env(
     "SHAREPOINT_VACACIONES_LIST_ID", "36452eea-cc7c-40ce-bf77-80b4bdfa1d47",
 ).strip()
-# Internal names de columna Graph para Vacaciones — mismo mecanismo que los
-# 8 campos REQUERIDOS de Asignaciones/Proyectos/Colaboradores (Batch 2
-# corrective): SIN default de producción a propósito, nunca inferir el
-# internal name a partir del display label visible en el export offline
-# (Apellido/Nombre/Motivo/Desde/Hasta/Estado son labels, no necesariamente
-# los internal names reales de SharePoint). Vacíos hasta confirmar contra
-# Graph real (`/sites/{id}/lists/{id}/columns`) — el overlay de vacaciones
-# degrada fail-soft si faltan (ver StaffingRepository.get_vacations), NUNCA
-# rompe el resto de Staffing (Asignaciones sigue funcionando igual).
-SHAREPOINT_VACACIONES_FIELD_APELLIDO = _env("SHAREPOINT_VACACIONES_FIELD_APELLIDO", "").strip()
-SHAREPOINT_VACACIONES_FIELD_NOMBRE = _env("SHAREPOINT_VACACIONES_FIELD_NOMBRE", "").strip()
-SHAREPOINT_VACACIONES_FIELD_MOTIVO = _env("SHAREPOINT_VACACIONES_FIELD_MOTIVO", "").strip()
-SHAREPOINT_VACACIONES_FIELD_DESDE = _env("SHAREPOINT_VACACIONES_FIELD_DESDE", "").strip()
-SHAREPOINT_VACACIONES_FIELD_HASTA = _env("SHAREPOINT_VACACIONES_FIELD_HASTA", "").strip()
-SHAREPOINT_VACACIONES_FIELD_ESTADO = _env("SHAREPOINT_VACACIONES_FIELD_ESTADO", "").strip()
+# A diferencia de Asignaciones/Proyectos/Colaboradores arriba, Vacaciones NO
+# tiene 6 env vars de internal name de columna — el corrective de discovery
+# en runtime (ver HANDOFF, webapp/services/staffing_repository.py::resolve_
+# vacation_field_mapping) los resuelve en cada request contra
+# `/sites/{id}/lists/{id}/columns` usando el mismo access_token delegado que
+# ya llega en el POST — sin necesitar que un humano con acceso Graph los
+# confirme y los configure a mano.
 
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben

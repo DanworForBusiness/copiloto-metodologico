@@ -49,24 +49,47 @@ tiempos. El caller (`StaffingService`/router) decide si loguearlo
 VACACIONES (Staffing Vacation Timeline Overlay, ver HANDOFF): `get_vacations`
 lee la lista NUEVA "Solicitud vacaciones" del MISMO sitio Gestión — offline
 contract verificado contra el export real del owner (sheet "Solicitudes",
-203 filas, 48 con Motivo=Vacaciones), NUNCA todavía LIVE GRAPH VALIDATED en
-este entorno (mismo estado que el mapeo de Asignaciones al momento de su
-propio discovery). Filtra EXCLUSIVAMENTE Motivo=Vacaciones + Estado=Aprobada
-— Cancelada/Rechazada/otro motivo quedan fuera de esta fase, a propósito.
-Devuelve `consultant_name` CRUDO ("Nombre Apellido", sin join contra
-Colaboradores todavía) — el join de identidad determinístico vive en
-`StaffingService` (ver ahí), este módulo solo sabe DÓNDE están los datos y
-cómo leerlos. `get_consultants` lee SOLO Colaboradores (id + nombre, sin
-Asignaciones/Proyectos) — universo de identidad para ese join, separado de
-`get_allocations` para no forzar una lectura completa de Asignaciones solo
-para resolver vacaciones. Ambos fail-soft: mapeo incompleto → `RuntimeError`
-explícito (mismo criterio que `_require_field_mapping`), NUNCA rompe
-Asignaciones — el router captura el error y omite el overlay.
-"""
+203 filas, 48 con Motivo=Vacaciones). Filtra EXCLUSIVAMENTE
+Motivo=Vacaciones + Estado=Aprobada — Cancelada/Rechazada/otro motivo
+quedan fuera de esta fase, a propósito. Devuelve `consultant_name` CRUDO
+("Nombre Apellido", sin join contra Colaboradores todavía) — el join de
+identidad determinístico vive en `StaffingService` (ver ahí), este módulo
+solo sabe DÓNDE están los datos y cómo leerlos. `get_consultants` lee SOLO
+Colaboradores (id + nombre, sin Asignaciones/Proyectos) — universo de
+identidad para ese join, separado de `get_allocations` para no forzar una
+lectura completa de Asignaciones solo para resolver vacaciones.
+
+DISCOVERY DE CAMPOS EN RUNTIME (corrective, ver HANDOFF): a diferencia de
+Asignaciones/Proyectos/Colaboradores (internal names vía `.env`, sin
+default, requieren que un humano con acceso Graph los confirme una vez),
+Vacaciones resuelve sus 6 internal names en RUNTIME contra
+`/sites/{id}/lists/{id}/columns` — usando el MISMO `access_token` delegado
+que ya llega en cada request. `resolve_vacation_field_mapping()` matchea
+`displayName` EXACTO (whitespace normalizado, sin fuzzy, sin case-folding,
+sin posición) contra los 6 labels conocidos (`Apellido`, `Nombre`,
+`Motivo`, `Desde`, `Hasta`, `Estado`); si falta alguno o hay ambigüedad
+(dos columnas con el mismo `displayName`), levanta `VacationSchemaError`
+— nunca elige un candidato al azar. `VacationSchemaError` NO es
+`RuntimeError` a propósito: es un problema de schema/runtime de la fuente,
+NUNCA de configuración de deployment — el router lo trata igual que
+cualquier otra falla de Graph (`data_load_failed`/`graph_error`), nunca
+como `configuration_incomplete`. Solo el List ID de Vacaciones
+(`SHAREPOINT_VACACIONES_LIST_ID`) sigue siendo identidad de configuración
+— si el sitio/list ID faltan, `_require_site_id()` sigue siendo el único
+`RuntimeError`/`configuration_incomplete` real de esta fuente. La
+resolución exitosa se cachea in-process con TTL (mismo patrón que
+`core/sharepoint_cases.py::_ttl_cache`, keyed por fingerprint de token +
+site/list — NUNCA por el token crudo); fallas (401/403/columna faltante/
+ambigua) NUNCA se cachean. Ambos (`get_vacations`/`get_consultants`)
+fail-soft ante cualquier excepción — el router captura el error y omite
+el overlay, Asignaciones nunca se rompe."""
 from __future__ import annotations
 
+import hashlib
+import threading
 import time
 from dataclasses import dataclass, fields as dataclass_fields
+from typing import Callable
 from urllib.parse import quote
 
 import config
@@ -208,10 +231,12 @@ class StaffingAllocationRecord:
 
 @dataclass(frozen=True)
 class VacationFieldMapping:
-    """Internal names de columna Graph para la lista de Vacaciones. Los 6
-    campos son REQUERIDOS (a diferencia de los enriquecimientos opcionales
-    de `StaffingFieldMapping` arriba, el overlay de vacaciones es todo-o-nada:
-    sin mapeo completo no hay overlay, pero Asignaciones sigue intacto)."""
+    """Internal names de columna Graph para la lista de Vacaciones — a
+    diferencia de `StaffingFieldMapping` (config `.env`, sin default), esta
+    se resuelve en RUNTIME contra `/columns` (ver `resolve_vacation_field_
+    mapping` abajo). Nunca se construye incompleta: el resolver o devuelve
+    una instancia completa, o levanta `VacationSchemaError` — no existe un
+    estado "parcialmente resuelto" que un caller pueda inspeccionar."""
 
     apellido: str
     nombre: str
@@ -220,19 +245,125 @@ class VacationFieldMapping:
     hasta: str
     estado: str
 
-    @classmethod
-    def from_config(cls) -> "VacationFieldMapping":
-        return cls(
-            apellido=config.SHAREPOINT_VACACIONES_FIELD_APELLIDO,
-            nombre=config.SHAREPOINT_VACACIONES_FIELD_NOMBRE,
-            motivo=config.SHAREPOINT_VACACIONES_FIELD_MOTIVO,
-            desde=config.SHAREPOINT_VACACIONES_FIELD_DESDE,
-            hasta=config.SHAREPOINT_VACACIONES_FIELD_HASTA,
-            estado=config.SHAREPOINT_VACACIONES_FIELD_ESTADO,
+
+class VacationSchemaError(Exception):
+    """El schema real de la lista de Vacaciones no matchea el contrato
+    esperado (columna requerida faltante o ambigua) — problema de RUNTIME/
+    SOURCE-SCHEMA, NUNCA de configuración de deployment. Deriva de
+    `Exception`, NO de `RuntimeError`, a propósito: el router debe tratarlo
+    igual que cualquier otra falla de Graph/transporte
+    (`data_load_failed`/`graph_error`), nunca como `configuration_incomplete`
+    — la única falla de configuración real de Vacaciones sigue siendo
+    `SHAREPOINT_GESTION_SITE_ID` ausente (ver `_require_site_id`)."""
+
+
+# Staffing Vacation Timeline Overlay — discovery de campos en runtime (ver
+# HANDOFF). Los 6 labels EXACTOS ya verificados contra el export offline del
+# owner — el resolver los matchea contra `displayName` de Graph, NUNCA
+# infiere el internal name por posición/convención.
+_VACATION_DISPLAY_NAMES = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
+
+# Metadata de columnas estable durante el uso normal de la app — TTL chico
+# alcanza (mismo orden de magnitud que `SHAREPOINT_CASES_CACHE_TTL`, ver
+# config.py), sin necesidad de un config nuevo para un detalle de
+# implementación interno.
+_VACATION_SCHEMA_CACHE_TTL_SECONDS = 300
+
+
+def _ttl_cache(ttl_seconds: int) -> Callable:
+    """Cache in-process con TTL — mismo patrón que
+    `core/sharepoint_cases.py::_ttl_cache` (reimplementado acá, no importado:
+    es un helper privado de ese módulo, sin acoplar dos features via un
+    símbolo `_`-prefijado). Única diferencia deliberada: la key es la TUPLA
+    COMPLETA de args posicionales (nunca solo el primero) — `access_token`
+    viaja SIEMPRE por kwarg (`access_token=...`), así que nunca entra a la
+    key ni se guarda en el diccionario de cache. Solo cachea el resultado
+    EXITOSO de `fn` — si `fn` lanza, la excepción se propaga antes de
+    escribir al cache, así que fallas (401/403/columna faltante/ambigua)
+    nunca quedan cacheadas."""
+    def decorator(fn: Callable) -> Callable:
+        store: dict = {}
+        lock = threading.Lock()
+
+        def wrapper(*args, **kwargs):
+            now = time.monotonic()
+            with lock:
+                hit = store.get(args)
+                if hit is not None and (now - hit[0]) < ttl_seconds:
+                    return hit[1]
+            value = fn(*args, **kwargs)
+            with lock:
+                store[args] = (now, value)
+            return value
+
+        def clear() -> None:
+            with lock:
+                store.clear()
+
+        wrapper.clear = clear  # type: ignore[attr-defined]
+        return wrapper
+
+    return decorator
+
+
+def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> VacationFieldMapping:
+    """Matchea `displayName` EXACTO (whitespace normalizado únicamente —
+    sin case-folding, sin fuzzy, sin posición) contra los 6 labels
+    conocidos. Un `displayName` con CERO columnas candidatas es "faltante";
+    con DOS O MÁS es "ambiguo" — ninguno de los dos elige un candidato al
+    azar, ambos levantan `VacationSchemaError` con el detalle exacto."""
+    candidates: dict[str, list[str]] = {}
+    for column in columns:
+        display_name = (column.get("displayName") or "").strip()
+        technical_name = column.get("name")
+        if display_name and technical_name:
+            candidates.setdefault(display_name, []).append(technical_name)
+
+    resolved: dict[str, str] = {}
+    missing: list[str] = []
+    ambiguous: list[str] = []
+    for display_name in _VACATION_DISPLAY_NAMES:
+        found = candidates.get(display_name, [])
+        if len(found) == 1:
+            resolved[display_name] = found[0]
+        elif len(found) == 0:
+            missing.append(display_name)
+        else:
+            ambiguous.append(display_name)
+
+    if missing or ambiguous:
+        parts = []
+        if missing:
+            parts.append(f"faltantes: {', '.join(missing)}")
+        if ambiguous:
+            parts.append(f"ambiguas (más de una columna con el mismo displayName): {', '.join(ambiguous)}")
+        raise VacationSchemaError(
+            "No se pudo resolver el schema de la lista de Vacaciones contra Graph "
+            "(columns metadata) — " + "; ".join(parts) + "."
         )
 
-    def missing_fields(self) -> list[str]:
-        return [f.name for f in dataclass_fields(self) if not getattr(self, f.name)]
+    return VacationFieldMapping(
+        apellido=resolved["Apellido"], nombre=resolved["Nombre"], motivo=resolved["Motivo"],
+        desde=resolved["Desde"], hasta=resolved["Hasta"], estado=resolved["Estado"],
+    )
+
+
+@_ttl_cache(_VACATION_SCHEMA_CACHE_TTL_SECONDS)
+def _fetch_vacation_field_mapping_cached(
+    token_fingerprint: str, site_id: str, list_id: str, *, access_token: str,
+) -> VacationFieldMapping:
+    del token_fingerprint  # solo participa de la cache key, ver _ttl_cache
+    columns = microsoft365.graph_get_paged_values(
+        f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/columns", access_token,
+    )
+    return _resolve_vacation_field_mapping_from_columns(columns)
+
+
+def resolve_vacation_field_mapping(site_id: str, list_id: str, access_token: str) -> VacationFieldMapping:
+    """Punto de entrada público del discovery en runtime — key de cache
+    (fingerprint de token + site/list, NUNCA el token crudo)."""
+    fingerprint = hashlib.sha256(access_token.encode("utf-8")).hexdigest()[:16]
+    return _fetch_vacation_field_mapping_cached(fingerprint, site_id, list_id, access_token=access_token)
 
 
 @dataclass(frozen=True)
@@ -329,12 +460,13 @@ class StaffingRepository:
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.field_mapping = field_mapping if field_mapping is not None else StaffingFieldMapping.from_config()
         # Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF) —
-        # MISMO site_id de arriba, lista + mapeo separados: sin default de
-        # producción en el mapeo, mismo criterio que `field_mapping`.
+        # MISMO site_id de arriba, list ID configurado igual que las otras 4
+        # listas. `vacation_field_mapping` es un SEAM DE TEST ÚNICAMENTE
+        # (override explícito) — en producción (`None`, default) el mapeo se
+        # resuelve en RUNTIME contra Graph (`resolve_vacation_field_mapping`,
+        # ver `get_vacations`), nunca desde config.
         self.vacaciones_list_id = vacaciones_list_id or config.SHAREPOINT_VACACIONES_LIST_ID
-        self.vacation_field_mapping = (
-            vacation_field_mapping if vacation_field_mapping is not None else VacationFieldMapping.from_config()
-        )
+        self._vacation_field_mapping_override = vacation_field_mapping
         # Diagnóstico de la ÚLTIMA llamada a `get_allocations` (pre-PR
         # corrective, ver HANDOFF) — rows/pages/elapsed_ms/filter_used/
         # fallback_used por fuente, NUNCA token/payload/PII. Instancia
@@ -368,15 +500,16 @@ class StaffingRepository:
             )
         return self.field_mapping
 
-    def _require_vacation_field_mapping(self) -> VacationFieldMapping:
-        missing = self.vacation_field_mapping.missing_fields()
-        if missing:
-            raise RuntimeError(
-                "Falta configurar el mapeo de campos de Vacaciones (Staffing "
-                "Vacation Timeline Overlay, ver HANDOFF) — sin default de "
-                "producción a propósito. Faltan: " + ", ".join(missing)
-            )
-        return self.vacation_field_mapping
+    def _resolve_vacation_field_mapping(self, site_id: str, access_token: str) -> VacationFieldMapping:
+        """Override de test (constructor) tiene prioridad; si no se pasó
+        ninguno, resuelve en RUNTIME contra Graph — ver
+        `resolve_vacation_field_mapping` module-level. Puede levantar
+        `VacationSchemaError` (schema/runtime, no config) o cualquier
+        excepción de transporte de `core.microsoft365` — ninguna se
+        atrapa acá, el caller (`get_vacations`) las deja propagar."""
+        if self._vacation_field_mapping_override is not None:
+            return self._vacation_field_mapping_override
+        return resolve_vacation_field_mapping(site_id, self.vacaciones_list_id, access_token)
 
     def _fetch_asignaciones(
         self, site_id: str, mapping: StaffingFieldMapping, access_token: str, assignment_scope: str,
@@ -566,7 +699,7 @@ class StaffingRepository:
         consultor no hay nada que overlayar, y una fecha faltante no es un
         período válido (fail-soft por fila, nunca rompe el resto)."""
         site_id = self._require_site_id()
-        mapping = self._require_vacation_field_mapping()
+        mapping = self._resolve_vacation_field_mapping(site_id, access_token)
         pages = 0
 
         def _count_page(page_len: int) -> None:

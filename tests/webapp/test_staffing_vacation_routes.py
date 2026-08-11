@@ -120,6 +120,26 @@ def test_vacaciones_endpoint_graph_error_state_never_leaks_details():
         staffing_router.StaffingService = orig
 
 
+def test_vacaciones_endpoint_schema_mismatch_is_fail_soft_not_config_incomplete():
+    # Corrective (ver HANDOFF): un schema real que no matchea (columna
+    # requerida faltante/ambigua) es un problema de RUNTIME/SOURCE-SCHEMA —
+    # VacationSchemaError NO es RuntimeError, así que cae naturalmente en el
+    # mismo branch que cualquier otra falla de Graph (graph_error), NUNCA en
+    # config_incomplete.
+    from webapp.services.staffing_repository import VacationSchemaError
+
+    class _SchemaMismatch:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError("faltantes: Nombre")
+    orig = staffing_router.StaffingService
+    staffing_router.StaffingService = _SchemaMismatch
+    try:
+        response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+        assert response.json() == {"state": "graph_error"}
+    finally:
+        staffing_router.StaffingService = orig
+
+
 def test_vacaciones_endpoint_token_never_echoed(monkeypatch):
     secret = "eyJ-super-secret-token"
     monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingVacationService())
