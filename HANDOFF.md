@@ -4737,10 +4737,20 @@ real en el repo hoy — son puramente aspiracionales.
 - **`module_id` es un código de identidad ESTABLE, inmutable una vez
   asignado** — no cambia si el módulo se reordena en nav ni si su título
   visible cambia. Nunca se deriva de la posición de display.
-- **`display_order` es metadata explícita e independiente**, nunca
-  calculada a partir de los dígitos del `module_id` — captura fielmente el
-  orden de nav de HOY (orden de archivo para Copiloto, el mismo criterio
-  que ya usa `content_service`), sin reordenar nada en esta fase.
+- **`display_order` es metadata explícita e independiente**, declarada
+  literalmente junto a cada `module_id` en el registro — nunca calculada a
+  partir de los dígitos del `module_id`, del filename/`content_key`, ni de
+  la posición de enumeración al construir el registro (final display-order
+  semantics corrective: la primera versión SÍ usaba un contador de
+  iteración sobre `content_service.list_modules()`/`list_appendices()`,
+  una dependencia indirecta del orden lexical de archivo — corregido).
+  Significa "orden DENTRO de la colección navegable actual del propio
+  descriptor" — Copiloto principal, apéndices de Copiloto y Operations son
+  tres colecciones separadas hoy (sin secuencia Hub-wide única todavía), así
+  que `CP01`/`CPA01`/`OP01` comparten legítimamente `display_order=1` sin
+  colisionar (`module_id`/`workspace`/`kind` ya los distinguen). Los valores
+  preservan el orden de nav de HOY sin reordenar nada en esta fase — commit
+  `fix(modules): make display order explicit registry metadata`.
 - **Los IDs son opacos para la lógica de aplicación**: ningún código —ni
   el propio registro— hace `.startswith`/slicing sobre el prefijo para
   decidir comportamiento. Probado por fuente (`test_resolver_source_never_
