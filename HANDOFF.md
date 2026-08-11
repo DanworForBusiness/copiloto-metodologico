@@ -4664,7 +4664,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 (commits funcionales `feat(staffing): add vacation source integration` +
 `feat(staffing): overlay vacations on consultant timeline` +
 `fix(staffing): discover vacation fields from Graph metadata` +
-`fix(staffing): expose safe vacation Graph diagnostics`, branch
+`fix(staffing): expose safe vacation Graph diagnostics` +
+`fix(staffing): expose safe vacation column metadata`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4798,7 +4799,7 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — OWNER LIVE SMOKE #1 (parcial)
+### Validación contra datos reales — OWNER LIVE SMOKE #1 y #2
 
 El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
 Field Discovery ya desbloqueaba esto sin acción manual previa):
@@ -4829,25 +4830,61 @@ la excepción (que podría incluir la URL completa). Ambos se loguean con los
 mismos eventos canónicos de siempre (`data_load_failed`, `operation=
 vacations`), solo con más campos seguros.
 
-**Root cause sigue PENDIENTE de owner live smoke #2**: con este corrective
-pusheado, la PRÓXIMA vez que el owner ejercite el overlay, la respuesta le
-va a decir exactamente cuál de los 6 labels no resolvió (o, si el problema
-era en realidad de permisos, el status HTTP real). Ningún cambio de negocio
-se hizo en este corrective — sigue pendiente arreglar la causa real una vez
-que `missing_fields`/`stage`/`http_status` la revelen.
+### OWNER LIVE SMOKE #2 — confirma el mismatch, ninguno de los 6 labels existe
+
+Con el corrective de diagnóstico ya pusheado, el owner repitió el smoke. La
+respuesta reveló el detalle exacto:
+
+```json
+{
+  "state": "schema_error",
+  "stage": "columns",
+  "missing_fields": ["Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado"],
+  "ambiguous_fields": []
+}
+```
+
+**Hallazgo crítico**: los 6 labels — TODOS los asumidos desde el export
+offline (XLSX) — están ausentes en la lista real. Esto es evidencia fuerte
+de que los headers funcionales del XLSX (evidencia de negocio/contenido)
+**NO son** el contrato real de `displayName` de Graph para esta lista
+SharePoint — probablemente porque el XLSX es un EXPORT/reporte derivado
+(con headers renombrados para legibilidad humana), no un dump 1:1 de la
+lista SharePoint real. `Asignaciones` (Batch 3) tuvo la misma lección: los
+8 internal names reales NUNCA coincidieron con una convención inferida —
+acá pasa lo mismo, un nivel más atrás (ni siquiera el `displayName`
+coincide, no solo el `name` técnico).
+
+**Corrective — Live SharePoint Column Contract Discovery** (ver HANDOFF):
+en un `VacationSchemaError`, se agrega `available_columns` — lista
+SANITIZADA de `{"display_name", "name"}` de TODAS las columnas VISIBLES
+reales de la lista (columnas `hidden` de Graph se excluyen, sin blacklist
+manual) — construida explícita campo por campo, NUNCA un passthrough del
+JSON crudo de Graph. Metadata de SCHEMA únicamente: nunca valores de item,
+nunca PII, nunca el token/headers/body. Esto NO resuelve el mapeo
+automáticamente — es puramente para que el owner lea el contrato real y
+lo confirme en un corrective posterior, basado en evidencia.
+
+**Root cause sigue PENDIENTE de owner live smoke #3**: con `available_
+columns` en la respuesta, la PRÓXIMA vez que el owner ejercite el overlay
+va a poder leer los `displayName`/`name` reales de la lista y decirnos
+cuáles corresponden semánticamente a Apellido/Nombre/Motivo/Desde/Hasta/
+Estado. Ningún mapeo se cambió en este corrective — sigue prohibido
+adivinar alias, fuzzy-match, o inferir por posición/tipo hasta tener esa
+evidencia.
 
 ### Gate
 
-Targeted: Vacaciones repository (37 tests, incluye 12 de metadata
-resolution + 4 de integration flow + 6 de la matriz stage×status del
-corrective de diagnóstico) + Vacaciones service (21 tests) + Vacaciones
-routes (18 tests, incluye 4 nuevos de safe diagnostics) + Vacaciones
-UI/contenido (14 tests) — 90 tests de Vacaciones en total, todos GREEN.
-Staffing regression completo (todos los archivos `test_staffing_*.py`) +
-module-registry + Activity — GREEN, sin debilitar ningún test existente.
-Full suite **802 passed / 1 skipped** (+90 sobre el baseline de 712),
-route-contract GREEN, route surface **84, SIN CAMBIOS** (ningún corrective
-de Vacaciones agregó una ruta nueva).
+Targeted: Vacaciones repository (47 tests, incluye 12 de metadata
+resolution + 4 de integration flow + 6 de la matriz stage×status + 9 del
+corrective de column contract discovery) + Vacaciones service (21 tests) +
+Vacaciones routes (22 tests, incluye 4 de safe diagnostics + 4 de
+available_columns) + Vacaciones UI/contenido (14 tests) — 100 tests de
+Vacaciones en total, todos GREEN. Staffing regression completo (todos los
+archivos `test_staffing_*.py`) + module-registry + Activity — GREEN, sin
+debilitar ningún test existente. Full suite **812 passed / 1 skipped**
+(+100 sobre el baseline de 712), route-contract GREEN, route surface **84,
+SIN CAMBIOS** (ningún corrective de Vacaciones agregó una ruta nueva).
 
 ---
 
