@@ -141,7 +141,8 @@ def test_zero_selection_guard_prevents_unchecking_last_scope_or_area_option():
 def test_ambito_area_checkboxes_auto_apply_on_change(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    assert 'hx-trigger="submit, change from:.dashboard-checkbox-group input"' in t
+    assert 'hx-trigger="submit, change from:.scope-area-checkbox"' in t
+    assert 'class="scope-area-checkbox"' in t
 
 
 def test_deselecting_ambito_deselects_its_exclusive_area(monkeypatch, tmp_path):
