@@ -4693,26 +4693,146 @@ nombres).
 
 ---
 
-## MODULE IDENTIFIER CONVENTION V2 — FOLLOW-UP / NOT STARTED
+## MODULE IDENTIFIER CONVENTION V2 — REGISTRY FOUNDATION — IMPLEMENTED / PENDING CI
+(commit funcional `feat(modules): add canonical Hub module registry`, branch
+`work/module-identifier-convention-v2`, arrancada desde `main` `68abe57` —
+NO mergeada todavía)
 
-Separado explícitamente del cierre de A2. Candidatos de prefijo iniciales
-propuestos por el owner (sin decisión final):
+### Discovery (read-only, previo a esta implementación)
 
-- `CP` = Copiloto
-- `OP` = Operaciones
-- `CM` = Comercial
-- `CH` = Capital Humano
+Candidatos de prefijo iniciales propuestos por el owner: `CP` = Copiloto,
+`OP` = Operaciones, `CM` = Comercial, `CH` = Capital Humano. Un discovery
+read-only trazó cada superficie del repo acoplada a la identidad de módulo
+(rutas, YAML de árboles — en DOS formatos distintos, `links.module` stem
+puro vs. `module: "NN · stem"` compuesto —, Activity, Feedback YAML, nav
+Jinja, ramas de negocio hardcodeadas `stem.startswith("01_"/"02_"/"05_")`,
+fixtures de test/golden). Hallazgo clave: los apéndices YA tienen un campo
+`module:` de frontmatter desacoplado del nombre de archivo (A01→"10",
+A05→"06", etc.) pero el ORDEN de nav sigue siendo por archivo — es decir, el
+propio repo ya demuestra que identidad y orden de display son separables,
+pero nunca se terminó de reconciliar (inconsistencia visual latente, NO
+corregida en esta fase). `CM`/`CH` no tienen ningún workspace/área/contenido
+real en el repo hoy — son puramente aspiracionales.
 
-**Requiere discovery antes de cualquier rename.** Los módulos de Copiloto
-usan hoy el stem de contenido (`01_arquitectura_y_conectividad`, etc.) como
-key estable; Asignaciones usa `assignments`. Cualquier convención nueva
-necesita: inventariar TODOS los módulos/áreas existentes (Copiloto +
-Operations) y sus consumidores (filtros, `MODULE_LABELS`,
-`activity_log/` histórico), decidir si el rename es solo de LABEL visible
-o también de KEY persistida (una key persistida requiere migración o
-normalización histórica, un label no), y confirmar que Comercial/Capital
-Humano son áreas reales con datos, no solo nombres propuestos. **NO
-iniciado en este batch ni en ninguno anterior.**
+### Fase 1 — registro/resolver canónico (esta implementación)
+
+**Convención final de IDs (compactos, sin nombre descriptivo):**
+
+| legacy key | `module_id` |
+|---|---|
+| `00_Intro` | `CP00` |
+| `01_Arquitectura_y_Conectividad` | `CP01` |
+| `02_Seguridad_y_Gobernanza` | `CP02` |
+| `03_Integracion_y_Estrategia_de_Datos` | `CP03` |
+| `04_Modelado_y_Desarrollo` | `CP04` |
+| `05_Reporting_y_Consumo` | `CP05` |
+| `A01_Arquitectura_y_Modelado` | `CPA01` |
+| `A02_Modernizacion_BW_Greenfield` | `CPA02` |
+| `A03_Hub_de_Integracion_AWS` | `CPA03` |
+| `A04_Biblioteca_de_Referencias` | `CPA04` |
+| `A05_Troubleshooting_y_Performance` | `CPA05` |
+| `A06_SAP_Analytics_Cloud` | `CPA06` |
+| `assignments` (Operations/Staffing) | `OP01` |
+
+- **`module_id` es un código de identidad ESTABLE, inmutable una vez
+  asignado** — no cambia si el módulo se reordena en nav ni si su título
+  visible cambia. Nunca se deriva de la posición de display.
+- **`display_order` es metadata explícita e independiente**, declarada
+  literalmente junto a cada `module_id` en el registro — nunca calculada a
+  partir de los dígitos del `module_id`, del filename/`content_key`, ni de
+  la posición de enumeración al construir el registro (final display-order
+  semantics corrective: la primera versión SÍ usaba un contador de
+  iteración sobre `content_service.list_modules()`/`list_appendices()`,
+  una dependencia indirecta del orden lexical de archivo — corregido).
+  Significa "orden DENTRO de la colección navegable actual del propio
+  descriptor" — Copiloto principal, apéndices de Copiloto y Operations son
+  tres colecciones separadas hoy (sin secuencia Hub-wide única todavía), así
+  que `CP01`/`CPA01`/`OP01` comparten legítimamente `display_order=1` sin
+  colisionar (`module_id`/`workspace`/`kind` ya los distinguen). Los valores
+  preservan el orden de nav de HOY sin reordenar nada en esta fase — commit
+  `fix(modules): make display order explicit registry metadata`.
+- **Los IDs son opacos para la lógica de aplicación**: ningún código —ni
+  el propio registro— hace `.startswith`/slicing sobre el prefijo para
+  decidir comportamiento. Probado por fuente (`test_resolver_source_never_
+  parses_module_id_prefix`).
+- **Metadata explícita por descriptor:** `workspace` (`copilot`/
+  `operations`, mismas keys que `webapp/workspaces.py`), `area`
+  (`methodology`/`staffing`), `kind` (`module`/`appendix` — sin valor
+  `application`/tercer tipo para OP01: ningún consumidor actual lo necesita),
+  `content_key` (stem físico, `None` para OP01 — Asignaciones no tiene
+  Markdown backing), `visible_label` (para Copiloto reusa
+  `content_service.title` — no duplica texto humano; para OP01 es un
+  literal PROPIO del registro, `"Asignaciones"` — ver "Dirección de
+  dependencia" abajo), `legacy_aliases` (contrato de compatibilidad
+  explícito, nunca labels).
+- **Dirección de dependencia (final foundation dependency check,
+  corrective post-implementación):** `module_registry.py` es la capa de
+  identidad de MÁS BAJO nivel del Hub — NO debe depender de ninguno de sus
+  futuros consumidores. La primera versión importaba `MODULE_ASSIGNMENTS`/
+  `module_label` de `activity_context` para el label de OP01 — exactamente
+  al revés de la dirección deseada (Activity, en Fase 2, será quien
+  dependa del registro, no el registro de Activity). Corregido: OP01 ahora
+  usa literales propios (`_OP01_LEGACY_KEY="assignments"`,
+  `_OP01_VISIBLE_LABEL="Asignaciones"`) — duplican temporalmente el mismo
+  valor que ya vive en `activity_context.MODULE_ASSIGNMENTS`/
+  `MODULE_LABELS`, una duplicación deliberadamente aceptada en vez de
+  invertir la dependencia. Fase 2 migrará la resolución de labels de
+  Activity para leer de este registro y podrá eliminar la entrada
+  redundante en `MODULE_LABELS` donde sea seguro — no se tocó `activity_
+  context.py` en este corrective. Commit `fix(modules): keep canonical
+  registry dependency-neutral`.
+- **Un solo resolver canónico** (`resolve(key)`): acepta indistintamente una
+  key legacy o un `module_id` canónico y devuelve el MISMO descriptor;
+  key desconocida → `None` determinístico, nunca se fabrica un descriptor.
+- **Academy reservado, NO migrado:** namespace conceptual `CPACxx`
+  documentado, sin entradas activas — Academy tiene su propio espacio de
+  identidad (gap `ACAD10` faltante, `Funnel-como-faro.md` rompe la
+  convención) que requiere su propio discovery futuro. `CM`/`CH` reservados
+  igual, sin entradas (sin workspace/área real todavía).
+- **CERO migración de consumidores** en esta fase: rutas (`/modules/{stem}`),
+  Activity (`module=stem` en `log_activity`), Feedback YAML
+  (`document.summary.stem`), nav Jinja (`copilot_nav.html`), `assistant_
+  store`/`store.trees_for_module` (stem), YAML de árboles (ambos formatos),
+  las ramas hardcodeadas `stem.startswith("01_"/"02_"/"05_")` de
+  `module.html`/`catalog_tab.html`, filenames físicos, `pack.yaml` — TODOS
+  siguen usando sus keys legacy exactamente como antes. El registro existe
+  puramente por encima, probado por tests, sin un solo consumidor apuntando
+  a él todavía.
+
+### Ownership y ubicación
+
+Nuevo archivo `webapp/services/module_registry.py` (mismo patrón que
+`content_service.py`/`activity_context.py`) — NO se puso en `routers/`,
+`templates/` ni `activity_analytics.py` (discovery señaló específicamente
+evitar esos tres). Construye sus entradas iterando
+`content_service.list_modules()`/`list_appendices()` (nunca duplica el
+inventario de stems a mano) + una entrada estática para OP01. Sin base de
+datos, sin discovery dinámico, sin plugin system — un `dict`+`dataclass`
+chico, cacheado con `lru_cache`, igual que el resto de `content_service`.
+
+### Deuda conocida (explícitamente NO resuelta en esta fase)
+
+- Las ramas `stem.startswith("01_"/"02_"/"05_")` de `module.html`/
+  `catalog_tab.html` siguen ahí — deuda de una futura "migración de
+  capacidad semántica" (Fase 2+), NO reemplazadas por parsing de `CPxx`.
+  Ancladas por test (`test_legacy_stems_behind_hardcoded_startswith_logic_
+  resolve_as_expected`) para que un reemplazo futuro tenga contra qué
+  validarse.
+- La inconsistencia de número de apéndice (archivo vs. frontmatter `module:`)
+  sigue sin corregir — documentada, no tocada.
+- Activity y Feedback siguen sin ningún seam de normalización hacia
+  `module_id` — Fase 2, no autorizada todavía.
+
+### Gate
+
+Nuevos tests: `tests/webapp/test_module_registry.py` (20 tests — cobertura
+completa de resolución legacy↔canónica, no-duplicados, metadata por campo,
+opacidad del resolver, anclaje de la deuda hardcodeada, guardia de drift de
+inventario). Full suite **666 passed / 1 skipped** (+20 sobre el baseline de
+646), route-contract GREEN, route surface **83 sin cambios** (ningún archivo
+de rutas tocado). Cero archivos existentes modificados — solo 2 archivos
+nuevos (`webapp/services/module_registry.py` +
+`tests/webapp/test_module_registry.py`).
 
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
@@ -4798,17 +4918,23 @@ tocar código. **NO iniciado — sin discovery todavía.**
 | Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Estado consolidado — sin frentes activos, todo lo abierto es un
-  follow-up explícitamente NO iniciado:**
+- **Estado consolidado — un frente en curso (registro de módulos, PENDING
+  CI, sin mergear), el resto son follow-ups explícitamente NO iniciados:**
   - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
     CLOSED / GREEN** — mergeada a `main` en PR #50/#51/#52 (`cdc690b` →
     `75fa935` → `39fb236`), validada en producción por el owner. Ver
     "FINAL HANDOFF CLOSURE" en la sección dedicada arriba para el modelo
     final entregado completo.
   - **Staffing Dashboard V2 — Director Priority Update = CLOSED / GREEN.**
+  - **Module Identifier Convention V2 — Registry Foundation (Fase 1) =
+    IMPLEMENTED / PENDING CI** — ver sección dedicada arriba. Discovery
+    read-only completo + registro/resolver canónico (`webapp/services/
+    module_registry.py`) puramente aditivo, branch
+    `work/module-identifier-convention-v2`, **NO mergeada todavía**. Cero
+    consumidores migrados (rutas/Activity/Feedback/nav/YAML/hardcoded
+    `startswith` siguen usando sus keys legacy sin cambios) — Fase 2
+    (adopción de consumidores) explícitamente NO autorizada.
   - **Staffing — Vacation Timeline Overlay = FOLLOW-UP / NOT STARTED.**
-  - **Module Identifier Convention V2 = FOLLOW-UP / NOT STARTED** — ver
-    sección dedicada arriba, requiere discovery antes de cualquier rename.
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
@@ -4877,14 +5003,17 @@ tocar código. **NO iniciado — sin discovery todavía.**
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
+- **En curso (PENDING CI, sin mergear):** Module Identifier Convention V2 —
+  Registry Foundation (Fase 1) — ver sección dedicada arriba. Fase 2
+  (adopción de consumidores) requiere autorización explícita separada.
 - **Next candidates (ninguno autorizado todavía — solo follow-ups
   documentados, NO iniciar sin autorización explícita del owner):**
-  Module Identifier Convention V2, Activity Admin Shell Ownership, Auth /
-  Graph Session Renewal UX, Staffing — Vacation Timeline Overlay (bloqueado
-  por acceso Graph real). Ver las cuatro secciones dedicadas arriba para el
-  contrato conocido de cada uno. Los hallazgos reportados-pero-diferidos de
-  batches previos (colisiones de color en el timeline de Staffing; filtro
-  de tipo de proyecto; Status Finalización) SIGUEN diferidos/sin autorizar.
+  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX,
+  Staffing — Vacation Timeline Overlay (bloqueado por acceso Graph real).
+  Ver las secciones dedicadas arriba para el contrato conocido de cada uno.
+  Los hallazgos reportados-pero-diferidos de batches previos (colisiones de
+  color en el timeline de Staffing; filtro de tipo de proyecto; Status
+  Finalización) SIGUEN diferidos/sin autorizar.
   Groups/App Roles, Projects/Reporting, cálculo de capacidad, y Shared
   Dashboard Primitives (más allá de lo ya extraído) quedan igualmente
   diferidos sin autorización.
