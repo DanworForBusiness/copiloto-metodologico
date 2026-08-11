@@ -3802,11 +3802,15 @@ agrega checkbox filters, **NO** deduplica el sticky-filter (todo eso es Batch A2
 
 ---
 
-## SHARED ACTIVITY / OBSERVABILITY — HUB DASHBOARD V2 (Batch A2) — IMPLEMENTED / PENDING CI
+## SHARED ACTIVITY / OBSERVABILITY — HUB DASHBOARD V2 (Batch A2) — CLOSED / GREEN
 (commit funcional `8ae7593` + merge de reconciliación `54fc9b2` + corrective
 de reconciliación (zero-selection guard), branch `work/activity-dashboard-hub-v2`,
-**reconciliada contra `main` post-Staffing V2** — ver "Pase de reconciliación"
-al final de esta sección)
+**mergeada a `main` en tres pasadas — PR #50 (`cdc690b`, base Hub-wide +
+reconciliación + zero-selection guard) → PR #51 (`75fa935`, corrective de
+módulo/evento transversal + consistency check `configuration_incomplete`) →
+PR #52 (`39fb236`, USAGE DASHBOARD SEMANTIC CLEANUP) — CLOSED/GREEN tras las
+tres. Ver "FINAL HANDOFF CLOSURE" al final de esta sección para el modelo
+final entregado y la validación de producción del owner.**)
 
 Convierte el Activity Dashboard de Copilot-centric a dashboard de uso/adopción de
 **Danwor Hub**. Depende de la fundación A1 (envelope `scope`/`area` + `context_of`).
@@ -4196,6 +4200,102 @@ subgrupo diagnóstico, igual al mockup visual pedido por el owner.
 full suite **646 passed / 1 skipped** (+8 sobre el baseline de 638) +
 route-contract GREEN, route surface **83 sin cambios**. Commit funcional
 `fix(activity): keep usage dashboard focused on user activity`.
+
+### FINAL HANDOFF CLOSURE
+
+A2 fue mergeada y **validada en producción por el owner** — cierre formal
+de todo el batch (base Hub-wide + reconciliación + corrective de módulo/
+evento transversal + consistency check + usage dashboard semantic cleanup).
+Ninguna fase queda abierta bajo "A2"; los follow-ups NO iniciados están
+documentados por separado (ver "STAFFING — VACATION TIMELINE OVERLAY",
+"MODULE IDENTIFIER CONVENTION V2", "ACTIVITY ADMIN SHELL OWNERSHIP" y
+"AUTH / GRAPH SESSION RENEWAL UX" más abajo).
+
+**Modelo final entregado:**
+
+```
+scope → area → module? → event
+```
+
+con read-model de clasificación (NUNCA persistido en el envelope):
+
+```
+event_class = usage | diagnostic | unknown
+```
+
+- **Default Hub-wide:** Platform + Copilot + Operations incluidos por
+  default (la exclusión interina de A1 fue retirada) — todo tildado en
+  Ámbito/Área hasta que el owner filtre explícitamente.
+- **Faceting scope/area/module:** Ámbito→Área unidireccional (Área nunca
+  re-facetea Ámbito — el criterio que evita el bug reportado de "no puedo
+  volver a tildar Copiloto"); Módulo se resuelve DESPUÉS de Ámbito/Área
+  (fecha+usuario+Ámbito+Área → universo de módulos), nunca al revés; una
+  selección que queda inválida tras cambiar una dimensión de más arriba se
+  descarta determinísticamente, nunca deja el dashboard en "0 eventos"
+  silencioso.
+- **`module` transversal opcional:** dejó de ser Copilot-only — Copiloto Y
+  Operations comparten la misma dimensión y la misma métrica de "Top
+  módulos".
+- **Semántica de Staffing/Asignaciones:** `module="assignments"` (key
+  estable) → label visible "Asignaciones" (`MODULE_LABELS`/`module_label`);
+  los módulos de Copiloto (stems de contenido) no se tocan.
+- **Nombrado canónico de evento:** el evento describe QUÉ pasó, nunca DÓNDE
+  — `module_viewed`, `data_load_failed`, `data_load_diagnostics`,
+  `configuration_incomplete` reemplazan los nombres históricos de Staffing
+  con la ubicación repetida en el propio nombre.
+- **Normalización histórica sin migrar JSONL:** `_EVENT_RENAME`/
+  `normalize_event()` operan puramente sobre el read-model leído — el JSONL
+  persistido nunca se reescribe, ni para los históricos de Copiloto
+  (`module_selected`) ni para los de Staffing.
+- **`raw_event` preservado:** cada evento leído conserva el nombre
+  realmente persistido junto al canónico normalizado — el owner puede
+  seguir inspeccionando qué se guardó de verdad.
+- **Clasificación uso vs. diagnóstico:** `event_class()` sobre el nombre ya
+  normalizado — `usage` (login, module_viewed, assistant_query, árboles,
+  catálogo, Academy, ...) vs. `diagnostic` (`data_load_failed`,
+  `data_load_diagnostics`, `configuration_incomplete`) vs. `unknown`
+  (fallback explícito, nunca cae en usage en silencio).
+- **Boundary usage-only del Activity Dashboard:** TODO el read-model que
+  alimenta la UI (`event_counts`, adopción, `event_user_counts`,
+  `module_event_counts`/`module_event_breakdowns`) filtra a
+  `event_class==usage`. El diagnóstico sigue 100% persistido/normalizado/
+  clasificable — solo queda excluido de ESTA pantalla de adopción, no
+  borrado ni dejado de emitir.
+- **Top Módulos transversal:** cuenta únicamente `event==module_viewed`,
+  agrupado por `module` — Copiloto y Asignaciones en la misma métrica.
+- **Top Usuarios / Tendencia diaria / Eventos / Áreas activas — usage-only:**
+  las seis métricas de adopción (Eventos totales, Usuarios únicos,
+  Eventos/día, Tendencia diaria, Top usuarios, Áreas activas) se computan
+  exclusivamente sobre `event_class==usage`.
+- **Zero-selection guard:** un listener delegado en `document` impide
+  destildar la última opción tildada de un grupo Ámbito/Área — el estado
+  ambiguo "cero seleccionados" nunca llega a enviarse.
+- **Staffing regression preservada** en las tres pasadas de merge — sin
+  tocar carga de datos, historial lazy, filtros Graph, KPIs/timeline/
+  detalle de Staffing.
+- **Route surface: 83, sin cambios** en ninguna de las tres pasadas (A2 es
+  reader/dashboard — no agrega ni quita endpoints).
+
+**Validación de producción del owner (recorded, no simulado):**
+- uso de módulos de Copiloto observado (`module_viewed`, Vista de módulo)
+  en el dashboard real, con datos reales de `activity_log/`;
+- uso de Operations/Staffing/Asignaciones observado — "Asignaciones"
+  aparece como módulo transversal, con visitas reales contadas;
+- el evento de uso "Vista de módulo" aparece con su label visible (no la
+  key técnica cruda);
+- los eventos diagnóstico (`data_load_failed`/`data_load_diagnostics`/
+  `configuration_incomplete`) NO aparecen en el dashboard de uso — ni como
+  fila, ni como heading, ni como opción de drilldown;
+- actividad histórica diagnóstico-pesada (los ~29 `data_load_failed`/8
+  `data_load_diagnostics` reales normalizados) ya no infla ninguna métrica
+  de adopción — confirmado antes/después contra el `activity_log/` real;
+- el guard de zero-selection de Ámbito/Área funciona en vivo (destildar la
+  última opción de un grupo se revierte automáticamente);
+- el smoke de regresión de Staffing quedó GREEN en las tres pasadas de
+  merge (186/122 tests targeted según la pasada, siempre 100%).
+
+**Baseline final:** suite **646 passed / 1 skipped**, route surface **83**,
+route-contract **GREEN**, `main` HEAD `39fb236` (merge de PR #52).
 
 ---
 
@@ -4593,6 +4693,70 @@ nombres).
 
 ---
 
+## MODULE IDENTIFIER CONVENTION V2 — FOLLOW-UP / NOT STARTED
+
+Separado explícitamente del cierre de A2. Candidatos de prefijo iniciales
+propuestos por el owner (sin decisión final):
+
+- `CP` = Copiloto
+- `OP` = Operaciones
+- `CM` = Comercial
+- `CH` = Capital Humano
+
+**Requiere discovery antes de cualquier rename.** Los módulos de Copiloto
+usan hoy el stem de contenido (`01_arquitectura_y_conectividad`, etc.) como
+key estable; Asignaciones usa `assignments`. Cualquier convención nueva
+necesita: inventariar TODOS los módulos/áreas existentes (Copiloto +
+Operations) y sus consumidores (filtros, `MODULE_LABELS`,
+`activity_log/` histórico), decidir si el rename es solo de LABEL visible
+o también de KEY persistida (una key persistida requiere migración o
+normalización histórica, un label no), y confirmar que Comercial/Capital
+Humano son áreas reales con datos, no solo nombres propuestos. **NO
+iniciado en este batch ni en ninguno anterior.**
+
+## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
+
+Ya documentado como "Pending pre-PR check #1" en la sección de
+reconciliación de A2 (arriba) — se deja también como follow-up standalone
+para que no se pierda entre el detalle histórico del merge.
+
+El contenido de `/admin/activity` (`admin_activity_content.html`) ya es
+genuinamente Hub-wide (KPIs/filtros Ámbito-Área sin favoritismo de
+dominio), pero el CHROME de la página (`webapp/main.py::admin_activity`)
+sigue viviendo dentro de la composición histórica del admin de Copiloto:
+`current_workspace=workspaces.COPILOT` explícito, `selected=DEFAULT_PACK`
+gobernando `modules`/`appendices`/`academy`/`pack_label`, `partials/
+copilot_nav.html` (nav completo de módulos Copilot), identidad animada con
+`config.APP_TITLE`/`APP_SUBTITLE` (marca de Copiloto). Confirmado en vivo:
+el brand iframe muestra "Copiloto Metodológico | Arquitecto Danwor" y el
+nav lateral trae los módulos de Copiloto, pese a que el contenido es
+Hub-wide.
+
+**Por qué no se corrigió ya:** es una inconsistencia cosmética de baja
+severidad (la ruta sigue owner-only + diagnóstico, sin cambio de acceso,
+solo alcanzable desde el propio panel de diagnóstico de Copilot, nunca
+enlazada desde Operations/selector Hub/nav general). No existe una
+corrección chica y segura a la vez: el grid `.app-shell.no-copilot` asume
+`.module-nav` + resize-handle en columnas exactas (sacar el nav rompe el
+layout sin ajustar columnas), y `hub_brand_lockup()` (identidad Hub neutral
+ya existente) es un bloque de hero completo, no un componente compacto de
+topbar. Cualquiera de las dos correcciones reales se acerca a "nueva
+arquitectura de shell" — requiere autorización explícita y alcance propio.
+**NO iniciado.**
+
+## AUTH / GRAPH SESSION RENEWAL UX — FOLLOW-UP / NOT STARTED
+
+Reemplazar el error genérico de token de Graph expirado/ausente por un
+flujo orgánico de reautenticación ("Renovar acceso") que devuelva al
+usuario a su destino original (en vez del mensaje de error crudo actual
+en los endpoints que dependen de `graph_token`, p. ej. Staffing). Requiere
+diseñar el flujo de reautenticación (dónde vive el botón/link, cómo se
+preserva la ruta de destino a través del re-login, si reutiliza el mismo
+mecanismo OAuth/PKCE existente o necesita un endpoint nuevo) antes de
+tocar código. **NO iniciado — sin discovery todavía.**
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el
@@ -4631,24 +4795,30 @@ nombres).
 | Danwor Hub Login Identity | **CLOSED / GREEN** |
 | Shared Activity / Observability — Context Foundation (Batch A1) | **CLOSED / GREEN** |
 | Staffing Dashboard V2 — Director Priority Update | **CLOSED / GREEN** |
-| Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **IMPLEMENTED / PENDING CI** |
+| Shared Activity / Observability — Hub Dashboard V2 (Batch A2) | **CLOSED / GREEN** |
 
 ## CURRENT EXECUTION POINT
-- **Estado consolidado de los tres frentes activos:**
+- **Estado consolidado — sin frentes activos, todo lo abierto es un
+  follow-up explícitamente NO iniciado:**
+  - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
+    CLOSED / GREEN** — mergeada a `main` en PR #50/#51/#52 (`cdc690b` →
+    `75fa935` → `39fb236`), validada en producción por el owner. Ver
+    "FINAL HANDOFF CLOSURE" en la sección dedicada arriba para el modelo
+    final entregado completo.
   - **Staffing Dashboard V2 — Director Priority Update = CLOSED / GREEN.**
   - **Staffing — Vacation Timeline Overlay = FOLLOW-UP / NOT STARTED.**
-  - **Shared Activity / Observability — Hub Dashboard V2 (Batch A2) =
-    IMPLEMENTED / PENDING CI** — reconciliada contra `main` post-Staffing V2
-    (merge `54fc9b2` + corrective de zero-selection guard) Y con el
-    corrective de semántica de módulo/evento transversal ya aplicado
-    (`module` deja de ser Copilot-only; Staffing gana `module_viewed`/
-    `data_load_failed`/`data_load_diagnostics` en vez de nombres con la
-    ubicación repetida; adopción usa-only; Top Módulos transversal), **NO
-    mergeada todavía** — ver "Pase de reconciliación — Batch A2 vs `main`
-    post-Staffing V2" y "Corrective — Transversal Module + Event Semantics"
-    en la sección dedicada arriba para el detalle completo (merge/
-    conflictos, checks pendientes resueltos, gate/visual/commits).
-- **Último batch CERRADO:** **Staffing Dashboard V2 — Director Priority
+  - **Module Identifier Convention V2 = FOLLOW-UP / NOT STARTED** — ver
+    sección dedicada arriba, requiere discovery antes de cualquier rename.
+  - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
+    sección dedicada arriba (inconsistencia cosmética de baja severidad,
+    sin corrección chica y segura disponible todavía).
+  - **Auth / Graph Session Renewal UX = FOLLOW-UP / NOT STARTED** — ver
+    sección dedicada arriba, sin discovery todavía.
+- **Último batch CERRADO:** **Shared Activity / Observability — Hub
+  Dashboard V2 (Batch A2)** — ver "FINAL HANDOFF CLOSURE" en la sección
+  dedicada arriba — **CLOSED / GREEN** (mergeada vía PR #50/#51/#52,
+  `main` HEAD `39fb236`, validación de producción del owner recorded). El
+  batch previo cerrado es **Staffing Dashboard V2 — Director Priority
   Update** — ver sección dedicada arriba — **CLOSED / GREEN** (commits
   `2833fa6` + `3fcb75e` + `265198b` (pre-PR final check) + `a149c3b`
   (production behavior corrective — Parts A/B/C/D/E/F) + `20d44f6`
@@ -4664,33 +4834,6 @@ nombres).
   `graph_token` real disponible. **REAL GRAPH FILTER queda
   PENDING OWNER/PRODUCTION SMOKE** — sin cambio de estado, ya no bloquea
   el cierre (fallback automático sigue siendo la red de seguridad).
-- **Batch reconciliado (NO cerrado, pendiente de PR/CI):** **Shared
-  Activity / Observability — Hub Dashboard V2 (Batch A2)** — commit
-  funcional previo `8ae7593` + merge `54fc9b2` + corrective de
-  zero-selection sobre branch `work/activity-dashboard-hub-v2` (arrancada
-  desde `main` `2505da2`, previa a toda la evolución de Staffing V2).
-  Dashboard Hub-wide (exclusión A1 retirada), filtros Ámbito/Área
-  multi-select faceteados con zero-selection determinístico (nuevo, este
-  pase), KPI Áreas activas, lentes Copilot condicionales, primitivas de
-  checkbox/sticky compartidas — **reconciliada contra `main` post-Staffing
-  V2** (Staffing cambió `webapp/static/tools.css`,
-  `webapp/templates/operations/staffing_dashboard.html`, y
-  tests/primitivas de dashboard compartidas; ambas evoluciones
-  sobrevivieron intactas, confirmado por fuente y gate — ver sección
-  dedicada de reconciliación arriba). Ambos pending pre-PR checks resueltos
-  (shell/ownership → NO CHANGE documentado; zero-selection → corregido).
-  Después de la reconciliación, un corrective adicional ("Transversal
-  Module + Event Semantics", ver sección dedicada arriba) resolvió una
-  inconsistencia estructural encontrada por el owner en el Hub Dashboard
-  real (`module` Copilot-only, Staffing sin representación de módulo,
-  diagnóstico inflando adopción) — `module` pasa a ser transversal, nuevos
-  eventos canónicos (`module_viewed`/`data_load_failed`/
-  `data_load_diagnostics`) reemplazan los nombres de Staffing con la
-  ubicación repetida, adopción es usa-only, Top Módulos es transversal.
-  Validado contra el `activity_log/` REAL del owner (solo lectura). Suite
-  final en la branch: **635 passed / 1 skipped**, route surface **83** sin
-  cambios, route-contract GREEN. **No mergeada, no hay CI real todavía —
-  no cerrar como CLOSED/GREEN sin esa confirmación.**
 - **Batch CERRADO anterior:** **Shared Activity / Observability — Context
   Foundation (Batch A1)** — ver sección dedicada arriba — **CLOSED / GREEN**
   (commits `18d4c43` + corrective `ce17790`, **mergeado a `main` vía PR #44 /
@@ -4734,50 +4877,24 @@ nombres).
   sesión/PKCE/callback/permisos/resolución de workspace/token de Graph,
   route surface sin cambios (82)** en los cinco batches — ver
   "Alcance"/detalle en cada sección dedicada arriba.
-- **Next candidate:** **Shared Activity / Observability — Batch A2**
-  (Activity Dashboard V2 Hub-wide: dimensiones Ámbito/Área multi-select,
-  **RETIRO de `_DASHBOARD_EXCLUDED_SCOPES`** —Operations incluido por default—,
-  faceting scope↔área, KPIs Hub-wide genéricos + lentes Copilot-específicos
-  condicionales, dedup del sticky-filter, primitiva de checkbox compartida). A1
-  (fundación de contexto) quedó **CLOSED/GREEN** (PR #44); A2 se apoya en el seam
-  `activity_context.context_of` + los campos `scope`/`area`. **AUTORIZADO por el
-  owner** — commit funcional previo `8ae7593` + merge de reconciliación
-  `54fc9b2` + corrective de zero-selection, sobre branch
-  `work/activity-dashboard-hub-v2`, **YA RECONCILIADA contra `main`**
-  post-Staffing V2 (Staffing mergeó cambios en superficies compartidas
-  `webapp/static/tools.css`, `webapp/templates/operations/
-  staffing_dashboard.html`, tests/primitivas de dashboard — ambas
-  evoluciones sobreviven intactas, confirmado por gate) — ver "Pase de
-  reconciliación — Batch A2 vs `main` post-Staffing V2" para el detalle
-  completo del merge y de los dos pending pre-PR checks (shell/ownership
-  → NO CHANGE documentado; zero-selection → corregido). Los hallazgos
-  reportados-pero-diferidos explícitamente en batches previos (colisiones
-  de color en el timeline de Staffing; filtro de tipo de proyecto;
-  Status Finalización) SIGUEN diferidos/sin autorizar. **Switch de
-  agrupamiento consultor/proyecto y optimización de la ventana histórica
-  de Graph YA NO están en esta lista — se implementaron en Staffing
-  Dashboard V2 — Director Priority Update (ver arriba).** Entra
-  Groups/App Roles, Projects/Reporting, cálculo de capacidad, overlay de
-  vacaciones (bloqueado por acceso Graph, ver arriba), Shared Dashboard
-  Primitives quedan igualmente diferidos sin autorización.
-- **Next candidate status:** **IMPLEMENTED / PENDING CI (A2)** — reconciliada
-  contra `main` post-Staffing V2, lista para PR; no mergeada, sin CI real
-  todavía.
-- **Baseline actual (`main`, incluye Staffing Dashboard V2 CLOSED/GREEN):**
-  Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 · tests **595 passed
-  / 1 skipped** · route surface **83** · route-contract **GREEN** ·
-  `main` HEAD `ac7729f` (merge de PR #49, ya incluye PR #46/#47/#48 —
-  Staffing Dashboard V2 Director Priority Update CLOSED/GREEN completo,
-  y PR #44 — A1 Context Foundation CLOSED/GREEN). Nueva ruta desde el
-  baseline previo a Staffing V2: `POST /operaciones/staffing/asignaciones/historial`
-  (route surface 82→83, snapshot actualizado explícitamente, sin cambios
-  desde su introducción).
-- **Baseline (`work/activity-dashboard-hub-v2`, local, reconciliada +
-  corrective de módulo/evento transversal aplicado, PENDING CI):** tests
-  **635 passed / 1 skipped** (+40 sobre los 595 de `main` — tests de A1/A2
-  propios de la rama + zero-selection + módulo/evento transversal) · route
-  surface **83** sin cambios (ningún endpoint nuevo) · route-contract
-  GREEN.
+- **Next candidates (ninguno autorizado todavía — solo follow-ups
+  documentados, NO iniciar sin autorización explícita del owner):**
+  Module Identifier Convention V2, Activity Admin Shell Ownership, Auth /
+  Graph Session Renewal UX, Staffing — Vacation Timeline Overlay (bloqueado
+  por acceso Graph real). Ver las cuatro secciones dedicadas arriba para el
+  contrato conocido de cada uno. Los hallazgos reportados-pero-diferidos de
+  batches previos (colisiones de color en el timeline de Staffing; filtro
+  de tipo de proyecto; Status Finalización) SIGUEN diferidos/sin autorizar.
+  Groups/App Roles, Projects/Reporting, cálculo de capacidad, y Shared
+  Dashboard Primitives (más allá de lo ya extraído) quedan igualmente
+  diferidos sin autorización.
+- **Baseline actual (`main`, incluye A2 CLOSED/GREEN + Staffing Dashboard
+  V2 CLOSED/GREEN):** Python 3.14.3 · FastAPI 0.141.1 · Starlette 1.4.1 ·
+  tests **646 passed / 1 skipped** · route surface **83** · route-contract
+  **GREEN** · `main` HEAD `39fb236` (merge de PR #52, ya incluye PR
+  #50/#51 — A2 completo — y PR #46/#47/#48/#49 — Staffing Dashboard V2
+  Director Priority Update CLOSED/GREEN completo — y PR #44 — A1 Context
+  Foundation CLOSED/GREEN).
 
 ### Expected next workflow
 1. El agente siguiente lee **HANDOFF + Git** (no la conversación previa).
