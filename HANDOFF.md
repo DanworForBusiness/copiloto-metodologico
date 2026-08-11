@@ -4962,17 +4962,28 @@ ahora persisten el `module_id` canónico en vez de `document.summary.stem`.
 YAML histórico NUNCA se reescribe. Feedback de catálogo (`_save_catalog_
 feedback`/`_save_catalog_section_feedback`, sin campo `module`) sin cambios.
 
-**Gap conocido, disclosed explícitamente:** `analyze_feedback.py` (script
+### Feedback — consumidor offline (`analyze_feedback.py`)
+
+Gap cerrado con un corrective chico (commit `fix(feedback): normalize
+canonical modules in offline reports`): `analyze_feedback.py` (script
 standalone en la raíz del repo, herramienta de reporting offline del owner)
-sigue agrupando/filtrando por el valor `module` CRUDO persistido, sin pasar
-por `module_registry` — sus hermanos (`analyze_cases.py`,
-`propose_tree_updates.py`, `propose_content_updates.py`) tampoco importan
-`webapp.*`, es una convención arquitectónica deliberada (scripts offline
-desacoplados del framework web) que este batch decidió NO romper. Efecto
-concreto: después de este batch, feedback histórico con stem legacy y
-feedback nuevo con `module_id` canónico para el MISMO módulo aparecerán
-como dos filas separadas en `reports/feedback/module_feedback.yaml` hasta
-que ese script adopte el mismo seam — follow-up explícito, no resuelto acá.
+ahora normaliza el valor `module` persistido a su `module_id` canónico ANTES
+de agrupar, en los tres sitios que agrupaban por módulo crudo
+(`analyze_assistant`, `analyze_modules`, `analyze_sections`) —
+`analyze_academy` no toca `module`, sin cambios. Importa directo
+`webapp.services.module_registry` (confirmado seguro: sin init de FastAPI,
+sin red, sin side-effects de escritura — no importa `webapp.routers.feedback`
+ni ningún router). Helper local `_canonical_module(raw) -> str` reimplementa
+la orquestación mínima de `resolve()` (mismo patrón que
+`normalize_feedback_module`, sin duplicar el mapeo canónico, que sigue
+centralizado en `module_registry`). Sus hermanos (`analyze_cases.py`,
+`propose_tree_updates.py`, `propose_content_updates.py`) siguen sin importar
+`webapp.*` — no se tocaron, fuera de alcance de este corrective. Efecto
+concreto: feedback histórico con stem legacy y feedback nuevo con `module_id`
+canónico para el MISMO módulo ahora agregan en UNA sola fila en
+`reports/feedback/module_feedback.yaml`/`section_feedback.yaml`/
+`ia_feedback.yaml`. `feedback_log/*.yaml` fuente NUNCA se reescribe —
+normalización solo en el read-model del reporte generado.
 
 ### Compatibilidad y deuda
 
@@ -5001,16 +5012,22 @@ agregarían junto si coexistieran.
 
 **Feedback** (`feedback_log/` del owner): 2 registros con stem legacy
 (`01_Arquitectura_y_Conectividad`, `04_Modelado_y_Desarrollo`), ambos
-normalizan correctamente a `CP01`/`CP04`. Cero valores sin resolver.
+normalizan correctamente a `CP01`/`CP04`. Cero valores sin resolver. Los
+mismos 2 registros re-validados (solo lectura) tras el corrective de
+`analyze_feedback.py`: `analyze_assistant` los agrupa como `CP01: up=1` /
+`CP04: up=1` (son `assistant_response`, no `module_content`/
+`section_content` — el owner no tiene todavía feedback real de esos dos
+tipos). YAML fuente confirmado sin cambios tras leer + generar reportes.
 
 ### Gate
 
 Targeted: registro canónico (26 tests, Fase 1, sin debilitar) + Activity
 (55 tests, `test_activity_context.py`/`test_activity_routes.py`) + Feedback
-(10 tests nuevos, `test_feedback_module_identity.py`) + Staffing regression
-(123 tests) — todos GREEN. Full suite **693 passed / 1 skipped** (+21 sobre
-el baseline de 672), route-contract GREEN, route surface **83 sin
-cambios**.
+web (10 tests, `test_feedback_module_identity.py`) + Feedback offline (11
+tests nuevos, `test_analyze_feedback_module_identity.py`) + Staffing
+regression (123 tests) — todos GREEN. Full suite **704 passed / 1 skipped**
+(+32 sobre el baseline de 672), route-contract GREEN, route surface **83
+sin cambios**.
 
 ## ACTIVITY ADMIN SHELL OWNERSHIP — FOLLOW-UP / NOT STARTED
 
@@ -5114,12 +5131,15 @@ tocar código. **NO iniciado — sin discovery todavía.**
     `startswith` siguen usando sus keys legacy sin cambios).
   - **Module Identifier Convention V2 Phase 2 = IMPLEMENTED / PENDING CI**
     — ver sección dedicada arriba. Activity y Feedback (ÚNICAMENTE esos
-    dos consumidores) ahora persisten/normalizan hacia el `module_id`
-    canónico; JSONL/YAML histórico nunca reescrito; validado (solo
-    lectura) contra `activity_log/`/`feedback_log/` reales. Branch
+    dos consumidores, incluyendo tanto el comportamiento web app como el
+    consumidor de reporting offline `analyze_feedback.py`) ahora persisten/
+    normalizan hacia el `module_id` canónico; JSONL/YAML histórico nunca
+    reescrito; validado (solo lectura) contra `activity_log/`/
+    `feedback_log/` reales. Branch
     `work/module-identifier-convention-v2-phase2`, **NO mergeada
-    todavía**. Gap disclosed: `analyze_feedback.py` (script standalone) no
-    adoptó el seam — sigue agrupando por valor crudo.
+    todavía**. Gap previamente disclosed (`analyze_feedback.py` sin
+    adoptar el seam) **cerrado** con el corrective `fix(feedback):
+    normalize canonical modules in offline reports`.
   - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
