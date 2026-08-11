@@ -4660,36 +4660,139 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 
 ---
 
-## STAFFING — VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT STARTED
+## STAFFING — VACATION TIMELINE OVERLAY — IMPLEMENTED / PENDING CI
+(commits funcionales `feat(staffing): add vacation source integration` +
+`feat(staffing): overlay vacations on consultant timeline`, branch
+`work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
+mergeada todavía)
 
 Separado explícitamente del cierre de Staffing Dashboard V2 — Director
-Priority Update (arriba). Era el requerimiento 9 original del batch de
-director priority; nunca se implementó ni se cerró como parte de ese
-batch.
+Priority Update. Era el requerimiento 9 original de ese batch; se
+implementó en un batch propio, dos pasadas: discovery offline (bloqueado en
+Graph real, ver abajo) + implementación completa contra el contrato offline
+verificado.
 
-**Motivo:** este agente no tiene acceso a un token Graph delegado real
-ni a una sesión de browser autenticada contra Microsoft 365 en este
-entorno — el discovery contra el workbook de Operations (SharePoint
-site/drive item, worksheet/tabla, columnas de nombre/fechas, formato
-real de fecha, cantidad de registros, múltiples períodos por persona)
-requiere ESE acceso y no puede simularse ni inferirse sin inventar
-datos.
+### Discovery — offline (Graph real sigue sin acceso en este entorno)
 
-**Contrato conocido únicamente (sin discovery todavía):**
-- fuente: workbook de SharePoint de Operations, provisto por el owner;
-- el contrato de workbook/tabla/columna todavía requiere discovery;
-- candidato de join actual: nombre completo del consultor normalizado;
-- normalización: solo trim + colapso de espacios + case-normalization;
-- SIN fuzzy-matching;
-- los períodos de vacaciones NO deben alterar horas de asignación ni
-  KPIs de Staffing.
+El discovery contra Graph LIVE quedó bloqueado igual que antes (sin token
+delegado ni sesión de browser autenticada en este entorno — confirmado
+empíricamente: sin browser Chrome conectado vía "Claude in Chrome", y el
+link de SharePoint provisto redirige a `login.microsoftonline.com` sin SSO
+disponible). El owner desbloqueó el discovery de **contrato de datos**
+(no de acceso Graph) exportando el workbook real como XLSX y compartiéndolo
+directo — permitió confirmar, SOLO a nivel de contrato offline:
 
-**NO se realizó discovery en este cierre.** Cuando exista una sesión
-con `graph_token` real disponible (browser del usuario), el próximo
-agente puede retomar el discovery contra el link de OneDrive/SharePoint
-que dio el director, con el mismo criterio de normalización
-determinística ya especificado (sin fuzzy-match, sin reordenar
-nombres).
+- sheet **"Solicitudes"**, 203 filas totales;
+- columnas: `Fecha de Solicitud, CUIL, Legajo, Apellido, Nombre, Código,
+  Motivo, Desde, Hasta, Días, Estado, Comentario del empleado, Comentario
+  del aprobador, Etiquetas del empleado`;
+- 48 filas con `Motivo=Vacaciones` (41 Aprobada / 6 Cancelada / 1 Rechazada);
+- `Desde`/`Hasta` date-only, sin límites faltantes, sin `Desde > Hasta`,
+  vacaciones de un solo día válidas, `Hasta` inclusive; `Días` es semántica
+  de días laborales — NUNCA se usa para calcular el intervalo del timeline;
+- 23 consultores con vacaciones aprobadas, 12 con más de un período;
+- SharePoint site real: `https://danwor.sharepoint.com/sites/Gestion`
+  (el MISMO sitio "Gestión" de Asignaciones/Proyectos/Colaboradores/
+  Cliente) — evidencia de Power Query real del reporte "Solicitud
+  vacaciones" existente, List ID `36452eea-cc7c-40ce-bf77-80b4bdfa1d47`.
+
+**Sigue sin LIVE GRAPH VALIDATION**: el List ID/site son KNOWN FROM LEGACY
+SOURCE CONFIGURATION (mismo estado que los 3 list ID originales de
+Asignaciones en su propio discovery) — los internal names de columna
+(`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) NUNCA se infirieron
+desde los display labels del export; quedan sin default de producción en
+`config.py` hasta confirmarse contra `/sites/{id}/lists/{id}/columns` real.
+
+### Implementación
+
+**Fuente**: `StaffingRepository.get_vacations(access_token)` (lista
+"Solicitud vacaciones", MISMO sitio Gestión, mecanismo Graph delegado
+existente — sin auth nueva, sin credenciales nuevas) filtra en Python
+`Motivo=Vacaciones` + `Estado=Aprobada` (constantes de negocio, ver
+`VACATION_MOTIVO_VALUE`/`VACATION_ESTADO_APROBADA_VALUE` — no son internal
+names, no necesitan config por tenant). Devuelve `VacationPeriod`
+(`source_id`, `consultant_name` CRUDO "Nombre Apellido", `start_date`,
+`end_date`) — SIN join contra Colaboradores todavía, ese vive en el
+servicio. `StaffingRepository.get_consultants(access_token)` lee SOLO
+Colaboradores (id + nombre), reusando `colaborador_title` de
+`StaffingFieldMapping` — sin forzar una lectura completa de
+Asignaciones/Proyectos. Config nueva: `SHAREPOINT_VACACIONES_LIST_ID`
+(único default de producción, KNOWN FROM LEGACY SOURCE) +
+`SHAREPOINT_VACACIONES_FIELD_{APELLIDO,NOMBRE,MOTIVO,DESDE,HASTA,ESTADO}`
+(sin default a propósito, mismo mecanismo que los 8 campos REQUERIDOS de
+Asignaciones).
+
+**Identidad/join**: `_normalize_consultant_name` (trim + colapso de
+espacios + casefold + folding NFKD de diacríticos, SIN fuzzy-matching, sin
+reordenar nombres, sin nicknames) resuelve el caso real disclosed por el
+owner (`Matias` vs `Matías`). `join_vacations_to_consultants` construye
+key normalizada → candidatos: 1 candidato = match; 0 = `unmatched`; ≥2 =
+`ambiguous` — ninguno de los dos últimos se asigna a nadie, ambos quedan
+observables para diagnóstico (conteos puros, NUNCA nombres/PII en el
+payload de vuelta al cliente ni en logs).
+
+**Overlay/payload**: `build_vacation_overlay_payload` reusa
+`compute_horizon_months`/`compute_timeline_position` (MISMO horizonte que
+Asignaciones) pero excluye por completo (no clippea al borde) un período
+que no se solapa en absoluto con la ventana visible — a diferencia de una
+asignación potencialmente abierta, un período de vacaciones es finito y
+conocido en ambos extremos; clippearlo al borde sugeriría, falsamente, que
+está vigente ahora.
+
+**Ruta nueva**: `POST /operaciones/staffing/asignaciones/vacaciones`
+(JSON, MISMO patrón que `.../historial`) — carga LAZY e INDEPENDIENTE de
+`.../data`, mismo `graph_token` explícito, misma gate de sesión/
+autorización. Route surface **83 → 84**, documentado explícito
+(`tests/route_surface.json` regenerado, `test_15_route_surface_still_84`
+actualizado).
+
+**UI**: `app.js::staffingDashboard()._loadVacations()` arranca sola en
+`init()` (a diferencia del historial de Inactivo, que espera el primer
+toggle) — fail-soft: una falla deja Asignaciones 100% intactas, solo omite
+el overlay y muestra un aviso propio no bloqueante
+(`.staffing-vacation-error`). El overlay se adjunta a `timelineGroups`
+SOLO en agrupación Consultor (`vacationsByConsultant`, getter puro sobre
+el dato ya cargado — cambiar de agrupación nunca refetchea). Tratamiento
+visual neutro/subordinado (rayado diagonal, `repeating-linear-gradient`)
+— nunca uno de los 6 tonos de `.staffing-palette-N`, para no leerse como
+"otro proyecto más". Las barras de asignación existentes quedan
+exactamente igual — el overlay es un lane separado, nunca mezclado con la
+fila de asignación.
+
+### Cero impacto en métricas (probado)
+
+`kpis`/`filteredAssignments`/`aggregatedDetailRows`/`activo_vencido` nunca
+leen `this.vacations` — confirmado por contenido de fuente
+(`test_kpis_getter_never_reads_vacations_state`/
+`test_filtered_assignments_never_reads_vacations_state`). El payload de
+`build_vacation_overlay_payload` no comparte NINGUNA clave con
+`build_dashboard_payload` (sin `allocation_value`/`status`/
+`activo_vencido` en una fila de vacación).
+
+### Validación contra datos reales — BLOQUEADA (mismo motivo que antes)
+
+**NO se pudo ejecutar** en este entorno (sin token Graph delegado real, sin
+browser Chrome conectado, el link de SharePoint provisto redirige a login
+sin SSO disponible — mismo blocker documentado en el discovery previo).
+Queda como el ÚNICO ítem pendiente antes de considerar este batch
+production-ready: correr contra el sitio Gestión real, confirmar los
+internal names de columna, confirmar la representación real de fecha que
+devuelve Graph (el export offline es `dd/mm/yyyy` de Excel, la
+representación LIVE de Graph no está confirmada — `StaffingService.
+_parse_date` ya asume ISO 8601 igual que Asignaciones y degrada a `None`
+sin romper nada si el formato real difiere), y validar match/unmatched/
+ambiguous contra el universo real de Colaboradores.
+
+### Gate
+
+Targeted: Vacaciones repository (16 tests) + Vacaciones service (21 tests)
++ Vacaciones routes (13 tests) + Vacaciones UI/contenido (14 tests) — 64
+tests nuevos, todos GREEN. Staffing regression completo (todos los archivos
+`test_staffing_*.py`, incluyendo el ajuste esperado de
+`test_15_route_surface_still_84`) + module-registry + Activity — GREEN,
+sin debilitar ningún test existente. Full suite **776 passed / 1 skipped**
+(+64 sobre el baseline de 712), route-contract GREEN tras regenerar el
+snapshot, route surface **83 → 84** (cambio intencional, documentado).
 
 ---
 
@@ -5276,7 +5379,13 @@ tocar código. **NO iniciado — sin discovery todavía.**
     FUTURO, NO PLANIFICADO** — ver "FINAL HANDOFF CLOSURE" de Fase 2 para
     el razonamiento completo. Academy: `CPACxx` sigue reservado solo
     conceptualmente, discovery dedicado NO iniciado.
-  - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
+  - **Staffing Vacation Timeline Overlay = IMPLEMENTED / PENDING CI** — ver
+    sección dedicada arriba. Branch `work/staffing-vacation-overlay`, **NO
+    mergeada todavía**. Contrato de datos verificado offline (export real
+    del owner); implementación completa (repository/service/router/UI)
+    contra ese contrato; validación contra Graph LIVE sigue bloqueada (sin
+    token delegado/sesión de browser en este entorno) — único pendiente
+    antes de production-ready.
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
@@ -5361,9 +5470,12 @@ tocar código. **NO iniciado — sin discovery todavía.**
   separada, no está ni propuesto.
 - **Next candidates (ninguno autorizado todavía — solo follow-ups
   documentados, NO iniciar sin autorización explícita del owner):**
-  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX,
-  Staffing — Vacation Timeline Overlay (bloqueado por acceso Graph real).
-  Ver las secciones dedicadas arriba para el contrato conocido de cada uno.
+  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX. Staffing
+  — Vacation Timeline Overlay YA NO es un candidato sin empezar: tiene su
+  propia sección "IMPLEMENTED / PENDING CI" más abajo (branch
+  `work/staffing-vacation-overlay`) — solo la validación contra Graph LIVE
+  sigue bloqueada. Ver las secciones dedicadas arriba/abajo para el
+  contrato conocido de cada uno.
   Los hallazgos
   reportados-pero-diferidos de batches previos (colisiones de color en el
   timeline de Staffing; filtro de tipo de proyecto; Status Finalización)
