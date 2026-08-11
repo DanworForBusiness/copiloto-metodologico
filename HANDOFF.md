@@ -4113,6 +4113,28 @@ module ya lo representan.
   route-contract GREEN, route surface **83 sin cambios** (ningún endpoint
   nuevo).
 
+#### Consistency check post-corrective — `configuration_incomplete`
+
+El corrective de arriba dejó afuera, por error (no a propósito),
+`staffing_overview_config_incomplete`/`staffing_historial_config_incomplete`
+— una verificación puntual confirmó que **seguían siendo productores
+CURRENT** (`webapp/routers/staffing.py`, ramas `except RuntimeError` de
+`/data` e `/historial`), no solo históricos/test/compatibilidad. Se
+normalizaron al canónico reusable **`configuration_incomplete`**
+(`module=assignments`, `operation=initial`/`history`, `event_class=
+diagnostic`) — deliberadamente **no** forzados a `data_load_failed`: config
+incompleta (site_id/mapeo de campos) no es un fallo de Graph/transporte, es
+un problema distinto que merece su propio nombre genérico. Lo histórico
+normaliza igual vía `_EVENT_RENAME`, preservando `raw_event`. Tras este
+fix, **cero productores current restantes** cuyo nombre repita `staffing_`
+— las únicas apariciones que quedan en el repo son los mapas de
+compatibilidad histórica (`_HISTORICAL`, `_EVENT_RENAME`) y fixtures de
+test. Validado (solo lectura) contra el `activity_log/` real del owner: 0
+ocurrencias históricas de ambos raw events — resultado esperado, nunca se
+disparó esa rama de error en producción hasta ahora. Commit funcional
+`fix(activity): complete Staffing event normalization` — +3 tests sobre
+el baseline (638 passed / 1 skipped), route surface 83 sin cambios.
+
 ---
 
 ## STAFFING DASHBOARD V2 — DIRECTOR PRIORITY UPDATE — CLOSED / GREEN
