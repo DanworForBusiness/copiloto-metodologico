@@ -439,6 +439,159 @@ def test_available_columns_sanitizer_never_touches_the_access_token():
     assert list(sig.parameters) == ["columns"]  # sin token/headers/cookies
 
 
+# --- Final Live Semantic Column Metadata Discovery (tests 1-12) -----------
+# ⚠️ FIXTURES DE TEST — shape realista de columnDefinition de Graph, pero NO
+# evidencia live confirmada (sin acceso Graph en este entorno). Solo prueban
+# que el sanitizer deriva `kind` del shape real y expone SOLO lo aplicable.
+
+_SEMANTIC_LOOKUP_COLUMN = {
+    "displayName": "Colaborador", "name": "Colaborador", "hidden": False,
+    "lookup": {"listId": "6e512cd3-394a-461f-abcd-6613f2c21113", "columnName": "Title"},
+}
+_SEMANTIC_CHOICE_COLUMN = {
+    "displayName": "Tipo de Licencia", "name": "TipodeLicencia", "hidden": False,
+    "choice": {"choices": ["Vacaciones", "Enfermedad", "Estudio"]},
+}
+_SEMANTIC_BOOLEAN_COLUMN = {
+    "displayName": "¿Aprobado?", "name": "Approved", "hidden": False,
+    "boolean": {},
+}
+_SEMANTIC_DATETIME_COLUMN = {
+    "displayName": "Fecha de inicio", "name": "TravelStartDate", "hidden": False,
+    "dateTime": {"format": "dateOnly"},
+}
+_SEMANTIC_UNKNOWN_ENCODED_COLUMN = {
+    "displayName": "¿Aprobado CCHH?", "name": "_x00bf_Aprobado_x0020_CCHH_x003f_", "hidden": False,
+    "choice": {"choices": ["Pendiente", "Aprobado", "Rechazado"]},
+}
+_NOT_SEMANTIC_COLUMN = {
+    "displayName": "CUIL", "name": "CUIL_x0020_", "hidden": False, "text": {},
+}
+
+
+# test 1/2/3: lookup metadata sanitizada correctamente, list id + columna expuestos.
+def test_lookup_metadata_exposes_kind_list_id_and_column():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(_SEMANTIC_LOOKUP_COLUMN)
+    assert entry == {
+        "display_name": "Colaborador", "name": "Colaborador", "kind": "lookup",
+        "lookup_list_id": "6e512cd3-394a-461f-abcd-6613f2c21113", "lookup_column": "Title",
+    }
+
+
+# test 4: choice expone los choices reales.
+def test_choice_metadata_exposes_choices():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(_SEMANTIC_CHOICE_COLUMN)
+    assert entry["kind"] == "choice"
+    assert entry["choices"] == ["Vacaciones", "Enfermedad", "Estudio"]
+
+
+# test 5: boolean expone su kind, sin campos de otros tipos.
+def test_boolean_metadata_exposes_kind_only():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(_SEMANTIC_BOOLEAN_COLUMN)
+    assert entry == {"display_name": "¿Aprobado?", "name": "Approved", "kind": "boolean"}
+
+
+# test 6: dateTime expone su formato.
+def test_datetime_metadata_exposes_format():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(_SEMANTIC_DATETIME_COLUMN)
+    assert entry["kind"] == "dateTime"
+    assert entry["date_time_format"] == "dateOnly"
+
+
+# test 7: campos no aplicables se omiten (lookup no tiene choices, boolean
+# no tiene lookup_list_id, etc.) — ya cubierto arriba por igualdad exacta de
+# dict; test explícito adicional para choice/dateTime.
+def test_non_applicable_fields_are_omitted_per_kind():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    choice_entry = _sanitize_semantic_column(_SEMANTIC_CHOICE_COLUMN)
+    assert "lookup_list_id" not in choice_entry and "date_time_format" not in choice_entry
+    datetime_entry = _sanitize_semantic_column(_SEMANTIC_DATETIME_COLUMN)
+    assert "choices" not in datetime_entry and "lookup_column" not in datetime_entry
+
+
+# test: name codificado por SharePoint se expone tal cual — nunca se intenta
+# "limpiarlo" ni adivinar el label real a partir de él.
+def test_encoded_internal_name_is_exposed_verbatim():
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(_SEMANTIC_UNKNOWN_ENCODED_COLUMN)
+    assert entry["name"] == "_x00bf_Aprobado_x0020_CCHH_x003f_"
+    assert entry["kind"] == "choice"
+
+
+# test: solo las 6 columnas semánticas candidatas aparecen — CUIL (no
+# semántica) queda afuera aunque sea visible.
+def test_sanitize_semantic_columns_only_includes_the_six_candidates():
+    from webapp.services.staffing_repository import _sanitize_semantic_columns
+    columns = [
+        _SEMANTIC_LOOKUP_COLUMN, _SEMANTIC_CHOICE_COLUMN, _SEMANTIC_BOOLEAN_COLUMN,
+        _SEMANTIC_DATETIME_COLUMN, _SEMANTIC_UNKNOWN_ENCODED_COLUMN, _NOT_SEMANTIC_COLUMN,
+    ]
+    result = _sanitize_semantic_columns(columns)
+    display_names = {entry["display_name"] for entry in result}
+    assert display_names == {
+        "Colaborador", "Tipo de Licencia", "¿Aprobado?", "Fecha de inicio", "¿Aprobado CCHH?",
+    }
+    assert "CUIL" not in display_names
+
+
+# test 8: nunca se pasa el JSON crudo de Graph — solo los campos permitidos.
+def test_semantic_column_never_passes_through_raw_graph_json():
+    column_with_extra_graph_fields = {
+        "displayName": "Colaborador", "name": "Colaborador", "hidden": False,
+        "id": "abc123", "columnGroup": "Custom Columns", "enforceUniqueValues": False,
+        "lookup": {"listId": "6e512cd3-394a-461f-abcd-6613f2c21113", "columnName": "Title", "allowMultipleValues": False},
+    }
+    from webapp.services.staffing_repository import _sanitize_semantic_column
+    entry = _sanitize_semantic_column(column_with_extra_graph_fields)
+    assert set(entry.keys()) == {"display_name", "name", "kind", "lookup_list_id", "lookup_column"}
+
+
+# test 9: token/headers ausentes de la firma — ninguna función de este
+# corrective recibe el token en absoluto.
+def test_semantic_sanitizers_never_touch_the_access_token():
+    import inspect
+    from webapp.services.staffing_repository import _sanitize_semantic_column, _sanitize_semantic_columns
+    assert list(inspect.signature(_sanitize_semantic_columns).parameters) == ["columns"]
+    assert list(inspect.signature(_sanitize_semantic_column).parameters) == ["column"]
+
+
+# test 10: valores de item/empleado ausentes — los fixtures de arriba son
+# TODOS metadata de definición de columna, nunca un item real; confirmamos
+# que ningún entry contiene claves de valor de fila.
+def test_semantic_columns_never_include_item_level_keys():
+    from webapp.services.staffing_repository import _sanitize_semantic_columns
+    result = _sanitize_semantic_columns([
+        _SEMANTIC_LOOKUP_COLUMN, _SEMANTIC_CHOICE_COLUMN, _SEMANTIC_BOOLEAN_COLUMN, _SEMANTIC_DATETIME_COLUMN,
+    ])
+    for entry in result:
+        assert "fields" not in entry and "value" not in entry and "@odata.etag" not in entry
+
+
+# test 11/12: la respuesta de get_vacations en el flujo exitoso / graph_error
+# no se ve afectada — semantic_columns SOLO viaja en VacationSchemaError.
+def test_get_vacations_successful_flow_has_no_semantic_columns_concept(monkeypatch):
+    # Con mapeo override (seam de test), get_vacations ni siquiera ejercita
+    # el resolver de schema — semantic_columns es un concepto EXCLUSIVO de
+    # VacationSchemaError, nunca parte del flujo exitoso.
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", lambda url, access_token, **kwargs: [])
+    repo = _make_repository()
+    periods = repo.get_vacations("tok")
+    assert periods == []
+
+
+def test_get_vacations_graph_error_flow_has_no_semantic_columns_attribute(monkeypatch):
+    from webapp.services.staffing_repository import VacationGraphError
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _http_error_fake(500))
+    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
+    with pytest.raises(VacationGraphError) as exc_info:
+        repo.get_vacations("tok")
+    assert not hasattr(exc_info.value, "semantic_columns")
+
+
 def test_get_consultants_raises_explicit_when_colaborador_title_missing(monkeypatch):
     from webapp.services.staffing_repository import StaffingFieldMapping
     repo = StaffingRepository(

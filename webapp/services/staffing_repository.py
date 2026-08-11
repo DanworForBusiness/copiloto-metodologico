@@ -285,17 +285,28 @@ class VacationSchemaError(Exception):
     un valor de item, nunca PII, nunca el JSON crudo de Graph. Existe
     solo para que el owner pueda leer el contrato real de columnas y
     confirmar (o corregir) los labels esperados — este corrective NO
-    resuelve el mapeo automáticamente a partir de esta lista."""
+    resuelve el mapeo automáticamente a partir de esta lista.
+
+    `semantic_columns` (Final Live Semantic Column Metadata Discovery
+    corrective, ver HANDOFF) — metadata TIPADA (SOLO para las 6 columnas
+    semánticas candidatas: Colaborador/Fecha de inicio/Fecha de
+    finalización/Tipo de Licencia/¿Aprobado?/¿Aprobado CCHH?), ver
+    `_sanitize_semantic_columns`. `kind` se deriva ESTRICTA del shape real
+    del `columnDefinition` de Graph (qué faceta está presente —
+    `lookup`/`choice`/`boolean`/`dateTime`/etc.), NUNCA de displayName/
+    internal name. Temporal y de descubrimiento — NO resuelve el mapeo de
+    negocio final."""
 
     def __init__(
         self, stage: str, missing_fields: list[str], ambiguous_fields: list[str],
-        available_columns: list[dict] | None = None,
+        available_columns: list[dict] | None = None, semantic_columns: list[dict] | None = None,
     ):
         self.stage = stage
         self.reason = "schema_error"
         self.missing_fields = missing_fields
         self.ambiguous_fields = ambiguous_fields
         self.available_columns = available_columns if available_columns is not None else []
+        self.semantic_columns = semantic_columns if semantic_columns is not None else []
         parts = []
         if missing_fields:
             parts.append(f"faltantes: {', '.join(missing_fields)}")
@@ -408,6 +419,72 @@ def _sanitize_available_columns(columns: list[dict]) -> list[dict]:
     return result
 
 
+# Final Live Semantic Column Metadata Discovery (ver HANDOFF) — SOLO estas 6
+# columnas candidatas del schema real (owner smoke #3), nunca las 6 originales
+# asumidas del XLSX (ya disprobadas). Temporal/de descubrimiento, no el mapeo
+# de negocio final.
+_SEMANTIC_DISCOVERY_DISPLAY_NAMES = (
+    "Colaborador", "Fecha de inicio", "Fecha de finalización",
+    "Tipo de Licencia", "¿Aprobado?", "¿Aprobado CCHH?",
+)
+
+# Facetas de tipo de `columnDefinition` de Microsoft Graph — EXACTAMENTE una
+# está presente en cada columna real; cuál esté presente ES el `kind`, nunca
+# una inferencia desde displayName/internal name.
+_GRAPH_COLUMN_KIND_FACETS = (
+    "lookup", "personOrGroup", "choice", "boolean", "dateTime",
+    "text", "number", "currency", "hyperlinkOrPicture", "calculated",
+)
+
+
+def _detect_graph_column_kind(column: dict) -> str | None:
+    for facet in _GRAPH_COLUMN_KIND_FACETS:
+        if facet in column:
+            return facet
+    return None
+
+
+def _sanitize_semantic_column(column: dict) -> dict:
+    """Un entry por columna — SOLO los campos aplicables a su `kind` real
+    (ver `_detect_graph_column_kind`). `choices` son labels de definición de
+    columna (metadata de schema), NUNCA valores de item — permitido
+    explícitamente (ver HANDOFF)."""
+    entry: dict = {
+        "display_name": (column.get("displayName") or "").strip(),
+        "name": column.get("name"),
+        "kind": _detect_graph_column_kind(column),
+    }
+    if entry["kind"] == "lookup":
+        lookup = column.get("lookup") or {}
+        if lookup.get("listId"):
+            entry["lookup_list_id"] = lookup["listId"]
+        if lookup.get("columnName"):
+            entry["lookup_column"] = lookup["columnName"]
+    elif entry["kind"] == "choice":
+        choices = (column.get("choice") or {}).get("choices")
+        if choices:
+            entry["choices"] = list(choices)
+    elif entry["kind"] == "dateTime":
+        date_format = (column.get("dateTime") or {}).get("format")
+        if date_format:
+            entry["date_time_format"] = date_format
+    return entry
+
+
+def _sanitize_semantic_columns(columns: list[dict]) -> list[dict]:
+    """Metadata TIPADA, SOLO para las 6 columnas semánticas candidatas de
+    `_SEMANTIC_DISCOVERY_DISPLAY_NAMES` — construida EXPLÍCITAMENTE campo
+    por campo (nunca `dict(column)`/passthrough del JSON crudo de Graph).
+    Nunca incluye valores de item/PII/token/headers — solo la definición de
+    columna en sí (ver `_sanitize_semantic_column`)."""
+    result: list[dict] = []
+    for column in columns:
+        display_name = (column.get("displayName") or "").strip()
+        if display_name in _SEMANTIC_DISCOVERY_DISPLAY_NAMES:
+            result.append(_sanitize_semantic_column(column))
+    return result
+
+
 def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> VacationFieldMapping:
     """Matchea `displayName` EXACTO (whitespace normalizado únicamente —
     sin case-folding, sin fuzzy, sin posición) contra los 6 labels
@@ -439,6 +516,7 @@ def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> Vacatio
         raise VacationSchemaError(
             stage="columns", missing_fields=missing, ambiguous_fields=ambiguous,
             available_columns=_sanitize_available_columns(columns),
+            semantic_columns=_sanitize_semantic_columns(columns),
         )
 
     return VacationFieldMapping(

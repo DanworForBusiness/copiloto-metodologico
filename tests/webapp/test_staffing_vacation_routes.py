@@ -139,7 +139,8 @@ def test_vacaciones_endpoint_schema_mismatch_is_fail_soft_own_state():
         assert response.status_code == 200
         assert response.json() == {
             "state": "schema_error", "stage": "columns",
-            "missing_fields": ["Nombre"], "ambiguous_fields": [], "available_columns": [],
+            "missing_fields": ["Nombre"], "ambiguous_fields": [],
+            "available_columns": [], "semantic_columns": [],
         }
     finally:
         staffing_router.StaffingService = orig
@@ -398,12 +399,70 @@ def test_vacaciones_endpoint_graph_error_response_has_no_available_columns_key(m
     response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
     assert response.status_code == 200
     assert "available_columns" not in response.json()
+    assert "semantic_columns" not in response.json()
 
 
 # test 11: el flujo exitoso (state=ok) sigue exactamente igual — sin
-# available_columns, sin ningún campo nuevo.
+# available_columns/semantic_columns, sin ningún campo nuevo.
 def test_vacaciones_endpoint_successful_flow_unchanged(monkeypatch):
     monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingVacationService())
     response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
     assert response.status_code == 200
     assert set(response.json().keys()) == {"state", "vacations"}
+
+
+# ============================================================================
+# Final Live Semantic Column Metadata Discovery corrective
+# ============================================================================
+
+def test_vacaciones_endpoint_schema_error_includes_semantic_columns(monkeypatch):
+    from webapp.services.staffing_repository import VacationSchemaError
+
+    class _SchemaMismatch:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError(
+                stage="columns", missing_fields=["Apellido", "Nombre"], ambiguous_fields=[],
+                available_columns=[{"display_name": "Colaborador", "name": "Colaborador"}],
+                semantic_columns=[
+                    {
+                        "display_name": "Colaborador", "name": "Colaborador", "kind": "lookup",
+                        "lookup_list_id": "6e512cd3-394a-461f-abcd-6613f2c21113", "lookup_column": "Title",
+                    },
+                    {"display_name": "¿Aprobado?", "name": "Approved", "kind": "boolean"},
+                ],
+            )
+    monkeypatch.setattr(staffing_router, "StaffingService", _SchemaMismatch)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["semantic_columns"][0]["kind"] == "lookup"
+    assert data["semantic_columns"][0]["lookup_list_id"] == "6e512cd3-394a-461f-abcd-6613f2c21113"
+    assert data["semantic_columns"][1]["kind"] == "boolean"
+
+
+def test_vacaciones_endpoint_semantic_columns_response_never_leaks_sensitive_material(monkeypatch):
+    from webapp.services.staffing_repository import VacationSchemaError
+    secret_token = "eyJ-super-secret-graph-token-4"
+
+    class _SchemaMismatch:
+        def get_vacation_overlay(self, *a, **kw):
+            raise VacationSchemaError(
+                stage="columns", missing_fields=["Apellido"], ambiguous_fields=[],
+                semantic_columns=[
+                    {
+                        "display_name": "Colaborador", "name": "Colaborador", "kind": "lookup",
+                        "lookup_list_id": "6e512cd3-394a-461f-abcd-6613f2c21113", "lookup_column": "Title",
+                    },
+                    {"display_name": "Tipo de Licencia", "name": "TipodeLicencia", "kind": "choice",
+                     "choices": ["Vacaciones", "Enfermedad"]},
+                ],
+            )
+    monkeypatch.setattr(staffing_router, "StaffingService", _SchemaMismatch)
+
+    response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": secret_token})
+    text = response.text
+    assert secret_token not in text
+    assert "Authorization" not in text and "Bearer" not in text
+    for pii in ("CUIL", "Legajo", "Comentario"):
+        assert pii not in text
