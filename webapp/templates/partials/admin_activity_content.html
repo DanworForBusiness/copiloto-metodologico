@@ -17,7 +17,17 @@
    top:-48px que .catalog-back ya usa solo, acá aplicado al bloque entero). #}
 <div class="dashboard-sticky-header">
   <a class="catalog-back" href="#" onclick="history.back();return false;">← Volver</a>
-  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">
+  {# `change from:.scope-area-checkbox` — SOLO los checkboxes de Ámbito/Área
+     auto-aplican al tildar/destildar (date/user/módulo siguen requiriendo
+     "Actualizar"). Necesario para que destildar un Ámbito recaliente en el
+     momento el faceting de Área (ver build_summary) — sin esto, un Área que
+     ya no aplica queda visualmente tildada hasta el submit manual, aunque el
+     filtro real ya la excluya. Clase dedicada en vez de
+     `.dashboard-checkbox-group input` (descendiente con espacio): el
+     micro-lenguaje de `hx-trigger` separa modificadores por espacio y rompe
+     al parsear un selector CSS que también tiene espacios (produce
+     `htmx:syntax:error` en consola, sin avisar de otra forma). #}
+  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
     <label class="whatsnew-filter">
       <span>Desde</span>
       <input type="date" name="date_from" value="{{ date_from }}">
@@ -37,10 +47,14 @@
     </label>
     <label class="whatsnew-filter">
       <span>Módulo</span>
+      {# Transversal (corrective A2 — Copilot Y Operations): {key, label}, no
+         un string plano — key es el identificador estable (round-trips en la
+         URL), label es lo visible (p. ej. "Asignaciones" para "assignments";
+         los módulos de Copiloto no tienen label mapeado, se ven tal cual). #}
       <select name="module">
         <option value="">Todos</option>
         {% for m in summary.available_modules %}
-        <option value="{{ m }}" {% if m == summary.selected_module %}selected{% endif %}>{{ m }}</option>
+        <option value="{{ m.key }}" {% if m.key == summary.selected_module %}selected{% endif %}>{{ m.label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -53,7 +67,7 @@
       <div class="dashboard-checkbox-group">
         {% for f in summary.scope_facets %}
         <label class="dashboard-checkbox-option">
-          <input type="checkbox" name="scope" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+          <input class="scope-area-checkbox" type="checkbox" name="scope" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
           <span>{{ f.label }}</span>
         </label>
         {% endfor %}
@@ -63,10 +77,10 @@
     {% if summary.area_facets %}
     <label class="whatsnew-filter whatsnew-filter--compact">
       <span>Área</span>
-      <div class="dashboard-checkbox-group">
+      <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
         {% for f in summary.area_facets %}
-        <label class="dashboard-checkbox-option">
-          <input type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+        <label class="dashboard-checkbox-option{% if f.disabled %} dashboard-checkbox-option--disabled{% endif %}">
+          <input class="scope-area-checkbox" type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %} {% if f.disabled %}disabled title="No aplica al Ámbito seleccionado"{% endif %}>
           <span>{{ f.label }}</span>
         </label>
         {% endfor %}
@@ -136,6 +150,9 @@
   </div>
 </details>
 
+{# Orden default de bloques (antes de cualquier drag/drop manual del owner):
+   Resumen (arriba, fuera de este bloque) → Tendencia → Módulos y usuarios →
+   Eventos y catálogo → Historia de preguntas → Árboles. #}
 {% if summary.daily_series %}
 <details class="dashboard-section" data-section-id="tendencia" open>
   <summary class="dashboard-section__head" draggable="true">
@@ -160,74 +177,6 @@
   </div>
 </details>
 {% endif %}
-
-<details class="dashboard-section" data-section-id="eventos-catalogo" open>
-  <summary class="dashboard-section__head" draggable="true">
-    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
-    <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Eventos y catálogo</span>
-    <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
-  </summary>
-  <div class="dashboard-section__body">
-    {# Panel interactivo: la izquierda es el censo de eventos (clickeable); al
-       elegir uno, la derecha muestra su desglose (catalog_view → por tipo de
-       vista; el resto → por usuario). Todos los desgloses vienen precalculados
-       en summary.event_breakdowns y el toggle es JS (initEventBreakdown en
-       app.js), sin request extra. Además, un clic en un módulo de "Módulos y
-       usuarios" filtra ESTA lista a los eventos de ese módulo — mismo patrón,
-       ahora cross-sección, vía initModuleFilter (data-module-breakdown). Nota:
-       "Vistas de catálogo por tipo" no reacciona: catalog_view no lleva módulo
-       en el payload. #}
-    {% macro event_rows(rows) %}
-    {% for row in rows %}
-    <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
-      <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ row.event }}</code></span>
-      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
-      <span class="activity-bar-count">{{ row.count }}</span>
-    </div>
-    {% endfor %}
-    {% endmacro %}
-    <div class="activity-grid-2" data-breakdown-group>
-      <div>
-        <p class="dashboard-subhead">
-          Eventos por tipo <span class="dashboard-subhead__hint">· click para desglosar →</span>
-          <span class="dashboard-subhead__filter" data-module-filter-label hidden>· Filtrado por <strong></strong> <button type="button" class="dashboard-subhead__reset" data-module-reset title="Volver a todos los módulos">✕</button></span>
-        </p>
-        <div data-module-breakdown="">{{ event_rows(summary.event_counts) }}</div>
-        {% for mod, rows in summary.module_event_breakdowns.items() %}
-        <div data-module-breakdown="{{ mod }}" hidden>{{ event_rows(rows) }}</div>
-        {% endfor %}
-      </div>
-      <div>
-        <div class="activity-breakdown__panel" data-breakdown="" hidden>
-          <div class="dashboard-empty">
-            <span class="dashboard-empty__label">Sin selección</span>
-            <p>Elegí un evento a la izquierda para ver su desglose (o volvé a hacer click en el elegido para des-seleccionarlo).</p>
-          </div>
-        </div>
-        {% for event, bd in summary.event_breakdowns.items() %}
-        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
-          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ event }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
-          {% if bd.rows %}
-          {% for r in bd.rows %}
-          <div class="activity-bar-row">
-            <span class="activity-bar-label">{{ r.label }}</span>
-            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%"></span></div>
-            <span class="activity-bar-count">{{ r.count }}</span>
-          </div>
-          {% endfor %}
-          {% else %}
-          <div class="dashboard-empty">
-            <span class="dashboard-empty__label">Sin desglose</span>
-            <p>Este evento no tiene un desglose disponible en el rango seleccionado.</p>
-          </div>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-</details>
 
 {% if summary.top_modules or summary.top_users %}
 <details class="dashboard-section" data-section-id="modulos-usuarios" open>
@@ -264,6 +213,115 @@
 </details>
 {% endif %}
 
+<details class="dashboard-section" data-section-id="eventos-catalogo" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    {# "Eventos" (antes "Eventos y catálogo", corrective A2 — Transversal
+       Module + Event Semantics): el nombre anterior era Copilot-centric
+       (catálogo no existe en Operations) e incorrecto ahora que la sección
+       es Hub-wide. #}
+    <span class="dashboard-section__title">Eventos</span>
+    <span class="dashboard-section__count">{{ summary.event_counts|length }} tipo(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    {# Panel interactivo: la izquierda es el censo de eventos (clickeable); al
+       elegir uno, la derecha muestra su desglose (catalog_view → por tipo de
+       vista; el resto → por usuario). Todos los desgloses vienen precalculados
+       en summary.event_breakdowns y el toggle es JS (initEventBreakdown en
+       app.js), sin request extra. Además, un clic en un módulo de "Módulos y
+       usuarios" filtra ESTA lista a los eventos de ese módulo — mismo patrón,
+       ahora cross-sección, vía initModuleFilter (data-module-breakdown). Nota:
+       "Vistas de catálogo por tipo" no reacciona: catalog_view no lleva módulo
+       en el payload.
+
+       Eventos de uso / Diagnóstico (corrective A2): separados visualmente con
+       la MISMA primitiva `dashboard-subhead` que ya usa el resto del
+       dashboard — nunca se ocultan los de diagnóstico (siguen inspeccionables,
+       ver HANDOFF), solo no se mezclan con adopción real. #}
+    {% macro event_rows(rows) %}
+    {% for row in rows %}
+    <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.event }}" role="button" tabindex="0" aria-label="Ver desglose de {{ row.event }}">
+      <span class="activity-bar-label"><code class="activity-event-name" title="{{ summary.event_descriptions.get(row.event, 'Evento sin descripción registrada.') }}">{{ row.event }}</code></span>
+      <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+      <span class="activity-bar-count">{{ row.count }}</span>
+    </div>
+    {% endfor %}
+    {% endmacro %}
+    <div class="activity-grid-2" data-breakdown-group>
+      <div>
+        <p class="dashboard-subhead">
+          Eventos por tipo <span class="dashboard-subhead__hint">· click para desglosar →</span>
+          <span class="dashboard-subhead__filter" data-module-filter-label hidden>· Filtrado por <strong></strong> <button type="button" class="dashboard-subhead__reset" data-module-reset title="Volver a todos los módulos">✕</button></span>
+        </p>
+        <div data-module-breakdown="">
+          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
+          {{ event_rows(summary.usage_event_counts) }}
+          {% if summary.diagnostic_event_counts %}
+          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
+          {{ event_rows(summary.diagnostic_event_counts) }}
+          {% endif %}
+        </div>
+        {% for mod, rows in summary.module_event_breakdowns.items() %}
+        {% set mod_usage = rows | selectattr('event_class', 'equalto', 'usage') | list %}
+        {% set mod_diag = rows | rejectattr('event_class', 'equalto', 'usage') | list %}
+        <div data-module-breakdown="{{ mod }}" hidden>
+          {% if mod_usage %}
+          <p class="dashboard-subhead" style="margin-top:10px">Eventos de uso</p>
+          {{ event_rows(mod_usage) }}
+          {% endif %}
+          {% if mod_diag %}
+          <p class="dashboard-subhead" style="margin-top:14px">Diagnóstico</p>
+          {{ event_rows(mod_diag) }}
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <div class="activity-breakdown__panel" data-breakdown="" hidden>
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin selección</span>
+            <p>Elegí un evento a la izquierda para ver su desglose (o volvé a hacer click en el elegido para des-seleccionarlo).</p>
+          </div>
+        </div>
+        {% for event, bd in summary.event_breakdowns.items() %}
+        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
+          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ event }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
+          {% if bd.rows %}
+          {% for r in bd.rows %}
+          <div class="activity-bar-row">
+            <span class="activity-bar-label">{{ r.label }}</span>
+            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%"></span></div>
+            <span class="activity-bar-count">{{ r.count }}</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin desglose</span>
+            <p>Este evento no tiene un desglose disponible en el rango seleccionado.</p>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</details>
+
+{% if summary.assistant_stories %}
+<details class="dashboard-section" data-section-id="preguntas" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Historia de preguntas al asistente</span>
+    <span class="dashboard-section__count">{{ summary.assistant_stories_total }} pregunta(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    {% include "partials/admin_activity_stories.html" %}
+  </div>
+</details>
+{% endif %}
+
 {% if summary.tree_started or summary.tree_runs %}
 <details class="dashboard-section" data-section-id="arboles" open>
   <summary class="dashboard-section__head" draggable="true">
@@ -291,20 +349,6 @@
 
     <p class="dashboard-subhead" style="margin-top:20px">Recorridos</p>
     {% include "partials/admin_activity_tree_runs.html" %}
-  </div>
-</details>
-{% endif %}
-
-{% if summary.assistant_stories %}
-<details class="dashboard-section" data-section-id="preguntas" open>
-  <summary class="dashboard-section__head" draggable="true">
-    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
-    <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Historia de preguntas al asistente</span>
-    <span class="dashboard-section__count">{{ summary.assistant_stories_total }} pregunta(s)</span>
-  </summary>
-  <div class="dashboard-section__body">
-    {% include "partials/admin_activity_stories.html" %}
   </div>
 </details>
 {% endif %}

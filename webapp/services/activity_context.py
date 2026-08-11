@@ -2,29 +2,42 @@
 activity_context.py
 ====================
 Vocabulario y normalización de CONTEXTO de plataforma para la actividad
-(Batch A1 — Shared Activity / Observability, Context Foundation).
+(Batch A1 — Shared Activity / Observability, Context Foundation; extendido en
+el corrective A2 — Transversal Module + Event Semantics).
 
-Dos dimensiones aditivas sobre el envelope de ``activity_service``:
+Jerarquía canónica congelada por el corrective:
+
+    scope → area → module (opcional) → event
 
 - ``scope`` — a qué ÁMBITO de Danwor Hub pertenece el evento. La autenticación
   pertenece a la PLATAFORMA, no a un workspace, por eso ``platform`` es un valor
   de primera clase junto a ``copilot`` y ``operations``.
 - ``area`` — el ÁREA funcional dentro de ese ámbito (auth, methodology,
   assistant, academy, catalog, staffing).
-
-`event` sigue siendo el identificador de acción; scope/area son contexto.
+- ``module`` — dimensión TRANSVERSAL y OPCIONAL de navegación (Copilot Y
+  Operations por igual, ver `MODULE_LABELS`) — antes se asumía "Copilot-only",
+  eso quedó retirado por el corrective.
+- ``event`` — QUÉ pasó. No debe repetir DÓNDE pasó si scope/area/module ya lo
+  representan (ver `normalize_event`) — por eso `staffing_overview_viewed`
+  pasa a `module_viewed` con `module=assignments`, en vez de seguir
+  prefijando el nombre del evento con la ubicación.
 
 Este módulo es una HOJA: no importa ``webapp.main``, ni FastAPI, ni Jinja, ni
 ``activity_service``. El sink de bajo nivel (``activity_service.log_activity``)
-NO importa este módulo: solo almacena el scope/area que el productor le pasa
-explícitamente. La CLASIFICACIÓN histórica (para registros viejos que no traen
-estos campos) vive acá y la consume el lector de analítica — una única función
-canónica, sin esparcir mapeos ``event → scope/area`` por el dashboard.
+NO importa este módulo: solo almacena scope/area/module tal cual el productor
+los pasa explícitamente. La CLASIFICACIÓN histórica (para registros viejos que
+no traen estos campos, o que usaban nombres de evento con la ubicación
+embebida) vive acá y la consume el lector de analítica — funciones canónicas
+únicas, sin esparcir mapeos por el dashboard.
 
-NO es un framework de taxonomía genérica: el mapa histórico enumera SOLO los
-eventos que productores reales emitieron alguna vez. Un evento desconocido cae a
-un fallback EXPLÍCITO (``unknown``/``unknown``) — nunca se clasifica en silencio
-como Copiloto.
+NO es un framework de taxonomía genérica: los mapas históricos enumeran SOLO
+eventos que productores reales emitieron alguna vez. Un evento desconocido cae
+a un fallback EXPLÍCITO (``unknown``/``unknown``, `event_class="unknown"``) —
+nunca se clasifica en silencio como Copiloto ni como uso genuino.
+
+IMPORTANTE: la normalización de NOMBRE de evento (`normalize_event`) y la
+clasificación uso/diagnóstico (`event_class`) son semántica de READ-MODEL
+únicamente — nunca se reescriben los JSONL históricos persistidos.
 """
 from __future__ import annotations
 
@@ -125,3 +138,128 @@ def context_of(record: dict) -> tuple[str, str]:
         return scope, area
     fallback_scope, fallback_area = classify(str(record.get("event") or ""))
     return (scope or fallback_scope), (area or fallback_area)
+
+
+# --- module (dimensión transversal opcional — corrective A2) ---
+# Identificadores estables (nunca el label visible en español). Los módulos de
+# Copiloto YA tienen su propio identificador estable (el `stem` del contenido,
+# p. ej. "01_arquitectura_y_conectividad") y NO se tocan acá — este mapa de
+# labels es SOLO para módulos compartidos nuevos que no vienen de un content
+# pack (hoy, únicamente Asignaciones). Un módulo sin label mapeado muestra su
+# key cruda (mismo criterio que scope_label/area_label).
+MODULE_ASSIGNMENTS = "assignments"
+MODULE_LABELS: dict[str, str] = {
+    MODULE_ASSIGNMENTS: "Asignaciones",
+}
+
+
+def module_label(key: str) -> str:
+    return MODULE_LABELS.get(key, key)
+
+
+# --- nombres de evento CANÓNICOS (corrective A2) ---
+# Regla congelada: el EVENTO describe QUÉ pasó, nunca DÓNDE — eso ya lo dicen
+# scope/area/module. `module_viewed` reemplaza tanto al histórico Copilot
+# `module_selected` como al histórico Staffing `staffing_overview_viewed`
+# (mismo hecho: se entró a un módulo). `data_load_failed`/
+# `data_load_diagnostics` reemplazan los nombres de Staffing con la ubicación
+# repetida en el propio nombre (`staffing_overview_error`,
+# `staffing_data_diagnostics`, etc.) — el contexto de FASE (carga inicial vs.
+# historial) se preserva en `payload.operation`, no en el nombre del evento.
+EVENT_MODULE_VIEWED = "module_viewed"
+EVENT_DATA_LOAD_FAILED = "data_load_failed"
+EVENT_DATA_LOAD_DIAGNOSTICS = "data_load_diagnostics"
+# `configuration_incomplete` (consistency check post-corrective): los
+# `staffing_*_config_incomplete` seguían siendo productores CURRENT (no solo
+# históricos) con la ubicación embebida en el nombre — la config incompleta
+# es un problema DISTINTO de un `data_load_failed` (no es Graph/transporte),
+# así que NO se fuerza a ese evento; gana su propio nombre genérico reusable.
+EVENT_CONFIGURATION_INCOMPLETE = "configuration_incomplete"
+
+# event → (nuevo event canónico, module inyectado o None, operation inyectada
+# o None). SOLO para eventos que renombramos — un evento no listado acá pasa
+# tal cual. NUNCA se reescribe el JSONL persistido — esto es pura
+# normalización de READ-MODEL, consumida por activity_analytics.
+_EVENT_RENAME: dict[str, tuple[str, str | None, str | None]] = {
+    # Copiloto — mismo hecho (vista de módulo), nombre nuevo. El module real
+    # sigue viniendo del propio registro (payload.module para históricos,
+    # el campo module de primera clase para nuevos) — nunca se inyecta acá.
+    "module_selected": (EVENT_MODULE_VIEWED, None, None),
+    # Operaciones · Staffing — Asignaciones. Antes la ubicación estaba en el
+    # NOMBRE del evento; ahora en `module`, con `event` genérico + reusable.
+    "staffing_overview_viewed": (EVENT_MODULE_VIEWED, MODULE_ASSIGNMENTS, None),
+    "staffing_overview_error": (EVENT_DATA_LOAD_FAILED, MODULE_ASSIGNMENTS, "initial"),
+    "staffing_historial_error": (EVENT_DATA_LOAD_FAILED, MODULE_ASSIGNMENTS, "history"),
+    "staffing_data_diagnostics": (EVENT_DATA_LOAD_DIAGNOSTICS, MODULE_ASSIGNMENTS, "initial"),
+    # `staffing_historial_diagnostics` no está en el corrective original palabra
+    # por palabra, pero es el análogo exacto de `staffing_data_diagnostics`
+    # para la fase de historial — dejarlo sin normalizar sería inconsistente
+    # (diagnóstico de carga inicial normalizado, diagnóstico de historial no).
+    "staffing_historial_diagnostics": (EVENT_DATA_LOAD_DIAGNOSTICS, MODULE_ASSIGNMENTS, "history"),
+    # Consistency check post-corrective: estos SEGUÍAN siendo productores
+    # CURRENT (no solo históricos, ver webapp/routers/staffing.py) con la
+    # ubicación embebida en el nombre — quedaron afuera de la primera pasada
+    # por error, no a propósito. Config incompleta es un problema DISTINTO de
+    # un `data_load_failed` (no es Graph/transporte) — no se fuerza a ese
+    # evento, gana su propio nombre genérico reusable.
+    "staffing_overview_config_incomplete": (EVENT_CONFIGURATION_INCOMPLETE, MODULE_ASSIGNMENTS, "initial"),
+    "staffing_historial_config_incomplete": (EVENT_CONFIGURATION_INCOMPLETE, MODULE_ASSIGNMENTS, "history"),
+}
+
+
+def normalize_event(raw_event: str) -> tuple[str, str | None, str | None]:
+    """(event canónico, module inyectado o None, operation inyectada o None)
+    para un `raw_event` — pasa tal cual (module=None, operation=None) si no
+    está en el mapa de renombre. Nunca infiere de `payload`; eso lo hace el
+    lector (activity_analytics), que sabe combinar esto con lo que el propio
+    registro ya trae explícito (el registro explícito siempre gana)."""
+    event, module, operation = _EVENT_RENAME.get((raw_event or "").strip(), (raw_event, None, None))
+    return event, module, operation
+
+
+# --- event_class (uso vs. diagnóstico — corrective A2, solo READ-MODEL) ---
+# Clasificación sobre el EVENTO CANÓNICO (post-`normalize_event`), no sobre el
+# raw — así `staffing_overview_error` (histórico) y `data_load_failed`
+# (nuevo) clasifican igual, sin duplicar el mapa. `unknown` es el default
+# explícito: un evento no reconocido nunca cae en "usage" en silencio.
+EVENT_CLASS_USAGE = "usage"
+EVENT_CLASS_DIAGNOSTIC = "diagnostic"
+EVENT_CLASS_UNKNOWN = "unknown"
+
+_USAGE_EVENTS: frozenset[str] = frozenset({
+    "login",
+    EVENT_MODULE_VIEWED,
+    "module_continue",
+    "module_reached_end",
+    "nav_jump",
+    "link_external",
+    "disclosure_toggle",
+    "theme_change",
+    "tree_started",
+    "tree_step",
+    "tree_outcome",
+    "assistant_query",
+    "section_analyze",  # histórico, reemplazado por assistant_query — misma clase
+    "academy_selected",
+    "catalog_view",
+    "catalog_regenerate",
+})
+_DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
+    EVENT_DATA_LOAD_FAILED,
+    EVENT_DATA_LOAD_DIAGNOSTICS,
+    # Config incompleta no es "uso" (no es adopción real). Se clasifica por
+    # el nombre CANÓNICO ya normalizado — ver `_EVENT_RENAME`.
+    EVENT_CONFIGURATION_INCOMPLETE,
+})
+
+
+def event_class(event: str) -> str:
+    """Clasificación de READ-MODEL para métricas de adopción — nunca se
+    persiste en el envelope. `event` debe ser el YA NORMALIZADO (canónico),
+    no el raw — ver `normalize_event`."""
+    key = (event or "").strip()
+    if key in _USAGE_EVENTS:
+        return EVENT_CLASS_USAGE
+    if key in _DIAGNOSTIC_EVENTS:
+        return EVENT_CLASS_DIAGNOSTIC
+    return EVENT_CLASS_UNKNOWN

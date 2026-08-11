@@ -740,6 +740,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    (form checkbox + HTMX) y el filtro de Estado de Staffing (Alpine x-model). Solo
    gramática visual: el binding es del consumidor, no se comparte engine de filtro. */
 .dashboard-checkbox-group { display: flex; flex-direction: column; gap: 3px; }
+/* Área (Actividad) tiene el doble de opciones que Ámbito — en una sola columna
+   queda mucho más alta que el resto de los filtros de la barra. Modificador
+   opcional (solo lo usa Área, NUNCA Ámbito/Estado) para repartir en 2 columnas
+   y emparejar la altura visualmente. */
+.dashboard-checkbox-group--grid-2 {
+  display: grid; grid-template-columns: repeat(2, auto); column-gap: 14px; row-gap: 3px;
+}
 .dashboard-checkbox-option {
   display: inline-flex; align-items: center; gap: 5px; padding: 1px 0;
   cursor: pointer; color: #55555c; font: 600 .66rem var(--mono); user-select: none;
@@ -748,6 +755,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-checkbox-option input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
 .dashboard-checkbox-option:has(input:checked) { color: #1f1f24; font-weight: 700; }
 .content-theme-dark .dashboard-checkbox-option:has(input:checked) { color: #e4e4ec; }
+/* Área incompatible con el Ámbito elegido (Actividad): sigue OCUPANDO SU
+   LUGAR en la grilla (mismo criterio que Ámbito, estable — ver
+   activity_analytics.build_summary) pero read-only, para que destildar un
+   Ámbito no haga "saltar" el resto de las opciones de Área. */
+.dashboard-checkbox-option--disabled { cursor: not-allowed; opacity: .38; }
+.dashboard-checkbox-option--disabled input { cursor: not-allowed; }
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/

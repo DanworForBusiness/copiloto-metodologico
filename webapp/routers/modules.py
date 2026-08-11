@@ -105,7 +105,12 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             initial_tab = ""
     elif initial_tab == "section" and access.is_readonly(request):
         initial_tab = ""
-    log_activity("module_selected", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=stem, pack=selected)
+    # `module_viewed` (nombre canónico transversal — ver activity_context /
+    # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
+    # disparador (una vista de módulo). El identificador estable (`stem`) NO
+    # cambia — se sigue pasando en `module`, ahora como campo de primera clase
+    # del envelope en vez de vivir solo en `payload`.
+    log_activity("module_viewed", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=stem, pack=selected)
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada

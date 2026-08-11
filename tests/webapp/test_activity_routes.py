@@ -90,9 +90,10 @@ def test_checkbox_state_survives_htmx_refresh(monkeypatch, tmp_path):
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot&scope=platform").text
     assert 'name="scope" value="copilot" checked' in t
     assert 'name="scope" value="platform" checked' in t
-    # operations queda faceteado fuera (su única área, staffing, no está en la
-    # selección) — no se ofrece como opción.
-    assert 'name="scope" value="operations"' not in t
+    # Ámbito es estable (nunca desaparece por la selección de Área/de sí mismo):
+    # "operations" sigue OFRECIDO como opción, solo que destildado.
+    assert 'name="scope" value="operations" >' in t
+    assert 'name="scope" value="operations" checked' not in t
 
 
 # ── item 18: selección inválida → fallback determinístico (todo) ──────────────
@@ -123,6 +124,70 @@ def test_zero_selection_guard_prevents_unchecking_last_scope_or_area_option():
     assert 'input.closest(".dashboard-checkbox-group")' in _APP_JS
     assert 'group.querySelector(`input[name="${input.name}"]:checked`)' in _APP_JS
     assert "if (!stillChecked) input.checked = true;" in _APP_JS
+    # CAPTURE (no bubble): tiene que ganarle la carrera al listener de htmx del
+    # auto-apply (ver test_ambito_area_checkboxes_auto_apply_on_change abajo) —
+    # si no, htmx podría leer el checkbox todavía destildado.
+    assert "}, { capture: true });" in _APP_JS
+
+
+# ── feedback del owner: destildar un Ámbito debe recalentar Área en el acto ───
+# El faceting server-side (build_summary) ya excluye correctamente las áreas
+# que no aplican al Ámbito seleccionado — lo que faltaba era que el checkbox
+# de Área lo reflejara ANTES del submit manual ("Actualizar"), no solo después.
+# Auto-aplicar el form al tildar/destildar Ámbito o Área (sin tocar date/user/
+# módulo, que siguen requiriendo el botón) resuelve esto reusando el mismo
+# faceting server-side, sin duplicar la relación ámbito↔área en JS.
+
+def test_ambito_area_checkboxes_auto_apply_on_change(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'hx-trigger="submit, change from:.scope-area-checkbox"' in t
+    assert 'class="scope-area-checkbox"' in t
+
+
+def test_deselecting_ambito_disables_its_exclusive_area_without_removing_it(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    # Destildar Operaciones (solo scope=copilot+platform quedan) → "staffing"
+    # (exclusiva de Operaciones) sigue OFRECIDA (mismo lugar en la grilla,
+    # sin "salto" visual) pero disabled y destildada — nunca desaparece del DOM.
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=copilot&scope=platform").text
+    assert 'name="area" value="staffing"' in t
+    assert 'name="area" value="staffing" checked' not in t
+    assert 'name="area" value="staffing"  disabled' in t
+
+
+# ── feedback del owner: Área queda muy alta en una sola columna ───────────────
+
+def test_area_checkbox_group_uses_2column_grid_not_ambito(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span>Área</span>\n      <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">' in t
+    assert '<span>Ámbito</span>\n      <div class="dashboard-checkbox-group">' in t
+
+
+# ── feedback del owner: orden default de bloques ──────────────────────────────
+
+def test_default_section_order_is_tendencia_modulos_eventos_preguntas_arboles(monkeypatch, tmp_path):
+    rows = _HUB_ROWS + [
+        {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "assistant_query", "user": "u@d.com", "name": "U", "scope": "copilot", "area": "assistant", "payload": {"question": "¿Cómo funciona X?"}},
+        {"ts_utc": "2026-03-01T10:04:00+00:00", "event": "tree_started", "user": "u@d.com", "name": "U", "scope": "copilot", "area": "methodology", "payload": {"tree_id": "t1", "tree_title": "Árbol de prueba"}},
+    ]
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    ids = ["tendencia", "modulos-usuarios", "eventos-catalogo", "preguntas", "arboles"]
+    positions = [t.index(f'data-section-id="{sid}"') for sid in ids]
+    assert positions == sorted(positions), f"orden real por posición: {positions}"
+
+
+# ── feedback del owner: el panel izquierdo no era redimensionable en esta página ─
+
+def test_full_page_includes_sidebar_resize_handle(monkeypatch, tmp_path):
+    _seed(monkeypatch, tmp_path)
+    t = _owner_client(monkeypatch).get("/admin/activity").text
+    assert 'data-resize="left"' in t
 
 
 # ── item 19: gate owner-only + diagnóstico sin cambios ────────────────────────
@@ -146,9 +211,11 @@ def test_full_page_and_partial_share_filter_semantics(monkeypatch, tmp_path):
     part = _hx(c, "/admin/activity?scope=operations").text           # HTMX fragment
     for t in (full, part):
         assert 'name="scope" value="operations" checked' in t
-        # Área faceteada a staffing en ambos caminos.
+        # Área faceteada a staffing en ambos caminos; methodology sigue
+        # ofrecida (mismo lugar en la grilla) pero disabled/destildada.
         assert 'name="area" value="staffing" checked' in t
-        assert 'name="area" value="methodology"' not in t
+        assert 'name="area" value="methodology" checked' not in t
+        assert 'name="area" value="methodology"  disabled' in t
 
 
 # ── item 21: sin métricas de negocio de Operations en el Activity Dashboard ───
@@ -156,7 +223,65 @@ def test_full_page_and_partial_share_filter_semantics(monkeypatch, tmp_path):
 def test_no_operations_business_metrics_invented(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations").text
-    assert "staffing_overview_viewed" in t                           # sí: conteo de uso
+    assert "module_viewed" in t                                      # sí: conteo de uso (canónico, corrective A2)
     # no: KPIs de negocio de Staffing (eso es el dashboard de Staffing, no éste).
     for label in ("Consultores", "Horas activas", "utilization", "capacity", "Disponibilidad de asignación"):
         assert label not in t
+
+
+# ── corrective A2 — Transversal Module + Event Semantics (UI, items 36-41) ──
+
+_TRANSVERSAL_MODULE_ROWS = _HUB_ROWS + [
+    # Diagnóstico de Staffing histórico (raw, sin module/operation explícitos) —
+    # debe normalizar a data_load_failed/assignments/operation=initial y NUNCA
+    # aparecer como "Eventos de uso" ni inflar Top módulos.
+    {"ts_utc": "2026-03-01T10:03:00+00:00", "event": "staffing_overview_error", "user": "ops@d.com", "name": "Ops", "scope": "operations", "area": "staffing", "payload": {"error_type": "ConnectionError"}},
+]
+
+
+def _seed_transversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in _TRANSVERSAL_MODULE_ROWS) + "\n", encoding="utf-8",
+    )
+
+
+def test_module_filter_renders_asignaciones_for_operations(monkeypatch, tmp_path):
+    # test 36/38: el filtro Módulo expone "Asignaciones" (label) para
+    # module="assignments" (key) cuando hay actividad real de Staffing.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations&area=staffing").text
+    assert '<option value="assignments"' in t
+    assert ">Asignaciones<" in t
+
+
+def test_operations_only_view_shows_nonzero_module_count(monkeypatch, tmp_path):
+    # test 37: ya no dice "0 módulo(s)" para una vista Operations-only —
+    # module_viewed (ex staffing_overview_viewed) cuenta como visita de módulo.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations&area=staffing").text
+    assert "0 módulo(s)" not in t
+    assert "1 módulo(s)" in t
+
+
+def test_eventos_section_title_is_neutral(monkeypatch, tmp_path):
+    # test 39: título de sección neutral (Hub-wide), ya no Copilot-centric.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span class="dashboard-section__title">Eventos</span>' in t
+    assert "Eventos y catálogo" not in t
+
+
+def test_usage_and_diagnostic_events_are_visually_separated(monkeypatch, tmp_path):
+    # test 40/41: uso y diagnóstico en dos grupos separados (misma primitiva
+    # dashboard-subhead) — el diagnóstico sigue inspeccionable, nunca oculto.
+    _seed_transversal(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert ">Eventos de uso<" in t
+    assert ">Diagnóstico<" in t
+    # El diagnóstico normalizado (data_load_failed) sigue visible/inspeccionable.
+    assert "data_load_failed" in t
+    usage_pos = t.index(">Eventos de uso<")
+    diag_pos = t.index(">Diagnóstico<")
+    diag_event_pos = t.index("data_load_failed")
+    assert usage_pos < diag_pos < diag_event_pos                  # el evento de diagnóstico cae DESPUÉS del subhead Diagnóstico

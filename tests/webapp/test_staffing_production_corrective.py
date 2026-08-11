@@ -301,16 +301,159 @@ def test_diagnostics_logged_on_successful_data_load_contains_no_token_or_assignm
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "super-secret-tok"})
     assert response.status_code == 200
 
-    diag_calls = [c for c in calls if c[0] == "staffing_data_diagnostics"]
+    # `data_load_diagnostics` (corrective A2) reemplaza al histórico
+    # `staffing_data_diagnostics`. El fake no declara `module`/`operation`
+    # como params explícitos, así que caen en `**payload` junto al resto.
+    diag_calls = [c for c in calls if c[0] == "data_load_diagnostics"]
     assert len(diag_calls) == 1
     payload = diag_calls[0][1]
     assert payload == {
+        "module": "assignments", "operation": "initial",
         "asignaciones_rows": 5, "asignaciones_pages": 1, "asignaciones_elapsed_ms": 3000.0,
         "asignaciones_filter_used": True, "asignaciones_fallback_used": False,
         "total_elapsed_ms": 3100.0,
     }
     assert "super-secret-tok" not in str(payload)
     assert "graph_token" not in payload
+
+
+# ============================================================================
+# CORRECTIVE A2 — Transversal Module + Event Semantics: nuevos productores
+# canónicos de Staffing (tests 5/6/7/8 del corrective — ver HANDOFF)
+# ============================================================================
+
+def _owner_client_and_calls(monkeypatch):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "staffing-test@danwor.com")
+    session = auth_service.create_session(
+        {"email": "staffing-test@danwor.com", "name": "Staffing Test", "first_name": "Staffing", "family_name": "Test"}
+    )
+    client = TestClient(app)
+    client.cookies.set(auth_service.COOKIE_NAME, session)
+    calls = []
+
+    def _fake_log_verbose(event_type, user=None, *, scope=None, area=None, module=None, **payload):
+        calls.append((event_type, module, payload))
+
+    monkeypatch.setattr(staffing_router, "log_verbose", _fake_log_verbose)
+    return client, calls
+
+
+def test_initial_load_error_persists_canonical_data_load_failed_operation_initial(monkeypatch):
+    # test 5 del corrective: error de Graph en la carga INICIAL persiste el
+    # evento canónico `data_load_failed` con `module=assignments` y
+    # `payload.operation=initial` — reemplaza al histórico
+    # `staffing_overview_error`.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _RaisingService:
+        def get_overview(self, token, **kwargs):
+            # NO RuntimeError: ese tipo lo captura la rama de config
+            # incompleta (ver staffing.py) — un error de Graph/transporte
+            # genuino es otra excepción cualquiera.
+            raise ConnectionError("graph boom")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RaisingService())
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    failed = [c for c in calls if c[0] == "data_load_failed"]
+    assert len(failed) == 1
+    _, module, payload = failed[0]
+    assert module == "assignments"
+    assert payload["operation"] == "initial"
+    assert payload["error_type"] == "ConnectionError"
+    assert "tok" not in str(payload)
+
+
+def test_historical_load_error_persists_canonical_data_load_failed_operation_history(monkeypatch):
+    # test 6 del corrective: error de Graph en la carga de HISTORIAL persiste
+    # el MISMO evento canónico, distinguible por `operation=history` —
+    # reemplaza al histórico `staffing_historial_error`.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _RaisingHistoryService:
+        def get_overview(self, token, **kwargs):
+            raise ConnectionError("graph boom historial")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RaisingHistoryService())
+    response = client.post("/operaciones/staffing/asignaciones/historial", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    failed = [c for c in calls if c[0] == "data_load_failed"]
+    assert len(failed) == 1
+    _, module, payload = failed[0]
+    assert module == "assignments"
+    assert payload["operation"] == "history"
+    assert payload["error_type"] == "ConnectionError"
+
+
+def test_historial_diagnostics_persist_canonical_data_load_diagnostics_operation_history(monkeypatch):
+    # Análogo de data_load_diagnostics/operation=initial ya probado arriba —
+    # el camino exitoso del ENDPOINT de historial normaliza
+    # `staffing_historial_diagnostics` al mismo evento canónico, con
+    # operation=history (extensión consistente de este corrective, ver HANDOFF).
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _RecordingHistoryService:
+        last_diagnostics = {
+            "asignaciones": {"rows": 3, "pages": 1, "elapsed_ms": 500.0, "filter_used": True, "fallback_used": False},
+            "total_elapsed_ms": 520.0,
+        }
+
+        def get_overview(self, token, **kwargs):
+            return []
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingHistoryService())
+    response = client.post("/operaciones/staffing/asignaciones/historial", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    diag = [c for c in calls if c[0] == "data_load_diagnostics"]
+    assert len(diag) == 1
+    _, module, payload = diag[0]
+    assert module == "assignments"
+    assert payload["operation"] == "history"
+    assert "tok" not in str(payload)
+
+
+def test_initial_config_incomplete_persists_canonical_configuration_incomplete_operation_initial(monkeypatch):
+    # Consistency check post-corrective: `staffing_overview_config_incomplete`
+    # seguía siendo un productor CURRENT (no solo histórico) — normaliza al
+    # evento canónico reusable `configuration_incomplete` con
+    # `module=assignments`/`operation=initial`. NO se fuerza a
+    # `data_load_failed`: config incompleta no es un fallo de Graph/transporte.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _ConfigIncompleteService:
+        def get_overview(self, token, **kwargs):
+            raise RuntimeError("config de Staffing incompleta")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _ConfigIncompleteService())
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
+    assert len(incomplete) == 1
+    _, module, payload = incomplete[0]
+    assert module == "assignments"
+    assert payload["operation"] == "initial"
+    assert "tok" not in str(payload)
+
+
+def test_historial_config_incomplete_persists_canonical_configuration_incomplete_operation_history(monkeypatch):
+    # Análogo de arriba para el endpoint de historial — mismo evento
+    # canónico, distinguible por `operation=history`.
+    client, calls = _owner_client_and_calls(monkeypatch)
+
+    class _ConfigIncompleteHistoryService:
+        def get_overview(self, token, **kwargs):
+            raise RuntimeError("config de Staffing incompleta")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", lambda: _ConfigIncompleteHistoryService())
+    response = client.post("/operaciones/staffing/asignaciones/historial", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    incomplete = [c for c in calls if c[0] == "configuration_incomplete"]
+    assert len(incomplete) == 1
+    _, module, payload = incomplete[0]
+    assert module == "assignments"
+    assert payload["operation"] == "history"
+    assert "tok" not in str(payload)
 
 
 def test_fallback_usage_is_observable_in_diagnostics_flag(monkeypatch):

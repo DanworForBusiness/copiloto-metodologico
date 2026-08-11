@@ -694,7 +694,13 @@ function initModuleFilter(scope) {
 // `document` (no en `#activity-dashboard`): sobrevive el swap HTMX del
 // fragmento entero sin necesidad de re-cablearse en cada htmx:load. Filtra
 // por `name` ("scope"/"area") para no interferir con los checkboxes de
-// Estado de Staffing (Alpine `x-model`, sin atributo `name`).
+// Estado de Staffing (Alpine `x-model`, sin atributo `name`). CAPTURE (no
+// bubble): el form de Actividad auto-aplica con `hx-trigger="change from:
+// .dashboard-checkbox-group input"` — si este guard corriera en bubble
+// perdería la carrera contra el listener de htmx (atado directo al input,
+// dispara ANTES de burbujear a `document`) y htmx llegaría a mandar el
+// request con el checkbox todavía destildado. En capture, este handler
+// corre primero y revierte el `checked` ANTES de que htmx lo lea.
 document.addEventListener("change", event => {
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || input.type !== "checkbox") return;
@@ -704,7 +710,7 @@ document.addEventListener("change", event => {
   if (!group) return;
   const stillChecked = group.querySelector(`input[name="${input.name}"]:checked`);
   if (!stillChecked) input.checked = true;
-});
+}, { capture: true });
 
 // Asignaciones Dashboard v1 (Operaciones/Staffing) — Alpine x-data, mismo
 // estilo que copilotLayout(). `payload` llega YA normalizado desde el
