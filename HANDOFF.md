@@ -4665,7 +4665,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 `feat(staffing): overlay vacations on consultant timeline` +
 `fix(staffing): discover vacation fields from Graph metadata` +
 `fix(staffing): expose safe vacation Graph diagnostics` +
-`fix(staffing): expose safe vacation column metadata`, branch
+`fix(staffing): expose safe vacation column metadata` +
+`fix(staffing): expose vacation semantic column metadata`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4799,7 +4800,7 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — OWNER LIVE SMOKE #1 y #2
+### Validación contra datos reales — OWNER LIVE SMOKE #1, #2 y #3
 
 El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
 Field Discovery ya desbloqueaba esto sin acción manual previa):
@@ -4865,26 +4866,80 @@ nunca PII, nunca el token/headers/body. Esto NO resuelve el mapeo
 automáticamente — es puramente para que el owner lea el contrato real y
 lo confirme en un corrective posterior, basado en evidencia.
 
-**Root cause sigue PENDIENTE de owner live smoke #3**: con `available_
-columns` en la respuesta, la PRÓXIMA vez que el owner ejercite el overlay
-va a poder leer los `displayName`/`name` reales de la lista y decirnos
-cuáles corresponden semánticamente a Apellido/Nombre/Motivo/Desde/Hasta/
-Estado. Ningún mapeo se cambió en este corrective — sigue prohibido
-adivinar alias, fuzzy-match, o inferir por posición/tipo hasta tener esa
-evidencia.
+### OWNER LIVE SMOKE #3 — contrato real de columnas + candidatos semánticos
+
+Con `available_columns` en la respuesta, el owner leyó el schema real de la
+lista y devolvió el contrato completo de `displayName → name`:
+
+```
+Solicitud             -> Title
+Detalle                -> ReasonForTravel
+Solicitante            -> Requester
+Fecha de inicio        -> TravelStartDate
+Fecha de finalización  -> TravelEndDate
+Duración               -> TravelDuration
+¿Aprobado?             -> Approved
+Aprobador              -> Aprobador
+Tipo de Licencia       -> TipodeLicencia
+Comentarios            -> Comentarios
+¿Aprobado CCHH?        -> (internal name encoded por SharePoint)
+Colaborador            -> Colaborador
+Remplazo               -> Remplazo
+```
+
+**Confirmado**: los labels del XLSX offline NO son el schema SharePoint —
+la lista real usa una nomenclatura completamente distinta (probablemente
+un formulario/flujo de aprobación de licencias más genérico, del cual
+Vacaciones es solo un `Tipo de Licencia` posible). Candidatos semánticos
+para el mapeo final: `Colaborador` (persona), `TravelStartDate`/
+`TravelEndDate` (fechas), `TipodeLicencia` (filtro de tipo, reemplaza a
+`Motivo`), `Approved`/`¿Aprobado CCHH?` (filtro de aprobación, reemplaza a
+`Estado`).
+
+**Hallazgo importante**: existe una columna `Colaborador` dedicada. Si es
+un **lookup** hacia la lista canónica de Colaboradores
+(`SHAREPOINT_COLABORADORES_LIST_ID = 6e512cd3-394a-461f-abcd-6613f2c21113`,
+la MISMA que ya usa Asignaciones), el join final podría resolverse por
+**identidad exacta de lookup** — eliminando la necesidad del join por
+nombre normalizado (`_normalize_consultant_name`) que implementamos a
+ciegas antes de tener este contrato.
+
+**Corrective — Final Live Semantic Column Metadata Discovery** (ver
+HANDOFF): en `VacationSchemaError`, se agrega `semantic_columns` — metadata
+TIPADA, SOLO para las 6 columnas semánticas candidatas (`Colaborador`/
+`Fecha de inicio`/`Fecha de finalización`/`Tipo de Licencia`/`¿Aprobado?`/
+`¿Aprobado CCHH?`). `kind` se deriva ESTRICTAMENTE de qué faceta de
+`columnDefinition` está presente en la respuesta real de Graph
+(`lookup`/`choice`/`boolean`/`dateTime`/etc.) — nunca inferido de
+displayName/internal name. Para `lookup` expone `lookup_list_id`/
+`lookup_column`; para `choice` expone `choices` (labels de definición de
+columna, metadata de schema — NUNCA valores de item); boolean/dateTime
+exponen solo su `kind`/formato. Temporal y de descubrimiento — NO resuelve
+el mapeo de negocio final, NO usa `¿Aprobado CCHH?`, NO cambia fechas ni
+filtrado.
+
+**Mapeo final sigue PENDIENTE de owner live smoke #4**: con `semantic_
+columns` en la respuesta, el owner podrá confirmar — (1) si `Colaborador`
+es lookup y si apunta a la lista de Colaboradores real, (2) si `Approved`
+es boolean o choice y sus choices exactos, (3) tipo/choices de `¿Aprobado
+CCHH?`, (4) choices exactos de `Tipo de Licencia`, (5) si `TravelStartDate`/
+`TravelEndDate` son `dateTime`. Esas respuestas definen el contrato de
+implementación FINAL — sin adivinar, sin fuzzy-match, sin inferencia por
+posición/tipo hasta tener esa evidencia.
 
 ### Gate
 
-Targeted: Vacaciones repository (47 tests, incluye 12 de metadata
-resolution + 4 de integration flow + 6 de la matriz stage×status + 9 del
-corrective de column contract discovery) + Vacaciones service (21 tests) +
-Vacaciones routes (22 tests, incluye 4 de safe diagnostics + 4 de
-available_columns) + Vacaciones UI/contenido (14 tests) — 100 tests de
-Vacaciones en total, todos GREEN. Staffing regression completo (todos los
-archivos `test_staffing_*.py`) + module-registry + Activity — GREEN, sin
-debilitar ningún test existente. Full suite **812 passed / 1 skipped**
-(+100 sobre el baseline de 712), route-contract GREEN, route surface **84,
-SIN CAMBIOS** (ningún corrective de Vacaciones agregó una ruta nueva).
+Targeted: Vacaciones repository (55 tests, incluye 12 de metadata
+resolution + 4 de integration flow + 6 de la matriz stage×status + 9 de
+column contract discovery + 15 del corrective de semantic column metadata)
++ Vacaciones service (21 tests) + Vacaciones routes (24 tests, incluye 4 de
+safe diagnostics + 4 de available_columns + 2 de semantic_columns) +
+Vacaciones UI/contenido (14 tests) — 114 tests de Vacaciones en total,
+todos GREEN. Staffing regression completo (todos los archivos
+`test_staffing_*.py`) + module-registry + Activity — GREEN, sin debilitar
+ningún test existente. Full suite **826 passed / 1 skipped** (+114 sobre
+el baseline de 712), route-contract GREEN, route surface **84, SIN
+CAMBIOS** (ningún corrective de Vacaciones agregó una ruta nueva).
 
 ---
 
