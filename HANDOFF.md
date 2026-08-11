@@ -4662,7 +4662,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 
 ## STAFFING — VACATION TIMELINE OVERLAY — IMPLEMENTED / PENDING CI
 (commits funcionales `feat(staffing): add vacation source integration` +
-`feat(staffing): overlay vacations on consultant timeline`, branch
+`feat(staffing): overlay vacations on consultant timeline` +
+`fix(staffing): discover vacation fields from Graph metadata`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4696,12 +4697,14 @@ directo — permitió confirmar, SOLO a nivel de contrato offline:
   Cliente) — evidencia de Power Query real del reporte "Solicitud
   vacaciones" existente, List ID `36452eea-cc7c-40ce-bf77-80b4bdfa1d47`.
 
-**Sigue sin LIVE GRAPH VALIDATION**: el List ID/site son KNOWN FROM LEGACY
+**Sigue sin LIVE GRAPH VALIDATION del List ID/site**: KNOWN FROM LEGACY
 SOURCE CONFIGURATION (mismo estado que los 3 list ID originales de
-Asignaciones en su propio discovery) — los internal names de columna
-(`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) NUNCA se infirieron
-desde los display labels del export; quedan sin default de producción en
-`config.py` hasta confirmarse contra `/sites/{id}/lists/{id}/columns` real.
+Asignaciones en su propio discovery). Los internal names de columna
+(`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) YA NO requieren
+discovery manual — ver el corrective "Runtime SharePoint Field Discovery"
+más abajo: se resuelven en cada request contra `/sites/{id}/lists/{id}/
+columns` con el mismo `access_token` delegado del owner, sin que ningún
+agente ni humano necesite confirmarlos a mano de antemano.
 
 ### Implementación
 
@@ -4716,11 +4719,36 @@ names, no necesitan config por tenant). Devuelve `VacationPeriod`
 servicio. `StaffingRepository.get_consultants(access_token)` lee SOLO
 Colaboradores (id + nombre), reusando `colaborador_title` de
 `StaffingFieldMapping` — sin forzar una lectura completa de
-Asignaciones/Proyectos. Config nueva: `SHAREPOINT_VACACIONES_LIST_ID`
-(único default de producción, KNOWN FROM LEGACY SOURCE) +
-`SHAREPOINT_VACACIONES_FIELD_{APELLIDO,NOMBRE,MOTIVO,DESDE,HASTA,ESTADO}`
-(sin default a propósito, mismo mecanismo que los 8 campos REQUERIDOS de
-Asignaciones).
+Asignaciones/Proyectos. Config nueva: SOLO
+`SHAREPOINT_VACACIONES_LIST_ID` (default de producción, KNOWN FROM LEGACY
+SOURCE) — identidad de la fuente, no schema de columnas.
+
+**Corrective — Runtime SharePoint Field Discovery** (ver HANDOFF): los 6
+internal names YA NO son config `.env` sin default (el diseño original
+bloqueaba la validación live porque este agente no tiene un browser
+autenticado con el cual descubrirlos a mano). En cambio,
+`resolve_vacation_field_mapping(site_id, list_id, access_token)` los
+resuelve en RUNTIME, con el MISMO `access_token` delegado que ya llega en
+el POST de cada request — sin auth nueva, sin credenciales nuevas, sin
+requerir Claude in Chrome ni DevTools. Contrato semántico exacto (`display
+Name` de Graph, no internal name): `Apellido`, `Nombre`, `Motivo`, `Desde`,
+`Hasta`, `Estado`. `_resolve_vacation_field_mapping_from_columns` matchea
+EXACTO (whitespace normalizado, sin case-folding, sin fuzzy, sin
+posición); 0 candidatos = faltante, ≥2 candidatos con el mismo
+`displayName` = ambiguo — ambos levantan `VacationSchemaError` (NUNCA
+elige un candidato al azar). `VacationSchemaError` deriva de `Exception`,
+NO de `RuntimeError` — es un problema de RUNTIME/SOURCE-SCHEMA, nunca de
+configuración de deployment; el router lo trata igual que cualquier otra
+falla de Graph (`data_load_failed`/`graph_error`), nunca como
+`configuration_incomplete` (esa sigue siendo, únicamente,
+`SHAREPOINT_GESTION_SITE_ID` ausente). La resolución EXITOSA se cachea
+in-process con TTL de 300s (mismo patrón que
+`core/sharepoint_cases.py::_ttl_cache`, reimplementado localmente — keyed
+por fingerprint de token + site/list, NUNCA por el token crudo); ninguna
+falla (401/403/columna faltante/ambigua) se cachea. **Ya NO se requieren
+las 6 env vars `SHAREPOINT_VACACIONES_FIELD_*`** — removidas de
+`config.py`; el único requisito de configuración de deployment para
+Vacaciones sigue siendo el List ID (ya provisto con default).
 
 **Identidad/join**: `_normalize_consultant_name` (trim + colapso de
 espacios + casefold + folding NFKD de diacríticos, SIN fuzzy-matching, sin
@@ -4769,30 +4797,35 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — BLOQUEADA (mismo motivo que antes)
+### Validación contra datos reales — OWNER LIVE SMOKE PENDIENTE
 
-**NO se pudo ejecutar** en este entorno (sin token Graph delegado real, sin
-browser Chrome conectado, el link de SharePoint provisto redirige a login
-sin SSO disponible — mismo blocker documentado en el discovery previo).
-Queda como el ÚNICO ítem pendiente antes de considerar este batch
-production-ready: correr contra el sitio Gestión real, confirmar los
-internal names de columna, confirmar la representación real de fecha que
-devuelve Graph (el export offline es `dd/mm/yyyy` de Excel, la
-representación LIVE de Graph no está confirmada — `StaffingService.
-_parse_date` ya asume ISO 8601 igual que Asignaciones y degrada a `None`
-sin romper nada si el formato real difiere), y validar match/unmatched/
-ambiguous contra el universo real de Colaboradores.
+Este agente sigue sin browser autenticado propio (ver discovery previo:
+sin Chrome conectado vía "Claude in Chrome", el link de SharePoint
+redirige a login sin SSO) — pero YA NO es un blocker de discovery manual:
+con el corrective de Runtime Field Discovery, la PRIMERA vez que el owner
+use el overlay de vacaciones desde su propia sesión autenticada, la
+aplicación resuelve el schema real por sí sola. Queda como el ÚNICO ítem
+pendiente antes de production-ready: que el owner ejercite
+`POST /operaciones/staffing/asignaciones/vacaciones` una vez desde su
+sesión real y confirme — (1) el schema resuelve sin `VacationSchemaError`,
+(2) la representación real de fecha que devuelve Graph es compatible con
+`StaffingService._parse_date` (asume ISO 8601 igual que Asignaciones,
+degrada a `None` sin romper nada si el formato real difiere), (3)
+match/unmatched/ambiguous contra el universo real de Colaboradores. **NO
+se requiere ninguna acción de discovery manual previa del owner** — el
+overlay resuelve todo solo en ese primer request.
 
 ### Gate
 
-Targeted: Vacaciones repository (16 tests) + Vacaciones service (21 tests)
-+ Vacaciones routes (13 tests) + Vacaciones UI/contenido (14 tests) — 64
-tests nuevos, todos GREEN. Staffing regression completo (todos los archivos
-`test_staffing_*.py`, incluyendo el ajuste esperado de
-`test_15_route_surface_still_84`) + module-registry + Activity — GREEN,
-sin debilitar ningún test existente. Full suite **776 passed / 1 skipped**
-(+64 sobre el baseline de 712), route-contract GREEN tras regenerar el
-snapshot, route surface **83 → 84** (cambio intencional, documentado).
+Targeted: Vacaciones repository (31 tests, incluye 12 de metadata
+resolution + 4 de integration flow del corrective) + Vacaciones service
+(21 tests) + Vacaciones routes (14 tests, incluye 1 nuevo de
+`VacationSchemaError`) + Vacaciones UI/contenido (14 tests) — 80 tests de
+Vacaciones en total, todos GREEN. Staffing regression completo (todos los
+archivos `test_staffing_*.py`) + module-registry + Activity — GREEN, sin
+debilitar ningún test existente. Full suite **792 passed / 1 skipped**
+(+80 sobre el baseline de 712), route-contract GREEN, route surface **84,
+SIN CAMBIOS** en este corrective (no se agregó ninguna ruta nueva).
 
 ---
 
@@ -5383,9 +5416,12 @@ tocar código. **NO iniciado — sin discovery todavía.**
     sección dedicada arriba. Branch `work/staffing-vacation-overlay`, **NO
     mergeada todavía**. Contrato de datos verificado offline (export real
     del owner); implementación completa (repository/service/router/UI)
-    contra ese contrato; validación contra Graph LIVE sigue bloqueada (sin
-    token delegado/sesión de browser en este entorno) — único pendiente
-    antes de production-ready.
+    contra ese contrato; internal names de columna se resuelven en RUNTIME
+    contra Graph (corrective "Runtime SharePoint Field Discovery" — YA NO
+    requieren 6 env vars sin default ni discovery manual de ningún agente);
+    único pendiente antes de production-ready es que el **owner** ejercite
+    el overlay una vez desde su propia sesión autenticada (OWNER LIVE
+    SMOKE).
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
