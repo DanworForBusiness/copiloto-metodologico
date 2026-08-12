@@ -4666,7 +4666,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 `fix(staffing): discover vacation fields from Graph metadata` +
 `fix(staffing): expose safe vacation Graph diagnostics` +
 `fix(staffing): expose safe vacation column metadata` +
-`fix(staffing): expose vacation semantic column metadata`, branch
+`fix(staffing): expose vacation semantic column metadata` +
+`fix(staffing): adopt live vacation SharePoint contract`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4703,55 +4704,54 @@ directo — permitió confirmar, SOLO a nivel de contrato offline:
 **Sigue sin LIVE GRAPH VALIDATION del List ID/site**: KNOWN FROM LEGACY
 SOURCE CONFIGURATION (mismo estado que los 3 list ID originales de
 Asignaciones en su propio discovery). Los internal names de columna
-(`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) YA NO requieren
-discovery manual — ver el corrective "Runtime SharePoint Field Discovery"
-más abajo: se resuelven en cada request contra `/sites/{id}/lists/{id}/
-columns` con el mismo `access_token` delegado del owner, sin que ningún
-agente ni humano necesite confirmarlos a mano de antemano.
+(contrato FINAL: `Colaborador`/`Fecha de inicio`/`Fecha de finalización`/
+`Tipo de Licencia`/`¿Aprobado?` — ver "OWNER LIVE SMOKE #4" más abajo para
+el contrato autoritativo definitivo, que reemplazó por completo la
+hipótesis inicial basada en el export XLSX) YA NO requieren discovery
+manual — ver el corrective "Runtime SharePoint Field Discovery" más abajo:
+se resuelven en cada request contra `/sites/{id}/lists/{id}/columns` con
+el mismo `access_token` delegado del owner, sin que ningún agente ni
+humano necesite confirmarlos a mano de antemano.
 
-### Implementación
+### Implementación (histórica — ver "OWNER LIVE SMOKE #4" para el contrato
+FINAL adoptado, que reemplazó el descripto acá)
 
-**Fuente**: `StaffingRepository.get_vacations(access_token)` (lista
-"Solicitud vacaciones", MISMO sitio Gestión, mecanismo Graph delegado
-existente — sin auth nueva, sin credenciales nuevas) filtra en Python
-`Motivo=Vacaciones` + `Estado=Aprobada` (constantes de negocio, ver
-`VACATION_MOTIVO_VALUE`/`VACATION_ESTADO_APROBADA_VALUE` — no son internal
-names, no necesitan config por tenant). Devuelve `VacationPeriod`
-(`source_id`, `consultant_name` CRUDO "Nombre Apellido", `start_date`,
-`end_date`) — SIN join contra Colaboradores todavía, ese vive en el
-servicio. `StaffingRepository.get_consultants(access_token)` lee SOLO
-Colaboradores (id + nombre), reusando `colaborador_title` de
-`StaffingFieldMapping` — sin forzar una lectura completa de
-Asignaciones/Proyectos. Config nueva: SOLO
-`SHAREPOINT_VACACIONES_LIST_ID` (default de producción, KNOWN FROM LEGACY
-SOURCE) — identidad de la fuente, no schema de columnas.
+**Fuente (versión inicial, basada en el export XLSX — YA REEMPLAZADA)**:
+la primera implementación de `StaffingRepository.get_vacations` filtraba
+`Motivo=Vacaciones` + `Estado=Aprobada` y componía `consultant_name` como
+`Nombre + " " + Apellido` — un contrato hipotético derivado del export
+offline del owner, NUNCA confirmado contra Graph real en ese momento. El
+smoke #2 probó que ninguno de esos 6 labels existe en la lista real; el
+smoke #4 estableció el contrato autoritativo final (`Colaborador`/
+`TipodeLicencia`/`TravelStartDate`/`TravelEndDate`/`Approved`) — ver esa
+sección para el detalle completo de la adopción final, que es la que rige
+el código actual.
 
-**Corrective — Runtime SharePoint Field Discovery** (ver HANDOFF): los 6
+**Corrective — Runtime SharePoint Field Discovery** (ver HANDOFF): los
 internal names YA NO son config `.env` sin default (el diseño original
 bloqueaba la validación live porque este agente no tiene un browser
 autenticado con el cual descubrirlos a mano). En cambio,
 `resolve_vacation_field_mapping(site_id, list_id, access_token)` los
 resuelve en RUNTIME, con el MISMO `access_token` delegado que ya llega en
 el POST de cada request — sin auth nueva, sin credenciales nuevas, sin
-requerir Claude in Chrome ni DevTools. Contrato semántico exacto (`display
-Name` de Graph, no internal name): `Apellido`, `Nombre`, `Motivo`, `Desde`,
-`Hasta`, `Estado`. `_resolve_vacation_field_mapping_from_columns` matchea
-EXACTO (whitespace normalizado, sin case-folding, sin fuzzy, sin
-posición); 0 candidatos = faltante, ≥2 candidatos con el mismo
-`displayName` = ambiguo — ambos levantan `VacationSchemaError` (NUNCA
-elige un candidato al azar). `VacationSchemaError` deriva de `Exception`,
-NO de `RuntimeError` — es un problema de RUNTIME/SOURCE-SCHEMA, nunca de
-configuración de deployment; el router lo trata igual que cualquier otra
-falla de Graph (`data_load_failed`/`graph_error`), nunca como
-`configuration_incomplete` (esa sigue siendo, únicamente,
-`SHAREPOINT_GESTION_SITE_ID` ausente). La resolución EXITOSA se cachea
-in-process con TTL de 300s (mismo patrón que
+requerir Claude in Chrome ni DevTools. `_resolve_vacation_field_mapping_
+from_columns` matchea EXACTO (whitespace normalizado, sin case-folding,
+sin fuzzy, sin posición) contra el contrato semántico FINAL (`displayName`
+de Graph, no internal name — ver "OWNER LIVE SMOKE #4"); 0 candidatos =
+faltante, ≥2 candidatos con el mismo `displayName` = ambiguo — ambos
+levantan `VacationSchemaError` (NUNCA elige un candidato al azar).
+`VacationSchemaError` deriva de `Exception`, NO de `RuntimeError` — es un
+problema de RUNTIME/SOURCE-SCHEMA, nunca de configuración de deployment;
+el router lo trata igual que cualquier otra falla de Graph (`data_load_
+failed`/`graph_error`), nunca como `configuration_incomplete` (esa sigue
+siendo, únicamente, `SHAREPOINT_GESTION_SITE_ID` ausente). La resolución
+EXITOSA se cachea in-process con TTL de 300s (mismo patrón que
 `core/sharepoint_cases.py::_ttl_cache`, reimplementado localmente — keyed
 por fingerprint de token + site/list, NUNCA por el token crudo); ninguna
-falla (401/403/columna faltante/ambigua) se cachea. **Ya NO se requieren
-las 6 env vars `SHAREPOINT_VACACIONES_FIELD_*`** — removidas de
-`config.py`; el único requisito de configuración de deployment para
-Vacaciones sigue siendo el List ID (ya provisto con default).
+falla (401/403/columna faltante/ambigua) se cachea. **Nunca se requirieron
+env vars `SHAREPOINT_VACACIONES_FIELD_*`** en producción — el único
+requisito de configuración de deployment para Vacaciones sigue siendo el
+List ID (ya provisto con default).
 
 **Identidad/join**: `_normalize_consultant_name` (trim + colapso de
 espacios + casefold + folding NFKD de diacríticos, SIN fuzzy-matching, sin
@@ -4800,7 +4800,7 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — OWNER LIVE SMOKE #1, #2 y #3
+### Validación contra datos reales — OWNER LIVE SMOKE #1, #2, #3 y #4
 
 El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
 Field Discovery ya desbloqueaba esto sin acción manual previa):
@@ -4918,28 +4918,94 @@ exponen solo su `kind`/formato. Temporal y de descubrimiento — NO resuelve
 el mapeo de negocio final, NO usa `¿Aprobado CCHH?`, NO cambia fechas ni
 filtrado.
 
-**Mapeo final sigue PENDIENTE de owner live smoke #4**: con `semantic_
-columns` en la respuesta, el owner podrá confirmar — (1) si `Colaborador`
-es lookup y si apunta a la lista de Colaboradores real, (2) si `Approved`
-es boolean o choice y sus choices exactos, (3) tipo/choices de `¿Aprobado
-CCHH?`, (4) choices exactos de `Tipo de Licencia`, (5) si `TravelStartDate`/
-`TravelEndDate` son `dateTime`. Esas respuestas definen el contrato de
-implementación FINAL — sin adivinar, sin fuzzy-match, sin inferencia por
-posición/tipo hasta tener esa evidencia.
+### OWNER LIVE SMOKE #4 — contrato FINAL autoritativo + adopción
+
+Con `semantic_columns` en la respuesta, el owner confirmó el tipo real de
+cada columna candidata — este es el contrato AUTORITATIVO final:
+
+```
+Colaborador            -> Colaborador             kind=text (NO lookup)
+Fecha de inicio        -> TravelStartDate         kind=dateTime, format=dateOnly
+Fecha de finalización  -> TravelEndDate           kind=dateTime, format=dateOnly
+Tipo de Licencia       -> TipodeLicencia           kind=choice
+                          (Vacaciones, Enfermedad, Día de Estudio,
+                           Día de Cumpleaños, Maternidad, Paternidad,
+                           Otros, Mudanzas, Danwor Day)
+¿Aprobado?             -> Approved                 kind=boolean
+¿Aprobado CCHH?        -> _x00bf_AprobadoCCHH_x003f_  kind=boolean
+```
+
+**Hallazgo de identidad clave — RESUELTO**: `Colaborador` es **TEXTO
+simple, NO un lookup**. La hipótesis del smoke #3 (posible identidad
+exacta vía lookup hacia la lista canónica de Colaboradores) queda
+DESCARTADA por evidencia — nunca se implementó, nunca hubo que revertir
+nada. El join determinístico por nombre normalizado
+(`_normalize_consultant_name`, ya implementado desde el batch original)
+era y sigue siendo el mecanismo CORRECTO — no cambia.
+
+**Corrective — Final Live SharePoint Contract Adoption** (ver HANDOFF):
+adopta el contrato real como el contrato de producción definitivo.
+
+- `VacationFieldMapping` pasa de 6 campos XLSX (`apellido`/`nombre`/
+  `motivo`/`desde`/`hasta`/`estado`) a 5 campos REALES (`consultant_name`/
+  `leave_type`/`start_date`/`end_date`/`approved`) — resueltos en runtime
+  contra los 5 `displayName` reales (`Colaborador`/`Fecha de inicio`/
+  `Fecha de finalización`/`Tipo de Licencia`/`¿Aprobado?`).
+- Filtro de negocio final: `TipodeLicencia == "Vacaciones"` AND
+  `Approved is True` (identidad booleana ESTRICTA — `False`/`None`/ausente
+  excluye igual, sin necesidad de distinguirlos; Graph devuelve un
+  booleano JSON real para esta columna, nunca un string).
+- `consultant_name` = `fields["Colaborador"]` directo — se eliminó la
+  composición `Nombre + " " + Apellido` (código muerto del contrato
+  offline, nunca existió en la fuente real).
+- `¿Aprobado CCHH?` — **deliberadamente fuera del criterio de inclusión de
+  V1**: existe en la fuente y su tipo (boolean) ya está confirmado, pero
+  su rol de negocio (¿debe exigirse junto con `Approved`? ¿es
+  independiente, para otro propósito de RRHH?) NO está establecido —
+  agregarlo ahora inventaría una regla de negocio sin evidencia. Ni se
+  selecciona en el fetch de Graph ni se lee en ningún punto del código.
+  **Deuda conocida, registrada, no resuelta.**
+- Item fetch minimizado: SOLO `Colaborador`/`TipodeLicencia`/
+  `TravelStartDate`/`TravelEndDate`/`Approved` — nunca CUIL/Legajo/
+  comentarios/Solicitante/Aprobador/Duración/Detalle/Remplazo, que existen
+  en la fuente pero no tienen ningún uso confirmado.
+- Superficies TEMPORALES de discovery retiradas: `available_columns`
+  (Live SharePoint Column Contract Discovery) y `semantic_columns` (Final
+  Live Semantic Column Metadata Discovery) cumplieron su propósito
+  (establecer este contrato) y se retiraron de la respuesta HTTP
+  protegida — el contrato de error final es `state`/`stage`/
+  `missing_fields`/`ambiguous_fields` (schema_error) o `state`/`stage`/
+  `http_status` (graph_error). Las clases de excepción estructuradas
+  (`VacationSchemaError`/`VacationGraphError`) NO se tocaron — siguen
+  existiendo con sus campos seguros, solo se retiró el atributo/parámetro
+  de discovery temporal.
+
+**Sin cambios**: `StaffingService` (join/normalización/payload de
+overlay) — nunca dependió de la composición Apellido+Nombre, solo del
+`consultant_name` ya ensamblado por el repositorio. UI/rutas/CSS
+intactos.
+
+**Owner live smoke #5 sigue PENDIENTE** — el contrato está implementado y
+todos los tests automatizados GREEN, pero la validación final contra datos
+reales (¿hay períodos de vacaciones aprobados reales en el horizonte
+visible? ¿matched/unmatched/ambiguous son razonables?) requiere que el
+owner ejercite el overlay una vez más desde su sesión real. Referencia
+histórica offline (sin exigir igualdad exacta, la lista real puede haber
+cambiado): 48 Vacaciones totales, 41 Aprobada, 6 Cancelada, 1 Rechazada.
 
 ### Gate
 
-Targeted: Vacaciones repository (55 tests, incluye 12 de metadata
-resolution + 4 de integration flow + 6 de la matriz stage×status + 9 de
-column contract discovery + 15 del corrective de semantic column metadata)
-+ Vacaciones service (21 tests) + Vacaciones routes (24 tests, incluye 4 de
-safe diagnostics + 4 de available_columns + 2 de semantic_columns) +
-Vacaciones UI/contenido (14 tests) — 114 tests de Vacaciones en total,
+Targeted: Vacaciones repository (51 tests — contrato final: resolución de
+los 5 campos reales, filtro Tipo de Licencia+Approved estricto, Colaborador
+texto directo, Aprobado CCHH sin efecto, matriz stage×status) + Vacaciones
+service (21 tests, sin cambios) + Vacaciones routes (21 tests — contrato de
+respuesta final sin available_columns/semantic_columns) + Vacaciones
+UI/contenido (14 tests, sin cambios) — 107 tests de Vacaciones en total,
 todos GREEN. Staffing regression completo (todos los archivos
 `test_staffing_*.py`) + module-registry + Activity — GREEN, sin debilitar
-ningún test existente. Full suite **826 passed / 1 skipped** (+114 sobre
+ningún test existente. Full suite **819 passed / 1 skipped** (+107 sobre
 el baseline de 712), route-contract GREEN, route surface **84, SIN
-CAMBIOS** (ningún corrective de Vacaciones agregó una ruta nueva).
+CAMBIOS**.
 
 ---
 
@@ -5528,14 +5594,18 @@ tocar código. **NO iniciado — sin discovery todavía.**
     conceptualmente, discovery dedicado NO iniciado.
   - **Staffing Vacation Timeline Overlay = IMPLEMENTED / PENDING CI** — ver
     sección dedicada arriba. Branch `work/staffing-vacation-overlay`, **NO
-    mergeada todavía**. Contrato de datos verificado offline (export real
-    del owner); implementación completa (repository/service/router/UI)
-    contra ese contrato; internal names de columna se resuelven en RUNTIME
-    contra Graph (corrective "Runtime SharePoint Field Discovery" — YA NO
-    requieren 6 env vars sin default ni discovery manual de ningún agente);
-    único pendiente antes de production-ready es que el **owner** ejercite
-    el overlay una vez desde su propia sesión autenticada (OWNER LIVE
-    SMOKE).
+    mergeada todavía**. Contrato FINAL autoritativo confirmado por owner
+    live smoke #4 (`Colaborador`=texto/`TravelStartDate`/`TravelEndDate`/
+    `TipodeLicencia`/`Approved`, reemplazando por completo la hipótesis
+    inicial basada en el export XLSX) ya adoptado como contrato de
+    producción; `Colaborador` confirmado TEXTO (no lookup) — el join
+    determinístico por nombre normalizado sigue siendo el mecanismo
+    correcto, sin cambios. `¿Aprobado CCHH?` existe en la fuente pero
+    queda deliberadamente fuera de V1 (deuda conocida, registrada). Internal
+    names se resuelven en RUNTIME contra Graph, sin env vars sin default ni
+    discovery manual. Único pendiente antes de production-ready: **owner
+    live smoke #5** desde su propia sesión autenticada, para confirmar el
+    contrato final contra datos reales.
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
