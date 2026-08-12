@@ -463,13 +463,108 @@ def test_source_id_preserved_from_graph_item_id(monkeypatch):
     assert periods[0].source_id == "1"
 
 
+_VACATION_DIAGNOSTICS_KEYS = {
+    "rows", "pages", "elapsed_ms", "raw_rows", "leave_type_vacaciones_rows",
+    "approved_true_rows", "approved_false_rows", "approved_missing_or_null_rows",
+    "approved_other_rows", "required_fields_present_rows",
+    "missing_consultant_rows", "missing_start_date_rows", "missing_end_date_rows",
+}
+
+
 def test_get_vacations_diagnostics_never_include_names_or_pii(monkeypatch):
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row()]))
     repo = _make_repository()
     repo.get_vacations("tok-secret")
     diag = repo.last_diagnostics["vacaciones"]
-    assert set(diag.keys()) == {"rows", "pages", "elapsed_ms"}
+    assert set(diag.keys()) == _VACATION_DIAGNOSTICS_KEYS
     assert diag["rows"] == 1
+    # test 10: solo conteos — ningún valor del fixture ("Matías Gómez",
+    # "2026-03-10", etc.) aparece en el diccionario de diagnóstico.
+    for value in diag.values():
+        assert not isinstance(value, str)
+
+
+# --- Empty Success — Repository Filter Funnel Diagnostics (tests 1-9) -----
+
+# test 1
+def test_raw_rows_counts_every_fetched_item(monkeypatch):
+    rows = [_row(), _row(_id="2", TipodeLicencia="Enfermedad"), _row(_id="3", Approved=False)]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
+    repo = _make_repository()
+    repo.get_vacations("tok")
+    assert repo.last_diagnostics["vacaciones"]["raw_rows"] == 3
+
+
+# test 2/9: leave_type_vacaciones_rows cuenta SOLO "Vacaciones" exacto —
+# otros tipos (incluyendo Enfermedad) no lo contaminan.
+def test_leave_type_vacaciones_rows_counts_only_exact_vacaciones(monkeypatch):
+    rows = [
+        _row(_id="1", TipodeLicencia="Vacaciones"),
+        _row(_id="2", TipodeLicencia="Enfermedad"),
+        _row(_id="3", TipodeLicencia="Día de Estudio"),
+    ]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
+    repo = _make_repository()
+    repo.get_vacations("tok")
+    assert repo.last_diagnostics["vacaciones"]["leave_type_vacaciones_rows"] == 1
+
+
+# test 3
+def test_approved_true_rows_counts_exact_boolean_true_on_vacation_rows(monkeypatch):
+    rows = [_row(_id="1", Approved=True), _row(_id="2", Approved=True)]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
+    repo = _make_repository()
+    repo.get_vacations("tok")
+    assert repo.last_diagnostics["vacaciones"]["approved_true_rows"] == 2
+
+
+# test 4
+def test_approved_false_rows_counts_exact_boolean_false(monkeypatch):
+    rows = [_row(_id="1", Approved=False)]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
+    repo = _make_repository()
+    repo.get_vacations("tok")
+    diag = repo.last_diagnostics["vacaciones"]
+    assert diag["approved_false_rows"] == 1
+    assert diag["approved_true_rows"] == 0
+
+
+# test 5: ausente y None cuentan juntos, de forma segura.
+def test_approved_missing_or_null_rows_counts_missing_and_none(monkeypatch):
+    row_none = _row(_id="1", Approved=None)
+    row_missing = _row(_id="2")
+    del row_missing["fields"]["Approved"]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row_none, row_missing]))
+    repo = _make_repository()
+    repo.get_vacations("tok")
+    assert repo.last_diagnostics["vacaciones"]["approved_missing_or_null_rows"] == 2
+
+
+# test 6: una representación no-booleana en runtime se detecta, NUNCA se
+# acepta como aprobación (el filtro de negocio sigue siendo `is True`).
+def test_approved_other_rows_detects_non_boolean_representation_without_accepting_it(monkeypatch):
+    row_string_true = _row(_id="1", Approved="true")
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row_string_true]))
+    repo = _make_repository()
+    periods = repo.get_vacations("tok")
+    diag = repo.last_diagnostics["vacaciones"]
+    assert diag["approved_other_rows"] == 1
+    assert diag["approved_true_rows"] == 0
+    assert periods == []  # NUNCA aceptado como aprobación
+
+
+# test 7/8: required_fields_present_rows == periods_rows (rows) — mismo
+# criterio, expuesto con dos nombres por contrato de diagnóstico.
+def test_required_fields_present_rows_matches_final_periods_count(monkeypatch):
+    rows = [_row(_id="1"), _row(_id="2", Colaborador="")]
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
+    repo = _make_repository()
+    periods = repo.get_vacations("tok")
+    diag = repo.last_diagnostics["vacaciones"]
+    assert diag["required_fields_present_rows"] == diag["rows"] == len(periods) == 1
+    assert diag["missing_consultant_rows"] == 1
+    assert diag["missing_start_date_rows"] == 0
+    assert diag["missing_end_date_rows"] == 0
 
 
 # test 26: el contrato XLSX temporal está completamente ausente del código

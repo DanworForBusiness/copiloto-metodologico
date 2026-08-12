@@ -788,7 +788,17 @@ class StaffingRepository:
         Colaboradores vive en `StaffingService`. Filas sin nombre o sin
         AMBAS fechas se excluyen acá — sin consultor no hay nada que
         overlayar, y una fecha faltante no es un período válido (fail-soft
-        por fila, nunca rompe el resto)."""
+        por fila, nunca rompe el resto).
+
+        Embudo de diagnóstico (Empty Success — Repository Filter Funnel
+        Diagnostics corrective, ver HANDOFF) — `self.last_diagnostics
+        ["vacaciones"]` gana conteos PUROS por etapa del filtro (raw/tipo/
+        aprobación/presencia de campos) para que UN refresh del owner
+        diga en qué etapa exacta las filas desaparecen, sin necesitar otra
+        llamada a Graph ni loguear ningún valor de fila/PII. El desglose de
+        aprobación se mide SOLO sobre el subconjunto `TipodeLicencia ==
+        "Vacaciones"` (la población de negocio relevante). NO cambia
+        ningún filtro/regla de negocio — observación pura."""
         site_id = self._require_site_id()
         mapping = self._resolve_vacation_field_mapping(site_id, access_token)
         pages = 0
@@ -806,18 +816,55 @@ class StaffingRepository:
             access_token, on_page=_count_page,
         ))
 
+        leave_type_vacaciones_rows = 0
+        approved_true_rows = 0
+        approved_false_rows = 0
+        approved_missing_or_null_rows = 0
+        approved_other_rows = 0
+        required_fields_present_rows = 0
+        missing_consultant_rows = 0
+        missing_start_date_rows = 0
+        missing_end_date_rows = 0
+
         periods: list[VacationPeriod] = []
         for item in items:
             fields = item.get("fields") or {}
             if _stringify(fields.get(mapping.leave_type)) != VACATION_LEAVE_TYPE_VALUE:
                 continue
-            if fields.get(mapping.approved) is not True:
+            leave_type_vacaciones_rows += 1
+
+            # Desglose de aprobación — SOLO sobre el subconjunto Vacaciones
+            # (población de negocio relevante). `approved_other_rows` no
+            # asume que el runtime de Graph siempre entrega un `bool`
+            # Python real para esta columna — si algún día llega otra cosa
+            # (p. ej. un string), queda contado acá, NUNCA aceptado como
+            # aprobación (el filtro de negocio sigue siendo `is True`
+            # estricto, sin cambios).
+            approved_value = fields.get(mapping.approved)
+            if approved_value is True:
+                approved_true_rows += 1
+            elif approved_value is False:
+                approved_false_rows += 1
+            elif approved_value is None:
+                approved_missing_or_null_rows += 1
+            else:
+                approved_other_rows += 1
+
+            if approved_value is not True:
                 continue
+
             consultant_name = _stringify(fields.get(mapping.consultant_name)) or ""
             start = _stringify(fields.get(mapping.start_date))
             end = _stringify(fields.get(mapping.end_date))
+            if not consultant_name:
+                missing_consultant_rows += 1
+            if not start:
+                missing_start_date_rows += 1
+            if not end:
+                missing_end_date_rows += 1
             if not consultant_name or not start or not end:
                 continue
+            required_fields_present_rows += 1
             periods.append(VacationPeriod(
                 source_id=str(item.get("id") or ""), consultant_name=consultant_name,
                 start_date=start, end_date=end,
@@ -826,6 +873,16 @@ class StaffingRepository:
         self.last_diagnostics["vacaciones"] = {
             "rows": len(periods), "pages": pages,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            "raw_rows": len(items),
+            "leave_type_vacaciones_rows": leave_type_vacaciones_rows,
+            "approved_true_rows": approved_true_rows,
+            "approved_false_rows": approved_false_rows,
+            "approved_missing_or_null_rows": approved_missing_or_null_rows,
+            "approved_other_rows": approved_other_rows,
+            "required_fields_present_rows": required_fields_present_rows,
+            "missing_consultant_rows": missing_consultant_rows,
+            "missing_start_date_rows": missing_start_date_rows,
+            "missing_end_date_rows": missing_end_date_rows,
         }
         return periods
 
