@@ -4667,7 +4667,8 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 `fix(staffing): expose safe vacation Graph diagnostics` +
 `fix(staffing): expose safe vacation column metadata` +
 `fix(staffing): expose vacation semantic column metadata` +
-`fix(staffing): adopt live vacation SharePoint contract`, branch
+`fix(staffing): adopt live vacation SharePoint contract` +
+`fix(staffing): add vacation filter funnel diagnostics`, branch
 `work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
 mergeada todavía)
 
@@ -4800,7 +4801,7 @@ leen `this.vacations` — confirmado por contenido de fuente
 `build_dashboard_payload` (sin `allocation_value`/`status`/
 `activo_vencido` en una fila de vacación).
 
-### Validación contra datos reales — OWNER LIVE SMOKE #1, #2, #3 y #4
+### Validación contra datos reales — OWNER LIVE SMOKE #1 a #5
 
 El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
 Field Discovery ya desbloqueaba esto sin acción manual previa):
@@ -4985,25 +4986,75 @@ overlay) — nunca dependió de la composición Apellido+Nombre, solo del
 `consultant_name` ya ensamblado por el repositorio. UI/rutas/CSS
 intactos.
 
-**Owner live smoke #5 sigue PENDIENTE** — el contrato está implementado y
-todos los tests automatizados GREEN, pero la validación final contra datos
-reales (¿hay períodos de vacaciones aprobados reales en el horizonte
-visible? ¿matched/unmatched/ambiguous son razonables?) requiere que el
-owner ejercite el overlay una vez más desde su sesión real. Referencia
-histórica offline (sin exigir igualdad exacta, la lista real puede haber
-cambiado): 48 Vacaciones totales, 41 Aprobada, 6 Cancelada, 1 Rechazada.
+### OWNER LIVE SMOKE #5 — endpoint GREEN, resultado vacío ("empty success")
+
+El owner ejercitó el overlay adoptando el contrato final: `POST
+/operaciones/staffing/asignaciones/vacaciones` → HTTP 200,
+`{"state":"ok","vacations":[]}`. Asignaciones siguió 100% operativa. El
+endpoint funciona correctamente (sin `schema_error`, sin `graph_error`) —
+pero devolvió CERO vacaciones.
+
+**Diagnóstico read-only (solo lectura de `activity_log/` real + trazado de
+código, sin ningún cambio)**: el evento `data_load_diagnostics` más
+reciente mostró `vacaciones_rows=0` (conteo YA post-filtro en esa
+versión), `unmatched_count=0`/`ambiguous_count=0` (triviales — resultado
+de unir una lista ya vacía, NUNCA evidencia de matching), `colaboradores_
+identity_rows=149` (universo de Colaboradores cargó bien). Por
+construcción del código (el repositorio devuelve `periods` ANTES de que
+el join/horizonte se ejecuten), esto **descartó de forma concluyente** el
+join determinístico y el filtro de horizonte/payload como causa — la
+emptiness está DENTRO de `StaffingRepository.get_vacations`, en alguna de:
+fetch crudo de Graph, filtro `Tipo de Licencia == "Vacaciones"`, filtro
+`Approved is True`, o el chequeo de presencia de campos — sin poder
+distinguir CUÁL con el único conteo agregado que existía entonces.
+
+**Corrective — Empty Success: Repository Filter Funnel Diagnostics** (ver
+HANDOFF): `get_vacations` ahora calcula, en el MISMO loop existente (sin
+una segunda llamada a Graph, sin pedir campos nuevos), conteos PUROS por
+etapa: `raw_rows` (items crudos antes de cualquier filtro),
+`leave_type_vacaciones_rows` (cuántos son exactamente "Vacaciones"),
+`approved_true_rows`/`approved_false_rows`/`approved_missing_or_null_rows`/
+`approved_other_rows` (desglose de `Approved`, medido SOLO sobre el
+subconjunto Vacaciones — `approved_other_rows` es una salvaguarda
+explícita: detecta si el runtime de Graph algún día entrega `Approved`
+como algo que NO es `True`/`False`/`None`, p. ej. un string, SIN aceptarlo
+nunca como aprobación — el filtro de negocio sigue siendo `is True`
+estricto, intacto), `required_fields_present_rows` (== `rows` final, por
+diseño — nada más excluye una fila una vez que pasó tipo+aprobación+
+presencia) y `missing_consultant_rows`/`missing_start_date_rows`/
+`missing_end_date_rows`. Todo viaja en `self.last_diagnostics["vacaciones"]`
+→ mismo evento canónico `data_load_diagnostics` de siempre (sin evento
+nuevo), con prefijo automático `vacaciones_*`. La respuesta HTTP exitosa
+sigue siendo EXACTAMENTE `{"state":"ok","vacations":[...]}` — el embudo es
+solo para Activity, nunca para el payload de producto.
+
+**Importante — supuesto de negocio explícitamente NO verificado**: la
+metadata live solo probó que `Approved` es `kind=boolean` — NUNCA probó
+que `Approved=True` sea equivalente al histórico `Estado="Aprobada"` del
+export XLSX. Ese supuesto sigue sin confirmar. `¿Aprobado CCHH?` sigue sin
+usarse, sin rol de negocio establecido — ninguno de los dos se tocó ni se
+usó en este corrective (`Approved is True` sigue siendo el ÚNICO criterio,
+`¿Aprobado CCHH?` nunca se selecciona ni se lee).
+
+**Owner live smoke #6 sigue PENDIENTE** — con el embudo pusheado, el
+PRÓXIMO refresh del owner va a decir exactamente en qué conteo las filas
+se desploman a cero (¿`raw_rows=0`? ¿`leave_type_vacaciones_rows=0`?
+¿`approved_true_rows=0` con `approved_false_rows`/`approved_missing_or_
+null_rows`/`approved_other_rows` no-cero?). Ningún cambio de negocio se
+hizo — sigue pendiente la corrección real una vez que el embudo la
+revele. Referencia histórica offline (sin exigir igualdad exacta, la
+lista real puede haber cambiado): 48 Vacaciones totales, 41 Aprobada, 6
+Cancelada, 1 Rechazada.
 
 ### Gate
 
-Targeted: Vacaciones repository (51 tests — contrato final: resolución de
-los 5 campos reales, filtro Tipo de Licencia+Approved estricto, Colaborador
-texto directo, Aprobado CCHH sin efecto, matriz stage×status) + Vacaciones
-service (21 tests, sin cambios) + Vacaciones routes (21 tests — contrato de
-respuesta final sin available_columns/semantic_columns) + Vacaciones
-UI/contenido (14 tests, sin cambios) — 107 tests de Vacaciones en total,
+Targeted: Vacaciones repository (58 tests — contrato final + embudo de
+diagnóstico de 9 conteos nuevos) + Vacaciones service (21 tests, sin
+cambios) + Vacaciones routes (21 tests, sin cambios) + Vacaciones
+UI/contenido (14 tests, sin cambios) — 114 tests de Vacaciones en total,
 todos GREEN. Staffing regression completo (todos los archivos
 `test_staffing_*.py`) + module-registry + Activity — GREEN, sin debilitar
-ningún test existente. Full suite **819 passed / 1 skipped** (+107 sobre
+ningún test existente. Full suite **826 passed / 1 skipped** (+114 sobre
 el baseline de 712), route-contract GREEN, route surface **84, SIN
 CAMBIOS**.
 
@@ -5596,16 +5647,18 @@ tocar código. **NO iniciado — sin discovery todavía.**
     sección dedicada arriba. Branch `work/staffing-vacation-overlay`, **NO
     mergeada todavía**. Contrato FINAL autoritativo confirmado por owner
     live smoke #4 (`Colaborador`=texto/`TravelStartDate`/`TravelEndDate`/
-    `TipodeLicencia`/`Approved`, reemplazando por completo la hipótesis
-    inicial basada en el export XLSX) ya adoptado como contrato de
-    producción; `Colaborador` confirmado TEXTO (no lookup) — el join
-    determinístico por nombre normalizado sigue siendo el mecanismo
-    correcto, sin cambios. `¿Aprobado CCHH?` existe en la fuente pero
-    queda deliberadamente fuera de V1 (deuda conocida, registrada). Internal
-    names se resuelven en RUNTIME contra Graph, sin env vars sin default ni
-    discovery manual. Único pendiente antes de production-ready: **owner
-    live smoke #5** desde su propia sesión autenticada, para confirmar el
-    contrato final contra datos reales.
+    `TipodeLicencia`/`Approved`) ya adoptado como contrato de producción;
+    `Colaborador` confirmado TEXTO (no lookup) — el join determinístico por
+    nombre normalizado sigue siendo el mecanismo correcto, sin cambios.
+    `¿Aprobado CCHH?` existe en la fuente pero queda deliberadamente fuera
+    de V1 (deuda conocida, registrada). **Owner live smoke #5**: endpoint
+    GREEN (`state=ok`) pero `vacations=[]` — "empty success", causa raíz
+    todavía sin determinar. Diagnóstico read-only descartó el join/horizonte
+    como causa; corrective de embudo de conteos (`raw_rows`/`leave_type_
+    vacaciones_rows`/desglose de `approved_*`/`required_fields_present_
+    rows`) agregado a Activity para que **owner live smoke #6** identifique
+    la etapa exacta. Ningún cambio de negocio/filtro — sigue pendiente la
+    corrección real.
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
