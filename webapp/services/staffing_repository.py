@@ -46,54 +46,62 @@ asignaciones + `total_elapsed_ms`. NUNCA token/payload/PII — solo conteos y
 tiempos. El caller (`StaffingService`/router) decide si loguearlo
 (VERBOSE-gated, ver `webapp/routers/staffing.py`).
 
-VACACIONES (Staffing Vacation Timeline Overlay, ver HANDOFF): `get_vacations`
-lee la lista NUEVA "Solicitud vacaciones" del MISMO sitio Gestión — offline
-contract verificado contra el export real del owner (sheet "Solicitudes",
-203 filas, 48 con Motivo=Vacaciones). Filtra EXCLUSIVAMENTE
-Motivo=Vacaciones + Estado=Aprobada — Cancelada/Rechazada/otro motivo
-quedan fuera de esta fase, a propósito. Devuelve `consultant_name` CRUDO
-("Nombre Apellido", sin join contra Colaboradores todavía) — el join de
-identidad determinístico vive en `StaffingService` (ver ahí), este módulo
-solo sabe DÓNDE están los datos y cómo leerlos. `get_consultants` lee SOLO
-Colaboradores (id + nombre, sin Asignaciones/Proyectos) — universo de
-identidad para ese join, separado de `get_allocations` para no forzar una
-lectura completa de Asignaciones solo para resolver vacaciones.
+VACACIONES (Staffing Vacation Timeline Overlay, ver HANDOFF) — CONTRATO
+FINAL, confirmado contra el schema real de Graph (owner live smoke #4,
+autoritativo — el export offline XLSX, con labels Apellido/Nombre/Motivo/
+Desde/Hasta/Estado, NUNCA fue el contrato real de la lista SharePoint, ver
+HANDOFF): `get_vacations` lee la lista "Solicitud vacaciones" del MISMO
+sitio Gestión, filtrando EXCLUSIVAMENTE `TipodeLicencia == "Vacaciones"`
+AND `Approved is True` (booleano estricto — `False`/`None`/ausente
+excluye; ningún otro Tipo de Licencia entra). Devuelve `consultant_name`
+CRUDO (`fields["Colaborador"]`, un campo de TEXTO simple — NO lookup, NO
+requiere resolver un ID de Colaboradores) — el join de identidad
+determinístico contra el universo de Colaboradores de Staffing vive en
+`StaffingService` (ver ahí, sin cambios: sigue siendo join por nombre
+normalizado). `get_consultants` lee SOLO Colaboradores (id + nombre, sin
+Asignaciones/Proyectos) — universo de identidad para ese join.
 
-DISCOVERY DE CAMPOS EN RUNTIME (corrective, ver HANDOFF): a diferencia de
+`¿Aprobado CCHH?` (`_x00bf_AprobadoCCHH_x003f_`, boolean) EXISTE en la
+fuente real pero está DELIBERADAMENTE fuera del criterio de inclusión de
+V1 — su rol de negocio (¿debe exigirse junto con `Approved`? ¿es
+independiente?) no está confirmado; agregarlo ahora inventaría una regla.
+Ver HANDOFF para el registro explícito de esta deuda conocida.
+
+DISCOVERY DE CAMPOS EN RUNTIME (ver HANDOFF): a diferencia de
 Asignaciones/Proyectos/Colaboradores (internal names vía `.env`, sin
 default, requieren que un humano con acceso Graph los confirme una vez),
-Vacaciones resuelve sus 6 internal names en RUNTIME contra
+Vacaciones resuelve sus 5 internal names en RUNTIME contra
 `/sites/{id}/lists/{id}/columns` — usando el MISMO `access_token` delegado
 que ya llega en cada request. `resolve_vacation_field_mapping()` matchea
 `displayName` EXACTO (whitespace normalizado, sin fuzzy, sin case-folding,
-sin posición) contra los 6 labels conocidos (`Apellido`, `Nombre`,
-`Motivo`, `Desde`, `Hasta`, `Estado`); si falta alguno o hay ambigüedad
-(dos columnas con el mismo `displayName`), levanta `VacationSchemaError`
-— nunca elige un candidato al azar. `VacationSchemaError` NO es
-`RuntimeError` a propósito: es un problema de schema/runtime de la fuente,
-NUNCA de configuración de deployment — el router lo trata igual que
-cualquier otra falla de Graph (`data_load_failed`/`graph_error`), nunca
-como `configuration_incomplete`. Solo el List ID de Vacaciones
-(`SHAREPOINT_VACACIONES_LIST_ID`) sigue siendo identidad de configuración
-— si el sitio/list ID faltan, `_require_site_id()` sigue siendo el único
-`RuntimeError`/`configuration_incomplete` real de esta fuente. La
-resolución exitosa se cachea in-process con TTL (mismo patrón que
-`core/sharepoint_cases.py::_ttl_cache`, keyed por fingerprint de token +
-site/list — NUNCA por el token crudo); fallas (401/403/columna faltante/
-ambigua) NUNCA se cachean.
+sin posición) contra los 5 labels REALES (`Colaborador`, `Fecha de
+inicio`, `Fecha de finalización`, `Tipo de Licencia`, `¿Aprobado?`); si
+falta alguno o hay ambigüedad (dos columnas con el mismo `displayName`),
+levanta `VacationSchemaError` — nunca elige un candidato al azar.
+`VacationSchemaError` NO es `RuntimeError` a propósito: es un problema de
+schema/runtime de la fuente, NUNCA de configuración de deployment — el
+router lo trata igual que cualquier otra falla de Graph (`data_load_
+failed`/`graph_error`), nunca como `configuration_incomplete`. Solo el
+List ID de Vacaciones (`SHAREPOINT_VACACIONES_LIST_ID`) sigue siendo
+identidad de configuración — si el sitio/list ID faltan, `_require_site_
+id()` sigue siendo el único `RuntimeError`/`configuration_incomplete`
+real de esta fuente. La resolución exitosa se cachea in-process con TTL
+(mismo patrón que `core/sharepoint_cases.py::_ttl_cache`, keyed por
+fingerprint de token + site/list — NUNCA por el token crudo); fallas
+(401/403/columna faltante/ambigua) NUNCA se cachean.
 
-DIAGNÓSTICO SEGURO DE FALLAS DE GRAPH (Safe Graph Failure Diagnostics
-corrective, ver HANDOFF): `_call_vacation_graph(stage, fn)` envuelve TODA
-llamada Graph de Vacaciones (`stage="columns"` para el discovery de schema,
-`stage="items"` para el fetch de filas) — cualquier `HTTPError`/`URLError`
-de `urllib` se traduce a `VacationGraphError(stage, status_code)`, NUNCA
-deja escapar la excepción cruda (que podría incluir la URL completa con
-query string). `VacationSchemaError` (arriba) ahora expone
-`stage`/`reason`/`missing_fields`/`ambiguous_fields` estructurados — estos
-últimos dos SIEMPRE son labels del contrato semántico fijo, nunca un
-internal name real. Ambos son seguros de loguear/devolver en la respuesta
-HTTP tal cual — nunca el `str()`/`repr()` de una excepción de `urllib`,
-nunca el token, nunca datos de fila/PII.
+DIAGNÓSTICO SEGURO DE FALLAS DE GRAPH (ver HANDOFF): `_call_vacation_graph
+(stage, fn)` envuelve TODA llamada Graph de Vacaciones (`stage="columns"`
+para el discovery de schema, `stage="items"` para el fetch de filas) —
+cualquier `HTTPError`/`URLError` de `urllib` se traduce a `VacationGraphError
+(stage, status_code)`, NUNCA deja escapar la excepción cruda. `VacationSchemaError`
+expone `stage`/`reason`/`missing_fields`/`ambiguous_fields` estructurados
+— estos últimos dos SIEMPRE son labels del contrato semántico fijo, nunca
+un internal name real. Ambos son seguros de loguear/devolver en la
+respuesta HTTP tal cual. Las superficies TEMPORALES de discovery
+(`available_columns`/`semantic_columns`, usadas para establecer este
+contrato durante los smokes #2/#3) se retiraron una vez confirmado el
+contrato final — ver HANDOFF.
 
 Ambos (`get_vacations`/`get_consultants`)
 fail-soft ante cualquier excepción — el router captura el error y omite
@@ -137,14 +145,14 @@ INACTIVE_STATUS_VALUE = "Inactivo"
 # volumen en ese request puntual.
 _HISTORY_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandomly"}
 
-# Staffing Vacation Timeline Overlay (ver HANDOFF) — valores EXACTOS de
-# negocio confirmados contra el export real del owner (Motivo/Estado son
-# columnas Choice de la lista, no internal names que necesiten config por
-# tenant — mismo criterio que `INACTIVE_STATUS_VALUE` arriba). SOLO este par
-# habilita una fila para el timeline; cualquier otro Motivo o Estado
-# (Cancelada/Rechazada/otro tipo de ausencia) queda fuera de esta fase.
-VACATION_MOTIVO_VALUE = "Vacaciones"
-VACATION_ESTADO_APROBADA_VALUE = "Aprobada"
+# Staffing Vacation Timeline Overlay (ver HANDOFF) — valor EXACTO de negocio
+# confirmado contra el schema real (`TipodeLicencia` es una columna Choice
+# de la lista, no un internal name que necesite config por tenant — mismo
+# criterio que `INACTIVE_STATUS_VALUE` arriba). Junto con `Approved is True`
+# (booleano estricto, ver `get_vacations`) es el ÚNICO par que habilita una
+# fila para el timeline — cualquier otro Tipo de Licencia, o Approved
+# False/None/ausente, queda fuera de V1.
+VACATION_LEAVE_TYPE_VALUE = "Vacaciones"
 
 
 #  Campos OPCIONALES de StaffingFieldMapping — enriquecimiento, no requisito
@@ -252,14 +260,20 @@ class VacationFieldMapping:
     se resuelve en RUNTIME contra `/columns` (ver `resolve_vacation_field_
     mapping` abajo). Nunca se construye incompleta: el resolver o devuelve
     una instancia completa, o levanta `VacationSchemaError` — no existe un
-    estado "parcialmente resuelto" que un caller pueda inspeccionar."""
+    estado "parcialmente resuelto" que un caller pueda inspeccionar.
 
-    apellido: str
-    nombre: str
-    motivo: str
-    desde: str
-    hasta: str
-    estado: str
+    Contrato FINAL (owner live smoke #4, autoritativo — ver HANDOFF):
+    `consultant_name` → displayName "Colaborador" (TEXTO simple, no lookup);
+    `leave_type` → "Tipo de Licencia"; `start_date` → "Fecha de inicio";
+    `end_date` → "Fecha de finalización"; `approved` → "¿Aprobado?"
+    (booleano). `¿Aprobado CCHH?` existe en la fuente pero NO forma parte
+    de este mapeo — fuera de V1 a propósito (ver HANDOFF)."""
+
+    consultant_name: str
+    leave_type: str
+    start_date: str
+    end_date: str
+    approved: str
 
 
 class VacationSchemaError(Exception):
@@ -272,41 +286,25 @@ class VacationSchemaError(Exception):
     — la única falla de configuración real de Vacaciones sigue siendo
     `SHAREPOINT_GESTION_SITE_ID` ausente (ver `_require_site_id`).
 
-    `missing_fields`/`ambiguous_fields` (Safe Graph Failure Diagnostics
-    corrective, ver HANDOFF) contienen EXCLUSIVAMENTE labels del contrato
-    semántico fijo (`_VACATION_DISPLAY_NAMES` — "Apellido", "Nombre", etc.)
+    `missing_fields`/`ambiguous_fields` (ver HANDOFF) contienen
+    EXCLUSIVAMENTE labels del contrato semántico fijo REAL
+    (`_VACATION_DISPLAY_NAMES` — "Colaborador", "Fecha de inicio", etc.)
     — NUNCA un internal name real ni un valor de dato. Seguros de loguear y
     de devolver en la respuesta HTTP del endpoint (ver router).
 
-    `available_columns` (Live SharePoint Column Contract Discovery
-    corrective, ver HANDOFF) — lista SANITIZADA de `{"display_name",
-    "name"}` de las columnas VISIBLES reales de la lista Vacaciones (ver
-    `_sanitize_available_columns`). Metadata de SCHEMA únicamente — nunca
-    un valor de item, nunca PII, nunca el JSON crudo de Graph. Existe
-    solo para que el owner pueda leer el contrato real de columnas y
-    confirmar (o corregir) los labels esperados — este corrective NO
-    resuelve el mapeo automáticamente a partir de esta lista.
+    Superficies TEMPORALES de discovery ya retiradas (ver HANDOFF):
+    `available_columns`/`semantic_columns` existieron mientras el contrato
+    real todavía no se conocía (owner smokes #2/#3) — con el contrato final
+    confirmado (smoke #4), se retiraron del contrato de respuesta protegido
+    para no dejar superficie de descubrimiento innecesaria; el contrato de
+    error productivo final es solo `stage`/`missing_fields`/
+    `ambiguous_fields`."""
 
-    `semantic_columns` (Final Live Semantic Column Metadata Discovery
-    corrective, ver HANDOFF) — metadata TIPADA (SOLO para las 6 columnas
-    semánticas candidatas: Colaborador/Fecha de inicio/Fecha de
-    finalización/Tipo de Licencia/¿Aprobado?/¿Aprobado CCHH?), ver
-    `_sanitize_semantic_columns`. `kind` se deriva ESTRICTA del shape real
-    del `columnDefinition` de Graph (qué faceta está presente —
-    `lookup`/`choice`/`boolean`/`dateTime`/etc.), NUNCA de displayName/
-    internal name. Temporal y de descubrimiento — NO resuelve el mapeo de
-    negocio final."""
-
-    def __init__(
-        self, stage: str, missing_fields: list[str], ambiguous_fields: list[str],
-        available_columns: list[dict] | None = None, semantic_columns: list[dict] | None = None,
-    ):
+    def __init__(self, stage: str, missing_fields: list[str], ambiguous_fields: list[str]):
         self.stage = stage
         self.reason = "schema_error"
         self.missing_fields = missing_fields
         self.ambiguous_fields = ambiguous_fields
-        self.available_columns = available_columns if available_columns is not None else []
-        self.semantic_columns = semantic_columns if semantic_columns is not None else []
         parts = []
         if missing_fields:
             parts.append(f"faltantes: {', '.join(missing_fields)}")
@@ -350,10 +348,12 @@ def _call_vacation_graph(stage: str, fn: Callable[[], list[dict]]) -> list[dict]
 
 
 # Staffing Vacation Timeline Overlay — discovery de campos en runtime (ver
-# HANDOFF). Los 6 labels EXACTOS ya verificados contra el export offline del
-# owner — el resolver los matchea contra `displayName` de Graph, NUNCA
-# infiere el internal name por posición/convención.
-_VACATION_DISPLAY_NAMES = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
+# HANDOFF). Los 5 labels EXACTOS del contrato REAL (owner live smoke #4,
+# autoritativo — reemplaza los 6 labels del export offline XLSX, que NUNCA
+# fueron el contrato real de la lista SharePoint) — el resolver los
+# matchea contra `displayName` de Graph, NUNCA infiere el internal name
+# por posición/convención.
+_VACATION_DISPLAY_NAMES = ("Colaborador", "Fecha de inicio", "Fecha de finalización", "Tipo de Licencia", "¿Aprobado?")
 
 # Metadata de columnas estable durante el uso normal de la app — TTL chico
 # alcanza (mismo orden de magnitud que `SHAREPOINT_CASES_CACHE_TTL`, ver
@@ -398,101 +398,13 @@ def _ttl_cache(ttl_seconds: int) -> Callable:
     return decorator
 
 
-def _sanitize_available_columns(columns: list[dict]) -> list[dict]:
-    """Live SharePoint Column Contract Discovery corrective (ver HANDOFF) —
-    metadata de SCHEMA únicamente: `{"display_name", "name"}` por columna
-    VISIBLE, construido EXPLÍCITAMENTE campo por campo (nunca `dict(column)`
-    ni cualquier passthrough del JSON crudo de Graph). Excluye columnas
-    marcadas `hidden` por Graph — sin blacklist manual de columnas de
-    sistema, solo la señal que Graph ya provee. Nunca incluye valores de
-    item, PII, token, headers ni el body crudo — esto es DESCUBRIMIENTO de
-    contrato, no resolución automática (ver `_resolve_vacation_field_
-    mapping_from_columns`, que NO usa este resultado para matchear)."""
-    result: list[dict] = []
-    for column in columns:
-        if column.get("hidden"):
-            continue
-        display_name = (column.get("displayName") or "").strip()
-        technical_name = column.get("name")
-        if display_name and technical_name:
-            result.append({"display_name": display_name, "name": technical_name})
-    return result
-
-
-# Final Live Semantic Column Metadata Discovery (ver HANDOFF) — SOLO estas 6
-# columnas candidatas del schema real (owner smoke #3), nunca las 6 originales
-# asumidas del XLSX (ya disprobadas). Temporal/de descubrimiento, no el mapeo
-# de negocio final.
-_SEMANTIC_DISCOVERY_DISPLAY_NAMES = (
-    "Colaborador", "Fecha de inicio", "Fecha de finalización",
-    "Tipo de Licencia", "¿Aprobado?", "¿Aprobado CCHH?",
-)
-
-# Facetas de tipo de `columnDefinition` de Microsoft Graph — EXACTAMENTE una
-# está presente en cada columna real; cuál esté presente ES el `kind`, nunca
-# una inferencia desde displayName/internal name.
-_GRAPH_COLUMN_KIND_FACETS = (
-    "lookup", "personOrGroup", "choice", "boolean", "dateTime",
-    "text", "number", "currency", "hyperlinkOrPicture", "calculated",
-)
-
-
-def _detect_graph_column_kind(column: dict) -> str | None:
-    for facet in _GRAPH_COLUMN_KIND_FACETS:
-        if facet in column:
-            return facet
-    return None
-
-
-def _sanitize_semantic_column(column: dict) -> dict:
-    """Un entry por columna — SOLO los campos aplicables a su `kind` real
-    (ver `_detect_graph_column_kind`). `choices` son labels de definición de
-    columna (metadata de schema), NUNCA valores de item — permitido
-    explícitamente (ver HANDOFF)."""
-    entry: dict = {
-        "display_name": (column.get("displayName") or "").strip(),
-        "name": column.get("name"),
-        "kind": _detect_graph_column_kind(column),
-    }
-    if entry["kind"] == "lookup":
-        lookup = column.get("lookup") or {}
-        if lookup.get("listId"):
-            entry["lookup_list_id"] = lookup["listId"]
-        if lookup.get("columnName"):
-            entry["lookup_column"] = lookup["columnName"]
-    elif entry["kind"] == "choice":
-        choices = (column.get("choice") or {}).get("choices")
-        if choices:
-            entry["choices"] = list(choices)
-    elif entry["kind"] == "dateTime":
-        date_format = (column.get("dateTime") or {}).get("format")
-        if date_format:
-            entry["date_time_format"] = date_format
-    return entry
-
-
-def _sanitize_semantic_columns(columns: list[dict]) -> list[dict]:
-    """Metadata TIPADA, SOLO para las 6 columnas semánticas candidatas de
-    `_SEMANTIC_DISCOVERY_DISPLAY_NAMES` — construida EXPLÍCITAMENTE campo
-    por campo (nunca `dict(column)`/passthrough del JSON crudo de Graph).
-    Nunca incluye valores de item/PII/token/headers — solo la definición de
-    columna en sí (ver `_sanitize_semantic_column`)."""
-    result: list[dict] = []
-    for column in columns:
-        display_name = (column.get("displayName") or "").strip()
-        if display_name in _SEMANTIC_DISCOVERY_DISPLAY_NAMES:
-            result.append(_sanitize_semantic_column(column))
-    return result
-
-
 def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> VacationFieldMapping:
     """Matchea `displayName` EXACTO (whitespace normalizado únicamente —
-    sin case-folding, sin fuzzy, sin posición) contra los 6 labels
-    conocidos. Un `displayName` con CERO columnas candidatas es "faltante";
-    con DOS O MÁS es "ambiguo" — ninguno de los dos elige un candidato al
-    azar, ambos levantan `VacationSchemaError` con el detalle exacto +
-    `available_columns` (SOLO para que el owner lea el contrato real, NUNCA
-    usado acá para resolver — ver `_sanitize_available_columns`)."""
+    sin case-folding, sin fuzzy, sin posición) contra los 5 labels REALES
+    (`_VACATION_DISPLAY_NAMES`). Un `displayName` con CERO columnas
+    candidatas es "faltante"; con DOS O MÁS es "ambiguo" — ninguno de los
+    dos elige un candidato al azar, ambos levantan `VacationSchemaError`
+    con el detalle exacto (solo labels, ver docstring de la excepción)."""
     candidates: dict[str, list[str]] = {}
     for column in columns:
         display_name = (column.get("displayName") or "").strip()
@@ -513,15 +425,12 @@ def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> Vacatio
             ambiguous.append(display_name)
 
     if missing or ambiguous:
-        raise VacationSchemaError(
-            stage="columns", missing_fields=missing, ambiguous_fields=ambiguous,
-            available_columns=_sanitize_available_columns(columns),
-            semantic_columns=_sanitize_semantic_columns(columns),
-        )
+        raise VacationSchemaError(stage="columns", missing_fields=missing, ambiguous_fields=ambiguous)
 
     return VacationFieldMapping(
-        apellido=resolved["Apellido"], nombre=resolved["Nombre"], motivo=resolved["Motivo"],
-        desde=resolved["Desde"], hasta=resolved["Hasta"], estado=resolved["Estado"],
+        consultant_name=resolved["Colaborador"], leave_type=resolved["Tipo de Licencia"],
+        start_date=resolved["Fecha de inicio"], end_date=resolved["Fecha de finalización"],
+        approved=resolved["¿Aprobado?"],
     )
 
 
@@ -545,10 +454,11 @@ def resolve_vacation_field_mapping(site_id: str, list_id: str, access_token: str
 
 @dataclass(frozen=True)
 class VacationPeriod:
-    """Un período de vacaciones APROBADO, ya filtrado por Motivo/Estado, con
-    `consultant_name` CRUDO ("Nombre Apellido" tal cual vino de la fuente,
-    sin normalizar ni resolver contra Colaboradores todavía — ese join
-    determinístico vive en `StaffingService`, ver ahí). `start_date`/
+    """Un período de vacaciones APROBADO, ya filtrado por Tipo de Licencia +
+    Approved, con `consultant_name` CRUDO (`fields["Colaborador"]`, texto
+    simple tal cual vino de la fuente, sin normalizar ni resolver contra
+    Colaboradores todavía — ese join determinístico vive en
+    `StaffingService`, ver ahí). `start_date`/
     `end_date` son passthrough puro (mismo criterio que
     `StaffingAllocationRecord`) — ninguna conversión de fecha ocurre en este
     módulo; el parseo/validación vive en el servicio, igual que las fechas
@@ -867,14 +777,18 @@ class StaffingRepository:
 
     def get_vacations(self, access_token: str) -> list[VacationPeriod]:
         """Vacaciones APROBADAS ("Solicitud vacaciones", ver HANDOFF) — filtra
-        Motivo/Estado en Python (no `$filter` de Graph: la lista es chica, 203
-        filas totales en el export offline verificado, sin necesidad de la
-        optimización que sí justifica `_fetch_asignaciones`). Devuelve
-        `consultant_name` CRUDO ("Nombre Apellido") — el join contra
-        Colaboradores vive en `StaffingService`. Filas sin nombre completo
-        (Nombre+Apellido vacíos) o sin AMBAS fechas se excluyen acá — sin
-        consultor no hay nada que overlayar, y una fecha faltante no es un
-        período válido (fail-soft por fila, nunca rompe el resto)."""
+        `TipodeLicencia == "Vacaciones"` AND `Approved is True` en Python (no
+        `$filter` de Graph: la lista es chica, sin necesidad de la
+        optimización que sí justifica `_fetch_asignaciones`). `Approved` se
+        compara con identidad booleana estricta (`is True`) — Graph devuelve
+        un booleano JSON real para esta columna, nunca un string; `False`,
+        `None` o el campo ausente excluyen la fila igual, sin necesidad de
+        distinguirlos. Devuelve `consultant_name` CRUDO
+        (`fields["Colaborador"]`, texto simple) — el join contra
+        Colaboradores vive en `StaffingService`. Filas sin nombre o sin
+        AMBAS fechas se excluyen acá — sin consultor no hay nada que
+        overlayar, y una fecha faltante no es un período válido (fail-soft
+        por fila, nunca rompe el resto)."""
         site_id = self._require_site_id()
         mapping = self._resolve_vacation_field_mapping(site_id, access_token)
         pages = 0
@@ -887,7 +801,7 @@ class StaffingRepository:
         items = _call_vacation_graph("items", lambda: microsoft365.graph_get_paged_values(
             _list_items_url(
                 site_id, self.vacaciones_list_id,
-                [mapping.apellido, mapping.nombre, mapping.motivo, mapping.desde, mapping.hasta, mapping.estado],
+                [mapping.consultant_name, mapping.leave_type, mapping.start_date, mapping.end_date, mapping.approved],
             ),
             access_token, on_page=_count_page,
         ))
@@ -895,19 +809,17 @@ class StaffingRepository:
         periods: list[VacationPeriod] = []
         for item in items:
             fields = item.get("fields") or {}
-            if _stringify(fields.get(mapping.motivo)) != VACATION_MOTIVO_VALUE:
+            if _stringify(fields.get(mapping.leave_type)) != VACATION_LEAVE_TYPE_VALUE:
                 continue
-            if _stringify(fields.get(mapping.estado)) != VACATION_ESTADO_APROBADA_VALUE:
+            if fields.get(mapping.approved) is not True:
                 continue
-            nombre = _stringify(fields.get(mapping.nombre)) or ""
-            apellido = _stringify(fields.get(mapping.apellido)) or ""
-            full_name = f"{nombre} {apellido}".strip()
-            start = _stringify(fields.get(mapping.desde))
-            end = _stringify(fields.get(mapping.hasta))
-            if not full_name or not start or not end:
+            consultant_name = _stringify(fields.get(mapping.consultant_name)) or ""
+            start = _stringify(fields.get(mapping.start_date))
+            end = _stringify(fields.get(mapping.end_date))
+            if not consultant_name or not start or not end:
                 continue
             periods.append(VacationPeriod(
-                source_id=str(item.get("id") or ""), consultant_name=full_name,
+                source_id=str(item.get("id") or ""), consultant_name=consultant_name,
                 start_date=start, end_date=end,
             ))
 
