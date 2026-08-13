@@ -52,7 +52,7 @@ autoritativo — el export offline XLSX, con labels Apellido/Nombre/Motivo/
 Desde/Hasta/Estado, NUNCA fue el contrato real de la lista SharePoint, ver
 HANDOFF): `get_vacations` lee la lista "Solicitud vacaciones" del MISMO
 sitio Gestión, filtrando EXCLUSIVAMENTE `TipodeLicencia == "Vacaciones"`
-AND `Approved is True` (booleano estricto — `False`/`None`/ausente
+AND `¿Aprobado CCHH? is True` (booleano estricto — `False`/`None`/ausente
 excluye; ningún otro Tipo de Licencia entra). Devuelve `consultant_name`
 CRUDO (`fields["Colaborador"]`, un campo de TEXTO simple — NO lookup, NO
 requiere resolver un ID de Colaboradores) — el join de identidad
@@ -61,11 +61,15 @@ determinístico contra el universo de Colaboradores de Staffing vive en
 normalizado). `get_consultants` lee SOLO Colaboradores (id + nombre, sin
 Asignaciones/Proyectos) — universo de identidad para ese join.
 
-`¿Aprobado CCHH?` (`_x00bf_AprobadoCCHH_x003f_`, boolean) EXISTE en la
-fuente real pero está DELIBERADAMENTE fuera del criterio de inclusión de
-V1 — su rol de negocio (¿debe exigirse junto con `Approved`? ¿es
-independiente?) no está confirmado; agregarlo ahora inventaría una regla.
-Ver HANDOFF para el registro explícito de esta deuda conocida.
+Contrato de aprobación FINAL (owner smoke #6 + decisión de negocio, ver
+HANDOFF): la elegibilidad la define `¿Aprobado CCHH?`
+(`_x00bf_AprobadoCCHH_x003f_`, boolean) — la aprobación CCHH específica de
+Danwor, NO el genérico `¿Aprobado?`/`Approved` de la plantilla de solicitud
+de viaje. El smoke #6 probó que las filas de Vacaciones llegaban con
+`Approved = False` (genuino), vaciando el overlay; el owner autorizó adoptar
+CCHH como flag autoritativo. `Approved` genérico quedó RETIRADO del criterio
+de elegibilidad y del fetch (no se exige, no se OR-ea, no se invierte, no es
+fallback).
 
 DISCOVERY DE CAMPOS EN RUNTIME (ver HANDOFF): a diferencia de
 Asignaciones/Proyectos/Colaboradores (internal names vía `.env`, sin
@@ -148,10 +152,10 @@ _HISTORY_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandoml
 # Staffing Vacation Timeline Overlay (ver HANDOFF) — valor EXACTO de negocio
 # confirmado contra el schema real (`TipodeLicencia` es una columna Choice
 # de la lista, no un internal name que necesite config por tenant — mismo
-# criterio que `INACTIVE_STATUS_VALUE` arriba). Junto con `Approved is True`
-# (booleano estricto, ver `get_vacations`) es el ÚNICO par que habilita una
-# fila para el timeline — cualquier otro Tipo de Licencia, o Approved
-# False/None/ausente, queda fuera de V1.
+# criterio que `INACTIVE_STATUS_VALUE` arriba). Junto con
+# `¿Aprobado CCHH? is True` (booleano estricto, ver `get_vacations`) es el
+# ÚNICO par que habilita una fila para el timeline — cualquier otro Tipo de
+# Licencia, o CCHH False/None/ausente, queda fuera.
 VACATION_LEAVE_TYPE_VALUE = "Vacaciones"
 
 
@@ -262,12 +266,13 @@ class VacationFieldMapping:
     una instancia completa, o levanta `VacationSchemaError` — no existe un
     estado "parcialmente resuelto" que un caller pueda inspeccionar.
 
-    Contrato FINAL (owner live smoke #4, autoritativo — ver HANDOFF):
+    Contrato FINAL (owner live smoke #6 + decisión de negocio — ver HANDOFF):
     `consultant_name` → displayName "Colaborador" (TEXTO simple, no lookup);
     `leave_type` → "Tipo de Licencia"; `start_date` → "Fecha de inicio";
-    `end_date` → "Fecha de finalización"; `approved` → "¿Aprobado?"
-    (booleano). `¿Aprobado CCHH?` existe en la fuente pero NO forma parte
-    de este mapeo — fuera de V1 a propósito (ver HANDOFF)."""
+    `end_date` → "Fecha de finalización"; `approved` → "¿Aprobado CCHH?"
+    (booleano, internal `_x00bf_AprobadoCCHH_x003f_`) — la aprobación CCHH es
+    el flag de elegibilidad autoritativo. El genérico `¿Aprobado?`/`Approved`
+    de la plantilla de solicitud de viaje NO forma parte del mapeo."""
 
     consultant_name: str
     leave_type: str
@@ -353,7 +358,7 @@ def _call_vacation_graph(stage: str, fn: Callable[[], list[dict]]) -> list[dict]
 # fueron el contrato real de la lista SharePoint) — el resolver los
 # matchea contra `displayName` de Graph, NUNCA infiere el internal name
 # por posición/convención.
-_VACATION_DISPLAY_NAMES = ("Colaborador", "Fecha de inicio", "Fecha de finalización", "Tipo de Licencia", "¿Aprobado?")
+_VACATION_DISPLAY_NAMES = ("Colaborador", "Fecha de inicio", "Fecha de finalización", "Tipo de Licencia", "¿Aprobado CCHH?")
 
 # Metadata de columnas estable durante el uso normal de la app — TTL chico
 # alcanza (mismo orden de magnitud que `SHAREPOINT_CASES_CACHE_TTL`, ver
@@ -430,7 +435,7 @@ def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> Vacatio
     return VacationFieldMapping(
         consultant_name=resolved["Colaborador"], leave_type=resolved["Tipo de Licencia"],
         start_date=resolved["Fecha de inicio"], end_date=resolved["Fecha de finalización"],
-        approved=resolved["¿Aprobado?"],
+        approved=resolved["¿Aprobado CCHH?"],
     )
 
 
@@ -455,7 +460,7 @@ def resolve_vacation_field_mapping(site_id: str, list_id: str, access_token: str
 @dataclass(frozen=True)
 class VacationPeriod:
     """Un período de vacaciones APROBADO, ya filtrado por Tipo de Licencia +
-    Approved, con `consultant_name` CRUDO (`fields["Colaborador"]`, texto
+    aprobación CCHH, con `consultant_name` CRUDO (`fields["Colaborador"]`, texto
     simple tal cual vino de la fuente, sin normalizar ni resolver contra
     Colaboradores todavía — ese join determinístico vive en
     `StaffingService`, ver ahí). `start_date`/
@@ -777,13 +782,15 @@ class StaffingRepository:
 
     def get_vacations(self, access_token: str) -> list[VacationPeriod]:
         """Vacaciones APROBADAS ("Solicitud vacaciones", ver HANDOFF) — filtra
-        `TipodeLicencia == "Vacaciones"` AND `Approved is True` en Python (no
-        `$filter` de Graph: la lista es chica, sin necesidad de la
-        optimización que sí justifica `_fetch_asignaciones`). `Approved` se
-        compara con identidad booleana estricta (`is True`) — Graph devuelve
-        un booleano JSON real para esta columna, nunca un string; `False`,
-        `None` o el campo ausente excluyen la fila igual, sin necesidad de
-        distinguirlos. Devuelve `consultant_name` CRUDO
+        `TipodeLicencia == "Vacaciones"` AND `¿Aprobado CCHH? is True` en Python
+        (no `$filter` de Graph: la lista es chica, sin necesidad de la
+        optimización que sí justifica `_fetch_asignaciones`). La aprobación CCHH
+        (`mapping.approved` → `_x00bf_AprobadoCCHH_x003f_`) se compara con
+        identidad booleana estricta (`is True`) — Graph devuelve un booleano
+        JSON real para esta columna, nunca un string; `False`, `None` o el campo
+        ausente excluyen la fila igual, sin necesidad de distinguirlos. El
+        genérico `Approved` NO participa (ver contrato arriba). Devuelve
+        `consultant_name` CRUDO
         (`fields["Colaborador"]`, texto simple) — el join contra
         Colaboradores vive en `StaffingService`. Filas sin nombre o sin
         AMBAS fechas se excluyen acá — sin consultor no hay nada que
@@ -834,12 +841,15 @@ class StaffingRepository:
             leave_type_vacaciones_rows += 1
 
             # Desglose de aprobación — SOLO sobre el subconjunto Vacaciones
-            # (población de negocio relevante). `approved_other_rows` no
-            # asume que el runtime de Graph siempre entrega un `bool`
-            # Python real para esta columna — si algún día llega otra cosa
-            # (p. ej. un string), queda contado acá, NUNCA aceptado como
-            # aprobación (el filtro de negocio sigue siendo `is True`
-            # estricto, sin cambios).
+            # (población de negocio relevante). Las claves `approved_*` ahora
+            # describen la aprobación CCHH (`mapping.approved` →
+            # `_x00bf_AprobadoCCHH_x003f_`), el flag de elegibilidad final; se
+            # conservan los nombres `approved_*` para no romper el contrato de
+            # diagnóstico ya emitido (la comparación #6→#7 se lee igual).
+            # `approved_other_rows` no asume que el runtime de Graph siempre
+            # entrega un `bool` Python real para esta columna — si algún día
+            # llega otra cosa (p. ej. un string), queda contado acá, NUNCA
+            # aceptado como aprobación (el filtro sigue siendo `is True` estricto).
             approved_value = fields.get(mapping.approved)
             if approved_value is True:
                 approved_true_rows += 1

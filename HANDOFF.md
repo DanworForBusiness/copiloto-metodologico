@@ -5036,15 +5036,37 @@ usarse, sin rol de negocio establecido — ninguno de los dos se tocó ni se
 usó en este corrective (`Approved is True` sigue siendo el ÚNICO criterio,
 `¿Aprobado CCHH?` nunca se selecciona ni se lee).
 
-**Owner live smoke #6 sigue PENDIENTE** — con el embudo pusheado, el
-PRÓXIMO refresh del owner va a decir exactamente en qué conteo las filas
-se desploman a cero (¿`raw_rows=0`? ¿`leave_type_vacaciones_rows=0`?
-¿`approved_true_rows=0` con `approved_false_rows`/`approved_missing_or_
-null_rows`/`approved_other_rows` no-cero?). Ningún cambio de negocio se
-hizo — sigue pendiente la corrección real una vez que el embudo la
-revele. Referencia histórica offline (sin exigir igualdad exacta, la
-lista real puede haber cambiado): 48 Vacaciones totales, 41 Aprobada, 6
-Cancelada, 1 Rechazada.
+**Owner live smoke #6 — RESUELTO + CORRECTIVE FINAL DE APROBACIÓN.**
+El funnel del smoke #6 (evento `data_load_diagnostics`, 2026-08-12) mostró:
+`raw_rows=4`, `leave_type_vacaciones_rows=2`, `approved_true_rows=0`,
+`approved_false_rows=2`, `approved_missing_or_null_rows=0`,
+`approved_other_rows=0`, `required_fields_present_rows=0`, `vacaciones_rows=0`,
+`unmatched_count=0`, `ambiguous_count=0`. → **Case C:** las 2 filas de
+Vacaciones llegaban con `¿Aprobado? (Approved) = False` genuino (no artefacto de
+parsing: `other=0`, `missing=0`). El overlay estaba vacío porque el contrato V1
+exigía `Approved is True`.
+
+**Decisión de negocio del owner (autoritativa):** la elegibilidad de una vacación
+para el overlay la define **`¿Aprobado CCHH?`** (internal
+`_x00bf_AprobadoCCHH_x003f_`, boolean), la aprobación CCHH específica de Danwor —
+NO el genérico `¿Aprobado?`/`Approved` de la plantilla de solicitud de viaje.
+
+**Corrective implementado** (`fix(staffing): use CCHH approval for vacation
+overlay`): contrato final `TipodeLicencia == "Vacaciones" AND ¿Aprobado CCHH? is
+True`. El `VacationFieldMapping.approved` resuelve ahora "¿Aprobado CCHH?" →
+`_x00bf_AprobadoCCHH_x003f_`; el `$select` fetchea CCHH y **`Approved` genérico
+quedó RETIRADO** del criterio y del fetch (no se exige, no se OR-ea, no se
+invierte, no es fallback). Los conteos del funnel `approved_*` ahora describen la
+aprobación CCHH (nombres de clave conservados a propósito para que la
+comparación #6→#7 se lea igual). Sin cambios de negocio fuera de la aprobación:
+join determinístico, fechas dateOnly (fin inclusive, un día válido), invariantes
+de UI/KPIs/allocation intactos (vacaciones = overlay contextual; visible por
+consultor, oculto por proyecto).
+
+**Owner live smoke #7 PENDIENTE** (visual): confirmar que, con CCHH como flag,
+las vacaciones aprobadas por CCHH aparecen en el timeline por consultor. Nota:
+si esas 2 filas del smoke #6 también tienen `¿Aprobado CCHH? = False`, seguirán
+(correctamente) fuera — el funnel #7 lo dirá vía `approved_true_rows` (=CCHH).
 
 ### Gate
 
