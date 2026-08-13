@@ -146,7 +146,9 @@
         <form class="section-analysis-form"
               x-data='{ sectionActions: {{ section_actions|tojson }}, moduleActions: {{ module_actions|tojson }}, descriptions: {{ all_action_descriptions|tojson }}, loading: {{ all_loading_messages|tojson }}, picked: "" }'
               x-effect="const cur = (activeSection==='__module__' ? moduleActions : sectionActions); if (!cur.includes(picked)) picked = cur[0]"
-              hx-post="/modules/{{ document.summary.stem }}/sections/analyze" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#section-analysis-loading" hx-disabled-elt="button[type='submit']">
+              hx-post="/modules/{{ document.summary.stem }}/sections/analyze" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#section-analysis-loading" hx-disabled-elt="button[type='submit']"
+              data-dw-request-error-target="#assistant-conversation"
+              data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.">
           <input type="hidden" name="pack" value="{{ pack }}">
           <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
           <input type="hidden" name="section_slug" :value="activeSection">
@@ -182,7 +184,9 @@
            Vacío → la conversación colapsa y el input queda arriba, SIN la línea gris
            huérfana (se quitó el border-top del form; ese era el fix real, no reordenar). #}
         <div id="assistant-conversation" class="assistant-conversation" aria-live="polite"></div>
-        <form class="assistant-chat-form" hx-post="/modules/{{ document.summary.stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button[type='submit'], textarea">
+        <form class="assistant-chat-form" hx-post="/modules/{{ document.summary.stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button[type='submit'], textarea"
+              data-dw-request-error-target="#assistant-conversation"
+              data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.">
           <input type="hidden" name="pack" value="{{ pack }}">
           <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
           <input type="hidden" name="active_section" :value="activeSection">

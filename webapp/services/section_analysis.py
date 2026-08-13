@@ -23,6 +23,7 @@ from core.prompts import (
 # Slug especial: el target no es una sección sino la cabecera del módulo.
 MODULE_TARGET_SLUG = "__module__"
 from webapp.services.content_service import ModuleDocument
+from webapp.services.llm_client import classify_openai_error, default_client
 
 
 ACTION_DESCRIPTIONS = {
@@ -428,7 +429,7 @@ def _legacy_api_key() -> str:
 class SectionAnalysisService:
     def __init__(
         self,
-        client_factory: Callable[..., OpenAI] = OpenAI,
+        client_factory: Callable[..., OpenAI] = default_client,
         execution_mode: str | None = None,
     ) -> None:
         self.client_factory = client_factory
@@ -509,9 +510,13 @@ class SectionAnalysisService:
                 )
                 answer = str(response.choices[0].message.content or "").strip()
             except Exception as exc:
-                raise SectionAnalysisError(
-                    "No pudimos completar el análisis con el modelo. Intentá nuevamente."
-                ) from exc
+                # Falla de proveedor conocida → error tipado (el router lo traduce
+                # a un fragmento seguro); un bug de programación se propaga sin
+                # mislabelarse como "IA no disponible".
+                err = classify_openai_error(exc)
+                if err is not None:
+                    raise err from exc
+                raise
             if not answer:
                 raise SectionAnalysisError("El modelo no devolvió contenido para esta acción.")
 
