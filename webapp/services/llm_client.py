@@ -43,12 +43,16 @@ _PUBLIC_MESSAGES = {
         "No pudimos completar la consulta porque el servicio de IA no está "
         "disponible en este momento. Intentá nuevamente en unos minutos."
     ),
+    # Fallas de config/auth (401/403) y de request (400/404/409/422): copy
+    # deliberadamente genérico — nunca se menciona API key ni status al usuario.
+    "configuration": "No pudimos completar la consulta en este momento.",
+    "request": "No pudimos completar la consulta en este momento.",
 }
 
 
 class LLMServiceError(RuntimeError):
     """Falla NORMALIZADA de un proveedor LLM (timeout / connection / rate_limit /
-    provider). `public_message` es el texto seguro para el browser;
+    provider / configuration / request). `public_message` es el texto seguro para el browser;
     `http_status`/`request_id` son metadata diagnóstica opcional para los logs del
     server — NUNCA se exponen al browser."""
 
@@ -98,12 +102,19 @@ def classify_openai_error(exc: BaseException) -> LLMServiceError | None:
             request_id=_safe_request_id(exc),
         )
     if isinstance(exc, openai.APIStatusError):
-        return LLMServiceError(
-            "provider",
-            http_status=getattr(exc, "status_code", None),
-            request_id=_safe_request_id(exc),
-        )
+        # No mislabelar por status: 5xx = proveedor caído; 401/403 = config/auth;
+        # el resto de los 4xx = request. RateLimitError (429) ya se resolvió arriba.
+        status = getattr(exc, "status_code", None)
+        if status is not None and status >= 500:
+            kind = "provider"
+        elif status in (401, 403):
+            kind = "configuration"
+        else:
+            kind = "request"
+        return LLMServiceError(kind, http_status=status, request_id=_safe_request_id(exc))
     if isinstance(exc, openai.APIError):
+        # APIError sin status concreto (p. ej. respuesta ilegible): tratamos como
+        # proveedor no disponible, el caso conservador para el usuario.
         return LLMServiceError("provider", request_id=_safe_request_id(exc))
     return None
 

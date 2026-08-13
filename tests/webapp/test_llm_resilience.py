@@ -104,6 +104,26 @@ def test_classify_maps_known_provider_failures(kind, http):
     assert err.http_status == http
 
 
+def _status_exc(status: int) -> openai.APIStatusError:
+    # APIStatusError base con status arbitrario (message = texto crudo del proveedor
+    # que NUNCA debe llegar al HTML).
+    return openai.APIStatusError("RAW-provider-text", response=_resp(status), body=None)
+
+
+@pytest.mark.parametrize("status,kind", [
+    (500, "provider"), (502, "provider"), (503, "provider"),
+    (401, "configuration"), (403, "configuration"),
+    (400, "request"), (404, "request"), (409, "request"), (422, "request"),
+])
+def test_classify_apistatuserror_by_status_semantics(status, kind):
+    err = llm_client.classify_openai_error(_status_exc(status))
+    assert isinstance(err, LLMServiceError)
+    assert err.kind == kind
+    assert err.http_status == status
+    # el texto crudo del proveedor nunca queda en el mensaje público.
+    assert "RAW-provider-text" not in err.public_message
+
+
 def test_classify_does_not_swallow_programming_errors():
     assert llm_client.classify_openai_error(ValueError("bug real")) is None
     assert llm_client.classify_openai_error(KeyError("k")) is None
