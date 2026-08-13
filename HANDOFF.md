@@ -5204,6 +5204,59 @@ tocar código. **NO iniciado — sin discovery todavía.**
 
 ---
 
+## SHARED LLM / REQUEST FAILURE RESILIENCE — IMPLEMENTED / PENDING CI
+(branch `work/shared-llm-resilience`, worktree aislado desde `origin/main`)
+
+Capacidad chica de robustez (NO una fase nueva). Motivada por un incidente real:
+durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
+`net::ERR_CONNECTION_CLOSED` sin respuesta — el botón quedó "muerto" en silencio.
+
+- **Causa raíz:** el cliente OpenAI no tenía **timeout** → la request colgaba hasta
+  que el browser cortaba la conexión → ningún fragmento del server llegaba a HTMX.
+  Secundario: mensaje de error genérico y errores de programación mislabelados como
+  "IA no disponible".
+- **Seam LLM compartido nuevo — `webapp/services/llm_client.py`** (infra acotada,
+  no framework): `default_client(**kw)` construye el cliente OpenAI con
+  **timeout 30s + max_retries 1**; `LLMServiceError(kind=timeout|connection|
+  rate_limit|provider)` con `public_message` seguro (ES) + `http_status`/`request_id`
+  diagnósticos; `classify_openai_error(exc)` mapea el SDK a error tipado y devuelve
+  **None para bugs de programación** (no se mislabelan); `log_failure(op, exc)`
+  emite diagnóstico estructurado seguro. NO contiene prompts/negocio.
+- **Assistant + Section Analysis** consumen el seam: su `client_factory` inyectable
+  (tests con fakes intacto) ahora **defaultea a `default_client`**; en falla, las
+  provider-failures se elevan como `LLMServiceError` (chaining preservado) y los
+  bugs se propagan sin mislabelar.
+- **UX server-side:** el router traduce `LLMServiceError` a un **fragmento HTMX
+  seguro (200)** con copy específico por tipo (timeout / no-disponible / muchas
+  consultas) — nunca stack/clase/API key/texto crudo. Reusa el bloque visual de
+  error existente.
+- **Fallback de browser opt-in — `webapp/static/app.js`:** handler para
+  `htmx:sendError` + `htmx:timeout` (el caso sin-respuesta) que, SOLO para
+  elementos con `data-dw-request-error-target`/`-message`, renderiza un bloque de
+  conectividad (provider-neutral) en el target, dejando la acción reintentable.
+  **Sin auto-retry**, **sin catch-all**, **sin** enganchar `htmx:responseError` (no
+  duplica el path server-rendered ni los 403/409/410 del feedback). Los 3 triggers
+  LLM (chat, análisis de sección, "Explicame vos") declaran el contrato.
+- **Integridad de estado (ya segura, con test de regresión):** el store se muta
+  DESPUÉS del éxito del proveedor → una falla NO crea `AssistantReply`,
+  `latest_reply_id` no apunta a un reply fallido, y el feedback queda válido tras un
+  reintento exitoso posterior.
+- **Diagnóstico:** logging de aplicación estructurado (`danwor.llm`), sin nueva
+  taxonomía de Activity. Campos seguros: provider/operation/failure_kind/http_status/
+  request_id. Nunca key/prompt/response/cookies/body.
+- **Sin cambios de rutas** (route surface **83** sin cambios; route-contract GREEN).
+  **Out of scope respetado** (sin Responses API / modelos / prompts / streaming /
+  circuit breakers / Staffing / Activity / Auth).
+- **Tests (+19):** `tests/webapp/test_llm_resilience.py` — seam (política timeout/
+  retry, mapeo por tipo, no-swallow de bugs, no-leak del objeto público),
+  Assistant/Section failure (4 kinds → fragmento con copy seguro específico, sin
+  fugas), integridad de estado, higiene del fallback opt-in (app.js + templates).
+  Suite **731 passed / 1 skipped**. Smoke determinístico local GREEN (éxito en modo
+  simulación + fragmento de falla sintética renderizado con copy correcto +
+  diagnóstico logueado). **PENDING:** CI GREEN en el PR.
+
+---
+
 # ✅ CHECKPOINT — CURRENT EXECUTION POINT (para el agente N+1)
 
 > Bloque de reanudación autosuficiente. Un agente nuevo debe poder reconstruir el

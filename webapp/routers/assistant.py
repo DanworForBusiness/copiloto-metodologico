@@ -47,6 +47,7 @@ from webapp.services.assistant_service import (
     StaleAssistantReplyError,
 )
 from webapp.services.assistant_routing import AssistantRoutingService
+from webapp.services.llm_client import LLMServiceError, log_failure
 from webapp.services.content_service import load_module
 from webapp.services.section_analysis import (
     MODULE_TARGET_SLUG,
@@ -114,11 +115,18 @@ def analyze_section(
             topic=result.section_title, action=result.action,
         )
         error = ""
-    except (FileNotFoundError, KeyError, SectionAnalysisError) as exc:
+    except (FileNotFoundError, KeyError, SectionAnalysisError, LLMServiceError) as exc:
         result = None
         reply = None
         user_message = ""
-        error = str(exc)
+        # Falla de proveedor LLM conocida → copy seguro específico + diagnóstico
+        # estructurado (no exponemos detalles al browser). El resto (validación /
+        # contenido faltante) conserva su mensaje de dominio.
+        if isinstance(exc, LLMServiceError):
+            error = exc.public_message
+            log_failure("section_analysis", exc)
+        else:
+            error = str(exc)
     # Se loguea como assistant_query (no un evento aparte): una acción de la tab
     # "Sección" ES una interacción con el asistente (aparece en la conversación),
     # así que debe entrar a la "Historia de preguntas" y al KPI de IA igual que un
@@ -218,11 +226,15 @@ def assistant_chat(
             include_user=not routing_bypass,
         )
         error = ""
-    except (FileNotFoundError, KeyError, SectionAnalysisError) as exc:
+    except (FileNotFoundError, KeyError, SectionAnalysisError, LLMServiceError) as exc:
         reply = None
         route = None
         answer_html = ""
-        error = str(exc)
+        if isinstance(exc, LLMServiceError):
+            error = exc.public_message
+            log_failure("assistant_chat", exc)
+        else:
+            error = str(exc)
     # Telemetría fina (VERBOSE): qué preguntaron y cómo resolvió el copiloto.
     # La señal más rica para el ejercicio "romper/buscar fallas".
     log_verbose(

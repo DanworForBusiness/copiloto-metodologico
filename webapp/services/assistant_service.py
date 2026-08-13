@@ -42,6 +42,7 @@ def _catalog_grounding(query: str) -> str:
     except Exception:
         return ""
 from webapp.services.content_service import ModuleDocument
+from webapp.services.llm_client import classify_openai_error, default_client
 from webapp.services.section_analysis import SectionAnalysisError, _legacy_api_key, render_llm_html
 
 
@@ -160,7 +161,7 @@ class AssistantConversationStore:
 class AssistantChatService:
     def __init__(
         self,
-        client_factory: Callable[..., OpenAI] = OpenAI,
+        client_factory: Callable[..., OpenAI] = default_client,
         execution_mode: str | None = None,
     ) -> None:
         self.client_factory = client_factory
@@ -237,9 +238,13 @@ class AssistantChatService:
             )
             answer = str(response.choices[0].message.content or "").strip()
         except Exception as exc:
-            raise SectionAnalysisError(
-                "No pudimos completar la consulta. Intentá nuevamente."
-            ) from exc
+            # Falla de proveedor conocida (red/timeout/rate limit/servidor) →
+            # error tipado que el router traduce a un fragmento seguro. Un bug de
+            # programación NO se mislabela como "IA no disponible": se propaga.
+            err = classify_openai_error(exc)
+            if err is not None:
+                raise err from exc
+            raise
         if not answer:
             raise SectionAnalysisError("El modelo no devolvió contenido.")
         return answer, render_llm_html(answer)

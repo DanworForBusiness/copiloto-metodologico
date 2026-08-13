@@ -17,6 +17,8 @@
     hx-swap="beforeend"
     hx-indicator="#assistant-chat-loading"
     hx-disabled-elt="button"
+    data-dw-request-error-target="#assistant-conversation"
+    data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos."
   >
     <input type="hidden" name="pack" value="{{ pack }}">
     <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">

@@ -390,6 +390,39 @@ document.body.addEventListener("htmx:afterRequest", event => {
   }
 });
 
+// Fallback de última instancia cuando el navegador NO recibe una respuesta HTTP
+// (conexión caída / timeout de red): htmx no tiene nada que swapear, así que sin
+// esto la acción queda "muerta" — el spinner lo frena htmx:afterRequest, pero no
+// aparece ni resultado ni error (el incidente real: ERR_CONNECTION_CLOSED en
+// POST .../assistant/chat). OPT-IN y reusable: solo actúa sobre elementos que
+// declaran `data-dw-request-error-target` (+ opcional `data-dw-request-error-message`).
+// NO se engancha a htmx:responseError a propósito: las fallas de proveedor
+// conocidas ya vuelven como fragmento 200 renderizado por el server, y los estados
+// 403/409/410 del feedback tienen su propio manejo — no los duplicamos. NUNCA
+// auto-reintenta (el SDK del server ya reintentó; reenviar duplicaría estado).
+function dwRenderRequestErrorFallback(event) {
+  const elt = event.detail && event.detail.elt;
+  if (!elt || typeof elt.closest !== "function") return;
+  const trigger = elt.closest("[data-dw-request-error-target]");
+  if (!trigger) return;
+  const target = document.querySelector(trigger.getAttribute("data-dw-request-error-target"));
+  if (!target) return;
+  const message = trigger.getAttribute("data-dw-request-error-message")
+    || "No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.";
+  const block = document.createElement("div");
+  block.className = "assistant-exchange dw-request-error";
+  block.innerHTML =
+    '<div class="assistant-message assistant-message--assistant">'
+    + '<span class="assistant-message-label">Arquitecto Danwor</span>'
+    + '<div class="section-analysis-error"><strong>No se pudo completar</strong><p></p></div>'
+    + '</div>';
+  // textContent (no innerHTML) para el mensaje → sin riesgo de inyección.
+  block.querySelector(".section-analysis-error p").textContent = message;
+  target.appendChild(block);
+}
+document.body.addEventListener("htmx:sendError", dwRenderRequestErrorFallback);
+document.body.addEventListener("htmx:timeout", dwRenderRequestErrorFallback);
+
 // Detalle de flujo del catálogo: el detalle se swapea en un slot dedicado
 // (#catalog-detail-slot) DENTRO de #content, y solo OCULTAMOS el módulo (no lo
 // destruimos). Así el scroll-spy, los IntersectionObserver y los formularios de
