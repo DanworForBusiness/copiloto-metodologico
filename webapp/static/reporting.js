@@ -317,17 +317,29 @@ const COMERCIAL_SALUD_COLUMNS = [
 //   Calendario x Frecuencia → Rows: ID Frecuencia, Cliente, Client Partner
 //   Calendario x CP         → Rows: Client Partner, Cliente, ID Frecuencia (+ columna Total)
 // Mismo dataset base, dos reordenamientos de UNA jerarquía — exactamente el
-// patrón dual-perspectiva ya usado en Horas Vendidas (reusa buildTree/
-// renderTreeRows sin cambios). Valores representativos = cantidad de
-// entregas/checkpoints programados ese mes (no horas).
+// patrón dual-perspectiva ya usado en Horas Vendidas (reusa buildTree, pero
+// NO `renderTreeRows` sin más — ver `renderCalendarioCell` abajo).
+//
+// Valores BOOLEANOS (owner feedback, ver HANDOFF): cada celda mensual de
+// `Calendario_Cliente` es un indicador de presencia (1 = tiene entrega/
+// checkpoint programado ese mes, 0 = no) — NUNCA una cantidad. Semanal
+// significa "todos los meses tiene algo programado" (1 en los 12 meses),
+// no "4 veces por mes" — la cantidad de eventos DENTRO del mes no es lo
+// que esta tabla representa. Se renderiza como tilde (✓) cuando 1, blanco
+// cuando 0 — ver `renderCalendarioCell`. La columna Total (perspectiva
+// Client Partner) SÍ sigue siendo una cuenta real (meses con checkpoint en
+// el año), no booleana — un total de "12" es información genuina.
 const CALENDARIO_ROWS = [
-  { frecuencia: "Semanal", cliente: "Andesmar", cp: "María López", monthly: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4] },
-  { frecuencia: "Semanal", cliente: "AySA", cp: "Diego Ramos", monthly: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4] },
+  { frecuencia: "Semanal", cliente: "Andesmar", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { frecuencia: "Semanal", cliente: "AySA", cp: "Diego Ramos", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { frecuencia: "Mensual", cliente: "Danone", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { frecuencia: "Mensual", cliente: "Molinos", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { frecuencia: "Trimestral", cliente: "YPF", cp: "Diego Ramos", monthly: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1] },
   { frecuencia: "Trimestral", cliente: "Ternium", cp: "Diego Ramos", monthly: [0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0] },
 ];
+// Orden real de negocio (ID Frecuencia, ver TMDL de Cliente[ID Frecuencia]:
+// SWITCH 1 Mensual…6 Anual) — cadencia creciente, nunca alfabético.
+const FRECUENCIA_ORDER = ["Mensual", "Semanal", "Trimestral", "Cuatrimestral", "Semestral", "Anual"];
 const CALENDARIO_HIERARCHY = {
   "Frecuencia": { keys: ["frecuencia", "cliente", "cp"], labels: ["ID Frecuencia", "Cliente", "Client Partner"] },
   "Client Partner": { keys: ["cp", "cliente", "frecuencia"], labels: ["Client Partner", "Cliente", "ID Frecuencia"] },
@@ -376,13 +388,17 @@ const CAPACIDAD_NOASIGNADAS_ROWS = [
 // ============================================================================
 // Experiencias — cada una define su render + (opcional) perspectivas
 // ============================================================================
+// Labels de tab renombrados (owner feedback, ver HANDOFF) — SOLO texto
+// visible; `id` interno (usado en FACET_CONFIG/state.perspective/
+// dashboardKey/stateKey en todo el archivo) queda igual a propósito, evita
+// un refactor de identificadores sin beneficio de negocio.
 const EXPERIENCES = [
   { id: "cartera", label: "Cartera / Proyectos", perspectives: ["Mantenimiento", "Proyecto"] },
-  { id: "rentabilidad", label: "Rentabilidad / Performance", perspectives: ["Resumen", "Certificadas vs Ejecutadas"] },
+  { id: "rentabilidad", label: "Rentabilidad", perspectives: ["Resumen", "Certificadas vs Ejecutadas"] },
   { id: "horasvendidas", label: "Horas Vendidas", perspectives: ["Proyecto", "Client Partner"] },
-  { id: "comercial", label: "Comercial / Clientes", perspectives: ["Participación", "Salud de Cliente"] },
+  { id: "comercial", label: "Participación / Comercial", perspectives: ["Participación", "Salud de Cliente"] },
   { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"] },
-  { id: "capacidad", label: "Capacidad / Ejecución", perspectives: ["Productivas", "No Asignadas"] },
+  { id: "capacidad", label: "Horas Productivas", perspectives: ["Productivas", "No Asignadas"] },
 ];
 
 const state = {
@@ -520,7 +536,12 @@ const FACET_CONFIG = {
   }),
   calendario: () => ({
     baseRows: CALENDARIO_ROWS,
-    fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }],
+    // Frecuencia agregado (owner feedback, ver HANDOFF) — orden real de
+    // negocio (FRECUENCIA_ORDER), nunca alfabético.
+    fields: [
+      { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
+      { key: "frecuencia", field: "frecuencia", compareFn: (a, b) => FRECUENCIA_ORDER.indexOf(a) - FRECUENCIA_ORDER.indexOf(b) },
+    ],
   }),
   capacidad: () => state.perspective.capacidad === "Productivas"
     ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
@@ -674,8 +695,9 @@ function renderHorasVendidasFilterBar() {
 }
 
 function renderCalendarioFilterBar() {
-  const fields = facetSelectField("calendario", "cp", "Client Partner")
-    + facetSelectField("calendario", "cliente", "Cliente");
+  const fields = facetSelectField("calendario", "cliente", "Cliente")
+    + facetSelectField("calendario", "cp", "Client Partner")
+    + facetSelectField("calendario", "frecuencia", "Frecuencia");
   return filterBarShell(fields, "calendario");
 }
 
@@ -1101,8 +1123,18 @@ function toggleTreeNode(stateKey, pathKey) {
 // `showTotal` (opcional, default false — Horas Vendidas no lo usa, sin
 // cambio de comportamiento ahí): agrega una columna Total por fila, tal como
 // trae "Calendario x CP" en el PBIP fuente (Values incluye "Total" además de
-// los 12 meses).
-function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
+// los 12 meses). La columna Total SIEMPRE es la suma cruda (nunca pasa por
+// `cellFormatter`) — es una cuenta real incluso cuando las celdas mensuales
+// son booleanas (ver Calendario/HANDOFF: "Total" = meses con checkpoint en
+// el año, información genuina, no un booleano).
+//
+// `cellFormatter` (opcional, default `v => v || "—"` — Horas Vendidas/
+// Capacidad No Asignadas no lo pasan, sin cambio de comportamiento ahí):
+// cómo se renderiza CADA celda mensual. Calendario pasa un formateador de
+// tilde (ver corrective — HANDOFF: "las celdas de Calendario_Cliente son
+// booleanas, 1 = tilde, 0 = blanco — nunca la cantidad cruda").
+function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter) {
+  const format = cellFormatter || (v => v || "—");
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
     const hasChildren = node.children && node.children.length > 0;
@@ -1120,10 +1152,10 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
             ${esc(node.label)}
           </span>
         </td>
-        ${monthly.map(v => `<td>${v || "—"}</td>`).join("")}
+        ${monthly.map(v => `<td>${format(v)}</td>`).join("")}
         ${showTotal ? `<td>${rowTotal}</td>` : ""}
       </tr>`;
-    const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal) : "";
+    const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal, cellFormatter) : "";
     return rowHtml + childrenHtml;
   }).join("");
 }
@@ -1324,6 +1356,16 @@ function renderComercial() {
   return persp === "Participación" ? renderComercialParticipacion() : renderComercialSalud();
 }
 
+// Celda booleana (ver corrective — HANDOFF, owner screenshot): 1 → tilde,
+// 0/vacío → blanco. La fila hoja SIEMPRE es 0 o 1 (dataset); un nodo padre
+// puede sumar >1 (varios hijos con checkpoint ese mes) — sigue mostrando
+// tilde (¿"al menos un hijo tiene programado algo ese mes?"), nunca la
+// cuenta cruda en la celda mensual. La columna Total (aparte, ver abajo)
+// SÍ es la cuenta real.
+function renderCalendarioCell(v) {
+  return v ? "✓" : "";
+}
+
 function renderCalendario() {
   const persp = state.perspective.calendario;
   const hierarchy = CALENDARIO_HIERARCHY[persp];
@@ -1347,7 +1389,7 @@ function renderCalendario() {
       <table class="tree-matrix">
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
         <tbody>
-          ${renderTreeRows(stateKey, tree, 0, true)}
+          ${renderTreeRows(stateKey, tree, 0, true, renderCalendarioCell)}
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}<td>${grandTotal}</td></tr>
         </tbody>
       </table>
