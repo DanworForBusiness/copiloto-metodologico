@@ -566,6 +566,10 @@ const state = {
   // (ver carteraDefaultAnioInicio arriba), independiente de `filters` por
   // el mismo motivo que carteraStatus: default NO es "todo tildado".
   carteraAnioInicio: carteraDefaultAnioInicio(),
+  // Ciclo de vida de la carga de datos REALES de Cartera (Reporting real-data
+  // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
+  // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
+  carteraDataStatus: "idle",
 };
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -900,6 +904,9 @@ function toggleCarteraStatus(key) {
 // fecha/mes en absoluto, ver page_inventory.json). Orden: Proyecto,
 // Cliente, Desde/Hasta (o Año de Inicio), Estado.
 function renderCarteraFilterBar() {
+  // Sin barra de filtros hasta que los datos reales estén listos — evita
+  // mostrar opciones de un dataset que todavía no llegó (o que falló).
+  if (state.carteraDataStatus !== "ready") return "";
   const persp = state.perspective.cartera;
   // Año de Inicio (Proyecto, owner feedback ver HANDOFF): el slicer real
   // permite VARIOS años tildados a la vez — checkbox-group DINÁMICO (años
@@ -1042,7 +1049,53 @@ function dashboardSections(dashboardKey, sectionsHtml) {
 
 // --- Experience renderers ---------------------------------------------------
 
+// Carga LAZY de los datos REALES de Cartera desde el backend (Reporting
+// real-data Fase 1). Mismo token delegado del browser que Staffing
+// (sessionStorage "dw-graph-token"). Popula EN EL LUGAR los arrays que
+// CARTERA_CONFIG ya referencia (nunca reasigna) — el motor de facets/
+// jerarquía/rollups no se entera de que las filas ahora son reales. Fail-soft:
+// una falla deja Cartera en estado de error localizado; las otras 5
+// experiencias siguen con sus mocks. NUNCA mezcla real + mock (el render está
+// gateado por `carteraDataStatus`, así que el mock inicial nunca se muestra).
+function replaceRows(arr, rows) {
+  arr.length = 0;
+  (rows || []).forEach(r => arr.push(r));
+}
+async function loadCarteraData() {
+  state.carteraDataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.cartera) {
+      replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      replaceRows(CARTERA_PROYECTO_ROWS, data.cartera.proyecto);
+      // Re-derivar el default data-dependiente (Año de Inicio de Proyecto) con
+      // los años REALES — el default calculado al init salía del mock.
+      state.carteraAnioInicio = carteraDefaultAnioInicio();
+      state.carteraDataStatus = "ready";
+    } else {
+      state.carteraDataStatus = "error";
+    }
+  } catch (e) {
+    state.carteraDataStatus = "error";
+  }
+  render();
+}
+function renderCarteraDataState() {
+  if (state.carteraDataStatus === "error") {
+    return `<p class="empty-panel">No pudimos cargar los datos de Cartera desde SharePoint en este momento. Las demás vistas de Reporting siguen disponibles.</p>`;
+  }
+  return `<p class="empty-panel">Cargando datos reales de Cartera…</p>`;
+}
 function renderCartera() {
+  // Gate del ciclo de vida real-data: dispara la carga una sola vez (idle) y
+  // muestra loading/error hasta tener filas reales; recién ahí corre el
+  // renderer/motor existente sin cambios.
+  if (state.carteraDataStatus === "idle") loadCarteraData();
+  if (state.carteraDataStatus !== "ready") return renderCarteraDataState();
   const persp = state.perspective.cartera;
   const cfg = CARTERA_CONFIG[persp];
   // `facetFilteredRows` es la MISMA fuente de verdad que las opciones

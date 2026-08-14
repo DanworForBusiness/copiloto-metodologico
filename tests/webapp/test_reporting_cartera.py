@@ -296,3 +296,42 @@ def test_cartera_endpoint_never_echoes_token(monkeypatch):
     monkeypatch.setattr(reporting_router, "ReportingService", lambda: _RecordingReportingService())
     r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": secret})
     assert secret not in r.text
+
+
+# --- Browser wiring (source-seam, sin runtime JS) ----------------------------
+
+from pathlib import Path  # noqa: E402
+
+_REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
+
+
+def test_cartera_fetches_the_backend_endpoint():
+    assert '"/operaciones/reporting/integral/data/cartera"' in _REPORTING_JS
+    assert 'sessionStorage.getItem("dw-graph-token")' in _REPORTING_JS
+
+
+def test_cartera_populates_existing_arrays_in_place_not_reassign():
+    # Preserva el motor: muta los arrays que CARTERA_CONFIG referencia.
+    load_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraData"):_REPORTING_JS.index("function renderCarteraDataState")]
+    assert "replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento)" in load_block
+    assert "replaceRows(CARTERA_PROYECTO_ROWS, data.cartera.proyecto)" in load_block
+    assert "state.carteraAnioInicio = carteraDefaultAnioInicio()" in load_block  # re-deriva default real
+
+
+def test_cartera_render_is_gated_by_data_status():
+    render_block = _REPORTING_JS[_REPORTING_JS.index("function renderCartera()"):_REPORTING_JS.index("const stateKey")]
+    assert 'if (state.carteraDataStatus === "idle") loadCarteraData();' in render_block
+    assert 'if (state.carteraDataStatus !== "ready") return renderCarteraDataState();' in render_block
+
+
+def test_cartera_failure_is_localized_fail_soft():
+    load_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraData"):_REPORTING_JS.index("function renderCarteraDataState")]
+    assert 'state.carteraDataStatus = "error"' in load_block
+    assert "catch (e)" in load_block
+    # El estado de error de Cartera NO menciona otras experiencias como rotas.
+    assert "siguen disponibles" in _REPORTING_JS
+
+
+def test_filter_bar_hidden_until_data_ready():
+    fb = _REPORTING_JS[_REPORTING_JS.index("function renderCarteraFilterBar()"):_REPORTING_JS.index("function renderCartera()")]
+    assert 'if (state.carteraDataStatus !== "ready") return "";' in fb
