@@ -313,24 +313,6 @@ SHAREPOINT_PROYECTOS_FIELD_EMPRESA_LOOKUP = _env(
 ).strip()
 SHAREPOINT_CLIENTE_FIELD_TITLE = _env("SHAREPOINT_CLIENTE_FIELD_TITLE", "").strip()
 
-# SharePoint / Graph — Vacaciones (Staffing Vacation Timeline Overlay, ver
-# HANDOFF). MISMO sitio "Gestión" que Asignaciones/Proyectos/Colaboradores/
-# Cliente (`SHAREPOINT_GESTION_SITE_ID` arriba) — lista NUEVA y separada
-# ("Solicitud vacaciones"). List ID KNOWN FROM LEGACY SOURCE CONFIGURATION
-# (evidencia de Power Query real del reporte existente, provisto al
-# autorizar este batch), mismo estado que los 3 list ID originales de
-# Batch 2: NO todavía LIVE GRAPH VALIDATED en este entorno.
-SHAREPOINT_VACACIONES_LIST_ID = _env(
-    "SHAREPOINT_VACACIONES_LIST_ID", "36452eea-cc7c-40ce-bf77-80b4bdfa1d47",
-).strip()
-# A diferencia de Asignaciones/Proyectos/Colaboradores arriba, Vacaciones NO
-# tiene 6 env vars de internal name de columna — el corrective de discovery
-# en runtime (ver HANDOFF, webapp/services/staffing_repository.py::resolve_
-# vacation_field_mapping) los resuelve en cada request contra
-# `/sites/{id}/lists/{id}/columns` usando el mismo access_token delegado que
-# ya llega en el POST — sin necesitar que un humano con acceso Graph los
-# confirme y los configure a mano.
-
 # Detección de sección por texto (Nivel 2 de _find_matching_section)
 # MIN_SECTION_WORDS  — mínimo de palabras significativas de la pregunta que deben
 #                      aparecer en el cuerpo de la sección para considerar match.

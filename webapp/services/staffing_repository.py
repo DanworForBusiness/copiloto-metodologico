@@ -73,11 +73,12 @@ propio archivo: `Motivo == "Vacaciones"` AND `Estado == "Aprobada"`. Los
 flags `Approved`/`¿Aprobado CCHH?` de la fuente-lista quedaron SUPERADOS —
 no se exigen, no se OR-ean, no se invierten, no son fallback.
 
-CONTRATO DE UBICACIÓN (module constants, no config — `config.py` no se
-edita este batch): `VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/
-`VACATION_WORKSHEET_NAME` son la ubicación estable (sitio + ruta en el
-drive), NO una URL de descarga temporal ni un id de driveItem.
-`SHAREPOINT_VACACIONES_LIST_ID` quedó sin uso.
+CONTRATO DE UBICACIÓN (module constants, no config): `VACATION_SITE_PATH`/
+`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` son la ubicación estable
+(sitio + ruta en el drive), NO una URL de descarga temporal ni un id de
+driveItem. La config de la fuente-lista superada
+(`SHAREPOINT_VACACIONES_LIST_ID`) se removió de `config.py` (dead-config
+cleanup) — la fuente XLSX no necesita ningún list ID.
 
 DIAGNÓSTICO SEGURO DE FALLAS (ver HANDOFF): `_call_vacation_graph(stage,
 fn)` envuelve las llamadas Graph de Vacaciones (`stage="site"` para

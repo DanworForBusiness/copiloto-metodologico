@@ -5106,9 +5106,12 @@ usan). `Desde`/`Hasta` son date-only, soportan fecha Excel nativa Y texto
 `dd/mm/yyyy`; `Hasta` inclusive; un solo día válido; `Días` **NO** define el largo
 de la barra.
 
-**Ubicación como module constants** (no config: `config.py` no se edita este
-batch — `VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` en
-`staffing_repository.py`). `SHAREPOINT_VACACIONES_LIST_ID` quedó **sin uso**.
+**Ubicación como module constants** (no config:
+`VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` en
+`staffing_repository.py`). La config de la fuente-lista superada
+(`SHAREPOINT_VACACIONES_LIST_ID`) se **removió de `config.py`** en un
+dead-config cleanup posterior (`chore(staffing): remove obsolete vacation list
+config`) — la fuente XLSX no usa ningún list ID.
 
 **Fail-soft:** workbook inválido / worksheet o headers faltantes / sitio sin id →
 `VacationSchemaError` (stage `workbook`/`worksheet`/`headers`/`site`); transporte →
