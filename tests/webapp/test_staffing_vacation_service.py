@@ -225,3 +225,31 @@ def test_vacation_payload_has_no_kpi_or_allocation_keys():
     vacation_row = payload["vacations"][0]
     for forbidden in ("allocation_value", "allocation_unit", "status", "activo_vencido"):
         assert forbidden not in vacation_row
+
+
+# ============================================================================
+# vacation_hours — passthrough de DISPLAY (Días × 8), nunca allocation/KPI
+# ============================================================================
+
+def test_join_passes_vacation_hours_through_to_overview_period():
+    result = join_vacations_to_consultants([_vacation(vacation_hours=80)], [("c1", "Matías Gómez")])
+    assert result.periods[0].vacation_hours == 80
+
+
+def test_join_preserves_none_vacation_hours():
+    result = join_vacations_to_consultants([_vacation(vacation_hours=None)], [("c1", "Matías Gómez")])
+    assert result.periods[0].vacation_hours is None
+
+
+def test_payload_emits_vacation_hours_when_available():
+    payload = build_vacation_overlay_payload(
+        VacationJoinResult(periods=[_period(vacation_hours=80)], unmatched=[], ambiguous=[]), today=_TODAY,
+    )
+    assert payload["vacations"][0]["vacation_hours"] == 80
+
+
+def test_payload_emits_none_vacation_hours_when_absent():
+    payload = build_vacation_overlay_payload(
+        VacationJoinResult(periods=[_period(vacation_hours=None)], unmatched=[], ambiguous=[]), today=_TODAY,
+    )
+    assert payload["vacations"][0]["vacation_hours"] is None

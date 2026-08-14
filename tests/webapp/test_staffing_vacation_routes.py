@@ -371,3 +371,35 @@ def test_vacaciones_endpoint_graph_error_response_contract_is_the_final_small_sh
     response = client.post("/operaciones/staffing/asignaciones/vacaciones", data={"graph_token": "tok"})
     assert response.status_code == 200
     assert set(response.json().keys()) == {"state", "stage", "http_status"}
+
+
+# ============================================================================
+# Assignments-first UX (post-live-smoke corrective) — el endpoint de
+# ASIGNACIONES (`/data`) NO llama ni depende de las vacaciones: nunca descarga
+# el XLSX, y una falla de vacaciones NO puede bloquear las asignaciones.
+# ============================================================================
+
+def test_assignments_data_endpoint_never_touches_vacations(monkeypatch):
+    # items A/15/16: el fragmento de asignaciones renderiza aunque
+    # get_vacation_overlay/get_vacations exploten — porque `/data` no los llama.
+    from webapp.services.staffing_service import StaffingOverviewRow
+
+    class _AssignmentsOnly:
+        def get_overview(self, access_token):
+            return [StaffingOverviewRow(
+                assignment_id="1", consultant_id="1", consultant_name="Ana Pérez",
+                project_id="10", project_name="Proyecto Alfa",
+                allocation_value=50.0, allocation_unit="hours_per_month", capacity_percentage=None,
+                status="Active", start_date=None, end_date=None,
+            )]
+
+        def get_vacation_overlay(self, *a, **kw):
+            raise AssertionError("/data (asignaciones) NUNCA debe cargar vacaciones/XLSX")
+
+        def get_vacations(self, *a, **kw):
+            raise AssertionError("/data (asignaciones) NUNCA debe descargar el XLSX")
+
+    monkeypatch.setattr(staffing_router, "StaffingService", _AssignmentsOnly)
+    response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
+    assert response.status_code == 200
+    assert "Proyecto Alfa" in response.text  # asignaciones renderizadas, sin esperar vacaciones

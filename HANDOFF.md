@@ -5124,26 +5124,66 @@ retiraron.
 consultor, oculto por proyecto); NUNCA afecta horas/KPIs/conteos de asignación/
 FT-PT/Activos vencidos/Asignación hoy/+N/barras/estado/detalle.
 
-**Owner live XLSX smoke PENDIENTE:** un refresh del owner debería dar
-`xlsx_rows > 4`, `vacaciones_rows > 0`, `aprobadas_rows > 0`, `eligible_periods > 0`
-y overlays visibles en Ago-2026. Si Graph baja un workbook cuya cantidad de filas
-difiere materialmente del XLSX provisto (~203), DETENERSE y reportar evidencia de
-reconciliación de fuente.
+**Owner live XLSX smoke EXITOSO:** el corrective XLSX funciona en vivo — los
+overlays de vacaciones son visibles. Quedaron dos observaciones del owner,
+resueltas en el POST-LIVE-SMOKE UX MICRO-CORRECTIVE de abajo.
+
+---
+
+## STAFFING — VACATION XLSX · POST-LIVE-SMOKE UX MICRO-CORRECTIVE
+(`fix(staffing): refine vacation overlay UX`, branch
+`work/staffing-vacation-overlay`, sobre el corrective XLSX)
+
+**A — Assignments-first (VERIFICADO, sin cambio de serialización).** Hallazgo:
+la arquitectura ya era correcta e independiente. El shell `staffing.html` carga
+asignaciones por HTMX (`hx-post .../data`, `hx-trigger="load"`) — el spinner
+"Cargando asignaciones…" vive en ese contenedor `#staffing-rows` y termina
+cuando vuelve `/data`. `/data` → `service.get_overview` → SOLO `get_allocations`;
+NUNCA toca el XLSX. El overlay de vacaciones se carga aparte: el componente
+Alpine (que viaja EN el fragmento de `/data`) dispara `_loadVacations()` en
+`init()` fire-and-forget (sin `await`), estrictamente DESPUÉS de que las
+asignaciones ya renderizaron desde el payload SSR. Una falla de vacaciones solo
+toca su propio estado (`vacations`/`vacationsLoading`/`vacationsLoadError`),
+nunca `this.assignments`. **Conclusión:** el render inicial de asignaciones NO
+estaba bloqueado por vacaciones; la lentitud percibida es la descarga+parseo del
+XLSX del overlay (posterior al render), no el spinner de asignaciones. No se
+introdujo serialización con el corrective XLSX (el path de asignaciones quedó
+byte-idéntico). Sin cambios de código en A (respeta "no optimizar a ciegas" y
+"sin caching prematuro del XLSX"). Se agregó una prueba de ruta que fija la
+independencia (`/data` con un service cuyo `get_vacation_overlay`/`get_vacations`
+explotan sigue devolviendo 200 con las asignaciones).
+
+**B — Etiqueta de horas (Días × 8).** `Días` del XLSX se usa SOLO para display:
+`vacation_hours = Días × 8` (`VACATION_HOURS_PER_DAY = 8`). Parser robusto
+`_vacation_hours_from_dias` acepta `10`, `10.0`, `"10"`, `"10 días"` (y coma
+decimal), rechaza negativos/bool/malformado → `None`, sin retener el string
+crudo. `VacationPeriod`/`VacationOverviewPeriod`/payload ganan
+`vacation_hours: int | None`; el JS `vacationBarLabel(vacation)` rinde
+`Vacaciones (80hs)` cuando hay horas y `Vacaciones` cuando no (tooltip + aria).
+**Separación semántica clave:** `Días` NUNCA define la geometría de la barra —
+posición/ancho siguen siendo exclusivamente `Desde`/`Hasta` (fin inclusive); no
+se recomputan días hábiles del rango. `Días` es display-only y NO se deriva de
+Horaspormes/FT-PT/allocation/horas de proyecto. `Días` ausente/malformado NO
+descarta el período (la barra igual se dibuja, la etiqueta cae a `Vacaciones`).
+La etiqueta de lane "Vacaciones" (categoría, compartida entre múltiples períodos
+del consultor) no cambia — las horas son por-período y viven en cada barra.
+
+**Invariantes:** `vacation_hours` es metadata de display del overlay; NUNCA toca
+allocation/Horaspormes/KPIs/conteos/FT-PT/Activos vencidos/Asignación hoy/+N/
+detalle/horas de barra de asignación (probado: payload de vacaciones sin claves
+de KPI; getters de `kpis`/`filteredAssignments` no leen `vacations`).
 
 ### Gate
 
-Targeted (AUTHORITATIVE SOURCE CORRECTIVE — XLSX): Vacaciones repository
-**reescrito al contrato XLSX** (53 tests — URL de sitio/drive, seam
-`graph_get_bytes`, worksheet `Solicitudes`, worksheet plano, validación de
-headers, filtro `Motivo=Vacaciones AND Estado=Aprobada`, fechas nativas +
-`dd/mm/yyyy`, un día válido, `Días` ignorado, join `Nombre Apellido`, sin PII
-en payload/diagnóstico, workbook/worksheet inválidos fail-soft, transporte
-`site`/`download`, funnel XLSX de 6 conteos, retiro del modelo-lista) +
-Vacaciones service/routes/UI + `test_staffing_production_corrective.py`
-(incluye route surface) — **86 GREEN**. Staffing regression completo + module-
-registry + Activity — GREEN, sin debilitar ningún test existente. Full suite
-**821 passed / 1 skipped**, route-contract GREEN, route surface **84, SIN
-CAMBIOS**. Owner live XLSX smoke PENDIENTE (ver arriba).
+UX micro-corrective: tests nuevos de `Días`→horas (parser + parametrizados),
+flujo `vacation_hours` por join/payload, `vacationBarLabel`/tooltip, y ciclo de
+vida assignments-first (fire-and-forget en `init()`, `/data` no toca vacaciones,
+falla de vacaciones no muta asignaciones). Vacaciones repository (66) + service +
+routes + UI + `test_staffing_production_corrective.py` (incluye route surface) —
+GREEN. Staffing regression completo + module-registry + Activity — GREEN, sin
+debilitar ningún test existente. Full suite **847 passed / 1 skipped**,
+route-contract GREEN, route surface **84, SIN CAMBIOS**. (Corrective de fuente
+XLSX previo: full suite era 821; este micro-batch suma +26 tests.)
 
 ---
 

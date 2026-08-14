@@ -324,9 +324,19 @@ VACATION_WORKSHEET_NAME = "Solicitudes"
 # de la fuente real): elegible si Motivo == "Vacaciones" AND Estado == "Aprobada".
 VACATION_ESTADO_VALUE = "Aprobada"
 
-# Headers mínimos requeridos del worksheet. Del set completo (14 columnas) solo se
-# usan estos 6 — CUIL/Legajo/Días/comentarios/etiquetas NUNCA se retienen ni exponen.
+# Horas equivalentes por día de vacaciones — regla de negocio de DISPLAY
+# autorizada por el owner (post-live-smoke UX corrective): la etiqueta del
+# overlay muestra `Días × 8`. SOLO informativo — nunca toca allocation/
+# Horaspormes/KPIs (ver `VacationPeriod.vacation_hours`).
+VACATION_HOURS_PER_DAY = 8
+
+# Headers mínimos requeridos del worksheet. Del set completo (14 columnas) solo
+# se usan Apellido/Nombre/Motivo/Desde/Hasta/Estado como contrato de runtime, más
+# `Días` OPCIONAL (solo para la etiqueta de horas; su ausencia NO invalida el
+# período). CUIL/Legajo/comentarios/etiquetas NUNCA se retienen ni exponen; el
+# valor crudo de `Días` tampoco (solo su producto ×8 sale al payload).
 _VACATION_REQUIRED_HEADERS = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
+_VACATION_DIAS_HEADER = "Días"
 
 
 def _cell_to_iso_date(value) -> str:
@@ -353,6 +363,30 @@ def _cell_to_iso_date(value) -> str:
         return date.fromisoformat(text[:10]).isoformat()
     except ValueError:
         return ""
+
+
+def _vacation_hours_from_dias(value) -> int | None:
+    """Traduce la celda `Días` a HORAS de display (`Días × 8`), robustamente y
+    SIN retener el string crudo. Acepta int (`10`), float integral (`10.0`),
+    texto numérico (`"10"`) y texto con sufijo (`"10 días"`); toma el primer
+    número no-negativo (coma o punto decimal). Un valor ausente/malformado/
+    negativo → `None` (el período sigue siendo válido; la etiqueta cae a
+    "Vacaciones" sin horas). NUNCA se deriva de días hábiles del rango
+    Desde/Hasta — `Días` ya puede reflejar el calendario de negocio de la
+    fuente. Devuelve int (horas), integral por construcción salvo Días
+    fraccionario, donde se redondea (display-only)."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        days = float(value)
+    else:
+        match = re.search(r"\d+(?:[.,]\d+)?", str(value))
+        if match is None:
+            return None
+        days = float(match.group(0).replace(",", "."))
+    if days < 0:
+        return None
+    return int(round(days * VACATION_HOURS_PER_DAY))
 
 
 def _download_vacation_workbook(access_token: str) -> bytes:
@@ -409,6 +443,7 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
         i_ape, i_nom = header_index["Apellido"], header_index["Nombre"]
         i_mot, i_est = header_index["Motivo"], header_index["Estado"]
         i_desde, i_hasta = header_index["Desde"], header_index["Hasta"]
+        i_dias = header_index.get(_VACATION_DIAS_HEADER)  # OPCIONAL (solo horas)
         periods: list = []
         for row_num, row in enumerate(row_iter, start=1):
             if row is None or not any(cell is not None and str(cell).strip() for cell in row):
@@ -432,9 +467,14 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
             if not consultant_name or not start or not end:
                 continue
             funnel["eligible_periods"] += 1
+            # `Días` es SOLO para la etiqueta de horas (×8); su ausencia o
+            # malformación NO invalida el período (fail-soft → horas None). La
+            # geometría de la barra sigue siendo exclusivamente start/end.
+            dias_cell = row[i_dias] if (i_dias is not None and i_dias < len(row)) else None
             periods.append(VacationPeriod(
                 source_id=f"xlsx:{row_num}", consultant_name=consultant_name,
                 start_date=start, end_date=end,
+                vacation_hours=_vacation_hours_from_dias(dias_cell),
             ))
         return periods, funnel
     finally:
@@ -443,20 +483,22 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
 
 @dataclass(frozen=True)
 class VacationPeriod:
-    """Un período de vacaciones APROBADO, ya filtrado por Tipo de Licencia +
-    aprobación CCHH, con `consultant_name` CRUDO (`fields["Colaborador"]`, texto
-    simple tal cual vino de la fuente, sin normalizar ni resolver contra
-    Colaboradores todavía — ese join determinístico vive en
-    `StaffingService`, ver ahí). `start_date`/
-    `end_date` son passthrough puro (mismo criterio que
-    `StaffingAllocationRecord`) — ninguna conversión de fecha ocurre en este
-    módulo; el parseo/validación vive en el servicio, igual que las fechas
-    de Asignaciones."""
+    """Un período de vacaciones ELEGIBLE (Motivo == "Vacaciones" AND Estado ==
+    "Aprobada"), con `consultant_name` construido como "Nombre Apellido" tal
+    cual vino del XLSX, sin normalizar ni resolver contra Colaboradores todavía
+    — ese join determinístico vive en `StaffingService`, ver ahí. `start_date`/
+    `end_date` ya llegan como ISO `YYYY-MM-DD` (el service las parsea a `date` y
+    define la geometría de la barra, fin inclusive). `vacation_hours` es
+    metadata de DISPLAY (`Días × 8`, ver `_vacation_hours_from_dias`): `None`
+    cuando `Días` falta o es malformado — el período sigue siendo válido y la
+    barra igual se dibuja, solo cae la etiqueta de horas. NUNCA participa de
+    allocation/Horaspormes/KPIs."""
 
     source_id: str
     consultant_name: str
     start_date: str | None
     end_date: str | None
+    vacation_hours: int | None = None
 
 
 def _list_items_url(

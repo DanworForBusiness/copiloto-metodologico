@@ -153,9 +153,10 @@ def test_selects_solicitudes_worksheet_even_with_decoy_sheets(monkeypatch):
 
 def test_flat_worksheet_without_excel_table_produces_periods(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    # _BASE Días=9 → 72hs de display (Días × 8).
     assert StaffingRepository().get_vacations("tok") == [
         VacationPeriod(source_id="xlsx:1", consultant_name="Matías Gómez",
-                       start_date="2026-03-10", end_date="2026-03-20"),
+                       start_date="2026-03-10", end_date="2026-03-20", vacation_hours=72),
     ]
 
 
@@ -260,10 +261,12 @@ def test_row_missing_name_excluded_fail_soft(monkeypatch):
 
 # --- item 14: el payload NUNCA retiene CUIL/Legajo/comentarios/etiquetas/Días -
 
-def test_vacation_period_shape_is_exactly_four_fields():
+def test_vacation_period_shape_is_source_plus_display_hours_only():
     import dataclasses
+    # source_id/consultant_name/start/end + vacation_hours (display Días×8).
+    # NUNCA CUIL/Legajo/comentarios/etiquetas ni el Días crudo.
     assert {f.name for f in dataclasses.fields(VacationPeriod)} == {
-        "source_id", "consultant_name", "start_date", "end_date",
+        "source_id", "consultant_name", "start_date", "end_date", "vacation_hours",
     }
 
 
@@ -272,7 +275,7 @@ def test_no_pii_leaks_into_payload(monkeypatch):
     period = StaffingRepository().get_vacations("tok")[0]
     blob = repr(period)
     for secret in ("20-99887766-3", "LEG-4242", "COMENTARIO-EMPLEADO-SECRETO",
-                   "COMENTARIO-APROBADOR-SECRETO", "ETIQUETA-SECRETA", "99999"):
+                   "COMENTARIO-APROBADOR-SECRETO", "ETIQUETA-SECRETA"):
         assert secret not in blob
 
 
@@ -407,6 +410,59 @@ def test_repository_constructor_no_longer_takes_vacation_list_args():
 def test_leave_type_and_estado_values_are_authoritative():
     assert repo_module.VACATION_LEAVE_TYPE_VALUE == "Vacaciones"
     assert repo_module.VACATION_ESTADO_VALUE == "Aprobada"
+
+
+# --- Días → horas de display (post-live-smoke UX corrective) -----------------
+
+@pytest.mark.parametrize("dias,hours", [
+    (10, 80),          # item 1: entero
+    (10.0, 80),        # item 2: float integral
+    ("10", 80),        # item 3: string numérico
+    ("10 días", 80),   # item 4: string con sufijo
+    (1, 8),            # un día → 8hs
+])
+def test_dias_parses_to_display_hours(monkeypatch, dias, hours):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Días=dias)]))
+    assert StaffingRepository().get_vacations("tok")[0].vacation_hours == hours
+
+
+def test_ten_days_is_eighty_hours_with_dates_from_owner_example(monkeypatch):
+    # item 5: Desde 27/07/2026, Hasta 07/08/2026, Días 10 → 80hs.
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="27/07/2026", Hasta="07/08/2026", Días=10)]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert period.vacation_hours == 80
+    assert (period.start_date, period.end_date) == ("2026-07-27", "2026-08-07")
+
+
+@pytest.mark.parametrize("dias", [None, "", "sin datos", -3])
+def test_missing_or_malformed_dias_keeps_period_without_hours(monkeypatch, dias):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Días=dias)]))
+    periods = StaffingRepository().get_vacations("tok")
+    assert len(periods) == 1                    # item 6: NO se descarta el período
+    assert periods[0].vacation_hours is None    # item 7: sin etiqueta de horas
+
+
+def test_missing_dias_header_entirely_keeps_periods_without_hours(monkeypatch):
+    headers = [h for h in _HEADERS if h != "Días"]
+    rows = [[v for h, v in zip(_HEADERS, _cells()) if h != "Días"]]
+    _patch_source(monkeypatch, _workbook_bytes(rows, headers=headers))
+    periods = StaffingRepository().get_vacations("tok")
+    assert len(periods) == 1 and periods[0].vacation_hours is None
+
+
+def test_dias_does_not_alter_date_span(monkeypatch):
+    # items 8/9: Días absurdo NO cambia start/end — la geometría es Desde/Hasta.
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="2026-03-10", Hasta="2026-03-12", Días=999)]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert (period.start_date, period.end_date) == ("2026-03-10", "2026-03-12")
+
+
+def test_vacation_hours_never_exposes_raw_dias_string(monkeypatch):
+    # item 14: el string crudo "10 días" NUNCA aparece; solo el producto ×8.
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Días="10 días")]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert period.vacation_hours == 80
+    assert "días" not in repr(period) and "10 días" not in repr(period)
 
 
 # --- get_consultants (sin cambios de contrato: sigue leyendo la lista) -------

@@ -245,13 +245,16 @@ def _normalize_consultant_name(name: str | None) -> str:
 @dataclass(frozen=True)
 class VacationOverviewPeriod:
     """Un período de vacaciones ya resuelto contra un consultor de Staffing
-    ÚNICO e inequívoco (ver `join_vacations_to_consultants`)."""
+    ÚNICO e inequívoco (ver `join_vacations_to_consultants`). `vacation_hours`
+    es passthrough puro de `VacationPeriod` — metadata de display (`Días × 8`),
+    `None` si la fuente no lo trae; el join no lo interpreta."""
 
     source_id: str
     consultant_id: str
     consultant_name: str
     start_date: date
     end_date: date
+    vacation_hours: int | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +298,7 @@ def join_vacations_to_consultants(
             periods.append(VacationOverviewPeriod(
                 source_id=vacation.source_id, consultant_id=consultant_id,
                 consultant_name=consultant_name, start_date=start, end_date=end,
+                vacation_hours=vacation.vacation_hours,
             ))
         elif len(candidates) == 0:
             unmatched.append(vacation)
@@ -334,6 +338,9 @@ def build_vacation_overlay_payload(join_result: VacationJoinResult, *, today: da
             "consultant_name": period.consultant_name,
             "start_date": period.start_date.isoformat(),
             "end_date": period.end_date.isoformat(),
+            # Metadata de display SOLAMENTE (Días × 8) — `None` cuando la fuente
+            # no trae Días válido; la barra igual se posiciona por start/end.
+            "vacation_hours": period.vacation_hours,
             **position,
         })
     return {

@@ -1381,8 +1381,19 @@ function staffingDashboard(payload) {
       return byConsultant;
     },
 
+    // Etiqueta del período de vacaciones — metadata de DISPLAY: agrega las
+    // horas equivalentes (Días × 8, ya calculadas en el repositorio y provistas
+    // como vacation.vacation_hours) cuando la fuente las trae. Sin horas (Días
+    // ausente/malformado → vacation_hours null) cae a "Vacaciones" pelado.
+    // NUNCA deriva horas del rango Desde/Hasta (ver HANDOFF): la geometría de la
+    // barra usa las fechas; la etiqueta usa Días×8, son dimensiones separadas.
+    vacationBarLabel(vacation) {
+      const hours = vacation.vacation_hours;
+      return (typeof hours === "number") ? `Vacaciones (${hours}hs)` : "Vacaciones";
+    },
+
     vacationBarAriaLabel(vacation) {
-      return "Vacaciones — " + (this.formatDateDMY(vacation.start_date) || "?") + " → " + (this.formatDateDMY(vacation.end_date) || "?");
+      return this.vacationBarLabel(vacation) + " — " + (this.formatDateDMY(vacation.start_date) || "?") + " → " + (this.formatDateDMY(vacation.end_date) || "?");
     },
 
     // Asignaciones sin ninguna fecha real — no se posicionan en el

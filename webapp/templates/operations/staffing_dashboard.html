@@ -218,7 +218,7 @@
                                    tabindex="0"
                                    :aria-label="vacationBarAriaLabel(vacation)">
                                 <div class="staffing-timeline__tooltip" aria-hidden="true">
-                                  <p class="staffing-timeline__tooltip-consultant">Vacaciones</p>
+                                  <p class="staffing-timeline__tooltip-consultant" x-text="vacationBarLabel(vacation)"></p>
                                   <p x-text="(formatDateDMY(vacation.start_date) || '¿inicio?') + ' → ' + (formatDateDMY(vacation.end_date) || '¿fin?')"></p>
                                 </div>
                               </div>

@@ -124,3 +124,74 @@ def test_kpis_getter_never_reads_vacations_state():
 def test_filtered_assignments_never_reads_vacations_state():
     block = _APP_JS[_APP_JS.index("get filteredAssignments()"):_APP_JS.index("get kpis()")]
     assert "vacations" not in block
+
+
+# ============================================================================
+# Etiqueta de horas de vacaciones (Días × 8) — post-live-smoke UX corrective
+# ============================================================================
+
+def test_vacation_bar_label_appends_hours_when_available():
+    # item 10: "Vacaciones (80hs)" cuando vacation_hours es numérico.
+    block = _APP_JS[_APP_JS.index("vacationBarLabel(vacation) {"):_APP_JS.index("vacationBarAriaLabel")]
+    assert "`Vacaciones (${hours}hs)`" in block
+    assert 'typeof hours === "number"' in block
+
+
+def test_vacation_bar_label_falls_back_to_plain_when_hours_missing():
+    # item 11: sin horas (vacation_hours null/no-numérico) → "Vacaciones" pelado.
+    block = _APP_JS[_APP_JS.index("vacationBarLabel(vacation) {"):_APP_JS.index("vacationBarAriaLabel")]
+    assert '"Vacaciones"' in block
+
+
+def test_template_vacation_tooltip_uses_the_hours_aware_label():
+    # El label visible por-barra (tooltip) usa el helper, no un "Vacaciones" fijo.
+    assert 'x-text="vacationBarLabel(vacation)"' in _DASHBOARD_HTML
+
+
+def test_vacation_hours_label_is_display_only_never_from_calendar_or_allocation():
+    # item 13/geometría: el label NUNCA se deriva de días hábiles del rango ni
+    # de allocation — usa vacation.vacation_hours (Días×8 del repo); la barra
+    # se posiciona con barStyle(vacation) sobre start/end (dimensiones separadas).
+    block = _APP_JS[_APP_JS.index("vacationBarLabel(vacation) {"):_APP_JS.index("vacationBarAriaLabel")]
+    assert "vacation.vacation_hours" in block
+    for forbidden in ("start_date", "end_date", "Horaspormes", "allocation", "getDay"):
+        assert forbidden not in block
+
+
+# ============================================================================
+# Assignments-first UX — carga independiente/lazy (A/15/16/17)
+# ============================================================================
+
+_STAFFING_SHELL_HTML = (
+    Path(__file__).resolve().parents[2] / "webapp" / "templates" / "operations" / "staffing.html"
+).read_text(encoding="utf-8")
+
+
+def test_assignments_load_independently_on_page_load_via_htmx():
+    # Las asignaciones se cargan solas por HTMX al cargar la página; el
+    # spinner "Cargando asignaciones…" vive en ESE contenedor, no en el
+    # camino de vacaciones.
+    assert 'hx-post="/operaciones/staffing/asignaciones/data"' in _STAFFING_SHELL_HTML
+    assert 'hx-trigger="load"' in _STAFFING_SHELL_HTML
+    assert "Cargando asignaciones…" in _STAFFING_SHELL_HTML
+
+
+def test_assignments_shell_never_requests_vacations():
+    # item 15: el shell/endpoint de asignaciones no menciona la ruta de
+    # vacaciones — el XLSX nunca se carga en el camino de asignaciones.
+    assert "vacaciones" not in _STAFFING_SHELL_HTML
+
+
+def test_vacations_load_is_fire_and_forget_not_awaited_in_init():
+    # item 15: init() dispara _loadVacations() SIN await — el render de
+    # asignaciones (payload SSR ya presente) no espera a las vacaciones.
+    init_block = _APP_JS[_APP_JS.index("init() {"):_APP_JS.index("async _loadVacations")]
+    assert "this._loadVacations();" in init_block
+    assert "await this._loadVacations" not in init_block
+
+
+def test_vacation_load_failure_never_mutates_assignments_state():
+    # item 16: una falla de vacaciones solo toca su propio estado
+    # (vacations/vacationsLoading/vacationsLoadError), NUNCA this.assignments.
+    block = _APP_JS[_APP_JS.index("async _loadVacations() {"):_APP_JS.index("async _loadInactiveHistory() {")]
+    assert "this.assignments" not in block
