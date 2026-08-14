@@ -126,6 +126,30 @@ Robusto a filas de relleno previas y a que la tabla no esté en la primera hoja
 (cubierto por regresión). Header ausente en todas las hojas ⇒
 `ReportingSourceError(stage="table")`.
 
+## 6c. Convención de lookups de Graph (root cause del resultado vacío)
+
+El primer smoke con auth OK devolvió `mantenimiento:[] , proyecto:[]`. Causa:
+en Graph `$expand=fields`, las columnas **lookup** de "Horas por proyectos"
+aparecen como **`ProyectoLookupId`/`EmpresaLookupId`** (el ID del item target),
+NO como `ProyectoId`/`EmpresaId` (que es la forma aplanada que muestra el M/PBIP),
+y el **título del proyecto NO viaja en la fila de Horas** (Graph no expande el
+Title del lookup). El adapter original leía `ProyectoId`/`EmpresaId` y el título
+desde Horas ⇒ join fallaba ⇒ `tipoProyecto=""` y título vacío ⇒ ambas
+perspectivas vacías.
+
+**Fix (solo repositorio, robusto a la convención, no una suposición puntual):**
+- lookup key = primer valor no vacío entre `ProyectoLookupId`→`ProyectoId`
+  (idem Empresa), contra `item["id"]` del target (no `fields["id"]`);
+- título del proyecto = `Proyectos.Title` del item unido (fallback al aplanado);
+- diagnóstico temporal en la respuesta (`diagnostics`) + log server-side con
+  conteos por etapa + `horas_field_keys`/`proyectos_field_keys`/`cliente_field_keys`
+  (solo NOMBRES de clave, nunca valores) para confirmar el internal name real.
+
+Pendiente de confirmar en el re-smoke del owner: que `horas_project_match` y
+`horas_cliente_match` sean > 0 y que el `Title` sea efectivamente el nombre del
+proyecto (si el nombre viviera en otra columna de Proyectos, es un ajuste de
+constante en el repositorio).
+
 ## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
 
 1. **Internal names de lookup** `ProyectoId ↔ Proyectos.Id` y `EmpresaId ↔ Cliente`:

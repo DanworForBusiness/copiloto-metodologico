@@ -60,13 +60,18 @@ class ReportingService:
 
     def __init__(self, repository: ReportingRepository | None = None):
         self._repository = repository if repository is not None else ReportingRepository()
+        self.last_diagnostics: dict = {}
 
     def get_cartera(self, access_token: str) -> dict:
         facts = self._repository.get_cartera_facts(access_token)
-        return {
-            "mantenimiento": self._mantenimiento_rows(facts),
-            "proyecto": self._proyecto_rows(facts),
-        }
+        mantenimiento = self._mantenimiento_rows(facts)
+        proyecto = self._proyecto_rows(facts)
+        # Diagnóstico SEGURO (conteos + nombres de clave de campos, nunca PII) —
+        # passthrough del repo + los conteos de salida del service.
+        self.last_diagnostics = dict(getattr(self._repository, "last_diagnostics", {}))
+        self.last_diagnostics["mantenimiento_rows"] = len(mantenimiento)
+        self.last_diagnostics["proyecto_rows"] = len(proyecto)
+        return {"mantenimiento": mantenimiento, "proyecto": proyecto}
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 

@@ -102,6 +102,50 @@ def test_repo_joins_lists_and_xlsx_and_normalizes(monkeypatch):
     assert f["facturadasProyecto"] == 290  # join XLSX por nombre normalizado
 
 
+def test_graph_form_lookup_ids_and_title_from_joined_project(monkeypatch):
+    # Reproduce el bug del live-smoke (resultado vacío): Graph entrega los
+    # lookups como ProyectoLookupId/EmpresaLookupId (no ProyectoId/EmpresaId) y
+    # NO trae el título en la fila de Horas — el join debe resolver igual.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "7", "EmpresaLookupId": "3", "Año": "2026", "Mes": "Marzo",
+                "HsTrabajadas": "100", "HsVendidas": "120", "HsFacturadas": "110"}],
+        proyectos=[{"id": "7", "Title": "Implementación SADI v2", "ID Proyecto Danwor": "DAN-1042",
+                    "TipodeProyecto": "Proyecto", "FechadeInicio": "2026-01-15", "Estado": "En curso"}],
+        clientes=[{"id": "3", "Cliente": "YPF", "Client Partner": "Diego Ramos"}],
+        facturadas=_facturadas_xlsx([("Implementación SADI v2", 290)]),
+    )
+    facts = _repo().get_cartera_facts("tok")
+    assert len(facts) == 1
+    f = facts[0]
+    assert f["proyecto"] == "Implementación SADI v2" and f["cliente"] == "YPF"
+    assert f["clientPartner"] == "Diego Ramos" and f["idProyecto"] == "DAN-1042"
+    assert f["tipoProyecto"] == "Proyecto" and f["facturadasProyecto"] == 290
+
+
+def test_diagnostics_expose_safe_counts_and_field_keys(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "7", "EmpresaLookupId": "3", "Año": "2026", "Mes": "1",
+             "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"},
+            {"Año": "2026", "Mes": "2", "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"},  # sin refs
+        ],
+        proyectos=[{"id": "7", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "3", "Cliente": "YPF"}],
+        facturadas=_facturadas_xlsx([("x", 0)]),
+    )
+    repo = _repo()
+    repo.get_cartera_facts("tok")
+    d = repo.last_diagnostics
+    assert d["horas_raw"] == 2 and d["proyectos_raw"] == 1 and d["clientes_raw"] == 1
+    assert d["horas_with_proyecto_reference"] == 1 and d["horas_without_proyecto_reference"] == 1
+    assert d["horas_project_match"] == 1 and d["horas_project_unmatched"] == 0
+    assert d["normalized_facts"] == 2  # NUNCA se descartan silenciosamente
+    assert "ProyectoLookupId" in d["horas_field_keys"]      # nombres de clave, no valores
+    assert d["tipo_counts"].get("Proyecto") == 1 and d["tipo_counts"].get("") == 1  # unmatched visible
+
+
 def test_tiempo_y_materiales_maps_to_mantenimiento(monkeypatch):
     _patch(
         monkeypatch,
@@ -284,9 +328,10 @@ _OK_CARTERA = {"mantenimiento": [{"cliente": "YPF"}], "proyecto": []}
 
 
 class _RecordingReportingService:
-    def __init__(self, cartera=None, error=None):
+    def __init__(self, cartera=None, error=None, diagnostics=None):
         self._cartera = cartera if cartera is not None else _OK_CARTERA
         self._error = error
+        self.last_diagnostics = diagnostics if diagnostics is not None else {}
 
     def get_cartera(self, access_token):
         if self._error is not None:
@@ -312,6 +357,20 @@ def test_cartera_endpoint_success_returns_normalized(monkeypatch):
 def test_cartera_endpoint_missing_token():
     r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": ""})
     assert r.json() == {"state": "missing_token"}
+
+
+def test_cartera_endpoint_success_includes_safe_diagnostics(monkeypatch):
+    diag = {"horas_raw": 3, "normalized_facts": 3, "mantenimiento_rows": 1, "proyecto_rows": 2,
+            "horas_field_keys": ["ProyectoLookupId"]}
+    monkeypatch.setattr(
+        reporting_router, "ReportingService",
+        lambda: _RecordingReportingService(diagnostics=diag),
+    )
+    r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
+    body = r.json()
+    assert body["state"] == "ok"
+    assert body["diagnostics"]["horas_raw"] == 3
+    assert body["diagnostics"]["horas_field_keys"] == ["ProyectoLookupId"]
 
 
 def test_cartera_endpoint_source_error_is_localized_fail_soft(monkeypatch):

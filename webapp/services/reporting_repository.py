@@ -45,9 +45,13 @@ FACTURADAS_TABLE_NAME = "Tabla24"
 # names de SharePoint en toda la app de Reporting — si el runtime de Graph
 # entrega otro internal name para un lookup (p. ej. `ProyectoLookupId`), se
 # ajusta ACÁ, nunca en el service/JS (ver gaps en real-data-lineage.md).
-HP_PROYECTO_ID = "ProyectoId"       # Horas por proyectos → Proyectos.Id
-HP_EMPRESA_ID = "EmpresaId"         # Horas por proyectos → Cliente.Id
-HP_PROYECTO_TITLE = "Proyecto"      # título del proyecto (lookup expandido)
+# Graph expone las columnas lookup en `fields` como `<Name>LookupId` (id del
+# target); el aplanado del PBIP/Power Query mostraba `<Name>Id`. Se prueban
+# AMBAS formas (convención DOCUMENTADA de Graph, no una suposición de un nombre
+# puntual) — la real se confirma con `last_diagnostics["horas_field_keys"]`.
+HP_PROYECTO_LOOKUP = ("ProyectoLookupId", "ProyectoId")   # Horas → Proyectos.id
+HP_EMPRESA_LOOKUP = ("EmpresaLookupId", "EmpresaId")      # Horas → Cliente.id
+HP_PROYECTO_TITLE = "Proyecto"      # fallback si Horas trajera el título aplanado
 HP_ANIO = "Año"
 HP_MES = "Mes"
 HP_HS_TRABAJADAS = "HsTrabajadas"
@@ -59,6 +63,7 @@ PROY_TIPO = "TipodeProyecto"        # "Tiempo & Materiales" ⇒ Mantenimiento
 PROY_FECHA_INICIO = "FechadeInicio"
 PROY_ESTADO = "Estado"
 PROY_EMPRESA_ID = "EmpresaId"
+PROY_TITLE = "Title"                # nombre del proyecto (join desde Proyectos)
 
 CLI_NOMBRE = "Cliente"
 CLI_CLIENT_PARTNER = "Client Partner"
@@ -150,6 +155,15 @@ def _text(value) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _first(fields: dict, *candidates) -> str:
+    """Primer valor NO vacío entre varios nombres de campo candidatos (maneja la
+    variación de convención de Graph, p. ej. `ProyectoLookupId` vs `ProyectoId`)."""
+    for name in candidates:
+        if name in fields and fields[name] not in (None, ""):
+            return _text(fields[name])
+    return ""
+
+
 class ReportingRepository:
     """Acceso a fuentes SharePoint de Cartera. Inyectable para tests (site/list
     IDs por parámetro). NO posee token: cada método recibe `access_token`
@@ -167,6 +181,9 @@ class ReportingRepository:
         self.horas_proyectos_list_id = horas_proyectos_list_id or config.SHAREPOINT_HORAS_PROYECTOS_LIST_ID
         self.proyectos_list_id = proyectos_list_id or config.SHAREPOINT_PROYECTOS_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
+        # Diagnóstico SEGURO de la última llamada (conteos + nombres de clave de
+        # campos, NUNCA valores/PII) — ver `get_cartera_facts`.
+        self.last_diagnostics: dict = {}
 
     def _require_site_id(self) -> str:
         if not self.site_id:
@@ -175,11 +192,12 @@ class ReportingRepository:
 
     # --- lecturas de lista (paginadas) --------------------------------------
 
-    def _fields(self, site_id: str, list_id: str, stage: str, select: list[str] | None = None) -> list[dict]:
-        items = _call_graph(stage, lambda: microsoft365.graph_get_paged_values(
+    def _items(self, site_id: str, list_id: str, stage: str, select: list[str] | None = None) -> list[dict]:
+        """Items crudos de Graph (`{id, fields}`) — se conserva `item["id"]`
+        (target de los lookups), no solo `fields`."""
+        return _call_graph(stage, lambda: microsoft365.graph_get_paged_values(
             _list_items_url(site_id, list_id, select), access_token=self._token,
         ))
-        return [it.get("fields") or {} for it in items]
 
     # --- XLSX Facturadas ----------------------------------------------------
 
@@ -214,21 +232,52 @@ class ReportingRepository:
         self._token = access_token
         site_id = self._require_site_id()
 
-        proyectos = self._fields(site_id, self.proyectos_list_id, "proyectos")
-        clientes = self._fields(site_id, self.cliente_list_id, "cliente")
-        horas = self._fields(site_id, self.horas_proyectos_list_id, "horas_proyectos")
+        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
         facturadas_by_key = self._facturadas_by_project(site_id)
 
-        proy_by_id = {_text(p.get("id") or p.get("Id")): p for p in proyectos}
-        cli_by_id = {_text(c.get("id") or c.get("Id")): c for c in clientes}
+        # Los lookups de Horas apuntan al `item["id"]` del target (NO a fields["id"]).
+        proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
+        cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
+
+        def _keys(items):
+            return sorted((items[0].get("fields") or {}).keys()) if items else []
+
+        diag = {
+            "proyectos_raw": len(proyectos_items), "clientes_raw": len(clientes_items),
+            "horas_raw": len(horas_items), "facturadas_xlsx_keys": len(facturadas_by_key),
+            "horas_with_proyecto_reference": 0, "horas_without_proyecto_reference": 0,
+            "horas_with_empresa_reference": 0, "horas_without_empresa_reference": 0,
+            "horas_project_match": 0, "horas_project_unmatched": 0,
+            "horas_cliente_match": 0, "horas_cliente_unmatched": 0,
+            "tipo_counts": {},
+            # SOLO nombres de clave (schema), NUNCA valores — para descubrir el
+            # internal name real de los lookups sin exponer datos.
+            "horas_field_keys": _keys(horas_items),
+            "proyectos_field_keys": _keys(proyectos_items),
+            "cliente_field_keys": _keys(clientes_items),
+        }
 
         facts: list[dict] = []
-        for h in horas:
-            proy = proy_by_id.get(_text(h.get(HP_PROYECTO_ID)), {})
-            cli = cli_by_id.get(_text(h.get(HP_EMPRESA_ID)), {})
-            proyecto_title = _text(h.get(HP_PROYECTO_TITLE)) or _text(proy.get(PROY_ID_DANWOR))
+        for it in horas_items:
+            h = it.get("fields") or {}
+            proy_key = _first(h, *HP_PROYECTO_LOOKUP)
+            emp_key = _first(h, *HP_EMPRESA_LOOKUP)
+            diag["horas_with_proyecto_reference" if proy_key else "horas_without_proyecto_reference"] += 1
+            diag["horas_with_empresa_reference" if emp_key else "horas_without_empresa_reference"] += 1
+
+            proy = proy_by_id.get(proy_key, {})
+            cli = cli_by_id.get(emp_key, {})
+            if proy_key:
+                diag["horas_project_match" if proy else "horas_project_unmatched"] += 1
+            if emp_key:
+                diag["horas_cliente_match" if cli else "horas_cliente_unmatched"] += 1
+
+            proyecto_title = _first(proy, PROY_TITLE) or _text(h.get(HP_PROYECTO_TITLE)) or _text(proy.get(PROY_ID_DANWOR))
             tipo_raw = _text(proy.get(PROY_TIPO))
             tipo = "Mantenimiento" if tipo_raw == "Tiempo & Materiales" else tipo_raw
+            diag["tipo_counts"][tipo] = diag["tipo_counts"].get(tipo, 0) + 1
             fecha_inicio = _text(proy.get(PROY_FECHA_INICIO))
             anio_inicio = fecha_inicio[:4] if fecha_inicio else ""
             facts.append({
@@ -248,6 +297,8 @@ class ReportingRepository:
                 # proyecto). Mantenimiento la resuelve el service (= certificadas).
                 "facturadasProyecto": facturadas_by_key.get(_norm_key(proyecto_title), 0.0),
             })
+        diag["normalized_facts"] = len(facts)
+        self.last_diagnostics = diag
         return facts
 
 
