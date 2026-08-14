@@ -114,6 +114,18 @@ Fuente PBIP: tabla `Horas Facturadas` (partición M).
   ambas derivan de `HsFacturadas` de la lista mensual, así que Mantenimiento
   mapea `facturadas ← hsCertificadas` (= HsFacturadas). NO usa el XLSX.
 
+## 6b. Extracción de `Tabla24` — hardening (live-smoke prep)
+
+Hecho confirmado de openpyxl (no una suposición): en modo `read_only` **NO se
+parsea la metadata de Excel Tables** (`ws.tables` queda vacío), así que localizar
+`Tabla24` por su rango de tabla es imposible en ese modo. El lector se cambió de
+"primera hoja / A1" a **anclaje al header real**: escanea cada hoja y toma como
+header la primera fila que contenga TODAS las columnas requeridas
+(`Proyecto Base` + `Suma de Cantidad`), leyendo las filas siguientes como datos.
+Robusto a filas de relleno previas y a que la tabla no esté en la primera hoja
+(cubierto por regresión). Header ausente en todas las hojas ⇒
+`ReportingSourceError(stage="table")`.
+
 ## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
 
 1. **Internal names de lookup** `ProyectoId ↔ Proyectos.Id` y `EmpresaId ↔ Cliente`:

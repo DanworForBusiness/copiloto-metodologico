@@ -185,9 +185,7 @@ class ReportingRepository:
         """SUM(`Suma de Cantidad`) por clave de proyecto normalizada, desde la
         tabla `Tabla24` del XLSX. Un proyecto ausente ⇒ (implícitamente) 0."""
         data = self._download_facturadas_workbook(site_id)
-        headers, rows = _read_named_table(data, FACTURADAS_TABLE_NAME)
-        if FAC_PROYECTO_BASE not in headers or FAC_CANTIDAD not in headers:
-            raise ReportingSourceError("facturadas_columns", "faltan Proyecto Base / Suma de Cantidad")
+        headers, rows = _read_facturadas_table(data, (FAC_PROYECTO_BASE, FAC_CANTIDAD))
         i_proj, i_cant = headers[FAC_PROYECTO_BASE], headers[FAC_CANTIDAD]
         by_key: dict[str, float] = {}
         for row in rows:
@@ -250,53 +248,35 @@ def _quote(path: str) -> str:
     return quote(path)
 
 
-def _read_named_table(data: bytes, table_name: str) -> tuple[dict[str, int], list[tuple]]:
-    """Extrae una Excel Table por nombre desde bytes de XLSX (openpyxl
-    read-only/data-only, en memoria, sin persistir). Devuelve (header→índice,
-    filas de datos). Si la tabla no aparece en ninguna hoja ⇒
-    ReportingSourceError('table')."""
+def _read_facturadas_table(data: bytes, required: tuple[str, ...]) -> tuple[dict[str, int], list[tuple]]:
+    """Extrae la tabla de Facturadas desde bytes de XLSX (openpyxl read-only/
+    data-only, en memoria, sin persistir). Devuelve (header→índice, filas).
+
+    NO asume que la tabla arranque en A1 ni en la primera hoja: `read_only` de
+    openpyxl NO expone `ws.tables` (la metadata de Excel Table no se parsea en
+    ese modo), así que se ancla al HEADER REAL — la primera fila, en cualquier
+    hoja, que contenga TODAS las columnas requeridas (`Proyecto Base` +
+    `Suma de Cantidad`). Robusto a filas/hojas previas. Si ninguna hoja tiene
+    ese header ⇒ ReportingSourceError('table')."""
     import openpyxl
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception:  # noqa: BLE001 — workbook inválido/corrupto
         raise ReportingSourceError("workbook", "no se pudo abrir el XLSX") from None
     try:
-        target_ref = None
-        target_ws = None
         for ws in workbook.worksheets:
-            tables = getattr(ws, "tables", {}) or {}
-            if table_name in tables:
-                target_ws = ws
-                target_ref = tables[table_name].ref if hasattr(tables[table_name], "ref") else tables[table_name]
-                break
-        if target_ws is None:
-            # Fallback: read_only puede no exponer tables — usar la primera hoja
-            # con datos (Tabla24 es la única tabla del workbook de Facturadas).
-            target_ws = workbook.worksheets[0]
-            rows_iter = target_ws.iter_rows(values_only=True)
-        else:
-            rows_iter = _rows_from_ref(target_ws, target_ref)
-        try:
-            header_row = next(rows_iter)
-        except StopIteration:
-            raise ReportingSourceError("table", f"tabla {table_name} vacía")
-        header_index: dict[str, int] = {}
-        for idx, cell in enumerate(header_row or ()):
-            name = _text(cell)
-            if name and name not in header_index:
-                header_index[name] = idx
-        rows = [r for r in rows_iter if r is not None and any(c is not None for c in r)]
-        return header_index, rows
+            header_index: dict[str, int] | None = None
+            rows: list[tuple] = []
+            for row in ws.iter_rows(values_only=True):
+                if header_index is None:
+                    names = {_text(c): idx for idx, c in enumerate(row or ()) if _text(c)}
+                    if all(req in names for req in required):
+                        header_index = names
+                    continue
+                if row is not None and any(c is not None for c in row):
+                    rows.append(row)
+            if header_index is not None:
+                return header_index, rows
+        raise ReportingSourceError("table", f"no se encontró la tabla de Facturadas ({', '.join(required)})")
     finally:
         workbook.close()
-
-
-def _rows_from_ref(ws, ref):
-    """Itera las filas de un rango A1 (p. ej. 'A1:H120') en modo read-only."""
-    if not ref:
-        yield from ws.iter_rows(values_only=True)
-        return
-    from openpyxl.utils.cell import range_boundaries
-    min_col, min_row, max_col, max_row = range_boundaries(ref)
-    for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col, values_only=True):
-        yield row

@@ -27,14 +27,27 @@ def _items(rows):
     return [{"id": r.get("id", ""), "fields": r} for r in rows]
 
 
-def _facturadas_xlsx(pairs, *, headers=("Proyecto Base", "Suma de Cantidad")):
+def _facturadas_xlsx(pairs, *, headers=("Proyecto Base", "Suma de Cantidad"),
+                     lead_rows=0, decoy_sheet=False):
+    """Construye el XLSX de Facturadas. `lead_rows`/`decoy_sheet` permiten
+    ubicar la tabla FUERA de A1 / en una hoja posterior, para probar que la
+    extracción no asume posición (read_only no expone la metadata de tabla)."""
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Facturado"
+    if decoy_sheet:
+        decoy = wb.active
+        decoy.title = "Portada"
+        decoy.append(["Reporte", "Horas Facturadas"])
+        ws = wb.create_sheet("Facturado")
+    else:
+        ws = wb.active
+        ws.title = "Facturado"
+    for _ in range(lead_rows):
+        ws.append(["", ""])  # filas de relleno antes del header
+    header_row = len(ws["A"]) + 1 if lead_rows else 1
     ws.append(list(headers))
     for proyecto_base, cantidad in pairs:
         ws.append([proyecto_base, cantidad])
-    ws.add_table(Table(displayName="Tabla24", ref=f"A1:B{len(pairs) + 1}"))
+    ws.add_table(Table(displayName="Tabla24", ref=f"A{header_row}:B{header_row + len(pairs)}"))
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -136,6 +149,28 @@ def test_repo_consumes_all_paged_items(monkeypatch):
         facturadas=_facturadas_xlsx([("A", 3)]),
     )
     assert len(_repo().get_cartera_facts("tok")) == 5
+
+
+def test_facturadas_table_found_when_not_at_a1_and_not_first_sheet(monkeypatch):
+    # Regresión del live-smoke hardening: la tabla se ancla al header real, no
+    # a A1/primera hoja (read_only no expone ws.tables). Aún así debe unir.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoId": "p1", "EmpresaId": "c1", "Proyecto": "SADI",
+                "Año": "2026", "Mes": "1", "HsTrabajadas": "10", "HsVendidas": "10", "HsFacturadas": "10"}],
+        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto", "Estado": "En curso"}],
+        clientes=[{"id": "c1", "Cliente": "YPF", "Client Partner": "Diego Ramos"}],
+        facturadas=_facturadas_xlsx([("SADI", 290)], lead_rows=3, decoy_sheet=True),
+    )
+    assert _repo().get_cartera_facts("tok")[0]["facturadasProyecto"] == 290
+
+
+def test_facturadas_table_missing_header_raises_source_error(monkeypatch):
+    bad = _facturadas_xlsx([("SADI", 1)], headers=("Otra Cosa", "Valor"))
+    _patch(monkeypatch, horas=[], proyectos=[], clientes=[], facturadas=bad)
+    with pytest.raises(ReportingSourceError) as exc:
+        _repo().get_cartera_facts("tok")
+    assert exc.value.stage == "table"
 
 
 def test_malformed_workbook_raises_source_error(monkeypatch):
