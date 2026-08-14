@@ -800,6 +800,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    campos (margin-left:auto lo empuja a la derecha) y ya no comparte
    columna con el stack de Estado, para no leerse como una opción más. */
 .staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+/* Wrapper de Limpiar+Actualizar (owner feedback, ver HANDOFF — Reporting
+   "Actualizar" corrective): Staffing usa `.staffing-filter-bar__clear`
+   SUELTO (staffing_dashboard.html, sin Actualizar) — su `margin-left:auto`
+   de arriba sigue intacto para ese caso. Reporting lo envuelve en ESTE
+   wrapper junto con Actualizar; ahí el margin-left:auto pasa al WRAPPER
+   (para que los dos controles envuelvan juntos como una sola unidad en
+   viewports angostos, nunca en líneas separadas) y se neutraliza el propio
+   de Limpiar para no duplicar el corrimiento. */
+.staffing-filter-bar__actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: nowrap; }
+.staffing-filter-bar__actions .staffing-filter-bar__clear { margin-left: 0; }
 /* Fallo de la carga lazy de historial (Staffing Director Priority V2
    pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
    del dashboard, solo informa que el próximo toggle puede reintentar. */

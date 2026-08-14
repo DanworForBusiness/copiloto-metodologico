@@ -61,16 +61,20 @@
 // `input[type="date"]` (tools.css, sin CSS nuevo). `fecha` (ISO
 // YYYY-MM-DD) reemplaza los `anio`/`mes` sueltos — una sola dimensión de
 // fecha real en vez de dos facets categóricos separados.
+// `cp` (owner feedback, ver HANDOFF: filtro de Client Partner faltante en
+// Cartera) — MISMA asignación Cliente→CP ya usada en Comercial/Horas
+// Vendidas (María López: Andesmar/Danone/Molinos; Diego Ramos: AySA/YPF/
+// Ternium), consistencia cross-experiencia.
 const CARTERA_MANTENIMIENTO_ROWS = [
-  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturadas: 128, status: "En curso", fecha: "2026-08-01" },
-  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturadas: 43, status: "En curso", fecha: "2026-08-01" },
-  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturadas: 96, status: "En curso", fecha: "2026-07-01" },
-  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturadas: 60, status: "Finalizado", fecha: "2026-06-01" },
+  { cliente: "Andesmar", cp: "María López", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturadas: 128, status: "En curso", fecha: "2026-08-01" },
+  { cliente: "Andesmar", cp: "María López", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturadas: 43, status: "En curso", fecha: "2026-08-01" },
+  { cliente: "Danone", cp: "María López", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturadas: 96, status: "En curso", fecha: "2026-07-01" },
+  { cliente: "Molinos", cp: "María López", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturadas: 60, status: "Finalizado", fecha: "2026-06-01" },
 ];
 const CARTERA_PROYECTO_ROWS = [
-  { cliente: "YPF", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturadas: 290, status: "En curso", anioInicio: "2026" },
-  { cliente: "AySA", idProyecto: "DAN-1055", proyecto: "Costeo Federal", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturadas: 212, status: "En curso", anioInicio: "2025" },
-  { cliente: "Ternium", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturadas: 141, status: "Finalizado", anioInicio: "2026" },
+  { cliente: "YPF", cp: "Diego Ramos", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturadas: 290, status: "En curso", anioInicio: "2026" },
+  { cliente: "AySA", cp: "Diego Ramos", idProyecto: "DAN-1055", proyecto: "Costeo Federal", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturadas: 212, status: "En curso", anioInicio: "2025" },
+  { cliente: "Ternium", cp: "Diego Ramos", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturadas: 141, status: "Finalizado", anioInicio: "2026" },
 ];
 
 function statusPillCartera(status) {
@@ -166,10 +170,35 @@ function carteraDefaultFilters(persp) {
     const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     return { desde: isoDateLocal(desde), hasta: isoDateLocal(hoy) };
   }
-  const cfg = CARTERA_CONFIG[persp];
+  return {};
+}
+// Año de Inicio de Proyecto (owner feedback, ver HANDOFF): el slicer real
+// de "Analisis Proyectos" (Proyectos.Año de Inicio) permite elegir MÁS de
+// un año a la vez — un <select> de valor único no lo representa. Mismo
+// patrón que Estado (checkbox-group con estado propio, `state.
+// carteraAnioInicio`, FUERA del motor de facets de valor único) pero con
+// opciones DINÁMICAS (años realmente presentes en el dataset, no un enum
+// fijo de 2 valores como Estado). Default: año calendario actual tildado
+// si está representado, si no ningún año tildado (== todo oculto hasta que
+// el usuario elija, nunca una combinación imposible mostrada como si
+// tuviera datos).
+function carteraAnioInicioOptions() {
+  return distinctValues(CARTERA_PROYECTO_ROWS, "anioInicio");
+}
+function carteraDefaultAnioInicio() {
   const anioActual = String(new Date().getFullYear());
-  const anios = new Set(cfg.rows.map(r => r.anioInicio));
-  return { anioInicio: anios.has(anioActual) ? anioActual : "" };
+  const options = carteraAnioInicioOptions();
+  return new Set(options.includes(anioActual) ? [anioActual] : []);
+}
+// Desde/Hasta compartido (owner feedback, ver HANDOFF: Rentabilidad/
+// Participación/Horas Vendidas también necesitan un rango de fecha por
+// defecto) — MISMO default que Cartera/Mantenimiento ya usa (primer día
+// del año calendario en curso → hoy), un solo generador en vez de 3
+// literales repetidos por experiencia.
+function defaultYearToDateFilters() {
+  const hoy = new Date();
+  const desde = new Date(hoy.getFullYear(), 0, 1);
+  return { desde: isoDateLocal(desde), hasta: isoDateLocal(hoy) };
 }
 
 // Rentabilidad / Performance (ver corrective — HANDOFF/task): a diferencia
@@ -189,15 +218,23 @@ function carteraDefaultFilters(persp) {
 // Cartera. Proyectos reusados 1:1 de Cartera/Proyectos (mismos
 // certificadas/trabajadas → mismo Diff Hs ahí y acá, consistencia
 // cross-experiencia).
+// `cliente`/`cp`/`fecha` (owner feedback, ver HANDOFF: filtros de
+// Cliente/Client Partner/Desde-Hasta faltantes en Rentabilidad) — MISMA
+// asignación Cliente→CP ya usada en Cartera/Comercial/Horas Vendidas.
+// `fecha` para los 4 proyectos de Mantenimiento reusa 1:1 la `fecha` real
+// de Cartera/Mantenimiento (mismo proyecto, mismo dato); los 3 de Proyecto
+// no tienen `fecha` en Cartera/Proyecto (solo `anioInicio`, ver ese
+// dataset) — se asigna una fecha representativa dentro de ese Año de
+// Inicio real.
 const RENTABILIDAD_RESUMEN = { vendidas: 969, certificadas: 940, trabajadas: 985, noAsignadas: 62 };
 const RENTABILIDAD_PROYECTOS = [
-  { tipo: "Mantenimiento", proyecto: "Andesmar - Mantenimiento Costeo Directo", certificadas: 128, trabajadas: 134 },
-  { tipo: "Mantenimiento", proyecto: "Andesmar - Soporte Infraestructura", certificadas: 43, trabajadas: 40 },
-  { tipo: "Mantenimiento", proyecto: "Danone - Soporte Analítica", certificadas: 96, trabajadas: 92 },
-  { tipo: "Mantenimiento", proyecto: "Molinos - Mantenimiento BI", certificadas: 60, trabajadas: 60 },
-  { tipo: "Proyecto", proyecto: "YPF - Implementación SADI v2", certificadas: 322, trabajadas: 340 },
-  { tipo: "Proyecto", proyecto: "AySA - Costeo Federal", certificadas: 212, trabajadas: 210 },
-  { tipo: "Proyecto", proyecto: "Ternium - Rollout Reporting", certificadas: 166, trabajadas: 175 },
+  { tipo: "Mantenimiento", cliente: "Andesmar", cp: "María López", proyecto: "Andesmar - Mantenimiento Costeo Directo", certificadas: 128, trabajadas: 134, fecha: "2026-08-01" },
+  { tipo: "Mantenimiento", cliente: "Andesmar", cp: "María López", proyecto: "Andesmar - Soporte Infraestructura", certificadas: 43, trabajadas: 40, fecha: "2026-08-01" },
+  { tipo: "Mantenimiento", cliente: "Danone", cp: "María López", proyecto: "Danone - Soporte Analítica", certificadas: 96, trabajadas: 92, fecha: "2026-07-01" },
+  { tipo: "Mantenimiento", cliente: "Molinos", cp: "María López", proyecto: "Molinos - Mantenimiento BI", certificadas: 60, trabajadas: 60, fecha: "2026-06-01" },
+  { tipo: "Proyecto", cliente: "YPF", cp: "Diego Ramos", proyecto: "YPF - Implementación SADI v2", certificadas: 322, trabajadas: 340, fecha: "2026-01-15" },
+  { tipo: "Proyecto", cliente: "AySA", cp: "Diego Ramos", proyecto: "AySA - Costeo Federal", certificadas: 212, trabajadas: 210, fecha: "2025-03-10" },
+  { tipo: "Proyecto", cliente: "Ternium", cp: "Diego Ramos", proyecto: "Ternium - Rollout Reporting", certificadas: 166, trabajadas: 175, fecha: "2026-02-20" },
 ];
 
 // Matriz mensual por Concepto (ver corrective — HANDOFF: "Cartera +
@@ -242,13 +279,16 @@ const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsig
 // los niveles de agrupación (Client Partner/Tipo/Cliente) se agregan sumando
 // filas — nunca se hardcodea un total de grupo por separado.
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+// `fecha` (owner feedback, ver HANDOFF: Desde/Hasta faltante en Horas
+// Vendidas) — dentro del año calendario en curso para las 6 filas, mismo
+// criterio que Participación/Rentabilidad.
 const HORASVENDIDAS_ROWS = [
-  { cp: "María López", tipo: "Mantenimiento", cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", monthly: [12, 12, 12, 12, 12, 12, 10, 10, 10, 10, 10, 10] },
-  { cp: "María López", tipo: "Mantenimiento", cliente: "Danone", proyecto: "Soporte Analítica", monthly: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8] },
-  { cp: "María López", tipo: "Proyecto", cliente: "Molinos", proyecto: "Rollout BI", monthly: [0, 0, 15, 15, 15, 15, 15, 0, 0, 0, 0, 0] },
-  { cp: "Diego Ramos", tipo: "Mantenimiento", cliente: "AySA", proyecto: "Mantenimiento Costeo Federal", monthly: [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18] },
-  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "YPF", proyecto: "Implementación SADI v2", monthly: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0, 0, 0] },
-  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "Ternium", proyecto: "Rollout Reporting", monthly: [0, 0, 0, 20, 20, 20, 20, 20, 20, 20, 20, 20] },
+  { cp: "María López", tipo: "Mantenimiento", cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", monthly: [12, 12, 12, 12, 12, 12, 10, 10, 10, 10, 10, 10], fecha: "2026-08-01" },
+  { cp: "María López", tipo: "Mantenimiento", cliente: "Danone", proyecto: "Soporte Analítica", monthly: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8], fecha: "2026-07-01" },
+  { cp: "María López", tipo: "Proyecto", cliente: "Molinos", proyecto: "Rollout BI", monthly: [0, 0, 15, 15, 15, 15, 15, 0, 0, 0, 0, 0], fecha: "2026-03-01" },
+  { cp: "Diego Ramos", tipo: "Mantenimiento", cliente: "AySA", proyecto: "Mantenimiento Costeo Federal", monthly: [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18], fecha: "2026-05-01" },
+  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "YPF", proyecto: "Implementación SADI v2", monthly: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0, 0, 0], fecha: "2026-01-15" },
+  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "Ternium", proyecto: "Rollout Reporting", monthly: [0, 0, 0, 20, 20, 20, 20, 20, 20, 20, 20, 20], fecha: "2026-04-01" },
 ];
 
 // Comercial / Clientes (ver corrective — HANDOFF: "Commercial / Clients
@@ -296,13 +336,17 @@ const HORASVENDIDAS_ROWS = [
 // horasVendidas/horasCertificadas reusan 1:1 los valores reales ya
 // establecidos en CARTERA_CONFIG para el mismo cliente (mismo dato,
 // consistencia cross-experiencia — ver comentario de Rentabilidad).
+// `fecha` (owner feedback, ver HANDOFF: Desde/Hasta faltante en
+// Participación) — dentro del año calendario en curso para las 6 filas,
+// mismo criterio que el resto del dataset mock (todo visible bajo el
+// default Desde=1/ene→Hasta=hoy).
 const COMERCIAL_PARTICIPACION_ROWS = [
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "30", cliente: "Andesmar", cp: "María López", horasVendidas: 140, horasCertificadas: 128 },
-  { idFrecuencia: "3 Trimestral", permiteAdelanto: "No", condicionPago: "60", cliente: "Danone", cp: "María López", horasVendidas: 88, horasCertificadas: 96 },
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "No", condicionPago: "30", cliente: "Molinos", cp: "María López", horasVendidas: 60, horasCertificadas: 60 },
-  { idFrecuencia: "6 Anual", permiteAdelanto: "No", condicionPago: "30", cliente: "AySA", cp: "Diego Ramos", horasVendidas: 208, horasCertificadas: 212 },
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "15", cliente: "YPF", cp: "Diego Ramos", horasVendidas: 360, horasCertificadas: 322 },
-  { idFrecuencia: "5 Semestral", permiteAdelanto: "Si", condicionPago: "30", cliente: "Ternium", cp: "Diego Ramos", horasVendidas: 180, horasCertificadas: 166 },
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "30", cliente: "Andesmar", cp: "María López", horasVendidas: 140, horasCertificadas: 128, fecha: "2026-08-01" },
+  { idFrecuencia: "3 Trimestral", permiteAdelanto: "No", condicionPago: "60", cliente: "Danone", cp: "María López", horasVendidas: 88, horasCertificadas: 96, fecha: "2026-07-01" },
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "No", condicionPago: "30", cliente: "Molinos", cp: "María López", horasVendidas: 60, horasCertificadas: 60, fecha: "2026-06-01" },
+  { idFrecuencia: "6 Anual", permiteAdelanto: "No", condicionPago: "30", cliente: "AySA", cp: "Diego Ramos", horasVendidas: 208, horasCertificadas: 212, fecha: "2026-05-01" },
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "15", cliente: "YPF", cp: "Diego Ramos", horasVendidas: 360, horasCertificadas: 322, fecha: "2026-04-01" },
+  { idFrecuencia: "5 Semestral", permiteAdelanto: "Si", condicionPago: "30", cliente: "Ternium", cp: "Diego Ramos", horasVendidas: 180, horasCertificadas: 166, fecha: "2026-03-01" },
 ];
 
 // Salud de Cliente (ver corrective) — 5 sub-dimensiones + Salud Final,
@@ -449,15 +493,22 @@ const CALENDARIO_COMERCIAL_UPDATE_URL = "https://danwor.sharepoint.com/sites/Ges
 // string de fecha como Date corre el riesgo de UTC shift de día/año cerca
 // de fin de año en husos horarios negativos). "Hasta" SIEMPRE tiene un
 // valor (ver carteraDefaultFilters — nunca "Todos" para un rango de fecha),
-// currentYear es solo el fallback defensivo. Proyecto sí tiene Año de
-// Inicio discreto (puede ser "" == Todos), tal como pide el corrective.
+// currentYear es solo el fallback defensivo. Proyecto ahora permite VARIOS
+// años tildados (ver carteraDefaultAnioInicio) — se toma el más reciente de
+// los tildados como representativo (mismo criterio que "current year" del
+// resto del contrato: el año más relevante/actual disponible), currentYear
+// si no hay ninguno tildado.
 function carteraUpdateLink() {
   const persp = state.perspective.cartera;
   const filters = state.filters.cartera || {};
   const currentYear = new Date().getFullYear();
-  const year = persp === "Mantenimiento"
-    ? (filters.hasta ? parseInt(filters.hasta.slice(0, 4), 10) : currentYear)
-    : (filters.anioInicio || currentYear);
+  let year = currentYear;
+  if (persp === "Mantenimiento") {
+    year = filters.hasta ? parseInt(filters.hasta.slice(0, 4), 10) : currentYear;
+  } else {
+    const selected = [...state.carteraAnioInicio].map(Number);
+    if (selected.length) year = Math.max(...selected);
+  }
   return `https://danwor.sharepoint.com/sites/Gestion/Lists/Horas%20por%20Proyectos/Carga%20Horas%20vendidas%20CP.aspx?FilterField1=A%5Fx00f1%5Fo&FilterValue1=${year}&FilterType1=Text&viewid=04b28abf%2D3524%2D4242%2Da55f%2D24441197050c`;
 }
 
@@ -496,7 +547,14 @@ const state = {
   // Cartera arranca con Año/Mes en el valor calendario actual (ver
   // corrective — HANDOFF: "Cartera + Rentabilidad Completeness", A1) — las
   // otras 5 experiencias arrancan sin filtro (Todos).
-  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
+  // Rentabilidad/Horas Vendidas/Comercial arrancan con Desde/Hasta = año
+  // calendario en curso a la fecha (owner feedback, ver HANDOFF) — MISMO
+  // default que Cartera/Mantenimiento ya usaba, generado por
+  // `defaultYearToDateFilters()` en vez de repetido a mano. Calendario/
+  // Capacidad quedan sin filtro de fecha (Todos) — ningún corrective pidió
+  // uno ahí.
+  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: defaultYearToDateFilters(),
+             horasvendidas: defaultYearToDateFilters(), calendario: {}, capacidad: {}, comercial: defaultYearToDateFilters() },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
   // genérico de arriba) porque su semántica default NO es "todo tildado":
@@ -504,6 +562,10 @@ const state = {
   // entrar) — "Finalizado" queda disponible para tildar, nunca prendido de
   // entrada.
   carteraStatus: { "En curso": true, "Finalizado": false },
+  // Año de Inicio de Cartera/Proyecto — checkbox-group multi-select propio
+  // (ver carteraDefaultAnioInicio arriba), independiente de `filters` por
+  // el mismo motivo que carteraStatus: default NO es "todo tildado".
+  carteraAnioInicio: carteraDefaultAnioInicio(),
 };
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -606,30 +668,46 @@ const FACET_CONFIG = {
   cartera: () => {
     const persp = state.perspective.cartera;
     const cfg = CARTERA_CONFIG[persp];
-    const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status]);
+    // Año de Inicio (Proyecto, ver toggleCarteraAnioInicio) se aplica ACÁ
+    // igual que Status — checkbox multi-select FUERA del motor de facets de
+    // valor único, pre-filtra `baseRows` antes de que Client Partner/
+    // Proyecto/Cliente faceteen sobre lo que queda.
+    const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status])
+      .filter(r => persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio));
     // Mantenimiento agrega Desde/Hasta (rango sobre `fecha`, reemplaza el
-    // combo Año+Mes — owner feedback, ver HANDOFF); Proyecto agrega Año de
-    // Inicio (Proyectos.Año de Inicio) — esa página fuente no tiene un
-    // campo de fecha/mes en absoluto (ver corrective — HANDOFF: "Cartera +
-    // Rentabilidad Completeness", A1).
+    // combo Año+Mes — owner feedback, ver HANDOFF); Proyecto NO agrega un
+    // facet de Año de Inicio acá (se convirtió en checkbox multi-select,
+    // ver arriba — ya no es un <select> de valor único).
     const dateFields = persp === "Mantenimiento"
       ? [
           { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
           { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
         ]
-      : [{ key: "anioInicio", field: "anioInicio" }];
+      : [];
+    // Client Partner (owner feedback, ver HANDOFF: filtro faltante en
+    // Cartera) — PRIMERO en el orden, mismo criterio que Rentabilidad/
+    // Comercial/Horas Vendidas de acá en más.
     return {
       baseRows,
-      fields: [{ key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }, ...dateFields],
+      fields: [{ key: "cp", field: "cp" }, { key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }, ...dateFields],
     };
   },
   rentabilidad: () => ({
     baseRows: RENTABILIDAD_PROYECTOS,
-    fields: [{ key: "tipo", field: "tipo" }, { key: "proyecto", field: "proyecto" }],
+    fields: [
+      { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
+      { key: "tipo", field: "tipo" }, { key: "proyecto", field: "proyecto" },
+      { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
+      { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
+    ],
   }),
   horasvendidas: () => ({
     baseRows: HORASVENDIDAS_ROWS,
-    fields: [{ key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }],
+    fields: [
+      { key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" },
+      { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
+      { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
+    ],
   }),
   calendario: () => ({
     baseRows: CALENDARIO_ROWS,
@@ -649,8 +727,15 @@ const FACET_CONFIG = {
   // "Empresas con proyectos activos" (Salud) no tienen una dimensión
   // limpia en este dataset todavía, se ocultan (ver corrective: "si un
   // filtro fuente no se puede representar con fidelidad, ocultarlo").
+  // Desde/Hasta (owner feedback, ver HANDOFF) SOLO en Participación —
+  // Salud de Cliente no tiene una dimensión de fecha propia (columnas
+  // categóricas puras, ver comentario del dataset), no se inventa una.
   comercial: () => state.perspective.comercial === "Participación"
-    ? { baseRows: COMERCIAL_PARTICIPACION_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] }
+    ? { baseRows: COMERCIAL_PARTICIPACION_ROWS, fields: [
+        { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
+        { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
+        { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
+      ] }
     : { baseRows: COMERCIAL_SALUD_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] },
 };
 function reconcileExperienceFacets(expId, justChangedKey) {
@@ -690,16 +775,33 @@ function setFilter(expId, key, value) {
   reconcileExperienceFacets(expId, key);
   render();
 }
+// Experiencias con default de fecha SENSATO (año en curso a la fecha) en
+// vez de blanco — mismo criterio ya establecido para Cartera/Estado, ahora
+// extendido (owner feedback, ver HANDOFF) a las 3 experiencias que también
+// arrancan con Desde/Hasta.
+const YEAR_TO_DATE_EXPERIENCES = new Set(["rentabilidad", "horasvendidas", "comercial"]);
 function resetFilters(expId) {
   if (expId === "cartera") {
     // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
-    // curso), no a blanco — mismo criterio ya establecido para Estado (ver
-    // corrective anterior), ahora extendido a Año/Mes/Año de Inicio.
+    // curso, Año de Inicio = año en curso si está representado), no a
+    // blanco — mismo criterio ya establecido para Estado.
     state.filters.cartera = carteraDefaultFilters(state.perspective.cartera);
     state.carteraStatus = { "En curso": true, "Finalizado": false };
+    state.carteraAnioInicio = carteraDefaultAnioInicio();
+  } else if (YEAR_TO_DATE_EXPERIENCES.has(expId)) {
+    state.filters[expId] = defaultYearToDateFilters();
   } else {
     state.filters[expId] = {};
   }
+  render();
+}
+// Año de Inicio (Cartera/Proyecto, ver carteraDefaultAnioInicio) — toggle
+// multi-select, MISMO criterio de reconciliación que Status (participa del
+// mismo contexto de faceting que Proyecto/Cliente/Client Partner).
+function toggleCarteraAnioInicio(year) {
+  if (state.carteraAnioInicio.has(year)) state.carteraAnioInicio.delete(year);
+  else state.carteraAnioInicio.add(year);
+  reconcileExperienceFacets("cartera");
   render();
 }
 function selectField(expId, key, label, options) {
@@ -762,11 +864,19 @@ function filterBarShell(fieldsHtml, expId) {
   const updateHtml = exp && exp.updateLink
     ? `<a class="dashboard-action-link" href="${esc(exp.updateLink())}" target="_blank" rel="noopener noreferrer">Actualizar<span>↗</span></a>`
     : "";
+  // Limpiar+Actualizar viven DENTRO de un wrapper propio (`.staffing-
+  // filter-bar__actions`, tools.css) — owner feedback: con flex-wrap en
+  // `.staffing-filter-bar` y `margin-left:auto` en Limpiar suelto, en
+  // viewports angostos Actualizar podía envolver a una línea DISTINTA que
+  // Limpiar (cada uno como ítem de flex independiente). Agrupados como UNA
+  // sola unidad, envuelven juntos o no envuelven, nunca separados.
   return `<div class="dashboard-sticky-header">
     <div class="staffing-filter-bar">
       <div class="whatsnew-filters">${fieldsHtml}</div>
-      <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
-      ${updateHtml}
+      <div class="staffing-filter-bar__actions">
+        <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
+        ${updateHtml}
+      </div>
     </div>
   </div>`;
 }
@@ -791,10 +901,15 @@ function toggleCarteraStatus(key) {
 // Cliente, Desde/Hasta (o Año de Inicio), Estado.
 function renderCarteraFilterBar() {
   const persp = state.perspective.cartera;
+  // Año de Inicio (Proyecto, owner feedback ver HANDOFF): el slicer real
+  // permite VARIOS años tildados a la vez — checkbox-group DINÁMICO (años
+  // realmente presentes en el dataset), no un <select> de valor único.
   const dateFields = persp === "Mantenimiento"
     ? dateField("cartera", "desde", "Desde") + dateField("cartera", "hasta", "Hasta")
-    : facetSelectField("cartera", "anioInicio", "Año de Inicio");
-  const fields = facetSelectField("cartera", "proyecto", "Proyecto")
+    : checkboxGroupField("Año de Inicio", carteraAnioInicioOptions().map(a =>
+        ({ value: a, checked: state.carteraAnioInicio.has(a), onclick: `toggleCarteraAnioInicio('${a}')` })));
+  const fields = facetSelectField("cartera", "cp", "Client Partner")
+    + facetSelectField("cartera", "proyecto", "Proyecto")
     + facetSelectField("cartera", "cliente", "Cliente")
     + dateFields
     + checkboxGroupField("Estado", [
@@ -805,8 +920,11 @@ function renderCarteraFilterBar() {
 }
 
 function renderRentabilidadFilterBar() {
-  const fields = facetSelectField("rentabilidad", "tipo", "Tipo Proyecto")
-    + facetSelectField("rentabilidad", "proyecto", "Proyecto");
+  const fields = facetSelectField("rentabilidad", "cp", "Client Partner")
+    + facetSelectField("rentabilidad", "cliente", "Cliente")
+    + facetSelectField("rentabilidad", "tipo", "Tipo Proyecto")
+    + facetSelectField("rentabilidad", "proyecto", "Proyecto")
+    + dateField("rentabilidad", "desde", "Desde") + dateField("rentabilidad", "hasta", "Hasta");
   return filterBarShell(fields, "rentabilidad");
 }
 
@@ -814,13 +932,17 @@ function renderHorasVendidasFilterBar() {
   const fields = facetSelectField("horasvendidas", "cp", "Client Partner")
     + facetSelectField("horasvendidas", "tipo", "Tipo Proyecto")
     + facetSelectField("horasvendidas", "cliente", "Cliente")
-    + facetSelectField("horasvendidas", "proyecto", "Proyecto");
+    + facetSelectField("horasvendidas", "proyecto", "Proyecto")
+    + dateField("horasvendidas", "desde", "Desde") + dateField("horasvendidas", "hasta", "Hasta");
   return filterBarShell(fields, "horasvendidas");
 }
 
+// Client Partner primero (owner feedback — "alinearlos en todas las
+// tabs"): antes Cliente/Client Partner, ahora MISMO orden que Rentabilidad/
+// Comercial/Horas Vendidas/Cartera.
 function renderCalendarioFilterBar() {
-  const fields = facetSelectField("calendario", "cliente", "Cliente")
-    + facetSelectField("calendario", "cp", "Client Partner")
+  const fields = facetSelectField("calendario", "cp", "Client Partner")
+    + facetSelectField("calendario", "cliente", "Cliente")
     + facetSelectField("calendario", "frecuencia", "Frecuencia");
   return filterBarShell(fields, "calendario");
 }
@@ -839,9 +961,17 @@ function renderCapacidadFilterBar() {
   return filterBarShell(fields, "capacidad");
 }
 
+// Desde/Hasta (owner feedback, ver HANDOFF) SOLO en Participación — Salud
+// de Cliente no tiene `fecha` en el dataset (columnas categóricas puras,
+// ver comentario de COMERCIAL_SALUD_ROWS), no se inventa una.
 function renderComercialFilterBar() {
+  const persp = state.perspective.comercial;
+  const dateFields = persp === "Participación"
+    ? dateField("comercial", "desde", "Desde") + dateField("comercial", "hasta", "Hasta")
+    : "";
   const fields = facetSelectField("comercial", "cp", "Client Partner")
-    + facetSelectField("comercial", "cliente", "Cliente");
+    + facetSelectField("comercial", "cliente", "Cliente")
+    + dateFields;
   return filterBarShell(fields, "comercial");
 }
 
@@ -875,6 +1005,10 @@ function setPerspective(expId, p) {
   // NUEVA perspectiva (año/mes actual o año de inicio actual, ver
   // carteraDefaultFilters) en vez de blanco.
   if (expId === "cartera") state.filters.cartera = carteraDefaultFilters(p);
+  // Comercial: Desde/Hasta solo tiene sentido en Participación (Salud no
+  // tiene `fecha`, ver renderComercialFilterBar) — blanco en Salud, default
+  // año-a-la-fecha al volver a Participación.
+  else if (expId === "comercial") state.filters.comercial = p === "Participación" ? defaultYearToDateFilters() : {};
   else if (state.filters[expId]) state.filters[expId] = {};
   render();
 }
@@ -1019,16 +1153,18 @@ function renderRentabilidadMensual(rows) {
 
 function renderRentabilidadResumen() {
   const r = RENTABILIDAD_RESUMEN;
-  // Rentabilidad horas = Horas Certificadas − Horas Trabajadas (fórmula real,
-  // ver `Rentabilidad Unpivot.tmdl` VAR Rentabilidad) — NUNCA la suma de los
-  // 5 conceptos (esa suma no tiene significado de negocio, aunque la tabla
-  // Power BI original tuviera una fila Total). Estos 4 KPIs son el card
-  // resumen REAL de la página fuente (totales de portfolio) — no se derivan
-  // de RENTABILIDAD_PROYECTOS (esa lista no suma 1:1 contra ellos, ver
-  // comentario del dataset) y por eso NO se filtran; solo el ranking y la
-  // matriz mensual de abajo sí responden a Tipo Proyecto/Proyecto.
-  const rentabilidadHoras = r.certificadas - r.trabajadas;
   const rows = rentabilidadFilteredProyectos();
+  // Horas Certificadas/Trabajadas/Rentabilidad horas (owner feedback: los
+  // tiles quedaban estáticos al filtrar) — se recalculan de `rows` YA
+  // filtradas (mismo criterio que la matriz mensual de abajo, ver
+  // renderRentabilidadMensual), nunca del total fijo de portfolio. Horas
+  // Vendidas/No asignadas a servicios SÍ quedan fijas — no existen como
+  // campo por-proyecto en RENTABILIDAD_PROYECTOS (ver comentario del
+  // dataset), inventar una distribución filtrable sería peor que ser
+  // explícito sobre el límite.
+  const certificadas = rows.reduce((s, p) => s + p.certificadas, 0);
+  const trabajadas = rows.reduce((s, p) => s + p.trabajadas, 0);
+  const rentabilidadHoras = certificadas - trabajadas;
   const ranked = rentabilidadRanked(rows);
   const positivos = ranked.filter(p => p.rentabilidad >= 0);
   const negativos = ranked.filter(p => p.rentabilidad < 0).slice().reverse(); // más negativo primero
@@ -1038,8 +1174,8 @@ function renderRentabilidadResumen() {
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
       <div class="activity-kpi"><span class="activity-kpi__value">${r.vendidas}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${r.certificadas}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${r.trabajadas}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${certificadas}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${trabajadas}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${diffCell(rentabilidadHoras)}</span><span class="activity-kpi__label">Rentabilidad horas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${r.noAsignadas}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
     </div>`);
