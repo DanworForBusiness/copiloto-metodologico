@@ -429,6 +429,38 @@ const CAPACIDAD_NOASIGNADAS_ROWS = [
   { consultor: "Martina Suárez", hsAsig: 120, monthly: [0, 0, 0, 6, 6, 6, 0, 0, 0, 0, 0, 0] },
 ];
 
+// --- "Actualizar" — mantenimiento de origen SharePoint (ver corrective —
+// HANDOFF: "8 — Source Maintenance / 'Actualizar' Action") -----------------
+// Reporting es de SOLO LECTURA — "Actualizar" nunca escribe a SharePoint/
+// Graph, es un atajo de navegación (target=_blank) hacia la lista fuente
+// para que el usuario la edite AHÍ (SharePoint sigue siendo la autoridad de
+// permisos de edición, ver HANDOFF: "no se pide un permiso nuevo, no se
+// implementa edición dentro del Hub"). Estructura de site/list/view EXACTA
+// tal como la proveyó el owner — Calendario/Comercial son estáticas;
+// Cartera es la ÚNICA con sustitución dinámica (ver carteraUpdateLink), y
+// solo `FilterValue1` varía — viewid y el resto de los parámetros nunca se
+// tocan.
+const CALENDARIO_COMERCIAL_UPDATE_URL = "https://danwor.sharepoint.com/sites/Gestion/Lists/Empresas/AllItems.aspx?viewid=84cf3861%2D2a7f%2D4d78%2D9946%2D473208c66e0e";
+// Año dinámico de Cartera (owner feedback, ver HANDOFF): Mantenimiento ya no
+// tiene un selector de Año discreto (reemplazado por Desde/Hasta, ver
+// corrective "Cartera + Rentabilidad Completeness") — se toma el año de
+// "Hasta" (string YYYY-MM-DD, se lee por substring y NUNCA vía `new
+// Date(...).getFullYear()` — mismo motivo que isoDateLocal: parsear un
+// string de fecha como Date corre el riesgo de UTC shift de día/año cerca
+// de fin de año en husos horarios negativos). "Hasta" SIEMPRE tiene un
+// valor (ver carteraDefaultFilters — nunca "Todos" para un rango de fecha),
+// currentYear es solo el fallback defensivo. Proyecto sí tiene Año de
+// Inicio discreto (puede ser "" == Todos), tal como pide el corrective.
+function carteraUpdateLink() {
+  const persp = state.perspective.cartera;
+  const filters = state.filters.cartera || {};
+  const currentYear = new Date().getFullYear();
+  const year = persp === "Mantenimiento"
+    ? (filters.hasta ? parseInt(filters.hasta.slice(0, 4), 10) : currentYear)
+    : (filters.anioInicio || currentYear);
+  return `https://danwor.sharepoint.com/sites/Gestion/Lists/Horas%20por%20Proyectos/Carga%20Horas%20vendidas%20CP.aspx?FilterField1=A%5Fx00f1%5Fo&FilterValue1=${year}&FilterType1=Text&viewid=04b28abf%2D3524%2D4242%2Da55f%2D24441197050c`;
+}
+
 // ============================================================================
 // Experiencias — cada una define su render + (opcional) perspectivas
 // ============================================================================
@@ -436,12 +468,19 @@ const CAPACIDAD_NOASIGNADAS_ROWS = [
 // visible; `id` interno (usado en FACET_CONFIG/state.perspective/
 // dashboardKey/stateKey en todo el archivo) queda igual a propósito, evita
 // un refactor de identificadores sin beneficio de negocio.
+// `updateLink` (opcional, ver "Actualizar" arriba): función () => url. Si
+// una experiencia no la define, el shell de filtros simplemente no
+// renderiza el botón — UNA sola propiedad de config decide, nunca un
+// condicional por nombre de experiencia en el renderer (ver filterBarShell).
+// Rentabilidad/Horas Vendidas/Horas Productivas quedan sin `updateLink` a
+// propósito: ningún target de mantenimiento fue provisto para ellas (ver
+// HANDOFF) — no se inventa una URL.
 const EXPERIENCES = [
-  { id: "cartera", label: "Cartera / Proyectos", perspectives: ["Mantenimiento", "Proyecto"] },
+  { id: "cartera", label: "Cartera / Proyectos", perspectives: ["Mantenimiento", "Proyecto"], updateLink: carteraUpdateLink },
   { id: "rentabilidad", label: "Rentabilidad", perspectives: ["Resumen", "Certificadas vs Ejecutadas"] },
   { id: "horasvendidas", label: "Horas Vendidas", perspectives: ["Proyecto", "Client Partner"] },
-  { id: "comercial", label: "Participación / Comercial", perspectives: ["Participación", "Salud de Cliente"] },
-  { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"] },
+  { id: "comercial", label: "Participación / Comercial", perspectives: ["Participación", "Salud de Cliente"], updateLink: () => CALENDARIO_COMERCIAL_UPDATE_URL },
+  { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"], updateLink: () => CALENDARIO_COMERCIAL_UPDATE_URL },
   { id: "capacidad", label: "Horas Productivas", perspectives: ["Productivas", "No Asignadas"] },
 ];
 
@@ -710,11 +749,24 @@ function checkboxGroupField(label, items) {
 // SOLO reposiciona (margin-left:auto); usar una sin la otra deja el botón
 // sin el tratamiento gold del Hub (Hub Visual Consistency corrective, ver
 // HANDOFF: ese fue exactamente el bug de este control).
+// "Actualizar" (ver "Actualizar" arriba de EXPERIENCES) — SIEMPRE
+// inmediatamente a la derecha de "✕ Limpiar", nunca dentro de un header de
+// sección analítica (pertenece al contexto de la EXPERIENCIA/fuente de
+// datos, no a un resultado puntual). `.dashboard-action-link` (tools.css) es
+// el MISMO lenguaje visual que `.support-link` del pipeline de contenido —
+// ver comentario de esa clase para por qué no se reusa la clase original
+// tal cual. `target="_blank" rel="noopener noreferrer"`: atajo de
+// navegación de solo lectura, Reporting nunca escribe a SharePoint.
 function filterBarShell(fieldsHtml, expId) {
+  const exp = EXPERIENCES.find(e => e.id === expId);
+  const updateHtml = exp && exp.updateLink
+    ? `<a class="dashboard-action-link" href="${esc(exp.updateLink())}" target="_blank" rel="noopener noreferrer">Actualizar<span>↗</span></a>`
+    : "";
   return `<div class="dashboard-sticky-header">
     <div class="staffing-filter-bar">
       <div class="whatsnew-filters">${fieldsHtml}</div>
       <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
+      ${updateHtml}
     </div>
   </div>`;
 }
@@ -1554,7 +1606,7 @@ function renderCapacidadNoAsignadas() {
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
-    <p class="empty-note" style="text-align:left">Horas No Productivas — registradas en Time por cada colaborador (ver HANDOFF). Potential overlap with Staffing — integration decision pending.</p>`;
+    <p class="empty-note" style="text-align:left">Horas No Productivas registradas por cada colaborador en Time (Task: No Asignación a Servicio en Cliente) — indicador distinto de la disponibilidad de Asignaciones.</p>`;
   const detalle = dashboardSection("detalle", "Horas No Asignadas", "Consultor — Task: No Asignación a Servicio en Cliente", body);
 
   return detalle;

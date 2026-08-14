@@ -838,6 +838,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
 
+/* Action link — mismo lenguaje visual que `.support-link`/`.support-links`
+   del pipeline de contenido (content_service.py `{{support:...}}`, ver
+   HANDOFF: "Actualizar" de Reporting): borde sutil + flecha dorada en un
+   <span>. NO se reusa esa clase tal cual acá porque sus tokens (`--soft`/
+   `--line`) solo están definidos dentro de `.copilot-panel` (light theme) —
+   fuera de ese contenedor caen al default OSCURO de :root, que en la
+   superficie CLARA de `.module-content` deja el borde casi invisible
+   (mismo motivo que `.dashboard-view-switch` de arriba: colores literales +
+   override `.content-theme-dark`, nunca var(--soft)/var(--line) acá).
+   Alias NEUTRAL — cualquier acción secundaria de un dashboard (no solo
+   Reporting) puede reusarlo. */
+.dashboard-action-link { display: inline-flex; align-items: center; padding: 8px 12px; border: 1px solid rgba(128,128,128,.32); font-size: .74rem; color: #55555c; text-decoration: none; }
+.content-theme-dark .dashboard-action-link { color: #b2b2bc; }
+.dashboard-action-link:hover { border-color: var(--gold); }
+.dashboard-action-link span { margin-left: 8px; color: var(--gold); }
+
 /* Toolbar del Detalle agregado (Staffing Director Priority V2) — control
    numérico de "+N días", recalcula client-side, sin Graph. */
 .staffing-detail-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }

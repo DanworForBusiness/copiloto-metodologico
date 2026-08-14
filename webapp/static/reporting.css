@@ -155,6 +155,3 @@
 .reporting-integral-preview .tree-indent { display: inline-block; }
 
 .reporting-integral-preview .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }
-
-.reporting-integral-preview footer.note { margin: 16px 0 0; padding: 0; color: var(--ink-faint); font-size: .7rem; }
-.reporting-integral-preview footer.note code { font-family: var(--mono); }
