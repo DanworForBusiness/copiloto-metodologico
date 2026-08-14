@@ -144,8 +144,43 @@ def test_vacation_bar_label_falls_back_to_plain_when_hours_missing():
 
 
 def test_template_vacation_tooltip_uses_the_hours_aware_label():
-    # El label visible por-barra (tooltip) usa el helper, no un "Vacaciones" fijo.
+    # El tooltip por-período (item 5) sigue usando el helper por-barra.
     assert 'x-text="vacationBarLabel(vacation)"' in _DASHBOARD_HTML
+
+
+# ============================================================================
+# Etiqueta VISIBLE de la lane (row label) — suma de horas (final corrective)
+# ============================================================================
+
+def _lane_label_block():
+    return _APP_JS[_APP_JS.index("vacationLaneLabel(periods) {"):_APP_JS.index("vacationBarLabel(vacation) {")]
+
+
+def test_visible_row_label_uses_lane_helper_not_static_text():
+    # El row-status visible ahora deriva del helper, no un "Vacaciones" fijo.
+    assert 'x-text="vacationLaneLabel(group.vacations)"' in _DASHBOARD_HTML
+
+
+def test_lane_label_sums_known_vacation_hours():
+    # items 1/2: una sola de 80 → 80; dos (40 + 80) → 120 (suma, no first/last).
+    block = _lane_label_block()
+    assert "`Vacaciones (${total}hs)`" in block
+    assert "reduce" in block and "+ h" in block
+
+
+def test_lane_label_falls_back_to_plain_when_no_known_hours():
+    # item 3: ningún período con vacation_hours usable → "Vacaciones".
+    block = _lane_label_block()
+    assert '"Vacaciones"' in block
+    assert 'typeof h === "number"' in block
+
+
+def test_lane_label_sums_only_known_values_never_invents_from_dates():
+    # item 4: solo suma los numéricos; nunca deriva de start/end.
+    block = _lane_label_block()
+    assert "p.vacation_hours" in block
+    for forbidden in ("start_date", "end_date", "getDay", "allocation", "Horaspormes"):
+        assert forbidden not in block
 
 
 def test_vacation_hours_label_is_display_only_never_from_calendar_or_allocation():

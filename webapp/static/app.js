@@ -1381,6 +1381,22 @@ function staffingDashboard(payload) {
       return byConsultant;
     },
 
+    // Etiqueta VISIBLE de la lane de vacaciones (izquierda) — la lane es
+    // COMPARTIDA por todos los períodos del consultor, así que resume la SUMA
+    // de las horas conocidas (`vacation_hours`, ya calculadas Días×8 en el
+    // repositorio). Solo suma los períodos que traen un número usable; si
+    // ninguno lo trae, cae a "Vacaciones" pelado (NUNCA inventa horas desde las
+    // fechas). Display-only: no toca allocation/KPIs/geometría. El tooltip
+    // sigue mostrando las horas POR período (ver vacationBarLabel).
+    vacationLaneLabel(periods) {
+      const total = (periods || [])
+        .map(p => p.vacation_hours)
+        .filter(h => typeof h === "number")
+        .reduce((sum, h) => sum + h, 0);
+      const known = (periods || []).some(p => typeof p.vacation_hours === "number");
+      return known ? `Vacaciones (${total}hs)` : "Vacaciones";
+    },
+
     // Etiqueta del período de vacaciones — metadata de DISPLAY: agrega las
     // horas equivalentes (Días × 8, ya calculadas en el repositorio y provistas
     // como vacation.vacation_hours) cuando la fuente las trae. Sin horas (Días

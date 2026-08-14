@@ -208,7 +208,7 @@
                       <template x-if="group.vacations.length > 0">
                         <div class="staffing-timeline__row staffing-timeline__vacation-row">
                           <div class="staffing-timeline__row-label">
-                            <span class="staffing-timeline__row-status">Vacaciones</span>
+                            <span class="staffing-timeline__row-status" x-text="vacationLaneLabel(group.vacations)"></span>
                           </div>
                           <div class="staffing-timeline__track">
                             <template x-for="vacation in group.vacations" :key="vacation.source_id">

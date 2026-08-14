@@ -5165,8 +5165,18 @@ posición/ancho siguen siendo exclusivamente `Desde`/`Hasta` (fin inclusive); no
 se recomputan días hábiles del rango. `Días` es display-only y NO se deriva de
 Horaspormes/FT-PT/allocation/horas de proyecto. `Días` ausente/malformado NO
 descarta el período (la barra igual se dibuja, la etiqueta cae a `Vacaciones`).
-La etiqueta de lane "Vacaciones" (categoría, compartida entre múltiples períodos
-del consultor) no cambia — las horas son por-período y viven en cada barra.
+
+**B.2 — Row label visible con horas (final micro-corrective,
+`fix(staffing): show vacation hours in row label`).** El owner confirmó que el
+tooltip mostraba `Vacaciones (80hs)` pero la etiqueta VISIBLE de la lane (a la
+izquierda) seguía diciendo solo `Vacaciones`. Como la lane es COMPARTIDA por
+todos los períodos del consultor, el helper JS `vacationLaneLabel(periods)`
+resume la SUMA de las `vacation_hours` conocidas: una de 80 → `Vacaciones (80hs)`;
+40 + 80 → `Vacaciones (120hs)` (suma, nunca first/last). Si NINGÚN período tiene
+horas usables → `Vacaciones` pelado; si solo algunos las tienen, suma únicamente
+las conocidas (nunca inventa desde fechas). El tooltip por-período
+(`vacationBarLabel`) queda intacto. Display-only: sin cambios de elegibilidad/
+parsing/Días×8/geometría/allocation/KPIs/estilo; route surface 84 sin cambios.
 
 **Invariantes:** `vacation_hours` es metadata de display del overlay; NUNCA toca
 allocation/Horaspormes/KPIs/conteos/FT-PT/Activos vencidos/Asignación hoy/+N/
