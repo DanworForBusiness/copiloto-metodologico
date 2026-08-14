@@ -54,8 +54,15 @@ def _facturadas_xlsx(pairs, *, headers=("Proyecto Base", "Suma de Cantidad"),
     return buf.getvalue()
 
 
-def _patch(monkeypatch, *, horas, proyectos, clientes, facturadas):
+_CP = "cp-list"
+
+
+def _patch(monkeypatch, *, horas, proyectos, clientes, facturadas, cp_columns=None, client_partners=None):
     def fake_paged(url, access_token=None, **kw):
+        if "/columns" in url:                       # metadata de columnas de Cliente
+            return cp_columns if cp_columns is not None else []
+        if _CP in url:                              # lista target de Client Partner
+            return _items(client_partners or [])
         if _HP in url:
             return _items(horas)
         if _PROY in url:
@@ -73,6 +80,9 @@ def _patch(monkeypatch, *, horas, proyectos, clientes, facturadas):
     monkeypatch.setattr(repo_mod.microsoft365, "graph_get_bytes", fake_bytes)
 
 
+_CP_COLUMNS = [{"name": "Title"}, {"name": "ClientPartner", "lookup": {"listId": _CP}}]
+
+
 def _repo():
     return ReportingRepository(
         site_id=_SITE, horas_proyectos_list_id=_HP,
@@ -83,13 +93,17 @@ def _repo():
 # --- Repository: normalización + joins ---------------------------------------
 
 def test_repo_joins_lists_and_xlsx_and_normalizes(monkeypatch):
+    # Nombres internos REALES (live smoke): A_x00f1_o, Status, ID_x0020_...,
+    # Cliente.Title, ClientPartnerLookupId → target descubierto de /columns.
     _patch(
         monkeypatch,
-        horas=[{"ProyectoId": "p1", "EmpresaId": "c1", "Proyecto": "Implementación SADI v2",
-                "Año": "2026", "Mes": "Marzo", "HsTrabajadas": "100", "HsVendidas": "120", "HsFacturadas": "110"}],
-        proyectos=[{"id": "p1", "ID Proyecto Danwor": "DAN-1042", "TipodeProyecto": "Proyecto",
-                    "FechadeInicio": "2026-01-15", "Estado": "En curso"}],
-        clientes=[{"id": "c1", "Cliente": "YPF", "Client Partner": "Diego Ramos"}],
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1",
+                "A_x00f1_o": "2026", "Mes": "Marzo", "HsTrabajadas": "100", "HsVendidas": "120", "HsFacturadas": "110"}],
+        proyectos=[{"id": "p1", "Title": "Implementación SADI v2", "ID_x0020_Proyecto_x0020_Danwor": "DAN-1042",
+                    "TipodeProyecto": "Proyecto", "FechadeInicio": "2026-01-15", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1"}],
+        cp_columns=_CP_COLUMNS,
+        client_partners=[{"id": "pm1", "Title": "Diego Ramos"}],
         facturadas=_facturadas_xlsx([("Implementación SADI v2", 290)]),
     )
     facts = _repo().get_cartera_facts("tok")
@@ -108,11 +122,13 @@ def test_graph_form_lookup_ids_and_title_from_joined_project(monkeypatch):
     # NO trae el título en la fila de Horas — el join debe resolver igual.
     _patch(
         monkeypatch,
-        horas=[{"ProyectoLookupId": "7", "EmpresaLookupId": "3", "Año": "2026", "Mes": "Marzo",
+        horas=[{"ProyectoLookupId": "7", "EmpresaLookupId": "3", "A_x00f1_o": "2026", "Mes": "Marzo",
                 "HsTrabajadas": "100", "HsVendidas": "120", "HsFacturadas": "110"}],
-        proyectos=[{"id": "7", "Title": "Implementación SADI v2", "ID Proyecto Danwor": "DAN-1042",
-                    "TipodeProyecto": "Proyecto", "FechadeInicio": "2026-01-15", "Estado": "En curso"}],
-        clientes=[{"id": "3", "Cliente": "YPF", "Client Partner": "Diego Ramos"}],
+        proyectos=[{"id": "7", "Title": "Implementación SADI v2", "ID_x0020_Proyecto_x0020_Danwor": "DAN-1042",
+                    "TipodeProyecto": "Proyecto", "FechadeInicio": "2026-01-15", "Status": "En curso"}],
+        clientes=[{"id": "3", "Title": "YPF", "ClientPartnerLookupId": "pm1"}],
+        cp_columns=_CP_COLUMNS,
+        client_partners=[{"id": "pm1", "Title": "Diego Ramos"}],
         facturadas=_facturadas_xlsx([("Implementación SADI v2", 290)]),
     )
     facts = _repo().get_cartera_facts("tok")
@@ -246,6 +262,66 @@ def test_graph_http_error_wrapped(monkeypatch):
     with pytest.raises(ReportingGraphError) as exc:
         _repo().get_cartera_facts("tok")
     assert exc.value.status_code == 403
+
+
+def test_client_partner_resolved_from_discovered_lookup_target(monkeypatch):
+    # El target del lookup CP se DESCUBRE de /columns (lookup.listId), no se
+    # asume; se carga una vez y se mapea id→Title.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "1",
+                "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"}],
+        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm9"}],
+        cp_columns=_CP_COLUMNS,
+        client_partners=[{"id": "pm9", "Title": "Ana Gómez"}],
+        facturadas=_facturadas_xlsx([("x", 0)]),
+    )
+    repo = _repo()
+    facts = repo.get_cartera_facts("tok")
+    assert facts[0]["clientPartner"] == "Ana Gómez"
+    d = repo.last_diagnostics
+    assert d["client_partner_target_found"] == 1
+    assert d["client_partner_resolved"] == 1 and d["client_partner_unresolved"] == 0
+
+
+def test_client_partner_blank_when_target_not_discoverable_no_guess(monkeypatch):
+    # Sin columna lookup ClientPartner en /columns → NO se asume target → CP en
+    # blanco, visible en diagnósticos (nunca se fabrica).
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "1",
+                "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"}],
+        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm9"}],
+        cp_columns=[{"name": "Title"}],  # sin lookup ClientPartner
+        client_partners=[{"id": "pm9", "Title": "Ana Gómez"}],
+        facturadas=_facturadas_xlsx([("x", 0)]),
+    )
+    repo = _repo()
+    facts = repo.get_cartera_facts("tok")
+    assert facts[0]["clientPartner"] == ""
+    assert repo.last_diagnostics["client_partner_target_found"] == 0
+
+
+def test_diagnostics_count_hsfacturadas_presence_and_union_keys(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "1",
+             "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "10"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "2",
+             "HsTrabajadas": "1", "HsVendidas": "1"},  # sin HsFacturadas (null omitido por Graph)
+        ],
+        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        facturadas=_facturadas_xlsx([("x", 0)]),
+    )
+    repo = _repo()
+    repo.get_cartera_facts("tok")
+    d = repo.last_diagnostics
+    assert d["horas_with_hsfacturadas"] == 1
+    assert "HsFacturadas" in d["horas_field_keys"]  # la UNIÓN revela el campo aunque falte en un item
 
 
 # --- Service: derivaciones + shaping -----------------------------------------

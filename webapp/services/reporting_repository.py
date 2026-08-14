@@ -52,21 +52,33 @@ FACTURADAS_TABLE_NAME = "Tabla24"
 HP_PROYECTO_LOOKUP = ("ProyectoLookupId", "ProyectoId")   # Horas → Proyectos.id
 HP_EMPRESA_LOOKUP = ("EmpresaLookupId", "EmpresaId")      # Horas → Cliente.id
 HP_PROYECTO_TITLE = "Proyecto"      # fallback si Horas trajera el título aplanado
-HP_ANIO = "Año"
+# Internal names REALES confirmados por el live smoke (SharePoint codifica ñ y
+# espacios). Antes se usaban los nombres "lindos" del PBIP → salían en blanco.
+HP_ANIO = "A_x00f1_o"               # "Año" codificado
 HP_MES = "Mes"
 HP_HS_TRABAJADAS = "HsTrabajadas"
 HP_HS_VENDIDAS = "HsVendidas"
-HP_HS_FACTURADAS = "HsFacturadas"   # M lo renombra a "Hs certificadas"
+# certificadas ← HsFacturadas: el M del PBIP renombra `HsFacturadas` →
+# "Hs certificadas" (línea 313 de Horas por proyectos.tmdl). Graph puede omitir
+# el campo por-item cuando es null; `last_diagnostics["horas_with_hsfacturadas"]`
+# confirma su presencia real. NO se inventa un fallback (nunca HsVendidas/XLSX/etc.).
+HP_HS_FACTURADAS = "HsFacturadas"
 
-PROY_ID_DANWOR = "ID Proyecto Danwor"
+PROY_ID_DANWOR = "ID_x0020_Proyecto_x0020_Danwor"   # "ID Proyecto Danwor" codificado
 PROY_TIPO = "TipodeProyecto"        # "Tiempo & Materiales" ⇒ Mantenimiento
 PROY_FECHA_INICIO = "FechadeInicio"
-PROY_ESTADO = "Estado"
+PROY_ESTADO = "Status"              # Proyectos expone `Status` (no "Estado")
 PROY_EMPRESA_ID = "EmpresaId"
 PROY_TITLE = "Title"                # nombre del proyecto (join desde Proyectos)
 
-CLI_NOMBRE = "Cliente"
-CLI_CLIENT_PARTNER = "Client Partner"
+CLI_NOMBRE = "Title"                # nombre del cliente = Cliente.Title
+# Client Partner es un LOOKUP de la lista Cliente (`ClientPartnerLookupId`). El
+# target NO se asume por nombre (la relación de PMs es con Proyectos.PMId, no con
+# Cliente) — se descubre de la metadata de columnas de Cliente (`lookup.listId`).
+CLI_CP_LOOKUP = ("ClientPartnerLookupId", "ClientPartnerId")
+CLI_CP_COLUMN_NAMES = ("ClientPartner",)
+CLI_CP_DISPLAY_NAMES = ("Client Partner",)
+PM_TITLE = "Title"                  # display del Client Partner = Title del target
 
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
@@ -221,6 +233,28 @@ class ReportingRepository:
             by_key[key] = by_key.get(key, 0.0) + _num(row[i_cant] if i_cant < len(row) else None)
         return by_key
 
+    # --- Client Partner (lookup de Cliente → lista target descubierta) -------
+
+    def _resolve_client_partners(self, site_id: str) -> tuple[dict[str, str], str]:
+        """Mapea `id de item del target → Title` para el lookup Client Partner de
+        la lista Cliente. El target se DESCUBRE de la metadata de columnas
+        (`/lists/{cliente}/columns` → `lookup.listId`), NUNCA se asume por nombre.
+        Se carga UNA sola vez (sin N+1). Devuelve (mapa, target_list_id|"")."""
+        columns = _call_graph("cliente_columns", lambda: microsoft365.graph_get_paged_values(
+            f"{GRAPH_BASE}/sites/{site_id}/lists/{self.cliente_list_id}/columns", access_token=self._token,
+        ))
+        target = ""
+        for col in columns:
+            if not col.get("lookup"):
+                continue
+            if _text(col.get("name")) in CLI_CP_COLUMN_NAMES or _text(col.get("displayName")) in CLI_CP_DISPLAY_NAMES:
+                target = _text((col.get("lookup") or {}).get("listId"))
+                break
+        if not target:
+            return {}, ""
+        items = self._items(site_id, target, "client_partner")
+        return {_text(it.get("id")): _first(it.get("fields") or {}, PM_TITLE) for it in items}, target
+
     # --- ensamble de hechos normalizados ------------------------------------
 
     def get_cartera_facts(self, access_token: str) -> list[dict]:
@@ -236,13 +270,20 @@ class ReportingRepository:
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
         horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
         facturadas_by_key = self._facturadas_by_project(site_id)
+        cp_by_id, cp_target = self._resolve_client_partners(site_id)
 
         # Los lookups de Horas apuntan al `item["id"]` del target (NO a fields["id"]).
         proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
         cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
 
         def _keys(items):
-            return sorted((items[0].get("fields") or {}).keys()) if items else []
+            # UNIÓN de claves sobre TODOS los items (Graph omite campos null
+            # por-item; un solo item de muestra puede no listar, p. ej.,
+            # HsFacturadas). Revela el schema real completo.
+            seen: set = set()
+            for it in items:
+                seen.update((it.get("fields") or {}).keys())
+            return sorted(seen)
 
         diag = {
             "proyectos_raw": len(proyectos_items), "clientes_raw": len(clientes_items),
@@ -251,9 +292,11 @@ class ReportingRepository:
             "horas_with_empresa_reference": 0, "horas_without_empresa_reference": 0,
             "horas_project_match": 0, "horas_project_unmatched": 0,
             "horas_cliente_match": 0, "horas_cliente_unmatched": 0,
+            "horas_with_hsfacturadas": 0,
+            "client_partner_resolved": 0, "client_partner_unresolved": 0,
+            "client_partner_target_found": 1 if cp_target else 0,
             "tipo_counts": {},
-            # SOLO nombres de clave (schema), NUNCA valores — para descubrir el
-            # internal name real de los lookups sin exponer datos.
+            # SOLO nombres de clave (schema), NUNCA valores.
             "horas_field_keys": _keys(horas_items),
             "proyectos_field_keys": _keys(proyectos_items),
             "cliente_field_keys": _keys(clientes_items),
@@ -273,6 +316,14 @@ class ReportingRepository:
                 diag["horas_project_match" if proy else "horas_project_unmatched"] += 1
             if emp_key:
                 diag["horas_cliente_match" if cli else "horas_cliente_unmatched"] += 1
+            if HP_HS_FACTURADAS in h and h[HP_HS_FACTURADAS] not in (None, ""):
+                diag["horas_with_hsfacturadas"] += 1
+
+            # Client Partner: lookup de la fila Cliente unida → Title del target.
+            cp_key = _first(cli, *CLI_CP_LOOKUP)
+            client_partner = cp_by_id.get(cp_key, "")
+            if cli:
+                diag["client_partner_resolved" if client_partner else "client_partner_unresolved"] += 1
 
             proyecto_title = _first(proy, PROY_TITLE) or _text(h.get(HP_PROYECTO_TITLE)) or _text(proy.get(PROY_ID_DANWOR))
             tipo_raw = _text(proy.get(PROY_TIPO))
@@ -282,7 +333,7 @@ class ReportingRepository:
             anio_inicio = fecha_inicio[:4] if fecha_inicio else ""
             facts.append({
                 "cliente": _text(cli.get(CLI_NOMBRE)),
-                "clientPartner": _text(cli.get(CLI_CLIENT_PARTNER)),
+                "clientPartner": client_partner,
                 "proyecto": proyecto_title,
                 "idProyecto": _text(proy.get(PROY_ID_DANWOR)),
                 "tipoProyecto": tipo,

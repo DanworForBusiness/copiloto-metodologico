@@ -150,6 +150,45 @@ Pendiente de confirmar en el re-smoke del owner: que `horas_project_match` y
 proyecto (si el nombre viviera en otra columna de Proyectos, es un ajuste de
 constante en el repositorio).
 
+## 6d. Nombres internos REALES (live smoke, re-smoke tras ed68645)
+
+Conteos del re-smoke: proyectos_raw=300, clientes_raw=127, horas_raw=1784,
+facturadas_xlsx_keys=116; horas_project_match=1767/1767 (100% de referenciados);
+horas_cliente_match=1723 (44 unmatched); tipo_counts Mantenimiento=1518 /
+Proyecto=249 / ""=17 (los 17 = filas de Horas sin referencia de proyecto).
+
+Los valores salían en blanco porque el adapter usaba los nombres "lindos" del
+PBIP. Internal names REALES corregidos (SharePoint codifica ñ/espacios):
+
+| concepto | internal name real | antes (mal) |
+|---|---|---|
+| Año (Horas) | `A_x00f1_o` | `Año` |
+| Estado (Proyectos) | `Status` | `Estado` |
+| ID Proyecto Danwor | `ID_x0020_Proyecto_x0020_Danwor` | `ID Proyecto Danwor` |
+| Cliente (nombre) | `Cliente.Title` | `Cliente` |
+| lookup proyecto (Horas) | `ProyectoLookupId` | `ProyectoId` |
+| lookup empresa (Horas) | `EmpresaLookupId` | `EmpresaId` |
+| nombre proyecto | `Proyectos.Title` (join) | Horas.`Proyecto` |
+
+**Client Partner** — es un LOOKUP de la lista Cliente (`ClientPartnerLookupId`).
+El target NO se asume: la relación de PMs en el modelo es con `Proyectos.PMId`
+(no con Cliente), así que PMs quedó DESCARTADO como target. El target se
+DESCUBRE en runtime de la metadata de columnas de Cliente
+(`GET /lists/{cliente}/columns` → columna lookup `ClientPartner` → `lookup.listId`),
+se carga una vez y se mapea `ClientPartnerLookupId → Title`. `client_partner_
+target_found`/`client_partner_resolved` en diagnósticos lo confirman.
+
+**Hs Certificadas (Mantenimiento)** — lineage PBIP: el M renombra la columna
+fuente `HsFacturadas` → "Hs certificadas" (Horas por proyectos.tmdl línea 313) =
+**Outcome A** (campo interno de la lista, no otra query ni derivación). Graph
+puede omitir el campo por-item cuando es null; el diagnóstico `horas_with_
+hsfacturadas` (+ `horas_field_keys` como UNIÓN sobre todos los items) confirma su
+presencia real. NO se sustituye por HsVendidas/Auditado/XLSX (prohibido).
+
+**44 Cliente unmatched** — quedan visibles como conteo (`horas_cliente_unmatched`).
+Pendiente de clasificar en el re-smoke: referencias de Empresa stale/borradas vs
+items de Cliente faltantes. No se fabrican valores para ellas.
+
 ## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
 
 1. **Internal names de lookup** `ProyectoId ↔ Proyectos.Id` y `EmpresaId ↔ Cliente`:
