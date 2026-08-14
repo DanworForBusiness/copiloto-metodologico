@@ -254,10 +254,119 @@ function distinctValues(rows, key) {
     .filter(v => v !== undefined && v !== null && v !== "")
     .sort((a, b) => String(a).localeCompare(String(b), "es"));
 }
+
+// --- Faceted/cascading filter helper (ver corrective — HANDOFF) -----------
+// Regla canónica: availableOptions(F) = valores distintos de BASE DATA
+// después de aplicar todos los filtros ACTIVOS salvo F mismo. `fields` es
+// la config declarativa por experiencia: [{ key, field }] — `key` es la
+// clave en `state.filters[expId]`, `field` es la propiedad real de la fila.
+// `baseRows` ya viene escopeada por lo que NO es un facet <select>
+// (perspectiva, checkboxes de Status) — el motor de acá solo resuelve la
+// interdependencia ENTRE los <select>, nunca decide perspectiva/Status.
+function facetRowsExcept(baseRows, filters, fields, exceptKey) {
+  return fields.reduce((rows, f) => {
+    if (f.key === exceptKey) return rows;
+    const val = filters[f.key];
+    return val ? rows.filter(r => r[f.field] === val) : rows;
+  }, baseRows);
+}
+function facetOptions(baseRows, filters, fields, key) {
+  const field = fields.find(f => f.key === key).field;
+  return distinctValues(facetRowsExcept(baseRows, filters, fields, key), field);
+}
+// Invalid-selection reset (ver corrective): si un valor ya seleccionado deja
+// de ser una opción válida (recalculada EXCLUYÉNDOLO a él mismo, igual que
+// facetOptions), cae a "Todos" — nunca se retiene una combinación imposible
+// ni se auto-selecciona otro valor. `justChangedKey` (opcional) NUNCA se
+// resetea a sí mismo: es la elección explícita que el usuario acaba de
+// hacer, y es la que debe ganar cuando entra en conflicto con una
+// selección VIEJA de otro facet — ver "CURRENT CARTERA EXAMPLE" del
+// corrective (Proyecto recién elegido debe sobrevivir; Cliente, si ya no
+// es compatible, es el que cae a Todos — nunca al revés). Sin
+// `justChangedKey` (ver toggleCarteraStatus: Status no es un facet
+// <select>, no hay "el que se acaba de tocar" entre proyecto/cliente) los
+// facets se evalúan simétricamente. Itera a punto fijo (bounded por
+// fields.length) porque resetear un facet puede a su vez habilitar/
+// deshabilitar otro (ver HANDOFF: "recompute once again if necessary").
+function reconcileFacetFilters(expId, baseRows, fields, justChangedKey) {
+  const filters = state.filters[expId] || (state.filters[expId] = {});
+  for (let i = 0; i < fields.length + 1; i++) {
+    let changed = false;
+    fields.forEach(f => {
+      if (f.key === justChangedKey) return;
+      const val = filters[f.key];
+      if (!val) return;
+      if (!facetOptions(baseRows, filters, fields, f.key).includes(val)) { filters[f.key] = ""; changed = true; }
+    });
+    if (!changed) break;
+  }
+}
+// Registro config-driven por experiencia (ver "IMPORTANT MAINTAINABILITY
+// INVARIANT" del corrective): una experiencia nueva agrega UNA entrada acá
+// — `baseRows`/`fields` — y obtiene opciones faceteadas + reset de
+// selección inválida gratis, sin código Proyecto→Cliente a medida. Función
+// (no objeto estático) porque `baseRows`/`fields` pueden depender de la
+// perspectiva/Status vigentes (ver Capacidad, Cartera). Comercial queda
+// afuera a propósito (sin filtros, fuera de alcance, ver HANDOFF).
+const FACET_CONFIG = {
+  cartera: () => {
+    const cfg = CARTERA_CONFIG[state.perspective.cartera];
+    return {
+      baseRows: cfg.rows.filter(r => state.carteraStatus[r.status]),
+      fields: [{ key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }],
+    };
+  },
+  rentabilidad: () => ({
+    baseRows: RENTABILIDAD_PROYECTOS,
+    fields: [{ key: "tipo", field: "tipo" }, { key: "proyecto", field: "proyecto" }],
+  }),
+  horasvendidas: () => ({
+    baseRows: HORASVENDIDAS_ROWS,
+    fields: [{ key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }],
+  }),
+  calendario: () => ({
+    baseRows: CALENDARIO_ROWS,
+    fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }],
+  }),
+  capacidad: () => state.perspective.capacidad === "Productivas"
+    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
+    : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
+};
+function reconcileExperienceFacets(expId, justChangedKey) {
+  const cfg = FACET_CONFIG[expId];
+  if (!cfg) return;
+  const { baseRows, fields } = cfg();
+  reconcileFacetFilters(expId, baseRows, fields, justChangedKey);
+}
+// Select faceteado — reemplaza `selectField(expId, key, label,
+// distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
+// opciones YA vienen excluyendo el propio facet (ver facetOptions), nunca
+// el dataset completo sin escopear.
+function facetSelectField(expId, key, label) {
+  const cfg = FACET_CONFIG[expId];
+  if (!cfg) return "";
+  const { baseRows, fields } = cfg();
+  return selectField(expId, key, label, facetOptions(baseRows, state.filters[expId] || {}, fields, key));
+}
+// Filas resultantes con TODOS los facets activos aplicados — misma fuente
+// de verdad que `facetSelectField` (mismo `baseRows`/`fields` por
+// experiencia), para que la tabla/KPI y las opciones de los <select> nunca
+// diverjan.
+function facetFilteredRows(expId) {
+  const cfg = FACET_CONFIG[expId];
+  if (!cfg) return [];
+  const { baseRows, fields } = cfg();
+  return facetRowsExcept(baseRows, state.filters[expId] || {}, fields, null);
+}
+
 function getFilter(expId, key) { return (state.filters[expId] && state.filters[expId][key]) || ""; }
 function setFilter(expId, key, value) {
   if (!state.filters[expId]) state.filters[expId] = {};
   state.filters[expId][key] = value;
+  // `key` es el facet que el usuario ELIGIÓ recién — nunca se resetea a sí
+  // mismo (ver reconcileFacetFilters); si entra en conflicto con una
+  // selección vieja de otro facet, la vieja es la que cae a Todos.
+  reconcileExperienceFacets(expId, key);
   render();
 }
 function resetFilters(expId) {
@@ -309,6 +418,10 @@ function filterBarShell(fieldsHtml, expId) {
 
 function toggleCarteraStatus(key) {
   state.carteraStatus[key] = !state.carteraStatus[key];
+  // Status participa del mismo contexto de faceting que Proyecto/Cliente
+  // (ver corrective) — semántica del checkbox intacta, solo dispara la
+  // misma reconciliación de selección inválida que un <select> normal.
+  reconcileExperienceFacets("cartera");
   render();
 }
 
@@ -317,10 +430,8 @@ function toggleCarteraStatus(key) {
 // es irrelevante, ocultarlo" — nunca un control decorativo). Empresa/Año/Mes
 // no aparecen acá porque ningún dataset mock los modela como campo real.
 function renderCarteraFilterBar() {
-  const persp = state.perspective.cartera;
-  const cfg = CARTERA_CONFIG[persp];
-  const fields = selectField("cartera", "proyecto", "Proyecto", distinctValues(cfg.rows, "proyecto"))
-    + selectField("cartera", "cliente", "Cliente", distinctValues(cfg.rows, "cliente"))
+  const fields = facetSelectField("cartera", "proyecto", "Proyecto")
+    + facetSelectField("cartera", "cliente", "Cliente")
     + checkboxGroupField("Status", [
         { value: "En curso", checked: state.carteraStatus["En curso"], onclick: "toggleCarteraStatus('En curso')" },
         { value: "Finalizado", checked: state.carteraStatus["Finalizado"], onclick: "toggleCarteraStatus('Finalizado')" },
@@ -329,25 +440,22 @@ function renderCarteraFilterBar() {
 }
 
 function renderRentabilidadFilterBar() {
-  const f = state.filters.rentabilidad;
-  const tipoOptions = distinctValues(RENTABILIDAD_PROYECTOS, "tipo");
-  const proyectoOptions = distinctValues(RENTABILIDAD_PROYECTOS.filter(p => !f.tipo || p.tipo === f.tipo), "proyecto");
-  const fields = selectField("rentabilidad", "tipo", "Tipo Proyecto", tipoOptions)
-    + selectField("rentabilidad", "proyecto", "Proyecto", proyectoOptions);
+  const fields = facetSelectField("rentabilidad", "tipo", "Tipo Proyecto")
+    + facetSelectField("rentabilidad", "proyecto", "Proyecto");
   return filterBarShell(fields, "rentabilidad");
 }
 
 function renderHorasVendidasFilterBar() {
-  const fields = selectField("horasvendidas", "cp", "Client Partner", distinctValues(HORASVENDIDAS_ROWS, "cp"))
-    + selectField("horasvendidas", "tipo", "Tipo Proyecto", distinctValues(HORASVENDIDAS_ROWS, "tipo"))
-    + selectField("horasvendidas", "cliente", "Cliente", distinctValues(HORASVENDIDAS_ROWS, "cliente"))
-    + selectField("horasvendidas", "proyecto", "Proyecto", distinctValues(HORASVENDIDAS_ROWS, "proyecto"));
+  const fields = facetSelectField("horasvendidas", "cp", "Client Partner")
+    + facetSelectField("horasvendidas", "tipo", "Tipo Proyecto")
+    + facetSelectField("horasvendidas", "cliente", "Cliente")
+    + facetSelectField("horasvendidas", "proyecto", "Proyecto");
   return filterBarShell(fields, "horasvendidas");
 }
 
 function renderCalendarioFilterBar() {
-  const fields = selectField("calendario", "cp", "Client Partner", distinctValues(CALENDARIO_ROWS, "cp"))
-    + selectField("calendario", "cliente", "Cliente", distinctValues(CALENDARIO_ROWS, "cliente"));
+  const fields = facetSelectField("calendario", "cp", "Client Partner")
+    + facetSelectField("calendario", "cliente", "Cliente");
   return filterBarShell(fields, "calendario");
 }
 
@@ -360,8 +468,8 @@ function renderCalendarioFilterBar() {
 function renderCapacidadFilterBar() {
   const persp = state.perspective.capacidad;
   const fields = persp === "Productivas"
-    ? selectField("capacidad", "cliente", "Cliente", distinctValues(CAPACIDAD_PRODUCTIVAS_ROWS, "cliente"))
-    : selectField("capacidad", "consultor", "Consultor", distinctValues(CAPACIDAD_NOASIGNADAS_ROWS, "consultor"));
+    ? facetSelectField("capacidad", "cliente", "Cliente")
+    : facetSelectField("capacidad", "consultor", "Consultor");
   return filterBarShell(fields, "capacidad");
 }
 
@@ -423,10 +531,10 @@ function dashboardSections(dashboardKey, sectionsHtml) {
 function renderCartera() {
   const persp = state.perspective.cartera;
   const cfg = CARTERA_CONFIG[persp];
-  const f = state.filters.cartera;
-  let rows = cfg.rows.filter(r => state.carteraStatus[r.status]);
-  if (f.proyecto) rows = rows.filter(r => r.proyecto === f.proyecto);
-  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  // `facetFilteredRows` es la MISMA fuente de verdad que las opciones
+  // faceteadas del filter bar (ver FACET_CONFIG.cartera) — tabla/KPI y
+  // <select> nunca divergen (ver corrective).
+  const rows = facetFilteredRows("cartera");
   const stateKey = "cartera::" + persp;
   const tree = buildTree(rows, cfg.keys);
   registerTreeContext(stateKey, rows, cfg.keys);
@@ -464,8 +572,7 @@ function rentabilidadRanked(rows) {
 }
 
 function rentabilidadFilteredProyectos() {
-  const f = state.filters.rentabilidad;
-  return RENTABILIDAD_PROYECTOS.filter(p => (!f.tipo || p.tipo === f.tipo) && (!f.proyecto || p.proyecto === f.proyecto));
+  return facetFilteredRows("rentabilidad");
 }
 
 function rentabilidadBarRow(label, value, maxAbs) {
@@ -755,12 +862,7 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
 function renderHorasVendidas() {
   const persp = state.perspective.horasvendidas;
   const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
-  const f = state.filters.horasvendidas;
-  let rows = HORASVENDIDAS_ROWS;
-  if (f.cp) rows = rows.filter(r => r.cp === f.cp);
-  if (f.tipo) rows = rows.filter(r => r.tipo === f.tipo);
-  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
-  if (f.proyecto) rows = rows.filter(r => r.proyecto === f.proyecto);
+  const rows = facetFilteredRows("horasvendidas");
   const stateKey = "horasvendidas::" + persp;
   const tree = buildTree(rows, hierarchy.keys);
   registerTreeContext(stateKey, rows, hierarchy.keys);
@@ -826,10 +928,7 @@ function renderComercial() {
 function renderCalendario() {
   const persp = state.perspective.calendario;
   const hierarchy = CALENDARIO_HIERARCHY[persp];
-  const f = state.filters.calendario;
-  let rows = CALENDARIO_ROWS;
-  if (f.cp) rows = rows.filter(r => r.cp === f.cp);
-  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  const rows = facetFilteredRows("calendario");
   const stateKey = "calendario::" + persp;
   const tree = buildTree(rows, hierarchy.keys);
   registerTreeContext(stateKey, rows, hierarchy.keys);
@@ -877,9 +976,7 @@ const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
 ];
 
 function renderCapacidadProductivas() {
-  const f = state.filters.capacidad;
-  let rows = CAPACIDAD_PRODUCTIVAS_ROWS;
-  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  const rows = facetFilteredRows("capacidad");
   const filteredTotal = rows.reduce((s, r) => s + r.horas, 0);
 
   // Orden por Horas de Cliente descendente == el Rank real del PBIP
@@ -910,9 +1007,7 @@ function renderCapacidadProductivas() {
 }
 
 function renderCapacidadNoAsignadas() {
-  const f = state.filters.capacidad;
-  let baseRows = CAPACIDAD_NOASIGNADAS_ROWS;
-  if (f.consultor) baseRows = baseRows.filter(r => r.consultor === f.consultor);
+  const baseRows = facetFilteredRows("capacidad");
   // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
   // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
   // inventada. `hsAsig` es la capacidad de referencia estática del
