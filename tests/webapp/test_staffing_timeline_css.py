@@ -77,3 +77,59 @@ def test_label_width_variable_defined_once_on_the_timeline_root():
     # breakpoints angostos overridean grid-template-columns directo, no la
     # variable, así que no hay una segunda definición legítima).
     assert _CSS.count("--timeline-label-width:") == 1
+
+
+# ============================================================================
+# Espacio de coordenadas día-exacto (ver HANDOFF — smoke #1 del owner
+# reportó una barra de asignación a la IZQUIERDA del marcador de "hoy" pese
+# a que su fecha real era POSTERIOR). Verificado con un repro real de
+# navegador (getBoundingClientRect sobre el CSS/HTML shippeado): el
+# contenedor de la barra (`.staffing-timeline__track`) y el del marcador
+# (`.staffing-timeline__today-track`) YA resuelven al mismo ancho físico
+# (ambos son la celda "1fr" de grids independientes que comparten
+# `var(--timeline-label-width)` + `gap`, con stretch horizontal implícito
+# por default de CSS Grid) — no había una fecha mal calculada ni un
+# containing-block roto en el código shippeado; la lectura visual del owner
+# es consistente con haber probado assets VIEJOS (pre día-exacta, con
+# `grid-column` por mes) contra un smoke sin hard-refresh/restart. Estos
+# tests fijan la parte del contrato que SÍ es responsabilidad del CSS
+# fuente: `width: 100%` EXPLÍCITO en vez de depender del stretch implícito
+# (más robusto a un futuro `justify-items`/`justify-self`), y que la barra
+# NUNCA vuelva a ser un ítem de grid posicionado por mes (`grid-column`/
+# `grid-row`) — la regresión original que motivó el primer corrective.
+# ============================================================================
+
+def test_track_is_not_a_grid_container():
+    # `.staffing-timeline__track` (barras de asignación) y su vacation-lane
+    # gemela reusan la MISMA regla — si volviera a ser `display: grid`, las
+    # barras (`position: absolute; left: X%`) dejarían de posicionarse
+    # día-exacto sobre su propio ancho y volverían a depender de columnas
+    # discretas por mes (la regresión original).
+    body = _rule_body(".staffing-timeline__track {")
+    assert "display: grid" not in body
+    assert "grid-template-columns" not in body
+
+
+def test_track_and_today_track_declare_width_explicitly():
+    # Ancho EXPLÍCITO (ver HANDOFF) en vez de confiar en el stretch
+    # implícito de CSS Grid — mismo resultado físico, pero ya no depende de
+    # un default que un `justify-items`/`justify-self` futuro podría
+    # romper en silencio.
+    track_body = _rule_body(".staffing-timeline__track {")
+    today_track_body = _rule_body(".staffing-timeline__today-track {")
+    assert "width: 100%" in track_body
+    assert "width: 100%" in today_track_body
+
+
+def test_bars_use_absolute_positioning_not_month_grid_columns():
+    # `.staffing-timeline__bar`/`.staffing-timeline__vacation-bar` deben
+    # posicionarse con `position: absolute` (día-exacto, `left`/`width` en
+    # % inline vía `barStyle()`) — nunca `grid-row`/`grid-column`/
+    # `align-self` (mecanismo viejo de índice de mes, la barra quedaba
+    # pegada al día 1 de su mes sin importar la fecha real).
+    for selector in (".staffing-timeline__bar {", ".staffing-timeline__vacation-bar {"):
+        body = _rule_body(selector)
+        assert "position: absolute" in body
+        assert "grid-row" not in body
+        assert "grid-column" not in body
+        assert "align-self" not in body

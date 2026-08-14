@@ -86,9 +86,9 @@ def test_vacation_bars_key_by_source_id_so_multiple_periods_render_independently
 
 
 def test_vacation_bar_reuses_bar_style_positioning_same_as_assignment_bars():
-    # Reusa el MISMO helper de posicionamiento — sin una segunda
-    # implementación de grid-column para vacaciones (funciona igual para un
-    # período de un solo día: start_index === end_index).
+    # Reusa el MISMO helper de posicionamiento día-exacto (left/width % —
+    # ver HANDOFF) — sin una segunda implementación para vacaciones (funciona
+    # igual para un período de un solo día: ancho positivo chico, nunca cero).
     assert ':style="barStyle(vacation)"' in _DASHBOARD_HTML
 
 

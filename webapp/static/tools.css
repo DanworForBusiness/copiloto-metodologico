@@ -855,10 +855,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-detail-table { table-layout: fixed; width: 100%; }
 .staffing-detail-table td, .staffing-detail-table th { overflow-wrap: anywhere; }
 
-/* Timeline mensual — grid CSS puro, coordenadas server-derived (índices de
-   mes, nunca píxeles). Header y filas comparten la MISMA proporción
-   (etiqueta fija + 8 columnas iguales) para que las barras alineen
-   exactamente bajo su mes. `.staffing-timeline__body` es el ancla
+/* Timeline mensual — header de meses en grid CSS (8 columnas iguales,
+   coordenadas server-derived, nunca píxeles); barras (asignación/vacación)
+   y marcador de "hoy" día-exactos: `left`/`width` en % dentro de
+   `.staffing-timeline__track` (position:relative), MISMA escala 0..100 que
+   la grid de 8 columnas de abajo — un mes = 100/8% del ancho, un día
+   ocupa su fracción proporcional dentro de ese mes (ver HANDOFF —
+   corrective de geometría; antes las barras usaban grid-column por índice
+   de mes y arrancaban SIEMPRE el día 1 visualmente). Header y filas
+   comparten la MISMA proporción (etiqueta fija + 1fr) para que el área de
+   calendario alinee. `.staffing-timeline__body` es el ancla
    `position:relative` del overlay del marcador de "hoy" (se estira solo
    con el contenido — sin JS midiendo alturas). */
 .staffing-timeline {--timeline-label-width: 280px;}   
@@ -867,7 +873,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
   display: grid;  grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; align-items: center;
 }
 .staffing-timeline__header { padding-bottom: 8px; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
-.staffing-timeline__header-months, .staffing-timeline__track { display: grid; grid-template-columns: repeat(8, 1fr); }
+.staffing-timeline__header-months { display: grid; grid-template-columns: repeat(8, 1fr); width: 100%; }
 .staffing-timeline__month {
   text-align: center; color: #7a7a82; font: 600 .62rem var(--mono);
   text-transform: uppercase; letter-spacing: .04em; padding: 3px 0; border-radius: 4px;
@@ -905,13 +911,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-timeline__row-status.is-status-inactivo, .staffing-timeline__row-status.is-status-otro { color: #7a7a82; }
 .content-theme-dark .staffing-timeline__row-status.is-status-inactivo,
 .content-theme-dark .staffing-timeline__row-status.is-status-otro { color: #9a9aa2; }
-.staffing-timeline__track { position: relative; height: 22px; }
+/* `width: 100%` EXPLÍCITO (ver HANDOFF — unificación de espacio de
+   coordenadas): sin contenido en flujo normal (las barras son
+   `position:absolute`), este contenedor dependía 100% del stretch
+   IMPLÍCITO por default de CSS Grid (`justify-items: normal` → `stretch`)
+   para llegar al mismo ancho físico que `.staffing-timeline__header-months`/
+   `.staffing-timeline__today-track` — correcto (verificado con
+   `getBoundingClientRect` real), pero implícito y silenciosamente rompible
+   por un futuro `justify-items`/`justify-self` en `.staffing-timeline__row`.
+   Ancho EXPLÍCITO: mismo resultado, ya no depende de ese default. */
+.staffing-timeline__track { position: relative; height: 22px; width: 100%; }
 /* Identidad determinística por asignación/proyecto (paleta, ver app.js
    paletteClass) — el ESTADO se superpone aparte (borde/opacidad abajo),
    nunca reemplaza el color de identidad. 6 tonos, restringidos, no
    "rainbow": profesionales, distinguibles entre sí, misma familia de
    saturación/luminosidad. */
-.staffing-timeline__bar { grid-row: 1; align-self: center; height: 16px; border-radius: 4px; min-width: 6px; position: relative; }
+.staffing-timeline__bar { position: absolute; top: 50%; transform: translateY(-50%); height: 16px; border-radius: 4px; min-width: 6px; }
 .staffing-timeline__bar:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
 .staffing-palette-0 { background: #4C7EA8; }
 .staffing-palette-1 { background: #3F9C82; }
@@ -945,7 +960,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-vacation-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
 .staffing-timeline__vacation-row { opacity: .9; }
 .staffing-timeline__vacation-bar {
-  grid-row: 1; align-self: center; height: 12px; border-radius: 4px; min-width: 6px; position: relative;
+  position: absolute; top: 50%; transform: translateY(-50%); height: 12px; border-radius: 4px; min-width: 6px;
   background: repeating-linear-gradient(45deg, rgba(122,122,130,.55) 0 4px, rgba(122,122,130,.22) 4px 8px);
   border: 1px solid rgba(122,122,130,.5);
 }
@@ -996,7 +1011,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
      como si "hoy" fuera JUL). Nunca duplicar el valor, solo la variable. */
   position: absolute; inset: 0; display: grid; grid-template-columns: var(--timeline-label-width) 1fr; gap: 10px; pointer-events: none;
 }
-.staffing-timeline__today-track { position: relative; overflow: hidden; }
+.staffing-timeline__today-track { position: relative; overflow: hidden; width: 100%; }
 .staffing-timeline__today { position: absolute; top: 0; bottom: 0; border-left: 1.5px dashed var(--gold); z-index: 2; }
 @media (max-width: 900px) {
   .staffing-timeline__header, .staffing-timeline__row, .staffing-timeline__today-overlay { grid-template-columns: 120px 1fr; }
