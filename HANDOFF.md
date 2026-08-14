@@ -6077,6 +6077,8 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Module Identifier Convention V2 — Registry Foundation (Fase 1) | **CLOSED / GREEN** |
 | Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
 | **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
+| Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
+| Reporting Integral V0 (`/operaciones/reporting/integral`) | **V0 / MOCK DATA — merged locally, NOT pushed** |
 
 ## CURRENT EXECUTION POINT
 - **Estado consolidado — Module Identifier Convention V2 CERRADO por
@@ -6123,6 +6125,42 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
     rows`) agregado a Activity para que **owner live smoke #6** identifique
     la etapa exacta. Ningún cambio de negocio/filtro — sigue pendiente la
     corrección real.
+  - **Reporting Integral V0 = V0 / MOCK DATA, mergeado localmente en
+    `work/staffing-vacation-overlay` — NO pusheado.** Vive en
+    `/operaciones/reporting/integral` (Operations nav: "01 Asignaciones" /
+    "02 Reporting"). Desarrollado en la branch `work/reporting-integral-v0`
+    (varios batches correctivos, ver `git log`); último commit incorporado
+    `782119a`, integrado al worktree real del owner
+    (`C:\Users\Joe\ArquitectoDanwor`) por fast-forward sobre la historia de
+    Vacation/Absence Overlay (esta branch resultó ser ancestro de
+    `work/reporting-integral-v0`, así que el fast-forward no generó merge
+    commit). Seis experiencias finales: Cartera/Proyectos, Rentabilidad,
+    Horas Vendidas, Participación/Comercial, Calendario, Horas
+    Productivas — todas reusan el mismo backbone de dashboard del Hub
+    (tipografía/tokens compartidos, filtros funcionales sticky, filtros
+    faceteados/en cascada multidireccionales, rollups jerárquicos de
+    padres, filtros de fecha/específicos de perspectiva, tooltips nativos +
+    matriz mensual acumulada de Rentabilidad, semántica booleana de
+    presencia en Calendario, acción opcional "Actualizar" de mantenimiento
+    SharePoint). Dataset 100% mock hardcodeado — integración de datasource
+    real **todavía NO iniciada**; próximo paso: diseñar contratos
+    normalizados de servicio/repositorio por experiencia (mismo patrón que
+    `StaffingService`), **nunca** conectar cada renderer individual
+    directo a Graph/SharePoint. Artefactos de assessment/prototipo en
+    `artifacts/reporting-integral-v0/` (mapa funcional completo en
+    `v0-functional-map.md`); fuente PBIP real en
+    `E:\Joe\Metodologia\Refactorizacion\Tablero Integral\Danwor - Tablero
+    Integral.pbip`. **Higiene de branch — IMPORTANTE:** la branch local
+    `work/staffing-vacation-overlay` quedó ~32 commits adelante de su
+    remoto (absorbió toda la historia de Reporting vía fast-forward) — su
+    nombre ahora es histórico/engañoso (ya no describe solo el overlay de
+    vacaciones) y **NO debe pushearse casualmente** (redefiniría qué es esa
+    branch en `origin`). Dos overrides locales intencionales del owner
+    deben preservarse SIEMPRE (nunca stash/reset/restore/clean):
+    `config.py` (`OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS",
+    "joconnor")`) y `webapp/static/tools.css` (override de legibilidad de
+    texto, migrado durante el merge de `.staffing-vacation-error` a
+    `.staffing-absence-error` tras el rename Vacation→Absence upstream).
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
