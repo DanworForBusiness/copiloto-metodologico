@@ -14,6 +14,7 @@ from openpyxl.worksheet.table import Table
 
 from webapp.services import reporting_repository as repo_mod
 from webapp.services.reporting_repository import (
+    ReportingConfigurationError,
     ReportingGraphError,
     ReportingRepository,
     ReportingSourceError,
@@ -184,6 +185,13 @@ def test_malformed_workbook_raises_source_error(monkeypatch):
     assert exc.value.stage == "workbook"
 
 
+def test_missing_site_id_raises_configuration_error():
+    repo = ReportingRepository(site_id="", horas_proyectos_list_id=_HP,
+                               proyectos_list_id=_PROY, cliente_list_id=_CLI)
+    with pytest.raises(ReportingConfigurationError):
+        repo.get_cartera_facts("tok")
+
+
 def test_graph_http_error_wrapped(monkeypatch):
     import urllib.error
 
@@ -314,6 +322,29 @@ def test_cartera_endpoint_source_error_is_localized_fail_soft(monkeypatch):
     r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
     assert r.status_code == 200  # nunca 5xx: no tumba la página
     assert r.json() == {"state": "source_error", "stage": "workbook"}
+
+
+def test_cartera_endpoint_missing_config_is_config_incomplete(monkeypatch):
+    monkeypatch.setattr(
+        reporting_router, "ReportingService",
+        lambda: _RecordingReportingService(error=ReportingConfigurationError("site no configurado")),
+    )
+    r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
+    assert r.status_code == 200
+    assert r.json() == {"state": "config_incomplete"}
+
+
+def test_cartera_endpoint_arbitrary_runtime_error_is_not_config_incomplete(monkeypatch):
+    # Un RuntimeError genérico (parseo/join/etc.) NUNCA se lee como config
+    # incompleta — es un source_error/unexpected, fail-soft, con log server-side.
+    monkeypatch.setattr(
+        reporting_router, "ReportingService",
+        lambda: _RecordingReportingService(error=RuntimeError("boom en el join")),
+    )
+    r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
+    assert r.status_code == 200
+    assert r.json() == {"state": "source_error", "stage": "unexpected"}
+    assert "boom en el join" not in r.text  # nunca el texto crudo al browser
 
 
 def test_cartera_endpoint_graph_error_exposes_safe_stage_status(monkeypatch):

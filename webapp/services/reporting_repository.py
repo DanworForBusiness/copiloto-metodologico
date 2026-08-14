@@ -68,6 +68,14 @@ FAC_PROYECTO_BASE = "Proyecto Base"
 FAC_CANTIDAD = "Suma de Cantidad"
 
 
+class ReportingConfigurationError(Exception):
+    """Falta configuración de deployment de Reporting (p. ej. site ID sin
+    setear) — NO es una falla de fuente ni de transporte. El router la mapea a
+    `config_incomplete`. Es la ÚNICA condición que debe leerse como config
+    incompleta: NUNCA un `RuntimeError` genérico surgido más abajo (parseo,
+    join, etc.), que es un `source_error`."""
+
+
 class ReportingSourceError(Exception):
     """Falla NO transitoria de una fuente de Reporting (workbook inválido,
     tabla faltante, sitio sin id). El router la trata fail-soft/localizada,
@@ -162,7 +170,7 @@ class ReportingRepository:
 
     def _require_site_id(self) -> str:
         if not self.site_id:
-            raise RuntimeError("SHAREPOINT_GESTION_SITE_ID no configurado")
+            raise ReportingConfigurationError("SHAREPOINT_GESTION_SITE_ID no configurado")
         return self.site_id
 
     # --- lecturas de lista (paginadas) --------------------------------------

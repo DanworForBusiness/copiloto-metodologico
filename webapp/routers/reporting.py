@@ -30,17 +30,24 @@ lógica de negocio de Reporting (eso vive enteramente en
 service real cuando haya fuente de datos)."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
-from webapp.services.reporting_repository import ReportingGraphError, ReportingSourceError
+from webapp.services.reporting_repository import (
+    ReportingConfigurationError,
+    ReportingGraphError,
+    ReportingSourceError,
+)
 from webapp.services.reporting_service import ReportingService
 from webapp.templating import templates
 
 router = APIRouter()
+_logger = logging.getLogger("danwor.reporting")
 
 
 @router.get("/operaciones/reporting/integral", response_class=HTMLResponse, include_in_schema=False)
@@ -81,13 +88,17 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
     service = ReportingService()
     try:
         cartera = service.get_cartera(graph_token)
-    except RuntimeError:
-        # Config incompleta (site/list ID sin configurar) — nunca datos.
+    except ReportingConfigurationError:
+        # ÚNICA condición de config incompleta (site/list ID sin setear). NUNCA
+        # un RuntimeError genérico surgido más abajo (parseo/join/etc.).
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
-    except Exception:  # noqa: BLE001 — falla de transporte/parse, nunca cruda al cliente
-        return JSONResponse({"state": "source_error", "stage": "unknown"})
+    except Exception:  # noqa: BLE001 — inesperada: se loguea con traceback server-side
+        # Fail-soft: el traceback real queda en el log del server (convención
+        # `danwor.*`), NUNCA el texto/​token/​body crudo al browser.
+        _logger.exception("reporting cartera data: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", "cartera": cartera})
