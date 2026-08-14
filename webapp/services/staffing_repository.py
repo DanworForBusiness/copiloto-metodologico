@@ -61,64 +61,51 @@ determinístico contra el universo de Colaboradores de Staffing vive en
 normalizado). `get_consultants` lee SOLO Colaboradores (id + nombre, sin
 Asignaciones/Proyectos) — universo de identidad para ese join.
 
-Contrato de aprobación FINAL (owner smoke #6 + decisión de negocio, ver
-HANDOFF): la elegibilidad la define `¿Aprobado CCHH?`
-(`_x00bf_AprobadoCCHH_x003f_`, boolean) — la aprobación CCHH específica de
-Danwor, NO el genérico `¿Aprobado?`/`Approved` de la plantilla de solicitud
-de viaje. El smoke #6 probó que las filas de Vacaciones llegaban con
-`Approved = False` (genuino), vaciando el overlay; el owner autorizó adoptar
-CCHH como flag autoritativo. `Approved` genérico quedó RETIRADO del criterio
-de elegibilidad y del fetch (no se exige, no se OR-ea, no se invierte, no es
-fallback).
+FUENTE AUTORITATIVA — XLSX EN SHAREPOINT (owner authoritative source
+corrective, ver HANDOFF): la suposición previa de una LISTA SharePoint
+(`/items` + discovery de `/columns` + flag `¿Aprobado CCHH?`) era
+INCORRECTA y quedó RETIRADA por completo. La fuente real es el archivo
+`Solicitudes (2).xlsx` en la biblioteca de documentos del sitio Operaciones
+(`General/Template Dashboard/`). `get_vacations` descarga ese workbook vía
+Graph (`root:/{path}:/content`), lo parsea EN MEMORIA con openpyxl
+(read-only/data-only, sin persistir) y aplica la semántica de negocio del
+propio archivo: `Motivo == "Vacaciones"` AND `Estado == "Aprobada"`. Los
+flags `Approved`/`¿Aprobado CCHH?` de la fuente-lista quedaron SUPERADOS —
+no se exigen, no se OR-ean, no se invierten, no son fallback.
 
-DISCOVERY DE CAMPOS EN RUNTIME (ver HANDOFF): a diferencia de
-Asignaciones/Proyectos/Colaboradores (internal names vía `.env`, sin
-default, requieren que un humano con acceso Graph los confirme una vez),
-Vacaciones resuelve sus 5 internal names en RUNTIME contra
-`/sites/{id}/lists/{id}/columns` — usando el MISMO `access_token` delegado
-que ya llega en cada request. `resolve_vacation_field_mapping()` matchea
-`displayName` EXACTO (whitespace normalizado, sin fuzzy, sin case-folding,
-sin posición) contra los 5 labels REALES (`Colaborador`, `Fecha de
-inicio`, `Fecha de finalización`, `Tipo de Licencia`, `¿Aprobado?`); si
-falta alguno o hay ambigüedad (dos columnas con el mismo `displayName`),
-levanta `VacationSchemaError` — nunca elige un candidato al azar.
-`VacationSchemaError` NO es `RuntimeError` a propósito: es un problema de
-schema/runtime de la fuente, NUNCA de configuración de deployment — el
-router lo trata igual que cualquier otra falla de Graph (`data_load_
-failed`/`graph_error`), nunca como `configuration_incomplete`. Solo el
-List ID de Vacaciones (`SHAREPOINT_VACACIONES_LIST_ID`) sigue siendo
-identidad de configuración — si el sitio/list ID faltan, `_require_site_
-id()` sigue siendo el único `RuntimeError`/`configuration_incomplete`
-real de esta fuente. La resolución exitosa se cachea in-process con TTL
-(mismo patrón que `core/sharepoint_cases.py::_ttl_cache`, keyed por
-fingerprint de token + site/list — NUNCA por el token crudo); fallas
-(401/403/columna faltante/ambigua) NUNCA se cachean.
+CONTRATO DE UBICACIÓN (module constants, no config — `config.py` no se
+edita este batch): `VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/
+`VACATION_WORKSHEET_NAME` son la ubicación estable (sitio + ruta en el
+drive), NO una URL de descarga temporal ni un id de driveItem.
+`SHAREPOINT_VACACIONES_LIST_ID` quedó sin uso.
 
-DIAGNÓSTICO SEGURO DE FALLAS DE GRAPH (ver HANDOFF): `_call_vacation_graph
-(stage, fn)` envuelve TODA llamada Graph de Vacaciones (`stage="columns"`
-para el discovery de schema, `stage="items"` para el fetch de filas) —
-cualquier `HTTPError`/`URLError` de `urllib` se traduce a `VacationGraphError
-(stage, status_code)`, NUNCA deja escapar la excepción cruda. `VacationSchemaError`
-expone `stage`/`reason`/`missing_fields`/`ambiguous_fields` estructurados
-— estos últimos dos SIEMPRE son labels del contrato semántico fijo, nunca
-un internal name real. Ambos son seguros de loguear/devolver en la
-respuesta HTTP tal cual. Las superficies TEMPORALES de discovery
-(`available_columns`/`semantic_columns`, usadas para establecer este
-contrato durante los smokes #2/#3) se retiraron una vez confirmado el
-contrato final — ver HANDOFF.
+DIAGNÓSTICO SEGURO DE FALLAS (ver HANDOFF): `_call_vacation_graph(stage,
+fn)` envuelve las llamadas Graph de Vacaciones (`stage="site"` para
+resolver el sitio, `stage="download"` para bajar el workbook) — cualquier
+`HTTPError`/`URLError` de `urllib` se traduce a `VacationGraphError(stage,
+status_code)`, NUNCA deja escapar la excepción cruda. Un workbook
+inválido / worksheet o headers faltantes levantan `VacationSchemaError`
+(`stage="workbook"/"worksheet"/"headers"`, con labels de contrato, nunca
+datos/PII). `VacationSchemaError` NO es `RuntimeError` a propósito: es un
+problema de la fuente, NUNCA de configuración de deployment — el router lo
+trata igual que cualquier otra falla de Graph (`graph_error`), nunca como
+`configuration_incomplete`.
 
 Ambos (`get_vacations`/`get_consultants`)
 fail-soft ante cualquier excepción — el router captura el error y omite
 el overlay, Asignaciones nunca se rompe."""
 from __future__ import annotations
 
-import hashlib
-import threading
+import io
+import re
 import time
 import urllib.error
+from datetime import date, datetime
 from dataclasses import dataclass, fields as dataclass_fields
 from typing import Callable
 from urllib.parse import quote
+
+import openpyxl
 
 import config
 from core import microsoft365
@@ -257,53 +244,23 @@ class StaffingAllocationRecord:
     client_name: str | None = None
 
 
-@dataclass(frozen=True)
-class VacationFieldMapping:
-    """Internal names de columna Graph para la lista de Vacaciones — a
-    diferencia de `StaffingFieldMapping` (config `.env`, sin default), esta
-    se resuelve en RUNTIME contra `/columns` (ver `resolve_vacation_field_
-    mapping` abajo). Nunca se construye incompleta: el resolver o devuelve
-    una instancia completa, o levanta `VacationSchemaError` — no existe un
-    estado "parcialmente resuelto" que un caller pueda inspeccionar.
-
-    Contrato FINAL (owner live smoke #6 + decisión de negocio — ver HANDOFF):
-    `consultant_name` → displayName "Colaborador" (TEXTO simple, no lookup);
-    `leave_type` → "Tipo de Licencia"; `start_date` → "Fecha de inicio";
-    `end_date` → "Fecha de finalización"; `approved` → "¿Aprobado CCHH?"
-    (booleano, internal `_x00bf_AprobadoCCHH_x003f_`) — la aprobación CCHH es
-    el flag de elegibilidad autoritativo. El genérico `¿Aprobado?`/`Approved`
-    de la plantilla de solicitud de viaje NO forma parte del mapeo."""
-
-    consultant_name: str
-    leave_type: str
-    start_date: str
-    end_date: str
-    approved: str
-
-
 class VacationSchemaError(Exception):
-    """El schema real de la lista de Vacaciones no matchea el contrato
-    esperado (columna requerida faltante o ambigua) — problema de RUNTIME/
-    SOURCE-SCHEMA, NUNCA de configuración de deployment. Deriva de
-    `Exception`, NO de `RuntimeError`, a propósito: el router debe tratarlo
-    igual que cualquier otra falla de Graph/transporte
-    (`data_load_failed`/`graph_error`), nunca como `configuration_incomplete`
-    — la única falla de configuración real de Vacaciones sigue siendo
-    `SHAREPOINT_GESTION_SITE_ID` ausente (ver `_require_site_id`).
+    """El workbook XLSX de Vacaciones no matchea el contrato esperado
+    (`stage="workbook"` inválido/corrupto, `"worksheet"` faltante, `"headers"`
+    requeridos ausentes, o `"site"` sin id resuelto) — problema de RUNTIME/
+    SOURCE, NUNCA de configuración de deployment. Deriva de `Exception`, NO de
+    `RuntimeError`, a propósito: el router debe tratarlo igual que cualquier
+    otra falla de Graph/transporte (`graph_error`), nunca como
+    `configuration_incomplete`.
 
     `missing_fields`/`ambiguous_fields` (ver HANDOFF) contienen
-    EXCLUSIVAMENTE labels del contrato semántico fijo REAL
-    (`_VACATION_DISPLAY_NAMES` — "Colaborador", "Fecha de inicio", etc.)
-    — NUNCA un internal name real ni un valor de dato. Seguros de loguear y
-    de devolver en la respuesta HTTP del endpoint (ver router).
-
-    Superficies TEMPORALES de discovery ya retiradas (ver HANDOFF):
-    `available_columns`/`semantic_columns` existieron mientras el contrato
-    real todavía no se conocía (owner smokes #2/#3) — con el contrato final
-    confirmado (smoke #4), se retiraron del contrato de respuesta protegido
-    para no dejar superficie de descubrimiento innecesaria; el contrato de
-    error productivo final es solo `stage`/`missing_fields`/
-    `ambiguous_fields`."""
+    EXCLUSIVAMENTE labels del contrato fijo (nombres de worksheet/headers
+    requeridos como "Apellido"/"Motivo"/"Estado", o marcadores como
+    "workbook"/"site_id") — NUNCA un valor de dato ni PII. Seguros de loguear
+    y de devolver en la respuesta HTTP del endpoint (ver router).
+    `ambiguous_fields` se conserva en el contrato (siempre vacío hoy: el
+    worksheet plano no produce ambigüedad de header) para no romper el
+    contrato de error ya emitido por el router."""
 
     def __init__(self, stage: str, missing_fields: list[str], ambiguous_fields: list[str]):
         self.stage = stage
@@ -337,9 +294,9 @@ class VacationGraphError(Exception):
         super().__init__(f"Vacation Graph error — stage={stage} status_code={status_code}")
 
 
-def _call_vacation_graph(stage: str, fn: Callable[[], list[dict]]) -> list[dict]:
-    """Ejecuta una llamada Graph de Vacaciones (`stage` = "columns" |
-    "items") envolviendo CUALQUIER falla de transporte en
+def _call_vacation_graph(stage: str, fn: Callable[[], object]) -> object:
+    """Ejecuta una llamada Graph de Vacaciones (`stage` = "site" |
+    "download") envolviendo CUALQUIER falla de transporte en
     `VacationGraphError` — nunca deja escapar el `HTTPError`/`URLError`
     crudo de `urllib` (ver docstring de `VacationGraphError`). `from None`
     corta la cadena de excepción explícitamente: nada downstream que
@@ -352,109 +309,136 @@ def _call_vacation_graph(stage: str, fn: Callable[[], list[dict]]) -> list[dict]
         raise VacationGraphError(stage=stage, status_code=None) from None
 
 
-# Staffing Vacation Timeline Overlay — discovery de campos en runtime (ver
-# HANDOFF). Los 5 labels EXACTOS del contrato REAL (owner live smoke #4,
-# autoritativo — reemplaza los 6 labels del export offline XLSX, que NUNCA
-# fueron el contrato real de la lista SharePoint) — el resolver los
-# matchea contra `displayName` de Graph, NUNCA infiere el internal name
-# por posición/convención.
-_VACATION_DISPLAY_NAMES = ("Colaborador", "Fecha de inicio", "Fecha de finalización", "Tipo de Licencia", "¿Aprobado CCHH?")
+# ── Staffing Vacation Timeline Overlay — FUENTE AUTORITATIVA: XLSX en SharePoint
+# (owner authoritative source corrective, ver HANDOFF). La suposición previa de una
+# LISTA SharePoint (`/items`+`/columns`) era INCORRECTA y quedó RETIRADA. La fuente
+# real es "Solicitudes (2).xlsx" en la biblioteca de documentos del sitio Operaciones.
+# Estas son la UBICACIÓN autoritativa y estable (sitio + ruta en el drive), NO una URL
+# de descarga temporal ni un id de driveItem.
+VACATION_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
+VACATION_XLSX_PATH = "General/Template Dashboard/Solicitudes (2).xlsx"
+VACATION_WORKSHEET_NAME = "Solicitudes"
 
-# Metadata de columnas estable durante el uso normal de la app — TTL chico
-# alcanza (mismo orden de magnitud que `SHAREPOINT_CASES_CACHE_TTL`, ver
-# config.py), sin necesidad de un config nuevo para un detalle de
-# implementación interno.
-_VACATION_SCHEMA_CACHE_TTL_SECONDS = 300
+# Semántica de negocio autoritativa del propio XLSX (reemplaza la investigación de
+# flags Approved/¿Aprobado CCHH? de la fuente-lista, superada por el descubrimiento
+# de la fuente real): elegible si Motivo == "Vacaciones" AND Estado == "Aprobada".
+VACATION_ESTADO_VALUE = "Aprobada"
 
-
-def _ttl_cache(ttl_seconds: int) -> Callable:
-    """Cache in-process con TTL — mismo patrón que
-    `core/sharepoint_cases.py::_ttl_cache` (reimplementado acá, no importado:
-    es un helper privado de ese módulo, sin acoplar dos features via un
-    símbolo `_`-prefijado). Única diferencia deliberada: la key es la TUPLA
-    COMPLETA de args posicionales (nunca solo el primero) — `access_token`
-    viaja SIEMPRE por kwarg (`access_token=...`), así que nunca entra a la
-    key ni se guarda en el diccionario de cache. Solo cachea el resultado
-    EXITOSO de `fn` — si `fn` lanza, la excepción se propaga antes de
-    escribir al cache, así que fallas (401/403/columna faltante/ambigua)
-    nunca quedan cacheadas."""
-    def decorator(fn: Callable) -> Callable:
-        store: dict = {}
-        lock = threading.Lock()
-
-        def wrapper(*args, **kwargs):
-            now = time.monotonic()
-            with lock:
-                hit = store.get(args)
-                if hit is not None and (now - hit[0]) < ttl_seconds:
-                    return hit[1]
-            value = fn(*args, **kwargs)
-            with lock:
-                store[args] = (now, value)
-            return value
-
-        def clear() -> None:
-            with lock:
-                store.clear()
-
-        wrapper.clear = clear  # type: ignore[attr-defined]
-        return wrapper
-
-    return decorator
+# Headers mínimos requeridos del worksheet. Del set completo (14 columnas) solo se
+# usan estos 6 — CUIL/Legajo/Días/comentarios/etiquetas NUNCA se retienen ni exponen.
+_VACATION_REQUIRED_HEADERS = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
 
 
-def _resolve_vacation_field_mapping_from_columns(columns: list[dict]) -> VacationFieldMapping:
-    """Matchea `displayName` EXACTO (whitespace normalizado únicamente —
-    sin case-folding, sin fuzzy, sin posición) contra los 5 labels REALES
-    (`_VACATION_DISPLAY_NAMES`). Un `displayName` con CERO columnas
-    candidatas es "faltante"; con DOS O MÁS es "ambiguo" — ninguno de los
-    dos elige un candidato al azar, ambos levantan `VacationSchemaError`
-    con el detalle exacto (solo labels, ver docstring de la excepción)."""
-    candidates: dict[str, list[str]] = {}
-    for column in columns:
-        display_name = (column.get("displayName") or "").strip()
-        technical_name = column.get("name")
-        if display_name and technical_name:
-            candidates.setdefault(display_name, []).append(technical_name)
-
-    resolved: dict[str, str] = {}
-    missing: list[str] = []
-    ambiguous: list[str] = []
-    for display_name in _VACATION_DISPLAY_NAMES:
-        found = candidates.get(display_name, [])
-        if len(found) == 1:
-            resolved[display_name] = found[0]
-        elif len(found) == 0:
-            missing.append(display_name)
-        else:
-            ambiguous.append(display_name)
-
-    if missing or ambiguous:
-        raise VacationSchemaError(stage="columns", missing_fields=missing, ambiguous_fields=ambiguous)
-
-    return VacationFieldMapping(
-        consultant_name=resolved["Colaborador"], leave_type=resolved["Tipo de Licencia"],
-        start_date=resolved["Fecha de inicio"], end_date=resolved["Fecha de finalización"],
-        approved=resolved["¿Aprobado CCHH?"],
-    )
+def _cell_to_iso_date(value) -> str:
+    """Normaliza una celda de fecha a ISO `YYYY-MM-DD` (lo que espera el service
+    `_parse_date`). Soporta celdas Excel nativas (date/datetime) y texto
+    `dd/mm/yyyy`. Cualquier otra cosa → "" (el período se descarta fail-soft)."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value).strip()
+    if not text:
+        return ""
+    match = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
+    if match:
+        day, month, year = (int(g) for g in match.groups())
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            return ""
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        return ""
 
 
-@_ttl_cache(_VACATION_SCHEMA_CACHE_TTL_SECONDS)
-def _fetch_vacation_field_mapping_cached(
-    token_fingerprint: str, site_id: str, list_id: str, *, access_token: str,
-) -> VacationFieldMapping:
-    del token_fingerprint  # solo participa de la cache key, ver _ttl_cache
-    columns = _call_vacation_graph("columns", lambda: microsoft365.graph_get_paged_values(
-        f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/columns", access_token,
+def _download_vacation_workbook(access_token: str) -> bytes:
+    """Descarga los bytes del XLSX autoritativo vía Graph: resuelve el sitio
+    Operaciones (mecanismo de sitio establecido) → drive de documentos por default →
+    `root:/{path}:/content`. `urllib` sigue el 302 a la URL pre-autenticada (ver
+    `microsoft365.graph_get_bytes`). NO persiste el archivo. Fallas de transporte se
+    envuelven en `VacationGraphError`."""
+    site = _call_vacation_graph("site", lambda: microsoft365.graph_get_json(
+        f"{GRAPH_BASE}/sites/{VACATION_SITE_PATH}", access_token,
     ))
-    return _resolve_vacation_field_mapping_from_columns(columns)
+    site_id = str((site or {}).get("id") or "")
+    if not site_id:
+        raise VacationSchemaError(stage="site", missing_fields=["site_id"], ambiguous_fields=[])
+    return _call_vacation_graph("download", lambda: microsoft365.graph_get_bytes(
+        f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(VACATION_XLSX_PATH)}:/content",
+        access_token,
+    ))
 
 
-def resolve_vacation_field_mapping(site_id: str, list_id: str, access_token: str) -> VacationFieldMapping:
-    """Punto de entrada público del discovery en runtime — key de cache
-    (fingerprint de token + site/list, NUNCA el token crudo)."""
-    fingerprint = hashlib.sha256(access_token.encode("utf-8")).hexdigest()[:16]
-    return _fetch_vacation_field_mapping_cached(fingerprint, site_id, list_id, access_token=access_token)
+def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
+    """Parsea el workbook EN MEMORIA (openpyxl read-only/data-only) → períodos
+    elegibles + funnel de conteos. Worksheet plano (header row + data rows), sin
+    requerir una Tabla de Excel. Fail-soft: workbook inválido / worksheet o headers
+    faltantes → `VacationSchemaError` (el router lo trata como falla no-bloqueante,
+    Staffing sigue funcionando); una fila inválida (sin nombre/fecha) se descarta sin
+    romper el resto. `consultant_name` = "Nombre Apellido" (el join normaliza, no
+    reordena). NUNCA retiene CUIL/Legajo/Días/comentarios/etiquetas."""
+    funnel = {"worksheet_found": 0, "xlsx_rows": 0, "vacaciones_rows": 0,
+              "aprobadas_rows": 0, "eligible_periods": 0}
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception:  # noqa: BLE001 — workbook inválido/corrupto
+        raise VacationSchemaError(stage="workbook", missing_fields=["workbook"], ambiguous_fields=[]) from None
+    try:
+        if VACATION_WORKSHEET_NAME not in workbook.sheetnames:
+            raise VacationSchemaError(stage="worksheet", missing_fields=[VACATION_WORKSHEET_NAME], ambiguous_fields=[])
+        worksheet = workbook[VACATION_WORKSHEET_NAME]
+        funnel["worksheet_found"] = 1
+        row_iter = worksheet.iter_rows(values_only=True)
+        try:
+            header_row = next(row_iter)
+        except StopIteration:
+            raise VacationSchemaError(stage="headers", missing_fields=list(_VACATION_REQUIRED_HEADERS), ambiguous_fields=[])
+        header_index: dict[str, int] = {}
+        for idx, cell in enumerate(header_row or ()):
+            name = "" if cell is None else str(cell).strip()
+            if name and name not in header_index:
+                header_index[name] = idx
+        missing = [h for h in _VACATION_REQUIRED_HEADERS if h not in header_index]
+        if missing:
+            raise VacationSchemaError(stage="headers", missing_fields=missing, ambiguous_fields=[])
+
+        i_ape, i_nom = header_index["Apellido"], header_index["Nombre"]
+        i_mot, i_est = header_index["Motivo"], header_index["Estado"]
+        i_desde, i_hasta = header_index["Desde"], header_index["Hasta"]
+        periods: list = []
+        for row_num, row in enumerate(row_iter, start=1):
+            if row is None or not any(cell is not None and str(cell).strip() for cell in row):
+                continue
+            funnel["xlsx_rows"] += 1
+
+            def _cell(idx):
+                value = row[idx] if idx < len(row) else None
+                return "" if value is None else str(value).strip()
+
+            if _cell(i_mot) != VACATION_LEAVE_TYPE_VALUE:
+                continue
+            funnel["vacaciones_rows"] += 1
+            if _cell(i_est) != VACATION_ESTADO_VALUE:
+                continue
+            funnel["aprobadas_rows"] += 1
+
+            consultant_name = " ".join(part for part in (_cell(i_nom), _cell(i_ape)) if part)
+            start = _cell_to_iso_date(row[i_desde] if i_desde < len(row) else None)
+            end = _cell_to_iso_date(row[i_hasta] if i_hasta < len(row) else None)
+            if not consultant_name or not start or not end:
+                continue
+            funnel["eligible_periods"] += 1
+            periods.append(VacationPeriod(
+                source_id=f"xlsx:{row_num}", consultant_name=consultant_name,
+                start_date=start, end_date=end,
+            ))
+        return periods, funnel
+    finally:
+        workbook.close()
 
 
 @dataclass(frozen=True)
@@ -542,8 +526,6 @@ class StaffingRepository:
         colaboradores_list_id: str | None = None,
         cliente_list_id: str | None = None,
         field_mapping: StaffingFieldMapping | None = None,
-        vacaciones_list_id: str | None = None,
-        vacation_field_mapping: VacationFieldMapping | None = None,
     ):
         self.site_id = site_id if site_id is not None else config.SHAREPOINT_GESTION_SITE_ID
         self.asignaciones_list_id = asignaciones_list_id or config.SHAREPOINT_ASIGNACIONES_LIST_ID
@@ -551,14 +533,6 @@ class StaffingRepository:
         self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.field_mapping = field_mapping if field_mapping is not None else StaffingFieldMapping.from_config()
-        # Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF) —
-        # MISMO site_id de arriba, list ID configurado igual que las otras 4
-        # listas. `vacation_field_mapping` es un SEAM DE TEST ÚNICAMENTE
-        # (override explícito) — en producción (`None`, default) el mapeo se
-        # resuelve en RUNTIME contra Graph (`resolve_vacation_field_mapping`,
-        # ver `get_vacations`), nunca desde config.
-        self.vacaciones_list_id = vacaciones_list_id or config.SHAREPOINT_VACACIONES_LIST_ID
-        self._vacation_field_mapping_override = vacation_field_mapping
         # Diagnóstico de la ÚLTIMA llamada a `get_allocations` (pre-PR
         # corrective, ver HANDOFF) — rows/pages/elapsed_ms/filter_used/
         # fallback_used por fuente, NUNCA token/payload/PII. Instancia
@@ -591,17 +565,6 @@ class StaffingRepository:
                 + ", ".join(missing)
             )
         return self.field_mapping
-
-    def _resolve_vacation_field_mapping(self, site_id: str, access_token: str) -> VacationFieldMapping:
-        """Override de test (constructor) tiene prioridad; si no se pasó
-        ninguno, resuelve en RUNTIME contra Graph — ver
-        `resolve_vacation_field_mapping` module-level. Puede levantar
-        `VacationSchemaError` (schema/runtime, no config) o cualquier
-        excepción de transporte de `core.microsoft365` — ninguna se
-        atrapa acá, el caller (`get_vacations`) las deja propagar."""
-        if self._vacation_field_mapping_override is not None:
-            return self._vacation_field_mapping_override
-        return resolve_vacation_field_mapping(site_id, self.vacaciones_list_id, access_token)
 
     def _fetch_asignaciones(
         self, site_id: str, mapping: StaffingFieldMapping, access_token: str, assignment_scope: str,
@@ -781,118 +744,25 @@ class StaffingRepository:
         return records
 
     def get_vacations(self, access_token: str) -> list[VacationPeriod]:
-        """Vacaciones APROBADAS ("Solicitud vacaciones", ver HANDOFF) — filtra
-        `TipodeLicencia == "Vacaciones"` AND `¿Aprobado CCHH? is True` en Python
-        (no `$filter` de Graph: la lista es chica, sin necesidad de la
-        optimización que sí justifica `_fetch_asignaciones`). La aprobación CCHH
-        (`mapping.approved` → `_x00bf_AprobadoCCHH_x003f_`) se compara con
-        identidad booleana estricta (`is True`) — Graph devuelve un booleano
-        JSON real para esta columna, nunca un string; `False`, `None` o el campo
-        ausente excluyen la fila igual, sin necesidad de distinguirlos. El
-        genérico `Approved` NO participa (ver contrato arriba). Devuelve
-        `consultant_name` CRUDO
-        (`fields["Colaborador"]`, texto simple) — el join contra
-        Colaboradores vive en `StaffingService`. Filas sin nombre o sin
-        AMBAS fechas se excluyen acá — sin consultor no hay nada que
-        overlayar, y una fecha faltante no es un período válido (fail-soft
-        por fila, nunca rompe el resto).
+        """Vacaciones APROBADAS desde el XLSX autoritativo en SharePoint (owner
+        authoritative source corrective, ver HANDOFF): descarga "Solicitudes (2).xlsx"
+        del sitio Operaciones y filtra `Motivo == "Vacaciones"` AND
+        `Estado == "Aprobada"` (semántica de negocio del propio archivo — la
+        investigación de flags Approved/CCHH de la fuente-lista quedó superada).
+        `consultant_name` = "Nombre Apellido" (el join contra Colaboradores en
+        `StaffingService` normaliza, no reordena). Filas sin nombre o sin ambas
+        fechas se descartan fail-soft por fila. NO persiste el archivo.
 
-        Embudo de diagnóstico (Empty Success — Repository Filter Funnel
-        Diagnostics corrective, ver HANDOFF) — `self.last_diagnostics
-        ["vacaciones"]` gana conteos PUROS por etapa del filtro (raw/tipo/
-        aprobación/presencia de campos) para que UN refresh del owner
-        diga en qué etapa exacta las filas desaparecen, sin necesitar otra
-        llamada a Graph ni loguear ningún valor de fila/PII. El desglose de
-        aprobación se mide SOLO sobre el subconjunto `TipodeLicencia ==
-        "Vacaciones"` (la población de negocio relevante). NO cambia
-        ningún filtro/regla de negocio — observación pura."""
-        site_id = self._require_site_id()
-        mapping = self._resolve_vacation_field_mapping(site_id, access_token)
-        pages = 0
-
-        def _count_page(page_len: int) -> None:
-            nonlocal pages
-            pages += 1
-
+        Embudo de diagnóstico (`self.last_diagnostics["vacaciones"]`) — conteos PUROS
+        por etapa (worksheet/xlsx_rows/Motivo=Vacaciones/Estado=Aprobada/períodos
+        elegibles) para que UN refresh diga en qué etapa se cae a cero, sin loguear
+        nombres/fechas/PII. Observación pura, sin regla de negocio."""
         started = time.monotonic()
-        items = _call_vacation_graph("items", lambda: microsoft365.graph_get_paged_values(
-            _list_items_url(
-                site_id, self.vacaciones_list_id,
-                [mapping.consultant_name, mapping.leave_type, mapping.start_date, mapping.end_date, mapping.approved],
-            ),
-            access_token, on_page=_count_page,
-        ))
-
-        leave_type_vacaciones_rows = 0
-        approved_true_rows = 0
-        approved_false_rows = 0
-        approved_missing_or_null_rows = 0
-        approved_other_rows = 0
-        required_fields_present_rows = 0
-        missing_consultant_rows = 0
-        missing_start_date_rows = 0
-        missing_end_date_rows = 0
-
-        periods: list[VacationPeriod] = []
-        for item in items:
-            fields = item.get("fields") or {}
-            if _stringify(fields.get(mapping.leave_type)) != VACATION_LEAVE_TYPE_VALUE:
-                continue
-            leave_type_vacaciones_rows += 1
-
-            # Desglose de aprobación — SOLO sobre el subconjunto Vacaciones
-            # (población de negocio relevante). Las claves `approved_*` ahora
-            # describen la aprobación CCHH (`mapping.approved` →
-            # `_x00bf_AprobadoCCHH_x003f_`), el flag de elegibilidad final; se
-            # conservan los nombres `approved_*` para no romper el contrato de
-            # diagnóstico ya emitido (la comparación #6→#7 se lee igual).
-            # `approved_other_rows` no asume que el runtime de Graph siempre
-            # entrega un `bool` Python real para esta columna — si algún día
-            # llega otra cosa (p. ej. un string), queda contado acá, NUNCA
-            # aceptado como aprobación (el filtro sigue siendo `is True` estricto).
-            approved_value = fields.get(mapping.approved)
-            if approved_value is True:
-                approved_true_rows += 1
-            elif approved_value is False:
-                approved_false_rows += 1
-            elif approved_value is None:
-                approved_missing_or_null_rows += 1
-            else:
-                approved_other_rows += 1
-
-            if approved_value is not True:
-                continue
-
-            consultant_name = _stringify(fields.get(mapping.consultant_name)) or ""
-            start = _stringify(fields.get(mapping.start_date))
-            end = _stringify(fields.get(mapping.end_date))
-            if not consultant_name:
-                missing_consultant_rows += 1
-            if not start:
-                missing_start_date_rows += 1
-            if not end:
-                missing_end_date_rows += 1
-            if not consultant_name or not start or not end:
-                continue
-            required_fields_present_rows += 1
-            periods.append(VacationPeriod(
-                source_id=str(item.get("id") or ""), consultant_name=consultant_name,
-                start_date=start, end_date=end,
-            ))
-
+        data = _download_vacation_workbook(access_token)
+        periods, funnel = _parse_vacation_workbook(data)
         self.last_diagnostics["vacaciones"] = {
-            "rows": len(periods), "pages": pages,
+            **funnel,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
-            "raw_rows": len(items),
-            "leave_type_vacaciones_rows": leave_type_vacaciones_rows,
-            "approved_true_rows": approved_true_rows,
-            "approved_false_rows": approved_false_rows,
-            "approved_missing_or_null_rows": approved_missing_or_null_rows,
-            "approved_other_rows": approved_other_rows,
-            "required_fields_present_rows": required_fields_present_rows,
-            "missing_consultant_rows": missing_consultant_rows,
-            "missing_start_date_rows": missing_start_date_rows,
-            "missing_end_date_rows": missing_end_date_rows,
         }
         return periods
 

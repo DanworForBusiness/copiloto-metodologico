@@ -5068,17 +5068,82 @@ las vacaciones aprobadas por CCHH aparecen en el timeline por consultor. Nota:
 si esas 2 filas del smoke #6 también tienen `¿Aprobado CCHH? = False`, seguirán
 (correctamente) fuera — el funnel #7 lo dirá vía `approved_true_rows` (=CCHH).
 
+**AUTHORITATIVE SOURCE CORRECTIVE — la fuente NUNCA fue una lista, es un XLSX**
+(`fix(staffing): read vacations from SharePoint workbook`, branch
+`work/staffing-vacation-overlay`). Todo el modelo anterior (lista SharePoint vía
+`/items` + discovery de `/columns` + flags `¿Aprobado?`/`¿Aprobado CCHH?`) partía
+de un supuesto **INCORRECTO** y quedó **RETIRADO por completo**. La fuente real,
+confirmada por el owner, es un archivo Excel:
+
+- **Sitio:** `https://danwor.sharepoint.com/sites/Operaciones`.
+- **Biblioteca/ruta:** `Documentos compartidos/General/Template Dashboard/Solicitudes (2).xlsx`
+  (relative drive path `General/Template Dashboard/Solicitudes (2).xlsx`;
+  sourcedoc GUID `4ED5C102-8268-4D37-B162-F60499864FDA` = evidencia de discovery,
+  NO un driveItem id de Graph).
+- **Worksheet:** `Solicitudes` (plano, header row + data rows, sin Tabla de Excel).
+  Evidencia histórica: 203 registros, 14 columnas (Fecha de Solicitud, CUIL,
+  Legajo, Apellido, Nombre, Código, Motivo, Desde, Hasta, Días, Estado,
+  Comentario del empleado, Comentario del aprobador, Etiquetas del empleado).
+
+**Acceso Graph:** se reutiliza el token delegado + primitivas HTTP existentes.
+`get_vacations` resuelve el sitio (`/sites/danwor.sharepoint.com:/sites/Operaciones`
+→ `id`), descarga `/sites/{id}/drive/root:/{path}:/content` vía la NUEVA primitiva
+`core/microsoft365.py::graph_get_bytes` (sigue el 302 a la URL pre-autenticada, sin
+hardcodear URL temporal ni `Doc.aspx`), y parsea el workbook **EN MEMORIA** con
+**openpyxl** (`read_only=True, data_only=True`, sin persistir). openpyxl es una
+**dependencia nueva material** (agregada a `requirements.txt` `openpyxl>=3.1,<4` +
+`constraints.txt` `openpyxl==3.1.5`/`et-xmlfile==2.0.0`).
+
+**Contrato de runtime mínimo:** solo Apellido, Nombre, Motivo, Desde, Hasta,
+Estado. **NUNCA** se retiene ni expone CUIL, Legajo, comentarios, etiquetas ni
+Días. `consultant_name = "Nombre Apellido"` (mismo join determinístico:
+trim/collapse/casefold/accent-fold, sin fuzzy/nickname/parcial/alias).
+
+**Filtro de negocio autoritativo (del propio XLSX):**
+`Motivo == "Vacaciones" AND Estado == "Aprobada"` (texto normalizado exacto). Los
+flags `Approved`/`¿Aprobado CCHH?` de la fuente-lista quedaron **SUPERADOS** (no se
+usan). `Desde`/`Hasta` son date-only, soportan fecha Excel nativa Y texto
+`dd/mm/yyyy`; `Hasta` inclusive; un solo día válido; `Días` **NO** define el largo
+de la barra.
+
+**Ubicación como module constants** (no config: `config.py` no se edita este
+batch — `VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` en
+`staffing_repository.py`). `SHAREPOINT_VACACIONES_LIST_ID` quedó **sin uso**.
+
+**Fail-soft:** workbook inválido / worksheet o headers faltantes / sitio sin id →
+`VacationSchemaError` (stage `workbook`/`worksheet`/`headers`/`site`); transporte →
+`VacationGraphError` (stage `site`/`download`). El router los sigue tratando como
+falla no-bloqueante (`graph_error`), Staffing nunca se rompe, sin exponer el
+workbook crudo. **Diagnóstico reemplazado** por conteos XLSX seguros:
+`worksheet_found`, `xlsx_rows`, `vacaciones_rows` (Motivo=Vacaciones),
+`aprobadas_rows` (Estado=Aprobada), `eligible_periods`, `elapsed_ms` — sin
+nombres/fechas/PII. Los conteos `approved_*`/`raw_rows`/`pages` del modelo-lista se
+retiraron.
+
+**Invariantes de UI intactos:** vacaciones = overlay contextual (visible por
+consultor, oculto por proyecto); NUNCA afecta horas/KPIs/conteos de asignación/
+FT-PT/Activos vencidos/Asignación hoy/+N/barras/estado/detalle.
+
+**Owner live XLSX smoke PENDIENTE:** un refresh del owner debería dar
+`xlsx_rows > 4`, `vacaciones_rows > 0`, `aprobadas_rows > 0`, `eligible_periods > 0`
+y overlays visibles en Ago-2026. Si Graph baja un workbook cuya cantidad de filas
+difiere materialmente del XLSX provisto (~203), DETENERSE y reportar evidencia de
+reconciliación de fuente.
+
 ### Gate
 
-Targeted: Vacaciones repository (58 tests — contrato final + embudo de
-diagnóstico de 9 conteos nuevos) + Vacaciones service (21 tests, sin
-cambios) + Vacaciones routes (21 tests, sin cambios) + Vacaciones
-UI/contenido (14 tests, sin cambios) — 114 tests de Vacaciones en total,
-todos GREEN. Staffing regression completo (todos los archivos
-`test_staffing_*.py`) + module-registry + Activity — GREEN, sin debilitar
-ningún test existente. Full suite **826 passed / 1 skipped** (+114 sobre
-el baseline de 712), route-contract GREEN, route surface **84, SIN
-CAMBIOS**.
+Targeted (AUTHORITATIVE SOURCE CORRECTIVE — XLSX): Vacaciones repository
+**reescrito al contrato XLSX** (53 tests — URL de sitio/drive, seam
+`graph_get_bytes`, worksheet `Solicitudes`, worksheet plano, validación de
+headers, filtro `Motivo=Vacaciones AND Estado=Aprobada`, fechas nativas +
+`dd/mm/yyyy`, un día válido, `Días` ignorado, join `Nombre Apellido`, sin PII
+en payload/diagnóstico, workbook/worksheet inválidos fail-soft, transporte
+`site`/`download`, funnel XLSX de 6 conteos, retiro del modelo-lista) +
+Vacaciones service/routes/UI + `test_staffing_production_corrective.py`
+(incluye route surface) — **86 GREEN**. Staffing regression completo + module-
+registry + Activity — GREEN, sin debilitar ningún test existente. Full suite
+**821 passed / 1 skipped**, route-contract GREEN, route surface **84, SIN
+CAMBIOS**. Owner live XLSX smoke PENDIENTE (ver arriba).
 
 ---
 

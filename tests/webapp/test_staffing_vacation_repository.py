@@ -1,598 +1,417 @@
 """
-test_staffing_vacation_repository.py — Contrato FINAL de StaffingRepository
-para Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF).
-Determinístico, sin Graph real: monkeypatchea
-`core.microsoft365.graph_get_paged_values` con fixtures fabricadas — mismo
-criterio que test_staffing_repository.py.
+test_staffing_vacation_repository.py — Contrato de StaffingRepository para
+Vacaciones (Staffing Vacation Timeline Overlay — AUTHORITATIVE SOURCE
+CORRECTIVE: SharePoint XLSX, ver HANDOFF).
 
-Contrato FINAL (owner live smoke #6 + decisión de negocio): 5 columnas
-semánticas reales — Colaborador (texto simple, NO lookup), Fecha de inicio
-(TravelStartDate, dateOnly), Fecha de finalización (TravelEndDate,
-dateOnly), Tipo de Licencia (TipodeLicencia, choice), ¿Aprobado CCHH?
-(_x00bf_AprobadoCCHH_x003f_, boolean) — la aprobación CCHH es el flag de
-elegibilidad autoritativo; el genérico ¿Aprobado?/Approved de la plantilla
-de solicitud de viaje quedó RETIRADO del criterio (smoke #6 probó que las
-Vacaciones llegaban con Approved=False, vaciando el overlay).
-
-Runtime field discovery sigue vigente: los 5 internal names se resuelven en
-RUNTIME contra `/lists/{id}/columns` (ver `resolve_vacation_field_mapping`)
-— sin `VacationFieldMapping.from_config()`. `_TEST_VACATION_MAPPING` usa los
-internal names REALES confirmados por el owner (Colaborador/TipodeLicencia/
-TravelStartDate/TravelEndDate/_x00bf_AprobadoCCHH_x003f_) como fixture/
-referencia de test — NUNCA hardcodeados como default de producción (siguen
-sin default en config.py).
+La suposición previa de una LISTA SharePoint (`/items` + discovery de
+`/columns` + flag `¿Aprobado CCHH?`) era INCORRECTA y quedó RETIRADA. La
+fuente real es el archivo `Solicitudes (2).xlsx` en la biblioteca de
+documentos del sitio Operaciones. Estos tests son determinísticos, sin Graph
+real: monkeypatchean `microsoft365.graph_get_json` (resolución de sitio) y
+`microsoft365.graph_get_bytes` (bytes del workbook) con fixtures fabricadas —
+el workbook se construye EN MEMORIA con openpyxl para ejercitar el parser
+real. La semántica de negocio es del propio archivo: `Motivo == "Vacaciones"`
+AND `Estado == "Aprobada"`.
 """
 from __future__ import annotations
 
+import io
+from datetime import date, datetime
+
+import openpyxl
 import pytest
 
 from webapp.services import staffing_repository as repo_module
 from webapp.services.staffing_repository import (
+    GRAPH_BASE,
     StaffingRepository,
-    VacationFieldMapping,
+    VacationGraphError,
     VacationPeriod,
+    VacationSchemaError,
 )
 
 _SITE_ID = "test-site-id"
-_VACA_LIST = "vaca-list-id"
 _COLAB_LIST = "colab-list-id"
 
-# Internal name real del flag de aprobación CCHH (owner smoke #6 + decisión).
-_CCHH = "_x00bf_AprobadoCCHH_x003f_"
-
-# Internal names REALES confirmados por el owner — usados como fixture/
-# referencia de test, NUNCA como default de producción. `approved` = CCHH.
-_TEST_VACATION_MAPPING = VacationFieldMapping(
-    consultant_name="Colaborador", leave_type="TipodeLicencia",
-    start_date="TravelStartDate", end_date="TravelEndDate", approved=_CCHH,
-)
-
-
-@pytest.fixture(autouse=True)
-def _clear_vacation_schema_cache():
-    # El cache de resolve_vacation_field_mapping es un dict a nivel de
-    # MÓDULO (mismo criterio que core/sharepoint_cases.py) — sin esto, un
-    # test que resuelve exitosamente contra _SITE_ID/_VACA_LIST con un
-    # token reusado (p. ej. "tok") deja cacheado ese resultado para
-    # cualquier test posterior que reuse la misma combinación, aunque
-    # mockee una respuesta distinta.
-    repo_module._fetch_vacation_field_mapping_cached.clear()
-    yield
-    repo_module._fetch_vacation_field_mapping_cached.clear()
-
-
-def _make_repository(vacation_field_mapping=_TEST_VACATION_MAPPING):
-    return StaffingRepository(
-        site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST,
-        vacaciones_list_id=_VACA_LIST, vacation_field_mapping=vacation_field_mapping,
-    )
-
-
-def _http_error_fake(status_code):
-    import urllib.error
-
-    def fake(url, access_token, **kwargs):
-        raise urllib.error.HTTPError(url, status_code, "boom", None, None)
-    return fake
-
-
-# --- Runtime field discovery — resolver contra el contrato REAL -----------
-
-def _column(display_name, technical_name, *, hidden=False):
-    return {"displayName": display_name, "name": technical_name, "hidden": hidden}
-
-
-_LIVE_COLUMNS = [
-    _column("Solicitud", "Title"),
-    _column("Detalle", "ReasonForTravel"),
-    _column("Solicitante", "Requester"),
-    _column("Colaborador", "Colaborador"),
-    _column("Fecha de inicio", "TravelStartDate"),
-    _column("Fecha de finalización", "TravelEndDate"),
-    _column("Duración", "TravelDuration"),
-    _column("¿Aprobado?", "Approved"),
-    _column("Aprobador", "Aprobador"),
-    _column("Tipo de Licencia", "TipodeLicencia"),
-    _column("Comentarios", "Comentarios"),
-    _column("¿Aprobado CCHH?", "_x00bf_AprobadoCCHH_x003f_"),
-    _column("Remplazo", "Remplazo"),
-    _column("ID", "id", hidden=True),
+# Header completo REAL del worksheet (14 columnas, evidencia histórica). Solo
+# 6 forman el contrato de runtime — el resto (CUIL/Legajo/Días/comentarios/
+# etiquetas) existe en el archivo pero NUNCA se retiene ni expone.
+_HEADERS = [
+    "Fecha de Solicitud", "CUIL", "Legajo", "Apellido", "Nombre", "Código",
+    "Motivo", "Desde", "Hasta", "Días", "Estado",
+    "Comentario del empleado", "Comentario del aprobador", "Etiquetas del empleado",
 ]
 
-
-# test 1
-def test_colaborador_resolves_to_real_internal_name():
-    from webapp.services.staffing_repository import _resolve_vacation_field_mapping_from_columns
-    mapping = _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS)
-    assert mapping.consultant_name == "Colaborador"
-
-
-# test 2
-def test_fecha_de_inicio_resolves_to_travel_start_date():
-    from webapp.services.staffing_repository import _resolve_vacation_field_mapping_from_columns
-    mapping = _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS)
-    assert mapping.start_date == "TravelStartDate"
-
-
-# test 3
-def test_fecha_de_finalizacion_resolves_to_travel_end_date():
-    from webapp.services.staffing_repository import _resolve_vacation_field_mapping_from_columns
-    mapping = _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS)
-    assert mapping.end_date == "TravelEndDate"
+# Fila base ELEGIBLE (Motivo=Vacaciones, Estado=Aprobada). Los campos PII
+# (CUIL/Legajo/comentarios/etiquetas) llevan valores distintivos a propósito,
+# para probar que NUNCA aparecen en el payload ni en los diagnósticos.
+_BASE = {
+    "Fecha de Solicitud": "2026-03-01", "CUIL": "20-99887766-3", "Legajo": "LEG-4242",
+    "Apellido": "Gómez", "Nombre": "Matías", "Código": "VAC",
+    "Motivo": "Vacaciones", "Desde": "2026-03-10", "Hasta": "2026-03-20",
+    "Días": 9, "Estado": "Aprobada",
+    "Comentario del empleado": "COMENTARIO-EMPLEADO-SECRETO",
+    "Comentario del aprobador": "COMENTARIO-APROBADOR-SECRETO",
+    "Etiquetas del empleado": "ETIQUETA-SECRETA",
+}
 
 
-# test 4
-def test_tipo_de_licencia_resolves_to_internal_name():
-    from webapp.services.staffing_repository import _resolve_vacation_field_mapping_from_columns
-    mapping = _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS)
-    assert mapping.leave_type == "TipodeLicencia"
+def _cells(**overrides) -> list:
+    """Fila ordenada según `_HEADERS` a partir de `_BASE` + overrides."""
+    data = dict(_BASE)
+    data.update(overrides)
+    return [data[h] for h in _HEADERS]
 
 
-# test 5: ¿Aprobado CCHH? resuelve a su internal name (item 1); el genérico
-# ¿Aprobado?/Approved YA NO es el flag de elegibilidad (item 2).
-def test_aprobado_cchh_resolves_to_internal_name():
-    from webapp.services.staffing_repository import _resolve_vacation_field_mapping_from_columns
-    mapping = _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS)
-    assert mapping.approved == _CCHH
-    assert mapping.approved != "Approved"
+def _workbook_bytes(rows, *, sheet_name="Solicitudes", headers=_HEADERS, extra_sheets=None) -> bytes:
+    """Serializa un workbook plano EN MEMORIA (header row + data rows), sin
+    Tabla de Excel — igual que la fuente real."""
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name
+    if headers is not None:
+        worksheet.append(headers)
+    for row in rows:
+        worksheet.append(row)
+    for name, srows in (extra_sheets or {}).items():
+        sheet = workbook.create_sheet(name)
+        for r in srows:
+            sheet.append(r)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
-# test 6/7/8: el contrato XLSX (first/last name, Estado, Motivo) ya no
-# existe en absoluto — VacationFieldMapping no tiene esos campos.
-def test_first_name_last_name_fields_no_longer_exist():
-    assert not hasattr(_TEST_VACATION_MAPPING, "apellido")
-    assert not hasattr(_TEST_VACATION_MAPPING, "nombre")
+def _patch_source(monkeypatch, workbook_bytes, *, site=None):
+    """Monkeypatchea el seam de Graph (json→sitio, bytes→workbook) y captura
+    las URLs pedidas."""
+    captured: dict = {}
+
+    def fake_json(url, access_token, **kwargs):
+        captured["site_url"] = url
+        captured["site_token"] = access_token
+        return {"id": "site-123"} if site is None else site
+
+    def fake_bytes(url, access_token, **kwargs):
+        captured["content_url"] = url
+        captured["content_token"] = access_token
+        if isinstance(workbook_bytes, Exception):
+            raise workbook_bytes
+        return workbook_bytes
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_json", fake_json)
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_bytes", fake_bytes)
+    return captured
 
 
-def test_estado_field_no_longer_required():
-    assert not hasattr(_TEST_VACATION_MAPPING, "estado")
+def _http_error(status_code):
+    import urllib.error
+
+    return urllib.error.HTTPError("https://graph", status_code, "boom", None, None)
 
 
-def test_motivo_field_no_longer_required():
-    assert not hasattr(_TEST_VACATION_MAPPING, "motivo")
+# --- item 1/2: URL de Graph al sitio Operaciones + ruta del drive, vía seam --
+
+def test_download_targets_operaciones_site_then_drive_path(monkeypatch):
+    cap = _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    StaffingRepository().get_vacations("tok")
+    assert cap["site_url"].endswith("/sites/danwor.sharepoint.com:/sites/Operaciones")
+    assert cap["content_url"].endswith(
+        "/sites/site-123/drive/root:/General/Template%20Dashboard/Solicitudes%20%282%29.xlsx:/content"
+    )
+    assert cap["content_url"].startswith(GRAPH_BASE)
 
 
-def test_vacation_field_mapping_shape_is_exactly_the_five_real_fields():
-    assert {f.name for f in __import__("dataclasses").fields(VacationFieldMapping)} == {
-        "consultant_name", "leave_type", "start_date", "end_date", "approved",
+def test_bytes_obtained_via_graph_get_bytes_seam(monkeypatch):
+    # item 2: el workbook llega por graph_get_bytes; la lista NUNCA se toca.
+    def boom_paged(*a, **k):
+        raise AssertionError("graph_get_paged_values NO debe usarse para Vacaciones")
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", boom_paged)
+    _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    periods = StaffingRepository().get_vacations("tok")
+    assert len(periods) == 1
+
+
+def test_access_token_forwarded_never_logged(monkeypatch):
+    cap = _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    StaffingRepository().get_vacations("tok-secret")
+    assert cap["site_token"] == cap["content_token"] == "tok-secret"
+
+
+# --- item 3/4: worksheet "Solicitudes" seleccionado; worksheet plano funciona -
+
+def test_selects_solicitudes_worksheet_even_with_decoy_sheets(monkeypatch):
+    data = _workbook_bytes(
+        [_cells()],
+        extra_sheets={"Hoja1": [["basura", "no", "usar"]], "Otros": [_HEADERS, _cells(Nombre="NoDebe")]},
+    )
+    _patch_source(monkeypatch, data)
+    periods = StaffingRepository().get_vacations("tok")
+    assert [p.consultant_name for p in periods] == ["Matías Gómez"]
+
+
+def test_flat_worksheet_without_excel_table_produces_periods(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    assert StaffingRepository().get_vacations("tok") == [
+        VacationPeriod(source_id="xlsx:1", consultant_name="Matías Gómez",
+                       start_date="2026-03-10", end_date="2026-03-20"),
+    ]
+
+
+# --- item 5: headers validados ------------------------------------------------
+
+@pytest.mark.parametrize("drop", ["Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado"])
+def test_missing_required_header_fails_soft_schema_error(monkeypatch, drop):
+    headers = [h for h in _HEADERS if h != drop]
+    # fila alineada al header recortado
+    rows = [[v for h, v in zip(_HEADERS, _cells()) if h != drop]]
+    _patch_source(monkeypatch, _workbook_bytes(rows, headers=headers))
+    with pytest.raises(VacationSchemaError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert exc.value.stage == "headers" and drop in exc.value.missing_fields
+
+
+def test_empty_worksheet_no_header_row_fails_soft(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([], headers=None))
+    with pytest.raises(VacationSchemaError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert exc.value.stage == "headers"
+
+
+# --- item 6/7/8: filtro Motivo==Vacaciones AND Estado==Aprobada --------------
+
+def test_vacaciones_aprobada_creates_period(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    periods = StaffingRepository().get_vacations("tok")
+    assert periods[0].consultant_name == "Matías Gómez"
+
+
+@pytest.mark.parametrize("estado", ["Cancelada", "Rechazada", "Pendiente", "aprobada", "APROBADA", ""])
+def test_vacaciones_non_aprobada_excluded(monkeypatch, estado):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Estado=estado)]))
+    assert StaffingRepository().get_vacations("tok") == []
+
+
+@pytest.mark.parametrize("motivo", ["Enfermedad", "Maternidad", "Día de Estudio", "vacaciones", "Otros", ""])
+def test_non_vacaciones_even_if_aprobada_excluded(monkeypatch, motivo):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Motivo=motivo, Estado="Aprobada")]))
+    assert StaffingRepository().get_vacations("tok") == []
+
+
+# --- item 9/10/11: fechas nativas + dd/mm/yyyy; fin inclusive; un día --------
+
+def test_native_excel_dates_parse_to_iso(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([
+        _cells(Desde=datetime(2026, 7, 1, 0, 0), Hasta=date(2026, 7, 15)),
+    ]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert (period.start_date, period.end_date) == ("2026-07-01", "2026-07-15")
+
+
+def test_textual_ddmmyyyy_dates_parse_to_iso(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="3/7/2026", Hasta="15/07/2026")]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert (period.start_date, period.end_date) == ("2026-07-03", "2026-07-15")
+
+
+def test_single_day_vacation_is_valid(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="2026-06-10", Hasta="2026-06-10")]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert period.start_date == period.end_date == "2026-06-10"
+
+
+def test_row_missing_date_excluded_fail_soft(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Hasta=""), _cells()]))
+    periods = StaffingRepository().get_vacations("tok")
+    assert [p.start_date for p in periods] == ["2026-03-10"]
+
+
+def test_unparseable_date_excluded_fail_soft(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="no-es-fecha")]))
+    assert StaffingRepository().get_vacations("tok") == []
+
+
+# --- item 12: Días se ignora (no define el largo de la barra) ----------------
+
+def test_dias_column_is_ignored(monkeypatch):
+    # Días absurdo NO cambia las fechas ni la elegibilidad.
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Días=99999)]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    assert (period.start_date, period.end_date) == ("2026-03-10", "2026-03-20")
+
+
+# --- item 13: consultant_name = "Nombre Apellido" ----------------------------
+
+def test_consultant_name_is_nombre_then_apellido(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="Ana María", Apellido="Pérez López")]))
+    assert StaffingRepository().get_vacations("tok")[0].consultant_name == "Ana María Pérez López"
+
+
+def test_whitespace_in_name_is_collapsed_on_trim(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="  Juan  ", Apellido="  Díaz ")]))
+    assert StaffingRepository().get_vacations("tok")[0].consultant_name == "Juan Díaz"
+
+
+def test_row_missing_name_excluded_fail_soft(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="", Apellido="")]))
+    assert StaffingRepository().get_vacations("tok") == []
+
+
+# --- item 14: el payload NUNCA retiene CUIL/Legajo/comentarios/etiquetas/Días -
+
+def test_vacation_period_shape_is_exactly_four_fields():
+    import dataclasses
+    assert {f.name for f in dataclasses.fields(VacationPeriod)} == {
+        "source_id", "consultant_name", "start_date", "end_date",
     }
 
 
-@pytest.mark.parametrize("missing_display_name", [
-    "Colaborador", "Fecha de inicio", "Fecha de finalización", "Tipo de Licencia", "¿Aprobado CCHH?",
-])
-def test_missing_required_display_name_raises_schema_error(missing_display_name):
-    from webapp.services.staffing_repository import VacationSchemaError, _resolve_vacation_field_mapping_from_columns
-    columns = [c for c in _LIVE_COLUMNS if c["displayName"] != missing_display_name]
-    with pytest.raises(VacationSchemaError, match=missing_display_name):
-        _resolve_vacation_field_mapping_from_columns(columns)
-
-
-def test_duplicate_required_display_name_candidate_fails_safely():
-    from webapp.services.staffing_repository import VacationSchemaError, _resolve_vacation_field_mapping_from_columns
-    columns = _LIVE_COLUMNS + [_column("Colaborador", "SomeOtherInternalName")]
-    with pytest.raises(VacationSchemaError, match="Colaborador"):
-        _resolve_vacation_field_mapping_from_columns(columns)
-
+def test_no_pii_leaks_into_payload(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells()]))
+    period = StaffingRepository().get_vacations("tok")[0]
+    blob = repr(period)
+    for secret in ("20-99887766-3", "LEG-4242", "COMENTARIO-EMPLEADO-SECRETO",
+                   "COMENTARIO-APROBADOR-SECRETO", "ETIQUETA-SECRETA", "99999"):
+        assert secret not in blob
 
-def test_no_internal_name_guessing_missing_and_ambiguous_never_pick_a_candidate():
-    from webapp.services.staffing_repository import VacationSchemaError, _resolve_vacation_field_mapping_from_columns
-    with pytest.raises(VacationSchemaError):
-        _resolve_vacation_field_mapping_from_columns([c for c in _LIVE_COLUMNS if c["displayName"] != "¿Aprobado CCHH?"])
-    with pytest.raises(VacationSchemaError):
-        _resolve_vacation_field_mapping_from_columns(_LIVE_COLUMNS + [_column("¿Aprobado CCHH?", "OtroCCHH")])
-
-
-def test_schema_error_no_longer_carries_temporary_discovery_surfaces():
-    from webapp.services.staffing_repository import VacationSchemaError
-    exc = VacationSchemaError(stage="columns", missing_fields=["Colaborador"], ambiguous_fields=[])
-    assert not hasattr(exc, "available_columns")
-    assert not hasattr(exc, "semantic_columns")
-
-
-def test_schema_error_is_not_a_runtime_error():
-    from webapp.services.staffing_repository import VacationGraphError, VacationSchemaError
-    assert not issubclass(VacationSchemaError, RuntimeError)
-    assert not issubclass(VacationSchemaError, VacationGraphError)
 
-
-def test_schema_error_message_never_includes_the_access_token():
-    from webapp.services.staffing_repository import VacationSchemaError
-    exc = VacationSchemaError(stage="columns", missing_fields=["Colaborador"], ambiguous_fields=[])
-    assert "tok" not in str(exc) or "token" not in str(exc).lower()
-
-
-# --- Graph transport failures — stage x status matrix ----------------------
-
-def test_columns_http_403_reports_stage_columns_status_403(monkeypatch):
-    from webapp.services.staffing_repository import VacationGraphError
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _http_error_fake(403))
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(VacationGraphError) as exc_info:
-        repo.get_vacations("tok")
-    assert (exc_info.value.stage, exc_info.value.status_code) == ("columns", 403)
-
-
-def test_columns_http_404_reports_stage_columns_status_404(monkeypatch):
-    from webapp.services.staffing_repository import VacationGraphError
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _http_error_fake(404))
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(VacationGraphError) as exc_info:
-        repo.get_vacations("tok")
-    assert (exc_info.value.stage, exc_info.value.status_code) == ("columns", 404)
-
-
-def test_items_http_403_reports_stage_items_status_403(monkeypatch):
-    import urllib.error
-    from webapp.services.staffing_repository import VacationGraphError
-
-    def fake(url, access_token, **kwargs):
-        if "columns" in url:
-            return _LIVE_COLUMNS
-        raise urllib.error.HTTPError(url, 403, "boom", None, None)
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(VacationGraphError) as exc_info:
-        repo.get_vacations("tok")
-    assert (exc_info.value.stage, exc_info.value.status_code) == ("items", 403)
-
-
-def test_items_http_404_reports_stage_items_status_404(monkeypatch):
-    import urllib.error
-    from webapp.services.staffing_repository import VacationGraphError
-
-    def fake(url, access_token, **kwargs):
-        if "columns" in url:
-            return _LIVE_COLUMNS
-        raise urllib.error.HTTPError(url, 404, "boom", None, None)
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(VacationGraphError) as exc_info:
-        repo.get_vacations("tok")
-    assert (exc_info.value.stage, exc_info.value.status_code) == ("items", 404)
-
-
-def test_get_vacations_resolves_metadata_then_fetches_items_with_resolved_names(monkeypatch):
-    calls = []
+# --- item 15/16: workbook/worksheet inválidos fallan soft --------------------
 
-    def fake(url, access_token, **kwargs):
-        calls.append(url)
-        if "columns" in url:
-            return _LIVE_COLUMNS
-        assert "Colaborador" in url and "TipodeLicencia" in url and "TravelStartDate" in url
-        # item 3: se selecciona la aprobación CCHH. item 4: el genérico Approved
-        # ya NO se fetchea (fuera del contrato de elegibilidad).
-        assert "TravelEndDate" in url and _CCHH in url
-        assert "Approved" not in url
-        return []
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    repo.get_vacations("tok")
-    assert len(calls) == 2 and "columns" in calls[0]
-
-
-def test_successful_metadata_resolution_is_cached_and_reused(monkeypatch):
-    columns_calls = []
-
-    def fake(url, access_token, **kwargs):
-        if "columns" in url:
-            columns_calls.append(url)
-            return _LIVE_COLUMNS
-        return []
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    repo.get_vacations("same-tok")
-    repo.get_vacations("same-tok")
-    assert len(columns_calls) == 1
-
-
-def test_failed_metadata_discovery_is_not_cached_as_success(monkeypatch):
-    from webapp.services.staffing_repository import VacationSchemaError
-    columns_calls = []
-
-    def fake(url, access_token, **kwargs):
-        assert "columns" in url
-        columns_calls.append(url)
-        return [c for c in _LIVE_COLUMNS if c["displayName"] != "Colaborador"]
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    repo = StaffingRepository(site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST, vacaciones_list_id=_VACA_LIST)
-    with pytest.raises(VacationSchemaError):
-        repo.get_vacations("tok-fails")
-    with pytest.raises(VacationSchemaError):
-        repo.get_vacations("tok-fails")
-    assert len(columns_calls) == 2  # NUNCA se cachea una falla
-
-
-# --- get_vacations: filtro Tipo de Licencia == Vacaciones + CCHH=True ------
-# La fila base es elegible por CCHH=True; lleva a propósito el genérico
-# Approved=False para probar que NO influye en la inclusión (item 9).
-
-_APPROVED = {
-    "id": "1", "fields": {
-        "Colaborador": "Matías Gómez", "TipodeLicencia": "Vacaciones",
-        _CCHH: True, "Approved": False,
-        "TravelStartDate": "2026-03-10", "TravelEndDate": "2026-03-20",
-    },
-}
-
-
-def _row(_id="1", **field_overrides):
-    fields = dict(_APPROVED["fields"])
-    fields.update(field_overrides)
-    return {"id": _id, "fields": fields}
-
-
-def _fake_fetch(rows):
-    def fake(url, access_token, **kwargs):
-        assert _SITE_ID in url and _VACA_LIST in url
-        return rows
-    return fake
-
-
-# test 9
-def test_vacaciones_true_creates_vacation_period(monkeypatch):
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row()]))
-    periods = _make_repository().get_vacations("tok")
-    assert periods == [VacationPeriod(
-        source_id="1", consultant_name="Matías Gómez", start_date="2026-03-10", end_date="2026-03-20",
-    )]
-
-
-# test 10 (item 6): Vacaciones + CCHH=False → excluida.
-def test_cchh_false_excluded(monkeypatch):
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row(**{_CCHH: False})]))
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 11 (item 7): Vacaciones + CCHH=None → excluida.
-def test_cchh_none_excluded(monkeypatch):
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row(**{_CCHH: None})]))
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 12 (item 7): Vacaciones + CCHH ausente → excluida.
-def test_cchh_missing_entirely_excluded(monkeypatch):
-    row = _row()
-    del row["fields"][_CCHH]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row]))
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 13 (item 8): no-Vacaciones + CCHH=True (fila base) → excluida.
-def test_enfermedad_cchh_true_excluded(monkeypatch):
-    monkeypatch.setattr(
-        repo_module.microsoft365, "graph_get_paged_values",
-        _fake_fetch([_row(TipodeLicencia="Enfermedad")]),
-    )
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 14 (item 8)
-def test_dia_de_estudio_cchh_true_excluded(monkeypatch):
-    monkeypatch.setattr(
-        repo_module.microsoft365, "graph_get_paged_values",
-        _fake_fetch([_row(TipodeLicencia="Día de Estudio")]),
-    )
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 15: cualquier otro tipo de licencia real conocido queda excluido.
-@pytest.mark.parametrize("leave_type", [
-    "Día de Cumpleaños", "Maternidad", "Paternidad", "Otros", "Mudanzas", "Danwor Day",
-])
-def test_other_known_leave_types_excluded(monkeypatch, leave_type):
-    monkeypatch.setattr(
-        repo_module.microsoft365, "graph_get_paged_values",
-        _fake_fetch([_row(TipodeLicencia=leave_type)]),
-    )
-    assert _make_repository().get_vacations("tok") == []
-
-
-# test 16 (items 3/4/9): CCHH ES el flag autoritativo — se lee y se selecciona;
-# el genérico Approved NO influye en la elegibilidad.
-def test_cchh_is_authoritative_and_generic_approved_is_ignored(monkeypatch):
-    calls = []
-    # CCHH=True + Approved=False → INCLUIDA (CCHH manda, Approved ignorado).
-    row_eligible = _row(_id="1", **{_CCHH: True, "Approved": False})
-    # CCHH=False + Approved=True → EXCLUIDA (Approved no rescata).
-    row_excluded = _row(_id="2", **{_CCHH: False, "Approved": True})
-
-    def fake(url, access_token, **kwargs):
-        calls.append(url)
-        return [row_eligible, row_excluded]
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    periods = _make_repository().get_vacations("tok")
-    assert {p.source_id for p in periods} == {"1"}          # solo la CCHH=True
-    assert any(_CCHH in url for url in calls)               # CCHH SÍ se selecciona
-    assert not any("Approved" in url for url in calls)      # Approved genérico NO
-
-
-# --- Colaborador es texto simple — sin composición nombre/apellido ---------
-
-# test 17
-def test_colaborador_text_used_directly_as_consultant_name(monkeypatch):
-    monkeypatch.setattr(
-        repo_module.microsoft365, "graph_get_paged_values",
-        _fake_fetch([_row(Colaborador="Ana María Pérez")]),
-    )
-    periods = _make_repository().get_vacations("tok")
-    assert periods[0].consultant_name == "Ana María Pérez"
-
-
-def test_missing_colaborador_row_excluded(monkeypatch):
-    row = _row()
-    row["fields"]["Colaborador"] = ""
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row]))
-    assert _make_repository().get_vacations("tok") == []
-
-
-# --- Fechas: dateOnly, un solo día válido, fin inclusive vive en el servicio
-
-# test 22/24
-def test_single_day_vacation_is_valid(monkeypatch):
-    monkeypatch.setattr(
-        repo_module.microsoft365, "graph_get_paged_values",
-        _fake_fetch([_row(TravelStartDate="2026-06-10", TravelEndDate="2026-06-10")]),
-    )
-    periods = _make_repository().get_vacations("tok")
-    assert periods[0].start_date == periods[0].end_date == "2026-06-10"
-
-
-def test_missing_end_date_row_excluded_fail_soft(monkeypatch):
-    missing_end = _row(_id="5", TravelEndDate="")
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([missing_end, _row()]))
-    periods = _make_repository().get_vacations("tok")
-    assert [p.source_id for p in periods] == ["1"]
-
-
-def test_multiple_periods_for_same_consultant_preserved_separately(monkeypatch):
-    second = _row(_id="8", TravelStartDate="2026-01-05", TravelEndDate="2026-01-10")
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row(), second]))
-    periods = _make_repository().get_vacations("tok")
-    assert {p.source_id for p in periods} == {"1", "8"}
-
-
-# test 25: Duración nunca se selecciona ni se usa — solo TravelStartDate/
-# TravelEndDate definen el período.
-def test_duracion_field_never_fetched_or_used(monkeypatch):
-    calls = []
-
-    def fake(url, access_token, **kwargs):
-        calls.append(url)
-        return [_row()]
-
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", fake)
-    _make_repository().get_vacations("tok")
-    assert not any("TravelDuration" in url or "Duraci" in url for url in calls)
-
-
-def test_source_id_preserved_from_graph_item_id(monkeypatch):
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row()]))
-    periods = _make_repository().get_vacations("tok")
-    assert periods[0].source_id == "1"
+def test_malformed_workbook_bytes_fail_soft(monkeypatch):
+    _patch_source(monkeypatch, b"esto no es un xlsx")
+    with pytest.raises(VacationSchemaError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert exc.value.stage == "workbook"
 
+
+def test_missing_worksheet_fails_soft(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells()], sheet_name="OtroNombre"))
+    with pytest.raises(VacationSchemaError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert exc.value.stage == "worksheet"
+
+
+# --- transporte: sitio/descarga → VacationGraphError seguro -------------------
+
+def test_site_http_403_reports_stage_site(monkeypatch):
+    def fake_json(url, access_token, **kwargs):
+        raise _http_error(403)
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_json", fake_json)
+    with pytest.raises(VacationGraphError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert (exc.value.stage, exc.value.status_code) == ("site", 403)
+
+
+def test_download_http_404_reports_stage_download(monkeypatch):
+    _patch_source(monkeypatch, _http_error(404))
+    with pytest.raises(VacationGraphError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert (exc.value.stage, exc.value.status_code) == ("download", 404)
+
+
+def test_site_without_id_fails_soft_schema_error(monkeypatch):
+    _patch_source(monkeypatch, _workbook_bytes([_cells()]), site={})
+    with pytest.raises(VacationSchemaError) as exc:
+        StaffingRepository().get_vacations("tok")
+    assert exc.value.stage == "site"
+
+
+def test_graph_error_message_never_includes_the_access_token(monkeypatch):
+    def fake_json(url, access_token, **kwargs):
+        raise _http_error(500)
+
+    monkeypatch.setattr(repo_module.microsoft365, "graph_get_json", fake_json)
+    with pytest.raises(VacationGraphError) as exc:
+        StaffingRepository().get_vacations("tok-do-not-log")
+    assert "tok-do-not-log" not in str(exc.value)
+
+
+# --- múltiples períodos + fila totalmente vacía -------------------------------
+
+def test_multiple_eligible_periods_preserved(monkeypatch):
+    rows = [
+        _cells(Nombre="Ana", Apellido="Uno", Desde="2026-01-05", Hasta="2026-01-10"),
+        _cells(Nombre="Beto", Apellido="Dos", Desde="2026-02-05", Hasta="2026-02-10"),
+    ]
+    _patch_source(monkeypatch, _workbook_bytes(rows))
+    periods = StaffingRepository().get_vacations("tok")
+    assert {p.consultant_name for p in periods} == {"Ana Uno", "Beto Dos"}
+    assert len({p.source_id for p in periods}) == 2
+
+
+def test_fully_empty_rows_are_skipped(monkeypatch):
+    rows = [_cells(), [None] * len(_HEADERS), ["", "", "", "", "", "", "", "", "", "", "", "", "", ""]]
+    _patch_source(monkeypatch, _workbook_bytes(rows))
+    diag = _get_diag(monkeypatch, rows)
+    assert diag["xlsx_rows"] == 1
+
+
+# --- item 19: funnel de diagnóstico seguro (conteos puros, sin PII) ----------
 
 _VACATION_DIAGNOSTICS_KEYS = {
-    "rows", "pages", "elapsed_ms", "raw_rows", "leave_type_vacaciones_rows",
-    "approved_true_rows", "approved_false_rows", "approved_missing_or_null_rows",
-    "approved_other_rows", "required_fields_present_rows",
-    "missing_consultant_rows", "missing_start_date_rows", "missing_end_date_rows",
+    "worksheet_found", "xlsx_rows", "vacaciones_rows", "aprobadas_rows",
+    "eligible_periods", "elapsed_ms",
 }
 
 
-def test_get_vacations_diagnostics_never_include_names_or_pii(monkeypatch):
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([_row()]))
-    repo = _make_repository()
-    repo.get_vacations("tok-secret")
-    diag = repo.last_diagnostics["vacaciones"]
+def _get_diag(monkeypatch, rows):
+    _patch_source(monkeypatch, _workbook_bytes(rows))
+    repo = StaffingRepository()
+    repo.get_vacations("tok")
+    return repo.last_diagnostics["vacaciones"]
+
+
+def test_diagnostics_keys_are_exactly_the_safe_funnel(monkeypatch):
+    diag = _get_diag(monkeypatch, [_cells()])
     assert set(diag.keys()) == _VACATION_DIAGNOSTICS_KEYS
-    assert diag["rows"] == 1
-    # test 10: solo conteos — ningún valor del fixture ("Matías Gómez",
-    # "2026-03-10", etc.) aparece en el diccionario de diagnóstico.
-    for value in diag.values():
-        assert not isinstance(value, str)
 
 
-# --- Empty Success — Repository Filter Funnel Diagnostics (tests 1-9) -----
-
-# test 1
-def test_raw_rows_counts_every_fetched_item(monkeypatch):
-    rows = [_row(), _row(_id="2", TipodeLicencia="Enfermedad"), _row(_id="3", **{_CCHH: False})]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
-    repo = _make_repository()
-    repo.get_vacations("tok")
-    assert repo.last_diagnostics["vacaciones"]["raw_rows"] == 3
-
-
-# test 2/9: leave_type_vacaciones_rows cuenta SOLO "Vacaciones" exacto —
-# otros tipos (incluyendo Enfermedad) no lo contaminan.
-def test_leave_type_vacaciones_rows_counts_only_exact_vacaciones(monkeypatch):
+def test_diagnostics_funnel_counts_each_stage(monkeypatch):
     rows = [
-        _row(_id="1", TipodeLicencia="Vacaciones"),
-        _row(_id="2", TipodeLicencia="Enfermedad"),
-        _row(_id="3", TipodeLicencia="Día de Estudio"),
+        _cells(Nombre="A", Apellido="Uno"),                              # Vacaciones+Aprobada → eligible
+        _cells(Nombre="B", Apellido="Dos", Estado="Cancelada"),          # Vacaciones no-Aprobada
+        _cells(Nombre="C", Apellido="Tres", Motivo="Enfermedad"),        # no-Vacaciones
     ]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
-    repo = _make_repository()
-    repo.get_vacations("tok")
-    assert repo.last_diagnostics["vacaciones"]["leave_type_vacaciones_rows"] == 1
+    diag = _get_diag(monkeypatch, rows)
+    assert diag["worksheet_found"] == 1
+    assert diag["xlsx_rows"] == 3
+    assert diag["vacaciones_rows"] == 2       # A + B (Motivo=Vacaciones)
+    assert diag["aprobadas_rows"] == 1        # solo A (Estado=Aprobada)
+    assert diag["eligible_periods"] == 1
 
 
-# test 3: approved_true_rows (ahora = CCHH=True) sobre filas Vacaciones.
-def test_approved_true_rows_counts_cchh_true_on_vacation_rows(monkeypatch):
-    rows = [_row(_id="1", **{_CCHH: True}), _row(_id="2", **{_CCHH: True})]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
-    repo = _make_repository()
-    repo.get_vacations("tok")
-    assert repo.last_diagnostics["vacaciones"]["approved_true_rows"] == 2
+def test_diagnostics_never_include_names_or_pii(monkeypatch):
+    diag = _get_diag(monkeypatch, [_cells()])
+    for value in diag.values():
+        assert isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-# test 4
-def test_approved_false_rows_counts_cchh_false(monkeypatch):
-    rows = [_row(_id="1", **{_CCHH: False})]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
-    repo = _make_repository()
-    repo.get_vacations("tok")
-    diag = repo.last_diagnostics["vacaciones"]
-    assert diag["approved_false_rows"] == 1
-    assert diag["approved_true_rows"] == 0
+# --- item 18: el modelo-lista quedó completamente RETIRADO del runtime -------
+
+def test_retired_list_model_symbols_are_absent():
+    for gone in ("VacationFieldMapping", "resolve_vacation_field_mapping",
+                 "_resolve_vacation_field_mapping_from_columns", "_VACATION_DISPLAY_NAMES",
+                 "_ttl_cache", "_fetch_vacation_field_mapping_cached"):
+        assert not hasattr(repo_module, gone), gone
 
 
-# test 5: CCHH ausente y None cuentan juntos, de forma segura.
-def test_approved_missing_or_null_rows_counts_cchh_missing_and_none(monkeypatch):
-    row_none = _row(_id="1", **{_CCHH: None})
-    row_missing = _row(_id="2")
-    del row_missing["fields"][_CCHH]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row_none, row_missing]))
-    repo = _make_repository()
-    repo.get_vacations("tok")
-    assert repo.last_diagnostics["vacaciones"]["approved_missing_or_null_rows"] == 2
+def test_repository_constructor_no_longer_takes_vacation_list_args():
+    import inspect
+    params = set(inspect.signature(StaffingRepository.__init__).parameters)
+    assert "vacaciones_list_id" not in params
+    assert "vacation_field_mapping" not in params
 
 
-# test 6: una representación CCHH no-booleana en runtime se detecta, NUNCA se
-# acepta como aprobación (el filtro de negocio sigue siendo `is True`).
-def test_approved_other_rows_detects_non_boolean_representation_without_accepting_it(monkeypatch):
-    row_string_true = _row(_id="1", **{_CCHH: "true"})
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch([row_string_true]))
-    repo = _make_repository()
-    periods = repo.get_vacations("tok")
-    diag = repo.last_diagnostics["vacaciones"]
-    assert diag["approved_other_rows"] == 1
-    assert diag["approved_true_rows"] == 0
-    assert periods == []  # NUNCA aceptado como aprobación
-
-
-# test 7/8: required_fields_present_rows == periods_rows (rows) — mismo
-# criterio, expuesto con dos nombres por contrato de diagnóstico.
-def test_required_fields_present_rows_matches_final_periods_count(monkeypatch):
-    rows = [_row(_id="1"), _row(_id="2", Colaborador="")]
-    monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", _fake_fetch(rows))
-    repo = _make_repository()
-    periods = repo.get_vacations("tok")
-    diag = repo.last_diagnostics["vacaciones"]
-    assert diag["required_fields_present_rows"] == diag["rows"] == len(periods) == 1
-    assert diag["missing_consultant_rows"] == 1
-    assert diag["missing_start_date_rows"] == 0
-    assert diag["missing_end_date_rows"] == 0
-
-
-# test 26: el contrato XLSX temporal está completamente ausente del código
-# de producción — ninguno de sus nombres aparece como atributo/constante.
-def test_xlsx_field_contract_is_absent_from_production_runtime():
-    assert not hasattr(repo_module, "VACATION_MOTIVO_VALUE")
-    assert not hasattr(repo_module, "VACATION_ESTADO_APROBADA_VALUE")
+def test_leave_type_and_estado_values_are_authoritative():
     assert repo_module.VACATION_LEAVE_TYPE_VALUE == "Vacaciones"
+    assert repo_module.VACATION_ESTADO_VALUE == "Aprobada"
 
 
-# --- get_consultants (sin cambios de contrato) ------------------------------
+# --- get_consultants (sin cambios de contrato: sigue leyendo la lista) -------
 
-def test_get_consultants_raises_explicit_when_colaborador_title_missing(monkeypatch):
+def test_get_consultants_raises_explicit_when_colaborador_title_missing():
     from webapp.services.staffing_repository import StaffingFieldMapping
     repo = StaffingRepository(
         site_id=_SITE_ID, colaboradores_list_id=_COLAB_LIST,
