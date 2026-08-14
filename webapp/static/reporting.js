@@ -57,15 +57,27 @@ function statusPillCartera(status) {
   return `<span class="status-pill ${cls}">${esc(status)}</span>`;
 }
 
+// Rollup jerárquico (ver corrective — HANDOFF: "Hierarchical Measure
+// Rollup Backbone"): Diff Hs/Hs Trabajadas Acum/Hs Certif. Acum/Hs
+// Vendidas(Mensuales) son ADITIVAS — SUM(hojas), vía `sumField` (contrato
+// compartido, ver renderBusinessTreeRows). Diff Hs = Certificadas −
+// Trabajadas por fila; SUM(diffs) == SUM(Certificadas) − SUM(Trabajadas)
+// (la resta es lineal), así que sumar la columna Diff Hs YA da el diff
+// correcto del grupo — no hace falta recalcularlo desde Certificadas/
+// Trabajadas por separado. Facturadas/Status quedan SIN `rollup` a
+// propósito: Facturadas es un % ya formateado en el dataset mock (sin un
+// numerador/denominador propio verificado en el PBIP para este V0) y
+// Status es categórico — ambos son Clase C (categórica), el padre queda en
+// blanco, nunca un promedio/mayoría inventada.
 const CARTERA_CONFIG = {
   "Mantenimiento": {
     rows: CARTERA_MANTENIMIENTO_ROWS, keys: ["cliente", "proyecto"], labels: ["Cliente", "Proyecto"],
     kpiLabel: "Cantidad Mantenimientos",
     columns: [
-      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff) },
-      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas },
-      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas },
-      { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales },
+      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
+      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
+      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
+      { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales, rollup: sumField("vendidasMensuales") },
       { label: "Facturadas", numeric: true, render: r => r.facturado },
       { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
     ],
@@ -74,10 +86,10 @@ const CARTERA_CONFIG = {
     rows: CARTERA_PROYECTO_ROWS, keys: ["cliente", "idProyecto", "proyecto"], labels: ["Cliente", "ID Proyecto Danwor", "Proyecto"],
     kpiLabel: "Cantidad Proyectos",
     columns: [
-      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff) },
-      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas },
-      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas },
-      { label: "Hs Vendidas", numeric: true, render: r => r.vendidas },
+      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
+      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
+      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
+      { label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
       { label: "Facturadas", numeric: true, render: r => r.facturado },
       { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
     ],
@@ -209,9 +221,16 @@ function comercialPctVendidas(horas) {
 function comercialPctCertificadas(horas) {
   return (COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS ? (horas / COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS * 100) : 0).toFixed(2) + " %";
 }
+// Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
+// Clase B, denominador FIJO (REMOVEFILTERS) — `sumField` re-suma el
+// numerador crudo del subárbol y lo pasa por la MISMA función que ya
+// calcula el % de una fila hoja contra el total fijo, nunca promedia/suma
+// el % ya renderizado. Un padre con 100% de participación en TODOS sus
+// hijos seguiría sumando < 100% si no representa el dataset entero —
+// nunca se fuerza a 100%.
 const COMERCIAL_PARTICIPACION_COLUMNS = [
-  { label: "% Participación Hs Vendidas", numeric: true, render: r => comercialPctVendidas(r.horasVendidas), rollup: rows => comercialPctVendidas(rows.reduce((s, r) => s + r.horasVendidas, 0)) },
-  { label: "% Participación Hs Certificadas", numeric: true, render: r => comercialPctCertificadas(r.horasCertificadas), rollup: rows => comercialPctCertificadas(rows.reduce((s, r) => s + r.horasCertificadas, 0)) },
+  { label: "% Participación Hs Vendidas", numeric: true, render: r => comercialPctVendidas(r.horasVendidas), rollup: sumField("horasVendidas", comercialPctVendidas) },
+  { label: "% Participación Hs Certificadas", numeric: true, render: r => comercialPctCertificadas(r.horasCertificadas), rollup: sumField("horasCertificadas", comercialPctCertificadas) },
 ];
 const COMERCIAL_SALUD_COLUMNS = [
   { label: "Financiera", numeric: false, render: r => statusPillSalud(r.saludFinanciera) },
@@ -914,19 +933,52 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
   }).join("");
 }
 
+// --- Contrato de agregación jerárquica (ver corrective — HANDOFF:
+// "Hierarchical Measure Rollup Backbone") -----------------------------------
+// Un nodo colapsado NUNCA debe ocultar información — solo hijos. Cada
+// columna de una tabla de negocio (`columns[]`, consumida por
+// `renderBusinessTreeRows`) declara CÓMO se agrega hacia el padre vía
+// `rollup(rows)`, donde `rows` son SIEMPRE las filas hoja reales de ese
+// subárbol (`node.rows`, ver `buildTree` — independiente del estado
+// expandido/colapsado, así que el valor del padre nunca cambia al
+// expandir/contraer). Tres clases de medida (ver corrective):
+//   A. ADITIVA — SUM(hojas), `sumField(field)` sin formatFn.
+//   B. DERIVADA/RATIO contra un denominador FIJO (semántica REMOVEFILTERS
+//      — Capacidad/% Incidencia, Comercial/Participación): NUNCA se suma/
+//      promedia el % ya renderizado — se re-suma el NUMERADOR crudo del
+//      subárbol y se lo pasa por la MISMA función que ya calcula el % de
+//      una fila hoja contra el total fijo (`capacidadPctIncidencia`/
+//      `comercialPctVendidas`/etc. — esas funciones YA encapsulan "dividir
+//      por el total fijo y formatear"), vía `sumField(field, esaFuncion)`
+//      — un solo primitivo cubre las clases A y B, sin un segundo helper
+//      de ratio.
+//   C. CATEGÓRICA — sin `rollup` (el default ya existente): el padre queda
+//      en blanco, nunca se inventa "peor gana"/promedio/etc. — mismo
+//      criterio ya usado por Status/Facturadas en Cartera y por Salud en
+//      Comercial.
+// Reusado por Cartera/Proyectos, Capacidad/Productivas y Comercial/
+// Participación — un solo contrato, cero lógica de agregación repetida a
+// mano por experiencia (ver HANDOFF: "no debe convertirse en agregación
+// específica de renderCartera/renderHorasVendidas/...").
+function sumField(field, formatFn) {
+  return rows => {
+    const total = rows.reduce((s, r) => s + (r[field] || 0), 0);
+    return formatFn ? formatFn(total) : total;
+  };
+}
+
 // Renderer alternativo para tablas de negocio NO mensuales (Cartera/
-// Proyectos, Capacidad/Ejecución → Productivas) — MISMO motor de
-// agrupación (buildTree) y MISMAS afordancias visuales (tree-toggle/caret/
-// tree-indent/depth-N), pero las columnas son arbitrarias (Diff Hs/Status/
-// Horas/% Incidencia/etc., ver `columns`) en vez de 12 meses fijos.
-// Nodos hoja (sin hijos, `node.rows` tiene exactamente 1 fila real)
-// muestran los valores reales vía `columns[].render(row)`. Nodos
-// intermedios (con hijos): por default quedan en blanco — Cartera nunca
-// define `columns[].rollup` porque sus columnas son categóricas (Status/
-// Facturadas no se pueden sumar); si una columna SÍ define `rollup(rows)`
-// (medida real agregable, ver Capacidad/Productivas: Horas/% Incidencia),
-// se usa para mostrar el agregado del grupo — extensión aditiva, ningún
-// caller existente cambia de comportamiento sin optar explícitamente.
+// Proyectos, Capacidad/Ejecución → Productivas, Comercial/Participación) —
+// MISMO motor de agrupación (buildTree) y MISMAS afordancias visuales
+// (tree-toggle/caret/tree-indent/depth-N), pero las columnas son
+// arbitrarias (Diff Hs/Status/Horas/% Incidencia/etc., ver `columns`) en
+// vez de 12 meses fijos. Nodos hoja (sin hijos, `node.rows` tiene
+// exactamente 1 fila real) muestran los valores reales vía
+// `columns[].render(row)`. Nodos intermedios (con hijos): si la columna
+// define `columns[].rollup(rows)` (ver contrato de agregación arriba) se
+// usa para mostrar el agregado REAL del grupo — nunca en blanco por
+// pereza; columnas genuinamente categóricas (Status/Facturadas/Salud, sin
+// `rollup`) quedan en blanco a propósito, nunca un valor inventado.
 function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
@@ -1104,9 +1156,14 @@ function capacidadPctIncidencia(horas) {
   return (CAPACIDAD_PRODUCTIVAS_TOTAL ? (horas / CAPACIDAD_PRODUCTIVAS_TOTAL * 100) : 0).toFixed(1) + "%";
 }
 
+// Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
+// Horas es Clase A (aditiva, `sumField` sin formatFn); % Incidencia es
+// Clase B contra el total FIJO (`sumField` con `capacidadPctIncidencia`
+// como formatFn) — mismo contrato que Comercial/Participación, cero
+// duplicación de la fórmula de ratio.
 const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
-  { label: "Horas", numeric: true, render: r => r.horas, rollup: rows => rows.reduce((s, r) => s + r.horas, 0) },
-  { label: "% Incidencia", numeric: true, render: r => capacidadPctIncidencia(r.horas), rollup: rows => capacidadPctIncidencia(rows.reduce((s, r) => s + r.horas, 0)) },
+  { label: "Horas", numeric: true, render: r => r.horas, rollup: sumField("horas") },
+  { label: "% Incidencia", numeric: true, render: r => capacidadPctIncidencia(r.horas), rollup: sumField("horas", capacidadPctIncidencia) },
 ];
 
 function renderCapacidadProductivas() {
