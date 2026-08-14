@@ -331,9 +331,11 @@ const state = {
   filters: { cartera: {}, rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
-  // genérico de arriba) porque su semántica default es "todo tildado",
-  // distinta de "Todos" en un <select>.
-  carteraStatus: { "En curso": true, "Finalizado": true },
+  // genérico de arriba) porque su semántica default NO es "todo tildado":
+  // arranca en "En curso" únicamente (lo operativamente relevante al
+  // entrar) — "Finalizado" queda disponible para tildar, nunca prendido de
+  // entrada.
+  carteraStatus: { "En curso": true, "Finalizado": false },
 };
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -481,7 +483,7 @@ function setFilter(expId, key, value) {
 }
 function resetFilters(expId) {
   state.filters[expId] = {};
-  if (expId === "cartera") state.carteraStatus = { "En curso": true, "Finalizado": true };
+  if (expId === "cartera") state.carteraStatus = { "En curso": true, "Finalizado": false };
   render();
 }
 function selectField(expId, key, label, options) {
