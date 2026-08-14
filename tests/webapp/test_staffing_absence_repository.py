@@ -1,17 +1,18 @@
 """
-test_staffing_vacation_repository.py — Contrato de StaffingRepository para
-Vacaciones (Staffing Vacation Timeline Overlay — AUTHORITATIVE SOURCE
-CORRECTIVE: SharePoint XLSX, ver HANDOFF).
+test_staffing_absence_repository.py — Contrato de StaffingRepository para
+Ausencias Aprobadas (Staffing Approved Absence Overlay — generalización del
+Vacation Timeline Overlay original, ver HANDOFF).
 
-La suposición previa de una LISTA SharePoint (`/items` + discovery de
-`/columns` + flag `¿Aprobado CCHH?`) era INCORRECTA y quedó RETIRADA. La
-fuente real es el archivo `Solicitudes (2).xlsx` en la biblioteca de
-documentos del sitio Operaciones. Estos tests son determinísticos, sin Graph
-real: monkeypatchean `microsoft365.graph_get_json` (resolución de sitio) y
-`microsoft365.graph_get_bytes` (bytes del workbook) con fixtures fabricadas —
-el workbook se construye EN MEMORIA con openpyxl para ejercitar el parser
-real. La semántica de negocio es del propio archivo: `Motivo == "Vacaciones"`
-AND `Estado == "Aprobada"`.
+MISMA fuente autoritativa de siempre: `Solicitudes (2).xlsx` en la
+biblioteca de documentos del sitio Operaciones. La diferencia con el
+overlay original: elegibilidad ya NO exige `Motivo == "Vacaciones"` — SOLO
+`Estado == "Aprobada"` — y cada fila elegible se CLASIFICA server-side en
+uno de 4 conceptos canónicos (Vacaciones/Danwor Day/Cumpleaños/Otros). Estos
+tests son determinísticos, sin Graph real: monkeypatchean
+`microsoft365.graph_get_json` (resolución de sitio) y
+`microsoft365.graph_get_bytes` (bytes del workbook) con fixtures fabricadas
+— el workbook se construye EN MEMORIA con openpyxl para ejercitar el parser
+real.
 """
 from __future__ import annotations
 
@@ -24,10 +25,10 @@ import pytest
 from webapp.services import staffing_repository as repo_module
 from webapp.services.staffing_repository import (
     GRAPH_BASE,
+    AbsenceGraphError,
+    AbsencePeriod,
+    AbsenceSchemaError,
     StaffingRepository,
-    VacationGraphError,
-    VacationPeriod,
-    VacationSchemaError,
 )
 
 _SITE_ID = "test-site-id"
@@ -114,7 +115,7 @@ def _http_error(status_code):
 
 def test_download_targets_operaciones_site_then_drive_path(monkeypatch):
     cap = _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    StaffingRepository().get_vacations("tok")
+    StaffingRepository().get_absences("tok")
     assert cap["site_url"].endswith("/sites/danwor.sharepoint.com:/sites/Operaciones")
     assert cap["content_url"].endswith(
         "/sites/site-123/drive/root:/General/Template%20Dashboard/Solicitudes%20%282%29.xlsx:/content"
@@ -125,21 +126,21 @@ def test_download_targets_operaciones_site_then_drive_path(monkeypatch):
 def test_bytes_obtained_via_graph_get_bytes_seam(monkeypatch):
     # item 2: el workbook llega por graph_get_bytes; la lista NUNCA se toca.
     def boom_paged(*a, **k):
-        raise AssertionError("graph_get_paged_values NO debe usarse para Vacaciones")
+        raise AssertionError("graph_get_paged_values NO debe usarse para Ausencias")
 
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_paged_values", boom_paged)
     _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    periods = StaffingRepository().get_vacations("tok")
+    periods = StaffingRepository().get_absences("tok")
     assert len(periods) == 1
 
 
 def test_access_token_forwarded_never_logged(monkeypatch):
     cap = _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    StaffingRepository().get_vacations("tok-secret")
+    StaffingRepository().get_absences("tok-secret")
     assert cap["site_token"] == cap["content_token"] == "tok-secret"
 
 
-# --- item 3/4: worksheet "Solicitudes" seleccionado; worksheet plano funciona -
+# --- worksheet "Solicitudes" seleccionado; worksheet plano funciona --------
 
 def test_selects_solicitudes_worksheet_even_with_decoy_sheets(monkeypatch):
     data = _workbook_bytes(
@@ -147,20 +148,21 @@ def test_selects_solicitudes_worksheet_even_with_decoy_sheets(monkeypatch):
         extra_sheets={"Hoja1": [["basura", "no", "usar"]], "Otros": [_HEADERS, _cells(Nombre="NoDebe")]},
     )
     _patch_source(monkeypatch, data)
-    periods = StaffingRepository().get_vacations("tok")
+    periods = StaffingRepository().get_absences("tok")
     assert [p.consultant_name for p in periods] == ["Matías Gómez"]
 
 
 def test_flat_worksheet_without_excel_table_produces_periods(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    # _BASE Días=9 → 72hs de display (Días × 8).
-    assert StaffingRepository().get_vacations("tok") == [
-        VacationPeriod(source_id="xlsx:1", consultant_name="Matías Gómez",
-                       start_date="2026-03-10", end_date="2026-03-20", vacation_hours=72),
+    # _BASE Días=9 → 72hs de display (Días × 8). Motivo=Vacaciones → concepto Vacaciones.
+    assert StaffingRepository().get_absences("tok") == [
+        AbsencePeriod(source_id="xlsx:1", consultant_name="Matías Gómez",
+                      start_date="2026-03-10", end_date="2026-03-20",
+                      concept="Vacaciones", hours=72),
     ]
 
 
-# --- item 5: headers validados ------------------------------------------------
+# --- headers validados ------------------------------------------------------
 
 @pytest.mark.parametrize("drop", ["Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado"])
 def test_missing_required_header_fails_soft_schema_error(monkeypatch, drop):
@@ -168,156 +170,203 @@ def test_missing_required_header_fails_soft_schema_error(monkeypatch, drop):
     # fila alineada al header recortado
     rows = [[v for h, v in zip(_HEADERS, _cells()) if h != drop]]
     _patch_source(monkeypatch, _workbook_bytes(rows, headers=headers))
-    with pytest.raises(VacationSchemaError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
     assert exc.value.stage == "headers" and drop in exc.value.missing_fields
 
 
 def test_empty_worksheet_no_header_row_fails_soft(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([], headers=None))
-    with pytest.raises(VacationSchemaError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
     assert exc.value.stage == "headers"
 
 
-# --- item 6/7/8: filtro Motivo==Vacaciones AND Estado==Aprobada --------------
+# --- elegibilidad: SOLO Estado == Aprobada (Motivo YA NO es un gate) -------
 
-def test_vacaciones_aprobada_creates_period(monkeypatch):
+def test_aprobada_creates_period_regardless_of_motivo(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    periods = StaffingRepository().get_vacations("tok")
+    periods = StaffingRepository().get_absences("tok")
     assert periods[0].consultant_name == "Matías Gómez"
 
 
 @pytest.mark.parametrize("estado", ["Cancelada", "Rechazada", "Pendiente", "aprobada", "APROBADA", ""])
-def test_vacaciones_non_aprobada_excluded(monkeypatch, estado):
+def test_non_aprobada_excluded(monkeypatch, estado):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Estado=estado)]))
-    assert StaffingRepository().get_vacations("tok") == []
+    assert StaffingRepository().get_absences("tok") == []
 
 
-@pytest.mark.parametrize("motivo", ["Enfermedad", "Maternidad", "Día de Estudio", "vacaciones", "Otros", ""])
-def test_non_vacaciones_even_if_aprobada_excluded(monkeypatch, motivo):
+# item: a diferencia del overlay original, un Motivo NO-Vacaciones aprobado
+# YA NO se excluye — se clasifica (Otros si no matchea ningún concepto
+# conocido) y sigue siendo un período válido.
+@pytest.mark.parametrize("motivo", ["Enfermedad", "Maternidad", "Día de Estudio", "vacaciones", ""])
+def test_non_vacaciones_motivo_is_still_eligible_when_aprobada(monkeypatch, motivo):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Motivo=motivo, Estado="Aprobada")]))
-    assert StaffingRepository().get_vacations("tok") == []
+    periods = StaffingRepository().get_absences("tok")
+    assert len(periods) == 1
 
 
-# --- item 9/10/11: fechas nativas + dd/mm/yyyy; fin inclusive; un día --------
+# --- Concept Classification (Staffing Approved Absence Overlay) -----------
+
+@pytest.mark.parametrize("motivo,expected_concept", [
+    ("Vacaciones", "Vacaciones"),
+    ("Danwor Day", "Danwor Day"),
+    ("Cumpleaños", "Cumpleaños"),
+    ("Enfermedad", "Otros"),
+    ("Licencia por estudio", "Otros"),
+    ("", "Otros"),
+])
+def test_motivo_classifies_into_canonical_concept(monkeypatch, motivo, expected_concept):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Motivo=motivo)]))
+    period = StaffingRepository().get_absences("tok")[0]
+    assert period.concept == expected_concept
+
+
+@pytest.mark.parametrize("motivo,expected_concept", [
+    ("  vacaciones  ", "Vacaciones"),
+    ("VACACIONES", "Vacaciones"),
+    ("danwor day", "Danwor Day"),
+    ("DANWOR   DAY", "Danwor Day"),
+    ("cumpleanos", "Cumpleaños"),   # sin diacrítico, ver folding
+    ("CUMPLEAÑOS", "Cumpleaños"),
+])
+def test_motivo_classification_is_whitespace_case_and_accent_insensitive(monkeypatch, motivo, expected_concept):
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Motivo=motivo)]))
+    period = StaffingRepository().get_absences("tok")[0]
+    assert period.concept == expected_concept
+
+
+def test_raw_motivo_never_survives_into_absence_period(monkeypatch):
+    # Privacy boundary (ver HANDOFF): un Motivo "Otros" arbitrario (posible
+    # información sensible del empleado) NUNCA sobrevive más allá del
+    # parseo — AbsencePeriod solo retiene el concepto clasificado.
+    _patch_source(monkeypatch, _workbook_bytes([_cells(Motivo="Licencia por Violencia de Género")]))
+    period = StaffingRepository().get_absences("tok")[0]
+    assert period.concept == "Otros"
+    assert "Violencia" not in repr(period)
+    assert "Violencia" not in str(period)
+    import dataclasses
+    assert "motivo" not in {f.name.lower() for f in dataclasses.fields(AbsencePeriod)}
+
+
+# --- fechas nativas + dd/mm/yyyy; fin inclusive; un día --------------------
 
 def test_native_excel_dates_parse_to_iso(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([
         _cells(Desde=datetime(2026, 7, 1, 0, 0), Hasta=date(2026, 7, 15)),
     ]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     assert (period.start_date, period.end_date) == ("2026-07-01", "2026-07-15")
 
 
 def test_textual_ddmmyyyy_dates_parse_to_iso(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="3/7/2026", Hasta="15/07/2026")]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     assert (period.start_date, period.end_date) == ("2026-07-03", "2026-07-15")
 
 
-def test_single_day_vacation_is_valid(monkeypatch):
+def test_single_day_absence_is_valid(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="2026-06-10", Hasta="2026-06-10")]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     assert period.start_date == period.end_date == "2026-06-10"
 
 
 def test_row_missing_date_excluded_fail_soft(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Hasta=""), _cells()]))
-    periods = StaffingRepository().get_vacations("tok")
+    periods = StaffingRepository().get_absences("tok")
     assert [p.start_date for p in periods] == ["2026-03-10"]
 
 
 def test_unparseable_date_excluded_fail_soft(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="no-es-fecha")]))
-    assert StaffingRepository().get_vacations("tok") == []
+    assert StaffingRepository().get_absences("tok") == []
 
 
-# --- item 12: Días se ignora (no define el largo de la barra) ----------------
+# --- Días se ignora para geometría (no define el largo de la barra) --------
 
-def test_dias_column_is_ignored(monkeypatch):
+def test_dias_column_is_ignored_for_geometry(monkeypatch):
     # Días absurdo NO cambia las fechas ni la elegibilidad.
     _patch_source(monkeypatch, _workbook_bytes([_cells(Días=99999)]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     assert (period.start_date, period.end_date) == ("2026-03-10", "2026-03-20")
 
 
-# --- item 13: consultant_name = "Nombre Apellido" ----------------------------
+# --- consultant_name = "Nombre Apellido" ------------------------------------
 
 def test_consultant_name_is_nombre_then_apellido(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="Ana María", Apellido="Pérez López")]))
-    assert StaffingRepository().get_vacations("tok")[0].consultant_name == "Ana María Pérez López"
+    assert StaffingRepository().get_absences("tok")[0].consultant_name == "Ana María Pérez López"
 
 
 def test_whitespace_in_name_is_collapsed_on_trim(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="  Juan  ", Apellido="  Díaz ")]))
-    assert StaffingRepository().get_vacations("tok")[0].consultant_name == "Juan Díaz"
+    assert StaffingRepository().get_absences("tok")[0].consultant_name == "Juan Díaz"
 
 
 def test_row_missing_name_excluded_fail_soft(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Nombre="", Apellido="")]))
-    assert StaffingRepository().get_vacations("tok") == []
+    assert StaffingRepository().get_absences("tok") == []
 
 
-# --- item 14: el payload NUNCA retiene CUIL/Legajo/comentarios/etiquetas/Días -
+# --- el payload NUNCA retiene CUIL/Legajo/comentarios/etiquetas/Días/Motivo -
 
-def test_vacation_period_shape_is_source_plus_display_hours_only():
+def test_absence_period_shape_is_source_plus_concept_plus_display_hours_only():
     import dataclasses
-    # source_id/consultant_name/start/end + vacation_hours (display Días×8).
-    # NUNCA CUIL/Legajo/comentarios/etiquetas ni el Días crudo.
-    assert {f.name for f in dataclasses.fields(VacationPeriod)} == {
-        "source_id", "consultant_name", "start_date", "end_date", "vacation_hours",
+    # source_id/consultant_name/start/end/concept + hours (display Días×8).
+    # NUNCA CUIL/Legajo/comentarios/etiquetas/Días crudo/Motivo crudo.
+    assert {f.name for f in dataclasses.fields(AbsencePeriod)} == {
+        "source_id", "consultant_name", "start_date", "end_date", "concept", "hours",
     }
 
 
 def test_no_pii_leaks_into_payload(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     blob = repr(period)
     for secret in ("20-99887766-3", "LEG-4242", "COMENTARIO-EMPLEADO-SECRETO",
                    "COMENTARIO-APROBADOR-SECRETO", "ETIQUETA-SECRETA"):
         assert secret not in blob
 
 
-# --- item 15/16: workbook/worksheet inválidos fallan soft --------------------
+# --- workbook/worksheet inválidos fallan soft -------------------------------
 
 def test_malformed_workbook_bytes_fail_soft(monkeypatch):
     _patch_source(monkeypatch, b"esto no es un xlsx")
-    with pytest.raises(VacationSchemaError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
     assert exc.value.stage == "workbook"
 
 
 def test_missing_worksheet_fails_soft(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()], sheet_name="OtroNombre"))
-    with pytest.raises(VacationSchemaError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
     assert exc.value.stage == "worksheet"
 
 
-# --- transporte: sitio/descarga → VacationGraphError seguro -------------------
+# --- transporte: sitio/descarga → AbsenceGraphError seguro -----------------
 
 def test_site_http_403_reports_stage_site(monkeypatch):
     def fake_json(url, access_token, **kwargs):
         raise _http_error(403)
 
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_json", fake_json)
-    with pytest.raises(VacationGraphError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceGraphError) as exc:
+        StaffingRepository().get_absences("tok")
     assert (exc.value.stage, exc.value.status_code) == ("site", 403)
 
 
 def test_download_http_404_reports_stage_download(monkeypatch):
     _patch_source(monkeypatch, _http_error(404))
-    with pytest.raises(VacationGraphError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceGraphError) as exc:
+        StaffingRepository().get_absences("tok")
     assert (exc.value.stage, exc.value.status_code) == ("download", 404)
 
 
 def test_site_without_id_fails_soft_schema_error(monkeypatch):
     _patch_source(monkeypatch, _workbook_bytes([_cells()]), site={})
-    with pytest.raises(VacationSchemaError) as exc:
-        StaffingRepository().get_vacations("tok")
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
     assert exc.value.stage == "site"
 
 
@@ -326,63 +375,59 @@ def test_graph_error_message_never_includes_the_access_token(monkeypatch):
         raise _http_error(500)
 
     monkeypatch.setattr(repo_module.microsoft365, "graph_get_json", fake_json)
-    with pytest.raises(VacationGraphError) as exc:
-        StaffingRepository().get_vacations("tok-do-not-log")
+    with pytest.raises(AbsenceGraphError) as exc:
+        StaffingRepository().get_absences("tok-do-not-log")
     assert "tok-do-not-log" not in str(exc.value)
 
 
-# --- múltiples períodos + fila totalmente vacía -------------------------------
+# --- múltiples períodos + fila totalmente vacía -----------------------------
 
 def test_multiple_eligible_periods_preserved(monkeypatch):
     rows = [
-        _cells(Nombre="Ana", Apellido="Uno", Desde="2026-01-05", Hasta="2026-01-10"),
-        _cells(Nombre="Beto", Apellido="Dos", Desde="2026-02-05", Hasta="2026-02-10"),
+        _cells(Nombre="Ana", Apellido="Uno", Desde="2026-01-05", Hasta="2026-01-10", Motivo="Vacaciones"),
+        _cells(Nombre="Beto", Apellido="Dos", Desde="2026-02-05", Hasta="2026-02-10", Motivo="Danwor Day"),
     ]
     _patch_source(monkeypatch, _workbook_bytes(rows))
-    periods = StaffingRepository().get_vacations("tok")
+    periods = StaffingRepository().get_absences("tok")
     assert {p.consultant_name for p in periods} == {"Ana Uno", "Beto Dos"}
     assert len({p.source_id for p in periods}) == 2
+    assert {p.concept for p in periods} == {"Vacaciones", "Danwor Day"}
 
 
 def test_fully_empty_rows_are_skipped(monkeypatch):
     rows = [_cells(), [None] * len(_HEADERS), ["", "", "", "", "", "", "", "", "", "", "", "", "", ""]]
-    _patch_source(monkeypatch, _workbook_bytes(rows))
     diag = _get_diag(monkeypatch, rows)
     assert diag["xlsx_rows"] == 1
 
 
-# --- item 19: funnel de diagnóstico seguro (conteos puros, sin PII) ----------
+# --- funnel de diagnóstico seguro (conteos puros, sin PII) -----------------
 
-_VACATION_DIAGNOSTICS_KEYS = {
-    "worksheet_found", "xlsx_rows", "vacaciones_rows", "aprobadas_rows",
-    "eligible_periods", "elapsed_ms",
-}
+_ABSENCE_DIAGNOSTICS_KEYS = {"worksheet_found", "xlsx_rows", "aprobadas_rows", "eligible_periods", "elapsed_ms"}
 
 
 def _get_diag(monkeypatch, rows):
     _patch_source(monkeypatch, _workbook_bytes(rows))
     repo = StaffingRepository()
-    repo.get_vacations("tok")
-    return repo.last_diagnostics["vacaciones"]
+    repo.get_absences("tok")
+    return repo.last_diagnostics["ausencias"]
 
 
 def test_diagnostics_keys_are_exactly_the_safe_funnel(monkeypatch):
     diag = _get_diag(monkeypatch, [_cells()])
-    assert set(diag.keys()) == _VACATION_DIAGNOSTICS_KEYS
+    assert set(diag.keys()) == _ABSENCE_DIAGNOSTICS_KEYS
 
 
 def test_diagnostics_funnel_counts_each_stage(monkeypatch):
     rows = [
-        _cells(Nombre="A", Apellido="Uno"),                              # Vacaciones+Aprobada → eligible
-        _cells(Nombre="B", Apellido="Dos", Estado="Cancelada"),          # Vacaciones no-Aprobada
-        _cells(Nombre="C", Apellido="Tres", Motivo="Enfermedad"),        # no-Vacaciones
+        _cells(Nombre="A", Apellido="Uno"),                              # Aprobada → eligible
+        _cells(Nombre="B", Apellido="Dos", Estado="Cancelada"),          # no-Aprobada
+        _cells(Nombre="C", Apellido="Tres", Motivo="Enfermedad"),        # Aprobada, Motivo distinto → sigue eligible
     ]
     diag = _get_diag(monkeypatch, rows)
     assert diag["worksheet_found"] == 1
     assert diag["xlsx_rows"] == 3
-    assert diag["vacaciones_rows"] == 2       # A + B (Motivo=Vacaciones)
-    assert diag["aprobadas_rows"] == 1        # solo A (Estado=Aprobada)
-    assert diag["eligible_periods"] == 1
+    assert diag["aprobadas_rows"] == 2        # A + C (Estado=Aprobada)
+    assert diag["eligible_periods"] == 2
 
 
 def test_diagnostics_never_include_names_or_pii(monkeypatch):
@@ -391,12 +436,14 @@ def test_diagnostics_never_include_names_or_pii(monkeypatch):
         assert isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-# --- item 18: el modelo-lista quedó completamente RETIRADO del runtime -------
+# --- el modelo-lista quedó completamente RETIRADO del runtime -------------
 
 def test_retired_list_model_symbols_are_absent():
     for gone in ("VacationFieldMapping", "resolve_vacation_field_mapping",
                  "_resolve_vacation_field_mapping_from_columns", "_VACATION_DISPLAY_NAMES",
-                 "_ttl_cache", "_fetch_vacation_field_mapping_cached"):
+                 "_ttl_cache", "_fetch_vacation_field_mapping_cached",
+                 "VacationPeriod", "VacationSchemaError", "VacationGraphError",
+                 "VACATION_LEAVE_TYPE_VALUE"):
         assert not hasattr(repo_module, gone), gone
 
 
@@ -407,65 +454,73 @@ def test_repository_constructor_no_longer_takes_vacation_list_args():
     assert "vacation_field_mapping" not in params
 
 
-def test_leave_type_and_estado_values_are_authoritative():
-    assert repo_module.VACATION_LEAVE_TYPE_VALUE == "Vacaciones"
-    assert repo_module.VACATION_ESTADO_VALUE == "Aprobada"
+def test_estado_value_is_authoritative():
+    assert repo_module.ABSENCE_ESTADO_VALUE == "Aprobada"
 
 
-# --- Días → horas de display (post-live-smoke UX corrective) -----------------
+def test_canonical_concept_constants():
+    assert repo_module.ABSENCE_CONCEPT_VACACIONES == "Vacaciones"
+    assert repo_module.ABSENCE_CONCEPT_DANWOR_DAY == "Danwor Day"
+    assert repo_module.ABSENCE_CONCEPT_CUMPLEANOS == "Cumpleaños"
+    assert repo_module.ABSENCE_CONCEPT_OTROS == "Otros"
+
+
+# --- Días → horas de display (post-live-smoke UX corrective) ---------------
 
 @pytest.mark.parametrize("dias,hours", [
-    (10, 80),          # item 1: entero
-    (10.0, 80),        # item 2: float integral
-    ("10", 80),        # item 3: string numérico
-    ("10 días", 80),   # item 4: string con sufijo
+    (10, 80),          # entero
+    (10.0, 80),        # float integral
+    ("10", 80),        # string numérico
+    ("10 días", 80),   # string con sufijo
     (1, 8),            # un día → 8hs
 ])
 def test_dias_parses_to_display_hours(monkeypatch, dias, hours):
     _patch_source(monkeypatch, _workbook_bytes([_cells(Días=dias)]))
-    assert StaffingRepository().get_vacations("tok")[0].vacation_hours == hours
+    assert StaffingRepository().get_absences("tok")[0].hours == hours
 
 
 def test_ten_days_is_eighty_hours_with_dates_from_owner_example(monkeypatch):
-    # item 5: Desde 27/07/2026, Hasta 07/08/2026, Días 10 → 80hs.
+    # Desde 27/07/2026, Hasta 07/08/2026, Días 10 → 80hs.
     _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="27/07/2026", Hasta="07/08/2026", Días=10)]))
-    period = StaffingRepository().get_vacations("tok")[0]
-    assert period.vacation_hours == 80
+    period = StaffingRepository().get_absences("tok")[0]
+    assert period.hours == 80
     assert (period.start_date, period.end_date) == ("2026-07-27", "2026-08-07")
 
 
 @pytest.mark.parametrize("dias", [None, "", "sin datos", -3])
 def test_missing_or_malformed_dias_keeps_period_without_hours(monkeypatch, dias):
+    # Malformed/missing Días NEVER suppresses the bar — the period stays
+    # valid, just without a known hours total (director-approved rule).
     _patch_source(monkeypatch, _workbook_bytes([_cells(Días=dias)]))
-    periods = StaffingRepository().get_vacations("tok")
-    assert len(periods) == 1                    # item 6: NO se descarta el período
-    assert periods[0].vacation_hours is None    # item 7: sin etiqueta de horas
+    periods = StaffingRepository().get_absences("tok")
+    assert len(periods) == 1
+    assert periods[0].hours is None
 
 
 def test_missing_dias_header_entirely_keeps_periods_without_hours(monkeypatch):
     headers = [h for h in _HEADERS if h != "Días"]
     rows = [[v for h, v in zip(_HEADERS, _cells()) if h != "Días"]]
     _patch_source(monkeypatch, _workbook_bytes(rows, headers=headers))
-    periods = StaffingRepository().get_vacations("tok")
-    assert len(periods) == 1 and periods[0].vacation_hours is None
+    periods = StaffingRepository().get_absences("tok")
+    assert len(periods) == 1 and periods[0].hours is None
 
 
 def test_dias_does_not_alter_date_span(monkeypatch):
-    # items 8/9: Días absurdo NO cambia start/end — la geometría es Desde/Hasta.
+    # Días absurdo NUNCA cambia start/end — la geometría es Desde/Hasta.
     _patch_source(monkeypatch, _workbook_bytes([_cells(Desde="2026-03-10", Hasta="2026-03-12", Días=999)]))
-    period = StaffingRepository().get_vacations("tok")[0]
+    period = StaffingRepository().get_absences("tok")[0]
     assert (period.start_date, period.end_date) == ("2026-03-10", "2026-03-12")
 
 
-def test_vacation_hours_never_exposes_raw_dias_string(monkeypatch):
-    # item 14: el string crudo "10 días" NUNCA aparece; solo el producto ×8.
+def test_absence_hours_never_exposes_raw_dias_string(monkeypatch):
+    # El string crudo "10 días" NUNCA aparece; solo el producto ×8.
     _patch_source(monkeypatch, _workbook_bytes([_cells(Días="10 días")]))
-    period = StaffingRepository().get_vacations("tok")[0]
-    assert period.vacation_hours == 80
+    period = StaffingRepository().get_absences("tok")[0]
+    assert period.hours == 80
     assert "días" not in repr(period) and "10 días" not in repr(period)
 
 
-# --- get_consultants (sin cambios de contrato: sigue leyendo la lista) -------
+# --- get_consultants (sin cambios de contrato: sigue leyendo la lista) -----
 
 def test_get_consultants_raises_explicit_when_colaborador_title_missing():
     from webapp.services.staffing_repository import StaffingFieldMapping

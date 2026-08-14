@@ -100,7 +100,7 @@ def test_label_width_variable_defined_once_on_the_timeline_root():
 # ============================================================================
 
 def test_track_is_not_a_grid_container():
-    # `.staffing-timeline__track` (barras de asignación) y su vacation-lane
+    # `.staffing-timeline__track` (barras de asignación) y su absence-lane
     # gemela reusan la MISMA regla — si volviera a ser `display: grid`, las
     # barras (`position: absolute; left: X%`) dejarían de posicionarse
     # día-exacto sobre su propio ancho y volverían a depender de columnas
@@ -122,12 +122,12 @@ def test_track_and_today_track_declare_width_explicitly():
 
 
 def test_bars_use_absolute_positioning_not_month_grid_columns():
-    # `.staffing-timeline__bar`/`.staffing-timeline__vacation-bar` deben
+    # `.staffing-timeline__bar`/`.staffing-timeline__absence-bar` deben
     # posicionarse con `position: absolute` (día-exacto, `left`/`width` en
     # % inline vía `barStyle()`) — nunca `grid-row`/`grid-column`/
     # `align-self` (mecanismo viejo de índice de mes, la barra quedaba
     # pegada al día 1 de su mes sin importar la fecha real).
-    for selector in (".staffing-timeline__bar {", ".staffing-timeline__vacation-bar {"):
+    for selector in (".staffing-timeline__bar {", ".staffing-timeline__absence-bar {"):
         body = _rule_body(selector)
         assert "position: absolute" in body
         assert "grid-row" not in body

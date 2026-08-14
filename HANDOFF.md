@@ -5200,7 +5200,7 @@ XLSX previo: full suite era 821; este micro-batch suma +26 tests.)
 
 ---
 
-## STAFFING — TIMELINE DAY-ACCURATE GEOMETRY — DIRECTOR-APPROVED CORRECTIVE — IMPLEMENTED / PENDING OWNER VISUAL SMOKE
+## STAFFING — TIMELINE DAY-ACCURATE GEOMETRY — DIRECTOR-APPROVED CORRECTIVE — CLOSED / MERGED TO MAIN
 (commit `fix(staffing): align timeline bars to assignment dates`, branch
 `work/staffing-day-accurate-timeline`, sobre PR #60 merged / `bf3ffc6`)
 
@@ -5316,6 +5316,141 @@ SIN CAMBIOS**.
 (Ctrl+Shift+R) y/o reinicio del proceso de desarrollo antes de re-probar,
 dado que el diagnóstico apunta a assets viejos cacheados como causa más
 probable del smoke #1.
+
+### SMOKE #2 — PASÓ — CIERRE
+
+Owner confirmó: `today=14/08/2026`, asignación Danone `start_date=17/08/2026`
+— la barra renderiza correctamente a la DERECHA del marcador de "hoy". El
+diagnóstico de smoke #1 (assets viejos cacheados) quedó confirmado
+implícitamente por el hard-refresh/restart antes de re-probar.
+
+**Cierre mecánico:** PR [#61](https://github.com/DanworForBusiness/copiloto-metodologico/pull/61)
+(`work/staffing-day-accurate-timeline` → `main`) — CI GREEN (`pytest -q`) —
+merged (merge commit, MISMO método que el resto del historial de PRs) →
+**`1e0aaad`**. `origin/main` refrescado. Branch de feature no borrada
+(fuera de alcance de este batch).
+
+---
+
+## STAFFING — APPROVED ABSENCE OVERLAY — IMPLEMENTED / PENDING OWNER VISUAL SMOKE
+(commit `feat(staffing): generalize approved absence overlay`, branch
+`work/staffing-approved-absences`, sobre `main` post-merge PR #61 / `1e0aaad`)
+
+**Qué es:** generalización del Staffing Vacation Timeline Overlay original —
+el mismo overlay pasa de ser SOLO Vacaciones a cubrir CUALQUIER ausencia
+APROBADA, clasificada server-side en 4 conceptos canónicos: Vacaciones /
+Danwor Day / Cumpleaños / Otros. Batch funcional final de Staffing antes de
+pasar a la próxima iniciativa de reporting.
+
+**Fuente:** SIN CAMBIOS — el MISMO XLSX autoritativo
+(`General/Template Dashboard/Solicitudes (2).xlsx`, sitio Operaciones,
+worksheet `Solicitudes`). NO se introdujo ninguna lista ni fuente nueva.
+
+**Elegibilidad (cambio de contrato):** antes `Motivo == "Vacaciones" AND
+Estado == "Aprobada"`; ahora SOLO `Estado == "Aprobada"` (+ identidad de
+consultor válida + Desde/Hasta válidos, sin cambios). Cualquier Motivo
+aprobado es elegible — el Motivo YA NO es un gate, es lo que se CLASIFICA.
+
+**Concept Classification (`staffing_repository._classify_absence_concept`):**
+Motivo normalizado (trim/colapso de espacios/casefold/folding de
+diacríticos — MISMO criterio determinístico que la identidad de consultor,
+sin fuzzy-matching) comparado contra los 3 conceptos conocidos
+(`Vacaciones`/`Danwor Day`/`Cumpleaños`); cualquier otro Motivo (incluido
+vacío) → `Otros`. **Privacy boundary:** el Motivo CRUDO NUNCA sobrevive más
+allá del parseo en el repositorio — `AbsencePeriod` (renombrado de
+`VacationPeriod`) solo retiene el `concept` ya clasificado; ni
+`StaffingService` ni el router ni el payload JSON al browser conocen el
+Motivo original. Un Motivo libre de "Otros" (potencialmente información
+sensible del empleado, ej. licencias médicas/de género) nunca llega al
+cliente.
+
+**Endpoint (rename one-for-one):** `POST /operaciones/staffing/asignaciones/
+vacaciones` → `POST /operaciones/staffing/asignaciones/ausencias`. Verificado
+`include_in_schema=False`, sin alias de compatibilidad en inglés (a
+diferencia de `staffing_page`/`staffing_data`, que SÍ tienen alias
+`/operations/staffing`/`/operations/staffing/data`) y sin ninguna referencia
+externa al path — endpoint interno puro, consumido únicamente por
+`app.js::_loadAbsences()`. Reemplazo directo, sin mantener la ruta vieja:
+`route_surface.json` regenerado (`UPDATE_ROUTE_SURFACE=1`), **84 sin
+cambios** (swap 1-a-1, confirmado por test explícito de que la ruta vieja
+ya no responde).
+
+**Rename de dominio (generalización, ver HANDOFF — "materially improves
+clarity"):** `VacationPeriod`→`AbsencePeriod` (+ campo `concept`, campo
+`vacation_hours`→`hours`), `VacationSchemaError`→`AbsenceSchemaError`,
+`VacationGraphError`→`AbsenceGraphError`, `get_vacations`→`get_absences`,
+`VacationOverviewPeriod`→`AbsenceOverviewPeriod`,
+`VacationJoinResult`→`AbsenceJoinResult`,
+`join_vacations_to_consultants`→`join_absences_to_consultants`,
+`build_vacation_overlay_payload`→`build_absence_overlay_payload`,
+`get_vacation_overlay`→`get_absence_overlay`, `staffing_vacaciones`→
+`staffing_ausencias`. Mismo rename en app.js (`vacations`→`absences` state/
+getters/helpers) y CSS (`.staffing-timeline__vacation-row`→`__absence-row`,
+`.staffing-timeline__vacation-bar`→`__absence-bar`,
+`.staffing-vacation-error`→`.staffing-absence-error`). Payload JSON:
+`{"vacations":[...]}` → `{"absences":[...]}`, cada item gana `"concept"`.
+
+**UN lane compartido "Ausencias"** (nunca uno por concepto) — mismo
+tratamiento visual neutro (hatch gris, NUNCA `staffing-palette-N` ni un
+color por concepto) que el lane de Vacaciones original; el concepto se
+distingue por TEXTO en el tooltip/aria-label (`absenceBarLabel`:
+`"${concept} (${hours}hs)"` o `concept` pelado sin horas), nunca por color.
+SOLO agrupación Consultor (ausente en Proyecto), sin refetch al cambiar de
+agrupación — sin cambios de arquitectura respecto al overlay original.
+
+**Filtro Concepto (nuevo, 100% client-side):** 4 checkboxes fijos
+(`CONCEPT_OPTIONS`, nunca derivados del dato como Estado), los 4 tildados
+por default, SIN checkbox "Todos" (los 4 ya cubren el universo completo;
+además una 5ta fila rompería el límite de 4 filas/columna que ya establece
+Estado en el panel de filtros — mismas clases `whatsnew-filter--compact` +
+`dashboard-checkbox-group`, sin crecer el panel). Filtra
+`this.absences` → `filteredAbsences` (getter puro) → `absencesByConsultant`
+→ `group.absences` — nunca toca `assignments`/`filteredAssignments`/KPIs/
+Asignación hoy+N/Activos vencidos, nunca dispara Graph/refetch (verificado:
+un toggle de checkbox no genera ningún POST nuevo). `absenceLaneLabel` suma
+horas SOLO sobre los períodos que recibe (ya filtrados), así que el total
+"Ausencias (Nhs)" recalcula automáticamente. Los 4 conceptos destildados →
+`group.absences` vacío → el `x-if` existente oculta el lane entero, sin
+espacio residual (sin código ad-hoc nuevo).
+
+**Geometría:** SIN cambios — reusa el mismo `compute_timeline_position`/
+`compute_today_marker` día-exacto (ver corrective de timeline arriba).
+Desde/Hasta define la barra (Hasta inclusive); Días×8 es SOLO horas de
+display, nunca afecta geometría/asignación/utilización/h-mes/KPIs; Días
+malformado/ausente nunca suprime la barra, solo cae el total de horas
+mostrado.
+
+**Carga/fail-soft:** sin cambios de arquitectura — asignaciones renderizan
+primero (SSR inline en el payload), ausencias cargan lazy e independiente
+(`_loadAbsences()`, fire-and-forget en `init()`, sin `await`); una falla
+(config incompleta/schema/Graph) nunca degrada Asignaciones, solo omite el
+lane + aviso propio no bloqueante (`.staffing-absence-error`).
+
+**Tests:** 4 archivos de test renombrados (`git mv`) y reescritos —
+`test_staffing_absence_repository.py` (79, incluye clasificación de
+concepto normalizada + privacy boundary del Motivo crudo),
+`test_staffing_absence_service.py` (30, incluye geometría día-exacta
+reusada + concept passthrough + payload sin key `motivo`),
+`test_staffing_absence_routes.py` (23, incluye ruta vieja `/vacaciones`
+ahora 404), `test_staffing_absence_ui.py` (42, incluye 4 checkboxes fijos/
+sin Todos/máximo 4 filas/filtrado client-side puro/lane único sin colores
+por concepto/lane vacío sin espacio residual). `test_staffing_timeline_css.py`
+actualizado (selector `vacation-bar`→`absence-bar`).
+`test_staffing_production_corrective.py` (route surface) actualizado.
+Staffing regression completo + full suite (**918 passed / 1 skipped**) +
+route-contract GREEN, route surface **84**.
+
+**Smoke manual (navegador real, payload mock vía Jinja real + servidor
+mínimo):** verificado end-to-end — lane "Ausencias (72hs)" con 4 barras
+(aria-label por concepto: "Vacaciones (48hs)"/"Danwor Day (8hs)"/
+"Cumpleaños" sin horas/"Otros (16hs)"), destildar Vacaciones → "Ausencias
+(24hs)" sin request nueva (confirmado en network log: 1 sola POST, la
+inicial), destildar los 4 → lane desaparece, KPIs/asignaciones/detalle
+intactos en todo momento.
+
+**Pendiente:** smoke visual del owner contra dato real de SharePoint (no
+ejecutado en este batch — requiere sesión Graph real, ausencias con
+Motivo=Danwor Day/Cumpleaños/otro real en el XLSX). NO abrir PR todavía.
 
 ---
 

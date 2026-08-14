@@ -46,53 +46,50 @@ asignaciones + `total_elapsed_ms`. NUNCA token/payload/PII — solo conteos y
 tiempos. El caller (`StaffingService`/router) decide si loguearlo
 (VERBOSE-gated, ver `webapp/routers/staffing.py`).
 
-VACACIONES (Staffing Vacation Timeline Overlay, ver HANDOFF) — CONTRATO
-FINAL, confirmado contra el schema real de Graph (owner live smoke #4,
-autoritativo — el export offline XLSX, con labels Apellido/Nombre/Motivo/
-Desde/Hasta/Estado, NUNCA fue el contrato real de la lista SharePoint, ver
-HANDOFF): `get_vacations` lee la lista "Solicitud vacaciones" del MISMO
-sitio Gestión, filtrando EXCLUSIVAMENTE `TipodeLicencia == "Vacaciones"`
-AND `¿Aprobado CCHH? is True` (booleano estricto — `False`/`None`/ausente
-excluye; ningún otro Tipo de Licencia entra). Devuelve `consultant_name`
-CRUDO (`fields["Colaborador"]`, un campo de TEXTO simple — NO lookup, NO
-requiere resolver un ID de Colaboradores) — el join de identidad
-determinístico contra el universo de Colaboradores de Staffing vive en
-`StaffingService` (ver ahí, sin cambios: sigue siendo join por nombre
-normalizado). `get_consultants` lee SOLO Colaboradores (id + nombre, sin
-Asignaciones/Proyectos) — universo de identidad para ese join.
+AUSENCIAS APROBADAS (Staffing Approved Absence Overlay — generalización del
+Vacation Timeline Overlay original, ver HANDOFF): `get_absences` lee el
+MISMO XLSX autoritativo de siempre (`Solicitudes (2).xlsx`, sitio
+Operaciones) filtrando ÚNICAMENTE `Estado == "Aprobada"` — a diferencia del
+overlay original (que además exigía `Motivo == "Vacaciones"`), CUALQUIER
+Motivo aprobado es elegible ahora. Cada fila elegible se CLASIFICA
+server-side en uno de 4 conceptos canónicos (`_classify_absence_concept`):
+`Vacaciones`/`Danwor Day`/`Cumpleaños` por comparación normalizada
+(trim/colapso de espacios/casefold/folding de diacríticos — MISMO criterio
+determinístico que la identidad de consultor, sin fuzzy-matching), o
+`Otros` para cualquier otro Motivo. El Motivo CRUDO nunca sobrevive más
+allá del parseo — `AbsencePeriod` solo retiene el concepto YA clasificado
+(privacy boundary: un Motivo libre de "Otros" podría ser información
+sensible del empleado; el browser nunca lo recibe, ni siquiera el
+`StaffingService`). Devuelve `consultant_name` CRUDO ("Nombre Apellido") —
+el join de identidad determinístico contra el universo de Colaboradores de
+Staffing vive en `StaffingService` (sin cambios: sigue siendo join por
+nombre normalizado). `get_consultants` lee SOLO Colaboradores (id +
+nombre, sin Asignaciones/Proyectos) — universo de identidad para ese join.
 
-FUENTE AUTORITATIVA — XLSX EN SHAREPOINT (owner authoritative source
-corrective, ver HANDOFF): la suposición previa de una LISTA SharePoint
-(`/items` + discovery de `/columns` + flag `¿Aprobado CCHH?`) era
-INCORRECTA y quedó RETIRADA por completo. La fuente real es el archivo
-`Solicitudes (2).xlsx` en la biblioteca de documentos del sitio Operaciones
-(`General/Template Dashboard/`). `get_vacations` descarga ese workbook vía
-Graph (`root:/{path}:/content`), lo parsea EN MEMORIA con openpyxl
-(read-only/data-only, sin persistir) y aplica la semántica de negocio del
-propio archivo: `Motivo == "Vacaciones"` AND `Estado == "Aprobada"`. Los
-flags `Approved`/`¿Aprobado CCHH?` de la fuente-lista quedaron SUPERADOS —
-no se exigen, no se OR-ean, no se invierten, no son fallback.
+FUENTE AUTORITATIVA — XLSX EN SHAREPOINT (sin cambios de ubicación desde el
+corrective original): `Solicitudes (2).xlsx` en la biblioteca de
+documentos del sitio Operaciones (`General/Template Dashboard/`).
+`get_absences` descarga ese workbook vía Graph (`root:/{path}:/content`),
+lo parsea EN MEMORIA con openpyxl (read-only/data-only, sin persistir).
 
-CONTRATO DE UBICACIÓN (module constants, no config): `VACATION_SITE_PATH`/
-`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` son la ubicación estable
+CONTRATO DE UBICACIÓN (module constants, no config): `ABSENCE_SITE_PATH`/
+`ABSENCE_XLSX_PATH`/`ABSENCE_WORKSHEET_NAME` son la ubicación estable
 (sitio + ruta en el drive), NO una URL de descarga temporal ni un id de
-driveItem. La config de la fuente-lista superada
-(`SHAREPOINT_VACACIONES_LIST_ID`) se removió de `config.py` (dead-config
-cleanup) — la fuente XLSX no necesita ningún list ID.
+driveItem. Ningún list ID de SharePoint — la fuente XLSX no lo necesita.
 
-DIAGNÓSTICO SEGURO DE FALLAS (ver HANDOFF): `_call_vacation_graph(stage,
-fn)` envuelve las llamadas Graph de Vacaciones (`stage="site"` para
+DIAGNÓSTICO SEGURO DE FALLAS (ver HANDOFF): `_call_absence_graph(stage,
+fn)` envuelve las llamadas Graph de Ausencias (`stage="site"` para
 resolver el sitio, `stage="download"` para bajar el workbook) — cualquier
-`HTTPError`/`URLError` de `urllib` se traduce a `VacationGraphError(stage,
+`HTTPError`/`URLError` de `urllib` se traduce a `AbsenceGraphError(stage,
 status_code)`, NUNCA deja escapar la excepción cruda. Un workbook
-inválido / worksheet o headers faltantes levantan `VacationSchemaError`
+inválido / worksheet o headers faltantes levantan `AbsenceSchemaError`
 (`stage="workbook"/"worksheet"/"headers"`, con labels de contrato, nunca
-datos/PII). `VacationSchemaError` NO es `RuntimeError` a propósito: es un
+datos/PII). `AbsenceSchemaError` NO es `RuntimeError` a propósito: es un
 problema de la fuente, NUNCA de configuración de deployment — el router lo
 trata igual que cualquier otra falla de Graph (`graph_error`), nunca como
 `configuration_incomplete`.
 
-Ambos (`get_vacations`/`get_consultants`)
+Ambos (`get_absences`/`get_consultants`)
 fail-soft ante cualquier excepción — el router captura el error y omite
 el overlay, Asignaciones nunca se rompe."""
 from __future__ import annotations
@@ -100,6 +97,7 @@ from __future__ import annotations
 import io
 import re
 import time
+import unicodedata
 import urllib.error
 from datetime import date, datetime
 from dataclasses import dataclass, fields as dataclass_fields
@@ -137,14 +135,6 @@ INACTIVE_STATUS_VALUE = "Inactivo"
 # volumen en ese request puntual.
 _HISTORY_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandomly"}
 
-# Staffing Vacation Timeline Overlay (ver HANDOFF) — valor EXACTO de negocio
-# confirmado contra el schema real (`TipodeLicencia` es una columna Choice
-# de la lista, no un internal name que necesite config por tenant — mismo
-# criterio que `INACTIVE_STATUS_VALUE` arriba). Junto con
-# `¿Aprobado CCHH? is True` (booleano estricto, ver `get_vacations`) es el
-# ÚNICO par que habilita una fila para el timeline — cualquier otro Tipo de
-# Licencia, o CCHH False/None/ausente, queda fuera.
-VACATION_LEAVE_TYPE_VALUE = "Vacaciones"
 
 
 #  Campos OPCIONALES de StaffingFieldMapping — enriquecimiento, no requisito
@@ -245,8 +235,8 @@ class StaffingAllocationRecord:
     client_name: str | None = None
 
 
-class VacationSchemaError(Exception):
-    """El workbook XLSX de Vacaciones no matchea el contrato esperado
+class AbsenceSchemaError(Exception):
+    """El workbook XLSX de Ausencias no matchea el contrato esperado
     (`stage="workbook"` inválido/corrupto, `"worksheet"` faltante, `"headers"`
     requeridos ausentes, o `"site"` sin id resuelto) — problema de RUNTIME/
     SOURCE, NUNCA de configuración de deployment. Deriva de `Exception`, NO de
@@ -274,14 +264,14 @@ class VacationSchemaError(Exception):
         if ambiguous_fields:
             parts.append(f"ambiguas (más de una columna con el mismo displayName): {', '.join(ambiguous_fields)}")
         super().__init__(
-            f"No se pudo resolver el schema de la lista de Vacaciones contra Graph "
+            f"No se pudo resolver el schema de la lista de Ausencias contra Graph "
             f"(stage={stage}) — " + "; ".join(parts) + "."
         )
 
 
-class VacationGraphError(Exception):
+class AbsenceGraphError(Exception):
     """Envoltorio SEGURO de una falla de transporte Graph
-    (`urllib.error.HTTPError`/`URLError`) durante Vacaciones — expone
+    (`urllib.error.HTTPError`/`URLError`) durante Ausencias — expone
     ÚNICAMENTE `stage`/`status_code`/`reason`, NUNCA el texto crudo de la
     excepción original de `urllib` (que puede incluir la URL completa con
     query string, y en teoría headers de la request/response). El
@@ -292,52 +282,99 @@ class VacationGraphError(Exception):
         self.stage = stage
         self.status_code = status_code
         self.reason = "http_error"
-        super().__init__(f"Vacation Graph error — stage={stage} status_code={status_code}")
+        super().__init__(f"Absence Graph error — stage={stage} status_code={status_code}")
 
 
-def _call_vacation_graph(stage: str, fn: Callable[[], object]) -> object:
-    """Ejecuta una llamada Graph de Vacaciones (`stage` = "site" |
+def _call_absence_graph(stage: str, fn: Callable[[], object]) -> object:
+    """Ejecuta una llamada Graph de Ausencias (`stage` = "site" |
     "download") envolviendo CUALQUIER falla de transporte en
-    `VacationGraphError` — nunca deja escapar el `HTTPError`/`URLError`
-    crudo de `urllib` (ver docstring de `VacationGraphError`). `from None`
+    `AbsenceGraphError` — nunca deja escapar el `HTTPError`/`URLError`
+    crudo de `urllib` (ver docstring de `AbsenceGraphError`). `from None`
     corta la cadena de excepción explícitamente: nada downstream que
     inspeccione `__cause__`/`__context__` puede llegar al objeto original."""
     try:
         return fn()
     except urllib.error.HTTPError as exc:
-        raise VacationGraphError(stage=stage, status_code=exc.code) from None
+        raise AbsenceGraphError(stage=stage, status_code=exc.code) from None
     except urllib.error.URLError:
-        raise VacationGraphError(stage=stage, status_code=None) from None
+        raise AbsenceGraphError(stage=stage, status_code=None) from None
 
 
-# ── Staffing Vacation Timeline Overlay — FUENTE AUTORITATIVA: XLSX en SharePoint
-# (owner authoritative source corrective, ver HANDOFF). La suposición previa de una
-# LISTA SharePoint (`/items`+`/columns`) era INCORRECTA y quedó RETIRADA. La fuente
-# real es "Solicitudes (2).xlsx" en la biblioteca de documentos del sitio Operaciones.
-# Estas son la UBICACIÓN autoritativa y estable (sitio + ruta en el drive), NO una URL
-# de descarga temporal ni un id de driveItem.
-VACATION_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
-VACATION_XLSX_PATH = "General/Template Dashboard/Solicitudes (2).xlsx"
-VACATION_WORKSHEET_NAME = "Solicitudes"
+# ── Staffing Approved Absence Overlay — FUENTE AUTORITATIVA: XLSX en SharePoint
+# (misma ubicación que el corrective original de Vacaciones, ver HANDOFF). La
+# fuente real es "Solicitudes (2).xlsx" en la biblioteca de documentos del sitio
+# Operaciones. Estas son la UBICACIÓN autoritativa y estable (sitio + ruta en el
+# drive), NO una URL de descarga temporal ni un id de driveItem.
+ABSENCE_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
+ABSENCE_XLSX_PATH = "General/Template Dashboard/Solicitudes (2).xlsx"
+ABSENCE_WORKSHEET_NAME = "Solicitudes"
 
-# Semántica de negocio autoritativa del propio XLSX (reemplaza la investigación de
-# flags Approved/¿Aprobado CCHH? de la fuente-lista, superada por el descubrimiento
-# de la fuente real): elegible si Motivo == "Vacaciones" AND Estado == "Aprobada".
-VACATION_ESTADO_VALUE = "Aprobada"
+# Semántica de negocio autoritativa del propio XLSX: elegible si
+# Estado == "Aprobada" — a diferencia del overlay original (Vacaciones-only),
+# el Motivo YA NO es un gate de elegibilidad, es lo que se CLASIFICA (ver
+# `_classify_absence_concept`).
+ABSENCE_ESTADO_VALUE = "Aprobada"
 
-# Horas equivalentes por día de vacaciones — regla de negocio de DISPLAY
-# autorizada por el owner (post-live-smoke UX corrective): la etiqueta del
-# overlay muestra `Días × 8`. SOLO informativo — nunca toca allocation/
-# Horaspormes/KPIs (ver `VacationPeriod.vacation_hours`).
-VACATION_HOURS_PER_DAY = 8
+# Horas equivalentes por día de ausencia — regla de negocio de DISPLAY
+# autorizada por el owner (post-live-smoke UX corrective, generalizada del
+# batch original de Vacaciones): la etiqueta del overlay muestra `Días × 8`.
+# SOLO informativo — nunca toca allocation/Horaspormes/KPIs (ver
+# `AbsencePeriod.hours`).
+ABSENCE_HOURS_PER_DAY = 8
 
 # Headers mínimos requeridos del worksheet. Del set completo (14 columnas) solo
 # se usan Apellido/Nombre/Motivo/Desde/Hasta/Estado como contrato de runtime, más
 # `Días` OPCIONAL (solo para la etiqueta de horas; su ausencia NO invalida el
 # período). CUIL/Legajo/comentarios/etiquetas NUNCA se retienen ni exponen; el
-# valor crudo de `Días` tampoco (solo su producto ×8 sale al payload).
-_VACATION_REQUIRED_HEADERS = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
-_VACATION_DIAS_HEADER = "Días"
+# valor crudo de `Días` tampoco (solo su producto ×8 sale al payload). `Motivo`
+# se retiene solo para clasificar el concepto EN el parseo — el valor crudo
+# nunca sobrevive más allá de eso (ver `AbsencePeriod`).
+_ABSENCE_REQUIRED_HEADERS = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
+_ABSENCE_DIAS_HEADER = "Días"
+
+# Approved Absence Overlay — Concept Classification (ver HANDOFF): TODO
+# Motivo aprobado se clasifica server-side en exactamente UNO de estos 4
+# conceptos canónicos — nunca se expone el Motivo crudo al browser (privacy
+# boundary: un Motivo libre de "Otros" podría ser información sensible del
+# empleado). Comparación NORMALIZADA (trim/colapso de espacios/casefold/
+# folding de diacríticos — mismo criterio determinístico que la identidad de
+# consultor, ver `staffing_service._normalize_consultant_name`), SIN
+# fuzzy-matching: cualquier Motivo que no normalice EXACTO a Vacaciones/
+# Danwor Day/Cumpleaños cae en Otros.
+ABSENCE_CONCEPT_VACACIONES = "Vacaciones"
+ABSENCE_CONCEPT_DANWOR_DAY = "Danwor Day"
+ABSENCE_CONCEPT_CUMPLEANOS = "Cumpleaños"
+ABSENCE_CONCEPT_OTROS = "Otros"
+
+
+def _normalize_label(value: str | None) -> str:
+    """Identidad determinística para comparar labels de negocio (Motivo) —
+    trim + colapso de espacios repetidos + casefold + folding de diacríticos
+    (NFKD, se descartan los combining marks). MISMO algoritmo que
+    `staffing_service._normalize_consultant_name` (duplicado deliberado, no
+    importado: dominios distintos — nombre de persona vs. concepto de
+    ausencia — que no deben acoplarse solo por compartir 4 líneas de
+    normalización). SIN fuzzy-matching."""
+    collapsed = " ".join((value or "").split())
+    decomposed = unicodedata.normalize("NFKD", collapsed.casefold())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+_ABSENCE_KNOWN_CONCEPTS = {
+    _normalize_label(ABSENCE_CONCEPT_VACACIONES): ABSENCE_CONCEPT_VACACIONES,
+    _normalize_label(ABSENCE_CONCEPT_DANWOR_DAY): ABSENCE_CONCEPT_DANWOR_DAY,
+    _normalize_label(ABSENCE_CONCEPT_CUMPLEANOS): ABSENCE_CONCEPT_CUMPLEANOS,
+}
+
+
+def _classify_absence_concept(raw_motivo: str) -> str:
+    """Clasifica un Motivo APROBADO en uno de los 4 conceptos canónicos —
+    match normalizado exacto contra Vacaciones/Danwor Day/Cumpleaños, o
+    `ABSENCE_CONCEPT_OTROS` para cualquier otro valor (incluido vacío). El
+    valor de entrada (`raw_motivo`) NUNCA se retiene más allá de esta
+    llamada — el caller (`_parse_absence_workbook`) solo guarda el
+    resultado clasificado en `AbsencePeriod.concept`."""
+    return _ABSENCE_KNOWN_CONCEPTS.get(_normalize_label(raw_motivo), ABSENCE_CONCEPT_OTROS)
 
 
 def _cell_to_iso_date(value) -> str:
@@ -366,13 +403,13 @@ def _cell_to_iso_date(value) -> str:
         return ""
 
 
-def _vacation_hours_from_dias(value) -> int | None:
+def _absence_hours_from_dias(value) -> int | None:
     """Traduce la celda `Días` a HORAS de display (`Días × 8`), robustamente y
     SIN retener el string crudo. Acepta int (`10`), float integral (`10.0`),
     texto numérico (`"10"`) y texto con sufijo (`"10 días"`); toma el primer
     número no-negativo (coma o punto decimal). Un valor ausente/malformado/
-    negativo → `None` (el período sigue siendo válido; la etiqueta cae a
-    "Vacaciones" sin horas). NUNCA se deriva de días hábiles del rango
+    negativo → `None` (el período sigue siendo válido; la etiqueta cae al
+    concepto pelado, sin horas). NUNCA se deriva de días hábiles del rango
     Desde/Hasta — `Días` ya puede reflejar el calendario de negocio de la
     fuente. Devuelve int (horas), integral por construcción salvo Días
     fraccionario, donde se redondea (display-only)."""
@@ -387,64 +424,66 @@ def _vacation_hours_from_dias(value) -> int | None:
         days = float(match.group(0).replace(",", "."))
     if days < 0:
         return None
-    return int(round(days * VACATION_HOURS_PER_DAY))
+    return int(round(days * ABSENCE_HOURS_PER_DAY))
 
 
-def _download_vacation_workbook(access_token: str) -> bytes:
+def _download_absence_workbook(access_token: str) -> bytes:
     """Descarga los bytes del XLSX autoritativo vía Graph: resuelve el sitio
     Operaciones (mecanismo de sitio establecido) → drive de documentos por default →
     `root:/{path}:/content`. `urllib` sigue el 302 a la URL pre-autenticada (ver
     `microsoft365.graph_get_bytes`). NO persiste el archivo. Fallas de transporte se
-    envuelven en `VacationGraphError`."""
-    site = _call_vacation_graph("site", lambda: microsoft365.graph_get_json(
-        f"{GRAPH_BASE}/sites/{VACATION_SITE_PATH}", access_token,
+    envuelven en `AbsenceGraphError`."""
+    site = _call_absence_graph("site", lambda: microsoft365.graph_get_json(
+        f"{GRAPH_BASE}/sites/{ABSENCE_SITE_PATH}", access_token,
     ))
     site_id = str((site or {}).get("id") or "")
     if not site_id:
-        raise VacationSchemaError(stage="site", missing_fields=["site_id"], ambiguous_fields=[])
-    return _call_vacation_graph("download", lambda: microsoft365.graph_get_bytes(
-        f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(VACATION_XLSX_PATH)}:/content",
+        raise AbsenceSchemaError(stage="site", missing_fields=["site_id"], ambiguous_fields=[])
+    return _call_absence_graph("download", lambda: microsoft365.graph_get_bytes(
+        f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(ABSENCE_XLSX_PATH)}:/content",
         access_token,
     ))
 
 
-def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
+def _parse_absence_workbook(data: bytes) -> tuple[list, dict]:
     """Parsea el workbook EN MEMORIA (openpyxl read-only/data-only) → períodos
     elegibles + funnel de conteos. Worksheet plano (header row + data rows), sin
     requerir una Tabla de Excel. Fail-soft: workbook inválido / worksheet o headers
-    faltantes → `VacationSchemaError` (el router lo trata como falla no-bloqueante,
+    faltantes → `AbsenceSchemaError` (el router lo trata como falla no-bloqueante,
     Staffing sigue funcionando); una fila inválida (sin nombre/fecha) se descarta sin
     romper el resto. `consultant_name` = "Nombre Apellido" (el join normaliza, no
-    reordena). NUNCA retiene CUIL/Legajo/Días/comentarios/etiquetas."""
-    funnel = {"worksheet_found": 0, "xlsx_rows": 0, "vacaciones_rows": 0,
-              "aprobadas_rows": 0, "eligible_periods": 0}
+    reordena). Elegibilidad = SOLO `Estado == "Aprobada"` — el Motivo YA NO es un
+    gate (a diferencia del overlay original de Vacaciones): se CLASIFICA en un
+    concepto canónico (`_classify_absence_concept`) y el valor crudo se descarta de
+    inmediato. NUNCA retiene CUIL/Legajo/Días/comentarios/etiquetas/Motivo crudo."""
+    funnel = {"worksheet_found": 0, "xlsx_rows": 0, "aprobadas_rows": 0, "eligible_periods": 0}
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception:  # noqa: BLE001 — workbook inválido/corrupto
-        raise VacationSchemaError(stage="workbook", missing_fields=["workbook"], ambiguous_fields=[]) from None
+        raise AbsenceSchemaError(stage="workbook", missing_fields=["workbook"], ambiguous_fields=[]) from None
     try:
-        if VACATION_WORKSHEET_NAME not in workbook.sheetnames:
-            raise VacationSchemaError(stage="worksheet", missing_fields=[VACATION_WORKSHEET_NAME], ambiguous_fields=[])
-        worksheet = workbook[VACATION_WORKSHEET_NAME]
+        if ABSENCE_WORKSHEET_NAME not in workbook.sheetnames:
+            raise AbsenceSchemaError(stage="worksheet", missing_fields=[ABSENCE_WORKSHEET_NAME], ambiguous_fields=[])
+        worksheet = workbook[ABSENCE_WORKSHEET_NAME]
         funnel["worksheet_found"] = 1
         row_iter = worksheet.iter_rows(values_only=True)
         try:
             header_row = next(row_iter)
         except StopIteration:
-            raise VacationSchemaError(stage="headers", missing_fields=list(_VACATION_REQUIRED_HEADERS), ambiguous_fields=[])
+            raise AbsenceSchemaError(stage="headers", missing_fields=list(_ABSENCE_REQUIRED_HEADERS), ambiguous_fields=[])
         header_index: dict[str, int] = {}
         for idx, cell in enumerate(header_row or ()):
             name = "" if cell is None else str(cell).strip()
             if name and name not in header_index:
                 header_index[name] = idx
-        missing = [h for h in _VACATION_REQUIRED_HEADERS if h not in header_index]
+        missing = [h for h in _ABSENCE_REQUIRED_HEADERS if h not in header_index]
         if missing:
-            raise VacationSchemaError(stage="headers", missing_fields=missing, ambiguous_fields=[])
+            raise AbsenceSchemaError(stage="headers", missing_fields=missing, ambiguous_fields=[])
 
         i_ape, i_nom = header_index["Apellido"], header_index["Nombre"]
         i_mot, i_est = header_index["Motivo"], header_index["Estado"]
         i_desde, i_hasta = header_index["Desde"], header_index["Hasta"]
-        i_dias = header_index.get(_VACATION_DIAS_HEADER)  # OPCIONAL (solo horas)
+        i_dias = header_index.get(_ABSENCE_DIAS_HEADER)  # OPCIONAL (solo horas)
         periods: list = []
         for row_num, row in enumerate(row_iter, start=1):
             if row is None or not any(cell is not None and str(cell).strip() for cell in row):
@@ -455,10 +494,7 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
                 value = row[idx] if idx < len(row) else None
                 return "" if value is None else str(value).strip()
 
-            if _cell(i_mot) != VACATION_LEAVE_TYPE_VALUE:
-                continue
-            funnel["vacaciones_rows"] += 1
-            if _cell(i_est) != VACATION_ESTADO_VALUE:
+            if _cell(i_est) != ABSENCE_ESTADO_VALUE:
                 continue
             funnel["aprobadas_rows"] += 1
 
@@ -472,10 +508,13 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
             # malformación NO invalida el período (fail-soft → horas None). La
             # geometría de la barra sigue siendo exclusivamente start/end.
             dias_cell = row[i_dias] if (i_dias is not None and i_dias < len(row)) else None
-            periods.append(VacationPeriod(
+            # `_cell(i_mot)` se usa UNA vez, acá, solo para clasificar — el
+            # string crudo nunca llega a `AbsencePeriod` (privacy boundary).
+            periods.append(AbsencePeriod(
                 source_id=f"xlsx:{row_num}", consultant_name=consultant_name,
                 start_date=start, end_date=end,
-                vacation_hours=_vacation_hours_from_dias(dias_cell),
+                concept=_classify_absence_concept(_cell(i_mot)),
+                hours=_absence_hours_from_dias(dias_cell),
             ))
         return periods, funnel
     finally:
@@ -483,23 +522,27 @@ def _parse_vacation_workbook(data: bytes) -> tuple[list, dict]:
 
 
 @dataclass(frozen=True)
-class VacationPeriod:
-    """Un período de vacaciones ELEGIBLE (Motivo == "Vacaciones" AND Estado ==
-    "Aprobada"), con `consultant_name` construido como "Nombre Apellido" tal
-    cual vino del XLSX, sin normalizar ni resolver contra Colaboradores todavía
-    — ese join determinístico vive en `StaffingService`, ver ahí. `start_date`/
-    `end_date` ya llegan como ISO `YYYY-MM-DD` (el service las parsea a `date` y
-    define la geometría de la barra, fin inclusive). `vacation_hours` es
-    metadata de DISPLAY (`Días × 8`, ver `_vacation_hours_from_dias`): `None`
-    cuando `Días` falta o es malformado — el período sigue siendo válido y la
-    barra igual se dibuja, solo cae la etiqueta de horas. NUNCA participa de
+class AbsencePeriod:
+    """Un período de ausencia ELEGIBLE (Estado == "Aprobada"), con
+    `consultant_name` construido como "Nombre Apellido" tal cual vino del
+    XLSX, sin normalizar ni resolver contra Colaboradores todavía — ese join
+    determinístico vive en `StaffingService`, ver ahí. `start_date`/
+    `end_date` ya llegan como ISO `YYYY-MM-DD` (el service las parsea a
+    `date` y define la geometría de la barra, fin inclusive). `concept` es
+    el resultado YA CLASIFICADO de Motivo (`Vacaciones`/`Danwor Day`/
+    `Cumpleaños`/`Otros`, ver `_classify_absence_concept`) — el Motivo crudo
+    NUNCA llega acá (privacy boundary). `hours` es metadata de DISPLAY
+    (`Días × 8`, ver `_absence_hours_from_dias`): `None` cuando `Días` falta
+    o es malformado — el período sigue siendo válido y la barra igual se
+    dibuja, solo cae la etiqueta de horas. NUNCA participa de
     allocation/Horaspormes/KPIs."""
 
     source_id: str
     consultant_name: str
     start_date: str | None
     end_date: str | None
-    vacation_hours: int | None = None
+    concept: str
+    hours: int | None = None
 
 
 def _list_items_url(
@@ -580,9 +623,9 @@ class StaffingRepository:
         # corrective, ver HANDOFF) — rows/pages/elapsed_ms/filter_used/
         # fallback_used por fuente, NUNCA token/payload/PII. Instancia
         # nueva por request (ver `webapp/routers/staffing.py`), así que no
-        # hay estado compartido entre requests concurrentes. `get_vacations`/
+        # hay estado compartido entre requests concurrentes. `get_absences`/
         # `get_consultants` reusan el MISMO diccionario (keys distintas,
-        # "vacaciones"/"colaboradores_identity") — nunca lo resetean, para
+        # "ausencias"/"colaboradores_identity") — nunca lo resetean, para
         # no perder el diagnóstico de `get_allocations` si ambos se llaman
         # sobre la misma instancia.
         self.last_diagnostics: dict = {}
@@ -786,24 +829,25 @@ class StaffingRepository:
         self.last_diagnostics["total_elapsed_ms"] = round((time.monotonic() - total_started) * 1000, 1)
         return records
 
-    def get_vacations(self, access_token: str) -> list[VacationPeriod]:
-        """Vacaciones APROBADAS desde el XLSX autoritativo en SharePoint (owner
-        authoritative source corrective, ver HANDOFF): descarga "Solicitudes (2).xlsx"
-        del sitio Operaciones y filtra `Motivo == "Vacaciones"` AND
-        `Estado == "Aprobada"` (semántica de negocio del propio archivo — la
-        investigación de flags Approved/CCHH de la fuente-lista quedó superada).
-        `consultant_name` = "Nombre Apellido" (el join contra Colaboradores en
-        `StaffingService` normaliza, no reordena). Filas sin nombre o sin ambas
-        fechas se descartan fail-soft por fila. NO persiste el archivo.
+    def get_absences(self, access_token: str) -> list[AbsencePeriod]:
+        """Ausencias APROBADAS desde el XLSX autoritativo en SharePoint
+        (Approved Absence Overlay, generalización del Vacation Timeline
+        Overlay original — ver HANDOFF): descarga "Solicitudes (2).xlsx" del
+        sitio Operaciones y filtra `Estado == "Aprobada"` — CUALQUIER Motivo
+        aprobado es elegible, clasificado server-side en uno de 4 conceptos
+        canónicos (ver `_classify_absence_concept`). `consultant_name` =
+        "Nombre Apellido" (el join contra Colaboradores en `StaffingService`
+        normaliza, no reordena). Filas sin nombre o sin ambas fechas se
+        descartan fail-soft por fila. NO persiste el archivo.
 
-        Embudo de diagnóstico (`self.last_diagnostics["vacaciones"]`) — conteos PUROS
-        por etapa (worksheet/xlsx_rows/Motivo=Vacaciones/Estado=Aprobada/períodos
-        elegibles) para que UN refresh diga en qué etapa se cae a cero, sin loguear
+        Embudo de diagnóstico (`self.last_diagnostics["ausencias"]`) — conteos
+        PUROS por etapa (worksheet/xlsx_rows/Estado=Aprobada/períodos elegibles)
+        para que UN refresh diga en qué etapa se cae a cero, sin loguear
         nombres/fechas/PII. Observación pura, sin regla de negocio."""
         started = time.monotonic()
-        data = _download_vacation_workbook(access_token)
-        periods, funnel = _parse_vacation_workbook(data)
-        self.last_diagnostics["vacaciones"] = {
+        data = _download_absence_workbook(access_token)
+        periods, funnel = _parse_absence_workbook(data)
+        self.last_diagnostics["ausencias"] = {
             **funnel,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
         }
@@ -811,7 +855,7 @@ class StaffingRepository:
 
     def get_consultants(self, access_token: str) -> list[tuple[str, str]]:
         """SOLO Colaboradores (id, nombre) — universo de identidad para el
-        join determinístico de Vacaciones (ver `StaffingService`), sin forzar
+        join determinístico de Ausencias (ver `StaffingService`), sin forzar
         una lectura completa de Asignaciones/Proyectos solo para resolver
         nombres. Reusa `colaborador_title` de `StaffingFieldMapping` — el
         mismo mapeo que ya requiere `get_allocations`, sin un campo nuevo."""

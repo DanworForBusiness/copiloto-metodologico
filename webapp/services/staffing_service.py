@@ -30,22 +30,27 @@ Staffing Director Priority V2 (ver HANDOFF): `get_overview` gana
 `build_dashboard_payload` gana `is_activo_vencido` — anomalía analítica
 derivada de Status+FechaFin, NUNCA una reescritura del Status crudo.
 
-Staffing Vacation Timeline Overlay (ver HANDOFF): overlay ADITIVO,
-presentacional — NUNCA toca KPIs/capacidad/allocation de Asignaciones.
-`_normalize_consultant_name` es el ÚNICO criterio de identidad para el join
-Vacaciones↔Colaboradores: trim + colapso de espacios + casefold + folding
+Staffing Approved Absence Overlay (ver HANDOFF — generalización del
+Vacation Timeline Overlay original): overlay ADITIVO, presentacional —
+NUNCA toca KPIs/capacidad/allocation de Asignaciones. `_normalize_
+consultant_name` es el ÚNICO criterio de identidad para el join
+Ausencias↔Colaboradores: trim + colapso de espacios + casefold + folding
 determinístico de diacríticos (Unicode NFKD, sin heurística de idioma) —
-SIN fuzzy-matching, sin reordenar nombres, sin nicknames. `join_vacations_to_
+SIN fuzzy-matching, sin reordenar nombres, sin nicknames. `join_absences_to_
 consultants` es PURA (sin Graph): dado el universo de consultores conocido,
 separa matched/unmatched/ambiguous — un nombre que normaliza igual que DOS
 consultores distintos queda `ambiguous` (nunca se le asigna a ninguno), un
 nombre que no matchea a nadie queda `unmatched` (nunca se descarta en
-silencio, ver `VacationJoinResult`). `build_vacation_overlay_payload` reusa
+silencio, ver `AbsenceJoinResult`). `build_absence_overlay_payload` reusa
 `compute_horizon_months`/`compute_timeline_position` — MISMA lógica de
 posicionamiento que Asignaciones, sin una segunda implementación de
 horizonte. Períodos que no se solapan con el horizonte visible se excluyen
 (nunca se "clippean" al borde — un período íntegramente pasado/futuro fuera
-de ventana no debe aparecer como si fuera vigente ahora)."""
+de ventana no debe aparecer como si fuera vigente ahora). Cada período trae
+`concept` YA CLASIFICADO server-side (`Vacaciones`/`Danwor Day`/
+`Cumpleaños`/`Otros`, ver `staffing_repository._classify_absence_concept`)
+— este módulo nunca ve ni reclasifica el Motivo crudo, solo transporta el
+concepto ya resuelto hasta el payload."""
 from __future__ import annotations
 
 import unicodedata
@@ -53,7 +58,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from webapp.services.staffing_repository import (
-    StaffingAllocationRecord, StaffingRepository, VacationPeriod,
+    AbsencePeriod, StaffingAllocationRecord, StaffingRepository,
 )
 
 # Referencia histórica (Power BI legado) — NO CONFIRMADA contra la fuente
@@ -241,7 +246,7 @@ def _parse_date(value: str | None) -> date | None:
 
 
 # ============================================================================
-# Vacaciones — identidad, join, overlay (Staffing Vacation Timeline Overlay)
+# Ausencias — identidad, join, overlay (Staffing Approved Absence Overlay)
 # ============================================================================
 
 def _normalize_consultant_name(name: str | None) -> str:
@@ -256,35 +261,38 @@ def _normalize_consultant_name(name: str | None) -> str:
 
 
 @dataclass(frozen=True)
-class VacationOverviewPeriod:
-    """Un período de vacaciones ya resuelto contra un consultor de Staffing
-    ÚNICO e inequívoco (ver `join_vacations_to_consultants`). `vacation_hours`
-    es passthrough puro de `VacationPeriod` — metadata de display (`Días × 8`),
-    `None` si la fuente no lo trae; el join no lo interpreta."""
+class AbsenceOverviewPeriod:
+    """Un período de ausencia ya resuelto contra un consultor de Staffing
+    ÚNICO e inequívoco (ver `join_absences_to_consultants`). `concept` y
+    `hours` son passthrough puro de `AbsencePeriod` — el concepto YA viene
+    clasificado del repositorio (nunca se reclasifica acá), `hours` es
+    metadata de display (`Días × 8`), `None` si la fuente no lo trae; el
+    join no interpreta ninguno de los dos."""
 
     source_id: str
     consultant_id: str
     consultant_name: str
     start_date: date
     end_date: date
-    vacation_hours: int | None = None
+    concept: str
+    hours: int | None = None
 
 
 @dataclass(frozen=True)
-class VacationJoinResult:
+class AbsenceJoinResult:
     """Resultado del join determinístico. `unmatched`/`ambiguous` conservan
-    los `VacationPeriod` CRUDOS (nunca se descartan en silencio) — quedan
+    los `AbsencePeriod` CRUDOS (nunca se descartan en silencio) — quedan
     disponibles para diagnóstico, nunca se les asigna un consultor por
     aproximación."""
 
-    periods: list[VacationOverviewPeriod]
-    unmatched: list[VacationPeriod]
-    ambiguous: list[VacationPeriod]
+    periods: list[AbsenceOverviewPeriod]
+    unmatched: list[AbsencePeriod]
+    ambiguous: list[AbsencePeriod]
 
 
-def join_vacations_to_consultants(
-    vacations: list[VacationPeriod], known_consultants: list[tuple[str, str]],
-) -> VacationJoinResult:
+def join_absences_to_consultants(
+    absences: list[AbsencePeriod], known_consultants: list[tuple[str, str]],
+) -> AbsenceJoinResult:
     """`known_consultants`: pares (consultant_id, consultant_name) del
     universo VIGENTE de Colaboradores de Staffing. Construye una key
     normalizada → lista de candidatos; una key con exactamente UN candidato
@@ -297,27 +305,27 @@ def join_vacations_to_consultants(
     for consultant_id, consultant_name in known_consultants:
         by_key.setdefault(_normalize_consultant_name(consultant_name), []).append((consultant_id, consultant_name))
 
-    periods: list[VacationOverviewPeriod] = []
-    unmatched: list[VacationPeriod] = []
-    ambiguous: list[VacationPeriod] = []
-    for vacation in vacations:
-        start = _parse_date(vacation.start_date)
-        end = _parse_date(vacation.end_date)
+    periods: list[AbsenceOverviewPeriod] = []
+    unmatched: list[AbsencePeriod] = []
+    ambiguous: list[AbsencePeriod] = []
+    for absence in absences:
+        start = _parse_date(absence.start_date)
+        end = _parse_date(absence.end_date)
         if start is None or end is None:
             continue
-        candidates = by_key.get(_normalize_consultant_name(vacation.consultant_name), [])
+        candidates = by_key.get(_normalize_consultant_name(absence.consultant_name), [])
         if len(candidates) == 1:
             consultant_id, consultant_name = candidates[0]
-            periods.append(VacationOverviewPeriod(
-                source_id=vacation.source_id, consultant_id=consultant_id,
+            periods.append(AbsenceOverviewPeriod(
+                source_id=absence.source_id, consultant_id=consultant_id,
                 consultant_name=consultant_name, start_date=start, end_date=end,
-                vacation_hours=vacation.vacation_hours,
+                concept=absence.concept, hours=absence.hours,
             ))
         elif len(candidates) == 0:
-            unmatched.append(vacation)
+            unmatched.append(absence)
         else:
-            ambiguous.append(vacation)
-    return VacationJoinResult(periods=periods, unmatched=unmatched, ambiguous=ambiguous)
+            ambiguous.append(absence)
+    return AbsenceJoinResult(periods=periods, unmatched=unmatched, ambiguous=ambiguous)
 
 
 def _overlaps_horizon(start: date, end: date, horizon_months: list[date]) -> bool:
@@ -332,32 +340,37 @@ def _overlaps_horizon(start: date, end: date, horizon_months: list[date]) -> boo
     return end >= horizon_start and start < horizon_end_exclusive
 
 
-def build_vacation_overlay_payload(join_result: VacationJoinResult, *, today: date | None = None) -> dict:
+def build_absence_overlay_payload(join_result: AbsenceJoinResult, *, today: date | None = None) -> dict:
     """Transformación PURA del resultado del join al payload JSON del
     overlay — reusa `compute_horizon_months`/`compute_timeline_position`
-    (MISMA ventana/posicionamiento que `build_dashboard_payload`, nunca una
-    segunda implementación de horizonte). `unmatched_count`/`ambiguous_count`
-    son conteos puros para diagnóstico — nunca nombres/PII en el payload de
-    vuelta al cliente."""
+    (MISMA ventana/posicionamiento día-exacta que `build_dashboard_payload`
+    y el marcador de "hoy", nunca una segunda implementación de horizonte ni
+    de geometría). `unmatched_count`/`ambiguous_count` son conteos puros
+    para diagnóstico — nunca nombres/PII en el payload de vuelta al
+    cliente. `concept` es el ÚNICO campo derivado de Motivo — el valor crudo
+    nunca existió más allá del repositorio (ver `AbsencePeriod`), así que no
+    hay nada que filtrar acá: el payload ya es privacy-safe por
+    construcción."""
     horizon_months = compute_horizon_months(today or date.today())
-    vacations = []
+    absences = []
     for period in join_result.periods:
         if not _overlaps_horizon(period.start_date, period.end_date, horizon_months):
             continue
         position = compute_timeline_position(period.start_date, period.end_date, horizon_months)
-        vacations.append({
+        absences.append({
             "source_id": period.source_id,
             "consultant_id": period.consultant_id,
             "consultant_name": period.consultant_name,
             "start_date": period.start_date.isoformat(),
             "end_date": period.end_date.isoformat(),
+            "concept": period.concept,
             # Metadata de display SOLAMENTE (Días × 8) — `None` cuando la fuente
             # no trae Días válido; la barra igual se posiciona por start/end.
-            "vacation_hours": period.vacation_hours,
+            "hours": period.hours,
             **position,
         })
     return {
-        "vacations": vacations,
+        "absences": absences,
         "unmatched_count": len(join_result.unmatched),
         "ambiguous_count": len(join_result.ambiguous),
     }
@@ -382,17 +395,17 @@ class StaffingService:
         rows.sort(key=lambda row: (row.consultant_name, row.project_name))
         return rows
 
-    def get_vacation_overlay(self, access_token: str, *, today: date | None = None) -> dict:
-        """Vacaciones APROBADAS ya unidas contra el universo de Colaboradores
+    def get_absence_overlay(self, access_token: str, *, today: date | None = None) -> dict:
+        """Ausencias APROBADAS ya unidas contra el universo de Colaboradores
         VIGENTE, listas para overlay del timeline (Consultor únicamente, ver
-        template/app.js). Lee Vacaciones + Colaboradores por separado de
+        template/app.js). Lee Ausencias + Colaboradores por separado de
         `get_overview` — carga LAZY e independiente (ver HANDOFF), nunca una
         segunda pasada sobre Asignaciones."""
-        vacations = self._repository.get_vacations(access_token)
+        absences = self._repository.get_absences(access_token)
         consultants = self._repository.get_consultants(access_token)
         self.last_diagnostics = getattr(self._repository, "last_diagnostics", {})
-        join_result = join_vacations_to_consultants(vacations, consultants)
-        return build_vacation_overlay_payload(join_result, today=today)
+        join_result = join_absences_to_consultants(absences, consultants)
+        return build_absence_overlay_payload(join_result, today=today)
 
     def _to_row(self, record: StaffingAllocationRecord) -> StaffingOverviewRow:
         return StaffingOverviewRow(
