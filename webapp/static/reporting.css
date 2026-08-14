@@ -98,6 +98,15 @@
 .reporting-integral-preview table.data-table td { padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,.05); }
 .reporting-integral-preview table.data-table tr:hover td { background: rgba(231,176,8,.06); }
 .reporting-integral-preview .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Cartera + Rentabilidad Completeness corrective (ver HANDOFF, B3): sin
+   esto, `table.data-table th{text-align:left}` de arriba le gana a `.num`
+   por especificidad CSS (2 elementos+1 clase vs. 1 clase) — el header de
+   una columna numérica quedaba a la izquierda aunque tuviera `class="num"`,
+   desalineado con sus propias celdas (que sí resolvían bien, `td` no tiene
+   una regla base de alineación compitiendo). Mismo criterio de columna
+   declarativa que ya usa `table.tree-matrix` (numeric ? "" : "left") — acá
+   solo hacía falta ganarle la especificidad a `.num`, nunca nth-child. */
+.reporting-integral-preview table.data-table th.num { text-align: right; }
 .reporting-integral-preview .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
 .reporting-integral-preview .status-pill.en-curso { background: rgba(46,158,91,.12); color: var(--green); }
 .reporting-integral-preview .status-pill.finalizado { background: rgba(122,122,130,.14); color: var(--grey); }

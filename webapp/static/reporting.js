@@ -40,16 +40,30 @@
 // es "En curso" | "Finalizado" (owner screenshots) — NUNCA
 // activo/vencido/cerrado (eso era una invención de la primera versión de
 // este V0 para la Cartera vieja).
+//
+// Cartera + Rentabilidad Completeness corrective (ver HANDOFF):
+// - `anio`/`mes` (Mantenimiento) y `anioInicio` (Proyecto) — slicers reales
+//   confirmados en page_inventory.json (`Meses.Año`/`Meses.Mes` en Analisis
+//   Mantenimiento; `Proyectos.Año de Inicio` en Analisis Proyectos, SIN
+//   Meses.Mes ahí — por eso Proyecto nunca muestra Mes).
+// - `facturadas` — CORREGIDO: la versión anterior de este V0 mostraba un
+//   "100%"/"90%"/"85%" inventado. El pivotTable real usa
+//   `Comparativo[Total Horas Facturadas]` para esa columna (ver visual.json
+//   de "Analisis Mantenimiento": Property "Total Horas Facturadas",
+//   nativeQueryRef/displayName "Facturadas") — un número de HORAS aditivo,
+//   MISMA naturaleza que Hs Trabajadas/Hs Certif. Acum, nunca un porcentaje.
+//   Valores acá preservan la misma señal relativa que el % inventado
+//   (100% pleno, YPF/Ternium por debajo) pero como horas reales.
 const CARTERA_MANTENIMIENTO_ROWS = [
-  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturado: "100%", status: "En curso" },
-  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturado: "100%", status: "En curso" },
-  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturado: "100%", status: "En curso" },
-  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturado: "100%", status: "Finalizado" },
+  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturadas: 128, status: "En curso", anio: "2026", mes: "Ago" },
+  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturadas: 43, status: "En curso", anio: "2026", mes: "Ago" },
+  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturadas: 96, status: "En curso", anio: "2026", mes: "Jul" },
+  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturadas: 60, status: "Finalizado", anio: "2026", mes: "Jun" },
 ];
 const CARTERA_PROYECTO_ROWS = [
-  { cliente: "YPF", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturado: "90%", status: "En curso" },
-  { cliente: "AySA", idProyecto: "DAN-1055", proyecto: "Costeo Federal", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturado: "100%", status: "En curso" },
-  { cliente: "Ternium", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturado: "85%", status: "Finalizado" },
+  { cliente: "YPF", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturadas: 290, status: "En curso", anioInicio: "2026" },
+  { cliente: "AySA", idProyecto: "DAN-1055", proyecto: "Costeo Federal", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturadas: 212, status: "En curso", anioInicio: "2025" },
+  { cliente: "Ternium", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturadas: 141, status: "Finalizado", anioInicio: "2026" },
 ];
 
 function statusPillCartera(status) {
@@ -78,8 +92,8 @@ const CARTERA_CONFIG = {
       { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
       { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
       { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales, rollup: sumField("vendidasMensuales") },
-      { label: "Facturadas", numeric: true, render: r => r.facturado },
-      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status) },
+      { label: "Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
+      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
   "Proyecto": {
@@ -90,11 +104,29 @@ const CARTERA_CONFIG = {
       { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
       { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
       { label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
-      { label: "Facturadas", numeric: true, render: r => r.facturado },
-      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status) },
+      { label: "Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
+      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
 };
+
+// Default de Año/Mes/Año de Inicio (ver corrective — HANDOFF: "Cartera +
+// Rentabilidad Completeness", A1): resuelve al año/mes calendario ACTUAL
+// (`new Date()`, nunca un literal hardcodeado tipo "2026"/"Agosto") SOLO si
+// ese valor existe de verdad en el dataset — si el mock no lo representa,
+// cae a "Todos" ("") en vez de mostrar un filtro que garantiza 0 filas.
+function carteraDefaultFilters(persp) {
+  const cfg = CARTERA_CONFIG[persp];
+  const anioActual = String(new Date().getFullYear());
+  if (persp === "Mantenimiento") {
+    const mesActual = MESES[new Date().getMonth()];
+    const anios = new Set(cfg.rows.map(r => r.anio));
+    const meses = new Set(cfg.rows.map(r => r.mes));
+    return { anio: anios.has(anioActual) ? anioActual : "", mes: meses.has(mesActual) ? mesActual : "" };
+  }
+  const anios = new Set(cfg.rows.map(r => r.anioInicio));
+  return { anioInicio: anios.has(anioActual) ? anioActual : "" };
+}
 
 // Rentabilidad / Performance (ver corrective — HANDOFF/task): a diferencia
 // de Horas Vendidas/Calendario, "Analisis Rentabilidad" y "Hs Certificadas
@@ -123,6 +155,40 @@ const RENTABILIDAD_PROYECTOS = [
   { tipo: "Proyecto", proyecto: "AySA - Costeo Federal", certificadas: 212, trabajadas: 210 },
   { tipo: "Proyecto", proyecto: "Ternium - Rollout Reporting", certificadas: 166, trabajadas: 175 },
 ];
+
+// Matriz mensual por Concepto (ver corrective — HANDOFF: "Cartera +
+// Rentabilidad Completeness", B2) — pivotTable PRINCIPAL real de "Analisis
+// Rentabilidad" (visual d006eb329e24e5e3950b, page 27b8d56f76c40db0321d):
+// Rows: Concepto — Columns: MesNombre — Values: Sum(Valor). Orden de
+// Concepto es el real (`Rentabilidad Unpivot.tmdl`, columna `Orden`,
+// `sortByColumn Orden`): 1 Horas Vendidas, 2 Horas Certificadas, 3 Horas
+// Trabajadas, 4 Rentabilidad horas, 5 No asignadas a servicios — NUNCA
+// alfabético. MesNombre ordena por `NumMes` (cronológico real, Ene…Dic),
+// reusa el MISMO `MESES` que Horas Vendidas/Calendario.
+//
+// MENSUAL, no acumulado: el M-query de `Comparativo` agrupa
+// (`GROUPBY`/`SUMX(CURRENTGROUP())`) por `[Mes]` específico — cada celda es
+// el valor DE ESE mes, no una suma corrida desde enero (verificado en
+// Comparativo.tmdl, partition source).
+//
+// Horas Certificadas/Horas Trabajadas/Rentabilidad horas SÍ responden a los
+// filtros Tipo Proyecto/Proyecto de esta experiencia (se derivan de
+// `rentabilidadFilteredProyectos()`, ver B5 — mismo contexto de filtro que
+// el ranking). Horas Vendidas/No asignadas a servicios quedan a nivel
+// portfolio FIJO — mismo criterio YA establecido para los 4 KPIs de
+// Resumen (ninguno de los dos existe como campo por-proyecto en
+// RENTABILIDAD_PROYECTOS; inventar una distribución por proyecto no
+// verificada sería peor que ser explícito sobre el límite). `flatMonthly`
+// reparte el total anual aprobado en partes iguales — simplificación de V0
+// documentada (no hay granularidad mensual real disponible sin datos
+// vivos); la relación SUMA-doce-meses-= total-anual sí es exacta.
+function flatMonthly(total) {
+  const base = Math.floor(total / 12);
+  const remainder = total - base * 12;
+  return Array.from({ length: 12 }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+const RENTABILIDAD_VENDIDAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.vendidas);
+const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsignadas);
 
 // Horas Vendidas (ver corrective — HANDOFF/task): campos reales del PBIP son
 // "Hs vendidas Mant" / "Hs vendidas Proy" (Horas por proyectos) separadas por
@@ -328,7 +394,10 @@ const state = {
   // filtrables (ver getFilter/setFilter/selectField más abajo), keyeado
   // "<experienceId>.<dimensión>". Comercial queda afuera a propósito (no se
   // revisita su diseño de negocio en este batch, ver HANDOFF).
-  filters: { cartera: {}, rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
+  // Cartera arranca con Año/Mes en el valor calendario actual (ver
+  // corrective — HANDOFF: "Cartera + Rentabilidad Completeness", A1) — las
+  // otras 5 experiencias arrancan sin filtro (Todos).
+  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
   // genérico de arriba) porque su semántica default NO es "todo tildado":
@@ -345,6 +414,12 @@ function diffCell(diff) {
   const sign = diff > 0 ? "+" : "";
   return `<span class="${cls}">${sign}${diff}</span>`;
 }
+// Versión texto plano de diffCell — para atributos `title` (tooltip
+// nativo), que no pueden contener HTML (ver corrective — HANDOFF: "Cartera
+// + Rentabilidad Completeness", B1/B4).
+function diffPlain(diff) {
+  return (diff > 0 ? "+" : "") + diff;
+}
 
 // --- Motor de filtros compartido (Align with Hub backbone corrective) ------
 // UN solo mecanismo de estado/lectura/escritura para los filtros <select> de
@@ -352,19 +427,25 @@ function diffCell(diff) {
 // "Todos" == "" (sin filtrar). Los checkbox-group (Status de Cartera) tienen
 // su propio estado dedicado (`state.carteraStatus`) por la razón de arriba,
 // pero se renderizan con el MISMO helper visual `checkboxGroupField`.
-function distinctValues(rows, key) {
-  return [...new Set(rows.map(r => r[key]))]
-    .filter(v => v !== undefined && v !== null && v !== "")
-    .sort((a, b) => String(a).localeCompare(String(b), "es"));
+// `compareFn` opcional (ver corrective — HANDOFF: "Cartera + Rentabilidad
+// Completeness", A2 — "ordered date/month facets"): default alfabético
+// ("es"); un facet como Mes necesita orden de NEGOCIO (Ene…Dic), nunca
+// alfabético ("Agosto" < "Enero" alfabéticamente sería incorrecto acá).
+function distinctValues(rows, key, compareFn) {
+  const values = [...new Set(rows.map(r => r[key]))]
+    .filter(v => v !== undefined && v !== null && v !== "");
+  return values.sort(compareFn || ((a, b) => String(a).localeCompare(String(b), "es")));
 }
 
 // --- Faceted/cascading filter helper (ver corrective — HANDOFF) -----------
 // Regla canónica: availableOptions(F) = valores distintos de BASE DATA
 // después de aplicar todos los filtros ACTIVOS salvo F mismo. `fields` es
-// la config declarativa por experiencia: [{ key, field }] — `key` es la
-// clave en `state.filters[expId]`, `field` es la propiedad real de la fila.
-// `baseRows` ya viene escopeada por lo que NO es un facet <select>
-// (perspectiva, checkboxes de Status) — el motor de acá solo resuelve la
+// la config declarativa por experiencia: [{ key, field, compareFn? }] —
+// `key` es la clave en `state.filters[expId]`, `field` es la propiedad
+// real de la fila, `compareFn` opcional fuerza un orden de negocio en vez
+// del alfabético default (ver Mes en Cartera/Mantenimiento). `baseRows` ya
+// viene escopeada por lo que NO es un facet <select> (perspectiva,
+// checkboxes de Status) — el motor de acá solo resuelve la
 // interdependencia ENTRE los <select>, nunca decide perspectiva/Status.
 function facetRowsExcept(baseRows, filters, fields, exceptKey) {
   return fields.reduce((rows, f) => {
@@ -374,8 +455,8 @@ function facetRowsExcept(baseRows, filters, fields, exceptKey) {
   }, baseRows);
 }
 function facetOptions(baseRows, filters, fields, key) {
-  const field = fields.find(f => f.key === key).field;
-  return distinctValues(facetRowsExcept(baseRows, filters, fields, key), field);
+  const f = fields.find(f => f.key === key);
+  return distinctValues(facetRowsExcept(baseRows, filters, fields, key), f.field, f.compareFn);
 }
 // Invalid-selection reset (ver corrective): si un valor ya seleccionado deja
 // de ser una opción válida (recalculada EXCLUYÉNDOLO a él mismo, igual que
@@ -413,10 +494,20 @@ function reconcileFacetFilters(expId, baseRows, fields, justChangedKey) {
 // afuera a propósito (sin filtros, fuera de alcance, ver HANDOFF).
 const FACET_CONFIG = {
   cartera: () => {
-    const cfg = CARTERA_CONFIG[state.perspective.cartera];
+    const persp = state.perspective.cartera;
+    const cfg = CARTERA_CONFIG[persp];
+    const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status]);
+    // Mantenimiento agrega Año/Mes (Meses.Año/Meses.Mes, slicers reales de
+    // "Analisis Mantenimiento"); Proyecto agrega Año de Inicio
+    // (Proyectos.Año de Inicio) — SIN Mes, esa página fuente no lo tiene
+    // (ver corrective — HANDOFF: "Cartera + Rentabilidad Completeness", A1).
+    // Mes usa `compareFn` cronológico (Ene…Dic), nunca alfabético.
+    const dateFields = persp === "Mantenimiento"
+      ? [{ key: "anio", field: "anio" }, { key: "mes", field: "mes", compareFn: (a, b) => MESES.indexOf(a) - MESES.indexOf(b) }]
+      : [{ key: "anioInicio", field: "anioInicio" }];
     return {
-      baseRows: cfg.rows.filter(r => state.carteraStatus[r.status]),
-      fields: [{ key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }],
+      baseRows,
+      fields: [{ key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }, ...dateFields],
     };
   },
   rentabilidad: () => ({
@@ -482,8 +573,15 @@ function setFilter(expId, key, value) {
   render();
 }
 function resetFilters(expId) {
-  state.filters[expId] = {};
-  if (expId === "cartera") state.carteraStatus = { "En curso": true, "Finalizado": false };
+  if (expId === "cartera") {
+    // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
+    // curso), no a blanco — mismo criterio ya establecido para Estado (ver
+    // corrective anterior), ahora extendido a Año/Mes/Año de Inicio.
+    state.filters.cartera = carteraDefaultFilters(state.perspective.cartera);
+    state.carteraStatus = { "En curso": true, "Finalizado": false };
+  } else {
+    state.filters[expId] = {};
+  }
   render();
 }
 function selectField(expId, key, label, options) {
@@ -541,9 +639,19 @@ function toggleCarteraStatus(key) {
 // en el dataset de esa experiencia/subvista (ver corrective: "si un filtro
 // es irrelevante, ocultarlo" — nunca un control decorativo). Empresa/Año/Mes
 // no aparecen acá porque ningún dataset mock los modela como campo real.
+// Schema por perspectiva (ver corrective — HANDOFF: "Cartera + Rentabilidad
+// Completeness", A1): Mantenimiento agrega Año/Mes (slicers reales de
+// "Analisis Mantenimiento"); Proyecto agrega Año de Inicio SIN Mes (esa
+// página fuente no tiene Meses.Mes, ver page_inventory.json). Orden exacto
+// pedido: Proyecto, Cliente, Año(/de Inicio)[, Mes], Estado.
 function renderCarteraFilterBar() {
+  const persp = state.perspective.cartera;
+  const dateFields = persp === "Mantenimiento"
+    ? facetSelectField("cartera", "anio", "Año") + facetSelectField("cartera", "mes", "Mes")
+    : facetSelectField("cartera", "anioInicio", "Año de Inicio");
   const fields = facetSelectField("cartera", "proyecto", "Proyecto")
     + facetSelectField("cartera", "cliente", "Cliente")
+    + dateFields
     + checkboxGroupField("Estado", [
         { value: "En curso", checked: state.carteraStatus["En curso"], onclick: "toggleCarteraStatus('En curso')" },
         { value: "Finalizado", checked: state.carteraStatus["Finalizado"], onclick: "toggleCarteraStatus('Finalizado')" },
@@ -617,8 +725,11 @@ function setPerspective(expId, p) {
   // Cada perspectiva puede tener dimensiones de filtro distintas (ver
   // Capacidad Productivas↔No Asignadas) — se resetea el filtro de la
   // experiencia al cambiar de perspectiva para no arrastrar un valor que ya
-  // no aplica a la nueva vista.
-  if (state.filters[expId]) state.filters[expId] = {};
+  // no aplica a la nueva vista. Cartera resetea al default sensato de la
+  // NUEVA perspectiva (año/mes actual o año de inicio actual, ver
+  // carteraDefaultFilters) en vez de blanco.
+  if (expId === "cartera") state.filters.cartera = carteraDefaultFilters(p);
+  else if (state.filters[expId]) state.filters[expId] = {};
   render();
 }
 
@@ -698,13 +809,65 @@ function rentabilidadFilteredProyectos() {
   return facetFilteredRows("rentabilidad");
 }
 
+// `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
+// Completeness", B1): el ancho de la barra es una representación RELATIVA
+// (% del máximo del ranking) — el tooltip expone el proyecto, ese % relativo
+// Y el valor numérico real de Rentabilidad horas detrás, sin librería de
+// tooltips nueva (atributo `title` nativo, accesible).
 function rentabilidadBarRow(label, value, maxAbs) {
   const cls = value < 0 ? "negativo" : "positivo";
   const width = maxAbs ? (Math.abs(value) / maxAbs * 100).toFixed(1) : 0;
-  return `<div class="bar-row"><span class="bar-label">${esc(label)}</span>
+  const tooltip = `${label} — Rentabilidad horas: ${diffPlain(value)} (${width}% del máximo del ranking)`;
+  return `<div class="bar-row" title="${esc(tooltip)}"><span class="bar-label">${esc(label)}</span>
     <div class="bar-track"><div class="bar-fill ${cls}" style="width:${width}%"></div></div>
     <span class="bar-value">${diffCell(value)}</span>
   </div>`;
+}
+
+// Matriz mensual por Concepto (ver corrective — HANDOFF: "Cartera +
+// Rentabilidad Completeness", B2/B5) — MISMO `rows` YA filtrado que el
+// ranking (`rentabilidadFilteredProyectos()`, nunca un segundo estado de
+// filtro independiente). Tabla plana (Concepto es un solo nivel en la
+// pivotTable real, sin jerarquía) — reusa `table.tree-matrix` por
+// consistencia visual con las demás matrices mensuales, pero SIN el motor
+// de árbol (sin toggle/caret/Expandir/Contraer): "si la fuente no tiene
+// expansión jerárquica, no se inventa una".
+function renderRentabilidadMensual(rows) {
+  const certMonthly = new Array(12).fill(0);
+  const trabMonthly = new Array(12).fill(0);
+  rows.forEach(p => {
+    flatMonthly(p.certificadas).forEach((v, i) => { certMonthly[i] += v; });
+    flatMonthly(p.trabajadas).forEach((v, i) => { trabMonthly[i] += v; });
+  });
+  const rentMonthly = certMonthly.map((v, i) => v - trabMonthly[i]);
+  // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5) — Horas
+  // Vendidas/No asignadas a servicios quedan a nivel portfolio fijo (ver
+  // comentario del dataset), Certificadas/Trabajadas/Rentabilidad horas sí
+  // responden a los filtros vigentes de esta experiencia.
+  const conceptos = [
+    { concepto: "Horas Vendidas", monthly: RENTABILIDAD_VENDIDAS_MENSUAL, signed: false },
+    { concepto: "Horas Certificadas", monthly: certMonthly, signed: false },
+    { concepto: "Horas Trabajadas", monthly: trabMonthly, signed: false },
+    { concepto: "Rentabilidad horas", monthly: rentMonthly, signed: true },
+    { concepto: "No asignadas a servicios", monthly: RENTABILIDAD_NOASIGNADAS_MENSUAL, signed: false },
+  ];
+  const body = `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr><th class="row-label-col">Concepto</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
+        <tbody>
+          ${conceptos.map(c => {
+            const total = c.monthly.reduce((s, v) => s + v, 0);
+            return `<tr class="depth-0">
+              <td class="row-label"><span class="tree-indent" style="width:0px"></span>${esc(c.concepto)}</td>
+              ${c.monthly.map(v => `<td>${c.signed ? diffCell(v) : (v || "—")}</td>`).join("")}
+              <td>${c.signed ? diffCell(total) : total}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>`;
+  return dashboardSection("mensual", "Detalle mensual por Concepto", MESES[0] + " – " + MESES[11], body);
 }
 
 function renderRentabilidadResumen() {
@@ -715,8 +878,8 @@ function renderRentabilidadResumen() {
   // Power BI original tuviera una fila Total). Estos 4 KPIs son el card
   // resumen REAL de la página fuente (totales de portfolio) — no se derivan
   // de RENTABILIDAD_PROYECTOS (esa lista no suma 1:1 contra ellos, ver
-  // comentario del dataset) y por eso NO se filtran; solo el ranking de
-  // abajo sí responde a Tipo Proyecto/Proyecto.
+  // comentario del dataset) y por eso NO se filtran; solo el ranking y la
+  // matriz mensual de abajo sí responden a Tipo Proyecto/Proyecto.
   const rentabilidadHoras = r.certificadas - r.trabajadas;
   const rows = rentabilidadFilteredProyectos();
   const ranked = rentabilidadRanked(rows);
@@ -742,7 +905,25 @@ function renderRentabilidadResumen() {
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
-  return resumen + ranking;
+  const mensual = renderRentabilidadMensual(rows);
+
+  return resumen + ranking + mensual;
+}
+
+// `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
+// Completeness", B4): mismo contenido en AMBAS barras del par
+// (Certificadas/Ejecutadas) del grupo — "hovering either relevant mark may
+// show the complete comparison" — con el agregado del Tipo Y el desglose
+// por proyecto (Hs Certificadas/Hs Ejecutadas/Margen Absoluto/Margen
+// Relativo, mismas fórmulas ya aprobadas, sin etiquetas cualitativas).
+function certEjecGroupTooltip(g) {
+  const lines = [`${g.tipo} — Certificadas: ${g.certificadas} · Ejecutadas: ${g.trabajadas} · Margen Absoluto: ${diffPlain(g.margenAbsoluto)} · Margen Relativo: ${diffPlain(Math.round(g.margenRelativo * 10) / 10)}%`];
+  g.rows.forEach(p => {
+    const ma = p.certificadas - p.trabajadas;
+    const mr = p.certificadas ? Math.round((ma / p.certificadas) * 1000) / 10 : 0;
+    lines.push(`· ${p.proyecto} (${p.tipo}) — Certificadas: ${p.certificadas} · Ejecutadas: ${p.trabajadas} · Margen Absoluto: ${diffPlain(ma)} · Margen Relativo: ${diffPlain(mr)}%`);
+  });
+  return lines.join("\n");
 }
 
 function renderRentabilidadCertEjecutadas() {
@@ -760,19 +941,22 @@ function renderRentabilidadCertEjecutadas() {
   const analysisContent = groups.length ? `
     <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
     <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
-    ${groups.map(g => `
+    ${groups.map(g => {
+      const tooltip = esc(certEjecGroupTooltip(g));
+      return `
       <p class="perspective-label" style="margin-top:14px">${esc(g.tipo)}</p>
-      <div class="bar-row"><span class="bar-label">Certificadas</span>
+      <div class="bar-row" title="${tooltip}"><span class="bar-label">Certificadas</span>
         <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
         <span class="bar-value">${g.certificadas}</span>
       </div>
-      <div class="bar-row"><span class="bar-label">Ejecutadas</span>
+      <div class="bar-row" title="${tooltip}"><span class="bar-label">Ejecutadas</span>
         <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
         <span class="bar-value">${g.trabajadas}</span>
       </div>
       <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
         Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
-      </p>`).join("")}
+      </p>`;
+    }).join("")}
   ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
   const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
@@ -963,10 +1147,15 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
 //      por el total fijo y formatear"), vía `sumField(field, esaFuncion)`
 //      — un solo primitivo cubre las clases A y B, sin un segundo helper
 //      de ratio.
-//   C. CATEGÓRICA — sin `rollup` (el default ya existente): el padre queda
-//      en blanco, nunca se inventa "peor gana"/promedio/etc. — mismo
-//      criterio ya usado por Status/Facturadas en Cartera y por Salud en
-//      Comercial.
+//   C. CATEGÓRICA — sin `rollup` (el default ya existente, padre en
+//      blanco — Salud de Comercial, columnas sin equivalente único) O
+//      `uniformValue(field, formatFn)` (Cartera + Rentabilidad
+//      Completeness corrective, ver HANDOFF) cuando el valor del padre ES
+//      objetivamente derivable: si TODAS las hojas del subárbol comparten
+//      el mismo valor, se propaga (Cliente con 1 solo Proyecto "En curso"
+//      → el Cliente muestra "En curso"); si hay más de un valor distinto,
+//      blanco — NUNCA "peor gana"/"mejor gana"/mayoría/primer hijo
+//      arbitrario.
 // Reusado por Cartera/Proyectos, Capacidad/Productivas y Comercial/
 // Participación — un solo contrato, cero lógica de agregación repetida a
 // mano por experiencia (ver HANDOFF: "no debe convertirse en agregación
@@ -975,6 +1164,19 @@ function sumField(field, formatFn) {
   return rows => {
     const total = rows.reduce((s, r) => s + (r[field] || 0), 0);
     return formatFn ? formatFn(total) : total;
+  };
+}
+// Rollup conservador para columnas categóricas (ver corrective — HANDOFF:
+// "Cartera + Rentabilidad Completeness", regla A3): NUNCA promedia/vota —
+// solo propaga cuando el valor es objetivamente inequívoco (un único valor
+// distinto entre las hojas del subárbol). Dos o más valores distintos, o
+// cero hojas con valor no vacío, caen al blanco por defecto (mismo
+// comportamiento que "sin rollup").
+function uniformValue(field, formatFn) {
+  return rows => {
+    const distinct = [...new Set(rows.map(r => r[field]).filter(v => v !== undefined && v !== null && v !== ""))];
+    if (distinct.length !== 1) return "";
+    return formatFn ? formatFn(distinct[0]) : distinct[0];
   };
 }
 
