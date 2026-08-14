@@ -317,15 +317,42 @@ const CALENDARIO_HIERARCHY = {
   "Client Partner": { keys: ["cp", "cliente", "frecuencia"], labels: ["Client Partner", "Cliente", "ID Frecuencia"] },
 };
 
-const CAPACIDAD_NOASIGNADAS = [
-  { consultor: "J. Valletta", disponibles: 40, asignadas: 32, gap: 8 },
-  { consultor: "A. Fernández", disponibles: 40, asignadas: 40, gap: 0 },
-  { consultor: "M. Torres", disponibles: 30, asignadas: 18, gap: 12 },
+// Capacidad / Ejecución (ver corrective — HANDOFF/task): "Horas Productivas
+// consumidas" y "Hs No Asignadas" son DOS preguntas de negocio distintas
+// (una por Cliente/Proyecto, otra por Consultor) confirmadas por PBIP —
+// NUNCA la misma tabla reordenada, y NUNCA una redefinición de disponibilidad
+// de Staffing (ver nota de límite más abajo).
+//
+// Productivas: pivotTable real Rows=Cliente+Part>Project, Values=Rank/
+// Horas/% Incidencia. `Horas` = Sum(Time Logs Reports.HORAS); `% Incidencia`
+// = medida real `Time Logs Reports.[% Hs ejecutadas]` = Horas de esa fila ÷
+// Horas TOTALES (REMOVEFILTERS de Cliente/Client Partner — SIEMPRE contra el
+// gran total, no contra el subtotal del Cliente). `Rank` = RANKX por Horas
+// descendente — representado acá por el ORDEN de las filas (Cliente
+// ordenado de mayor a menor Horas), no como columna literal (evita una
+// columna redundante con el orden visual).
+const CAPACIDAD_PRODUCTIVAS_ROWS = [
+  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", horas: 134 },
+  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", horas: 40 },
+  { cliente: "Danone", proyecto: "Soporte Analítica", horas: 92 },
+  { cliente: "YPF", proyecto: "Implementación SADI v2", horas: 340 },
+  { cliente: "AySA", proyecto: "Costeo Federal", horas: 210 },
+  { cliente: "Ternium", proyecto: "Rollout Reporting", horas: 175 },
 ];
-const CAPACIDAD_PRODUCTIVAS = [
-  { mes: "Jun-2026", productivas: 1240, noProductivas: 180 },
-  { mes: "Jul-2026", productivas: 1310, noProductivas: 160 },
-  { mes: "Ago-2026", productivas: 1180, noProductivas: 210 },
+
+// No Asignadas: pivotTable real Columns=Mes, Rows="Consultor + Hs asig"
+// (columna calculada = Consultor & " (" & [HS asignadas a proy] & " hs
+// Asig)", ver Colaboradores.tmdl — "Hs Asig" es la capacidad DE REFERENCIA
+// fija del consultor, NO la métrica mensual), Values=HORAS filtrado a
+// Task="01. No Asignación a Servicio en Cliente" — horas NO PRODUCTIVAS que
+// el propio colaborador registra en Time. `hsAsig` (referencia estática) y
+// `monthly` (horas no asignadas REALES por mes) son dimensiones separadas a
+// propósito — nunca se confunden.
+const CAPACIDAD_NOASIGNADAS_ROWS = [
+  { consultor: "Federico Bressi", hsAsig: 160, monthly: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8] },
+  { consultor: "Franco Delucchi", hsAsig: 160, monthly: [0, 0, 4, 4, 0, 0, 4, 0, 0, 4, 0, 0] },
+  { consultor: "Gabriela Mendez", hsAsig: 160, monthly: [12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12] },
+  { consultor: "Martina Suárez", hsAsig: 120, monthly: [0, 0, 0, 6, 6, 6, 0, 0, 0, 0, 0, 0] },
 ];
 
 // ============================================================================
@@ -337,13 +364,13 @@ const EXPERIENCES = [
   { id: "horasvendidas", label: "Horas Vendidas", perspectives: ["Proyecto", "Client Partner"] },
   { id: "comercial", label: "Comercial / Clientes", perspectives: ["Participación", "Status de Cliente"] },
   { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"] },
-  { id: "capacidad", label: "Capacidad / Ejecución", perspectives: ["No Asignadas", "Productivas"] },
+  { id: "capacidad", label: "Capacidad / Ejecución", perspectives: ["Productivas", "No Asignadas"] },
 ];
 
 const state = {
   experience: "cartera",
   perspective: { cartera: "Mantenimiento", rentabilidad: "Resumen", horasvendidas: "Proyecto",
-                 comercial: "Participación", calendario: "Frecuencia", capacidad: "No Asignadas" },
+                 comercial: "Participación", calendario: "Frecuencia", capacidad: "Productivas" },
   // Estado del filtro Estado COMPARTIDO (decorativo salvo en la Cartera
   // vieja, ver HANDOFF) — sigue usado por `renderFilterBar()` para las
   // demás experiencias (Rentabilidad/Comercial/Capacidad), sin tocar.
@@ -471,7 +498,7 @@ function renderCartera() {
             <th class="row-label-col">${cfg.labels.join(" / ")}</th>
             ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
           </tr></thead>
-          <tbody>${renderCarteraTreeRows("cartera::" + persp, tree, 0, cfg.columns)}</tbody>
+          <tbody>${renderBusinessTreeRows("cartera::" + persp, tree, 0, cfg.columns)}</tbody>
         </table>
       </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
     </section>`;
@@ -611,9 +638,10 @@ function sumMonthly(rows) {
 // dato (cada nodo trae `rows`: las filas crudas que agrupa, nunca un
 // resumen hardcodeado) y sus hijos (grupo siguiente), hasta agotar `keys`
 // (el último nivel son las filas hoja individuales, sin más hijos). Reusado
-// por matrices mensuales (Horas Vendidas/Calendario, vía `sumMonthly(node.rows)`
-// en el renderer) Y por tablas de negocio no-mensuales (Cartera/Proyectos,
-// vía `renderCarteraTreeRows`) — un solo motor de agrupación para los dos
+// por matrices mensuales (Horas Vendidas/Calendario/Capacidad-No Asignadas,
+// vía `sumMonthly(node.rows)` en el renderer) Y por tablas de negocio
+// no-mensuales (Cartera/Proyectos, Capacidad-Productivas, vía
+// `renderBusinessTreeRows`) — un solo motor de agrupación para los dos
 // tipos de tabla jerárquica del prototipo.
 function buildTree(rows, keys, path = []) {
   if (keys.length === 0) return [];
@@ -672,14 +700,19 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
 }
 
 // Renderer alternativo para tablas de negocio NO mensuales (Cartera/
-// Proyectos) — MISMO motor de agrupación (buildTree) y MISMAS afordancias
-// visuales (tree-toggle/caret/tree-indent/depth-N), pero las columnas son
-// arbitrarias (Diff Hs/Status/etc., ver `columns`) en vez de 12 meses fijos.
-// Nodos intermedios (con hijos) muestran SOLO la etiqueta — no se inventa un
-// rollup de columnas categóricas (Status/Facturadas no se pueden sumar).
-// Nodos hoja (sin hijos, `node.rows` tiene exactamente 1 fila real) muestran
-// los valores reales vía `columns[].render(row)`.
-function renderCarteraTreeRows(stateKey, nodes, depth, columns) {
+// Proyectos, Capacidad/Ejecución → Productivas) — MISMO motor de
+// agrupación (buildTree) y MISMAS afordancias visuales (tree-toggle/caret/
+// tree-indent/depth-N), pero las columnas son arbitrarias (Diff Hs/Status/
+// Horas/% Incidencia/etc., ver `columns`) en vez de 12 meses fijos.
+// Nodos hoja (sin hijos, `node.rows` tiene exactamente 1 fila real)
+// muestran los valores reales vía `columns[].render(row)`. Nodos
+// intermedios (con hijos): por default quedan en blanco — Cartera nunca
+// define `columns[].rollup` porque sus columnas son categóricas (Status/
+// Facturadas no se pueden sumar); si una columna SÍ define `rollup(rows)`
+// (medida real agregable, ver Capacidad/Productivas: Horas/% Incidencia),
+// se usa para mostrar el agregado del grupo — extensión aditiva, ningún
+// caller existente cambia de comportamiento sin optar explícitamente.
+function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
     const hasChildren = node.children && node.children.length > 0;
@@ -696,9 +729,14 @@ function renderCarteraTreeRows(stateKey, nodes, depth, columns) {
             ${esc(node.label)}
           </span>
         </td>
-        ${columns.map(c => `<td class="${c.numeric ? "" : "left"}">${leafRow ? c.render(leafRow) : ""}</td>`).join("")}
+        ${columns.map(c => {
+          let content = "";
+          if (leafRow) content = c.render(leafRow);
+          else if (c.rollup) content = c.rollup(node.rows);
+          return `<td class="${c.numeric ? "" : "left"}">${content}</td>`;
+        }).join("")}
       </tr>`;
-    const childrenHtml = (hasChildren && isOpen) ? renderCarteraTreeRows(stateKey, node.children, depth + 1, columns) : "";
+    const childrenHtml = (hasChildren && isOpen) ? renderBusinessTreeRows(stateKey, node.children, depth + 1, columns) : "";
     return rowHtml + childrenHtml;
   }).join("");
 }
@@ -784,25 +822,105 @@ function renderCalendario() {
     </section>`;
 }
 
+// Filtros por subvista — genuinamente distintos por fuente real (ver
+// HANDOFF): Productivas usa los slicers reales de "Horas Productivas
+// consumidas" (Client Partner/Cliente/Año/Mes); No Asignadas usa los
+// slicers reales de "Hs No Asignadas" (Task/Consultor/Año/Mes/Semana/
+// Estado) — nunca se copian mecánicamente los 6 slicers de Power BI a
+// ambas subvistas solo para que luzcan iguales.
+const CAPACIDAD_FILTERS_BY_PERSPECTIVE = {
+  "Productivas": [
+    { label: "Client Partner", options: ["Todos", "María López", "Diego Ramos"] },
+    { label: "Cliente", options: ["Todos", "Andesmar", "Danone", "YPF", "AySA", "Ternium"] },
+    { label: "Año", options: ["2026", "2025"] },
+    { label: "Mes", options: ["Todos", "Agosto", "Julio"] },
+  ],
+  "No Asignadas": [
+    { label: "Task", options: ["Todos", "01. No Asignación a Servicio en Cliente"] },
+    { label: "Consultor", options: ["Todos", "Federico Bressi", "Franco Delucchi", "Gabriela Mendez", "Martina Suárez"] },
+    { label: "Año", options: ["2026", "2025"] },
+    { label: "Mes", options: ["Todos", "Agosto", "Julio"] },
+    { label: "Semana", options: ["Todas"] },
+    { label: "Estado", options: ["Todos", "Activo", "Inactivo"] },
+  ],
+};
+
+function renderCapacidadFilterBar() {
+  const fields = CAPACIDAD_FILTERS_BY_PERSPECTIVE[state.perspective.capacidad];
+  return `
+  <div class="filter-bar">
+    ${fields.map(f => `<div class="filter-field"><span>${esc(f.label)}</span><select>${f.options.map(o => `<option>${esc(o)}</option>`).join("")}</select></div>`).join("")}
+    <div class="filter-note">Filtros decorativos en este V0 — la jerarquía/matriz es la interacción principal.</div>
+  </div>`;
+}
+
+const CAPACIDAD_PRODUCTIVAS_TOTAL = CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0);
+
+function capacidadPctIncidencia(horas) {
+  // % Incidencia real (medida `Time Logs Reports.[% Hs ejecutadas]`) =
+  // horas de la fila ÷ horas TOTALES (REMOVEFILTERS Cliente/Client
+  // Partner) — SIEMPRE contra el gran total, nunca contra el subtotal del
+  // grupo padre, tanto en filas hoja como en el rollup de Cliente.
+  return (CAPACIDAD_PRODUCTIVAS_TOTAL ? (horas / CAPACIDAD_PRODUCTIVAS_TOTAL * 100) : 0).toFixed(1) + "%";
+}
+
+const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
+  { label: "Horas", numeric: true, render: r => r.horas, rollup: rows => rows.reduce((s, r) => s + r.horas, 0) },
+  { label: "% Incidencia", numeric: true, render: r => capacidadPctIncidencia(r.horas), rollup: rows => capacidadPctIncidencia(rows.reduce((s, r) => s + r.horas, 0)) },
+];
+
+function renderCapacidadProductivas() {
+  // Orden por Horas de Cliente descendente == el Rank real del PBIP
+  // (RANKX por Horas), representado vía orden visual (ver comentario del
+  // dataset) — nunca una columna Rank redundante con el orden.
+  const clientTotals = new Map();
+  CAPACIDAD_PRODUCTIVAS_ROWS.forEach(r => clientTotals.set(r.cliente, (clientTotals.get(r.cliente) || 0) + r.horas));
+  const rowsSorted = [...CAPACIDAD_PRODUCTIVAS_ROWS].sort((a, b) => clientTotals.get(b.cliente) - clientTotals.get(a.cliente));
+  const tree = buildTree(rowsSorted, ["cliente", "proyecto"]);
+  return `
+    <div class="kpi-grid"><div class="kpi"><span class="value">${CAPACIDAD_PRODUCTIVAS_TOTAL}</span><span class="label">Total Horas</span></div></div>
+    <section class="panel">
+      <h2>Horas consumidas por Cliente <span class="count">Cliente › Proyecto, ordenado por Rank (Horas desc.)</span></h2>
+      <div class="matrix-scroll">
+        <table class="tree-matrix">
+          <thead><tr><th class="row-label-col">Cliente / Proyecto</th><th>Horas</th><th>% Incidencia</th></tr></thead>
+          <tbody>${renderBusinessTreeRows("capacidad::Productivas", tree, 0, CAPACIDAD_PRODUCTIVAS_COLUMNS)}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+function renderCapacidadNoAsignadas() {
+  // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
+  // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
+  // inventada. `hsAsig` es la capacidad de referencia estática del
+  // consultor, separada de `monthly` (horas NO asignadas reales por mes,
+  // ver dataset).
+  const rows = CAPACIDAD_NOASIGNADAS_ROWS.map(r => ({ ...r, consultorLabel: `${r.consultor} (${r.hsAsig} hs Asig)` }));
+  const tree = buildTree(rows, ["consultorLabel"]);
+  const totalMonthly = sumMonthly(rows);
+  const stateKey = "capacidad::No Asignadas";
+  return `
+    <section class="panel">
+      <h2>Horas No Asignadas <span class="count">Consultor — Task: No Asignación a Servicio en Cliente</span></h2>
+      <div class="matrix-scroll">
+        <table class="tree-matrix">
+          <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${renderTreeRows(stateKey, tree, 0)}
+            <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="empty-note" style="text-align:left">Horas No Productivas — registradas en Time por cada colaborador (ver HANDOFF). Potential overlap with Staffing — integration decision pending.</p>
+    </section>`;
+}
+
 function renderCapacidad() {
   const persp = state.perspective.capacidad;
-  if (persp === "No Asignadas") {
-    return `${perspectiveSwitch("capacidad")}
-    <section class="panel"><h2>Horas no asignadas</h2>
-      <table class="data-table">
-        <thead><tr><th>Consultor</th><th class="num">Disponibles</th><th class="num">Asignadas</th><th class="num">Gap</th></tr></thead>
-        <tbody>${CAPACIDAD_NOASIGNADAS.map(r => `<tr><td>${esc(r.consultor)}</td><td class="num">${r.disponibles}</td><td class="num">${r.asignadas}</td><td class="num">${diffCell(-r.gap)}</td></tr>`).join("")}</tbody>
-      </table>
-      <p class="empty-note" style="text-align:left">Nota: conceptualmente relacionado con capacidad de Staffing — NO integrado técnicamente en este V0.</p>
-    </section>`;
-  }
-  return `${perspectiveSwitch("capacidad")}
-  <section class="panel"><h2>Horas productivas consumidas</h2>
-    <table class="data-table">
-      <thead><tr><th>Mes</th><th class="num">Productivas</th><th class="num">No productivas</th></tr></thead>
-      <tbody>${CAPACIDAD_PRODUCTIVAS.map(r => `<tr><td>${esc(r.mes)}</td><td class="num">${r.productivas}</td><td class="num">${r.noProductivas}</td></tr>`).join("")}</tbody>
-    </table>
-  </section>`;
+  return `
+    ${perspectiveSwitch("capacidad")}
+    ${persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas()}`;
 }
 
 const RENDERERS = {
@@ -814,10 +932,13 @@ function render() {
   document.getElementById("experience-tabs").innerHTML = EXPERIENCES.map(e => `
     <button class="${state.experience === e.id ? "is-active" : ""}" onclick="setExperience('${e.id}')">${esc(e.label)}</button>
   `).join("");
-  // Cartera tiene su propio filter bar (campos/status reales de su fuente,
-  // ver corrective) — el resto de las experiencias siguen recibiendo el
-  // filter bar compartido, sin cambios.
-  const filterBarHtml = state.experience === "cartera" ? renderCarteraFilterBar() : renderFilterBar();
+  // Cartera y Capacidad tienen su propio filter bar (campos reales de su
+  // fuente, distintos entre sí y del resto — ver correctives) — las demás
+  // experiencias siguen recibiendo el filter bar compartido, sin cambios.
+  let filterBarHtml;
+  if (state.experience === "cartera") filterBarHtml = renderCarteraFilterBar();
+  else if (state.experience === "capacidad") filterBarHtml = renderCapacidadFilterBar();
+  else filterBarHtml = renderFilterBar();
   document.getElementById("main-content").innerHTML = filterBarHtml + RENDERERS[state.experience]();
 }
 
