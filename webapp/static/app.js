@@ -774,6 +774,19 @@ function staffingDashboard(payload) {
   const defaultStatusFilter = () =>
     Object.fromEntries(statusOptions.map(s => [s, s === "Activo"]));
 
+  // Staffing Approved Absence Overlay (ver HANDOFF) — filtro Concepto:
+  // EXACTAMENTE 4 checkboxes fijos (nunca derivados del dato, a diferencia
+  // de Estado) — los 4 conceptos canónicos que ya clasifica el server (ver
+  // staffing_repository._classify_absence_concept). Sin checkbox "Todos" a
+  // propósito (ver HANDOFF: la fila extra rompería el límite de 4 filas por
+  // columna del panel de filtros, ya establecido por Estado) — los 4 ya
+  // cubren el universo completo, así que "Todos" sería redundante con
+  // "los 4 tildados". Default: los 4 tildados (a diferencia de Estado, que
+  // arranca solo con Activo).
+  const CONCEPT_OPTIONS = ["Vacaciones", "Danwor Day", "Cumpleaños", "Otros"];
+  const defaultConceptFilter = () =>
+    Object.fromEntries(CONCEPT_OPTIONS.map(c => [c, true]));
+
   // Paleta determinística de identidad (project_id, o assignment_id si no
   // hay proyecto) — NUNCA aleatoria, mismo hash en cada render/filtro. El
   // color identifica la asignación/proyecto; el estado se superpone aparte
@@ -834,6 +847,10 @@ function staffingDashboard(payload) {
     assignments,
     horizon,
     statusOptions,
+    // Concepto (Approved Absence Overlay, ver HANDOFF) — array FIJO (4
+    // valores, nunca derivado del dato como statusOptions) expuesto para
+    // que el template itere el checkbox-group con `x-for`.
+    conceptOptions: CONCEPT_OPTIONS,
     todayMarkerPct,
     // Colapso de grupos de consultor en el timeline — SOLO estado visual de
     // presentación (nunca filtra filteredAssignments). Vacío = todo
@@ -850,6 +867,12 @@ function staffingDashboard(payload) {
       // estado" quedan disponibles pero NO seleccionados — decisión
       // explícita y visible, no un descarte silencioso (ver HANDOFF).
       status: defaultStatusFilter(),
+      // Concepto (Approved Absence Overlay, ver HANDOFF) — los 4 tildados
+      // por default. Filtra ÚNICAMENTE `this.absences` (client-side, sin
+      // Graph/refetch) — nunca `assignments`, nunca entra en
+      // `_reconcileSelections()`/`facetedAssignments()` (esos son
+      // exclusivos del universo de Asignaciones).
+      concept: defaultConceptFilter(),
     },
 
     // Lazy history (Staffing Director Priority V2, ver HANDOFF): el fetch
@@ -867,15 +890,16 @@ function staffingDashboard(payload) {
     historyLoadError: false,
     historyLoading: false,
 
-    // Vacaciones (Staffing Vacation Timeline Overlay, ver HANDOFF) — carga
+    // Ausencias aprobadas (Staffing Approved Absence Overlay, ver HANDOFF
+    // — generalización del Vacation Timeline Overlay original) — carga
     // LAZY e INDEPENDIENTE de las asignaciones (arrancan a cargar en init(),
     // sin bloquear el render de asignaciones que ya llegó en el payload
     // inicial). ADITIVO/presentacional puro: una falla acá NUNCA toca
     // filteredAssignments/kpis/timelineGroups de asignaciones — solo omite
     // el overlay y muestra su propio aviso no bloqueante.
-    vacations: [],
-    vacationsLoading: false,
-    vacationsLoadError: false,
+    absences: [],
+    absencesLoading: false,
+    absencesLoadError: false,
 
     // Grouping switch (Consultor ↔ Proyecto) — mismo `filteredAssignments`,
     // sin refetch. Ver `timelineGroups`/`groupHoursSuffix`/`rowGroupSecondaryLabel`.
@@ -916,32 +940,32 @@ function staffingDashboard(payload) {
         if (value && !this.historyLoaded) this._loadInactiveHistory();
       });
 
-      // Vacaciones (ver HANDOFF): arranca sola, independiente de cualquier
+      // Ausencias (ver HANDOFF): arranca sola, independiente de cualquier
       // interacción del usuario — a diferencia del historial de Inactivo
-      // (que espera el primer toggle), el overlay de vacaciones es
+      // (que espera el primer toggle), el overlay de ausencias es
       // contextual y se carga apenas el dashboard existe.
-      this._loadVacations();
+      this._loadAbsences();
     },
 
-    async _loadVacations() {
-      this.vacationsLoading = true;
-      this.vacationsLoadError = false;
+    async _loadAbsences() {
+      this.absencesLoading = true;
+      this.absencesLoadError = false;
       try {
         const token = sessionStorage.getItem("dw-graph-token") || "";
         const body = new URLSearchParams({ graph_token: token });
-        const response = await fetch("/operaciones/staffing/asignaciones/vacaciones", { method: "POST", body });
+        const response = await fetch("/operaciones/staffing/asignaciones/ausencias", { method: "POST", body });
         const data = await response.json();
         if (data.state === "ok") {
-          this.vacations = data.vacations || [];
+          this.absences = data.absences || [];
         } else {
           // Fail-soft (ver HANDOFF): las asignaciones siguen 100% usables,
           // solo se omite el overlay + aviso propio no bloqueante.
-          this.vacationsLoadError = true;
+          this.absencesLoadError = true;
         }
       } catch (e) {
-        this.vacationsLoadError = true;
+        this.absencesLoadError = true;
       } finally {
-        this.vacationsLoading = false;
+        this.absencesLoading = false;
       }
     },
 
@@ -994,6 +1018,7 @@ function staffingDashboard(payload) {
       this.filters.client = "";
       this.filters.availability = "";
       this.filters.status = defaultStatusFilter();
+      this.filters.concept = defaultConceptFilter();
     },
 
     statusSlug(status) {
@@ -1388,61 +1413,80 @@ function staffingDashboard(payload) {
         if (!groups.has(key)) groups.set(key, { key, consultant_name: label, rows: [] });
         groups.get(key).rows.push(a);
       });
-      // Vacaciones (ver HANDOFF): SOLO en agrupación Consultor — son
+      // Ausencias (ver HANDOFF): SOLO en agrupación Consultor — son
       // person-specific, nunca se duplican bajo cada proyecto. Mismo dato ya
-      // cargado (this.vacations), sin refetch — cambiar groupBy solo cambia
-      // qué se adjunta acá, nunca dispara un nuevo POST.
-      const vacationsByConsultant = byProject ? null : this.vacationsByConsultant;
+      // cargado (this.absences), sin refetch — cambiar groupBy solo cambia
+      // qué se adjunta acá, nunca dispara un nuevo POST. `absencesByConsultant`
+      // ya está filtrado por Concepto (ver ese getter) — un checkbox de
+      // Concepto recalcula esta lane sin tocar `filteredAssignments`.
+      const absencesByConsultant = byProject ? null : this.absencesByConsultant;
       return [...groups.values()]
         .map(g => ({
           ...g,
           hours_suffix: this.groupHoursSuffix(g),
-          vacations: vacationsByConsultant ? (vacationsByConsultant.get(g.key) || []) : [],
+          absences: absencesByConsultant ? (absencesByConsultant.get(g.key) || []) : [],
         }))
         .sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
     },
 
-    // Vacaciones agrupadas por consultant_id — puro sobre this.vacations, sin
-    // I/O (el fetch ya ocurrió en _loadVacations). Un consultor sin
-    // vacaciones simplemente no aparece en el Map (grupo sin lane extra).
-    get vacationsByConsultant() {
+    // Ausencias visibles tras el filtro Concepto (client-side puro, ver
+    // HANDOFF) — ÚNICA fuente que `absencesByConsultant`/la lane/el total
+    // de horas visible leen. Nunca llama a Graph, nunca recarga el XLSX,
+    // nunca toca `this.assignments`. `filters.concept[a.concept] !== false`
+    // (en vez de `=== true`) para que un concepto que por alguna razón no
+    // esté en el objeto de filtros (nunca debería pasar con los 4 fijos)
+    // quede visible por default, nunca oculto por ausencia de key.
+    get filteredAbsences() {
+      return this.absences.filter(a => this.filters.concept[a.concept] !== false);
+    },
+
+    // Ausencias agrupadas por consultant_id — puro sobre filteredAbsences,
+    // sin I/O (el fetch ya ocurrió en _loadAbsences). Un consultor sin
+    // ausencias visibles simplemente no aparece en el Map (grupo sin lane
+    // extra) — si el usuario destilda los 4 conceptos, TODOS los grupos
+    // quedan sin lane (el template ya oculta la lane vacía vía
+    // `x-if="group.absences.length > 0"`, sin código nuevo).
+    get absencesByConsultant() {
       const byConsultant = new Map();
-      this.vacations.forEach(v => {
-        if (!byConsultant.has(v.consultant_id)) byConsultant.set(v.consultant_id, []);
-        byConsultant.get(v.consultant_id).push(v);
+      this.filteredAbsences.forEach(a => {
+        if (!byConsultant.has(a.consultant_id)) byConsultant.set(a.consultant_id, []);
+        byConsultant.get(a.consultant_id).push(a);
       });
       return byConsultant;
     },
 
-    // Etiqueta VISIBLE de la lane de vacaciones (izquierda) — la lane es
-    // COMPARTIDA por todos los períodos del consultor, así que resume la SUMA
-    // de las horas conocidas (`vacation_hours`, ya calculadas Días×8 en el
-    // repositorio). Solo suma los períodos que traen un número usable; si
-    // ninguno lo trae, cae a "Vacaciones" pelado (NUNCA inventa horas desde las
-    // fechas). Display-only: no toca allocation/KPIs/geometría. El tooltip
-    // sigue mostrando las horas POR período (ver vacationBarLabel).
-    vacationLaneLabel(periods) {
+    // Etiqueta VISIBLE de la lane de ausencias (izquierda) — la lane es
+    // COMPARTIDA por todos los períodos VISIBLES del consultor (ya
+    // filtrados por Concepto), así que resume la SUMA de las horas
+    // conocidas (`hours`, ya calculadas Días×8 en el repositorio). Solo
+    // suma los períodos que traen un número usable; si ninguno lo trae, cae
+    // a "Ausencias" pelado (NUNCA inventa horas desde las fechas).
+    // Display-only: no toca allocation/KPIs/geometría. El tooltip sigue
+    // mostrando las horas POR período (ver absenceBarLabel).
+    absenceLaneLabel(periods) {
       const total = (periods || [])
-        .map(p => p.vacation_hours)
+        .map(p => p.hours)
         .filter(h => typeof h === "number")
         .reduce((sum, h) => sum + h, 0);
-      const known = (periods || []).some(p => typeof p.vacation_hours === "number");
-      return known ? `Vacaciones (${total}hs)` : "Vacaciones";
+      const known = (periods || []).some(p => typeof p.hours === "number");
+      return known ? `Ausencias (${total}hs)` : "Ausencias";
     },
 
-    // Etiqueta del período de vacaciones — metadata de DISPLAY: agrega las
-    // horas equivalentes (Días × 8, ya calculadas en el repositorio y provistas
-    // como vacation.vacation_hours) cuando la fuente las trae. Sin horas (Días
-    // ausente/malformado → vacation_hours null) cae a "Vacaciones" pelado.
-    // NUNCA deriva horas del rango Desde/Hasta (ver HANDOFF): la geometría de la
+    // Etiqueta del período de ausencia — el CONCEPTO ya clasificado
+    // server-side (`Vacaciones`/`Danwor Day`/`Cumpleaños`/`Otros` — nunca el
+    // Motivo crudo, que ni siquiera llega al browser, ver HANDOFF), con las
+    // horas equivalentes (Días × 8, ya calculadas en el repositorio y
+    // provistas como absence.hours) cuando la fuente las trae. Sin horas
+    // (Días ausente/malformado → hours null) cae al concepto pelado. NUNCA
+    // deriva horas del rango Desde/Hasta (ver HANDOFF): la geometría de la
     // barra usa las fechas; la etiqueta usa Días×8, son dimensiones separadas.
-    vacationBarLabel(vacation) {
-      const hours = vacation.vacation_hours;
-      return (typeof hours === "number") ? `Vacaciones (${hours}hs)` : "Vacaciones";
+    absenceBarLabel(absence) {
+      const hours = absence.hours;
+      return (typeof hours === "number") ? `${absence.concept} (${hours}hs)` : absence.concept;
     },
 
-    vacationBarAriaLabel(vacation) {
-      return this.vacationBarLabel(vacation) + " — " + (this.formatDateDMY(vacation.start_date) || "?") + " → " + (this.formatDateDMY(vacation.end_date) || "?");
+    absenceBarAriaLabel(absence) {
+      return this.absenceBarLabel(absence) + " — " + (this.formatDateDMY(absence.start_date) || "?") + " → " + (this.formatDateDMY(absence.end_date) || "?");
     },
 
     // Asignaciones sin ninguna fecha real — no se posicionan en el

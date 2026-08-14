@@ -950,31 +950,36 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-timeline__off-note { margin-top: 10px; color: #7a7a82; font-size: .72rem; }
 .content-theme-dark .staffing-timeline__off-note { color: #9a9aa2; }
 
-/* Vacation Timeline Overlay (ver HANDOFF) — SOLO agrupación Consultor.
-   Tratamiento neutro/subordinado a propósito: rayado diagonal (hatch), NUNCA
-   uno de los 6 tonos de `.staffing-palette-N` (eso leería como "otro
-   proyecto más"). El label "Vacaciones" ya vive en `.staffing-timeline__
-   row-status` (reuso de la misma clase que Estado, texto literal en vez de
-   x-text de status) — la barra misma no repite el texto, mismo criterio que
-   las barras de asignación. */
-.staffing-vacation-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
-.staffing-timeline__vacation-row { opacity: .9; }
-.staffing-timeline__vacation-bar {
+/* Staffing Approved Absence Overlay (ver HANDOFF — generalización del
+   Vacation Timeline Overlay original) — SOLO agrupación Consultor, UN lane
+   compartido "Ausencias" para los 4 conceptos (Vacaciones/Danwor Day/
+   Cumpleaños/Otros), nunca uno por concepto. Tratamiento neutro/subordinado
+   a propósito: rayado diagonal (hatch), NUNCA uno de los 6 tonos de
+   `.staffing-palette-N` (eso leería como "otro proyecto más") NI un color
+   distinto por concepto (mismo tratamiento visual para los 4 — el concepto
+   se distingue por TEXTO, en el tooltip/aria-label, nunca por color). El
+   label "Ausencias" ya vive en `.staffing-timeline__row-status` (reuso de
+   la misma clase que Estado, texto literal en vez de x-text de status) —
+   la barra misma no repite el texto, mismo criterio que las barras de
+   asignación. */
+.staffing-absence-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
+.staffing-timeline__absence-row { opacity: .9; }
+.staffing-timeline__absence-bar {
   position: absolute; top: 50%; transform: translateY(-50%); height: 12px; border-radius: 4px; min-width: 6px;
   background: repeating-linear-gradient(45deg, rgba(122,122,130,.55) 0 4px, rgba(122,122,130,.22) 4px 8px);
   border: 1px solid rgba(122,122,130,.5);
 }
-.content-theme-dark .staffing-timeline__vacation-bar {
+.content-theme-dark .staffing-timeline__absence-bar {
   background: repeating-linear-gradient(45deg, rgba(180,180,190,.5) 0 4px, rgba(180,180,190,.2) 4px 8px);
   border-color: rgba(180,180,190,.45);
 }
-.staffing-timeline__vacation-bar:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
-.staffing-timeline__vacation-bar.is-clipped-start { border-left: 2px dashed rgba(0,0,0,.35); }
-.staffing-timeline__vacation-bar.is-clipped-end { border-right: 2px dashed rgba(0,0,0,.35); }
-.content-theme-dark .staffing-timeline__vacation-bar.is-clipped-start { border-left-color: rgba(255,255,255,.4); }
-.content-theme-dark .staffing-timeline__vacation-bar.is-clipped-end { border-right-color: rgba(255,255,255,.4); }
-.staffing-timeline__vacation-bar:hover .staffing-timeline__tooltip,
-.staffing-timeline__vacation-bar:focus .staffing-timeline__tooltip { opacity: 1; visibility: visible; }
+.staffing-timeline__absence-bar:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
+.staffing-timeline__absence-bar.is-clipped-start { border-left: 2px dashed rgba(0,0,0,.35); }
+.staffing-timeline__absence-bar.is-clipped-end { border-right: 2px dashed rgba(0,0,0,.35); }
+.content-theme-dark .staffing-timeline__absence-bar.is-clipped-start { border-left-color: rgba(255,255,255,.4); }
+.content-theme-dark .staffing-timeline__absence-bar.is-clipped-end { border-right-color: rgba(255,255,255,.4); }
+.staffing-timeline__absence-bar:hover .staffing-timeline__tooltip,
+.staffing-timeline__absence-bar:focus .staffing-timeline__tooltip { opacity: 1; visibility: visible; }
 
 /* Tooltip de la barra (revisión PBI, ver HANDOFF) — CSS puro, sin librería:
    :hover/:focus en la barra revela el contenido. `.staffing-timeline-scroll`

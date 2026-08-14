@@ -503,16 +503,20 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # ============================================================================
 
 def test_15_route_surface_still_84():
-    # 83 -> 84 (Staffing Vacation Timeline Overlay, ver HANDOFF): UN endpoint
-    # nuevo (POST .../vacaciones), documentado explícito — mismo patrón que
-    # el historial de Inactivo que ya subió 82 -> 83.
+    # 83 -> 84 (Staffing Vacation Timeline Overlay original, ver HANDOFF): UN
+    # endpoint nuevo (POST .../vacaciones), documentado explícito — mismo
+    # patrón que el historial de Inactivo que ya subió 82 -> 83. Approved
+    # Absence Overlay (generalización, ver HANDOFF) lo RENOMBRÓ one-for-one a
+    # .../ausencias (endpoint interno sin contrato externo, sin alias de
+    # compatibilidad) — sigue siendo 84, ni sube ni baja.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
     assert len(snapshot) == 84
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
-    assert "POST /operaciones/staffing/asignaciones/vacaciones" in snapshot
+    assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
+    assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
 
 
 # ============================================================================
