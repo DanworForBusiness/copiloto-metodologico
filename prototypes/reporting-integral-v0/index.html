@@ -82,6 +82,8 @@
   .status-pill.activo { background: rgba(46,158,91,.12); color: var(--green); }
   .status-pill.vencido { background: rgba(192,57,43,.12); color: var(--red); }
   .status-pill.cerrado { background: rgba(122,122,130,.14); color: var(--grey); }
+  .status-pill.en-curso { background: rgba(46,158,91,.12); color: var(--green); }
+  .status-pill.finalizado { background: rgba(122,122,130,.14); color: var(--grey); }
   .diff-pos { color: var(--green); font-weight: 600; }
   .diff-neg { color: var(--red); font-weight: 600; }
 
@@ -107,9 +109,10 @@
   table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; }
   table.tree-matrix th { text-align: right; color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase;
     letter-spacing: .03em; border-bottom: 1px solid var(--border); padding: 6px 8px; white-space: nowrap; }
-  table.tree-matrix th.row-label-col { text-align: left; min-width: 260px; }
+  table.tree-matrix th.row-label-col, table.tree-matrix th.left { text-align: left; }
+  table.tree-matrix th.row-label-col { min-width: 260px; }
   table.tree-matrix td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right; font-variant-numeric: tabular-nums; }
-  table.tree-matrix td.row-label { text-align: left; white-space: nowrap; }
+  table.tree-matrix td.row-label, table.tree-matrix td.left { text-align: left; white-space: nowrap; }
   table.tree-matrix tr.depth-0 td.row-label { font-weight: 700; }
   table.tree-matrix tr.depth-1 td.row-label { font-weight: 600; color: var(--ink-soft); }
   table.tree-matrix tr.depth-2 td.row-label { font-weight: 400; color: var(--ink-soft); }
@@ -168,14 +171,67 @@
 // Dataset representativo (hardcoded, NO producción) — nombres reconocibles
 // de estilo Danwor pero sin valores reales.
 // ============================================================================
-const CARTERA_ROWS = [
-  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", tipo: "Mantenimiento", diff: -6, trabajadas: 134, certificadas: 128, vendidas: 140, facturado: "100%", status: "activo" },
-  { cliente: "Danone", proyecto: "Soporte Analítica", tipo: "Mantenimiento", diff: 4, trabajadas: 92, certificadas: 96, vendidas: 88, facturado: "100%", status: "activo" },
-  { cliente: "YPF", proyecto: "Implementación SADI v2", tipo: "Proyecto", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturado: "90%", status: "vencido" },
-  { cliente: "AySA", proyecto: "Costeo Federal", tipo: "Proyecto", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturado: "100%", status: "activo" },
-  { cliente: "Molinos", proyecto: "Mantenimiento BI", tipo: "Mantenimiento", diff: 0, trabajadas: 60, certificadas: 60, vendidas: 60, facturado: "100%", status: "cerrado" },
-  { cliente: "Ternium", proyecto: "Rollout Reporting", tipo: "Proyecto", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturado: "85%", status: "activo" },
+// Cartera / Proyectos (ver corrective — HANDOFF/task): las páginas fuente
+// "Analisis Mantenimiento" y "Analisis Proyectos" NO son la misma fila
+// reordenada (a diferencia de Horas Vendidas/Calendario) — son DOS
+// conjuntos de filas distintos (contratos de mantenimiento vs. proyectos),
+// confirmado por el pivotTable real de cada página:
+//   Mantenimiento → Rows: Cliente, Proyecto (2 niveles)
+//     Values: Diff Hs, Hs Trabajadas Acum, Hs Certif. Acum,
+//             Hs Vendidas Mensuales, Facturadas, Status
+//   Proyecto → Rows: Cliente, ID Proyecto Danwor, Proyecto (3 niveles)
+//     Values: Diff Hs, Hs Trabajadas Acum, Hs Certif. Acum, Hs Vendidas,
+//             Facturadas, Status
+// KPI real de cada página es un card simple: "Cantidad Mantenimientos" /
+// "Cantidad Proyectos" — NUNCA los KPIs inventados de la versión anterior
+// de este V0 (Contratos visibles/Hs trabajadas/Hs certificadas/Con diff
+// negativo), retirados en este corrective. Status real de Proyectos.Status
+// es "En curso" | "Finalizado" (owner screenshots) — NUNCA
+// activo/vencido/cerrado (eso era una invención de la primera versión de
+// este V0 para la Cartera vieja).
+const CARTERA_MANTENIMIENTO_ROWS = [
+  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturado: "100%", status: "En curso" },
+  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturado: "100%", status: "En curso" },
+  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturado: "100%", status: "En curso" },
+  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturado: "100%", status: "Finalizado" },
 ];
+const CARTERA_PROYECTO_ROWS = [
+  { cliente: "YPF", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturado: "90%", status: "En curso" },
+  { cliente: "AySA", idProyecto: "DAN-1055", proyecto: "Costeo Federal", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturado: "100%", status: "En curso" },
+  { cliente: "Ternium", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturado: "85%", status: "Finalizado" },
+];
+
+function statusPillCartera(status) {
+  const cls = status === "En curso" ? "en-curso" : "finalizado";
+  return `<span class="status-pill ${cls}">${esc(status)}</span>`;
+}
+
+const CARTERA_CONFIG = {
+  "Mantenimiento": {
+    rows: CARTERA_MANTENIMIENTO_ROWS, keys: ["cliente", "proyecto"], labels: ["Cliente", "Proyecto"],
+    kpiLabel: "Cantidad Mantenimientos",
+    columns: [
+      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff) },
+      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas },
+      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas },
+      { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales },
+      { label: "Facturadas", numeric: true, render: r => r.facturado },
+      { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
+    ],
+  },
+  "Proyecto": {
+    rows: CARTERA_PROYECTO_ROWS, keys: ["cliente", "idProyecto", "proyecto"], labels: ["Cliente", "ID Proyecto Danwor", "Proyecto"],
+    kpiLabel: "Cantidad Proyectos",
+    columns: [
+      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff) },
+      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas },
+      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas },
+      { label: "Hs Vendidas", numeric: true, render: r => r.vendidas },
+      { label: "Facturadas", numeric: true, render: r => r.facturado },
+      { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
+    ],
+  },
+};
 
 const RENTABILIDAD_ROWS = [
   { proyecto: "Implementación SADI v2", vendidas: 360, certificadas: 322, ejecutadas: 340 },
@@ -266,7 +322,15 @@ const state = {
   experience: "cartera",
   perspective: { cartera: "Mantenimiento", rentabilidad: "Resumen", horasvendidas: "Proyecto",
                  comercial: "Participación", calendario: "Frecuencia", capacidad: "No Asignadas" },
+  // Estado del filtro Estado COMPARTIDO (decorativo salvo en la Cartera
+  // vieja, ver HANDOFF) — sigue usado por `renderFilterBar()` para las
+  // demás experiencias (Rentabilidad/Comercial/Capacidad), sin tocar.
   estadoFilter: { activo: true, vencido: true, cerrado: true },
+  // Status de Cartera/Proyectos (ver corrective) — vocabulario real
+  // "En curso"/"Finalizado" (Proyectos.Status), INDEPENDIENTE de
+  // `estadoFilter` de arriba — Cartera tiene su propio filter bar
+  // (`renderCarteraFilterBar`), nunca el compartido.
+  carteraStatus: { "En curso": true, "Finalizado": true },
 };
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -308,6 +372,44 @@ function toggleEstado(key) {
   render();
 }
 
+// Filter bar DEDICADO a Cartera/Proyectos (ver corrective) — MISMAS clases
+// CSS que `renderFilterBar()` (.filter-bar/.filter-field/.checkbox-row,
+// ningún componente nuevo), pero campos genuinamente distintos por fuente
+// real: shell compartido Proyecto/Empresa/Client Partner + Status
+// (En curso/Finalizado, único filtro realmente wired en este V0, igual que
+// Estado lo era en la Cartera vieja) — Año/Mes SOLO en Mantenimiento, Año de
+// Inicio SOLO en Proyecto (el PBIP fuente confirma que Proyecto NO tiene
+// filtro de Mes). `render()` elige esta función en vez de la compartida
+// SOLO cuando `state.experience === "cartera"` — las demás experiencias
+// siguen recibiendo `renderFilterBar()` sin cambios.
+function renderCarteraFilterBar() {
+  const persp = state.perspective.cartera;
+  const periodFields = persp === "Mantenimiento"
+    ? `<div class="filter-field"><span>Año</span><select><option>2026</option><option>2025</option></select></div>
+       <div class="filter-field"><span>Mes</span><select><option>Todos</option><option>Agosto</option><option>Julio</option></select></div>`
+    : `<div class="filter-field"><span>Año de Inicio</span><select><option>Todos</option><option>2026</option><option>2025</option></select></div>`;
+  return `
+  <div class="filter-bar">
+    <div class="filter-field"><span>Proyecto</span><select><option>Todos</option><option>Implementación SADI v2</option><option>Costeo Federal</option></select></div>
+    <div class="filter-field"><span>Empresa</span><select><option>Todos</option><option>Danwor</option></select></div>
+    ${periodFields}
+    <div class="filter-field"><span>Client Partner</span><select><option>Todos</option><option>María López</option><option>Diego Ramos</option></select></div>
+    <div class="filter-field">
+      <span>Status</span>
+      <div class="checkbox-row">
+        <label><input type="checkbox" ${state.carteraStatus["En curso"] ? "checked" : ""} onchange="toggleCarteraStatus('En curso')"> En curso</label>
+        <label><input type="checkbox" ${state.carteraStatus["Finalizado"] ? "checked" : ""} onchange="toggleCarteraStatus('Finalizado')"> Finalizado</label>
+      </div>
+    </div>
+    <div class="filter-note">Filtros de Proyecto/Empresa/${persp === "Mantenimiento" ? "Año/Mes" : "Año de Inicio"}/Client Partner son decorativos en este V0 — Status sí filtra la tabla.</div>
+  </div>`;
+}
+
+function toggleCarteraStatus(key) {
+  state.carteraStatus[key] = !state.carteraStatus[key];
+  render();
+}
+
 function perspectiveSwitch(expId) {
   const exp = EXPERIENCES.find(e => e.id === expId);
   const buttons = exp.perspectives.map(p => `
@@ -330,27 +432,26 @@ function setExperience(id) {
 
 function renderCartera() {
   const persp = state.perspective.cartera;
-  const rows = CARTERA_ROWS.filter(r => r.tipo === persp && state.estadoFilter[r.status]);
-  const kpis = [
-    { value: rows.length, label: "Contratos visibles" },
-    { value: rows.reduce((s, r) => s + r.trabajadas, 0), label: "Hs trabajadas" },
-    { value: rows.reduce((s, r) => s + r.certificadas, 0), label: "Hs certificadas" },
-    { value: rows.filter(r => r.diff < 0).length, label: "Con diff negativo", cls: rows.some(r => r.diff < 0) ? "warn" : "" },
-  ];
+  const cfg = CARTERA_CONFIG[persp];
+  const rows = cfg.rows.filter(r => state.carteraStatus[r.status]);
+  const tree = buildTree(rows, cfg.keys);
   return `
     ${perspectiveSwitch("cartera")}
-    <div class="kpi-grid">${kpis.map(k => `<div class="kpi ${k.cls || ""}"><span class="value">${k.value}</span><span class="label">${k.label}</span></div>`).join("")}</div>
+    <div class="kpi-grid">
+      <div class="kpi"><span class="value">${rows.length}</span><span class="label">${esc(cfg.kpiLabel)}</span></div>
+    </div>
     <section class="panel">
-      <h2>${esc(persp)} <span class="count">${rows.length} fila(s)</span></h2>
+      <h2>${esc(persp)} <span class="count">${cfg.labels.join(" › ")}</span></h2>
       ${rows.length ? `
-      <table class="data-table">
-        <thead><tr><th>Cliente</th><th>Proyecto</th><th class="num">Diff Hs</th><th class="num">Hs Trabajadas</th><th class="num">Hs Certificadas</th><th class="num">Hs Vendidas</th><th class="num">Facturadas</th><th>Status</th></tr></thead>
-        <tbody>${rows.map(r => `<tr>
-          <td>${esc(r.cliente)}</td><td>${esc(r.proyecto)}</td>
-          <td class="num">${diffCell(r.diff)}</td><td class="num">${r.trabajadas}</td><td class="num">${r.certificadas}</td>
-          <td class="num">${r.vendidas}</td><td class="num">${r.facturado}</td><td>${statusPill(r.status)}</td>
-        </tr>`).join("")}</tbody>
-      </table>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
+      <div class="matrix-scroll">
+        <table class="tree-matrix">
+          <thead><tr>
+            <th class="row-label-col">${cfg.labels.join(" / ")}</th>
+            ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
+          </tr></thead>
+          <tbody>${renderCarteraTreeRows("cartera::" + persp, tree, 0, cfg.columns)}</tbody>
+        </table>
+      </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
     </section>`;
 }
 
@@ -415,10 +516,14 @@ function sumMonthly(rows) {
   return totals;
 }
 
-// Agrupa `rows` recursivamente según `keys` — cada nodo trae su propio total
-// mensual (SUMA de las filas que agrupa, nunca un valor hardcodeado aparte) y
-// sus hijos (grupo siguiente), hasta agotar `keys` (el último nivel son las
-// filas hoja individuales, sin más hijos).
+// Agrupa `rows` recursivamente según `keys` — GENÉRICO sobre la forma del
+// dato (cada nodo trae `rows`: las filas crudas que agrupa, nunca un
+// resumen hardcodeado) y sus hijos (grupo siguiente), hasta agotar `keys`
+// (el último nivel son las filas hoja individuales, sin más hijos). Reusado
+// por matrices mensuales (Horas Vendidas/Calendario, vía `sumMonthly(node.rows)`
+// en el renderer) Y por tablas de negocio no-mensuales (Cartera/Proyectos,
+// vía `renderCarteraTreeRows`) — un solo motor de agrupación para los dos
+// tipos de tabla jerárquica del prototipo.
 function buildTree(rows, keys, path = []) {
   if (keys.length === 0) return [];
   const [key, ...restKeys] = keys;
@@ -433,7 +538,7 @@ function buildTree(rows, keys, path = []) {
     return {
       label: val,
       pathKey: nodePath.join("|"),
-      monthly: sumMonthly(groupRows),
+      rows: groupRows,
       children: buildTree(groupRows, restKeys, nodePath),
     };
   });
@@ -456,7 +561,8 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
     const isOpen = set.has(node.pathKey);
     const caretChar = !hasChildren ? "" : (isOpen ? "▾" : "▸");
     const indentPx = depth * 20;
-    const rowTotal = node.monthly.reduce((a, b) => a + b, 0);
+    const monthly = sumMonthly(node.rows);
+    const rowTotal = monthly.reduce((a, b) => a + b, 0);
     const rowHtml = `
       <tr class="depth-${depth}">
         <td class="row-label">
@@ -466,10 +572,42 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false) {
             ${esc(node.label)}
           </span>
         </td>
-        ${node.monthly.map(v => `<td>${v || "—"}</td>`).join("")}
+        ${monthly.map(v => `<td>${v || "—"}</td>`).join("")}
         ${showTotal ? `<td>${rowTotal}</td>` : ""}
       </tr>`;
     const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal) : "";
+    return rowHtml + childrenHtml;
+  }).join("");
+}
+
+// Renderer alternativo para tablas de negocio NO mensuales (Cartera/
+// Proyectos) — MISMO motor de agrupación (buildTree) y MISMAS afordancias
+// visuales (tree-toggle/caret/tree-indent/depth-N), pero las columnas son
+// arbitrarias (Diff Hs/Status/etc., ver `columns`) en vez de 12 meses fijos.
+// Nodos intermedios (con hijos) muestran SOLO la etiqueta — no se inventa un
+// rollup de columnas categóricas (Status/Facturadas no se pueden sumar).
+// Nodos hoja (sin hijos, `node.rows` tiene exactamente 1 fila real) muestran
+// los valores reales vía `columns[].render(row)`.
+function renderCarteraTreeRows(stateKey, nodes, depth, columns) {
+  const set = treeExpandedSet(stateKey);
+  return nodes.map(node => {
+    const hasChildren = node.children && node.children.length > 0;
+    const isOpen = set.has(node.pathKey);
+    const caretChar = !hasChildren ? "" : (isOpen ? "▾" : "▸");
+    const indentPx = depth * 20;
+    const leafRow = hasChildren ? null : node.rows[0];
+    const rowHtml = `
+      <tr class="depth-${depth}">
+        <td class="row-label">
+          <span class="tree-indent" style="width:${indentPx}px"></span>
+          <span class="tree-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
+            <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
+            ${esc(node.label)}
+          </span>
+        </td>
+        ${columns.map(c => `<td class="${c.numeric ? "" : "left"}">${leafRow ? c.render(leafRow) : ""}</td>`).join("")}
+      </tr>`;
+    const childrenHtml = (hasChildren && isOpen) ? renderCarteraTreeRows(stateKey, node.children, depth + 1, columns) : "";
     return rowHtml + childrenHtml;
   }).join("");
 }
@@ -585,7 +723,11 @@ function render() {
   document.getElementById("experience-tabs").innerHTML = EXPERIENCES.map(e => `
     <button class="${state.experience === e.id ? "is-active" : ""}" onclick="setExperience('${e.id}')">${esc(e.label)}</button>
   `).join("");
-  document.getElementById("main-content").innerHTML = renderFilterBar() + RENDERERS[state.experience]();
+  // Cartera tiene su propio filter bar (campos/status reales de su fuente,
+  // ver corrective) — el resto de las experiencias siguen recibiendo el
+  // filter bar compartido, sin cambios.
+  const filterBarHtml = state.experience === "cartera" ? renderCarteraFilterBar() : renderFilterBar();
+  document.getElementById("main-content").innerHTML = filterBarHtml + RENDERERS[state.experience]();
 }
 
 // --- V0 assessment drawer ---------------------------------------------------
