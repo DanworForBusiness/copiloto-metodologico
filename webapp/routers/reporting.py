@@ -11,10 +11,10 @@ standalone `prototypes/reporting-integral-v0/index.html`, que sigue siendo
 la referencia de diseño). Un solo GET, sin POST — no hay nada que cargar
 de una fuente externa todavía.
 
-NO agregada a `partials/operations_nav.html` a propósito (ver HANDOFF —
-evita tocar navegación compartida en este batch); accesible SOLO por URL
-directa. NO es la ruta canónica final — el nombre/ubicación pueden cambiar
-cuando Reporting deje de ser un preview.
+Agregada a `partials/operations_nav.html` como "02 Reporting" (Align with
+Hub backbone corrective, ver HANDOFF) — YA es navegación real, no solo URL
+directa. Sigue sin ser la ruta canónica final: el nombre/ubicación pueden
+cambiar cuando Reporting deje de ser un preview.
 
 Reusa el MISMO gate de autorización que Staffing
 (`webapp.operations_access.is_operations_authorized` + sesión vía
@@ -55,5 +55,7 @@ def reporting_integral_preview(request: Request):
             "available_workspaces": workspaces.available_workspaces(user),
             "pack": DEFAULT_PACK,
             "user": user,
+            # Resalta "02 Reporting" en operations_nav.html.
+            "active_page": "reporting",
         },
     )

@@ -1,8 +1,11 @@
 {# Nav izquierdo de Operaciones — mismo idioma visual que copilot_nav.html
-   (.module-nav/.nav-kicker/.module-link), sin acordeón: hoy hay UN área
-   (Staffing) con UNA página real (Asignaciones), así que no hace falta
-   colapsar nada. No renderiza Projects/Reporting ni otros futuros —
-   se agregan cuando existan de verdad.
+   (.module-nav/.nav-kicker/.module-link), sin acordeón: dos áreas planas
+   (Asignaciones/Reporting), no hace falta colapsar nada. Reporting es
+   preview (ver HANDOFF — Reporting Integral V0 corrective de alineación
+   con el backbone del Hub) pero YA es navegación real, no oculta.
+   `active_page` ("staffing"|"reporting") lo pasa cada router — mismo
+   criterio que `active_stem` en copilot_nav.html, nunca un segundo
+   parseo de `request.url.path` acá.
    La bienvenida de sesión reusa el MISMO macro compartido que
    copilot_nav.html (partials/workspace_shell.html) — misma fuente de
    identidad (auth_service/session), nunca un segundo parseo de claims ni
@@ -12,9 +15,12 @@
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user) }}
   <nav aria-label="Operaciones">
-    <p class="nav-kicker">STAFFING</p>
-    <a href="/operaciones/staffing/asignaciones" class="module-link is-active">
+    <p class="nav-kicker">OPERACIONES</p>
+    <a href="/operaciones/staffing/asignaciones" class="module-link {% if active_page == 'staffing' %}is-active{% endif %}">
       <span>01</span><strong>Asignaciones</strong>
+    </a>
+    <a href="/operaciones/reporting/integral" class="module-link {% if active_page == 'reporting' %}is-active{% endif %}">
+      <span>02</span><strong>Reporting</strong>
     </a>
   </nav>
 </aside>

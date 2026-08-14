@@ -4,14 +4,18 @@
 {% block title %}Tablero Integral · Reporting · Operaciones · Danwor{% endblock %}
 {% block body %}
 {# reporting_integral.html — Reporting Integral V0 preview (Operations, ver
-   HANDOFF). Ruta de PREVISUALIZACIÓN interna, solo por URL directa — NO
-   agregada a partials/operations_nav.html a propósito (evita tocar
-   navegación compartida en este batch, ver HANDOFF). MISMO shell/grammar
-   que staffing.html (platform_topbar/operations_nav/sidebar_resize_handle,
-   idéntico patrón .app-shell.no-copilot) — el contenido de Reporting en sí
-   es el prototipo standalone (prototypes/reporting-integral-v0/index.html)
-   portado con el menor cambio razonable a reporting.css/reporting.js
-   (dataset mock embebido, SIN SharePoint/Graph, SIN persistencia). #}
+   HANDOFF). Ahora navegable como "02 Reporting" en
+   partials/operations_nav.html (Align with Hub backbone corrective) — ya
+   no es solo URL directa. MISMO shell/grammar que staffing.html
+   (platform_topbar/operations_nav/sidebar_resize_handle, idéntico patrón
+   .app-shell.no-copilot). El contenido de Reporting consume el mismo
+   backbone de dashboard que Staffing/Actividad (dashboard-sticky-header,
+   whatsnew-filters, dashboard-checkbox-group, activity-kpi-grid,
+   dashboard-section draggable/colapsable, staffing-timeline-toolbar para
+   Expandir/Contraer) — solo la visualización de negocio en sí
+   (tree-matrix/data-table/bar-row/perspective-switch/experience-tabs) es
+   CSS/JS propio de Reporting, en reporting.css/reporting.js (dataset mock
+   embebido, SIN SharePoint/Graph, SIN persistencia). #}
 <div
   x-data="copilotLayout('reporting')"
   x-init="init()"

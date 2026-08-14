@@ -1,14 +1,22 @@
 // reporting.js — Reporting Integral V0 preview (Operations, ver HANDOFF).
-// Portado del prototipo standalone (prototypes/reporting-integral-v0/index.html)
-// con el MENOR cambio razonable: MISMA lógica verbatim, solo se renombraron
-// los ids de DOM target (experience-tabs/main-content/drawer*) con prefijo
-// "reporting-" para no colisionar con el id="content" ya usado por el shell
-// del Hub (base.html/staffing.html) ni con nada del resto de la página.
-// Funciones/variables globales (state/render/esc/buildTree/etc.) verificadas
-// SIN colisión con app.js al momento de este batch — sin namespacing
-// adicional a propósito (no introducir un framework/wrapper nuevo, ver
-// HANDOFF). Deduplicar contra el prototipo standalone es tarea de V1, no de
-// este preview.
+//
+// Align with Hub backbone corrective (ver HANDOFF): este archivo consume el
+// MISMO backbone de dashboard ya usado por Staffing/Actividad en vez de
+// reinventarlo — sticky filters (.dashboard-sticky-header/.whatsnew-filters/
+// .staffing-filter-bar, ver tools.css), checkboxes verticales
+// (.dashboard-checkbox-group), tiles KPI (.activity-kpi-grid/.activity-kpi),
+// secciones draggable/colapsables (<details class="dashboard-section">
+// + app.js::initDashboardSections) y el toolbar Expandir/Contraer
+// (.staffing-timeline-toolbar, mismo motor treeExpandedSet/buildTree de
+// abajo). CERO clases nuevas en tools.css — todo reusado tal cual (prioridad
+// 1 de la regla de reuso, ver HANDOFF). Los ids de DOM target (experience-
+// tabs/main-content/drawer*) mantienen el prefijo "reporting-" del batch
+// anterior para no colisionar con id="content" del shell del Hub.
+// Funciones/variables globales verificadas SIN colisión con app.js — sin
+// namespacing adicional a propósito (no introducir un framework/wrapper
+// nuevo). Deduplicar contra el prototipo standalone
+// (prototypes/reporting-integral-v0/index.html, que queda como referencia
+// de diseño congelada) es tarea de V1, no de este preview.
 
 // ============================================================================
 // Dataset representativo (hardcoded, NO producción) — nombres reconocibles
@@ -28,7 +36,7 @@
 // KPI real de cada página es un card simple: "Cantidad Mantenimientos" /
 // "Cantidad Proyectos" — NUNCA los KPIs inventados de la versión anterior
 // de este V0 (Contratos visibles/Hs trabajadas/Hs certificadas/Con diff
-// negativo), retirados en este corrective. Status real de Proyectos.Status
+// negativo), retirados en ese corrective. Status real de Proyectos.Status
 // es "En curso" | "Finalizado" (owner screenshots) — NUNCA
 // activo/vencido/cerrado (eso era una invención de la primera versión de
 // este V0 para la Cartera vieja).
@@ -168,8 +176,10 @@ const CALENDARIO_HIERARCHY = {
 // Horas/% Incidencia. `Horas` = Sum(Time Logs Reports.HORAS); `% Incidencia`
 // = medida real `Time Logs Reports.[% Hs ejecutadas]` = Horas de esa fila ÷
 // Horas TOTALES (REMOVEFILTERS de Cliente/Client Partner — SIEMPRE contra el
-// gran total, no contra el subtotal del Cliente). `Rank` = RANKX por Horas
-// descendente — representado acá por el ORDEN de las filas (Cliente
+// gran total, no contra el subtotal del Cliente, INCLUSO si el filtro de
+// Cliente del V0 está activo: el denominador NUNCA se recalcula por
+// filtro, solo el numerador/las filas visibles cambian). `Rank` = RANKX por
+// Horas descendente — representado acá por el ORDEN de las filas (Cliente
 // ordenado de mayor a menor Horas), no como columna literal (evita una
 // columna redundante con el orden visual).
 const CAPACIDAD_PRODUCTIVAS_ROWS = [
@@ -212,23 +222,20 @@ const state = {
   experience: "cartera",
   perspective: { cartera: "Mantenimiento", rentabilidad: "Resumen", horasvendidas: "Proyecto",
                  comercial: "Participación", calendario: "Frecuencia", capacidad: "Productivas" },
-  // Estado del filtro Estado COMPARTIDO (decorativo salvo en la Cartera
-  // vieja, ver HANDOFF) — sigue usado por `renderFilterBar()` para las
-  // demás experiencias (Rentabilidad/Comercial/Capacidad), sin tocar.
-  estadoFilter: { activo: true, vencido: true, cerrado: true },
-  // Status de Cartera/Proyectos (ver corrective) — vocabulario real
-  // "En curso"/"Finalizado" (Proyectos.Status), INDEPENDIENTE de
-  // `estadoFilter` de arriba — Cartera tiene su propio filter bar
-  // (`renderCarteraFilterBar`), nunca el compartido.
+  // Filtros seleccionables por experiencia (Align with Hub backbone
+  // corrective, ver HANDOFF) — motor ÚNICO compartido por las 5 experiencias
+  // filtrables (ver getFilter/setFilter/selectField más abajo), keyeado
+  // "<experienceId>.<dimensión>". Comercial queda afuera a propósito (no se
+  // revisita su diseño de negocio en este batch, ver HANDOFF).
+  filters: { cartera: {}, rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {} },
+  // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
+  // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
+  // genérico de arriba) porque su semántica default es "todo tildado",
+  // distinta de "Todos" en un <select>.
   carteraStatus: { "En curso": true, "Finalizado": true },
 };
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
-
-function statusPill(status) {
-  const labels = { activo: "Activo", vencido: "Vencido", cerrado: "Cerrado" };
-  return `<span class="status-pill ${status}">${labels[status]}</span>`;
-}
 
 function diffCell(diff) {
   const cls = diff < 0 ? "diff-neg" : (diff > 0 ? "diff-pos" : "");
@@ -236,68 +243,121 @@ function diffCell(diff) {
   return `<span class="${cls}">${sign}${diff}</span>`;
 }
 
-// --- filter bar (común, cosmético salvo Estado que sí filtra Cartera) ------
-function renderFilterBar() {
-  return `
-  <div class="filter-bar">
-    <div class="filter-field"><span>Proyecto</span><select><option>Todos</option><option>Implementación SADI v2</option><option>Costeo Federal</option></select></div>
-    <div class="filter-field"><span>Empresa</span><select><option>Todos</option><option>Danwor</option></select></div>
-    <div class="filter-field"><span>Año</span><select><option>2026</option><option>2025</option></select></div>
-    <div class="filter-field"><span>Mes</span><select><option>Todos</option><option>Agosto</option><option>Julio</option></select></div>
-    <div class="filter-field"><span>Client Partner</span><select><option>Todos</option><option>María López</option><option>Diego Ramos</option></select></div>
-    <div class="filter-field">
-      <span>Estado</span>
-      <div class="checkbox-row">
-        <label><input type="checkbox" ${state.estadoFilter.activo ? "checked" : ""} onchange="toggleEstado('activo')"> Activo</label>
-        <label><input type="checkbox" ${state.estadoFilter.vencido ? "checked" : ""} onchange="toggleEstado('vencido')"> Vencido</label>
-        <label><input type="checkbox" ${state.estadoFilter.cerrado ? "checked" : ""} onchange="toggleEstado('cerrado')"> Cerrado</label>
-      </div>
-    </div>
-    <div class="filter-note">Filtros de Proyecto/Empresa/Año/Mes/Client Partner son decorativos en este V0 — Estado sí filtra la tabla de Cartera.</div>
-  </div>`;
+// --- Motor de filtros compartido (Align with Hub backbone corrective) ------
+// UN solo mecanismo de estado/lectura/escritura para los filtros <select> de
+// las 5 experiencias filtrables — nunca seis engines de filtro separados.
+// "Todos" == "" (sin filtrar). Los checkbox-group (Status de Cartera) tienen
+// su propio estado dedicado (`state.carteraStatus`) por la razón de arriba,
+// pero se renderizan con el MISMO helper visual `checkboxGroupField`.
+function distinctValues(rows, key) {
+  return [...new Set(rows.map(r => r[key]))]
+    .filter(v => v !== undefined && v !== null && v !== "")
+    .sort((a, b) => String(a).localeCompare(String(b), "es"));
 }
-
-function toggleEstado(key) {
-  state.estadoFilter[key] = !state.estadoFilter[key];
+function getFilter(expId, key) { return (state.filters[expId] && state.filters[expId][key]) || ""; }
+function setFilter(expId, key, value) {
+  if (!state.filters[expId]) state.filters[expId] = {};
+  state.filters[expId][key] = value;
   render();
 }
-
-// Filter bar DEDICADO a Cartera/Proyectos (ver corrective) — MISMAS clases
-// CSS que `renderFilterBar()` (.filter-bar/.filter-field/.checkbox-row,
-// ningún componente nuevo), pero campos genuinamente distintos por fuente
-// real: shell compartido Proyecto/Empresa/Client Partner + Status
-// (En curso/Finalizado, único filtro realmente wired en este V0, igual que
-// Estado lo era en la Cartera vieja) — Año/Mes SOLO en Mantenimiento, Año de
-// Inicio SOLO en Proyecto (el PBIP fuente confirma que Proyecto NO tiene
-// filtro de Mes). `render()` elige esta función en vez de la compartida
-// SOLO cuando `state.experience === "cartera"` — las demás experiencias
-// siguen recibiendo `renderFilterBar()` sin cambios.
-function renderCarteraFilterBar() {
-  const persp = state.perspective.cartera;
-  const periodFields = persp === "Mantenimiento"
-    ? `<div class="filter-field"><span>Año</span><select><option>2026</option><option>2025</option></select></div>
-       <div class="filter-field"><span>Mes</span><select><option>Todos</option><option>Agosto</option><option>Julio</option></select></div>`
-    : `<div class="filter-field"><span>Año de Inicio</span><select><option>Todos</option><option>2026</option><option>2025</option></select></div>`;
-  return `
-  <div class="filter-bar">
-    <div class="filter-field"><span>Proyecto</span><select><option>Todos</option><option>Implementación SADI v2</option><option>Costeo Federal</option></select></div>
-    <div class="filter-field"><span>Empresa</span><select><option>Todos</option><option>Danwor</option></select></div>
-    ${periodFields}
-    <div class="filter-field"><span>Client Partner</span><select><option>Todos</option><option>María López</option><option>Diego Ramos</option></select></div>
-    <div class="filter-field">
-      <span>Status</span>
-      <div class="checkbox-row">
-        <label><input type="checkbox" ${state.carteraStatus["En curso"] ? "checked" : ""} onchange="toggleCarteraStatus('En curso')"> En curso</label>
-        <label><input type="checkbox" ${state.carteraStatus["Finalizado"] ? "checked" : ""} onchange="toggleCarteraStatus('Finalizado')"> Finalizado</label>
-      </div>
+function resetFilters(expId) {
+  state.filters[expId] = {};
+  if (expId === "cartera") state.carteraStatus = { "En curso": true, "Finalizado": true };
+  render();
+}
+function selectField(expId, key, label, options) {
+  const current = getFilter(expId, key);
+  return `<label class="whatsnew-filter">
+    <span>${esc(label)}</span>
+    <select onchange="setFilter('${expId}','${key}', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(o => `<option value="${esc(o)}" ${current === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+// items: [{ value, checked, onclick }] — MISMA marca visual que el Estado/
+// Concepto de Staffing (.whatsnew-filter--compact + .dashboard-checkbox-group,
+// ver staffing_dashboard.html), reusada tal cual.
+function checkboxGroupField(label, items) {
+  return `<label class="whatsnew-filter whatsnew-filter--compact">
+    <span>${esc(label)}</span>
+    <div class="dashboard-checkbox-group">
+      ${items.map(it => `<label class="dashboard-checkbox-option">
+        <input type="checkbox" ${it.checked ? "checked" : ""} onchange="${it.onclick}" aria-label="${esc(label)} ${esc(it.value)}">
+        <span>${esc(it.value)}</span>
+      </label>`).join("")}
     </div>
-    <div class="filter-note">Filtros de Proyecto/Empresa/${persp === "Mantenimiento" ? "Año/Mes" : "Año de Inicio"}/Client Partner son decorativos en este V0 — Status sí filtra la tabla.</div>
+  </label>`;
+}
+// `.dashboard-sticky-header`/`.staffing-filter-bar`/`.staffing-filter-bar__clear`/
+// `.whatsnew-filters` — MISMAS clases que Staffing (staffing_dashboard.html),
+// CERO CSS nuevo en tools.css (prioridad 1 de la regla de reuso, ver
+// HANDOFF: reusar un primitivo compartido existente tal cual).
+function filterBarShell(fieldsHtml, expId) {
+  return `<div class="dashboard-sticky-header">
+    <div class="staffing-filter-bar">
+      <div class="whatsnew-filters">${fieldsHtml}</div>
+      <button type="button" class="staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
+    </div>
   </div>`;
 }
 
 function toggleCarteraStatus(key) {
   state.carteraStatus[key] = !state.carteraStatus[key];
   render();
+}
+
+// Filtros reales por experiencia — SOLO dimensiones que genuinamente existen
+// en el dataset de esa experiencia/subvista (ver corrective: "si un filtro
+// es irrelevante, ocultarlo" — nunca un control decorativo). Empresa/Año/Mes
+// no aparecen acá porque ningún dataset mock los modela como campo real.
+function renderCarteraFilterBar() {
+  const persp = state.perspective.cartera;
+  const cfg = CARTERA_CONFIG[persp];
+  const fields = selectField("cartera", "proyecto", "Proyecto", distinctValues(cfg.rows, "proyecto"))
+    + selectField("cartera", "cliente", "Cliente", distinctValues(cfg.rows, "cliente"))
+    + checkboxGroupField("Status", [
+        { value: "En curso", checked: state.carteraStatus["En curso"], onclick: "toggleCarteraStatus('En curso')" },
+        { value: "Finalizado", checked: state.carteraStatus["Finalizado"], onclick: "toggleCarteraStatus('Finalizado')" },
+      ]);
+  return filterBarShell(fields, "cartera");
+}
+
+function renderRentabilidadFilterBar() {
+  const f = state.filters.rentabilidad;
+  const tipoOptions = distinctValues(RENTABILIDAD_PROYECTOS, "tipo");
+  const proyectoOptions = distinctValues(RENTABILIDAD_PROYECTOS.filter(p => !f.tipo || p.tipo === f.tipo), "proyecto");
+  const fields = selectField("rentabilidad", "tipo", "Tipo Proyecto", tipoOptions)
+    + selectField("rentabilidad", "proyecto", "Proyecto", proyectoOptions);
+  return filterBarShell(fields, "rentabilidad");
+}
+
+function renderHorasVendidasFilterBar() {
+  const fields = selectField("horasvendidas", "cp", "Client Partner", distinctValues(HORASVENDIDAS_ROWS, "cp"))
+    + selectField("horasvendidas", "tipo", "Tipo Proyecto", distinctValues(HORASVENDIDAS_ROWS, "tipo"))
+    + selectField("horasvendidas", "cliente", "Cliente", distinctValues(HORASVENDIDAS_ROWS, "cliente"))
+    + selectField("horasvendidas", "proyecto", "Proyecto", distinctValues(HORASVENDIDAS_ROWS, "proyecto"));
+  return filterBarShell(fields, "horasvendidas");
+}
+
+function renderCalendarioFilterBar() {
+  const fields = selectField("calendario", "cp", "Client Partner", distinctValues(CALENDARIO_ROWS, "cp"))
+    + selectField("calendario", "cliente", "Cliente", distinctValues(CALENDARIO_ROWS, "cliente"));
+  return filterBarShell(fields, "calendario");
+}
+
+// Filtros por subvista — genuinamente distintos por fuente real (ver
+// HANDOFF): Productivas usa el slicer real de Cliente de "Horas Productivas
+// consumidas"; No Asignadas usa el slicer real de Consultor de "Hs No
+// Asignadas" — Client Partner/Año/Mes/Task/Semana/Estado NO son campos del
+// dataset mock de ninguna de las dos subvistas, así que se ocultan (nunca se
+// copian mecánicamente los slicers de Power BI solo para que luzcan iguales).
+function renderCapacidadFilterBar() {
+  const persp = state.perspective.capacidad;
+  const fields = persp === "Productivas"
+    ? selectField("capacidad", "cliente", "Cliente", distinctValues(CAPACIDAD_PRODUCTIVAS_ROWS, "cliente"))
+    : selectField("capacidad", "consultor", "Consultor", distinctValues(CAPACIDAD_NOASIGNADAS_ROWS, "consultor"));
+  return filterBarShell(fields, "capacidad");
 }
 
 function perspectiveSwitch(expId) {
@@ -310,6 +370,11 @@ function perspectiveSwitch(expId) {
 
 function setPerspective(expId, p) {
   state.perspective[expId] = p;
+  // Cada perspectiva puede tener dimensiones de filtro distintas (ver
+  // Capacidad Productivas↔No Asignadas) — se resetea el filtro de la
+  // experiencia al cambiar de perspectiva para no arrastrar un valor que ya
+  // no aplica a la nueva vista.
+  if (state.filters[expId]) state.filters[expId] = {};
   render();
 }
 
@@ -318,40 +383,76 @@ function setExperience(id) {
   render();
 }
 
+// --- Backbone de secciones draggable/colapsables (Align with Hub backbone
+// corrective) — MISMA marca que Staffing/Actividad: <details
+// class="dashboard-section"> dentro de [data-dashboard-key], wireado por
+// app.js::initDashboardSections (drag-and-drop + persistencia de orden en
+// sessionStorage) — CERO motor propio nuevo. `dashboardKey` es único por
+// experiencia ("reporting-<id>") para que el orden guardado de una
+// experiencia no choque con el de otra. -----------------------------------
+function dashboardSection(id, title, countLabel, bodyHtml) {
+  return `<details class="dashboard-section" data-section-id="${id}" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">${esc(title)}</span>
+      ${countLabel ? `<span class="dashboard-section__count">${esc(countLabel)}</span>` : ""}
+    </summary>
+    <div class="dashboard-section__body">${bodyHtml}</div>
+  </details>`;
+}
+function dashboardSections(dashboardKey, sectionsHtml) {
+  return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}">${sectionsHtml}</div>`;
+}
+
 // --- Experience renderers ---------------------------------------------------
 
 function renderCartera() {
   const persp = state.perspective.cartera;
   const cfg = CARTERA_CONFIG[persp];
-  const rows = cfg.rows.filter(r => state.carteraStatus[r.status]);
+  const f = state.filters.cartera;
+  let rows = cfg.rows.filter(r => state.carteraStatus[r.status]);
+  if (f.proyecto) rows = rows.filter(r => r.proyecto === f.proyecto);
+  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  const stateKey = "cartera::" + persp;
   const tree = buildTree(rows, cfg.keys);
-  return `
-    ${perspectiveSwitch("cartera")}
-    <div class="kpi-grid">
-      <div class="kpi"><span class="value">${rows.length}</span><span class="label">${esc(cfg.kpiLabel)}</span></div>
-    </div>
-    <section class="panel">
-      <h2>${esc(persp)} <span class="count">${cfg.labels.join(" › ")}</span></h2>
-      ${rows.length ? `
-      <div class="matrix-scroll">
-        <table class="tree-matrix">
-          <thead><tr>
-            <th class="row-label-col">${cfg.labels.join(" / ")}</th>
-            ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
-          </tr></thead>
-          <tbody>${renderBusinessTreeRows("cartera::" + persp, tree, 0, cfg.columns)}</tbody>
-        </table>
-      </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
-    </section>`;
+  registerTreeContext(stateKey, rows, cfg.keys);
+
+  const resumen = dashboardSection("resumen", "Resumen", "", `
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi"><span class="activity-kpi__value">${rows.length}</span><span class="activity-kpi__label">${esc(cfg.kpiLabel)}</span></div>
+    </div>`);
+
+  const detalleBody = `
+    ${treeToolbarHtml(stateKey)}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr>
+          <th class="row-label-col">${cfg.labels.join(" / ")}</th>
+          ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
+        </tr></thead>
+        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, cfg.columns)}</tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", persp + " — " + cfg.labels.join(" › "), rows.length + " fila(s)", detalleBody);
+
+  return `${perspectiveSwitch("cartera")}${dashboardSections("reporting-cartera", resumen + detalle)}`;
 }
 
 // Ranking de "Rentabilidad horas" (== Certificadas − Trabajadas) por
 // proyecto — MISMA fórmula que Resumen y que Certificadas vs Ejecutadas,
-// una sola función fuente de verdad.
-function rentabilidadRanked() {
-  return RENTABILIDAD_PROYECTOS
+// una sola función fuente de verdad. Opera sobre el subconjunto YA filtrado
+// (ver rentabilidadFilteredProyectos) — nunca sobre el dataset completo.
+function rentabilidadRanked(rows) {
+  return rows
     .map(p => ({ ...p, rentabilidad: p.certificadas - p.trabajadas }))
     .sort((a, b) => b.rentabilidad - a.rentabilidad);
+}
+
+function rentabilidadFilteredProyectos() {
+  const f = state.filters.rentabilidad;
+  return RENTABILIDAD_PROYECTOS.filter(p => (!f.tipo || p.tipo === f.tipo) && (!f.proyecto || p.proyecto === f.proyecto));
 }
 
 function rentabilidadBarRow(label, value, maxAbs) {
@@ -368,83 +469,92 @@ function renderRentabilidadResumen() {
   // Rentabilidad horas = Horas Certificadas − Horas Trabajadas (fórmula real,
   // ver `Rentabilidad Unpivot.tmdl` VAR Rentabilidad) — NUNCA la suma de los
   // 5 conceptos (esa suma no tiene significado de negocio, aunque la tabla
-  // Power BI original tuviera una fila Total).
+  // Power BI original tuviera una fila Total). Estos 4 KPIs son el card
+  // resumen REAL de la página fuente (totales de portfolio) — no se derivan
+  // de RENTABILIDAD_PROYECTOS (esa lista no suma 1:1 contra ellos, ver
+  // comentario del dataset) y por eso NO se filtran; solo el ranking de
+  // abajo sí responde a Tipo Proyecto/Proyecto.
   const rentabilidadHoras = r.certificadas - r.trabajadas;
-
-  const ranked = rentabilidadRanked();
+  const rows = rentabilidadFilteredProyectos();
+  const ranked = rentabilidadRanked(rows);
   const positivos = ranked.filter(p => p.rentabilidad >= 0);
   const negativos = ranked.filter(p => p.rentabilidad < 0).slice().reverse(); // más negativo primero
   const maxAbs = Math.max(...ranked.map(p => Math.abs(p.rentabilidad)), 1);
 
-  return `
-    <div class="kpi-grid">
-      <div class="kpi"><span class="value">${r.vendidas}</span><span class="label">Horas Vendidas</span></div>
-      <div class="kpi"><span class="value">${r.certificadas}</span><span class="label">Horas Certificadas</span></div>
-      <div class="kpi"><span class="value">${r.trabajadas}</span><span class="label">Horas Trabajadas</span></div>
-      <div class="kpi"><span class="value">${diffCell(rentabilidadHoras)}</span><span class="label">Rentabilidad horas</span></div>
-      <div class="kpi"><span class="value">${r.noAsignadas}</span><span class="label">No asignadas a servicios</span></div>
-    </div>
-    <section class="panel">
-      <h2>Ranking por Rentabilidad horas <span class="count">Certificadas − Trabajadas</span></h2>
-      <p class="perspective-label">Mejor performance</p>
-      ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
-      <p class="perspective-label" style="margin-top:14px">Peor performance</p>
-      ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
-    </section>`;
+  const resumen = dashboardSection("resumen", "Resumen", "", `
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi"><span class="activity-kpi__value">${r.vendidas}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${r.certificadas}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${r.trabajadas}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${diffCell(rentabilidadHoras)}</span><span class="activity-kpi__label">Rentabilidad horas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${r.noAsignadas}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
+    </div>`);
+
+  const rankingBody = rows.length ? `
+    <p class="perspective-label">Mejor performance</p>
+    ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+    <p class="perspective-label" style="margin-top:14px">Peor performance</p>
+    ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
+
+  return resumen + ranking;
 }
 
 function renderRentabilidadCertEjecutadas() {
+  const rows = rentabilidadFilteredProyectos();
   const groups = ["Mantenimiento", "Proyecto"].map(tipo => {
-    const rows = RENTABILIDAD_PROYECTOS.filter(p => p.tipo === tipo);
-    const certificadas = rows.reduce((s, r) => s + r.certificadas, 0);
-    const trabajadas = rows.reduce((s, r) => s + r.trabajadas, 0);
+    const gRows = rows.filter(p => p.tipo === tipo);
+    const certificadas = gRows.reduce((s, r) => s + r.certificadas, 0);
+    const trabajadas = gRows.reduce((s, r) => s + r.trabajadas, 0);
     const margenAbsoluto = certificadas - trabajadas;
     const margenRelativo = certificadas ? (margenAbsoluto / certificadas * 100) : 0;
-    return { tipo, rows, certificadas, trabajadas, margenAbsoluto, margenRelativo };
-  });
-  const maxVal = Math.max(...groups.flatMap(g => [g.certificadas, g.trabajadas]));
+    return { tipo, rows: gRows, certificadas, trabajadas, margenAbsoluto, margenRelativo };
+  }).filter(g => g.rows.length > 0);
+  const maxVal = Math.max(...groups.flatMap(g => [g.certificadas, g.trabajadas]), 1);
 
-  return `
-    <section class="panel">
-      <h2>Certificadas vs Ejecutadas <span class="count">por Tipo Proyecto Dash</span></h2>
-      <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
-      <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
-      ${groups.map(g => `
-        <p class="perspective-label" style="margin-top:14px">${esc(g.tipo)}</p>
-        <div class="bar-row"><span class="bar-label">Certificadas</span>
-          <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
-          <span class="bar-value">${g.certificadas}</span>
-        </div>
-        <div class="bar-row"><span class="bar-label">Ejecutadas</span>
-          <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
-          <span class="bar-value">${g.trabajadas}</span>
-        </div>
-        <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
-          Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
-        </p>`).join("")}
-    </section>
-    <section class="panel">
-      <h2>Detalle por proyecto</h2>
-      <table class="data-table">
-        <thead><tr><th>Tipo</th><th>Proyecto</th><th class="num">Hs Certificadas</th><th class="num">Hs Ejecutadas</th><th class="num">Margen Absoluto</th><th class="num">Margen Relativo</th></tr></thead>
-        <tbody>${RENTABILIDAD_PROYECTOS.map(p => {
-          const margenAbsoluto = p.certificadas - p.trabajadas;
-          const margenRelativo = p.certificadas ? Math.round((margenAbsoluto / p.certificadas) * 1000) / 10 : 0;
-          return `<tr>
-            <td>${esc(p.tipo)}</td><td>${esc(p.proyecto)}</td>
-            <td class="num">${p.certificadas}</td><td class="num">${p.trabajadas}</td>
-            <td class="num">${diffCell(margenAbsoluto)}</td><td class="num">${diffCell(margenRelativo)}%</td>
-          </tr>`;
-        }).join("")}</tbody>
-      </table>
-    </section>`;
+  const analysisBody = groups.length ? `
+    <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
+    <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
+    ${groups.map(g => `
+      <p class="perspective-label" style="margin-top:14px">${esc(g.tipo)}</p>
+      <div class="bar-row"><span class="bar-label">Certificadas</span>
+        <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
+        <span class="bar-value">${g.certificadas}</span>
+      </div>
+      <div class="bar-row"><span class="bar-label">Ejecutadas</span>
+        <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
+        <span class="bar-value">${g.trabajadas}</span>
+      </div>
+      <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
+        Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
+      </p>`).join("")}
+  ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
+  const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
+
+  const detailBody = rows.length ? `
+    <table class="data-table">
+      <thead><tr><th>Tipo</th><th>Proyecto</th><th class="num">Hs Certificadas</th><th class="num">Hs Ejecutadas</th><th class="num">Margen Absoluto</th><th class="num">Margen Relativo</th></tr></thead>
+      <tbody>${rows.map(p => {
+        const margenAbsoluto = p.certificadas - p.trabajadas;
+        const margenRelativo = p.certificadas ? Math.round((margenAbsoluto / p.certificadas) * 1000) / 10 : 0;
+        return `<tr>
+          <td>${esc(p.tipo)}</td><td>${esc(p.proyecto)}</td>
+          <td class="num">${p.certificadas}</td><td class="num">${p.trabajadas}</td>
+          <td class="num">${diffCell(margenAbsoluto)}</td><td class="num">${diffCell(margenRelativo)}%</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  const detail = dashboardSection("detalle", "Detalle por proyecto", rows.length + " proyecto(s)", detailBody);
+
+  return analysis + detail;
 }
 
 function renderRentabilidad() {
   const persp = state.perspective.rentabilidad;
-  return `
-    ${perspectiveSwitch("rentabilidad")}
-    ${persp === "Resumen" ? renderRentabilidadResumen() : renderRentabilidadCertEjecutadas()}`;
+  const sectionsHtml = persp === "Resumen" ? renderRentabilidadResumen() : renderRentabilidadCertEjecutadas();
+  return `${perspectiveSwitch("rentabilidad")}${dashboardSections("reporting-rentabilidad", sectionsHtml)}`;
 }
 
 // Hierarchía por perspectiva (ver corrective): Client Partner reproduce el
@@ -467,6 +577,40 @@ const treeExpanded = {};
 function treeExpandedSet(stateKey) {
   if (!treeExpanded[stateKey]) treeExpanded[stateKey] = new Set();
   return treeExpanded[stateKey];
+}
+
+// Contexto vivo (rows/keys YA filtrados) por stateKey — registrado en cada
+// render() por el renderer de la experiencia (registerTreeContext), leído
+// SOLO por expandAllTree para poder recorrer el árbol completo sin que el
+// botón de la toolbar tenga que cargar el dataset entero en el atributo
+// onclick. Nunca un segundo modelo de expansión — sigue siendo
+// treeExpandedSet/buildTree, esto es solo memoria de "qué se está mostrando
+// ahora mismo".
+const treeContext = {};
+function registerTreeContext(stateKey, rows, keys) { treeContext[stateKey] = { rows, keys }; }
+function collapseAllTree(stateKey) {
+  treeExpandedSet(stateKey).clear();
+  render();
+}
+function expandAllTree(stateKey) {
+  const ctx = treeContext[stateKey];
+  if (!ctx) return;
+  const set = treeExpandedSet(stateKey);
+  (function walk(nodes) {
+    nodes.forEach(n => { if (n.children && n.children.length) { set.add(n.pathKey); walk(n.children); } });
+  })(buildTree(ctx.rows, ctx.keys));
+  render();
+}
+// `.staffing-timeline-toolbar` — MISMA clase que el "Expandir todo/Contraer
+// todo" de Staffing (ver staffing_dashboard.html), reusada tal cual (Align
+// with Hub backbone corrective, ver HANDOFF: "reusar el motor de árbol
+// existente, nunca un segundo modelo de expansión"). Orden Contraer→Expandir
+// tal como lo especifica el corrective.
+function treeToolbarHtml(stateKey) {
+  return `<div class="staffing-timeline-toolbar">
+    <button type="button" onclick="collapseAllTree('${stateKey}')">Contraer</button>
+    <button type="button" onclick="expandAllTree('${stateKey}')">Expandir</button>
+  </div>`;
 }
 
 function sumMonthly(rows) {
@@ -585,114 +729,108 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
 function renderHorasVendidas() {
   const persp = state.perspective.horasvendidas;
   const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
-  const tree = buildTree(HORASVENDIDAS_ROWS, hierarchy.keys);
-  const totalMonthly = sumMonthly(HORASVENDIDAS_ROWS);
+  const f = state.filters.horasvendidas;
+  let rows = HORASVENDIDAS_ROWS;
+  if (f.cp) rows = rows.filter(r => r.cp === f.cp);
+  if (f.tipo) rows = rows.filter(r => r.tipo === f.tipo);
+  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  if (f.proyecto) rows = rows.filter(r => r.proyecto === f.proyecto);
+  const stateKey = "horasvendidas::" + persp;
+  const tree = buildTree(rows, hierarchy.keys);
+  registerTreeContext(stateKey, rows, hierarchy.keys);
+  const totalMonthly = sumMonthly(rows);
 
   const annual = totalMonthly.reduce((s, v) => s + v, 0);
-  const mant = HORASVENDIDAS_ROWS.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
-  const proy = HORASVENDIDAS_ROWS.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
   const quarter = q => totalMonthly.slice(q * 3, q * 3 + 3).reduce((a, b) => a + b, 0);
 
-  return `
-    ${perspectiveSwitch("horasvendidas")}
-    <div class="kpi-grid">
-      <div class="kpi"><span class="value">${annual}</span><span class="label">Hs Estimadas anuales</span></div>
-      <div class="kpi"><span class="value">${mant}</span><span class="label">Mantenimiento</span></div>
-      <div class="kpi"><span class="value">${proy}</span><span class="label">Proyecto</span></div>
-      <div class="kpi"><span class="value">${quarter(0)}</span><span class="label">Vendidas Q1</span></div>
-      <div class="kpi"><span class="value">${quarter(1)}</span><span class="label">Vendidas Q2</span></div>
-      <div class="kpi"><span class="value">${quarter(2)}</span><span class="label">Vendidas Q3</span></div>
-      <div class="kpi"><span class="value">${quarter(3)}</span><span class="label">Vendidas Q4</span></div>
-    </div>
-    <section class="panel">
-      <h2>${esc(persp)} <span class="count">${hierarchy.labels.join(" › ")}</span></h2>
-      <div class="matrix-scroll">
-        <table class="tree-matrix">
-          <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
-          <tbody>
-            ${renderTreeRows("horasvendidas::" + persp, tree, 0)}
-            <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
-          </tbody>
-        </table>
-      </div>
-    </section>`;
+  const resumen = dashboardSection("resumen", "Resumen", rows.length + " proyecto(s)", `
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi"><span class="activity-kpi__value">${annual}</span><span class="activity-kpi__label">Hs Estimadas anuales</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${mant}</span><span class="activity-kpi__label">Mantenimiento</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${proy}</span><span class="activity-kpi__label">Proyecto</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(0)}</span><span class="activity-kpi__label">Vendidas Q1</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(1)}</span><span class="activity-kpi__label">Vendidas Q2</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(2)}</span><span class="activity-kpi__label">Vendidas Q3</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(3)}</span><span class="activity-kpi__label">Vendidas Q4</span></div>
+    </div>`);
+
+  const detalleBody = `
+    ${treeToolbarHtml(stateKey)}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${renderTreeRows(stateKey, tree, 0)}
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+        </tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
+
+  return `${perspectiveSwitch("horasvendidas")}${dashboardSections("reporting-horasvendidas", resumen + detalle)}`;
 }
 
 function renderComercial() {
   const persp = state.perspective.comercial;
+  let body, title;
   if (persp === "Participación") {
-    return `${perspectiveSwitch("comercial")}
-    <section class="panel"><h2>Participación / Condiciones Comerciales</h2>
-      <table class="data-table">
-        <thead><tr><th>Cliente</th><th>Client Partner</th><th>Condición</th><th class="num">Participación</th></tr></thead>
-        <tbody>${COMERCIAL_PARTICIPACION.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.cp)}</td><td>${esc(r.condicion)}</td><td class="num">${r.participacion}</td></tr>`).join("")}</tbody>
-      </table></section>`;
-  }
-  return `${perspectiveSwitch("comercial")}
-  <section class="panel"><h2>Status de Cliente — detalle</h2>
-    <table class="data-table">
+    title = "Participación / Condiciones Comerciales";
+    body = `<table class="data-table">
+      <thead><tr><th>Cliente</th><th>Client Partner</th><th>Condición</th><th class="num">Participación</th></tr></thead>
+      <tbody>${COMERCIAL_PARTICIPACION.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.cp)}</td><td>${esc(r.condicion)}</td><td class="num">${r.participacion}</td></tr>`).join("")}</tbody>
+    </table>`;
+  } else {
+    title = "Status de Cliente — detalle";
+    body = `<table class="data-table">
       <thead><tr><th>Cliente</th><th>Status</th><th>Última revisión</th></tr></thead>
       <tbody>${COMERCIAL_STATUS.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.status)}</td><td>${esc(r.ultimaRevision)}</td></tr>`).join("")}</tbody>
-    </table></section>`;
+    </table>`;
+  }
+  // Comercial queda FUERA de este corrective a propósito (no se revisita su
+  // diseño de negocio, ver HANDOFF) — sin filter bar (ningún control
+  // decorativo) pero SÍ envuelto en el mismo dashboard-section que el resto,
+  // para consistencia visual mínima con el backbone del Hub.
+  const detalle = dashboardSection("detalle", title, "", body);
+  return `${perspectiveSwitch("comercial")}${dashboardSections("reporting-comercial", detalle)}`;
 }
 
 function renderCalendario() {
   const persp = state.perspective.calendario;
   const hierarchy = CALENDARIO_HIERARCHY[persp];
-  const tree = buildTree(CALENDARIO_ROWS, hierarchy.keys);
-  const totalMonthly = sumMonthly(CALENDARIO_ROWS);
+  const f = state.filters.calendario;
+  let rows = CALENDARIO_ROWS;
+  if (f.cp) rows = rows.filter(r => r.cp === f.cp);
+  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  const stateKey = "calendario::" + persp;
+  const tree = buildTree(rows, hierarchy.keys);
+  registerTreeContext(stateKey, rows, hierarchy.keys);
+  const totalMonthly = sumMonthly(rows);
   const grandTotal = totalMonthly.reduce((a, b) => a + b, 0);
 
-  return `
-    ${perspectiveSwitch("calendario")}
-    <div class="kpi-grid">
-      <div class="kpi"><span class="value">${CALENDARIO_ROWS.length}</span><span class="label">Clientes con calendario</span></div>
-      <div class="kpi"><span class="value">${grandTotal}</span><span class="label">Entregas/checkpoints (año)</span></div>
-    </div>
-    <section class="panel">
-      <h2>${esc(persp)} <span class="count">${hierarchy.labels.join(" › ")}</span></h2>
-      <div class="matrix-scroll">
-        <table class="tree-matrix">
-          <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
-          <tbody>
-            ${renderTreeRows("calendario::" + persp, tree, 0, true)}
-            <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}<td>${grandTotal}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>`;
-}
+  const resumen = dashboardSection("resumen", "Resumen", "", `
+    <div class="activity-kpi-grid">
+      <div class="activity-kpi"><span class="activity-kpi__value">${rows.length}</span><span class="activity-kpi__label">Clientes con calendario</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${grandTotal}</span><span class="activity-kpi__label">Entregas/checkpoints (año)</span></div>
+    </div>`);
 
-// Filtros por subvista — genuinamente distintos por fuente real (ver
-// HANDOFF): Productivas usa los slicers reales de "Horas Productivas
-// consumidas" (Client Partner/Cliente/Año/Mes); No Asignadas usa los
-// slicers reales de "Hs No Asignadas" (Task/Consultor/Año/Mes/Semana/
-// Estado) — nunca se copian mecánicamente los 6 slicers de Power BI a
-// ambas subvistas solo para que luzcan iguales.
-const CAPACIDAD_FILTERS_BY_PERSPECTIVE = {
-  "Productivas": [
-    { label: "Client Partner", options: ["Todos", "María López", "Diego Ramos"] },
-    { label: "Cliente", options: ["Todos", "Andesmar", "Danone", "YPF", "AySA", "Ternium"] },
-    { label: "Año", options: ["2026", "2025"] },
-    { label: "Mes", options: ["Todos", "Agosto", "Julio"] },
-  ],
-  "No Asignadas": [
-    { label: "Task", options: ["Todos", "01. No Asignación a Servicio en Cliente"] },
-    { label: "Consultor", options: ["Todos", "Federico Bressi", "Franco Delucchi", "Gabriela Mendez", "Martina Suárez"] },
-    { label: "Año", options: ["2026", "2025"] },
-    { label: "Mes", options: ["Todos", "Agosto", "Julio"] },
-    { label: "Semana", options: ["Todas"] },
-    { label: "Estado", options: ["Todos", "Activo", "Inactivo"] },
-  ],
-};
+  const detalleBody = `
+    ${treeToolbarHtml(stateKey)}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
+        <tbody>
+          ${renderTreeRows(stateKey, tree, 0, true)}
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}<td>${grandTotal}</td></tr>
+        </tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
 
-function renderCapacidadFilterBar() {
-  const fields = CAPACIDAD_FILTERS_BY_PERSPECTIVE[state.perspective.capacidad];
-  return `
-  <div class="filter-bar">
-    ${fields.map(f => `<div class="filter-field"><span>${esc(f.label)}</span><select>${f.options.map(o => `<option>${esc(o)}</option>`).join("")}</select></div>`).join("")}
-    <div class="filter-note">Filtros decorativos en este V0 — la jerarquía/matriz es la interacción principal.</div>
-  </div>`;
+  return `${perspectiveSwitch("calendario")}${dashboardSections("reporting-calendario", resumen + detalle)}`;
 }
 
 const CAPACIDAD_PRODUCTIVAS_TOTAL = CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0);
@@ -700,8 +838,10 @@ const CAPACIDAD_PRODUCTIVAS_TOTAL = CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => 
 function capacidadPctIncidencia(horas) {
   // % Incidencia real (medida `Time Logs Reports.[% Hs ejecutadas]`) =
   // horas de la fila ÷ horas TOTALES (REMOVEFILTERS Cliente/Client
-  // Partner) — SIEMPRE contra el gran total, nunca contra el subtotal del
-  // grupo padre, tanto en filas hoja como en el rollup de Cliente.
+  // Partner) — SIEMPRE contra el gran total FIJO (CAPACIDAD_PRODUCTIVAS_TOTAL,
+  // nunca recalculado por el filtro de Cliente del V0), tanto en filas hoja
+  // como en el rollup de Cliente — así se preserva la semántica real de la
+  // medida DAX incluso cuando el filtro deja visible un subconjunto.
   return (CAPACIDAD_PRODUCTIVAS_TOTAL ? (horas / CAPACIDAD_PRODUCTIVAS_TOTAL * 100) : 0).toFixed(1) + "%";
 }
 
@@ -711,76 +851,104 @@ const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
 ];
 
 function renderCapacidadProductivas() {
+  const f = state.filters.capacidad;
+  let rows = CAPACIDAD_PRODUCTIVAS_ROWS;
+  if (f.cliente) rows = rows.filter(r => r.cliente === f.cliente);
+  const filteredTotal = rows.reduce((s, r) => s + r.horas, 0);
+
   // Orden por Horas de Cliente descendente == el Rank real del PBIP
   // (RANKX por Horas), representado vía orden visual (ver comentario del
   // dataset) — nunca una columna Rank redundante con el orden.
   const clientTotals = new Map();
-  CAPACIDAD_PRODUCTIVAS_ROWS.forEach(r => clientTotals.set(r.cliente, (clientTotals.get(r.cliente) || 0) + r.horas));
-  const rowsSorted = [...CAPACIDAD_PRODUCTIVAS_ROWS].sort((a, b) => clientTotals.get(b.cliente) - clientTotals.get(a.cliente));
+  rows.forEach(r => clientTotals.set(r.cliente, (clientTotals.get(r.cliente) || 0) + r.horas));
+  const rowsSorted = [...rows].sort((a, b) => clientTotals.get(b.cliente) - clientTotals.get(a.cliente));
+  const stateKey = "capacidad::Productivas";
   const tree = buildTree(rowsSorted, ["cliente", "proyecto"]);
-  return `
-    <div class="kpi-grid"><div class="kpi"><span class="value">${CAPACIDAD_PRODUCTIVAS_TOTAL}</span><span class="label">Total Horas</span></div></div>
-    <section class="panel">
-      <h2>Horas consumidas por Cliente <span class="count">Cliente › Proyecto, ordenado por Rank (Horas desc.)</span></h2>
-      <div class="matrix-scroll">
-        <table class="tree-matrix">
-          <thead><tr><th class="row-label-col">Cliente / Proyecto</th><th>Horas</th><th>% Incidencia</th></tr></thead>
-          <tbody>${renderBusinessTreeRows("capacidad::Productivas", tree, 0, CAPACIDAD_PRODUCTIVAS_COLUMNS)}</tbody>
-        </table>
-      </div>
-    </section>`;
+  registerTreeContext(stateKey, rowsSorted, ["cliente", "proyecto"]);
+
+  const resumen = dashboardSection("resumen", "Resumen", "", `
+    <div class="activity-kpi-grid"><div class="activity-kpi"><span class="activity-kpi__value">${filteredTotal}</span><span class="activity-kpi__label">Total Horas</span></div></div>`);
+
+  const detalleBody = `
+    ${treeToolbarHtml(stateKey)}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr><th class="row-label-col">Cliente / Proyecto</th><th>Horas</th><th>% Incidencia</th></tr></thead>
+        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, CAPACIDAD_PRODUCTIVAS_COLUMNS)}</tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", "Cliente › Proyecto, ordenado por Rank (Horas desc.)", detalleBody);
+
+  return resumen + detalle;
 }
 
 function renderCapacidadNoAsignadas() {
+  const f = state.filters.capacidad;
+  let baseRows = CAPACIDAD_NOASIGNADAS_ROWS;
+  if (f.consultor) baseRows = baseRows.filter(r => r.consultor === f.consultor);
   // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
   // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
   // inventada. `hsAsig` es la capacidad de referencia estática del
   // consultor, separada de `monthly` (horas NO asignadas reales por mes,
   // ver dataset).
-  const rows = CAPACIDAD_NOASIGNADAS_ROWS.map(r => ({ ...r, consultorLabel: `${r.consultor} (${r.hsAsig} hs Asig)` }));
+  const rows = baseRows.map(r => ({ ...r, consultorLabel: `${r.consultor} (${r.hsAsig} hs Asig)` }));
   const tree = buildTree(rows, ["consultorLabel"]);
   const totalMonthly = sumMonthly(rows);
   const stateKey = "capacidad::No Asignadas";
-  return `
-    <section class="panel">
-      <h2>Horas No Asignadas <span class="count">Consultor — Task: No Asignación a Servicio en Cliente</span></h2>
-      <div class="matrix-scroll">
-        <table class="tree-matrix">
-          <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
-          <tbody>
-            ${renderTreeRows(stateKey, tree, 0)}
-            <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="empty-note" style="text-align:left">Horas No Productivas — registradas en Time por cada colaborador (ver HANDOFF). Potential overlap with Staffing — integration decision pending.</p>
-    </section>`;
+
+  // Sin toolbar Expandir/Contraer a propósito: jerarquía de UN solo nivel
+  // (Consultor), flat — el corrective es explícito en que las tablas planas
+  // no lo necesitan.
+  const body = `
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${renderTreeRows(stateKey, tree, 0)}
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+        </tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
+    <p class="empty-note" style="text-align:left">Horas No Productivas — registradas en Time por cada colaborador (ver HANDOFF). Potential overlap with Staffing — integration decision pending.</p>`;
+  const detalle = dashboardSection("detalle", "Horas No Asignadas", "Consultor — Task: No Asignación a Servicio en Cliente", body);
+
+  return detalle;
 }
 
 function renderCapacidad() {
   const persp = state.perspective.capacidad;
-  return `
-    ${perspectiveSwitch("capacidad")}
-    ${persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas()}`;
+  const sectionsHtml = persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas();
+  return `${perspectiveSwitch("capacidad")}${dashboardSections("reporting-capacidad", sectionsHtml)}`;
 }
 
 const RENDERERS = {
   cartera: renderCartera, rentabilidad: renderRentabilidad, horasvendidas: renderHorasVendidas,
   comercial: renderComercial, calendario: renderCalendario, capacidad: renderCapacidad,
 };
+// Comercial queda sin filter bar a propósito (ver renderComercial) — no
+// tiene entrada acá, `render()` lo trata como "" (sin barra) cuando no
+// aparece en este mapa.
+const FILTER_BARS = {
+  cartera: renderCarteraFilterBar, rentabilidad: renderRentabilidadFilterBar,
+  horasvendidas: renderHorasVendidasFilterBar, calendario: renderCalendarioFilterBar,
+  capacidad: renderCapacidadFilterBar,
+};
 
 function render() {
   document.getElementById("reporting-experience-tabs").innerHTML = EXPERIENCES.map(e => `
     <button class="${state.experience === e.id ? "is-active" : ""}" onclick="setExperience('${e.id}')">${esc(e.label)}</button>
   `).join("");
-  // Cartera y Capacidad tienen su propio filter bar (campos reales de su
-  // fuente, distintos entre sí y del resto — ver correctives) — las demás
-  // experiencias siguen recibiendo el filter bar compartido, sin cambios.
-  let filterBarHtml;
-  if (state.experience === "cartera") filterBarHtml = renderCarteraFilterBar();
-  else if (state.experience === "capacidad") filterBarHtml = renderCapacidadFilterBar();
-  else filterBarHtml = renderFilterBar();
+  const filterBarHtml = FILTER_BARS[state.experience] ? FILTER_BARS[state.experience]() : "";
   document.getElementById("reporting-main-content").innerHTML = filterBarHtml + RENDERERS[state.experience]();
+  // Backbone compartido de drag-and-drop/colapso (app.js) — se re-aplica en
+  // cada render() porque acá el contenido se reemplaza por innerHTML
+  // completo (sin htmx), a diferencia de Staffing/Actividad que lo disparan
+  // vía el evento htmx:load. `initDashboardSections` es idempotente por
+  // contenedor (ver app.js) — reordenamiento anterior en sessionStorage se
+  // reaplica solo, sin duplicar listeners.
+  initDashboardSections(document);
 }
 
 // --- V0 assessment drawer ---------------------------------------------------
@@ -808,4 +976,11 @@ function closeDrawer() {
   document.getElementById("reporting-drawer-overlay").classList.remove("is-open");
 }
 
-render();
+// El primer render() debe esperar a DOMContentLoaded: este <script> se
+// ejecuta ANTES que app.js (que se carga al final de <body> en base.html,
+// después del {% block body %} que contiene este archivo) — llamar
+// initDashboardSections/render() de forma síncrona acá arriba fallaría
+// (función todavía no definida). DOMContentLoaded solo dispara después de
+// que TODOS los <script src> síncronos previos —incluido app.js— terminaron
+// de cargar y ejecutar, así que para ese momento ya existe.
+document.addEventListener("DOMContentLoaded", render);

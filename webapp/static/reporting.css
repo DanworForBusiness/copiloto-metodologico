@@ -1,27 +1,32 @@
 /* reporting.css — Reporting Integral V0 preview (Operations, ver HANDOFF).
-   Prototipo standalone (prototypes/reporting-integral-v0/index.html)
-   portado al Hub con el MENOR cambio razonable — mismo grammar visual
-   (paneles claros, densidad, jerarquía) del prototipo original, sin
-   redesign.
+
+   Align with Hub backbone corrective (ver HANDOFF): este archivo YA NO
+   dibuja su propia superficie de página (fondo gris, tarjeta blanca
+   envolvente, filtros/KPI/secciones propios) — eso ahora lo provee el
+   backbone compartido del Hub (dashboard-sticky-header, whatsnew-filters,
+   dashboard-checkbox-group, activity-kpi-grid, dashboard-section, todo en
+   tools.css, consumido tal cual desde reporting.js). Lo que queda ACÁ es
+   SOLO visualización de negocio propia de Reporting sin equivalente en el
+   Hub: tabs de experiencia, switch de perspectiva, tree-matrix/data-table,
+   barras de ranking, status-pills, el drawer de mapeo 12→6.
 
    AISLAMIENTO A PROPÓSITO — nunca en `:root`: `--gold`/`--ink` YA existen
    en `:root` de app.css (tema oscuro del Hub, `--gold:#e7b008`/
    `--ink:#e4e4ec`) — redefinirlos en `:root` acá rompería el resto de esta
    MISMA página (topbar/sidebar oscuros). Todo vive scopeado bajo
    `.reporting-integral-preview`, las variables se resuelven localmente
-   sin tocar el tema del Hub. El resto de las clases (.panel/.kpi/
-   .data-table/etc.) se verificaron SIN colisión con tools.css/app.css/
-   content.css/layout.css/feedback.css al momento de este batch — no se
-   prefijaron todas por separado a propósito (mínimo cambio razonable).
+   sin tocar el tema del Hub. El resto de las clases (.data-table/
+   .tree-matrix/etc.) se verificaron SIN colisión con tools.css/app.css/
+   content.css/layout.css/feedback.css — no se prefijaron todas por
+   separado a propósito (mínimo cambio razonable).
 */
 .reporting-integral-preview {
   --gold: #E7B008; --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
-  --bg: #f7f7f8; --panel: #ffffff; --border: rgba(0,0,0,.1);
+  --panel: #ffffff; --border: rgba(0,0,0,.1);
   --green: #2e9e5b; --amber: #c89100; --red: #c0392b; --grey: #7a7a82;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   --mono: "SF Mono", Consolas, monospace;
-  background: var(--bg); color: var(--ink); font: 400 14px/1.4 var(--sans);
-  border-radius: 12px; padding: 18px;
+  color: var(--ink); font: 400 14px/1.4 var(--sans);
 }
 .reporting-integral-preview .drawer-toggle-btn {
   background: var(--panel); border: 1px solid var(--border); color: var(--ink); border-radius: 6px;
@@ -29,33 +34,18 @@
 }
 .reporting-integral-preview .drawer-toggle-btn:hover { border-color: var(--gold); color: #9a7200; }
 
+/* Tabs de experiencia — antes una "tarjeta" propia (fondo blanco + borde +
+   radio), ahora un underline plano apoyado directo sobre el fondo del Hub
+   (.module-content), sin dibujar una segunda superficie. */
 .reporting-integral-preview nav.experience-tabs {
-  display: flex; gap: 4px; padding: 4px 4px 0; background: var(--panel); border: 1px solid var(--border);
-  border-bottom: none; border-radius: 10px 10px 0 0; flex-wrap: wrap;
+  display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px;
 }
 .reporting-integral-preview nav.experience-tabs button {
   background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font: 600 .82rem var(--sans);
-  color: var(--ink-faint); cursor: pointer; white-space: nowrap;
+  color: var(--ink-faint); cursor: pointer; white-space: nowrap; margin-bottom: -1px;
 }
 .reporting-integral-preview nav.experience-tabs button:hover { color: var(--ink); }
 .reporting-integral-preview nav.experience-tabs button.is-active { color: var(--ink); border-bottom-color: var(--gold); }
-
-.reporting-integral-preview .reporting-main {
-  background: var(--panel); border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px;
-  padding: 16px;
-}
-
-.reporting-integral-preview .filter-bar {
-  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
-}
-.reporting-integral-preview .filter-field { display: flex; flex-direction: column; gap: 4px; }
-.reporting-integral-preview .filter-field > span { color: var(--ink-faint); font: 600 .58rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
-.reporting-integral-preview .filter-field select {
-  min-width: 140px; padding: 6px 9px; border: 1px solid rgba(0,0,0,.2); border-radius: 6px; font-size: .78rem;
-  background: #fff; color: var(--ink);
-}
-.reporting-integral-preview .filter-note { margin-left: auto; align-self: center; color: var(--ink-faint); font-size: .68rem; font-style: italic; }
 
 .reporting-integral-preview .perspective-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
 .reporting-integral-preview .perspective-switch button {
@@ -66,16 +56,14 @@
 .reporting-integral-preview .perspective-switch button.is-active { background: var(--gold); color: #1f1f24; }
 .reporting-integral-preview .perspective-label { color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
 
-.reporting-integral-preview .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 18px; }
-.reporting-integral-preview .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
-.reporting-integral-preview .kpi .value { display: block; font: 700 1.5rem var(--sans); }
-.reporting-integral-preview .kpi .label { display: block; color: var(--ink-faint); font-size: .68rem; margin-top: 2px; }
-.reporting-integral-preview .kpi.warn .value { color: var(--red); }
-.reporting-integral-preview .kpi.good .value { color: var(--green); }
-
-.reporting-integral-preview section.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-.reporting-integral-preview section.panel h2 { margin: 0 0 12px; font-size: .92rem; }
-.reporting-integral-preview section.panel h2 .count { color: var(--ink-faint); font-weight: 400; font-size: .74rem; }
+/* KPI tiles / paneles con caja propia / filtros con caja propia / grupo de
+   checkboxes horizontal: RETIRADOS (Align with Hub backbone corrective, ver
+   HANDOFF) — reemplazados por el backbone compartido del Hub
+   (.activity-kpi-grid/.activity-kpi, <details class="dashboard-section">,
+   .dashboard-sticky-header/.whatsnew-filters/.staffing-filter-bar,
+   .dashboard-checkbox-group), todo en tools.css, consumido tal cual desde
+   reporting.js — ningún componente nuevo, ver dashboardSection()/
+   selectField()/checkboxGroupField() en reporting.js. */
 
 .reporting-integral-preview table.data-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
 .reporting-integral-preview table.data-table th { text-align: left; color: var(--ink-faint); font: 600 .64rem var(--mono); text-transform: uppercase;
@@ -84,17 +72,10 @@
 .reporting-integral-preview table.data-table tr:hover td { background: rgba(231,176,8,.06); }
 .reporting-integral-preview .num { text-align: right; font-variant-numeric: tabular-nums; }
 .reporting-integral-preview .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
-.reporting-integral-preview .status-pill.activo { background: rgba(46,158,91,.12); color: var(--green); }
-.reporting-integral-preview .status-pill.vencido { background: rgba(192,57,43,.12); color: var(--red); }
-.reporting-integral-preview .status-pill.cerrado { background: rgba(122,122,130,.14); color: var(--grey); }
 .reporting-integral-preview .status-pill.en-curso { background: rgba(46,158,91,.12); color: var(--green); }
 .reporting-integral-preview .status-pill.finalizado { background: rgba(122,122,130,.14); color: var(--grey); }
 .reporting-integral-preview .diff-pos { color: var(--green); font-weight: 600; }
 .reporting-integral-preview .diff-neg { color: var(--red); font-weight: 600; }
-
-.reporting-integral-preview .checkbox-row { display: flex; gap: 14px; margin-bottom: 4px; }
-.reporting-integral-preview .checkbox-row label { display: flex; align-items: center; gap: 5px; font-size: .76rem; cursor: pointer; }
-.reporting-integral-preview .checkbox-row input { accent-color: var(--gold); }
 
 .reporting-integral-preview .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: .76rem; }
 .reporting-integral-preview .bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

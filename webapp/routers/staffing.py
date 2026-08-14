@@ -151,6 +151,9 @@ def staffing_page(request: Request):
             # — sin esto, operations_nav.html no puede renderizarla (ver
             # Shared Workspace Sidebar Frame en HANDOFF).
             "user": user,
+            # Resalta "01 Asignaciones" en operations_nav.html (Reporting
+            # Integral V0 — Align with Hub backbone corrective, ver HANDOFF).
+            "active_page": "staffing",
         },
     )
 
