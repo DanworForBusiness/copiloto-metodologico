@@ -171,9 +171,12 @@
       </summary>
       <div class="dashboard-section__body">
         <div class="staffing-timeline-toolbar">
+          <div class="dashboard-view-switch">
+            <button type="button" :class="groupBy === 'consultant' ? 'is-active' : ''" @click="setGrouping('consultant')">Consultor</button>
+            <button type="button" :class="groupBy === 'project' ? 'is-active' : ''" @click="setGrouping('project')">Proyecto</button>
+          </div>
           <button type="button" @click="expandAllConsultants()">Expandir todo</button>
           <button type="button" @click="collapseAllConsultants()">Contraer todo</button>
-          <button type="button" class="staffing-timeline__group-toggle" @click="toggleGrouping()" x-text="groupToggleLabel"></button>
         </div>
         <div class="staffing-timeline-scroll">
           <div class="staffing-timeline">

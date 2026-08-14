@@ -79,7 +79,7 @@ const CARTERA_CONFIG = {
       { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
       { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales, rollup: sumField("vendidasMensuales") },
       { label: "Facturadas", numeric: true, render: r => r.facturado },
-      { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
+      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status) },
     ],
   },
   "Proyecto": {
@@ -91,7 +91,7 @@ const CARTERA_CONFIG = {
       { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
       { label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
       { label: "Facturadas", numeric: true, render: r => r.facturado },
-      { label: "Status", numeric: false, render: r => statusPillCartera(r.status) },
+      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status) },
     ],
   },
 };
@@ -542,7 +542,7 @@ function toggleCarteraStatus(key) {
 function renderCarteraFilterBar() {
   const fields = facetSelectField("cartera", "proyecto", "Proyecto")
     + facetSelectField("cartera", "cliente", "Cliente")
-    + checkboxGroupField("Status", [
+    + checkboxGroupField("Estado", [
         { value: "En curso", checked: state.carteraStatus["En curso"], onclick: "toggleCarteraStatus('En curso')" },
         { value: "Finalizado", checked: state.carteraStatus["Finalizado"], onclick: "toggleCarteraStatus('Finalizado')" },
       ]);
@@ -596,13 +596,18 @@ function renderComercialFilterBar() {
 // omite (`withLabel=false`). `withLabel=true` (default) queda disponible
 // para el caso standalone, sin uso actual tras alinear Comercial (ver
 // Commercial/Clients corrective).
+// `.dashboard-view-switch` (Hub Dashboard Contextual View Control
+// corrective, ver HANDOFF) — primitivo NEUTRAL en tools.css, compartido
+// con el switch Consultor/Proyecto de Staffing (staffing_dashboard.html)
+// — CERO CSS propio de Reporting acá, el viejo `.perspective-switch`
+// scopeado bajo `.reporting-integral-preview` se retiró.
 function perspectiveSwitch(expId, withLabel = true) {
   const exp = EXPERIENCES.find(e => e.id === expId);
   const buttons = exp.perspectives.map(p => `
     <button class="${state.perspective[expId] === p ? "is-active" : ""}" onclick="setPerspective('${expId}', '${esc(p)}')">${esc(p)}</button>
   `).join("");
   const label = withLabel ? `<p class="perspective-label">Ver por</p>` : "";
-  return `${label}<div class="perspective-switch">${buttons}</div>`;
+  return `${label}<div class="dashboard-view-switch">${buttons}</div>`;
 }
 
 function setPerspective(expId, p) {
@@ -843,9 +848,13 @@ function expandAllTree(stateKey) {
 // especifica el corrective. Se combinan con el perspective-switch de la
 // sección (si corresponde) dentro de UN solo `sectionToolbar(...)`, nunca
 // dos toolbars apilados.
+// "Expandir todo"/"Contraer todo" (Hub Dashboard Contextual View Control
+// corrective, ver HANDOFF) — MISMO texto y MISMO orden que Staffing (antes
+// "Contraer"/"Expandir", sin "todo" y en el orden inverso): estos botones
+// afectan la jerarquía COMPLETA, no solo la fila actual.
 function treeToolbarButtons(stateKey) {
-  return `<button type="button" onclick="collapseAllTree('${stateKey}')">Contraer</button>
-    <button type="button" onclick="expandAllTree('${stateKey}')">Expandir</button>`;
+  return `<button type="button" onclick="expandAllTree('${stateKey}')">Expandir todo</button>
+    <button type="button" onclick="collapseAllTree('${stateKey}')">Contraer todo</button>`;
 }
 // `.staffing-timeline-toolbar` — MISMA clase que el "Expandir todo/Contraer
 // todo" de Staffing (ver staffing_dashboard.html), reusada tal cual (Align

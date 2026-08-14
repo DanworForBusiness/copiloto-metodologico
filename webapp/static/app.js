@@ -1204,9 +1204,16 @@ function staffingDashboard(payload) {
     },
 
     // Grouping switch (Consultor ↔ Proyecto) — mismo dataset filtrado, sin
-    // Graph. El botón describe la ACCIÓN (a qué modo cambiaría al clickear).
-    toggleGrouping() {
-      this.groupBy = this.groupBy === "consultant" ? "project" : "consultant";
+    // Graph. Hub Dashboard Contextual View Control corrective (ver
+    // HANDOFF): el control visible pasó de un botón de acción única
+    // ("Agrupar por proyecto"/su inverso) a un segmented switch
+    // (.dashboard-view-switch, compartido con Reporting) que muestra el
+    // modo ACTUAL y la alternativa a la vez — `setGrouping(mode)` es la
+    // primitiva real (no-op si ya está en ese modo); `toggleGrouping()`
+    // queda como wrapper fino sobre ella para no romper otros callers.
+    setGrouping(mode) {
+      if (this.groupBy === mode) return;
+      this.groupBy = mode;
       // Colapso global (pedido del owner, ver HANDOFF): si había un intent
       // limpio de "todo colapsado", el NUEVO groupBy arranca con TODOS sus
       // grupos colapsados (recalculado con las keys de la agrupación
@@ -1221,8 +1228,8 @@ function staffingDashboard(payload) {
         this.collapsedConsultants = {};
       }
     },
-    get groupToggleLabel() {
-      return this.groupBy === "consultant" ? "Agrupar por proyecto" : "Agrupar por consultor";
+    toggleGrouping() {
+      this.setGrouping(this.groupBy === "consultant" ? "project" : "consultant");
     },
     // Etiqueta secundaria de la fila del timeline — depende de qué está
     // agrupado: agrupado por Consultor, la fila muestra Cliente-Proyecto

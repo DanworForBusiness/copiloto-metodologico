@@ -5,10 +5,14 @@
    envolvente, filtros/KPI/secciones propios) — eso ahora lo provee el
    backbone compartido del Hub (dashboard-sticky-header, whatsnew-filters,
    dashboard-checkbox-group, activity-kpi-grid, dashboard-section, todo en
-   tools.css, consumido tal cual desde reporting.js). Lo que queda ACÁ es
+   tools.css, consumido tal cual desde reporting.js). Hub Dashboard
+   Contextual View Control corrective (ver HANDOFF): el switch de
+   perspectiva también pasó a ser compartido (`.dashboard-view-switch`,
+   MISMA clase que Consultor/Proyecto de Staffing) — sin CSS propio acá,
+   solo el margen del uso standalone (ver más abajo). Lo que queda ACÁ es
    SOLO visualización de negocio propia de Reporting sin equivalente en el
-   Hub: tabs de experiencia, switch de perspectiva, tree-matrix/data-table,
-   barras de ranking, status-pills.
+   Hub: tabs de experiencia, tree-matrix/data-table, barras de ranking,
+   status-pills.
 
    AISLAMIENTO A PROPÓSITO — pero SOLO para tokens que genuinamente
    necesitan un valor DISTINTO del Hub: `--ink`/`--panel`/`--border`/
@@ -31,8 +35,8 @@
    de JetBrains Mono aunque la CLASE fuera la misma. Sin redefinición
    local, `var(--gold)`/`var(--sans)`/`var(--mono)` — usados MÁS ABAJO por
    componentes genuinamente propios de Reporting (tabs de experiencia,
-   perspective-switch, status-pill, tree-matrix/data-table, tree-toggle,
-   bar-fill, legend) — resuelven directo contra el `:root` real del Hub:
+   status-pill, tree-matrix/data-table, tree-toggle, bar-fill, legend) —
+   resuelven directo contra el `:root` real del Hub:
    MISMA fuente, nunca un valor duplicado. El resto de las clases
    (.data-table/.tree-matrix/etc.) se verificaron SIN colisión con
    tools.css/app.css/content.css/layout.css/feedback.css — no se
@@ -66,21 +70,18 @@
 .reporting-integral-preview nav.experience-tabs button:hover { color: var(--ink); }
 .reporting-integral-preview nav.experience-tabs button.is-active { color: var(--ink); border-bottom-color: var(--gold); }
 
-.reporting-integral-preview .perspective-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
-.reporting-integral-preview .perspective-switch button {
-  background: var(--panel); border: none; padding: 8px 16px; font: 600 .78rem var(--sans); color: var(--ink-soft);
-  cursor: pointer; border-right: 1px solid var(--border);
-}
-.reporting-integral-preview .perspective-switch button:last-child { border-right: none; }
-.reporting-integral-preview .perspective-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* `.dashboard-view-switch` (Hub Dashboard Contextual View Control
+   corrective, ver HANDOFF) es ahora un primitivo NEUTRAL en tools.css,
+   compartido con el switch Consultor/Proyecto de Staffing — sin CSS propio
+   acá. Solo el espaciado standalone es cosa de Reporting: dentro del
+   toolbar de una sección (`.staffing-timeline-toolbar`, ver
+   sectionToolbar() en reporting.js) el toolbar ya resuelve el espaciado
+   como fila única junto a Expandir/Contraer; standalone arriba de las
+   secciones (así sigue Comercial, fuera de alcance de este corrective, ver
+   HANDOFF) necesita su propio margen inferior. */
+.reporting-integral-preview .dashboard-view-switch { margin-bottom: 14px; }
+.reporting-integral-preview .staffing-timeline-toolbar .dashboard-view-switch { margin-bottom: 0; }
 .reporting-integral-preview .perspective-label { color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
-/* Cuando el perspective-switch vive DENTRO del toolbar de una sección
-   (.staffing-timeline-toolbar, ver sectionToolbar() en reporting.js) en vez
-   de standalone arriba de las secciones (así sigue Comercial, fuera de
-   alcance de este corrective, ver HANDOFF): sin margin-bottom propio — el
-   toolbar ya resuelve el espaciado como fila única junto a
-   Contraer/Expandir. */
-.reporting-integral-preview .staffing-timeline-toolbar .perspective-switch { margin-bottom: 0; }
 
 /* KPI tiles / paneles con caja propia / filtros con caja propia / grupo de
    checkboxes horizontal: RETIRADOS (Align with Hub backbone corrective, ver

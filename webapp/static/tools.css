@@ -814,16 +814,29 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
   padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
 }
 .staffing-timeline-toolbar button:hover { border-color: var(--gold); color: var(--gold); }
-/* Switch de agrupación Consultor ↔ Proyecto (Staffing Director Priority V2,
-   ver HANDOFF) — dorado/negro, deliberadamente DISTINTO de Expandir/Contraer
-   (mismo patrón gold-fill que .tool-suggest__send, nunca un color nuevo). La
-   especificidad (2 clases) es intencional: sin esto, la regla genérica
-   `.staffing-timeline-toolbar button` de arriba (borde gris) le ganaría al
-   fondo dorado por especificidad, sin importar el orden en el archivo. */
-.staffing-timeline-toolbar .staffing-timeline__group-toggle {
-  border: 0; background: var(--gold); color: #0c0c0d; font-weight: 700;
+/* Segmented view/perspective switch (Hub Dashboard Contextual View Control
+   corrective, ver HANDOFF) — primitivo NEUTRAL compartido por Staffing
+   (Consultor/Proyecto, reemplaza el botón de acción único "Agrupar
+   por...") y Reporting (switch de perspectiva por experiencia, reemplaza
+   el `.perspective-switch` que antes vivía solo en reporting.css) — MISMA
+   regla para ambos, nunca duplicada. Muestra el estado actual (botón
+   `.is-active`, fill dorado) Y la alternativa disponible en el mismo
+   control, a diferencia de un botón de acción que solo describe el
+   próximo click. Colores literales + override `.content-theme-dark`
+   (mismo criterio que `.dashboard-section`/`.activity-kpi` más arriba —
+   Staffing/Reporting corren sobre la superficie CLARA de
+   `.module-content`, `--soft`/`--ink` son del panel oscuro, no aplican
+   acá). */
+.dashboard-view-switch { display: inline-flex; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; overflow: hidden; }
+.dashboard-view-switch button {
+  background: #ffffff; border: none; border-right: 1px solid rgba(128,128,128,.28);
+  padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; cursor: pointer;
 }
-.staffing-timeline-toolbar .staffing-timeline__group-toggle:hover { border-color: transparent; color: #0c0c0d; opacity: .88; }
+.content-theme-dark .dashboard-view-switch button { background: #181819; color: #b2b2bc; }
+.dashboard-view-switch button:last-child { border-right: none; }
+.dashboard-view-switch button:hover { color: #1f1f24; }
+.content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
+.dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
 
 /* Toolbar del Detalle agregado (Staffing Director Priority V2) — control
    numérico de "+N días", recalcula client-side, sin Graph. */
