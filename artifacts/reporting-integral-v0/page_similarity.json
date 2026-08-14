@@ -1,0 +1,1254 @@
+[
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Estimación Horas Vendidas  x CP",
+    "field_overlap": 1.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 1.0,
+    "combined_score": 0.75,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Hs vendidas Mant",
+      "Horas por proyectos.Hs vendidas Proy",
+      "Horas por proyectos.HsVendidas",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Meses.Nombre Mes corto",
+      "Proyectos.Empresa",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Proyecto Dash",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Calendario x Frecuencia",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.938,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 1.0,
+    "combined_score": 0.734,
+    "shared_fields": [
+      "Calendario_Cliente.Abr",
+      "Calendario_Cliente.Ago",
+      "Calendario_Cliente.Dic",
+      "Calendario_Cliente.Ene",
+      "Calendario_Cliente.Feb",
+      "Calendario_Cliente.Jul",
+      "Calendario_Cliente.Jun",
+      "Calendario_Cliente.Mar",
+      "Calendario_Cliente.May",
+      "Calendario_Cliente.Nov",
+      "Calendario_Cliente.Oct",
+      "Calendario_Cliente.Sep",
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Analisis Mantenimiento",
+    "field_overlap": 0.333,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.8,
+    "combined_score": 0.533,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Analisis Mantenimiento",
+    "field_overlap": 0.333,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.8,
+    "combined_score": 0.533,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.55,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.512,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Facturadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Horas por proyectos.Proyecto",
+      "Proyectos.Empresa",
+      "Proyectos.HorasVendidas",
+      "Proyectos.Proyecto",
+      "Proyectos.Status"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.214,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.833,
+    "slicer_overlap": 0.75,
+    "combined_score": 0.449,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.316,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.75,
+    "slicer_overlap": 0.6,
+    "combined_score": 0.416,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Proyecto Dash"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.316,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.75,
+    "slicer_overlap": 0.6,
+    "combined_score": 0.416,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Proyecto Dash"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.143,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.411,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.136,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.409,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.381,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.75,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.408,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Analisis Participacion - Condiciones Comerciales -",
+    "field_overlap": 0.125,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.406,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.091,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.398,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.087,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.5,
+    "combined_score": 0.397,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.227,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.333,
+    "combined_score": 0.39,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Proyecto",
+      "Proyectos.Empresa",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.227,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.333,
+    "combined_score": 0.39,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Proyecto",
+      "Proyectos.Empresa",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.133,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.833,
+    "slicer_overlap": 0.4,
+    "combined_score": 0.342,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.158,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.857,
+    "slicer_overlap": 0.333,
+    "combined_score": 0.337,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Nombre Mes corto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.158,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.857,
+    "slicer_overlap": 0.333,
+    "combined_score": 0.337,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Nombre Mes corto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Horas Productivas consumidas",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.095,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.833,
+    "slicer_overlap": 0.4,
+    "combined_score": 0.332,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Horas Productivas consumidas",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.091,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.833,
+    "slicer_overlap": 0.4,
+    "combined_score": 0.331,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.13,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.857,
+    "slicer_overlap": 0.286,
+    "combined_score": 0.318,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Analisis Participacion - Condiciones Comerciales -",
+    "field_overlap": 0.15,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.4,
+    "combined_score": 0.316,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.HsVendidas",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Analisis Participacion - Condiciones Comerciales -",
+    "field_overlap": 0.15,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.4,
+    "combined_score": 0.316,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.HsVendidas",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.333,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.75,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.306,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.056,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.125,
+    "combined_score": 0.295,
+    "shared_fields": [
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Analisis Mantenimiento",
+    "field_overlap": 0.125,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.333,
+    "combined_score": 0.293,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.105,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.857,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.276,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Horas Productivas consumidas",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.125,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.833,
+    "slicer_overlap": 0.111,
+    "combined_score": 0.267,
+    "shared_fields": [
+      "Meses.Año",
+      "Time Logs Reports.HORAS"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs Certificadas vs Hs  Ejecutadas",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.105,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.25,
+    "combined_score": 0.267,
+    "shared_fields": [
+      "Meses.Año",
+      "Meses.Mes"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.1,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.25,
+    "combined_score": 0.266,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Status"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.091,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.25,
+    "combined_score": 0.264,
+    "shared_fields": [
+      "Meses.Año",
+      "Meses.Mes"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.091,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.25,
+    "combined_score": 0.264,
+    "shared_fields": [
+      "Meses.Año",
+      "Meses.Mes"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.08,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.222,
+    "combined_score": 0.254,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Status"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.077,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.222,
+    "combined_score": 0.253,
+    "shared_fields": [
+      "Meses.Año",
+      "Meses.Mes"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.25,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs No Asignadas",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.25,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs No Asignadas",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 1.0,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.25,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.111,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.248,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.1,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.245,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.1,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.245,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.077,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.239,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.074,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.239,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Analisis Mantenimiento",
+    "field_overlap": 0.08,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.234,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Client Partner - Status de Cliente detalle",
+    "field_overlap": 0.045,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.232,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Client Partner - Status de Cliente detalle",
+    "field_overlap": 0.045,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.232,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.095,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.111,
+    "combined_score": 0.23,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Tipo Proyecto Dash"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.095,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.111,
+    "combined_score": 0.23,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Tipo Proyecto Dash"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.065,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.23,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.062,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.23,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.036,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.229,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.034,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.229,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.036,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.229,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.034,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.167,
+    "combined_score": 0.229,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Horas Productivas consumidas",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.118,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.625,
+    "slicer_overlap": 0.143,
+    "combined_score": 0.222,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.059,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.667,
+    "slicer_overlap": 0.125,
+    "combined_score": 0.213,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.059,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.667,
+    "slicer_overlap": 0.125,
+    "combined_score": 0.213,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.043,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.667,
+    "slicer_overlap": 0.125,
+    "combined_score": 0.209,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.042,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.667,
+    "slicer_overlap": 0.125,
+    "combined_score": 0.209,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.111,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.206,
+    "shared_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Tipo Proyecto Dash"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.053,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.192,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs Certificadas vs Hs  Ejecutadas",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.04,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.189,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs Certificadas vs Hs  Ejecutadas",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.038,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.188,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.062,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.571,
+    "slicer_overlap": 0.111,
+    "combined_score": 0.186,
+    "shared_fields": [
+      "Cliente.Client Partner"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.714,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.178,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.667,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.167,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Rentabilidad",
+    "page_b": "Page 1",
+    "field_overlap": 0.333,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.133,
+    "shared_fields": [
+      "Rentabilidad Unpivot.Concepto",
+      "Rentabilidad Unpivot.MesNombre",
+      "Rentabilidad Unpivot.Valor"
+    ],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Client Partner - Status de Cliente detalle",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Analisis Participacion - Condiciones Comerciales -",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Analisis Rentabilidad",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Hs No Asignadas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Calendario x Frecuencia",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Calendario x CP",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.4,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.1,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Horas Productivas consumidas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.333,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.083,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Estimación Horas Vendidas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.286,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.071,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Estimación Horas Vendidas  x CP",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.286,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.071,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Analisis Mantenimiento",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.286,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.071,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Analisis Proyectos",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.286,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.071,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Hs Certificadas vs Hs  Ejecutadas",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.286,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.071,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Client Partner - Status de Cliente detalle",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.05,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Participacion - Condiciones Comerciales -",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.05,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs No Asignadas",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.05,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Calendario x Frecuencia",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.05,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Calendario x CP",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.2,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.05,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Horas Productivas consumidas",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.167,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.042,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.143,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.036,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Estimación Horas Vendidas  x CP",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.143,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.036,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Mantenimiento",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.143,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.036,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Analisis Proyectos",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.143,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.036,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Hs Certificadas vs Hs  Ejecutadas",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.143,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.036,
+    "shared_fields": [],
+    "shared_measures": []
+  },
+  {
+    "page_a": "Inicio",
+    "page_b": "Page 1",
+    "field_overlap": 0.0,
+    "measure_overlap": 0.0,
+    "visual_type_overlap": 0.0,
+    "slicer_overlap": 0.0,
+    "combined_score": 0.0,
+    "shared_fields": [],
+    "shared_measures": []
+  }
+]

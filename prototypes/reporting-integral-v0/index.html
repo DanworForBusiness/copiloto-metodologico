@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Danwor — Tablero Integral V0</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --gold: #E7B008; --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
+    --bg: #f7f7f8; --panel: #ffffff; --border: rgba(0,0,0,.1);
+    --green: #2e9e5b; --amber: #c89100; --red: #c0392b; --grey: #7a7a82;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    --mono: "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 14px/1.4 var(--sans); }
+  header.topbar {
+    background: var(--ink); color: #fff; padding: 14px 20px; display: flex; align-items: center; gap: 14px;
+  }
+  header.topbar .brand { font-weight: 700; letter-spacing: .02em; }
+  header.topbar .brand span { color: var(--gold); }
+  header.topbar .subtitle { color: #aaa; font-size: .75rem; margin-left: 4px; }
+  header.topbar .spacer { flex: 1; }
+  header.topbar button.drawer-toggle {
+    background: transparent; border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 6px;
+    padding: 6px 12px; font-size: .72rem; cursor: pointer;
+  }
+  header.topbar button.drawer-toggle:hover { border-color: var(--gold); color: var(--gold); }
+
+  nav.experience-tabs {
+    display: flex; gap: 4px; padding: 10px 20px 0; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  nav.experience-tabs button {
+    background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font: 600 .82rem var(--sans);
+    color: var(--ink-faint); cursor: pointer; white-space: nowrap;
+  }
+  nav.experience-tabs button:hover { color: var(--ink); }
+  nav.experience-tabs button.is-active { color: var(--ink); border-bottom-color: var(--gold); }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 18px 20px 60px; }
+
+  .filter-bar {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+  }
+  .filter-field { display: flex; flex-direction: column; gap: 4px; }
+  .filter-field > span { color: var(--ink-faint); font: 600 .58rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+  .filter-field select {
+    min-width: 140px; padding: 6px 9px; border: 1px solid rgba(0,0,0,.2); border-radius: 6px; font-size: .78rem;
+    background: #fff; color: var(--ink);
+  }
+  .filter-note { margin-left: auto; align-self: center; color: var(--ink-faint); font-size: .68rem; font-style: italic; }
+
+  .perspective-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+  .perspective-switch button {
+    background: var(--panel); border: none; padding: 8px 16px; font: 600 .78rem var(--sans); color: var(--ink-soft);
+    cursor: pointer; border-right: 1px solid var(--border);
+  }
+  .perspective-switch button:last-child { border-right: none; }
+  .perspective-switch button.is-active { background: var(--gold); color: #1f1f24; }
+  .perspective-label { color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .kpi .value { display: block; font: 700 1.5rem var(--sans); }
+  .kpi .label { display: block; color: var(--ink-faint); font-size: .68rem; margin-top: 2px; }
+  .kpi.warn .value { color: var(--red); }
+  .kpi.good .value { color: var(--green); }
+
+  section.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  section.panel h2 { margin: 0 0 12px; font-size: .92rem; }
+  section.panel h2 .count { color: var(--ink-faint); font-weight: 400; font-size: .74rem; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  table.data-table th { text-align: left; color: var(--ink-faint); font: 600 .64rem var(--mono); text-transform: uppercase;
+    letter-spacing: .04em; border-bottom: 1px solid var(--border); padding: 6px 8px; }
+  table.data-table td { padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,.05); }
+  table.data-table tr:hover td { background: rgba(231,176,8,.06); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
+  .status-pill.activo { background: rgba(46,158,91,.12); color: var(--green); }
+  .status-pill.vencido { background: rgba(192,57,43,.12); color: var(--red); }
+  .status-pill.cerrado { background: rgba(122,122,130,.14); color: var(--grey); }
+  .diff-pos { color: var(--green); font-weight: 600; }
+  .diff-neg { color: var(--red); font-weight: 600; }
+
+  .checkbox-row { display: flex; gap: 14px; margin-bottom: 4px; }
+  .checkbox-row label { display: flex; align-items: center; gap: 5px; font-size: .76rem; cursor: pointer; }
+  .checkbox-row input { accent-color: var(--gold); }
+
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: .76rem; }
+  .bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; height: 14px; background: rgba(0,0,0,.06); border-radius: 4px; position: relative; overflow: hidden; }
+  .bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; }
+  .bar-fill.vendidas { background: #4C7EA8; }
+  .bar-fill.certificadas { background: #3F9C82; }
+  .bar-fill.ejecutadas { background: var(--gold); }
+  .bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); flex-shrink: 0; }
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: .7rem; color: var(--ink-soft); }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .legend .l-vendidas::before { background: #4C7EA8; }
+  .legend .l-certificadas::before { background: #3F9C82; }
+  .legend .l-ejecutadas::before { background: var(--gold); }
+
+  .calendar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .calendar-cell { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: .74rem; }
+  .calendar-cell .month { font: 700 .68rem var(--mono); text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
+  .calendar-cell .item { padding: 3px 0; border-top: 1px solid rgba(0,0,0,.05); }
+  .calendar-cell .item:first-of-type { border-top: none; }
+
+  .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }
+
+  /* V0 assessment drawer */
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 40; }
+  .drawer-overlay.is-open { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 90vw); background: #fff; z-index: 41;
+    padding: 20px; overflow-y: auto; transform: translateX(100%); transition: transform .18s ease; }
+  .drawer.is-open { transform: translateX(0); }
+  .drawer h3 { margin-top: 0; }
+  .drawer .map-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .drawer .map-row .from { color: var(--ink-faint); font-size: .72rem; }
+  .drawer .map-row .arrow { color: var(--gold); margin: 2px 0; font-size: .8rem; }
+  .drawer .map-row .to { font-weight: 700; font-size: .82rem; }
+  .drawer .close-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; float: right; }
+
+  footer.note { max-width: 1280px; margin: 20px auto 0; padding: 0 20px; color: var(--ink-faint); font-size: .7rem; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">DANWOR <span>·</span> Tablero Integral <span style="font-weight:400">V0</span></div>
+  <div class="subtitle">Prototipo — no conectado a datos reales</div>
+  <div class="spacer"></div>
+  <button class="drawer-toggle" onclick="openDrawer()">🗺️ Ver mapeo 12 → 6</button>
+</header>
+
+<nav class="experience-tabs" id="experience-tabs"></nav>
+
+<main id="main-content"></main>
+
+<footer class="note">
+  Prototipo standalone — dataset representativo hardcodeado, sin fidelidad de producción.
+  Ver <code>artifacts/reporting-integral-v0/assessment.md</code> para el análisis completo del PBIP fuente.
+</footer>
+
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <button class="close-btn" onclick="closeDrawer()">✕ Cerrar</button>
+  <h3>12 páginas actuales → 6 experiencias</h3>
+  <div id="drawer-map"></div>
+</div>
+
+<script>
+// ============================================================================
+// Dataset representativo (hardcoded, NO producción) — nombres reconocibles
+// de estilo Danwor pero sin valores reales.
+// ============================================================================
+const CARTERA_ROWS = [
+  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", tipo: "Mantenimiento", diff: -6, trabajadas: 134, certificadas: 128, vendidas: 140, facturado: "100%", status: "activo" },
+  { cliente: "Danone", proyecto: "Soporte Analítica", tipo: "Mantenimiento", diff: 4, trabajadas: 92, certificadas: 96, vendidas: 88, facturado: "100%", status: "activo" },
+  { cliente: "YPF", proyecto: "Implementación SADI v2", tipo: "Proyecto", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturado: "90%", status: "vencido" },
+  { cliente: "AySA", proyecto: "Costeo Federal", tipo: "Proyecto", diff: 2, trabajadas: 210, certificadas: 212, vendidas: 208, facturado: "100%", status: "activo" },
+  { cliente: "Molinos", proyecto: "Mantenimiento BI", tipo: "Mantenimiento", diff: 0, trabajadas: 60, certificadas: 60, vendidas: 60, facturado: "100%", status: "cerrado" },
+  { cliente: "Ternium", proyecto: "Rollout Reporting", tipo: "Proyecto", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturado: "85%", status: "activo" },
+];
+
+const RENTABILIDAD_ROWS = [
+  { proyecto: "Implementación SADI v2", vendidas: 360, certificadas: 322, ejecutadas: 340 },
+  { proyecto: "Costeo Federal", vendidas: 208, certificadas: 212, ejecutadas: 210 },
+  { proyecto: "Rollout Reporting", vendidas: 180, certificadas: 166, ejecutadas: 175 },
+  { proyecto: "Mantenimiento Costeo Directo", vendidas: 140, certificadas: 128, ejecutadas: 134 },
+  { proyecto: "Soporte Analítica", vendidas: 88, certificadas: 96, ejecutadas: 92 },
+];
+
+const HORASVENDIDAS_PROYECTO = [
+  { proyecto: "Implementación SADI v2", vendidas: 360, consumidas: 340, restantes: 20 },
+  { proyecto: "Costeo Federal", vendidas: 208, consumidas: 210, restantes: -2 },
+  { proyecto: "Rollout Reporting", vendidas: 180, consumidas: 175, restantes: 5 },
+];
+const HORASVENDIDAS_CP = [
+  { cp: "María López", vendidas: 420, consumidas: 402, restantes: 18 },
+  { cp: "Diego Ramos", vendidas: 328, consumidas: 340, restantes: -12 },
+];
+
+const COMERCIAL_PARTICIPACION = [
+  { cliente: "Andesmar", cp: "María López", condicion: "T&M mensual", participacion: "22%" },
+  { cliente: "Danone", cp: "María López", condicion: "Bolsa de horas", participacion: "15%" },
+  { cliente: "YPF", cp: "Diego Ramos", condicion: "Fijo por hito", participacion: "31%" },
+];
+const COMERCIAL_STATUS = [
+  { cliente: "Andesmar", status: "Vigente", ultimaRevision: "Jul-2026" },
+  { cliente: "Danone", status: "Vigente", ultimaRevision: "Jun-2026" },
+  { cliente: "YPF", status: "En renegociación", ultimaRevision: "Ago-2026" },
+];
+
+const CALENDARIO_FRECUENCIA = {
+  "Semanal": ["Andesmar — Reporte de horas", "AySA — Comité de avance"],
+  "Mensual": ["Danone — Cierre de costeo", "Molinos — Facturación"],
+  "Trimestral": ["YPF — Revisión de hito"],
+};
+const CALENDARIO_CP = {
+  "María López": ["Andesmar — Reporte semanal", "Danone — Cierre mensual"],
+  "Diego Ramos": ["YPF — Revisión de hito", "Ternium — Rollout checkpoint"],
+};
+
+const CAPACIDAD_NOASIGNADAS = [
+  { consultor: "J. Valletta", disponibles: 40, asignadas: 32, gap: 8 },
+  { consultor: "A. Fernández", disponibles: 40, asignadas: 40, gap: 0 },
+  { consultor: "M. Torres", disponibles: 30, asignadas: 18, gap: 12 },
+];
+const CAPACIDAD_PRODUCTIVAS = [
+  { mes: "Jun-2026", productivas: 1240, noProductivas: 180 },
+  { mes: "Jul-2026", productivas: 1310, noProductivas: 160 },
+  { mes: "Ago-2026", productivas: 1180, noProductivas: 210 },
+];
+
+// ============================================================================
+// Experiencias — cada una define su render + (opcional) perspectivas
+// ============================================================================
+const EXPERIENCES = [
+  { id: "cartera", label: "Cartera / Proyectos", perspectives: ["Mantenimiento", "Proyecto"] },
+  { id: "rentabilidad", label: "Rentabilidad / Performance", perspectives: ["Resumen", "Certificadas vs Ejecutadas"] },
+  { id: "horasvendidas", label: "Horas Vendidas", perspectives: ["Proyecto", "Client Partner"] },
+  { id: "comercial", label: "Comercial / Clientes", perspectives: ["Participación", "Status de Cliente"] },
+  { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"] },
+  { id: "capacidad", label: "Capacidad / Ejecución", perspectives: ["No Asignadas", "Productivas"] },
+];
+
+const state = {
+  experience: "cartera",
+  perspective: { cartera: "Mantenimiento", rentabilidad: "Resumen", horasvendidas: "Proyecto",
+                 comercial: "Participación", calendario: "Frecuencia", capacidad: "No Asignadas" },
+  estadoFilter: { activo: true, vencido: true, cerrado: true },
+};
+
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function statusPill(status) {
+  const labels = { activo: "Activo", vencido: "Vencido", cerrado: "Cerrado" };
+  return `<span class="status-pill ${status}">${labels[status]}</span>`;
+}
+
+function diffCell(diff) {
+  const cls = diff < 0 ? "diff-neg" : (diff > 0 ? "diff-pos" : "");
+  const sign = diff > 0 ? "+" : "";
+  return `<span class="${cls}">${sign}${diff}</span>`;
+}
+
+// --- filter bar (común, cosmético salvo Estado que sí filtra Cartera) ------
+function renderFilterBar() {
+  return `
+  <div class="filter-bar">
+    <div class="filter-field"><span>Proyecto</span><select><option>Todos</option><option>Implementación SADI v2</option><option>Costeo Federal</option></select></div>
+    <div class="filter-field"><span>Empresa</span><select><option>Todos</option><option>Danwor</option></select></div>
+    <div class="filter-field"><span>Año</span><select><option>2026</option><option>2025</option></select></div>
+    <div class="filter-field"><span>Mes</span><select><option>Todos</option><option>Agosto</option><option>Julio</option></select></div>
+    <div class="filter-field"><span>Client Partner</span><select><option>Todos</option><option>María López</option><option>Diego Ramos</option></select></div>
+    <div class="filter-field">
+      <span>Estado</span>
+      <div class="checkbox-row">
+        <label><input type="checkbox" ${state.estadoFilter.activo ? "checked" : ""} onchange="toggleEstado('activo')"> Activo</label>
+        <label><input type="checkbox" ${state.estadoFilter.vencido ? "checked" : ""} onchange="toggleEstado('vencido')"> Vencido</label>
+        <label><input type="checkbox" ${state.estadoFilter.cerrado ? "checked" : ""} onchange="toggleEstado('cerrado')"> Cerrado</label>
+      </div>
+    </div>
+    <div class="filter-note">Filtros de Proyecto/Empresa/Año/Mes/Client Partner son decorativos en este V0 — Estado sí filtra la tabla de Cartera.</div>
+  </div>`;
+}
+
+function toggleEstado(key) {
+  state.estadoFilter[key] = !state.estadoFilter[key];
+  render();
+}
+
+function perspectiveSwitch(expId) {
+  const exp = EXPERIENCES.find(e => e.id === expId);
+  const buttons = exp.perspectives.map(p => `
+    <button class="${state.perspective[expId] === p ? "is-active" : ""}" onclick="setPerspective('${expId}', '${esc(p)}')">${esc(p)}</button>
+  `).join("");
+  return `<p class="perspective-label">Ver por</p><div class="perspective-switch">${buttons}</div>`;
+}
+
+function setPerspective(expId, p) {
+  state.perspective[expId] = p;
+  render();
+}
+
+function setExperience(id) {
+  state.experience = id;
+  render();
+}
+
+// --- Experience renderers ---------------------------------------------------
+
+function renderCartera() {
+  const persp = state.perspective.cartera;
+  const rows = CARTERA_ROWS.filter(r => r.tipo === persp && state.estadoFilter[r.status]);
+  const kpis = [
+    { value: rows.length, label: "Contratos visibles" },
+    { value: rows.reduce((s, r) => s + r.trabajadas, 0), label: "Hs trabajadas" },
+    { value: rows.reduce((s, r) => s + r.certificadas, 0), label: "Hs certificadas" },
+    { value: rows.filter(r => r.diff < 0).length, label: "Con diff negativo", cls: rows.some(r => r.diff < 0) ? "warn" : "" },
+  ];
+  return `
+    ${perspectiveSwitch("cartera")}
+    <div class="kpi-grid">${kpis.map(k => `<div class="kpi ${k.cls || ""}"><span class="value">${k.value}</span><span class="label">${k.label}</span></div>`).join("")}</div>
+    <section class="panel">
+      <h2>${esc(persp)} <span class="count">${rows.length} fila(s)</span></h2>
+      ${rows.length ? `
+      <table class="data-table">
+        <thead><tr><th>Cliente</th><th>Proyecto</th><th class="num">Diff Hs</th><th class="num">Hs Trabajadas</th><th class="num">Hs Certificadas</th><th class="num">Hs Vendidas</th><th class="num">Facturadas</th><th>Status</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td>${esc(r.cliente)}</td><td>${esc(r.proyecto)}</td>
+          <td class="num">${diffCell(r.diff)}</td><td class="num">${r.trabajadas}</td><td class="num">${r.certificadas}</td>
+          <td class="num">${r.vendidas}</td><td class="num">${r.facturado}</td><td>${statusPill(r.status)}</td>
+        </tr>`).join("")}</tbody>
+      </table>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
+    </section>`;
+}
+
+function renderRentabilidad() {
+  const persp = state.perspective.rentabilidad;
+  const rows = RENTABILIDAD_ROWS;
+  const maxVal = Math.max(...rows.map(r => Math.max(r.vendidas, r.certificadas, r.ejecutadas)));
+  const bars = (field, cls) => rows.map(r => `
+    <div class="bar-row"><span class="bar-label">${esc(r.proyecto)}</span>
+      <div class="bar-track"><div class="bar-fill ${cls}" style="width:${(r[field] / maxVal * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${r[field]}</span>
+    </div>`).join("");
+  const content = persp === "Resumen"
+    ? `<div class="legend"><span class="l-vendidas">Vendidas</span><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
+       <p class="perspective-label" style="margin-top:10px">Vendidas</p>${bars("vendidas", "vendidas")}
+       <p class="perspective-label" style="margin-top:14px">Certificadas</p>${bars("certificadas", "certificadas")}
+       <p class="perspective-label" style="margin-top:14px">Ejecutadas</p>${bars("ejecutadas", "ejecutadas")}`
+    : `<div class="legend"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
+       ${rows.map(r => `<div class="bar-row"><span class="bar-label">${esc(r.proyecto)}</span>
+         <div class="bar-track">
+           <div class="bar-fill certificadas" style="width:${(r.certificadas / maxVal * 100).toFixed(1)}%"></div>
+         </div><span class="bar-value">${r.certificadas}</span></div>
+         <div class="bar-row"><span class="bar-label"></span>
+         <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(r.ejecutadas / maxVal * 100).toFixed(1)}%"></div></div>
+         <span class="bar-value">${r.ejecutadas}</span></div>`).join("")}`;
+  return `
+    ${perspectiveSwitch("rentabilidad")}
+    <div class="kpi-grid">
+      <div class="kpi"><span class="value">${rows.length}</span><span class="label">Proyectos</span></div>
+      <div class="kpi good"><span class="value">${rows.reduce((s, r) => s + r.vendidas, 0)}</span><span class="label">Hs vendidas</span></div>
+      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.certificadas, 0)}</span><span class="label">Hs certificadas</span></div>
+      <div class="kpi warn"><span class="value">${rows.reduce((s, r) => s + r.ejecutadas, 0)}</span><span class="label">Hs ejecutadas</span></div>
+    </div>
+    <section class="panel"><h2>${esc(persp)}</h2>${content}</section>`;
+}
+
+function renderHorasVendidas() {
+  const persp = state.perspective.horasvendidas;
+  const rows = persp === "Proyecto" ? HORASVENDIDAS_PROYECTO : HORASVENDIDAS_CP;
+  const keyLabel = persp === "Proyecto" ? "Proyecto" : "Client Partner";
+  const keyField = persp === "Proyecto" ? "proyecto" : "cp";
+  return `
+    ${perspectiveSwitch("horasvendidas")}
+    <div class="kpi-grid">
+      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.vendidas, 0)}</span><span class="label">Hs vendidas</span></div>
+      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.consumidas, 0)}</span><span class="label">Hs consumidas</span></div>
+      <div class="kpi ${rows.some(r => r.restantes < 0) ? "warn" : "good"}"><span class="value">${rows.reduce((s, r) => s + r.restantes, 0)}</span><span class="label">Hs restantes</span></div>
+    </div>
+    <section class="panel">
+      <h2>${esc(persp)}</h2>
+      <table class="data-table">
+        <thead><tr><th>${esc(keyLabel)}</th><th class="num">Vendidas</th><th class="num">Consumidas</th><th class="num">Restantes</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${esc(r[keyField])}</td><td class="num">${r.vendidas}</td><td class="num">${r.consumidas}</td><td class="num">${diffCell(r.restantes)}</td></tr>`).join("")}</tbody>
+      </table>
+    </section>`;
+}
+
+function renderComercial() {
+  const persp = state.perspective.comercial;
+  if (persp === "Participación") {
+    return `${perspectiveSwitch("comercial")}
+    <section class="panel"><h2>Participación / Condiciones Comerciales</h2>
+      <table class="data-table">
+        <thead><tr><th>Cliente</th><th>Client Partner</th><th>Condición</th><th class="num">Participación</th></tr></thead>
+        <tbody>${COMERCIAL_PARTICIPACION.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.cp)}</td><td>${esc(r.condicion)}</td><td class="num">${r.participacion}</td></tr>`).join("")}</tbody>
+      </table></section>`;
+  }
+  return `${perspectiveSwitch("comercial")}
+  <section class="panel"><h2>Status de Cliente — detalle</h2>
+    <table class="data-table">
+      <thead><tr><th>Cliente</th><th>Status</th><th>Última revisión</th></tr></thead>
+      <tbody>${COMERCIAL_STATUS.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.status)}</td><td>${esc(r.ultimaRevision)}</td></tr>`).join("")}</tbody>
+    </table></section>`;
+}
+
+function renderCalendario() {
+  const persp = state.perspective.calendario;
+  const data = persp === "Frecuencia" ? CALENDARIO_FRECUENCIA : CALENDARIO_CP;
+  return `${perspectiveSwitch("calendario")}
+  <section class="panel"><h2>Calendario — ${esc(persp)}</h2>
+    <div class="calendar-grid">
+      ${Object.entries(data).map(([k, items]) => `
+        <div class="calendar-cell"><div class="month">${esc(k)}</div>
+          ${items.map(it => `<div class="item">${esc(it)}</div>`).join("")}
+        </div>`).join("")}
+    </div>
+  </section>`;
+}
+
+function renderCapacidad() {
+  const persp = state.perspective.capacidad;
+  if (persp === "No Asignadas") {
+    return `${perspectiveSwitch("capacidad")}
+    <section class="panel"><h2>Horas no asignadas</h2>
+      <table class="data-table">
+        <thead><tr><th>Consultor</th><th class="num">Disponibles</th><th class="num">Asignadas</th><th class="num">Gap</th></tr></thead>
+        <tbody>${CAPACIDAD_NOASIGNADAS.map(r => `<tr><td>${esc(r.consultor)}</td><td class="num">${r.disponibles}</td><td class="num">${r.asignadas}</td><td class="num">${diffCell(-r.gap)}</td></tr>`).join("")}</tbody>
+      </table>
+      <p class="empty-note" style="text-align:left">Nota: conceptualmente relacionado con capacidad de Staffing — NO integrado técnicamente en este V0.</p>
+    </section>`;
+  }
+  return `${perspectiveSwitch("capacidad")}
+  <section class="panel"><h2>Horas productivas consumidas</h2>
+    <table class="data-table">
+      <thead><tr><th>Mes</th><th class="num">Productivas</th><th class="num">No productivas</th></tr></thead>
+      <tbody>${CAPACIDAD_PRODUCTIVAS.map(r => `<tr><td>${esc(r.mes)}</td><td class="num">${r.productivas}</td><td class="num">${r.noProductivas}</td></tr>`).join("")}</tbody>
+    </table>
+  </section>`;
+}
+
+const RENDERERS = {
+  cartera: renderCartera, rentabilidad: renderRentabilidad, horasvendidas: renderHorasVendidas,
+  comercial: renderComercial, calendario: renderCalendario, capacidad: renderCapacidad,
+};
+
+function render() {
+  document.getElementById("experience-tabs").innerHTML = EXPERIENCES.map(e => `
+    <button class="${state.experience === e.id ? "is-active" : ""}" onclick="setExperience('${e.id}')">${esc(e.label)}</button>
+  `).join("");
+  document.getElementById("main-content").innerHTML = renderFilterBar() + RENDERERS[state.experience]();
+}
+
+// --- V0 assessment drawer ---------------------------------------------------
+const MAPPING = [
+  { from: ["Analisis Mantenimiento", "Analisis Proyectos"], to: "Cartera / Proyectos" },
+  { from: ["Analisis Rentabilidad", "Hs Certificadas vs Hs Ejecutadas"], to: "Rentabilidad / Performance" },
+  { from: ["Estimación Horas Vendidas", "Estimación Horas Vendidas x CP"], to: "Horas Vendidas" },
+  { from: ["Analisis Participacion - Condiciones Comerciales", "Client Partner - Status de Cliente detalle"], to: "Comercial / Clientes" },
+  { from: ["Calendario x Frecuencia", "Calendario x CP"], to: "Calendario" },
+  { from: ["Hs No Asignadas", "Horas Productivas consumidas"], to: "Capacidad / Ejecución" },
+];
+
+function openDrawer() {
+  document.getElementById("drawer-map").innerHTML = MAPPING.map(m => `
+    <div class="map-row">
+      <div class="from">${m.from.map(esc).join("<br>")}</div>
+      <div class="arrow">↓</div>
+      <div class="to">${esc(m.to)}</div>
+    </div>`).join("");
+  document.getElementById("drawer").classList.add("is-open");
+  document.getElementById("drawer-overlay").classList.add("is-open");
+}
+function closeDrawer() {
+  document.getElementById("drawer").classList.remove("is-open");
+  document.getElementById("drawer-overlay").classList.remove("is-open");
+}
+
+render();
+</script>
+</body>
+</html>

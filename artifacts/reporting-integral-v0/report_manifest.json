@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-08-14T16:00:21.934097+00:00",
+  "pbip_name": "Danwor - Tablero Integral",
+  "source_path": "E:\\Joe\\Metodologia\\Refactorizacion\\Tablero Integral",
+  "page_count": 14,
+  "active_page": "27f754a35bede848c8a7",
+  "bookmark_count": 8,
+  "pages": [
+    {
+      "page_id": "27f754a35bede848c8a7",
+      "display_name": "Inicio",
+      "visual_count": 5
+    },
+    {
+      "page_id": "15003be6cf3f3cadcd64",
+      "display_name": "Estimación Horas Vendidas",
+      "visual_count": 19
+    },
+    {
+      "page_id": "ade8ccee31181e75539c",
+      "display_name": "Estimación Horas Vendidas  x CP",
+      "visual_count": 19
+    },
+    {
+      "page_id": "935832a7763cbd1216cd",
+      "display_name": "Client Partner - Status de Cliente detalle",
+      "visual_count": 9
+    },
+    {
+      "page_id": "52d9d1dc997bdf2c366b",
+      "display_name": "Analisis Participacion - Condiciones Comerciales -",
+      "visual_count": 11
+    },
+    {
+      "page_id": "277e0d8037c3cabce9ab",
+      "display_name": "Analisis Mantenimiento",
+      "visual_count": 14
+    },
+    {
+      "page_id": "27b8d56f76c40db0321d",
+      "display_name": "Analisis Rentabilidad",
+      "visual_count": 12
+    },
+    {
+      "page_id": "a131ee9b9f4898f6bff4",
+      "display_name": "Analisis Proyectos",
+      "visual_count": 11
+    },
+    {
+      "page_id": "7d1191c1e755ac3abe70",
+      "display_name": "Horas Productivas consumidas",
+      "visual_count": 13
+    },
+    {
+      "page_id": "60880ce4bfc5858346a5",
+      "display_name": "Hs Certificadas vs Hs  Ejecutadas",
+      "visual_count": 11
+    },
+    {
+      "page_id": "5685cf18d9eca3f61e36",
+      "display_name": "Hs No Asignadas",
+      "visual_count": 10
+    },
+    {
+      "page_id": "d47ccf097e651670288d",
+      "display_name": "Calendario x Frecuencia",
+      "visual_count": 9
+    },
+    {
+      "page_id": "f2a10ec32a0031d22cb7",
+      "display_name": "Calendario x CP",
+      "visual_count": 9
+    },
+    {
+      "page_id": "5a03ab8bf3e469126f8a",
+      "display_name": "Page 1",
+      "visual_count": 1
+    }
+  ],
+  "model_table_count": 57,
+  "model_relationship_count": 60
+}
