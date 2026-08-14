@@ -8,7 +8,7 @@
    tools.css, consumido tal cual desde reporting.js). Lo que queda ACÁ es
    SOLO visualización de negocio propia de Reporting sin equivalente en el
    Hub: tabs de experiencia, switch de perspectiva, tree-matrix/data-table,
-   barras de ranking, status-pills, el drawer de mapeo 12→6.
+   barras de ranking, status-pills.
 
    AISLAMIENTO A PROPÓSITO — nunca en `:root`: `--gold`/`--ink` YA existen
    en `:root` de app.css (tema oscuro del Hub, `--gold:#e7b008`/
@@ -19,6 +19,15 @@
    .tree-matrix/etc.) se verificaron SIN colisión con tools.css/app.css/
    content.css/layout.css/feedback.css — no se prefijaron todas por
    separado a propósito (mínimo cambio razonable).
+
+   Hub Visual Consistency corrective (ver HANDOFF): el drawer de mapeo
+   12→6 páginas (era UI de assessment de desarrollo, no un control de
+   producto) se retiró — junto con su botón/CSS. El perspective-switch de
+   cada experiencia filtrable ya NO vive como bloque standalone arriba de
+   las secciones ("VER POR"): ahora se monta DENTRO del toolbar de la
+   sección analítica que controla, vía `sectionToolbar()` en reporting.js
+   (misma clase compartida `.staffing-timeline-toolbar` que ya usaba
+   Contraer/Expandir — un solo toolbar por sección, nunca dos apilados).
 */
 .reporting-integral-preview {
   --gold: #E7B008; --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
@@ -28,12 +37,6 @@
   --mono: "SF Mono", Consolas, monospace;
   color: var(--ink); font: 400 14px/1.4 var(--sans);
 }
-.reporting-integral-preview .drawer-toggle-btn {
-  background: var(--panel); border: 1px solid var(--border); color: var(--ink); border-radius: 6px;
-  padding: 7px 12px; font-size: .72rem; cursor: pointer; margin-bottom: 12px;
-}
-.reporting-integral-preview .drawer-toggle-btn:hover { border-color: var(--gold); color: #9a7200; }
-
 /* Tabs de experiencia — antes una "tarjeta" propia (fondo blanco + borde +
    radio), ahora un underline plano apoyado directo sobre el fondo del Hub
    (.module-content), sin dibujar una segunda superficie. */
@@ -55,6 +58,13 @@
 .reporting-integral-preview .perspective-switch button:last-child { border-right: none; }
 .reporting-integral-preview .perspective-switch button.is-active { background: var(--gold); color: #1f1f24; }
 .reporting-integral-preview .perspective-label { color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+/* Cuando el perspective-switch vive DENTRO del toolbar de una sección
+   (.staffing-timeline-toolbar, ver sectionToolbar() en reporting.js) en vez
+   de standalone arriba de las secciones (así sigue Comercial, fuera de
+   alcance de este corrective, ver HANDOFF): sin margin-bottom propio — el
+   toolbar ya resuelve el espaciado como fila única junto a
+   Contraer/Expandir. */
+.reporting-integral-preview .staffing-timeline-toolbar .perspective-switch { margin-bottom: 0; }
 
 /* KPI tiles / paneles con caja propia / filtros con caja propia / grupo de
    checkboxes horizontal: RETIRADOS (Align with Hub backbone corrective, ver
@@ -115,20 +125,3 @@
 
 .reporting-integral-preview footer.note { margin: 16px 0 0; padding: 0; color: var(--ink-faint); font-size: .7rem; }
 .reporting-integral-preview footer.note code { font-family: var(--mono); }
-
-/* Drawer del mapeo 12→6 — position:fixed (viewport), fuera del scope de
-   `.reporting-integral-preview` en el DOM a propósito (mismo criterio del
-   prototipo original) pero con nombres de clase ya verificados sin
-   colisión — no necesita el prefijo de scope. */
-.reporting-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 40; }
-.reporting-drawer-overlay.is-open { display: block; }
-.reporting-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 90vw); background: #fff; z-index: 41;
-  padding: 20px; overflow-y: auto; transform: translateX(100%); transition: transform .18s ease;
-  font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1f1f24; }
-.reporting-drawer.is-open { transform: translateX(0); }
-.reporting-drawer h3 { margin-top: 0; }
-.reporting-drawer .map-row { border: 1px solid rgba(0,0,0,.1); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
-.reporting-drawer .map-row .from { color: #7a7a82; font-size: .72rem; }
-.reporting-drawer .map-row .arrow { color: #E7B008; margin: 2px 0; font-size: .8rem; }
-.reporting-drawer .map-row .to { font-weight: 700; font-size: .82rem; }
-.reporting-drawer .close-btn { background: none; border: 1px solid rgba(0,0,0,.1); border-radius: 6px; padding: 5px 10px; cursor: pointer; float: right; }

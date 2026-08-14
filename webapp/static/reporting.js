@@ -9,9 +9,9 @@
 // + app.js::initDashboardSections) y el toolbar Expandir/Contraer
 // (.staffing-timeline-toolbar, mismo motor treeExpandedSet/buildTree de
 // abajo). CERO clases nuevas en tools.css — todo reusado tal cual (prioridad
-// 1 de la regla de reuso, ver HANDOFF). Los ids de DOM target (experience-
-// tabs/main-content/drawer*) mantienen el prefijo "reporting-" del batch
-// anterior para no colisionar con id="content" del shell del Hub.
+// 1 de la regla de reuso, ver HANDOFF). Los ids de DOM target
+// (experience-tabs/main-content) mantienen el prefijo "reporting-" del
+// batch anterior para no colisionar con id="content" del shell del Hub.
 // Funciones/variables globales verificadas SIN colisión con app.js — sin
 // namespacing adicional a propósito (no introducir un framework/wrapper
 // nuevo). Deduplicar contra el prototipo standalone
@@ -290,14 +290,19 @@ function checkboxGroupField(label, items) {
   </label>`;
 }
 // `.dashboard-sticky-header`/`.staffing-filter-bar`/`.staffing-filter-bar__clear`/
-// `.whatsnew-filters` — MISMAS clases que Staffing (staffing_dashboard.html),
-// CERO CSS nuevo en tools.css (prioridad 1 de la regla de reuso, ver
-// HANDOFF: reusar un primitivo compartido existente tal cual).
+// `.whatsnew-filters`/`.whatsnew-filter__clear` — MISMAS clases que Staffing
+// (staffing_dashboard.html: `class="whatsnew-filter__clear
+// staffing-filter-bar__clear"`), CERO CSS nuevo en tools.css (prioridad 1 de
+// la regla de reuso, ver HANDOFF). `whatsnew-filter__clear` es la que
+// aporta el look (dorado, hover subrayado) — `staffing-filter-bar__clear`
+// SOLO reposiciona (margin-left:auto); usar una sin la otra deja el botón
+// sin el tratamiento gold del Hub (Hub Visual Consistency corrective, ver
+// HANDOFF: ese fue exactamente el bug de este control).
 function filterBarShell(fieldsHtml, expId) {
   return `<div class="dashboard-sticky-header">
     <div class="staffing-filter-bar">
       <div class="whatsnew-filters">${fieldsHtml}</div>
-      <button type="button" class="staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
+      <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
     </div>
   </div>`;
 }
@@ -360,12 +365,20 @@ function renderCapacidadFilterBar() {
   return filterBarShell(fields, "capacidad");
 }
 
-function perspectiveSwitch(expId) {
+// `withLabel` (Hub Visual Consistency corrective, ver HANDOFF): la
+// experiencia Comercial sigue mostrando el switch como bloque standalone
+// arriba de las secciones (fuera de alcance de este corrective, ver
+// HANDOFF), CON su rótulo "Ver por". Las otras 5 experiencias ahora montan
+// el switch DENTRO del toolbar de la sección analítica a la que controla
+// (ver sectionToolbar) — ahí el rótulo es redundante (el breadcrumb de la
+// sección ya da contexto), así que se omite.
+function perspectiveSwitch(expId, withLabel = true) {
   const exp = EXPERIENCES.find(e => e.id === expId);
   const buttons = exp.perspectives.map(p => `
     <button class="${state.perspective[expId] === p ? "is-active" : ""}" onclick="setPerspective('${expId}', '${esc(p)}')">${esc(p)}</button>
   `).join("");
-  return `<p class="perspective-label">Ver por</p><div class="perspective-switch">${buttons}</div>`;
+  const label = withLabel ? `<p class="perspective-label">Ver por</p>` : "";
+  return `${label}<div class="perspective-switch">${buttons}</div>`;
 }
 
 function setPerspective(expId, p) {
@@ -424,7 +437,7 @@ function renderCartera() {
     </div>`);
 
   const detalleBody = `
-    ${treeToolbarHtml(stateKey)}
+    ${sectionToolbar(perspectiveSwitch("cartera", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="tree-matrix">
@@ -437,7 +450,7 @@ function renderCartera() {
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
   const detalle = dashboardSection("detalle", persp + " — " + cfg.labels.join(" › "), rows.length + " fila(s)", detalleBody);
 
-  return `${perspectiveSwitch("cartera")}${dashboardSections("reporting-cartera", resumen + detalle)}`;
+  return dashboardSections("reporting-cartera", resumen + detalle);
 }
 
 // Ranking de "Rentabilidad horas" (== Certificadas − Trabajadas) por
@@ -482,6 +495,7 @@ function renderRentabilidadResumen() {
   const maxAbs = Math.max(...ranked.map(p => Math.abs(p.rentabilidad)), 1);
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
+    ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
       <div class="activity-kpi"><span class="activity-kpi__value">${r.vendidas}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${r.certificadas}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
@@ -513,7 +527,7 @@ function renderRentabilidadCertEjecutadas() {
   }).filter(g => g.rows.length > 0);
   const maxVal = Math.max(...groups.flatMap(g => [g.certificadas, g.trabajadas]), 1);
 
-  const analysisBody = groups.length ? `
+  const analysisContent = groups.length ? `
     <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
     <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
     ${groups.map(g => `
@@ -530,6 +544,7 @@ function renderRentabilidadCertEjecutadas() {
         Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
       </p>`).join("")}
   ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
+  const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
 
   const detailBody = rows.length ? `
@@ -554,7 +569,7 @@ function renderRentabilidadCertEjecutadas() {
 function renderRentabilidad() {
   const persp = state.perspective.rentabilidad;
   const sectionsHtml = persp === "Resumen" ? renderRentabilidadResumen() : renderRentabilidadCertEjecutadas();
-  return `${perspectiveSwitch("rentabilidad")}${dashboardSections("reporting-rentabilidad", sectionsHtml)}`;
+  return dashboardSections("reporting-rentabilidad", sectionsHtml);
 }
 
 // Hierarchía por perspectiva (ver corrective): Client Partner reproduce el
@@ -601,16 +616,27 @@ function expandAllTree(stateKey) {
   })(buildTree(ctx.rows, ctx.keys));
   render();
 }
+// Botones sueltos (sin wrapper) — Contraer→Expandir, orden tal como lo
+// especifica el corrective. Se combinan con el perspective-switch de la
+// sección (si corresponde) dentro de UN solo `sectionToolbar(...)`, nunca
+// dos toolbars apilados.
+function treeToolbarButtons(stateKey) {
+  return `<button type="button" onclick="collapseAllTree('${stateKey}')">Contraer</button>
+    <button type="button" onclick="expandAllTree('${stateKey}')">Expandir</button>`;
+}
 // `.staffing-timeline-toolbar` — MISMA clase que el "Expandir todo/Contraer
 // todo" de Staffing (ver staffing_dashboard.html), reusada tal cual (Align
 // with Hub backbone corrective, ver HANDOFF: "reusar el motor de árbol
-// existente, nunca un segundo modelo de expansión"). Orden Contraer→Expandir
-// tal como lo especifica el corrective.
-function treeToolbarHtml(stateKey) {
-  return `<div class="staffing-timeline-toolbar">
-    <button type="button" onclick="collapseAllTree('${stateKey}')">Contraer</button>
-    <button type="button" onclick="expandAllTree('${stateKey}')">Expandir</button>
-  </div>`;
+// existente, nunca un segundo modelo de expansión"). Hub Visual Consistency
+// corrective (ver HANDOFF): ahora también aloja el perspective-switch de la
+// sección cuando corresponde (Cartera/Rentabilidad/Horas Vendidas/
+// Calendario/Capacidad) — mismo criterio que el toolbar "Agrupar por
+// Proyecto/Consultor" de Staffing, que ya combina un toggle de vista con
+// Expandir/Contraer en una sola fila. Sin partes vacías: si ninguna parte
+// aplica, no se renderiza el wrapper.
+function sectionToolbar(...partsHtml) {
+  const inner = partsHtml.filter(Boolean).join("");
+  return inner ? `<div class="staffing-timeline-toolbar">${inner}</div>` : "";
 }
 
 function sumMonthly(rows) {
@@ -757,7 +783,7 @@ function renderHorasVendidas() {
     </div>`);
 
   const detalleBody = `
-    ${treeToolbarHtml(stateKey)}
+    ${sectionToolbar(perspectiveSwitch("horasvendidas", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="tree-matrix">
@@ -770,7 +796,7 @@ function renderHorasVendidas() {
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
   const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
 
-  return `${perspectiveSwitch("horasvendidas")}${dashboardSections("reporting-horasvendidas", resumen + detalle)}`;
+  return dashboardSections("reporting-horasvendidas", resumen + detalle);
 }
 
 function renderComercial() {
@@ -817,7 +843,7 @@ function renderCalendario() {
     </div>`);
 
   const detalleBody = `
-    ${treeToolbarHtml(stateKey)}
+    ${sectionToolbar(perspectiveSwitch("calendario", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="tree-matrix">
@@ -830,7 +856,7 @@ function renderCalendario() {
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
   const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
 
-  return `${perspectiveSwitch("calendario")}${dashboardSections("reporting-calendario", resumen + detalle)}`;
+  return dashboardSections("reporting-calendario", resumen + detalle);
 }
 
 const CAPACIDAD_PRODUCTIVAS_TOTAL = CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0);
@@ -870,7 +896,7 @@ function renderCapacidadProductivas() {
     <div class="activity-kpi-grid"><div class="activity-kpi"><span class="activity-kpi__value">${filteredTotal}</span><span class="activity-kpi__label">Total Horas</span></div></div>`);
 
   const detalleBody = `
-    ${treeToolbarHtml(stateKey)}
+    ${sectionToolbar(perspectiveSwitch("capacidad", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="tree-matrix">
@@ -897,10 +923,13 @@ function renderCapacidadNoAsignadas() {
   const totalMonthly = sumMonthly(rows);
   const stateKey = "capacidad::No Asignadas";
 
-  // Sin toolbar Expandir/Contraer a propósito: jerarquía de UN solo nivel
+  // Sin Expandir/Contraer a propósito: jerarquía de UN solo nivel
   // (Consultor), flat — el corrective es explícito en que las tablas planas
-  // no lo necesitan.
+  // no lo necesitan. El perspective-switch SÍ va acá (mismo criterio que
+  // Productivas: "Detalle" es la sección estable en ambas subvistas de
+  // Capacidad, ver HANDOFF).
   const body = `
+    ${sectionToolbar(perspectiveSwitch("capacidad", false))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="tree-matrix">
@@ -920,7 +949,7 @@ function renderCapacidadNoAsignadas() {
 function renderCapacidad() {
   const persp = state.perspective.capacidad;
   const sectionsHtml = persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas();
-  return `${perspectiveSwitch("capacidad")}${dashboardSections("reporting-capacidad", sectionsHtml)}`;
+  return dashboardSections("reporting-capacidad", sectionsHtml);
 }
 
 const RENDERERS = {
@@ -949,31 +978,6 @@ function render() {
   // contenedor (ver app.js) — reordenamiento anterior en sessionStorage se
   // reaplica solo, sin duplicar listeners.
   initDashboardSections(document);
-}
-
-// --- V0 assessment drawer ---------------------------------------------------
-const MAPPING = [
-  { from: ["Analisis Mantenimiento", "Analisis Proyectos"], to: "Cartera / Proyectos" },
-  { from: ["Analisis Rentabilidad", "Hs Certificadas vs Hs Ejecutadas"], to: "Rentabilidad / Performance" },
-  { from: ["Estimación Horas Vendidas", "Estimación Horas Vendidas x CP"], to: "Horas Vendidas" },
-  { from: ["Analisis Participacion - Condiciones Comerciales", "Client Partner - Status de Cliente detalle"], to: "Comercial / Clientes" },
-  { from: ["Calendario x Frecuencia", "Calendario x CP"], to: "Calendario" },
-  { from: ["Hs No Asignadas", "Horas Productivas consumidas"], to: "Capacidad / Ejecución" },
-];
-
-function openDrawer() {
-  document.getElementById("reporting-drawer-map").innerHTML = MAPPING.map(m => `
-    <div class="map-row">
-      <div class="from">${m.from.map(esc).join("<br>")}</div>
-      <div class="arrow">↓</div>
-      <div class="to">${esc(m.to)}</div>
-    </div>`).join("");
-  document.getElementById("reporting-drawer").classList.add("is-open");
-  document.getElementById("reporting-drawer-overlay").classList.add("is-open");
-}
-function closeDrawer() {
-  document.getElementById("reporting-drawer").classList.remove("is-open");
-  document.getElementById("reporting-drawer-overlay").classList.remove("is-open");
 }
 
 // El primer render() debe esperar a DOMContentLoaded: este <script> se

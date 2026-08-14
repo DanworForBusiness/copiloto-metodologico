@@ -15,7 +15,13 @@
    Expandir/Contraer) — solo la visualización de negocio en sí
    (tree-matrix/data-table/bar-row/perspective-switch/experience-tabs) es
    CSS/JS propio de Reporting, en reporting.css/reporting.js (dataset mock
-   embebido, SIN SharePoint/Graph, SIN persistencia). #}
+   embebido, SIN SharePoint/Graph, SIN persistencia).
+
+   Hub Visual Consistency corrective (ver HANDOFF): el drawer de mapeo
+   12→6 páginas se retiró de la UI operativa — era un artefacto de
+   desarrollo/assessment, no un control de producto (los artifacts en
+   artifacts/reporting-integral-v0/ siguen intactos, esto solo tocó la UI
+   visible en /operaciones/reporting/integral). #}
 <div
   x-data="copilotLayout('reporting')"
   x-init="init()"
@@ -40,19 +46,11 @@
     </section>
 
     <div class="reporting-integral-preview">
-      <button type="button" class="drawer-toggle-btn" onclick="openDrawer()">🗺️ Ver mapeo 12 páginas → 6 experiencias</button>
       <nav class="experience-tabs" id="reporting-experience-tabs"></nav>
       <div id="reporting-main-content" class="reporting-main"></div>
       <footer class="note">Prototipo — dataset representativo hardcodeado, sin fidelidad de producción. Referencia de diseño completa: <code>prototypes/reporting-integral-v0/index.html</code> en el repo.</footer>
     </div>
   </main>
-</div>
-
-<div class="reporting-drawer-overlay" id="reporting-drawer-overlay" onclick="closeDrawer()"></div>
-<div class="reporting-drawer" id="reporting-drawer">
-  <button class="close-btn" onclick="closeDrawer()">✕ Cerrar</button>
-  <h3>12 páginas actuales → 6 experiencias</h3>
-  <div id="reporting-drawer-map"></div>
 </div>
 
 <link rel="stylesheet" href="{{ url_for('static', path='reporting.css') }}?v={{ static_version }}">
