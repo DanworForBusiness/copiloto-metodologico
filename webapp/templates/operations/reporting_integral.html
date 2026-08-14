@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Tablero Integral · Reporting · Operaciones · Danwor{% endblock %}
+{% block body %}
+{# reporting_integral.html — Reporting Integral V0 preview (Operations, ver
+   HANDOFF). Ruta de PREVISUALIZACIÓN interna, solo por URL directa — NO
+   agregada a partials/operations_nav.html a propósito (evita tocar
+   navegación compartida en este batch, ver HANDOFF). MISMO shell/grammar
+   que staffing.html (platform_topbar/operations_nav/sidebar_resize_handle,
+   idéntico patrón .app-shell.no-copilot) — el contenido de Reporting en sí
+   es el prototipo standalone (prototypes/reporting-integral-v0/index.html)
+   portado con el menor cambio razonable a reporting.css/reporting.js
+   (dataset mock embebido, SIN SharePoint/Graph, SIN persistencia). #}
+<div
+  x-data="copilotLayout('reporting')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Reporting (preview)</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Reporting · Preview</p>
+      <h1>Tablero Integral V0</h1>
+      <p class="hero-lead full-page-subtitle">Prototipo de consolidación del reporte Power BI "Danwor - Tablero Integral" (12 páginas → 6 experiencias) — dataset representativo embebido, sin conexión a SharePoint/Graph. Superficie de revisión para el owner, todavía no es navegación oficial del Hub.</p>
+    </section>
+
+    <div class="reporting-integral-preview">
+      <button type="button" class="drawer-toggle-btn" onclick="openDrawer()">🗺️ Ver mapeo 12 páginas → 6 experiencias</button>
+      <nav class="experience-tabs" id="reporting-experience-tabs"></nav>
+      <div id="reporting-main-content" class="reporting-main"></div>
+      <footer class="note">Prototipo — dataset representativo hardcodeado, sin fidelidad de producción. Referencia de diseño completa: <code>prototypes/reporting-integral-v0/index.html</code> en el repo.</footer>
+    </div>
+  </main>
+</div>
+
+<div class="reporting-drawer-overlay" id="reporting-drawer-overlay" onclick="closeDrawer()"></div>
+<div class="reporting-drawer" id="reporting-drawer">
+  <button class="close-btn" onclick="closeDrawer()">✕ Cerrar</button>
+  <h3>12 páginas actuales → 6 experiencias</h3>
+  <div id="reporting-drawer-map"></div>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='reporting.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='reporting.js') }}?v={{ static_version }}"></script>
+{% endblock %}
