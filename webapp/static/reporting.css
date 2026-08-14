@@ -10,15 +10,33 @@
    Hub: tabs de experiencia, switch de perspectiva, tree-matrix/data-table,
    barras de ranking, status-pills.
 
-   AISLAMIENTO A PROPÓSITO — nunca en `:root`: `--gold`/`--ink` YA existen
-   en `:root` de app.css (tema oscuro del Hub, `--gold:#e7b008`/
-   `--ink:#e4e4ec`) — redefinirlos en `:root` acá rompería el resto de esta
-   MISMA página (topbar/sidebar oscuros). Todo vive scopeado bajo
-   `.reporting-integral-preview`, las variables se resuelven localmente
-   sin tocar el tema del Hub. El resto de las clases (.data-table/
-   .tree-matrix/etc.) se verificaron SIN colisión con tools.css/app.css/
-   content.css/layout.css/feedback.css — no se prefijaron todas por
-   separado a propósito (mínimo cambio razonable).
+   AISLAMIENTO A PROPÓSITO — pero SOLO para tokens que genuinamente
+   necesitan un valor DISTINTO del Hub: `--ink`/`--panel`/`--border`/
+   `--ink-soft`/`--ink-faint`/`--green`/`--amber`/`--red`/`--grey`
+   resuelven la superficie clara PROPIA de Reporting (tree-matrix/
+   data-table/status-pill/bar-chart), independiente del tema oscuro/claro
+   que el Hub tenga activo — redefinirlos en `:root` rompería el resto de
+   la página (topbar/sidebar oscuros).
+
+   Typography / Structure corrective (ver HANDOFF): `--gold`/`--sans`/
+   `--mono` YA NO se redefinen acá — antes lo hacían con el MISMO nombre
+   que los tokens reales del Hub (`:root` en app.css: `--gold:#e7b008`,
+   `--sans:'Inter',sans-serif`, `--mono:'JetBrains Mono',monospace`), lo
+   que los "sombreaba" para TODO lo que vive dentro de
+   `.reporting-integral-preview` — incluidas las clases realmente
+   compartidas (`.activity-kpi__value`/`.activity-kpi__label`/
+   `.dashboard-section__count`/`.whatsnew-filter > span`, todas en
+   tools.css, todas usan `var(--mono)`/`var(--gold)`) — por eso KPIs,
+   labels de filtro y contadores de sección renderizaban en SF Mono en vez
+   de JetBrains Mono aunque la CLASE fuera la misma. Sin redefinición
+   local, `var(--gold)`/`var(--sans)`/`var(--mono)` — usados MÁS ABAJO por
+   componentes genuinamente propios de Reporting (tabs de experiencia,
+   perspective-switch, status-pill, tree-matrix/data-table, tree-toggle,
+   bar-fill, legend) — resuelven directo contra el `:root` real del Hub:
+   MISMA fuente, nunca un valor duplicado. El resto de las clases
+   (.data-table/.tree-matrix/etc.) se verificaron SIN colisión con
+   tools.css/app.css/content.css/layout.css/feedback.css — no se
+   prefijaron todas por separado a propósito (mínimo cambio razonable).
 
    Hub Visual Consistency corrective (ver HANDOFF): el drawer de mapeo
    12→6 páginas (era UI de assessment de desarrollo, no un control de
@@ -30,12 +48,10 @@
    Contraer/Expandir — un solo toolbar por sección, nunca dos apilados).
 */
 .reporting-integral-preview {
-  --gold: #E7B008; --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
+  --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
   --panel: #ffffff; --border: rgba(0,0,0,.1);
   --green: #2e9e5b; --amber: #c89100; --red: #c0392b; --grey: #7a7a82;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-  --mono: "SF Mono", Consolas, monospace;
-  color: var(--ink); font: 400 14px/1.4 var(--sans);
+  color: var(--ink); font-size: 14px; line-height: 1.4;
 }
 /* Tabs de experiencia — antes una "tarjeta" propia (fondo blanco + borde +
    radio), ahora un underline plano apoyado directo sobre el fondo del Hub
