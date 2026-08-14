@@ -5258,6 +5258,65 @@ route surface **84, SIN CAMBIOS**.
 **Pendiente:** smoke visual del owner contra dato real de SharePoint (no
 ejecutado en este batch — requiere sesión Graph real). NO abrir PR todavía.
 
+### SMOKE #1 — FALLÓ — corrective de espacio de coordenadas
+(commit `fix(staffing): unify timeline positioning space`, misma branch)
+
+**Reporte del owner:** con `today=14/08/2026` y una asignación con
+`start_date=17/08/2026`, la barra renderizaba visualmente a la IZQUIERDA
+del marcador de "hoy" — pese a que 17/08 > 14/08 en el dato.
+
+**Investigación (evidencia, no especulación):** se reprodujo el DOM/CSS
+REAL shippeado (`tools.css` + estructura exacta del template) en un
+navegador real, con los % día-exactos reales del escenario reportado
+(`today_marker_pct=17.7419`, `start_pct=18.9516` para 17/08 en un
+horizonte jul..feb) y se midió `getBoundingClientRect()` de cada
+contenedor. Resultado: `.staffing-timeline__track` (barra),
+`.staffing-timeline__today-track` (marcador) y
+`.staffing-timeline__header-months` (meses) resuelven al MISMO ancho
+físico (verificado con 1 y con 5 filas + lane de vacaciones: los tres
+siempre `left/right` idénticos) — la barra renderiza ~7px a la DERECHA del
+marcador, correctamente. **No se pudo reproducir un containing-block roto
+en el código de `b2683ce`.** `today_marker_pct`/`start_pct`/`end_pct` además
+vienen del MISMO `payload` server-renderizado inline
+(`x-data='staffingDashboard({{ payload | tojson }})'`, ver template) —
+mismo `build_dashboard_payload()`/mismo `effective_today` — sin ventana de
+staleness JS entre marcador y barras (a diferencia de Vacaciones, que sí
+cargan aparte, pero eso no es lo reportado acá).
+
+**Diagnóstico más probable:** el smoke #1 corrió contra assets VIEJOS
+(pre día-exacta — `grid-column` por índice de mes, que SÍ pega toda barra
+al día 1 de su mes) por falta de hard-refresh/restart del servidor de
+desarrollo del owner — ese comportamiento viejo explica exactamente el
+síntoma reportado (17/08 pegado al 01/08, a la izquierda de un marcador
+día-exacto en 14/08).
+
+**Corrective aplicado (defensivo, sin cambiar ningún %):** el
+containing-block dependía del stretch IMPLÍCITO por default de CSS Grid
+(`justify-items: normal` → `stretch`) para que
+`.staffing-timeline__track`/`.staffing-timeline__today-track` llegaran al
+mismo ancho que `.staffing-timeline__header-months` — correcto pero
+implícito. Se agrega `width: 100%` EXPLÍCITO a ambos (y a
+`header-months`) — mismo resultado físico (re-verificado con el mismo
+repro de navegador, sin cambios), pero ya no depende de ese default
+silencioso.
+
+**Regresión seam nueva (`test_staffing_timeline_css.py`, sin motor de
+layout, misma técnica que el resto del archivo):**
+`test_track_is_not_a_grid_container` (la barra nunca vuelve a
+`grid-column` por mes), `test_track_and_today_track_declare_width_explicitly`
+(ancho explícito, no implícito), `test_bars_use_absolute_positioning_not_
+month_grid_columns` (`.staffing-timeline__bar`/`vacation-bar` sin
+`grid-row`/`grid-column`/`align-self`).
+
+**Tests:** CSS (12) + Staffing regression (354) + full suite
+(**883 passed / 1 skipped**) + route-contract GREEN, route surface **84,
+SIN CAMBIOS**.
+
+**Pendiente:** smoke #2 del owner — pedir explícitamente hard-refresh
+(Ctrl+Shift+R) y/o reinicio del proceso de desarrollo antes de re-probar,
+dado que el diagnóstico apunta a assets viejos cacheados como causa más
+probable del smoke #1.
+
 ---
 
 ## MODULE IDENTIFIER CONVENTION V2 — REGISTRY FOUNDATION — CLOSED / GREEN
