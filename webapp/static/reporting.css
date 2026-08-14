@@ -100,6 +100,13 @@
 .reporting-integral-preview .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
 .reporting-integral-preview .status-pill.en-curso { background: rgba(46,158,91,.12); color: var(--green); }
 .reporting-integral-preview .status-pill.finalizado { background: rgba(122,122,130,.14); color: var(--grey); }
+/* Semáforo de Salud de Cliente (ver Commercial/Clients corrective, HANDOFF)
+   — MISMO componente .status-pill que Cartera (en-curso/finalizado), solo
+   3 variantes nuevas de color; reusa los tokens semánticos ya definidos
+   arriba (--green/--amber/--red), ningún token nuevo. */
+.reporting-integral-preview .status-pill.verde { background: rgba(46,158,91,.12); color: var(--green); }
+.reporting-integral-preview .status-pill.amarillo { background: rgba(200,145,0,.14); color: var(--amber); }
+.reporting-integral-preview .status-pill.rojo { background: rgba(192,57,43,.12); color: var(--red); }
 .reporting-integral-preview .diff-pos { color: var(--green); font-weight: 600; }
 .reporting-integral-preview .diff-neg { color: var(--red); font-weight: 600; }
 

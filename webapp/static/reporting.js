@@ -129,15 +129,97 @@ const HORASVENDIDAS_ROWS = [
   { cp: "Diego Ramos", tipo: "Proyecto", cliente: "Ternium", proyecto: "Rollout Reporting", monthly: [0, 0, 0, 20, 20, 20, 20, 20, 20, 20, 20, 20] },
 ];
 
-const COMERCIAL_PARTICIPACION = [
-  { cliente: "Andesmar", cp: "María López", condicion: "T&M mensual", participacion: "22%" },
-  { cliente: "Danone", cp: "María López", condicion: "Bolsa de horas", participacion: "15%" },
-  { cliente: "YPF", cp: "Diego Ramos", condicion: "Fijo por hito", participacion: "31%" },
+// Comercial / Clientes (ver corrective — HANDOFF: "Commercial / Clients
+// source-aligned experience"). Las invenciones de la primera versión de
+// este V0 — condición ("T&M mensual"/"Bolsa de horas"/"Fijo por hito"),
+// participación % LIBRE (no derivada de horas), status ("Vigente"/"En
+// renegociación") y "última revisión" — NO tienen soporte en el PBIP
+// fuente y se retiraron por completo. Fuente real (2 páginas confirmadas
+// vía artifacts/reporting-integral-v0/page_inventory.json +
+// PBIR/TMDL — ver HANDOFF, NUNCA la misma pregunta de negocio reordenada,
+// dos experiencias fuente distintas dentro de UNA sola experiencia
+// Reporting, igual criterio que Rentabilidad/Capacidad):
+//
+//   "Analisis Participacion - Condiciones Comerciales -" → pivotTable
+//   principal Rows: ID Frecuencia, Permite Adelanto, Condición de Pago,
+//   Cliente part (4 niveles, EXACTO ese orden) — Values: `% Hs Vendidas 2`/
+//   `% Hs Certificadas 2` (displayName real "% Participación Hs Vendidas"/
+//   "% Participación Hs Certificadas"). Las otras 2 pivotTables de esa
+//   página (rollup por ID Frecuencia solo, rollup por Condición de Pago
+//   solo) son subconjuntos de ESTA MISMA jerarquía — expandir/contraer los
+//   2 niveles superiores del árbol ya reproduce esas vistas, no se
+//   duplican como paneles aparte.
+//
+//   "Client Partner - Status de Cliente detalle" → pivotTable Rows: Client
+//   Partner, Cliente (2 niveles) — Values: Salud Financiera/Relación/
+//   Operativo/Continuidad/Estrategico + Salud (displayName "Salud Final").
+//   Son columnas de TEXTO categóricas (Cliente.tmdl: dataType string, sin
+//   measure) — NUNCA el "Vigente/En renegociación" inventado. Dominio real
+//   no verificable sin datos vivos (columna SharePoint) — Verde/Amarillo/
+//   Rojo es la convención estándar de semáforo de salud de cliente, mock
+//   representativo (ver HANDOFF).
+//
+// Ninguna de las 2 páginas fuente tiene visual tipo card/KPI
+// (page_inventory.json: visual_types = {actionButton,image,pivotTable,
+// slicer,textbox} en ambas) — NUNCA se inventan tiles KPI acá.
+
+// % Participación Hs Vendidas/Certificadas (medidas reales `Horas por
+// proyectos.[% Hs Vendidas 2]`/`[% Hs Certificadas 2]`, TMDL):
+//   DIVIDE(SUM(HsVendidas), CALCULATE(SUM(HsVendidas),
+//     REMOVEFILTERS(Client Partner, ID Frecuencia, Permite Adelanto,
+//                    Condicion de Pago, Cliente part)))
+// SIEMPRE contra el gran total FIJO (remueve exactamente las columnas que
+// son las dimensiones de este árbol) — mismo criterio que `% Incidencia`
+// de Capacidad/Productivas, nunca contra el subtotal del grupo padre.
+// horasVendidas/horasCertificadas reusan 1:1 los valores reales ya
+// establecidos en CARTERA_CONFIG para el mismo cliente (mismo dato,
+// consistencia cross-experiencia — ver comentario de Rentabilidad).
+const COMERCIAL_PARTICIPACION_ROWS = [
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "30", cliente: "Andesmar", cp: "María López", horasVendidas: 140, horasCertificadas: 128 },
+  { idFrecuencia: "3 Trimestral", permiteAdelanto: "No", condicionPago: "60", cliente: "Danone", cp: "María López", horasVendidas: 88, horasCertificadas: 96 },
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "No", condicionPago: "30", cliente: "Molinos", cp: "María López", horasVendidas: 60, horasCertificadas: 60 },
+  { idFrecuencia: "6 Anual", permiteAdelanto: "No", condicionPago: "30", cliente: "AySA", cp: "Diego Ramos", horasVendidas: 208, horasCertificadas: 212 },
+  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "15", cliente: "YPF", cp: "Diego Ramos", horasVendidas: 360, horasCertificadas: 322 },
+  { idFrecuencia: "5 Semestral", permiteAdelanto: "Si", condicionPago: "30", cliente: "Ternium", cp: "Diego Ramos", horasVendidas: 180, horasCertificadas: 166 },
 ];
-const COMERCIAL_STATUS = [
-  { cliente: "Andesmar", status: "Vigente", ultimaRevision: "Jul-2026" },
-  { cliente: "Danone", status: "Vigente", ultimaRevision: "Jun-2026" },
-  { cliente: "YPF", status: "En renegociación", ultimaRevision: "Ago-2026" },
+
+// Salud de Cliente (ver corrective) — 5 sub-dimensiones + Salud Final,
+// columnas categóricas puras (sin rollup: un grupo Client Partner no tiene
+// un "promedio" de semáforos, mismo criterio que Status/Facturadas en
+// Cartera — categórico no se agrega).
+const COMERCIAL_SALUD_ROWS = [
+  { cp: "María López", cliente: "Andesmar", saludFinanciera: "Verde", saludRelacion: "Verde", saludOperativo: "Amarillo", saludContinuidad: "Verde", saludEstrategico: "Verde", saludFinal: "Verde" },
+  { cp: "María López", cliente: "Danone", saludFinanciera: "Amarillo", saludRelacion: "Verde", saludOperativo: "Verde", saludContinuidad: "Amarillo", saludEstrategico: "Verde", saludFinal: "Amarillo" },
+  { cp: "María López", cliente: "Molinos", saludFinanciera: "Verde", saludRelacion: "Amarillo", saludOperativo: "Verde", saludContinuidad: "Verde", saludEstrategico: "Amarillo", saludFinal: "Amarillo" },
+  { cp: "Diego Ramos", cliente: "AySA", saludFinanciera: "Verde", saludRelacion: "Verde", saludOperativo: "Verde", saludContinuidad: "Verde", saludEstrategico: "Verde", saludFinal: "Verde" },
+  { cp: "Diego Ramos", cliente: "YPF", saludFinanciera: "Rojo", saludRelacion: "Amarillo", saludOperativo: "Amarillo", saludContinuidad: "Rojo", saludEstrategico: "Amarillo", saludFinal: "Rojo" },
+  { cp: "Diego Ramos", cliente: "Ternium", saludFinanciera: "Amarillo", saludRelacion: "Verde", saludOperativo: "Verde", saludContinuidad: "Verde", saludEstrategico: "Verde", saludFinal: "Verde" },
+];
+
+function statusPillSalud(value) {
+  const cls = value === "Verde" ? "verde" : (value === "Rojo" ? "rojo" : "amarillo");
+  return `<span class="status-pill ${cls}">${esc(value)}</span>`;
+}
+
+const COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS = COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasVendidas, 0);
+const COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS = COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasCertificadas, 0);
+function comercialPctVendidas(horas) {
+  return (COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS ? (horas / COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS * 100) : 0).toFixed(2) + " %";
+}
+function comercialPctCertificadas(horas) {
+  return (COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS ? (horas / COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS * 100) : 0).toFixed(2) + " %";
+}
+const COMERCIAL_PARTICIPACION_COLUMNS = [
+  { label: "% Participación Hs Vendidas", numeric: true, render: r => comercialPctVendidas(r.horasVendidas), rollup: rows => comercialPctVendidas(rows.reduce((s, r) => s + r.horasVendidas, 0)) },
+  { label: "% Participación Hs Certificadas", numeric: true, render: r => comercialPctCertificadas(r.horasCertificadas), rollup: rows => comercialPctCertificadas(rows.reduce((s, r) => s + r.horasCertificadas, 0)) },
+];
+const COMERCIAL_SALUD_COLUMNS = [
+  { label: "Financiera", numeric: false, render: r => statusPillSalud(r.saludFinanciera) },
+  { label: "Relación", numeric: false, render: r => statusPillSalud(r.saludRelacion) },
+  { label: "Operativo", numeric: false, render: r => statusPillSalud(r.saludOperativo) },
+  { label: "Continuidad", numeric: false, render: r => statusPillSalud(r.saludContinuidad) },
+  { label: "Estratégico", numeric: false, render: r => statusPillSalud(r.saludEstrategico) },
+  { label: "Salud Final", numeric: false, render: r => statusPillSalud(r.saludFinal) },
 ];
 
 // Calendario (ver corrective — consolida "Calendario x Frecuencia" +
@@ -213,7 +295,7 @@ const EXPERIENCES = [
   { id: "cartera", label: "Cartera / Proyectos", perspectives: ["Mantenimiento", "Proyecto"] },
   { id: "rentabilidad", label: "Rentabilidad / Performance", perspectives: ["Resumen", "Certificadas vs Ejecutadas"] },
   { id: "horasvendidas", label: "Horas Vendidas", perspectives: ["Proyecto", "Client Partner"] },
-  { id: "comercial", label: "Comercial / Clientes", perspectives: ["Participación", "Status de Cliente"] },
+  { id: "comercial", label: "Comercial / Clientes", perspectives: ["Participación", "Salud de Cliente"] },
   { id: "calendario", label: "Calendario", perspectives: ["Frecuencia", "Client Partner"] },
   { id: "capacidad", label: "Capacidad / Ejecución", perspectives: ["Productivas", "No Asignadas"] },
 ];
@@ -227,7 +309,7 @@ const state = {
   // filtrables (ver getFilter/setFilter/selectField más abajo), keyeado
   // "<experienceId>.<dimensión>". Comercial queda afuera a propósito (no se
   // revisita su diseño de negocio en este batch, ver HANDOFF).
-  filters: { cartera: {}, rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {} },
+  filters: { cartera: {}, rentabilidad: {}, horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
   // genérico de arriba) porque su semántica default es "todo tildado",
@@ -331,6 +413,15 @@ const FACET_CONFIG = {
   capacidad: () => state.perspective.capacidad === "Productivas"
     ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
     : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
+  // Client Partner/Cliente son los ÚNICOS slicers reales de ambas páginas
+  // fuente (page_inventory.json: slicer_fields) representables en el mock
+  // actual — Año (Participación) y el slicer de Status de
+  // "Empresas con proyectos activos" (Salud) no tienen una dimensión
+  // limpia en este dataset todavía, se ocultan (ver corrective: "si un
+  // filtro fuente no se puede representar con fidelidad, ocultarlo").
+  comercial: () => state.perspective.comercial === "Participación"
+    ? { baseRows: COMERCIAL_PARTICIPACION_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] }
+    : { baseRows: COMERCIAL_SALUD_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] },
 };
 function reconcileExperienceFacets(expId, justChangedKey) {
   const cfg = FACET_CONFIG[expId];
@@ -473,13 +564,19 @@ function renderCapacidadFilterBar() {
   return filterBarShell(fields, "capacidad");
 }
 
-// `withLabel` (Hub Visual Consistency corrective, ver HANDOFF): la
-// experiencia Comercial sigue mostrando el switch como bloque standalone
-// arriba de las secciones (fuera de alcance de este corrective, ver
-// HANDOFF), CON su rótulo "Ver por". Las otras 5 experiencias ahora montan
-// el switch DENTRO del toolbar de la sección analítica a la que controla
-// (ver sectionToolbar) — ahí el rótulo es redundante (el breadcrumb de la
-// sección ya da contexto), así que se omite.
+function renderComercialFilterBar() {
+  const fields = facetSelectField("comercial", "cp", "Client Partner")
+    + facetSelectField("comercial", "cliente", "Cliente");
+  return filterBarShell(fields, "comercial");
+}
+
+// `withLabel` (Hub Visual Consistency corrective, ver HANDOFF): las 6
+// experiencias montan el switch DENTRO del toolbar de la sección analítica
+// a la que controla (ver sectionToolbar) — ahí el rótulo "Ver por" es
+// redundante (el breadcrumb de la sección ya da contexto), así que se
+// omite (`withLabel=false`). `withLabel=true` (default) queda disponible
+// para el caso standalone, sin uso actual tras alinear Comercial (ver
+// Commercial/Clients corrective).
 function perspectiveSwitch(expId, withLabel = true) {
   const exp = EXPERIENCES.find(e => e.id === expId);
   const buttons = exp.perspectives.map(p => `
@@ -901,28 +998,65 @@ function renderHorasVendidas() {
   return dashboardSections("reporting-horasvendidas", resumen + detalle);
 }
 
+// Participación por condición comercial (ver corrective — HANDOFF):
+// jerarquía REAL de la pivotTable principal de "Analisis Participacion -
+// Condiciones Comerciales -" — ID Frecuencia > Permite Adelanto > Condición
+// de Pago > Cliente, EXACTO ese orden de Rows. Reusa buildTree/
+// renderBusinessTreeRows sin cambios — mismo motor que Cartera/Capacidad.
+function renderComercialParticipacion() {
+  const rows = facetFilteredRows("comercial");
+  const keys = ["idFrecuencia", "permiteAdelanto", "condicionPago", "cliente"];
+  const stateKey = "comercial::Participación";
+  const tree = buildTree(rows, keys);
+  registerTreeContext(stateKey, rows, keys);
+
+  const detalleBody = `
+    ${sectionToolbar(perspectiveSwitch("comercial", false), treeToolbarButtons(stateKey))}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr>
+          <th class="row-label-col">ID Frecuencia / Permite Adelanto / Condición de Pago / Cliente</th>
+          ${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<th>${esc(c.label)}</th>`).join("")}
+        </tr></thead>
+        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_PARTICIPACION_COLUMNS)}</tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", "Participación por condición comercial", rows.length + " cliente(s)", detalleBody);
+
+  return dashboardSections("reporting-comercial", detalle);
+}
+
+// Salud de Cliente (ver corrective) — jerarquía REAL de "Client Partner -
+// Status de Cliente detalle": Client Partner > Cliente, columnas
+// categóricas (sin rollup, ver comentario del dataset).
+function renderComercialSalud() {
+  const rows = facetFilteredRows("comercial");
+  const keys = ["cp", "cliente"];
+  const stateKey = "comercial::Salud de Cliente";
+  const tree = buildTree(rows, keys);
+  registerTreeContext(stateKey, rows, keys);
+
+  const detalleBody = `
+    ${sectionToolbar(perspectiveSwitch("comercial", false), treeToolbarButtons(stateKey))}
+    ${rows.length ? `
+    <div class="matrix-scroll">
+      <table class="tree-matrix">
+        <thead><tr>
+          <th class="row-label-col">Client Partner / Cliente</th>
+          ${COMERCIAL_SALUD_COLUMNS.map(c => `<th class="left">${esc(c.label)}</th>`).join("")}
+        </tr></thead>
+        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_SALUD_COLUMNS)}</tbody>
+      </table>
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+  const detalle = dashboardSection("detalle", "Salud de Cliente", rows.length + " cliente(s)", detalleBody);
+
+  return dashboardSections("reporting-comercial", detalle);
+}
+
 function renderComercial() {
   const persp = state.perspective.comercial;
-  let body, title;
-  if (persp === "Participación") {
-    title = "Participación / Condiciones Comerciales";
-    body = `<table class="data-table">
-      <thead><tr><th>Cliente</th><th>Client Partner</th><th>Condición</th><th class="num">Participación</th></tr></thead>
-      <tbody>${COMERCIAL_PARTICIPACION.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.cp)}</td><td>${esc(r.condicion)}</td><td class="num">${r.participacion}</td></tr>`).join("")}</tbody>
-    </table>`;
-  } else {
-    title = "Status de Cliente — detalle";
-    body = `<table class="data-table">
-      <thead><tr><th>Cliente</th><th>Status</th><th>Última revisión</th></tr></thead>
-      <tbody>${COMERCIAL_STATUS.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.status)}</td><td>${esc(r.ultimaRevision)}</td></tr>`).join("")}</tbody>
-    </table>`;
-  }
-  // Comercial queda FUERA de este corrective a propósito (no se revisita su
-  // diseño de negocio, ver HANDOFF) — sin filter bar (ningún control
-  // decorativo) pero SÍ envuelto en el mismo dashboard-section que el resto,
-  // para consistencia visual mínima con el backbone del Hub.
-  const detalle = dashboardSection("detalle", title, "", body);
-  return `${perspectiveSwitch("comercial")}${dashboardSections("reporting-comercial", detalle)}`;
+  return persp === "Participación" ? renderComercialParticipacion() : renderComercialSalud();
 }
 
 function renderCalendario() {
@@ -1051,13 +1185,13 @@ const RENDERERS = {
   cartera: renderCartera, rentabilidad: renderRentabilidad, horasvendidas: renderHorasVendidas,
   comercial: renderComercial, calendario: renderCalendario, capacidad: renderCapacidad,
 };
-// Comercial queda sin filter bar a propósito (ver renderComercial) — no
-// tiene entrada acá, `render()` lo trata como "" (sin barra) cuando no
-// aparece en este mapa.
+// `render()` trata cualquier experiencia sin entrada acá como "" (sin
+// barra) — ya no aplica a ninguna de las 6 (ver Commercial/Clients
+// corrective, HANDOFF).
 const FILTER_BARS = {
   cartera: renderCarteraFilterBar, rentabilidad: renderRentabilidadFilterBar,
   horasvendidas: renderHorasVendidasFilterBar, calendario: renderCalendarioFilterBar,
-  capacidad: renderCapacidadFilterBar,
+  capacidad: renderCapacidadFilterBar, comercial: renderComercialFilterBar,
 };
 
 function render() {
