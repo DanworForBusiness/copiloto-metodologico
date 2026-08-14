@@ -103,6 +103,23 @@
   .legend .l-certificadas::before { background: #3F9C82; }
   .legend .l-ejecutadas::before { background: var(--gold); }
 
+  .matrix-scroll { overflow-x: auto; }
+  table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; }
+  table.tree-matrix th { text-align: right; color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase;
+    letter-spacing: .03em; border-bottom: 1px solid var(--border); padding: 6px 8px; white-space: nowrap; }
+  table.tree-matrix th.row-label-col { text-align: left; min-width: 260px; }
+  table.tree-matrix td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right; font-variant-numeric: tabular-nums; }
+  table.tree-matrix td.row-label { text-align: left; white-space: nowrap; }
+  table.tree-matrix tr.depth-0 td.row-label { font-weight: 700; }
+  table.tree-matrix tr.depth-1 td.row-label { font-weight: 600; color: var(--ink-soft); }
+  table.tree-matrix tr.depth-2 td.row-label { font-weight: 400; color: var(--ink-soft); }
+  table.tree-matrix tr.is-total td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; }
+  table.tree-matrix tr:hover td { background: rgba(231,176,8,.06); }
+  .tree-toggle { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+  .tree-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
+  .tree-toggle .caret.leaf { visibility: hidden; }
+  .tree-indent { display: inline-block; }
+
   .calendar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
   .calendar-cell { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: .74rem; }
   .calendar-cell .month { font: 700 .68rem var(--mono); text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
@@ -174,14 +191,21 @@ const RENTABILIDAD_ROWS = [
   { proyecto: "Soporte Analítica", vendidas: 88, certificadas: 96, ejecutadas: 92 },
 ];
 
-const HORASVENDIDAS_PROYECTO = [
-  { proyecto: "Implementación SADI v2", vendidas: 360, consumidas: 340, restantes: 20 },
-  { proyecto: "Costeo Federal", vendidas: 208, consumidas: 210, restantes: -2 },
-  { proyecto: "Rollout Reporting", vendidas: 180, consumidas: 175, restantes: 5 },
-];
-const HORASVENDIDAS_CP = [
-  { cp: "María López", vendidas: 420, consumidas: 402, restantes: 18 },
-  { cp: "Diego Ramos", vendidas: 328, consumidas: 340, restantes: -12 },
+// Horas Vendidas (ver corrective — HANDOFF/task): campos reales del PBIP son
+// "Hs vendidas Mant" / "Hs vendidas Proy" (Horas por proyectos) separadas por
+// Tipo, más Client Partner/Cliente/Proyecto/Mes — NUNCA "consumidas"/
+// "restantes" (eso pertenece a otra experiencia, no se reubica acá). Cada fila
+// es un Proyecto (nivel más fino) con 12 valores mensuales de horas vendidas;
+// los niveles de agrupación (Client Partner/Tipo/Cliente) se agregan sumando
+// filas — nunca se hardcodea un total de grupo por separado.
+const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const HORASVENDIDAS_ROWS = [
+  { cp: "María López", tipo: "Mantenimiento", cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", monthly: [12, 12, 12, 12, 12, 12, 10, 10, 10, 10, 10, 10] },
+  { cp: "María López", tipo: "Mantenimiento", cliente: "Danone", proyecto: "Soporte Analítica", monthly: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8] },
+  { cp: "María López", tipo: "Proyecto", cliente: "Molinos", proyecto: "Rollout BI", monthly: [0, 0, 15, 15, 15, 15, 15, 0, 0, 0, 0, 0] },
+  { cp: "Diego Ramos", tipo: "Mantenimiento", cliente: "AySA", proyecto: "Mantenimiento Costeo Federal", monthly: [18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18] },
+  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "YPF", proyecto: "Implementación SADI v2", monthly: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0, 0, 0] },
+  { cp: "Diego Ramos", tipo: "Proyecto", cliente: "Ternium", proyecto: "Rollout Reporting", monthly: [0, 0, 0, 20, 20, 20, 20, 20, 20, 20, 20, 20] },
 ];
 
 const COMERCIAL_PARTICIPACION = [
@@ -353,24 +377,114 @@ function renderRentabilidad() {
     <section class="panel"><h2>${esc(persp)}</h2>${content}</section>`;
 }
 
+// Hierarchía por perspectiva (ver corrective): Client Partner reproduce el
+// eje CP > Tipo > Cliente del reporte original; Proyecto reagrupa SIN CP como
+// eje primario (Tipo > Cliente > Proyecto es la jerarquía más cercana al
+// comportamiento real soportada por los campos del PBIP: Tipo Proyecto Dash,
+// Cliente, Proyecto). Son DOS perspectivas de UNA sola experiencia — mismo
+// grammar visual, misma matriz mensual, mismo dataset base (HORASVENDIDAS_ROWS).
+const HORASVENDIDAS_HIERARCHY = {
+  "Client Partner": { keys: ["cp", "tipo", "cliente"], labels: ["Client Partner", "Tipo", "Cliente"] },
+  "Proyecto": { keys: ["tipo", "cliente", "proyecto"], labels: ["Tipo", "Cliente", "Proyecto"] },
+};
+
+// Estado de expansión — separado por perspectiva (la jerarquía difiere),
+// keyed por el path completo de labels ("María López" / "María López|Mantenimiento").
+// Vacío = todo colapsado (default: solo el nivel superior visible).
+const treeExpanded = { "Client Partner": new Set(), "Proyecto": new Set() };
+
+function sumMonthly(rows) {
+  const totals = new Array(12).fill(0);
+  rows.forEach(r => r.monthly.forEach((v, i) => { totals[i] += v; }));
+  return totals;
+}
+
+// Agrupa `rows` recursivamente según `keys` — cada nodo trae su propio total
+// mensual (SUMA de las filas que agrupa, nunca un valor hardcodeado aparte) y
+// sus hijos (grupo siguiente), hasta agotar `keys` (el último nivel son las
+// filas hoja individuales, sin más hijos).
+function buildTree(rows, keys, path = []) {
+  if (keys.length === 0) return [];
+  const [key, ...restKeys] = keys;
+  const groups = new Map();
+  rows.forEach(r => {
+    const val = r[key];
+    if (!groups.has(val)) groups.set(val, []);
+    groups.get(val).push(r);
+  });
+  return [...groups.entries()].map(([val, groupRows]) => {
+    const nodePath = [...path, val];
+    return {
+      label: val,
+      pathKey: nodePath.join("|"),
+      monthly: sumMonthly(groupRows),
+      children: buildTree(groupRows, restKeys, nodePath),
+    };
+  });
+}
+
+function toggleTreeNode(persp, pathKey) {
+  const set = treeExpanded[persp];
+  if (set.has(pathKey)) set.delete(pathKey); else set.add(pathKey);
+  render();
+}
+
+function renderTreeRows(persp, nodes, depth) {
+  const set = treeExpanded[persp];
+  return nodes.map(node => {
+    const hasChildren = node.children && node.children.length > 0;
+    const isOpen = set.has(node.pathKey);
+    const caretChar = !hasChildren ? "" : (isOpen ? "▾" : "▸");
+    const indentPx = depth * 20;
+    const rowHtml = `
+      <tr class="depth-${depth}">
+        <td class="row-label">
+          <span class="tree-indent" style="width:${indentPx}px"></span>
+          <span class="tree-toggle" ${hasChildren ? `onclick="toggleTreeNode('${persp}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
+            <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
+            ${esc(node.label)}
+          </span>
+        </td>
+        ${node.monthly.map(v => `<td>${v || "—"}</td>`).join("")}
+      </tr>`;
+    const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(persp, node.children, depth + 1) : "";
+    return rowHtml + childrenHtml;
+  }).join("");
+}
+
 function renderHorasVendidas() {
   const persp = state.perspective.horasvendidas;
-  const rows = persp === "Proyecto" ? HORASVENDIDAS_PROYECTO : HORASVENDIDAS_CP;
-  const keyLabel = persp === "Proyecto" ? "Proyecto" : "Client Partner";
-  const keyField = persp === "Proyecto" ? "proyecto" : "cp";
+  const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
+  const tree = buildTree(HORASVENDIDAS_ROWS, hierarchy.keys);
+  const totalMonthly = sumMonthly(HORASVENDIDAS_ROWS);
+
+  const annual = totalMonthly.reduce((s, v) => s + v, 0);
+  const mant = HORASVENDIDAS_ROWS.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const proy = HORASVENDIDAS_ROWS.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const quarter = q => totalMonthly.slice(q * 3, q * 3 + 3).reduce((a, b) => a + b, 0);
+
   return `
     ${perspectiveSwitch("horasvendidas")}
     <div class="kpi-grid">
-      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.vendidas, 0)}</span><span class="label">Hs vendidas</span></div>
-      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.consumidas, 0)}</span><span class="label">Hs consumidas</span></div>
-      <div class="kpi ${rows.some(r => r.restantes < 0) ? "warn" : "good"}"><span class="value">${rows.reduce((s, r) => s + r.restantes, 0)}</span><span class="label">Hs restantes</span></div>
+      <div class="kpi"><span class="value">${annual}</span><span class="label">Hs Estimadas anuales</span></div>
+      <div class="kpi"><span class="value">${mant}</span><span class="label">Mantenimiento</span></div>
+      <div class="kpi"><span class="value">${proy}</span><span class="label">Proyecto</span></div>
+      <div class="kpi"><span class="value">${quarter(0)}</span><span class="label">Vendidas Q1</span></div>
+      <div class="kpi"><span class="value">${quarter(1)}</span><span class="label">Vendidas Q2</span></div>
+      <div class="kpi"><span class="value">${quarter(2)}</span><span class="label">Vendidas Q3</span></div>
+      <div class="kpi"><span class="value">${quarter(3)}</span><span class="label">Vendidas Q4</span></div>
     </div>
     <section class="panel">
-      <h2>${esc(persp)}</h2>
-      <table class="data-table">
-        <thead><tr><th>${esc(keyLabel)}</th><th class="num">Vendidas</th><th class="num">Consumidas</th><th class="num">Restantes</th></tr></thead>
-        <tbody>${rows.map(r => `<tr><td>${esc(r[keyField])}</td><td class="num">${r.vendidas}</td><td class="num">${r.consumidas}</td><td class="num">${diffCell(r.restantes)}</td></tr>`).join("")}</tbody>
-      </table>
+      <h2>${esc(persp)} <span class="count">${hierarchy.labels.join(" › ")}</span></h2>
+      <div class="matrix-scroll">
+        <table class="tree-matrix">
+          <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${renderTreeRows(persp, tree, 0)}
+            <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+          </tbody>
+        </table>
+      </div>
     </section>`;
 }
 
