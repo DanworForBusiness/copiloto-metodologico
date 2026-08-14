@@ -5200,6 +5200,66 @@ XLSX previo: full suite era 821; este micro-batch suma +26 tests.)
 
 ---
 
+## STAFFING — TIMELINE DAY-ACCURATE GEOMETRY — DIRECTOR-APPROVED CORRECTIVE — IMPLEMENTED / PENDING OWNER VISUAL SMOKE
+(commit `fix(staffing): align timeline bars to assignment dates`, branch
+`work/staffing-day-accurate-timeline`, sobre PR #60 merged / `bf3ffc6`)
+
+**Alcance:** SOLO geometría visual del timeline — ninguna regla de negocio
+cambia (status, effective-today, group hours, KPIs, Asignación hoy/+N,
+Activos vencidos, filtros, inclusión/exclusión, comportamiento de
+Vacaciones, rutas).
+
+**Root cause:** `compute_timeline_position` posicionaba asignaciones/
+vacaciones por ÍNDICE DE MES (`start_index`/`end_index`, 0..7) y `app.js`
+dibujaba la barra con `grid-column` sobre un grid de 8 columnas — toda
+asignación quedaba pegada visualmente al día 1 de su mes de inicio, sin
+importar la fecha real (ej. Javier Valletta, Danone Costeo Directo,
+17/08→30/09/2026 se veía arrancando a principios de agosto). Solo
+`compute_today_marker` ya tenía geometría día-exacta (% continuo 0..100
+sobre el ancho del horizonte) — asignaciones/vacaciones nunca reusaban ese
+modelo, tenían el suyo propio, más grosero.
+
+**Fix:** nuevo helper único `_date_position_fraction(d, horizon_months)` en
+`staffing_service.py` — MISMA fórmula que ya usaba `compute_today_marker`
+en solitario (mes ocupa 1/len(horizon) del ancho, dividido linealmente por
+día dentro del mes), ahora compartido por `compute_timeline_position`
+(reemplaza `start_index`/`end_index` por `start_pct`/`end_pct`, 0..100,
+misma escala que `today_marker_pct`) y por `compute_today_marker`. Un solo
+modelo de coordenadas para asignaciones, vacaciones y el marcador de "hoy".
+`end_pct` se calcula sobre el inicio del día SIGUIENTE al `end_date` (cubre
+el día de fin completo, como un Gantt). Clipping en los bordes del
+horizonte preservado (`clipped_start`/`clipped_end`, misma semántica que
+antes: clippea solo si la fecha real cae fuera del horizonte, no en el
+borde exacto del último/primer día visible). `app.js::barStyle` pasa de
+`grid-column:${start_index+1} / ${end_index+2}` a
+`left:${start_pct}%; width:${end_pct-start_pct}%`. `tools.css`:
+`.staffing-timeline__track` deja de ser `display:grid` (queda
+`position:relative`, sin tocar `.staffing-timeline__header-months`, que
+sigue en grid de 8 columnas iguales — misma escala 0..100 que el % de las
+barras, así siguen alineadas bajo su mes); `.staffing-timeline__bar`/
+`.staffing-timeline__vacation-bar` pasan de `grid-row:1; align-self:center`
+a `position:absolute; top:50%; transform:translateY(-50%)`.
+
+**Sin cambios de negocio:** ningún campo de `StaffingOverviewRow`, ninguna
+lógica de status/effective-today/KPIs/disponibilidad/filtros; `barStyle` es
+la MISMA función para asignaciones y vacaciones (sin segunda
+implementación).
+
+**Tests:** `compute_timeline_position`/`compute_today_marker` actualizados
+a `start_pct`/`end_pct` (incluye nuevo caso de regresión explícito: 17/08
+dentro de un horizonte ago..feb cae DENTRO de la columna de agosto, nunca
+en su borde izquierdo) + `test_staffing_vacation_service.py`/
+`test_staffing_vacation_routes.py`/`test_staffing_vacation_ui.py`
+actualizados en consecuencia (un período de un solo día ahora afirma ancho
+> 0 real, no `start_index === end_index`). Staffing regression completo
+(351) + full suite (**880 passed / 1 skipped**) + route-contract GREEN,
+route surface **84, SIN CAMBIOS**.
+
+**Pendiente:** smoke visual del owner contra dato real de SharePoint (no
+ejecutado en este batch — requiere sesión Graph real). NO abrir PR todavía.
+
+---
+
 ## MODULE IDENTIFIER CONVENTION V2 — REGISTRY FOUNDATION — CLOSED / GREEN
 (commits funcionales `feat(modules): add canonical Hub module registry`
 (`7ddfc57`) + `fix(modules): keep canonical registry dependency-neutral`

@@ -29,7 +29,7 @@ _OVERLAY_PAYLOAD = {
     "vacations": [{
         "source_id": "1", "consultant_id": "c1", "consultant_name": "Matías Gómez",
         "start_date": "2026-08-15", "end_date": "2026-08-20",
-        "on_timeline": True, "start_index": 1, "end_index": 1,
+        "on_timeline": True, "start_pct": 12.5, "end_pct": 15.625,
         "clipped_start": False, "clipped_end": False,
     }],
     "unmatched_count": 0, "ambiguous_count": 0,

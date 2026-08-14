@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from webapp.services.staffing_repository import (
     StaffingAllocationRecord, StaffingRepository, VacationPeriod,
@@ -113,55 +113,72 @@ def _month_key(d: date) -> tuple[int, int]:
     return (d.year, d.month)
 
 
-def _month_index_clamped(month_start: date, horizon_months: list[date]) -> int:
-    key = _month_key(month_start)
-    keys = [_month_key(m) for m in horizon_months]
-    if key <= keys[0]:
-        return 0
-    if key >= keys[-1]:
-        return len(keys) - 1
-    return keys.index(key)
+def _date_position_fraction(d: date, horizon_months: list[date]) -> float:
+    """Fracción día-exacta (0..100) de una fecha dentro del horizonte
+    visible — cada mes ocupa 1/len(horizon_months) del ancho total,
+    dividido linealmente por día dentro de ese mes. Único cálculo de
+    coordenadas del timeline (ver HANDOFF — geometría día-exacta):
+    `compute_timeline_position` y `compute_today_marker` son ambos
+    envoltorios finos de este helper, así asignaciones, vacaciones y el
+    marcador de "hoy" comparten un único modelo, nunca uno mensual y otro
+    diario. Puede devolver un valor fuera de [0, 100] para una fecha fuera
+    del horizonte — cada caller decide si clampear (`compute_timeline_
+    position`) o descartar (`compute_today_marker`)."""
+    total_months = len(horizon_months)
+    month_start = date(d.year, d.month, 1)
+    month_offset = (d.year - horizon_months[0].year) * 12 + (d.month - horizon_months[0].month)
+    next_month_start = _add_months(month_start, 1)
+    days_in_month = (next_month_start - month_start).days
+    day_fraction = (d - month_start).days / days_in_month
+    return (month_offset + day_fraction) / total_months * 100
 
 
 def compute_timeline_position(start: date | None, end: date | None, horizon_months: list[date]) -> dict:
-    """Posición pura de una asignación en el horizonte del timeline —
-    índices de mes (0..len-1), NUNCA aritmética de píxeles. Sin fechas
-    reales (ambas `None`), la fila queda fuera del timeline (`on_timeline`
-    False) — sigue existiendo en KPIs/detalle, solo no se puede posicionar.
-    Con un solo extremo conocido, el otro se trata como abierto: sin inicio
-    → arranca clippeado al primer mes visible; sin fin → se extiende
-    clippeada hasta el último mes visible (asignación en curso sin fecha de
-    cierre conocida). Las fechas reales NUNCA se alteran — esto solo decide
-    dónde se dibuja la barra."""
+    """Posición día-exacta (PURA) de una asignación en el horizonte del
+    timeline — `start_pct`/`end_pct` (0..100, MISMA escala que
+    `compute_today_marker`), NUNCA índices de mes: una barra que arranca a
+    mitad de mes se dibuja a mitad de esa columna, no pegada a su borde
+    izquierdo (corrective día-exacta, ver HANDOFF — la geometría por índice
+    de mes hacía que TODA asignación pareciera arrancar el día 1 de su
+    mes). Sin fechas reales (ambas `None`), la fila queda fuera del
+    timeline (`on_timeline` False) — sigue existiendo en KPIs/detalle, solo
+    no se puede posicionar. Con un solo extremo conocido, el otro se trata
+    como abierto: sin inicio → arranca clippeado al borde izquierdo visible
+    (0%); sin fin → se extiende clippeada hasta el borde derecho visible
+    (100%) (asignación en curso sin fecha de cierre conocida). `end_pct` se
+    calcula sobre el INICIO del día SIGUIENTE a `end` (para que la barra
+    cubra el día de fin completo, como en un Gantt) — nunca sobre `end` a
+    las 0hs, que dejaría la barra un día corta. Las fechas reales NUNCA se
+    alteran — esto solo decide dónde se dibuja la barra."""
     if start is None and end is None:
-        return {"on_timeline": False, "start_index": 0, "end_index": 0, "clipped_start": False, "clipped_end": False}
+        return {"on_timeline": False, "start_pct": 0.0, "end_pct": 0.0, "clipped_start": False, "clipped_end": False}
 
-    horizon_first_key = _month_key(horizon_months[0])
-    horizon_last_key = _month_key(horizon_months[-1])
+    horizon_start = horizon_months[0]
+    horizon_end_exclusive = _add_months(horizon_months[-1], 1)  # primer día YA fuera del horizonte
 
     if start is None:
-        start_index = 0
         clipped_start = True
+        start_pct = 0.0
     else:
-        start_month = date(start.year, start.month, 1)
-        clipped_start = _month_key(start_month) < horizon_first_key
-        start_index = _month_index_clamped(start_month, horizon_months)
+        clipped_start = start < horizon_start
+        effective_start = max(start, horizon_start)
+        start_pct = _date_position_fraction(effective_start, horizon_months)
 
     if end is None:
-        end_index = len(horizon_months) - 1
         clipped_end = True
+        end_pct = 100.0
     else:
-        end_month = date(end.year, end.month, 1)
-        clipped_end = _month_key(end_month) > horizon_last_key
-        end_index = _month_index_clamped(end_month, horizon_months)
+        clipped_end = end >= horizon_end_exclusive
+        effective_end_exclusive = min(end + timedelta(days=1), horizon_end_exclusive)
+        end_pct = _date_position_fraction(effective_end_exclusive, horizon_months)
 
-    if end_index < start_index:
-        end_index = start_index
+    if end_pct < start_pct:
+        end_pct = start_pct
 
     return {
         "on_timeline": True,
-        "start_index": start_index,
-        "end_index": end_index,
+        "start_pct": round(start_pct, 4),
+        "end_pct": round(end_pct, 4),
         "clipped_start": clipped_start,
         "clipped_end": clipped_end,
     }
@@ -169,22 +186,18 @@ def compute_timeline_position(start: date | None, end: date | None, horizon_mont
 
 def compute_today_marker(today: date, horizon_months: list[date]) -> float | None:
     """Posición porcentual PURA (0..100) del día de hoy dentro del ancho
-    total del horizonte — nunca un simple resaltado de mes. `None` si hoy
-    cae fuera del horizonte visible (no se dibuja marcador). El % es
-    relativo SOLO al área de columnas de mes (el template lo posiciona
-    dentro de un overlay que excluye la columna de etiqueta, así que este
-    cálculo no necesita saber ningún ancho en píxeles)."""
-    total_months = len(horizon_months)
+    total del horizonte — MISMO helper de coordenadas día-exacta que
+    `compute_timeline_position` (`_date_position_fraction`), nunca una
+    segunda implementación. `None` si hoy cae fuera del horizonte visible
+    (no se dibuja marcador). El % es relativo SOLO al área de columnas de
+    mes (el template lo posiciona dentro de un overlay que excluye la
+    columna de etiqueta, así que este cálculo no necesita saber ningún
+    ancho en píxeles)."""
     horizon_start = horizon_months[0]
     horizon_end_exclusive = _add_months(horizon_months[-1], 1)
     if today < horizon_start or today >= horizon_end_exclusive:
         return None
-    month_start = date(today.year, today.month, 1)
-    month_index = _month_index_clamped(month_start, horizon_months)
-    next_month_start = _add_months(month_start, 1)
-    days_in_month = (next_month_start - month_start).days
-    day_fraction = (today - month_start).days / days_in_month
-    return round((month_index + day_fraction) / total_months * 100, 4)
+    return round(_date_position_fraction(today, horizon_months), 4)
 
 
 @dataclass(frozen=True)

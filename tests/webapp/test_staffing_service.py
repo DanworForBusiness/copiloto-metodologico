@@ -154,40 +154,57 @@ def test_horizon_months_cross_year_boundary():
     assert len(horizon) == 8
 
 
-# --- Posición en el timeline (función pura, sin aritmética de píxeles) -----
+# --- Posición en el timeline (función pura, día-exacta, sin aritmética de
+# píxeles — ver HANDOFF, corrective de geometría: `start_pct`/`end_pct`
+# reemplazan los índices de mes; una asignación que arranca a mitad de mes
+# debe posicionarse a mitad de esa columna, no pegada al día 1). -----------
 
 _HORIZON = compute_horizon_months(date(2026, 3, 15))  # feb..sep 2026
 
 
 def test_position_entirely_within_horizon():
     pos = compute_timeline_position(date(2026, 4, 1), date(2026, 6, 30), _HORIZON)
-    assert pos == {"on_timeline": True, "start_index": 2, "end_index": 4, "clipped_start": False, "clipped_end": False}
+    assert pos == {"on_timeline": True, "start_pct": 25.0, "end_pct": 62.5, "clipped_start": False, "clipped_end": False}
+
+
+def test_position_mid_month_start_lands_inside_its_month_not_at_day_one():
+    # 17/08 dentro de un horizonte ago..mar — debe caer DENTRO de la columna
+    # de agosto (17/31 del mes), nunca al borde izquierdo (0% de esa
+    # columna, que sería el bug real de "pegado al día 1").
+    horizon = compute_horizon_months(date(2026, 8, 14))  # jul..feb
+    pos = compute_timeline_position(date(2026, 8, 17), date(2026, 9, 30), horizon)
+    month_index_aug = 1  # jul=0, ago=1
+    column_width = 100 / 8
+    aug_column_start = month_index_aug * column_width
+    day_fraction = 16 / 31  # (17 - 1) días transcurridos / días de agosto
+    assert pos["start_pct"] == round(aug_column_start + day_fraction * column_width, 4)
+    assert pos["start_pct"] > aug_column_start  # nunca pegado al día 1 visualmente
 
 
 def test_position_starts_before_horizon_clips_to_first_month():
     pos = compute_timeline_position(date(2025, 1, 1), date(2026, 4, 30), _HORIZON)
     assert pos["on_timeline"] is True
-    assert pos["start_index"] == 0
+    assert pos["start_pct"] == 0.0
     assert pos["clipped_start"] is True
     assert pos["clipped_end"] is False
 
 
 def test_position_ends_after_horizon_clips_to_last_month():
     pos = compute_timeline_position(date(2026, 8, 1), date(2027, 3, 1), _HORIZON)
-    assert pos["end_index"] == 7
+    assert pos["end_pct"] == 100.0
     assert pos["clipped_end"] is True
     assert pos["clipped_start"] is False
 
 
 def test_position_spans_complete_horizon():
     pos = compute_timeline_position(date(2020, 1, 1), date(2030, 1, 1), _HORIZON)
-    assert pos == {"on_timeline": True, "start_index": 0, "end_index": 7, "clipped_start": True, "clipped_end": True}
+    assert pos == {"on_timeline": True, "start_pct": 0.0, "end_pct": 100.0, "clipped_start": True, "clipped_end": True}
 
 
 def test_position_future_assignment_within_horizon():
     pos = compute_timeline_position(date(2026, 9, 1), date(2026, 9, 30), _HORIZON)
-    assert pos["start_index"] == 7
-    assert pos["end_index"] == 7
+    assert pos["start_pct"] == 87.5
+    assert pos["end_pct"] == 100.0
     assert pos["clipped_start"] is False
     assert pos["clipped_end"] is False
 
@@ -200,17 +217,17 @@ def test_position_both_dates_missing_excluded_from_timeline_only():
 def test_position_missing_start_treated_as_open_ended_left():
     pos = compute_timeline_position(None, date(2026, 4, 30), _HORIZON)
     assert pos["on_timeline"] is True
-    assert pos["start_index"] == 0
+    assert pos["start_pct"] == 0.0
     assert pos["clipped_start"] is True
-    assert pos["end_index"] == 2
+    assert pos["end_pct"] == 37.5
 
 
 def test_position_missing_end_treated_as_open_ended_right():
     pos = compute_timeline_position(date(2026, 5, 1), None, _HORIZON)
     assert pos["on_timeline"] is True
-    assert pos["end_index"] == 7
+    assert pos["end_pct"] == 100.0
     assert pos["clipped_end"] is True
-    assert pos["start_index"] == 3
+    assert pos["start_pct"] == 37.5
 
 
 # --- Marcador de "hoy" (función pura, sin depender del reloj real) ---------
@@ -324,7 +341,7 @@ def test_dashboard_payload_multiple_assignments_same_consultant_each_get_own_pos
     rows = StaffingService(repository=_FakeRepository(records)).get_overview("tok")
     payload = build_dashboard_payload(rows, today=date(2026, 3, 15))
     by_id = {a["assignment_id"]: a for a in payload["assignments"]}
-    assert by_id["1"]["start_index"] != by_id["2"]["start_index"]
+    assert by_id["1"]["start_pct"] != by_id["2"]["start_pct"]
     assert by_id["1"]["consultant_id"] == by_id["2"]["consultant_id"] == "c1"
 
 

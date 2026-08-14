@@ -163,7 +163,11 @@ def test_single_day_period_is_positioned():
         VacationJoinResult(periods=[_period(start_date=date(2026, 8, 15), end_date=date(2026, 8, 15))], unmatched=[], ambiguous=[]),
         today=_TODAY,
     )
-    assert payload["vacations"][0]["start_index"] == payload["vacations"][0]["end_index"]
+    v = payload["vacations"][0]
+    # Día-exacta (ver HANDOFF): un período de un solo día sigue teniendo un
+    # ancho positivo real (end_pct > start_pct), nunca un punto de ancho
+    # cero que dependa 100% del min-width del CSS para ser visible.
+    assert v["end_pct"] > v["start_pct"]
 
 
 def test_multiple_periods_position_independently():

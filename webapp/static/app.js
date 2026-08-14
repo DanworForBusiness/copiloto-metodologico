@@ -1452,8 +1452,13 @@ function staffingDashboard(payload) {
       return this.filteredAssignments.filter(a => !a.on_timeline).length;
     },
 
+    // Día-exacta (ver HANDOFF — corrective de geometría): `start_pct`/`end_pct`
+    // (Python, `compute_timeline_position`) ya están en la MISMA escala 0..100
+    // que `todayMarker.pct` (`compute_today_marker`) — la barra se posiciona
+    // con left/width absolutos dentro de `.staffing-timeline__track`, nunca
+    // con grid-column por mes (eso pegaba toda barra al día 1 de su mes).
     barStyle(row) {
-      return `grid-column:${row.start_index + 1} / ${row.end_index + 2}`;
+      return `left:${row.start_pct}%; width:${row.end_pct - row.start_pct}%`;
     },
 
     // Disponibilidad de asignación — SOLO hechos: cuenta consultores
