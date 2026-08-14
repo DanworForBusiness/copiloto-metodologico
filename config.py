@@ -259,6 +259,13 @@ SHAREPOINT_COLABORADORES_LIST_ID = _env(
 SHAREPOINT_CLIENTE_LIST_ID = _env(
     "SHAREPOINT_CLIENTE_LIST_ID", "9c09571c-4fb8-4841-8f0d-4def03b3130d",
 ).strip()
+# Horas por proyectos — hecho mensual de Cartera (Reporting Integral real-data
+# Fase 1, ver artifacts/reporting-integral-v0/real-data-lineage.md). MISMO
+# sitio Gestión que las 4 de arriba; GUID derivado de la partición M del PBIP
+# (`.../lists(guid'6c3a8689-...')`). Pendiente de LIVE GRAPH VALIDATION.
+SHAREPOINT_HORAS_PROYECTOS_LIST_ID = _env(
+    "SHAREPOINT_HORAS_PROYECTOS_LIST_ID", "6c3a8689-e7ed-4a2c-b358-10c5ca1b37b8",
+).strip()
 
 # Internal names de columna Graph para las 3 listas de Staffing. A
 # diferencia de los list ID arriba, estos NO tienen ningún valor conocido —

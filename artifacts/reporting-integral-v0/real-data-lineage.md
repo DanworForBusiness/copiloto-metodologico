@@ -82,22 +82,48 @@ Mapeo renderer V0 → contrato: `trabajadas←hsTrabajadas`, `certificadas←hsC
 El adapter mapea nombres crudos (`A_x00f1_o`, `HsFacturadas`, `Proyecto/Title`, …)
 UNA sola vez en el boundary repositorio; nada de eso llega a `reporting.js`.
 
-## 6. Gaps de fuente sin resolver (NO fabricar)
+## 6. XLSX Facturadas — lineage resuelta (perspectiva Proyecto)
 
-1. **`facturadas` de la perspectiva Proyecto** difiere de `certificadas` (mock YPF:
-   facturadas 290 vs certificadas 322). Su fuente NO es la lista "Horas por
-   proyectos" sino el Excel `Horas Facturadas Proyectos-Período.xlsx` en la
-   biblioteca de documentos (grano/tabla distintos). En Mantenimiento el mock tiene
-   `facturadas == certificadas` (= HsFacturadas), así que ahí sí mapea a
-   `hsCertificadas`. **Decisión pendiente del owner:** conectar el XLSX de
-   facturadas para Proyecto, o dejar `facturadas` explícitamente marcado como
-   pendiente en esa perspectiva. No se inventa.
-2. **Claves de join exactas** `Horas por proyectos.ProyectoId ↔ Proyectos.Id` y
-   `EmpresaId ↔ Cliente.<Id/lookup>` a confirmar contra datos reales en el smoke
-   (los internal names del lookup pueden requerir `$expand`).
-3. **Estado por-mes vs por-proyecto:** el status de Cartera sale de `Proyectos.Estado`
-   (por proyecto), no de la fila mensual — confirmar que el default "En curso"
-   corresponde al valor real de `Estado`.
+Fuente PBIP: tabla `Horas Facturadas` (partición M).
+
+- **Origen:** `SharePoint.Files("https://danwor.sharepoint.com/sites/Gestion")`
+  → archivo `Horas Facturadas Proyectos-Período.xlsx`, carpeta
+  `Documentos compartidos/General/Reportes Horas por Proyectos/`.
+  Drive-relative path: `General/Reportes Horas por Proyectos/Horas Facturadas Proyectos-Período.xlsx`
+  (biblioteca por defecto "Documentos compartidos"/"Shared Documents").
+- **Tabla del workbook:** Excel Table **`Tabla24`** (`Kind="Table"`), no una hoja plana.
+- **Columnas fuente:** `Proyecto Nombre`, `Proyecto Base`, `Año` (int),
+  `Mes Facturado` (text), `Suma de Cantidad` (number = HORAS facturadas),
+  `Fecha Factura`, `Periodo Desde`, `Periodo Hasta`, `ID`.
+- **Renames M:** `Proyecto Nombre`→`Proyecto Nombre Original`;
+  `Proyecto Base`→`Proyecto Nombre`.
+- **Clave de join (derivada):** `Key_proyect_desc = Text.Upper(Replace(" ","", [Proyecto Nombre]))`
+  (es decir, `Proyecto Base` en MAYÚSCULAS sin espacios). Coincide EXACTAMENTE con
+  `Horas por proyectos.Proyecto_Key` (misma transformación `Upper(Replace(" ",""))`
+  sobre `Proyecto`). **⇒ join por nombre-de-proyecto normalizado, NO por Año/Mes.**
+- **Agregación:** para la perspectiva **Proyecto**, `facturadas` =
+  `SUM('Horas Facturadas'[Suma de Cantidad])` agrupado por `Key_proyect_desc`
+  (suma sobre todos los períodos del proyecto). Año/Mes NO participan del join de
+  Proyecto (esa perspectiva agrega sobre la vida del proyecto).
+- **Nulls:** un proyecto sin filas en el XLSX ⇒ `facturadas = 0` (aditivo).
+  Errores de import de `ID` → `PROJ-ERRORIMP` (no relevante para la medida).
+
+**Regla de `facturadas` por perspectiva (source-faithful):**
+- **Proyecto:** desde el XLSX (`Suma de Cantidad` sumado por `Proyecto_Key`).
+- **Mantenimiento:** el mock V0 tiene `facturadas == certificadas`; en PBIP
+  ambas derivan de `HsFacturadas` de la lista mensual, así que Mantenimiento
+  mapea `facturadas ← hsCertificadas` (= HsFacturadas). NO usa el XLSX.
+
+## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
+
+1. **Internal names de lookup** `ProyectoId ↔ Proyectos.Id` y `EmpresaId ↔ Cliente`:
+   los valores de lookup en `fields` de Graph pueden venir como `ProyectoLookupId`
+   / requerir `$expand=fields($select=...)`; a confirmar contra datos reales.
+2. **`Proyecto_Key` vs lookup:** el join list↔XLSX usa el NOMBRE de proyecto
+   normalizado (`Upper/no-space`); confirmar que `Horas por proyectos.Proyecto`
+   (Title del lookup) y `Horas Facturadas.Proyecto Base` produzcan la misma clave.
+3. **Estado por-proyecto:** sale de `Proyectos.Estado`; confirmar el valor real que
+   corresponde al default "En curso".
 
 ## 7. Estado de implementación
 

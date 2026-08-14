@@ -30,12 +30,14 @@ lógica de negocio de Reporting (eso vive enteramente en
 service real cuando haya fuente de datos)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
 from webapp.services import auth_service
+from webapp.services.reporting_repository import ReportingGraphError, ReportingSourceError
+from webapp.services.reporting_service import ReportingService
 from webapp.templating import templates
 
 router = APIRouter()
@@ -59,3 +61,33 @@ def reporting_integral_preview(request: Request):
             "active_page": "reporting",
         },
     )
+
+
+@router.post("/operaciones/reporting/integral/data/cartera", include_in_schema=False)
+def reporting_cartera_data(request: Request, graph_token: str = Form("")):
+    """Datos REALES normalizados de Cartera (Reporting Integral real-data Fase 1).
+    MISMO gate de Operations + MISMO token delegado del browser que Staffing —
+    sin auth ni cliente Graph nuevos. Fail-soft/localizado: cualquier falla
+    devuelve HTTP 200 con `state != "ok"` (el renderer entra en su estado de
+    error propio de Cartera; el resto de Reporting sigue usable). NUNCA expone
+    el token, el JSON crudo de Graph ni internal names de SharePoint."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        cartera = service.get_cartera(graph_token)
+    except RuntimeError:
+        # Config incompleta (site/list ID sin configurar) — nunca datos.
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001 — falla de transporte/parse, nunca cruda al cliente
+        return JSONResponse({"state": "source_error", "stage": "unknown"})
+    return JSONResponse({"state": "ok", "cartera": cartera})
