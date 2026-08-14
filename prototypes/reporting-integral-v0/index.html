@@ -98,6 +98,8 @@
   .bar-fill.vendidas { background: #4C7EA8; }
   .bar-fill.certificadas { background: #3F9C82; }
   .bar-fill.ejecutadas { background: var(--gold); }
+  .bar-fill.positivo { background: var(--green); }
+  .bar-fill.negativo { background: var(--red); }
   .bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); flex-shrink: 0; }
   .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: .7rem; color: var(--ink-soft); }
   .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
@@ -233,12 +235,32 @@ const CARTERA_CONFIG = {
   },
 };
 
-const RENTABILIDAD_ROWS = [
-  { proyecto: "Implementación SADI v2", vendidas: 360, certificadas: 322, ejecutadas: 340 },
-  { proyecto: "Costeo Federal", vendidas: 208, certificadas: 212, ejecutadas: 210 },
-  { proyecto: "Rollout Reporting", vendidas: 180, certificadas: 166, ejecutadas: 175 },
-  { proyecto: "Mantenimiento Costeo Directo", vendidas: 140, certificadas: 128, ejecutadas: 134 },
-  { proyecto: "Soporte Analítica", vendidas: 88, certificadas: 96, ejecutadas: 92 },
+// Rentabilidad / Performance (ver corrective — HANDOFF/task): a diferencia
+// de Horas Vendidas/Calendario, "Analisis Rentabilidad" y "Hs Certificadas
+// vs Hs Ejecutadas" NO son la misma pregunta de negocio reordenada — son DOS
+// preguntas relacionadas del mismo dominio de Performance, unidas por la
+// MISMA fórmula real (confirmada en TMDL, `Rentabilidad Unpivot.tmdl` +
+// `Comparativo.tmdl`):
+//   Rentabilidad horas == Margen Absoluto == Horas Certificadas − Horas Trabajadas
+//   Margen Relativo (medida DAX `Comparativo[MR]`) == Margen Absoluto / Horas Certificadas
+// "Hs Ejecutadas" (nombre de la 2da página) y "Horas Trabajadas" (nombre en
+// la 1ra) son el MISMO dato — el propio PBIP anota el lineage: Certificadas
+// viene de SharePoint, Ejecutadas/Trabajadas viene de Time (Time Logs
+// Reports). Signo preservado tal cual sale de la fórmula — NUNCA se
+// etiqueta "bueno"/"malo" (la métrica no lo determina de forma
+// inequívoca), solo color/signo, mismo criterio que `diffCell()` ya usa en
+// Cartera. Proyectos reusados 1:1 de Cartera/Proyectos (mismos
+// certificadas/trabajadas → mismo Diff Hs ahí y acá, consistencia
+// cross-experiencia).
+const RENTABILIDAD_RESUMEN = { vendidas: 969, certificadas: 940, trabajadas: 985, noAsignadas: 62 };
+const RENTABILIDAD_PROYECTOS = [
+  { tipo: "Mantenimiento", proyecto: "Andesmar - Mantenimiento Costeo Directo", certificadas: 128, trabajadas: 134 },
+  { tipo: "Mantenimiento", proyecto: "Andesmar - Soporte Infraestructura", certificadas: 43, trabajadas: 40 },
+  { tipo: "Mantenimiento", proyecto: "Danone - Soporte Analítica", certificadas: 96, trabajadas: 92 },
+  { tipo: "Mantenimiento", proyecto: "Molinos - Mantenimiento BI", certificadas: 60, trabajadas: 60 },
+  { tipo: "Proyecto", proyecto: "YPF - Implementación SADI v2", certificadas: 322, trabajadas: 340 },
+  { tipo: "Proyecto", proyecto: "AySA - Costeo Federal", certificadas: 212, trabajadas: 210 },
+  { tipo: "Proyecto", proyecto: "Ternium - Rollout Reporting", certificadas: 166, trabajadas: 175 },
 ];
 
 // Horas Vendidas (ver corrective — HANDOFF/task): campos reales del PBIP son
@@ -455,37 +477,106 @@ function renderCartera() {
     </section>`;
 }
 
+// Ranking de "Rentabilidad horas" (== Certificadas − Trabajadas) por
+// proyecto — MISMA fórmula que Resumen y que Certificadas vs Ejecutadas,
+// una sola función fuente de verdad.
+function rentabilidadRanked() {
+  return RENTABILIDAD_PROYECTOS
+    .map(p => ({ ...p, rentabilidad: p.certificadas - p.trabajadas }))
+    .sort((a, b) => b.rentabilidad - a.rentabilidad);
+}
+
+function rentabilidadBarRow(label, value, maxAbs) {
+  const cls = value < 0 ? "negativo" : "positivo";
+  const width = maxAbs ? (Math.abs(value) / maxAbs * 100).toFixed(1) : 0;
+  return `<div class="bar-row"><span class="bar-label">${esc(label)}</span>
+    <div class="bar-track"><div class="bar-fill ${cls}" style="width:${width}%"></div></div>
+    <span class="bar-value">${diffCell(value)}</span>
+  </div>`;
+}
+
+function renderRentabilidadResumen() {
+  const r = RENTABILIDAD_RESUMEN;
+  // Rentabilidad horas = Horas Certificadas − Horas Trabajadas (fórmula real,
+  // ver `Rentabilidad Unpivot.tmdl` VAR Rentabilidad) — NUNCA la suma de los
+  // 5 conceptos (esa suma no tiene significado de negocio, aunque la tabla
+  // Power BI original tuviera una fila Total).
+  const rentabilidadHoras = r.certificadas - r.trabajadas;
+
+  const ranked = rentabilidadRanked();
+  const positivos = ranked.filter(p => p.rentabilidad >= 0);
+  const negativos = ranked.filter(p => p.rentabilidad < 0).slice().reverse(); // más negativo primero
+  const maxAbs = Math.max(...ranked.map(p => Math.abs(p.rentabilidad)), 1);
+
+  return `
+    <div class="kpi-grid">
+      <div class="kpi"><span class="value">${r.vendidas}</span><span class="label">Horas Vendidas</span></div>
+      <div class="kpi"><span class="value">${r.certificadas}</span><span class="label">Horas Certificadas</span></div>
+      <div class="kpi"><span class="value">${r.trabajadas}</span><span class="label">Horas Trabajadas</span></div>
+      <div class="kpi"><span class="value">${diffCell(rentabilidadHoras)}</span><span class="label">Rentabilidad horas</span></div>
+      <div class="kpi"><span class="value">${r.noAsignadas}</span><span class="label">No asignadas a servicios</span></div>
+    </div>
+    <section class="panel">
+      <h2>Ranking por Rentabilidad horas <span class="count">Certificadas − Trabajadas</span></h2>
+      <p class="perspective-label">Mejor performance</p>
+      ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+      <p class="perspective-label" style="margin-top:14px">Peor performance</p>
+      ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+    </section>`;
+}
+
+function renderRentabilidadCertEjecutadas() {
+  const groups = ["Mantenimiento", "Proyecto"].map(tipo => {
+    const rows = RENTABILIDAD_PROYECTOS.filter(p => p.tipo === tipo);
+    const certificadas = rows.reduce((s, r) => s + r.certificadas, 0);
+    const trabajadas = rows.reduce((s, r) => s + r.trabajadas, 0);
+    const margenAbsoluto = certificadas - trabajadas;
+    const margenRelativo = certificadas ? (margenAbsoluto / certificadas * 100) : 0;
+    return { tipo, rows, certificadas, trabajadas, margenAbsoluto, margenRelativo };
+  });
+  const maxVal = Math.max(...groups.flatMap(g => [g.certificadas, g.trabajadas]));
+
+  return `
+    <section class="panel">
+      <h2>Certificadas vs Ejecutadas <span class="count">por Tipo Proyecto Dash</span></h2>
+      <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
+      <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
+      ${groups.map(g => `
+        <p class="perspective-label" style="margin-top:14px">${esc(g.tipo)}</p>
+        <div class="bar-row"><span class="bar-label">Certificadas</span>
+          <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
+          <span class="bar-value">${g.certificadas}</span>
+        </div>
+        <div class="bar-row"><span class="bar-label">Ejecutadas</span>
+          <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
+          <span class="bar-value">${g.trabajadas}</span>
+        </div>
+        <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
+          Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
+        </p>`).join("")}
+    </section>
+    <section class="panel">
+      <h2>Detalle por proyecto</h2>
+      <table class="data-table">
+        <thead><tr><th>Tipo</th><th>Proyecto</th><th class="num">Hs Certificadas</th><th class="num">Hs Ejecutadas</th><th class="num">Margen Absoluto</th><th class="num">Margen Relativo</th></tr></thead>
+        <tbody>${RENTABILIDAD_PROYECTOS.map(p => {
+          const margenAbsoluto = p.certificadas - p.trabajadas;
+          const margenRelativo = p.certificadas ? Math.round((margenAbsoluto / p.certificadas) * 1000) / 10 : 0;
+          return `<tr>
+            <td>${esc(p.tipo)}</td><td>${esc(p.proyecto)}</td>
+            <td class="num">${p.certificadas}</td><td class="num">${p.trabajadas}</td>
+            <td class="num">${diffCell(margenAbsoluto)}</td><td class="num">${diffCell(margenRelativo)}%</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </section>`;
+}
+
 function renderRentabilidad() {
   const persp = state.perspective.rentabilidad;
-  const rows = RENTABILIDAD_ROWS;
-  const maxVal = Math.max(...rows.map(r => Math.max(r.vendidas, r.certificadas, r.ejecutadas)));
-  const bars = (field, cls) => rows.map(r => `
-    <div class="bar-row"><span class="bar-label">${esc(r.proyecto)}</span>
-      <div class="bar-track"><div class="bar-fill ${cls}" style="width:${(r[field] / maxVal * 100).toFixed(1)}%"></div></div>
-      <span class="bar-value">${r[field]}</span>
-    </div>`).join("");
-  const content = persp === "Resumen"
-    ? `<div class="legend"><span class="l-vendidas">Vendidas</span><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
-       <p class="perspective-label" style="margin-top:10px">Vendidas</p>${bars("vendidas", "vendidas")}
-       <p class="perspective-label" style="margin-top:14px">Certificadas</p>${bars("certificadas", "certificadas")}
-       <p class="perspective-label" style="margin-top:14px">Ejecutadas</p>${bars("ejecutadas", "ejecutadas")}`
-    : `<div class="legend"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
-       ${rows.map(r => `<div class="bar-row"><span class="bar-label">${esc(r.proyecto)}</span>
-         <div class="bar-track">
-           <div class="bar-fill certificadas" style="width:${(r.certificadas / maxVal * 100).toFixed(1)}%"></div>
-         </div><span class="bar-value">${r.certificadas}</span></div>
-         <div class="bar-row"><span class="bar-label"></span>
-         <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(r.ejecutadas / maxVal * 100).toFixed(1)}%"></div></div>
-         <span class="bar-value">${r.ejecutadas}</span></div>`).join("")}`;
   return `
     ${perspectiveSwitch("rentabilidad")}
-    <div class="kpi-grid">
-      <div class="kpi"><span class="value">${rows.length}</span><span class="label">Proyectos</span></div>
-      <div class="kpi good"><span class="value">${rows.reduce((s, r) => s + r.vendidas, 0)}</span><span class="label">Hs vendidas</span></div>
-      <div class="kpi"><span class="value">${rows.reduce((s, r) => s + r.certificadas, 0)}</span><span class="label">Hs certificadas</span></div>
-      <div class="kpi warn"><span class="value">${rows.reduce((s, r) => s + r.ejecutadas, 0)}</span><span class="label">Hs ejecutadas</span></div>
-    </div>
-    <section class="panel"><h2>${esc(persp)}</h2>${content}</section>`;
+    ${persp === "Resumen" ? renderRentabilidadResumen() : renderRentabilidadCertEjecutadas()}`;
 }
 
 // Hierarchía por perspectiva (ver corrective): Client Partner reproduce el
