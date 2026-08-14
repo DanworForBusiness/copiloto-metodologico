@@ -42,10 +42,9 @@
 // este V0 para la Cartera vieja).
 //
 // Cartera + Rentabilidad Completeness corrective (ver HANDOFF):
-// - `anio`/`mes` (Mantenimiento) y `anioInicio` (Proyecto) — slicers reales
-//   confirmados en page_inventory.json (`Meses.Año`/`Meses.Mes` en Analisis
-//   Mantenimiento; `Proyectos.Año de Inicio` en Analisis Proyectos, SIN
-//   Meses.Mes ahí — por eso Proyecto nunca muestra Mes).
+// - `anioInicio` (Proyecto) — slicer real confirmado en page_inventory.json
+//   (`Proyectos.Año de Inicio` en Analisis Proyectos, SIN Meses.Mes ahí —
+//   por eso Proyecto nunca muestra un filtro de mes/fecha).
 // - `facturadas` — CORREGIDO: la versión anterior de este V0 mostraba un
 //   "100%"/"90%"/"85%" inventado. El pivotTable real usa
 //   `Comparativo[Total Horas Facturadas]` para esa columna (ver visual.json
@@ -54,11 +53,19 @@
 //   MISMA naturaleza que Hs Trabajadas/Hs Certif. Acum, nunca un porcentaje.
 //   Valores acá preservan la misma señal relativa que el % inventado
 //   (100% pleno, YPF/Ternium por debajo) pero como horas reales.
+//
+// Cartera date-range filter corrective (ver HANDOFF, owner feedback):
+// Mantenimiento reemplaza el combo Año+Mes por un rango Desde/Hasta — mismo
+// `<input type="date">` que ya usa el dashboard de Actividad (Desde/Hasta,
+// ver admin_activity_content.html), MISMA clase `.whatsnew-filter` +
+// `input[type="date"]` (tools.css, sin CSS nuevo). `fecha` (ISO
+// YYYY-MM-DD) reemplaza los `anio`/`mes` sueltos — una sola dimensión de
+// fecha real en vez de dos facets categóricos separados.
 const CARTERA_MANTENIMIENTO_ROWS = [
-  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturadas: 128, status: "En curso", anio: "2026", mes: "Ago" },
-  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturadas: 43, status: "En curso", anio: "2026", mes: "Ago" },
-  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturadas: 96, status: "En curso", anio: "2026", mes: "Jul" },
-  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturadas: 60, status: "Finalizado", anio: "2026", mes: "Jun" },
+  { cliente: "Andesmar", proyecto: "Mantenimiento Costeo Directo", diff: -6, trabajadas: 134, certificadas: 128, vendidasMensuales: 140, facturadas: 128, status: "En curso", fecha: "2026-08-01" },
+  { cliente: "Andesmar", proyecto: "Soporte Infraestructura", diff: 3, trabajadas: 40, certificadas: 43, vendidasMensuales: 40, facturadas: 43, status: "En curso", fecha: "2026-08-01" },
+  { cliente: "Danone", proyecto: "Soporte Analítica", diff: 4, trabajadas: 92, certificadas: 96, vendidasMensuales: 88, facturadas: 96, status: "En curso", fecha: "2026-07-01" },
+  { cliente: "Molinos", proyecto: "Mantenimiento BI", diff: 0, trabajadas: 60, certificadas: 60, vendidasMensuales: 60, facturadas: 60, status: "Finalizado", fecha: "2026-06-01" },
 ];
 const CARTERA_PROYECTO_ROWS = [
   { cliente: "YPF", idProyecto: "DAN-1042", proyecto: "Implementación SADI v2", diff: -18, trabajadas: 340, certificadas: 322, vendidas: 360, facturadas: 290, status: "En curso", anioInicio: "2026" },
@@ -83,47 +90,84 @@ function statusPillCartera(status) {
 // numerador/denominador propio verificado en el PBIP para este V0) y
 // Status es categórico — ambos son Clase C (categórica), el padre queda en
 // blanco, nunca un promedio/mayoría inventada.
+// `key` por columna (owner feedback — ver HANDOFF): identificador estable
+// para leer el mismo `rollup` ya definido acá desde OTRO consumidor (los
+// tiles KPI de Resumen, ver `carteraKpiTiles`) sin repetir la fórmula de
+// agregación ni depender del ORDEN posicional de `columns[]`.
 const CARTERA_CONFIG = {
   "Mantenimiento": {
     rows: CARTERA_MANTENIMIENTO_ROWS, keys: ["cliente", "proyecto"], labels: ["Cliente", "Proyecto"],
     kpiLabel: "Cantidad Mantenimientos",
     columns: [
-      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
-      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
-      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
-      { label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales, rollup: sumField("vendidasMensuales") },
-      { label: "Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
-      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
+      { key: "diff", label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
+      { key: "trabajadas", label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
+      { key: "certificadas", label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
+      { key: "vendidas", label: "Hs Vendidas Mensuales", numeric: true, render: r => r.vendidasMensuales, rollup: sumField("vendidasMensuales") },
+      // "Hs Facturadas" (antes "Facturadas" a secas, ver HANDOFF — owner
+      // feedback: única columna del grupo Hs* sin el prefijo "Hs", ahora
+      // consistente con sus columnas hermanas).
+      { key: "facturadas", label: "Hs Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
+      { key: "estado", label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
   "Proyecto": {
     rows: CARTERA_PROYECTO_ROWS, keys: ["cliente", "idProyecto", "proyecto"], labels: ["Cliente", "ID Proyecto Danwor", "Proyecto"],
     kpiLabel: "Cantidad Proyectos",
     columns: [
-      { label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
-      { label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
-      { label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
-      { label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
-      { label: "Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
-      { label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
+      { key: "diff", label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
+      { key: "trabajadas", label: "Hs Trabajadas Acum", numeric: true, render: r => r.trabajadas, rollup: sumField("trabajadas") },
+      { key: "certificadas", label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
+      { key: "vendidas", label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
+      { key: "facturadas", label: "Hs Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
+      { key: "estado", label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
 };
+// Tiles KPI adicionales de Resumen (owner feedback — ver HANDOFF): reusa el
+// MISMO `rollup` ya definido por columna arriba — nunca una segunda
+// fórmula de agregación repetida acá. `rows` son las filas YA filtradas
+// (mismas que alimentan la tabla), así que el tile y la tabla nunca
+// divergen.
+const CARTERA_KPI_EXTRA = [
+  { key: "diff", label: "Diff Hs" },
+  { key: "trabajadas", label: "Hs Trabajadas" },
+  { key: "certificadas", label: "Hs Certificadas" },
+  { key: "vendidas", label: "Hs Vendidas" },
+  { key: "facturadas", label: "Hs Facturadas" },
+];
+function carteraKpiTiles(cfg, rows) {
+  return CARTERA_KPI_EXTRA.map(k => {
+    const col = cfg.columns.find(c => c.key === k.key);
+    const value = col.rollup(rows);
+    return `<div class="activity-kpi"><span class="activity-kpi__value">${value}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
+  }).join("");
+}
 
-// Default de Año/Mes/Año de Inicio (ver corrective — HANDOFF: "Cartera +
-// Rentabilidad Completeness", A1): resuelve al año/mes calendario ACTUAL
-// (`new Date()`, nunca un literal hardcodeado tipo "2026"/"Agosto") SOLO si
-// ese valor existe de verdad en el dataset — si el mock no lo representa,
-// cae a "Todos" ("") en vez de mostrar un filtro que garantiza 0 filas.
+// Fecha local en YYYY-MM-DD (formato nativo de `<input type="date">`) — a
+// propósito NO usa `toISOString()` (convierte a UTC, puede correr la fecha
+// un día para atrás/adelante cerca de medianoche según el huso horario del
+// browser); esto siempre refleja el día calendario LOCAL del usuario.
+function isoDateLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Default de Desde/Hasta/Año de Inicio (ver corrective — HANDOFF: "Cartera
+// + Rentabilidad Completeness" + owner feedback posterior): resuelve al
+// año/fecha calendario ACTUAL (`new Date()`, nunca un literal hardcodeado
+// tipo "2026"/"Agosto"). Mantenimiento: Desde = primer día del mes en
+// curso, Hasta = hoy — SIEMPRE ese rango (a diferencia de Año/Mes como
+// <select>, un rango de fechas nunca "no es representable", así que no
+// necesita el fallback a Todos). Proyecto: Año de Inicio SOLO si ese año
+// existe de verdad en el dataset — si el mock no lo representa, cae a
+// "Todos" ("") en vez de mostrar un filtro que garantiza 0 filas.
 function carteraDefaultFilters(persp) {
+  if (persp === "Mantenimiento") {
+    const hoy = new Date();
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    return { desde: isoDateLocal(desde), hasta: isoDateLocal(hoy) };
+  }
   const cfg = CARTERA_CONFIG[persp];
   const anioActual = String(new Date().getFullYear());
-  if (persp === "Mantenimiento") {
-    const mesActual = MESES[new Date().getMonth()];
-    const anios = new Set(cfg.rows.map(r => r.anio));
-    const meses = new Set(cfg.rows.map(r => r.mes));
-    return { anio: anios.has(anioActual) ? anioActual : "", mes: meses.has(mesActual) ? mesActual : "" };
-  }
   const anios = new Set(cfg.rows.map(r => r.anioInicio));
   return { anioInicio: anios.has(anioActual) ? anioActual : "" };
 }
@@ -463,11 +507,16 @@ function distinctValues(rows, key, compareFn) {
 // viene escopeada por lo que NO es un facet <select> (perspectiva,
 // checkboxes de Status) — el motor de acá solo resuelve la
 // interdependencia ENTRE los <select>, nunca decide perspectiva/Status.
+// `predicate` opcional (owner feedback — ver HANDOFF: filtro de rango
+// Desde/Hasta en Cartera): en vez de exact-match (`r[field] === val`), un
+// facet de RANGO declara `predicate(rowValue, filterValue) => boolean` —
+// mismo motor de faceting, sin lógica de fecha aparte.
 function facetRowsExcept(baseRows, filters, fields, exceptKey) {
   return fields.reduce((rows, f) => {
     if (f.key === exceptKey) return rows;
     const val = filters[f.key];
-    return val ? rows.filter(r => r[f.field] === val) : rows;
+    if (!val) return rows;
+    return f.predicate ? rows.filter(r => f.predicate(r[f.field], val)) : rows.filter(r => r[f.field] === val);
   }, baseRows);
 }
 function facetOptions(baseRows, filters, fields, key) {
@@ -493,7 +542,13 @@ function reconcileFacetFilters(expId, baseRows, fields, justChangedKey) {
   for (let i = 0; i < fields.length + 1; i++) {
     let changed = false;
     fields.forEach(f => {
-      if (f.key === justChangedKey) return;
+      // Un facet de RANGO (`predicate`, ver Desde/Hasta de Cartera) nunca
+      // participa de este chequeo — no tiene una lista discreta de
+      // "opciones válidas" contra la cual comparar (cualquier fecha del
+      // calendario es un valor legítimo), así que "reconciliarlo" contra
+      // facetOptions lo resetearía a Todos aunque el usuario haya elegido
+      // una fecha perfectamente razonable.
+      if (f.key === justChangedKey || f.predicate) return;
       const val = filters[f.key];
       if (!val) return;
       if (!facetOptions(baseRows, filters, fields, f.key).includes(val)) { filters[f.key] = ""; changed = true; }
@@ -513,13 +568,16 @@ const FACET_CONFIG = {
     const persp = state.perspective.cartera;
     const cfg = CARTERA_CONFIG[persp];
     const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status]);
-    // Mantenimiento agrega Año/Mes (Meses.Año/Meses.Mes, slicers reales de
-    // "Analisis Mantenimiento"); Proyecto agrega Año de Inicio
-    // (Proyectos.Año de Inicio) — SIN Mes, esa página fuente no lo tiene
-    // (ver corrective — HANDOFF: "Cartera + Rentabilidad Completeness", A1).
-    // Mes usa `compareFn` cronológico (Ene…Dic), nunca alfabético.
+    // Mantenimiento agrega Desde/Hasta (rango sobre `fecha`, reemplaza el
+    // combo Año+Mes — owner feedback, ver HANDOFF); Proyecto agrega Año de
+    // Inicio (Proyectos.Año de Inicio) — esa página fuente no tiene un
+    // campo de fecha/mes en absoluto (ver corrective — HANDOFF: "Cartera +
+    // Rentabilidad Completeness", A1).
     const dateFields = persp === "Mantenimiento"
-      ? [{ key: "anio", field: "anio" }, { key: "mes", field: "mes", compareFn: (a, b) => MESES.indexOf(a) - MESES.indexOf(b) }]
+      ? [
+          { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
+          { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
+        ]
       : [{ key: "anioInicio", field: "anioInicio" }];
     return {
       baseRows,
@@ -615,6 +673,20 @@ function selectField(expId, key, label, options) {
     </select>
   </label>`;
 }
+// Filtro de fecha nativo — MISMO `<input type="date">` + `.whatsnew-filter`
+// que ya usa el dashboard de Actividad (Desde/Hasta, ver
+// admin_activity_content.html), CERO CSS nuevo (`.whatsnew-filter
+// input[type="date"]` ya existe en tools.css). No pasa por `facetSelectField`
+// (no hay una lista de opciones discretas que ofrecer — es un date picker
+// nativo, no un `<select>`); el FILTRADO real sí corre por el mismo motor
+// de facets vía `predicate` (ver facetRowsExcept).
+function dateField(expId, key, label) {
+  const current = getFilter(expId, key);
+  return `<label class="whatsnew-filter">
+    <span>${esc(label)}</span>
+    <input type="date" value="${esc(current)}" onchange="setFilter('${expId}','${key}', this.value)">
+  </label>`;
+}
 // items: [{ value, checked, onclick }] — MISMA marca visual que el Estado/
 // Concepto de Staffing (.whatsnew-filter--compact + .dashboard-checkbox-group,
 // ver staffing_dashboard.html), reusada tal cual.
@@ -660,15 +732,15 @@ function toggleCarteraStatus(key) {
 // en el dataset de esa experiencia/subvista (ver corrective: "si un filtro
 // es irrelevante, ocultarlo" — nunca un control decorativo). Empresa/Año/Mes
 // no aparecen acá porque ningún dataset mock los modela como campo real.
-// Schema por perspectiva (ver corrective — HANDOFF: "Cartera + Rentabilidad
-// Completeness", A1): Mantenimiento agrega Año/Mes (slicers reales de
-// "Analisis Mantenimiento"); Proyecto agrega Año de Inicio SIN Mes (esa
-// página fuente no tiene Meses.Mes, ver page_inventory.json). Orden exacto
-// pedido: Proyecto, Cliente, Año(/de Inicio)[, Mes], Estado.
+// Schema por perspectiva: Mantenimiento agrega Desde/Hasta (rango de fecha,
+// reemplaza el combo Año+Mes original — owner feedback, ver HANDOFF);
+// Proyecto agrega Año de Inicio (esa página fuente no tiene un campo de
+// fecha/mes en absoluto, ver page_inventory.json). Orden: Proyecto,
+// Cliente, Desde/Hasta (o Año de Inicio), Estado.
 function renderCarteraFilterBar() {
   const persp = state.perspective.cartera;
   const dateFields = persp === "Mantenimiento"
-    ? facetSelectField("cartera", "anio", "Año") + facetSelectField("cartera", "mes", "Mes")
+    ? dateField("cartera", "desde", "Desde") + dateField("cartera", "hasta", "Hasta")
     : facetSelectField("cartera", "anioInicio", "Año de Inicio");
   const fields = facetSelectField("cartera", "proyecto", "Proyecto")
     + facetSelectField("cartera", "cliente", "Cliente")
@@ -798,6 +870,7 @@ function renderCartera() {
   const resumen = dashboardSection("resumen", "Resumen", "", `
     <div class="activity-kpi-grid">
       <div class="activity-kpi"><span class="activity-kpi__value">${rows.length}</span><span class="activity-kpi__label">${esc(cfg.kpiLabel)}</span></div>
+      ${carteraKpiTiles(cfg, rows)}
     </div>`);
 
   const detalleBody = `
