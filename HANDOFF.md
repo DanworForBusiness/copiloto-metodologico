@@ -4660,36 +4660,543 @@ OVERLAY — FOLLOW-UP / NOT STARTED" abajo.
 
 ---
 
-## STAFFING — VACATION TIMELINE OVERLAY — FOLLOW-UP / NOT STARTED
+## STAFFING — VACATION TIMELINE OVERLAY — IMPLEMENTED / PENDING CI
+(commits funcionales `feat(staffing): add vacation source integration` +
+`feat(staffing): overlay vacations on consultant timeline` +
+`fix(staffing): discover vacation fields from Graph metadata` +
+`fix(staffing): expose safe vacation Graph diagnostics` +
+`fix(staffing): expose safe vacation column metadata` +
+`fix(staffing): expose vacation semantic column metadata` +
+`fix(staffing): adopt live vacation SharePoint contract` +
+`fix(staffing): add vacation filter funnel diagnostics`, branch
+`work/staffing-vacation-overlay`, arrancada desde `main` `bb442e3` — NO
+mergeada todavía)
 
 Separado explícitamente del cierre de Staffing Dashboard V2 — Director
-Priority Update (arriba). Era el requerimiento 9 original del batch de
-director priority; nunca se implementó ni se cerró como parte de ese
-batch.
+Priority Update. Era el requerimiento 9 original de ese batch; se
+implementó en un batch propio, dos pasadas: discovery offline (bloqueado en
+Graph real, ver abajo) + implementación completa contra el contrato offline
+verificado.
 
-**Motivo:** este agente no tiene acceso a un token Graph delegado real
-ni a una sesión de browser autenticada contra Microsoft 365 en este
-entorno — el discovery contra el workbook de Operations (SharePoint
-site/drive item, worksheet/tabla, columnas de nombre/fechas, formato
-real de fecha, cantidad de registros, múltiples períodos por persona)
-requiere ESE acceso y no puede simularse ni inferirse sin inventar
-datos.
+### Discovery — offline (Graph real sigue sin acceso en este entorno)
 
-**Contrato conocido únicamente (sin discovery todavía):**
-- fuente: workbook de SharePoint de Operations, provisto por el owner;
-- el contrato de workbook/tabla/columna todavía requiere discovery;
-- candidato de join actual: nombre completo del consultor normalizado;
-- normalización: solo trim + colapso de espacios + case-normalization;
-- SIN fuzzy-matching;
-- los períodos de vacaciones NO deben alterar horas de asignación ni
-  KPIs de Staffing.
+El discovery contra Graph LIVE quedó bloqueado igual que antes (sin token
+delegado ni sesión de browser autenticada en este entorno — confirmado
+empíricamente: sin browser Chrome conectado vía "Claude in Chrome", y el
+link de SharePoint provisto redirige a `login.microsoftonline.com` sin SSO
+disponible). El owner desbloqueó el discovery de **contrato de datos**
+(no de acceso Graph) exportando el workbook real como XLSX y compartiéndolo
+directo — permitió confirmar, SOLO a nivel de contrato offline:
 
-**NO se realizó discovery en este cierre.** Cuando exista una sesión
-con `graph_token` real disponible (browser del usuario), el próximo
-agente puede retomar el discovery contra el link de OneDrive/SharePoint
-que dio el director, con el mismo criterio de normalización
-determinística ya especificado (sin fuzzy-match, sin reordenar
-nombres).
+- sheet **"Solicitudes"**, 203 filas totales;
+- columnas: `Fecha de Solicitud, CUIL, Legajo, Apellido, Nombre, Código,
+  Motivo, Desde, Hasta, Días, Estado, Comentario del empleado, Comentario
+  del aprobador, Etiquetas del empleado`;
+- 48 filas con `Motivo=Vacaciones` (41 Aprobada / 6 Cancelada / 1 Rechazada);
+- `Desde`/`Hasta` date-only, sin límites faltantes, sin `Desde > Hasta`,
+  vacaciones de un solo día válidas, `Hasta` inclusive; `Días` es semántica
+  de días laborales — NUNCA se usa para calcular el intervalo del timeline;
+- 23 consultores con vacaciones aprobadas, 12 con más de un período;
+- SharePoint site real: `https://danwor.sharepoint.com/sites/Gestion`
+  (el MISMO sitio "Gestión" de Asignaciones/Proyectos/Colaboradores/
+  Cliente) — evidencia de Power Query real del reporte "Solicitud
+  vacaciones" existente, List ID `36452eea-cc7c-40ce-bf77-80b4bdfa1d47`.
+
+**Sigue sin LIVE GRAPH VALIDATION del List ID/site**: KNOWN FROM LEGACY
+SOURCE CONFIGURATION (mismo estado que los 3 list ID originales de
+Asignaciones en su propio discovery). Los internal names de columna
+(contrato FINAL: `Colaborador`/`Fecha de inicio`/`Fecha de finalización`/
+`Tipo de Licencia`/`¿Aprobado?` — ver "OWNER LIVE SMOKE #4" más abajo para
+el contrato autoritativo definitivo, que reemplazó por completo la
+hipótesis inicial basada en el export XLSX) YA NO requieren discovery
+manual — ver el corrective "Runtime SharePoint Field Discovery" más abajo:
+se resuelven en cada request contra `/sites/{id}/lists/{id}/columns` con
+el mismo `access_token` delegado del owner, sin que ningún agente ni
+humano necesite confirmarlos a mano de antemano.
+
+### Implementación (histórica — ver "OWNER LIVE SMOKE #4" para el contrato
+FINAL adoptado, que reemplazó el descripto acá)
+
+**Fuente (versión inicial, basada en el export XLSX — YA REEMPLAZADA)**:
+la primera implementación de `StaffingRepository.get_vacations` filtraba
+`Motivo=Vacaciones` + `Estado=Aprobada` y componía `consultant_name` como
+`Nombre + " " + Apellido` — un contrato hipotético derivado del export
+offline del owner, NUNCA confirmado contra Graph real en ese momento. El
+smoke #2 probó que ninguno de esos 6 labels existe en la lista real; el
+smoke #4 estableció el contrato autoritativo final (`Colaborador`/
+`TipodeLicencia`/`TravelStartDate`/`TravelEndDate`/`Approved`) — ver esa
+sección para el detalle completo de la adopción final, que es la que rige
+el código actual.
+
+**Corrective — Runtime SharePoint Field Discovery** (ver HANDOFF): los
+internal names YA NO son config `.env` sin default (el diseño original
+bloqueaba la validación live porque este agente no tiene un browser
+autenticado con el cual descubrirlos a mano). En cambio,
+`resolve_vacation_field_mapping(site_id, list_id, access_token)` los
+resuelve en RUNTIME, con el MISMO `access_token` delegado que ya llega en
+el POST de cada request — sin auth nueva, sin credenciales nuevas, sin
+requerir Claude in Chrome ni DevTools. `_resolve_vacation_field_mapping_
+from_columns` matchea EXACTO (whitespace normalizado, sin case-folding,
+sin fuzzy, sin posición) contra el contrato semántico FINAL (`displayName`
+de Graph, no internal name — ver "OWNER LIVE SMOKE #4"); 0 candidatos =
+faltante, ≥2 candidatos con el mismo `displayName` = ambiguo — ambos
+levantan `VacationSchemaError` (NUNCA elige un candidato al azar).
+`VacationSchemaError` deriva de `Exception`, NO de `RuntimeError` — es un
+problema de RUNTIME/SOURCE-SCHEMA, nunca de configuración de deployment;
+el router lo trata igual que cualquier otra falla de Graph (`data_load_
+failed`/`graph_error`), nunca como `configuration_incomplete` (esa sigue
+siendo, únicamente, `SHAREPOINT_GESTION_SITE_ID` ausente). La resolución
+EXITOSA se cachea in-process con TTL de 300s (mismo patrón que
+`core/sharepoint_cases.py::_ttl_cache`, reimplementado localmente — keyed
+por fingerprint de token + site/list, NUNCA por el token crudo); ninguna
+falla (401/403/columna faltante/ambigua) se cachea. **Nunca se requirieron
+env vars `SHAREPOINT_VACACIONES_FIELD_*`** en producción — el único
+requisito de configuración de deployment para Vacaciones sigue siendo el
+List ID (ya provisto con default).
+
+**Identidad/join**: `_normalize_consultant_name` (trim + colapso de
+espacios + casefold + folding NFKD de diacríticos, SIN fuzzy-matching, sin
+reordenar nombres, sin nicknames) resuelve el caso real disclosed por el
+owner (`Matias` vs `Matías`). `join_vacations_to_consultants` construye
+key normalizada → candidatos: 1 candidato = match; 0 = `unmatched`; ≥2 =
+`ambiguous` — ninguno de los dos últimos se asigna a nadie, ambos quedan
+observables para diagnóstico (conteos puros, NUNCA nombres/PII en el
+payload de vuelta al cliente ni en logs).
+
+**Overlay/payload**: `build_vacation_overlay_payload` reusa
+`compute_horizon_months`/`compute_timeline_position` (MISMO horizonte que
+Asignaciones) pero excluye por completo (no clippea al borde) un período
+que no se solapa en absoluto con la ventana visible — a diferencia de una
+asignación potencialmente abierta, un período de vacaciones es finito y
+conocido en ambos extremos; clippearlo al borde sugeriría, falsamente, que
+está vigente ahora.
+
+**Ruta nueva**: `POST /operaciones/staffing/asignaciones/vacaciones`
+(JSON, MISMO patrón que `.../historial`) — carga LAZY e INDEPENDIENTE de
+`.../data`, mismo `graph_token` explícito, misma gate de sesión/
+autorización. Route surface **83 → 84**, documentado explícito
+(`tests/route_surface.json` regenerado, `test_15_route_surface_still_84`
+actualizado).
+
+**UI**: `app.js::staffingDashboard()._loadVacations()` arranca sola en
+`init()` (a diferencia del historial de Inactivo, que espera el primer
+toggle) — fail-soft: una falla deja Asignaciones 100% intactas, solo omite
+el overlay y muestra un aviso propio no bloqueante
+(`.staffing-vacation-error`). El overlay se adjunta a `timelineGroups`
+SOLO en agrupación Consultor (`vacationsByConsultant`, getter puro sobre
+el dato ya cargado — cambiar de agrupación nunca refetchea). Tratamiento
+visual neutro/subordinado (rayado diagonal, `repeating-linear-gradient`)
+— nunca uno de los 6 tonos de `.staffing-palette-N`, para no leerse como
+"otro proyecto más". Las barras de asignación existentes quedan
+exactamente igual — el overlay es un lane separado, nunca mezclado con la
+fila de asignación.
+
+### Cero impacto en métricas (probado)
+
+`kpis`/`filteredAssignments`/`aggregatedDetailRows`/`activo_vencido` nunca
+leen `this.vacations` — confirmado por contenido de fuente
+(`test_kpis_getter_never_reads_vacations_state`/
+`test_filtered_assignments_never_reads_vacations_state`). El payload de
+`build_vacation_overlay_payload` no comparte NINGUNA clave con
+`build_dashboard_payload` (sin `allocation_value`/`status`/
+`activo_vencido` en una fila de vacación).
+
+### Validación contra datos reales — OWNER LIVE SMOKE #1 a #5
+
+El owner ejecutó el overlay desde su propia sesión autenticada real (Runtime
+Field Discovery ya desbloqueaba esto sin acción manual previa):
+
+- **Asignaciones**: GREEN, sin cambios, 100% usable.
+- **Endpoint de vacaciones**: fail-soft GREEN — `POST /operaciones/staffing/
+  asignaciones/vacaciones` → HTTP 200, `{"state":"graph_error"}`, aviso
+  propio visible, Asignaciones nunca se degradó.
+- **Causa raíz observada** (lectura solo-lectura de `activity_log/` real,
+  ver corrective de diagnóstico abajo): el evento `data_load_failed`/
+  `operation=vacations` real ya mostraba `error_type=VacationSchemaError`
+  — es decir, la fuente/lista/site SÍ son alcanzables y el token SÍ es
+  válido; la falla real es un **schema mismatch** (columna requerida
+  faltante o ambigua), NO un problema de auth/permisos. Antes de este
+  corrective, sin embargo, no había forma de saber CUÁL de los 6 labels
+  (`Apellido`/`Nombre`/`Motivo`/`Desde`/`Hasta`/`Estado`) fallaba, ni de
+  distinguir un futuro 401/403/404 real de un schema mismatch — ambos
+  caían en el mismo `{"state":"graph_error"}` genérico.
+
+**Corrective — Safe Graph Failure Diagnostics** (ver HANDOFF): `Vacation
+SchemaError` ahora expone `stage`/`missing_fields`/`ambiguous_fields`
+estructurados (labels del contrato semántico fijo, nunca internal names) y
+tiene su PROPIO estado HTTP (`{"state":"schema_error", "stage":"columns",
+"missing_fields":[...]}`), distinto de `graph_error`. `VacationGraphError`
+(nuevo) envuelve cualquier `HTTPError`/`URLError` de `urllib` con
+`stage`("columns"|"items")/`status_code` seguros — nunca el texto crudo de
+la excepción (que podría incluir la URL completa). Ambos se loguean con los
+mismos eventos canónicos de siempre (`data_load_failed`, `operation=
+vacations`), solo con más campos seguros.
+
+### OWNER LIVE SMOKE #2 — confirma el mismatch, ninguno de los 6 labels existe
+
+Con el corrective de diagnóstico ya pusheado, el owner repitió el smoke. La
+respuesta reveló el detalle exacto:
+
+```json
+{
+  "state": "schema_error",
+  "stage": "columns",
+  "missing_fields": ["Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado"],
+  "ambiguous_fields": []
+}
+```
+
+**Hallazgo crítico**: los 6 labels — TODOS los asumidos desde el export
+offline (XLSX) — están ausentes en la lista real. Esto es evidencia fuerte
+de que los headers funcionales del XLSX (evidencia de negocio/contenido)
+**NO son** el contrato real de `displayName` de Graph para esta lista
+SharePoint — probablemente porque el XLSX es un EXPORT/reporte derivado
+(con headers renombrados para legibilidad humana), no un dump 1:1 de la
+lista SharePoint real. `Asignaciones` (Batch 3) tuvo la misma lección: los
+8 internal names reales NUNCA coincidieron con una convención inferida —
+acá pasa lo mismo, un nivel más atrás (ni siquiera el `displayName`
+coincide, no solo el `name` técnico).
+
+**Corrective — Live SharePoint Column Contract Discovery** (ver HANDOFF):
+en un `VacationSchemaError`, se agrega `available_columns` — lista
+SANITIZADA de `{"display_name", "name"}` de TODAS las columnas VISIBLES
+reales de la lista (columnas `hidden` de Graph se excluyen, sin blacklist
+manual) — construida explícita campo por campo, NUNCA un passthrough del
+JSON crudo de Graph. Metadata de SCHEMA únicamente: nunca valores de item,
+nunca PII, nunca el token/headers/body. Esto NO resuelve el mapeo
+automáticamente — es puramente para que el owner lea el contrato real y
+lo confirme en un corrective posterior, basado en evidencia.
+
+### OWNER LIVE SMOKE #3 — contrato real de columnas + candidatos semánticos
+
+Con `available_columns` en la respuesta, el owner leyó el schema real de la
+lista y devolvió el contrato completo de `displayName → name`:
+
+```
+Solicitud             -> Title
+Detalle                -> ReasonForTravel
+Solicitante            -> Requester
+Fecha de inicio        -> TravelStartDate
+Fecha de finalización  -> TravelEndDate
+Duración               -> TravelDuration
+¿Aprobado?             -> Approved
+Aprobador              -> Aprobador
+Tipo de Licencia       -> TipodeLicencia
+Comentarios            -> Comentarios
+¿Aprobado CCHH?        -> (internal name encoded por SharePoint)
+Colaborador            -> Colaborador
+Remplazo               -> Remplazo
+```
+
+**Confirmado**: los labels del XLSX offline NO son el schema SharePoint —
+la lista real usa una nomenclatura completamente distinta (probablemente
+un formulario/flujo de aprobación de licencias más genérico, del cual
+Vacaciones es solo un `Tipo de Licencia` posible). Candidatos semánticos
+para el mapeo final: `Colaborador` (persona), `TravelStartDate`/
+`TravelEndDate` (fechas), `TipodeLicencia` (filtro de tipo, reemplaza a
+`Motivo`), `Approved`/`¿Aprobado CCHH?` (filtro de aprobación, reemplaza a
+`Estado`).
+
+**Hallazgo importante**: existe una columna `Colaborador` dedicada. Si es
+un **lookup** hacia la lista canónica de Colaboradores
+(`SHAREPOINT_COLABORADORES_LIST_ID = 6e512cd3-394a-461f-abcd-6613f2c21113`,
+la MISMA que ya usa Asignaciones), el join final podría resolverse por
+**identidad exacta de lookup** — eliminando la necesidad del join por
+nombre normalizado (`_normalize_consultant_name`) que implementamos a
+ciegas antes de tener este contrato.
+
+**Corrective — Final Live Semantic Column Metadata Discovery** (ver
+HANDOFF): en `VacationSchemaError`, se agrega `semantic_columns` — metadata
+TIPADA, SOLO para las 6 columnas semánticas candidatas (`Colaborador`/
+`Fecha de inicio`/`Fecha de finalización`/`Tipo de Licencia`/`¿Aprobado?`/
+`¿Aprobado CCHH?`). `kind` se deriva ESTRICTAMENTE de qué faceta de
+`columnDefinition` está presente en la respuesta real de Graph
+(`lookup`/`choice`/`boolean`/`dateTime`/etc.) — nunca inferido de
+displayName/internal name. Para `lookup` expone `lookup_list_id`/
+`lookup_column`; para `choice` expone `choices` (labels de definición de
+columna, metadata de schema — NUNCA valores de item); boolean/dateTime
+exponen solo su `kind`/formato. Temporal y de descubrimiento — NO resuelve
+el mapeo de negocio final, NO usa `¿Aprobado CCHH?`, NO cambia fechas ni
+filtrado.
+
+### OWNER LIVE SMOKE #4 — contrato FINAL autoritativo + adopción
+
+Con `semantic_columns` en la respuesta, el owner confirmó el tipo real de
+cada columna candidata — este es el contrato AUTORITATIVO final:
+
+```
+Colaborador            -> Colaborador             kind=text (NO lookup)
+Fecha de inicio        -> TravelStartDate         kind=dateTime, format=dateOnly
+Fecha de finalización  -> TravelEndDate           kind=dateTime, format=dateOnly
+Tipo de Licencia       -> TipodeLicencia           kind=choice
+                          (Vacaciones, Enfermedad, Día de Estudio,
+                           Día de Cumpleaños, Maternidad, Paternidad,
+                           Otros, Mudanzas, Danwor Day)
+¿Aprobado?             -> Approved                 kind=boolean
+¿Aprobado CCHH?        -> _x00bf_AprobadoCCHH_x003f_  kind=boolean
+```
+
+**Hallazgo de identidad clave — RESUELTO**: `Colaborador` es **TEXTO
+simple, NO un lookup**. La hipótesis del smoke #3 (posible identidad
+exacta vía lookup hacia la lista canónica de Colaboradores) queda
+DESCARTADA por evidencia — nunca se implementó, nunca hubo que revertir
+nada. El join determinístico por nombre normalizado
+(`_normalize_consultant_name`, ya implementado desde el batch original)
+era y sigue siendo el mecanismo CORRECTO — no cambia.
+
+**Corrective — Final Live SharePoint Contract Adoption** (ver HANDOFF):
+adopta el contrato real como el contrato de producción definitivo.
+
+- `VacationFieldMapping` pasa de 6 campos XLSX (`apellido`/`nombre`/
+  `motivo`/`desde`/`hasta`/`estado`) a 5 campos REALES (`consultant_name`/
+  `leave_type`/`start_date`/`end_date`/`approved`) — resueltos en runtime
+  contra los 5 `displayName` reales (`Colaborador`/`Fecha de inicio`/
+  `Fecha de finalización`/`Tipo de Licencia`/`¿Aprobado?`).
+- Filtro de negocio final: `TipodeLicencia == "Vacaciones"` AND
+  `Approved is True` (identidad booleana ESTRICTA — `False`/`None`/ausente
+  excluye igual, sin necesidad de distinguirlos; Graph devuelve un
+  booleano JSON real para esta columna, nunca un string).
+- `consultant_name` = `fields["Colaborador"]` directo — se eliminó la
+  composición `Nombre + " " + Apellido` (código muerto del contrato
+  offline, nunca existió en la fuente real).
+- `¿Aprobado CCHH?` — **deliberadamente fuera del criterio de inclusión de
+  V1**: existe en la fuente y su tipo (boolean) ya está confirmado, pero
+  su rol de negocio (¿debe exigirse junto con `Approved`? ¿es
+  independiente, para otro propósito de RRHH?) NO está establecido —
+  agregarlo ahora inventaría una regla de negocio sin evidencia. Ni se
+  selecciona en el fetch de Graph ni se lee en ningún punto del código.
+  **Deuda conocida, registrada, no resuelta.**
+- Item fetch minimizado: SOLO `Colaborador`/`TipodeLicencia`/
+  `TravelStartDate`/`TravelEndDate`/`Approved` — nunca CUIL/Legajo/
+  comentarios/Solicitante/Aprobador/Duración/Detalle/Remplazo, que existen
+  en la fuente pero no tienen ningún uso confirmado.
+- Superficies TEMPORALES de discovery retiradas: `available_columns`
+  (Live SharePoint Column Contract Discovery) y `semantic_columns` (Final
+  Live Semantic Column Metadata Discovery) cumplieron su propósito
+  (establecer este contrato) y se retiraron de la respuesta HTTP
+  protegida — el contrato de error final es `state`/`stage`/
+  `missing_fields`/`ambiguous_fields` (schema_error) o `state`/`stage`/
+  `http_status` (graph_error). Las clases de excepción estructuradas
+  (`VacationSchemaError`/`VacationGraphError`) NO se tocaron — siguen
+  existiendo con sus campos seguros, solo se retiró el atributo/parámetro
+  de discovery temporal.
+
+**Sin cambios**: `StaffingService` (join/normalización/payload de
+overlay) — nunca dependió de la composición Apellido+Nombre, solo del
+`consultant_name` ya ensamblado por el repositorio. UI/rutas/CSS
+intactos.
+
+### OWNER LIVE SMOKE #5 — endpoint GREEN, resultado vacío ("empty success")
+
+El owner ejercitó el overlay adoptando el contrato final: `POST
+/operaciones/staffing/asignaciones/vacaciones` → HTTP 200,
+`{"state":"ok","vacations":[]}`. Asignaciones siguió 100% operativa. El
+endpoint funciona correctamente (sin `schema_error`, sin `graph_error`) —
+pero devolvió CERO vacaciones.
+
+**Diagnóstico read-only (solo lectura de `activity_log/` real + trazado de
+código, sin ningún cambio)**: el evento `data_load_diagnostics` más
+reciente mostró `vacaciones_rows=0` (conteo YA post-filtro en esa
+versión), `unmatched_count=0`/`ambiguous_count=0` (triviales — resultado
+de unir una lista ya vacía, NUNCA evidencia de matching), `colaboradores_
+identity_rows=149` (universo de Colaboradores cargó bien). Por
+construcción del código (el repositorio devuelve `periods` ANTES de que
+el join/horizonte se ejecuten), esto **descartó de forma concluyente** el
+join determinístico y el filtro de horizonte/payload como causa — la
+emptiness está DENTRO de `StaffingRepository.get_vacations`, en alguna de:
+fetch crudo de Graph, filtro `Tipo de Licencia == "Vacaciones"`, filtro
+`Approved is True`, o el chequeo de presencia de campos — sin poder
+distinguir CUÁL con el único conteo agregado que existía entonces.
+
+**Corrective — Empty Success: Repository Filter Funnel Diagnostics** (ver
+HANDOFF): `get_vacations` ahora calcula, en el MISMO loop existente (sin
+una segunda llamada a Graph, sin pedir campos nuevos), conteos PUROS por
+etapa: `raw_rows` (items crudos antes de cualquier filtro),
+`leave_type_vacaciones_rows` (cuántos son exactamente "Vacaciones"),
+`approved_true_rows`/`approved_false_rows`/`approved_missing_or_null_rows`/
+`approved_other_rows` (desglose de `Approved`, medido SOLO sobre el
+subconjunto Vacaciones — `approved_other_rows` es una salvaguarda
+explícita: detecta si el runtime de Graph algún día entrega `Approved`
+como algo que NO es `True`/`False`/`None`, p. ej. un string, SIN aceptarlo
+nunca como aprobación — el filtro de negocio sigue siendo `is True`
+estricto, intacto), `required_fields_present_rows` (== `rows` final, por
+diseño — nada más excluye una fila una vez que pasó tipo+aprobación+
+presencia) y `missing_consultant_rows`/`missing_start_date_rows`/
+`missing_end_date_rows`. Todo viaja en `self.last_diagnostics["vacaciones"]`
+→ mismo evento canónico `data_load_diagnostics` de siempre (sin evento
+nuevo), con prefijo automático `vacaciones_*`. La respuesta HTTP exitosa
+sigue siendo EXACTAMENTE `{"state":"ok","vacations":[...]}` — el embudo es
+solo para Activity, nunca para el payload de producto.
+
+**Importante — supuesto de negocio explícitamente NO verificado**: la
+metadata live solo probó que `Approved` es `kind=boolean` — NUNCA probó
+que `Approved=True` sea equivalente al histórico `Estado="Aprobada"` del
+export XLSX. Ese supuesto sigue sin confirmar. `¿Aprobado CCHH?` sigue sin
+usarse, sin rol de negocio establecido — ninguno de los dos se tocó ni se
+usó en este corrective (`Approved is True` sigue siendo el ÚNICO criterio,
+`¿Aprobado CCHH?` nunca se selecciona ni se lee).
+
+**Owner live smoke #6 — RESUELTO + CORRECTIVE FINAL DE APROBACIÓN.**
+El funnel del smoke #6 (evento `data_load_diagnostics`, 2026-08-12) mostró:
+`raw_rows=4`, `leave_type_vacaciones_rows=2`, `approved_true_rows=0`,
+`approved_false_rows=2`, `approved_missing_or_null_rows=0`,
+`approved_other_rows=0`, `required_fields_present_rows=0`, `vacaciones_rows=0`,
+`unmatched_count=0`, `ambiguous_count=0`. → **Case C:** las 2 filas de
+Vacaciones llegaban con `¿Aprobado? (Approved) = False` genuino (no artefacto de
+parsing: `other=0`, `missing=0`). El overlay estaba vacío porque el contrato V1
+exigía `Approved is True`.
+
+**Decisión de negocio del owner (autoritativa):** la elegibilidad de una vacación
+para el overlay la define **`¿Aprobado CCHH?`** (internal
+`_x00bf_AprobadoCCHH_x003f_`, boolean), la aprobación CCHH específica de Danwor —
+NO el genérico `¿Aprobado?`/`Approved` de la plantilla de solicitud de viaje.
+
+**Corrective implementado** (`fix(staffing): use CCHH approval for vacation
+overlay`): contrato final `TipodeLicencia == "Vacaciones" AND ¿Aprobado CCHH? is
+True`. El `VacationFieldMapping.approved` resuelve ahora "¿Aprobado CCHH?" →
+`_x00bf_AprobadoCCHH_x003f_`; el `$select` fetchea CCHH y **`Approved` genérico
+quedó RETIRADO** del criterio y del fetch (no se exige, no se OR-ea, no se
+invierte, no es fallback). Los conteos del funnel `approved_*` ahora describen la
+aprobación CCHH (nombres de clave conservados a propósito para que la
+comparación #6→#7 se lea igual). Sin cambios de negocio fuera de la aprobación:
+join determinístico, fechas dateOnly (fin inclusive, un día válido), invariantes
+de UI/KPIs/allocation intactos (vacaciones = overlay contextual; visible por
+consultor, oculto por proyecto).
+
+**Owner live smoke #7 PENDIENTE** (visual): confirmar que, con CCHH como flag,
+las vacaciones aprobadas por CCHH aparecen en el timeline por consultor. Nota:
+si esas 2 filas del smoke #6 también tienen `¿Aprobado CCHH? = False`, seguirán
+(correctamente) fuera — el funnel #7 lo dirá vía `approved_true_rows` (=CCHH).
+
+**AUTHORITATIVE SOURCE CORRECTIVE — la fuente NUNCA fue una lista, es un XLSX**
+(`fix(staffing): read vacations from SharePoint workbook`, branch
+`work/staffing-vacation-overlay`). Todo el modelo anterior (lista SharePoint vía
+`/items` + discovery de `/columns` + flags `¿Aprobado?`/`¿Aprobado CCHH?`) partía
+de un supuesto **INCORRECTO** y quedó **RETIRADO por completo**. La fuente real,
+confirmada por el owner, es un archivo Excel:
+
+- **Sitio:** `https://danwor.sharepoint.com/sites/Operaciones`.
+- **Biblioteca/ruta:** `Documentos compartidos/General/Template Dashboard/Solicitudes (2).xlsx`
+  (relative drive path `General/Template Dashboard/Solicitudes (2).xlsx`;
+  sourcedoc GUID `4ED5C102-8268-4D37-B162-F60499864FDA` = evidencia de discovery,
+  NO un driveItem id de Graph).
+- **Worksheet:** `Solicitudes` (plano, header row + data rows, sin Tabla de Excel).
+  Evidencia histórica: 203 registros, 14 columnas (Fecha de Solicitud, CUIL,
+  Legajo, Apellido, Nombre, Código, Motivo, Desde, Hasta, Días, Estado,
+  Comentario del empleado, Comentario del aprobador, Etiquetas del empleado).
+
+**Acceso Graph:** se reutiliza el token delegado + primitivas HTTP existentes.
+`get_vacations` resuelve el sitio (`/sites/danwor.sharepoint.com:/sites/Operaciones`
+→ `id`), descarga `/sites/{id}/drive/root:/{path}:/content` vía la NUEVA primitiva
+`core/microsoft365.py::graph_get_bytes` (sigue el 302 a la URL pre-autenticada, sin
+hardcodear URL temporal ni `Doc.aspx`), y parsea el workbook **EN MEMORIA** con
+**openpyxl** (`read_only=True, data_only=True`, sin persistir). openpyxl es una
+**dependencia nueva material** (agregada a `requirements.txt` `openpyxl>=3.1,<4` +
+`constraints.txt` `openpyxl==3.1.5`/`et-xmlfile==2.0.0`).
+
+**Contrato de runtime mínimo:** solo Apellido, Nombre, Motivo, Desde, Hasta,
+Estado. **NUNCA** se retiene ni expone CUIL, Legajo, comentarios, etiquetas ni
+Días. `consultant_name = "Nombre Apellido"` (mismo join determinístico:
+trim/collapse/casefold/accent-fold, sin fuzzy/nickname/parcial/alias).
+
+**Filtro de negocio autoritativo (del propio XLSX):**
+`Motivo == "Vacaciones" AND Estado == "Aprobada"` (texto normalizado exacto). Los
+flags `Approved`/`¿Aprobado CCHH?` de la fuente-lista quedaron **SUPERADOS** (no se
+usan). `Desde`/`Hasta` son date-only, soportan fecha Excel nativa Y texto
+`dd/mm/yyyy`; `Hasta` inclusive; un solo día válido; `Días` **NO** define el largo
+de la barra.
+
+**Ubicación como module constants** (no config:
+`VACATION_SITE_PATH`/`VACATION_XLSX_PATH`/`VACATION_WORKSHEET_NAME` en
+`staffing_repository.py`). La config de la fuente-lista superada
+(`SHAREPOINT_VACACIONES_LIST_ID`) se **removió de `config.py`** en un
+dead-config cleanup posterior (`chore(staffing): remove obsolete vacation list
+config`) — la fuente XLSX no usa ningún list ID.
+
+**Fail-soft:** workbook inválido / worksheet o headers faltantes / sitio sin id →
+`VacationSchemaError` (stage `workbook`/`worksheet`/`headers`/`site`); transporte →
+`VacationGraphError` (stage `site`/`download`). El router los sigue tratando como
+falla no-bloqueante (`graph_error`), Staffing nunca se rompe, sin exponer el
+workbook crudo. **Diagnóstico reemplazado** por conteos XLSX seguros:
+`worksheet_found`, `xlsx_rows`, `vacaciones_rows` (Motivo=Vacaciones),
+`aprobadas_rows` (Estado=Aprobada), `eligible_periods`, `elapsed_ms` — sin
+nombres/fechas/PII. Los conteos `approved_*`/`raw_rows`/`pages` del modelo-lista se
+retiraron.
+
+**Invariantes de UI intactos:** vacaciones = overlay contextual (visible por
+consultor, oculto por proyecto); NUNCA afecta horas/KPIs/conteos de asignación/
+FT-PT/Activos vencidos/Asignación hoy/+N/barras/estado/detalle.
+
+**Owner live XLSX smoke EXITOSO:** el corrective XLSX funciona en vivo — los
+overlays de vacaciones son visibles. Quedaron dos observaciones del owner,
+resueltas en el POST-LIVE-SMOKE UX MICRO-CORRECTIVE de abajo.
+
+---
+
+## STAFFING — VACATION XLSX · POST-LIVE-SMOKE UX MICRO-CORRECTIVE
+(`fix(staffing): refine vacation overlay UX`, branch
+`work/staffing-vacation-overlay`, sobre el corrective XLSX)
+
+**A — Assignments-first (VERIFICADO, sin cambio de serialización).** Hallazgo:
+la arquitectura ya era correcta e independiente. El shell `staffing.html` carga
+asignaciones por HTMX (`hx-post .../data`, `hx-trigger="load"`) — el spinner
+"Cargando asignaciones…" vive en ese contenedor `#staffing-rows` y termina
+cuando vuelve `/data`. `/data` → `service.get_overview` → SOLO `get_allocations`;
+NUNCA toca el XLSX. El overlay de vacaciones se carga aparte: el componente
+Alpine (que viaja EN el fragmento de `/data`) dispara `_loadVacations()` en
+`init()` fire-and-forget (sin `await`), estrictamente DESPUÉS de que las
+asignaciones ya renderizaron desde el payload SSR. Una falla de vacaciones solo
+toca su propio estado (`vacations`/`vacationsLoading`/`vacationsLoadError`),
+nunca `this.assignments`. **Conclusión:** el render inicial de asignaciones NO
+estaba bloqueado por vacaciones; la lentitud percibida es la descarga+parseo del
+XLSX del overlay (posterior al render), no el spinner de asignaciones. No se
+introdujo serialización con el corrective XLSX (el path de asignaciones quedó
+byte-idéntico). Sin cambios de código en A (respeta "no optimizar a ciegas" y
+"sin caching prematuro del XLSX"). Se agregó una prueba de ruta que fija la
+independencia (`/data` con un service cuyo `get_vacation_overlay`/`get_vacations`
+explotan sigue devolviendo 200 con las asignaciones).
+
+**B — Etiqueta de horas (Días × 8).** `Días` del XLSX se usa SOLO para display:
+`vacation_hours = Días × 8` (`VACATION_HOURS_PER_DAY = 8`). Parser robusto
+`_vacation_hours_from_dias` acepta `10`, `10.0`, `"10"`, `"10 días"` (y coma
+decimal), rechaza negativos/bool/malformado → `None`, sin retener el string
+crudo. `VacationPeriod`/`VacationOverviewPeriod`/payload ganan
+`vacation_hours: int | None`; el JS `vacationBarLabel(vacation)` rinde
+`Vacaciones (80hs)` cuando hay horas y `Vacaciones` cuando no (tooltip + aria).
+**Separación semántica clave:** `Días` NUNCA define la geometría de la barra —
+posición/ancho siguen siendo exclusivamente `Desde`/`Hasta` (fin inclusive); no
+se recomputan días hábiles del rango. `Días` es display-only y NO se deriva de
+Horaspormes/FT-PT/allocation/horas de proyecto. `Días` ausente/malformado NO
+descarta el período (la barra igual se dibuja, la etiqueta cae a `Vacaciones`).
+
+**B.2 — Row label visible con horas (final micro-corrective,
+`fix(staffing): show vacation hours in row label`).** El owner confirmó que el
+tooltip mostraba `Vacaciones (80hs)` pero la etiqueta VISIBLE de la lane (a la
+izquierda) seguía diciendo solo `Vacaciones`. Como la lane es COMPARTIDA por
+todos los períodos del consultor, el helper JS `vacationLaneLabel(periods)`
+resume la SUMA de las `vacation_hours` conocidas: una de 80 → `Vacaciones (80hs)`;
+40 + 80 → `Vacaciones (120hs)` (suma, nunca first/last). Si NINGÚN período tiene
+horas usables → `Vacaciones` pelado; si solo algunos las tienen, suma únicamente
+las conocidas (nunca inventa desde fechas). El tooltip por-período
+(`vacationBarLabel`) queda intacto. Display-only: sin cambios de elegibilidad/
+parsing/Días×8/geometría/allocation/KPIs/estilo; route surface 84 sin cambios.
+
+**Invariantes:** `vacation_hours` es metadata de display del overlay; NUNCA toca
+allocation/Horaspormes/KPIs/conteos/FT-PT/Activos vencidos/Asignación hoy/+N/
+detalle/horas de barra de asignación (probado: payload de vacaciones sin claves
+de KPI; getters de `kpis`/`filteredAssignments` no leen `vacations`).
+
+### Gate
+
+UX micro-corrective: tests nuevos de `Días`→horas (parser + parametrizados),
+flujo `vacation_hours` por join/payload, `vacationBarLabel`/tooltip, y ciclo de
+vida assignments-first (fire-and-forget en `init()`, `/data` no toca vacaciones,
+falla de vacaciones no muta asignaciones). Vacaciones repository (66) + service +
+routes + UI + `test_staffing_production_corrective.py` (incluye route surface) —
+GREEN. Staffing regression completo + module-registry + Activity — GREEN, sin
+debilitar ningún test existente. Full suite **847 passed / 1 skipped**,
+route-contract GREEN, route surface **84, SIN CAMBIOS**. (Corrective de fuente
+XLSX previo: full suite era 821; este micro-batch suma +26 tests.)
 
 ---
 
@@ -5329,7 +5836,22 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
     FUTURO, NO PLANIFICADO** — ver "FINAL HANDOFF CLOSURE" de Fase 2 para
     el razonamiento completo. Academy: `CPACxx` sigue reservado solo
     conceptualmente, discovery dedicado NO iniciado.
-  - **Staffing Vacation Overlay = FOLLOW-UP / NOT STARTED.**
+  - **Staffing Vacation Timeline Overlay = IMPLEMENTED / PENDING CI** — ver
+    sección dedicada arriba. Branch `work/staffing-vacation-overlay`, **NO
+    mergeada todavía**. Contrato FINAL autoritativo confirmado por owner
+    live smoke #4 (`Colaborador`=texto/`TravelStartDate`/`TravelEndDate`/
+    `TipodeLicencia`/`Approved`) ya adoptado como contrato de producción;
+    `Colaborador` confirmado TEXTO (no lookup) — el join determinístico por
+    nombre normalizado sigue siendo el mecanismo correcto, sin cambios.
+    `¿Aprobado CCHH?` existe en la fuente pero queda deliberadamente fuera
+    de V1 (deuda conocida, registrada). **Owner live smoke #5**: endpoint
+    GREEN (`state=ok`) pero `vacations=[]` — "empty success", causa raíz
+    todavía sin determinar. Diagnóstico read-only descartó el join/horizonte
+    como causa; corrective de embudo de conteos (`raw_rows`/`leave_type_
+    vacaciones_rows`/desglose de `approved_*`/`required_fields_present_
+    rows`) agregado a Activity para que **owner live smoke #6** identifique
+    la etapa exacta. Ningún cambio de negocio/filtro — sigue pendiente la
+    corrección real.
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
@@ -5414,9 +5936,12 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
   separada, no está ni propuesto.
 - **Next candidates (ninguno autorizado todavía — solo follow-ups
   documentados, NO iniciar sin autorización explícita del owner):**
-  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX,
-  Staffing — Vacation Timeline Overlay (bloqueado por acceso Graph real).
-  Ver las secciones dedicadas arriba para el contrato conocido de cada uno.
+  Activity Admin Shell Ownership, Auth / Graph Session Renewal UX. Staffing
+  — Vacation Timeline Overlay YA NO es un candidato sin empezar: tiene su
+  propia sección "IMPLEMENTED / PENDING CI" más abajo (branch
+  `work/staffing-vacation-overlay`) — solo la validación contra Graph LIVE
+  sigue bloqueada. Ver las secciones dedicadas arriba/abajo para el
+  contrato conocido de cada uno.
   Los hallazgos
   reportados-pero-diferidos de batches previos (colisiones de color en el
   timeline de Staffing; filtro de tipo de proyecto; Status Finalización)

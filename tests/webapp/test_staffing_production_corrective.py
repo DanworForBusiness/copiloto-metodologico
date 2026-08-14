@@ -502,13 +502,17 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_83():
+def test_15_route_surface_still_84():
+    # 83 -> 84 (Staffing Vacation Timeline Overlay, ver HANDOFF): UN endpoint
+    # nuevo (POST .../vacaciones), documentado explícito — mismo patrón que
+    # el historial de Inactivo que ya subió 82 -> 83.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 83
+    assert len(snapshot) == 84
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
+    assert "POST /operaciones/staffing/asignaciones/vacaciones" in snapshot
 
 
 # ============================================================================

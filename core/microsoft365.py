@@ -58,6 +58,22 @@ def graph_get_json(
         return json.loads(response.read().decode("utf-8"))
 
 
+def graph_get_bytes(
+    url: str, access_token: str, *, timeout: int = 30,
+) -> bytes:
+    """GET binario de Graph (p. ej. `.../drive/root:/{path}:/content`) — devuelve
+    los bytes crudos del recurso. `urllib` sigue por default el redirect 302 que
+    Graph emite hacia la URL de descarga pre-autenticada (mismo opener que
+    `graph_get_json`, sin construir ni hardcodear esa URL temporal). Errores de
+    `urllib` (HTTPError/URLError) se propagan sin normalizar — el caller los
+    envuelve (ver `_call_vacation_graph`). Timeout más alto que el default JSON:
+    descargar un archivo puede tardar más que un GET de metadata. NO persiste el
+    archivo ni el token."""
+    request = urllib.request.Request(url, headers=graph_headers(access_token))
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
 def graph_get_paged_values(
     url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
     on_page: Callable[[int], None] | None = None,

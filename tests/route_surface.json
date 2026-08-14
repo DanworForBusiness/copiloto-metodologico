@@ -72,6 +72,7 @@
   "POST /modules/{stem}/trees/start",
   "POST /operaciones/staffing/asignaciones/data",
   "POST /operaciones/staffing/asignaciones/historial",
+  "POST /operaciones/staffing/asignaciones/vacaciones",
   "POST /operations/staffing/data",
   "POST /telemetry/event",
   "POST /trees/suggest",

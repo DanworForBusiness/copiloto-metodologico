@@ -85,6 +85,12 @@
   <p class="staffing-history-error" x-show="historyLoadError && !historyLoading">
     No pudimos cargar el historial de Inactivo. Volvé a tildar el filtro para reintentar.
   </p>
+  {# Vacation Timeline Overlay (ver HANDOFF) — aviso PROPIO, no bloqueante:
+     una falla acá nunca oculta ni deshabilita el resto del dashboard, solo
+     informa que el overlay de vacaciones no está disponible ahora. #}
+  <p class="staffing-vacation-error" x-show="vacationsLoadError && !vacationsLoading">
+    No pudimos cargar el overlay de vacaciones. Las asignaciones siguen disponibles.
+  </p>
 
   <div class="dashboard-empty" x-show="filteredAssignments.length === 0">
     <span class="dashboard-empty__label">Sin resultados</span>
@@ -191,6 +197,32 @@
                                 <p x-text="(formatDateDMY(row.start_date) || '¿inicio?') + ' → ' + (formatDateDMY(row.end_date) || 'en curso')"></p>
                               </div>
                             </div>
+                          </div>
+                        </div>
+                      </template>
+                      {# Vacation Timeline Overlay (ver HANDOFF): SOLO en
+                         agrupación Consultor — group.vacations ya viene
+                         vacío en agrupación Proyecto (ver timelineGroups en
+                         app.js), así que este bloque naturalmente no
+                         renderiza nada ahí, sin un x-if extra por groupBy. #}
+                      <template x-if="group.vacations.length > 0">
+                        <div class="staffing-timeline__row staffing-timeline__vacation-row">
+                          <div class="staffing-timeline__row-label">
+                            <span class="staffing-timeline__row-status" x-text="vacationLaneLabel(group.vacations)"></span>
+                          </div>
+                          <div class="staffing-timeline__track">
+                            <template x-for="vacation in group.vacations" :key="vacation.source_id">
+                              <div class="staffing-timeline__vacation-bar"
+                                   :class="[vacation.clipped_start ? 'is-clipped-start' : '', vacation.clipped_end ? 'is-clipped-end' : '']"
+                                   :style="barStyle(vacation)"
+                                   tabindex="0"
+                                   :aria-label="vacationBarAriaLabel(vacation)">
+                                <div class="staffing-timeline__tooltip" aria-hidden="true">
+                                  <p class="staffing-timeline__tooltip-consultant" x-text="vacationBarLabel(vacation)"></p>
+                                  <p x-text="(formatDateDMY(vacation.start_date) || '¿inicio?') + ' → ' + (formatDateDMY(vacation.end_date) || '¿fin?')"></p>
+                                </div>
+                              </div>
+                            </template>
                           </div>
                         </div>
                       </template>
