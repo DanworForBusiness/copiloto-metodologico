@@ -5332,9 +5332,11 @@ merged (merge commit, MISMO método que el resto del historial de PRs) →
 
 ---
 
-## STAFFING — APPROVED ABSENCE OVERLAY — IMPLEMENTED / PENDING OWNER VISUAL SMOKE
-(commit `feat(staffing): generalize approved absence overlay`, branch
-`work/staffing-approved-absences`, sobre `main` post-merge PR #61 / `1e0aaad`)
+## STAFFING — APPROVED ABSENCE OVERLAY — CLOSED / MERGED TO MAIN
+(commit `feat(staffing): generalize approved absence overlay` / `1635e0f`,
+branch `work/staffing-approved-absences`, sobre `main` post-merge PR #61 /
+`1e0aaad` — mergeado a `main` vía PR [#62](https://github.com/DanworForBusiness/copiloto-metodologico/pull/62),
+CI GREEN, merge commit **`225c58e`**)
 
 **Qué es:** generalización del Staffing Vacation Timeline Overlay original —
 el mismo overlay pasa de ser SOLO Vacaciones a cubrir CUALQUIER ausencia
@@ -5448,9 +5450,24 @@ mínimo):** verificado end-to-end — lane "Ausencias (72hs)" con 4 barras
 inicial), destildar los 4 → lane desaparece, KPIs/asignaciones/detalle
 intactos en todo momento.
 
-**Pendiente:** smoke visual del owner contra dato real de SharePoint (no
-ejecutado en este batch — requiere sesión Graph real, ausencias con
-Motivo=Danwor Day/Cumpleaños/otro real en el XLSX). NO abrir PR todavía.
+**Owner smoke — PASÓ.** Validado en vivo (worktree detached
+`C:\Users\Joe\DanworWorktrees\staffing-approved-absences`, commit `1635e0f`):
+geometría día-exacta de asignaciones correcta (17/08 renderiza después del
+marcador de "hoy" 14/08), lane compartido Ausencias renderiza
+correctamente, filtro Concepto muestra exactamente Vacaciones/Danwor
+Day/Cumpleaños/Otros con los 4 tildados por default, filtrado client-side
+funciona, "Ausencias (Nhs)" recalcula, h/mes de consultor y KPIs sin
+cambios.
+
+**Cierre mecánico:** PR [#62](https://github.com/DanworForBusiness/copiloto-metodologico/pull/62)
+(`work/staffing-approved-absences` → `main`) — CI GREEN (`pytest -q`) —
+merged (merge commit) → **`225c58e`**. `origin/main` refrescado.
+
+**Staffing — batch funcional actual: CERRADO.** Día-accurate timeline
+geometry (PR #61 / `1e0aaad`) + Approved Absence Overlay (PR #62 /
+`225c58e`) son los dos correctives finales de este ciclo. La próxima
+iniciativa de reporting (ver checkpoint más abajo) sigue **NOT STARTED** —
+no se arrancó en este batch.
 
 ---
 
@@ -6304,6 +6321,28 @@ git merge-base --is-ancestor <functional-commit> origin/main   # exit code 0 req
 ```
 El incidente 2D (branch borrada con commits sin mergear; recuperados vía PR #11) es la
 razón de esta regla.
+
+## PERMANENT WORKTREE POLICY (aprendida del cierre de Staffing timeline/absences)
+**NUNCA** crear worktrees de feature persistentes bajo:
+- `AppData\Local\Temp\...` (incluida cualquier ruta de scratchpad de sesión de agente)
+- cualquier directorio temporal de sesión/agente
+
+Worktrees de feature persistentes van SIEMPRE bajo:
+```
+C:\Users\Joe\DanworWorktrees\<propósito>
+```
+El worktree normal del owner sigue siendo `C:\Users\Joe\ArquitectoDanwor` —
+**nunca** tocar sus archivos dirty intencionales ahí (`config.py`/
+`webapp/static/tools.css` al momento de escribir esto), nunca stash/reset/
+restore/clean sobre ese worktree.
+
+Razón: un checkout de feature bajo un directorio de scratchpad de sesión de
+agente puede desaparecer efectivamente del flujo de trabajo normal cuando esa
+sesión/agente se reinicia o se limpia — el batch de Staffing (timeline
+day-accurate + Approved Absence Overlay) usó 2 worktrees de scratchpad
+(`wt-timeline`/`wt-absences`) que funcionaron pero quedaron fuera del
+flujo normal del owner hasta este cierre; `DanworWorktrees\<propósito>` es
+la ubicación estable equivalente, visible/reusable entre sesiones.
 
 ---
 
