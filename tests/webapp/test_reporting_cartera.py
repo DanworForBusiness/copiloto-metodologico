@@ -963,7 +963,7 @@ def test_rentabilidad_cert_ejec_detail_uses_compact_role_not_a_pixel_hack():
     # absorbe el espacio remanente en vez de repartirlo en partes iguales con
     # Tipo. Nunca un ancho puntual/inline de Rentabilidad.
     detail_start = _REPORTING_JS.index("function renderRentabilidadCertEjecutadas")
-    detail_body = _REPORTING_JS[detail_start:detail_start + 3000]
+    detail_body = _REPORTING_JS[detail_start:detail_start + 3800]
     assert '<th class="left dashboard-table-col--compact">Tipo</th><th class="left">Proyecto</th>' in detail_body
     assert "style=" not in detail_body[detail_body.index("<thead>"):detail_body.index("</thead>") + 8]
     assert "table.dashboard-table th.dashboard-table-col--compact { width: 100px; }" in _TOOLS_CSS

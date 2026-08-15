@@ -1956,7 +1956,19 @@ function renderRentabilidadCertEjecutadas() {
   const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
 
+  // Layout (owner feedback: la tabla "quedaba apretada a la derecha, con
+  // demasiado margen a la izquierda") — a diferencia de TODAS las demás
+  // `table.dashboard-table` de este archivo, a esta le faltaba el wrapper
+  // `.matrix-scroll` (`overflow-x:auto`, reporting.css): con `table-layout:
+  // fixed` + 4 columnas numéricas de ancho fijo (88px c/u, ver tools.css)
+  // + Tipo compacta (100px), la columna Proyecto (única sin ancho
+  // declarado) se lleva TODO el resto del ancho del contenedor — sin
+  // `.matrix-scroll`, en un contenedor angosto eso fuerza el layout entero
+  // a comprimirse en vez de habilitar scroll horizontal, que es el
+  // comportamiento que CUALQUIER otra tabla ancha de Reporting ya tiene.
+  // Corrective: mismo wrapper compartido, cero CSS nuevo/one-off.
   const detailBody = rows.length ? `
+    <div class="matrix-scroll">
     <table class="dashboard-table">
       <thead><tr><th class="left dashboard-table-col--compact">Tipo</th><th class="left">Proyecto</th><th>Hs Certificadas</th><th>Hs Ejecutadas</th><th>Margen Absoluto</th><th>Margen Relativo</th></tr></thead>
       <tbody>${rows.map(p => {
@@ -1969,6 +1981,7 @@ function renderRentabilidadCertEjecutadas() {
         </tr>`;
       }).join("")}</tbody>
     </table>
+    </div>
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
   const detail = dashboardSection("detalle", "Detalle por proyecto", rows.length + " proyecto(s)", detailBody);
 

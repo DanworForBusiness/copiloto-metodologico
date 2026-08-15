@@ -148,3 +148,21 @@ def test_filter_bar_actions_keep_only_limpiar_and_the_sharepoint_link():
 def test_set_experience_only_switches_the_active_tab_never_touches_data_status():
     body = _function_body("setExperience")
     assert body.strip() == "{\n  state.experience = id;\n  render();\n}"
+
+
+# ============================================================================
+# WIDE TABLE LAYOUT — toda `table.dashboard-table` vive dentro de
+# `.matrix-scroll` (owner feedback: la tabla Certificadas vs Ejecutadas
+# quedaba apretada a la derecha con margen de sobra a la izquierda — le
+# faltaba el wrapper `overflow-x:auto` que TODAS las demás tablas anchas de
+# Reporting ya usan, `table-layout:fixed` + columnas numéricas de ancho
+# fijo fuerza el layout a comprimirse sin él).
+# ============================================================================
+
+def test_every_dashboard_table_is_wrapped_in_matrix_scroll():
+    import re
+    for m in re.finditer(r'<table class="dashboard-table">', _REPORTING_JS):
+        preceding = _REPORTING_JS[max(0, m.start() - 80):m.start()]
+        assert '<div class="matrix-scroll">' in preceding, (
+            f"table.dashboard-table sin wrapper .matrix-scroll cerca de offset {m.start()}"
+        )
