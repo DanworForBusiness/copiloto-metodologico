@@ -160,6 +160,63 @@ function mkRow(cliente, proyecto, trabajadas, certificadas, vendidas, facturadas
   assertEqual(cellsOf(rowsOf(htmlMixed)[0])[6], "", "estado mixto: blanco, NUNCA el primero/mayoría");
 }
 
+// --- Test 5 (TRANSVERSAL AGGREGATION AUDIT — owner: "no asumir que las
+// fixes previas cubrieron todos los casos"): jerarquía de 3+ NIVELES
+// (mismo patrón que Participación real: ID Frecuencia > Permite Adelanto >
+// Cliente) — el rollup de un nivel INTERMEDIO debe ser EXACTAMENTE la suma
+// de sus propios hijos directos, no solo el total de raíz vs. hojas
+// (los tests 1-4 solo cubrían 2 niveles). ---
+{
+  const rows = [
+    mkRow3("1 Mensual", "Si", "ClienteA", 10, 20, "En curso"),
+    mkRow3("1 Mensual", "Si", "ClienteB", 5, 8, "En curso"),
+    mkRow3("1 Mensual", "No", "ClienteC", 3, 3, "En curso"),
+  ];
+  const COLUMNS3 = [
+    { key: "trabajadas", numeric: true, render: r => String(r.trabajadas), rollup: sumField("trabajadas") },
+    { key: "certificadas", numeric: true, render: r => String(r.certificadas), rollup: sumField("certificadas") },
+  ];
+  const tree = buildTree(rows, ["idFrecuencia", "permiteAdelanto", "cliente"]);
+  expandAll(tree, "test::tres-niveles");
+  const html = renderBusinessTreeRows("test::tres-niveles", tree, 0, COLUMNS3);
+  const rowsHtml = rowsOf(html);
+  // 1 Mensual (raíz) + Si/No (nivel 2) + ClienteA/B (bajo Si) + ClienteC (bajo No) = 6
+  assertEqual(rowsHtml.length, 6, "3 niveles: raíz + 2 nodos intermedios + 3 hojas");
+  const root = cellsOf(rowsHtml[0]);
+  assertEqual(root[1], "18", "3 niveles: raíz = SUM de TODAS las hojas (10+5+3), no solo su hijo directo 'Si'");
+  const nodoSi = cellsOf(rowsHtml[1]);
+  assertEqual(nodoSi[1], "15", "3 niveles: nodo intermedio 'Si' = SUM de SUS hijos directos (ClienteA+ClienteB = 10+5), nunca el total de la raíz");
+  const nodoNo = cellsOf(rowsHtml[4]);
+  assertEqual(nodoNo[1], "3", "3 niveles: nodo intermedio 'No' = solo ClienteC, no arrastra el total de 'Si'");
+  assertEqual(root[1], String(Number(nodoSi[1]) + Number(nodoNo[1])), "3 niveles: raíz == SUM de sus 2 hijos directos intermedios (Si + No)");
+}
+function mkRow3(idFrecuencia, permiteAdelanto, cliente, trabajadas, certificadas, status) {
+  return { idFrecuencia, permiteAdelanto, cliente, trabajadas, certificadas, status };
+}
+
+// --- Test 6: medida Clase B (% contra denominador — nunca se promedia un
+// % ya calculado). Reproduce capacidadPctIncidencia/comercialPctVendidas:
+// numerador SUMADO primero por el subárbol, dividido por un denominador
+// FIJO recién al final — nunca sumar/promediar porcentajes de filas hijas
+// individuales (eso daría un número sin sentido matemático). ---
+{
+  const GRAND_TOTAL = 100;
+  const pctOf = horas => (horas / GRAND_TOTAL * 100).toFixed(1) + "%";
+  const rows = [
+    mkRow3("A", "X", "Cliente1", 30, 30, "En curso"),
+    mkRow3("A", "X", "Cliente2", 20, 20, "En curso"),
+  ];
+  const COLUMNS_PCT = [{ key: "pct", numeric: true, render: r => pctOf(r.trabajadas), rollup: sumField("trabajadas", pctOf) }];
+  const tree = buildTree(rows, ["idFrecuencia", "permiteAdelanto", "cliente"]);
+  expandAll(tree, "test::pct");
+  const html = renderBusinessTreeRows("test::pct", tree, 0, COLUMNS_PCT);
+  const rowsHtml = rowsOf(html);
+  const rootPct = cellsOf(rowsHtml[0])[1];
+  // Numerador SUMADO primero (30+20=50), dividido UNA vez -> 50%.
+  // Si se hubiera promediado 30% y 20% ya calculados, daría 25% (incorrecto).
+  assertEqual(rootPct, "50.0%", "Clase B: % del padre = SUM(numeradores) / denominador FIJO, nunca el promedio de % ya calculados de las hojas");
+}
+
 if (failures > 0) {
   console.log(`${failures} reconciliation invariant(s) FAILED`);
   process.exit(1);
