@@ -197,6 +197,69 @@ presencia real. NO se sustituye por HsVendidas/Auditado/XLSX (prohibido).
 Pendiente de clasificar en el re-smoke: referencias de Empresa stale/borradas vs
 items de Cliente faltantes. No se fabrican valores para ellas.
 
+## 8. Phase 2 — Lineage de las 5 experiencias restantes (discovery)
+
+Fuente: PBIP SemanticModel TMDL (particiones M + tablas calculadas DAX). Hallazgo
+central: **casi todo reusa el backbone de Cartera** (listas Horas por proyectos /
+Proyectos / Cliente + resolución Client Partner + XLSX Facturadas, ya construidos).
+Solo hay **2 fuentes físicas nuevas**.
+
+### Dimensiones/columnas ya disponibles (reuso, sin fuente nueva)
+- Lista **Cliente** (`SHAREPOINT_CLIENTE_LIST_ID`) ya trae — además de Title/
+  ClientPartnerLookupId — las columnas de Participación/Calendario:
+  `Frecuencia Actualizacion`, `Permite Adelanto`, `Condicion de Pago`,
+  `Calendario_Act` (texto con nombres de mes), `ID Frecuencia` (derivada).
+- **Horas por proyectos** ya trae HsVendidas/HsTrabajadas/Hs certificadas por
+  proyecto×mes; **Proyectos** trae Tipo/Estado/ID/FechaInicio; **Client Partner**
+  se resuelve por `/columns`. Todo esto es reutilizable tal cual.
+
+### Por experiencia
+| Experiencia | Perspectivas | Fuente física | Reuso | Nuevo |
+|---|---|---|---|---|
+| **Horas Vendidas** | Proyecto / Client Partner | Horas por proyectos + Proyectos + Cliente | 100% backbone Cartera | — |
+| **Participación/Comercial** | Participación / Salud | Cliente (Frecuencia/Permite Adelanto/Condicion de Pago) + Horas por proyectos (%) | backbone | Salud: columnas categóricas de Cliente |
+| **Calendario** | Frecuencia / Client Partner | `Cliente.Calendario_Act` (booleano por mes vía CONTAINSSTRING) | backbone Cliente | — |
+| **Horas Productivas** | Productivas / No asignadas | Productivas: Horas por proyectos (Cliente>Proyecto, % incidencia) · **No asignadas: `Time Logs Reports` CSV** | backbone (Productivas) | **CSV en /sites/Operaciones/…/Template Dashboard** |
+| **Rentabilidad** | Resumen / Certif vs Ejec | Horas por proyectos + XLSX Facturadas; "Ejecutadas" vía `Comparativo`/`Resumen Horas x Proyecto Fac y Ejec` (DAX) | backbone | semántica **Ejecutadas** + matriz mensual acumulada de Conceptos |
+
+### Semántica (de V0 + PBIP, a preservar)
+- **Rentabilidad**: `Rentabilidad horas = Certificadas − Trabajadas`; `Margen Absoluto
+  = Certificadas − Ejecutadas`; `Margen Relativo = Margen Abs / Certificadas`
+  (denominador 0 → sin ratio). Conceptos: Vendidas/Certificadas/Trabajadas/
+  Rentabilidad horas/No asignadas. Agregar y LUEGO recomputar el ratio (nunca
+  promediar ratios de hijos).
+- **Participación**: `% Hs Vendidas 2` / `% Hs Certificadas 2` con denominador
+  **GRAN TOTAL FIJO** (`REMOVEFILTERS(Client Partner, ID Frecuencia, Permite
+  Adelanto, Condicion de Pago, Cliente)`) — los grupos visibles NO suman 100%,
+  NO renormalizar. **Salud de Cliente**: 5 componentes categóricos + Salud Final,
+  sin agregación numérica.
+- **Calendario**: celda mensual = PRESENCIA BOOLEANA (✓/blank), NUNCA conteo.
+- **Horas Productivas**: horas aditivas; `% Incidencia` con denominador gran-total
+  fijo; **No asignadas** = matriz consultor×mes del Time Logs (NO es disponibilidad
+  de Staffing — responsabilidad analítica distinta).
+
+## 9. Plan de batches (evidence-based)
+
+- **Batch A — "backbone reuse"** (Horas Vendidas, Participación, Calendario,
+  Horas Productivas/Productivas): reusan el repositorio de Cartera; se agregan
+  lecturas de columnas ya presentes en Cliente + shaping en el service. UN endpoint
+  por experiencia (o uno consolidado), sin fuente física nueva.
+- **Batch B — "fuentes/semántica nuevas"** (Rentabilidad + Horas Productivas/No
+  asignadas): (1) semántica Ejecutadas + matriz mensual de Conceptos; (2) adapter
+  nuevo para el **CSV de Time Logs** en /sites/Operaciones (parseo CSV en memoria,
+  mismo patrón fail-soft; site distinto — reusar `graph_get_bytes`).
+- **Phase 0 (transversal, previo o en paralelo)**: (0A) loader Hub compartido
+  reusando el de Asignaciones; (0B) geometría estable de matrices jerárquicas
+  (`<colgroup>` + `table-layout:fixed` + clases semánticas de ancho); (0C)
+  formateo/overflow de KPIs (Intl.NumberFormat con tipos semánticos
+  count/hours/signed-hours/percentage; sin ruido de punto flotante).
+
+**Riesgos semánticos abiertos:** (1) definición exacta de "Ejecutadas" vs
+"Trabajadas" en `Resumen Horas x Proyecto Fac y Ejec` (DAX measure-sourced) — a
+resolver leyendo esa medida antes de implementar Rentabilidad; (2) estructura real
+del CSV de Time Logs (columnas consultor/mes) — a confirmar (mismo criterio que
+la XLSX: descubrir en el smoke si hace falta).
+
 ## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
 
 1. **Internal names de lookup** `ProyectoId ↔ Proyectos.Id` y `EmpresaId ↔ Cliente`:
