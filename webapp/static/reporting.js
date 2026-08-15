@@ -744,6 +744,11 @@ const state = {
   // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
   // real, no se comparte con el backbone de Cartera).
   batchBDataStatus: "idle",
+  // Ranking Mejor/Peor Performance de Rentabilidad (owner feedback): Top 5
+  // por default, con una afordancia liviana para revelar el resto — UI
+  // pura, nunca dispara un fetch (los datos YA están cargados). Reset
+  // implícito al recargar la página, mismo criterio que `treeExpanded`.
+  rentabilidadRankingExpanded: { positivos: false, negativos: false },
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -1801,6 +1806,34 @@ function renderRentabilidadMensual(rows, monthMask) {
   return dashboardSection("mensual", "Detalle mensual por Concepto", MESES[0] + " – " + MESES[11], body);
 }
 
+// Top 5 por default (owner feedback: el ranking completo sin acotar
+// resultaba desordenado con muchos proyectos) — `+ Ver N más`/`Ver menos`
+// como afordancia liviana, reusa `.dashboard-action-link` tal cual (MISMO
+// lenguaje visual que "Actualizar↗", CERO CSS nuevo) en vez de inventar un
+// componente de paginación.
+const RENTABILIDAD_RANKING_TOP_N = 5;
+function toggleRentabilidadRanking(side) {
+  state.rentabilidadRankingExpanded[side] = !state.rentabilidadRankingExpanded[side];
+  render();
+}
+function rentabilidadRankingList(items, side, maxAbs) {
+  if (!items.length) return "";
+  const expanded = state.rentabilidadRankingExpanded[side];
+  const visible = expanded ? items : items.slice(0, RENTABILIDAD_RANKING_TOP_N);
+  // `maxAbs` SIEMPRE viene del ranking COMBINADO (Mejor+Peor, ver caller) —
+  // nunca recalculado por lista: las barras de ambos paneles comparten UNA
+  // sola escala relativa, para que el ancho siga siendo comparable entre
+  // Mejor y Peor (si cada panel escalara a su propio máximo, un proyecto
+  // "peor" con rentabilidad -50 podría verse con la MISMA barra que un
+  // "mejor" de +500, perdiendo la comparación real).
+  const rows = visible.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("");
+  const remaining = items.length - RENTABILIDAD_RANKING_TOP_N;
+  const toggle = remaining > 0
+    ? `<button type="button" class="dashboard-action-link" onclick="toggleRentabilidadRanking('${side}')">${expanded ? "Ver menos" : `+ Ver ${remaining} más`}</button>`
+    : "";
+  return rows + toggle;
+}
+
 function renderRentabilidadResumen() {
   // Gate del ciclo de vida real-data (ver loadRentabilidadData) — MISMO
   // status que Certificadas vs Ejecutadas (comparten UN fetch, ver
@@ -1852,11 +1885,11 @@ function renderRentabilidadResumen() {
     <div class="activity-grid-2">
       <div>
         <p class="perspective-label">Mejor performance</p>
-        ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+        ${positivos.length ? rentabilidadRankingList(positivos, "positivos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
       </div>
       <div>
         <p class="perspective-label">Peor performance</p>
-        ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+        ${negativos.length ? rentabilidadRankingList(negativos, "negativos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
       </div>
     </div>
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;

@@ -218,3 +218,30 @@ def test_rentabilidad_mensual_uses_real_monthly_grain_not_flat_spread():
     assert "(p.trabMonthly || []).forEach((v, i) => { trabMonthly[i] += v; });" in fn
     assert "flatMonthly(p.certificadas)" not in fn
     assert "flatMonthly(p.trabajadas)" not in fn
+
+
+# --- Ranking Top 5 por default (owner feedback) --------------------------
+
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+_RANKING_HARNESS = Path(__file__).resolve().parent / "reporting_rentabilidad_ranking.node.js"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no disponible en este entorno")
+def test_rentabilidad_ranking_top5_invariants_hold():
+    result = subprocess.run(
+        ["node", str(_RANKING_HARNESS)], capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"Rentabilidad ranking invariants failed:\n{result.stdout}\n{result.stderr}"
+    assert "ALL RENTABILIDAD RANKING INVARIANTS PASSED" in result.stdout
+
+
+def test_mejor_performance_renders_left_of_peor_performance():
+    body = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadResumen"):_REPORTING_JS.index("function certEjecGroupTooltip")]
+    mejor_idx = body.index("Mejor performance")
+    peor_idx = body.index("Peor performance")
+    assert mejor_idx < peor_idx, "Mejor performance debe aparecer ANTES que Peor en el markup (columna izquierda del grid de 2 columnas)"
+    assert '"activity-grid-2"' in body, "reusa el primitivo Hub de 2 columnas compartido, no un grid propio de Rentabilidad"
