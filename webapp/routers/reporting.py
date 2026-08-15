@@ -102,3 +102,35 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
         _logger.exception("reporting cartera data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", "cartera": cartera})
+
+
+@router.post("/operaciones/reporting/integral/data/batch-a", include_in_schema=False)
+def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
+    """Datos REALES normalizados de Horas Vendidas/Participación/Calendario
+    (Reporting Integral Batch A — backbone reuse de Cartera). UN endpoint
+    consolidado (no 3 POSTs separados) porque las 3 experiencias comparten
+    el mismo fetch de origen (`ReportingService.get_batch_a`). MISMO gate/
+    token/fail-soft que `reporting_cartera_data` — ver ese endpoint para el
+    contrato de errores completo. Horas Productivas/Productivas queda
+    deliberadamente FUERA de este endpoint (ver HANDOFF: contradicción de
+    lineage sin resolver, esa perspectiva sigue en mock)."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        batch_a = service.get_batch_a(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting batch-a data: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", **batch_a})

@@ -416,13 +416,24 @@ function statusPillSalud(value) {
   return `<span class="dashboard-status-badge dashboard-status-badge--${color}">${esc(value)}</span>`;
 }
 
-const COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS = COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasVendidas, 0);
-const COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS = COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasCertificadas, 0);
+// Gran total FIJO (denominador REMOVEFILTERS) — FUNCIÓN, no `const`
+// precalculada (corrective Batch A, ver HANDOFF): `COMERCIAL_PARTICIPACION_ROWS`
+// se reemplaza IN PLACE con datos reales (`replaceRows`, mismo patrón que
+// Cartera) — una constante calculada una sola vez al cargar el script
+// habría quedado STALE contra el mock para siempre, rompiendo el % real.
+// Recalculada en cada llamada contra el array ACTUAL (mock o real, según
+// el ciclo de vida vigente) — sigue siendo "fijo" en el sentido correcto:
+// fijo por RENDER contra el dataset completo sin filtrar, nunca contra el
+// subtotal del grupo filtrado (REMOVEFILTERS).
+function comercialParticipacionTotalVendidas() { return COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasVendidas, 0); }
+function comercialParticipacionTotalCertificadas() { return COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasCertificadas, 0); }
 function comercialPctVendidas(horas) {
-  return (COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS ? (horas / COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS * 100) : 0).toFixed(2) + " %";
+  const total = comercialParticipacionTotalVendidas();
+  return (total ? (horas / total * 100) : 0).toFixed(2) + " %";
 }
 function comercialPctCertificadas(horas) {
-  return (COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS ? (horas / COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS * 100) : 0).toFixed(2) + " %";
+  const total = comercialParticipacionTotalCertificadas();
+  return (total ? (horas / total * 100) : 0).toFixed(2) + " %";
 }
 // Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
 // Clase B, denominador FIJO (REMOVEFILTERS) — `sumField` re-suma el
@@ -621,6 +632,11 @@ const state = {
   // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
+  // Batch A (Horas Vendidas/Participación/Calendario, ver HANDOFF): MISMO
+  // ciclo de vida, UN solo status para las 3 (comparten UN fetch/endpoint
+  // consolidado — ver loadBatchAData). Horas Productivas/Salud de Cliente
+  // siguen en mock (fuera de alcance de Batch A, ver HANDOFF).
+  batchADataStatus: "idle",
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -1180,6 +1196,44 @@ function renderCarteraDataState() {
   }
   return reportingLoadingHtml("Cargando datos de Cartera…");
 }
+
+// Batch A (Horas Vendidas/Participación/Calendario, ver HANDOFF: "backbone
+// reuse") — MISMO patrón que loadCarteraData: `replaceRows` puebla EN EL
+// LUGAR los 3 arrays que ya referencian FACET_CONFIG/render*, UN solo
+// fetch/endpoint consolidado (comparten origen — Horas por proyectos ×
+// Proyectos × Cliente), gateado por `batchADataStatus` (nunca muestra el
+// mock inicial una vez que arrancó la carga real). Horas Productivas/
+// Salud de Cliente NO participan de este ciclo de vida — siguen en mock
+// (ver HANDOFF: contradicción de lineage sin resolver para Productivas;
+// Salud sin lineage físico documentado todavía).
+async function loadBatchAData() {
+  state.batchADataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-a", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok") {
+      replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
+      replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
+      replaceRows(CALENDARIO_ROWS, data.calendario);
+      state.batchADataStatus = "ready";
+    } else {
+      state.batchADataStatus = "error";
+    }
+  } catch (e) {
+    state.batchADataStatus = "error";
+  }
+  render();
+}
+function renderBatchADataState(label) {
+  if (state.batchADataStatus === "error") {
+    return reportingSourceErrorHtml(label);
+  }
+  return reportingLoadingHtml(`Cargando ${label}…`);
+}
+
 function renderCartera() {
   // Gate del ciclo de vida real-data: dispara la carga una sola vez (idle) y
   // muestra loading/error hasta tener filas reales; recién ahí corre el
@@ -1672,6 +1726,10 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
 }
 
 function renderHorasVendidas() {
+  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData) — MISMO
+  // criterio que renderCartera.
+  if (state.batchADataStatus === "idle") loadBatchAData();
+  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Horas Vendidas");
   const persp = state.perspective.horasvendidas;
   const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
   const rows = facetFilteredRows("horasvendidas");
@@ -1719,6 +1777,10 @@ function renderHorasVendidas() {
 // de Pago > Cliente, EXACTO ese orden de Rows. Reusa buildTree/
 // renderBusinessTreeRows sin cambios — mismo motor que Cartera/Capacidad.
 function renderComercialParticipacion() {
+  // Gate del ciclo de vida real-data Batch A — SOLO esta perspectiva (Salud
+  // de Cliente sigue en mock, ver renderComercialSalud/HANDOFF).
+  if (state.batchADataStatus === "idle") loadBatchAData();
+  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Participación");
   const rows = facetFilteredRows("comercial");
   const keys = ["idFrecuencia", "permiteAdelanto", "condicionPago", "cliente"];
   const stateKey = "comercial::Participación";
@@ -1785,6 +1847,9 @@ function renderCalendarioCell(v) {
 }
 
 function renderCalendario() {
+  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData).
+  if (state.batchADataStatus === "idle") loadBatchAData();
+  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Calendario");
   const persp = state.perspective.calendario;
   const hierarchy = CALENDARIO_HIERARCHY[persp];
   const rows = facetFilteredRows("calendario");

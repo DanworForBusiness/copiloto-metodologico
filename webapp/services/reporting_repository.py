@@ -80,6 +80,22 @@ CLI_CP_COLUMN_NAMES = ("ClientPartner",)
 CLI_CP_DISPLAY_NAMES = ("Client Partner",)
 PM_TITLE = "Title"                  # display del Client Partner = Title del target
 
+# Batch A (Horas Vendidas/Participación/Calendario, ver artifacts/
+# reporting-integral-v0/real-data-lineage.md sección 8) — columnas
+# ADICIONALES de la MISMA lista Cliente ya leída arriba, ninguna lista
+# nueva. Internal names codificados vía la MISMA convención SharePoint ya
+# CONFIRMADA en este repositorio (espacio → `_x0020_`, ver PROY_ID_DANWOR/
+# HP_ANIO arriba) — mecánica documentada, no una suposición semántica. Se
+# prueban candidatos codificado + sin codificar (mismo criterio que
+# `_first`) por si el runtime de Graph difiere. `ID Frecuencia` es una
+# columna DERIVADA en el PBIP (no física) — el repositorio SOLO expone el
+# físico `Frecuencia Actualizacion`; la derivación (`"1 Mensual"`, etc.)
+# vive en el service (business shaping).
+CLI_FRECUENCIA_ACT = ("Frecuencia_x0020_Actualizacion", "FrecuenciaActualizacion")
+CLI_PERMITE_ADELANTO = ("Permite_x0020_Adelanto", "PermiteAdelanto")
+CLI_CONDICION_PAGO = ("Condicion_x0020_de_x0020_Pago", "CondicionDePago")
+CLI_CALENDARIO_ACT = ("Calendario_Act",)
+
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
 FAC_CANTIDAD = "Suma de Cantidad"
@@ -304,6 +320,77 @@ class ReportingRepository:
                 "facturadasProyecto": facturadas_by_key.get(_norm_key(proyecto_title), 0.0),
             })
         return facts
+
+    # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
+
+    def get_batch_a_facts(self, access_token: str) -> dict:
+        """UN solo fetch para las 3 experiencias de Batch A que reusan el
+        backbone de Cartera (Horas Vendidas, Participación, Calendario — ver
+        real-data-lineage.md sección 8/9). Reusa las MISMAS listas/joins que
+        `get_cartera_facts` (Horas por proyectos × Proyectos × Cliente +
+        Client Partner) en UN fetch — nunca fetches redundantes de las
+        mismas listas. Devuelve:
+          - `project_facts`: hechos proyecto×mes (cliente/clientPartner/
+            proyecto/tipoProyecto/mes/anio/horas*) — alimenta Horas Vendidas
+            y (agregado por Cliente) Participación.
+          - `cliente_dim`: una fila por Cliente con las columnas de
+            Participación/Calendario (frecuenciaActualizacion/
+            permiteAdelanto/condicionPago/calendarioAct/clientPartner).
+
+        NO incluye Horas Productivas/Productivas: esa perspectiva depende de
+        `Time Logs Reports` (fuente física DISTINTA — ver HANDOFF: hallazgo
+        de contradicción de lineage entre el discovery original de V0
+        (`page_inventory.json`: Values=Sum(Time Logs Reports.HORAS)) y el
+        resumen de Batch A que la clasificó como reuso del backbone Horas
+        por proyectos — diferida hasta resolver cuál es correcta)."""
+        self._token = access_token
+        site_id = self._require_site_id()
+
+        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
+        cp_by_id = self._resolve_client_partners(site_id)
+
+        proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
+        cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
+
+        project_facts = []
+        for it in horas_items:
+            h = it.get("fields") or {}
+            cli_id = _first(h, *HP_EMPRESA_LOOKUP)
+            proy = proy_by_id.get(_first(h, *HP_PROYECTO_LOOKUP), {})
+            cli = cli_by_id.get(cli_id, {})
+            client_partner = cp_by_id.get(_first(cli, *CLI_CP_LOOKUP), "")
+            proyecto_title = _first(proy, PROY_TITLE) or _text(h.get(HP_PROYECTO_TITLE)) or _text(proy.get(PROY_ID_DANWOR))
+            tipo_raw = _text(proy.get(PROY_TIPO))
+            tipo = "Mantenimiento" if tipo_raw == "Tiempo & Materiales" else tipo_raw
+            project_facts.append({
+                "clienteId": cli_id,
+                "cliente": _text(cli.get(CLI_NOMBRE)),
+                "clientPartner": client_partner,
+                "proyecto": proyecto_title,
+                "tipoProyecto": tipo,
+                "anio": _text(h.get(HP_ANIO)),
+                "mes": _text(h.get(HP_MES)),
+                "hsTrabajadas": _num(h.get(HP_HS_TRABAJADAS)),
+                "hsVendidas": _num(h.get(HP_HS_VENDIDAS)),
+                "hsCertificadas": _num(h.get(HP_HS_FACTURADAS)),
+            })
+
+        cliente_dim = []
+        for it in clientes_items:
+            c = it.get("fields") or {}
+            cliente_dim.append({
+                "clienteId": _text(it.get("id")),
+                "cliente": _text(c.get(CLI_NOMBRE)),
+                "clientPartner": cp_by_id.get(_first(c, *CLI_CP_LOOKUP), ""),
+                "frecuenciaActualizacion": _first(c, *CLI_FRECUENCIA_ACT),
+                "permiteAdelanto": _first(c, *CLI_PERMITE_ADELANTO),
+                "condicionPago": _first(c, *CLI_CONDICION_PAGO),
+                "calendarioAct": _first(c, *CLI_CALENDARIO_ACT),
+            })
+
+        return {"project_facts": project_facts, "cliente_dim": cliente_dim}
 
 
 def _quote(path: str) -> str:
