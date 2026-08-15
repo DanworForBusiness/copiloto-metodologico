@@ -1524,6 +1524,26 @@ function toggleTreeNode(stateKey, pathKey) {
   render();
 }
 
+// Control de disclosure jerárquico compartido (corrective S.4, ver HANDOFF
+// "REPORTING INTEGRAL — REAL DATA": "shared Hub hierarchy disclosure
+// interaction") — UN solo helper consumido por AMBOS renderers de árbol
+// (renderTreeRows/renderBusinessTreeRows), nunca duplicado. Con hijos: UN
+// control accesible real (`<button>`, focoable, Enter/Space nativo del
+// browser — sin JS de teclado a mano) que envuelve caret+label, así clic en
+// CUALQUIERA de los dos dispara el MISMO toggle (antes solo el caret
+// reaccionaba en Asignaciones — ver `staffing_dashboard.html`, MISMA clase
+// acá). Sin hijos (hoja): `<span>` plano, NO botón — sin affordance de
+// puntero/expansión engañosa, clic no hace nada (owner live QA: "leaf rows
+// must not appear expandable").
+function hierarchyToggleHtml(stateKey, pathKey, label, hasChildren, isOpen, caretChar) {
+  const caretHtml = `<span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>`;
+  if (!hasChildren) {
+    return `<span class="dashboard-table-toggle dashboard-table-toggle--leaf">${caretHtml}${esc(label)}</span>`;
+  }
+  const escapedPath = esc(pathKey).replace(/'/g, "\\'");
+  return `<button type="button" class="dashboard-table-toggle" onclick="toggleTreeNode('${stateKey}', '${escapedPath}')" aria-expanded="${isOpen}">${caretHtml}${esc(label)}</button>`;
+}
+
 // `showTotal` (opcional, default false — Horas Vendidas no lo usa, sin
 // cambio de comportamiento ahí): agrega una columna Total por fila, tal como
 // trae "Calendario x CP" en el PBIP fuente (Values incluye "Total" además de
@@ -1551,10 +1571,7 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter
       <tr class="depth-${depth}">
         <td class="row-label">
           <span class="dashboard-table-indent" style="width:${indentPx}px"></span>
-          <span class="dashboard-table-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
-            <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
-            ${esc(node.label)}
-          </span>
+          ${hierarchyToggleHtml(stateKey, node.pathKey, node.label, hasChildren, isOpen, caretChar)}
         </td>
         ${monthly.map(v => `<td>${format(v)}</td>`).join("")}
         ${showTotal ? `<td>${rowTotal}</td>` : ""}
@@ -1640,10 +1657,7 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
       <tr class="depth-${depth}">
         <td class="row-label">
           <span class="dashboard-table-indent" style="width:${indentPx}px"></span>
-          <span class="dashboard-table-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
-            <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
-            ${esc(node.label)}
-          </span>
+          ${hierarchyToggleHtml(stateKey, node.pathKey, node.label, hasChildren, isOpen, caretChar)}
         </td>
         ${columns.map(c => {
           let content = "";

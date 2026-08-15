@@ -931,7 +931,24 @@ table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c
    (nunca desplaza columnas numéricas); ancho de indent por profundidad se
    fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo
    da la mecánica visual. */
-.dashboard-table-toggle { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+/* Control de disclosure jerárquico (corrective S.4, ver HANDOFF: "shared
+   Hub hierarchy disclosure interaction") — UN solo contrato para CUALQUIER
+   tabla del Hub con filas padre/hijo. Con hijos: `<button>` real (reset de
+   estilos nativos de botón) — foco/teclado (Enter/Space) gratis del
+   browser, sin JS de teclado a mano. Clic en CUALQUIER parte del control
+   (triángulo o label, están en el MISMO elemento) dispara el mismo toggle
+   — nunca dos manejadores separados que puedan doble-disparar. Sin hijos
+   (hoja): `--leaf` es un `<span>` NO interactivo — sin cursor de puntero,
+   sin foco, clic no hace nada (owner live QA: "leaf rows must not appear
+   expandable"). */
+.dashboard-table-toggle {
+  display: inline-flex; align-items: center; border: 0; background: transparent; padding: 0;
+  margin: 0; font: inherit; color: inherit; text-align: left; user-select: none;
+}
+button.dashboard-table-toggle { cursor: pointer; }
+button.dashboard-table-toggle:hover { color: var(--gold); }
+button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 2px; }
+.dashboard-table-toggle.dashboard-table-toggle--leaf { cursor: default; }
 .dashboard-table-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
 .dashboard-table-toggle .caret.leaf { visibility: hidden; }
 .dashboard-table-indent { display: inline-block; }
@@ -978,13 +995,12 @@ table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c
 .staffing-detail-toolbar__n input:focus { outline: none; border-color: var(--gold); }
 
 /* Detalle agregado por consultor (default V2) — fila hija visualmente
-   subordinada (fondo sutil + indent), botón de expandir compacto. */
-.staffing-detail__expand-btn {
-  border: 0; background: transparent; cursor: pointer; color: var(--gold); font-size: .72rem;
-  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
-}
+   subordinada (fondo sutil + indent). El botón de expandir/label ahora es
+   el control compartido `.dashboard-table-toggle` de arriba (corrective
+   S.4, ver HANDOFF) — `.staffing-detail__expand-btn` propio se retiró, sin
+   consumidores. */
 .staffing-detail__child-row { background: rgba(128,128,128,.05); }
-.staffing-detail__child-row td:nth-child(2) { padding-left: 26px; }
+.staffing-detail__child-row td:nth-child(1) { padding-left: 26px; }
 
 /* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): `table-layout:
    fixed` (ahora del primitivo compartido `.dashboard-table`, Phase S) +

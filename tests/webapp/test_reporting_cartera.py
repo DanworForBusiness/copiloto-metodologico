@@ -595,6 +595,39 @@ def test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_forma
     )
 
 
+def test_hierarchy_disclosure_is_one_shared_helper_not_duplicated_inline():
+    # S.4: UN solo helper (`hierarchyToggleHtml`) genera el control de
+    # disclosure para AMBOS renderers de árbol (renderTreeRows/
+    # renderBusinessTreeRows) — nunca dos bloques de markup casi-idénticos
+    # copiados a mano (el estado previo a este corrective).
+    assert _REPORTING_JS.count("function hierarchyToggleHtml") == 1
+    assert _REPORTING_JS.count("hierarchyToggleHtml(stateKey, node.pathKey, node.label, hasChildren, isOpen, caretChar)") == 2
+    # El markup inline viejo (dos <span class="dashboard-table-toggle"> con
+    # el mismo onclick repetido) no debe quedar.
+    assert '<span class="dashboard-table-toggle" ${hasChildren' not in _REPORTING_JS
+
+
+def test_hierarchy_disclosure_control_has_children_is_a_real_accessible_button():
+    # S.4 (owner live QA): clic en el triángulo O en el label deben disparar
+    # el MISMO toggle — un solo control, no dos manejadores separados que
+    # puedan doble-disparar. `<button>` real ⇒ foco/teclado (Enter/Space)
+    # gratis del browser, `aria-expanded` sincronizado con el estado.
+    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function hierarchyToggleHtml") + 900]
+    assert '<button type="button" class="dashboard-table-toggle"' in helper_fn
+    assert "onclick=\"toggleTreeNode(" in helper_fn
+    assert 'aria-expanded="${isOpen}"' in helper_fn
+
+
+def test_hierarchy_leaf_rows_are_not_falsely_expandable():
+    # S.4 (owner live QA: "leaf rows must not appear expandable"): sin
+    # hijos, el control es un `<span>` NO interactivo — nunca un `<button>`,
+    # nunca un `onclick`, nunca affordance de puntero engañosa.
+    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function hierarchyToggleHtml") + 900]
+    assert '<span class="dashboard-table-toggle dashboard-table-toggle--leaf">' in helper_fn
+    assert ".dashboard-table-toggle.dashboard-table-toggle--leaf { cursor: default; }" in _TOOLS_CSS
+    assert "button.dashboard-table-toggle { cursor: pointer; }" in _TOOLS_CSS
+
+
 def test_fmt_num_distinguishes_zero_from_missing():
     # Validación explícita del owner: 0 es un resultado numérico válido
     # (debe renderizar "0"), el em dash es SOLO para null/undefined/"".

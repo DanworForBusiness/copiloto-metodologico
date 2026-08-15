@@ -296,13 +296,12 @@
         </div>
         <table class="dashboard-table staffing-detail-table">
           <colgroup>
-            <col style="width:3%"><col style="width:14%"><col style="width:11%"><col style="width:14%">
+            <col style="width:17%"><col style="width:11%"><col style="width:14%">
             <col style="width:12%"><col style="width:8%"><col style="width:9%"><col style="width:8%">
             <col style="width:8%"><col style="width:13%">
           </colgroup>
           <thead>
             <tr>
-              <th></th>
               <th class="left">Consultor</th>
               <th class="left">Cliente</th>
               <th class="left">Proyecto</th>
@@ -317,12 +316,27 @@
           <tbody>
             <template x-for="item in detailRows" :key="item.key">
               <tr :class="(item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row') + ' depth-' + (item.is_aggregate ? 0 : 1)">
-                <td>
-                  <button type="button" class="staffing-detail__expand-btn" x-show="item.is_aggregate" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
-                    <span x-text="item.expanded ? '▾' : '▸'"></span>
-                  </button>
+                <td class="row-label">
+                  <!-- Disclosure jerárquico compartido (corrective S.4, ver
+                       HANDOFF): MISMA clase `.dashboard-table-toggle` que
+                       Reporting (tools.css) — clic en triángulo O en el
+                       nombre disparan el MISMO toggle, un solo control
+                       accesible (button real, aria-expanded, foco/teclado
+                       nativo). Filas hijo (sin más expansión) usan el
+                       `<span>` no interactivo `--leaf`, nunca un botón. -->
+                  <template x-if="item.is_aggregate">
+                    <button type="button" class="dashboard-table-toggle" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
+                      <span class="caret" x-text="item.expanded ? '▾' : '▸'"></span>
+                      <span x-text="item.consultant_label"></span>
+                    </button>
+                  </template>
+                  <template x-if="!item.is_aggregate">
+                    <span class="dashboard-table-toggle dashboard-table-toggle--leaf">
+                      <span class="caret leaf"></span>
+                      <span x-text="item.consultant_label"></span>
+                    </span>
+                  </template>
                 </td>
-                <td class="row-label" x-text="item.consultant_label"></td>
                 <td class="left" x-text="item.client_label"></td>
                 <td class="left">
                   <span x-text="item.project_label"></span>
