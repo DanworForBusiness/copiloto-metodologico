@@ -379,3 +379,23 @@ def test_batch_a_renderers_use_shared_dashboard_table_not_a_local_variant():
     for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderComercialSalud"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 3300]
         assert 'class="dashboard-table"' in body
+
+
+def test_horas_vendidas_keeps_year_grain_separate(monkeypatch):
+    # Migración Año/Mes/Estado: Julio-2026 y Julio-2025 quedan separados en
+    # vendidasByYear (colapsado retrocompat en monthly); estado proyectado.
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Julio", "HsVendidas": "20"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Julio", "HsVendidas": "7"},
+        ],
+        proyectos=[{"id": "p1", "Title": "Rollout BI", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "Molinos"}],
+    )
+    rows = _service().get_horas_vendidas("tok")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["vendidasByYear"]["2026"][6] == 20 and r["vendidasByYear"]["2025"][6] == 7  # Julio (idx6) por año
+    assert r["monthly"][6] == 27          # colapsado retrocompat (20+7)
+    assert r["estado"] == "En curso"

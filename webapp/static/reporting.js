@@ -699,7 +699,7 @@ const state = {
   // Capacidad quedan sin filtro de fecha (Todos) — ningún corrective pidió
   // uno ahí.
   filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {},
-             horasvendidas: defaultYearToDateFilters(), calendario: {}, capacidad: {}, comercial: defaultYearToDateFilters() },
+             horasvendidas: {}, calendario: {}, capacidad: {}, comercial: defaultYearToDateFilters() },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
   // genérico de arriba) porque su semántica default NO es "todo tildado":
@@ -740,6 +740,8 @@ const state = {
   // carteraStatus): default "En curso" únicamente (Finalizado disponible pero
   // no tildado de entrada). Migración Año/Mes/Estado (ver HANDOFF §-16 #8).
   rentabilidadStatus: { "En curso": true, "Finalizado": false },
+  // Estado de Horas Vendidas — mismo patrón/pattern que Rentabilidad/Cartera.
+  horasVendidasStatus: { "En curso": true, "Finalizado": false },
   // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
   // Salud de Cliente, ver HANDOFF): MISMO ciclo de vida, UN solo status
   // para las 4 (comparten UN fetch/endpoint consolidado — ver
@@ -981,11 +983,9 @@ const FACET_CONFIG = {
     ],
   }),
   horasvendidas: () => ({
-    baseRows: HORASVENDIDAS_ROWS,
+    baseRows: HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]),
     fields: [
       { key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" },
-      { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
-      { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
     ],
   }),
   calendario: () => ({
@@ -1029,6 +1029,7 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // mismo motivo — exento del motor genérico vía `predicate`.
   if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); }
   if (expId === "rentabilidad") pruneRentabilidadAnio();
+  if (expId === "horasvendidas") pruneHorasVendidasAnio();
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
@@ -1293,12 +1294,34 @@ function renderRentabilidadFilterBar() {
   return filterBarShell(fields, "rentabilidad");
 }
 
+function horasVendidasAnioField() {
+  const current = getFilter("horasvendidas", "anio");
+  const options = horasVendidasAnioOptions();
+  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
+    <select onchange="setFilter('horasvendidas','anio', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
+    </select></label>`;
+}
+function horasVendidasMesField() {
+  const current = getFilter("horasvendidas", "mes");
+  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
+    <select onchange="setFilter('horasvendidas','mes', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${MESES_LARGOS.map((n, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(n)}</option>`).join("")}
+    </select></label>`;
+}
 function renderHorasVendidasFilterBar() {
   const fields = facetSelectField("horasvendidas", "cp", "Client Partner")
     + facetSelectField("horasvendidas", "tipo", "Tipo Proyecto")
     + facetSelectField("horasvendidas", "cliente", "Cliente")
     + facetSelectField("horasvendidas", "proyecto", "Proyecto")
-    + dateField("horasvendidas", "desde", "Desde") + dateField("horasvendidas", "hasta", "Hasta");
+    + horasVendidasAnioField()
+    + horasVendidasMesField()
+    + checkboxGroupField("Estado", [
+        { value: "En curso", checked: state.horasVendidasStatus["En curso"], onclick: "toggleHorasVendidasStatus('En curso')" },
+        { value: "Finalizado", checked: state.horasVendidasStatus["Finalizado"], onclick: "toggleHorasVendidasStatus('Finalizado')" },
+      ]);
   return filterBarShell(fields, "horasvendidas");
 }
 
@@ -1658,6 +1681,11 @@ async function loadBatchAData() {
       replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
       replaceRows(CALENDARIO_ROWS, data.calendario);
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
+      // Default Año de Horas Vendidas — solo en hidratación (nunca en cambio de
+      // perspectiva). Mismo criterio que Rentabilidad.
+      if (!getFilter("horasvendidas", "anio")) {
+        state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
+      }
       state.batchADataStatus = "ready";
     } else {
       state.batchADataStatus = "error";
@@ -1846,6 +1874,46 @@ function rentabilidadSelectedPortfolio() {
 }
 function rentabilidadFilteredProyectos() {
   return rentabilidadSelectedRows();
+}
+
+// --- Horas Vendidas Año/Mes/Estado (MISMO patrón que Rentabilidad) -----------
+const _HV_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }];
+function horasVendidasAnioOptions() {
+  const statusRows = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
+  const rows = facetRowsExcept(statusRows, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
+  const years = new Set();
+  rows.forEach(r => Object.keys(r.vendidasByYear || {}).forEach(y => years.add(y)));
+  return [...years].sort();
+}
+function horasVendidasDefaultAnio() {
+  const anioActual = String(new Date().getFullYear());
+  const options = horasVendidasAnioOptions();
+  if (options.includes(anioActual)) return anioActual;
+  return options.length ? options[options.length - 1] : "";
+}
+function pruneHorasVendidasAnio() {
+  const anio = getFilter("horasvendidas", "anio");
+  if (!anio) return;
+  if (!horasVendidasAnioOptions().includes(anio)) {
+    state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
+  }
+}
+function toggleHorasVendidasStatus(key) {
+  state.horasVendidasStatus[key] = !state.horasVendidasStatus[key];
+  reconcileExperienceFacets("horasvendidas");
+  render();
+}
+// Población canónica: Estado + CP/Tipo/Cliente/Proyecto, proyectada al Año elegido
+// (o colapsada si Todos) y enmascarada por Mes. Alimenta jerarquía/matriz/KPIs/Q.
+function horasVendidasSelectedRows() {
+  const anio = getFilter("horasvendidas", "anio");
+  const mes = getFilter("horasvendidas", "mes");
+  const base = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
+  const rows = facetRowsExcept(base, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
+  return rows.map(r => {
+    const arr = anio ? ((r.vendidasByYear || {})[anio] || _z12()) : (r.monthly || _z12());
+    return { ...r, monthly: _maskMes(arr, mes) };
+  });
 }
 
 // `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
@@ -2436,24 +2504,23 @@ function renderHorasVendidas() {
   if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Horas Vendidas");
   const persp = state.perspective.horasvendidas;
   const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
-  const rows = facetFilteredRows("horasvendidas");
+  // Población canónica ya proyectada al Año+Mes seleccionados (Estado + selects);
+  // cada fila trae `monthly[12]` del año elegido, enmascarado por Mes. Sin
+  // máscara Desde/Hasta — TODA la sección (matriz, KPIs, Q1-Q4) usa esta misma
+  // población. (Migración Año/Mes/Estado, HANDOFF §-16 #8.)
+  const rows = horasVendidasSelectedRows();
   const stateKey = "horasvendidas::" + persp;
   const tree = buildTree(rows, hierarchy.keys);
   registerTreeContext(stateKey, rows, hierarchy.keys);
-  // Q2 (owner live QA): cada fila YA filtrada por `fecha` (mes más
-  // temprano con datos, ver facetFilteredRows) puede tener meses REALES
-  // fuera del rango Desde/Hasta activo dentro de su propio `monthly[12]`
-  // (un proyecto activo Ene-Dic pasa el filtro por su `fecha`=Ene, pero
-  // seguía aportando Sep-Dic a la matriz/KPIs aunque Hasta=agosto). La
-  // máscara se aplica DESPUÉS de agregar (matriz, KPIs, Q1-Q4) — misma
-  // población filtrada para toda la sección, nunca un cálculo que la
-  // ignore.
-  const monthMask = monthsInRange(getFilter("horasvendidas", "desde"), getFilter("horasvendidas", "hasta"));
-  const totalMonthly = sumMonthly(rows, monthMask);
+  const totalMonthly = sumMonthly(rows);
 
+  // "Hs Estimadas anuales" = total de Hs Vendidas del período seleccionado
+  // (= Mantenimiento + Proyecto = ΣQ). Interpretación B (SUM sensible a filtros),
+  // preservada del contrato V0 — NO es Proyectos.HorasEstimadasalCierredeProyecto
+  // (columna distinta, no cableada a este KPI).
   const annual = totalMonthly.reduce((s, v) => s + v, 0);
-  const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + maskMonthly(r.monthly, monthMask).reduce((a, b) => a + b, 0), 0);
-  const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + maskMonthly(r.monthly, monthMask).reduce((a, b) => a + b, 0), 0);
+  const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
   const quarter = q => totalMonthly.slice(q * 3, q * 3 + 3).reduce((a, b) => a + b, 0);
 
   const resumen = dashboardSection("resumen", "Resumen", rows.length + " proyecto(s)", `
@@ -2474,7 +2541,7 @@ function renderHorasVendidas() {
       <table class="dashboard-table">
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
-          ${renderTreeRows(stateKey, tree, 0, false, undefined, monthMask)}
+          ${renderTreeRows(stateKey, tree, 0, false, undefined)}
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>

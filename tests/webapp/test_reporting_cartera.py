@@ -1219,3 +1219,33 @@ def test_anio_mes_fields_are_narrow_everywhere():
     assert "whatsnew-filter--narrow" in rent_anio
     cart_anio = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioField"):_REPORTING_JS.index("function carteraMesField")]
     assert "whatsnew-filter--narrow" in cart_anio
+
+
+# ============================================================================
+# Horas Vendidas Año/Mes/Estado migración — DOM + faceting
+# ============================================================================
+
+def test_horas_vendidas_dom_shows_anio_mes_estado_not_desde_hasta():
+    fb = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidasFilterBar"):_REPORTING_JS.index("// Client Partner primero")]
+    assert "horasVendidasAnioField()" in fb and "horasVendidasMesField()" in fb
+    assert "toggleHorasVendidasStatus('En curso')" in fb and "toggleHorasVendidasStatus('Finalizado')" in fb
+    assert 'dateField("horasvendidas"' not in fb
+    assert '"desde"' not in fb and '"hasta"' not in fb
+
+
+def test_horas_vendidas_estado_default_en_curso_only():
+    st = _REPORTING_JS[_REPORTING_JS.index("horasVendidasStatus: {"):_REPORTING_JS.index("horasVendidasStatus: {") + 80]
+    assert '"En curso": true' in st and '"Finalizado": false' in st
+
+
+def test_horas_vendidas_anio_options_faceted_and_selected_population():
+    opt = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioOptions"):_REPORTING_JS.index("function horasVendidasDefaultAnio")]
+    assert "state.horasVendidasStatus[r.estado]" in opt
+    assert "facetRowsExcept(statusRows, state.filters.horasvendidas" in opt
+    sel = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasSelectedRows"):_REPORTING_JS.index("function horasVendidasSelectedRows") + 700]
+    assert "vendidasByYear" in sel and "_maskMes(arr, mes)" in sel
+
+
+def test_horas_vendidas_anio_mes_narrow():
+    aniofld = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioField"):_REPORTING_JS.index("function horasVendidasMesField")]
+    assert "whatsnew-filter--narrow" in aniofld

@@ -492,20 +492,25 @@ class ReportingService:
         groups: dict[tuple, dict] = {}
         for f in facts:
             key = (f["clientPartner"], f["tipoProyecto"], f["cliente"], f["proyecto"])
-            g = groups.setdefault(key, {"monthly": [0.0] * 12, "facts": []})
+            g = groups.setdefault(key, {"byYear": {}, "collapsed": [0.0] * 12,
+                                        "facts": [], "estado": f.get("estado", "")})
             n = _month_num(f["mes"])
             if n is not None:
-                g["monthly"][n - 1] += f["hsVendidas"]
+                g["collapsed"][n - 1] += f["hsVendidas"]
+                anio = f.get("anio")
+                if anio:
+                    g["byYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
                 g["facts"].append(f)
         rows = []
         for (cp, tipo, cliente, proyecto), g in groups.items():
             rows.append({
                 "cp": cp, "tipo": tipo, "cliente": cliente, "proyecto": proyecto,
-                # Estado por-proyecto (paso 1 de la migración Año/Mes/Estado,
-                # HANDOFF §-16 #8) — aditivo/no-rompe; el grano por-año + facet UI
-                # son el paso 2.
-                "estado": (g["facts"][0].get("estado", "") if g["facts"] else ""),
-                "monthly": [_round2(v) for v in g["monthly"]],
+                "estado": g["estado"],
+                # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Año
+                # single-select elige el [12] de ese año; `monthly` colapsado queda
+                # como retrocompat (contrato previo).
+                "vendidasByYear": {a: [_round2(v) for v in arr] for a, arr in g["byYear"].items()},
+                "monthly": [_round2(v) for v in g["collapsed"]],
                 "fecha": _fecha_min(g["facts"]),
             })
         return rows

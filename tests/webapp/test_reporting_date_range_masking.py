@@ -47,15 +47,14 @@ def test_rentabilidad_mensual_and_resumen_apply_the_same_month_mask():
 
 
 def test_horas_vendidas_applies_month_mask_to_matrix_and_kpis():
-    # Q2: la matriz mensual, el Total, Mantenimiento/Proyecto y Q1-Q4/Hs
-    # Estimadas anuales deben derivar de la MISMA `monthMask` — todos
-    # se calculan a partir de `totalMonthly`/`maskMonthly(r.monthly, ...)`
-    # ya enmascarados, nunca del `monthly` crudo de la fila.
-    fn = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidas"):_REPORTING_JS.index("function renderComercialParticipacion")]
-    assert 'const monthMask = monthsInRange(getFilter("horasvendidas", "desde"), getFilter("horasvendidas", "hasta"));' in fn
-    assert "const totalMonthly = sumMonthly(rows, monthMask);" in fn
-    assert "maskMonthly(r.monthly, monthMask).reduce((a, b) => a + b, 0), 0);" in fn
-    assert "renderTreeRows(stateKey, tree, 0, false, undefined, monthMask)" in fn
+    # Migración Año/Mes/Estado (§-16 #8): la matriz, Total, Mantenimiento/Proyecto,
+    # Q1-Q4 y Hs Estimadas anuales derivan de la MISMA población seleccionada
+    # (`horasVendidasSelectedRows()`, ya proyectada a Año+Mes) — no de Desde/Hasta.
+    fn = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidas() {"):_REPORTING_JS.index("function renderComercialParticipacion")]
+    assert "const rows = horasVendidasSelectedRows();" in fn
+    assert "const totalMonthly = sumMonthly(rows);" in fn
+    assert "monthsInRange" not in fn                      # Desde/Hasta retirado de HV
+    assert "renderTreeRows(stateKey, tree, 0, false, undefined)" in fn
 
 
 def test_calendario_and_no_asignadas_are_not_month_masked_no_date_filter_there():
