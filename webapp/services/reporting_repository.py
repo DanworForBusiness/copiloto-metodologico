@@ -96,6 +96,17 @@ CLI_PERMITE_ADELANTO = ("Permite_x0020_Adelanto", "PermiteAdelanto")
 CLI_CONDICION_PAGO = ("Condicion_x0020_de_x0020_Pago", "CondicionDePago")
 CLI_CALENDARIO_ACT = ("Calendario_Act",)
 
+# Salud de Cliente — internal names REALES confirmados por diagnóstico Graph
+# en vivo del owner (no codificados a mano por convención, DADOS
+# directamente — ver HANDOFF): columnas de texto categóricas puras de la
+# MISMA lista Cliente, sin lookup, sin lista nueva.
+CLI_SALUD_FINANCIERA = ("Salud_x0020_Financiera",)
+CLI_SALUD_RELACION = ("Salud_x0020_Relaci_x00f3_n",)
+CLI_SALUD_OPERATIVO = ("Salud_x0020_Operativo",)
+CLI_SALUD_CONTINUIDAD = ("Salud_x0020_Continuidad",)
+CLI_SALUD_ESTRATEGICO = ("Salud_x0020_Estrategico",)
+CLI_SALUD_FINAL = ("Salud",)
+
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
 FAC_CANTIDAD = "Suma de Cantidad"
@@ -324,25 +335,23 @@ class ReportingRepository:
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
 
     def get_batch_a_facts(self, access_token: str) -> dict:
-        """UN solo fetch para las 3 experiencias de Batch A que reusan el
-        backbone de Cartera (Horas Vendidas, Participación, Calendario — ver
-        real-data-lineage.md sección 8/9). Reusa las MISMAS listas/joins que
+        """UN solo fetch para TODAS las experiencias que reusan el backbone
+        de Cartera (Horas Vendidas, Participación, Calendario, Horas
+        Productivas-Productivas, Salud de Cliente — ver real-data-
+        lineage.md sección 8/9). Reusa las MISMAS listas/joins que
         `get_cartera_facts` (Horas por proyectos × Proyectos × Cliente +
         Client Partner) en UN fetch — nunca fetches redundantes de las
         mismas listas. Devuelve:
           - `project_facts`: hechos proyecto×mes (cliente/clientPartner/
-            proyecto/tipoProyecto/mes/anio/horas*) — alimenta Horas Vendidas
-            y (agregado por Cliente) Participación.
+            proyecto/tipoProyecto/mes/anio/horas*) — alimenta Horas
+            Vendidas, Participación (agregado por Cliente) y Horas
+            Productivas (agregado por Cliente×Proyecto).
           - `cliente_dim`: una fila por Cliente con las columnas de
-            Participación/Calendario (frecuenciaActualizacion/
-            permiteAdelanto/condicionPago/calendarioAct/clientPartner).
-
-        NO incluye Horas Productivas/Productivas: esa perspectiva depende de
-        `Time Logs Reports` (fuente física DISTINTA — ver HANDOFF: hallazgo
-        de contradicción de lineage entre el discovery original de V0
-        (`page_inventory.json`: Values=Sum(Time Logs Reports.HORAS)) y el
-        resumen de Batch A que la clasificó como reuso del backbone Horas
-        por proyectos — diferida hasta resolver cuál es correcta)."""
+            Participación/Calendario/Salud (frecuenciaActualizacion/
+            permiteAdelanto/condicionPago/calendarioAct/salud*/
+            clientPartner). Los 6 campos de Salud son internal names REALES
+            confirmados por diagnóstico Graph en vivo del owner (no
+            codificados a mano)."""
         self._token = access_token
         site_id = self._require_site_id()
 
@@ -388,6 +397,12 @@ class ReportingRepository:
                 "permiteAdelanto": _first(c, *CLI_PERMITE_ADELANTO),
                 "condicionPago": _first(c, *CLI_CONDICION_PAGO),
                 "calendarioAct": _first(c, *CLI_CALENDARIO_ACT),
+                "saludFinanciera": _first(c, *CLI_SALUD_FINANCIERA),
+                "saludRelacion": _first(c, *CLI_SALUD_RELACION),
+                "saludOperativo": _first(c, *CLI_SALUD_OPERATIVO),
+                "saludContinuidad": _first(c, *CLI_SALUD_CONTINUIDAD),
+                "saludEstrategico": _first(c, *CLI_SALUD_ESTRATEGICO),
+                "saludFinal": _first(c, *CLI_SALUD_FINAL),
             })
 
         return {"project_facts": project_facts, "cliente_dim": cliente_dim}

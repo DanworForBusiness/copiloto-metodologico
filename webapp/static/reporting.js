@@ -632,11 +632,11 @@ const state = {
   // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
-  // Batch A (Horas Vendidas/Participación/Calendario/Horas Productivas-
-  // Productivas, ver HANDOFF): MISMO ciclo de vida, UN solo status para
-  // las 4 (comparten UN fetch/endpoint consolidado — ver loadBatchAData).
-  // Salud de Cliente sigue en mock (sin lineage físico documentado para
-  // sus 6 columnas, ver HANDOFF); No Asignadas es Batch B.
+  // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
+  // Horas Productivas-Productivas/Salud de Cliente, ver HANDOFF): MISMO
+  // ciclo de vida, UN solo status para las 5 (comparten UN fetch/endpoint
+  // consolidado — ver loadBatchAData). No Asignadas es Batch B (fuente
+  // CSV de Time Logs distinta).
   batchADataStatus: "idle",
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
@@ -1198,16 +1198,14 @@ function renderCarteraDataState() {
   return reportingLoadingHtml("Cargando datos de Cartera…");
 }
 
-// Batch A (Horas Vendidas/Participación/Calendario/Horas Productivas-
-// Productivas, ver HANDOFF: "backbone reuse") — MISMO patrón que
-// loadCarteraData: `replaceRows` puebla EN EL LUGAR los 4 arrays que ya
-// referencian FACET_CONFIG/render*, UN solo fetch/endpoint consolidado
+// Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/Horas
+// Productivas-Productivas/Salud de Cliente, ver HANDOFF) — MISMO patrón
+// que loadCarteraData: `replaceRows` puebla EN EL LUGAR los 5 arrays que
+// ya referencian FACET_CONFIG/render*, UN solo fetch/endpoint consolidado
 // (comparten origen — Horas por proyectos × Proyectos × Cliente),
 // gateado por `batchADataStatus` (nunca muestra el mock inicial una vez
-// que arrancó la carga real). Salud de Cliente NO participa de este ciclo
-// de vida — sigue en mock (ver HANDOFF: sin lineage físico documentado
-// para sus 6 columnas categóricas). No Asignadas (Batch B, fuente CSV
-// distinta) tampoco.
+// que arrancó la carga real). Solo No Asignadas (Batch B, fuente CSV de
+// Time Logs distinta) NO participa de este ciclo de vida.
 async function loadBatchAData() {
   state.batchADataStatus = "loading";
   try {
@@ -1221,6 +1219,7 @@ async function loadBatchAData() {
       replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
       replaceRows(CALENDARIO_ROWS, data.calendario);
       replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
+      replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
       state.batchADataStatus = "ready";
     } else {
       state.batchADataStatus = "error";
@@ -1829,6 +1828,10 @@ function renderComercialParticipacion() {
 // Status de Cliente detalle": Client Partner > Cliente, columnas
 // categóricas (sin rollup, ver comentario del dataset).
 function renderComercialSalud() {
+  // Gate del ciclo de vida real-data (ver loadBatchAData) — internal names
+  // reales de Cliente confirmados por diagnóstico Graph en vivo del owner.
+  if (state.batchADataStatus === "idle") loadBatchAData();
+  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Salud de Cliente");
   const rows = facetFilteredRows("comercial");
   const keys = ["cp", "cliente"];
   const stateKey = "comercial::Salud de Cliente";

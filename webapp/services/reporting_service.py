@@ -128,17 +128,39 @@ class ReportingService:
         self._repository = repository if repository is not None else ReportingRepository()
 
     def get_batch_a(self, access_token: str) -> dict:
-        """UN método de entrada para las 4 experiencias de Batch A — el
-        router llama esto UNA vez (endpoint consolidado), nunca 4 POSTs
-        separados que repitan el mismo fetch de Cliente/Proyectos/Horas.
-        Salud de Cliente queda FUERA (sin lineage físico documentado para
-        sus 6 columnas categóricas, ver HANDOFF) — sigue en mock."""
+        """UN método de entrada para las 5 experiencias que reusan el
+        backbone de Cartera — el router llama esto UNA vez (endpoint
+        consolidado), nunca 5 POSTs separados que repitan el mismo fetch de
+        Cliente/Proyectos/Horas."""
         return {
             "horasVendidas": self.get_horas_vendidas(access_token),
             "participacion": self.get_participacion(access_token),
             "calendario": self.get_calendario(access_token),
             "horasProductivas": self.get_horas_productivas(access_token),
+            "salud": self.get_salud(access_token),
         }
+
+    def get_salud(self, access_token: str) -> list[dict]:
+        """Contrato EXACTO de `COMERCIAL_SALUD_ROWS`: una fila por Cliente
+        con los 5 componentes categóricos + Salud Final, tal cual vienen de
+        la lista Cliente (columnas de TEXTO puras, sin measure — NUNCA
+        agregación numérica, ver HANDOFF). Filas sin Cliente se omiten."""
+        raw = self._repository.get_batch_a_facts(access_token)
+        rows = []
+        for dim in raw["cliente_dim"]:
+            if not dim["cliente"]:
+                continue
+            rows.append({
+                "cp": dim["clientPartner"],
+                "cliente": dim["cliente"],
+                "saludFinanciera": dim["saludFinanciera"],
+                "saludRelacion": dim["saludRelacion"],
+                "saludOperativo": dim["saludOperativo"],
+                "saludContinuidad": dim["saludContinuidad"],
+                "saludEstrategico": dim["saludEstrategico"],
+                "saludFinal": dim["saludFinal"],
+            })
+        return rows
 
     def get_cartera(self, access_token: str) -> dict:
         facts = self._repository.get_cartera_facts(access_token)

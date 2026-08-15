@@ -207,6 +207,35 @@ def test_horas_productivas_ignores_facts_without_cliente_or_proyecto(monkeypatch
 
 
 # ============================================================================
+# Salud de Cliente — categórico puro, internal names REALES dados por el
+# owner (diagnóstico Graph en vivo), NUNCA agregación numérica.
+# ============================================================================
+
+def test_salud_reads_the_six_categorical_fields_verbatim(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[], proyectos=[],
+        clientes=[{"id": "c1", "Title": "Andesmar", "ClientPartnerLookupId": "pm1",
+                   "Salud_x0020_Financiera": "Verde", "Salud_x0020_Relaci_x00f3_n": "Amarillo",
+                   "Salud_x0020_Operativo": "Verde", "Salud_x0020_Continuidad": "Rojo",
+                   "Salud_x0020_Estrategico": "Verde", "Salud": "Amarillo"}],
+        cp_columns=_CP_COLUMNS,
+        client_partners=[{"id": "pm1", "Title": "María López"}],
+    )
+    rows = _service().get_salud("tok")
+    assert rows == [{
+        "cp": "María López", "cliente": "Andesmar",
+        "saludFinanciera": "Verde", "saludRelacion": "Amarillo", "saludOperativo": "Verde",
+        "saludContinuidad": "Rojo", "saludEstrategico": "Verde", "saludFinal": "Amarillo",
+    }]
+
+
+def test_salud_omits_clientes_without_a_name(monkeypatch):
+    _patch(monkeypatch, horas=[], proyectos=[], clientes=[{"id": "c1", "Title": ""}])
+    assert _service().get_salud("tok") == []
+
+
+# ============================================================================
 # Calendario — presencia BOOLEANA por mes, nunca conteo
 # ============================================================================
 
@@ -259,13 +288,13 @@ from pathlib import Path  # noqa: E402
 _REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
 
 
-def test_batch_a_endpoint_and_lifecycle_gate_all_four_renderers():
+def test_batch_a_endpoint_and_lifecycle_gate_all_five_renderers():
     assert '"/operaciones/reporting/integral/data/batch-a"' in _REPORTING_JS
     assert "function loadBatchAData" in _REPORTING_JS
     assert "function renderBatchADataState" in _REPORTING_JS
-    # Los 4 renderers gatean con el MISMO status — nunca un ciclo de vida
+    # Los 5 renderers gatean con el MISMO status — nunca un ciclo de vida
     # paralelo por experiencia.
-    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas"):
+    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas", "renderComercialSalud"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
         assert 'state.batchADataStatus === "idle"' in body
         assert "loadBatchAData()" in body
@@ -274,11 +303,12 @@ def test_batch_a_endpoint_and_lifecycle_gate_all_four_renderers():
 def test_batch_a_never_mixes_mock_and_real_data():
     # `replaceRows` puebla EN EL LUGAR los mismos arrays que ya usa
     # FACET_CONFIG — nunca un dataset paralelo para datos reales.
-    load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("async function loadBatchAData") + 900]
+    load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("async function loadBatchAData") + 1000]
     assert "replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas)" in load_fn
     assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion)" in load_fn
     assert "replaceRows(CALENDARIO_ROWS, data.calendario)" in load_fn
     assert "replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas)" in load_fn
+    assert "replaceRows(COMERCIAL_SALUD_ROWS, data.salud)" in load_fn
 
 
 def test_capacidad_productivas_denominator_recomputes_not_a_stale_constant():
@@ -300,14 +330,6 @@ def test_comercial_participacion_denominator_recomputes_not_a_stale_constant():
     assert "const COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS =" not in _REPORTING_JS
 
 
-def test_salud_de_cliente_stays_on_mock_not_gated():
-    # Salud de Cliente NO participa del ciclo de vida de Batch A (sin
-    # lineage físico documentado para sus 6 columnas categóricas, ver
-    # HANDOFF) — su renderer no debe chequear `batchADataStatus`.
-    salud_fn = _REPORTING_JS[_REPORTING_JS.index("function renderComercialSalud"):_REPORTING_JS.index("function renderComercialSalud") + 400]
-    assert "batchADataStatus" not in salud_fn
-
-
 def test_capacidad_no_asignadas_stays_on_mock_not_gated():
     # No Asignadas queda para Batch B (fuente CSV de Time Logs distinta) —
     # su renderer no debe chequear `batchADataStatus`.
@@ -325,9 +347,9 @@ def test_horas_productivas_reuses_project_facts_no_new_source():
 
 
 def test_batch_a_renderers_use_shared_dashboard_table_not_a_local_variant():
-    # Ninguna de las 4 experiencias de Batch A debe introducir una clase de
-    # tabla/status/hierarchy propia — todas siguen consumiendo el primitivo
-    # compartido de Phase S.
-    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas"):
+    # Ninguna de las 5 experiencias reconectadas debe introducir una clase
+    # de tabla/status/hierarchy propia — todas siguen consumiendo el
+    # primitivo compartido de Phase S.
+    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas", "renderComercialSalud"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 2600]
         assert 'class="dashboard-table"' in body
