@@ -274,13 +274,54 @@ def test_client_partner_blank_when_target_not_discoverable_no_guess(monkeypatch)
     assert _repo().get_cartera_facts("tok")[0]["clientPartner"] == ""
 
 
+# ============================================================================
+# P5 — Mantenimiento nunca dispara la XLSX de Facturadas (owner live QA de
+# performance, Cartera ~17s)
+# ============================================================================
+
+def test_include_facturadas_false_never_downloads_xlsx(monkeypatch):
+    calls = {"bytes": 0}
+
+    def counting_bytes(url, access_token=None, **kw):
+        calls["bytes"] += 1
+        raise AssertionError("no debería descargarse la XLSX con include_facturadas=False")
+
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+                "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"}],
+        proyectos=[{"id": "p1", "Title": "Mantenimiento X", "TipodeProyecto": "Tiempo & Materiales"}],
+        clientes=[{"id": "c1", "Title": "Andesmar"}],
+        facturadas=Exception("no debería tocarse"),
+    )
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_bytes", counting_bytes)
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False)
+    assert calls["bytes"] == 0
+    assert facts[0]["facturadasProyecto"] == 0.0
+
+
+def test_include_facturadas_true_still_downloads_xlsx_default_preserved(monkeypatch):
+    # Default sin cambios (retrocompat) — Proyecto/`get_cartera()` combinado
+    # SIGUEN descargando la XLSX como siempre.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+                "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"}],
+        proyectos=[{"id": "p1", "Title": "SADI v2", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        facturadas=_facturadas_xlsx([("SADIV2", 99)]),
+    )
+    facts = _repo().get_cartera_facts("tok")  # sin kwarg = True
+    assert facts[0]["facturadasProyecto"] == 99
+
+
 # --- Service: derivaciones + shaping -----------------------------------------
 
 class _FakeRepo:
     def __init__(self, facts):
         self._facts = facts
 
-    def get_cartera_facts(self, access_token):
+    def get_cartera_facts(self, access_token, *, include_facturadas=True):
         return self._facts
 
 
@@ -310,6 +351,15 @@ def test_service_mantenimiento_shape_diff_and_fecha():
     assert m["facturadas"] == m["certificadas"] == 128   # Mantenimiento: facturadas = certificadas
     assert m["fecha"] == "2026-08-01"            # primer día del mes
     assert m["cp"] == "María López" and m["vendidasMensuales"] == 140 and m["status"] == "En curso"
+
+
+def test_service_mantenimiento_rows_carry_anio_mes_for_ux1_facets():
+    # UX1: el facet Año/Mes de Mantenimiento necesita estos campos crudos
+    # (no derivados de `fecha`) en cada fila para poder filtrar.
+    out = ReportingService(_FakeRepo([_mant_fact(anio="2026", mes="Agosto")])).get_cartera("tok")
+    m = out["mantenimiento"][0]
+    assert m["anio"] == "2026"
+    assert m["mes"] == "8"  # numérico, no el nombre largo del mes
 
 
 def test_service_proyecto_aggregates_over_months_facturadas_not_resummed():
@@ -444,6 +494,65 @@ def test_cartera_endpoint_never_echoes_token(monkeypatch):
     assert secret not in r.text
 
 
+# --- Router: `perspectiva` (P5, owner live QA de performance) ----------------
+
+class _PerspectivaAwareReportingService:
+    """Registra qué método real se invocó — prueba que `perspectiva` en el
+    router dispara SOLO el fetch de esa perspectiva, nunca el combo completo
+    (que sería el único camino con riesgo de tocar la XLSX de Facturadas
+    para Mantenimiento)."""
+
+    def __init__(self):
+        self.called = []
+
+    def get_cartera(self, access_token):
+        self.called.append("combo")
+        return {"mantenimiento": [{"cliente": "combo"}], "proyecto": [{"cliente": "combo"}]}
+
+    def get_cartera_mantenimiento(self, access_token):
+        self.called.append("mantenimiento")
+        return [{"cliente": "solo-mantenimiento"}]
+
+    def get_cartera_proyecto(self, access_token):
+        self.called.append("proyecto")
+        return [{"cliente": "solo-proyecto"}]
+
+
+def test_cartera_endpoint_perspectiva_mantenimiento_calls_only_that_method(monkeypatch):
+    svc = _PerspectivaAwareReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "mantenimiento"},
+    )
+    body = r.json()
+    assert svc.called == ["mantenimiento"]  # nunca "combo" — nunca toca Proyecto/XLSX
+    assert body["cartera"] == {"mantenimiento": [{"cliente": "solo-mantenimiento"}]}
+    assert "proyecto" not in body["cartera"]
+
+
+def test_cartera_endpoint_perspectiva_proyecto_calls_only_that_method(monkeypatch):
+    svc = _PerspectivaAwareReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "proyecto"},
+    )
+    body = r.json()
+    assert svc.called == ["proyecto"]
+    assert body["cartera"] == {"proyecto": [{"cliente": "solo-proyecto"}]}
+
+
+def test_cartera_endpoint_perspectiva_omitted_preserves_retrocompat_combo(monkeypatch):
+    svc = _PerspectivaAwareReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
+    body = r.json()
+    assert svc.called == ["combo"]
+    assert body["cartera"]["mantenimiento"] == [{"cliente": "combo"}]
+    assert body["cartera"]["proyecto"] == [{"cliente": "combo"}]
+
+
 # --- Browser wiring (source-seam, sin runtime JS) ----------------------------
 
 from pathlib import Path  # noqa: E402
@@ -459,29 +568,66 @@ def test_cartera_fetches_the_backend_endpoint():
 
 def test_cartera_populates_existing_arrays_in_place_not_reassign():
     # Preserva el motor: muta los arrays que CARTERA_CONFIG referencia.
-    load_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraData"):_REPORTING_JS.index("function renderCarteraDataState")]
-    assert "replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento)" in load_block
-    assert "replaceRows(CARTERA_PROYECTO_ROWS, data.cartera.proyecto)" in load_block
-    assert "state.carteraAnioInicio = carteraDefaultAnioInicio()" in load_block  # re-deriva default real
+    # P5 (owner live QA de performance): Mantenimiento/Proyecto tienen
+    # fetch/status INDEPENDIENTES — Mantenimiento NUNCA dispara la XLSX.
+    mant_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraMantenimiento"):_REPORTING_JS.index("async function loadCarteraProyecto")]
+    assert "replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento)" in mant_block
+    assert 'perspectiva: "mantenimiento"' in mant_block
+
+    proy_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraProyecto"):_REPORTING_JS.index("function carteraStatusFor")]
+    assert "replaceRows(CARTERA_PROYECTO_ROWS, data.cartera.proyecto)" in proy_block
+    assert 'perspectiva: "proyecto"' in proy_block
+    assert "state.carteraAnioInicio = carteraDefaultAnioInicio()" in proy_block  # re-deriva default real
 
 
 def test_cartera_render_is_gated_by_data_status():
     render_block = _REPORTING_JS[_REPORTING_JS.index("function renderCartera()"):_REPORTING_JS.index("const stateKey")]
-    assert 'if (state.carteraDataStatus === "idle") loadCarteraData();' in render_block
-    assert 'if (state.carteraDataStatus !== "ready") return renderCarteraDataState();' in render_block
+    assert "if (status === \"idle\") loadCarteraFor(persp);" in render_block
+    assert "if (status !== \"ready\") return renderCarteraDataState();" in render_block
 
 
 def test_cartera_failure_is_localized_fail_soft():
-    load_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraData"):_REPORTING_JS.index("function renderCarteraDataState")]
-    assert 'state.carteraDataStatus = "error"' in load_block
-    assert "catch (e)" in load_block
+    mant_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraMantenimiento"):_REPORTING_JS.index("async function loadCarteraProyecto")]
+    assert 'state.carteraMantenimientoStatus = "error"' in mant_block
+    assert "catch (e)" in mant_block
     # El estado de error de Cartera NO menciona otras experiencias como rotas.
     assert "siguen disponibles" in _REPORTING_JS
 
 
 def test_filter_bar_hidden_until_data_ready():
-    fb = _REPORTING_JS[_REPORTING_JS.index("function renderCarteraFilterBar()"):_REPORTING_JS.index("function renderCartera()")]
-    assert 'if (state.carteraDataStatus !== "ready") return "";' in fb
+    fb = _REPORTING_JS[_REPORTING_JS.index("function renderCarteraFilterBar()"):_REPORTING_JS.index("function renderRentabilidadFilterBar()")]
+    assert 'if (carteraStatusFor(persp) !== "ready") return "";' in fb
+
+
+# --- UX1: contrato de filtro Año/Mes de Mantenimiento -------------------------
+
+def test_meses_largos_is_fixed_twelve_months_not_derived_from_data():
+    idx = _REPORTING_JS.index("const MESES_LARGOS")
+    block = _REPORTING_JS[idx:idx + 260]
+    for mes in ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+                "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"):
+        assert mes in block
+
+
+def test_cartera_mes_field_renders_all_twelve_months_plus_todos():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function carteraMesField()"):_REPORTING_JS.index("function renderCarteraFilterBar()")]
+    assert "MESES_LARGOS" in fn
+    assert "Todos" in fn  # opción "Todos los meses" siempre presente, sin importar data
+
+
+def test_facet_config_cartera_mes_has_predicate_anio_does_not():
+    # `predicate` es lo que exime a un facet de `reconcileFacetFilters` (mismo
+    # mecanismo ya usado para Desde/Hasta) — Mes SIEMPRE debe mostrar los 12
+    # meses fijos; Año SÍ debe participar en la poda de opciones stale.
+    idx = _REPORTING_JS.index("const FACET_CONFIG = {")
+    idx = _REPORTING_JS.index("cartera:", idx)
+    block = _REPORTING_JS[idx:idx + 2500]
+    anio_idx = block.index('key: "anio"')
+    mes_idx = block.index('key: "mes"')
+    anio_entry = block[anio_idx:mes_idx if mes_idx > anio_idx else anio_idx + 200]
+    mes_entry = block[mes_idx:mes_idx + 200]
+    assert "predicate" not in anio_entry
+    assert "predicate" in mes_entry
 
 
 # ============================================================================

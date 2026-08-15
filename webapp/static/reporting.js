@@ -187,17 +187,22 @@ function isoDateLocal(d) {
 // Default de Desde/Hasta/Año de Inicio (ver corrective — HANDOFF: "Cartera
 // + Rentabilidad Completeness" + owner feedback posterior): resuelve al
 // año/fecha calendario ACTUAL (`new Date()`, nunca un literal hardcodeado
-// tipo "2026"/"Agosto"). Mantenimiento: Desde = primer día del mes en
-// curso, Hasta = hoy — SIEMPRE ese rango (a diferencia de Año/Mes como
-// <select>, un rango de fechas nunca "no es representable", así que no
-// necesita el fallback a Todos). Proyecto: Año de Inicio SOLO si ese año
-// existe de verdad en el dataset — si el mock no lo representa, cae a
-// "Todos" ("") en vez de mostrar un filtro que garantiza 0 filas.
+// tipo "2026"/"Agosto"). Mantenimiento (UX1, owner live QA — vuelve de
+// Desde/Hasta a Año+Mes, grano MENSUAL real de la fuente): default = año/
+// mes calendario actual. Si ese año/mes deja de ser una opción válida bajo
+// el Estado/filtros activos una vez lleguen los datos reales, el motor de
+// reconciliación de facets YA existente (reconcileExperienceFacets, MISMO
+// mecanismo que Client Partner/Proyecto/Cliente) lo corrige — Año participa
+// del chequeo de opciones válidas (mismo criterio que Año de Inicio de
+// Proyecto), Mes NUNCA se poda (predicate lo excluye del chequeo, ver
+// FACET_CONFIG.cartera — el <select> de Mes siempre ofrece los 12 meses
+// fijos). Proyecto: Año de Inicio SOLO si ese año existe de verdad en el
+// dataset — si el mock no lo representa, cae a "Todos" ("") en vez de
+// mostrar un filtro que garantiza 0 filas.
 function carteraDefaultFilters(persp) {
   if (persp === "Mantenimiento") {
     const hoy = new Date();
-    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-    return { desde: isoDateLocal(desde), hasta: isoDateLocal(hoy) };
+    return { anio: String(hoy.getFullYear()), mes: String(hoy.getMonth() + 1) };
   }
   return {};
 }
@@ -367,6 +372,11 @@ const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsig
 // los niveles de agrupación (Client Partner/Tipo/Cliente) se agregan sumando
 // filas — nunca se hardcodea un total de grupo por separado.
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+// Nombres completos (UX1, owner live QA — Cartera/Mantenimiento vuelve a
+// un selector Año+Mes en vez de Desde/Hasta): el <select> de Mes SIEMPRE
+// ofrece los 12 meses fijos, nunca data-driven (ver carteraMesField) — a
+// diferencia de MESES (abreviado, solo para headers de columna de matriz).
+const MESES_LARGOS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 // `fecha` (owner feedback, ver HANDOFF: Desde/Hasta faltante en Horas
 // Vendidas) — dentro del año calendario en curso para las 6 filas, mismo
 // criterio que Participación/Rentabilidad.
@@ -603,7 +613,10 @@ function carteraUpdateLink() {
   const currentYear = new Date().getFullYear();
   let year = currentYear;
   if (persp === "Mantenimiento") {
-    year = filters.hasta ? parseInt(filters.hasta.slice(0, 4), 10) : currentYear;
+    // UX1 (owner live QA): Mantenimiento reemplazó Desde/Hasta por Año/Mes
+    // — el año seleccionado se lee directo de `filters.anio` (ya no hay
+    // `filters.hasta` del cual derivarlo).
+    year = filters.anio ? parseInt(filters.anio, 10) : currentYear;
   } else {
     const selected = [...state.carteraAnioInicio].map(Number);
     if (selected.length) year = Math.max(...selected);
@@ -667,10 +680,13 @@ const state = {
   // Inicializado tras el literal (ver abajo) — carteraDefaultAnioInicio() lee
   // `state`, que todavía no existe durante la evaluación de este objeto.
   carteraAnioInicio: new Set(),
-  // Ciclo de vida de la carga de datos REALES de Cartera (Reporting real-data
-  // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
-  // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
-  carteraDataStatus: "idle",
+  // Ciclo de vida de la carga de datos REALES de Cartera — UN status POR
+  // PERSPECTIVA (P5, owner live QA de performance: Mantenimiento NUNCA
+  // debe esperar el fetch+parse de la XLSX de Facturadas que solo Proyecto
+  // usa, ver loadCarteraMantenimiento/loadCarteraProyecto). idle → loading
+  // → ready | error, mismo criterio que el resto del Hub.
+  carteraMantenimientoStatus: "idle",
+  carteraProyectoStatus: "idle",
   // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
@@ -870,14 +886,21 @@ const FACET_CONFIG = {
     // Proyecto/Cliente faceteen sobre lo que queda.
     const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status])
       .filter(r => persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio));
-    // Mantenimiento agrega Desde/Hasta (rango sobre `fecha`, reemplaza el
-    // combo Año+Mes — owner feedback, ver HANDOFF); Proyecto NO agrega un
-    // facet de Año de Inicio acá (se convirtió en checkbox multi-select,
-    // ver arriba — ya no es un <select> de valor único).
+    // Mantenimiento (UX1, owner live QA — vuelve de Desde/Hasta a Año+Mes,
+    // grano MENSUAL real de la fuente): Año es un facet <select> normal
+    // (SIN predicate) — participa de la reconciliación de opciones válidas
+    // igual que Client Partner/Proyecto/Cliente (canonical:
+    // availableOptions(Año) = filas por todos los demás filtros activos,
+    // excluyendo Año). Mes usa `predicate` (igualdad exacta) para quedar
+    // FUERA de esa reconciliación — el <select> de Mes SIEMPRE ofrece los
+    // 12 meses fijos (ver carteraMesField), nunca se poda por falta de
+    // datos ese mes. Proyecto NO agrega un facet de Año de Inicio acá (se
+    // convirtió en checkbox multi-select, ver arriba — ya no es un
+    // <select> de valor único).
     const dateFields = persp === "Mantenimiento"
       ? [
-          { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
-          { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
+          { key: "anio", field: "anio" },
+          { key: "mes", field: "mes", predicate: (mes, selected) => mes === selected },
         ]
       : [];
     // Client Partner (owner feedback, ver HANDOFF: filtro faltante en
@@ -1013,6 +1036,24 @@ function selectField(expId, key, label, options) {
     </select>
   </label>`;
 }
+// Mes de Cartera/Mantenimiento (UX1, owner live QA): SIEMPRE los 12 meses
+// fijos (a diferencia del resto de los facets <select>, que son
+// data-driven vía `facetSelectField` — un mes sin datos bajo el Año/Estado
+// activo sigue siendo una opción VÁLIDA, ver FACET_CONFIG.cartera). MISMA
+// marca `.whatsnew-filter`/`<select>` que `selectField`, pero con
+// value(1-12) != label(nombre completo) — el único facet del Hub con esa
+// necesidad (el resto son enums donde value==label), por eso no reusa
+// `selectField` tal cual.
+function carteraMesField() {
+  const current = getFilter("cartera", "mes");
+  return `<label class="whatsnew-filter">
+    <span>Mes</span>
+    <select onchange="setFilter('cartera','mes', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${MESES_LARGOS.map((nombre, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(nombre)}</option>`).join("")}
+    </select>
+  </label>`;
+}
 // Filtro de fecha nativo — MISMO `<input type="date">` + `.whatsnew-filter`
 // que ya usa el dashboard de Actividad (Desde/Hasta, ver
 // admin_activity_content.html), CERO CSS nuevo (`.whatsnew-filter
@@ -1099,15 +1140,18 @@ function toggleCarteraStatus(key) {
 // fecha/mes en absoluto, ver page_inventory.json). Orden: Proyecto,
 // Cliente, Desde/Hasta (o Año de Inicio), Estado.
 function renderCarteraFilterBar() {
-  // Sin barra de filtros hasta que los datos reales estén listos — evita
-  // mostrar opciones de un dataset que todavía no llegó (o que falló).
-  if (state.carteraDataStatus !== "ready") return "";
   const persp = state.perspective.cartera;
+  // Sin barra de filtros hasta que los datos reales de ESTA perspectiva
+  // estén listos — evita mostrar opciones de un dataset que todavía no
+  // llegó (o que falló).
+  if (carteraStatusFor(persp) !== "ready") return "";
+  // Mantenimiento (UX1, owner live QA): Año (facet <select> normal,
+  // data-driven) + Mes (fijo, 12 meses siempre — ver carteraMesField).
   // Año de Inicio (Proyecto, owner feedback ver HANDOFF): el slicer real
   // permite VARIOS años tildados a la vez — checkbox-group DINÁMICO (años
   // realmente presentes en el dataset), no un <select> de valor único.
   const dateFields = persp === "Mantenimiento"
-    ? dateField("cartera", "desde", "Desde") + dateField("cartera", "hasta", "Hasta")
+    ? facetSelectField("cartera", "anio", "Año") + carteraMesField()
     : checkboxGroupField("Año de Inicio", carteraAnioInicioOptions().map(a =>
         ({ value: a, checked: state.carteraAnioInicio.has(a), onclick: `toggleCarteraAnioInicio('${a}')` })));
   const fields = facetSelectField("cartera", "cp", "Client Partner")
@@ -1244,14 +1288,16 @@ function dashboardSections(dashboardKey, sectionsHtml) {
 
 // --- Experience renderers ---------------------------------------------------
 
-// Carga LAZY de los datos REALES de Cartera desde el backend (Reporting
-// real-data Fase 1). Mismo token delegado del browser que Staffing
-// (sessionStorage "dw-graph-token"). Popula EN EL LUGAR los arrays que
-// CARTERA_CONFIG ya referencia (nunca reasigna) — el motor de facets/
-// jerarquía/rollups no se entera de que las filas ahora son reales. Fail-soft:
-// una falla deja Cartera en estado de error localizado; las otras 5
-// experiencias siguen con sus mocks. NUNCA mezcla real + mock (el render está
-// gateado por `carteraDataStatus`, así que el mock inicial nunca se muestra).
+// Carga LAZY de los datos REALES de Cartera desde el backend, POR
+// PERSPECTIVA (P5, owner live QA de performance — ver
+// loadCarteraMantenimiento/loadCarteraProyecto abajo). Mismo token
+// delegado del browser que Staffing (sessionStorage "dw-graph-token").
+// Popula EN EL LUGAR los arrays que CARTERA_CONFIG ya referencia (nunca
+// reasigna) — el motor de facets/jerarquía/rollups no se entera de que las
+// filas ahora son reales. Fail-soft: una falla deja esa perspectiva de
+// Cartera en estado de error localizado; las otras experiencias siguen
+// con sus mocks. NUNCA mezcla real + mock (el render está gateado por
+// `carteraStatusFor(persp)`, así que el mock inicial nunca se muestra).
 function replaceRows(arr, rows) {
   arr.length = 0;
   (rows || []).forEach(r => arr.push(r));
@@ -1263,31 +1309,63 @@ function replaceMonthly(arr, values) {
   arr.length = 0;
   (values || []).forEach(v => arr.push(v));
 }
-async function loadCarteraData() {
-  state.carteraDataStatus = "loading";
+// P5 (owner live QA de performance — Cartera ~17s): Mantenimiento y
+// Proyecto tienen fetch/status INDEPENDIENTES — Mantenimiento NUNCA
+// dispara la descarga/parseo de la XLSX de Facturadas (solo Proyecto la
+// necesita, `facturadasProyecto` no se lee en `_mantenimiento_rows`, ver
+// service). Mismo endpoint `/data/cartera`, parámetro `perspectiva` le
+// dice al backend CUÁL fetch hacer (`ReportingService.
+// get_cartera_mantenimiento`/`get_cartera_proyecto`) — si el usuario
+// nunca abre Proyecto, la XLSX nunca se toca.
+async function loadCarteraMantenimiento() {
+  state.carteraMantenimientoStatus = "loading";
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
-      method: "POST", body: new URLSearchParams({ graph_token: token }),
+      method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento" }),
     });
     const data = await resp.json();
     if (data.state === "ok" && data.cartera) {
       replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      state.carteraMantenimientoStatus = "ready";
+    } else {
+      state.carteraMantenimientoStatus = "error";
+    }
+  } catch (e) {
+    state.carteraMantenimientoStatus = "error";
+  }
+  render();
+}
+async function loadCarteraProyecto() {
+  state.carteraProyectoStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "proyecto" }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.cartera) {
       replaceRows(CARTERA_PROYECTO_ROWS, data.cartera.proyecto);
       // Re-derivar el default data-dependiente (Año de Inicio de Proyecto) con
       // los años REALES — el default calculado al init salía del mock.
       state.carteraAnioInicio = carteraDefaultAnioInicio();
-      state.carteraDataStatus = "ready";
+      state.carteraProyectoStatus = "ready";
     } else {
-      state.carteraDataStatus = "error";
+      state.carteraProyectoStatus = "error";
     }
   } catch (e) {
-    state.carteraDataStatus = "error";
+    state.carteraProyectoStatus = "error";
   }
   render();
 }
+function carteraStatusFor(persp) {
+  return persp === "Mantenimiento" ? state.carteraMantenimientoStatus : state.carteraProyectoStatus;
+}
+function loadCarteraFor(persp) {
+  if (persp === "Mantenimiento") loadCarteraMantenimiento(); else loadCarteraProyecto();
+}
 function renderCarteraDataState() {
-  if (state.carteraDataStatus === "error") {
+  if (carteraStatusFor(state.perspective.cartera) === "error") {
     return reportingSourceErrorHtml("los datos de Cartera");
   }
   return reportingLoadingHtml("Cargando datos de Cartera…");
@@ -1401,12 +1479,14 @@ function renderBatchBDataState(label) {
 }
 
 function renderCartera() {
-  // Gate del ciclo de vida real-data: dispara la carga una sola vez (idle) y
-  // muestra loading/error hasta tener filas reales; recién ahí corre el
-  // renderer/motor existente sin cambios.
-  if (state.carteraDataStatus === "idle") loadCarteraData();
-  if (state.carteraDataStatus !== "ready") return renderCarteraDataState();
+  // Gate del ciclo de vida real-data — POR PERSPECTIVA (P5, ver
+  // loadCarteraMantenimiento/loadCarteraProyecto): dispara SOLO el fetch de
+  // la perspectiva activa (idle) y muestra loading/error hasta tener filas
+  // reales; recién ahí corre el renderer/motor existente sin cambios.
   const persp = state.perspective.cartera;
+  const status = carteraStatusFor(persp);
+  if (status === "idle") loadCarteraFor(persp);
+  if (status !== "ready") return renderCarteraDataState();
   const cfg = CARTERA_CONFIG[persp];
   // `facetFilteredRows` es la MISMA fuente de verdad que las opciones
   // faceteadas del filter bar (ver FACET_CONFIG.cartera) — tabla/KPI y

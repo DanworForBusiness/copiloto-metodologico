@@ -226,11 +226,31 @@ class ReportingService:
         return rows
 
     def get_cartera(self, access_token: str) -> dict:
-        facts = self._repository.get_cartera_facts(access_token)
+        """Contrato combinado RETROCOMPATIBLE (sin `perspectiva` — AMBAS
+        perspectivas desde UN fetch, CON Facturadas porque Proyecto la
+        necesita). Preferir `get_cartera_mantenimiento`/`get_cartera_
+        proyecto` desde el router cuando se conoce la perspectiva activa
+        (P5, owner live QA de performance — Cartera ~17s): Mantenimiento
+        NUNCA necesita esperar la descarga/parseo de la XLSX."""
+        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
         return {
             "mantenimiento": self._mantenimiento_rows(facts),
             "proyecto": self._proyecto_rows(facts),
         }
+
+    def get_cartera_mantenimiento(self, access_token: str) -> list[dict]:
+        """Perspectiva Mantenimiento SOLA (P5) — `include_facturadas=False`
+        salta por completo la descarga/parseo de la XLSX de Facturadas
+        (`_mantenimiento_rows` nunca lee `facturadasProyecto`, ver abajo:
+        `facturadas == certificadas` ahí, source-faithful)."""
+        facts = self._repository.get_cartera_facts(access_token, include_facturadas=False)
+        return self._mantenimiento_rows(facts)
+
+    def get_cartera_proyecto(self, access_token: str) -> list[dict]:
+        """Perspectiva Proyecto SOLA — SÍ necesita la XLSX
+        (`facturadasProyecto`, ver `_proyecto_rows`)."""
+        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
+        return self._proyecto_rows(facts)
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
@@ -241,6 +261,7 @@ class ReportingService:
                 continue
             trabajadas = _round2(f["hsTrabajadas"])
             certificadas = _round2(f["hsCertificadas"])
+            mes_num = _month_num(f["mes"])
             rows.append({
                 "cliente": f["cliente"],
                 "cp": f["clientPartner"],
@@ -253,6 +274,15 @@ class ReportingService:
                 "facturadas": certificadas,
                 "status": f["estado"],
                 "fecha": _fecha_primer_dia(f["anio"], f["mes"]),
+                # UX1 (owner live QA): Año/Mes reemplazan Desde/Hasta como
+                # filtro de Mantenimiento — grano MENSUAL real de la fuente
+                # (Horas por proyectos es proyecto×mes). `mes` normalizado a
+                # string "1".."12" (mismo índice+1 que el resto de la app,
+                # ver `_month_num`) para matchear el <select> del frontend
+                # (valores HTML siempre son string); fila con mes no
+                # parseable ⇒ "" (nunca inventa un mes).
+                "anio": f["anio"],
+                "mes": str(mes_num) if mes_num is not None else "",
             })
         return rows
 

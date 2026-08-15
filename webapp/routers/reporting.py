@@ -71,13 +71,20 @@ def reporting_integral_preview(request: Request):
 
 
 @router.post("/operaciones/reporting/integral/data/cartera", include_in_schema=False)
-def reporting_cartera_data(request: Request, graph_token: str = Form("")):
+def reporting_cartera_data(request: Request, graph_token: str = Form(""), perspectiva: str = Form("")):
     """Datos REALES normalizados de Cartera (Reporting Integral real-data Fase 1).
     MISMO gate de Operations + MISMO token delegado del browser que Staffing —
     sin auth ni cliente Graph nuevos. Fail-soft/localizado: cualquier falla
     devuelve HTTP 200 con `state != "ok"` (el renderer entra en su estado de
     error propio de Cartera; el resto de Reporting sigue usable). NUNCA expone
-    el token, el JSON crudo de Graph ni internal names de SharePoint."""
+    el token, el JSON crudo de Graph ni internal names de SharePoint.
+
+    `perspectiva` (P5, owner live QA de performance — Cartera ~17s):
+    OPCIONAL. `"mantenimiento"`/`"proyecto"` disparan SOLO el fetch de esa
+    perspectiva (`get_cartera_mantenimiento` NUNCA descarga/parsea la XLSX
+    de Facturadas — Proyecto es la única que la necesita). Omitido (string
+    vacío) preserva el contrato RETROCOMPATIBLE de siempre: AMBAS
+    perspectivas en una sola respuesta (`get_cartera`, CON Facturadas)."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -87,7 +94,12 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
 
     service = ReportingService()
     try:
-        cartera = service.get_cartera(graph_token)
+        if perspectiva == "mantenimiento":
+            cartera = {"mantenimiento": service.get_cartera_mantenimiento(graph_token)}
+        elif perspectiva == "proyecto":
+            cartera = {"proyecto": service.get_cartera_proyecto(graph_token)}
+        else:
+            cartera = service.get_cartera(graph_token)
     except ReportingConfigurationError:
         # ÚNICA condición de config incompleta (site/list ID sin setear). NUNCA
         # un RuntimeError genérico surgido más abajo (parseo/join/etc.).
