@@ -528,6 +528,34 @@ def test_kpi_tile_has_overflow_safe_styles():
 
 
 # ============================================================================
+# Q1 — Rentabilidad / Certificadas vs Ejecutadas / Detalle por proyecto
+# (owner live QA: Tipo/Proyecto comprimidas, columnas numéricas colisionan)
+# ============================================================================
+
+def test_rentabilidad_cert_ejec_detail_uses_compact_role_not_a_pixel_hack():
+    # Tipo (categórico corto) usa el rol GENÉRICO `--compact` del vocabulario
+    # compartido — Proyecto (descriptivo) sigue `.left` sin ancho fijo, así
+    # absorbe el espacio remanente en vez de repartirlo en partes iguales con
+    # Tipo. Nunca un ancho puntual/inline de Rentabilidad.
+    detail_start = _REPORTING_JS.index("function renderRentabilidadCertEjecutadas")
+    detail_body = _REPORTING_JS[detail_start:detail_start + 3000]
+    assert '<th class="left dashboard-table-col--compact">Tipo</th><th class="left">Proyecto</th>' in detail_body
+    assert "style=" not in detail_body[detail_body.index("<thead>"):detail_body.index("</thead>") + 8]
+    assert "table.dashboard-table th.dashboard-table-col--compact { width: 100px; }" in _TOOLS_CSS
+
+
+def test_dashboard_table_header_wraps_instead_of_colliding():
+    # Un header numérico más largo que su columna fija de 88px (ej. "Margen
+    # Relativo") ya no desborda sobre la columna vecina — el primitivo
+    # compartido permite wrap a 2 líneas (geometría estable, sin JS de
+    # medición). Cambio TRANSVERSAL en `.dashboard-table`, no un ajuste
+    # puntual de Rentabilidad.
+    assert "white-space: normal; line-height: 1.15;" in _TOOLS_CSS
+    header_rule = _TOOLS_CSS[_TOOLS_CSS.index("table.dashboard-table th {"):_TOOLS_CSS.index("table.dashboard-table th {") + 400]
+    assert "white-space: nowrap;" not in header_rule
+
+
+# ============================================================================
 # Corrective pre-Batch-A (owner live QA — Cartera es la plantilla canónica)
 # ============================================================================
 

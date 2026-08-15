@@ -878,7 +878,15 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 table.dashboard-table { width: 100%; border-collapse: collapse; font-size: .76rem; table-layout: fixed; }
 table.dashboard-table th {
   text-align: right; padding: 6px 8px; color: #7a7a82; font: 600 .62rem var(--mono);
-  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid rgba(0,0,0,.1); white-space: nowrap;
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid rgba(0,0,0,.1);
+  /* SIN `white-space: nowrap` (Q1, owner live QA): con `table-layout:fixed` +
+     ancho numérico fijo de 88px, un header MÁS LARGO que su columna (ej.
+     "Margen Relativo") desbordaba visualmente sobre la columna vecina —
+     "colisión" a la derecha de la matriz. Envolver a 2 líneas es geometría
+     ESTABLE (headers salen del `<thead>`, table-layout:fixed ya garantiza que
+     nunca mueve columnas) — genérico para cualquier tabla del Hub con un
+     label numérico largo, no un ajuste puntual de Rentabilidad. */
+  white-space: normal; line-height: 1.15;
 }
 .content-theme-dark table.dashboard-table th { color: #9a9aa2; border-bottom-color: rgba(255,255,255,.12); }
 table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-align: left; }
@@ -912,6 +920,18 @@ table.dashboard-table td.left, table.dashboard-table td.row-label {
    88px — el badge necesita más espacio que un número de 3-4 dígitos). */
 table.dashboard-table th.dashboard-table-col--status { text-align: right; width: 112px; }
 table.dashboard-table td.dashboard-table-cell--status { text-align: right; }
+/* Columna categórica COMPACTA (Q1, owner live QA — Rentabilidad/Certificadas
+   vs Ejecutadas, Detalle por proyecto): Tipo y Proyecto son ambas `.left`
+   (texto), pero sin distinción de rol se reparten el espacio remanente EN
+   PARTES IGUALES — Tipo (valor categórico corto y fijo: "Mantenimiento"/
+   "Proyecto") queda con el mismo ancho que Proyecto (descriptivo, necesita
+   crecer), comprimiendo ambas. Un dominio agrega esta clase JUNTO a `.left`
+   (no la reemplaza — sigue siendo texto alineado a la izquierda) en su
+   columna categórica corta para sacarla del reparto y dejar que la(s)
+   columna(s) `.left` restante(s) absorban el espacio libre. Rol GENÉRICO,
+   reusable por cualquier tabla del Hub con este patrón categórica+
+   descriptiva lado a lado — no es un ancho puntual de Rentabilidad. */
+table.dashboard-table th.dashboard-table-col--compact { width: 100px; }
 /* Hover — sutil, sobre el `td` (no el `tr`) para que pinte encima de
    cualquier tinte estático de fila (p.ej. child-rows de Asignaciones) sin
    alterar geometría; funciona igual en filas padre/hijo. */

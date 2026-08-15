@@ -1445,7 +1445,7 @@ function renderRentabilidadCertEjecutadas() {
 
   const detailBody = rows.length ? `
     <table class="dashboard-table">
-      <thead><tr><th class="left">Tipo</th><th class="left">Proyecto</th><th>Hs Certificadas</th><th>Hs Ejecutadas</th><th>Margen Absoluto</th><th>Margen Relativo</th></tr></thead>
+      <thead><tr><th class="left dashboard-table-col--compact">Tipo</th><th class="left">Proyecto</th><th>Hs Certificadas</th><th>Hs Ejecutadas</th><th>Margen Absoluto</th><th>Margen Relativo</th></tr></thead>
       <tbody>${rows.map(p => {
         const margenAbsoluto = p.certificadas - p.trabajadas;
         const margenRelativo = p.certificadas ? Math.round((margenAbsoluto / p.certificadas) * 1000) / 10 : 0;

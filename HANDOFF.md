@@ -6106,6 +6106,24 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
+### -6. Q1 — Rentabilidad/Cert-vs-Ejec column sizing (CERRADO) — owner live QA
+Detalle por proyecto: Tipo (categórico corto) y Proyecto (descriptivo) eran
+ambas `.left` sin distinción de rol → `table-layout:fixed` repartía el
+espacio remanente EN PARTES IGUALES entre ambas, comprimiendo Proyecto.
+Además, headers numéricos más largos que su columna fija de 88px (ej.
+"Margen Relativo") desbordaban visualmente sobre la columna vecina
+("colisión") porque `table.dashboard-table th` forzaba `white-space:
+nowrap` sin `overflow:hidden`. Dos fixes GENÉRICOS al vocabulario
+compartido (`tools.css`), ninguno puntual de Rentabilidad: (1) nuevo rol
+`.dashboard-table-col--compact` (100px, se agrega JUNTO a `.left`, no la
+reemplaza) para columnas categóricas cortas — Tipo lo usa, Proyecto sigue
+sin ancho fijo y absorbe el espacio libre; (2) `table.dashboard-table th`
+pasa de `white-space:nowrap` a `white-space:normal` (wrap a 2 líneas,
+geometría estable, sin JS de medición) — aplica a CUALQUIER tabla del Hub
+con un label numérico largo, no solo Rentabilidad. 2 tests de regresión
+nuevos. Suite completa: **882 passed** (880+2), mismos 8 fallos
+preexistentes.
+
 ### -5. QA4 — reconciliación jerárquica de rollups (CERRADO, `26b18ac`) — owner live QA ("Avanti")
 Owner reportó en vivo: en Cartera, un padre "Avanti" mostraba
 Certificadas=80/Vendidas=120/Facturadas=80 mientras su único hijo VISIBLE
