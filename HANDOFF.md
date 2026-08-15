@@ -6124,6 +6124,25 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 
 ### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
 
+> **PROGRESO (commit `f8db50a`) — Rentabilidad/HV filter migration PASO 1 de 2
+> hecho:** el shape de Rentabilidad (`get_rentabilidad`→`proyectos[]`) y el de
+> Horas Vendidas (`_shape_horas_vendidas`) ya proyectan `estado`
+> (Proyectos.Status). Aditivo/no-rompe. **Paso 2 pendiente** (la vertical grande):
+> grano POR-AÑO en ambos shapes (hoy colapsan años en un `monthly[12]`; Año
+> single-select necesita el `monthly[12]` del año elegido) + facet Año/Mes/Estado
+> en `FACET_CONFIG.rentabilidad`/`horasvendidas` espejando Cartera (`facetRowsExcept`
+> + `pruneCarteraAnioInicio`) + reemplazo de `desde/hasta` en el filter bar + rewire
+> de renderers + tests Año/Mes. Ver §-16 #8.
+>
+> **⚠ BLOQUEANTE DE ENTORNO:** el venv-gate del scratchpad
+> (`…/scratchpad/venv-gate`) quedó CORRUPTO entre sesiones — `pytest` y `pip` son
+> namespace packages vacíos (no ejecutan; `-m pytest` y `pip install` fallan). Las
+> imports de la app + openpyxl SÍ andan (permite validación funcional directa via
+> `python - <<PY`). **Antes de correr la suite / el audit de baseline 8→9, hay que
+> restaurar el runner**: venv nuevo con `-c constraints.txt` (fastapi/openpyxl/
+> pytest 9.1.1) o `ensurepip`+`pip install`. El cambio `f8db50a` se validó
+> funcionalmente (no por pytest, por el bloqueo).
+
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this
 section — performance, 3 experiences' filter models, Participación's
