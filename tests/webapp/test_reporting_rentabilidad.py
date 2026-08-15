@@ -136,6 +136,13 @@ def test_get_rentabilidad_projects_estado_from_project_status(monkeypatch):
                 "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0"}],
         proyectos=[{"id": "p1", "Title": "Implementación SADI v2", "TipodeProyecto": "Proyecto", "Status": "Finalizado"}],
         clientes=[{"id": "c1", "Title": "YPF"}],
+        # get_rentabilidad siempre lee Time Logs — el fixture debe proveerlo
+        # (sin esto: ReportingSourceError stage=time_logs_files antes del assert).
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-01-10", "Project": "Implementación SADI v2", "Duration Decimal": "0",
+             "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
     )
     p = _service().get_rentabilidad("tok")["proyectos"][0]
     assert p["estado"] == "Finalizado"

@@ -659,6 +659,10 @@ class ReportingRepository:
                 "clientPartner": client_partner,
                 "proyecto": proyecto_title,
                 "tipoProyecto": tipo,
+                # Estado (Proyectos.Status) proyectado al fact — insumo del facet
+                # Estado de Horas Vendidas/Rentabilidad (migración Año/Mes/Estado,
+                # HANDOFF §-16 #8). Sin esto el shape recibe estado="".
+                "estado": _text(proy.get(PROY_ESTADO)),
                 "anio": _text(h.get(HP_ANIO)),
                 "mes": _text(h.get(HP_MES)),
                 "hsTrabajadas": _num(h.get(HP_HS_TRABAJADAS)),
