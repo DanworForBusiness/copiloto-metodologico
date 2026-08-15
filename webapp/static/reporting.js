@@ -1691,17 +1691,36 @@ function uniformValue(field, formatFn) {
 }
 
 // Renderer alternativo para tablas de negocio NO mensuales (Cartera/
-// Proyectos, Capacidad/Ejecución → Productivas, Comercial/Participación) —
-// MISMO motor de agrupación (buildTree) y MISMAS afordancias visuales
-// (dashboard-table-toggle/caret/dashboard-table-indent/depth-N), pero las columnas son
-// arbitrarias (Diff Hs/Status/Horas/% Incidencia/etc., ver `columns`) en
-// vez de 12 meses fijos. Nodos hoja (sin hijos, `node.rows` tiene
-// exactamente 1 fila real) muestran los valores reales vía
-// `columns[].render(row)`. Nodos intermedios (con hijos): si la columna
-// define `columns[].rollup(rows)` (ver contrato de agregación arriba) se
-// usa para mostrar el agregado REAL del grupo — nunca en blanco por
-// pereza; columnas genuinamente categóricas (Status/Facturadas/Salud, sin
-// `rollup`) quedan en blanco a propósito, nunca un valor inventado.
+// Proyectos, Capacidad/Ejecución → Productivas, Comercial/Participación/
+// Salud) — MISMO motor de agrupación (buildTree) y MISMAS afordancias
+// visuales (dashboard-table-toggle/caret/dashboard-table-indent/depth-N),
+// pero las columnas son arbitrarias (Diff Hs/Status/Horas/% Incidencia/
+// etc., ver `columns`) en vez de 12 meses fijos.
+//
+// CORRECTIVE (owner live QA — "Avanti", ver HANDOFF): el supuesto de que
+// un nodo SIN hijos declarados siempre tiene EXACTAMENTE 1 fila fuente
+// (`node.rows[0]`) era FALSO con datos reales — Cartera/Mantenimiento
+// conserva grano MENSUAL (`_mantenimiento_rows`, ver reporting_service.py:
+// "Mantenimiento conserva el grano mensual"), así que un proyecto activo
+// en 2+ meses aporta 2+ filas que comparten la MISMA clave de hoja
+// (cliente+proyecto — no hay nivel de Mes en la jerarquía). `buildTree`
+// las agrupa en UN nodo sin hijos declarados (`node.children.length===0`),
+// pero `node.rows` sigue teniendo TODAS esas filas — usar solo `[0]`
+// descartaba los meses restantes, mientras el PADRE (que sí agregaba con
+// `c.rollup` sobre TODAS las filas del subárbol) mostraba el total
+// correcto → parent ≠ único-hijo-visible, exactamente el síntoma
+// reportado.
+//
+// Fix: SIEMPRE usar `c.rollup(node.rows)` cuando la columna lo define,
+// sin importar si el nodo tiene hijos — matemáticamente `rollup` sobre
+// una única fila da EL MISMO resultado que `render` de esa fila
+// (`sumField`/`uniformValue` con 1 elemento == esa fila), así que unificar
+// el camino es seguro y elimina la clase entera de bug (nunca más un
+// nivel "hoja" con >1 fila fuente silenciosamente truncado a la primera).
+// Columnas genuinamente categóricas SIN `rollup` (ver contrato de
+// agregación arriba) solo pueden mostrarse de forma inequívoca cuando hay
+// EXACTAMENTE 1 fila — con más de una, blanco a propósito (nunca un valor
+// arbitrario "de la primera fila que aparezca").
 function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
@@ -1709,7 +1728,6 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
     const isOpen = set.has(node.pathKey);
     const caretChar = !hasChildren ? "" : (isOpen ? "▾" : "▸");
     const indentPx = depth * 20;
-    const leafRow = hasChildren ? null : node.rows[0];
     const rowHtml = `
       <tr class="depth-${depth}">
         <td class="row-label">
@@ -1718,8 +1736,8 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
         </td>
         ${columns.map(c => {
           let content = "";
-          if (leafRow) content = c.render(leafRow);
-          else if (c.rollup) content = c.rollup(node.rows);
+          if (c.rollup) content = c.rollup(node.rows);
+          else if (node.rows.length === 1) content = c.render(node.rows[0]);
           return `<td class="${c.statusTerminal ? "dashboard-table-cell--status" : (c.numeric ? "" : "left")}">${content}</td>`;
         }).join("")}
       </tr>`;
