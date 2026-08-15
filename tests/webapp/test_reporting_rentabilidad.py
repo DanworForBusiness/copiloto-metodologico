@@ -295,3 +295,91 @@ def test_get_rentabilidad_keeps_year_grain_separate(monkeypatch):
     assert p["trabByYear"]["2026"][0] == 5
     assert r["vendidasByYear"]["2026"][0] == 10 and r["vendidasByYear"]["2025"][0] == 4
     assert p["estado"] == "En curso"
+
+
+# ============================================================================
+# HOT WINDOW / COLD HISTORY (owner live QA — "hot window was applied to
+# Horas Vendidas but not Rentabilidad")
+# ============================================================================
+
+def test_get_rentabilidad_defaults_to_hot_window(monkeypatch):
+    from datetime import datetime
+    captured = {}
+
+    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
+        captured["hot_years"] = hot_years
+        captured["include_facturadas"] = include_facturadas
+        return []
+
+    def fake_time_logs(self, access_token):
+        return []
+
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_facts", fake_time_logs)
+    _service().get_rentabilidad("tok")
+    y = datetime.now().year
+    assert captured["hot_years"] == [str(y), str(y - 1)]
+    # P5 (owner live QA de performance — mismo criterio que Cartera/Mantenimiento):
+    # Rentabilidad NUNCA lee facturadasProyecto, la XLSX era un costo desperdiciado.
+    assert captured["include_facturadas"] is False
+
+
+def test_get_rentabilidad_cold_year_passes_explicit_scope(monkeypatch):
+    captured = {}
+
+    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
+        captured["hot_years"] = hot_years
+        return []
+
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_facts", lambda self, access_token: [])
+    _service().get_rentabilidad("tok", anios=["2024"])
+    assert captured["hot_years"] == ["2024"]
+
+
+def test_get_rentabilidad_anios_reuses_horas_vendidas_metadata(monkeypatch):
+    # "Do not duplicate temporal runtime logic" — Rentabilidad reusa el MISMO
+    # helper de metadata que Horas Vendidas (mismo dominio: todos los tipos).
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "A_x00f1_o": "2026"}, {"ProyectoLookupId": "p2", "A_x00f1_o": "2024"}],
+        proyectos=[
+            {"id": "p1", "TipodeProyecto": "Tiempo & Materiales", "Status": "En curso"},
+            {"id": "p2", "TipodeProyecto": "Proyecto", "Status": "Finalizado"},
+        ],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+    )
+    anios = {p["anio"] for p in _service().get_rentabilidad_anios("tok")}
+    assert anios == {"2026", "2024"}
+
+
+# ============================================================================
+# TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" apareció como
+# opción imposible del <select> de Año en Horas Vendidas)
+# ============================================================================
+
+def test_get_rentabilidad_rejects_non_year_anio_value(monkeypatch):
+    # Un valor no-4-dígitos en A_x00f1_o (dato de origen corrupto/mal cargado)
+    # NUNCA debe alcanzar certByYear/vendidasByYear — se descarta en la
+    # fuente, nunca filtrado recién en el HTML.
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "Septiembre", "Mes": "Julio",
+             "HsVendidas": "99", "HsFacturadas": "99", "HsTrabajadas": "0"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Julio",
+             "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0"},
+        ],
+        proyectos=[{"id": "p1", "Title": "SADI", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-07-10", "Project": "SADI", "Duration Decimal": "0",
+             "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
+    )
+    r = _service().get_rentabilidad("tok")
+    p = r["proyectos"][0]
+    assert "Septiembre" not in p["certByYear"]
+    assert "Septiembre" not in r["vendidasByYear"]
+    assert set(p["certByYear"].keys()) == {"2026"}

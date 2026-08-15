@@ -166,14 +166,20 @@ def reporting_cartera_anios_disponibles(request: Request, graph_token: str = For
 
 
 @router.post("/operaciones/reporting/integral/data/rentabilidad", include_in_schema=False)
-def reporting_rentabilidad_data(request: Request, graph_token: str = Form("")):
+def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), anios: str = Form("")):
     """Datos REALES normalizados de Rentabilidad (AMBAS perspectivas,
     Resumen Y Certificadas vs Ejecutadas — Reporting Integral Batch B).
     Fetch propio: reusa `get_cartera_facts` (Certificadas/Vendidas,
     SharePoint) Y `get_time_logs_facts` (Trabajadas/Ejecutadas, CSV — MISMO
     adapter que Horas Productivas) — ver `ReportingService.get_rentabilidad`.
     MISMO gate/token/fail-soft que `reporting_cartera_data` — ver ese
-    endpoint para el contrato de errores completo."""
+    endpoint para el contrato de errores completo.
+
+    `anios` (HOT WINDOW / COLD HISTORY corrective): MISMO contrato que
+    `reporting_horas_vendidas_data` — CSV de años a hidratar; vacío/omitido
+    resuelve al default de ventana caliente (año actual + anterior). La
+    metadata de años seleccionables vive en
+    `/data/rentabilidad/anios-disponibles`."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -183,7 +189,8 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form("")):
 
     service = ReportingService()
     try:
-        rentabilidad = service.get_rentabilidad(graph_token)
+        anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
+        rentabilidad = service.get_rentabilidad(graph_token, anios=anios_list)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -194,6 +201,36 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form("")):
         _logger.exception("reporting rentabilidad data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", "rentabilidad": rentabilidad})
+
+
+@router.post("/operaciones/reporting/integral/data/rentabilidad/anios-disponibles", include_in_schema=False)
+def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str = Form("")):
+    """Metadata de año/estado de Rentabilidad — SEPARADA del fetch de datos
+    a propósito (mismo motivo que Cartera/Horas Vendidas: puebla el
+    <select> de Año con años FRÍOS sin sumarle costo a la respuesta rápida
+    de la ventana caliente). El frontend la dispara en PARALELO durante la
+    hidratación del tab. MISMO gate/token/fail-soft que
+    `reporting_cartera_data`."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        anios = service.get_rentabilidad_anios(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting rentabilidad anios-disponibles: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "aniosDisponibles": anios})
 
 
 @router.post("/operaciones/reporting/integral/data/batch-a", include_in_schema=False)

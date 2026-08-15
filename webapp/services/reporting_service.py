@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from webapp.services.reporting_repository import ReportingRepository
+from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio
 
 # Nombres de mes → número (la columna `Mes` de "Horas por proyectos" es texto;
 # puede venir como nombre español, número, o "MM"). Se usa SOLO para construir
@@ -385,7 +385,7 @@ class ReportingService:
     # que Horas Productivas/No Asignadas, ver `_shape_horas_productivas_
     # no_asignadas` — acá solo el TOTAL agregado, sin desglose por
     # consultor).
-    def get_rentabilidad(self, access_token: str) -> dict:
+    def get_rentabilidad(self, access_token: str, *, anios: list[str] | None = None) -> dict:
         """Contrato para AMBAS perspectivas de Rentabilidad: `proyectos`
         (una fila por proyecto — TODOS los tipos, a diferencia de Cartera
         que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`
@@ -397,14 +397,35 @@ class ReportingService:
         ya resuelve al título real cuando hay match, ver
         `get_time_logs_facts`). Un proyecto SharePoint sin ninguna hora en
         Time Logs (sin tracking aún) aporta trabajadas=0 en TODOS los
-        meses — NUNCA se omite la fila."""
-        cartera_facts = self._repository.get_cartera_facts(access_token)
+        meses — NUNCA se omite la fila.
+
+        `anios` (HOT WINDOW / COLD HISTORY corrective, owner live QA —
+        "hot window was applied to Horas Vendidas but not Rentabilidad"):
+        `None` (primera hidratación del tab) resuelve a la ventana caliente
+        por defecto (año actual + anterior, `_default_hot_years` — MISMO
+        contrato que `get_horas_vendidas`). Una lista explícita es el
+        lazy-load de un año FRÍO puntual. Acota SOLO la lectura de "Horas
+        por proyectos" (vía `get_cartera_facts(hot_years=...)`, MISMO
+        helper que Cartera/Horas Vendidas — cero lógica Graph duplicada).
+        `include_facturadas=False`: Rentabilidad NUNCA lee
+        `facturadasProyecto` (solo certificadas/vendidas) — la XLSX de
+        Facturadas es un costo real que esta experiencia pagaba sin
+        necesitarlo, mismo criterio que Cartera/Mantenimiento. Time Logs
+        (CSV) queda SIN acotar — no hay un mecanismo de scope físico
+        análogo a `$filter` para archivos ya descargados completos; ver
+        HANDOFF para la medición pendiente de si esto importa en la
+        práctica."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        cartera_facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
         time_logs = self._repository.get_time_logs_facts(access_token)
 
         # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
         # Ene-2026 quedan direccionables por separado — el filtro Año del browser
         # elige el `[12]` de ese año. `A_x00f1_o`/Mes (SharePoint) y
         # anio/mes (Time Logs, derivados del mismo Date) son las fuentes de año.
+        # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio` (nunca `if anio:` solo,
+        # ver reporting_repository.py) en AMBOS loops — Cartera Y Time Logs
+        # son fuentes de año independientes, cualquiera puede traer basura.
         cert_by_proyecto: dict[str, dict] = {}
         vendidas_by_year: dict[str, list[float]] = {}
         for f in cartera_facts:
@@ -417,7 +438,7 @@ class ReportingService:
             })
             anio = f.get("anio")
             n = _month_num(f.get("mes"))
-            if anio and n is not None:
+            if _is_valid_anio(anio) and n is not None:
                 g["certByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsCertificadas"]
                 vendidas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
             g["facts"].append(f)
@@ -427,7 +448,7 @@ class ReportingService:
         for tl in time_logs:
             anio = tl.get("anio")
             n = _time_logs_month_num(tl.get("mes"))
-            if not anio or n is None:
+            if not _is_valid_anio(anio) or n is None:
                 continue
             if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
@@ -499,6 +520,14 @@ class ReportingService:
         repository (`get_horas_anio_estado_pairs`)."""
         return self._repository.get_horas_anio_estado_pairs(access_token)
 
+    def get_rentabilidad_anios(self, access_token: str) -> list[dict]:
+        """Metadata de años/estado disponibles de Rentabilidad — MISMO
+        dominio que Horas Vendidas (todos los tipos de proyecto, misma
+        lectura mínima de Proyectos/Horas por proyectos) — reusa el MISMO
+        `get_horas_anio_estado_pairs` en vez de un segundo método idéntico
+        (owner directive — "do not duplicate temporal runtime logic")."""
+        return self._repository.get_horas_anio_estado_pairs(access_token)
+
     def _shape_horas_vendidas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `HORASVENDIDAS_ROWS` (reporting.js): una fila
         por (Client Partner, Tipo, Cliente, Proyecto) con `monthly[12]`
@@ -513,7 +542,11 @@ class ReportingService:
             if n is not None:
                 g["collapsed"][n - 1] += f["hsVendidas"]
                 anio = f.get("anio")
-                if anio:
+                # TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" en
+                # el <select> de Año): `_is_valid_anio`, nunca `if anio:`
+                # solo — ver reporting_repository.py para el contrato
+                # completo, reusado acá tal cual (nunca reimplementado).
+                if _is_valid_anio(anio):
                     g["byYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
                 g["facts"].append(f)
         rows = []

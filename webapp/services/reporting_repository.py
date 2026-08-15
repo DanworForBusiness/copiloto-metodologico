@@ -285,6 +285,25 @@ def _norm_key(name) -> str:
     return "".join(str(name or "").split()).upper()
 
 
+# TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" apareció como
+# opción del <select> de Año en Horas Vendidas): NINGÚN punto de este
+# módulo validaba que `A_x00f1_o` (Horas por proyectos) contuviera
+# realmente un año de 4 dígitos antes de este corrective — se confiaba
+# ciegamente en el valor crudo de SharePoint. Es un campo de texto/Choice
+# sin schema estricto del lado de Graph; un error de carga humano en la
+# fuente (o cualquier valor no numérico) fluía sin filtro hasta el YEAR
+# DOMAIN del browser. `_is_valid_anio` es el ÚNICO punto que decide si un
+# valor de año es válido — reusado por CADA lugar de este archivo (y de
+# `reporting_service.py`) que arma un año-como-clave/año-como-opción,
+# nunca reimplementado ad-hoc. Mes NUNCA participa de este dominio (dominio
+# separado, ver reporting.js — MESES_LARGOS).
+_VALID_ANIO_RE = re.compile(r"^\d{4}$")
+
+
+def _is_valid_anio(value) -> bool:
+    return bool(_VALID_ANIO_RE.match(_text(value)))
+
+
 def _num(value) -> float:
     """Coerción numérica robusta (celdas/text de SharePoint pueden venir como
     str). Vacío/None/no-numérico ⇒ 0.0 (medidas aditivas)."""
@@ -617,7 +636,11 @@ class ReportingRepository:
                 continue  # Cartera Mantenimiento SOLO — Proyecto no usa ventana, no aporta acá.
             anio = _text(h.get(HP_ANIO))
             estado = estado_by_id.get(proy_id, "")
-            if anio:
+            # TEMPORAL DOMAIN CONTRACT — `_is_valid_anio` (nunca solo `if
+            # anio:`, ver comentario del helper): un valor no-4-dígitos en
+            # `A_x00f1_o` (dato de origen, no derivable del código) nunca
+            # debe alcanzar el <select> de Año del browser.
+            if _is_valid_anio(anio):
                 pairs.add((anio, estado))
         timer.stage("shaping", len(pairs))
         timer.total()

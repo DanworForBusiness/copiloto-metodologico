@@ -472,3 +472,47 @@ def test_get_horas_vendidas_anios_includes_all_project_types(monkeypatch):
     # Contraste: la metadata de Cartera Mantenimiento excluye el año del Proyecto.
     cartera_anios = {p["anio"] for p in _service().get_cartera_mantenimiento_anios("tok")}
     assert cartera_anios == {"2026"}
+
+
+# ============================================================================
+# TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" apareció como
+# opción imposible del <select> de Año en Horas Vendidas). Root cause: NADA
+# en este pipeline validaba que A_x00f1_o fuera realmente un año de 4
+# dígitos antes de este corrective — `_is_valid_anio` (reporting_
+# repository.py) es el ÚNICO punto que decide, reusado acá y en
+# reporting_service.py, NUNCA un `if anio:` suelto de nuevo.
+# ============================================================================
+
+def test_shape_horas_vendidas_rejects_non_year_anio_value(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "Septiembre", "Mes": "Julio", "HsVendidas": "99"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Julio", "HsVendidas": "20"},
+        ],
+        proyectos=[{"id": "p1", "Title": "Rollout BI", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "Molinos"}],
+    )
+    rows = _service().get_horas_vendidas("tok")
+    r = rows[0]
+    assert "Septiembre" not in r["vendidasByYear"]
+    assert set(r["vendidasByYear"].keys()) == {"2026"}
+    # Colapsado retrocompat (`monthly`) SÍ sigue sumando ambos hechos — ese
+    # campo nunca fue el dominio de Año, es el total histórico agregado por
+    # mes-calendario (ver contrato de `_shape_horas_vendidas`).
+    assert r["monthly"][6] == 119
+
+
+def test_anio_estado_pairs_rejects_non_year_anio_value(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "A_x00f1_o": "Septiembre"},
+            {"ProyectoLookupId": "p1", "A_x00f1_o": "2026"},
+        ],
+        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+    )
+    anios = {p["anio"] for p in _service().get_horas_vendidas_anios("tok")}
+    assert anios == {"2026"}
+    assert "Septiembre" not in anios
