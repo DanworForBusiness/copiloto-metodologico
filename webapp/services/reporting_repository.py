@@ -31,12 +31,47 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
+import time
 
 import config
 from core import microsoft365
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# --- P0: waterfall de performance (owner live QA — Cartera ~17s, Horas
+# Vendidas >40s) ------------------------------------------------------------
+# INFO, temporal, para el smoke de performance del owner (ver HANDOFF).
+# Loguea SOLO stage/elapsed_ms/item_count — NUNCA token, valores de
+# negocio, ni JSON crudo de Graph (mismo criterio de seguridad que
+# ReportingGraphError, que ya nunca expone la excepción cruda de urllib).
+_perf_logger = logging.getLogger("danwor.reporting.perf")
+
+
+class _StageTimer:
+    """Cronómetro de etapas de UN fetch (Cartera/Batch A/Batch B/Time
+    Logs/Rentabilidad). `stage(name, count)` marca el fin de una etapa y
+    loguea su duración desde la marca ANTERIOR (nunca desde el inicio
+    total — cada línea es el costo INCREMENTAL de esa etapa sola).
+    `total()` loguea la duración completa del fetch."""
+
+    def __init__(self, label: str):
+        self.label = label
+        self._start = time.perf_counter()
+        self._stage_start = self._start
+
+    def stage(self, name: str, count: int | None = None) -> None:
+        now = time.perf_counter()
+        elapsed_ms = round((now - self._stage_start) * 1000)
+        suffix = f" items={count}" if count is not None else ""
+        _perf_logger.info("reporting.perf %s.%s elapsed_ms=%s%s", self.label, name, elapsed_ms, suffix)
+        self._stage_start = now
+
+    def total(self) -> int:
+        elapsed_ms = round((time.perf_counter() - self._start) * 1000)
+        _perf_logger.info("reporting.perf %s.total elapsed_ms=%s", self.label, elapsed_ms)
+        return elapsed_ms
 
 # XLSX de Facturadas — ubicación estable como module constants (mismo criterio
 # que los ABSENCE_* de staffing_repository: ruta en el drive, no config nueva).
@@ -333,20 +368,35 @@ class ReportingRepository:
 
     # --- ensamble de hechos normalizados ------------------------------------
 
-    def get_cartera_facts(self, access_token: str) -> list[dict]:
+    def get_cartera_facts(self, access_token: str, *, include_facturadas: bool = True) -> list[dict]:
         """Hechos de Cartera normalizados a grano proyecto×mes, con la dimensión
         de proyecto/cliente ya unida y `facturadasProyecto` (SUM del XLSX por
         proyecto) adjunto. Nombres de negocio, NUNCA internal names SharePoint.
         El split Mantenimiento/Proyecto y las medidas derivadas viven en el
-        service."""
+        service.
+
+        `include_facturadas` (P5, owner live QA de performance — Cartera
+        ~17s): la XLSX de Facturadas es un download+parse REAL (costo
+        propio, no un GET de lista) que Mantenimiento NUNCA usa
+        (`facturadas == certificadas` ahí, ver service — `facturadasProyecto`
+        solo lo lee la perspectiva Proyecto). `False` la SALTEA por
+        completo — cada fact queda con `facturadasProyecto=0.0` (nunca leído
+        en ese camino). Default `True` preserva el contrato de siempre para
+        callers que necesitan AMBAS perspectivas."""
         self._token = access_token
         site_id = self._require_site_id()
+        timer = _StageTimer("cartera")
 
         proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        timer.stage("cliente", len(clientes_items))
         horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
-        facturadas_by_key = self._facturadas_by_project(site_id)
+        timer.stage("horas_proyectos", len(horas_items))
+        facturadas_by_key = self._facturadas_by_project(site_id) if include_facturadas else {}
+        timer.stage("facturadas_xlsx", len(facturadas_by_key))
         cp_by_id = self._resolve_client_partners(site_id)
+        timer.stage("client_partner", len(cp_by_id))
 
         # Los lookups de Horas apuntan al `item["id"]` del target (NO a fields["id"]).
         proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
@@ -381,6 +431,8 @@ class ReportingRepository:
                 # proyecto). Mantenimiento la resuelve el service (= certificadas).
                 "facturadasProyecto": facturadas_by_key.get(_norm_key(proyecto_title), 0.0),
             })
+        timer.stage("shaping", len(facts))
+        timer.total()
         return facts
 
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
@@ -405,11 +457,16 @@ class ReportingRepository:
             codificados a mano)."""
         self._token = access_token
         site_id = self._require_site_id()
+        timer = _StageTimer("batch_a")
 
         proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        timer.stage("cliente", len(clientes_items))
         horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
+        timer.stage("horas_proyectos", len(horas_items))
         cp_by_id = self._resolve_client_partners(site_id)
+        timer.stage("client_partner", len(cp_by_id))
 
         proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
         cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
@@ -456,6 +513,8 @@ class ReportingRepository:
                 "saludFinal": _first(c, *CLI_SALUD_FINAL),
             })
 
+        timer.stage("shaping", len(project_facts))
+        timer.total()
         return {"project_facts": project_facts, "cliente_dim": cliente_dim}
 
     # --- Batch B: Time Logs Reports (CSV) -----------------------------------
@@ -537,10 +596,14 @@ class ReportingRepository:
         nunca descarta la fila silenciosamente."""
         self._token = access_token
         site_id = self._require_site_id()
+        timer = _StageTimer("time_logs")
         operaciones_site_id = self._resolve_time_logs_site_id()
+        timer.stage("operaciones_site")
 
         proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        timer.stage("cliente", len(clientes_items))
         proy_by_key: dict[str, dict] = {}
         for it in proyectos_items:
             fields = it.get("fields") or {}
@@ -550,6 +613,7 @@ class ReportingRepository:
         cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
 
         raw_rows = self._download_time_logs_rows(operaciones_site_id)
+        timer.stage("csv_download_parse", len(raw_rows))
         facts = []
         for row in raw_rows:
             project_raw = _text(row.get("Project"))
@@ -564,6 +628,8 @@ class ReportingRepository:
                 "mes": _time_logs_mes(row.get("Date")),
                 "anio": _time_logs_anio(row.get("Date")),
             })
+        timer.stage("shaping", len(facts))
+        timer.total()
         return facts
 
     def get_colaboradores_email_map(self, access_token: str) -> dict[str, str]:

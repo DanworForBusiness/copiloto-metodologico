@@ -164,12 +164,24 @@ class ReportingService:
         Cliente/Proyectos/Horas. Horas Productivas (Productivas Y No
         Asignadas) se RETIRÓ de este grupo (Correction 1, ver HANDOFF/
         real-data-lineage.md §8bis: es CSV de Time Logs, no backbone) — ver
-        `get_batch_b` abajo."""
+        `get_batch_b` abajo.
+
+        PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
+        HANDOFF): ANTES cada una de las 4 experiencias llamaba
+        `get_batch_a_facts` de forma INDEPENDIENTE (`get_horas_vendidas`/
+        `get_participacion`/`get_calendario`/`get_salud`, cada una con su
+        propio `self._repository.get_batch_a_facts(access_token)`) — un
+        solo POST a `/data/batch-a` disparaba 4 VECES el mismo fetch de
+        Proyectos+Cliente+Horas-por-proyectos+Client Partner (4x la
+        latencia real de Graph para UNA respuesta). Fetch UNA sola vez
+        acá, shaping puro de Python (barato) por separado — el docstring
+        "UN fetch" ya lo prometía, ahora el código lo cumple."""
+        raw = self._repository.get_batch_a_facts(access_token)
         return {
-            "horasVendidas": self.get_horas_vendidas(access_token),
-            "participacion": self.get_participacion(access_token),
-            "calendario": self.get_calendario(access_token),
-            "salud": self.get_salud(access_token),
+            "horasVendidas": self._shape_horas_vendidas(raw["project_facts"]),
+            "participacion": self._shape_participacion(raw),
+            "calendario": self._shape_calendario(raw["cliente_dim"]),
+            "salud": self._shape_salud(raw["cliente_dim"]),
         }
 
     def get_batch_b(self, access_token: str) -> dict:
@@ -186,13 +198,19 @@ class ReportingService:
         }
 
     def get_salud(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_salud` con su PROPIO fetch — usado
+        standalone/en tests; `get_batch_a` hace el fetch UNA vez para las
+        4 experiencias y llama el shaping directo (ver ahí)."""
+        raw = self._repository.get_batch_a_facts(access_token)
+        return self._shape_salud(raw["cliente_dim"])
+
+    def _shape_salud(self, cliente_dim: list[dict]) -> list[dict]:
         """Contrato EXACTO de `COMERCIAL_SALUD_ROWS`: una fila por Cliente
         con los 5 componentes categóricos + Salud Final, tal cual vienen de
         la lista Cliente (columnas de TEXTO puras, sin measure — NUNCA
         agregación numérica, ver HANDOFF). Filas sin Cliente se omiten."""
-        raw = self._repository.get_batch_a_facts(access_token)
         rows = []
-        for dim in raw["cliente_dim"]:
+        for dim in cliente_dim:
             if not dim["cliente"]:
                 continue
             rows.append({
@@ -370,11 +388,17 @@ class ReportingService:
     # redundantes a las mismas listas.
 
     def get_horas_vendidas(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_horas_vendidas` con su PROPIO fetch —
+        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
+        las 4 experiencias y llama el shaping directo (ver ahí)."""
+        facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
+        return self._shape_horas_vendidas(facts)
+
+    def _shape_horas_vendidas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `HORASVENDIDAS_ROWS` (reporting.js): una fila
         por (Client Partner, Tipo, Cliente, Proyecto) con `monthly[12]`
         (Ene..Dic, aditivo) de Hs Vendidas. `fecha` = primer mes con datos
         de ese proyecto (ver `_fecha_min`)."""
-        facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
         groups: dict[tuple, dict] = {}
         for f in facts:
             key = (f["clientPartner"], f["tipoProyecto"], f["cliente"], f["proyecto"])
@@ -393,6 +417,13 @@ class ReportingService:
         return rows
 
     def get_participacion(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_participacion` con su PROPIO fetch —
+        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
+        las 4 experiencias y llama el shaping directo (ver ahí)."""
+        raw = self._repository.get_batch_a_facts(access_token)
+        return self._shape_participacion(raw)
+
+    def _shape_participacion(self, raw: dict) -> list[dict]:
         """Contrato EXACTO de `COMERCIAL_PARTICIPACION_ROWS`: una fila por
         Cliente con `horasVendidas`/`horasCertificadas` sumadas sobre TODOS
         sus proyectos/meses (Mantenimiento + Proyecto, sin distinguir tipo —
@@ -402,7 +433,6 @@ class ReportingService:
         (`comercialPctVendidas`/`comercialPctCertificadas`, ya existente,
         sin cambios) — este método solo entrega el numerador crudo por
         Cliente, nunca el % pre-calculado."""
-        raw = self._repository.get_batch_a_facts(access_token)
         by_cliente: dict[str, dict] = {}
         for f in raw["project_facts"]:
             key = f["clienteId"] or f["cliente"]
@@ -435,13 +465,19 @@ class ReportingService:
         return rows
 
     def get_calendario(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_calendario` con su PROPIO fetch —
+        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
+        las 4 experiencias y llama el shaping directo (ver ahí)."""
+        raw = self._repository.get_batch_a_facts(access_token)
+        return self._shape_calendario(raw["cliente_dim"])
+
+    def _shape_calendario(self, cliente_dim: list[dict]) -> list[dict]:
         """Contrato EXACTO de `CALENDARIO_ROWS`: una fila por Cliente con
         `frecuencia` (normalizada) y `monthly[12]` booleano (ver
         `_calendario_monthly`). Filas sin Cliente/frecuencia reconocible se
         omiten — nunca una fila con frecuencia vacía fabricada."""
-        raw = self._repository.get_batch_a_facts(access_token)
         rows = []
-        for dim in raw["cliente_dim"]:
+        for dim in cliente_dim:
             frecuencia = _normalize_frecuencia(dim["frecuenciaActualizacion"])
             if not dim["cliente"] or not frecuencia:
                 continue

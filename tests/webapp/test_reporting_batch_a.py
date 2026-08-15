@@ -81,6 +81,36 @@ def test_get_batch_a_facts_joins_project_facts_and_cliente_dim(monkeypatch):
     assert dim["calendarioAct"] == "Marzo, Julio"
 
 
+def test_get_batch_a_fetches_backbone_exactly_once_not_four_times(monkeypatch):
+    # PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
+    # HANDOFF): ANTES `get_batch_a()` llamaba `get_batch_a_facts` UNA vez
+    # POR experiencia (4 veces total) — un solo POST a /data/batch-a
+    # disparaba 4x la latencia real de Graph. Ahora es UN fetch, shaping
+    # puro de Python por separado.
+    calls = {"count": 0}
+    real_get_batch_a_facts = ReportingRepository.get_batch_a_facts
+
+    def counted(self, access_token):
+        calls["count"] += 1
+        return real_get_batch_a_facts(self, access_token)
+
+    monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", counted)
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo",
+                "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"}],
+        proyectos=[{"id": "p1", "Title": "SADI v2", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF", "Frecuencia_x0020_Actualizacion": "Mensual", "Calendario_Act": "Marzo"}],
+    )
+    result = _service().get_batch_a("tok")
+    assert calls["count"] == 1
+    assert set(result.keys()) == {"horasVendidas", "participacion", "calendario", "salud"}
+    assert len(result["horasVendidas"]) == 1
+    assert len(result["participacion"]) == 1
+    assert len(result["calendario"]) == 1
+    assert len(result["salud"]) == 1
+
+
 # ============================================================================
 # Horas Vendidas — aditivo por mes, agrupado por CP/Tipo/Cliente/Proyecto
 # ============================================================================

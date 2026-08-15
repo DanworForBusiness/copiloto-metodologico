@@ -1563,11 +1563,24 @@ function renderRentabilidadResumen() {
       ${renderDashboardKpi({ label: "No asignadas a servicios", value: noAsignadasPortfolio, format: "hours" })}
     </div>`);
 
+  // UX4 (owner live QA): Mejor/Peor Performance lado a lado en desktop —
+  // reusa `.activity-grid-2`, el primitivo Hub de 2 columnas YA compartido
+  // (Activity: stat+timeline; Asignaciones Dashboard v1: timeline+
+  // disponibilidad; ver tools.css) en vez de crear un grid propio de
+  // Rentabilidad. Stack vertical automático en viewport angosto (MISMA
+  // media query compartida, sin override local). Cálculo/orden/colores/
+  // población SIN cambios — solo composición.
   const rankingBody = rows.length ? `
-    <p class="perspective-label">Mejor performance</p>
-    ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
-    <p class="perspective-label" style="margin-top:14px">Peor performance</p>
-    ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+    <div class="activity-grid-2">
+      <div>
+        <p class="perspective-label">Mejor performance</p>
+        ${positivos.length ? positivos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+      </div>
+      <div>
+        <p class="perspective-label">Peor performance</p>
+        ${negativos.length ? negativos.map(p => rentabilidadBarRow(p.proyecto, p.rentabilidad, maxAbs)).join("") : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+      </div>
+    </div>
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
