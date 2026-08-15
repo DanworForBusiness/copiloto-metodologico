@@ -87,17 +87,18 @@ def test_capacidad_both_perspectives_gate_on_the_same_shared_status():
 
 
 def test_horas_vendidas_perspective_switch_is_pure_local_regrouping():
-    # Proyecto/Client Partner son DOS agrupaciones del MISMO
-    # HORASVENDIDAS_ROWS ya hidratado por Batch A — nunca un fetch propio
-    # por perspectiva (a diferencia de Cartera). `HORASVENDIDAS_HIERARCHY`
-    # decide SOLO las keys del árbol, nunca un status.
+    # Proyecto/Client Partner son DOS agrupaciones del MISMO HORASVENDIDAS_ROWS
+    # ya hidratado — nunca un fetch propio por perspectiva. HV tiene UN status
+    # POR TAB (`horasVendidasDataStatus`, ciclo de vida scoped propio — salió de
+    # batch-a, ver scope decoupling), NUNCA uno por perspectiva.
+    # `HORASVENDIDAS_HIERARCHY` decide SOLO las keys del árbol.
     body = _function_body("renderHorasVendidas")
-    assert 'state.batchADataStatus === "idle"' in body
-    assert "loadBatchAData()" in body
+    assert 'state.horasVendidasDataStatus === "idle"' in body
+    assert "hydrateHorasVendidasTab()" in body
     assert "HORASVENDIDAS_HIERARCHY[persp]" in body
-    # Ningún OTRO status por perspectiva (ej. "horasVendidasProyectoStatus")
-    # — solo el único status compartido de Batch A.
-    assert re.search(r"\bstate\.\w*Status\b", body.replace("state.batchADataStatus", "")) is None
+    # Ningún status POR PERSPECTIVA — el único `*Status` del body es el status
+    # de tab (horasVendidasDataStatus); no hay horasVendidasProyectoStatus etc.
+    assert re.search(r"\bstate\.\w*Status\b", body.replace("state.horasVendidasDataStatus", "")) is None
 
 
 def test_no_perspective_has_its_own_data_status_outside_cartera():

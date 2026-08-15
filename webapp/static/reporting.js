@@ -742,12 +742,23 @@ const state = {
   rentabilidadStatus: { "En curso": true, "Finalizado": false },
   // Estado de Horas Vendidas — mismo patrón/pattern que Rentabilidad/Cartera.
   horasVendidasStatus: { "En curso": true, "Finalizado": false },
-  // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
-  // Salud de Cliente, ver HANDOFF): MISMO ciclo de vida, UN solo status
-  // para las 4 (comparten UN fetch/endpoint consolidado — ver
-  // loadBatchAData). Horas Productivas (Productivas Y No Asignadas) usa su
-  // PROPIO status (`batchBDataStatus`) — fuente CSV de Time Logs distinta
-  // (Correction 1, ver HANDOFF/real-data-lineage.md §8bis).
+  // Horas Vendidas — ciclo de vida PROPIO con SCOPE TEMPORAL (owner directive:
+  // "batch-a como frontera de runtime; visitar HV no debería cargar
+  // Participación"). HV salió de `batchADataStatus`: pide su ventana caliente
+  // (año actual + anterior) por su endpoint propio, y lazy-loadea un año FRÍO
+  // al elegirlo (single-flight POR AÑO, mismo patrón que Cartera). Los rows ya
+  // hidratados (HORASVENDIDAS_ROWS) SON la cache por scope en el cliente —
+  // revisitar HV no re-fetchea (status queda ready).
+  horasVendidasDataStatus: "idle",
+  horasVendidasAniosDisponibles: [],
+  horasVendidasAniosStatus: "idle",
+  horasVendidasYearLoading: new Set(),
+  horasVendidasYearError: "",
+  // Backbone reuse de Cartera (Participación/Calendario/Salud de Cliente, ver
+  // HANDOFF): MISMO ciclo de vida, UN solo status para las 3 FULL-HISTORY que
+  // quedan (comparten UN fetch/endpoint consolidado — ver loadBatchAData).
+  // Horas Vendidas ya NO está acá (ver horasVendidasDataStatus). Horas
+  // Productivas usa su PROPIO status (`batchBDataStatus`) — fuente CSV.
   batchADataStatus: "idle",
   // Horas Productivas (AMBAS perspectivas) — Batch B, CSV de Time Logs
   // Reports vía `loadBatchBData`. MISMO ciclo de vida idle→loading→
@@ -1677,15 +1688,11 @@ async function loadBatchAData() {
     });
     const data = await resp.json();
     if (data.state === "ok") {
-      replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
+      // Horas Vendidas ya NO viaja acá (scope decoupling — tiene su propio
+      // endpoint con ventana temporal, ver loadHorasVendidasData).
       replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
       replaceRows(CALENDARIO_ROWS, data.calendario);
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
-      // Default Año de Horas Vendidas — solo en hidratación (nunca en cambio de
-      // perspectiva). Mismo criterio que Rentabilidad.
-      if (!getFilter("horasvendidas", "anio")) {
-        state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
-      }
       state.batchADataStatus = "ready";
     } else {
       state.batchADataStatus = "error";
@@ -1700,6 +1707,132 @@ function renderBatchADataState(label) {
     return reportingSourceErrorHtml(label);
   }
   return reportingLoadingHtml(`Cargando ${label}…`);
+}
+
+// Horas Vendidas — fetch PROPIO con SCOPE TEMPORAL (owner directive: HV pide al
+// mismo source-family SÓLO su ventana caliente, sin arrastrar la historia
+// completa de Participación; "batch-a como frontera de runtime"). MISMO patrón
+// que loadCarteraMantenimiento: ventana caliente por defecto (año actual +
+// anterior, resuelto server-side), `replaceRows` en la hidratación, status
+// propio. La metadata de años (para años fríos seleccionables) va en paralelo
+// (loadHorasVendidasAnios), un año frío se lazy-loadea al elegirlo
+// (loadHorasVendidasColdYear).
+function hydrateHorasVendidasTab() {
+  if (state.horasVendidasDataStatus === "idle") loadHorasVendidasData();
+  if (state.horasVendidasAniosStatus === "idle") loadHorasVendidasAnios();
+}
+// Años YA hidratados (ventana caliente inicial + años fríos ya mergeados) —
+// fuente de verdad ÚNICA: las claves de vendidasByYear presentes en los rows
+// (nunca un Set paralelo que pueda desincronizarse del array real).
+function horasVendidasLoadedYears() {
+  const years = new Set();
+  HORASVENDIDAS_ROWS.forEach(r => Object.keys(r.vendidasByYear || {}).forEach(y => years.add(y)));
+  return years;
+}
+async function loadHorasVendidasData() {
+  state.horasVendidasDataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.horasVendidas) {
+      replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
+      // Default Año = año actual válido (faceted fallback) — SOLO en hidratación
+      // (nunca en cambio de perspectiva). Mismo criterio que Rentabilidad.
+      if (!getFilter("horasvendidas", "anio")) {
+        state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
+      }
+      state.horasVendidasDataStatus = "ready";
+    } else {
+      state.horasVendidasDataStatus = "error";
+    }
+  } catch (e) {
+    state.horasVendidasDataStatus = "error";
+  }
+  render();
+}
+// Metadata liviana de año/estado (todos los tipos) — disparada UNA vez por
+// hydrateHorasVendidasTab, en PARALELO con el fetch de datos (nunca bloquea el
+// primer render de la ventana caliente).
+async function loadHorasVendidasAnios() {
+  state.horasVendidasAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.horasVendidasAniosDisponibles = data.aniosDisponibles;
+      state.horasVendidasAniosStatus = "ready";
+    } else {
+      state.horasVendidasAniosStatus = "error";
+    }
+  } catch (e) {
+    state.horasVendidasAniosStatus = "error";
+  }
+  render();
+}
+// Lazy-load de un año FRÍO puntual — disparado desde renderHorasVendidas cuando
+// el Año seleccionado todavía no está en `horasVendidasLoadedYears()`.
+// Single-flight POR AÑO. `mergeHorasVendidasRows` (no `replaceRows`): la
+// ventana caliente ya hidratada se PRESERVA, el año frío se fusiona en el
+// vendidasByYear de cada proyecto.
+async function loadHorasVendidasColdYear(anio) {
+  if (state.horasVendidasYearLoading.has(anio)) return;
+  state.horasVendidasYearLoading.add(anio);
+  state.horasVendidasYearError = "";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.horasVendidas) {
+      mergeHorasVendidasRows(data.horasVendidas);
+      reconcileExperienceFacets("horasvendidas");
+    } else {
+      state.horasVendidasYearError = anio;
+    }
+  } catch (e) {
+    state.horasVendidasYearError = anio;
+  }
+  state.horasVendidasYearLoading.delete(anio);
+  render();
+}
+// Fusión por PROYECTO (owner directive — cache por scope en el cliente): a
+// diferencia de Cartera (grano proyecto×mes×año, donde un año frío son filas
+// NUEVAS), HV es UNA fila por proyecto con un mapa vendidasByYear que abarca
+// años — un año frío debe fusionarse en ESE mapa, nunca crear una fila
+// duplicada del proyecto. Fila nueva (proyecto que no estaba en la ventana
+// caliente) se agrega entera.
+function mergeHorasVendidasRows(incoming) {
+  const keyOf = r => [r.cp, r.tipo, r.cliente, r.proyecto].join("|");
+  const byKey = new Map(HORASVENDIDAS_ROWS.map(r => [keyOf(r), r]));
+  incoming.forEach(inc => {
+    const existing = byKey.get(keyOf(inc));
+    if (existing) {
+      Object.assign(existing.vendidasByYear || (existing.vendidasByYear = {}), inc.vendidasByYear || {});
+    } else {
+      HORASVENDIDAS_ROWS.push(inc);
+      byKey.set(keyOf(inc), inc);
+    }
+  });
+}
+function renderHorasVendidasDataState() {
+  if (state.horasVendidasDataStatus === "error") {
+    return reportingSourceErrorHtml("los datos de Horas Vendidas");
+  }
+  const anio = getFilter("horasvendidas", "anio");
+  if (anio && state.horasVendidasYearError === anio) {
+    return reportingSourceErrorHtml(`los datos de Horas Vendidas del año ${anio}`);
+  }
+  if (anio && !horasVendidasLoadedYears().has(anio)) {
+    return reportingLoadingHtml(`Cargando datos de Horas Vendidas del año ${anio}…`);
+  }
+  return reportingLoadingHtml("Cargando datos de Horas Vendidas…");
 }
 
 // Horas Productivas (AMBAS perspectivas, Productivas Y No Asignadas) —
@@ -1883,6 +2016,13 @@ function horasVendidasAnioOptions() {
   const rows = facetRowsExcept(statusRows, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
   const years = new Set();
   rows.forEach(r => Object.keys(r.vendidasByYear || {}).forEach(y => years.add(y)));
+  // Años FRÍOS seleccionables desde la metadata (HOT WINDOW / COLD HISTORY:
+  // "no confundir OPCIONES con años HIDRATADOS" — un año fuera de la ventana
+  // caliente sigue siendo elegible, y al elegirlo se lazy-loadea). Respeta el
+  // facet Estado (mismo criterio que las filas: estado activo en el map).
+  (state.horasVendidasAniosDisponibles || []).forEach(p => {
+    if (state.horasVendidasStatus[p.estado]) years.add(p.anio);
+  });
   return [...years].sort();
 }
 function horasVendidasDefaultAnio() {
@@ -2506,10 +2646,19 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
 }
 
 function renderHorasVendidas() {
-  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData) — MISMO
-  // criterio que renderCartera.
-  if (state.batchADataStatus === "idle") loadBatchAData();
-  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Horas Vendidas");
+  // Gate del ciclo de vida PROPIO de HV (scope temporal — ver
+  // loadHorasVendidasData). Hidrata la ventana caliente + la metadata de años
+  // en paralelo; NO carga batch-a (Participación no se toca al visitar HV).
+  if (state.horasVendidasDataStatus === "idle") hydrateHorasVendidasTab();
+  if (state.horasVendidasDataStatus !== "ready") return renderHorasVendidasDataState();
+  // Año FRÍO seleccionado que aún no está hidratado ⇒ lazy-load y estado de
+  // carga (single-flight por año). La ventana caliente ya hidratada se
+  // preserva (mergeHorasVendidasRows).
+  const anioSel = getFilter("horasvendidas", "anio");
+  if (anioSel && !horasVendidasLoadedYears().has(anioSel) && state.horasVendidasYearError !== anioSel) {
+    loadHorasVendidasColdYear(anioSel);
+    return renderHorasVendidasDataState();
+  }
   const persp = state.perspective.horasvendidas;
   const hierarchy = HORASVENDIDAS_HIERARCHY[persp];
   // Población canónica ya proyectada al Año+Mes seleccionados (Estado + selects);

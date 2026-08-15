@@ -104,8 +104,9 @@ def test_get_batch_a_fetches_backbone_exactly_once_not_four_times(monkeypatch):
     )
     result = _service().get_batch_a("tok")
     assert calls["count"] == 1
-    assert set(result.keys()) == {"horasVendidas", "participacion", "calendario", "salud"}
-    assert len(result["horasVendidas"]) == 1
+    # Horas Vendidas SALIÓ de get_batch_a (scope decoupling, owner directive) —
+    # ahora se sirve aparte con ventana temporal (get_horas_vendidas).
+    assert set(result.keys()) == {"participacion", "calendario", "salud"}
     assert len(result["participacion"]) == 1
     assert len(result["calendario"]) == 1
     assert len(result["salud"]) == 1
@@ -134,7 +135,7 @@ def test_get_batch_a_never_touches_time_logs_or_facturadas_xlsx(monkeypatch):
         clientes=[{"id": "c1", "Title": "YPF", "Frecuencia_x0020_Actualizacion": "Mensual", "Calendario_Act": "Marzo"}],
     )
     result = _service().get_batch_a("tok")
-    assert set(result.keys()) == {"horasVendidas", "participacion", "calendario", "salud"}
+    assert set(result.keys()) == {"participacion", "calendario", "salud"}
 
 
 # ============================================================================
@@ -329,14 +330,15 @@ from pathlib import Path  # noqa: E402
 _REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
 
 
-def test_batch_a_endpoint_and_lifecycle_gate_all_four_renderers():
+def test_batch_a_endpoint_and_lifecycle_gate_the_full_history_renderers():
     assert '"/operaciones/reporting/integral/data/batch-a"' in _REPORTING_JS
     assert "function loadBatchAData" in _REPORTING_JS
     assert "function renderBatchADataState" in _REPORTING_JS
-    # Los 4 renderers gatean con el MISMO status — nunca un ciclo de vida
-    # paralelo por experiencia. Horas Productivas usa su PROPIO status
-    # (batchBDataStatus, ver test_reporting_batch_b.py) — Batch B, no Batch A.
-    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderComercialSalud"):
+    # Las 3 experiencias FULL-HISTORY (Participación/Calendario/Salud) gatean
+    # con el MISMO status. Horas Vendidas SALIÓ (scope decoupling — gatea con
+    # su propio horasVendidasDataStatus, ver test_reporting_cartera.py). Horas
+    # Productivas usa batchBDataStatus (Batch B, ver test_reporting_batch_b.py).
+    for fn in ("renderComercialParticipacion", "renderCalendario", "renderComercialSalud"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
         assert 'state.batchADataStatus === "idle"' in body
         assert "loadBatchAData()" in body
@@ -344,9 +346,10 @@ def test_batch_a_endpoint_and_lifecycle_gate_all_four_renderers():
 
 def test_batch_a_never_mixes_mock_and_real_data():
     # `replaceRows` puebla EN EL LUGAR los mismos arrays que ya usa
-    # FACET_CONFIG — nunca un dataset paralelo para datos reales.
+    # FACET_CONFIG — nunca un dataset paralelo para datos reales. Horas Vendidas
+    # ya NO se puebla acá (scope decoupling — su propio loader scoped).
     load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("async function loadBatchAData") + 1000]
-    assert "replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas)" in load_fn
+    assert "replaceRows(HORASVENDIDAS_ROWS" not in load_fn
     assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion)" in load_fn
     assert "replaceRows(CALENDARIO_ROWS, data.calendario)" in load_fn
     assert "replaceRows(COMERCIAL_SALUD_ROWS, data.salud)" in load_fn
@@ -399,3 +402,73 @@ def test_horas_vendidas_keeps_year_grain_separate(monkeypatch):
     assert r["vendidasByYear"]["2026"][6] == 20 and r["vendidasByYear"]["2025"][6] == 7  # Julio (idx6) por año
     assert r["monthly"][6] == 27          # colapsado retrocompat (20+7)
     assert r["estado"] == "En curso"
+
+
+# ============================================================================
+# Scope temporal desacoplado (owner directive — ventana caliente por tab)
+# ============================================================================
+
+def test_get_horas_vendidas_defaults_to_hot_window(monkeypatch):
+    # HV pide al mismo adapter SÓLO su ventana caliente (año actual + anterior)
+    # — nunca la historia completa que arrastra Participación.
+    from datetime import datetime
+    captured = {}
+
+    def fake_facts(self, access_token, *, hot_years=None):
+        captured["hot_years"] = hot_years
+        return {"project_facts": [], "cliente_dim": []}
+
+    monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", fake_facts)
+    _service().get_horas_vendidas("tok")
+    y = datetime.now().year
+    assert captured["hot_years"] == [str(y), str(y - 1)]
+
+
+def test_get_horas_vendidas_cold_year_passes_explicit_scope(monkeypatch):
+    # Un año frío puntual (lazy-load al elegirlo) viaja como scope explícito.
+    captured = {}
+
+    def fake_facts(self, access_token, *, hot_years=None):
+        captured["hot_years"] = hot_years
+        return {"project_facts": [], "cliente_dim": []}
+
+    monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", fake_facts)
+    _service().get_horas_vendidas("tok", anios=["2024"])
+    assert captured["hot_years"] == ["2024"]
+
+
+def test_participacion_still_full_history_no_scope(monkeypatch):
+    # Prioridad 1 del owner: preservar la semántica ACTUAL de Participación —
+    # get_batch_a (Participación/Calendario/Salud) NUNCA acota por año.
+    captured = {"hot_years": "SENTINEL"}
+
+    def fake_facts(self, access_token, *, hot_years=None):
+        captured["hot_years"] = hot_years
+        return {"project_facts": [], "cliente_dim": []}
+
+    monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", fake_facts)
+    _service().get_batch_a("tok")
+    assert captured["hot_years"] is None  # historia completa
+
+
+def test_get_horas_vendidas_anios_includes_all_project_types(monkeypatch):
+    # La metadata de años de HV abarca TODOS los tipos (Mantenimiento +
+    # Proyecto) — a diferencia de la de Cartera Mantenimiento, que excluye
+    # Proyecto. Un año que solo existe en un Proyecto DEBE ser seleccionable.
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "A_x00f1_o": "2026"},
+            {"ProyectoLookupId": "p2", "A_x00f1_o": "2024"},
+        ],
+        proyectos=[
+            {"id": "p1", "TipodeProyecto": "Tiempo & Materiales", "Status": "En curso"},
+            {"id": "p2", "TipodeProyecto": "Proyecto", "Status": "Finalizado"},
+        ],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+    )
+    anios = {p["anio"] for p in _service().get_horas_vendidas_anios("tok")}
+    assert anios == {"2026", "2024"}  # incluye el año del Proyecto
+    # Contraste: la metadata de Cartera Mantenimiento excluye el año del Proyecto.
+    cartera_anios = {p["anio"] for p in _service().get_cartera_mantenimiento_anios("tok")}
+    assert cartera_anios == {"2026"}

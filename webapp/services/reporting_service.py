@@ -160,27 +160,27 @@ class ReportingService:
         self._repository = repository if repository is not None else ReportingRepository()
 
     def get_batch_a(self, access_token: str) -> dict:
-        """UN método de entrada para las 4 experiencias que reusan el
-        backbone de Cartera — el router llama esto UNA vez (endpoint
-        consolidado), nunca 4 POSTs separados que repitan el mismo fetch de
-        Cliente/Proyectos/Horas. Horas Productivas (Productivas Y No
-        Asignadas) se RETIRÓ de este grupo (Correction 1, ver HANDOFF/
-        real-data-lineage.md §8bis: es CSV de Time Logs, no backbone) — ver
-        `get_batch_b` abajo.
+        """UN método de entrada para las experiencias FULL-HISTORY que reusan
+        el backbone de Cartera — Participación, Calendario y Salud de Cliente.
+        El router llama esto UNA vez (endpoint consolidado), nunca 3 POSTs
+        separados que repitan el mismo fetch de Cliente/Proyectos/Horas.
+
+        SCOPE DECOUPLING (owner directive — "batch-a como frontera de runtime:
+        visitar Horas Vendidas no debería cargar datos de Participación sólo
+        porque comparten fuente física"): Horas Vendidas SALIÓ de este grupo.
+        HV consume su propia ventana caliente (`get_horas_vendidas(anios=...)`,
+        scope temporal) por un endpoint propio, sin pagar el volumen de la
+        historia completa que Participación todavía necesita (Participación
+        agrega el gran total sobre TODOS los años hasta que migre a Año/
+        Estado — recién ahí converge al mismo mecanismo scoped). Las 3 que
+        quedan comparten `cliente_dim` (Participación además `project_facts`
+        full-history), un solo fetch acá — nunca fetches redundantes.
 
         PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
-        HANDOFF): ANTES cada una de las 4 experiencias llamaba
-        `get_batch_a_facts` de forma INDEPENDIENTE (`get_horas_vendidas`/
-        `get_participacion`/`get_calendario`/`get_salud`, cada una con su
-        propio `self._repository.get_batch_a_facts(access_token)`) — un
-        solo POST a `/data/batch-a` disparaba 4 VECES el mismo fetch de
-        Proyectos+Cliente+Horas-por-proyectos+Client Partner (4x la
-        latencia real de Graph para UNA respuesta). Fetch UNA sola vez
-        acá, shaping puro de Python (barato) por separado — el docstring
-        "UN fetch" ya lo prometía, ahora el código lo cumple."""
+        HANDOFF): las experiencias comparten `get_batch_a_facts` en UN fetch,
+        shaping puro de Python (barato) por separado."""
         raw = self._repository.get_batch_a_facts(access_token)
         return {
-            "horasVendidas": self._shape_horas_vendidas(raw["project_facts"]),
             "participacion": self._shape_participacion(raw),
             "calendario": self._shape_calendario(raw["cliente_dim"]),
             "salud": self._shape_salud(raw["cliente_dim"]),
@@ -473,16 +473,31 @@ class ReportingService:
             "noAsignadasMonthly": _collapse(no_asignadas_by_year),
         }
 
-    # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
-    # Las 3 comparten UN fetch (`get_batch_a_facts`) — nunca 3 llamadas
-    # redundantes a las mismas listas.
+    # --- Batch A: Participación / Calendario / Salud (full-history) ----------
+    # Comparten UN fetch (`get_batch_a_facts`). Horas Vendidas se sirve aparte
+    # con scope temporal (ver `get_horas_vendidas` + `get_horas_vendidas_anios`).
 
-    def get_horas_vendidas(self, access_token: str) -> list[dict]:
-        """Wrapper delgado de `_shape_horas_vendidas` con su PROPIO fetch —
-        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
-        las 4 experiencias y llama el shaping directo (ver ahí)."""
-        facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
+    def get_horas_vendidas(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
+        """Horas Vendidas con SCOPE TEMPORAL (owner directive — HV pide al
+        mismo source-family SÓLO su ventana caliente, sin arrastrar la
+        historia completa de Participación). `anios=None` (primera hidratación
+        del tab) resuelve a la ventana caliente por defecto (año actual +
+        anterior, `_default_hot_years` — nunca un literal hardcodeado). Una
+        lista explícita (`["2024"]`) es el lazy-load de un año FRÍO puntual,
+        disparado por el usuario al elegirlo en el <select> de Año — MISMO
+        contrato que `get_cartera_mantenimiento(anios=...)`. El scope acota
+        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`)."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        facts = self._repository.get_batch_a_facts(access_token, hot_years=hot_years)["project_facts"]
         return self._shape_horas_vendidas(facts)
+
+    def get_horas_vendidas_anios(self, access_token: str) -> list[dict]:
+        """Metadata de años/estado disponibles de Horas Vendidas (todos los
+        tipos) — separada del fetch de datos a propósito (misma razón que
+        Cartera: las OPCIONES del <select> de Año nunca deben confundirse con
+        los años ya HIDRATADOS por la ventana caliente). Delegado 1:1 al
+        repository (`get_horas_anio_estado_pairs`)."""
+        return self._repository.get_horas_anio_estado_pairs(access_token)
 
     def _shape_horas_vendidas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `HORASVENDIDAS_ROWS` (reporting.js): una fila

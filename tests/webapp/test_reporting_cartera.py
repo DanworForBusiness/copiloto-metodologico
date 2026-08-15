@@ -911,6 +911,7 @@ def test_all_source_family_loaders_flip_status_synchronously_before_any_await():
         "loadCarteraMantenimiento": "state.carteraMantenimientoStatus = \"loading\";",
         "loadCarteraProyecto": "state.carteraProyectoStatus = \"loading\";",
         "loadRentabilidadData": "state.rentabilidadDataStatus = \"loading\";",
+        "loadHorasVendidasData": "state.horasVendidasDataStatus = \"loading\";",
         "loadBatchAData": "state.batchADataStatus = \"loading\";",
         "loadBatchBData": "state.batchBDataStatus = \"loading\";",
     }
@@ -1271,3 +1272,51 @@ def test_hierarchy_toggle_has_title_tooltip_for_full_label():
     assert 'title="${esc(label).replace(/"/g, "&quot;")}"' in fn
     # El tooltip va TANTO en la hoja (span) como en el nodo con hijos (button).
     assert fn.count("titleAttr") >= 2
+
+
+# ============================================================================
+# Horas Vendidas — scope temporal desacoplado (owner directive: batch-a como
+# frontera de runtime; visitar HV no carga Participación)
+# ============================================================================
+
+def test_horas_vendidas_has_its_own_scoped_lifecycle_not_batch_a():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidas() {"):_REPORTING_JS.index("function renderComercialParticipacion")]
+    # HV se hidrata por su ciclo PROPIO (ventana temporal), nunca por batch-a.
+    assert "hydrateHorasVendidasTab()" in fn
+    assert 'state.horasVendidasDataStatus' in fn
+    assert "loadBatchAData()" not in fn
+    assert "state.batchADataStatus" not in fn
+
+
+def test_horas_vendidas_hot_window_loader_hits_scoped_endpoint():
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadHorasVendidasData"):_REPORTING_JS.index("async function loadHorasVendidasAnios")]
+    assert '"/operaciones/reporting/integral/data/horas-vendidas"' in fn
+    assert "replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas)" in fn
+    # anios NO viaja en la hidratación de la ventana caliente (default server-side).
+    assert "anios:" not in fn
+
+
+def test_horas_vendidas_cold_year_lazy_loads_and_merges_by_project():
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadHorasVendidasColdYear"):_REPORTING_JS.index("function mergeHorasVendidasRows")]
+    # Single-flight por año + POST con el año explícito + merge (no replace).
+    assert "state.horasVendidasYearLoading.has(anio)" in fn
+    assert "graph_token: token, anios: anio" in fn
+    assert "mergeHorasVendidasRows(data.horasVendidas)" in fn
+    # El merge fusiona vendidasByYear por proyecto (nunca duplica la fila).
+    merge = _REPORTING_JS[_REPORTING_JS.index("function mergeHorasVendidasRows"):_REPORTING_JS.index("function renderHorasVendidasDataState")]
+    assert "vendidasByYear" in merge and "HORASVENDIDAS_ROWS.push(inc)" in merge
+
+
+def test_batch_a_loader_no_longer_populates_horas_vendidas():
+    # Frontera de runtime: batch-a (Participación/Calendario/Salud) ya NO puebla
+    # HORASVENDIDAS_ROWS — HV lo hace por su propio loader scoped.
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("function renderBatchADataState")]
+    assert "replaceRows(HORASVENDIDAS_ROWS" not in fn
+    assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion)" in fn
+
+
+def test_horas_vendidas_anio_options_offer_cold_metadata_years():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioOptions"):_REPORTING_JS.index("function horasVendidasDefaultAnio")]
+    # Los años fríos (metadata) se ofrecen en el <select>, respetando Estado.
+    assert "state.horasVendidasAniosDisponibles" in fn
+    assert "state.horasVendidasStatus[p.estado]" in fn

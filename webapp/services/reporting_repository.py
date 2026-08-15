@@ -563,11 +563,27 @@ class ReportingRepository:
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token: str) -> list[dict]:
         """Pares distintos (año, estado) de Mantenimiento — metadata MÍNIMA
-        para poblar el <select> de Año (HOT WINDOW / COLD HISTORY
+        para poblar el <select> de Año de Cartera (HOT WINDOW / COLD HISTORY
+        corrective). Delega en `_anio_estado_pairs(mantenimiento_only=True)`
+        — Cartera Mantenimiento SOLO muestra `Tiempo & Materiales`
+        (Proyecto agrega la vida completa y nunca usa ventana)."""
+        return self._anio_estado_pairs(access_token, mantenimiento_only=True)
+
+    def get_horas_anio_estado_pairs(self, access_token: str) -> list[dict]:
+        """Pares distintos (año, estado) de TODOS los tipos de proyecto —
+        metadata del <select> de Año de Horas Vendidas (que abarca
+        Mantenimiento + Proyecto, a diferencia de Cartera Mantenimiento).
+        Delega en `_anio_estado_pairs(mantenimiento_only=False)` — MISMA
+        lectura mínima, sin duplicar la lógica Graph."""
+        return self._anio_estado_pairs(access_token, mantenimiento_only=False)
+
+    def _anio_estado_pairs(self, access_token: str, *, mantenimiento_only: bool) -> list[dict]:
+        """Core compartido de la metadata de años (HOT WINDOW / COLD HISTORY
         corrective, ver HANDOFF: "DO NOT CONFUSE OPTIONS WITH HYDRATED
-        FACTS" — un año frío (no hidratado por la ventana caliente por
-        defecto) debe seguir siendo una opción SELECCIONABLE, nunca
-        escondida).
+        FACTS" — un año frío, no hidratado por la ventana caliente por
+        defecto, debe seguir siendo una opción SELECCIONABLE, nunca
+        escondida). `mantenimiento_only` recorta a `Tiempo & Materiales`
+        (Cartera) o incluye todos los tipos (Horas Vendidas).
 
         `$select` acotado a `A_x00f1_o`+lookup de Proyecto en Horas por
         proyectos (NUNCA Cliente/HsTrabajadas/HsVendidas/HsFacturadas —
@@ -582,7 +598,7 @@ class ReportingRepository:
         nunca a ciegas."""
         self._token = access_token
         site_id = self._require_site_id()
-        timer = _StageTimer("cartera_anios")
+        timer = _StageTimer("anios_disponibles")
         proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos", [PROY_TITLE, PROY_TIPO, PROY_ESTADO])
         timer.stage("proyectos", len(proyectos_items))
         horas_items = self._items(
@@ -597,8 +613,8 @@ class ReportingRepository:
         for it in horas_items:
             h = it.get("fields") or {}
             proy_id = _first(h, *HP_PROYECTO_LOOKUP)
-            if tipo_by_id.get(proy_id) != "Tiempo & Materiales":
-                continue  # Mantenimiento SOLO — Proyecto no usa ventana, no aporta acá.
+            if mantenimiento_only and tipo_by_id.get(proy_id) != "Tiempo & Materiales":
+                continue  # Cartera Mantenimiento SOLO — Proyecto no usa ventana, no aporta acá.
             anio = _text(h.get(HP_ANIO))
             estado = estado_by_id.get(proy_id, "")
             if anio:
@@ -609,24 +625,34 @@ class ReportingRepository:
 
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
 
-    def get_batch_a_facts(self, access_token: str) -> dict:
-        """UN solo fetch para TODAS las experiencias que reusan el backbone
-        de Cartera (Horas Vendidas, Participación, Calendario, Horas
-        Productivas-Productivas, Salud de Cliente — ver real-data-
-        lineage.md sección 8/9). Reusa las MISMAS listas/joins que
-        `get_cartera_facts` (Horas por proyectos × Proyectos × Cliente +
-        Client Partner) en UN fetch — nunca fetches redundantes de las
-        mismas listas. Devuelve:
+    def get_batch_a_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> dict:
+        """UN solo fetch (adapter COMPARTIDO) para las experiencias que reusan
+        el backbone de Cartera (Horas Vendidas, Participación, Calendario,
+        Salud de Cliente — ver real-data-lineage.md sección 8/9). Reusa las
+        MISMAS listas/joins que `get_cartera_facts` (Horas por proyectos ×
+        Proyectos × Cliente + Client Partner) en UN fetch — nunca fetches
+        redundantes de las mismas listas. Devuelve:
           - `project_facts`: hechos proyecto×mes (cliente/clientPartner/
             proyecto/tipoProyecto/mes/anio/horas*) — alimenta Horas
-            Vendidas, Participación (agregado por Cliente) y Horas
-            Productivas (agregado por Cliente×Proyecto).
+            Vendidas y Participación (agregado por Cliente).
           - `cliente_dim`: una fila por Cliente con las columnas de
             Participación/Calendario/Salud (frecuenciaActualizacion/
             permiteAdelanto/condicionPago/calendarioAct/salud*/
             clientPartner). Los 6 campos de Salud son internal names REALES
             confirmados por diagnóstico Graph en vivo del owner (no
-            codificados a mano)."""
+            codificados a mano).
+
+        `hot_years` (SCOPE TEMPORAL OPCIONAL — owner directive: "el mismo
+        repository/fetch debe aceptar un scope temporal opcional", separar
+        "source reuse" de "one giant shared fetch"): `None` = historia
+        COMPLETA (comportamiento de SIEMPRE — lo consume Participación, que
+        agrega el gran total sobre TODOS los años hasta que migre a Año/
+        Estado). Una lista (`["2026","2025"]`) acota SOLO la lectura de
+        "Horas por proyectos" (la tabla de hechos, la cara) por el MISMO
+        helper `_fetch_horas_proyectos` que usa Cartera — Horas Vendidas pide
+        únicamente su ventana caliente sin pagar el volumen de Participación.
+        Las listas de dimensión (Proyectos/Cliente/Client Partner) NO se
+        acotan por año (son el join, no el hecho — igual que en Cartera)."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("batch_a")
@@ -635,7 +661,15 @@ class ReportingRepository:
         timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
         timer.stage("cliente", len(clientes_items))
-        horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
+        # Scope temporal: SOLO acota el hecho (Horas por proyectos). Mismo
+        # helper/fallback que Cartera (OData $filter + Prefer, cae a filtro
+        # Python si Graph rechaza) — cero lógica Graph duplicada.
+        horas_items, _filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years)
+        if hot_years is not None:
+            _perf_logger.info(
+                "reporting.perf batch_a.horas_proyectos_filter hot_years=%s filter_used=%s",
+                ",".join(hot_years), _filter_used,
+            )
         timer.stage("horas_proyectos", len(horas_items))
         cp_by_id = self._resolve_client_partners(site_id)
         timer.stage("client_partner", len(cp_by_id))
