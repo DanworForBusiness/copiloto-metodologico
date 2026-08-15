@@ -177,6 +177,36 @@ def test_participacion_omits_clientes_without_any_project_facts(monkeypatch):
 
 
 # ============================================================================
+# Horas Productivas — aditivo por (Cliente, Proyecto), reusa project_facts
+# (sin fuente nueva — ver resolución de la contradicción de lineage en
+# HANDOFF: los valores del mock CAPACIDAD_PRODUCTIVAS_ROWS.horas coinciden
+# EXACTAMENTE con `trabajadas` de Cartera para el mismo cliente×proyecto).
+# ============================================================================
+
+def test_horas_productivas_sums_trabajadas_by_cliente_proyecto(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsTrabajadas": "50"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Febrero", "HsTrabajadas": "84"},
+        ],
+        proyectos=[{"id": "p1", "Title": "Mantenimiento Costeo Directo", "TipodeProyecto": "Tiempo & Materiales"}],
+        clientes=[{"id": "c1", "Title": "Andesmar"}],
+    )
+    rows = _service().get_horas_productivas("tok")
+    assert rows == [{"cliente": "Andesmar", "proyecto": "Mantenimiento Costeo Directo", "horas": 134}]
+
+
+def test_horas_productivas_ignores_facts_without_cliente_or_proyecto(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "", "EmpresaLookupId": "", "A_x00f1_o": "2026", "Mes": "Enero", "HsTrabajadas": "10"}],
+        proyectos=[], clientes=[],
+    )
+    assert _service().get_horas_productivas("tok") == []
+
+
+# ============================================================================
 # Calendario — presencia BOOLEANA por mes, nunca conteo
 # ============================================================================
 
@@ -229,13 +259,13 @@ from pathlib import Path  # noqa: E402
 _REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
 
 
-def test_batch_a_endpoint_and_lifecycle_gate_all_three_renderers():
+def test_batch_a_endpoint_and_lifecycle_gate_all_four_renderers():
     assert '"/operaciones/reporting/integral/data/batch-a"' in _REPORTING_JS
     assert "function loadBatchAData" in _REPORTING_JS
     assert "function renderBatchADataState" in _REPORTING_JS
-    # Los 3 renderers gatean con el MISMO status — nunca un ciclo de vida
+    # Los 4 renderers gatean con el MISMO status — nunca un ciclo de vida
     # paralelo por experiencia.
-    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario"):
+    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
         assert 'state.batchADataStatus === "idle"' in body
         assert "loadBatchAData()" in body
@@ -248,6 +278,15 @@ def test_batch_a_never_mixes_mock_and_real_data():
     assert "replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas)" in load_fn
     assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion)" in load_fn
     assert "replaceRows(CALENDARIO_ROWS, data.calendario)" in load_fn
+    assert "replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas)" in load_fn
+
+
+def test_capacidad_productivas_denominator_recomputes_not_a_stale_constant():
+    # Mismo corrective que Participación: `CAPACIDAD_PRODUCTIVAS_TOTAL` era
+    # una `const` calculada UNA vez contra el mock — ahora es una función,
+    # recalculada contra el array vigente (mock o real).
+    assert "function capacidadProductivasTotal()" in _REPORTING_JS
+    assert "const CAPACIDAD_PRODUCTIVAS_TOTAL =" not in _REPORTING_JS
 
 
 def test_comercial_participacion_denominator_recomputes_not_a_stale_constant():
@@ -261,20 +300,34 @@ def test_comercial_participacion_denominator_recomputes_not_a_stale_constant():
     assert "const COMERCIAL_PARTICIPACION_TOTAL_CERTIFICADAS =" not in _REPORTING_JS
 
 
-def test_salud_de_cliente_and_productivas_stay_on_mock_not_gated():
-    # Salud de Cliente y Horas Productivas/Productivas NO participan del
-    # ciclo de vida de Batch A (ver HANDOFF: lineage no resuelto/
-    # contradictorio) — sus renderers no deben chequear `batchADataStatus`.
+def test_salud_de_cliente_stays_on_mock_not_gated():
+    # Salud de Cliente NO participa del ciclo de vida de Batch A (sin
+    # lineage físico documentado para sus 6 columnas categóricas, ver
+    # HANDOFF) — su renderer no debe chequear `batchADataStatus`.
     salud_fn = _REPORTING_JS[_REPORTING_JS.index("function renderComercialSalud"):_REPORTING_JS.index("function renderComercialSalud") + 400]
     assert "batchADataStatus" not in salud_fn
-    productivas_fn = _REPORTING_JS[_REPORTING_JS.index("function renderCapacidadProductivas"):_REPORTING_JS.index("function renderCapacidadProductivas") + 400]
-    assert "batchADataStatus" not in productivas_fn
+
+
+def test_capacidad_no_asignadas_stays_on_mock_not_gated():
+    # No Asignadas queda para Batch B (fuente CSV de Time Logs distinta) —
+    # su renderer no debe chequear `batchADataStatus`.
+    no_asignadas_fn = _REPORTING_JS[_REPORTING_JS.index("function renderCapacidadNoAsignadas"):_REPORTING_JS.index("function renderCapacidadNoAsignadas") + 400]
+    assert "batchADataStatus" not in no_asignadas_fn
+
+
+def test_horas_productivas_reuses_project_facts_no_new_source():
+    # Resolución de la contradicción de lineage (ver HANDOFF): `horas` se
+    # deriva de `hsTrabajadas` de `project_facts` (mismo fetch YA hecho
+    # para Horas Vendidas/Participación) — NUNCA una fuente Time Logs
+    # nueva.
+    load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("async function loadBatchAData") + 900]
+    assert "data.horasProductivas" in load_fn
 
 
 def test_batch_a_renderers_use_shared_dashboard_table_not_a_local_variant():
-    # Ninguna de las 3 experiencias de Batch A debe introducir una clase de
+    # Ninguna de las 4 experiencias de Batch A debe introducir una clase de
     # tabla/status/hierarchy propia — todas siguen consumiendo el primitivo
     # compartido de Phase S.
-    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario"):
+    for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderCapacidadProductivas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 2600]
         assert 'class="dashboard-table"' in body

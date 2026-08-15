@@ -632,10 +632,11 @@ const state = {
   // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
-  // Batch A (Horas Vendidas/Participación/Calendario, ver HANDOFF): MISMO
-  // ciclo de vida, UN solo status para las 3 (comparten UN fetch/endpoint
-  // consolidado — ver loadBatchAData). Horas Productivas/Salud de Cliente
-  // siguen en mock (fuera de alcance de Batch A, ver HANDOFF).
+  // Batch A (Horas Vendidas/Participación/Calendario/Horas Productivas-
+  // Productivas, ver HANDOFF): MISMO ciclo de vida, UN solo status para
+  // las 4 (comparten UN fetch/endpoint consolidado — ver loadBatchAData).
+  // Salud de Cliente sigue en mock (sin lineage físico documentado para
+  // sus 6 columnas, ver HANDOFF); No Asignadas es Batch B.
   batchADataStatus: "idle",
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
@@ -1197,15 +1198,16 @@ function renderCarteraDataState() {
   return reportingLoadingHtml("Cargando datos de Cartera…");
 }
 
-// Batch A (Horas Vendidas/Participación/Calendario, ver HANDOFF: "backbone
-// reuse") — MISMO patrón que loadCarteraData: `replaceRows` puebla EN EL
-// LUGAR los 3 arrays que ya referencian FACET_CONFIG/render*, UN solo
-// fetch/endpoint consolidado (comparten origen — Horas por proyectos ×
-// Proyectos × Cliente), gateado por `batchADataStatus` (nunca muestra el
-// mock inicial una vez que arrancó la carga real). Horas Productivas/
-// Salud de Cliente NO participan de este ciclo de vida — siguen en mock
-// (ver HANDOFF: contradicción de lineage sin resolver para Productivas;
-// Salud sin lineage físico documentado todavía).
+// Batch A (Horas Vendidas/Participación/Calendario/Horas Productivas-
+// Productivas, ver HANDOFF: "backbone reuse") — MISMO patrón que
+// loadCarteraData: `replaceRows` puebla EN EL LUGAR los 4 arrays que ya
+// referencian FACET_CONFIG/render*, UN solo fetch/endpoint consolidado
+// (comparten origen — Horas por proyectos × Proyectos × Cliente),
+// gateado por `batchADataStatus` (nunca muestra el mock inicial una vez
+// que arrancó la carga real). Salud de Cliente NO participa de este ciclo
+// de vida — sigue en mock (ver HANDOFF: sin lineage físico documentado
+// para sus 6 columnas categóricas). No Asignadas (Batch B, fuente CSV
+// distinta) tampoco.
 async function loadBatchAData() {
   state.batchADataStatus = "loading";
   try {
@@ -1218,6 +1220,7 @@ async function loadBatchAData() {
       replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
       replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
       replaceRows(CALENDARIO_ROWS, data.calendario);
+      replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
       state.batchADataStatus = "ready";
     } else {
       state.batchADataStatus = "error";
@@ -1882,16 +1885,22 @@ function renderCalendario() {
   return dashboardSections("reporting-calendario", resumen + detalle);
 }
 
-const CAPACIDAD_PRODUCTIVAS_TOTAL = CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0);
+// FUNCIÓN, no `const` precalculada (mismo corrective que
+// comercialParticipacionTotalVendidas — ver HANDOFF Batch A):
+// `CAPACIDAD_PRODUCTIVAS_ROWS` se reemplaza IN PLACE con datos reales
+// (`replaceRows`), una constante calculada una sola vez al cargar el
+// script habría quedado stale contra el mock para siempre.
+function capacidadProductivasTotal() { return CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0); }
 
 function capacidadPctIncidencia(horas) {
   // % Incidencia real (medida `Time Logs Reports.[% Hs ejecutadas]`) =
   // horas de la fila ÷ horas TOTALES (REMOVEFILTERS Cliente/Client
-  // Partner) — SIEMPRE contra el gran total FIJO (CAPACIDAD_PRODUCTIVAS_TOTAL,
-  // nunca recalculado por el filtro de Cliente del V0), tanto en filas hoja
-  // como en el rollup de Cliente — así se preserva la semántica real de la
-  // medida DAX incluso cuando el filtro deja visible un subconjunto.
-  return (CAPACIDAD_PRODUCTIVAS_TOTAL ? (horas / CAPACIDAD_PRODUCTIVAS_TOTAL * 100) : 0).toFixed(1) + "%";
+  // Partner) — SIEMPRE contra el gran total FIJO, nunca recalculado por el
+  // filtro de Cliente del V0, tanto en filas hoja como en el rollup de
+  // Cliente — así se preserva la semántica real de la medida DAX incluso
+  // cuando el filtro deja visible un subconjunto.
+  const total = capacidadProductivasTotal();
+  return (total ? (horas / total * 100) : 0).toFixed(1) + "%";
 }
 
 // Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
@@ -1905,6 +1914,10 @@ const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
 ];
 
 function renderCapacidadProductivas() {
+  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData) — SOLO
+  // esta perspectiva (No Asignadas sigue en mock, Batch B, ver HANDOFF).
+  if (state.batchADataStatus === "idle") loadBatchAData();
+  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Horas Productivas");
   const rows = facetFilteredRows("capacidad");
   const filteredTotal = rows.reduce((s, r) => s + r.horas, 0);
 

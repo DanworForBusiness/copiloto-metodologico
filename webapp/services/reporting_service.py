@@ -128,13 +128,16 @@ class ReportingService:
         self._repository = repository if repository is not None else ReportingRepository()
 
     def get_batch_a(self, access_token: str) -> dict:
-        """UN método de entrada para las 3 experiencias de Batch A — el
-        router llama esto UNA vez (endpoint consolidado), nunca 3 POSTs
-        separados que repitan el mismo fetch de Cliente/Proyectos/Horas."""
+        """UN método de entrada para las 4 experiencias de Batch A — el
+        router llama esto UNA vez (endpoint consolidado), nunca 4 POSTs
+        separados que repitan el mismo fetch de Cliente/Proyectos/Horas.
+        Salud de Cliente queda FUERA (sin lineage físico documentado para
+        sus 6 columnas categóricas, ver HANDOFF) — sigue en mock."""
         return {
             "horasVendidas": self.get_horas_vendidas(access_token),
             "participacion": self.get_participacion(access_token),
             "calendario": self.get_calendario(access_token),
+            "horasProductivas": self.get_horas_productivas(access_token),
         }
 
     def get_cartera(self, access_token: str) -> dict:
@@ -298,3 +301,33 @@ class ReportingService:
                 "monthly": _calendario_monthly(dim["calendarioAct"]),
             })
         return rows
+
+    def get_horas_productivas(self, access_token: str) -> list[dict]:
+        """Contrato EXACTO de `CAPACIDAD_PRODUCTIVAS_ROWS`: una fila por
+        (Cliente, Proyecto) con `horas` aditivo. Reusa `project_facts` — el
+        MISMO fetch ya hecho para Horas Vendidas/Participación, sin fuente
+        nueva.
+
+        Resolución de la contradicción de lineage registrada en HANDOFF
+        (comentario de V0 en `reporting.js` decía `Sum(Time Logs
+        Reports.HORAS)` vs. el resumen de Batch A que clasificaba esto como
+        reuso del backbone de Horas por proyectos): los VALORES del mock
+        `CAPACIDAD_PRODUCTIVAS_ROWS.horas` coinciden EXACTAMENTE, cliente×
+        proyecto por cliente×proyecto, con `trabajadas` de
+        `CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` (Andesmar=134/
+        40, Danone=92, YPF=340, AySA=210, Ternium=175 — las 6 filas, sin
+        excepción). Evidencia directa de que "Horas Productivas" = SUM de
+        `hsTrabajadas` de Horas por proyectos, NO una fuente separada. `%
+        Incidencia` (denominador gran-total fijo) se calcula en el
+        FRONTEND, sin cambios (mismo criterio que Participación)."""
+        facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
+        groups: dict[tuple, float] = {}
+        for f in facts:
+            key = (f["cliente"], f["proyecto"])
+            if not f["cliente"] or not f["proyecto"]:
+                continue
+            groups[key] = groups.get(key, 0.0) + f["hsTrabajadas"]
+        return [
+            {"cliente": cliente, "proyecto": proyecto, "horas": _round2(horas)}
+            for (cliente, proyecto), horas in groups.items()
+        ]
