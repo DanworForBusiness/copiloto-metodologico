@@ -882,6 +882,18 @@ table.dashboard-table th {
 }
 .content-theme-dark table.dashboard-table th { color: #9a9aa2; border-bottom-color: rgba(255,255,255,.12); }
 table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-align: left; }
+/* Ancho estándar de columna numérica/de-medida (corrective pre-Batch-A,
+   owner live QA — regresión de Phase S: al fusionar `tree-matrix`/
+   `data-table` en un solo primitivo se perdió el ancho fijo que la matriz
+   jerárquica tenía antes, así que con `table-layout:fixed` el espacio
+   restante se repartía EN PARTES IGUALES entre columnas numéricas Y
+   columnas de texto sin `.row-label-col` — ej. Estado terminal quedaba con
+   el mismo ancho ancho que Diff Hs/Trabajadas/etc., dejando un área vacía
+   grande después del badge). Solo aplica a columnas SIN `.left`/
+   `.row-label-col` — un dominio con su propio `<colgroup>` (Asignaciones,
+   ver `.staffing-detail-table`) ya fija el ancho ahí, esta regla nunca
+   compite (el `<col>` explícito gana en `table-layout:fixed`). */
+table.dashboard-table th:not(.left):not(.row-label-col) { width: 88px; }
 table.dashboard-table td {
   padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right;
   font-variant-numeric: tabular-nums; color: #1f1f24;
@@ -890,6 +902,16 @@ table.dashboard-table td {
 table.dashboard-table td.left, table.dashboard-table td.row-label {
   text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Columna de status COMPACTA/alineada a la derecha (corrective pre-Batch-A,
+   owner live QA): un dominio la usa SOLO cuando su columna de estado es la
+   ÚLTIMA de la matriz y quiere que cierre limpio con el resto de las
+   columnas de medida (Cartera) — NUNCA forzado globalmente. Asignaciones
+   tiene Estado en el medio de su tabla y se queda con el comportamiento
+   default `.left` (mismo criterio que el resto de sus columnas de texto),
+   sin tocar acá. `width` explícito (más ancho que el default numérico de
+   88px — el badge necesita más espacio que un número de 3-4 dígitos). */
+table.dashboard-table th.dashboard-table-col--status { text-align: right; width: 112px; }
+table.dashboard-table td.dashboard-table-cell--status { text-align: right; }
 /* Hover — sutil, sobre el `td` (no el `tr`) para que pinte encima de
    cualquier tinte estático de fila (p.ej. child-rows de Asignaciones) sin
    alterar geometría; funciona igual en filas padre/hijo. */

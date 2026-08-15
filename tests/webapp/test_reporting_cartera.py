@@ -528,6 +528,83 @@ def test_kpi_tile_has_overflow_safe_styles():
 
 
 # ============================================================================
+# Corrective pre-Batch-A (owner live QA — Cartera es la plantilla canónica)
+# ============================================================================
+
+def test_cartera_estado_terminal_column_uses_shared_status_modifier():
+    # S.1: Estado es la ÚLTIMA columna en ambas perspectivas de Cartera — usa
+    # el primitivo compartido `.dashboard-table-col--status`/`--cell--status`
+    # (tools.css), NUNCA un parche visual de un solo uso
+    # (`.reporting-status-last` o similar). El modificador es OPCIONAL
+    # (`c.statusTerminal`) — Asignaciones (Estado en el medio de su tabla) no
+    # lo usa y sigue con el comportamiento `.left` default.
+    assert "statusTerminal: true" in _REPORTING_JS
+    assert '"dashboard-table-col--status" : (c.numeric ? "" : "left")' in _REPORTING_JS
+    assert '"dashboard-table-cell--status" : (c.numeric ? "" : "left")' in _REPORTING_JS
+    assert "table.dashboard-table th.dashboard-table-col--status { text-align: right;" in _TOOLS_CSS
+    assert "table.dashboard-table td.dashboard-table-cell--status { text-align: right; }" in _TOOLS_CSS
+    assert ".reporting-status-last" not in _TOOLS_CSS and ".reporting-status-last" not in _REPORTING_CSS
+    # Ancho estándar de columna numérica restaurado (regresión de Phase S:
+    # se perdió al fusionar tree-matrix/data-table) — sin esto, Estado
+    # terminal comparte el ancho ancho de las columnas de medida.
+    assert "table.dashboard-table th:not(.left):not(.row-label-col) { width: 88px; }" in _TOOLS_CSS
+
+
+def test_cartera_asignaciones_status_column_placement_is_not_globally_forced():
+    # S.1 (regla explícita del owner): el modificador de status compacto/
+    # derecha NUNCA se fuerza globalmente — Asignaciones sigue usando
+    # `class="left"` para su columna Estado (en el medio de la tabla, no
+    # terminal), no `dashboard-table-col--status`.
+    from pathlib import Path
+    staffing_html = (
+        Path(__file__).resolve().parents[2] / "webapp" / "templates" / "operations" / "staffing_dashboard.html"
+    ).read_text(encoding="utf-8")
+    assert '<th class="left">Estado</th>' in staffing_html
+    assert "dashboard-table-col--status" not in staffing_html
+
+
+def test_cartera_proyecto_hierarchy_shows_business_description_not_id():
+    # S.2: la jerarquía de Cartera/Proyecto YA NO tiene a `idProyecto` como
+    # nivel visible (mostraba el ID técnico, ej. "PROJ-0206", en vez de la
+    # descripción de negocio que el filtro Proyecto sí muestra) — Cliente ›
+    # Proyecto (2 niveles). `idProyecto` sigue en cada fila como campo
+    # interno (join key / desambiguación), nunca se descartó del dato.
+    proyecto_block = _REPORTING_JS[_REPORTING_JS.index('"Proyecto": {'):_REPORTING_JS.index('"Proyecto": {') + 900]
+    assert 'keys: ["cliente", "proyecto"]' in proyecto_block
+    assert 'labels: ["Cliente", "Proyecto"]' in proyecto_block
+    assert '"idProyecto"' not in proyecto_block.split("keys:")[1].split("\n")[0]
+    # El facet/filtro de Proyecto sigue usando el mismo campo `proyecto`
+    # (descripción de negocio) que la jerarquía — dropdown y tabla nunca
+    # divergen.
+    assert 'facetSelectField("cartera", "proyecto", "Proyecto")' in _REPORTING_JS
+
+
+def test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_formatted():
+    # S.3: `carteraKpiTiles` NO debe pasar `col.rollup(rows)` (HTML de
+    # `diffCell`, pensado para la celda de tabla) por `fmtNum` de nuevo —
+    # eso da NaN → "—" aunque el detalle filtrado tenga valores reales. El
+    # tile recalcula el número CRUDO con el mismo `sumField` aditivo
+    # (SUM(diffs) == SUM(Certificadas) − SUM(Trabajadas)) y lo formatea
+    # directo con el tipo semántico "signed".
+    tiles_fn = _REPORTING_JS[_REPORTING_JS.index("function carteraKpiTiles"):_REPORTING_JS.index("function carteraKpiTiles") + 900]
+    assert 'k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed")' in tiles_fn
+    # Patrón viejo (rollup de diff, ya HTML, vuelto a pasar por fmtNum como
+    # si fuera un número) no debe quedar.
+    assert "fmtNum(col.rollup(rows), \"hours\")" not in tiles_fn.replace(
+        'k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed") : fmtNum(col.rollup(rows), "hours")', ""
+    )
+
+
+def test_fmt_num_distinguishes_zero_from_missing():
+    # Validación explícita del owner: 0 es un resultado numérico válido
+    # (debe renderizar "0"), el em dash es SOLO para null/undefined/"".
+    fmt_num_fn = _REPORTING_JS[_REPORTING_JS.index("function fmtNum"):_REPORTING_JS.index("function fmtNum") + 400]
+    assert 'if (value === null || value === undefined || value === "") return "—";' in fmt_num_fn
+    # 0 no cae en ninguna de esas tres ramas — sigue de largo hasta el
+    # formateo real (Number(0) es finito, nunca dispara el fallback "—").
+
+
+# ============================================================================
 # Año de Inicio facet respeta Estado + otros filtros (corrective multidireccional)
 # ============================================================================
 

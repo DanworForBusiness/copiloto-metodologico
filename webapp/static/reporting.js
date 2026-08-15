@@ -30,7 +30,15 @@
 //   Mantenimiento → Rows: Cliente, Proyecto (2 niveles)
 //     Values: Diff Hs, Hs Trabajadas Acum, Hs Certif. Acum,
 //             Hs Vendidas Mensuales, Facturadas, Status
-//   Proyecto → Rows: Cliente, ID Proyecto Danwor, Proyecto (3 niveles)
+//   Proyecto → Rows: Cliente, ID Proyecto Danwor, Proyecto (3 niveles en el
+//     pivotTable FUENTE) — PERO owner live QA (corrective pre-Batch-A)
+//     pidió explícitamente NO mostrar `idProyecto` como nivel visible (el
+//     nodo mostraba el ID técnico, ej. "PROJ-0206", en vez de la
+//     descripción de negocio) — la jerarquía RENDERIZADA es Cliente ›
+//     Proyecto (2 niveles, ver CARTERA_CONFIG.Proyecto.keys); `idProyecto`
+//     sigue viviendo en cada fila como campo interno (join key / futura
+//     desambiguación si dos proyectos comparten descripción), nunca se
+//     descartó del dato.
 //     Values: Diff Hs, Hs Trabajadas Acum, Hs Certif. Acum, Hs Vendidas,
 //             Facturadas, Status
 // KPI real de cada página es un card simple: "Cantidad Mantenimientos" /
@@ -114,11 +122,20 @@ const CARTERA_CONFIG = {
       // feedback: única columna del grupo Hs* sin el prefijo "Hs", ahora
       // consistente con sus columnas hermanas).
       { key: "facturadas", label: "Hs Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
-      { key: "estado", label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
+      { key: "estado", label: "Estado", numeric: false, statusTerminal: true, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
   "Proyecto": {
-    rows: CARTERA_PROYECTO_ROWS, keys: ["cliente", "idProyecto", "proyecto"], labels: ["Cliente", "ID Proyecto Danwor", "Proyecto"],
+    // Jerarquía visible = Cliente › Proyecto (owner live QA, corrective
+    // pre-Batch-A): `idProyecto` YA NO es un nivel visible — mostraba el ID
+    // técnico ("PROJ-0206") como si fuera el nodo de negocio, en vez de la
+    // descripción real que el dropdown de Proyecto sí muestra
+    // correctamente (mismo campo `proyecto`, ver facetSelectField).
+    // `idProyecto` sigue viviendo en cada fila (identidad/join key interna,
+    // `buildTree` no lo necesita para agrupar correctamente porque
+    // `proyecto` ya es único por fila agregada en el service) — solo dejó
+    // de ser un NIVEL de jerarquía separado.
+    rows: CARTERA_PROYECTO_ROWS, keys: ["cliente", "proyecto"], labels: ["Cliente", "Proyecto"],
     kpiLabel: "Cantidad Proyectos",
     columns: [
       { key: "diff", label: "Diff Hs", numeric: true, render: r => diffCell(r.diff), rollup: sumField("diff", diffCell) },
@@ -126,7 +143,7 @@ const CARTERA_CONFIG = {
       { key: "certificadas", label: "Hs Certif. Acum", numeric: true, render: r => r.certificadas, rollup: sumField("certificadas") },
       { key: "vendidas", label: "Hs Vendidas", numeric: true, render: r => r.vendidas, rollup: sumField("vendidas") },
       { key: "facturadas", label: "Hs Facturadas", numeric: true, render: r => r.facturadas, rollup: sumField("facturadas") },
-      { key: "estado", label: "Estado", numeric: false, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
+      { key: "estado", label: "Estado", numeric: false, statusTerminal: true, render: r => statusPillCartera(r.status), rollup: uniformValue("status", statusPillCartera) },
     ],
   },
 };
@@ -145,8 +162,17 @@ const CARTERA_KPI_EXTRA = [
 function carteraKpiTiles(cfg, rows) {
   return CARTERA_KPI_EXTRA.map(k => {
     const col = cfg.columns.find(c => c.key === k.key);
-    const value = col.rollup(rows);
-    return `<div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(value, "hours")}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
+    // Diff Hs (owner live QA — corrective pre-Batch-A): `col.rollup` de esta
+    // columna devuelve HTML YA formateado con signo/color (`diffCell`,
+    // pensado para la celda de tabla) — pasar ESO por `fmtNum` de nuevo
+    // (que espera un número) daba `NaN` → "—" aunque el detalle filtrado
+    // tuviera valores reales (ej. Trabajadas=800/Certificadas=1544 → el
+    // tile debía mostrar +744). El tile recalcula el número CRUDO con el
+    // MISMO `sumField` aditivo (SUM(diffs) == SUM(Certificadas) −
+    // SUM(Trabajadas), ver comentario de CARTERA_CONFIG) sin `diffCell`, y
+    // lo formatea directo con el tipo semántico "signed" — nunca vía HTML.
+    const value = k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed") : fmtNum(col.rollup(rows), "hours");
+    return `<div class="activity-kpi"><span class="activity-kpi__value">${value}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
   }).join("");
 }
 
@@ -1183,7 +1209,7 @@ function renderCartera() {
       <table class="dashboard-table">
         <thead><tr>
           <th class="row-label-col">${cfg.labels.join(" / ")}</th>
-          ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
+          ${cfg.columns.map(c => `<th class="${c.statusTerminal ? "dashboard-table-col--status" : (c.numeric ? "" : "left")}">${esc(c.label)}</th>`).join("")}
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, cfg.columns)}</tbody>
       </table>
@@ -1623,7 +1649,7 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
           let content = "";
           if (leafRow) content = c.render(leafRow);
           else if (c.rollup) content = c.rollup(node.rows);
-          return `<td class="${c.numeric ? "" : "left"}">${content}</td>`;
+          return `<td class="${c.statusTerminal ? "dashboard-table-cell--status" : (c.numeric ? "" : "left")}">${content}</td>`;
         }).join("")}
       </tr>`;
     const childrenHtml = (hasChildren && isOpen) ? renderBusinessTreeRows(stateKey, node.children, depth + 1, columns) : "";
