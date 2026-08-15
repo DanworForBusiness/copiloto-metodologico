@@ -1015,7 +1015,7 @@ def test_rentabilidad_cert_ejec_detail_uses_compact_role_not_a_pixel_hack():
     # absorbe el espacio remanente en vez de repartirlo en partes iguales con
     # Tipo. Nunca un ancho puntual/inline de Rentabilidad.
     detail_start = _REPORTING_JS.index("function renderRentabilidadCertEjecutadas")
-    detail_body = _REPORTING_JS[detail_start:detail_start + 3800]
+    detail_body = _REPORTING_JS[detail_start:_REPORTING_JS.index("function renderRentabilidad()")]
     assert '<th class="left dashboard-table-col--compact">Tipo</th><th class="left">Proyecto</th>' in detail_body
     assert "style=" not in detail_body[detail_body.index("<thead>"):detail_body.index("</thead>") + 8]
     assert "table.dashboard-table th.dashboard-table-col--compact { width: 100px; }" in _TOOLS_CSS
@@ -1167,3 +1167,55 @@ def test_stale_anio_inicio_is_pruned_on_facet_change():
     prune = _REPORTING_JS[_REPORTING_JS.index("function pruneCarteraAnioInicio"):]
     prune = prune[:prune.index("\n}")]
     assert "available.has(y)" in prune  # conserva solo los válidos, nunca reselecciona
+
+
+# ============================================================================
+# Rentabilidad Año/Mes/Estado migración — DOM + faceting (end-to-end vertical)
+# ============================================================================
+
+def _rent_filter_bar():
+    return _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadFilterBar"):_REPORTING_JS.index("function renderHorasVendidasFilterBar")]
+
+
+def test_rentabilidad_dom_shows_anio_mes_estado_not_desde_hasta():
+    fb = _rent_filter_bar()
+    assert "rentabilidadAnioField()" in fb and "rentabilidadMesField()" in fb
+    assert "toggleRentabilidadStatus('En curso')" in fb and "toggleRentabilidadStatus('Finalizado')" in fb
+    assert 'dateField("rentabilidad"' not in fb          # Desde/Hasta removidos del DOM
+    assert '"desde"' not in fb and '"hasta"' not in fb
+
+
+def test_rentabilidad_estado_default_en_curso_only():
+    st = _REPORTING_JS[_REPORTING_JS.index("rentabilidadStatus: {"):_REPORTING_JS.index("rentabilidadStatus: {") + 80]
+    assert '"En curso": true' in st and '"Finalizado": false' in st
+
+
+def test_rentabilidad_anio_options_faceted_by_estado_and_selects():
+    block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadAnioOptions"):_REPORTING_JS.index("function rentabilidadDefaultAnio")]
+    assert "state.rentabilidadStatus[p.estado]" in block
+    assert "facetRowsExcept(statusRows, state.filters.rentabilidad" in block
+
+
+def test_rentabilidad_default_anio_current_or_latest():
+    block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadDefaultAnio"):_REPORTING_JS.index("function pruneRentabilidadAnio")]
+    assert "new Date().getFullYear()" in block and "options[options.length - 1]" in block
+
+
+def test_rentabilidad_one_canonical_population():
+    block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadFilteredProyectos"):_REPORTING_JS.index("function rentabilidadFilteredProyectos") + 240]
+    assert "return rentabilidadSelectedRows();" in block
+
+
+def test_rentabilidad_cert_ejec_two_panel_shared_grid_and_formatter():
+    block = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadCertEjecutadas"):_REPORTING_JS.index("function renderRentabilidad()")]
+    assert 'class="activity-grid-2"' in block                       # 2-col compartido (Mantenimiento|Proyecto)
+    assert 'fmtNum(g.certificadas, "hours")' in block and 'fmtNum(g.trabajadas, "hours")' in block
+    assert 'fmtNum(g.margenRelativo, "percent")' in block
+
+
+def test_anio_mes_fields_are_narrow_everywhere():
+    assert ".reporting-integral-preview .whatsnew-filter--narrow select { min-width: 0; }" in _REPORTING_CSS
+    rent_anio = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadAnioField"):_REPORTING_JS.index("function rentabilidadMesField")]
+    assert "whatsnew-filter--narrow" in rent_anio
+    cart_anio = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioField"):_REPORTING_JS.index("function carteraMesField")]
+    assert "whatsnew-filter--narrow" in cart_anio

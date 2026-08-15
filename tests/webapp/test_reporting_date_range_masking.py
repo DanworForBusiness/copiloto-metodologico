@@ -31,22 +31,19 @@ def test_month_masking_invariants_hold():
 
 
 def test_rentabilidad_mensual_and_resumen_apply_the_same_month_mask():
-    # Q2: las 5 filas de "Detalle mensual por Concepto" (incluidas las 2
-    # fijas de portfolio, Horas Vendidas/No asignadas) Y los tiles de
-    # Resumen deben derivar de la MISMA `monthMask` — nunca un cálculo que
-    # ignore el filtro de fecha activo.
+    # Migración Año/Mes/Estado (§-16 #8): Rentabilidad YA NO usa Desde/Hasta.
+    # Resumen y la matriz mensual derivan de la MISMA población seleccionada
+    # (Año/Mes) — `rentabilidadSelectedRows()` + `rentabilidadSelectedPortfolio()`
+    # — una sola población canónica, nunca un segundo cálculo.
     resumen = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadResumen"):_REPORTING_JS.index("function certEjecGroupTooltip")]
-    assert 'const monthMask = monthsInRange(getFilter("rentabilidad", "desde"), getFilter("rentabilidad", "hasta"));' in resumen
-    assert "maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask)" in resumen
-    assert "maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask)" in resumen
-    assert "renderRentabilidadMensual(rows, monthMask)" in resumen
+    assert "const portfolio = rentabilidadSelectedPortfolio();" in resumen
+    assert "rentabilidadFilteredProyectos()" in resumen  # rows = población seleccionada
+    assert "renderRentabilidadMensual(rows, portfolio)" in resumen
+    assert "monthsInRange" not in resumen  # Desde/Hasta retirado de Rentabilidad
 
     mensual = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadMensual"):_REPORTING_JS.index("function renderRentabilidadResumen")]
-    assert "monthly: maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask)" in mensual
-    assert "monthly: maskMonthly(certMonthly, monthMask)" in mensual
-    assert "monthly: maskMonthly(trabMonthly, monthMask)" in mensual
-    assert "monthly: maskMonthly(rentMonthly, monthMask)" in mensual
-    assert "monthly: maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask)" in mensual
+    assert "portfolio.vendidas" in mensual and "portfolio.noAsignadas" in mensual
+    assert "maskMonthly" not in mensual  # ya no aplica la máscara Desde/Hasta
 
 
 def test_horas_vendidas_applies_month_mask_to_matrix_and_kpis():

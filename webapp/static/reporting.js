@@ -392,6 +392,10 @@ function maskMonthly(monthly, mask) {
 
 const RENTABILIDAD_VENDIDAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.vendidas);
 const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsignadas);
+// Portfolio POR-AÑO (Vendidas / No asignadas) — poblados por loadRentabilidadData
+// desde el service; el filtro Año elige el [12] del año (o colapsado si Todos).
+let RENTABILIDAD_VENDIDAS_BY_YEAR = {};
+let RENTABILIDAD_NOASIGNADAS_BY_YEAR = {};
 
 // Horas Vendidas (ver corrective — HANDOFF/task): campos reales del PBIP son
 // "Hs vendidas Mant" / "Hs vendidas Proy" (Horas por proyectos) separadas por
@@ -694,7 +698,7 @@ const state = {
   // `defaultYearToDateFilters()` en vez de repetido a mano. Calendario/
   // Capacidad quedan sin filtro de fecha (Todos) — ningún corrective pidió
   // uno ahí.
-  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: defaultYearToDateFilters(),
+  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {},
              horasvendidas: defaultYearToDateFilters(), calendario: {}, capacidad: {}, comercial: defaultYearToDateFilters() },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
@@ -732,6 +736,10 @@ const state = {
   // service — no comparte ciclo de vida con Batch A/B de las otras
   // experiencias).
   rentabilidadDataStatus: "idle",
+  // Estado de Rentabilidad — checkbox-group propio (mismo patrón que
+  // carteraStatus): default "En curso" únicamente (Finalizado disponible pero
+  // no tildado de entrada). Migración Año/Mes/Estado (ver HANDOFF §-16 #8).
+  rentabilidadStatus: { "En curso": true, "Finalizado": false },
   // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
   // Salud de Cliente, ver HANDOFF): MISMO ciclo de vida, UN solo status
   // para las 4 (comparten UN fetch/endpoint consolidado — ver
@@ -963,12 +971,13 @@ const FACET_CONFIG = {
     };
   },
   rentabilidad: () => ({
-    baseRows: RENTABILIDAD_PROYECTOS,
+    // baseRows escopeada por Estado (checkbox-group, fuera del motor <select>)
+    // para que las opciones de CP/Cliente/Tipo/Proyecto respeten Estado. Año/Mes
+    // se manejan aparte (ver rentabilidadAnioOptions / carteraMesField-style).
+    baseRows: RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]),
     fields: [
       { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
       { key: "tipo", field: "tipo" }, { key: "proyecto", field: "proyecto" },
-      { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
-      { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
     ],
   }),
   horasvendidas: () => ({
@@ -1019,6 +1028,7 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // propia reconciliación metadata-driven (ver pruneCarteraAnio) por el
   // mismo motivo — exento del motor genérico vía `predicate`.
   if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); }
+  if (expId === "rentabilidad") pruneRentabilidadAnio();
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
@@ -1101,7 +1111,7 @@ function selectField(expId, key, label, options) {
 function carteraAnioField() {
   const current = getFilter("cartera", "anio");
   const options = carteraAnioOptions();
-  return `<label class="whatsnew-filter">
+  return `<label class="whatsnew-filter whatsnew-filter--narrow">
     <span>Año</span>
     <select onchange="setFilter('cartera','anio', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
@@ -1119,7 +1129,7 @@ function carteraAnioField() {
 // `selectField` tal cual.
 function carteraMesField() {
   const current = getFilter("cartera", "mes");
-  return `<label class="whatsnew-filter">
+  return `<label class="whatsnew-filter whatsnew-filter--narrow">
     <span>Mes</span>
     <select onchange="setFilter('cartera','mes', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
@@ -1248,12 +1258,38 @@ function renderCarteraFilterBar() {
   return filterBarShell(fields, "cartera");
 }
 
+// Año de Rentabilidad — single-select faceteado (mismo patrón que
+// carteraAnioField); "Todos" = vista colapsada de todos los años.
+function rentabilidadAnioField() {
+  const current = getFilter("rentabilidad", "anio");
+  const options = rentabilidadAnioOptions();
+  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
+    <select onchange="setFilter('rentabilidad','anio', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
+    </select></label>`;
+}
+// Mes — SIEMPRE los 12 fijos + Todos (value 1-12, mismo criterio que
+// carteraMesField: un mes sin datos sigue siendo opción válida).
+function rentabilidadMesField() {
+  const current = getFilter("rentabilidad", "mes");
+  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
+    <select onchange="setFilter('rentabilidad','mes', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${MESES_LARGOS.map((n, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(n)}</option>`).join("")}
+    </select></label>`;
+}
 function renderRentabilidadFilterBar() {
   const fields = facetSelectField("rentabilidad", "cp", "Client Partner")
     + facetSelectField("rentabilidad", "cliente", "Cliente")
     + facetSelectField("rentabilidad", "tipo", "Tipo Proyecto")
     + facetSelectField("rentabilidad", "proyecto", "Proyecto")
-    + dateField("rentabilidad", "desde", "Desde") + dateField("rentabilidad", "hasta", "Hasta");
+    + rentabilidadAnioField()
+    + rentabilidadMesField()
+    + checkboxGroupField("Estado", [
+        { value: "En curso", checked: state.rentabilidadStatus["En curso"], onclick: "toggleRentabilidadStatus('En curso')" },
+        { value: "Finalizado", checked: state.rentabilidadStatus["Finalizado"], onclick: "toggleRentabilidadStatus('Finalizado')" },
+      ]);
   return filterBarShell(fields, "rentabilidad");
 }
 
@@ -1577,6 +1613,13 @@ async function loadRentabilidadData() {
       replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos);
       replaceMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, data.rentabilidad.vendidasMonthly);
       replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly);
+      RENTABILIDAD_VENDIDAS_BY_YEAR = data.rentabilidad.vendidasByYear || {};
+      RENTABILIDAD_NOASIGNADAS_BY_YEAR = data.rentabilidad.noAsignadasByYear || {};
+      // Default Año = año actual válido (faceted fallback) — SOLO en hidratación
+      // (nunca en cambio de perspectiva; ver §10 del batch).
+      if (!getFilter("rentabilidad", "anio")) {
+        state.filters.rentabilidad.anio = rentabilidadDefaultAnio();
+      }
       state.rentabilidadDataStatus = "ready";
     } else {
       state.rentabilidadDataStatus = "error";
@@ -1732,8 +1775,77 @@ function rentabilidadRanked(rows) {
     .sort((a, b) => b.rentabilidad - a.rentabilidad);
 }
 
+// --- Rentabilidad Año/Mes/Estado (migración, HANDOFF §-16 #8) ----------------
+// Facets <select> de Rentabilidad — para computar las opciones de Año de forma
+// faceteada (mismo criterio que _CARTERA_SELECT_FIELDS).
+const _RENT_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }, { key: "tipo", field: "tipo" }, { key: "proyecto", field: "proyecto" }];
+function _z12() { return new Array(12).fill(0); }
+// Máscara de Mes (valor "" = Todos; "1".."12"): deja solo el mes elegido.
+function _maskMes(arr, mes) {
+  const a = (arr || _z12()).slice();
+  if (!mes) return a;
+  const idx = Number(mes) - 1;
+  return a.map((v, i) => (i === idx ? v : 0));
+}
+// Años disponibles (facet MULTIDIRECCIONAL): unión de años presentes en los
+// proyectos que pasan Estado + CP/Cliente/Tipo/Proyecto (excluye el propio Año).
+function rentabilidadAnioOptions() {
+  const statusRows = RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]);
+  const rows = facetRowsExcept(statusRows, state.filters.rentabilidad || {}, _RENT_SELECT_FIELDS, "");
+  const years = new Set();
+  rows.forEach(p => {
+    Object.keys(p.certByYear || {}).forEach(y => years.add(y));
+    Object.keys(p.trabByYear || {}).forEach(y => years.add(y));
+  });
+  return [...years].sort();
+}
+function rentabilidadDefaultAnio() {
+  const anioActual = String(new Date().getFullYear());
+  const options = rentabilidadAnioOptions();
+  if (options.includes(anioActual)) return anioActual;
+  return options.length ? options[options.length - 1] : "";  // más reciente válido
+}
+// Prune de Año obsoleto al cambiar Estado u otro facet: si el Año elegido deja
+// de ser válido, cae al default; "" (Todos) se respeta. Nunca año imposible.
+function pruneRentabilidadAnio() {
+  const anio = getFilter("rentabilidad", "anio");
+  if (!anio) return;
+  if (!rentabilidadAnioOptions().includes(anio)) {
+    state.filters.rentabilidad.anio = rentabilidadDefaultAnio();
+  }
+}
+function toggleRentabilidadStatus(key) {
+  state.rentabilidadStatus[key] = !state.rentabilidadStatus[key];
+  reconcileExperienceFacets("rentabilidad");
+  render();
+}
+// UNA población canónica: Estado + CP/Cliente/Tipo/Proyecto, proyectada al Año
+// elegido (o colapsada si Todos) y enmascarada por Mes. TODAS las secciones
+// (KPIs, ranking, matriz, Cert-vs-Ejec, detalle) consumen ESTO.
+function rentabilidadSelectedRows() {
+  const anio = getFilter("rentabilidad", "anio");
+  const mes = getFilter("rentabilidad", "mes");
+  const base = RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]);
+  const rows = facetRowsExcept(base, state.filters.rentabilidad || {}, _RENT_SELECT_FIELDS, "");
+  return rows.map(p => {
+    const certArr = anio ? ((p.certByYear || {})[anio] || _z12()) : (p.certMonthly || _z12());
+    const trabArr = anio ? ((p.trabByYear || {})[anio] || _z12()) : (p.trabMonthly || _z12());
+    const cm = _maskMes(certArr, mes);
+    const tm = _maskMes(trabArr, mes);
+    return { ...p, certMonthly: cm, trabMonthly: tm,
+      certificadas: cm.reduce((a, b) => a + b, 0), trabajadas: tm.reduce((a, b) => a + b, 0) };
+  });
+}
+// Portfolio (Vendidas / No asignadas) para el Año+Mes seleccionados.
+function rentabilidadSelectedPortfolio() {
+  const anio = getFilter("rentabilidad", "anio");
+  const mes = getFilter("rentabilidad", "mes");
+  const vend = anio ? (RENTABILIDAD_VENDIDAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_VENDIDAS_MENSUAL;
+  const noas = anio ? (RENTABILIDAD_NOASIGNADAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_NOASIGNADAS_MENSUAL;
+  return { vendidas: _maskMes(vend, mes), noAsignadas: _maskMes(noas, mes) };
+}
 function rentabilidadFilteredProyectos() {
-  return facetFilteredRows("rentabilidad");
+  return rentabilidadSelectedRows();
 }
 
 // `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
@@ -1759,7 +1871,7 @@ function rentabilidadBarRow(label, value, maxAbs) {
 // consistencia visual con las demás matrices mensuales, pero SIN el motor
 // de árbol (sin toggle/caret/Expandir/Contraer): "si la fuente no tiene
 // expansión jerárquica, no se inventa una".
-function renderRentabilidadMensual(rows, monthMask) {
+function renderRentabilidadMensual(rows, portfolio) {
   // Batch B (ver HANDOFF/real-data-lineage.md §10): `certMonthly`/
   // `trabMonthly` por proyecto son AHORA grano mensual REAL (Horas por
   // proyectos/Time Logs Reports, ambos proyecto×mes en la fuente) — se
@@ -1780,12 +1892,15 @@ function renderRentabilidadMensual(rows, monthMask) {
   // meses fuera del rango activo quedan en blanco en TODAS, incluidas las
   // 2 fijas de portfolio (antes solo el filtro de Tipo/Proyecto llegaba
   // acá, la fecha nunca se aplicaba a esta matriz).
+  // `rows` ya vienen proyectadas al Año+Mes seleccionados (certMonthly/trabMonthly
+  // enmascarados en rentabilidadSelectedRows); `portfolio` (Vendidas/No asignadas)
+  // también — nada de máscara Desde/Hasta acá.
   const conceptos = [
-    { concepto: "Horas Vendidas", monthly: maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask), signed: false },
-    { concepto: "Horas Certificadas", monthly: maskMonthly(certMonthly, monthMask), signed: false },
-    { concepto: "Horas Trabajadas", monthly: maskMonthly(trabMonthly, monthMask), signed: false },
-    { concepto: "Rentabilidad horas", monthly: maskMonthly(rentMonthly, monthMask), signed: true },
-    { concepto: "No asignadas a servicios", monthly: maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask), signed: false },
+    { concepto: "Horas Vendidas", monthly: portfolio.vendidas, signed: false },
+    { concepto: "Horas Certificadas", monthly: certMonthly, signed: false },
+    { concepto: "Horas Trabajadas", monthly: trabMonthly, signed: false },
+    { concepto: "Rentabilidad horas", monthly: rentMonthly, signed: true },
+    { concepto: "No asignadas a servicios", monthly: portfolio.noAsignadas, signed: false },
   ];
   const body = `
     <div class="matrix-scroll">
@@ -1860,9 +1975,9 @@ function renderRentabilidadResumen() {
   // de la sección — antes quedaban fijas al total anual completo aunque
   // Desde/Hasta acotara a unos pocos meses (misma matriz `flatMonthly` que
   // usa la sección "Detalle mensual por Concepto" de abajo, MISMA máscara).
-  const monthMask = monthsInRange(getFilter("rentabilidad", "desde"), getFilter("rentabilidad", "hasta"));
-  const vendidasPortfolio = maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask).reduce((a, b) => a + b, 0);
-  const noAsignadasPortfolio = maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask).reduce((a, b) => a + b, 0);
+  const portfolio = rentabilidadSelectedPortfolio();
+  const vendidasPortfolio = portfolio.vendidas.reduce((a, b) => a + b, 0);
+  const noAsignadasPortfolio = portfolio.noAsignadas.reduce((a, b) => a + b, 0);
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
@@ -1895,7 +2010,7 @@ function renderRentabilidadResumen() {
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
-  const mensual = renderRentabilidadMensual(rows, monthMask);
+  const mensual = renderRentabilidadMensual(rows, portfolio);
 
   return resumen + ranking + mensual;
 }
@@ -1907,11 +2022,11 @@ function renderRentabilidadResumen() {
 // por proyecto (Hs Certificadas/Hs Ejecutadas/Margen Absoluto/Margen
 // Relativo, mismas fórmulas ya aprobadas, sin etiquetas cualitativas).
 function certEjecGroupTooltip(g) {
-  const lines = [`${g.tipo} — Certificadas: ${g.certificadas} · Ejecutadas: ${g.trabajadas} · Margen Absoluto: ${diffPlain(g.margenAbsoluto)} · Margen Relativo: ${diffPlain(Math.round(g.margenRelativo * 10) / 10)}%`];
+  const lines = [`${g.tipo} — Certificadas: ${fmtNum(g.certificadas, "hours")} · Ejecutadas: ${fmtNum(g.trabajadas, "hours")} · Margen Absoluto: ${diffPlain(g.margenAbsoluto)} · Margen Relativo: ${fmtNum(g.margenRelativo, "percent")}`];
   g.rows.forEach(p => {
     const ma = p.certificadas - p.trabajadas;
-    const mr = p.certificadas ? Math.round((ma / p.certificadas) * 1000) / 10 : 0;
-    lines.push(`· ${p.proyecto} (${p.tipo}) — Certificadas: ${p.certificadas} · Ejecutadas: ${p.trabajadas} · Margen Absoluto: ${diffPlain(ma)} · Margen Relativo: ${diffPlain(mr)}%`);
+    const mr = p.certificadas ? (ma / p.certificadas * 100) : 0;
+    lines.push(`· ${p.proyecto} (${p.tipo}) — Certificadas: ${fmtNum(p.certificadas, "hours")} · Ejecutadas: ${fmtNum(p.trabajadas, "hours")} · Margen Absoluto: ${diffPlain(ma)} · Margen Relativo: ${fmtNum(mr, "percent")}`);
   });
   return lines.join("\n");
 }
@@ -1933,25 +2048,35 @@ function renderRentabilidadCertEjecutadas() {
   }).filter(g => g.rows.length > 0);
   const maxVal = Math.max(...groups.flatMap(g => [g.certificadas, g.trabajadas]), 1);
 
-  const analysisContent = groups.length ? `
-    <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
-    <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
-    ${groups.map(g => {
-      const tooltip = esc(certEjecGroupTooltip(g));
-      return `
-      <p class="perspective-label" style="margin-top:14px">${esc(g.tipo)}</p>
+  // UX (owner): Mantenimiento | Proyecto LADO A LADO — reusa `.activity-grid-2`,
+  // el MISMO primitivo Hub de 2 columnas que Mejor|Peor Performance (stack
+  // vertical automático en viewport angosto, misma media query). Todo valor
+  // numérico pasa por `fmtNum` (sin ruido de punto flotante 1.9500…/3.599…).
+  const groupBlock = (g) => {
+    const tooltip = esc(certEjecGroupTooltip(g));
+    return `
       <div class="bar-row" title="${tooltip}"><span class="bar-label">Certificadas</span>
         <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
-        <span class="bar-value">${g.certificadas}</span>
+        <span class="bar-value">${fmtNum(g.certificadas, "hours")}</span>
       </div>
       <div class="bar-row" title="${tooltip}"><span class="bar-label">Ejecutadas</span>
         <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
-        <span class="bar-value">${g.trabajadas}</span>
+        <span class="bar-value">${fmtNum(g.trabajadas, "hours")}</span>
       </div>
       <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
-        Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${diffCell(Math.round(g.margenRelativo * 10) / 10)}%
+        Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${fmtNum(g.margenRelativo, "percent")}
       </p>`;
-    }).join("")}
+  };
+  const panel = (tipo) => {
+    const g = groups.find(x => x.tipo === tipo);
+    return `<div><p class="perspective-label">${esc(tipo)}</p>`
+      + (g ? groupBlock(g) : `<p class="empty-note">Sin datos para los filtros actuales.</p>`)
+      + `</div>`;
+  };
+  const analysisContent = groups.length ? `
+    <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
+    <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
+    <div class="activity-grid-2" style="margin-top:12px">${panel("Mantenimiento")}${panel("Proyecto")}</div>
   ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
   const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);

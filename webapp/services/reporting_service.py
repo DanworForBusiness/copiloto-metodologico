@@ -401,56 +401,76 @@ class ReportingService:
         cartera_facts = self._repository.get_cartera_facts(access_token)
         time_logs = self._repository.get_time_logs_facts(access_token)
 
+        # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
+        # Ene-2026 quedan direccionables por separado — el filtro Año del browser
+        # elige el `[12]` de ese año. `A_x00f1_o`/Mes (SharePoint) y
+        # anio/mes (Time Logs, derivados del mismo Date) son las fuentes de año.
         cert_by_proyecto: dict[str, dict] = {}
-        vendidas_monthly = [0.0] * 12
+        vendidas_by_year: dict[str, list[float]] = {}
         for f in cartera_facts:
             proyecto = f.get("proyecto")
             if not proyecto:
                 continue
             g = cert_by_proyecto.setdefault(proyecto, {
                 "cliente": f["cliente"], "cp": f["clientPartner"], "tipo": f["tipoProyecto"],
-                "certMonthly": [0.0] * 12, "facts": [],
+                "estado": f.get("estado", ""), "certByYear": {}, "facts": [],
             })
+            anio = f.get("anio")
             n = _month_num(f.get("mes"))
-            if n is not None:
-                g["certMonthly"][n - 1] += f["hsCertificadas"]
-                vendidas_monthly[n - 1] += f["hsVendidas"]
+            if anio and n is not None:
+                g["certByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsCertificadas"]
+                vendidas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
             g["facts"].append(f)
 
-        trab_by_proyecto: dict[str, list[float]] = {}
-        no_asignadas_monthly = [0.0] * 12
+        trab_by_proyecto: dict[str, dict] = {}
+        no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
+            anio = tl.get("anio")
             n = _time_logs_month_num(tl.get("mes"))
-            if n is None:
+            if not anio or n is None:
                 continue
             if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
-                no_asignadas_monthly[n - 1] += tl["horas"]
+                no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
                 continue
-            arr = trab_by_proyecto.setdefault(tl.get("proyecto"), [0.0] * 12)
-            arr[n - 1] += tl["horas"]
+            trab_by_proyecto.setdefault(tl.get("proyecto"), {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
+
+        def _round_year_map(m: dict) -> dict:
+            return {a: [_round2(v) for v in arr] for a, arr in m.items()}
+
+        def _collapse(m: dict) -> list[float]:
+            out = [0.0] * 12
+            for arr in m.values():
+                for i, v in enumerate(arr):
+                    out[i] += v
+            return [_round2(v) for v in out]
 
         proyectos_rows = []
         for proyecto, g in cert_by_proyecto.items():
-            trab_monthly = trab_by_proyecto.get(proyecto, [0.0] * 12)
+            trab_by_year = trab_by_proyecto.get(proyecto, {})
+            cert_collapsed = _collapse(g["certByYear"])
+            trab_collapsed = _collapse(trab_by_year)
             proyectos_rows.append({
                 "tipo": g["tipo"], "cliente": g["cliente"], "cp": g["cp"], "proyecto": proyecto,
-                # Estado por-proyecto (Proyectos.Status via el join ya resuelto en
-                # get_cartera_facts) — todas las facts del proyecto comparten estado.
-                # Paso 1 de la migración Año/Mes/Estado (ver HANDOFF §-16 #8): el
-                # shape ya proyecta estado; el grano por-año + el facet UI son el
-                # paso 2. Aditivo/no-rompe (la UI actual lo ignora).
-                "estado": (g["facts"][0].get("estado", "") if g["facts"] else ""),
-                "certificadas": _round2(sum(g["certMonthly"])),
-                "trabajadas": _round2(sum(trab_monthly)),
-                "certMonthly": [_round2(v) for v in g["certMonthly"]],
-                "trabMonthly": [_round2(v) for v in trab_monthly],
+                "estado": g["estado"],
+                # Per-año (grano preservado hasta el filtrado en el browser).
+                "certByYear": _round_year_map(g["certByYear"]),
+                "trabByYear": _round_year_map(trab_by_year),
+                # Colapsado a través de años — retrocompat (contrato previo) para
+                # tests/consumidores que no seleccionan año.
+                "certificadas": _round2(sum(cert_collapsed)),
+                "trabajadas": _round2(sum(trab_collapsed)),
+                "certMonthly": cert_collapsed,
+                "trabMonthly": trab_collapsed,
                 "fecha": _fecha_min(g["facts"]),
             })
 
         return {
             "proyectos": proyectos_rows,
-            "vendidasMonthly": [_round2(v) for v in vendidas_monthly],
-            "noAsignadasMonthly": [_round2(v) for v in no_asignadas_monthly],
+            "vendidasByYear": _round_year_map(vendidas_by_year),
+            "noAsignadasByYear": _round_year_map(no_asignadas_by_year),
+            # Colapsado retrocompat.
+            "vendidasMonthly": _collapse(vendidas_by_year),
+            "noAsignadasMonthly": _collapse(no_asignadas_by_year),
         }
 
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------

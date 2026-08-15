@@ -117,6 +117,10 @@
 .reporting-integral-preview .bar-fill.positivo { background: var(--green); }
 .reporting-integral-preview .bar-fill.negativo { background: var(--red); }
 .reporting-integral-preview .bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); flex-shrink: 0; }
+/* Año/Mes: selects angostos (contenido corto — un año / un mes) para que la fila
+   de filtros no caiga a dos líneas. Override del min-width:190px compartido, solo
+   para estos campos y scoped a Reporting. */
+.reporting-integral-preview .whatsnew-filter--narrow select { min-width: 0; }
 .reporting-integral-preview .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: .7rem; color: var(--ink-soft); }
 .reporting-integral-preview .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
 .reporting-integral-preview .legend .l-vendidas::before { background: #4C7EA8; }

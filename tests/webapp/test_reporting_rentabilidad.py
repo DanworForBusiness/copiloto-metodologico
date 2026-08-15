@@ -267,3 +267,31 @@ def test_mejor_performance_renders_left_of_peor_performance():
     peor_idx = body.index("Peor performance")
     assert mejor_idx < peor_idx, "Mejor performance debe aparecer ANTES que Peor en el markup (columna izquierda del grid de 2 columnas)"
     assert '"activity-grid-2"' in body, "reusa el primitivo Hub de 2 columnas compartido, no un grid propio de Rentabilidad"
+
+
+def test_get_rentabilidad_keeps_year_grain_separate(monkeypatch):
+    # Migración Año/Mes/Estado: Ene-2026 y Ene-2025 quedan direccionables por
+    # separado (certByYear/trabByYear/vendidasByYear), nunca colapsados antes del
+    # filtro. Estado proyectado.
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+             "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Enero",
+             "HsVendidas": "4", "HsFacturadas": "3", "HsTrabajadas": "0"},
+        ],
+        proyectos=[{"id": "p1", "Title": "SADI", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-01-10", "Project": "SADI", "Duration Decimal": "5000",
+             "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
+    )
+    r = _service().get_rentabilidad("tok")
+    p = r["proyectos"][0]
+    assert p["certByYear"]["2026"][0] == 8 and p["certByYear"]["2025"][0] == 3   # Ene por año
+    assert p["trabByYear"]["2026"][0] == 5
+    assert r["vendidasByYear"]["2026"][0] == 10 and r["vendidasByYear"]["2025"][0] == 4
+    assert p["estado"] == "En curso"
