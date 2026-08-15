@@ -103,11 +103,17 @@ function valueOf(html) {
   // Arranca en el comentario que documenta el primitivo (menciona la
   // clase una vez, a propósito) hasta el cierre de la función — CUALQUIER
   // ocurrencia FUERA de este bloque es un bypass.
-  const blockStart = src.indexOf("// --- Primitivo KPI compartido del Hub");
-  const fnStart = src.indexOf("function renderDashboardKpi(");
-  const fnEnd = src.indexOf("\n}\n", fnStart) + 3;
-  const block = src.slice(blockStart, fnEnd);
-  const allOccurrences = (src.match(/activity-kpi__value/g) || []).length;
+  // Normalizado a LF antes de ubicar los límites del bloque — el checkout
+  // en Windows (core.autocrlf) deja el archivo en CRLF, y `\n}\n` nunca
+  // matchea `\r\n}\r\n` (el `\r` queda pegado al `}`), lo que rompía esta
+  // costura estructural con un falso positivo de bypass en CUALQUIER SO
+  // con checkout CRLF — nunca un problema del primitivo en sí.
+  const srcLf = src.replace(/\r\n/g, "\n");
+  const blockStart = srcLf.indexOf("// --- Primitivo KPI compartido del Hub");
+  const fnStart = srcLf.indexOf("function renderDashboardKpi(");
+  const fnEnd = srcLf.indexOf("\n}\n", fnStart) + 3;
+  const block = srcLf.slice(blockStart, fnEnd);
+  const allOccurrences = (srcLf.match(/activity-kpi__value/g) || []).length;
   const occurrencesInBlock = (block.match(/activity-kpi__value/g) || []).length;
   assertEqual(allOccurrences, occurrencesInBlock, "TODA ocurrencia de 'activity-kpi__value' vive dentro del bloque de renderDashboardKpi (ningún bypass)");
 }

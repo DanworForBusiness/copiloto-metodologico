@@ -111,6 +111,32 @@ def test_get_batch_a_fetches_backbone_exactly_once_not_four_times(monkeypatch):
     assert len(result["salud"]) == 1
 
 
+def test_get_batch_a_never_touches_time_logs_or_facturadas_xlsx(monkeypatch):
+    # P7 (owner live QA de performance, Horas Vendidas >40s): Batch A (Horas
+    # Vendidas/Participación/Calendario/Salud) es 100% backbone de Cartera
+    # (listas SharePoint) — NUNCA debe tocar Time Logs (CSV, Batch B) ni la
+    # XLSX de Facturadas (Cartera/Proyecto). "Batch A" es agrupamiento de
+    # HISTORIA de desarrollo, no un límite de runtime real: esta prueba
+    # confirma que ningún llamado cruza esa frontera.
+    def boom_time_logs(self, access_token):
+        raise AssertionError("get_batch_a nunca debe invocar Time Logs")
+
+    def boom_facturadas(self, site_id):
+        raise AssertionError("get_batch_a nunca debe invocar la XLSX de Facturadas")
+
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_facts", boom_time_logs)
+    monkeypatch.setattr(ReportingRepository, "_facturadas_by_project", boom_facturadas)
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo",
+                "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"}],
+        proyectos=[{"id": "p1", "Title": "SADI v2", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF", "Frecuencia_x0020_Actualizacion": "Mensual", "Calendario_Act": "Marzo"}],
+    )
+    result = _service().get_batch_a("tok")
+    assert set(result.keys()) == {"horasVendidas", "participacion", "calendario", "salud"}
+
+
 # ============================================================================
 # Horas Vendidas — aditivo por mes, agrupado por CP/Tipo/Cliente/Proyecto
 # ============================================================================

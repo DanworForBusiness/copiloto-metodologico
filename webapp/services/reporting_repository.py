@@ -641,7 +641,9 @@ class ReportingRepository:
         TMDL del PBIP)."""
         self._token = access_token
         site_id = self._require_site_id()
+        timer = _StageTimer("colaboradores")
         items = self._items(site_id, self.colaboradores_list_id, "colaboradores")
+        timer.stage("colaboradores", len(items))
         mapping: dict[str, str] = {}
         for it in items:
             fields = it.get("fields") or {}
@@ -649,6 +651,7 @@ class ReportingRepository:
             title = _first(fields, *COLAB_TITLE)
             if email and title:
                 mapping[email] = title
+        timer.total()
         return mapping
 
 

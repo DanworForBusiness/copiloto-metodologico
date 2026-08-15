@@ -615,6 +615,33 @@ def test_cartera_mes_field_renders_all_twelve_months_plus_todos():
     assert "Todos" in fn  # opción "Todos los meses" siempre presente, sin importar data
 
 
+# --- P2: single-flight cache per source-family (owner live QA de performance) -
+
+def test_all_source_family_loaders_flip_status_synchronously_before_any_await():
+    # P2: no hay infraestructura de cache nueva — el single-flight ya lo
+    # garantiza el propio patrón idle/loading/ready/error: cada loader pone
+    # `status = "loading"` como PRIMERA sentencia, antes de cualquier
+    # `await`. Como JS es single-threaded, ese flip ocurre de forma síncrona
+    # ANTES de que el loop de eventos pueda ejecutar un segundo render() que
+    # vea `status === "idle"` — un segundo disparo del mismo tab nunca
+    # dispara un fetch concurrente duplicado.
+    loaders = {
+        "loadCarteraMantenimiento": "state.carteraMantenimientoStatus = \"loading\";",
+        "loadCarteraProyecto": "state.carteraProyectoStatus = \"loading\";",
+        "loadRentabilidadData": "state.rentabilidadDataStatus = \"loading\";",
+        "loadBatchAData": "state.batchADataStatus = \"loading\";",
+        "loadBatchBData": "state.batchBDataStatus = \"loading\";",
+    }
+    for fn_name, expected_first_line in loaders.items():
+        start = _REPORTING_JS.index(f"async function {fn_name}()")
+        body_open = _REPORTING_JS.index("{", start) + 1
+        first_statement = _REPORTING_JS[body_open:body_open + 200].strip().splitlines()[0].strip()
+        assert first_statement == expected_first_line, fn_name
+        # Ninguna sentencia `await` aparece ANTES de ese flip.
+        pre_flip = _REPORTING_JS[body_open:_REPORTING_JS.index(expected_first_line, body_open)]
+        assert "await" not in pre_flip, fn_name
+
+
 def test_facet_config_cartera_mes_has_predicate_anio_does_not():
     # `predicate` es lo que exime a un facet de `reconcileFacetFilters` (mismo
     # mecanismo ya usado para Desde/Hasta) — Mes SIEMPRE debe mostrar los 12
