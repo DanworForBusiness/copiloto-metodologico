@@ -69,12 +69,18 @@ def test_reset_filters_still_applies_defaults_explicitly_on_limpiar():
 # ============================================================================
 
 def test_rentabilidad_both_perspectives_gate_on_the_same_shared_status():
+    # HOT WINDOW / COLD HISTORY corrective (HANDOFF §-17): Rentabilidad se
+    # upgradeó al MISMO patrón de dispatcher que Cartera/Horas Vendidas —
+    # la hidratación corre UNA vez en `renderRentabilidad()`, los
+    # sub-renderers solo verifican el status (ya no disparan su propio
+    # load independiente).
     resumen = _function_body("renderRentabilidadResumen")
     cert = _function_body("renderRentabilidadCertEjecutadas")
     for body in (resumen, cert):
-        assert 'state.rentabilidadDataStatus === "idle"' in body
-        assert "loadRentabilidadData()" in body
+        assert "loadRentabilidadData()" not in body
         assert 'state.rentabilidadDataStatus !== "ready"' in body
+    dispatcher = _function_body("renderRentabilidad")
+    assert "hydrateRentabilidadTab();" in dispatcher
 
 
 def test_capacidad_both_perspectives_gate_on_the_same_shared_status():

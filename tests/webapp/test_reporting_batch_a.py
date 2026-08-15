@@ -380,7 +380,7 @@ def test_batch_a_renderers_use_shared_dashboard_table_not_a_local_variant():
     # de tabla/status/hierarchy propia — todas siguen consumiendo el
     # primitivo compartido de Phase S.
     for fn in ("renderHorasVendidas", "renderComercialParticipacion", "renderCalendario", "renderComercialSalud"):
-        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 3300]
+        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 4200]
         assert 'class="dashboard-table"' in body
 
 

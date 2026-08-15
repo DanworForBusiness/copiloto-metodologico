@@ -225,19 +225,28 @@ def test_rentabilidad_never_mixes_mock_and_real_data():
 
 
 def test_rentabilidad_resumen_and_cert_ejec_gate_on_rentabilidad_status():
+    # MAIN-TAB HYDRATION CONTRACT (HANDOFF §-15/-17): la hidratación corre
+    # UNA vez en el dispatcher (`renderRentabilidad`), no en cada
+    # sub-renderer — mismo patrón que Cartera/Horas Vendidas.
     for fn in ("renderRentabilidadResumen", "renderRentabilidadCertEjecutadas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
-        assert 'state.rentabilidadDataStatus === "idle"' in body
-        assert "loadRentabilidadData()" in body
+        assert 'state.rentabilidadDataStatus !== "ready"' in body
+        assert "loadRentabilidadData()" not in body
+    dispatcher = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidad()"):_REPORTING_JS.index("function renderRentabilidad()") + 700]
+    assert "hydrateRentabilidadTab();" in dispatcher
 
 
 def test_rentabilidad_mensual_uses_real_monthly_grain_not_flat_spread():
     # Batch B: certMonthly/trabMonthly por proyecto son grano mensual REAL
     # (fuente proyecto×mes) — sumados directo, NUNCA flatMonthly de un
     # escalar (esa simplificación de V0 quedó retirada de esta función).
+    # TEMPORAL DOMAIN CONTRACT: la suma ahora pasa por `_sumMonthlyArrays`
+    # (NULL-AWARE — preserva "—" en vez de "0" para meses capados por el
+    # current-year future-month cap), no un `+=` ingenuo.
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadMensual"):_REPORTING_JS.index("function renderRentabilidadResumen")]
-    assert "(p.certMonthly || []).forEach((v, i) => { certMonthly[i] += v; });" in fn
-    assert "(p.trabMonthly || []).forEach((v, i) => { trabMonthly[i] += v; });" in fn
+    assert "_sumMonthlyArrays(rows.map(p => p.certMonthly))" in fn
+    assert "_sumMonthlyArrays(rows.map(p => p.trabMonthly))" in fn
+    assert "_diffMonthly(certMonthly, trabMonthly)" in fn
     assert "flatMonthly(p.certificadas)" not in fn
     assert "flatMonthly(p.trabajadas)" not in fn
 

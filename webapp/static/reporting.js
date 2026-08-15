@@ -734,8 +734,16 @@ const state = {
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
   // service — no comparte ciclo de vida con Batch A/B de las otras
-  // experiencias).
+  // experiencias). HOT WINDOW/COLD HISTORY (owner: "apply the SAME
+  // temporal runtime principle to Rentabilidad") — MISMO patrón que Horas
+  // Vendidas: ventana caliente (año actual + anterior) por defecto, año
+  // frío lazy-load single-flight, metadata de años separada del fetch de
+  // datos.
   rentabilidadDataStatus: "idle",
+  rentabilidadAniosDisponibles: [],
+  rentabilidadAniosStatus: "idle",
+  rentabilidadYearLoading: new Set(),
+  rentabilidadYearError: "",
   // Estado de Rentabilidad — checkbox-group propio (mismo patrón que
   // carteraStatus): default "En curso" únicamente (Finalizado disponible pero
   // no tildado de entrada). Migración Año/Mes/Estado (ver HANDOFF §-16 #8).
@@ -1039,8 +1047,29 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // propia reconciliación metadata-driven (ver pruneCarteraAnio) por el
   // mismo motivo — exento del motor genérico vía `predicate`.
   if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); }
-  if (expId === "rentabilidad") pruneRentabilidadAnio();
-  if (expId === "horasvendidas") pruneHorasVendidasAnio();
+  // Rentabilidad/Horas Vendidas: Año se reconcilia PRIMERO (puede cambiar
+  // el año activo), Mes SEGUNDO (su validez — CURRENT-YEAR FUTURE-MONTH
+  // CAP, ver TEMPORAL DOMAIN CONTRACT — depende del Año YA reconciliado).
+  if (expId === "rentabilidad") { pruneRentabilidadAnio(); pruneRentabilidadMes(); }
+  if (expId === "horasvendidas") { pruneHorasVendidasAnio(); pruneHorasVendidasMes(); }
+}
+// Mes queda fuera del año en curso tras un cambio de Año (ej. Mes=Octubre
+// bajo 2025, usuario cambia Año a 2026 en Agosto-2026 ⇒ Octubre ya no es
+// una opción válida) — cae a "" (Todos), NUNCA queda un mes futuro
+// seleccionado sin opción visible que lo respalde. El PIPELINE de datos ya
+// es seguro sin esto (`_applyMonthCap` capa igual), esto es solo higiene
+// de estado para que el <select> nunca muestre una selección fantasma.
+function pruneRentabilidadMes() {
+  const anio = getFilter("rentabilidad", "anio");
+  const mes = getFilter("rentabilidad", "mes");
+  if (!mes) return;
+  if (!_validMesOptions(anio).some(m => m.value === mes)) state.filters.rentabilidad.mes = "";
+}
+function pruneHorasVendidasMes() {
+  const anio = getFilter("horasvendidas", "anio");
+  const mes = getFilter("horasvendidas", "mes");
+  if (!mes) return;
+  if (!_validMesOptions(anio).some(m => m.value === mes)) state.filters.horasvendidas.mes = "";
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
@@ -1077,7 +1106,13 @@ function setFilter(expId, key, value) {
 // vez de blanco — mismo criterio ya establecido para Cartera/Estado, ahora
 // extendido (owner feedback, ver HANDOFF) a las 3 experiencias que también
 // arrancan con Desde/Hasta.
-const YEAR_TO_DATE_EXPERIENCES = new Set(["rentabilidad", "horasvendidas", "comercial"]);
+// "rentabilidad"/"horasvendidas" SALIERON de este Set (migración Año/Mes/
+// Estado, TEMPORAL DOMAIN CONTRACT) — ya NO tienen Desde/Hasta, "Limpiar"
+// las resetea explícito abajo (Año actual + Mes Todos + Estado En curso,
+// MISMO criterio que Cartera). Comercial/Participación sigue con
+// Desde/Hasta (full-history a propósito, ver HANDOFF — deuda pendiente de
+// convergencia al migrar).
+const YEAR_TO_DATE_EXPERIENCES = new Set(["comercial"]);
 function resetFilters(expId) {
   if (expId === "cartera") {
     // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
@@ -1086,6 +1121,14 @@ function resetFilters(expId) {
     state.filters.cartera = carteraDefaultFilters(state.perspective.cartera);
     state.carteraStatus = { "En curso": true, "Finalizado": false };
     state.carteraAnioInicio = carteraDefaultAnioInicio();
+  } else if (expId === "rentabilidad") {
+    // TEMPORAL DOMAIN CONTRACT: default SENSATO (año actual válido + Mes
+    // Todos + Estado En curso), NUNCA Desde/Hasta (retirado) ni blanco.
+    state.rentabilidadStatus = { "En curso": true, "Finalizado": false };
+    state.filters.rentabilidad = { anio: rentabilidadDefaultAnio(), mes: "" };
+  } else if (expId === "horasvendidas") {
+    state.horasVendidasStatus = { "En curso": true, "Finalizado": false };
+    state.filters.horasvendidas = { anio: horasVendidasDefaultAnio(), mes: "" };
   } else if (YEAR_TO_DATE_EXPERIENCES.has(expId)) {
     state.filters[expId] = defaultYearToDateFilters();
   } else {
@@ -1272,23 +1315,29 @@ function renderCarteraFilterBar() {
 
 // Año de Rentabilidad — single-select faceteado (mismo patrón que
 // carteraAnioField); "Todos" = vista colapsada de todos los años.
+// Año — SINGLE-SELECT, NUNCA "Todos" (owner: "Año as a SINGLE YEAR
+// selector — 'Todos' belongs to Mes, not Año", ver TEMPORAL DOMAIN
+// CONTRACT). `options` YA viene filtrado a /^\d{4}$/ (rentabilidadAnioOptions).
 function rentabilidadAnioField() {
   const current = getFilter("rentabilidad", "anio");
   const options = rentabilidadAnioOptions();
   return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
     <select onchange="setFilter('rentabilidad','anio', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
       ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
     </select></label>`;
 }
-// Mes — SIEMPRE los 12 fijos + Todos (value 1-12, mismo criterio que
-// carteraMesField: un mes sin datos sigue siendo opción válida).
+// Mes — Todos + 12 fijos, PERO domain-aware del CURRENT-YEAR FUTURE-MONTH
+// CAP (owner: "available individual months should reflect actual valid
+// operational months" — nunca ofrecer Septiembre como mes seleccionable
+// en Agosto-2026 bajo el año en curso). Año histórico: los 12 completos,
+// sin cap (`_validMesOptions`, TEMPORAL DOMAIN CONTRACT).
 function rentabilidadMesField() {
   const current = getFilter("rentabilidad", "mes");
+  const anio = getFilter("rentabilidad", "anio");
   return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
     <select onchange="setFilter('rentabilidad','mes', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${MESES_LARGOS.map((n, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(n)}</option>`).join("")}
+      ${_validMesOptions(anio).map(m => `<option value="${m.value}" ${current === m.value ? "selected" : ""}>${esc(m.label)}</option>`).join("")}
     </select></label>`;
 }
 function renderRentabilidadFilterBar() {
@@ -1305,21 +1354,24 @@ function renderRentabilidadFilterBar() {
   return filterBarShell(fields, "rentabilidad");
 }
 
+// Año — SINGLE-SELECT, NUNCA "Todos" (MISMO contrato que Rentabilidad,
+// ver TEMPORAL DOMAIN CONTRACT).
 function horasVendidasAnioField() {
   const current = getFilter("horasvendidas", "anio");
   const options = horasVendidasAnioOptions();
   return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
     <select onchange="setFilter('horasvendidas','anio', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
       ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
     </select></label>`;
 }
+// Mes — MISMO contrato domain-aware que Rentabilidad (`_validMesOptions`).
 function horasVendidasMesField() {
   const current = getFilter("horasvendidas", "mes");
+  const anio = getFilter("horasvendidas", "anio");
   return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
     <select onchange="setFilter('horasvendidas','mes', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${MESES_LARGOS.map((n, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(n)}</option>`).join("")}
+      ${_validMesOptions(anio).map(m => `<option value="${m.value}" ${current === m.value ? "selected" : ""}>${esc(m.label)}</option>`).join("")}
     </select></label>`;
 }
 function renderHorasVendidasFilterBar() {
@@ -1629,12 +1681,23 @@ function renderCarteraDataState() {
 }
 
 // Rentabilidad (AMBAS perspectivas, Resumen Y Certificadas vs Ejecutadas —
-// Batch B, ver HANDOFF/real-data-lineage.md §10) — MISMO patrón que
-// loadCarteraData: fetch propio (Certificadas/Vendidas vía backbone de
-// Cartera + Trabajadas/Ejecutadas vía el MISMO adapter de Time Logs que
-// Horas Productivas), `replaceRows`/`replaceMonthly` pueblan EN EL LUGAR
-// `RENTABILIDAD_PROYECTOS` + los 2 arrays mensuales de portfolio (Vendidas/
-// No asignadas), gateado por `rentabilidadDataStatus` propio.
+// Batch B, ver HANDOFF/real-data-lineage.md §10) — HOT WINDOW / COLD
+// HISTORY (owner: "apply the SAME temporal runtime principle to
+// Rentabilidad") — MISMO patrón que Horas Vendidas: ventana caliente (año
+// actual + anterior, resuelta server-side) en la primera hidratación,
+// `replaceRows`/`replaceMonthly` pueblan EN EL LUGAR, metadata de años en
+// paralelo (loadRentabilidadAnios), año frío lazy-load single-flight
+// (loadRentabilidadColdYear).
+function hydrateRentabilidadTab() {
+  if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
+  if (state.rentabilidadAniosStatus === "idle") loadRentabilidadAnios();
+}
+// Años YA hidratados — fuente de verdad ÚNICA: las claves de
+// RENTABILIDAD_VENDIDAS_BY_YEAR (portfolio, poblado en CADA hidratación
+// exitosa — hot o fría — sin importar si esa carga trajo 0 proyectos).
+function rentabilidadLoadedYears() {
+  return new Set(Object.keys(RENTABILIDAD_VENDIDAS_BY_YEAR));
+}
 async function loadRentabilidadData() {
   state.rentabilidadDataStatus = "loading";
   try {
@@ -1663,9 +1726,85 @@ async function loadRentabilidadData() {
   }
   render();
 }
+// Metadata liviana de año/estado — disparada UNA vez por
+// hydrateRentabilidadTab, en PARALELO con el fetch de datos (nunca bloquea
+// el primer render de la ventana caliente). MISMO endpoint/dominio que
+// Horas Vendidas (todos los tipos de proyecto).
+async function loadRentabilidadAnios() {
+  state.rentabilidadAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.rentabilidadAniosDisponibles = data.aniosDisponibles;
+      state.rentabilidadAniosStatus = "ready";
+    } else {
+      state.rentabilidadAniosStatus = "error";
+    }
+  } catch (e) {
+    state.rentabilidadAniosStatus = "error";
+  }
+  render();
+}
+// Fusión por PROYECTO (owner directive — cache por scope en el cliente,
+// MISMO criterio que `mergeHorasVendidasRows`): Rentabilidad es UNA fila
+// por proyecto (clave natural: `proyecto`, único en `RENTABILIDAD_
+// PROYECTOS`) con certByYear/trabByYear que abarcan años — un año frío se
+// fusiona en ESOS mapas, nunca crea una fila duplicada. Portfolio
+// (Vendidas/No asignadas por año) se fusiona directo por Object.assign.
+function mergeRentabilidadRows(incoming) {
+  const byKey = new Map(RENTABILIDAD_PROYECTOS.map(p => [p.proyecto, p]));
+  (incoming.proyectos || []).forEach(inc => {
+    const existing = byKey.get(inc.proyecto);
+    if (existing) {
+      Object.assign(existing.certByYear || (existing.certByYear = {}), inc.certByYear || {});
+      Object.assign(existing.trabByYear || (existing.trabByYear = {}), inc.trabByYear || {});
+    } else {
+      RENTABILIDAD_PROYECTOS.push(inc);
+      byKey.set(inc.proyecto, inc);
+    }
+  });
+  Object.assign(RENTABILIDAD_VENDIDAS_BY_YEAR, incoming.vendidasByYear || {});
+  Object.assign(RENTABILIDAD_NOASIGNADAS_BY_YEAR, incoming.noAsignadasByYear || {});
+}
+// Lazy-load de un año FRÍO puntual — disparado desde renderRentabilidad
+// cuando el Año seleccionado todavía no está en `rentabilidadLoadedYears()`.
+// Single-flight POR AÑO (MISMO criterio que Horas Vendidas/Cartera).
+async function loadRentabilidadColdYear(anio) {
+  if (state.rentabilidadYearLoading.has(anio)) return;
+  state.rentabilidadYearLoading.add(anio);
+  state.rentabilidadYearError = "";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.rentabilidad) {
+      mergeRentabilidadRows(data.rentabilidad);
+      reconcileExperienceFacets("rentabilidad");
+    } else {
+      state.rentabilidadYearError = anio;
+    }
+  } catch (e) {
+    state.rentabilidadYearError = anio;
+  }
+  state.rentabilidadYearLoading.delete(anio);
+  render();
+}
 function renderRentabilidadDataState() {
   if (state.rentabilidadDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Rentabilidad");
+  }
+  const anio = getFilter("rentabilidad", "anio");
+  if (anio && state.rentabilidadYearError === anio) {
+    return reportingSourceErrorHtml(`los datos de Rentabilidad del año ${anio}`);
+  }
+  if (anio && !rentabilidadLoadedYears().has(anio)) {
+    return reportingLoadingHtml(`Cargando datos de Rentabilidad del año ${anio}…`);
   }
   return reportingLoadingHtml("Cargando datos de Rentabilidad…");
 }
@@ -1936,6 +2075,96 @@ function rentabilidadRanked(rows) {
     .sort((a, b) => b.rentabilidad - a.rentabilidad);
 }
 
+// ============================================================================
+// TEMPORAL DOMAIN CONTRACT (owner live QA — "REPORTING TEMPORAL CONTRACT +
+// PERFORMANCE CORRECTIVE"): un ÚNICO mecanismo compartido, reusado por
+// Horas Vendidas Y Rentabilidad (nunca dos copias) — ver HANDOFF.
+//
+// YEAR DOMAIN: SOLO años de 4 dígitos (`/^\d{4}$/`) — nunca "Todos", nunca
+// un nombre de mes, nunca una string arbitraria. `_isValidAnioValue` es el
+// ÚNICO punto que decide (mismo criterio/regex que `_is_valid_anio` del
+// backend, reporting_repository.py — DOS lenguajes, UN contrato). Owner
+// live QA: "Septiembre" apareció como opción del <select> de Año — el
+// root cause real era que NINGÚN punto (ni backend ni frontend) validaba
+// el dominio antes de este corrective; un valor no-numérico en la columna
+// fuente `A_x00f1_o` fluía sin filtro. El backend ya lo descarta en la
+// fuente (nunca llega en la respuesta); este guard frontend es la segunda
+// línea de defensa (nunca confiar en que el payload sea limpio a ciegas).
+//
+// MONTH DOMAIN: "" (Todos) + "1".."12" — nunca cruza con el YEAR DOMAIN.
+//
+// CURRENT-YEAR FUTURE-MONTH CAP (owner product rule — reporting operacional
+// "actual a la fecha"): cuando el Año seleccionado ES el año calendario
+// real en curso, los meses POSTERIORES al mes calendario actual quedan
+// `null` (NO 0 — 0 afirmaría "se observó cero", cuando la realidad es "el
+// período todavía no aplica"). Años históricos (≠ año actual) NUNCA se
+// acotan — grano completo, source-driven. `null` se propaga limpio por
+// TODO el pipeline existente sin tocar los formateadores: `fmtNum`/
+// `diffCell`/`renderDashboardKpi` YA tratan null como "—" (contrato
+// establecido en la corrective de formateo transversal), y `null + number`
+// coerciona a `number` en JS — sumar un mes capado nunca ensucia un total
+// aritmético con NaN, solo hace falta preservar el `null` cuando TODAS las
+// filas que contribuyen a un índice están capadas (ver `_sumMonthlyArrays`
+// abajo — un acumulador ingenuo con `+=` perdería la señal).
+function _isValidAnioValue(v) { return /^\d{4}$/.test(String(v || "")); }
+function _currentYearStr() { return String(new Date().getFullYear()); }
+// Mes calendario ACTUAL 1-12, o `null` si `anio` no es el año en curso
+// (histórico/futuro-no-soportado ⇒ sin cap).
+function _operationalMonthCap(anio) {
+  return anio === _currentYearStr() ? (new Date().getMonth() + 1) : null;
+}
+// `cap` es 1-based (Agosto=8 ⇒ índices 0..7 válidos, 8..11 ⇒ null).
+// `cap` null/falsy ⇒ passthrough sin cambios (año histórico).
+function _applyMonthCap(arr, cap) {
+  if (!cap) return arr;
+  return arr.map((v, i) => (i < cap ? v : null));
+}
+// Acumulación NULL-AWARE: un índice queda `null` en el resultado SOLO si
+// NINGÚN array de entrada aportó un valor real ahí (todas las filas
+// contribuyentes están capadas/ausentes en ese mes) — a diferencia de un
+// `+=` ingenuo partiendo de 0, que perdería la distinción "0 real" vs "sin
+// dato" apenas UNA fila con `null` se sume con `+`. Reusado por
+// `sumMonthly` (rows con `.monthly`) y por acumulaciones manuales
+// (`renderRentabilidadMensual`).
+function _sumMonthlyArrays(arrays) {
+  const totals = new Array(12).fill(null);
+  arrays.forEach(arr => (arr || _z12()).forEach((v, i) => {
+    if (v === null || v === undefined) return;
+    totals[i] = (totals[i] || 0) + v;
+  }));
+  return totals;
+}
+// Diferencia elemento-a-elemento NULL-AWARE (ej. Rentabilidad horas =
+// Certificadas − Trabajadas por mes): si CUALQUIERA de los dos operandos
+// está capado en un índice, el resultado también lo está — no se puede
+// calcular un margen contra un período "no aplicable".
+function _diffMonthly(a, b) {
+  return a.map((v, i) => (v === null || b[i] === null) ? null : v - b[i]);
+}
+// Suma de un trimestre (0=Q1..3=Q4) NULL-AWARE: si el trimestre ENTERO cae
+// fuera del cap (los 3 meses capados), el resultado es `null` ("no
+// contribution / not applicable", nunca un 0 numérico que sugeriría "ya
+// sabemos que da cero"). Parcialmente capado (ej. Jul+Ago válidos, Sep
+// capado): suma los meses válidos, ignora los capados (coerción null→0).
+function _quarterValue(monthlyArr, q) {
+  const slice = monthlyArr.slice(q * 3, q * 3 + 3);
+  if (slice.every(v => v === null)) return null;
+  return slice.reduce((s, v) => s + (v || 0), 0);
+}
+// Mes domain-aware: SIEMPRE Todos + 12 fijos, PERO si `anio` es el año
+// calendario en curso, los meses POSTERIORES al actual se omiten de las
+// opciones (owner: "available individual months should reflect actual
+// valid operational months" — nunca ofrecer Septiembre como mes
+// seleccionable en Agosto-2026). `Todos` SIEMPRE queda disponible (significa
+// "todos los meses VÁLIDOS hasta el actual", ver `_operationalMonthCap`).
+function _validMesOptions(anio) {
+  const cap = _operationalMonthCap(anio);
+  return MESES_LARGOS
+    .map((nombre, i) => ({ value: String(i + 1), label: nombre }))
+    .filter((_, i) => !cap || i < cap);
+}
+// ============================================================================
+
 // --- Rentabilidad Año/Mes/Estado (migración, HANDOFF §-16 #8) ----------------
 // Facets <select> de Rentabilidad — para computar las opciones de Año de forma
 // faceteada (mismo criterio que _CARTERA_SELECT_FIELDS).
@@ -1958,7 +2187,13 @@ function rentabilidadAnioOptions() {
     Object.keys(p.certByYear || {}).forEach(y => years.add(y));
     Object.keys(p.trabByYear || {}).forEach(y => years.add(y));
   });
-  return [...years].sort();
+  (state.rentabilidadAniosDisponibles || []).forEach(p => {
+    if (state.rentabilidadStatus[p.estado]) years.add(p.anio);
+  });
+  // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa (el backend YA
+  // descarta valores no-4-dígitos en la fuente) — Año NUNCA muestra un
+  // valor fuera de /^\d{4}$/, sea cual sea el origen del dato.
+  return [...years].filter(_isValidAnioValue).sort();
 }
 function rentabilidadDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
@@ -1986,24 +2221,33 @@ function toggleRentabilidadStatus(key) {
 function rentabilidadSelectedRows() {
   const anio = getFilter("rentabilidad", "anio");
   const mes = getFilter("rentabilidad", "mes");
+  const cap = _operationalMonthCap(anio);
   const base = RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]);
   const rows = facetRowsExcept(base, state.filters.rentabilidad || {}, _RENT_SELECT_FIELDS, "");
   return rows.map(p => {
     const certArr = anio ? ((p.certByYear || {})[anio] || _z12()) : (p.certMonthly || _z12());
     const trabArr = anio ? ((p.trabByYear || {})[anio] || _z12()) : (p.trabMonthly || _z12());
-    const cm = _maskMes(certArr, mes);
-    const tm = _maskMes(trabArr, mes);
+    // CURRENT-YEAR FUTURE-MONTH CAP aplicado DESPUÉS de la máscara de Mes
+    // (orden defensivo: si Año=año actual, el cap gana incluso si algún
+    // día un Mes futuro llegara seleccionado — ver `_validMesOptions`, que
+    // ya evita ofrecerlo como opción).
+    const cm = _applyMonthCap(_maskMes(certArr, mes), cap);
+    const tm = _applyMonthCap(_maskMes(trabArr, mes), cap);
     return { ...p, certMonthly: cm, trabMonthly: tm,
-      certificadas: cm.reduce((a, b) => a + b, 0), trabajadas: tm.reduce((a, b) => a + b, 0) };
+      certificadas: cm.reduce((a, b) => a + (b || 0), 0), trabajadas: tm.reduce((a, b) => a + (b || 0), 0) };
   });
 }
 // Portfolio (Vendidas / No asignadas) para el Año+Mes seleccionados.
 function rentabilidadSelectedPortfolio() {
   const anio = getFilter("rentabilidad", "anio");
   const mes = getFilter("rentabilidad", "mes");
+  const cap = _operationalMonthCap(anio);
   const vend = anio ? (RENTABILIDAD_VENDIDAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_VENDIDAS_MENSUAL;
   const noas = anio ? (RENTABILIDAD_NOASIGNADAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_NOASIGNADAS_MENSUAL;
-  return { vendidas: _maskMes(vend, mes), noAsignadas: _maskMes(noas, mes) };
+  return {
+    vendidas: _applyMonthCap(_maskMes(vend, mes), cap),
+    noAsignadas: _applyMonthCap(_maskMes(noas, mes), cap),
+  };
 }
 function rentabilidadFilteredProyectos() {
   return rentabilidadSelectedRows();
@@ -2023,7 +2267,11 @@ function horasVendidasAnioOptions() {
   (state.horasVendidasAniosDisponibles || []).forEach(p => {
     if (state.horasVendidasStatus[p.estado]) years.add(p.anio);
   });
-  return [...years].sort();
+  // TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" en el <select>
+  // de Año): segunda línea de defensa, el backend YA descarta valores
+  // no-4-dígitos en la fuente (`_is_valid_anio`) — Año NUNCA muestra algo
+  // fuera de /^\d{4}$/ sea cual sea el origen del dato.
+  return [...years].filter(_isValidAnioValue).sort();
 }
 function horasVendidasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
@@ -2048,11 +2296,12 @@ function toggleHorasVendidasStatus(key) {
 function horasVendidasSelectedRows() {
   const anio = getFilter("horasvendidas", "anio");
   const mes = getFilter("horasvendidas", "mes");
+  const cap = _operationalMonthCap(anio);
   const base = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
   const rows = facetRowsExcept(base, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
   return rows.map(r => {
     const arr = anio ? ((r.vendidasByYear || {})[anio] || _z12()) : (r.monthly || _z12());
-    return { ...r, monthly: _maskMes(arr, mes) };
+    return { ...r, monthly: _applyMonthCap(_maskMes(arr, mes), cap) };
   });
 }
 
@@ -2085,13 +2334,12 @@ function renderRentabilidadMensual(rows, portfolio) {
   // proyectos/Time Logs Reports, ambos proyecto×mes en la fuente) — se
   // suman directo, NUNCA `flatMonthly` de un escalar (esa era la
   // simplificación de V0 sin datos vivos, ya retirada).
-  const certMonthly = new Array(12).fill(0);
-  const trabMonthly = new Array(12).fill(0);
-  rows.forEach(p => {
-    (p.certMonthly || []).forEach((v, i) => { certMonthly[i] += v; });
-    (p.trabMonthly || []).forEach((v, i) => { trabMonthly[i] += v; });
-  });
-  const rentMonthly = certMonthly.map((v, i) => v - trabMonthly[i]);
+  // NULL-AWARE (TEMPORAL DOMAIN CONTRACT): `_sumMonthlyArrays`, no un `+=`
+  // ingenuo — un mes CAPADO (current-year future-month cap) en TODAS las
+  // filas preserva `null` (blanco), nunca colapsa a "0" en la matriz.
+  const certMonthly = _sumMonthlyArrays(rows.map(p => p.certMonthly));
+  const trabMonthly = _sumMonthlyArrays(rows.map(p => p.trabMonthly));
+  const rentMonthly = _diffMonthly(certMonthly, trabMonthly);
   // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5) — Horas
   // Vendidas/No asignadas a servicios quedan a nivel portfolio fijo (ver
   // comentario del dataset), Certificadas/Trabajadas/Rentabilidad horas sí
@@ -2158,10 +2406,10 @@ function rentabilidadRankingList(items, side, maxAbs) {
 }
 
 function renderRentabilidadResumen() {
-  // Gate del ciclo de vida real-data (ver loadRentabilidadData) — MISMO
-  // status que Certificadas vs Ejecutadas (comparten UN fetch, ver
-  // HANDOFF/real-data-lineage.md §10).
-  if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
+  // Gate del ciclo de vida real-data — el MAIN-TAB HYDRATION CONTRACT ya
+  // corrió en `renderRentabilidad()` (dispatcher, ver ahí); acá solo se
+  // verifica el status (MISMO que Certificadas vs Ejecutadas, comparten UN
+  // fetch, ver HANDOFF/real-data-lineage.md §10).
   if (state.rentabilidadDataStatus !== "ready") return renderRentabilidadDataState();
   const rows = rentabilidadFilteredProyectos();
   // Horas Certificadas/Trabajadas/Rentabilidad horas (owner feedback: los
@@ -2240,10 +2488,8 @@ function certEjecGroupTooltip(g) {
 }
 
 function renderRentabilidadCertEjecutadas() {
-  // Gate del ciclo de vida real-data (ver loadRentabilidadData) — MISMO
-  // fetch que Resumen, gateado independiente por si el usuario entra
-  // directo a esta perspectiva.
-  if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
+  // Gate del ciclo de vida real-data — MISMO fetch que Resumen, MAIN-TAB
+  // HYDRATION CONTRACT ya corrió en `renderRentabilidad()` (dispatcher).
   if (state.rentabilidadDataStatus !== "ready") return renderRentabilidadDataState();
   const rows = rentabilidadFilteredProyectos();
   const groups = ["Mantenimiento", "Proyecto"].map(tipo => {
@@ -2322,6 +2568,17 @@ function renderRentabilidadCertEjecutadas() {
 }
 
 function renderRentabilidad() {
+  // MAIN-TAB HYDRATION CONTRACT (MISMO patrón que renderCartera/
+  // renderHorasVendidas): la PRIMERA vez que se renderiza CUALQUIER
+  // perspectiva de Rentabilidad dispara la hidratación (ventana caliente +
+  // metadata de años) — nunca una espera nueva al cambiar de Resumen a
+  // Certificadas vs Ejecutadas.
+  hydrateRentabilidadTab();
+  const anio = getFilter("rentabilidad", "anio");
+  if (anio && !rentabilidadLoadedYears().has(anio) && state.rentabilidadYearError !== anio) {
+    loadRentabilidadColdYear(anio);
+    return dashboardSections("reporting-rentabilidad", renderRentabilidadDataState());
+  }
   const persp = state.perspective.rentabilidad;
   const sectionsHtml = persp === "Resumen" ? renderRentabilidadResumen() : renderRentabilidadCertEjecutadas();
   return dashboardSections("reporting-rentabilidad", sectionsHtml);
@@ -2402,10 +2659,17 @@ function sectionToolbar(...partsHtml) {
 // Desde/Hasta activo quedan en 0. `undefined` (default — Calendario/
 // Capacidad No Asignadas no lo pasan, sin filtro de fecha en esas
 // experiencias) preserva el comportamiento exacto de siempre.
+// NULL-AWARE (ver TEMPORAL DOMAIN CONTRACT): reusa `_sumMonthlyArrays` en
+// vez de un `+=` ingenuo — un índice de mes CAPADO (owner: current-year
+// future-month cap) en TODAS las filas contribuyentes preserva `null` en
+// el total (nunca colapsa a 0), así el Total/rollup de CUALQUIER nodo del
+// árbol (Calendario/Capacidad-No-Asignadas/Horas Vendidas — todos pasan
+// por acá) renderiza "—" para un mes no aplicable, nunca "0". Sin filas
+// con `null` (Calendario/Capacidad, que nunca lo usan), el comportamiento
+// es IDÉNTICO al de siempre (`(totals[i]||0)+v` con `totals[i]` empezando
+// en `null` es matemáticamente igual a empezar en 0).
 function sumMonthly(rows, monthMask) {
-  const totals = new Array(12).fill(0);
-  rows.forEach(r => r.monthly.forEach((v, i) => { totals[i] += v; }));
-  return maskMonthly(totals, monthMask);
+  return maskMonthly(_sumMonthlyArrays(rows.map(r => r.monthly)), monthMask);
 }
 
 // Agrupa `rows` recursivamente según `keys` — GENÉRICO sobre la forma del
@@ -2678,7 +2942,11 @@ function renderHorasVendidas() {
   const annual = totalMonthly.reduce((s, v) => s + v, 0);
   const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
   const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
-  const quarter = q => totalMonthly.slice(q * 3, q * 3 + 3).reduce((a, b) => a + b, 0);
+  // NULL-AWARE (TEMPORAL DOMAIN CONTRACT): un trimestre ENTERO capado (ej.
+  // Q4 en Agosto-2026) resuelve a `null` ("no contribution / not
+  // applicable", renderDashboardKpi ya lo muestra como "—") — nunca un "0"
+  // numérico que sugeriría una medición real de cero.
+  const quarter = q => _quarterValue(totalMonthly, q);
 
   const resumen = dashboardSection("resumen", "Resumen", rows.length + " proyecto(s)", `
     <div class="activity-kpi-grid">
