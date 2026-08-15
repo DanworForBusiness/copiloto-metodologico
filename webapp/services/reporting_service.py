@@ -97,6 +97,36 @@ _MESES_NOMBRES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ]
 
+# --- Batch B: Horas Productivas / Time Logs Reports (ver Correction 1 +
+# real-data-lineage.md §8bis) -------------------------------------------
+# Valores de NEGOCIO (nombres reales de Proyecto/Cliente que aparecen en el
+# CSV), NO internal names de SharePoint — viven acá (shaping de negocio),
+# no en el repositorio. Los 2 proyectos PLACEHOLDER internos que separan
+# No Asignadas de Productivas (page.json "Hs No Asignadas" del PBIP:
+# filtro `Project IN {...}`), y el marcador de Cliente placeholder que
+# excluye Productivas (page.json "Horas Productivas consumidas": `NOT
+# Cliente[Cliente] CONTAINS "Danwor"`).
+_TIME_LOGS_NO_ASIGNADAS_PROJECTS = {
+    "Danwor - Horas No Productivas (#1)",
+    "Danwor - Horas No Productivas (#2)",
+}
+_TIME_LOGS_CLIENTE_INTERNO_MARCA = "danwor"
+
+
+def _time_logs_month_num(mes: str) -> int | None:
+    """Índice 1-12 desde el `mes` YA normalizado a 'YYYY-MM' por el
+    repositorio (`_time_logs_mes`) — NO reusa `_month_num` (ese parsea el
+    formato de Cartera: nombre en español o número crudo, un formato
+    DISTINTO)."""
+    text = (mes or "").strip()
+    if len(text) != 7 or text[4] != "-":
+        return None
+    try:
+        n = int(text[5:7])
+    except ValueError:
+        return None
+    return n if 1 <= n <= 12 else None
+
 
 def _calendario_monthly(calendario_act: str) -> list[int]:
     """Presencia BOOLEANA por mes (1/0) — reproduce `CONTAINSSTRING(
@@ -128,16 +158,31 @@ class ReportingService:
         self._repository = repository if repository is not None else ReportingRepository()
 
     def get_batch_a(self, access_token: str) -> dict:
-        """UN método de entrada para las 5 experiencias que reusan el
+        """UN método de entrada para las 4 experiencias que reusan el
         backbone de Cartera — el router llama esto UNA vez (endpoint
-        consolidado), nunca 5 POSTs separados que repitan el mismo fetch de
-        Cliente/Proyectos/Horas."""
+        consolidado), nunca 4 POSTs separados que repitan el mismo fetch de
+        Cliente/Proyectos/Horas. Horas Productivas (Productivas Y No
+        Asignadas) se RETIRÓ de este grupo (Correction 1, ver HANDOFF/
+        real-data-lineage.md §8bis: es CSV de Time Logs, no backbone) — ver
+        `get_batch_b` abajo."""
         return {
             "horasVendidas": self.get_horas_vendidas(access_token),
             "participacion": self.get_participacion(access_token),
             "calendario": self.get_calendario(access_token),
-            "horasProductivas": self.get_horas_productivas(access_token),
             "salud": self.get_salud(access_token),
+        }
+
+    def get_batch_b(self, access_token: str) -> dict:
+        """UN método de entrada para Horas Productivas (AMBAS perspectivas,
+        Productivas Y No Asignadas) — el router llama esto UNA vez, nunca 2
+        POSTs separados que repitan la descarga/combine de TODOS los CSV de
+        Time Logs (costo real, a diferencia de un GET de lista SharePoint —
+        ver `ReportingRepository.get_time_logs_facts`)."""
+        facts = self._repository.get_time_logs_facts(access_token)
+        colaboradores = self._repository.get_colaboradores_email_map(access_token)
+        return {
+            "horasProductivas": self._shape_horas_productivas(facts),
+            "horasProductivasNoAsignadas": self._shape_horas_productivas_no_asignadas(facts, colaboradores),
         }
 
     def get_salud(self, access_token: str) -> list[dict]:
@@ -325,41 +370,88 @@ class ReportingService:
         return rows
 
     def get_horas_productivas(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_horas_productivas` con su PROPIO
+        fetch — usado standalone/en tests; `get_batch_b` hace el fetch UNA
+        vez para ambas perspectivas y llama el shaping directo (ver ahí)."""
+        facts = self._repository.get_time_logs_facts(access_token)
+        return self._shape_horas_productivas(facts)
+
+    def _shape_horas_productivas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `CAPACIDAD_PRODUCTIVAS_ROWS`: una fila por
-        (Cliente, Proyecto) con `horas` aditivo. Reusa `project_facts` — el
-        MISMO fetch ya hecho para Horas Vendidas/Participación, sin fuente
-        nueva.
+        (Cliente, Proyecto) con `horas` aditivo.
 
-        ⚠️ CORRECTION 1 (ver HANDOFF/real-data-lineage.md §8bis) — LINEAGE
-        INCORRECTO, PENDIENTE DE BATCH B. La justificación de abajo (mock-
-        value correlation) fue marcada por el owner como evidencia
-        corroborante FUERTE pero NO suficiente. Verificación con evidencia
-        PRIMARIA del PBIP (TMDL/M/bindings de visual de la página "Horas
-        Productivas consumidas") prueba que la fuente real es
-        `SUM('Time Logs Reports'[HORAS])` (CSV, sitio Operaciones), NO
-        `hsTrabajadas` de Horas por proyectos — la coincidencia de valores
-        del mock era COINCIDENCIA, no la misma fuente física. Esta
-        implementación queda BLOCKED (real-data-lineage.md/HANDOFF) hasta
-        que Batch B la reimplemente sobre el adapter de Time Logs. Contrato
-        físico completo (sitio/carpeta/columnas/M/join a Cliente) ya
-        documentado en §8bis — no requiere nuevo discovery.
-
-        Justificación ORIGINAL (histórica, ya CORREGIDA arriba — se conserva
-        el razonamiento por trazabilidad, no como fuente de verdad vigente):
-        los VALORES del mock `CAPACIDAD_PRODUCTIVAS_ROWS.horas` coincidían
-        EXACTAMENTE, cliente×proyecto por cliente×proyecto, con `trabajadas`
-        de `CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` (Andesmar=134/
-        40, Danone=92, YPF=340, AySA=210, Ternium=175 — las 6 filas, sin
-        excepción). `% Incidencia` (denominador gran-total fijo) se calcula
-        en el FRONTEND, sin cambios (mismo criterio que Participación)."""
-        facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
+        CORRECTION 1 CERRADA (ver HANDOFF/real-data-lineage.md §8bis):
+        reimplementado sobre `get_time_logs_facts` (CSV, sitio Operaciones)
+        — evidencia PRIMARIA del PBIP probó que la fuente real es
+        `SUM('Time Logs Reports'[HORAS])`, NO `hsTrabajadas` de Horas por
+        proyectos (la implementación previa, `5dcbb58`, se apoyaba SOLO en
+        coincidencia de valores del mock, marcada insuficiente por el
+        owner). Filtro `NOT Cliente CONTAINS "Danwor"` reproduce el filtro
+        de página real ("Horas Productivas consumidas": excluye el/los
+        cliente(s) placeholder interno(s) donde se cargan las 2 horas No
+        Asignadas) — y se excluye por Proyecto placeholder también, belt-
+        and-suspenders con el mismo criterio que No Asignadas usa para
+        incluir. `% Incidencia` (denominador gran-total fijo) se calcula en
+        el FRONTEND, sin cambios (mismo criterio que Participación)."""
         groups: dict[tuple, float] = {}
         for f in facts:
-            key = (f["cliente"], f["proyecto"])
-            if not f["cliente"] or not f["proyecto"]:
+            cliente, proyecto = f["cliente"], f["proyecto"]
+            if not cliente or not proyecto:
                 continue
-            groups[key] = groups.get(key, 0.0) + f["hsTrabajadas"]
+            if _TIME_LOGS_CLIENTE_INTERNO_MARCA in cliente.lower():
+                continue
+            if proyecto in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+                continue
+            key = (cliente, proyecto)
+            groups[key] = groups.get(key, 0.0) + f["horas"]
         return [
             {"cliente": cliente, "proyecto": proyecto, "horas": _round2(horas)}
             for (cliente, proyecto), horas in groups.items()
+        ]
+
+    def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:
+        """Wrapper delgado de `_shape_horas_productivas_no_asignadas` con
+        su PROPIO fetch — usado standalone/en tests; `get_batch_b` hace el
+        fetch UNA vez para ambas perspectivas y llama el shaping directo."""
+        facts = self._repository.get_time_logs_facts(access_token)
+        colaboradores = self._repository.get_colaboradores_email_map(access_token)
+        return self._shape_horas_productivas_no_asignadas(facts, colaboradores)
+
+    def _shape_horas_productivas_no_asignadas(self, facts: list[dict], colaboradores: dict[str, str]) -> list[dict]:
+        """Contrato EXACTO de `CAPACIDAD_NOASIGNADAS_ROWS`: una fila por
+        Consultor con `monthly[12]` (horas No Asignadas por mes, aditivo) +
+        `hsAsig`. Reusa los MISMOS `facts`/`colaboradores` que Productivas
+        (ver `get_batch_b` — UN fetch/combine de CSV para las 2
+        perspectivas), filtrado a los 2 Proyectos PLACEHOLDER (page.json
+        "Hs No Asignadas": `Project IN {...}`), agrupado por Consultor vía
+        `colaboradores` (join `Time Logs Reports.Email →
+        Colaboradores.EMail_Colaborador`, MISMA relación confirmada en el
+        TMDL del PBIP). Filas con Email sin Colaborador resuelto se omiten
+        (nunca un Consultor "Desconocido" fabricado).
+
+        GAP DOCUMENTADO (no adivinado): `hsAsig` (capacidad de referencia
+        estática del consultor, mock `Colaboradores['Consultor + Hs asig']`)
+        requiere `Colaboradores['HS asignadas a proy'] =
+        RELATED('Resumen Asignaciones'[Hs Asignadas])` — una lista
+        SharePoint adicional (`Resumen Asignaciones`) SIN ID confirmado en
+        este repositorio (`config.py` no tiene una constante para ella).
+        Queda en 0 explícitamente en vez de adivinar un list ID — a
+        resolver cuando el owner confirme esa lista (mismo criterio que
+        cualquier otro gap de este proyecto: nunca inventar un internal
+        name/ID)."""
+        groups: dict[str, list[float]] = {}
+        for f in facts:
+            if f["proyecto"] not in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+                continue
+            consultor = colaboradores.get(f["email"].lower())
+            if not consultor:
+                continue
+            n = _time_logs_month_num(f["mes"])
+            if n is None:
+                continue
+            monthly = groups.setdefault(consultor, [0.0] * 12)
+            monthly[n - 1] += f["horas"]
+        return [
+            {"consultor": consultor, "hsAsig": 0, "monthly": [_round2(v) for v in monthly]}
+            for consultor, monthly in groups.items()
         ]

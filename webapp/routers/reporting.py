@@ -106,14 +106,15 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
 
 @router.post("/operaciones/reporting/integral/data/batch-a", include_in_schema=False)
 def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
-    """Datos REALES normalizados de Horas Vendidas/Participación/Calendario
-    (Reporting Integral Batch A — backbone reuse de Cartera). UN endpoint
-    consolidado (no 3 POSTs separados) porque las 3 experiencias comparten
-    el mismo fetch de origen (`ReportingService.get_batch_a`). MISMO gate/
-    token/fail-soft que `reporting_cartera_data` — ver ese endpoint para el
-    contrato de errores completo. Horas Productivas/Productivas queda
-    deliberadamente FUERA de este endpoint (ver HANDOFF: contradicción de
-    lineage sin resolver, esa perspectiva sigue en mock)."""
+    """Datos REALES normalizados de Horas Vendidas/Participación/Calendario/
+    Salud de Cliente (Reporting Integral Batch A — backbone reuse de
+    Cartera). UN endpoint consolidado (no 4 POSTs separados) porque las 4
+    experiencias comparten el mismo fetch de origen
+    (`ReportingService.get_batch_a`). MISMO gate/token/fail-soft que
+    `reporting_cartera_data` — ver ese endpoint para el contrato de errores
+    completo. Horas Productivas queda FUERA de este endpoint (Correction 1,
+    ver HANDOFF/real-data-lineage.md §8bis: es CSV de Time Logs, no
+    backbone de Cartera) — ver `reporting_batch_b_data` abajo."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -134,3 +135,35 @@ def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
         _logger.exception("reporting batch-a data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", **batch_a})
+
+
+@router.post("/operaciones/reporting/integral/data/batch-b", include_in_schema=False)
+def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
+    """Datos REALES normalizados de Horas Productivas (AMBAS perspectivas,
+    Productivas Y No Asignadas — Reporting Integral Batch B, CSV de Time
+    Logs Reports). UN endpoint consolidado (no 2 POSTs separados) porque
+    ambas perspectivas comparten el mismo fetch/combine de origen
+    (`ReportingService.get_batch_b` — descargar/parsear TODOS los CSV es
+    costo real, a diferencia de un GET de lista SharePoint). MISMO gate/
+    token/fail-soft que `reporting_cartera_data` — ver ese endpoint para el
+    contrato de errores completo."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        batch_b = service.get_batch_b(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting batch-b data: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", **batch_b})

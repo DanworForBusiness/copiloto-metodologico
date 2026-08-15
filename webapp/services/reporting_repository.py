@@ -29,7 +29,9 @@ Mantenimiento/Proyecto para el contrato del renderer viven en
 """
 from __future__ import annotations
 
+import csv
 import io
+import re
 
 import config
 from core import microsoft365
@@ -110,6 +112,53 @@ CLI_SALUD_FINAL = ("Salud",)
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
 FAC_CANTIDAD = "Suma de Cantidad"
+
+# Colaboradores (MISMA lista que Staffing, `config.SHAREPOINT_COLABORADORES_
+# LIST_ID`) — usada acá SOLO para resolver Email→Consultor de Horas
+# Productivas/No Asignadas (Batch B). Internal names `Title`/`EMail`
+# confirmados por el M del PBIP (`Colaboradores.tmdl`, partición: el
+# rename `{"Title","Consultor"}`/`{"Colaborador..EMail","EMail_Colaborador"}`
+# revela que "Title"/"EMail" SON los internal names crudos de Graph, antes
+# del rename de negocio del propio PBIP).
+COLAB_TITLE = ("Title",)
+COLAB_EMAIL = ("EMail", "Email")
+
+# Time Logs Reports (CSV, sitio Operaciones) — Batch B, ÚNICA fuente física
+# nueva (junto con "Ejecutadas" de Rentabilidad, que reusa este MISMO
+# adapter). Verificado contra evidencia PRIMARIA del PBIP (M de la
+# partición 'Time Logs Reports', TMDL de 'Horas  Trabajadas por Mes'/
+# Comparativo, page.json de "Horas Productivas consumidas"/"Hs No
+# Asignadas" — ver real-data-lineage.md §8bis/§10). MISMO sitio/carpeta que
+# la XLSX de Vacaciones de Staffing (`staffing_repository.ABSENCE_SITE_
+# PATH`/`ABSENCE_XLSX_PATH`, confirmada existente/alcanzable).
+TIME_LOGS_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
+TIME_LOGS_FOLDER_PATH = "General/Template Dashboard"
+TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Duration Decimal")
+
+
+def _time_logs_mes(date_value) -> str:
+    """'YYYY-MM' desde la columna Date del CSV — reproduce Time Logs
+    Reports[Mes] del PBIP (`if(MONTH(Date)<10, YEAR&"-0"&MONTH, YEAR&"-"&
+    MONTH)`). El FORMATO exacto de celda del CSV real (ISO vs DD/MM/YYYY)
+    no está confirmado todavía (a confirmar en el smoke, mismo criterio que
+    la XLSX) — se intenta ISO (YYYY-MM-DD) primero, luego DD/MM/YYYY
+    (convención AR, mismo criterio que el resto de esta app). Sin match ⇒
+    "" (la fila no aporta a ningún mes — nunca se inventa una fecha)."""
+    text = _text(date_value)
+    if not text:
+        return ""
+    m = re.match(r"^(\d{4})-(\d{2})-\d{2}", text)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}"
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}"
+    return ""
+
+
+def _time_logs_anio(date_value) -> str:
+    mes = _time_logs_mes(date_value)
+    return mes[:4] if mes else ""
 
 
 class ReportingConfigurationError(Exception):
@@ -215,11 +264,13 @@ class ReportingRepository:
         horas_proyectos_list_id: str | None = None,
         proyectos_list_id: str | None = None,
         cliente_list_id: str | None = None,
+        colaboradores_list_id: str | None = None,
     ):
         self.site_id = site_id if site_id is not None else config.SHAREPOINT_GESTION_SITE_ID
         self.horas_proyectos_list_id = horas_proyectos_list_id or config.SHAREPOINT_HORAS_PROYECTOS_LIST_ID
         self.proyectos_list_id = proyectos_list_id or config.SHAREPOINT_PROYECTOS_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
+        self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
 
     def _require_site_id(self) -> str:
         if not self.site_id:
@@ -406,6 +457,133 @@ class ReportingRepository:
             })
 
         return {"project_facts": project_facts, "cliente_dim": cliente_dim}
+
+    # --- Batch B: Time Logs Reports (CSV) -----------------------------------
+
+    def _resolve_time_logs_site_id(self) -> str:
+        site = _call_graph("time_logs_site", lambda: microsoft365.graph_get_json(
+            f"{GRAPH_BASE}/sites/{TIME_LOGS_SITE_PATH}", self._token,
+        ))
+        site_id = _text((site or {}).get("id"))
+        if not site_id:
+            raise ReportingSourceError("time_logs_site", "no se pudo resolver el sitio Operaciones")
+        return site_id
+
+    def _list_time_logs_csv_items(self, site_id: str) -> list[dict]:
+        """Children de `TIME_LOGS_FOLDER_PATH`, filtrados a `.csv` sin "OLD"
+        en el nombre — MISMA regla que el M del PBIP (`[Extension]=".csv"`
+        y `not Text.Contains([Name],"OLD")`). NO recursivo — sin evidencia
+        de subcarpetas para estos CSV (el M del PBIP escanea el sitio
+        completo vía el conector genérico de Power Query, pero la MISMA
+        carpeta ya está confirmada existente/alcanzable por la XLSX de
+        Vacaciones de Staffing); si el smoke real revela CSVs en
+        subcarpetas, extender a listado recursivo."""
+        children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+            f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children",
+            access_token=self._token,
+        ))
+        return [
+            it for it in children
+            if _text(it.get("name")).lower().endswith(".csv") and "old" not in _text(it.get("name")).lower()
+        ]
+
+    def _download_time_logs_rows(self, site_id: str) -> list[dict]:
+        """Descarga + combina TODOS los CSV de la carpeta (MISMA semántica
+        que `Table.Combine`/header promovido del M: delimiter=",", UTF-8).
+        Un archivo individual inválido (headers requeridos faltantes, o no
+        decodifica) se SALTEA sin romper el combine completo (fail-soft
+        por-archivo — un CSV legacy/corrupto no debe tumbar toda la
+        experiencia). Si NINGÚN archivo aporta filas válidas,
+        `ReportingSourceError` (falla real de fuente, no un dataset vacío
+        legítimo)."""
+        items = self._list_time_logs_csv_items(site_id)
+        if not items:
+            raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
+        rows: list[dict] = []
+        for it in items:
+            item_id = _text(it.get("id"))
+            if not item_id:
+                continue
+            try:
+                data = _call_graph("time_logs_download", lambda: microsoft365.graph_get_bytes(
+                    f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/content", self._token,
+                ))
+                text = data.decode("utf-8-sig")
+            except (ReportingGraphError, UnicodeDecodeError):
+                continue
+            reader = csv.DictReader(io.StringIO(text))
+            if reader.fieldnames is None or not all(h in reader.fieldnames for h in TIME_LOGS_REQUIRED_HEADERS):
+                continue
+            rows.extend(reader)
+        if not rows:
+            raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
+        return rows
+
+    def get_time_logs_facts(self, access_token: str) -> list[dict]:
+        """Hechos de Time Logs Reports normalizados y unidos a Cliente vía
+        Proyectos — alimenta Horas Productivas (AMBAS perspectivas,
+        Productivas Y No Asignadas) y Rentabilidad/Ejecutadas (Batch B).
+
+        Join: `Project` (CSV, texto crudo) → clave normalizada (Upper/sin
+        espacios, `_norm_key` — MISMA regla que `Key_proyect_desc` del PBIP
+        en AMBAS tablas involucradas) → título de Proyectos normalizado →
+        `EmpresaLookupId` (MISMO lookup ya CONFIRMADO contra Graph real por
+        `staffing_repository.py`) → Cliente.id → Cliente.Title. Reusa las
+        MISMAS listas Proyectos/Cliente que Cartera/Batch A (fetch propio
+        acá — combinación de fuentes distinta, un solo fetch por request de
+        Time Logs, sin fetches redundantes dentro de este método). Un
+        Project sin match en Proyectos (o Proyecto sin Cliente resuelto)
+        conserva el texto crudo de Client/Project del CSV como fallback —
+        nunca descarta la fila silenciosamente."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        operaciones_site_id = self._resolve_time_logs_site_id()
+
+        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        proy_by_key: dict[str, dict] = {}
+        for it in proyectos_items:
+            fields = it.get("fields") or {}
+            key = _norm_key(_first(fields, PROY_TITLE))
+            if key:
+                proy_by_key[key] = fields
+        cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
+
+        raw_rows = self._download_time_logs_rows(operaciones_site_id)
+        facts = []
+        for row in raw_rows:
+            project_raw = _text(row.get("Project"))
+            proy = proy_by_key.get(_norm_key(project_raw), {})
+            cli = cli_by_id.get(_first(proy, *HP_EMPRESA_LOOKUP), {})
+            facts.append({
+                "cliente": _text(cli.get(CLI_NOMBRE)) or _text(row.get("Client")),
+                "proyecto": _first(proy, PROY_TITLE) or project_raw,
+                "task": _text(row.get("Task")),
+                "email": _text(row.get("Email")),
+                "horas": _num(row.get("Duration Decimal")) / 1000.0,
+                "mes": _time_logs_mes(row.get("Date")),
+                "anio": _time_logs_anio(row.get("Date")),
+            })
+        return facts
+
+    def get_colaboradores_email_map(self, access_token: str) -> dict[str, str]:
+        """Email (lowercase) → nombre de Consultor, desde la lista
+        Colaboradores (MISMA lista/ID que Staffing). Usada SOLO por Horas
+        Productivas/No Asignadas para resolver el consultor dueño de cada
+        fila de Time Logs (join por Email, `Time Logs Reports.Email` →
+        `Colaboradores.EMail_Colaborador`, MISMA relación confirmada en el
+        TMDL del PBIP)."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        items = self._items(site_id, self.colaboradores_list_id, "colaboradores")
+        mapping: dict[str, str] = {}
+        for it in items:
+            fields = it.get("fields") or {}
+            email = _first(fields, *COLAB_EMAIL).lower()
+            title = _first(fields, *COLAB_TITLE)
+            if email and title:
+                mapping[email] = title
+        return mapping
 
 
 def _quote(path: str) -> str:

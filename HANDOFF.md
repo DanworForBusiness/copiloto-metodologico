@@ -6080,7 +6080,8 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
 | Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
-| Reporting Integral — Batch A (5-exp real data, incl. Salud) | **4/5 READY FOR LIVE VALIDATION, 1 BLOCKED** (Productivas — ver Correction 1) (branch `work/reporting-real-data`) |
+| Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
+| Reporting Integral — Batch B (Horas Productivas, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
@@ -6105,6 +6106,63 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -9. BATCH B — Horas Productivas CONECTADA, AMBAS perspectivas (CERRADO) — Correction 1 resuelta en código
+Cierra el BLOCKED dejado por Correction 1 (ver sección arriba): Horas
+Productivas (Productivas Y No Asignadas) reimplementado sobre el adapter
+NUEVO de Time Logs Reports (CSV, sitio Operaciones/General/Template
+Dashboard — contrato físico completo ya documentado en real-data-
+lineage.md §8bis: `SharePoint.Files`→filtro `.csv`+sin "OLD"→
+`Csv.Document(Delimiter=",",Encoding=65001)`→header promovido).
+
+**Repositorio** (`reporting_repository.py`): `get_time_logs_facts` — lista
+`General/Template Dashboard` (`/children`, filtro extensión+nombre),
+descarga+combina TODOS los CSV (`/drive/items/{id}/content`, fail-soft
+por-archivo: un CSV con headers faltantes se SALTEA sin romper el combine;
+`ReportingSourceError` si NINGÚN archivo aporta filas), une a Cliente vía
+`Project` (CSV) → clave normalizada (`_norm_key`, MISMA regla que
+Facturadas) → título de Proyectos → `EmpresaLookupId` (MISMO lookup
+CONFIRMADO por `staffing_repository.py`) → Cliente.id → Title. Sin match
+⇒ conserva el texto crudo de Client/Project del CSV (nunca descarta la
+fila). Nuevo `get_colaboradores_email_map` (lista Colaboradores, MISMA
+que Staffing, internal names `Title`/`EMail` confirmados por el M del
+PBIP) para resolver Consultor por Email en No Asignadas.
+
+**Service**: `get_batch_b` — UN fetch de Time Logs + Colaboradores para
+AMBAS perspectivas (nunca 2 descargas/combines de CSV redundantes).
+`_shape_horas_productivas`: SUM(horas) por (Cliente, Proyecto), excluye
+Cliente CONTAINS "Danwor" (placeholder interno) y los 2 Proyectos
+placeholder — reproduce el filtro real de la página "Horas Productivas
+consumidas". `_shape_horas_productivas_no_asignadas`: filtra a los 2
+Proyectos placeholder (page.json "Hs No Asignadas"), agrupa por Consultor
+(vía Colaboradores) × mes. **Gap documentado, no adivinado**: `hsAsig`
+(capacidad de referencia estática del consultor) requiere
+`Colaboradores['HS asignadas a proy'] = RELATED('Resumen
+Asignaciones'[Hs Asignadas])` — lista `Resumen Asignaciones` SIN ID
+confirmado en este repositorio; queda en `0` explícitamente hasta que el
+owner confirme esa lista.
+
+**Router**: nuevo `/data/batch-b` (mismo gate/token/fail-soft que los
+demás endpoints), `get_batch_a` YA NO incluye `horasProductivas` (Batch A
+vuelve a ser 4/4: Horas Vendidas/Participación/Calendario/Salud).
+
+**Frontend**: `state.batchBDataStatus` propio (idle→loading→ready|error,
+independiente de `batchADataStatus`), `loadBatchBData`/
+`renderBatchBDataState` nuevos, `renderCapacidadProductivas`/
+`renderCapacidadNoAsignadas` gateados ahí — mock retirado de AMBAS
+perspectivas, sin flash.
+
+15 tests nuevos en `test_reporting_batch_b.py` (join CSV↔Proyectos↔Cliente,
+fallback a texto crudo sin match, skip de archivo malformado, `Reporting
+SourceError` sin CSV, filtro de extensión/OLD, shaping de las 2
+perspectivas, exclusión de placeholders, Email case-insensitive, fetch
+único en `get_batch_b`, Colaboradores email→nombre, wiring de
+frontend) + 4 tests de `test_reporting_batch_a.py` corregidos/eliminados
+(los que aseveraban el lineage viejo, ya incorrecto). Suite completa:
+**898 passed** (889 + 13 nuevos − 4 retirados), mismos 8 fallos
+preexistentes. **Estado: Horas Productivas (AMBAS perspectivas)
+IMPLEMENTATION READY FOR LIVE VALIDATION** — PENDIENTE de smoke real
+(formato exacto de fecha del CSV, existencia de subcarpetas, `hsAsig`).
 
 ### -8. Q3 — grano de totales mensuales de Calendario (CERRADO, docs+tests-only) — owner live QA
 Owner reportó: "el gran total suma aritméticamente bien, pero los totales
@@ -6269,7 +6327,7 @@ docs — el código de `get_horas_productivas` NO fue reimplementado todavía**
 real-data-lineage.md §8bis: sitio/carpeta/columnas/M/join, listo para
 codificar sin re-descubrir nada).
 
-### -3. BATCH A — 4/5 LIVE-READY + 1 BLOQUEADA (`5991fdb` + `5dcbb58` + `c7ec896`) — Horas Vendidas/Participación/Calendario/Salud: BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION · Horas Productivas/Productivas: BLOCKED (ver "CORRECTION 1" arriba)
+### -3. BATCH A — 4/4 BACKBONE CONECTADA (`5991fdb` + `5dcbb58` + `c7ec896`) — Horas Vendidas/Participación/Calendario/Salud: BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION (Horas Productivas se retiró de este grupo hacia Batch B — ver sección "-9." arriba, ya CERRADA)
 Horas Vendidas / Participación / Calendario / **Horas Productivas-
 Productivas** / **Salud de Cliente** leen datos REALES (reusan Cartera:
 Horas por proyectos × Proyectos × Cliente + Client Partner, UN fetch
@@ -6333,7 +6391,8 @@ Para CADA una de las 5 experiencias conectadas:
 | Participación | Salud | sin filtro de fecha | filas no vacías | los 6 campos de Salud (Financiera/Relación/Operativo/Continuidad/Estratégico/Final) muestran valores categóricos reales (Verde/Amarillo/Rojo u otro valor del negocio), NUNCA en blanco para un cliente con dato conocido | expandir Client Partner→Cliente |
 | Calendario | Frecuencia | sin filtro de fecha | filas no vacías | al menos un ✓ visible en un mes con checkpoint conocido | expandir ID Frecuencia→Cliente→Client Partner |
 | Calendario | Client Partner | ídem | filas no vacías | columna Total = cuenta real (no booleana) | igual, con CP como raíz |
-| ~~Horas Productivas~~ | ~~Productivas~~ | — | **NO validar todavía — BLOCKED, ver "CORRECTION 1": la implementación actual usa `hsTrabajadas` (Cartera), evidencia PRIMARIA del PBIP prueba que la fuente real es `Time Logs Reports` (CSV). Re-smoke después de Batch B.** | — | — |
+| Horas Productivas | Productivas | sin filtro de fecha | filas no vacías | Horas de un cliente/proyecto conocido (fuente: `Time Logs Reports` CSV, sitio Operaciones — ver sección "-9." BATCH B) | expandir Cliente→Proyecto |
+| Horas Productivas | No Asignadas | sin filtro de fecha | filas no vacías | Horas No Asignadas de un consultor conocido por mes; `hsAsig` = 0 SIEMPRE (gap documentado, PENDIENTE de lista `Resumen Asignaciones`) | tabla plana, sin jerarquía |
 | Cartera (regresión QA4) | cualquiera | rango con un cliente multi-proyecto/multi-mes conocido | padre = SUMA exacta de sus hijos visibles (Certificadas/Vendidas/Facturadas/Trabajadas), nunca igual a un solo hijo | expandir el padre y sumar los hijos a mano una vez |
 
 **Chequeos de plantilla compartida (las 5 experiencias):**

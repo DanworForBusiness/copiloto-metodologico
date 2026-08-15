@@ -672,11 +672,17 @@ const state = {
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
   // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
-  // Horas Productivas-Productivas/Salud de Cliente, ver HANDOFF): MISMO
-  // ciclo de vida, UN solo status para las 5 (comparten UN fetch/endpoint
-  // consolidado — ver loadBatchAData). No Asignadas es Batch B (fuente
-  // CSV de Time Logs distinta).
+  // Salud de Cliente, ver HANDOFF): MISMO ciclo de vida, UN solo status
+  // para las 4 (comparten UN fetch/endpoint consolidado — ver
+  // loadBatchAData). Horas Productivas (Productivas Y No Asignadas) usa su
+  // PROPIO status (`batchBDataStatus`) — fuente CSV de Time Logs distinta
+  // (Correction 1, ver HANDOFF/real-data-lineage.md §8bis).
   batchADataStatus: "idle",
+  // Horas Productivas (AMBAS perspectivas) — Batch B, CSV de Time Logs
+  // Reports vía `loadBatchBData`. MISMO ciclo de vida idle→loading→
+  // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
+  // real, no se comparte con el backbone de Cartera).
+  batchBDataStatus: "idle",
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -1237,14 +1243,15 @@ function renderCarteraDataState() {
   return reportingLoadingHtml("Cargando datos de Cartera…");
 }
 
-// Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/Horas
-// Productivas-Productivas/Salud de Cliente, ver HANDOFF) — MISMO patrón
-// que loadCarteraData: `replaceRows` puebla EN EL LUGAR los 5 arrays que
-// ya referencian FACET_CONFIG/render*, UN solo fetch/endpoint consolidado
-// (comparten origen — Horas por proyectos × Proyectos × Cliente),
-// gateado por `batchADataStatus` (nunca muestra el mock inicial una vez
-// que arrancó la carga real). Solo No Asignadas (Batch B, fuente CSV de
-// Time Logs distinta) NO participa de este ciclo de vida.
+// Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/Salud
+// de Cliente, ver HANDOFF) — MISMO patrón que loadCarteraData:
+// `replaceRows` puebla EN EL LUGAR los 4 arrays que ya referencian
+// FACET_CONFIG/render*, UN solo fetch/endpoint consolidado (comparten
+// origen — Horas por proyectos × Proyectos × Cliente), gateado por
+// `batchADataStatus` (nunca muestra el mock inicial una vez que arrancó la
+// carga real). Horas Productivas (AMBAS perspectivas) usa `loadBatchBData`
+// — fuente CSV de Time Logs distinta (Correction 1, ver HANDOFF/
+// real-data-lineage.md §8bis).
 async function loadBatchAData() {
   state.batchADataStatus = "loading";
   try {
@@ -1257,7 +1264,6 @@ async function loadBatchAData() {
       replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
       replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
       replaceRows(CALENDARIO_ROWS, data.calendario);
-      replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
       state.batchADataStatus = "ready";
     } else {
@@ -1270,6 +1276,40 @@ async function loadBatchAData() {
 }
 function renderBatchADataState(label) {
   if (state.batchADataStatus === "error") {
+    return reportingSourceErrorHtml(label);
+  }
+  return reportingLoadingHtml(`Cargando ${label}…`);
+}
+
+// Horas Productivas (AMBAS perspectivas, Productivas Y No Asignadas) —
+// Batch B, CSV de Time Logs Reports (Correction 1 CERRADA, ver HANDOFF/
+// real-data-lineage.md §8bis). MISMO patrón que loadBatchAData: UN
+// fetch/endpoint consolidado (combinar TODOS los CSV es costo real, nunca
+// 2 descargas separadas), `replaceRows` puebla EN EL LUGAR los 2 arrays,
+// gateado por `batchBDataStatus` propio (independiente de Batch A —
+// fuente física distinta).
+async function loadBatchBData() {
+  state.batchBDataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok") {
+      replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
+      replaceRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas);
+      state.batchBDataStatus = "ready";
+    } else {
+      state.batchBDataStatus = "error";
+    }
+  } catch (e) {
+    state.batchBDataStatus = "error";
+  }
+  render();
+}
+function renderBatchBDataState(label) {
+  if (state.batchBDataStatus === "error") {
     return reportingSourceErrorHtml(label);
   }
   return reportingLoadingHtml(`Cargando ${label}…`);
@@ -1863,8 +1903,8 @@ function renderHorasVendidas() {
 // de Pago > Cliente, EXACTO ese orden de Rows. Reusa buildTree/
 // renderBusinessTreeRows sin cambios — mismo motor que Cartera/Capacidad.
 function renderComercialParticipacion() {
-  // Gate del ciclo de vida real-data Batch A — SOLO esta perspectiva (Salud
-  // de Cliente sigue en mock, ver renderComercialSalud/HANDOFF).
+  // Gate del ciclo de vida real-data Batch A — MISMO status que Salud de
+  // Cliente (ambas perspectivas de Comercial ya conectadas, ver HANDOFF).
   if (state.batchADataStatus === "idle") loadBatchAData();
   if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Participación");
   const rows = facetFilteredRows("comercial");
@@ -2001,10 +2041,11 @@ const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
 ];
 
 function renderCapacidadProductivas() {
-  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData) — SOLO
-  // esta perspectiva (No Asignadas sigue en mock, Batch B, ver HANDOFF).
-  if (state.batchADataStatus === "idle") loadBatchAData();
-  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Horas Productivas");
+  // Gate del ciclo de vida real-data Batch B (ver loadBatchBData) —
+  // Correction 1 CERRADA: Productivas es CSV de Time Logs, no backbone de
+  // Cartera (ver HANDOFF/real-data-lineage.md §8bis).
+  if (state.batchBDataStatus === "idle") loadBatchBData();
+  if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas Productivas");
   const rows = facetFilteredRows("capacidad");
   const filteredTotal = rows.reduce((s, r) => s + r.horas, 0);
 
@@ -2036,6 +2077,12 @@ function renderCapacidadProductivas() {
 }
 
 function renderCapacidadNoAsignadas() {
+  // Gate del ciclo de vida real-data Batch B (ver loadBatchBData) — MISMO
+  // fetch/endpoint que Productivas (Correction 1 CERRADA, ver HANDOFF/
+  // real-data-lineage.md §8bis), gateado independiente por si el usuario
+  // entra directo a esta perspectiva.
+  if (state.batchBDataStatus === "idle") loadBatchBData();
+  if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas No Asignadas");
   const baseRows = facetFilteredRows("capacidad");
   // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
   // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
