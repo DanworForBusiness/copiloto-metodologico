@@ -1,5 +1,13 @@
 # Reporting Integral — Real-Data Lineage (Phase 1: CARTERA only)
 
+> **ESTADO: CARTERA REAL-DATA = VALIDADA EN VIVO (owner smoke OK).** Ambas
+> perspectivas cargan datos reales; jerarquía y rollups verificados (ej. rango
+> 01/06–31/07/2026: Mantenimientos=71, Trabajadas=1761, Certificadas=8544,
+> Vendidas=9862; Aluar rollup Trab=800/Cert=1544/Vend=1680/Estado=En curso). El
+> cero de agosto 2026 es DATO real (planeadas/vendidas cargadas, trabajadas/
+> certificadas/facturadas aún en 0), no un defecto de mapeo/render. Diagnósticos
+> temporales del live-smoke ya RETIRADOS. Las otras 5 experiencias siguen en mock.
+
 Fuente autoritativa de lineage: PBIP `E:\Joe\Metodologia\Refactorizacion\Tablero
 Integral\Danwor - Tablero Integral.pbip` (SemanticModel TMDL, particiones M).
 NO se scrapeó ninguna página de SharePoint UI. Este documento cubre SOLO Cartera

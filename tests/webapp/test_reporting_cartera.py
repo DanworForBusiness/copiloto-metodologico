@@ -139,29 +139,6 @@ def test_graph_form_lookup_ids_and_title_from_joined_project(monkeypatch):
     assert f["tipoProyecto"] == "Proyecto" and f["facturadasProyecto"] == 290
 
 
-def test_diagnostics_expose_safe_counts_and_field_keys(monkeypatch):
-    _patch(
-        monkeypatch,
-        horas=[
-            {"ProyectoLookupId": "7", "EmpresaLookupId": "3", "Año": "2026", "Mes": "1",
-             "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"},
-            {"Año": "2026", "Mes": "2", "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"},  # sin refs
-        ],
-        proyectos=[{"id": "7", "TipodeProyecto": "Proyecto"}],
-        clientes=[{"id": "3", "Cliente": "YPF"}],
-        facturadas=_facturadas_xlsx([("x", 0)]),
-    )
-    repo = _repo()
-    repo.get_cartera_facts("tok")
-    d = repo.last_diagnostics
-    assert d["horas_raw"] == 2 and d["proyectos_raw"] == 1 and d["clientes_raw"] == 1
-    assert d["horas_with_proyecto_reference"] == 1 and d["horas_without_proyecto_reference"] == 1
-    assert d["horas_project_match"] == 1 and d["horas_project_unmatched"] == 0
-    assert d["normalized_facts"] == 2  # NUNCA se descartan silenciosamente
-    assert "ProyectoLookupId" in d["horas_field_keys"]      # nombres de clave, no valores
-    assert d["tipo_counts"].get("Proyecto") == 1 and d["tipo_counts"].get("") == 1  # unmatched visible
-
-
 def test_tiempo_y_materiales_maps_to_mantenimiento(monkeypatch):
     _patch(
         monkeypatch,
@@ -277,17 +254,13 @@ def test_client_partner_resolved_from_discovered_lookup_target(monkeypatch):
         client_partners=[{"id": "pm9", "Title": "Ana Gómez"}],
         facturadas=_facturadas_xlsx([("x", 0)]),
     )
-    repo = _repo()
-    facts = repo.get_cartera_facts("tok")
-    assert facts[0]["clientPartner"] == "Ana Gómez"
-    d = repo.last_diagnostics
-    assert d["client_partner_target_found"] == 1
-    assert d["client_partner_resolved"] == 1 and d["client_partner_unresolved"] == 0
+    # Protege el descubrimiento del target de CP (lookup.listId de /columns).
+    assert _repo().get_cartera_facts("tok")[0]["clientPartner"] == "Ana Gómez"
 
 
 def test_client_partner_blank_when_target_not_discoverable_no_guess(monkeypatch):
     # Sin columna lookup ClientPartner en /columns → NO se asume target → CP en
-    # blanco, visible en diagnósticos (nunca se fabrica).
+    # blanco (nunca se fabrica).
     _patch(
         monkeypatch,
         horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "1",
@@ -298,30 +271,7 @@ def test_client_partner_blank_when_target_not_discoverable_no_guess(monkeypatch)
         client_partners=[{"id": "pm9", "Title": "Ana Gómez"}],
         facturadas=_facturadas_xlsx([("x", 0)]),
     )
-    repo = _repo()
-    facts = repo.get_cartera_facts("tok")
-    assert facts[0]["clientPartner"] == ""
-    assert repo.last_diagnostics["client_partner_target_found"] == 0
-
-
-def test_diagnostics_count_hsfacturadas_presence_and_union_keys(monkeypatch):
-    _patch(
-        monkeypatch,
-        horas=[
-            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "1",
-             "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "10"},
-            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "2",
-             "HsTrabajadas": "1", "HsVendidas": "1"},  # sin HsFacturadas (null omitido por Graph)
-        ],
-        proyectos=[{"id": "p1", "TipodeProyecto": "Proyecto"}],
-        clientes=[{"id": "c1", "Title": "YPF"}],
-        facturadas=_facturadas_xlsx([("x", 0)]),
-    )
-    repo = _repo()
-    repo.get_cartera_facts("tok")
-    d = repo.last_diagnostics
-    assert d["horas_with_hsfacturadas"] == 1
-    assert "HsFacturadas" in d["horas_field_keys"]  # la UNIÓN revela el campo aunque falte en un item
+    assert _repo().get_cartera_facts("tok")[0]["clientPartner"] == ""
 
 
 # --- Service: derivaciones + shaping -----------------------------------------
@@ -404,10 +354,9 @@ _OK_CARTERA = {"mantenimiento": [{"cliente": "YPF"}], "proyecto": []}
 
 
 class _RecordingReportingService:
-    def __init__(self, cartera=None, error=None, diagnostics=None):
+    def __init__(self, cartera=None, error=None):
         self._cartera = cartera if cartera is not None else _OK_CARTERA
         self._error = error
-        self.last_diagnostics = diagnostics if diagnostics is not None else {}
 
     def get_cartera(self, access_token):
         if self._error is not None:
@@ -435,18 +384,14 @@ def test_cartera_endpoint_missing_token():
     assert r.json() == {"state": "missing_token"}
 
 
-def test_cartera_endpoint_success_includes_safe_diagnostics(monkeypatch):
-    diag = {"horas_raw": 3, "normalized_facts": 3, "mantenimiento_rows": 1, "proyecto_rows": 2,
-            "horas_field_keys": ["ProyectoLookupId"]}
-    monkeypatch.setattr(
-        reporting_router, "ReportingService",
-        lambda: _RecordingReportingService(diagnostics=diag),
-    )
+def test_cartera_endpoint_success_response_is_only_state_and_cartera(monkeypatch):
+    # Cerrada la investigación: la respuesta ok NO expone diagnostics (internal
+    # names) — solo state + cartera normalizada.
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: _RecordingReportingService())
     r = _client.post("/operaciones/reporting/integral/data/cartera", data={"graph_token": "tok"})
     body = r.json()
     assert body["state"] == "ok"
-    assert body["diagnostics"]["horas_raw"] == 3
-    assert body["diagnostics"]["horas_field_keys"] == ["ProyectoLookupId"]
+    assert set(body.keys()) == {"state", "cartera"}
 
 
 def test_cartera_endpoint_source_error_is_localized_fail_soft(monkeypatch):

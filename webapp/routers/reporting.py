@@ -101,9 +101,4 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
         # `danwor.*`), NUNCA el texto/​token/​body crudo al browser.
         _logger.exception("reporting cartera data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
-    # Diagnóstico TEMPORAL del live-smoke (conteos + nombres de clave de campos;
-    # NUNCA valores/token/PII) — para descubrir el internal name real de los
-    # lookups. Se retira una vez confirmado el mapeo. También se loguea.
-    diagnostics = getattr(service, "last_diagnostics", {})
-    _logger.info("reporting cartera diagnostics: %s", diagnostics)
-    return JSONResponse({"state": "ok", "cartera": cartera, "diagnostics": diagnostics})
+    return JSONResponse({"state": "ok", "cartera": cartera})
