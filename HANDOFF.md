@@ -6080,7 +6080,7 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
 | Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
-| Reporting Integral — Batch A (5-exp real data, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
+| Reporting Integral — Batch A (5-exp real data, incl. Salud) | **4/5 READY FOR LIVE VALIDATION, 1 BLOCKED** (Productivas — ver Correction 1) (branch `work/reporting-real-data`) |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
@@ -6163,7 +6163,35 @@ actualizados (gate de 5 renderers, no-mezcla-mock/real). Suite completa:
 **880 passed** (879+2 nuevos − 1 test obsoleto de mock retirado), mismos 8
 fallos preexistentes sin relación.
 
-### -3. BATCH A — 5/5 BACKBONE CONECTADA (`5991fdb` + `5dcbb58` + `c7ec896`) — BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION
+### CORRECTION 1 — Productivas lineage verificado con evidencia PRIMARIA (CERRADO, docs-only, ver `artifacts/reporting-integral-v0/real-data-lineage.md` §8bis)
+El owner rechazó correctamente la resolución de `5dcbb58` (correlación de
+valores mock == `hsTrabajadas`) como INSUFICIENTE — exigió evidencia PRIMARIA
+del PBIP (`E:\Joe\Metodologia\Refactorizacion\Tablero Integral\Danwor -
+Tablero Integral.pbip`). Verificado leyendo TMDL/M/relaciones/bindings de
+visual directamente: **Outcome (B)** de las 3 hipótesis planteadas —
+"Horas Productivas" (AMBAS perspectivas, Productivas Y No Asignadas) =
+`SUM('Time Logs Reports'[HORAS])` (CSV, sitio Operaciones/General/Template
+Dashboard), la MISMA tabla/medida, diferenciadas por filtro (`NOT
+Cliente[Cliente] CONTAINS "Danwor"` para Productivas vs. `Project IN
+{"Danwor - Horas No Productivas (#1)","(#2)"}` para No Asignadas) y
+dimensión de agrupamiento (Cliente×Proyecto vs. Consultor). El comentario
+ORIGINAL de V0 en `reporting.js` era correcto; `5dcbb58` (backbone reuse vía
+`hsTrabajadas`) estaba equivocado — la coincidencia de valores del mock era
+COINCIDENCIA, no la misma fuente física. Join Time Logs→Cliente confirmado:
+`Key_proyect_desc` normalizado → `Proyectos.Key_proyect_desc` →
+`Proyectos.EmpresaLookupId` (MISMO lookup ya confirmado contra Graph real por
+`staffing_repository.py`) → `Cliente.id`. **Impacto:** Horas
+Productivas/Productivas baja de "BATCH A IMPLEMENTATION READY FOR LIVE
+VALIDATION" a **BLOCKED — pendiente de reimplementación (Batch B)**; las
+otras 4 experiencias de Batch A (Horas Vendidas/Participación/Calendario/
+Salud) NO están afectadas. **Este pase es SOLO verificación + corrección de
+docs — el código de `get_horas_productivas` NO fue reimplementado todavía**
+(la reimplementación sobre el adapter de Time Logs es Batch B, ver sección
+"Secuencia" abajo — contrato físico completo ya documentado en
+real-data-lineage.md §8bis: sitio/carpeta/columnas/M/join, listo para
+codificar sin re-descubrir nada).
+
+### -3. BATCH A — 4/5 LIVE-READY + 1 BLOQUEADA (`5991fdb` + `5dcbb58` + `c7ec896`) — Horas Vendidas/Participación/Calendario/Salud: BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION · Horas Productivas/Productivas: BLOCKED (ver "CORRECTION 1" arriba)
 Horas Vendidas / Participación / Calendario / **Horas Productivas-
 Productivas** / **Salud de Cliente** leen datos REALES (reusan Cartera:
 Horas por proyectos × Proyectos × Cliente + Client Partner, UN fetch
@@ -6227,7 +6255,7 @@ Para CADA una de las 5 experiencias conectadas:
 | Participación | Salud | sin filtro de fecha | filas no vacías | los 6 campos de Salud (Financiera/Relación/Operativo/Continuidad/Estratégico/Final) muestran valores categóricos reales (Verde/Amarillo/Rojo u otro valor del negocio), NUNCA en blanco para un cliente con dato conocido | expandir Client Partner→Cliente |
 | Calendario | Frecuencia | sin filtro de fecha | filas no vacías | al menos un ✓ visible en un mes con checkpoint conocido | expandir ID Frecuencia→Cliente→Client Partner |
 | Calendario | Client Partner | ídem | filas no vacías | columna Total = cuenta real (no booleana) | igual, con CP como raíz |
-| Horas Productivas | Productivas | sin filtro de fecha | filas no vacías | Horas de un cliente/proyecto conocido == `trabajadas` de ese mismo proyecto en Cartera (validación cruzada directa) | expandir Cliente→Proyecto |
+| ~~Horas Productivas~~ | ~~Productivas~~ | — | **NO validar todavía — BLOCKED, ver "CORRECTION 1": la implementación actual usa `hsTrabajadas` (Cartera), evidencia PRIMARIA del PBIP prueba que la fuente real es `Time Logs Reports` (CSV). Re-smoke después de Batch B.** | — | — |
 | Cartera (regresión QA4) | cualquiera | rango con un cliente multi-proyecto/multi-mes conocido | padre = SUMA exacta de sus hijos visibles (Certificadas/Vendidas/Facturadas/Trabajadas), nunca igual a un solo hijo | expandir el padre y sumar los hijos a mano una vez |
 
 **Chequeos de plantilla compartida (las 5 experiencias):**
@@ -6448,18 +6476,14 @@ arquitectónico, no una tercera interpretación).
    `renderBusinessTreeRows`, afecta los 4 consumidores no-mensuales
    (Cartera/Participación/Salud/Productivas). No reabrir salvo evidencia
    live nueva del owner.
-3. **Correction 1 (owner, pendiente)** — verificar lineage de Horas
-   Productivas-Productivas contra evidencia PRIMARIA del PBIP (`E:\Joe\
-   Metodologia\Refactorizacion\Tablero Integral\Danwor - Tablero
-   Integral.pbip`, TMDL/DAX/M/relaciones de modelo/bindings de visual) — la
-   correlación de valores mock (`5dcbb58`) es evidencia corroborante FUERTE
-   pero NO suficiente por sí sola según el owner. 3 resultados posibles: (A)
-   el PBIP confirma que `hsTrabajadas`/Horas-por-proyectos es correcto
-   (implementación actual se mantiene); (B) el PBIP confirma que `Time Logs
-   Reports.HORAS` es la fuente correcta (cambiar al adapter de Time Logs,
-   Batch B); (C) tabla calculada intermedia donde ambas convergen
-   (implementar la semántica real del modelo). Corregir HANDOFF/
-   `real-data-lineage.md` si la redacción actual sobre-afirmó certeza.
+3. ~~**Correction 1 — verificar lineage de Productivas**~~ **CERRADO
+   (docs-only, ver "CORRECTION 1" arriba + real-data-lineage.md §8bis)** —
+   **Outcome (B) confirmado con evidencia PRIMARIA**: `Time Logs
+   Reports.HORAS` es la fuente real (AMBAS perspectivas), no `hsTrabajadas`.
+   El CÓDIGO todavía usa `hsTrabajadas` (no reimplementado en este pase) —
+   Horas Productivas/Productivas queda BLOCKED hasta Batch B. Contrato físico
+   completo (sitio/carpeta/columnas/M/join a Cliente) ya documentado, listo
+   para codificar sin re-descubrir nada.
 4. **Q1/Q2/Q3 (owner live QA, pendientes)** — Q1: sizing de columnas en
    Rentabilidad/Certificadas vs Ejecutadas/Detalle por proyecto (vocabulario
    semántico compartido de `tools.css`, sin hacks locales). Q2: consistencia

@@ -330,18 +330,28 @@ class ReportingService:
         MISMO fetch ya hecho para Horas Vendidas/Participación, sin fuente
         nueva.
 
-        Resolución de la contradicción de lineage registrada en HANDOFF
-        (comentario de V0 en `reporting.js` decía `Sum(Time Logs
-        Reports.HORAS)` vs. el resumen de Batch A que clasificaba esto como
-        reuso del backbone de Horas por proyectos): los VALORES del mock
-        `CAPACIDAD_PRODUCTIVAS_ROWS.horas` coinciden EXACTAMENTE, cliente×
-        proyecto por cliente×proyecto, con `trabajadas` de
-        `CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` (Andesmar=134/
+        ⚠️ CORRECTION 1 (ver HANDOFF/real-data-lineage.md §8bis) — LINEAGE
+        INCORRECTO, PENDIENTE DE BATCH B. La justificación de abajo (mock-
+        value correlation) fue marcada por el owner como evidencia
+        corroborante FUERTE pero NO suficiente. Verificación con evidencia
+        PRIMARIA del PBIP (TMDL/M/bindings de visual de la página "Horas
+        Productivas consumidas") prueba que la fuente real es
+        `SUM('Time Logs Reports'[HORAS])` (CSV, sitio Operaciones), NO
+        `hsTrabajadas` de Horas por proyectos — la coincidencia de valores
+        del mock era COINCIDENCIA, no la misma fuente física. Esta
+        implementación queda BLOCKED (real-data-lineage.md/HANDOFF) hasta
+        que Batch B la reimplemente sobre el adapter de Time Logs. Contrato
+        físico completo (sitio/carpeta/columnas/M/join a Cliente) ya
+        documentado en §8bis — no requiere nuevo discovery.
+
+        Justificación ORIGINAL (histórica, ya CORREGIDA arriba — se conserva
+        el razonamiento por trazabilidad, no como fuente de verdad vigente):
+        los VALORES del mock `CAPACIDAD_PRODUCTIVAS_ROWS.horas` coincidían
+        EXACTAMENTE, cliente×proyecto por cliente×proyecto, con `trabajadas`
+        de `CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` (Andesmar=134/
         40, Danone=92, YPF=340, AySA=210, Ternium=175 — las 6 filas, sin
-        excepción). Evidencia directa de que "Horas Productivas" = SUM de
-        `hsTrabajadas` de Horas por proyectos, NO una fuente separada. `%
-        Incidencia` (denominador gran-total fijo) se calcula en el
-        FRONTEND, sin cambios (mismo criterio que Participación)."""
+        excepción). `% Incidencia` (denominador gran-total fijo) se calcula
+        en el FRONTEND, sin cambios (mismo criterio que Participación)."""
         facts = self._repository.get_batch_a_facts(access_token)["project_facts"]
         groups: dict[tuple, float] = {}
         for f in facts:

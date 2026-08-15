@@ -219,7 +219,7 @@ Solo hay **2 fuentes físicas nuevas**.
 | **Horas Vendidas** | Proyecto / Client Partner | Horas por proyectos + Proyectos + Cliente | 100% backbone Cartera | — |
 | **Participación/Comercial** | Participación / Salud | Cliente (Frecuencia/Permite Adelanto/Condicion de Pago) + Horas por proyectos (%) | backbone | Salud: columnas categóricas de Cliente |
 | **Calendario** | Frecuencia / Client Partner | `Cliente.Calendario_Act` (booleano por mes vía CONTAINSSTRING) | backbone Cliente | — |
-| **Horas Productivas** | Productivas / No asignadas | Productivas: Horas por proyectos (Cliente>Proyecto, % incidencia) · **No asignadas: `Time Logs Reports` CSV** | backbone (Productivas) | **CSV en /sites/Operaciones/…/Template Dashboard** |
+| **Horas Productivas** | Productivas / No asignadas | **AMBAS perspectivas: `Time Logs Reports` CSV** (`SUM(HORAS)`, misma tabla, split por filtro — ver §8bis) | — | **CSV en /sites/Operaciones/…/Template Dashboard** |
 | **Rentabilidad** | Resumen / Certif vs Ejec | Horas por proyectos + XLSX Facturadas; "Ejecutadas" vía `Comparativo`/`Resumen Horas x Proyecto Fac y Ejec` (DAX) | backbone | semántica **Ejecutadas** + matriz mensual acumulada de Conceptos |
 
 ### Semántica (de V0 + PBIP, a preservar)
@@ -235,19 +235,90 @@ Solo hay **2 fuentes físicas nuevas**.
   sin agregación numérica.
 - **Calendario**: celda mensual = PRESENCIA BOOLEANA (✓/blank), NUNCA conteo.
 - **Horas Productivas**: horas aditivas; `% Incidencia` con denominador gran-total
-  fijo; **No asignadas** = matriz consultor×mes del Time Logs (NO es disponibilidad
-  de Staffing — responsabilidad analítica distinta).
+  fijo; **AMBAS perspectivas (Productivas y No asignadas) leen `Time Logs
+  Reports` (CSV)** — ver §8bis, corrección de lineage. No asignadas = matriz
+  consultor×mes (NO es disponibilidad de Staffing — responsabilidad analítica
+  distinta).
+
+## 8bis. CORRECCIÓN DE LINEAGE — Horas Productivas/Productivas (evidencia PRIMARIA del PBIP)
+
+**Contexto:** Batch A (commit `5dcbb58`) implementó Productivas reusando el
+backbone de Cartera (`SUM(hsTrabajadas)` de "Horas por proyectos"), justificado
+SOLO por correlación de valores entre el mock `CAPACIDAD_PRODUCTIVAS_ROWS.horas`
+y `trabajadas` de Cartera (los 6 valores coincidían exactamente). El owner
+marcó esto correctamente como **evidencia corroborante fuerte pero NO
+suficiente** — exigió verificación contra evidencia PRIMARIA del PBIP (TMDL/
+DAX/M/relaciones/bindings de visual), no solo coincidencia de mock.
+
+**Verificación PRIMARIA realizada** (`Danwor - Tablero Integral.pbip`, sitio
+E:\Joe\Metodologia\Refactorizacion\Tablero Integral):
+- **Página del reporte "Horas Productivas consumidas"** (`definition/pages/
+  7d1191c1e755ac3abe70/page.json`): TODOS los visuals de medida (Horas, Rank,
+  % Hs ejecutadas) bindean a `Entity: "Time Logs Reports"`, `Property: "HORAS"`
+  — CERO bindings a `Horas por proyectos`/`hsTrabajadas` en esta página.
+  Filtro de página: `NOT Cliente[Cliente] CONTAINS "Danwor"` (excluye el/los
+  cliente(s) placeholder interno(s) donde se cargan las horas no asignadas).
+- **Página "Hs No Asignadas"** (`definition/pages/5685cf18d9eca3f61e36/
+  page.json`): TAMBIÉN bindea a `Time Logs Reports`/`HORAS`, agrupado por
+  Consultor (`Colaboradores`) en vez de Cliente/Proyecto. Filtro de página:
+  `'Time Logs Reports'[Project] IN {"Danwor - Horas No Productivas (#1)",
+  "Danwor - Horas No Productivas (#2)"}` — dos proyectos PLACEHOLDER internos.
+- **Conclusión — Outcome (B) de las 3 hipótesis planteadas por el owner**:
+  "Horas Productivas" (AMBAS perspectivas) = `SUM('Time Logs Reports'[HORAS])`,
+  la MISMA tabla/medida, diferenciadas SOLO por filtro (excluye vs. incluye los
+  2 proyectos placeholder) y por dimensión de agrupamiento (Cliente×Proyecto vs.
+  Consultor). El comentario original de V0 en `reporting.js`
+  (`// Horas = Sum(Time Logs Reports.HORAS)`) era CORRECTO; el resumen de Batch
+  A en este documento (ahora corregido arriba) y la implementación de `5dcbb58`
+  estaban equivocados — la correlación con `hsTrabajadas` era COINCIDENCIA (o
+  refleja que en la práctica ambas fuentes tienden a converger para estos 6
+  proyectos puntuales), NO la misma fuente física.
+- **Join Time Logs → Cliente** (para resolver el nombre real de Cliente por
+  fila de CSV, ya que el CSV no trae ningún lookup): `'Time Logs
+  Reports'.Key_proyect_desc → Proyectos.Key_proyect_desc` (join por texto
+  normalizado Upper/sin-espacios — MISMO criterio ya usado por el join de la
+  XLSX de Facturadas, `_norm_key`), luego `Proyectos.EmpresaLookupId →
+  Cliente.id` (MISMO lookup ya CONFIRMADO contra Graph real por
+  `staffing_repository.py` — comentario: "Proyectos lookup real name
+  'Empresa', fieldValueSet property 'EmpresaLookupId' → Cliente.Title").
+  Reusa las MISMAS listas Proyectos/Cliente ya fetcheadas por Cartera/Batch A
+  — sin lista nueva para la dimensión, solo el hecho (CSV) es nuevo.
+- **M query de la partición `Time Logs Reports`** (fuente física CONFIRMADA):
+  `SharePoint.Files("https://danwor.sharepoint.com/sites/Operaciones")` →
+  filtra `[Extension] = ".csv"` y `Text.Contains([Folder Path], "Template
+  Dashboard")` y `not Text.Contains([Name], "OLD")` → combina todos los CSV
+  matcheados (`Csv.Document(...,[Delimiter=",", Encoding=65001,
+  QuoteStyle=QuoteStyle.Csv])`, header promovido) → columnas: Date/From/To/
+  Description/Duration/`Duration Decimal`/Client/Project/Task/User/Email/
+  `Billable Amount`/Billable/Cost. `HORAS = [Duration Decimal] / 1000`. La
+  MISMA carpeta `General/Template Dashboard` en el sitio Operaciones que ya usa
+  `staffing_repository.ABSENCE_XLSX_PATH` (confirmada existente/alcanzable).
+
+**Impacto:** el estado "BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION" para
+Horas Productivas/Productivas (HANDOFF, sección "-3.") queda **BLOQUEADO
+específicamente en esa perspectiva** hasta que Batch B reimplemente
+`get_horas_productivas` sobre el adapter de Time Logs — las otras 4
+experiencias de Batch A (Horas Vendidas/Participación/Calendario/Salud) NO
+están afectadas (fuente/join distintos, ya verificados independientemente).
+Re-implementación: ver "Batch B" abajo — tarea pendiente, NO ejecutada en este
+pase (este pase es SOLO la verificación de lineage exigida por el owner).
 
 ## 9. Plan de batches (evidence-based)
 
 - **Batch A — "backbone reuse"** (Horas Vendidas, Participación, Calendario,
-  Horas Productivas/Productivas): reusan el repositorio de Cartera; se agregan
-  lecturas de columnas ya presentes en Cliente + shaping en el service. UN endpoint
-  por experiencia (o uno consolidado), sin fuente física nueva.
-- **Batch B — "fuentes/semántica nuevas"** (Rentabilidad + Horas Productivas/No
-  asignadas): (1) semántica Ejecutadas + matriz mensual de Conceptos; (2) adapter
-  nuevo para el **CSV de Time Logs** en /sites/Operaciones (parseo CSV en memoria,
-  mismo patrón fail-soft; site distinto — reusar `graph_get_bytes`).
+  Salud de Cliente): reusan el repositorio de Cartera; se agregan lecturas de
+  columnas ya presentes en Cliente + shaping en el service. UN endpoint por
+  experiencia (o uno consolidado), sin fuente física nueva. **Horas
+  Productivas/Productivas se RETIRA de este grupo** (ver §8bis — corrección de
+  lineage: es CSV de Time Logs, no backbone) y pasa a Batch B.
+- **Batch B — "fuentes/semántica nuevas"** (Rentabilidad + Horas Productivas
+  AMBAS perspectivas): (1) semántica Ejecutadas + matriz mensual de Conceptos;
+  (2) adapter nuevo para el **CSV de Time Logs** en /sites/Operaciones (parseo
+  CSV en memoria, mismo patrón fail-soft; site distinto — reusar
+  `graph_get_bytes`) que alimenta Productivas (Cliente×Proyecto, excluye
+  Cliente CONTAINS "Danwor") y No Asignadas (Consultor×mes, Project IN los 2
+  placeholder) desde UN solo fetch/combine — ver §8bis para el contrato
+  físico completo (sitio/carpeta/columnas/M).
 - **Phase 0 (transversal, previo o en paralelo)**: (0A) loader Hub compartido
   reusando el de Asignaciones; (0B) geometría estable de matrices jerárquicas
   (`<colgroup>` + `table-layout:fixed` + clases semánticas de ancho); (0C)
@@ -256,9 +327,16 @@ Solo hay **2 fuentes físicas nuevas**.
 
 **Riesgos semánticos abiertos:** (1) definición exacta de "Ejecutadas" vs
 "Trabajadas" en `Resumen Horas x Proyecto Fac y Ejec` (DAX measure-sourced) — a
-resolver leyendo esa medida antes de implementar Rentabilidad; (2) estructura real
-del CSV de Time Logs (columnas consultor/mes) — a confirmar (mismo criterio que
-la XLSX: descubrir en el smoke si hace falta).
+resolver leyendo esa medida antes de implementar Rentabilidad; (2) estructura
+EXACTA de las filas del CSV de Time Logs (formato de fecha, valores reales de
+`Task` dentro de los 2 proyectos placeholder) — contrato de COLUMNAS ya
+confirmado por el M (§8bis), pero el FORMATO de celda (fecha DD/MM/YYYY vs
+ISO, etc.) se confirma en el smoke real (mismo criterio que la XLSX); (3) `Hs
+Asig` (capacidad de referencia estática por consultor, mock `hsAsig`) requiere
+`Colaboradores['HS asignadas a proy'] = RELATED('Resumen Asignaciones'[Hs
+Asignadas])` — una lista SharePoint adicional (`Resumen Asignaciones`) sin ID
+confirmado en este repositorio; a resolver en Batch B o documentar como
+gap explícito si no se puede confirmar sin adivinar el list ID.
 
 ## 7. Gaps residuales (confirmar en el smoke con token real, NO fabricar)
 
