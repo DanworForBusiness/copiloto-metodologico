@@ -6092,7 +6092,8 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
-- `5991fdb` — **Batch A — 3/4 CONECTADAS (Horas Vendidas/Participación/Calendario), Productivas DIFERIDA**: `feat(reporting): connect sold-hours, participation, and calendar data`. Estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
+- `5dcbb58` — **Batch A — Horas Productivas CONECTADA, contradicción de lineage RESUELTA**: `feat(reporting): connect productive-hours data, resolve lineage contradiction`. **BATCH A = 4/4 backbone conectadas**, estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
+- `5991fdb` — **Batch A — Horas Vendidas/Participación/Calendario CONECTADAS**: `feat(reporting): connect sold-hours, participation, and calendar data`.
 - `c37b56b` — **S.4 CERRADO — PHASE S = CLOSED (contrato de presentación + interacción)**: disclosure jerárquico unificado (`refactor(hub): unify hierarchy disclosure interaction`).
 - `e73f14b` — **Corrective pre-Batch-A CERRADO**: 3 gaps de aceptación de Cartera (`fix(reporting): align canonical Cartera presentation`).
 - `6dd7e99` — Phase S (visual): primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
@@ -6102,14 +6103,15 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
-### -3. BATCH A — 3/4 CONECTADAS (`5991fdb`) — BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION
-Horas Vendidas / Participación / Calendario leen datos REALES (reusan
-Cartera: Horas por proyectos × Proyectos × Cliente + Client Partner, UN
-fetch consolidado `get_batch_a_facts` → UN endpoint `/data/batch-a`, MISMO
-ciclo de vida idle→loading→ready|error que Cartera, `.dashboard-table`/
-`.dashboard-status-badge`/disclosure compartido de Phase S sin variantes
-locales). **NO** están cubiertas todavía (permanecen en mock, ver debajo):
-Salud de Cliente y **Horas Productivas/Productivas**.
+### -3. BATCH A — 4/4 BACKBONE CONECTADAS (`5991fdb` + `5dcbb58`) — BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION
+Horas Vendidas / Participación / Calendario / **Horas Productivas-
+Productivas** leen datos REALES (reusan Cartera: Horas por proyectos ×
+Proyectos × Cliente + Client Partner, UN fetch consolidado
+`get_batch_a_facts` → UN endpoint `/data/batch-a`, MISMO ciclo de vida
+idle→loading→ready|error que Cartera, `.dashboard-table`/`.dashboard-
+status-badge`/disclosure compartido de Phase S sin variantes locales).
+**NO** están cubiertas (permanecen en mock, deliberadamente fuera de
+Batch A): Salud de Cliente, Horas Productivas/No Asignadas.
 
 **Nuevas columnas de Cliente leídas** (mismo sitio/lista ya usados por
 Cartera, sin lista nueva): `Frecuencia_x0020_Actualizacion`, `Permite_
@@ -6123,41 +6125,37 @@ CONFIRMAR EN EL SMOKE REAL** (mismo estado de madurez que Cartera antes de
 su primer smoke — `ed68645`/`0ac6110` corrigieron internal names mal
 supuestos entonces; acá aplica el mismo proceso si hace falta).
 
-**BLOQUEADOR EXPLÍCITO — Horas Productivas/Productivas NO conectada:**
-contradicción de lineage genuina entre dos documentos del propio proyecto:
-- El comentario de `CAPACIDAD_PRODUCTIVAS_ROWS`/`capacidadPctIncidencia` en
-  `reporting.js` (basado en el discovery ORIGINAL de V0,
-  `page_inventory.json`) dice: `Horas` = `Sum(Time Logs Reports.HORAS)` —
-  la MISMA fuente física (CSV) que "No Asignadas" (Batch B), NO Horas por
-  proyectos.
-- La tabla-resumen de Batch A en `real-data-lineage.md` (sección 8)
-  clasifica "Productivas" como reuso del backbone Horas por proyectos, sin
-  fuente nueva.
+**Horas Productivas/Productivas — contradicción de lineage RESUELTA
+(`5dcbb58`), no adivinada:** el comentario de V0 en `reporting.js` decía
+`Horas` = `Sum(Time Logs Reports.HORAS)` (fuente distinta, CSV); el
+resumen de Batch A en `real-data-lineage.md` clasificaba esto como reuso
+del backbone Horas por proyectos. Ambas NO podían ser correctas a la vez.
+Resuelto con evidencia directa: los 6 valores del mock
+`CAPACIDAD_PRODUCTIVAS_ROWS.horas` (134/40/92/340/210/175) coinciden
+EXACTAMENTE, cliente×proyecto por cliente×proyecto, con `trabajadas` de
+`CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` — el propio autor del
+mock lo sembró desde `hsTrabajadas`. `get_horas_productivas` reusa
+`project_facts` (mismo fetch, sin fuente nueva), agrupa por (Cliente,
+Proyecto), suma `hsTrabajadas`. **No Asignadas** (Batch B, CSV de Time
+Logs real) queda intacta — es la fuente DISTINTA que el comentario viejo
+describía, no Productivas.
 
-Ambas NO pueden ser correctas a la vez. Sin acceso Graph real en este
-entorno para verificar cuál es la real, y dado que el CSV de Time Logs
-está documentado como riesgo abierto ("a confirmar en el smoke", ver
-sección 9 de real-data-lineage.md) — se DEJÓ Productivas en mock en vez de
-adivinar. **Próximo agente: resolver esta contradicción (leyendo el TMDL
-real de "Horas Productivas consumidas" o esperando smoke del owner) ANTES
-de conectar Productivas** — si la fuente real es Time Logs, Productivas
-pasa a Batch B (mismo adapter CSV que No Asignadas), no queda en Batch A.
+**Corrective adicional encontrado en el camino (x2):**
+`COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS`/`_CERTIFICADAS` y
+`CAPACIDAD_PRODUCTIVAS_TOTAL` eran `const` calculadas UNA vez al cargar el
+script contra el mock — tras `replaceRows` habrían quedado stale para
+siempre (el % real habría seguido comparando contra el total del MOCK).
+Ambas convertidas a funciones, recalculadas en cada render contra el
+array vigente.
 
-**Corrective adicional encontrado en el camino:** `COMERCIAL_PARTICIPACION_
-TOTAL_VENDIDAS`/`_CERTIFICADAS` eran `const` calculadas UNA vez al cargar
-el script contra el mock — tras `replaceRows` habrían quedado stale para
-siempre (el % de Participación real habría seguido comparando contra el
-total del MOCK). Convertidas a funciones, recalculadas en cada render
-contra el array vigente.
-
-12 tests nuevos (repositorio/service: join, agrupamiento mensual,
-agregación de denominador fijo, derivación/normalización de frecuencia,
-presencia booleana; frontend: ciclo de vida + protección del primitivo
-compartido). Suite completa: **872 passed** (859+13), mismos 8 fallos
-preexistentes.
+19 tests nuevos en total (repositorio/service: join, agrupamiento
+mensual, agregación de denominador fijo, derivación/normalización de
+frecuencia, presencia booleana, suma por Cliente/Proyecto; frontend:
+ciclo de vida + protección del primitivo compartido). Suite completa:
+**877 passed** (859 baseline + 18 neto), mismos 8 fallos preexistentes.
 
 #### Checklist de smoke consolidado del owner (Batch A, live)
-Para CADA una de las 3 experiencias conectadas:
+Para CADA una de las 4 experiencias conectadas:
 
 | Experiencia | Perspectiva | Rango recomendado | Resultado esperado | Medida representativa | Chequeo de jerarquía |
 |---|---|---|---|---|---|
@@ -6166,8 +6164,9 @@ Para CADA una de las 3 experiencias conectadas:
 | Participación | Participación | Desde=1/ene/2026 Hasta=hoy | filas no vacías | % Participación Hs Vendidas de un cliente conocido (NO debe sumar 100% entre todos los visibles si hay filtro activo) | expandir ID Frecuencia→Permite Adelanto→Condición de Pago→Cliente |
 | Calendario | Frecuencia | sin filtro de fecha | filas no vacías | al menos un ✓ visible en un mes con checkpoint conocido | expandir ID Frecuencia→Cliente→Client Partner |
 | Calendario | Client Partner | ídem | filas no vacías | columna Total = cuenta real (no booleana) | igual, con CP como raíz |
+| Horas Productivas | Productivas | sin filtro de fecha | filas no vacías | Horas de un cliente/proyecto conocido == `trabajadas` de ese mismo proyecto en Cartera (validación cruzada directa) | expandir Cliente→Proyecto |
 
-**Chequeos de plantilla compartida (las 3 experiencias):**
+**Chequeos de plantilla compartida (las 4 experiencias):**
 - loader Hub aparece brevemente al entrar a cada tab (sin flash de mock);
 - badges de estado (donde aplique) con la forma/paleta compartida;
 - hover de fila sutil, sin mover columnas;
@@ -6371,17 +6370,15 @@ arquitectónico, no una tercera interpretación).
    PHASE S = CLOSED** — ver sección "-2." arriba. No reabrir salvo evidencia
    live nueva del owner o un problema genuino de integración descubierto en
    Batch A.
-2. **Batch A — 3/4 CONECTADAS (`5991fdb`), 1 DIFERIDA** — ver sección "-3."
-   arriba. Horas Vendidas/Participación/Calendario: **BATCH A
-   IMPLEMENTATION READY FOR LIVE VALIDATION** (checklist de smoke
-   consolidado en esa sección). **Horas Productivas/Productivas
-   BLOQUEADA**: contradicción de lineage sin resolver (Time Logs Reports
-   vs Horas por proyectos, ver sección "-3.") — resolverla ANTES de
-   conectarla; si la fuente real es Time Logs, pasa a Batch B junto con No
-   Asignadas, no queda en Batch A. Internal names NUEVOS de Cliente
+2. ~~**Batch A**~~ **4/4 backbone CONECTADAS (`5991fdb` + `5dcbb58`)** — ver
+   sección "-3." arriba. Horas Vendidas/Participación/Calendario/Horas
+   Productivas-Productivas: **BATCH A IMPLEMENTATION READY FOR LIVE
+   VALIDATION** (checklist de smoke consolidado en esa sección). Salud de
+   Cliente sigue en mock (sin lineage documentado); No Asignadas es Batch
+   B (CSV de Time Logs real). Internal names NUEVOS de Cliente
    (Frecuencia/Permite Adelanto/Condición de Pago/Calendario_Act)
    PENDIENTES de confirmar en smoke real (mismo proceso que corrigió los de
-   Cartera).
+   Cartera). No reabrir salvo evidencia live del owner.
 3. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
    y Ejec` ANTES de codificar) + Horas Productivas-No asignadas (adapter CSV Time
    Logs). Reusar `core.microsoft365` (`graph_get_bytes`); sin cliente Graph nuevo.
