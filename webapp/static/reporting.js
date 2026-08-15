@@ -2225,6 +2225,23 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
           let content = "";
           if (c.rollup) content = c.rollup(node.rows);
           else if (node.rows.length === 1) content = c.render(node.rows[0]);
+          // Formateo transversal (owner live QA — artefacto crudo de punto
+          // flotante visible en Horas Productivas, ej. "3.5999999999999996"):
+          // `sumField`/`render` de columnas de horas puras (Trabajadas/
+          // Certificadas/Vendidas/Facturadas/Horas — ver CARTERA_CONFIG/
+          // CAPACIDAD_PRODUCTIVAS_COLUMNS) devuelven el NÚMERO crudo a
+          // propósito (`sumField` sin `formatFn`) — ese mismo raw number lo
+          // consumen los tiles KPI vía `renderDashboardKpi`/`fmtNum`, que
+          // formatea UNA sola vez (pasarlo ya formateado ahí reproduciría el
+          // bug de doble-formateo de la corrective S.3, "Diff Hs KPI en
+          // blanco"). Acá, en cambio, el número crudo llega directo al DOM
+          // sin pasar por ningún formateador — el boundary correcto para
+          // cerrar la clase de bug ENTERA (transversal a cualquier columna
+          // futura, no solo Horas Productivas) es ACÁ: cualquier `content`
+          // que siga siendo un `number` (columnas ya formateadas como
+          // diff/status/porcentaje devuelven string, nunca entran acá) se
+          // formatea recién en el último paso antes de tocar el HTML.
+          if (typeof content === "number") content = fmtNum(content, "hours");
           return `<td class="${c.statusTerminal ? "dashboard-table-cell--status" : (c.numeric ? "" : "left")}">${content}</td>`;
         }).join("")}
       </tr>`;
