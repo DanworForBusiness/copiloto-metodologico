@@ -6092,11 +6092,38 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `6dd7e99` — **Phase S CERRADA**: primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
 - `5f88324` — **Cartera live-data VALIDADA/READY** (cierre; retiro de diagnósticos temporales).
 - `765fd53` — discovery + plan de batches de las 5 experiencias restantes (`docs`).
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### 0. Phase S — estandarización visual del Hub (CERRADA, `6dd7e99`)
+Un solo primitivo compartido en `tools.css`: `table.dashboard-table` (shell/
+header/fila/hover/jerarquía por profundidad/alineación numérica,
+`table-layout:fixed` — expand/collapse nunca mueve columnas numéricas) +
+`.dashboard-status-badge`/`--{green,amber,red,grey}` (pill de Reporting,
+generalizado; el dominio mapea su propio estado a un color, sin ontología
+cross-dominio) + `.dashboard-table-toggle`/`.dashboard-table-indent`. Dirección
+visual = Reporting (elegida por el owner). Migrados: `reporting.js` (`tree-
+matrix`/`data-table`/`status-pill`/`tree-toggle`/`tree-indent` → clases
+compartidas; `reporting.css` conserva SOLO tabs/bar-chart/legend, genuinamente
+propio) y el Detalle de Asignaciones (`staffing_dashboard.html`: `admin-table`/
+`status-badge` → `dashboard-table`/`dashboard-status-badge`, gana hover real y
+jerarquía por profundidad que antes NO tenía — `admin-table`/`status-badge`
+dependían de tokens `--soft`/`--line` del panel oscuro de Copilot, sin efecto
+fuera de `.copilot-panel`). `.activity-kpi{min-width:0}`/tabular-nums (antes
+solo en `reporting.css`, Phase 0C) promovido a la regla base compartida. El
+Timeline de Asignaciones (Gantt, no una tabla) y su `.staffing-timeline__row-
+status` quedaron INTACTOS a propósito — patrón visual distinto, sin cambio de
+agrupamiento/jerarquía/cálculos. 3 tests actualizados (aserciones sobre los
+strings literales viejos); suite completa (`tests/webapp/`) igual al baseline:
+**849 passed**, mismos 8 fallos preexistentes sin relación (tests stale de un
+botón de agrupamiento ya migrado a `.dashboard-view-switch` en un corrective
+anterior, no tocado acá). Activity/Usage Metrics: NO migrado (fuera de
+alcance de esta fase), pero el primitivo ya es apropiado para que lo consuma
+cuando se toque.
 
 ### 1. Cartera — LIVE VALIDATED (evidencia del owner)
 Ambas perspectivas cargan datos reales; jerarquía/rollups correctos. Ej. rango
@@ -6177,22 +6204,25 @@ tocar ahora**, pero cuando se toque debe consumir los MISMOS primitivos (requisi
 arquitectónico, no una tercera interpretación).
 
 ### 6. Secuencia para el próximo agente (ORDEN)
-1. **Phase S — estandarización visual** (S1 inventariar tablas/status/hover reales de
-   Asignaciones+Reporting+Activity; S2 identificar compartido vs dominio-específico;
-   S3 UN primitivo Hub / fuente de verdad — extraer/generalizar código existente, SIN
-   framework/dependencia de design-system; S4 migrar Reporting y Asignaciones
-   preservando comportamiento funcional, dirección de Reporting cuando haya que elegir;
-   S5 regresión de AMBAS).
-2. **Batch A** — Horas Vendidas / Participación / Calendario / Horas Productivas-
-   Productivas (backbone reuse; usar loader/geometría/formatter de Phase 0; sin mock
-   flash; contratos normalizados sin internal names al browser; join `*LookupId`/
-   `item["id"]`; `/columns` para lookups; paginado; sin N+1; fail-soft).
+1. ~~**Phase S — estandarización visual**~~ **CERRADA (`6dd7e99`)** — ver
+   sección "0. Phase S" arriba para el detalle completo. No reabrir salvo que
+   Batch A revele un problema genuino de integración con el primitivo
+   compartido.
+2. **Batch A — SIGUIENTE PASO** — Horas Vendidas / Participación / Calendario /
+   Horas Productivas-Productivas (backbone reuse; usar loader/geometría/
+   formatter de Phase 0 + primitivos de Phase S desde el inicio; sin mock
+   flash; contratos normalizados sin internal names al browser; join
+   `*LookupId`/`item["id"]`; `/columns` para lookups; paginado; sin N+1;
+   fail-soft).
 3. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
    y Ejec` ANTES de codificar) + Horas Productivas-No asignadas (adapter CSV Time
    Logs). Reusar `core.microsoft365` (`graph_get_bytes`); sin cliente Graph nuevo.
 4. **Smoke consolidado del owner** por batch (checklist determinístico: perspectiva,
    rango con datos, medida representativa, un expand/collapse; + loader/geometría/
-   formato KPI/facet año/no-mock-flash).
+   formato KPI/facet año/no-mock-flash). **Nota:** la validación LIVE contra
+   SharePoint real (igual que Cartera) requiere sesión con Graph token del
+   owner — un agente sin ese acceso puede implementar/testear-en-frío pero NO
+   puede confirmar el dato real por sí mismo; STOP rule (d) aplica ahí.
 
 ### 7. STOP rules (parar SOLO ante un blocker genuino)
 Parar únicamente si: (a) evidencia PBIP/fuente deja DOS interpretaciones de negocio
