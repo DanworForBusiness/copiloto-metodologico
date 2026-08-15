@@ -219,6 +219,26 @@ Solo hay **2 fuentes físicas nuevas**.
 | **Horas Vendidas** | Proyecto / Client Partner | Horas por proyectos + Proyectos + Cliente | 100% backbone Cartera | — |
 | **Participación/Comercial** | Participación / Salud | Cliente (Frecuencia/Permite Adelanto/Condicion de Pago) + Horas por proyectos (%) | backbone | Salud: columnas categóricas de Cliente |
 | **Calendario** | Frecuencia / Client Partner | `Cliente.Calendario_Act` (booleano por mes vía CONTAINSSTRING) | backbone Cliente | — |
+
+**Grano confirmado del "Total" (Q3, owner live QA — ver HANDOFF)**: la
+tabla CALCULADA `Calendario_Cliente` del PBIP (`definition/tables/
+Calendario_Cliente.tmdl`) es UNA fila por Cliente (`VALUES(Cliente[Cliente])`),
+12 columnas booleanas 0/1 (`IF(CALCULATE(COUNTROWS(Cliente),
+CONTAINSSTRING(Cliente[Calendario_Act], "<mes>")) > 0, 1, 0)` — EXACTA la
+misma regla ya implementada en `_calendario_monthly`), y
+`Total = Ene+Feb+...+Dic` POR FILA (grano Cliente, no un gran total de
+compañía). El footer "Total" de la matriz del Hub (`sumMonthly(rows)`
+sobre la lista PLANA de Cliente, calculado UNA vez, nunca por nodo de
+árbol) reproduce el subtotal de columna que Power BI calcularía sobre
+`Calendario_Cliente` — SIEMPRE al grano de hoja, independiente del estado
+expandido/colapsado de las filas (mismo comportamiento que un subtotal de
+matriz real, que nunca cambia por interacción de UI). La aparente
+"no reconciliación" reportada por el owner es la consecuencia ESPERADA de
+mostrar presencia BOOLEANA (✓) en filas padre colapsadas mientras el
+footer es una cuenta real de hojas — no es un bug, no hay doble conteo
+(verificado con evidencia de ejecución, ver
+`tests/webapp/reporting_calendario_total_grain.node.js`). Sin cambio de
+código; el comportamiento actual ya coincide con el grano PBIP.
 | **Horas Productivas** | Productivas / No asignadas | **AMBAS perspectivas: `Time Logs Reports` CSV** (`SUM(HORAS)`, misma tabla, split por filtro — ver §8bis) | — | **CSV en /sites/Operaciones/…/Template Dashboard** |
 | **Rentabilidad** | Resumen / Certif vs Ejec | Horas por proyectos + XLSX Facturadas; "Ejecutadas" vía `Comparativo`/`Resumen Horas x Proyecto Fac y Ejec` (DAX) | backbone | semántica **Ejecutadas** + matriz mensual acumulada de Conceptos |
 

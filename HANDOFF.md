@@ -6106,6 +6106,30 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
+### -8. Q3 — grano de totales mensuales de Calendario (CERRADO, docs+tests-only) — owner live QA
+Owner reportó: "el gran total suma aritméticamente bien, pero los totales
+mensuales individuales no reconcilian con los chequeos booleanos
+visibles". Investigado contra evidencia PRIMARIA del PBIP: la tabla
+CALCULADA `Calendario_Cliente.tmdl` es UNA fila por Cliente, 12 columnas
+booleanas (misma regla `CONTAINSSTRING` que `_calendario_monthly` ya
+implementa) y `Total = Ene+...+Dic` POR FILA (grano Cliente). El footer de
+la matriz del Hub (`sumMonthly(rows)` sobre la lista PLANA de Cliente)
+reproduce EXACTAMENTE ese grano — un subtotal de columna real, siempre al
+nivel de hoja, independiente de expand/collapse (mismo comportamiento que
+Power BI, que nunca recalcula un subtotal por interacción de UI).
+**Conclusión: comportamiento CORRECTO por diseño, sin bug — la "no
+reconciliación" reportada es la consecuencia esperada de mostrar
+presencia BOOLEANA (✓) en filas padre colapsadas junto a un footer que es
+cuenta real de hojas, no una inconsistencia.** Verificado con evidencia de
+EJECUCIÓN real (nuevo harness Node `reporting_calendario_total_grain.node.js`,
+mismo patrón que QA4/Q2): footer = COUNT de Clientes con checkpoint por
+mes, idéntico colapsado vs. expandido, columna Total-por-fila = cuenta
+real agregada (nunca booleana) incluso en un nodo padre con múltiples
+hojas, sin doble conteo. **Sin cambio de código** (`reporting.js` ya
+coincidía con el grano PBIP) — 3 tests nuevos documentando/probando la
+conclusión. Suite completa: **889 passed** (886+3), mismos 8 fallos
+preexistentes.
+
 ### -7. Q2 — consistencia de rango de fechas (CERRADO) — owner live QA
 Con Desde=01/01/2026 Hasta=14/08/2026, Rentabilidad seguía mostrando Sep-
 Oct-Nov-Dic no-cero en "Detalle mensual por Concepto" (y el mismo bug
