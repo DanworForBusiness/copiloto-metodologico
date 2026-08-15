@@ -294,7 +294,7 @@
             <span>día(s)</span>
           </label>
         </div>
-        <table class="admin-table staffing-detail-table">
+        <table class="dashboard-table staffing-detail-table">
           <colgroup>
             <col style="width:3%"><col style="width:14%"><col style="width:11%"><col style="width:14%">
             <col style="width:12%"><col style="width:8%"><col style="width:9%"><col style="width:8%">
@@ -303,37 +303,37 @@
           <thead>
             <tr>
               <th></th>
-              <th>Consultor</th>
-              <th>Cliente</th>
-              <th>Proyecto</th>
-              <th>Asignación hoy</th>
-              <th x-text="projectionColumnLabel"></th>
-              <th>Estado</th>
-              <th>Desde</th>
-              <th>Hasta</th>
-              <th>Disponibilidad</th>
+              <th class="left">Consultor</th>
+              <th class="left">Cliente</th>
+              <th class="left">Proyecto</th>
+              <th class="left">Asignación hoy</th>
+              <th class="left" x-text="projectionColumnLabel"></th>
+              <th class="left">Estado</th>
+              <th class="left">Desde</th>
+              <th class="left">Hasta</th>
+              <th class="left">Disponibilidad</th>
             </tr>
           </thead>
           <tbody>
             <template x-for="item in detailRows" :key="item.key">
-              <tr :class="item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row'">
+              <tr :class="(item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row') + ' depth-' + (item.is_aggregate ? 0 : 1)">
                 <td>
                   <button type="button" class="staffing-detail__expand-btn" x-show="item.is_aggregate" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
                     <span x-text="item.expanded ? '▾' : '▸'"></span>
                   </button>
                 </td>
-                <td x-text="item.consultant_label"></td>
-                <td x-text="item.client_label"></td>
-                <td>
+                <td class="row-label" x-text="item.consultant_label"></td>
+                <td class="left" x-text="item.client_label"></td>
+                <td class="left">
                   <span x-text="item.project_label"></span>
                   <span class="tree-panel-chip" x-show="item.project_unresolved">sin resolver</span>
                 </td>
-                <td x-text="item.hoy_label"></td>
-                <td x-text="item.proyectada_label"></td>
-                <td><span class="status-badge" :class="'status-badge--' + item.estado_slug" x-text="item.estado_label"></span></td>
-                <td x-text="item.desde_label"></td>
-                <td x-text="item.hasta_label"></td>
-                <td x-text="item.disponibilidad_label"></td>
+                <td class="left" x-text="item.hoy_label"></td>
+                <td class="left" x-text="item.proyectada_label"></td>
+                <td class="left"><span class="dashboard-status-badge" :class="'dashboard-status-badge--' + item.estado_color" x-text="item.estado_label"></span></td>
+                <td class="left" x-text="item.desde_label"></td>
+                <td class="left" x-text="item.hasta_label"></td>
+                <td class="left" x-text="item.disponibilidad_label"></td>
               </tr>
             </template>
           </tbody>

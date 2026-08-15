@@ -77,9 +77,12 @@ const CARTERA_PROYECTO_ROWS = [
   { cliente: "Ternium", cp: "Diego Ramos", idProyecto: "DAN-0998", proyecto: "Rollout Reporting", diff: -9, trabajadas: 175, certificadas: 166, vendidas: 180, facturadas: 141, status: "Finalizado", anioInicio: "2026" },
 ];
 
+// Badge de estado — primitivo compartido del Hub (Phase S, ver HANDOFF:
+// `.dashboard-status-badge`/`--{color}` en tools.css, MISMO que Asignaciones)
+// — el dominio solo elige la variante de COLOR, nunca dibuja su propio pill.
 function statusPillCartera(status) {
-  const cls = status === "En curso" ? "en-curso" : "finalizado";
-  return `<span class="status-pill ${cls}">${esc(status)}</span>`;
+  const color = status === "En curso" ? "green" : "grey";
+  return `<span class="dashboard-status-badge dashboard-status-badge--${color}">${esc(status)}</span>`;
 }
 
 // Rollup jerárquico (ver corrective — HANDOFF: "Hierarchical Measure
@@ -383,8 +386,8 @@ const COMERCIAL_SALUD_ROWS = [
 ];
 
 function statusPillSalud(value) {
-  const cls = value === "Verde" ? "verde" : (value === "Rojo" ? "rojo" : "amarillo");
-  return `<span class="status-pill ${cls}">${esc(value)}</span>`;
+  const color = value === "Verde" ? "green" : (value === "Rojo" ? "red" : "amber");
+  return `<span class="dashboard-status-badge dashboard-status-badge--${color}">${esc(value)}</span>`;
 }
 
 const COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS = COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasVendidas, 0);
@@ -1177,7 +1180,7 @@ function renderCartera() {
     ${sectionToolbar(perspectiveSwitch("cartera", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr>
           <th class="row-label-col">${cfg.labels.join(" / ")}</th>
           ${cfg.columns.map(c => `<th class="${c.numeric ? "" : "left"}">${esc(c.label)}</th>`).join("")}
@@ -1223,7 +1226,7 @@ function rentabilidadBarRow(label, value, maxAbs) {
 // Rentabilidad Completeness", B2/B5) — MISMO `rows` YA filtrado que el
 // ranking (`rentabilidadFilteredProyectos()`, nunca un segundo estado de
 // filtro independiente). Tabla plana (Concepto es un solo nivel en la
-// pivotTable real, sin jerarquía) — reusa `table.tree-matrix` por
+// pivotTable real, sin jerarquía) — reusa `table.dashboard-table` por
 // consistencia visual con las demás matrices mensuales, pero SIN el motor
 // de árbol (sin toggle/caret/Expandir/Contraer): "si la fuente no tiene
 // expansión jerárquica, no se inventa una".
@@ -1248,13 +1251,13 @@ function renderRentabilidadMensual(rows) {
   ];
   const body = `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr><th class="row-label-col">Concepto</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
         <tbody>
           ${conceptos.map(c => {
             const total = c.monthly.reduce((s, v) => s + v, 0);
             return `<tr class="depth-0">
-              <td class="row-label"><span class="tree-indent" style="width:0px"></span>${esc(c.concepto)}</td>
+              <td class="row-label"><span class="dashboard-table-indent" style="width:0px"></span>${esc(c.concepto)}</td>
               ${c.monthly.map(v => `<td>${c.signed ? diffCell(v) : (v || "—")}</td>`).join("")}
               <td>${c.signed ? diffCell(total) : total}</td>
             </tr>`;
@@ -1359,15 +1362,15 @@ function renderRentabilidadCertEjecutadas() {
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
 
   const detailBody = rows.length ? `
-    <table class="data-table">
-      <thead><tr><th>Tipo</th><th>Proyecto</th><th class="num">Hs Certificadas</th><th class="num">Hs Ejecutadas</th><th class="num">Margen Absoluto</th><th class="num">Margen Relativo</th></tr></thead>
+    <table class="dashboard-table">
+      <thead><tr><th class="left">Tipo</th><th class="left">Proyecto</th><th>Hs Certificadas</th><th>Hs Ejecutadas</th><th>Margen Absoluto</th><th>Margen Relativo</th></tr></thead>
       <tbody>${rows.map(p => {
         const margenAbsoluto = p.certificadas - p.trabajadas;
         const margenRelativo = p.certificadas ? Math.round((margenAbsoluto / p.certificadas) * 1000) / 10 : 0;
         return `<tr>
-          <td>${esc(p.tipo)}</td><td>${esc(p.proyecto)}</td>
-          <td class="num">${p.certificadas}</td><td class="num">${p.trabajadas}</td>
-          <td class="num">${diffCell(margenAbsoluto)}</td><td class="num">${diffCell(margenRelativo)}%</td>
+          <td class="left">${esc(p.tipo)}</td><td class="left">${esc(p.proyecto)}</td>
+          <td>${fmtNum(p.certificadas, "hours")}</td><td>${fmtNum(p.trabajadas, "hours")}</td>
+          <td>${diffCell(margenAbsoluto)}</td><td>${diffCell(margenRelativo)}%</td>
         </tr>`;
       }).join("")}</tbody>
     </table>
@@ -1521,8 +1524,8 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter
     const rowHtml = `
       <tr class="depth-${depth}">
         <td class="row-label">
-          <span class="tree-indent" style="width:${indentPx}px"></span>
-          <span class="tree-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
+          <span class="dashboard-table-indent" style="width:${indentPx}px"></span>
+          <span class="dashboard-table-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
             <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
             ${esc(node.label)}
           </span>
@@ -1590,7 +1593,7 @@ function uniformValue(field, formatFn) {
 // Renderer alternativo para tablas de negocio NO mensuales (Cartera/
 // Proyectos, Capacidad/Ejecución → Productivas, Comercial/Participación) —
 // MISMO motor de agrupación (buildTree) y MISMAS afordancias visuales
-// (tree-toggle/caret/tree-indent/depth-N), pero las columnas son
+// (dashboard-table-toggle/caret/dashboard-table-indent/depth-N), pero las columnas son
 // arbitrarias (Diff Hs/Status/Horas/% Incidencia/etc., ver `columns`) en
 // vez de 12 meses fijos. Nodos hoja (sin hijos, `node.rows` tiene
 // exactamente 1 fila real) muestran los valores reales vía
@@ -1610,8 +1613,8 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
     const rowHtml = `
       <tr class="depth-${depth}">
         <td class="row-label">
-          <span class="tree-indent" style="width:${indentPx}px"></span>
-          <span class="tree-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
+          <span class="dashboard-table-indent" style="width:${indentPx}px"></span>
+          <span class="dashboard-table-toggle" ${hasChildren ? `onclick="toggleTreeNode('${stateKey}', '${esc(node.pathKey).replace(/'/g, "\\'")}')"` : ""}>
             <span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>
             ${esc(node.label)}
           </span>
@@ -1657,7 +1660,7 @@ function renderHorasVendidas() {
     ${sectionToolbar(perspectiveSwitch("horasvendidas", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0)}
@@ -1686,7 +1689,7 @@ function renderComercialParticipacion() {
     ${sectionToolbar(perspectiveSwitch("comercial", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr>
           <th class="row-label-col">ID Frecuencia / Permite Adelanto / Condición de Pago / Cliente</th>
           ${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<th>${esc(c.label)}</th>`).join("")}
@@ -1713,7 +1716,7 @@ function renderComercialSalud() {
     ${sectionToolbar(perspectiveSwitch("comercial", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr>
           <th class="row-label-col">Client Partner / Cliente</th>
           ${COMERCIAL_SALUD_COLUMNS.map(c => `<th class="left">${esc(c.label)}</th>`).join("")}
@@ -1761,7 +1764,7 @@ function renderCalendario() {
     ${sectionToolbar(perspectiveSwitch("calendario", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0, true, renderCalendarioCell)}
@@ -1817,7 +1820,7 @@ function renderCapacidadProductivas() {
     ${sectionToolbar(perspectiveSwitch("capacidad", false), treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr><th class="row-label-col">Cliente / Proyecto</th><th>Horas</th><th>% Incidencia</th></tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, CAPACIDAD_PRODUCTIVAS_COLUMNS)}</tbody>
       </table>
@@ -1848,7 +1851,7 @@ function renderCapacidadNoAsignadas() {
     ${sectionToolbar(perspectiveSwitch("capacidad", false))}
     ${rows.length ? `
     <div class="matrix-scroll">
-      <table class="tree-matrix">
+      <table class="dashboard-table">
         <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0)}

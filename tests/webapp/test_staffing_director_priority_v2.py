@@ -537,7 +537,11 @@ def test_dashboard_template_detail_table_has_fixed_column_widths():
     # Pedido del usuario: la tabla no debe reacomodar columnas al
     # expandir/contraer un consultor — table-layout fijo + colgroup, nunca
     # el layout automático (que recalcula anchos según qué filas hay).
-    assert 'class="admin-table staffing-detail-table"' in _DASHBOARD_HTML
+    # Phase S (ver HANDOFF "REPORTING INTEGRAL — REAL DATA"): migrado del
+    # primitivo `admin-table` (pensado para el panel oscuro de Copilot) al
+    # primitivo Hub compartido `.dashboard-table` — MISMO que consume
+    # Reporting.
+    assert 'class="dashboard-table staffing-detail-table"' in _DASHBOARD_HTML
     assert "<colgroup>" in _DASHBOARD_HTML
     assert _DASHBOARD_HTML.count("<col style=") == 10
     assert "table-layout: fixed" in (

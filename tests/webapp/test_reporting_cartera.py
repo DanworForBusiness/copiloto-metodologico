@@ -449,6 +449,7 @@ def test_cartera_endpoint_never_echoes_token(monkeypatch):
 from pathlib import Path  # noqa: E402
 
 _REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
+_TOOLS_CSS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
 
 
 def test_cartera_fetches_the_backend_endpoint():
@@ -508,14 +509,22 @@ def test_semantic_number_formatter_exists_and_kpis_use_it():
 
 
 def test_matrix_geometry_is_fixed_layout_for_stable_columns():
-    # 0B: table-layout: fixed ⇒ expand/collapse no mueve columnas.
-    assert "table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; table-layout: fixed; }" in _REPORTING_CSS
+    # 0B, ahora del primitivo compartido `.dashboard-table` (Phase S, ver
+    # HANDOFF): table-layout: fixed ⇒ expand/collapse no mueve columnas.
+    # Reporting consume la clase compartida (reporting.js) + su propio
+    # override de ancho (reporting.css, min-width de la matriz mensual).
+    assert "table.dashboard-table { width: 100%; border-collapse: collapse; font-size: .76rem; table-layout: fixed; }" in _TOOLS_CSS
+    assert 'class="dashboard-table"' in _REPORTING_JS
+    assert ".reporting-integral-preview table.dashboard-table { min-width: 900px; }" in _REPORTING_CSS
 
 
 def test_kpi_tile_has_overflow_safe_styles():
-    # 0C: tiles no se solapan con valores de 5–7 dígitos.
-    assert ".activity-kpi { min-width: 0; }" in _REPORTING_CSS
-    assert "white-space: nowrap; font-variant-numeric: tabular-nums" in _REPORTING_CSS
+    # 0C, ahora del primitivo compartido `.activity-kpi`/`.activity-kpi__value`
+    # (Phase S, ver HANDOFF): tiles no se solapan con valores de 5–7 dígitos
+    # en NINGÚN consumidor (Asignaciones/Reporting/futuro Activity), no solo
+    # Reporting.
+    assert ".activity-kpi { min-width: 0;" in _TOOLS_CSS
+    assert "white-space: nowrap; font-variant-numeric: tabular-nums" in _TOOLS_CSS
 
 
 # ============================================================================

@@ -555,8 +555,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
 
 .activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.activity-kpi { padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
-.activity-kpi__value { font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em; }
+/* `min-width:0` (Phase S, ver HANDOFF — antes solo en reporting.css, Phase
+   0C): deja que el tile de grid se ENCOJA en vez de empujar a los vecinos
+   con valores reales de 5-7 dígitos — CUALQUIER consumidor de KPI tiles
+   (Asignaciones/Reporting/futuro Activity) lo necesita por igual, no es
+   específico de un dominio. */
+.activity-kpi { min-width: 0; padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.activity-kpi__value {
+  font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em;
+  white-space: nowrap; font-variant-numeric: tabular-nums; overflow-wrap: normal;
+}
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
 .activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 /* Acento distinto por tile — paleta canónica de estados de catálogo (mismos
@@ -848,6 +856,79 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
 
+/* Hub dashboard table (Phase S — estandarización visual del Hub, ver
+   HANDOFF "REPORTING INTEGRAL — REAL DATA"): UNA sola fuente de verdad
+   para shell/header/fila/hover/jerarquía/alineación numérica de CUALQUIER
+   tabla de dashboard del Hub. Antes existían dos implementaciones que solo
+   se PARECÍAN: Reporting (`table.tree-matrix`/`table.data-table`, en
+   reporting.css) y Asignaciones (`table.admin-table`, pensada para el
+   panel oscuro de Copilot — sus tokens `--soft`/`--line` no están
+   definidos fuera de `.copilot-panel`, y de hecho NO tenía hover). El
+   owner eligió la dirección visual de Reporting como baseline — este
+   primitivo la generaliza. Colores LITERALES + override
+   `.content-theme-dark` (mismo criterio que `.dashboard-view-switch` de
+   arriba — Staffing/Reporting corren sobre `.module-content`, superficie
+   CLARA, tokens del panel oscuro no aplican acá). Geometría: `table-layout:
+   fixed` — los anchos SIEMPRE salen del header, NUNCA del body, así que
+   expandir/colapsar una fila jerárquica nunca mueve columnas numéricas
+   (invariante ya validado en Reporting, ahora es del primitivo). Un
+   dominio declara sus PROPIAS columnas/anchos (`th`/`td` con `class="left"`
+   para texto, sin clase para numérico — DEFAULT ya es alineación derecha)
+   — el primitivo nunca fuerza un set de columnas. */
+table.dashboard-table { width: 100%; border-collapse: collapse; font-size: .76rem; table-layout: fixed; }
+table.dashboard-table th {
+  text-align: right; padding: 6px 8px; color: #7a7a82; font: 600 .62rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid rgba(0,0,0,.1); white-space: nowrap;
+}
+.content-theme-dark table.dashboard-table th { color: #9a9aa2; border-bottom-color: rgba(255,255,255,.12); }
+table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-align: left; }
+table.dashboard-table td {
+  padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right;
+  font-variant-numeric: tabular-nums; color: #1f1f24;
+}
+.content-theme-dark table.dashboard-table td { border-bottom-color: rgba(255,255,255,.06); color: #e4e4ec; }
+table.dashboard-table td.left, table.dashboard-table td.row-label {
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Hover — sutil, sobre el `td` (no el `tr`) para que pinte encima de
+   cualquier tinte estático de fila (p.ej. child-rows de Asignaciones) sin
+   alterar geometría; funciona igual en filas padre/hijo. */
+table.dashboard-table tr:hover td { background: rgba(231,176,8,.06); }
+table.dashboard-table tr.is-total td { font-weight: 700; border-top: 2px solid rgba(0,0,0,.1); border-bottom: none; }
+.content-theme-dark table.dashboard-table tr.is-total td { border-top-color: rgba(255,255,255,.14); }
+/* Jerarquía — peso/color decreciente por profundidad, reusable por
+   CUALQUIER tabla del Hub con filas padre/hijo (no solo árboles con
+   toggle — Asignaciones también puede usar depth-0/1 en filas
+   agregado/hijo si quiere el mismo lenguaje visual). */
+table.dashboard-table tr.depth-0 td.row-label { font-weight: 700; }
+table.dashboard-table tr.depth-1 td.row-label { font-weight: 600; color: #55555c; }
+table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c; }
+.content-theme-dark table.dashboard-table tr.depth-1 td.row-label,
+.content-theme-dark table.dashboard-table tr.depth-2 td.row-label { color: #b2b2bc; }
+/* Toggle/indent de expansión — SIEMPRE dentro de la columna descriptiva
+   (nunca desplaza columnas numéricas); ancho de indent por profundidad se
+   fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo
+   da la mecánica visual. */
+.dashboard-table-toggle { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+.dashboard-table-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
+.dashboard-table-toggle .caret.leaf { visibility: hidden; }
+.dashboard-table-indent { display: inline-block; }
+
+/* Hub status badge — MISMA forma (pill redondeado, dirección de Reporting)
+   para cualquier estado de dominio. Reemplaza `.status-pill` (Reporting) y
+   `.status-badge` (Asignaciones) — dos nombres/formas para el mismo
+   concepto, ahora uno. El primitivo SOLO define mecánica (tipografía/
+   padding/forma/paleta restringida a 4 colores) — el dominio elige la
+   VARIANTE semántica (Asignaciones: activo→green, tentativo→amber,
+   inactivo/otro→grey; Reporting: en curso→green, finalizado→grey,
+   verde/amarillo/rojo→green/amber/red), nunca una ontología cross-dominio
+   nueva. */
+.dashboard-status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
+.dashboard-status-badge--green { background: rgba(46,158,91,.12); color: #2e9e5b; }
+.dashboard-status-badge--amber { background: rgba(200,145,0,.14); color: #c89100; }
+.dashboard-status-badge--red { background: rgba(192,57,43,.12); color: #c0392b; }
+.dashboard-status-badge--grey { background: rgba(122,122,130,.14); color: #7a7a82; }
+
 /* Action link — mismo lenguaje visual que `.support-link`/`.support-links`
    del pipeline de contenido (content_service.py `{{support:...}}`, ver
    HANDOFF: "Actualizar" de Reporting): borde sutil + flecha dorada en un
@@ -883,15 +964,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-detail__child-row { background: rgba(128,128,128,.05); }
 .staffing-detail__child-row td:nth-child(2) { padding-left: 26px; }
 
-/* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): sin esto, el
-   layout automático de <table> recalcula el ancho de cada columna según
-   TODAS las filas presentes en el DOM en ese momento — expandir/contraer
-   un consultor cambia qué filas hay, así que la tabla entera "saltaba" de
-   ancho en cada click. `table-layout:fixed` + `<colgroup>` (ver template)
-   fija el ancho desde la primera fila, para siempre — expandir solo
-   revela/oculta filas, nunca reacomoda columnas. Contenido largo envuelve
-   dentro de su columna en vez de forzar un ancho nuevo. */
-.staffing-detail-table { table-layout: fixed; width: 100%; }
+/* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): `table-layout:
+   fixed` (ahora del primitivo compartido `.dashboard-table`, Phase S) +
+   `<colgroup>` propio (ver template) fija el ancho desde la primera fila,
+   para siempre — expandir/contraer un consultor solo revela/oculta filas,
+   nunca reacomoda columnas. `overflow-wrap:anywhere` es la única regla
+   genuinamente propia que queda acá: contenido largo envuelve dentro de su
+   columna angosta en vez de forzar un ancho nuevo (Reporting usa ellipsis
+   en vez de wrap para sus columnas, ver `.dashboard-table td.left`). */
 .staffing-detail-table td, .staffing-detail-table th { overflow-wrap: anywhere; }
 
 /* Timeline mensual — header de meses en grid CSS (8 columnas iguales,

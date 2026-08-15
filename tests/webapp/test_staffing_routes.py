@@ -272,9 +272,12 @@ def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detai
     # Priority V2, ver HANDOFF): "Asignación" única se reemplaza por dos
     # columnas de capacidad puntual (hoy / +N días).
     assert "Detalle de asignaciones" in text
+    # Phase S (ver HANDOFF "REPORTING INTEGRAL — REAL DATA"): headers de
+    # texto llevan `class="left"` — el primitivo compartido `.dashboard-table`
+    # alinea a la derecha por default (columnas numéricas), como Reporting.
     for column in ("Consultor", "Cliente", "Proyecto", "Estado", "Desde", "Hasta", "Disponibilidad"):
-        assert f"<th>{column}</th>" in text
-    assert "<th>Asignación hoy</th>" in text
+        assert f'<th class="left">{column}</th>' in text
+    assert '<th class="left">Asignación hoy</th>' in text
     assert 'x-text="projectionColumnLabel"' in text
 
 

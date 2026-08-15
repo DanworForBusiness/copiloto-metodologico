@@ -1026,6 +1026,16 @@ function staffingDashboard(payload) {
       return known[status] || "otro";
     },
 
+    // Variante de color del primitivo Hub compartido `.dashboard-status-badge`
+    // (Phase S, ver HANDOFF — MISMO badge que Reporting, tools.css). Mapeo
+    // presentacional aparte de `statusSlug` (ese sigue alimentando
+    // `.staffing-timeline__row-status.is-status-*`, sin tocar el timeline).
+    statusColor(status) {
+      if (status === "Activo") return "green";
+      if (status === "Tentativo") return "amber";
+      return "grey";
+    },
+
     paletteClass(row) {
       return "staffing-palette-" + paletteIndex(row);
     },
@@ -1369,6 +1379,7 @@ function staffingDashboard(payload) {
           proyectada_label: group.asignacion_proyectada_label,
           estado_label: group.estado,
           estado_slug: this.statusSlug(group.estado),
+          estado_color: this.statusColor(group.estado),
           desde_label: group.desde_label,
           hasta_label: group.hasta_label,
           disponibilidad_label: group.disponibilidad,
@@ -1386,6 +1397,7 @@ function staffingDashboard(payload) {
             proyectada_label: this.rowEffectiveLabel(row, targetIso),
             estado_label: row.status || "—",
             estado_slug: this.statusSlug(row.status),
+            estado_color: this.statusColor(row.status),
             desde_label: this.formatDateDMY(row.start_date) || "—",
             hasta_label: this.formatDateDMY(row.end_date) || "—",
             disponibilidad_label: row.availability,

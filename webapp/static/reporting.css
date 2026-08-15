@@ -9,18 +9,21 @@
    Contextual View Control corrective (ver HANDOFF): el switch de
    perspectiva también pasó a ser compartido (`.dashboard-view-switch`,
    MISMA clase que Consultor/Proyecto de Staffing) — sin CSS propio acá,
-   solo el margen del uso standalone (ver más abajo). Lo que queda ACÁ es
-   SOLO visualización de negocio propia de Reporting sin equivalente en el
-   Hub: tabs de experiencia, tree-matrix/data-table, barras de ranking,
-   status-pills.
+   solo el margen del uso standalone (ver más abajo). Phase S (ver HANDOFF
+   "REPORTING INTEGRAL — REAL DATA"): shell/header/fila/hover/jerarquía/
+   badge de tabla (antes `.tree-matrix`/`.data-table`/`.status-pill`) se
+   extrajeron a `.dashboard-table`/`.dashboard-status-badge` en tools.css —
+   MISMO primitivo que consume el Detalle de Asignaciones. Lo que queda
+   ACÁ es SOLO visualización de negocio propia de Reporting sin
+   equivalente en el Hub: tabs de experiencia, barras de ranking/legend.
 
    AISLAMIENTO A PROPÓSITO — pero SOLO para tokens que genuinamente
    necesitan un valor DISTINTO del Hub: `--ink`/`--panel`/`--border`/
    `--ink-soft`/`--ink-faint`/`--green`/`--amber`/`--red`/`--grey`
-   resuelven la superficie clara PROPIA de Reporting (tree-matrix/
-   data-table/status-pill/bar-chart), independiente del tema oscuro/claro
-   que el Hub tenga activo — redefinirlos en `:root` rompería el resto de
-   la página (topbar/sidebar oscuros).
+   resuelven la superficie clara PROPIA de Reporting (tabs/bar-chart),
+   independiente del tema oscuro/claro que el Hub tenga activo —
+   redefinirlos en `:root` rompería el resto de la página (topbar/sidebar
+   oscuros).
 
    Typography / Structure corrective (ver HANDOFF): `--gold`/`--sans`/
    `--mono` YA NO se redefinen acá — antes lo hacían con el MISMO nombre
@@ -35,10 +38,9 @@
    de JetBrains Mono aunque la CLASE fuera la misma. Sin redefinición
    local, `var(--gold)`/`var(--sans)`/`var(--mono)` — usados MÁS ABAJO por
    componentes genuinamente propios de Reporting (tabs de experiencia,
-   status-pill, tree-matrix/data-table, tree-toggle, bar-fill, legend) —
-   resuelven directo contra el `:root` real del Hub:
-   MISMA fuente, nunca un valor duplicado. El resto de las clases
-   (.data-table/.tree-matrix/etc.) se verificaron SIN colisión con
+   bar-fill, legend) — resuelven directo contra el `:root` real del Hub:
+   MISMA fuente, nunca un valor duplicado. El resto de las clases se
+   verificaron SIN colisión con
    tools.css/app.css/content.css/layout.css/feedback.css — no se
    prefijaron todas por separado a propósito (mínimo cambio razonable).
 
@@ -92,31 +94,16 @@
    reporting.js — ningún componente nuevo, ver dashboardSection()/
    selectField()/checkboxGroupField() en reporting.js. */
 
-.reporting-integral-preview table.data-table { width: 100%; border-collapse: collapse; font-size: .78rem; }
-.reporting-integral-preview table.data-table th { text-align: left; color: var(--ink-faint); font: 600 .64rem var(--mono); text-transform: uppercase;
-  letter-spacing: .04em; border-bottom: 1px solid var(--border); padding: 6px 8px; }
-.reporting-integral-preview table.data-table td { padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,.05); }
-.reporting-integral-preview table.data-table tr:hover td { background: rgba(231,176,8,.06); }
-.reporting-integral-preview .num { text-align: right; font-variant-numeric: tabular-nums; }
-/* Cartera + Rentabilidad Completeness corrective (ver HANDOFF, B3): sin
-   esto, `table.data-table th{text-align:left}` de arriba le gana a `.num`
-   por especificidad CSS (2 elementos+1 clase vs. 1 clase) — el header de
-   una columna numérica quedaba a la izquierda aunque tuviera `class="num"`,
-   desalineado con sus propias celdas (que sí resolvían bien, `td` no tiene
-   una regla base de alineación compitiendo). Mismo criterio de columna
-   declarativa que ya usa `table.tree-matrix` (numeric ? "" : "left") — acá
-   solo hacía falta ganarle la especificidad a `.num`, nunca nth-child. */
-.reporting-integral-preview table.data-table th.num { text-align: right; }
-.reporting-integral-preview .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
-.reporting-integral-preview .status-pill.en-curso { background: rgba(46,158,91,.12); color: var(--green); }
-.reporting-integral-preview .status-pill.finalizado { background: rgba(122,122,130,.14); color: var(--grey); }
-/* Semáforo de Salud de Cliente (ver Commercial/Clients corrective, HANDOFF)
-   — MISMO componente .status-pill que Cartera (en-curso/finalizado), solo
-   3 variantes nuevas de color; reusa los tokens semánticos ya definidos
-   arriba (--green/--amber/--red), ningún token nuevo. */
-.reporting-integral-preview .status-pill.verde { background: rgba(46,158,91,.12); color: var(--green); }
-.reporting-integral-preview .status-pill.amarillo { background: rgba(200,145,0,.14); color: var(--amber); }
-.reporting-integral-preview .status-pill.rojo { background: rgba(192,57,43,.12); color: var(--red); }
+/* Phase S (estandarización visual del Hub, ver HANDOFF "REPORTING INTEGRAL
+   — REAL DATA"): `.dashboard-table`/`.dashboard-status-badge`/
+   `.dashboard-table-toggle`/`.dashboard-table-indent` (shell/header/fila/
+   hover/jerarquía/alineación numérica/badge de estado) se EXTRAJERON a
+   tools.css como primitivo compartido del Hub — MISMO consumido por el
+   Detalle de Asignaciones. Acá NO queda CSS propio de tabla/badge — solo
+   lo que sigue siendo genuinamente de Reporting (tabs, bar-chart/legend,
+   diff, matrix-scroll). `.num`/`.status-pill`/`table.data-table`/
+   `table.tree-matrix` se retiraron (reemplazados 1:1 por el primitivo
+   compartido en el markup de reporting.js). */
 .reporting-integral-preview .diff-pos { color: var(--green); font-weight: 600; }
 .reporting-integral-preview .diff-neg { color: var(--red); font-weight: 600; }
 
@@ -137,32 +124,14 @@
 .reporting-integral-preview .legend .l-ejecutadas::before { background: var(--gold); }
 
 .reporting-integral-preview .matrix-scroll { overflow-x: auto; }
-/* Geometría ESTABLE de matrices jerárquicas (Phase 0B): `table-layout: fixed`
-   ⇒ los anchos de columna salen del HEADER, nunca del body — expandir/colapsar
-   una fila NUNCA mueve las columnas numéricas. Anchos semánticos: jerarquía
-   ancha (fija) + numéricas/mes estándar (fija); la indentación de hijos vive
-   DENTRO de la columna descriptiva (clip con ellipsis, no ensancha la tabla). */
-.reporting-integral-preview table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; table-layout: fixed; }
-.reporting-integral-preview table.tree-matrix th { text-align: right; color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase;
-  letter-spacing: .03em; border-bottom: 1px solid var(--border); padding: 6px 8px; white-space: nowrap; width: 88px; }
-.reporting-integral-preview table.tree-matrix th.row-label-col, .reporting-integral-preview table.tree-matrix th.left { text-align: left; }
-.reporting-integral-preview table.tree-matrix th.row-label-col { width: 300px; }
-.reporting-integral-preview table.tree-matrix td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right; font-variant-numeric: tabular-nums; }
-.reporting-integral-preview table.tree-matrix td.row-label, .reporting-integral-preview table.tree-matrix td.left { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.reporting-integral-preview table.tree-matrix tr.depth-0 td.row-label { font-weight: 700; }
-.reporting-integral-preview table.tree-matrix tr.depth-1 td.row-label { font-weight: 600; color: var(--ink-soft); }
-.reporting-integral-preview table.tree-matrix tr.depth-2 td.row-label { font-weight: 400; color: var(--ink-soft); }
-.reporting-integral-preview table.tree-matrix tr.is-total td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; }
-.reporting-integral-preview table.tree-matrix tr:hover td { background: rgba(231,176,8,.06); }
-.reporting-integral-preview .tree-toggle { display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
-.reporting-integral-preview .tree-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
-.reporting-integral-preview .tree-toggle .caret.leaf { visibility: hidden; }
-.reporting-integral-preview .tree-indent { display: inline-block; }
-/* KPI tiles: sin overflow/overlap con valores reales de 5–7 dígitos (Phase 0C).
-   `min-width:0` deja que el item de grid/flex se encoja en vez de empujar a los
-   vecinos; el valor no wrappea y usa glifos tabulares. Sin font-size hacks ni
-   anchos dependientes del número. */
-.reporting-integral-preview .activity-kpi { min-width: 0; }
-.reporting-integral-preview .activity-kpi__value { white-space: nowrap; font-variant-numeric: tabular-nums; overflow-wrap: normal; }
+/* Geometría ESTABLE de matrices jerárquicas (antes Phase 0B, ahora del
+   primitivo compartido `.dashboard-table` en tools.css — `table-layout:
+   fixed`, anchos desde el HEADER, expand/collapse nunca mueve columnas
+   numéricas) + jerarquía/toggle/indent/badge/KPI tabular-nums: TODO
+   migrado a tools.css en Phase S (ver HANDOFF). Overrides de ancho
+   genuinamente propios de Reporting (min-width de la matriz mensual,
+   ancho de la columna de jerarquía) quedan acá. */
+.reporting-integral-preview table.dashboard-table { min-width: 900px; }
+.reporting-integral-preview table.dashboard-table th.row-label-col { width: 300px; }
 
 .reporting-integral-preview .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }
