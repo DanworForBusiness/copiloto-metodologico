@@ -71,7 +71,9 @@ def reporting_integral_preview(request: Request):
 
 
 @router.post("/operaciones/reporting/integral/data/cartera", include_in_schema=False)
-def reporting_cartera_data(request: Request, graph_token: str = Form(""), perspectiva: str = Form("")):
+def reporting_cartera_data(
+    request: Request, graph_token: str = Form(""), perspectiva: str = Form(""), anios: str = Form(""),
+):
     """Datos REALES normalizados de Cartera (Reporting Integral real-data Fase 1).
     MISMO gate de Operations + MISMO token delegado del browser que Staffing —
     sin auth ni cliente Graph nuevos. Fail-soft/localizado: cualquier falla
@@ -84,7 +86,21 @@ def reporting_cartera_data(request: Request, graph_token: str = Form(""), perspe
     perspectiva (`get_cartera_mantenimiento` NUNCA descarga/parsea la XLSX
     de Facturadas — Proyecto es la única que la necesita). Omitido (string
     vacío) preserva el contrato RETROCOMPATIBLE de siempre: AMBAS
-    perspectivas en una sola respuesta (`get_cartera`, CON Facturadas)."""
+    perspectivas en una sola respuesta (`get_cartera`, CON Facturadas).
+
+    `anios` (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF): SOLO
+    aplica con `perspectiva=mantenimiento` — CSV de años (p. ej. "2024") a
+    hidratar; vacío/omitido resuelve al default de ventana caliente (año
+    actual + anterior, ver `ReportingService._default_hot_years`). Ignorado
+    para `perspectiva=proyecto`/combo (Proyecto agrega la vida completa del
+    proyecto, nunca acepta ventana — ver `get_cartera_proyecto`).
+    `aniosDisponibles` (metadata de años fríos seleccionables) NO viaja acá
+    a propósito — bundlearla haría que CADA request de Mantenimiento
+    (incluida la ventana caliente por defecto, el camino más sensible a
+    latencia) pague una lectura adicional de Horas por proyectos. Vive en
+    `/data/cartera/anios-disponibles`, un endpoint separado que el
+    frontend dispara en paralelo SIN bloquear el primer render — ver
+    `reporting_cartera_anios_disponibles` abajo."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -95,7 +111,8 @@ def reporting_cartera_data(request: Request, graph_token: str = Form(""), perspe
     service = ReportingService()
     try:
         if perspectiva == "mantenimiento":
-            cartera = {"mantenimiento": service.get_cartera_mantenimiento(graph_token)}
+            anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
+            cartera = {"mantenimiento": service.get_cartera_mantenimiento(graph_token, anios=anios_list)}
         elif perspectiva == "proyecto":
             cartera = {"proyecto": service.get_cartera_proyecto(graph_token)}
         else:
@@ -114,6 +131,38 @@ def reporting_cartera_data(request: Request, graph_token: str = Form(""), perspe
         _logger.exception("reporting cartera data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", "cartera": cartera})
+
+
+@router.post("/operaciones/reporting/integral/data/cartera/anios-disponibles", include_in_schema=False)
+def reporting_cartera_anios_disponibles(request: Request, graph_token: str = Form("")):
+    """Metadata de año/estado de Mantenimiento (HOT WINDOW / COLD HISTORY
+    corrective, ver HANDOFF) — SEPARADA de `reporting_cartera_data` a
+    propósito: puebla el <select> de Año con años FRÍOS (fuera de la
+    ventana caliente por defecto) sin sumarle costo a la respuesta rápida
+    de Mantenimiento. El frontend la dispara en PARALELO durante la
+    hidratación del tab Cartera (nunca bloquea el primer render, ver
+    `hydrateCarteraTab` en reporting.js) — MISMO gate/token/fail-soft que
+    `reporting_cartera_data`."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        anios = service.get_cartera_mantenimiento_anios(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting cartera anios-disponibles: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "aniosDisponibles": anios})
 
 
 @router.post("/operaciones/reporting/integral/data/rentabilidad", include_in_schema=False)

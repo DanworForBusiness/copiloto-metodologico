@@ -19,6 +19,8 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from webapp.services.reporting_repository import ReportingRepository
 
 # Nombres de mes → número (la columna `Mes` de "Horas por proyectos" es texto;
@@ -238,17 +240,49 @@ class ReportingService:
             "proyecto": self._proyecto_rows(facts),
         }
 
-    def get_cartera_mantenimiento(self, access_token: str) -> list[dict]:
+    def get_cartera_mantenimiento(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
         """Perspectiva Mantenimiento SOLA (P5) — `include_facturadas=False`
         salta por completo la descarga/parseo de la XLSX de Facturadas
         (`_mantenimiento_rows` nunca lee `facturadasProyecto`, ver abajo:
-        `facturadas == certificadas` ahí, source-faithful)."""
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=False)
+        `facturadas == certificadas` ahí, source-faithful).
+
+        `anios` (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF): `None`
+        (default, primera hidratación del tab) resuelve a la VENTANA
+        CALIENTE por defecto — año calendario actual + el anterior (`new
+        Date()`/`datetime.now()`, nunca un literal hardcodeado) — NUNCA se
+        hidratan 3-4+ años de historia solo porque el registro sigue "En
+        curso". Una lista explícita (p. ej. `["2024"]`) es el lazy-load de
+        un año FRÍO puntual, disparado por el usuario al elegirlo en el
+        <select> de Año — ver `reporting_cartera_data` (router) para el
+        contrato de `anios` como form param."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
         return self._mantenimiento_rows(facts)
+
+    def get_cartera_mantenimiento_anios(self, access_token: str) -> list[dict]:
+        """Metadata de años/estado disponibles de Mantenimiento (HOT WINDOW
+        / COLD HISTORY corrective) — separada de `get_cartera_mantenimiento`
+        a propósito: las OPCIONES del <select> de Año NUNCA deben
+        confundirse con los años ya HIDRATADOS (un año frío sigue siendo
+        una opción seleccionable, ver HANDOFF: "DO NOT CONFUSE OPTIONS WITH
+        HYDRATED FACTS"). Delegado 1:1 al repository — ver ahí el
+        `$select` acotado."""
+        return self._repository.get_cartera_mantenimiento_anio_estado_pairs(access_token)
+
+    @staticmethod
+    def _default_hot_years() -> list[str]:
+        current = datetime.now().year
+        return [str(current), str(current - 1)]
 
     def get_cartera_proyecto(self, access_token: str) -> list[dict]:
         """Perspectiva Proyecto SOLA — SÍ necesita la XLSX
-        (`facturadasProyecto`, ver `_proyecto_rows`)."""
+        (`facturadasProyecto`, ver `_proyecto_rows`). NUNCA recibe/aplica
+        `hot_years` — agrega la VIDA COMPLETA del proyecto (ver
+        `_proyecto_rows`: `certificadas`/`trabajadas`/`vendidas` son sumas
+        de TODOS los meses históricos), una ventana acá rompería el
+        contrato de totales de por vida. El hot-window de este corrective
+        es EXCLUSIVO de Mantenimiento (grano mensual, con default que
+        aterriza en el mes/año calendario actual)."""
         facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
         return self._proyecto_rows(facts)
 

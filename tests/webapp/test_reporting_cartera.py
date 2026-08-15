@@ -315,14 +315,160 @@ def test_include_facturadas_true_still_downloads_xlsx_default_preserved(monkeypa
     assert facts[0]["facturadasProyecto"] == 99
 
 
+# ============================================================================
+# HOT WINDOW / COLD HISTORY (owner corrective — Cartera hidrataba
+# ~2023→2026 completo aunque el default aterriza en el año calendario
+# actual). `hot_years` intenta `$filter` OData con fallback automático a
+# lectura completa + filtro Python (MISMO patrón ya probado en producción
+# por `staffing_repository._fetch_asignaciones`).
+# ============================================================================
+
+_ALL_HORAS = [
+    {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo",
+     "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"},
+    {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Marzo",
+     "HsTrabajadas": "20", "HsVendidas": "22", "HsFacturadas": "21"},
+    {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2023", "Mes": "Marzo",
+     "HsTrabajadas": "30", "HsVendidas": "32", "HsFacturadas": "31"},
+]
+_PROYECTOS_HOT = [{"id": "p1", "Title": "Mantenimiento X", "TipodeProyecto": "Tiempo & Materiales", "Status": "En curso"}]
+_CLIENTES_HOT = [{"id": "c1", "Title": "Andesmar"}]
+
+
+def test_hot_years_filter_accepted_scopes_the_graph_read(monkeypatch):
+    def fake_paged(url, access_token=None, **kw):
+        if "/columns" in url:
+            return []
+        if _HP in url:
+            assert "$filter" in url  # el filtro SÍ viajó en la URL
+            assert kw.get("extra_headers", {}).get("Prefer") == "HonorNonIndexedQueriesWarningMayFailRandomly"
+            return _items([h for h in _ALL_HORAS if h["A_x00f1_o"] in ("2026", "2025")])
+        if _PROY in url:
+            return _items(_PROYECTOS_HOT)
+        if _CLI in url:
+            return _items(_CLIENTES_HOT)
+        return []
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False, hot_years=["2026", "2025"])
+    assert {f["anio"] for f in facts} == {"2026", "2025"}
+
+
+def test_hot_years_filter_rejected_falls_back_to_full_read_and_python_filter(monkeypatch):
+    def fake_paged(url, access_token=None, **kw):
+        if "/columns" in url:
+            return []
+        if _HP in url:
+            if "$filter" in url:
+                raise RuntimeError("Graph rechaza $filter sobre columna no indexada")
+            return _items(_ALL_HORAS)  # lectura completa (fallback)
+        if _PROY in url:
+            return _items(_PROYECTOS_HOT)
+        if _CLI in url:
+            return _items(_CLIENTES_HOT)
+        return []
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    # Nunca se rompe — el fallback filtra en Python y devuelve SOLO el año pedido.
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False, hot_years=["2026"])
+    assert {f["anio"] for f in facts} == {"2026"}
+
+
+def test_hot_years_none_reads_full_history_unfiltered(monkeypatch):
+    # Retrocompat exacta — Proyecto/`get_cartera()`/tests existentes NUNCA
+    # ven un `$filter` que no pidieron.
+    def fake_paged(url, access_token=None, **kw):
+        if "/columns" in url:
+            return []
+        if _HP in url:
+            assert "$filter" not in url
+            return _items(_ALL_HORAS)
+        if _PROY in url:
+            return _items(_PROYECTOS_HOT)
+        if _CLI in url:
+            return _items(_CLIENTES_HOT)
+        return []
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False)  # hot_years=None (default)
+    assert {f["anio"] for f in facts} == {"2026", "2025", "2023"}
+
+
+def test_cartera_mantenimiento_anio_estado_pairs_mantenimiento_only_distinct_sorted(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Abril"},  # duplicado de año
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2024", "Mes": "Enero"},
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Enero"},  # Proyecto, no Mantenimiento
+        ],
+        proyectos=[
+            {"id": "p1", "Title": "Mantenimiento X", "TipodeProyecto": "Tiempo & Materiales", "Status": "En curso"},
+            {"id": "p2", "Title": "Proyecto Y", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+        ],
+        clientes=_CLIENTES_HOT,
+        facturadas=b"",
+    )
+    pairs = _repo().get_cartera_mantenimiento_anio_estado_pairs("tok")
+    assert pairs == [{"anio": "2024", "estado": "En curso"}, {"anio": "2026", "estado": "En curso"}]
+
+
+# --- Service: hot-window defaults + Proyecto never scoped --------------------
+
+class _HotYearsRecordingRepo:
+    def __init__(self):
+        self.calls = []
+
+    def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
+        self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
+        return []
+
+    def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
+        return []
+
+
+def test_service_default_hot_years_is_current_and_previous_year(monkeypatch):
+    class _FixedDatetime:
+        @staticmethod
+        def now():
+            import datetime as _dt
+            return _dt.datetime(2026, 8, 15)
+
+    import webapp.services.reporting_service as service_mod
+    monkeypatch.setattr(service_mod, "datetime", _FixedDatetime)
+    repo = _HotYearsRecordingRepo()
+    ReportingService(repo).get_cartera_mantenimiento("tok")
+    assert repo.calls[-1]["hot_years"] == ["2026", "2025"]
+
+
+def test_service_explicit_anios_overrides_default_hot_window():
+    repo = _HotYearsRecordingRepo()
+    ReportingService(repo).get_cartera_mantenimiento("tok", anios=["2024"])
+    assert repo.calls[-1]["hot_years"] == ["2024"]
+
+
+def test_service_get_cartera_proyecto_never_receives_hot_years():
+    repo = _HotYearsRecordingRepo()
+    ReportingService(repo).get_cartera_proyecto("tok")
+    assert repo.calls[-1]["hot_years"] is None
+
+
+def test_service_get_cartera_combo_never_receives_hot_years():
+    # `get_cartera()` (retrocompat combo) tampoco acota — mismo criterio.
+    repo = _HotYearsRecordingRepo()
+    ReportingService(repo).get_cartera("tok")
+    assert repo.calls[-1]["hot_years"] is None
+
+
 # --- Service: derivaciones + shaping -----------------------------------------
 
 class _FakeRepo:
     def __init__(self, facts):
         self._facts = facts
 
-    def get_cartera_facts(self, access_token, *, include_facturadas=True):
+    def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
+
+    def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
+        return []
 
 
 def _mant_fact(**kw):
@@ -509,7 +655,7 @@ class _PerspectivaAwareReportingService:
         self.called.append("combo")
         return {"mantenimiento": [{"cliente": "combo"}], "proyecto": [{"cliente": "combo"}]}
 
-    def get_cartera_mantenimiento(self, access_token):
+    def get_cartera_mantenimiento(self, access_token, *, anios=None):
         self.called.append("mantenimiento")
         return [{"cliente": "solo-mantenimiento"}]
 
@@ -551,6 +697,79 @@ def test_cartera_endpoint_perspectiva_omitted_preserves_retrocompat_combo(monkey
     assert svc.called == ["combo"]
     assert body["cartera"]["mantenimiento"] == [{"cliente": "combo"}]
     assert body["cartera"]["proyecto"] == [{"cliente": "combo"}]
+
+
+# --- Router: `anios` (HOT WINDOW / COLD HISTORY corrective) ------------------
+
+class _AniosRecordingReportingService:
+    def __init__(self):
+        self.received_anios = "unset"
+
+    def get_cartera_mantenimiento(self, access_token, *, anios=None):
+        self.received_anios = anios
+        return [{"cliente": "mant"}]
+
+    def get_cartera_mantenimiento_anios(self, access_token):
+        return [{"anio": "2024", "estado": "En curso"}, {"anio": "2023", "estado": "Finalizado"}]
+
+
+def test_cartera_endpoint_anios_param_parsed_as_explicit_list(monkeypatch):
+    svc = _AniosRecordingReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "mantenimiento", "anios": "2024, 2023"},
+    )
+    assert r.json()["state"] == "ok"
+    assert svc.received_anios == ["2024", "2023"]
+
+
+def test_cartera_endpoint_anios_omitted_lets_service_apply_default(monkeypatch):
+    svc = _AniosRecordingReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "mantenimiento"},
+    )
+    assert r.json()["state"] == "ok"
+    assert svc.received_anios is None  # el router NUNCA calcula el default — lo hace el service
+
+
+def test_cartera_endpoint_mantenimiento_response_never_bundles_anios_disponibles(monkeypatch):
+    # Costo separado a propósito (ver docstring del router) — el camino
+    # rápido de Mantenimiento nunca paga la lectura extra.
+    svc = _AniosRecordingReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "mantenimiento"},
+    )
+    assert "aniosDisponibles" not in r.json()["cartera"]
+
+
+def test_cartera_anios_disponibles_endpoint_requires_operations_session():
+    anon = TestClient(app)
+    r = anon.post(
+        "/operaciones/reporting/integral/data/cartera/anios-disponibles",
+        data={"graph_token": "tok"}, follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+
+def test_cartera_anios_disponibles_endpoint_returns_pairs(monkeypatch):
+    svc = _AniosRecordingReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    r = _client.post(
+        "/operaciones/reporting/integral/data/cartera/anios-disponibles", data={"graph_token": "tok"},
+    )
+    body = r.json()
+    assert body["state"] == "ok"
+    assert body["aniosDisponibles"] == [{"anio": "2024", "estado": "En curso"}, {"anio": "2023", "estado": "Finalizado"}]
+
+
+def test_cartera_anios_disponibles_endpoint_missing_token():
+    r = _client.post("/operaciones/reporting/integral/data/cartera/anios-disponibles", data={"graph_token": ""})
+    assert r.json() == {"state": "missing_token"}
 
 
 # --- Browser wiring (source-seam, sin runtime JS) ----------------------------

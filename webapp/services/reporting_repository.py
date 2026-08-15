@@ -238,17 +238,44 @@ def _call_graph(stage: str, fn):
         raise ReportingGraphError(stage=stage, status_code=None) from None
 
 
-def _list_items_url(site_id: str, list_id: str, select_fields: list[str] | None = None) -> str:
+def _list_items_url(
+    site_id: str, list_id: str, select_fields: list[str] | None = None, *, filter_expr: str | None = None,
+) -> str:
     """Items de una lista con `fields` expandido. Si se pasan `select_fields`,
     se limita el $select a esas columnas (nunca baja toda la lista). Mismo
     patrón que `staffing_repository._list_items_url`, replicado acá para no
-    acoplar Reporting a un helper privado de Staffing."""
+    acoplar Reporting a un helper privado de Staffing.
+
+    `filter_expr` (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF):
+    expresión OData cruda, URL-encodeada acá — MISMO parámetro/mecanismo que
+    `staffing_repository._list_items_url` ya usa en producción para el
+    scope operational/historical_inactive de Asignaciones."""
     url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items?$expand=fields"
     if select_fields:
         from urllib.parse import quote
         cols = ",".join(select_fields)
         url += f"($select={quote(cols)})"
+    if filter_expr:
+        from urllib.parse import quote
+        url += f"&$filter={quote(filter_expr, safe='')}"
     return url
+
+
+def _odata_quote(value: str) -> str:
+    """Escape mínimo de literal OData (comilla simple → doble comilla
+    simple) — mismo helper que `staffing_repository._odata_quote`,
+    replicado acá para no acoplar Reporting a un privado de Staffing.
+    `value` siempre es un año interno nuestro (nunca input de usuario sin
+    validar), pero escapar es gratis y correcto igual."""
+    return value.replace("'", "''")
+
+
+# Prefer HonorNonIndexedQueriesWarningMayFailRandomly (HOT WINDOW/COLD
+# HISTORY corrective) — MISMO header que `staffing_repository.
+# _HISTORY_PREFER_HEADER` ya usa en producción para el `$filter` de
+# Asignaciones (columna Choice no indexada). Reusado tal cual, replicado
+# acá por el mismo motivo que `_odata_quote`/`_list_items_url` de arriba.
+_HOT_WINDOW_PREFER_HEADER = {"Prefer": "HonorNonIndexedQueriesWarningMayFailRandomly"}
 
 
 def _norm_key(name) -> str:
@@ -321,6 +348,45 @@ class ReportingRepository:
             _list_items_url(site_id, list_id, select), access_token=self._token,
         ))
 
+    def _fetch_horas_proyectos(
+        self, site_id: str, *, hot_years: list[str] | None = None, select: list[str] | None = None,
+    ) -> tuple[list[dict], bool]:
+        """Lee "Horas por proyectos" (HOT WINDOW / COLD HISTORY corrective,
+        ver HANDOFF — owner live QA: Cartera hidrataba ~2023→2026 completo
+        aunque el default aterriza en el mes/año calendario actual).
+
+        `hot_years=None` (default): SIN `$filter`, comportamiento de
+        SIEMPRE — usado por Proyecto (agregado de VIDA del proyecto, nunca
+        se le puede aplicar una ventana sin romper su contrato de totales) y
+        por cualquier lectura que necesite la historia completa.
+
+        `hot_years=[...]`: intenta `$filter` OData (`A_x00f1_o eq 'Y1' or
+        A_x00f1_o eq 'Y2' or ...`) + header `Prefer:
+        HonorNonIndexedQueriesWarningMayFailRandomly` — MISMO patrón ya
+        probado en producción por
+        `staffing_repository._fetch_asignaciones` (Staffing Director
+        Priority V2: operational vs historical_inactive). Si Graph rechaza
+        el filtro (columna no indexada, o cualquier fallo de transporte —
+        nunca una regla de negocio la que decide) cae automáticamente a la
+        lectura COMPLETA + filtro en Python — SIEMPRE correcto, Cartera
+        nunca se rompe por una query no soportada; el `bool` devuelto indica
+        si el `$filter` remoto fue el que efectivamente acotó la lectura
+        (`True`) o si fue el fallback (`False`), solo para logging/P0.
+        NUNCA se aplica a `hot_years=None` — ninguna ambigüedad posible."""
+        if not hot_years:
+            return self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos", select), False
+        filter_expr = " or ".join(f"fields/{HP_ANIO} eq '{_odata_quote(y)}'" for y in hot_years)
+        try:
+            items = microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.horas_proyectos_list_id, select, filter_expr=filter_expr),
+                access_token=self._token, extra_headers=_HOT_WINDOW_PREFER_HEADER,
+            )
+            return items, True
+        except Exception:  # noqa: BLE001 — fallback de transporte, nunca una regla de negocio (mismo criterio que Staffing)
+            wanted = set(hot_years)
+            all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos", select)
+            return [it for it in all_items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted], False
+
     # --- XLSX Facturadas ----------------------------------------------------
 
     def _download_facturadas_workbook(self, site_id: str) -> bytes:
@@ -368,7 +434,9 @@ class ReportingRepository:
 
     # --- ensamble de hechos normalizados ------------------------------------
 
-    def get_cartera_facts(self, access_token: str, *, include_facturadas: bool = True) -> list[dict]:
+    def get_cartera_facts(
+        self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+    ) -> list[dict]:
         """Hechos de Cartera normalizados a grano proyecto×mes, con la dimensión
         de proyecto/cliente ya unida y `facturadasProyecto` (SUM del XLSX por
         proyecto) adjunto. Nombres de negocio, NUNCA internal names SharePoint.
@@ -382,7 +450,19 @@ class ReportingRepository:
         solo lo lee la perspectiva Proyecto). `False` la SALTEA por
         completo — cada fact queda con `facturadasProyecto=0.0` (nunca leído
         en ese camino). Default `True` preserva el contrato de siempre para
-        callers que necesitan AMBAS perspectivas."""
+        callers que necesitan AMBAS perspectivas.
+
+        `hot_years` (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF —
+        owner live QA: el ~15-17s de Cartera venía en gran parte de
+        hidratar TODA la historia de "Horas por proyectos" (~2023→2026) aun
+        cuando el default aterriza en el mes/año calendario actual). `None`
+        (default) = SIN acotar, comportamiento de SIEMPRE — usado por
+        Proyecto (agrega la VIDA COMPLETA del proyecto, nunca se le puede
+        aplicar ventana) y por `get_cartera()`/tests existentes
+        (retrocompat exacta). Una lista de años = intenta `$filter` OData
+        con fallback automático (ver `_fetch_horas_proyectos`) — usado por
+        Mantenimiento (ventana caliente por defecto, o un año frío puntual
+        vía lazy-load, ver `reporting_service.get_cartera_mantenimiento`)."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("cartera")
@@ -391,8 +471,13 @@ class ReportingRepository:
         timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
         timer.stage("cliente", len(clientes_items))
-        horas_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
+        horas_items, filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years)
         timer.stage("horas_proyectos", len(horas_items))
+        if hot_years is not None:
+            _perf_logger.info(
+                "reporting.perf cartera.horas_proyectos_filter hot_years=%s filter_used=%s",
+                ",".join(hot_years), filter_used,
+            )
         facturadas_by_key = self._facturadas_by_project(site_id) if include_facturadas else {}
         timer.stage("facturadas_xlsx", len(facturadas_by_key))
         cp_by_id = self._resolve_client_partners(site_id)
@@ -434,6 +519,52 @@ class ReportingRepository:
         timer.stage("shaping", len(facts))
         timer.total()
         return facts
+
+    def get_cartera_mantenimiento_anio_estado_pairs(self, access_token: str) -> list[dict]:
+        """Pares distintos (año, estado) de Mantenimiento — metadata MÍNIMA
+        para poblar el <select> de Año (HOT WINDOW / COLD HISTORY
+        corrective, ver HANDOFF: "DO NOT CONFUSE OPTIONS WITH HYDRATED
+        FACTS" — un año frío (no hidratado por la ventana caliente por
+        defecto) debe seguir siendo una opción SELECCIONABLE, nunca
+        escondida).
+
+        `$select` acotado a `A_x00f1_o`+lookup de Proyecto en Horas por
+        proyectos (NUNCA Cliente/HsTrabajadas/HsVendidas/HsFacturadas —
+        no hacen falta para esto) + Tipo/Status en Proyectos (lista
+        pequeña, ya barata de por sí). SIGUE pagando una lectura paginada
+        completa de Horas por proyectos (Graph no permite "años distintos"
+        sin bajar los items) — pero el payload por-item es mínimo, mucho
+        más barato que el fact completo con join a Cliente/Client
+        Partner/XLSX. Si el owner confirma en el smoke que esto sigue
+        siendo caro, la métrica ya queda expuesta en
+        `danwor.reporting.perf` para decidir el próximo paso con evidencia,
+        nunca a ciegas."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        timer = _StageTimer("cartera_anios")
+        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos", [PROY_TITLE, PROY_TIPO, PROY_ESTADO])
+        timer.stage("proyectos", len(proyectos_items))
+        horas_items = self._items(
+            site_id, self.horas_proyectos_list_id, "horas_proyectos_anios",
+            [HP_ANIO, *HP_PROYECTO_LOOKUP],
+        )
+        timer.stage("horas_proyectos_anios", len(horas_items))
+
+        tipo_by_id = {_text(it.get("id")): _text((it.get("fields") or {}).get(PROY_TIPO)) for it in proyectos_items}
+        estado_by_id = {_text(it.get("id")): _text((it.get("fields") or {}).get(PROY_ESTADO)) for it in proyectos_items}
+        pairs: set[tuple[str, str]] = set()
+        for it in horas_items:
+            h = it.get("fields") or {}
+            proy_id = _first(h, *HP_PROYECTO_LOOKUP)
+            if tipo_by_id.get(proy_id) != "Tiempo & Materiales":
+                continue  # Mantenimiento SOLO — Proyecto no usa ventana, no aporta acá.
+            anio = _text(h.get(HP_ANIO))
+            estado = estado_by_id.get(proy_id, "")
+            if anio:
+                pairs.add((anio, estado))
+        timer.stage("shaping", len(pairs))
+        timer.total()
+        return [{"anio": a, "estado": e} for a, e in sorted(pairs)]
 
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
 
