@@ -6107,6 +6107,55 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
+### -11. MOCK AUDIT + AUDITORÍA TRANSVERSAL (CERRADO, docs-only)
+Tras Batch A + Batch B, las **6 experiencias / 12 perspectivas** de
+Reporting Integral están conectadas a datos reales: Cartera (Mantenimiento/
+Proyecto), Rentabilidad (Resumen/Certificadas vs Ejecutadas), Horas
+Vendidas (Proyecto/Client Partner), Participación/Comercial (Participación/
+Salud), Calendario (Frecuencia/Client Partner), Horas Productivas
+(Productivas/No Asignadas). **Auditoría de los 8 renderers de nivel
+experiencia** (`renderCartera`/`renderRentabilidad`/`renderHorasVendidas`/
+`renderComercialParticipacion`/`renderComercialSalud`/`renderCalendario`/
+`renderCapacidadProductivas`/`renderCapacidadNoAsignadas`): CADA UNO gatea
+(directo o vía delegación — `renderRentabilidad`→`renderRentabilidadResumen`/
+`renderRentabilidadCertEjecutadas`, ambas gateadas) contra su ciclo de vida
+real-data ANTES de leer su array mock — CERO camino de lectura de mock
+alcanzable sin pasar por `idle→loading→ready|error`. Las 9 constantes mock
+(`CARTERA_*`, `RENTABILIDAD_PROYECTOS`/`_VENDIDAS_MENSUAL`/
+`_NOASIGNADAS_MENSUAL`, `HORASVENDIDAS_ROWS`, `COMERCIAL_PARTICIPACION_ROWS`,
+`COMERCIAL_SALUD_ROWS`, `CALENDARIO_ROWS`, `CAPACIDAD_PRODUCTIVAS_ROWS`,
+`CAPACIDAD_NOASIGNADAS_ROWS`) solo sobreviven como el valor INICIAL
+pre-conexión (mismo instante en que el usuario ve el loader por primera
+vez) — `replaceRows`/`replaceMonthly` las reemplaza EN EL LUGAR apenas
+responde el fetch real, nunca un flash de mock tras el primer load.
+`RENTABILIDAD_RESUMEN.certificadas`/`.trabajadas` quedan como campos
+MUERTOS del literal mock (nunca leídos por ningún renderer) — inertes, no
+representan un riesgo de mock-fallback.
+
+**Auditoría transversal de filtros** (`availableOptions(F) = filas por
+TODOS los demás filtros activos, excluyendo F`): preservada sin cambios en
+las 6 experiencias — el fix de Q2 (`monthsInRange`/`maskMonthly`) es
+ADICIONAL a esa regla, nunca la reemplaza (aplica DESPUÉS de que
+`facetFilteredRows`/`rentabilidadFilteredProyectos` ya filtraron por
+fila). Revisado el resto de experiencias por la MISMA clase de bug de Q2
+(un cálculo derivado que ignora el filtro de fecha activo): Participación
+(`comercialParticipacionTotalVendidas`/`_Certificadas`) usa
+deliberadamente el gran total SIN filtrar como denominador — semántica
+REMOVEFILTERS real del PBIP, no el bug de Q2 (Q2 era sobre celdas
+MOSTRADAS que contradecían el filtro, no sobre un denominador
+intencionalmente fijo); Cartera no tiene una segunda agregación derivada
+(su matriz es un árbol jerárquico, sus rollups ya operan sobre
+`node.rows`, YA filtrado); Calendario/Capacidad-No-Asignadas no tienen
+filtro de fecha (sin superficie para el bug). Ningún otro caso encontrado.
+
+**Auditoría transversal de plantilla del Hub**: los cambios de Batch B
+(Rentabilidad/Horas Productivas) reusan `table.dashboard-table`/
+`.dashboard-table-col--compact`/`--status`/`.dashboard-table-toggle`/
+`dashboardSection`/`sectionToolbar`/`perspectiveSwitch`/`activity-kpi-grid`
+sin excepción — CERO clase/selector nuevo de un solo uso. El único
+vocabulario NUEVO agregado esta sesión (`--compact`, Q1) es GENÉRICO
+(tools.css, reusable por cualquier tabla del Hub), no una copia local.
+
 ### -10. BATCH B — Rentabilidad CONECTADA, AMBAS perspectivas (CERRADO)
 Última pieza funcional pendiente de Batch B. Semántica **Ejecutadas**
 resuelta con evidencia PRIMARIA del PBIP (`Comparativo.tmdl` +
@@ -6681,15 +6730,24 @@ arquitectónico, no una tercera interpretación).
    mensuales de Calendario contra el PBIP (conteo de celdas true al grano
    visible vs. conteo de hojas Cliente vs. medida PBIP explícita), sin doble
    conteo padre+hijo.
-5. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
-   y Ejec` ANTES de codificar) + Horas Productivas-No asignadas (adapter CSV Time
-   Logs). Reusar `core.microsoft365` (`graph_get_bytes`); sin cliente Graph nuevo.
-6. **Smoke consolidado del owner** por batch (checklist determinístico: perspectiva,
-   rango con datos, medida representativa, un expand/collapse; + loader/geometría/
-   formato KPI/facet año/no-mock-flash). **Nota:** la validación LIVE contra
-   SharePoint real (igual que Cartera) requiere sesión con Graph token del
-   owner — un agente sin ese acceso puede implementar/testear-en-frío pero NO
-   puede confirmar el dato real por sí mismo; STOP rule (d) aplica ahí.
+5. ~~**Batch B**~~ **100% CERRADO** — Time Logs adapter (ver sección "-9."),
+   Horas Productivas AMBAS perspectivas (sección "-9."), Rentabilidad AMBAS
+   perspectivas (sección "-10."). Ejecutadas resuelta con evidencia PRIMARIA
+   del PBIP (`Comparativo.tmdl` — no hizo falta `Resumen Horas x Proyecto
+   Fac y Ejec`, esa tabla corroboró la misma conclusión sin agregar
+   información nueva). No reabrir salvo evidencia live nueva del owner.
+6. **Único paso restante: SMOKE CONSOLIDADO DEL OWNER** — las 6
+   experiencias/12 perspectivas están en **IMPLEMENTATION READY FOR LIVE
+   VALIDATION** (checklist determinístico por experiencia disperso en cada
+   sección "-N." de este documento; + loader/geometría/formato KPI/facet
+   año/no-mock-flash, ver auditoría transversal sección "-11."). La
+   validación LIVE contra SharePoint/CSV real requiere sesión con Graph
+   token del owner — un agente sin ese acceso puede implementar/testear-en-
+   frío pero NO puede confirmar el dato real por sí mismo; STOP rule (d)
+   aplica acá. Gaps conocidos a confirmar en el smoke: formato exacto de
+   fecha del CSV de Time Logs (ISO vs DD/MM/YYYY), existencia de
+   subcarpetas en Template Dashboard, lista `Resumen Asignaciones` para
+   `hsAsig` de No Asignadas (sin ID confirmado, gap documentado).
 
 ### 7. STOP rules (parar SOLO ante un blocker genuino)
 Parar únicamente si: (a) evidencia PBIP/fuente deja DOS interpretaciones de negocio
