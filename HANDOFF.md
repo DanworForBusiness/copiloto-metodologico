@@ -6092,12 +6092,45 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `e73f14b` — **Corrective pre-Batch-A CERRADO**: 3 gaps de aceptación de Cartera (`fix(reporting): align canonical Cartera presentation`).
 - `6dd7e99` — **Phase S CERRADA**: primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
 - `5f88324` — **Cartera live-data VALIDADA/READY** (cierre; retiro de diagnósticos temporales).
 - `765fd53` — discovery + plan de batches de las 5 experiencias restantes (`docs`).
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -1. Corrective pre-Batch-A — Cartera canónica (CERRADO, `e73f14b`)
+Owner live QA encontró 3 gaps de aceptación en Cartera ANTES de que sirva de
+plantilla para Batch A — corregidos, no reabrir salvo evidencia nueva:
+- **S.1 Estado terminal desalineado:** regresión de Phase S — al fusionar
+  `tree-matrix`/`data-table` se perdió el ancho fijo (88px) de columna
+  numérica, así que `table-layout:fixed` repartía el espacio restante EN
+  PARTES IGUALES entre columnas de medida y Estado (texto corto,
+  izquierda) → área vacía grande después del badge. Restaurado el ancho
+  88px default (`table.dashboard-table th:not(.left):not(.row-label-col)`)
+  + nuevo modificador OPCIONAL `.dashboard-table-col--status`/
+  `--cell--status` (compacto, alineado a la derecha) que un dominio usa
+  SOLO si su columna de estado es terminal — Cartera (`statusTerminal:
+  true` en ambas perspectivas) lo usa, Asignaciones (Estado en el medio)
+  sigue con `.left`, sin forzar nada globalmente.
+- **S.2 Proyecto mostraba ID técnico:** `CARTERA_CONFIG.Proyecto.keys`
+  tenía `["cliente","idProyecto","proyecto"]` (3 niveles) — el nivel medio
+  mostraba literalmente `idProyecto` (ej. "PROJ-0206") en vez de la
+  descripción de negocio. Reducido a `["cliente","proyecto"]` (2 niveles);
+  `idProyecto` sigue en cada fila (join key / desambiguación interna), solo
+  dejó de ser nivel visible. Header de sección actualizado (ya no dice "Cliente
+  › ID Proyecto Danwor › Proyecto").
+- **S.3 Diff Hs KPI en blanco:** `carteraKpiTiles` pasaba `col.rollup(rows)`
+  de la columna "diff" (que YA es HTML de `diffCell`, pensado para la celda
+  de tabla) por `fmtNum` de nuevo → `Number(htmlString)` = `NaN` → "—",
+  aunque el detalle filtrado tuviera valores reales (ej. Certificadas=1544/
+  Trabajadas=800 → Diff debía ser +744). Fix: el tile recalcula el número
+  CRUDO con el mismo `sumField("diff")` aditivo (sin `diffCell`) y lo
+  formatea directo con `fmtNum(valor, "signed")`. Validado que `fmtNum`
+  distingue 0 (renderiza "0") de null/undefined/"" (renderiza "—").
+5 tests de regresión nuevos + suite completa sin cambios vs. baseline de
+Phase S: **854 passed** (849+5), mismos 8 fallos preexistentes sin relación.
 
 ### 0. Phase S — estandarización visual del Hub (CERRADA, `6dd7e99`)
 Un solo primitivo compartido en `tools.css`: `table.dashboard-table` (shell/
@@ -6208,6 +6241,9 @@ arquitectónico, no una tercera interpretación).
    sección "0. Phase S" arriba para el detalle completo. No reabrir salvo que
    Batch A revele un problema genuino de integración con el primitivo
    compartido.
+1bis. ~~**Corrective pre-Batch-A — Cartera canónica**~~ **CERRADO (`e73f14b`)**
+   — ver sección "-1." arriba (Estado terminal / jerarquía Proyecto / Diff Hs
+   KPI). No reabrir salvo evidencia live nueva del owner.
 2. **Batch A — SIGUIENTE PASO** — Horas Vendidas / Participación / Calendario /
    Horas Productivas-Productivas (backbone reuse; usar loader/geometría/
    formatter de Phase 0 + primitivos de Phase S desde el inicio; sin mock
