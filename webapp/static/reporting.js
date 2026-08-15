@@ -2324,11 +2324,19 @@ function toggleTreeNode(stateKey, pathKey) {
 // must not appear expandable").
 function hierarchyToggleHtml(stateKey, pathKey, label, hasChildren, isOpen, caretChar) {
   const caretHtml = `<span class="caret ${hasChildren ? "" : "leaf"}">${caretChar}</span>`;
+  // `title` = nombre COMPLETO (owner live QA — Horas Vendidas: nombres de
+  // proyecto largos que exceden el ancho reservado de la columna de label se
+  // recortan con ellipsis; el tooltip los deja leer completos al hover). El
+  // ancho reservado ya vive en tools.css (`th.row-label-col`), esto es la red
+  // para la cola de nombres larguísimos. `esc` aplica también al atributo.
+  // `esc` sólo cubre &<> — para un ATRIBUTO hay que escapar la comilla doble
+  // también (un nombre con `"` rompería el `title` si no).
+  const titleAttr = ` title="${esc(label).replace(/"/g, "&quot;")}"`;
   if (!hasChildren) {
-    return `<span class="dashboard-table-toggle dashboard-table-toggle--leaf">${caretHtml}${esc(label)}</span>`;
+    return `<span class="dashboard-table-toggle dashboard-table-toggle--leaf"${titleAttr}>${caretHtml}${esc(label)}</span>`;
   }
   const escapedPath = esc(pathKey).replace(/'/g, "\\'");
-  return `<button type="button" class="dashboard-table-toggle" onclick="toggleTreeNode('${stateKey}', '${escapedPath}')" aria-expanded="${isOpen}">${caretHtml}${esc(label)}</button>`;
+  return `<button type="button" class="dashboard-table-toggle"${titleAttr} onclick="toggleTreeNode('${stateKey}', '${escapedPath}')" aria-expanded="${isOpen}">${caretHtml}${esc(label)}</button>`;
 }
 
 // `showTotal` (opcional, default false — Horas Vendidas no lo usa, sin

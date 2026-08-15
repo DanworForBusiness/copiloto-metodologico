@@ -890,6 +890,20 @@ table.dashboard-table th {
 }
 .content-theme-dark table.dashboard-table th { color: #9a9aa2; border-bottom-color: rgba(255,255,255,.12); }
 table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-align: left; }
+/* Ancho RESERVADO de la columna de label jerárquico (owner live QA — Horas
+   Vendidas: "no identifica textos para algunos proyectos"). Causa raíz: con
+   `table-layout:fixed` las 12 columnas de mes a 88px consumen el ancho de la
+   tabla y la columna de label, SIN ancho propio, tomaba solo el espacio
+   RESIDUAL — que en un contenedor no extra-ancho colapsa hacia ~0px y recorta
+   el nombre entero a "…" (peor a mayor profundidad: Proyecto está a 60px de
+   sangría). Reservar un ancho fijo hace que la matriz scrollee horizontalmente
+   (`.matrix-scroll` ya existe para eso) en vez de matar el label — los nombres
+   de proyecto vuelven a leerse. Genérico para TODA matriz jerárquica del Hub
+   (Cartera/Rentabilidad/HV/Participación/Salud/Calendario/Capacidad), nunca un
+   ajuste puntual de una experiencia. El tooltip `title` (ver
+   `hierarchyToggleHtml` en reporting.js) cubre la cola de nombres larguísimos
+   que aún exceden este ancho. */
+table.dashboard-table th.row-label-col { width: 340px; }
 /* Ancho estándar de columna numérica/de-medida (corrective pre-Batch-A,
    owner live QA — regresión de Phase S: al fusionar `tree-matrix`/
    `data-table` en un solo primitivo se perdió el ancho fijo que la matriz

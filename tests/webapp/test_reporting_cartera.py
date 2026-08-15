@@ -1119,7 +1119,7 @@ def test_hierarchy_disclosure_control_has_children_is_a_real_accessible_button()
     # el MISMO toggle — un solo control, no dos manejadores separados que
     # puedan doble-disparar. `<button>` real ⇒ foco/teclado (Enter/Space)
     # gratis del browser, `aria-expanded` sincronizado con el estado.
-    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function hierarchyToggleHtml") + 900]
+    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function renderTreeRows")]
     assert '<button type="button" class="dashboard-table-toggle"' in helper_fn
     assert "onclick=\"toggleTreeNode(" in helper_fn
     assert 'aria-expanded="${isOpen}"' in helper_fn
@@ -1129,8 +1129,10 @@ def test_hierarchy_leaf_rows_are_not_falsely_expandable():
     # S.4 (owner live QA: "leaf rows must not appear expandable"): sin
     # hijos, el control es un `<span>` NO interactivo — nunca un `<button>`,
     # nunca un `onclick`, nunca affordance de puntero engañosa.
-    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function hierarchyToggleHtml") + 900]
-    assert '<span class="dashboard-table-toggle dashboard-table-toggle--leaf">' in helper_fn
+    helper_fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function renderTreeRows")]
+    # Hoja = <span> (no <button>); tolera el atributo `title` agregado después
+    # de la clase (owner live QA — tooltip de nombre completo).
+    assert '<span class="dashboard-table-toggle dashboard-table-toggle--leaf"' in helper_fn
     assert ".dashboard-table-toggle.dashboard-table-toggle--leaf { cursor: default; }" in _TOOLS_CSS
     assert "button.dashboard-table-toggle { cursor: pointer; }" in _TOOLS_CSS
 
@@ -1249,3 +1251,23 @@ def test_horas_vendidas_anio_options_faceted_and_selected_population():
 def test_horas_vendidas_anio_mes_narrow():
     aniofld = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioField"):_REPORTING_JS.index("function horasVendidasMesField")]
     assert "whatsnew-filter--narrow" in aniofld
+
+
+def test_matrix_row_label_col_reserves_width():
+    # Owner live QA (Horas Vendidas: "no identifica textos para algunos
+    # proyectos"). Causa raíz: con `table-layout:fixed` la columna de label
+    # jerárquico tomaba solo el ancho RESIDUAL tras las 12 columnas de mes y
+    # colapsaba hacia 0px, recortando el nombre de proyecto entero a "…".
+    # El fix reserva un ancho fijo a `th.row-label-col` (la matriz scrollea
+    # horizontalmente en vez de matar el label).
+    assert "table.dashboard-table th.row-label-col { width:" in _TOOLS_CSS
+
+
+def test_hierarchy_toggle_has_title_tooltip_for_full_label():
+    # Red para la cola de nombres larguísimos que aún exceden el ancho
+    # reservado: `hierarchyToggleHtml` emite `title=<nombre completo>` (escapado
+    # también para la comilla doble, porque `esc` sólo cubre &<>).
+    fn = _REPORTING_JS[_REPORTING_JS.index("function hierarchyToggleHtml"):_REPORTING_JS.index("function renderTreeRows")]
+    assert 'title="${esc(label).replace(/"/g, "&quot;")}"' in fn
+    # El tooltip va TANTO en la hoja (span) como en el nodo con hijos (button).
+    assert fn.count("titleAttr") >= 2
