@@ -6152,10 +6152,47 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > distinta, no cableada). Perspectiva local (cero fetch tras hidratación). PENDIENTE:
 > owner live smoke.
 >
+> **✅ CORRECTIVO — texto de proyecto recortado a "…" en la matriz** (commit
+> `8d97e2d`). Causa raíz (confirmada reproduciendo markup+CSS real): con
+> `table-layout:fixed` la columna de label jerárquico tomaba el ancho RESIDUAL
+> tras las 12 columnas de mes (88px c/u) y colapsaba hacia ~0px → recortaba el
+> nombre entero. Fix: ancho reservado `th.row-label-col { width: 340px }` (la
+> matriz scrollea horizontal) + `title` con nombre completo en
+> `hierarchyToggleHtml`. Genérico para TODA matriz del Hub. NO era dato vacío
+> (dos hojas hermanas distintas descartan proyecto="").
+>
+> **✅ CORRECTIVO — ventana caliente (2 años) scoped para HV** (commit `2e4e0df`).
+> Regla transversal HOT WINDOW / COLD HISTORY (ya en Cartera) extendida a HV,
+> con la directiva del owner: adapter ÚNICO con SCOPE TEMPORAL OPCIONAL, sin
+> duplicar Graph. `get_batch_a_facts(*, hot_years=None)` rutea la lectura de
+> Horas por proyectos por el MISMO `_fetch_horas_proyectos` de Cartera.
+> `get_horas_vendidas(*, anios=None)` (default = año actual + anterior; lista =
+> año frío) por endpoint propio `/data/horas-vendidas` (+ `/anios-disponibles`,
+> metadata TODOS los tipos vía `_anio_estado_pairs` compartido). HV salió de
+> `get_batch_a`/`batchADataStatus` → **frontera de runtime: visitar HV ya no
+> carga Participación**. Front: ciclo propio `horasVendidasDataStatus` + año
+> frío con single-flight + `mergeHorasVendidasRows` (fusiona `vendidasByYear`
+> por proyecto, nunca duplica fila) + `<select>` de Año que ofrece años fríos
+> desde metadata. Cache por scope = los rows hidratados en el cliente.
+>
+> **⚠️ DEUDA / CONVERGENCIA PENDIENTE (Participación):** Participación sigue
+> FULL-HISTORY a propósito (prioridad 1 del owner: preservar su semántica
+> actual — gran total sobre todos los años — hasta migrarla). Cuando Participación
+> migre a Año+Estado, debe **consumir el MISMO mecanismo scoped** (get_batch_a
+> con `hot_years`, o su propio endpoint scoped) y ahí se pueden **converger
+> scopes/caches** donde coincidan. Un **cache server-side por (scope, token)**
+> es la optimización siguiente (hoy el single-flight/cache vive en el cliente);
+> no se implementó por el riesgo del token delegado rotante — es el punto de
+> convergencia natural al migrar Participación.
+>
 > **PRÓXIMO: Participación / Comercial** (población + Año multi-select + Estado,
-> denominador gran-total fijo) → luego **Horas Productivas** (two-panel). `estado`
-> ya fluye a `project_facts`/`cliente_dim`; patrón Año/Mes/Estado ya probado 3×
-> (Cartera/Rentabilidad/Horas Vendidas) para reusar.
+> denominador gran-total fijo, + converger al mecanismo scoped ↑) → luego
+> **Horas Productivas** (two-panel). `estado` ya fluye a `project_facts`/
+> `cliente_dim`; patrón Año/Mes/Estado + ventana caliente ya probados para reusar.
+>
+> **Nota rutas:** se agregaron `/data/horas-vendidas` y
+> `/data/horas-vendidas/anios-disponibles` — el snapshot de route-surface (ya
+> stale por Staffing) debe regenerarse para incluirlas.
 >
 > **ENTORNO DE TEST:** usar `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe
 > -m pytest` desde el worktree (NO el venv-gate del scratchpad, que quedó corrupto).
