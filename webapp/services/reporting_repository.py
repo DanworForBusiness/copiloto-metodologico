@@ -348,6 +348,24 @@ class ReportingRepository:
             _list_items_url(site_id, list_id, select), access_token=self._token,
         ))
 
+    def _items_narrowed_or_full(self, site_id: str, list_id: str, stage: str, select: list[str]) -> list[dict]:
+        """Igual que `_items`, pero con `$select` — SIEMPRE seguro contra
+        pérdida de dato (nunca filtra filas, solo reduce columnas), pero
+        alguno de los internal names candidatos de un lookup (ver
+        `HP_PROYECTO_LOOKUP`/`CLI_CP_LOOKUP`, tuplas "prueba ambas formas")
+        podría no existir en el schema real de esta lista — sin acceso Graph
+        en este entorno para confirmarlo, se intenta el `$select` acotado
+        primero y, ante CUALQUIER falla (mismo criterio que
+        `_fetch_horas_proyectos`/`staffing_repository._fetch_asignaciones`),
+        cae a la lectura COMPLETA sin `$select` — nunca rompe el fetch por
+        un nombre de campo no soportado."""
+        try:
+            return microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, list_id, select), access_token=self._token,
+            )
+        except Exception:  # noqa: BLE001 — fallback de transporte, nunca una regla de negocio
+            return self._items(site_id, list_id, stage)
+
     def _fetch_horas_proyectos(
         self, site_id: str, *, hot_years: list[str] | None = None, select: list[str] | None = None,
     ) -> tuple[list[dict], bool]:
@@ -372,9 +390,20 @@ class ReportingRepository:
         nunca se rompe por una query no soportada; el `bool` devuelto indica
         si el `$filter` remoto fue el que efectivamente acotó la lectura
         (`True`) o si fue el fallback (`False`), solo para logging/P0.
-        NUNCA se aplica a `hot_years=None` — ninguna ambigüedad posible."""
+        NUNCA se aplica a `hot_years=None` — ninguna ambigüedad posible.
+
+        `select`, si se pasa, TAMBIÉN puede fallar (candidato de lookup
+        inexistente en el schema real, ver `_items_narrowed_or_full`) —
+        cualquier fallback de acá abajo cae al `select=None` (item
+        completo), nunca repite el MISMO `select` que puede haber sido la
+        causa de la falla."""
         if not hot_years:
-            return self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos", select), False
+            try:
+                return microsoft365.graph_get_paged_values(
+                    _list_items_url(site_id, self.horas_proyectos_list_id, select), access_token=self._token,
+                ), False
+            except Exception:  # noqa: BLE001 — fallback de transporte (select inválido), nunca una regla de negocio
+                return self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos"), False
         filter_expr = " or ".join(f"fields/{HP_ANIO} eq '{_odata_quote(y)}'" for y in hot_years)
         try:
             items = microsoft365.graph_get_paged_values(
@@ -384,7 +413,7 @@ class ReportingRepository:
             return items, True
         except Exception:  # noqa: BLE001 — fallback de transporte, nunca una regla de negocio (mismo criterio que Staffing)
             wanted = set(hot_years)
-            all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos", select)
+            all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
             return [it for it in all_items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted], False
 
     # --- XLSX Facturadas ----------------------------------------------------
@@ -467,11 +496,23 @@ class ReportingRepository:
         site_id = self._require_site_id()
         timer = _StageTimer("cartera")
 
-        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        # `$select` acotado (P3, ver HANDOFF — narrowing de campos, SIEMPRE
+        # seguro: nunca filtra filas, solo reduce qué columnas devuelve
+        # Graph por item) a EXACTAMENTE los campos que este método lee más
+        # abajo — Proyectos/Cliente por default devuelven el body completo
+        # del item (incluye metadata de sistema que esta lectura nunca usa).
+        # `get_batch_a_facts` NO se toca (necesita más columnas de Cliente
+        # para Participación/Calendario/Salud, ver ese método).
+        proyectos_items = self._items_narrowed_or_full(
+            site_id, self.proyectos_list_id, "proyectos",
+            [PROY_TITLE, PROY_TIPO, PROY_ESTADO, PROY_FECHA_INICIO, PROY_ID_DANWOR],
+        )
         timer.stage("proyectos", len(proyectos_items))
-        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        clientes_items = self._items_narrowed_or_full(site_id, self.cliente_list_id, "cliente", [CLI_NOMBRE, *CLI_CP_LOOKUP])
         timer.stage("cliente", len(clientes_items))
-        horas_items, filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years)
+        horas_select = [HP_ANIO, HP_MES, HP_HS_TRABAJADAS, HP_HS_VENDIDAS, HP_HS_FACTURADAS,
+                         *HP_PROYECTO_LOOKUP, *HP_EMPRESA_LOOKUP, HP_PROYECTO_TITLE]
+        horas_items, filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years, select=horas_select)
         timer.stage("horas_proyectos", len(horas_items))
         if hot_years is not None:
             _perf_logger.info(

@@ -391,6 +391,58 @@ def test_hot_years_none_reads_full_history_unfiltered(monkeypatch):
     assert {f["anio"] for f in facts} == {"2026", "2025", "2023"}
 
 
+# --- P3 (field narrowing): $select en Proyectos/Cliente/Horas de Cartera --
+
+def test_get_cartera_facts_selects_narrowed_fields_when_supported(monkeypatch):
+    # Perf investigation (owner corrective — Cartera ~13s pese a la ventana
+    # caliente): $select acotado a las columnas realmente leídas, NUNCA el
+    # body completo del item — reduce el payload por-item de Proyectos/
+    # Cliente/Horas sin filtrar ninguna fila (seguro por construcción).
+    seen_urls = []
+
+    def fake_paged(url, access_token=None, **kw):
+        seen_urls.append(url)
+        if "/columns" in url:
+            return []
+        if _HP in url:
+            return _items(_ALL_HORAS)
+        if _PROY in url:
+            return _items(_PROYECTOS_HOT)
+        if _CLI in url:
+            return _items(_CLIENTES_HOT)
+        return []
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False, hot_years=["2026"])
+    assert facts  # sigue devolviendo datos correctos con $select activo
+
+    proy_url = next(u for u in seen_urls if _PROY in u)
+    cli_url = next(u for u in seen_urls if _CLI in u)
+    hp_url = next(u for u in seen_urls if _HP in u)
+    assert "$select=" in proy_url and "$select=" in cli_url and "$select=" in hp_url
+
+
+def test_get_cartera_facts_falls_back_to_full_item_when_select_rejected(monkeypatch):
+    # Si Graph rechaza el $select (candidato de lookup inexistente en el
+    # schema real, ver CLI_CP_LOOKUP/HP_PROYECTO_LOOKUP — dos formas
+    # candidatas, nunca confirmadas contra Graph real en este entorno), el
+    # fetch NUNCA se rompe — cae a leer el item completo sin $select.
+    def fake_paged(url, access_token=None, **kw):
+        if "/columns" in url:
+            return []
+        if "$select" in url:
+            raise RuntimeError("Graph rechaza este $select")
+        if _HP in url:
+            return _items(_ALL_HORAS)
+        if _PROY in url:
+            return _items(_PROYECTOS_HOT)
+        if _CLI in url:
+            return _items(_CLIENTES_HOT)
+        return []
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    facts = _repo().get_cartera_facts("tok", include_facturadas=False, hot_years=["2026"])
+    assert {f["anio"] for f in facts} == {"2026"}  # el fetch entero sigue funcionando
+
+
 def test_cartera_mantenimiento_anio_estado_pairs_mantenimiento_only_distinct_sorted(monkeypatch):
     _patch(
         monkeypatch,
