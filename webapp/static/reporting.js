@@ -1167,11 +1167,56 @@ function checkboxGroupField(label, items) {
 // ver comentario de esa clase para por qué no se reusa la clase original
 // tal cual. `target="_blank" rel="noopener noreferrer"`: atajo de
 // navegación de solo lectura, Reporting nunca escribe a SharePoint.
+// EXPLICIT REFRESH corrective (ver HANDOFF): invalidación DELIBERADA, POR
+// MAIN TAB/source-family — NUNCA global (Cartera/Rentabilidad/Capacidad
+// tienen status independientes entre sí, invalidar uno no toca los otros).
+// horasvendidas/comercial/calendario comparten `batchADataStatus` porque
+// GENUINAMENTE comparten un único fetch físico (backbone de Cartera, ver
+// HANDOFF/real-data-lineage.md) — invalidar cualquiera de las 3 invalida
+// las 3, consistente con "reload ese source-family", no una excepción.
+// Los filtros/selección del usuario se PRESERVAN (nunca los toca esta
+// función) — el `reconcileExperienceFacets` que cada `load*` ya llama al
+// terminar poda SOLO lo que la data recién llegada vuelve inválido (ver
+// P2G del corrective de main-tab hydration).
+// `idleIfNotLoading` — nunca pisa un fetch YA en vuelo con "idle" (eso
+// dispararía un segundo fetch concurrente para el mismo tab, rompiendo el
+// single-flight de P2 — ver test correspondiente): si está "loading", el
+// click de refresh es un no-op silencioso, la carga en curso ya lo cubre.
+function idleIfNotLoading(current) {
+  return current === "loading" ? current : "idle";
+}
+const EXPERIENCE_INVALIDATORS = {
+  cartera: () => {
+    state.carteraMantenimientoStatus = idleIfNotLoading(state.carteraMantenimientoStatus);
+    state.carteraProyectoStatus = idleIfNotLoading(state.carteraProyectoStatus);
+    state.carteraMantenimientoAniosStatus = idleIfNotLoading(state.carteraMantenimientoAniosStatus);
+    state.carteraMantenimientoYearError = "";
+  },
+  rentabilidad: () => { state.rentabilidadDataStatus = idleIfNotLoading(state.rentabilidadDataStatus); },
+  horasvendidas: () => { state.batchADataStatus = idleIfNotLoading(state.batchADataStatus); },
+  comercial: () => { state.batchADataStatus = idleIfNotLoading(state.batchADataStatus); },
+  calendario: () => { state.batchADataStatus = idleIfNotLoading(state.batchADataStatus); },
+  capacidad: () => { state.batchBDataStatus = idleIfNotLoading(state.batchBDataStatus); },
+};
+function invalidateExperience(expId) {
+  const invalidate = EXPERIENCE_INVALIDATORS[expId];
+  if (invalidate) invalidate();
+  render();
+}
+
 function filterBarShell(fieldsHtml, expId) {
   const exp = EXPERIENCES.find(e => e.id === expId);
   const updateHtml = exp && exp.updateLink
     ? `<a class="dashboard-action-link" href="${esc(exp.updateLink())}" target="_blank" rel="noopener noreferrer">Actualizar<span>↗</span></a>`
     : "";
+  // "↻ Actualizar datos" (EXPLICIT REFRESH corrective) — SEPARADO a
+  // propósito del "Actualizar↗" de arriba (ese navega a SharePoint para
+  // que el owner edite la fuente, Reporting es de solo lectura, ver
+  // comentario de EXPERIENCES; esto invalida el cache local de ESTE main
+  // tab y dispara su hidratación de nuevo). Reusa `.dashboard-action-link`
+  // tal cual (CERO CSS nuevo) — la clase es puramente visual, no
+  // específica de `<a>`.
+  const refreshHtml = `<button type="button" class="dashboard-action-link" onclick="invalidateExperience('${expId}')">↻ Actualizar datos</button>`;
   // Limpiar+Actualizar viven DENTRO de un wrapper propio (`.staffing-
   // filter-bar__actions`, tools.css) — owner feedback: con flex-wrap en
   // `.staffing-filter-bar` y `margin-left:auto` en Limpiar suelto, en
@@ -1183,6 +1228,7 @@ function filterBarShell(fieldsHtml, expId) {
       <div class="whatsnew-filters">${fieldsHtml}</div>
       <div class="staffing-filter-bar__actions">
         <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" onclick="resetFilters('${expId}')">✕ Limpiar</button>
+        ${refreshHtml}
         ${updateHtml}
       </div>
     </div>
