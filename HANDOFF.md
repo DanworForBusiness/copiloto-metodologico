@@ -6092,13 +6092,58 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `c37b56b` — **S.4 CERRADO — PHASE S = CLOSED (contrato de presentación + interacción)**: disclosure jerárquico unificado (`refactor(hub): unify hierarchy disclosure interaction`).
 - `e73f14b` — **Corrective pre-Batch-A CERRADO**: 3 gaps de aceptación de Cartera (`fix(reporting): align canonical Cartera presentation`).
-- `6dd7e99` — **Phase S CERRADA**: primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
+- `6dd7e99` — Phase S (visual): primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
 - `5f88324` — **Cartera live-data VALIDADA/READY** (cierre; retiro de diagnósticos temporales).
 - `765fd53` — discovery + plan de batches de las 5 experiencias restantes (`docs`).
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -2. S.4 — disclosure jerárquico compartido (CERRADO, `c37b56b`) — PHASE S = CLOSED
+Owner live QA: Phase S estandarizaba APARIENCIA más que COMPORTAMIENTO —
+Reporting reaccionaba a clic en triángulo O en el label (mismo toggle);
+Asignaciones solo reaccionaba al triángulo, el nombre del consultor no hacía
+nada. Corregido con UN contrato compartido, no un handler paralelo que imite:
+- `reporting.js`: `hierarchyToggleHtml(...)` — un solo helper, fuente única
+  para `renderTreeRows`/`renderBusinessTreeRows` (antes dos bloques de markup
+  casi idénticos copiados a mano). Con hijos: `<button class="dashboard-
+  table-toggle">` real envolviendo caret+label — foco/teclado (Enter/Space)
+  gratis del browser, `aria-expanded` sincronizado, un solo listener (nunca
+  doble-disparo por bubbling, porque es UN elemento). Sin hijos (hoja):
+  `<span class="dashboard-table-toggle dashboard-table-toggle--leaf">` NO
+  interactivo — sin botón, sin onclick, sin affordance de puntero engañosa.
+- `tools.css`: `.dashboard-table-toggle` ahora es un primitivo de reset de
+  botón (border/background/padding limpios, `cursor:pointer` SOLO en la
+  variante `<button>`, `focus-visible` con outline dorado, `--leaf` fuerza
+  `cursor:default`) — una sola definición, ambos consumidores.
+- `staffing_dashboard.html`: el botón de expandir y el label "Consultor" del
+  Detalle se fusionaron en UNA celda — `<template x-if="item.is_aggregate">`
+  renderiza el MISMO `.dashboard-table-toggle` (llamando al `toggleDetailGroup()`
+  YA existente, sin JS nuevo de Staffing), `<template x-if="!item.is_aggregate">`
+  renderiza el `--leaf` span para filas hijo. `.staffing-detail__expand-btn`
+  propio se retiró (único consumidor, migrado). Colgroup pasó de 10 a 9
+  columnas (la del toggle se fusionó dentro de Consultor); tests dependientes
+  del índice de columna actualizados.
+- El código de dominio sigue dueño de su propia función de toggle
+  (`toggleTreeNode` vanilla-JS vs `toggleDetailGroup` Alpine — frameworks
+  distintos, no unificables sin una migración de framework fuera de alcance)
+  y de su estructura de estado expandido — SOLO el contrato genérico de
+  disclosure (DOM/CSS/accesibilidad) es compartido.
+7 tests de regresión nuevos. Suite completa sin cambios vs. baseline
+establecida: **859 passed** (854+5), mismos 8 fallos preexistentes.
+
+**PHASE S = CLOSED** (contrato de presentación + interacción): Asignaciones y
+Reporting ahora comparten fuente de verdad real para grammar visual de tabla,
+hover de fila, badge de estado, Y comportamiento de disclosure jerárquico —
+no solo se PARECEN, consumen los mismos primitivos (`table.dashboard-table`,
+`.dashboard-status-badge`, `.dashboard-table-toggle`). Reporting preserva
+además: geometría estable de expand/collapse, formateo numérico semántico
+(`fmtNum`), alineación terminal de Estado (`--status`), y labels de
+jerarquía business-facing (Cliente › Proyecto, nunca IDs técnicos). Futuros
+consumidores (Activity/Usage Metrics, cuando se toque) deben heredar este
+contrato — nunca una tercera variante.
 
 ### -1. Corrective pre-Batch-A — Cartera canónica (CERRADO, `e73f14b`)
 Owner live QA encontró 3 gaps de aceptación en Cartera ANTES de que sirva de
@@ -6244,6 +6289,10 @@ arquitectónico, no una tercera interpretación).
 1bis. ~~**Corrective pre-Batch-A — Cartera canónica**~~ **CERRADO (`e73f14b`)**
    — ver sección "-1." arriba (Estado terminal / jerarquía Proyecto / Diff Hs
    KPI). No reabrir salvo evidencia live nueva del owner.
+1ter. ~~**S.4 — disclosure jerárquico compartido**~~ **CERRADO (`c37b56b`) —
+   PHASE S = CLOSED** — ver sección "-2." arriba. No reabrir salvo evidencia
+   live nueva del owner o un problema genuino de integración descubierto en
+   Batch A.
 2. **Batch A — SIGUIENTE PASO** — Horas Vendidas / Participación / Calendario /
    Horas Productivas-Productivas (backbone reuse; usar loader/geometría/
    formatter de Phase 0 + primitivos de Phase S desde el inicio; sin mock
