@@ -166,6 +166,20 @@ def test_horas_vendidas_sums_monthly_values_at_the_right_index(monkeypatch):
     assert r["fecha"] == "2026-03-01"  # primer mes con datos
 
 
+def test_horas_vendidas_projects_estado_from_project_status(monkeypatch):
+    # Paso 1 de la migración Año/Mes/Estado (HANDOFF §-16 #8): el shape proyecta
+    # `estado` desde Proyectos.Status (via el join ya resuelto) — insumo del futuro
+    # facet Estado. Aditivo: no altera monthly/cp/tipo/cliente/proyecto.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsVendidas": "5"}],
+        proyectos=[{"id": "p1", "Title": "Rollout BI", "TipodeProyecto": "Proyecto", "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "Molinos"}],
+    )
+    rows = _service().get_horas_vendidas("tok")
+    assert len(rows) == 1 and rows[0]["estado"] == "En curso"
+
+
 def test_horas_vendidas_groups_distinct_projects_separately(monkeypatch):
     _patch(
         monkeypatch,

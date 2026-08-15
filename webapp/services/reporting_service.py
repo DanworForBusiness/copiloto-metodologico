@@ -434,6 +434,12 @@ class ReportingService:
             trab_monthly = trab_by_proyecto.get(proyecto, [0.0] * 12)
             proyectos_rows.append({
                 "tipo": g["tipo"], "cliente": g["cliente"], "cp": g["cp"], "proyecto": proyecto,
+                # Estado por-proyecto (Proyectos.Status via el join ya resuelto en
+                # get_cartera_facts) — todas las facts del proyecto comparten estado.
+                # Paso 1 de la migración Año/Mes/Estado (ver HANDOFF §-16 #8): el
+                # shape ya proyecta estado; el grano por-año + el facet UI son el
+                # paso 2. Aditivo/no-rompe (la UI actual lo ignora).
+                "estado": (g["facts"][0].get("estado", "") if g["facts"] else ""),
                 "certificadas": _round2(sum(g["certMonthly"])),
                 "trabajadas": _round2(sum(trab_monthly)),
                 "certMonthly": [_round2(v) for v in g["certMonthly"]],
@@ -475,6 +481,10 @@ class ReportingService:
         for (cp, tipo, cliente, proyecto), g in groups.items():
             rows.append({
                 "cp": cp, "tipo": tipo, "cliente": cliente, "proyecto": proyecto,
+                # Estado por-proyecto (paso 1 de la migración Año/Mes/Estado,
+                # HANDOFF §-16 #8) — aditivo/no-rompe; el grano por-año + facet UI
+                # son el paso 2.
+                "estado": (g["facts"][0].get("estado", "") if g["facts"] else ""),
                 "monthly": [_round2(v) for v in g["monthly"]],
                 "fecha": _fecha_min(g["facts"]),
             })

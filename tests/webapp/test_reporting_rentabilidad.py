@@ -126,6 +126,21 @@ def test_get_rentabilidad_joins_certificadas_sharepoint_with_trabajadas_time_log
     assert p["fecha"] == "2026-01-01"
 
 
+def test_get_rentabilidad_projects_estado_from_project_status(monkeypatch):
+    # Paso 1 de la migración Año/Mes/Estado (HANDOFF §-16 #8): el shape de
+    # Rentabilidad proyecta `estado` desde Proyectos.Status — insumo del futuro
+    # facet Estado. Aditivo (no altera certificadas/trabajadas/monthly).
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+                "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0"}],
+        proyectos=[{"id": "p1", "Title": "Implementación SADI v2", "TipodeProyecto": "Proyecto", "Status": "Finalizado"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+    )
+    p = _service().get_rentabilidad("tok")["proyectos"][0]
+    assert p["estado"] == "Finalizado"
+
+
 def test_get_rentabilidad_project_with_no_time_logs_gets_zero_trabajadas(monkeypatch):
     # Un proyecto SharePoint sin ninguna hora en Time Logs (sin tracking
     # aún, pero Time Logs SÍ tiene datos de OTROS proyectos) aporta
