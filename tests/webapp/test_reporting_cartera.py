@@ -481,3 +481,38 @@ def test_cartera_failure_is_localized_fail_soft():
 def test_filter_bar_hidden_until_data_ready():
     fb = _REPORTING_JS[_REPORTING_JS.index("function renderCarteraFilterBar()"):_REPORTING_JS.index("function renderCartera()")]
     assert 'if (state.carteraDataStatus !== "ready") return "";' in fb
+
+
+# ============================================================================
+# Phase 0 — hardening transversal (loader / geometría de matriz / formateo KPI)
+# ============================================================================
+
+_REPORTING_CSS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.css").read_text(encoding="utf-8")
+
+
+def test_loader_reuses_shared_hub_primitive_not_a_reporting_copy():
+    # 0A: Reporting reusa el MISMO primitivo de Asignaciones, no un empty-panel.
+    assert 'reportingLoadingHtml("Cargando datos de Cartera' in _REPORTING_JS
+    helper = _REPORTING_JS[_REPORTING_JS.index("function reportingLoadingHtml"):_REPORTING_JS.index("function reportingSourceErrorHtml")]
+    assert "section-analysis-loading" in helper and "section-analysis-spinner" in helper
+
+
+def test_semantic_number_formatter_exists_and_kpis_use_it():
+    # 0C: fmtNum semántico; los tiles KPI ya no renderizan valores crudos.
+    assert "function fmtNum(value, type" in _REPORTING_JS
+    assert "Intl.NumberFormat" in _REPORTING_JS
+    assert 'activity-kpi__value">${fmtNum(' in _REPORTING_JS
+    # diffCell usa el formateo con signo (sin ruido de punto flotante).
+    diff = _REPORTING_JS[_REPORTING_JS.index("function diffCell"):_REPORTING_JS.index("function diffPlain")]
+    assert 'fmtNum(diff, "signed")' in diff
+
+
+def test_matrix_geometry_is_fixed_layout_for_stable_columns():
+    # 0B: table-layout: fixed ⇒ expand/collapse no mueve columnas.
+    assert "table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; table-layout: fixed; }" in _REPORTING_CSS
+
+
+def test_kpi_tile_has_overflow_safe_styles():
+    # 0C: tiles no se solapan con valores de 5–7 dígitos.
+    assert ".activity-kpi { min-width: 0; }" in _REPORTING_CSS
+    assert "white-space: nowrap; font-variant-numeric: tabular-nums" in _REPORTING_CSS

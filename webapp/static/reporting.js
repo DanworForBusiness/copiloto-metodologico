@@ -143,7 +143,7 @@ function carteraKpiTiles(cfg, rows) {
   return CARTERA_KPI_EXTRA.map(k => {
     const col = cfg.columns.find(c => c.key === k.key);
     const value = col.rollup(rows);
-    return `<div class="activity-kpi"><span class="activity-kpi__value">${value}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
+    return `<div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(value, "hours")}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
   }).join("");
 }
 
@@ -574,16 +574,49 @@ const state = {
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
+// --- Formateo numérico semántico compartido (Phase 0C) ----------------------
+// UN solo Intl.NumberFormat por tipo (locale en-US, la MISMA convención de
+// miles/decimales que el resto del Hub — ver Staffing). Elimina el ruido de
+// punto flotante (52111.100000000006) y unifica la presentación en KPIs, tablas
+// y tooltips. Tipos semánticos: count (entero), hours (hasta 1 decimal),
+// signed (horas con signo +/−), percent (1 decimal + "%"). NUNCA cambia el valor
+// ni el cálculo — solo la presentación.
+const _NF = {
+  count: new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }),
+  hours: new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 }),
+  percent: new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+};
+function fmtNum(value, type = "hours") {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!isFinite(n)) return "—";
+  if (type === "count") return _NF.count.format(Math.round(n));
+  if (type === "percent") return _NF.percent.format(n) + "%";
+  if (type === "signed") return (n > 0 ? "+" : "") + _NF.hours.format(n);
+  return _NF.hours.format(n);  // "hours" (default)
+}
+
+// Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
+// Asignaciones (`section-analysis-loading` + spinner + copy), nunca una
+// imitación propia de Reporting. Copy contextual por experiencia.
+function reportingLoadingHtml(label) {
+  return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
+    + `<span class="section-analysis-loading-copy">${esc(label)}</span></p>`;
+}
+function reportingSourceErrorHtml(label) {
+  return `<p class="empty-panel">No pudimos cargar ${esc(label)} desde SharePoint en este momento. `
+    + `Las demás vistas de Reporting siguen disponibles.</p>`;
+}
+
 function diffCell(diff) {
   const cls = diff < 0 ? "diff-neg" : (diff > 0 ? "diff-pos" : "");
-  const sign = diff > 0 ? "+" : "";
-  return `<span class="${cls}">${sign}${diff}</span>`;
+  return `<span class="${cls}">${fmtNum(diff, "signed")}</span>`;
 }
 // Versión texto plano de diffCell — para atributos `title` (tooltip
 // nativo), que no pueden contener HTML (ver corrective — HANDOFF: "Cartera
 // + Rentabilidad Completeness", B1/B4).
 function diffPlain(diff) {
-  return (diff > 0 ? "+" : "") + diff;
+  return fmtNum(diff, "signed");
 }
 
 // --- Motor de filtros compartido (Align with Hub backbone corrective) ------
@@ -1086,9 +1119,9 @@ async function loadCarteraData() {
 }
 function renderCarteraDataState() {
   if (state.carteraDataStatus === "error") {
-    return `<p class="empty-panel">No pudimos cargar los datos de Cartera desde SharePoint en este momento. Las demás vistas de Reporting siguen disponibles.</p>`;
+    return reportingSourceErrorHtml("los datos de Cartera");
   }
-  return `<p class="empty-panel">Cargando datos reales de Cartera…</p>`;
+  return reportingLoadingHtml("Cargando datos de Cartera…");
 }
 function renderCartera() {
   // Gate del ciclo de vida real-data: dispara la carga una sola vez (idle) y
@@ -1108,7 +1141,7 @@ function renderCartera() {
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${rows.length}</span><span class="activity-kpi__label">${esc(cfg.kpiLabel)}</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(rows.length, "count")}</span><span class="activity-kpi__label">${esc(cfg.kpiLabel)}</span></div>
       ${carteraKpiTiles(cfg, rows)}
     </div>`);
 
@@ -1226,11 +1259,11 @@ function renderRentabilidadResumen() {
   const resumen = dashboardSection("resumen", "Resumen", "", `
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${r.vendidas}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${certificadas}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${trabajadas}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(r.vendidas, "hours")}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(certificadas, "hours")}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(trabajadas, "hours")}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${diffCell(rentabilidadHoras)}</span><span class="activity-kpi__label">Rentabilidad horas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${r.noAsignadas}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(r.noAsignadas, "hours")}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
     </div>`);
 
   const rankingBody = rows.length ? `
@@ -1448,7 +1481,7 @@ function toggleTreeNode(stateKey, pathKey) {
 // tilde (ver corrective — HANDOFF: "las celdas de Calendario_Cliente son
 // booleanas, 1 = tilde, 0 = blanco — nunca la cantidad cruda").
 function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter) {
-  const format = cellFormatter || (v => v || "—");
+  const format = cellFormatter || (v => (v === 0 || v ? fmtNum(v, "hours") : "—"));
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
     const hasChildren = node.children && node.children.length > 0;

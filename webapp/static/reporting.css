@@ -137,13 +137,18 @@
 .reporting-integral-preview .legend .l-ejecutadas::before { background: var(--gold); }
 
 .reporting-integral-preview .matrix-scroll { overflow-x: auto; }
-.reporting-integral-preview table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; }
+/* Geometría ESTABLE de matrices jerárquicas (Phase 0B): `table-layout: fixed`
+   ⇒ los anchos de columna salen del HEADER, nunca del body — expandir/colapsar
+   una fila NUNCA mueve las columnas numéricas. Anchos semánticos: jerarquía
+   ancha (fija) + numéricas/mes estándar (fija); la indentación de hijos vive
+   DENTRO de la columna descriptiva (clip con ellipsis, no ensancha la tabla). */
+.reporting-integral-preview table.tree-matrix { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 900px; table-layout: fixed; }
 .reporting-integral-preview table.tree-matrix th { text-align: right; color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase;
-  letter-spacing: .03em; border-bottom: 1px solid var(--border); padding: 6px 8px; white-space: nowrap; }
+  letter-spacing: .03em; border-bottom: 1px solid var(--border); padding: 6px 8px; white-space: nowrap; width: 88px; }
 .reporting-integral-preview table.tree-matrix th.row-label-col, .reporting-integral-preview table.tree-matrix th.left { text-align: left; }
-.reporting-integral-preview table.tree-matrix th.row-label-col { min-width: 260px; }
+.reporting-integral-preview table.tree-matrix th.row-label-col { width: 300px; }
 .reporting-integral-preview table.tree-matrix td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right; font-variant-numeric: tabular-nums; }
-.reporting-integral-preview table.tree-matrix td.row-label, .reporting-integral-preview table.tree-matrix td.left { text-align: left; white-space: nowrap; }
+.reporting-integral-preview table.tree-matrix td.row-label, .reporting-integral-preview table.tree-matrix td.left { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reporting-integral-preview table.tree-matrix tr.depth-0 td.row-label { font-weight: 700; }
 .reporting-integral-preview table.tree-matrix tr.depth-1 td.row-label { font-weight: 600; color: var(--ink-soft); }
 .reporting-integral-preview table.tree-matrix tr.depth-2 td.row-label { font-weight: 400; color: var(--ink-soft); }
@@ -153,5 +158,11 @@
 .reporting-integral-preview .tree-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
 .reporting-integral-preview .tree-toggle .caret.leaf { visibility: hidden; }
 .reporting-integral-preview .tree-indent { display: inline-block; }
+/* KPI tiles: sin overflow/overlap con valores reales de 5–7 dígitos (Phase 0C).
+   `min-width:0` deja que el item de grid/flex se encoja en vez de empujar a los
+   vecinos; el valor no wrappea y usa glifos tabulares. Sin font-size hacks ni
+   anchos dependientes del número. */
+.reporting-integral-preview .activity-kpi { min-width: 0; }
+.reporting-integral-preview .activity-kpi__value { white-space: nowrap; font-variant-numeric: tabular-nums; overflow-wrap: normal; }
 
 .reporting-integral-preview .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }
