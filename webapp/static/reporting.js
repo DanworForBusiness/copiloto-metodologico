@@ -2050,7 +2050,15 @@ function buildTree(rows, keys, path = []) {
   return [...groups.entries()].map(([val, groupRows]) => {
     const nodePath = [...path, val];
     return {
-      label: val,
+      // "Sin dato" (owner live QA — Participación real mostraba filas de
+      // jerarquía con TEXTO VACÍO, ver corrective: los 3 niveles superiores
+      // de Participación — ID Frecuencia/Permite Adelanto/Condición de
+      // Pago — son opcionales en la fuente real, a diferencia del mock
+      // donde SIEMPRE estaban poblados). `pathKey`/agrupación siguen
+      // usando el valor CRUDO (`val`, incluso vacío) — filas sin dato
+      // agrupan correctamente entre sí, esto SOLO cambia qué texto ve el
+      // usuario en el nodo, nunca la agrupación/el conteo.
+      label: (val === "" || val === null || val === undefined) ? "Sin dato" : val,
       pathKey: nodePath.join("|"),
       rows: groupRows,
       children: buildTree(groupRows, restKeys, nodePath),

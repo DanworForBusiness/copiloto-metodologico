@@ -28,7 +28,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
-const { renderBusinessTreeRows, buildTree, sumField } = sandbox;
+const { renderBusinessTreeRows, buildTree, sumField, hierarchyToggleHtml } = sandbox;
 
 let failures = 0;
 function assertTrue(cond, label) {
@@ -64,6 +64,26 @@ function assertTrue(cond, label) {
   const tree = buildTree(rows, ["cliente", "proyecto"]);
   const html = renderBusinessTreeRows("test::cero", tree, 0, columns);
   assertTrue(/<td[^>]*>0<\/td>/.test(html), "0 debe renderizar como '0' en la celda, nunca vacío/blanco");
+}
+
+// --- "Sin dato" (owner live QA — Participación real: ID Frecuencia/
+// Permite Adelanto/Condición de Pago son OPCIONALES en la fuente real, a
+// diferencia del mock donde siempre estaban poblados — un valor vacío
+// dejaba el nodo de jerarquía sin texto visible, "missing texts"). ---
+{
+  const rows = [
+    { idFrecuencia: "", cliente: "SinDatos SA" },
+    { idFrecuencia: "1 Mensual", cliente: "ConDatos SA" },
+  ];
+  const tree = buildTree(rows, ["idFrecuencia", "cliente"]);
+  const blankNode = tree.find(n => n.pathKey === "");
+  assertTrue(!!blankNode, "las filas con valor vacío siguen agrupándose entre sí (pathKey crudo)");
+  assertTrue(blankNode.label === "Sin dato", "el label visible de un valor vacío es 'Sin dato', nunca texto invisible");
+  const html = hierarchyToggleHtml("test", blankNode.pathKey, blankNode.label, true, false, "▸");
+  assertTrue(html.includes("Sin dato"), "el HTML del nodo realmente contiene el texto de fallback");
+
+  const populated = tree.find(n => n.label === "1 Mensual");
+  assertTrue(!!populated, "un valor con dato real conserva su label tal cual, sin pisar el fallback");
 }
 
 if (failures > 0) {
