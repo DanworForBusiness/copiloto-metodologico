@@ -1,0 +1,220 @@
+"""
+test_reporting_rentabilidad.py — Contrato de datos reales de Rentabilidad
+(AMBAS perspectivas, Resumen Y Certificadas vs Ejecutadas — Reporting
+Integral Batch B). Certificadas/Vendidas: backbone de Cartera (SharePoint,
+`get_cartera_facts`). Trabajadas/Ejecutadas: adapter de Time Logs Reports
+(CSV, MISMO que Horas Productivas — ver Correction 1/real-data-lineage.md
+§8bis/§10). Determinístico, sin Graph real: monkeypatchea
+`core.microsoft365` (mismo criterio que test_reporting_batch_b.py).
+"""
+from __future__ import annotations
+
+import csv
+import io
+from pathlib import Path
+
+import openpyxl
+from openpyxl.worksheet.table import Table
+
+from webapp.services import reporting_repository as repo_mod
+from webapp.services.reporting_repository import ReportingRepository
+from webapp.services.reporting_service import ReportingService
+
+_SITE, _HP, _PROY, _CLI = "site-1", "hp-list", "proy-list", "cli-list"
+_OPS_SITE = "ops-site-1"
+_CSV_HEADERS = ["Date", "From", "To", "Description", "Duration", "Duration Decimal",
+                "Client", "Project", "Task", "User", "Email", "Billable Amount", "Billable", "Cost"]
+
+
+def _items(rows):
+    return [{"id": r.get("id", ""), "fields": r} for r in rows]
+
+
+def _csv_bytes(rows):
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_CSV_HEADERS)
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({h: r.get(h, "") for h in _CSV_HEADERS})
+    return buf.getvalue().encode("utf-8")
+
+
+def _empty_facturadas_xlsx():
+    """XLSX mínimo con la tabla `Tabla24` vacía (mismo patrón que
+    test_reporting_cartera.py) — Rentabilidad no ejercita Facturadas
+    directamente, pero `get_cartera_facts` siempre la descarga."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Facturado"
+    ws.append(["Proyecto Base", "Suma de Cantidad"])
+    ws.add_table(Table(displayName="Tabla24", ref="A1:B1"))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _patch(monkeypatch, *, horas, proyectos, clientes, csv_files=None, file_rows=None):
+    file_rows = file_rows or {}
+    facturadas_bytes = _empty_facturadas_xlsx()
+
+    def fake_json(url, access_token=None, **kw):
+        if url == f"{repo_mod.GRAPH_BASE}/sites/{repo_mod.TIME_LOGS_SITE_PATH}":
+            return {"id": _OPS_SITE}
+        return {}
+
+    def fake_paged(url, access_token=None, **kw):
+        if f"/sites/{_OPS_SITE}/drive/root:" in url and ":/children" in url:
+            return csv_files if csv_files is not None else []
+        if "/columns" in url:
+            return []
+        if _HP in url:
+            return _items(horas)
+        if _PROY in url:
+            return _items(proyectos)
+        if _CLI in url:
+            return _items(clientes)
+        return []
+
+    def fake_bytes(url, access_token, **kw):
+        for item_id, rows in file_rows.items():
+            if f"/drive/items/{item_id}/content" in url:
+                return _csv_bytes(rows)
+        if "/drive/items/" in url:
+            return _csv_bytes([])
+        return facturadas_bytes  # descarga de la XLSX de Facturadas (get_cartera_facts)
+
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_json", fake_json)
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_bytes", fake_bytes)
+
+
+def _repo():
+    return ReportingRepository(
+        site_id=_SITE, horas_proyectos_list_id=_HP, proyectos_list_id=_PROY, cliente_list_id=_CLI,
+    )
+
+
+def _service():
+    return ReportingService(_repo())
+
+
+def test_get_rentabilidad_joins_certificadas_sharepoint_with_trabajadas_time_logs(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+             "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Febrero",
+             "HsVendidas": "5", "HsFacturadas": "4", "HsTrabajadas": "0"},
+        ],
+        proyectos=[{"id": "p1", "Title": "Implementación SADI v2", "TipodeProyecto": "Proyecto"}],
+        clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-01-10", "Project": "Implementación SADI v2", "Duration Decimal": "3000", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+            {"Date": "2026-02-10", "Project": "Implementación SADI v2", "Duration Decimal": "2000", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
+    )
+    result = _service().get_rentabilidad("tok")
+    assert len(result["proyectos"]) == 1
+    p = result["proyectos"][0]
+    assert p["proyecto"] == "Implementación SADI v2" and p["cliente"] == "YPF" and p["tipo"] == "Proyecto"
+    assert p["certificadas"] == 12  # 8 + 4, SharePoint
+    assert p["trabajadas"] == 5  # 3 + 2, Time Logs
+    assert p["certMonthly"][0] == 8 and p["certMonthly"][1] == 4
+    assert p["trabMonthly"][0] == 3 and p["trabMonthly"][1] == 2
+    assert p["fecha"] == "2026-01-01"
+
+
+def test_get_rentabilidad_project_with_no_time_logs_gets_zero_trabajadas(monkeypatch):
+    # Un proyecto SharePoint sin ninguna hora en Time Logs (sin tracking
+    # aún, pero Time Logs SÍ tiene datos de OTROS proyectos) aporta
+    # trabajadas=0 en TODOS los meses — NUNCA se omite la fila.
+    _patch(
+        monkeypatch,
+        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo",
+                "HsVendidas": "5", "HsFacturadas": "5", "HsTrabajadas": "0"}],
+        proyectos=[{"id": "p1", "Title": "Mantenimiento X", "TipodeProyecto": "Tiempo & Materiales"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-03-01", "Project": "Otro Proyecto Sin Relacion", "Duration Decimal": "1000", "Email": "z@danwor.com", "Client": "Otro", "Task": "Dev"},
+        ]},
+    )
+    result = _service().get_rentabilidad("tok")
+    assert len(result["proyectos"]) == 1
+    p = result["proyectos"][0]
+    assert p["trabajadas"] == 0
+    assert p["trabMonthly"] == [0] * 12
+    assert p["certificadas"] == 5
+
+
+def test_get_rentabilidad_portfolio_monthly_totals_real_grain(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsVendidas": "10", "HsFacturadas": "0"},
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsVendidas": "7", "HsFacturadas": "0"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Febrero", "HsVendidas": "3", "HsFacturadas": "0"},
+        ],
+        proyectos=[
+            {"id": "p1", "Title": "Proyecto Uno", "TipodeProyecto": "Proyecto"},
+            {"id": "p2", "Title": "Proyecto Dos", "TipodeProyecto": "Proyecto"},
+        ],
+        clientes=[{"id": "c1", "Title": "AySA"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            # Proyecto placeholder de No Asignadas — NUNCA aporta a "proyectos", solo al portfolio noAsignadasMonthly.
+            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "4000", "Email": "b@danwor.com", "Client": "Danwor", "Task": "Admin"},
+        ]},
+    )
+    result = _service().get_rentabilidad("tok")
+    # Vendidas portfolio real por mes: Enero=10+7=17, Febrero=3.
+    assert result["vendidasMonthly"][0] == 17
+    assert result["vendidasMonthly"][1] == 3
+    assert sum(result["vendidasMonthly"]) == 20
+    # No asignadas portfolio: Enero=4 (SOLO el proyecto placeholder).
+    assert result["noAsignadasMonthly"][0] == 4
+    assert sum(result["noAsignadasMonthly"]) == 4
+    # El placeholder NUNCA aparece como fila de proyecto real.
+    proyecto_names = {p["proyecto"] for p in result["proyectos"]}
+    assert "Danwor - Horas No Productivas (#1)" not in proyecto_names
+
+
+# ============================================================================
+# Frontend — ciclo de vida real-data propio + monthly real (no flatMonthly)
+# ============================================================================
+
+_REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
+
+
+def test_rentabilidad_endpoint_and_lifecycle_exist():
+    assert '"/operaciones/reporting/integral/data/rentabilidad"' in _REPORTING_JS
+    assert "function loadRentabilidadData" in _REPORTING_JS
+    assert "function renderRentabilidadDataState" in _REPORTING_JS
+    assert "rentabilidadDataStatus: \"idle\"," in _REPORTING_JS
+
+
+def test_rentabilidad_never_mixes_mock_and_real_data():
+    load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadData"):_REPORTING_JS.index("async function loadRentabilidadData") + 1200]
+    assert "replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos)" in load_fn
+    assert "replaceMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, data.rentabilidad.vendidasMonthly)" in load_fn
+    assert "replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly)" in load_fn
+
+
+def test_rentabilidad_resumen_and_cert_ejec_gate_on_rentabilidad_status():
+    for fn in ("renderRentabilidadResumen", "renderRentabilidadCertEjecutadas"):
+        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
+        assert 'state.rentabilidadDataStatus === "idle"' in body
+        assert "loadRentabilidadData()" in body
+
+
+def test_rentabilidad_mensual_uses_real_monthly_grain_not_flat_spread():
+    # Batch B: certMonthly/trabMonthly por proyecto son grano mensual REAL
+    # (fuente proyecto×mes) — sumados directo, NUNCA flatMonthly de un
+    # escalar (esa simplificación de V0 quedó retirada de esta función).
+    fn = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadMensual"):_REPORTING_JS.index("function renderRentabilidadResumen")]
+    assert "(p.certMonthly || []).forEach((v, i) => { certMonthly[i] += v; });" in fn
+    assert "(p.trabMonthly || []).forEach((v, i) => { trabMonthly[i] += v; });" in fn
+    assert "flatMonthly(p.certificadas)" not in fn
+    assert "flatMonthly(p.trabajadas)" not in fn

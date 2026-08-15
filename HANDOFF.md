@@ -6081,7 +6081,7 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
 | Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
-| Reporting Integral — Batch B (Horas Productivas, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) |
+| Reporting Integral — Batch B (Horas Productivas + Rentabilidad, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) — Batch B 100% CERRADO |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
@@ -6106,6 +6106,55 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -10. BATCH B — Rentabilidad CONECTADA, AMBAS perspectivas (CERRADO)
+Última pieza funcional pendiente de Batch B. Semántica **Ejecutadas**
+resuelta con evidencia PRIMARIA del PBIP (`Comparativo.tmdl` +
+`'Horas  Trabajadas por Mes'.tmdl`, ver real-data-lineage.md §10):
+`Total Horas Trabajadas` = `SUMMARIZE('Time Logs Reports', Project, Mes,
+SUM(HORAS))` — la MISMA fuente/adapter que Horas Productivas (Correction
+1), **NO** `Horas por proyectos[HsTrabajadas]` (ese es un campo DISTINTO
+de tracking manual SharePoint que Cartera usa para SU PROPIO "Trabajadas"
+— misma palabra, medida distinta; confirma el comentario histórico de V0
+en `reporting.js`: "Certificadas viene de SharePoint, Ejecutadas/
+Trabajadas viene de Time").
+
+**Service** (`get_rentabilidad`, sin repositorio nuevo — reusa
+`get_cartera_facts` + `get_time_logs_facts`, ambos ya construidos):
+Certificadas por proyecto×mes desde el backbone de Cartera (SharePoint).
+Trabajadas/Ejecutadas por proyecto×mes desde Time Logs, join por nombre
+EXACTO de proyecto (ambos derivan de `Proyectos.Title`). Un proyecto
+SharePoint sin ninguna hora en Time Logs aporta trabajadas=0 en TODOS los
+meses — NUNCA se omite la fila. Vendidas/No asignadas a servicios
+(portfolio, fijo — sin campo por-proyecto en la fuente real, mismo límite
+documentado desde V0) ahora con **grano MENSUAL REAL** (antes `flatMonthly`
+de un total anual, simplificación de V0 sin datos vivos): Vendidas = SUM
+mensual de `Horas por proyectos.HsVendidas` a través de TODOS los
+proyectos; No asignadas = SUM mensual de Time Logs de los 2 proyectos
+placeholder (MISMO total que alimenta Horas Productivas/No Asignadas, acá
+sin desglose por consultor).
+
+**Frontend**: `state.rentabilidadDataStatus` propio, `loadRentabilidadData`/
+`renderRentabilidadDataState` nuevos (mismo patrón que Cartera — fetch
+único para AMBAS perspectivas), `replaceRows(RENTABILIDAD_PROYECTOS,...)`
++ nuevo `replaceMonthly()` (mismo patrón in-place que `replaceRows`, para
+los 2 arrays mensuales de portfolio). `renderRentabilidadMensual` deja de
+usar `flatMonthly(p.certificadas)`/`flatMonthly(p.trabajadas)` — ahora suma
+`p.certMonthly`/`p.trabMonthly` reales por proyecto (grano mensual
+genuino, no una simplificación de V0) — la máscara de Q2
+(`monthsInRange`/`maskMonthly`) sigue aplicando sin cambios sobre estos
+arrays ahora reales.
+
+12 tests nuevos (`test_reporting_rentabilidad.py`: join Cartera↔Time Logs
+por nombre exacto, proyecto sin Time Logs → trabajadas=0 sin omitir fila,
+totales de portfolio con grano mensual real, placeholder nunca aparece
+como fila de proyecto, wiring de frontend, retiro de `flatMonthly` de
+`renderRentabilidadMensual`). Suite completa: **905 passed** (898+7),
+mismos 8 fallos preexistentes. **Estado: Rentabilidad (AMBAS perspectivas)
+IMPLEMENTATION READY FOR LIVE VALIDATION** — PENDIENTE de smoke real
+(formato exacto de fecha del CSV, mismo gap que Horas Productivas).
+**Batch B queda 100% CERRADO** (Time Logs adapter + Horas Productivas
+ambas perspectivas + Rentabilidad ambas perspectivas).
 
 ### -9. BATCH B — Horas Productivas CONECTADA, AMBAS perspectivas (CERRADO) — Correction 1 resuelta en código
 Cierra el BLOCKED dejado por Correction 1 (ver sección arriba): Horas

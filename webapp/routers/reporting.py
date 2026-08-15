@@ -104,6 +104,37 @@ def reporting_cartera_data(request: Request, graph_token: str = Form("")):
     return JSONResponse({"state": "ok", "cartera": cartera})
 
 
+@router.post("/operaciones/reporting/integral/data/rentabilidad", include_in_schema=False)
+def reporting_rentabilidad_data(request: Request, graph_token: str = Form("")):
+    """Datos REALES normalizados de Rentabilidad (AMBAS perspectivas,
+    Resumen Y Certificadas vs Ejecutadas — Reporting Integral Batch B).
+    Fetch propio: reusa `get_cartera_facts` (Certificadas/Vendidas,
+    SharePoint) Y `get_time_logs_facts` (Trabajadas/Ejecutadas, CSV — MISMO
+    adapter que Horas Productivas) — ver `ReportingService.get_rentabilidad`.
+    MISMO gate/token/fail-soft que `reporting_cartera_data` — ver ese
+    endpoint para el contrato de errores completo."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        rentabilidad = service.get_rentabilidad(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting rentabilidad data: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "rentabilidad": rentabilidad})
+
+
 @router.post("/operaciones/reporting/integral/data/batch-a", include_in_schema=False)
 def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
     """Datos REALES normalizados de Horas Vendidas/Participación/Calendario/

@@ -281,6 +281,90 @@ class ReportingService:
             })
         return rows
 
+    # --- Batch B: Rentabilidad (Resumen / Certificadas vs Ejecutadas) -------
+    # Ejecutadas/Trabajadas verificado con evidencia PRIMARIA del PBIP
+    # (`Comparativo.tmdl`+`'Horas  Trabajadas por Mes'.tmdl`, ver
+    # real-data-lineage.md §10): `Total Horas Trabajadas` = SUMMARIZE(Time
+    # Logs Reports, Project, Mes, SUM(HORAS)) — la MISMA fuente/adapter que
+    # Horas Productivas (Correction 1), NO `Horas por proyectos[HsTrabajadas]`
+    # (ese es un campo DISTINTO, tracking manual de SharePoint que Cartera
+    # usa para SU PROPIO "Trabajadas" — palabra igual, medida distinta,
+    # confirmado por el propio comentario histórico de V0 en reporting.js:
+    # "Certificadas viene de SharePoint, Ejecutadas/Trabajadas viene de
+    # Time"). Certificadas = `Horas por proyectos[Hs certificadas]`
+    # (SharePoint, MISMO backbone que Cartera — `get_cartera_facts`, sin
+    # fetch nuevo para esa mitad). Vendidas/No asignadas a servicios son
+    # escalares de PORTFOLIO (nunca por-proyecto en la fuente real, mismo
+    # límite ya documentado en el mock V0) — pero ahora con grano MENSUAL
+    # real (antes `flatMonthly` de un total anual, una simplificación de V0
+    # sin datos vivos): Vendidas = SUM(Horas por proyectos.HsVendidas) por
+    # mes a través de TODOS los proyectos; No asignadas = SUM(Time Logs
+    # Reports.HORAS) por mes de los 2 proyectos placeholder (MISMA fuente
+    # que Horas Productivas/No Asignadas, ver `_shape_horas_productivas_
+    # no_asignadas` — acá solo el TOTAL agregado, sin desglose por
+    # consultor).
+    def get_rentabilidad(self, access_token: str) -> dict:
+        """Contrato para AMBAS perspectivas de Rentabilidad: `proyectos`
+        (una fila por proyecto — TODOS los tipos, a diferencia de Cartera
+        que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`
+        escalares agregados sobre la vida del proyecto para el detalle/
+        ranking, MÁS `certMonthly`/`trabMonthly[12]` reales para la matriz
+        mensual de Concepto) + `vendidasMonthly`/`noAsignadasMonthly[12]`
+        (portfolio, fijos, ver arriba). Join Cartera↔Time Logs por nombre
+        EXACTO de proyecto (ambos derivan de `Proyectos.Title` — Time Logs
+        ya resuelve al título real cuando hay match, ver
+        `get_time_logs_facts`). Un proyecto SharePoint sin ninguna hora en
+        Time Logs (sin tracking aún) aporta trabajadas=0 en TODOS los
+        meses — NUNCA se omite la fila."""
+        cartera_facts = self._repository.get_cartera_facts(access_token)
+        time_logs = self._repository.get_time_logs_facts(access_token)
+
+        cert_by_proyecto: dict[str, dict] = {}
+        vendidas_monthly = [0.0] * 12
+        for f in cartera_facts:
+            proyecto = f.get("proyecto")
+            if not proyecto:
+                continue
+            g = cert_by_proyecto.setdefault(proyecto, {
+                "cliente": f["cliente"], "cp": f["clientPartner"], "tipo": f["tipoProyecto"],
+                "certMonthly": [0.0] * 12, "facts": [],
+            })
+            n = _month_num(f.get("mes"))
+            if n is not None:
+                g["certMonthly"][n - 1] += f["hsCertificadas"]
+                vendidas_monthly[n - 1] += f["hsVendidas"]
+            g["facts"].append(f)
+
+        trab_by_proyecto: dict[str, list[float]] = {}
+        no_asignadas_monthly = [0.0] * 12
+        for tl in time_logs:
+            n = _time_logs_month_num(tl.get("mes"))
+            if n is None:
+                continue
+            if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+                no_asignadas_monthly[n - 1] += tl["horas"]
+                continue
+            arr = trab_by_proyecto.setdefault(tl.get("proyecto"), [0.0] * 12)
+            arr[n - 1] += tl["horas"]
+
+        proyectos_rows = []
+        for proyecto, g in cert_by_proyecto.items():
+            trab_monthly = trab_by_proyecto.get(proyecto, [0.0] * 12)
+            proyectos_rows.append({
+                "tipo": g["tipo"], "cliente": g["cliente"], "cp": g["cp"], "proyecto": proyecto,
+                "certificadas": _round2(sum(g["certMonthly"])),
+                "trabajadas": _round2(sum(trab_monthly)),
+                "certMonthly": [_round2(v) for v in g["certMonthly"]],
+                "trabMonthly": [_round2(v) for v in trab_monthly],
+                "fecha": _fecha_min(g["facts"]),
+            })
+
+        return {
+            "proyectos": proyectos_rows,
+            "vendidasMonthly": [_round2(v) for v in vendidas_monthly],
+            "noAsignadasMonthly": [_round2(v) for v in no_asignadas_monthly],
+        }
+
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
     # Las 3 comparten UN fetch (`get_batch_a_facts`) — nunca 3 llamadas
     # redundantes a las mismas listas.

@@ -671,6 +671,12 @@ const state = {
   // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
+  // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
+  // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
+  // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
+  // service — no comparte ciclo de vida con Batch A/B de las otras
+  // experiencias).
+  rentabilidadDataStatus: "idle",
   // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/
   // Salud de Cliente, ver HANDOFF): MISMO ciclo de vida, UN solo status
   // para las 4 (comparten UN fetch/endpoint consolidado — ver
@@ -1213,6 +1219,13 @@ function replaceRows(arr, rows) {
   arr.length = 0;
   (rows || []).forEach(r => arr.push(r));
 }
+// MISMO patrón que `replaceRows`, para arrays mensuales[12] planos (no
+// filas) — Rentabilidad/Vendidas y No asignadas a servicios (portfolio
+// fijo), ver loadRentabilidadData.
+function replaceMonthly(arr, values) {
+  arr.length = 0;
+  (values || []).forEach(v => arr.push(v));
+}
 async function loadCarteraData() {
   state.carteraDataStatus = "loading";
   try {
@@ -1241,6 +1254,41 @@ function renderCarteraDataState() {
     return reportingSourceErrorHtml("los datos de Cartera");
   }
   return reportingLoadingHtml("Cargando datos de Cartera…");
+}
+
+// Rentabilidad (AMBAS perspectivas, Resumen Y Certificadas vs Ejecutadas —
+// Batch B, ver HANDOFF/real-data-lineage.md §10) — MISMO patrón que
+// loadCarteraData: fetch propio (Certificadas/Vendidas vía backbone de
+// Cartera + Trabajadas/Ejecutadas vía el MISMO adapter de Time Logs que
+// Horas Productivas), `replaceRows`/`replaceMonthly` pueblan EN EL LUGAR
+// `RENTABILIDAD_PROYECTOS` + los 2 arrays mensuales de portfolio (Vendidas/
+// No asignadas), gateado por `rentabilidadDataStatus` propio.
+async function loadRentabilidadData() {
+  state.rentabilidadDataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.rentabilidad) {
+      replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos);
+      replaceMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, data.rentabilidad.vendidasMonthly);
+      replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly);
+      state.rentabilidadDataStatus = "ready";
+    } else {
+      state.rentabilidadDataStatus = "error";
+    }
+  } catch (e) {
+    state.rentabilidadDataStatus = "error";
+  }
+  render();
+}
+function renderRentabilidadDataState() {
+  if (state.rentabilidadDataStatus === "error") {
+    return reportingSourceErrorHtml("los datos de Rentabilidad");
+  }
+  return reportingLoadingHtml("Cargando datos de Rentabilidad…");
 }
 
 // Backbone reuse de Cartera (Horas Vendidas/Participación/Calendario/Salud
@@ -1392,11 +1440,16 @@ function rentabilidadBarRow(label, value, maxAbs) {
 // de árbol (sin toggle/caret/Expandir/Contraer): "si la fuente no tiene
 // expansión jerárquica, no se inventa una".
 function renderRentabilidadMensual(rows, monthMask) {
+  // Batch B (ver HANDOFF/real-data-lineage.md §10): `certMonthly`/
+  // `trabMonthly` por proyecto son AHORA grano mensual REAL (Horas por
+  // proyectos/Time Logs Reports, ambos proyecto×mes en la fuente) — se
+  // suman directo, NUNCA `flatMonthly` de un escalar (esa era la
+  // simplificación de V0 sin datos vivos, ya retirada).
   const certMonthly = new Array(12).fill(0);
   const trabMonthly = new Array(12).fill(0);
   rows.forEach(p => {
-    flatMonthly(p.certificadas).forEach((v, i) => { certMonthly[i] += v; });
-    flatMonthly(p.trabajadas).forEach((v, i) => { trabMonthly[i] += v; });
+    (p.certMonthly || []).forEach((v, i) => { certMonthly[i] += v; });
+    (p.trabMonthly || []).forEach((v, i) => { trabMonthly[i] += v; });
   });
   const rentMonthly = certMonthly.map((v, i) => v - trabMonthly[i]);
   // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5) — Horas
@@ -1434,6 +1487,11 @@ function renderRentabilidadMensual(rows, monthMask) {
 }
 
 function renderRentabilidadResumen() {
+  // Gate del ciclo de vida real-data (ver loadRentabilidadData) — MISMO
+  // status que Certificadas vs Ejecutadas (comparten UN fetch, ver
+  // HANDOFF/real-data-lineage.md §10).
+  if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
+  if (state.rentabilidadDataStatus !== "ready") return renderRentabilidadDataState();
   const rows = rentabilidadFilteredProyectos();
   // Horas Certificadas/Trabajadas/Rentabilidad horas (owner feedback: los
   // tiles quedaban estáticos al filtrar) — se recalculan de `rows` YA
@@ -1498,6 +1556,11 @@ function certEjecGroupTooltip(g) {
 }
 
 function renderRentabilidadCertEjecutadas() {
+  // Gate del ciclo de vida real-data (ver loadRentabilidadData) — MISMO
+  // fetch que Resumen, gateado independiente por si el usuario entra
+  // directo a esta perspectiva.
+  if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
+  if (state.rentabilidadDataStatus !== "ready") return renderRentabilidadDataState();
   const rows = rentabilidadFilteredProyectos();
   const groups = ["Mantenimiento", "Proyecto"].map(tipo => {
     const gRows = rows.filter(p => p.tipo === tipo);
