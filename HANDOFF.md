@@ -6078,7 +6078,140 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
 | **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
-| Reporting Integral V0 (`/operaciones/reporting/integral`) | **V0 / MOCK DATA — merged locally, NOT pushed** |
+| Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
+| Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
+| Reporting Integral — Batch A (5-exp real data) | **NOT STARTED — Phase S precede (ver sección dedicada)** |
+
+## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
+
+> **Sección autoritativa del estado actual de Reporting.** Reemplaza en autoridad
+> al bloque histórico "Reporting Integral V0 = MOCK DATA" de más abajo (queda como
+> registro de la fase V0, ya superada). TODO el trabajo de datos reales vive en el
+> worktree `C:\Users\Joe\DanworWorktrees\reporting-real-data`, branch
+> `work/reporting-real-data` (pusheada a origin). **NUNCA** trabajar en el worktree
+> normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
+
+### Commits (en `work/reporting-real-data`, todos pusheados)
+- `5f88324` — **Cartera live-data VALIDADA/READY** (cierre; retiro de diagnósticos temporales).
+- `765fd53` — discovery + plan de batches de las 5 experiencias restantes (`docs`).
+- `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
+- `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
+- (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### 1. Cartera — LIVE VALIDATED (evidencia del owner)
+Ambas perspectivas cargan datos reales; jerarquía/rollups correctos. Ej. rango
+01/06–31/07/2026: Mantenimientos=71, Trabajadas=1761, Certificadas=8544,
+Vendidas=9862; Aluar rollup Trab=800/Cert=1544/Vend=1680/Estado=En curso. El cero
+de agosto 2026 es DATO real (no defecto). Lineage físico completo + mappings reales
+en `artifacts/reporting-integral-v0/real-data-lineage.md` (fuente de verdad):
+sitio Gestión; listas Horas por proyectos (`6c3a8689…`) / Proyectos (`efa2e279…`) /
+Cliente (`9c09571c…`) + XLSX Facturadas (Tabla24); lookups Graph = `*LookupId` con
+target `item["id"]`; internal names codificados (`A_x00f1_o`/`Status`/
+`ID_x0020_Proyecto_x0020_Danwor`/`Cliente.Title`); Client Partner = lookup de
+Cliente cuyo target se DESCUBRE de `/lists/{cliente}/columns` (`lookup.listId`),
+cargado una vez (sin N+1). Safeguards de producción conservados:
+`ReportingConfigurationError`→`config_incomplete`, `ReportingGraphError`/
+`ReportingSourceError`→`source_error`+stage, `Exception`→traceback server-side
+(`danwor.reporting`) + `{state:source_error,stage:unexpected}`. Endpoint limpio
+`{state, cartera}`.
+
+### 2. Phase 0 — hardening transversal (implementado, `bcf3b5c`)
+- **0A Loader compartido:** `reportingLoadingHtml(label)` reusa el MISMO primitivo
+  Hub de Asignaciones (`section-analysis-loading`+spinner+copy). NO se tocó
+  `tools.css` ni Asignaciones.
+- **0B Geometría estable:** `table.tree-matrix { table-layout: fixed }` → los anchos
+  salen del header, NUNCA del body → expand/collapse no mueve columnas numéricas.
+  Jerarquía 300px fija + numéricas/mes 88px; label con overflow ellipsis
+  (indentación DENTRO de la columna descriptiva).
+- **0C Formateo KPI semántico:** `fmtNum(value, type)` (Intl.NumberFormat en-US,
+  tipos `count/hours/signed/percent`) elimina ruido de punto flotante y unifica
+  miles/decimales; aplicado a tiles, `diffCell`/`diffPlain`, formatter default de
+  `renderTreeRows`. CSS de tile: `min-width:0`+`nowrap`+`tabular-nums`.
+
+### 3. Facet Año de Inicio — corrective (implementado, `2bfb052`)
+`carteraAnioInicioOptions()` computa los años con el MISMO motor faceteado
+(`facetRowsExcept`) sobre filas ya filtradas por Estado+CP/Proyecto/Cliente,
+excluyendo solo el propio año: `availableOptions(F)=filas por todos los otros
+filtros activos`. `pruneCarteraAnioInicio()` (llamado en
+`reconcileExperienceFacets("cartera")`) quita selecciones obsoletas, conserva
+válidas, respeta el facet-empty existente. `carteraAnioInicio` se inicializa tras
+el literal de `state`. Verificado con dataset 2022(Fin)/2023(ambos)/2025(EnCurso)/
+2026(EnCurso): En curso→2023/2025/2026; Finalizado→2022/2023; ambos→unión;
+multidireccional con CP/Cliente.
+
+### 4. Discovery de las 5 experiencias restantes (`765fd53`, detalle en el artefacto)
+Hallazgo central: **~80% reusa el backbone de Cartera** (Horas por proyectos /
+Proyectos / Cliente / Client Partner / XLSX). Solo 2 fuentes NUEVAS: CSV de
+**Time Logs** (`/sites/Operaciones`, "Template Dashboard") para Horas Productivas/
+No asignadas; y la semántica **Ejecutadas** de Rentabilidad (`Comparativo`/`Resumen
+Horas x Proyecto Fac y Ejec`, base Horas por proyectos + XLSX). Participación y
+Calendario **no** requieren fuente nueva: sus campos ya son columnas de la lista
+Cliente (`Frecuencia Actualizacion`/`Permite Adelanto`/`Condicion de Pago`/
+`Calendario_Act`/`ID Frecuencia`). Semántica a preservar: denominadores
+gran-total FIJOS (Participación % y Horas Productivas % Incidencia — NO renormalizar
+a 100%), Calendario = presencia BOOLEANA (✓/blank, nunca conteo), Salud =
+categórico (sin agregación numérica), ratios recomputados tras agregar (nunca
+promediar ratios de hijos). Plan: **Batch A** = Horas Vendidas / Participación /
+Calendario / Horas Productivas-Productivas (backbone reuse). **Batch B** =
+Rentabilidad + Horas Productivas-No asignadas (CSV + Ejecutadas).
+
+### 5. NUEVA DIRECCIÓN DEL OWNER — Phase S: estandarización visual de dashboards
+Antes de Batch A, el próximo agente debe cerrar una inconsistencia visual del Hub:
+Asignaciones y Reporting expresan los MISMOS conceptos (headers de tabla, status
+badges, hover, filas jerárquicas, spacing/tipografía) de forma distinta. **El
+owner prefiere el lenguaje visual de la tabla de Reporting como dirección canónica**
+del Hub. Objetivo: **extraer/generalizar** ese lenguaje en **primitivos Hub
+compartidos** (fuente de verdad única) y que Asignaciones/Reporting/Activity los
+CONSUMAN — NO copiar `reporting.css` a cada módulo, NO crear copias que "se parezcan".
+Vocabulario compartido a cubrir: shell de tabla, header, fila body, hover, fila
+jerárquica/indentación, alineación numérica, geometría estable de columnas, status
+badge, KPI tile, loading/empty/error, filtros/acciones reusables. **Status badges:**
+estandarizar el PRIMITIVO (forma/tipografía/padding/radius/variantes/alineación),
+NO la semántica de negocio (ACTIVO vs En curso/Finalizado siguen siendo valores de
+dominio; sin ontología cross-dominio). **Hover:** intencional y compartido, baseline
+= dirección de Reporting; sutil, sin alterar geometría, funciona en filas padre/hijo.
+Preservar los requisitos de Reporting ya implementados (geometría estable, indent en
+la primera columna, formateo numérico semántico, sin shifts). NO rediseñar la
+arquitectura de información de ninguna experiencia. **Activity/Usage Metrics: NO
+tocar ahora**, pero cuando se toque debe consumir los MISMOS primitivos (requisito
+arquitectónico, no una tercera interpretación).
+
+### 6. Secuencia para el próximo agente (ORDEN)
+1. **Phase S — estandarización visual** (S1 inventariar tablas/status/hover reales de
+   Asignaciones+Reporting+Activity; S2 identificar compartido vs dominio-específico;
+   S3 UN primitivo Hub / fuente de verdad — extraer/generalizar código existente, SIN
+   framework/dependencia de design-system; S4 migrar Reporting y Asignaciones
+   preservando comportamiento funcional, dirección de Reporting cuando haya que elegir;
+   S5 regresión de AMBAS).
+2. **Batch A** — Horas Vendidas / Participación / Calendario / Horas Productivas-
+   Productivas (backbone reuse; usar loader/geometría/formatter de Phase 0; sin mock
+   flash; contratos normalizados sin internal names al browser; join `*LookupId`/
+   `item["id"]`; `/columns` para lookups; paginado; sin N+1; fail-soft).
+3. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
+   y Ejec` ANTES de codificar) + Horas Productivas-No asignadas (adapter CSV Time
+   Logs). Reusar `core.microsoft365` (`graph_get_bytes`); sin cliente Graph nuevo.
+4. **Smoke consolidado del owner** por batch (checklist determinístico: perspectiva,
+   rango con datos, medida representativa, un expand/collapse; + loader/geometría/
+   formato KPI/facet año/no-mock-flash).
+
+### 7. STOP rules (parar SOLO ante un blocker genuino)
+Parar únicamente si: (a) evidencia PBIP/fuente deja DOS interpretaciones de negocio
+materialmente plausibles; (b) acceso live delegado es necesario e indisponible para
+determinar una fuente física; (c) hace falta un cambio en `core.microsoft365`/shared
+Graph fuera de Reporting (STOP y explicar antes); (d) el único paso restante es la
+validación live del owner. NO parar por: nombres codificados, resolución de LookupId,
+joins, paginación, complejidad/tamaño/budget, ajustes de fixtures, reuso de CSS,
+mappings mecánicos.
+
+### 8. Invariantes de seguridad del worktree
+- Worktree del owner `C:\Users\Joe\ArquitectoDanwor` **INTACTO** (lleva cambios
+  locales del owner en `config.py` `OPERATIONS_ALLOWED_USERS="joconnor"` y
+  `webapp/static/tools.css` `.staffing-absence-error`). NUNCA `reset --hard`/`stash`/
+  `restore`/`checkout --`/`clean` sobre él; NUNCA `git add` de esos dos archivos.
+- Todo el trabajo en `C:\Users\Joe\DanworWorktrees\reporting-real-data` (branch
+  `work/reporting-real-data`). Pushear SOLO esa branch.
+- **NO** pushear `work/staffing-vacation-overlay`. **NO** abrir PR salvo pedido
+  explícito. **NO** mergear a la branch del owner.
 
 ## CURRENT EXECUTION POINT
 - **Estado consolidado — Module Identifier Convention V2 CERRADO por
@@ -6125,8 +6258,14 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
     rows`) agregado a Activity para que **owner live smoke #6** identifique
     la etapa exacta. Ningún cambio de negocio/filtro — sigue pendiente la
     corrección real.
-  - **Reporting Integral V0 = V0 / MOCK DATA, mergeado localmente en
-    `work/staffing-vacation-overlay` — NO pusheado.** Vive en
+  - **Reporting Integral V0 (SUPERADO — ver sección autoritativa "REPORTING
+    INTEGRAL — REAL DATA (branch `work/reporting-real-data`)" arriba).** Lo que
+    sigue describe la fase V0/mock, ya superada por la integración de datos
+    reales: Cartera está LIVE VALIDATED en `work/reporting-real-data`; Phase 0 +
+    facet de año implementados; Batch A pendiente (precedido por Phase S de
+    estandarización visual). Registro histórico V0:
+  - Reporting Integral V0 = V0 / MOCK DATA, mergeado localmente en
+    `work/staffing-vacation-overlay` — NO pusheado. Vive en
     `/operaciones/reporting/integral` (Operations nav: "01 Asignaciones" /
     "02 Reporting"). Desarrollado en la branch `work/reporting-integral-v0`
     (varios batches correctivos, ver `git log`); último commit incorporado
