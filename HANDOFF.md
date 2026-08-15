@@ -6078,11 +6078,12 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
 | **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
-| Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
+| Reporting Integral — Cartera real data (corrección de negocio) | **LIVE VALIDATED / READY** — dato correcto confirmado por el owner, no reabierto por la QA de performance |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
 | Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
 | Reporting Integral — Batch B (Horas Productivas + Rentabilidad, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) — Batch B 100% CERRADO |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
+| **Reporting Integral — estado GLOBAL (post owner live QA de performance)** | **FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN** — ver sección "-14." abajo. NUNCA marcar "IMPLEMENTATION COMPLETE" mientras esta fila diga esto. |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
 
@@ -6094,6 +6095,10 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `4dcc36b` — **P0/P2/P7 + fix CRLF del harness KPI**: `perf(reporting): instrument colaboradores lookup, prove Batch A boundary + single-flight cache`. Ver sección "-14." abajo.
+- `b6f3745` — **P3/P4/P5 + UX1/UX2/UX3 — Cartera lazy-load + contrato Año/Mes**: `perf(reporting): lazy-load filtered Cartera data, split Mantenimiento/Proyecto lifecycle`. Ver sección "-14." abajo.
+- `aed2ab2` — **PERFORMANCE CORRECTIVE — root cause de Horas Vendidas >40s**: `perf(reporting): eliminate 4x redundant Graph fetch in Batch A`. Ver sección "-14." abajo.
+- `779fd83` — **CRITICAL HUB STANDARDIZATION CORRECTIVE — primitivo KPI único**: `refactor(hub): establish single KPI rendering primitive across Reporting`. Ver sección "-12." abajo.
 - `c7ec896` — **Batch A — Salud de Cliente CONECTADA (Correction 2 del owner)**: `feat(reporting): connect client health data (Salud de Cliente)`. **BATCH A = 5/5 backbone conectadas**, estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
 - `26b18ac` — **QA4 — fix de reconciliación jerárquica (bug "Avanti")**: `fix(reporting): reconcile hierarchical rollup leaf aggregation (Avanti bug)`.
 - `5dcbb58` — **Batch A — Horas Productivas CONECTADA, contradicción de lineage RESUELTA**: `feat(reporting): connect productive-hours data, resolve lineage contradiction`.
@@ -6106,6 +6111,171 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -14. REPORTING LIVE QA — PERFORMANCE + FILTER CONTRACT + RENTABILIDAD LAYOUT (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner reportó en el smoke live: Cartera ~17s de carga inicial (incluso con
+Estado=En curso por default); Horas Vendidas >40s con el loader trabado en
+"Cargando los datos de Horas Vendidas...". Esta sección documenta root
+cause, fix, límites de runtime antes/después, el nuevo contrato Año/Mes de
+Mantenimiento, y los gaps deliberadamente diferidos. **Reporting NO vuelve a
+"IMPLEMENTATION READY FOR LIVE VALIDATION" hasta que el owner confirme esta
+sección con timings reales — usar exactamente el estado FUNCTIONALLY
+CONNECTED — LIVE PERFORMANCE/UX QA OPEN mientras tanto.**
+
+#### Root cause #1 — Horas Vendidas >40s: fetch 4x redundante de Batch A (`aed2ab2`)
+`ReportingService.get_batch_a()` llamaba `self._repository.get_batch_a_facts(access_token)`
+de forma INDEPENDIENTE dentro de CADA UNA de `get_horas_vendidas`/
+`get_participacion`/`get_calendario`/`get_salud` — un solo POST a
+`/data/batch-a` disparaba el MISMO fetch de Graph (Horas por proyectos ×
+Proyectos × Cliente × Client Partner) **4 veces secuenciales**. Fix: fetch
+único en `get_batch_a()`, shaping puro de Python vía 4 métodos privados
+`_shape_*` nuevos (mismo patrón que Batch B). Regresión cubierta por
+`test_get_batch_a_fetches_backbone_exactly_once_not_four_times`
+(`tests/webapp/test_reporting_batch_a.py`).
+
+#### Root cause #2 — Cartera ~17s: XLSX de Facturadas incondicional (`b6f3745`)
+`get_cartera_facts` descargaba/parseaba SIEMPRE la XLSX de Facturadas
+(SharePoint, archivo real — no un GET de lista), incluso para Mantenimiento
+(donde `facturadas == certificadas`, la XLSX es 100% descartada después de
+leerla) y para el default Estado=En curso (que no necesita historia
+Finalizada). Fix: `include_facturadas: bool = True` en `get_cartera_facts`
+(default preserva retrocompat) + split completo Mantenimiento/Proyecto en 3
+capas — repository → `ReportingService.get_cartera_mantenimiento()` (nunca
+XLSX) / `get_cartera_proyecto()` (con XLSX) → router `perspectiva` param →
+frontend `loadCarteraMantenimiento()`/`loadCarteraProyecto()` con status
+independientes (`carteraMantenimientoStatus`/`carteraProyectoStatus`).
+Regresión: `test_include_facturadas_false_never_downloads_xlsx`,
+`test_cartera_endpoint_perspectiva_mantenimiento_calls_only_that_method`
+(`tests/webapp/test_reporting_cartera.py`).
+
+#### P0 — instrumentación de timing (server-side, `danwor.reporting.perf`, INFO)
+`_StageTimer` en `reporting_repository.py` — SOLO loguea `{label}.{stage}
+elapsed_ms=N items=N`, NUNCA token/valores de negocio/body de Graph/
+contenido de archivo. Cubre: `cartera` (proyectos/cliente/horas_proyectos/
+facturadas_xlsx/client_partner/shaping), `batch_a` (proyectos/cliente/
+horas_proyectos/client_partner/shaping), `time_logs` (operaciones_site/
+proyectos/cliente/csv_download_parse/shaping), `colaboradores`
+(colaboradores). Cada uno logea `.total()` al final. **Instrucción de smoke
+para el owner**: reproducir Cartera y Horas Vendidas con el logger
+`danwor.reporting.perf` en INFO y pegar acá las líneas —no hace falta
+exponer el payload de timing en el JSON del browser, los logs de server
+alcanzan.
+
+#### P1/P6 — auditoría de límites de request, respuestas a las 10 preguntas explícitas
+1. **Cantidad de requests al abrir Horas Vendidas**: exactamente UN POST
+   (`/data/batch-a`), gateado por `state.batchADataStatus === "idle"`.
+2. **Endpoints**: solo `/operaciones/reporting/integral/data/batch-a`.
+3. **Llamados a Graph (antes del fix)**: el MISMO set de 4 listas
+   (Horas por proyectos/Proyectos/Cliente/Client Partner) leído 4 veces →
+   16 llamadas Graph por 1 POST. **Después**: 4 llamadas (una vez cada
+   lista).
+4. **Descargas de archivo**: CERO — Batch A es 100% listas SharePoint vía
+   Graph, nunca un archivo.
+5. **¿Toca Time Logs?**: NO — probado por
+   `test_get_batch_a_never_touches_time_logs_or_facturadas_xlsx`.
+6. **¿Toca la XLSX de Facturadas?**: NO — mismo test.
+7. **¿Se preparan las otras 3 experiencias de Batch A sin pedirlas?**: SÍ,
+   por diseño — Horas Vendidas/Participación/Calendario/Salud comparten
+   GENUINAMENTE el mismo fetch físico (mismo join fuente) — esto es lineage
+   real, no un defecto. El defecto real era el 4x-refetch (root cause #1),
+   ya corregido.
+8. **¿Proyectos/Cliente se leen más de una vez?**: Antes, sí (4x). Después,
+   no — una vez por POST.
+9. **¿El ciclo de render dispara el mismo request más de una vez?**: NO —
+   `loadBatchAData()` pone `state.batchADataStatus = "loading"` como
+   PRIMERA sentencia síncrona, antes de cualquier `await` — un segundo
+   render mientras el fetch está en vuelo nunca ve `"idle"`. Ver
+   `test_all_source_family_loaders_flip_status_synchronously_before_any_await`.
+10. **¿Hay llamados independientes serializados sin necesidad?**: SÍ, sin
+    cambiar — las 4 lecturas de lista dentro de `get_batch_a_facts` son
+    secuenciales (nunca paralelizadas). **Deliberadamente NO
+    paralelizado** (P9): sin acceso Graph real en este entorno no hay
+    evidencia de que la latencia dominante sea la serialización vs. el
+    costo de red por-llamada — decisión pendiente de los timings reales
+    que pegue el owner.
+
+#### P2 — cache single-flight por source-family (sin infraestructura nueva)
+Ya lo garantiza el patrón `idle → loading → ready/error` existente: los 5
+loaders de source-family (`loadCarteraMantenimiento`, `loadCarteraProyecto`,
+`loadRentabilidadData`, `loadBatchAData`, `loadBatchBData`) ponen su status
+en `"loading"` como primera sentencia síncrona, antes de cualquier `await` —
+ninguna infraestructura de Redis/DB/cache nueva hacía falta. Documentado y
+probado en `test_all_source_family_loaders_flip_status_synchronously_before_any_await`.
+
+#### P3/P4/P8 — push-down de filtros al nivel Graph: DIFERIDO, con razón explícita
+NO implementado: `$select`/`$filter` a nivel Graph (P3), Estado-conditional
+fetch a nivel Graph para Cartera (P4), ni Desde/Hasta de Horas Vendidas
+empujado a un `$filter` de Graph (P8). Razón: sin acceso Graph real en este
+entorno no hay forma de validar que un `$filter`/`$select` específico sea
+soportado por la lista SharePoint real sin arriesgar una regresión de datos
+silenciosa (mismo criterio que el ticket permite explícitamente: "si un
+filtro no está soportado o es inseguro, no forzarlo"). Lo que SÍ se hizo en
+su lugar, sin tocar `core.microsoft365`: (a) dejar de leer archivos enteros
+innecesarios cuando no se necesitan (P5, XLSX), (b) partir el ciclo de vida
+por perspectiva para que cada tab pida solo lo suyo (P5/UX1-3), (c) eliminar
+la redundancia de fetch (root cause #1). **Próximo candidato de bajo riesgo
+si el owner lo pide**: filtrado Python-level por Año/Mes DENTRO de
+`get_cartera_mantenimiento` (reduce shaping/payload, no reduce el costo del
+GET de Graph en sí) — ver gap de UX2 abajo.
+
+#### UX1/UX2/UX3 — contrato Año/Mes de Mantenimiento
+Reemplazado Desde/Hasta por **Año** (select de valor único, faceteado —
+participa de `reconcileFacetFilters` igual que Client Partner/Proyecto/
+Cliente, se poda si el valor seleccionado deja de ser válido bajo los demás
+filtros activos) + **Mes** (`carteraMesField()`, 12 opciones fijas +
+"Todos", vía `MESES_LARGOS` — exento de poda mediante el mismo mecanismo
+`predicate` que antes usaban Desde/Hasta, así el <select> nunca desaparece
+un mes sin datos). Grano real de la fuente (mensual), sin fabricar
+precisión diaria. Proyecto conserva su contrato Año de Inicio SIN cambios
+(UX3). Tests: `test_service_mantenimiento_rows_carry_anio_mes_for_ux1_facets`,
+`test_meses_largos_is_fixed_twelve_months_not_derived_from_data`,
+`test_cartera_mes_field_renders_all_twelve_months_plus_todos`,
+`test_facet_config_cartera_mes_has_predicate_anio_does_not`.
+
+**Gap UX2 (documentado, decisión consciente, NO implementado)**: la letra
+del ticket pide que "Estado/Año/Mes participen del request al backend, no
+solo la presentación". Lo implementado empuja `perspectiva` al backend
+(Mantenimiento nunca pide la XLSX ni los datos de Proyecto) pero Año/Mes
+siguen siendo 100% client-side post-fetch, igual que Estado/Client Partner/
+Proyecto/Cliente en la MISMA experiencia. Se decidió NO convertir Año/Mes a
+push-down de servidor porque eso los volvería el ÚNICO facet de Cartera con
+un modelo de interacción distinto (re-fetch de red por cada cambio de
+filtro, en vez de filtrado instantáneo contra el dataset ya cargado) —
+una arquitectura híbrida inconsistente sería peor que el modelo actual
+uniforme. Si el owner prioriza reducir payload/shaping por sobre mantener
+la interacción instantánea, la implementación es de bajo riesgo (filtrado
+Python puro en `get_cartera_mantenimiento`, sin tocar `core.microsoft365`)
+y puede hacerse como siguiente incremento explícito.
+
+#### UX4/UX5 — Rentabilidad Mejor/Peor Performance lado a lado (CERRADO, `aed2ab2`)
+Reusa el primitivo Hub YA existente `.activity-grid-2` (usado por Activity,
+2 columnas desktop / 1 columna <900px) — CERO CSS nuevo. Cálculo/orden/
+colores/población de ranking sin cambios; medida `Certificadas −
+Trabajadas` preservada.
+
+#### Tests nuevos de esta sección (behavior-based, nunca latencia hardcodeada)
+`tests/webapp/test_reporting_cartera.py`: XLSX-skip/still-downloads,
+anio/mes en filas de Mantenimiento, router `perspectiva` (mantenimiento/
+proyecto/omitido), `carteraMesField` 12 meses fijos, `FACET_CONFIG.cartera`
+predicate en Mes/ausente en Año, single-flight síncrono de los 5 loaders.
+`tests/webapp/test_reporting_batch_a.py`: fetch único (no 4x), Batch A
+nunca toca Time Logs/XLSX. Fix adicional (no relacionado a este ticket pero
+descubierto en el camino): `reporting_kpi_primitive.node.js` normaliza a LF
+antes de ubicar el bloque de `renderDashboardKpi` — el checkout CRLF de
+Windows rompía esa costura estructural con un falso positivo de bypass.
+
+#### Estado de runtime — antes vs. después (SharePoint reads por tab, sin timings reales aún)
+| Tab | Antes | Después |
+|---|---|---|
+| Cartera → Mantenimiento (default) | Proyectos+Cliente+Horas+CP + **XLSX Facturadas siempre** | Proyectos+Cliente+Horas+CP, **sin XLSX** |
+| Cartera → Proyecto | Igual (XLSX necesaria) | Igual (XLSX necesaria) — sin cambio |
+| Horas Vendidas (y las 3 hermanas de Batch A) | Backbone leído **4 veces** por 1 POST | Backbone leído **1 vez** por 1 POST |
+| Horas Vendidas | Nunca tocaba Time Logs/XLSX (ya era correcto) | Sin cambio — probado explícitamente ahora |
+
+#### Commits de esta sección
+`aed2ab2` (root cause #1), `b6f3745` (root cause #2 + UX1-3), `4dcc36b`
+(P0/P2/P7 + fix CRLF harness). Todos pusheados a `work/reporting-real-data`.
 
 ### -13. CLARIFICACIÓN — filtros de fecha son una adición del Hub V0, no del PBIP (CERRADO, docs-only)
 Owner corrigió un supuesto implícito de Q2: los controles Desde/Hasta de
