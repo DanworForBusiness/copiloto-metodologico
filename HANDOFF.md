@@ -6106,6 +6106,42 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
+### -7. Q2 — consistencia de rango de fechas (CERRADO) — owner live QA
+Con Desde=01/01/2026 Hasta=14/08/2026, Rentabilidad seguía mostrando Sep-
+Oct-Nov-Dic no-cero en "Detalle mensual por Concepto" (y el mismo bug
+existía en Horas Vendidas). Causa raíz: el filtro de fecha SOLO operaba a
+nivel de FILA (`fecha >= desde && fecha <= hasta`, vía FACET_CONFIG) — una
+fila que pasaba el filtro (su `fecha` representativa cae dentro del rango)
+seguía aportando TODOS sus 12 meses a la matriz/KPIs, incluidos los meses
+fuera del rango activo (Rentabilidad: `flatMonthly` reparte el total anual
+en partes iguales entre los 12 meses sin conocer el filtro; Horas Vendidas:
+cada fila ya trae `monthly[12]` real por mes, pero un proyecto activo
+Ene-Dic con `fecha`=Enero pasaba el filtro y seguía sumando Sep-Dic).
+Regla canónica aplicada: TODO visual/sección de una experiencia deriva de
+la MISMA población filtrada activa; si el grano de la fuente es mensual,
+el filtro de fecha se aplica a grano MENSUAL (Desde/Hasta redondean al mes
+calendario que contienen, nunca día); los headers Ene-Dic se preservan
+SIEMPRE (geometría estable), los meses excluidos quedan en blanco/0, nunca
+se inventa comportamiento de grano día. Dos helpers GENÉRICOS nuevos
+(`monthsInRange(desde,hasta)` → boolean[12], `maskMonthly(monthly,mask)` →
+array[12] con los excluidos en 0, mask `undefined` = passthrough): (1)
+`sumMonthly(rows, monthMask)` y `renderTreeRows(...,monthMask)` ganan un
+parámetro OPCIONAL — Calendario/Capacidad No Asignadas (sin filtro de
+fecha) siguen llamando sin él, comportamiento exacto de siempre; Horas
+Vendidas (matriz, Total, Mantenimiento/Proyecto, Q1-Q4, Hs Estimadas
+anuales) SÍ lo pasa. (2) Rentabilidad: `renderRentabilidadMensual` aplica
+la MISMA máscara a las 5 filas de Concepto (incluidas las 2 fijas de
+portfolio, Horas Vendidas/No asignadas — antes NUNCA respondían a ningún
+filtro); `renderRentabilidadResumen` usa los mismos totales enmascarados
+para sus tiles de Horas Vendidas/No asignadas, así Resumen y el detalle
+mensual quedan consistentes entre sí. Verificado con evidencia de
+EJECUCIÓN real (no solo aserción de patrón de fuente) vía nuevo harness
+Node `reporting_date_range_masking.node.js` (mismo patrón que QA4):
+sin-filtro, el caso exacto reportado por el owner (Ene-Ago incluidos,
+Sep-Dic excluidos), rango dentro de un mes, cruce de año calendario,
+`maskMonthly`/`sumMonthly` con y sin máscara. 4 tests nuevos. Suite
+completa: **886 passed** (882+4), mismos 8 fallos preexistentes.
+
 ### -6. Q1 — Rentabilidad/Cert-vs-Ejec column sizing (CERRADO) — owner live QA
 Detalle por proyecto: Tipo (categórico corto) y Proyecto (descriptivo) eran
 ambas `.left` sin distinción de rol → `table-layout:fixed` repartía el

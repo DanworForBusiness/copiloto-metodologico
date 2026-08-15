@@ -317,6 +317,45 @@ function flatMonthly(total) {
   const remainder = total - base * 12;
   return Array.from({ length: 12 }, (_, i) => base + (i < remainder ? 1 : 0));
 }
+
+// Máscara de meses activos por el rango Desde/Hasta (Q2, owner live QA:
+// Rentabilidad seguía mostrando Sep-Oct-Nov-Dic con Hasta=agosto — misma
+// clase de bug en Horas Vendidas). Regla canónica: TODO visual/sección de
+// UNA experiencia deriva de la MISMA población filtrada activa — si el
+// grano de la fuente es mensual, el filtro de fecha se aplica a grano
+// MENSUAL (nunca día: Desde/Hasta redondean al mes calendario que
+// contienen). Los headers Ene-Dic se PRESERVAN siempre (geometría estable,
+// nunca se ocultan columnas) — los meses fuera de rango quedan en blanco/0
+// vía `maskMonthly`. Sin filtro activo (Desde/Hasta vacíos) ⇒ los 12 meses
+// incluidos, comportamiento "Todos" sin cambio. Las matrices de este
+// prototipo NO tienen eje de Año (12 columnas Ene-Dic fijas, mismo
+// criterio en toda la app) — si Desde/Hasta cruza más de un año
+// calendario, se incluye la UNIÓN de meses tocados en cualquiera de esos
+// años (nunca se inventa un eje de Año que la matriz no tiene).
+function monthsInRange(desde, hasta) {
+  if (!desde && !hasta) return Array(12).fill(true);
+  const startYear = desde ? parseInt(desde.slice(0, 4), 10) : parseInt(hasta.slice(0, 4), 10);
+  const endYear = hasta ? parseInt(hasta.slice(0, 4), 10) : parseInt(desde.slice(0, 4), 10);
+  const startMonth = desde ? parseInt(desde.slice(5, 7), 10) : 1;
+  const endMonth = hasta ? parseInt(hasta.slice(5, 7), 10) : 12;
+  const included = Array(12).fill(false);
+  for (let y = startYear; y <= endYear; y++) {
+    const mFrom = y === startYear ? startMonth : 1;
+    const mTo = y === endYear ? endMonth : 12;
+    for (let m = mFrom; m <= mTo; m++) included[m - 1] = true;
+  }
+  return included;
+}
+
+// Aplica la máscara de `monthsInRange` a un array mensual[12] — meses
+// fuera de rango a 0 (nunca se recorta el array, el header Ene-Dic sigue
+// intacto). `mask` null/undefined ⇒ passthrough (sin filtro de fecha en
+// esa experiencia, ver Calendario/Capacidad — mismo comportamiento de
+// siempre, sin cambio).
+function maskMonthly(monthly, mask) {
+  return mask ? monthly.map((v, i) => (mask[i] ? v : 0)) : monthly;
+}
+
 const RENTABILIDAD_VENDIDAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.vendidas);
 const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsignadas);
 
@@ -1312,7 +1351,7 @@ function rentabilidadBarRow(label, value, maxAbs) {
 // consistencia visual con las demás matrices mensuales, pero SIN el motor
 // de árbol (sin toggle/caret/Expandir/Contraer): "si la fuente no tiene
 // expansión jerárquica, no se inventa una".
-function renderRentabilidadMensual(rows) {
+function renderRentabilidadMensual(rows, monthMask) {
   const certMonthly = new Array(12).fill(0);
   const trabMonthly = new Array(12).fill(0);
   rows.forEach(p => {
@@ -1323,13 +1362,17 @@ function renderRentabilidadMensual(rows) {
   // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5) — Horas
   // Vendidas/No asignadas a servicios quedan a nivel portfolio fijo (ver
   // comentario del dataset), Certificadas/Trabajadas/Rentabilidad horas sí
-  // responden a los filtros vigentes de esta experiencia.
+  // responden a los filtros vigentes de esta experiencia. Q2 (owner live
+  // QA): las 5 conceptos pasan por la MISMA `monthMask` de Desde/Hasta —
+  // meses fuera del rango activo quedan en blanco en TODAS, incluidas las
+  // 2 fijas de portfolio (antes solo el filtro de Tipo/Proyecto llegaba
+  // acá, la fecha nunca se aplicaba a esta matriz).
   const conceptos = [
-    { concepto: "Horas Vendidas", monthly: RENTABILIDAD_VENDIDAS_MENSUAL, signed: false },
-    { concepto: "Horas Certificadas", monthly: certMonthly, signed: false },
-    { concepto: "Horas Trabajadas", monthly: trabMonthly, signed: false },
-    { concepto: "Rentabilidad horas", monthly: rentMonthly, signed: true },
-    { concepto: "No asignadas a servicios", monthly: RENTABILIDAD_NOASIGNADAS_MENSUAL, signed: false },
+    { concepto: "Horas Vendidas", monthly: maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask), signed: false },
+    { concepto: "Horas Certificadas", monthly: maskMonthly(certMonthly, monthMask), signed: false },
+    { concepto: "Horas Trabajadas", monthly: maskMonthly(trabMonthly, monthMask), signed: false },
+    { concepto: "Rentabilidad horas", monthly: maskMonthly(rentMonthly, monthMask), signed: true },
+    { concepto: "No asignadas a servicios", monthly: maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask), signed: false },
   ];
   const body = `
     <div class="matrix-scroll">
@@ -1351,16 +1394,11 @@ function renderRentabilidadMensual(rows) {
 }
 
 function renderRentabilidadResumen() {
-  const r = RENTABILIDAD_RESUMEN;
   const rows = rentabilidadFilteredProyectos();
   // Horas Certificadas/Trabajadas/Rentabilidad horas (owner feedback: los
   // tiles quedaban estáticos al filtrar) — se recalculan de `rows` YA
   // filtradas (mismo criterio que la matriz mensual de abajo, ver
-  // renderRentabilidadMensual), nunca del total fijo de portfolio. Horas
-  // Vendidas/No asignadas a servicios SÍ quedan fijas — no existen como
-  // campo por-proyecto en RENTABILIDAD_PROYECTOS (ver comentario del
-  // dataset), inventar una distribución filtrable sería peor que ser
-  // explícito sobre el límite.
+  // renderRentabilidadMensual), nunca del total fijo de portfolio.
   const certificadas = rows.reduce((s, p) => s + p.certificadas, 0);
   const trabajadas = rows.reduce((s, p) => s + p.trabajadas, 0);
   const rentabilidadHoras = certificadas - trabajadas;
@@ -1369,14 +1407,25 @@ function renderRentabilidadResumen() {
   const negativos = ranked.filter(p => p.rentabilidad < 0).slice().reverse(); // más negativo primero
   const maxAbs = Math.max(...ranked.map(p => Math.abs(p.rentabilidad)), 1);
 
+  // Q2 (owner live QA): Horas Vendidas/No asignadas a servicios no existen
+  // como campo por-proyecto (no responden al filtro de Tipo/Proyecto —
+  // inventar una distribución filtrable sería peor que ser explícito sobre
+  // ese límite), pero SÍ deben responder al filtro de FECHA como el resto
+  // de la sección — antes quedaban fijas al total anual completo aunque
+  // Desde/Hasta acotara a unos pocos meses (misma matriz `flatMonthly` que
+  // usa la sección "Detalle mensual por Concepto" de abajo, MISMA máscara).
+  const monthMask = monthsInRange(getFilter("rentabilidad", "desde"), getFilter("rentabilidad", "hasta"));
+  const vendidasPortfolio = maskMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, monthMask).reduce((a, b) => a + b, 0);
+  const noAsignadasPortfolio = maskMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, monthMask).reduce((a, b) => a + b, 0);
+
   const resumen = dashboardSection("resumen", "Resumen", "", `
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(r.vendidas, "hours")}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(vendidasPortfolio, "hours")}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(certificadas, "hours")}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(trabajadas, "hours")}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
       <div class="activity-kpi"><span class="activity-kpi__value">${diffCell(rentabilidadHoras)}</span><span class="activity-kpi__label">Rentabilidad horas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(r.noAsignadas, "hours")}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
+      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(noAsignadasPortfolio, "hours")}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
     </div>`);
 
   const rankingBody = rows.length ? `
@@ -1387,7 +1436,7 @@ function renderRentabilidadResumen() {
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
-  const mensual = renderRentabilidadMensual(rows);
+  const mensual = renderRentabilidadMensual(rows, monthMask);
 
   return resumen + ranking + mensual;
 }
@@ -1539,10 +1588,14 @@ function sectionToolbar(...partsHtml) {
   return inner ? `<div class="staffing-timeline-toolbar">${inner}</div>` : "";
 }
 
-function sumMonthly(rows) {
+// `monthMask` (opcional, Q2 — ver `monthsInRange`): meses fuera del rango
+// Desde/Hasta activo quedan en 0. `undefined` (default — Calendario/
+// Capacidad No Asignadas no lo pasan, sin filtro de fecha en esas
+// experiencias) preserva el comportamiento exacto de siempre.
+function sumMonthly(rows, monthMask) {
   const totals = new Array(12).fill(0);
   rows.forEach(r => r.monthly.forEach((v, i) => { totals[i] += v; }));
-  return totals;
+  return maskMonthly(totals, monthMask);
 }
 
 // Agrupa `rows` recursivamente según `keys` — GENÉRICO sobre la forma del
@@ -1613,7 +1666,11 @@ function hierarchyToggleHtml(stateKey, pathKey, label, hasChildren, isOpen, care
 // cómo se renderiza CADA celda mensual. Calendario pasa un formateador de
 // tilde (ver corrective — HANDOFF: "las celdas de Calendario_Cliente son
 // booleanas, 1 = tilde, 0 = blanco — nunca la cantidad cruda").
-function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter) {
+// `monthMask` (opcional, Q2 — ver `monthsInRange`): SOLO Horas Vendidas lo
+// pasa (única de las 3 experiencias que consumen este motor con filtro de
+// fecha activo — Calendario/Capacidad No Asignadas no tienen Desde/Hasta,
+// ver HANDOFF). `undefined` preserva el comportamiento exacto de siempre.
+function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter, monthMask) {
   const format = cellFormatter || (v => (v === 0 || v ? fmtNum(v, "hours") : "—"));
   const set = treeExpandedSet(stateKey);
   return nodes.map(node => {
@@ -1621,7 +1678,7 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter
     const isOpen = set.has(node.pathKey);
     const caretChar = !hasChildren ? "" : (isOpen ? "▾" : "▸");
     const indentPx = depth * 20;
-    const monthly = sumMonthly(node.rows);
+    const monthly = sumMonthly(node.rows, monthMask);
     const rowTotal = monthly.reduce((a, b) => a + b, 0);
     const rowHtml = `
       <tr class="depth-${depth}">
@@ -1632,7 +1689,7 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter
         ${monthly.map(v => `<td>${format(v)}</td>`).join("")}
         ${showTotal ? `<td>${rowTotal}</td>` : ""}
       </tr>`;
-    const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal, cellFormatter) : "";
+    const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal, cellFormatter, monthMask) : "";
     return rowHtml + childrenHtml;
   }).join("");
 }
@@ -1756,11 +1813,20 @@ function renderHorasVendidas() {
   const stateKey = "horasvendidas::" + persp;
   const tree = buildTree(rows, hierarchy.keys);
   registerTreeContext(stateKey, rows, hierarchy.keys);
-  const totalMonthly = sumMonthly(rows);
+  // Q2 (owner live QA): cada fila YA filtrada por `fecha` (mes más
+  // temprano con datos, ver facetFilteredRows) puede tener meses REALES
+  // fuera del rango Desde/Hasta activo dentro de su propio `monthly[12]`
+  // (un proyecto activo Ene-Dic pasa el filtro por su `fecha`=Ene, pero
+  // seguía aportando Sep-Dic a la matriz/KPIs aunque Hasta=agosto). La
+  // máscara se aplica DESPUÉS de agregar (matriz, KPIs, Q1-Q4) — misma
+  // población filtrada para toda la sección, nunca un cálculo que la
+  // ignore.
+  const monthMask = monthsInRange(getFilter("horasvendidas", "desde"), getFilter("horasvendidas", "hasta"));
+  const totalMonthly = sumMonthly(rows, monthMask);
 
   const annual = totalMonthly.reduce((s, v) => s + v, 0);
-  const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
-  const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + r.monthly.reduce((a, b) => a + b, 0), 0);
+  const mant = rows.filter(r => r.tipo === "Mantenimiento").reduce((s, r) => s + maskMonthly(r.monthly, monthMask).reduce((a, b) => a + b, 0), 0);
+  const proy = rows.filter(r => r.tipo === "Proyecto").reduce((s, r) => s + maskMonthly(r.monthly, monthMask).reduce((a, b) => a + b, 0), 0);
   const quarter = q => totalMonthly.slice(q * 3, q * 3 + 3).reduce((a, b) => a + b, 0);
 
   const resumen = dashboardSection("resumen", "Resumen", rows.length + " proyecto(s)", `
@@ -1781,7 +1847,7 @@ function renderHorasVendidas() {
       <table class="dashboard-table">
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
-          ${renderTreeRows(stateKey, tree, 0)}
+          ${renderTreeRows(stateKey, tree, 0, false, undefined, monthMask)}
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
         </tbody>
       </table>
