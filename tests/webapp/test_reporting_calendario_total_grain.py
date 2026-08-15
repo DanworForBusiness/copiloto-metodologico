@@ -47,7 +47,10 @@ def test_calendario_footer_total_is_leaf_grain_never_a_tree_node_total():
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderCalendario("):_REPORTING_JS.index("function capacidadProductivasTotal")]
     assert "const totalMonthly = sumMonthly(rows);" in fn
     assert "const grandTotal = totalMonthly.reduce((a, b) => a + b, 0);" in fn
-    assert '<tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}<td>${grandTotal}</td></tr>' in fn
+    # CRITICAL HUB STANDARDIZATION CORRECTIVE (owner live QA — raw float
+    # leak): el footer sigue sumando sobre la lista plana, pero ahora pasa
+    # por `fmtNum(..., "count")` — nunca un número crudo interpolado.
+    assert '<tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${fmtNum(v, "count")}</td>`).join("")}<td>${fmtNum(grandTotal, "count")}</td></tr>' in fn
 
 
 def test_calendario_cell_is_boolean_presence_row_total_is_real_count():

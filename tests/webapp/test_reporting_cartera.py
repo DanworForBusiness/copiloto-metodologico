@@ -499,10 +499,14 @@ def test_loader_reuses_shared_hub_primitive_not_a_reporting_copy():
 
 
 def test_semantic_number_formatter_exists_and_kpis_use_it():
-    # 0C: fmtNum semántico; los tiles KPI ya no renderizan valores crudos.
+    # 0C: fmtNum semántico. CRITICAL HUB STANDARDIZATION CORRECTIVE (owner
+    # live QA — raw float leak): los tiles KPI YA NO construyen su propio
+    # markup con `fmtNum(...)` inline — pasan por el primitivo único
+    # `renderDashboardKpi`, ver test_reporting_kpi_primitive.py para el
+    # contrato completo de esa costura.
     assert "function fmtNum(value, type" in _REPORTING_JS
     assert "Intl.NumberFormat" in _REPORTING_JS
-    assert 'activity-kpi__value">${fmtNum(' in _REPORTING_JS
+    assert "function renderDashboardKpi(" in _REPORTING_JS
     # diffCell usa el formateo con signo (sin ruido de punto flotante).
     diff = _REPORTING_JS[_REPORTING_JS.index("function diffCell"):_REPORTING_JS.index("function diffPlain")]
     assert 'fmtNum(diff, "signed")' in diff
@@ -609,18 +613,20 @@ def test_cartera_proyecto_hierarchy_shows_business_description_not_id():
 
 def test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_formatted():
     # S.3: `carteraKpiTiles` NO debe pasar `col.rollup(rows)` (HTML de
-    # `diffCell`, pensado para la celda de tabla) por `fmtNum` de nuevo —
-    # eso da NaN → "—" aunque el detalle filtrado tenga valores reales. El
-    # tile recalcula el número CRUDO con el mismo `sumField` aditivo
-    # (SUM(diffs) == SUM(Certificadas) − SUM(Trabajadas)) y lo formatea
-    # directo con el tipo semántico "signed".
-    tiles_fn = _REPORTING_JS[_REPORTING_JS.index("function carteraKpiTiles"):_REPORTING_JS.index("function carteraKpiTiles") + 900]
-    assert 'k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed")' in tiles_fn
-    # Patrón viejo (rollup de diff, ya HTML, vuelto a pasar por fmtNum como
-    # si fuera un número) no debe quedar.
-    assert "fmtNum(col.rollup(rows), \"hours\")" not in tiles_fn.replace(
-        'k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed") : fmtNum(col.rollup(rows), "hours")', ""
-    )
+    # `diffCell`, pensado para la celda de tabla) por un formateador de
+    # nuevo — eso da NaN → "—" aunque el detalle filtrado tenga valores
+    # reales. El tile recalcula el número CRUDO con el mismo `sumField`
+    # aditivo (SUM(diffs) == SUM(Certificadas) − SUM(Trabajadas)) y se lo
+    # pasa, SIN formatear, al primitivo `renderDashboardKpi` (CRITICAL HUB
+    # STANDARDIZATION CORRECTIVE — el formateo es responsabilidad EXCLUSIVA
+    # del primitivo, nunca del call site, ver
+    # test_reporting_kpi_primitive.py).
+    tiles_fn = _REPORTING_JS[_REPORTING_JS.index("function carteraKpiTiles"):_REPORTING_JS.index("function carteraKpiTiles") + 1100]
+    assert 'const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);' in tiles_fn
+    assert 'renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" })' in tiles_fn
+    # Patrón viejo (formateo inline en el call site) no debe quedar.
+    assert "fmtNum(sumField(" not in tiles_fn
+    assert "fmtNum(col.rollup(rows)" not in tiles_fn
 
 
 def test_hierarchy_disclosure_is_one_shared_helper_not_duplicated_inline():

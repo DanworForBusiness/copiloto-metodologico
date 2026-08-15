@@ -164,15 +164,15 @@ function carteraKpiTiles(cfg, rows) {
     const col = cfg.columns.find(c => c.key === k.key);
     // Diff Hs (owner live QA — corrective pre-Batch-A): `col.rollup` de esta
     // columna devuelve HTML YA formateado con signo/color (`diffCell`,
-    // pensado para la celda de tabla) — pasar ESO por `fmtNum` de nuevo
-    // (que espera un número) daba `NaN` → "—" aunque el detalle filtrado
-    // tuviera valores reales (ej. Trabajadas=800/Certificadas=1544 → el
-    // tile debía mostrar +744). El tile recalcula el número CRUDO con el
-    // MISMO `sumField` aditivo (SUM(diffs) == SUM(Certificadas) −
-    // SUM(Trabajadas), ver comentario de CARTERA_CONFIG) sin `diffCell`, y
-    // lo formatea directo con el tipo semántico "signed" — nunca vía HTML.
-    const value = k.key === "diff" ? fmtNum(sumField("diff")(rows), "signed") : fmtNum(col.rollup(rows), "hours");
-    return `<div class="activity-kpi"><span class="activity-kpi__value">${value}</span><span class="activity-kpi__label">${esc(k.label)}</span></div>`;
+    // pensado para la celda de tabla) — pasar ESO por el primitivo KPI de
+    // nuevo (que espera un número CRUDO) daba `NaN` → "—" aunque el
+    // detalle filtrado tuviera valores reales (ej. Trabajadas=800/
+    // Certificadas=1544 → el tile debía mostrar +744). El tile recalcula
+    // el número CRUDO con el MISMO `sumField` aditivo (SUM(diffs) ==
+    // SUM(Certificadas) − SUM(Trabajadas), ver comentario de
+    // CARTERA_CONFIG) sin `diffCell` — el primitivo decide el signo/color.
+    const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);
+    return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" });
   }).join("");
 }
 
@@ -716,6 +716,43 @@ function fmtNum(value, type = "hours") {
   if (type === "percent") return _NF.percent.format(n) + "%";
   if (type === "signed") return (n > 0 ? "+" : "") + _NF.hours.format(n);
   return _NF.hours.format(n);  // "hours" (default)
+}
+
+// --- Primitivo KPI compartido del Hub (CRITICAL HUB STANDARDIZATION
+// CORRECTIVE, owner live QA — Horas Productivas/Resumen/TOTAL HORAS
+// mostraba "184613.24999999997" crudo: la clase `.activity-kpi-grid`/
+// `.activity-kpi` YA era compartida, pero cada renderer seguía decidiendo
+// a mano si pasaba el valor por `fmtNum` antes de interpolarlo — un
+// bypass silencioso posible en CUALQUIER tile nuevo). Este constructor es
+// la ÚNICA función que arma un tile KPI en todo el archivo — la ÚNICA
+// ocurrencia de `class="activity-kpi__value"` en el source debe vivir
+// ACÁ (ver test de costura estructural,
+// test_reporting_kpi_primitive.py). Un dominio declara SOLO label/value/
+// format(/accent); numérico (miles/decimales/signo/null/0), markup y
+// tipografía son responsabilidad EXCLUSIVA del primitivo — nunca más se
+// decide de nuevo en cada sitio de llamada.
+//
+// `value` es SIEMPRE el número semántico CRUDO — NUNCA HTML ya formateado
+// (`diffCell`) ni un string con separador de miles ya aplicado (mismo
+// error que dejó en blanco el KPI Diff Hs de Cartera, ver corrective
+// S.3: pasar HTML por un formateador que espera un número da NaN → "—").
+// `format` = mismos tipos semánticos que `fmtNum` ("count"/"hours"/
+// "signed"/"percent", default "hours"). "signed" además colorea el valor
+// (verde/rojo) reusando `.diff-pos`/`.diff-neg` de reporting.css — MISMA
+// convención que `diffCell` en celdas de tabla, sin duplicar la paleta.
+// `accent` (opcional): clase adicional en el CARD, mismo patrón que
+// `.activity-kpi--warning` de Asignaciones — ningún KPI de Reporting la
+// necesita hoy, queda disponible para el próximo caso real.
+function renderDashboardKpi({ label, value, format = "hours", accent }) {
+  const display = fmtNum(value, format);
+  let valueClass = "activity-kpi__value";
+  if (format === "signed") {
+    const n = typeof value === "number" ? value : Number(value);
+    if (isFinite(n) && n > 0) valueClass += " diff-pos";
+    else if (isFinite(n) && n < 0) valueClass += " diff-neg";
+  }
+  const cardClass = accent ? `activity-kpi activity-kpi--${accent}` : "activity-kpi";
+  return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span></div>`;
 }
 
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
@@ -1381,7 +1418,7 @@ function renderCartera() {
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(rows.length, "count")}</span><span class="activity-kpi__label">${esc(cfg.kpiLabel)}</span></div>
+      ${renderDashboardKpi({ label: cfg.kpiLabel, value: rows.length, format: "count" })}
       ${carteraKpiTiles(cfg, rows)}
     </div>`);
 
@@ -1476,8 +1513,8 @@ function renderRentabilidadMensual(rows, monthMask) {
             const total = c.monthly.reduce((s, v) => s + v, 0);
             return `<tr class="depth-0">
               <td class="row-label"><span class="dashboard-table-indent" style="width:0px"></span>${esc(c.concepto)}</td>
-              ${c.monthly.map(v => `<td>${c.signed ? diffCell(v) : (v || "—")}</td>`).join("")}
-              <td>${c.signed ? diffCell(total) : total}</td>
+              ${c.monthly.map(v => `<td>${c.signed ? diffCell(v) : (v ? fmtNum(v, "hours") : "—")}</td>`).join("")}
+              <td>${c.signed ? diffCell(total) : fmtNum(total, "hours")}</td>
             </tr>`;
           }).join("")}
         </tbody>
@@ -1519,11 +1556,11 @@ function renderRentabilidadResumen() {
   const resumen = dashboardSection("resumen", "Resumen", "", `
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(vendidasPortfolio, "hours")}</span><span class="activity-kpi__label">Horas Vendidas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(certificadas, "hours")}</span><span class="activity-kpi__label">Horas Certificadas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(trabajadas, "hours")}</span><span class="activity-kpi__label">Horas Trabajadas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${diffCell(rentabilidadHoras)}</span><span class="activity-kpi__label">Rentabilidad horas</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${fmtNum(noAsignadasPortfolio, "hours")}</span><span class="activity-kpi__label">No asignadas a servicios</span></div>
+      ${renderDashboardKpi({ label: "Horas Vendidas", value: vendidasPortfolio, format: "hours" })}
+      ${renderDashboardKpi({ label: "Horas Certificadas", value: certificadas, format: "hours" })}
+      ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours" })}
+      ${renderDashboardKpi({ label: "Rentabilidad horas", value: rentabilidadHoras, format: "signed" })}
+      ${renderDashboardKpi({ label: "No asignadas a servicios", value: noAsignadasPortfolio, format: "hours" })}
     </div>`);
 
   const rankingBody = rows.length ? `
@@ -1790,7 +1827,7 @@ function renderTreeRows(stateKey, nodes, depth, showTotal = false, cellFormatter
           ${hierarchyToggleHtml(stateKey, node.pathKey, node.label, hasChildren, isOpen, caretChar)}
         </td>
         ${monthly.map(v => `<td>${format(v)}</td>`).join("")}
-        ${showTotal ? `<td>${rowTotal}</td>` : ""}
+        ${showTotal ? `<td>${fmtNum(rowTotal, "count")}</td>` : ""}
       </tr>`;
     const childrenHtml = (hasChildren && isOpen) ? renderTreeRows(stateKey, node.children, depth + 1, showTotal, cellFormatter, monthMask) : "";
     return rowHtml + childrenHtml;
@@ -1934,13 +1971,13 @@ function renderHorasVendidas() {
 
   const resumen = dashboardSection("resumen", "Resumen", rows.length + " proyecto(s)", `
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${annual}</span><span class="activity-kpi__label">Hs Estimadas anuales</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${mant}</span><span class="activity-kpi__label">Mantenimiento</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${proy}</span><span class="activity-kpi__label">Proyecto</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(0)}</span><span class="activity-kpi__label">Vendidas Q1</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(1)}</span><span class="activity-kpi__label">Vendidas Q2</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(2)}</span><span class="activity-kpi__label">Vendidas Q3</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${quarter(3)}</span><span class="activity-kpi__label">Vendidas Q4</span></div>
+      ${renderDashboardKpi({ label: "Hs Estimadas anuales", value: annual, format: "hours" })}
+      ${renderDashboardKpi({ label: "Mantenimiento", value: mant, format: "hours" })}
+      ${renderDashboardKpi({ label: "Proyecto", value: proy, format: "hours" })}
+      ${renderDashboardKpi({ label: "Vendidas Q1", value: quarter(0), format: "hours" })}
+      ${renderDashboardKpi({ label: "Vendidas Q2", value: quarter(1), format: "hours" })}
+      ${renderDashboardKpi({ label: "Vendidas Q3", value: quarter(2), format: "hours" })}
+      ${renderDashboardKpi({ label: "Vendidas Q4", value: quarter(3), format: "hours" })}
     </div>`);
 
   const detalleBody = `
@@ -1951,7 +1988,7 @@ function renderHorasVendidas() {
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0, false, undefined, monthMask)}
-          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
@@ -2054,8 +2091,8 @@ function renderCalendario() {
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
     <div class="activity-kpi-grid">
-      <div class="activity-kpi"><span class="activity-kpi__value">${rows.length}</span><span class="activity-kpi__label">Clientes con calendario</span></div>
-      <div class="activity-kpi"><span class="activity-kpi__value">${grandTotal}</span><span class="activity-kpi__label">Entregas/checkpoints (año)</span></div>
+      ${renderDashboardKpi({ label: "Clientes con calendario", value: rows.length, format: "count" })}
+      ${renderDashboardKpi({ label: "Entregas/checkpoints (año)", value: grandTotal, format: "count" })}
     </div>`);
 
   const detalleBody = `
@@ -2066,7 +2103,7 @@ function renderCalendario() {
         <thead><tr><th class="row-label-col">${hierarchy.labels.join(" / ")}</th>${MESES.map(m => `<th>${m}</th>`).join("")}<th>Total</th></tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0, true, renderCalendarioCell)}
-          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}<td>${grandTotal}</td></tr>
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${fmtNum(v, "count")}</td>`).join("")}<td>${fmtNum(grandTotal, "count")}</td></tr>
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
@@ -2123,7 +2160,7 @@ function renderCapacidadProductivas() {
   registerTreeContext(stateKey, rowsSorted, ["cliente", "proyecto"]);
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
-    <div class="activity-kpi-grid"><div class="activity-kpi"><span class="activity-kpi__value">${filteredTotal}</span><span class="activity-kpi__label">Total Horas</span></div></div>`);
+    <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: filteredTotal, format: "hours" })}</div>`);
 
   const detalleBody = `
     ${sectionToolbar(perspectiveSwitch("capacidad", false), treeToolbarButtons(stateKey))}
@@ -2170,7 +2207,7 @@ function renderCapacidadNoAsignadas() {
         <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
           ${renderTreeRows(stateKey, tree, 0)}
-          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v}</td>`).join("")}</tr>
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}

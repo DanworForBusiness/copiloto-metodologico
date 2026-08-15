@@ -6107,6 +6107,115 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
+### -13. CLARIFICACIÓN — filtros de fecha son una adición del Hub V0, no del PBIP (CERRADO, docs-only)
+Owner corrigió un supuesto implícito de Q2: los controles Desde/Hasta de
+Rentabilidad/Horas Vendidas NO existen en el PBIP original — son una
+adición del Hub V0. Por lo tanto no hay contrato de interacción PBIP que
+pruebe "seleccionar un rango parcial + seguir mostrando/calculando el año
+completo" NI lo contrario — la decisión debe tomarse explícitamente, y
+CUALQUIER medida marcada como "anual"/filter-independent debe verificarse
+contra su DAX antes de forzarle el enmascarado, en vez de asumir
+automáticamente que TODA medida se vuelve parcial por el solo hecho de que
+el Hub ahora tiene Desde/Hasta.
+
+**Decisión canónica** (ya era el comportamiento implementado en Q2, ahora
+confirmada explícitamente como la regla): se preserva el layout Ene-Dic
+estable; meses DENTRO del rango se muestran/calculan normal; meses FUERA
+quedan en blanco/no-aplicable; los totales de período, KPIs trimestrales y
+medidas derivadas NUNCA incluyen meses excluidos.
+
+**Auditoría de "Hs Estimadas anuales"** (candidata explícita a excepción
+filter-independent, Horas Vendidas): verificado contra evidencia PRIMARIA
+del PBIP — la página real ("Estimación Horas Vendidas x CP"/"Estimación
+Horas Vendidas", visual `7f968b6c5e7df49c3d0d`/`aca7aa1afeac6b5976bc`) liga
+esa tarjeta a `Sum(Horas por proyectos.HsVendidas)` — una agregación PLANA,
+SIN `ALL()`/`REMOVEFILTERS` sobre Mes/Año. Las tarjetas "Vendidas Q1-Q4" de
+la MISMA página usan la MISMA medida plana con un filtro de visual
+`Meses[Trimestre]=N` propio (hardcodeado por tarjeta, no derivado de un
+slicer de rango). **Conclusión: ninguna de estas medidas tiene evidencia
+DAX de ser filter-independent — "anuales" es solo el NOMBRE del estado
+default (sin filtro activo), no una garantía de inmunidad a filtros.**
+Por lo tanto la implementación actual (Q2: `annual`/`quarter(0-3)` derivan
+de `totalMonthly` YA enmascarado por `monthMask`) es la CORRECTA y no
+requiere cambio — quedó confirmada, no corregida. **No se encontró ninguna
+medida de Reporting con evidencia DAX de anualidad filter-independent** —
+si el owner identifica una en el smoke real, debe documentarse acá
+explícitamente antes de excluirla del enmascarado (nunca por default).
+Sin cambio de código; investigación documentada como evidencia de cierre.
+
+### -12. CRITICAL HUB STANDARDIZATION CORRECTIVE — primitivo KPI único (CERRADO)
+Owner live QA: "Horas Productivas → Resumen → TOTAL HORAS" renderizaba
+`184613.24999999997` — el ruido de punto flotante de sumar en JS varias
+horas de Time Logs YA individualmente redondeadas (`_round2` en el
+service) reaparece al sumarlas en el FRONTEND (`filteredTotal =
+rows.reduce((s,r)=>s+r.horas,0)`), interpolado directo sin pasar por
+`fmtNum`. **Causa raíz real**: `.activity-kpi`/`.activity-kpi-grid` YA
+eran una clase CSS compartida (Phase S), pero el nivel JS NO — cada
+renderer decidía a mano si envolvía su valor en `fmtNum(...)` antes de
+interpolarlo, dejando SIEMPRE abierta la puerta a un bypass silencioso en
+cualquier tile nuevo (exactamente lo que pasó acá).
+
+**Inventario completo de render-paths KPI** (Reporting): 16 tiles en 5
+grids — Cartera (2 fijas + N vía `carteraKpiTiles`, YA pasaban por
+`fmtNum` pero construían su propio markup), Rentabilidad/Resumen (5,
+una de ellas — "Rentabilidad horas" — pasaba HTML de `diffCell` en vez
+de un número crudo), Horas Vendidas (7, TODAS crudas — `annual`/`mant`/
+`proy`/`quarter(0-3)`), Calendario (2, crudas), Horas Productivas (1,
+cruda — el bug reportado). Asignaciones (`staffing_dashboard.html`) usa
+la MISMA clase CSS compartida pero un motor de renderizado
+estructuralmente DISTINTO (bindings reactivos Alpine `x-text`, no
+template-strings — `webapp/static/app.js`), YA con formateo limpio propio
+(`roundedActiveHours.toLocaleString("en-US")`); Activity/Usage Metrics
+renderiza server-side vía Jinja (`{{ summary.total_events }}`), un
+tercer motor incompatible con un primitivo JS de cliente. Ninguno de los
+dos tiene el bug — ambos quedan **excepciones intencionales**, no
+migrados (ver razón abajo).
+
+**Primitivo único establecido**: `renderDashboardKpi({label, value,
+format, accent})` — la ÚNICA función del archivo que construye markup
+`.activity-kpi` (verificado con test de costura estructural: la clase
+`activity-kpi__value` aparece EXACTAMENTE una vez fuera de comentarios,
+dentro de esta función). El dominio declara SOLO label/value crudo
+semántico/format(/accent) — numérico (miles/decimales/signo/null/0),
+markup y color son responsabilidad EXCLUSIVA del primitivo. `format`
+reusa los 4 tipos ya existentes de `fmtNum` (count/hours/signed/percent);
+`signed` además colorea el valor con `.diff-pos`/`.diff-neg` (MISMA
+paleta que `diffCell` en celdas de tabla, sin duplicar). Contrato 0 vs
+null preservado (0 → "0" válido, null/undefined → "—", NUNCA
+intercambiados).
+
+**Migración completa** (16/16 tiles): Cartera (`carteraKpiTiles` +
+tile de conteo del Resumen), Rentabilidad/Resumen (5, incl. "Rentabilidad
+horas" ahora con valor CRUDO + `format:"signed"`, retirando el HTML de
+`diffCell` del tile), Horas Vendidas (7), Calendario (2), Horas
+Productivas (1 — cierra el bug reportado). Cero sitio de llamada
+interpola un valor crudo.
+
+**Auditoría extendida** (mismo root cause, encontrado durante la
+migración — NO en el inventario original del owner pero la MISMA clase de
+bypass): las filas "Total" de pie de las matrices mensuales (Horas
+Vendidas/Calendario/Capacidad No Asignadas) y la matriz "Detalle mensual
+por Concepto" de Rentabilidad interpolaban celdas/columna Total crudas.
+Corregidas con el MISMO `fmtNum`, preservando la convención de cada tabla
+(0/falsy → "—" en matrices de horas — mismo criterio que las celdas hoja
+ya usaban; Calendario usa `format:"count"` siempre, es un conteo real
+confirmado en Q3, nunca horas).
+
+**Tests**: nuevo harness Node `reporting_kpi_primitive.node.js` (mismo
+patrón que QA4/Q2/Q3 — evidencia de EJECUCIÓN real, no solo aserción de
+patrón de fuente) prueba el valor EXACTO reportado por el owner
+(`184613.24999999997` → "184,613.2"), otro artefacto representativo
+(`52111.100000000006` → "52,111.1"), contrato 0/null, signo +/− con
+color, rechazo de un string ya-formateado (nunca reproducido literal), y
+la costura estructural (única ocurrencia de la clase en todo el archivo).
+5 tests nuevos (`test_reporting_kpi_primitive.py`) + 3 tests preexistentes
+corregidos (asertaban el patrón viejo, ahora incorrecto:
+`test_semantic_number_formatter_exists_and_kpis_use_it`,
+`test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_formatted`,
+`test_calendario_footer_total_is_leaf_grain_never_a_tree_node_total`).
+Suite completa: **910 passed** (905+8−3 corregidos), mismos 8 fallos
+preexistentes.
+
 ### -11. MOCK AUDIT + AUDITORÍA TRANSVERSAL (CERRADO, docs-only)
 Tras Batch A + Batch B, las **6 experiencias / 12 perspectivas** de
 Reporting Integral están conectadas a datos reales: Cartera (Mantenimiento/
