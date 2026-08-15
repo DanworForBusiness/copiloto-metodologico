@@ -182,13 +182,33 @@ function carteraDefaultFilters(persp) {
 // si está representado, si no ningún año tildado (== todo oculto hasta que
 // el usuario elija, nunca una combinación imposible mostrada como si
 // tuviera datos).
+// Facets <select> de Cartera/Proyecto (cp/proyecto/cliente) — lista estable
+// usada también para computar las opciones de Año de Inicio de forma faceteada.
+// No se referencia FACET_CONFIG acá para no crear un ciclo de inicialización
+// con `state`.
+const _CARTERA_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }];
 function carteraAnioInicioOptions() {
-  return distinctValues(CARTERA_PROYECTO_ROWS, "anioInicio");
+  // Facet MULTIDIRECCIONAL (corrective): años disponibles = distinct(anioInicio)
+  // sobre las filas que pasan TODOS los otros filtros activos (Estado +
+  // CP/Proyecto/Cliente), excluyendo SOLO el propio Año de Inicio — nunca un año
+  // imposible bajo el Estado/filtros vigentes. Reusa el mismo `facetRowsExcept`.
+  const statusRows = CARTERA_PROYECTO_ROWS.filter(r => state.carteraStatus[r.status]);
+  const rows = facetRowsExcept(statusRows, state.filters.cartera || {}, _CARTERA_SELECT_FIELDS, "");
+  return distinctValues(rows, "anioInicio");
 }
 function carteraDefaultAnioInicio() {
   const anioActual = String(new Date().getFullYear());
   const options = carteraAnioInicioOptions();
   return new Set(options.includes(anioActual) ? [anioActual] : []);
+}
+// Prune de selección obsoleta (corrective): al cambiar Estado u otro facet,
+// quita de la selección los años que ya no son opción válida; conserva los
+// válidos; si no queda ninguno, respeta el comportamiento facet-empty existente
+// (selección vacía ⇒ sin filas, igual que un checkbox-group sin tildar). Nunca
+// deja un año oculto seleccionado ni auto-selecciona otro.
+function pruneCarteraAnioInicio() {
+  const available = new Set(carteraAnioInicioOptions());
+  state.carteraAnioInicio = new Set([...state.carteraAnioInicio].filter(y => available.has(y)));
 }
 // Desde/Hasta compartido (owner feedback, ver HANDOFF: Rentabilidad/
 // Participación/Horas Vendidas también necesitan un rango de fecha por
@@ -565,12 +585,17 @@ const state = {
   // Año de Inicio de Cartera/Proyecto — checkbox-group multi-select propio
   // (ver carteraDefaultAnioInicio arriba), independiente de `filters` por
   // el mismo motivo que carteraStatus: default NO es "todo tildado".
-  carteraAnioInicio: carteraDefaultAnioInicio(),
+  // Inicializado tras el literal (ver abajo) — carteraDefaultAnioInicio() lee
+  // `state`, que todavía no existe durante la evaluación de este objeto.
+  carteraAnioInicio: new Set(),
   // Ciclo de vida de la carga de datos REALES de Cartera (Reporting real-data
   // Fase 1): idle → loading → ready | error. SOLO Cartera consume datos reales
   // en esta fase; las otras 5 experiencias siguen con su dataset mock embebido.
   carteraDataStatus: "idle",
 };
+// Año de Inicio default — se resuelve DESPUÉS del literal porque
+// carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
+state.carteraAnioInicio = carteraDefaultAnioInicio();
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
@@ -780,6 +805,9 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   if (!cfg) return;
   const { baseRows, fields } = cfg();
   reconcileFacetFilters(expId, baseRows, fields, justChangedKey);
+  // Año de Inicio (Cartera/Proyecto) es multi-select fuera del motor <select>;
+  // se reconcilia su selección obsoleta acá con el MISMO criterio faceteado.
+  if (expId === "cartera") pruneCarteraAnioInicio();
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las

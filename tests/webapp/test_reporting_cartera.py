@@ -516,3 +516,25 @@ def test_kpi_tile_has_overflow_safe_styles():
     # 0C: tiles no se solapan con valores de 5–7 dígitos.
     assert ".activity-kpi { min-width: 0; }" in _REPORTING_CSS
     assert "white-space: nowrap; font-variant-numeric: tabular-nums" in _REPORTING_CSS
+
+
+# ============================================================================
+# Año de Inicio facet respeta Estado + otros filtros (corrective multidireccional)
+# ============================================================================
+
+def test_anio_inicio_options_are_faceted_through_the_shared_engine():
+    block = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioInicioOptions"):_REPORTING_JS.index("function carteraDefaultAnioInicio")]
+    # Reusa el motor faceteado (facetRowsExcept) sobre las filas ya filtradas por
+    # Estado (carteraStatus) — NUNCA distinctValues sobre las filas crudas.
+    assert "facetRowsExcept(statusRows, state.filters.cartera" in block
+    assert "CARTERA_PROYECTO_ROWS.filter(r => state.carteraStatus[r.status])" in block
+    assert "distinctValues(CARTERA_PROYECTO_ROWS" not in block  # ya no ignora Estado
+
+
+def test_stale_anio_inicio_is_pruned_on_facet_change():
+    # Al cambiar Estado u otro facet, se reconcilia la selección obsoleta de año.
+    assert "function pruneCarteraAnioInicio()" in _REPORTING_JS
+    assert 'if (expId === "cartera") pruneCarteraAnioInicio();' in _REPORTING_JS
+    prune = _REPORTING_JS[_REPORTING_JS.index("function pruneCarteraAnioInicio"):]
+    prune = prune[:prune.index("\n}")]
+    assert "available.has(y)" in prune  # conserva solo los válidos, nunca reselecciona
