@@ -13,10 +13,11 @@ test_reporting_batch_a.py. Acá se prueba el CONTRATO TRANSVERSAL:
 - Las 5 experiencias no-Cartera gatean CADA perspectiva interna contra un
   ÚNICO status compartido por main tab (nunca uno por perspectiva) — un
   cambio de perspectiva interna nunca dispara un fetch nuevo.
-- El refresh explícito invalida SOLO su propio main tab/source-family,
-  nunca global, y nunca pisa un fetch ya en vuelo.
 - El estado de un tab sobrevive visitar otro tab (page-session, sin
   infraestructura de cache nueva).
+- NO existe un botón de refresh explícito por tab (retirado, ver sección
+  "EXPLICIT REFRESH" abajo) — solo "✕ Limpiar" y el link "Actualizar↗" a
+  SharePoint.
 """
 from __future__ import annotations
 
@@ -117,49 +118,25 @@ def test_no_perspective_has_its_own_data_status_outside_cartera():
 
 
 # ============================================================================
-# EXPLICIT REFRESH — invalidación por main tab/source-family, nunca global,
-# nunca pisa un fetch en vuelo
+# EXPLICIT REFRESH — RETIRADO (owner feedback: rompía el layout de acciones,
+# el "Actualizar↗" a SharePoint ya alcanza). Guard de regresión: no debe
+# reintroducirse el botón/mecanismo sin una razón arquitectónica fuerte
+# explícita (ver HANDOFF, corrective "TAB-LEVEL HYDRATION + PERSPECTIVE
+# STATE" v2).
 # ============================================================================
 
-def test_invalidate_experience_dispatch_table_covers_all_six_tabs():
-    body = _function_body("invalidateExperience")
-    assert "EXPERIENCE_INVALIDATORS[expId]" in body
-    table = _REPORTING_JS[_REPORTING_JS.index("const EXPERIENCE_INVALIDATORS"):_REPORTING_JS.index("function invalidateExperience")]
-    for exp_id in ("cartera:", "rentabilidad:", "horasvendidas:", "comercial:", "calendario:", "capacidad:"):
-        assert exp_id in table
+def test_explicit_refresh_button_was_deliberately_removed():
+    assert "invalidateExperience" not in _REPORTING_JS
+    assert "EXPERIENCE_INVALIDATORS" not in _REPORTING_JS
+    assert "idleIfNotLoading" not in _REPORTING_JS
+    assert 'onclick="invalidateExperience' not in _REPORTING_JS
 
 
-def test_invalidate_cartera_never_touches_other_tabs_status():
-    table = _REPORTING_JS[_REPORTING_JS.index("const EXPERIENCE_INVALIDATORS"):_REPORTING_JS.index("function invalidateExperience")]
-    cartera_entry = table[table.index("cartera:"):table.index("rentabilidad:")]
-    for other in ("rentabilidadDataStatus", "batchADataStatus", "batchBDataStatus"):
-        assert other not in cartera_entry
-
-
-def test_invalidate_horasvendidas_and_siblings_share_batch_a_by_design_not_by_accident():
-    # horasvendidas/comercial/calendario invalidan el MISMO
-    # `batchADataStatus` — correcto (comparten un único fetch físico real,
-    # ver HANDOFF/real-data-lineage.md), nunca invalidan rentabilidad/
-    # capacidad/cartera (source-families genuinamente distintas).
-    table = _REPORTING_JS[_REPORTING_JS.index("const EXPERIENCE_INVALIDATORS"):_REPORTING_JS.index("function invalidateExperience")]
-    for exp_id in ("horasvendidas:", "comercial:", "calendario:"):
-        entry_start = table.index(exp_id)
-        entry = table[entry_start:entry_start + 120]
-        assert "batchADataStatus" in entry
-        assert "rentabilidadDataStatus" not in entry
-        assert "batchBDataStatus" not in entry
-
-
-def test_invalidate_never_overwrites_an_in_flight_fetch():
-    assert "function idleIfNotLoading(current)" in _REPORTING_JS
-    guard = _function_body("idleIfNotLoading")
-    assert '"loading"' in guard
-    table = _REPORTING_JS[_REPORTING_JS.index("const EXPERIENCE_INVALIDATORS"):_REPORTING_JS.index("function invalidateExperience")]
-    # 8 llamados: Cartera invalida 3 status propios (Mantenimiento/Proyecto/
-    # metadata de años), las otras 5 experiencias 1 cada una — TODOS pasan
-    # por el guard, ninguno pisa "loading" con "idle" a mano.
-    assert table.count("idleIfNotLoading(") == 8
-    assert "= \"idle\";" not in table  # ninguna asignación directa sin el guard
+def test_filter_bar_actions_keep_only_limpiar_and_the_sharepoint_link():
+    body = _function_body("filterBarShell")
+    assert "✕ Limpiar" in body
+    assert "updateHtml" in body
+    assert "refreshHtml" not in body
 
 
 # ============================================================================
