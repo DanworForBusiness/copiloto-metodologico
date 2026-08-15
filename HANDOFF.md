@@ -6095,6 +6095,13 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `6a702c6` — **$select acotado en Proyectos/Cliente/Horas de Cartera**: `perf(reporting): narrow $select on Cartera's Proyectos/Cliente/Horas reads`. Ver sección "-16." abajo.
+- `c4ac77c` — **fix layout Certificadas vs Ejecutadas (matrix-scroll faltante)**: `fix(reporting): wrap Rentabilidad Cert-vs-Ejecutadas detail table in matrix-scroll`. Ver sección "-16." abajo.
+- `a709f0f` — **Ranking Top 5 de Rentabilidad**: `feat(reporting): Top-5 default for Rentabilidad Mejor/Peor performance rankings`. Ver sección "-16." abajo.
+- `c06c3ac` — **auditoría de rollups (3+ niveles, medidas %)**: `test(reporting): extend rollup audit to 3+ level hierarchies and Class B percent measures`. Ver sección "-16." abajo.
+- `edfd2a4` — **fix "Sin dato" en jerarquías con dimensión vacía (Participación)**: `fix(reporting): fallback label for blank hierarchy dimensions (Participacion)`. Ver sección "-16." abajo.
+- `d21e338` — **fix artefacto crudo de punto flotante transversal (Horas Productivas)**: `fix(reporting): close transversal raw-float bypass in the business tree table engine`. Ver sección "-16." abajo.
+- `5a82eb3` — **retiro del botón "Actualizar datos"**: `fix(reporting): remove disruptive explicit refresh button`. Ver sección "-16." abajo.
 - `3915ab7` — **TAB-LEVEL HYDRATION — refresh explícito + tests transversales**: `feat(reporting): explicit per-tab refresh + cross-cutting main-tab hydration contract tests`. Ver sección "-15." abajo.
 - `e76564f` — **TAB-LEVEL HYDRATION — Cartera main-tab + filtro perspective-local + Año hot/cold**: `perf(reporting): main-tab hydration + perspective-local filter state for Cartera`. Ver sección "-15." abajo.
 - `e5fb1d3` — **TAB-LEVEL HYDRATION — ventana caliente de Mantenimiento**: `perf(reporting): hot-window Cartera/Mantenimiento's Horas por proyectos read`. Ver sección "-15." abajo.
@@ -6114,6 +6121,228 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -16. HUB EXPERIENCE POLISH — PERFORMANCE/FILTERS/RENDERING/VISUAL/HORAS PRODUCTIVAS PARITY (PARTIAL — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner asked for 5 concern groups in one pass. **Completed and pushed**:
+button removal, transversal float-format fix, Participación blank-label
+fix, rollup/aggregation audit (clean result, coverage strengthened),
+Rentabilidad Top-5 ranking, wide-table layout fix, Cartera `$select`
+narrowing. **Deliberately deferred** (documented below with concrete
+continuation notes, not abandoned): the Año/Mes/Estado filter-model
+migration for Rentabilidad/Horas Vendidas, Participación's Año-checkbox
+migration, and the Horas Productivas PBI-parity rework — each is a
+Cartera-UX1-sized effort in its own right and genuinely needs its own
+pass rather than a rushed version bolted onto this one.
+
+#### 1. PERFORMANCE — "Actualizar datos" button removed
+Owner feedback: the explicit per-tab refresh button added in the prior
+corrective (§-15) broke the filter bar's action-row layout (wrapped to a
+second row) and wasn't wanted in this form — the pre-existing
+"Actualizar↗" SharePoint link already covers "get fresher data". Removed
+the button AND its entire now-dead invalidation mechanism
+(`invalidateExperience`/`EXPERIENCE_INVALIDATORS`/`idleIfNotLoading`)
+rather than leaving unused code. 4 tests that covered that mechanism were
+replaced with a regression guard confirming it stays removed.
+
+#### 2. PERFORMANCE — Cartera ~13s hot-load, continued investigation
+With the hot-window (§-15) already bounding "Horas por proyectos" to
+current+previous year, the remaining cost is: Proyectos/Cliente dimension
+reads (small, unbounded — correct, they're not time-series) + Client
+Partner resolution + shaping. Found and fixed one more real, SAFE win:
+`get_cartera_facts` requested the FULL item body (every SharePoint system
+metadata field) for Proyectos/Cliente/Horas, when the shaping code reads
+only a handful of named fields from each. `$select` narrows the Graph
+response to exactly those fields — this can only shrink per-item payload,
+never drop/filter a row, so it carries none of `$filter`'s indexing risk.
+The one real risk (a candidate lookup name — `HP_PROYECTO_LOOKUP`/
+`HP_EMPRESA_LOOKUP`/`CLI_CP_LOOKUP` are each "try both forms, never
+confirmed against live Graph") is guarded by the SAME never-break fallback
+pattern already proven for `$filter`: any `$select` failure degrades to
+the full unselected read. `_fetch_horas_proyectos`'s existing `$filter`
+fallback was ALSO hardened to drop `select` on its own fallback path (it
+previously kept re-passing the same possibly-broken `select`, which could
+have failed a second time with no further safety net).
+
+No further Graph-cost reduction is possible without either true `$filter`
+validation (already deferred, needs live Graph) or restructuring the
+SharePoint list itself (out of scope). **Owner smoke**: re-measure Cartera
+first-load with `danwor.reporting.perf` at INFO — expect `proyectos`/
+`cliente`/`horas_proyectos` stage `elapsed_ms` to drop somewhat from
+payload size alone; report the new number so a decision can be made on
+whether `$filter` push-down is still worth pursuing.
+
+#### 3. RENDERING — Participación "sparse values, missing text" (FIXED)
+Root cause: Participación's real PBIP hierarchy (ID Frecuencia > Permite
+Adelanto > Condición de Pago > Cliente, confirmed via
+page_inventory.json/PBIR — see the dataset comment above
+`COMERCIAL_PARTICIPACION_ROWS`) has 3 dimensions that are OPTIONAL on real
+Cliente records — always populated in the V0 mock, frequently blank in
+production SharePoint data. `buildTree` used the raw (possibly empty)
+string as BOTH the grouping key and the display label — a blank category
+produced a tree node with an invisible label: a clickable row with a
+caret and no visible text, reading as "missing" even though the row
+carries real horasVendidas/horasCertificadas underneath. Fix: grouping
+still uses the raw value (blank rows keep collapsing into one node
+together); only the DISPLAY label now falls back to "Sin dato". Applies
+transversally everywhere `buildTree` feeds a hierarchy (Cartera,
+Capacidad/Productivas, Comercial), not just Participación. The
+`_shape_participacion` join itself (clienteId-keyed, same pattern as the
+already-validated Cartera join) was re-audited and found structurally
+sound — no evidence of a join-key bug, only the blank-dimension rendering
+gap.
+
+#### 4. RENDERING — raw float artifact in Horas Productivas (FIXED, transversal)
+Reported artifact: `3.5999999999999996`. The prior KPI-primitive
+corrective (§-12) closed the raw-number bypass in `renderDashboardKpi` and
+in monthly-matrix footers, but never touched `renderBusinessTreeRows` —
+the shared table engine behind Cartera, Capacidad/Productivas, and
+Comercial/Participación's non-monthly business tables. Numeric columns
+without an explicit `formatFn` (Hs Trabajadas/Certificadas/Vendidas/
+Facturadas, Horas) rely on `sumField` returning a RAW number ON PURPOSE —
+`renderDashboardKpi`/`carteraKpiTiles` format it exactly once, and
+formatting it a second time inside `sumField` itself would double-format
+totals ≥ 1000 and reproduce the already-fixed S.3 "Diff Hs KPI blank" bug.
+So the fix lives at the render BOUNDARY instead:
+`renderBusinessTreeRows` now runs any `content` that is still a raw
+`number` through `fmtNum(hours)` as the LAST step before touching the
+DOM, leaving pre-formatted strings (`diffCell` HTML, percent strings,
+status pills) untouched. Closes the bug class for every current and
+future numeric column in that engine. `0` now renders as `"0"`, never
+blank, per the established convention. New
+`reporting_table_formatting.node.js` executes the REAL primitive against
+the exact floating-point noise pattern (`1.2+1.2+1.2 ===
+3.5999999999999996` in JS) plus the 0-render contract.
+
+#### 5. AGGREGATION AUDIT — transversal review, clean result
+Owner: "don't assume prior fixes (QA4 'Avanti') covered every case."
+Extended `reporting_rollup_reconciliation.node.js` with a 3-level
+hierarchy case (matching Participación's real shape) proving an
+INTERMEDIATE node's rollup equals the sum of its own direct children —
+not the root total, not a sibling's — and a Class B percent-measure case
+proving the numerator is summed across the filtered subtree and divided
+by the fixed denominator exactly once, never averaging already-computed
+per-row percentages. **Both pass against the existing engine unmodified**
+— this is a coverage-strengthening exercise with a clean audit result,
+not a bug fix. The rollup engine already generalizes correctly to deeper
+hierarchies and percentage measures.
+
+#### 6. VISUAL — Certificadas vs Ejecutadas table squeeze (FIXED)
+Was the ONLY `table.dashboard-table` in the file missing the
+`.matrix-scroll` wrapper (`overflow-x:auto`) that every sibling wide table
+already uses. With `table-layout:fixed` + 4 fixed-width numeric columns
+(88px each) + a compact Tipo column (100px), the one flexible column
+(Proyecto) had no overflow escape valve and got forced to compress instead
+of the table scrolling horizontally like every other detail/matrix table
+in Reporting. Fixed by reusing the existing shared wrapper (zero new CSS)
+— a one-off width hack was explicitly avoided per the ticket's own
+instruction. Added a transversal regression test asserting every
+`table.dashboard-table` in the file is preceded by `.matrix-scroll`, so a
+future new table can't silently omit it again.
+
+#### 7. VISUAL — Rentabilidad rankings (verified, then improved)
+Mejor (left) / Peor (right) side-by-side via `.activity-grid-2` — verified
+still correct from the prior corrective (§-14), no regression. Added the
+requested Top-5 default: both panels now show the top 5 by rentabilidad
+with a "+ Ver N más" / "Ver menos" toggle (reuses `.dashboard-action-link`,
+same visual language as "Actualizar", no new component) that only appears
+when there are actually more than 5 to reveal. Mejor/Peor keep independent
+expand state. The bar-width scale (`maxAbs`) still comes from the combined
+Mejor+Peor ranking computed once by the caller — both panels stay on one
+comparable scale instead of each rescaling to its own visible subset (a
+subtle correctness requirement: without this, a "peor" project at −50
+could render with the same bar width as a "mejor" project at +500).
+
+#### 8. DEFERRED — Rentabilidad/Horas Vendidas Año+Mes+Estado filter migration
+Not implemented this pass. Scope is genuinely as large as Cartera's own
+UX1 corrective (§-14): needs dependent-options logic (Año options depend
+on Estado, Mes options depend on Año+Estado), defaults (Año=current,
+Mes=Todos, Estado=En curso), and — critically — a **backend shaping
+change that doesn't exist yet**: `estado` is currently populated ONLY on
+Cartera's `_mantenimiento_rows`/`_proyecto_rows` output (verified via
+`grep '"estado"' reporting_service.py` — exactly 2 hits, both Cartera).
+Rentabilidad's `RENTABILIDAD_PROYECTOS`-shaped rows and Horas Vendidas'
+`HORASVENDIDAS_ROWS`-shaped rows carry NO `estado` field at all today,
+even though the underlying `project_facts`/Cartera facts they're built
+from already have it. Adding Estado-aware filtering to these two
+experiences means projecting `estado` into `_shape_horas_vendidas` and
+Rentabilidad's project-grouping method first — straightforward, but real
+work, not a UI-only change. **Continuation point for the next pass**:
+add `estado` to both shapes → mirror Cartera's `FACET_CONFIG` dependent-
+options pattern (Año `{key,field}` participating in reconciliation, Mes
+`{key,field,predicate}` exempt from it, same as Cartera/Mantenimiento) →
+replace the `desde`/`hasta` fields in `FACET_CONFIG.rentabilidad`/
+`FACET_CONFIG.horasvendidas` → new Año/Mes/Estado filter bar fields →
+tests mirroring `test_reporting_cartera.py`'s Año/Mes suite.
+
+**Annual/monthly accumulation vs. selected period** (owner's explicit PBIP
+concern, re-verified before deferring the rest): ALREADY correct, not a
+new bug. `renderRentabilidadResumen`'s KPI tiles (Horas Certificadas/
+Trabajadas/Rentabilidad horas) already recompute from
+`rentabilidadFilteredProyectos()` — the date-filtered set — confirmed by
+the Q2 corrective (§-13/HANDOFF) with PBIP evidence that none of
+Reporting's measures have DAX proof of being filter-independent. Horas
+Vendidas/No asignadas stay at fixed portfolio level (no per-project field
+exists for them) but ARE masked by the active date range via `monthMask`
+— this is the PBIP-verified, already-implemented exception, not an
+oversight. This behavior will carry over unchanged once Año/Mes replaces
+Desde/Hasta (masking derives from whatever the active period resolves to,
+regardless of which UI control set it).
+
+#### 9. DEFERRED — Participación Año multi-select checkboxes
+Not implemented. Real finding, not a scoping shortcut: Participación's
+real PBIP pivotTable (confirmed in the dataset comment above
+`COMERCIAL_PARTICIPACION_ROWS`, from page_inventory.json/PBIR) has NO
+Año/Mes axis at all — Rows are ID Frecuencia/Permite Adelanto/Condición de
+Pago/Cliente, and `_shape_participacion` aggregates each Cliente's
+horasVendidas/horasCertificadas across ALL time into one lifetime total
+(same pattern as Horas Vendidas/Rentabilidad, see §-15's hot-window
+audit). There is no per-row year to filter by without re-deriving one
+that the source report doesn't have, and no PBIP evidence for what
+"Estado" would even mean at the Cliente grain (Estado lives on Proyectos,
+one Cliente can have both En curso and Finalizado projects
+simultaneously). Forcing this filter model onto Participación would be
+inventing a business rule the source doesn't support — explicitly against
+this ticket's own instruction. If the owner wants year/estado narrowing
+here anyway, it needs an explicit product decision on the aggregation
+grain first (e.g., "sum only En-curso projects' hours"), not a code
+change.
+
+#### 10. DEFERRED — Horas Productivas PBI parity rework
+Investigated, not reworked. Owner's PBI reference describes two visuals:
+Cliente, and Cliente + Participación. Current implementation
+(`renderCapacidadProductivas`) already groups Cliente › Proyecto with a
+Rank-by-Horas-desc order (documented as matching the PBIP's RANKX
+measure, see the existing comment above `CAPACIDAD_PRODUCTIVAS_COLUMNS`) —
+this maps to the PBI's "Cliente" visual. The SECOND visual ("Cliente +
+Participación") has no confirmed PBIP/lineage evidence in this codebase
+yet for what "Participación" means in this specific Horas Productivas
+context — it is NOT the same "Participación" as the Comercial/
+Participación experience (different page, different measure family per
+real-data-lineage.md). Implementing a second grouping here without
+re-reading the actual PBIP page/TMDL for "Horas Productivas consumidas"
+(or whichever page holds this second visual) would be inventing the
+business rule the ticket explicitly warns against. **Continuation point**:
+locate the exact PBIP page/visual for "Cliente + Participación" in
+Horas Productivas (likely in the same `Horas por proyectos`/Time Logs
+family already documented in real-data-lineage.md §8bis) and confirm
+its measure before adding a second perspective/column.
+
+#### Tests
+`reporting_table_formatting.node.js`/`test_reporting_table_formatting.py`
+(new): raw-float-bypass closure + 0-render contract. `reporting_rollup_
+reconciliation.node.js`: 2 new cases (3-level hierarchy, Class B percent).
+`reporting_rentabilidad_ranking.node.js`/extended `test_reporting_
+rentabilidad.py`: Top-5 default, toggle round-trip, independent Mejor/
+Peor state, shared bar scale, Mejor-before-Peor markup order.
+`test_reporting_main_tab_hydration.py`: explicit-refresh-removed guard,
+transversal matrix-scroll-wrapper guard. `test_reporting_cartera.py`: new
+`$select`-narrowing-applied and `$select`-rejected-falls-back-safely
+cases, widened one pre-existing test's slice window (broke from added
+comments, not from a behavior change).
+
+Full suite: 1050 passed, 9 pre-existing unrelated Staffing/route-contract
+failures (same set as §-15, confirmed unchanged — not a new baseline).
 
 ### -15. REPORTING PERFORMANCE CORRECTIVE — TAB-LEVEL HYDRATION + PERSPECTIVE STATE (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
 
