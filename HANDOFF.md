@@ -6141,11 +6141,21 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live smoke** de
 > Rentabilidad (no marcar LIVE VALIDATED sin eso).
 >
-> **PRÓXIMO: Horas Vendidas** = misma migración Año/Mes/Estado (mismo patrón; su
-> shape `_shape_horas_vendidas` también colapsa años → aplicar `_shape` por-año +
-> facet + filter bar + Q1-Q4 desde el año elegido). Luego Participación
-> (población + Año-multi/Estado) y Horas Productivas (two-panel). `estado` YA fluye
-> a `project_facts` (7e755e2).
+> **✅ HORAS VENDIDAS = IMPLEMENTATION READY FOR LIVE VALIDATION** (commit
+> `f60c718`). Misma migración Año/Mes/Estado que Rentabilidad: `_shape_horas_vendidas`
+> ahora con `vendidasByYear` (Jul-2025≠Jul-2026) + `estado`; filter bar Año/Mes/
+> Estado (Desde/Hasta removidos, narrow); `horasVendidasSelectedRows()` = población
+> canónica que alimenta jerarquía (Proyecto / Client Partner), matriz, Total,
+> Mant/Proyecto KPI, Q1-Q4 y Hs Estimadas anuales. Mes=Julio → solo Q3.
+> **Hs Estimadas anuales** = interpretación B (SUM de HsVendidas del período),
+> preservada del V0 — NO es `Proyectos.HorasEstimadasalCierredeProyecto` (columna
+> distinta, no cableada). Perspectiva local (cero fetch tras hidratación). PENDIENTE:
+> owner live smoke.
+>
+> **PRÓXIMO: Participación / Comercial** (población + Año multi-select + Estado,
+> denominador gran-total fijo) → luego **Horas Productivas** (two-panel). `estado`
+> ya fluye a `project_facts`/`cliente_dim`; patrón Año/Mes/Estado ya probado 3×
+> (Cartera/Rentabilidad/Horas Vendidas) para reusar.
 >
 > **ENTORNO DE TEST:** usar `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe
 > -m pytest` desde el worktree (NO el venv-gate del scratchpad, que quedó corrupto).
