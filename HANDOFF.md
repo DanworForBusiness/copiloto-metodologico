@@ -6080,6 +6080,7 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
 | Reporting Integral — Cartera real data (corrección de negocio) | **LIVE VALIDATED / READY** — dato/lineage FÍSICO confirmado por el owner, no reabierto por la QA de performance. **PERO** los cambios de performance/UX más recientes sobre Cartera (main-tab hydration, ventana caliente/fría, persistencia de filtro por perspectiva — sección "-15."/"-16.") TODAVÍA NO tienen confirmación live del owner — ver sección "-17." |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
+| Reporting Integral — Rentabilidad Año/Mes/Estado + Cert-vs-Ejec two-panel | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`bc4c7dd`) — ver §-17 |
 | Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
 | Reporting Integral — Batch B (Horas Productivas + Rentabilidad, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) — Batch B 100% CERRADO |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
@@ -6124,24 +6125,33 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 
 ### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
 
-> **PROGRESO (commit `f8db50a`) — Rentabilidad/HV filter migration PASO 1 de 2
-> hecho:** el shape de Rentabilidad (`get_rentabilidad`→`proyectos[]`) y el de
-> Horas Vendidas (`_shape_horas_vendidas`) ya proyectan `estado`
-> (Proyectos.Status). Aditivo/no-rompe. **Paso 2 pendiente** (la vertical grande):
-> grano POR-AÑO en ambos shapes (hoy colapsan años en un `monthly[12]`; Año
-> single-select necesita el `monthly[12]` del año elegido) + facet Año/Mes/Estado
-> en `FACET_CONFIG.rentabilidad`/`horasvendidas` espejando Cartera (`facetRowsExcept`
-> + `pruneCarteraAnioInicio`) + reemplazo de `desde/hasta` en el filter bar + rewire
-> de renderers + tests Año/Mes. Ver §-16 #8.
+> **✅ RENTABILIDAD = IMPLEMENTATION READY FOR LIVE VALIDATION** (commits
+> `f8db50a` estado en shapes → `7e755e2` estado en `get_batch_a_facts.project_facts`
+> → **`bc4c7dd` vertical completa**). DOM: filter bar muestra Client Partner /
+> Cliente / Tipo Proyecto / Proyecto / **Año / Mes / Estado** — Desde/Hasta
+> REMOVIDOS. Service `get_rentabilidad` con grano POR-AÑO (`certByYear`/`trabByYear`/
+> `vendidasByYear`/`noAsignadasByYear`; Ene-2025≠Ene-2026), colapsado retrocompat.
+> UNA población canónica (`rentabilidadSelectedRows()`/`rentabilidadSelectedPortfolio()`
+> proyectan al Año+Mes) alimenta KPIs/Mejor-Peor/matriz Concepto/Cert-vs-Ejec/
+> detalle/totales. Año single-select faceteado por Estado+selects (default año
+> actual/último; `pruneRentabilidadAnio`), Mes Todos+12, Estado checkbox default En
+> curso. Cert-vs-Ejec = Mantenimiento|Proyecto lado a lado (`activity-grid-2`),
+> todo número por `fmtNum`. Año/Mes con `whatsnew-filter--narrow` (fila no wrappea;
+> aplicado también a Cartera). Suite: 1060 passed / 9 known stale / 1 skipped (venv
+> REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live smoke** de
+> Rentabilidad (no marcar LIVE VALIDATED sin eso).
 >
-> **⚠ BLOQUEANTE DE ENTORNO:** el venv-gate del scratchpad
-> (`…/scratchpad/venv-gate`) quedó CORRUPTO entre sesiones — `pytest` y `pip` son
-> namespace packages vacíos (no ejecutan; `-m pytest` y `pip install` fallan). Las
-> imports de la app + openpyxl SÍ andan (permite validación funcional directa via
-> `python - <<PY`). **Antes de correr la suite / el audit de baseline 8→9, hay que
-> restaurar el runner**: venv nuevo con `-c constraints.txt` (fastapi/openpyxl/
-> pytest 9.1.1) o `ensurepip`+`pip install`. El cambio `f8db50a` se validó
-> funcionalmente (no por pytest, por el bloqueo).
+> **PRÓXIMO: Horas Vendidas** = misma migración Año/Mes/Estado (mismo patrón; su
+> shape `_shape_horas_vendidas` también colapsa años → aplicar `_shape` por-año +
+> facet + filter bar + Q1-Q4 desde el año elegido). Luego Participación
+> (población + Año-multi/Estado) y Horas Productivas (two-panel). `estado` YA fluye
+> a `project_facts` (7e755e2).
+>
+> **ENTORNO DE TEST:** usar `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe
+> -m pytest` desde el worktree (NO el venv-gate del scratchpad, que quedó corrupto).
+> Baseline conocida: **9 fallas de contrato stale** (route-surface 84→86, topbar
+> staffing selector, staffing grouping/absence retired-impl, Operations sidebar
+> STAFFING nav) — migraciones Hub/Reporting/Staffing ya autorizadas, NO Reporting.
 
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this
