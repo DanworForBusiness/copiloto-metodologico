@@ -323,6 +323,45 @@ están afectadas (fuente/join distintos, ya verificados independientemente).
 Re-implementación: ver "Batch B" abajo — tarea pendiente, NO ejecutada en este
 pase (este pase es SOLO la verificación de lineage exigida por el owner).
 
+## 8ter. GAPS DE LINEAGE ABIERTOS — Horas Productivas "Cliente + Part" / grano temporal de Participación (owner live QA, NO resueltos — próximo agente)
+
+Dos preguntas de lineage/semántica que el owner planteó en el smoke live y
+que este pase de trabajo dejó EXPLÍCITAMENTE sin resolver (evidencia
+primaria del PBIP todavía no revisada para estos dos casos puntuales — ver
+HANDOFF.md sección "-17." para el contexto completo de owner-QA):
+
+1. **Horas Productivas — segunda vista "Cliente + Part"**: el PBI de
+   referencia que aportó el owner muestra DOS paneles simultáneos: uno
+   agrupado por Cliente (YA implementado, `renderCapacidadProductivas` —
+   Cliente › Proyecto, Rank por Horas desc., coincide con el RANKX del
+   PBIP ya documentado) y otro agrupado por "Cliente + Part" — sin
+   evidencia PRIMARIA todavía revisada en este repo (page.json/TMDL/DAX de
+   esa página puntual) sobre qué significa "Part" en ESTE contexto
+   específico de Horas Productivas. **NO es lo mismo que la experiencia
+   Comercial/Participación** (página distinta, familia de medidas
+   distinta — ver sección 8bis arriba, que ya estableció que Horas
+   Productivas usa el adapter de Time Logs, no el backbone de Cartera).
+   Antes de implementar un segundo grouping, hay que localizar la página
+   PBIP real que contiene ese visual y confirmar su binding/measure — NO
+   inferir del screenshot solo.
+
+2. **Participación — grano temporal (Año/Estado)**: el pivotTable real de
+   "Analisis Participacion - Condiciones Comerciales -" (ya documentado
+   arriba en la sección de Comercial del dataset comment de
+   `reporting.js`) tiene Rows: ID Frecuencia, Permite Adelanto, Condición
+   de Pago, Cliente — SIN eje de Año/Mes. `_shape_participacion` agrega
+   horasVendidas/horasCertificadas de CADA Cliente sobre TODA la historia
+   (mismo patrón "lifetime aggregate" que Horas Vendidas/Rentabilidad, ver
+   HANDOFF sección "-15." hot-window audit). El owner pidió Año como
+   checkbox multi-select faceteado por Estado — pero Estado vive en
+   `Proyectos.Status` (por PROYECTO, no por Cliente: un Cliente puede
+   tener proyectos En curso Y Finalizado simultáneamente) y Año no existe
+   como dimensión en la fuente real de esta página. Implementarlo requiere
+   una decisión de producto explícita sobre el grano de agregación (¿sumar
+   solo horas de proyectos En curso? ¿ponderar por Año de qué hecho
+   exactamente?) antes de tocar código — no hay una única transformación
+   "correcta" derivable del PBIP tal cual existe hoy.
+
 ## 9. Plan de batches (evidence-based)
 
 - **Batch A — "backbone reuse"** (Horas Vendidas, Participación, Calendario,

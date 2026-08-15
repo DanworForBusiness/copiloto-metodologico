@@ -6078,12 +6078,12 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
 | **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
-| Reporting Integral — Cartera real data (corrección de negocio) | **LIVE VALIDATED / READY** — dato correcto confirmado por el owner, no reabierto por la QA de performance |
+| Reporting Integral — Cartera real data (corrección de negocio) | **LIVE VALIDATED / READY** — dato/lineage FÍSICO confirmado por el owner, no reabierto por la QA de performance. **PERO** los cambios de performance/UX más recientes sobre Cartera (main-tab hydration, ventana caliente/fría, persistencia de filtro por perspectiva — sección "-15."/"-16.") TODAVÍA NO tienen confirmación live del owner — ver sección "-17." |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
 | Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
 | Reporting Integral — Batch B (Horas Productivas + Rentabilidad, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) — Batch B 100% CERRADO |
 | Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
-| **Reporting Integral — estado GLOBAL (post owner live QA de performance)** | **FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN** — ver sección "-14." abajo. NUNCA marcar "IMPLEMENTATION COMPLETE" mientras esta fila diga esto. |
+| **Reporting Integral — estado GLOBAL (post owner live QA de performance/UX/semántica)** | **FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN** — ver sección "-17." (briefing de continuación autoritativo, empieza por ahí) y "-14."/"-15."/"-16." (historial). NUNCA marcar "IMPLEMENTATION COMPLETE" ni "REPORTING COMPLETE" mientras esta fila diga esto. |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
 
@@ -6121,6 +6121,206 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
+
+**Status is NOT "Reporting complete."** Cartera's business-data lineage was
+live-validated by the owner and stays valid. Everything else in this
+section — performance, 3 experiences' filter models, Participación's
+actual data population, Horas Productivas' PBI parity — is OPEN. This
+section is the authoritative entry point; -14/-15/-16 below are the
+historical record of HOW the current code got here and stay useful for
+that, but do not treat their "FIXED"/"CLOSED" language as covering more
+than what each literally describes (e.g. -16's "Participación blank-label
+fix" closed ONE rendering symptom — it did NOT validate that the
+underlying client population/counts are correct; see item D below).
+
+#### Shared Hub principle (why this keeps mattering)
+A Danwor Hub primitive owns GENERIC presentation + interaction. A domain
+experience (Cartera, Rentabilidad, Horas Vendidas, Participación, Horas
+Productivas, Calendario) declares business fields, measures, semantic
+formats, hierarchy, and filters — it never reinvents table styling, hover,
+hierarchy disclosure, KPI markup, numeric formatting, the loader, the
+responsive 2-column grid, faceting mechanics, or tab-hydration mechanics.
+The owner is actively testing for this specifically because earlier passes
+repeatedly produced experiences that *looked* similar while *behaving*
+differently underneath. When implementing items B–E below, reuse
+`FACET_CONFIG`/`facetSelectField`/`facetFilteredRows`/`renderDashboardKpi`/
+`renderBusinessTreeRows`/`.activity-grid-2`/`.matrix-scroll` — do not build
+a parallel mechanism for "just this one experience."
+
+#### Filter/state contract (canonical, already implemented for Cartera — replicate, don't reinvent)
+- `availableOptions(F) = rows filtered by all active filters EXCEPT F`.
+- Defaults (re)apply ONLY at: first hydration of a perspective, "Limpiar",
+  or genuine invalid-selection reconciliation (a facet/data change makes
+  the current selection impossible). Never on a plain perspective switch.
+- A MAIN TAB hydrates once (both internal perspectives, concurrently);
+  switching the internal perspective afterward is local — zero new
+  fetches (see `hydrateCarteraTab()`/§-15 for the reference
+  implementation).
+- Cold historical year: lazy-load once on selection, merge into the
+  existing cache (never `replaceRows`), stays warm for the rest of the
+  page session.
+- Month switching inside an already-hydrated year: local, zero network.
+
+#### Performance principle
+Do NOT declare performance solved because `$select` was narrowed, a cache
+exists, or hot/cold history is in place — those are real, shipped
+improvements, but the owner's own live measurement is the only thing that
+closes this. **Current live observation: Cartera initial hot load ≈ 13
+seconds.** Product target is roughly 5–6 seconds for a normal main-tab
+first load — this is a goal to steer toward with real measurement, NOT a
+hardcoded latency assertion in a test (do not write
+`assert elapsed_ms < 6000`). Next agent must pull actual
+`danwor.reporting.perf` stage timings (`proyectos`/`cliente`/
+`horas_proyectos`/`client_partner`/`shaping`/`.total()`) from the owner's
+live smoke and determine what physically dominates before proposing the
+next optimization — do not guess again without that data.
+
+---
+
+#### A. PERFORMANCE — Cartera ≈13s, still open
+Hot/cold navigation is functionally correct (2026/2025 navigable without
+reload, older years lazy-load, filters survive Mantenimiento↔Proyecto).
+`$select` narrowing (§-16) was a real, safe win but its actual live impact
+is unmeasured. **Do not assume it "solved" the 13s** — get the real
+before/after stage timings first.
+
+#### B. RENTABILIDAD — Año/Mes/Estado filter model — NOT IMPLEMENTED
+Only the ranking Top-5/matrix-scroll/side-by-side polish landed (§-16).
+The core ask is still open: **remove Desde/Hasta, add Año dropdown + Mes
+dropdown (with "Todos") + Estado checkboxes (En curso/Finalizado, default
+En curso only)**, Año defaults to current valid year, Mes defaults to
+Todos, and available Año/Mes must facet against Estado + other active
+filters (canonical `availableOptions(F)`, same mechanism as Cartera's
+`FACET_CONFIG.cartera`). Physical Estado lineage is already known:
+`fact → ProyectoLookupId → Proyectos.Status` — the SAME join Cartera
+already performs, just not yet projected into Rentabilidad's row shape
+(`grep '"estado"' reporting_service.py` → only Cartera's 2 hits today).
+Preserve everything already shipped: Top-5 default, "+ Ver N más"
+affordance, Mejor-left/Peor-right, and the common filtered population
+feeding KPI/ranking/matrix/detail (all four already derive from
+`rentabilidadFilteredProyectos()` — keep that single source of truth when
+Año/Mes/Estado replaces Desde/Hasta as the filter's underlying fields).
+
+#### C. HORAS VENDIDAS — Año/Mes/Estado filter model — NOT IMPLEMENTED
+Same ask, same mechanism: remove Desde/Hasta, add Año/Mes(Todos)/Estado
+(En curso default), current-year/Todos/En-curso defaults, Estado from the
+same `Proyectos.Status` mapping (no new adapter). Performance stays a live
+concern here too — owner previously observed >40s (root-caused as the
+Batch A 4x-redundant-fetch and fixed in §-14, but the experience itself
+has never been re-measured after that fix on a real dataset — do not
+assume "fixed" without a fresh number). Internal Proyecto↔Client Partner
+switch must stay local once the main tab has hydrated (already true today
+— HORASVENDIDAS_HIERARCHY just re-groups the same hydrated rows, verify
+this still holds once the filter model changes).
+
+#### D. PARTICIPACIÓN / COMERCIAL — still functionally suspect, NOT just a label fix
+§-16's "Sin dato" fallback fixed ONE visible symptom (blank tree-node text)
+— it does **not** prove client population/counts are correct. The owner's
+live screenshot still looks sparse. Requested filter model: Estado
+(default En curso, optional Finalizado) + Año as **multi-select
+checkboxes** (mirroring Cartera/Proyecto's Año de Inicio pattern), with
+available years depending on Estado. Critical constraint: Año must NOT be
+read off a static Cliente attribute — it has to filter the temporal
+Vendidas/Certificadas FACT population that feeds Participación (i.e. the
+underlying `project_facts`, not `cliente_dim`). Before writing any new
+filter code, reconcile row counts through the actual join pipeline to find
+where clients are silently dropping out — this list is the concrete
+audit the next agent should run and log at each stage (via a throwaway
+script/test, not necessarily new production logging):
+`cliente_source → cliente_with_cp → cliente_with_project_status →
+cliente_with_frecuencia → cliente_with_permite_adelanto →
+cliente_with_condicion_pago → cliente_with_vendidas →
+cliente_with_certificadas → final_participacion_leaves`. Preserve the
+PBIP's fixed-denominator semantics for the % measures — visible/filtered
+groups must NOT renormalize to 100% (the denominator is the grand total,
+`REMOVEFILTERS`, already correctly implemented via
+`comercialPctVendidas`/`comercialPctCertificadas`, see §-15/-16's Class-B
+percent-measure audit — don't regress this when adding the new facets).
+See lineage.md §8ter item 2 for why Año/Estado at Cliente grain has no
+clean PBIP answer yet — a product decision may be needed before code.
+
+#### E. HORAS PRODUCTIVAS — PBI parity — investigated, NOT reworked
+Owner's real PBI reference shows TWO simultaneous panels: **left = Cliente
+(Rank, Horas, % Incidencia, with Año/Mes)**, **right = "Cliente + Part"
+(same measures, with Año/Mes)**. Current Hub implementation
+(`renderCapacidadProductivas`) only reproduces the LEFT panel (Cliente ›
+Proyecto, Rank by Horas desc. — already confirmed to match the PBIP's
+RANKX measure). The right panel ("Cliente + Part") has **no primary PBIP
+evidence reviewed yet in this codebase** for what "Part" means in this
+specific page — it is explicitly NOT the same "Participación" as the
+Comercial/Participación experience (different page, different measure
+family, see lineage.md §8bis). **Do not infer from the screenshot alone,
+but do not leave this deferred without exhausting the PBIP first** —
+inspect `page.json`, the visual's query/bindings, TMDL, DAX, calculated
+fields, and sort/filter definitions for the actual Horas Productivas page
+that holds this second visual (likely in the same Time Logs/`Horas por
+proyectos` family already documented in lineage.md §8bis) before writing
+any code. Target composition once the measure is confirmed: reuse the
+shared responsive 2-column primitive (`.activity-grid-2`, same one already
+used for Rentabilidad's Mejor/Peor), never a new grid.
+
+Also still open, transversal: raw float artifacts (e.g.
+`3.5999999999999996`) were observed LIVE in Horas Productivas even after
+§-16's `renderBusinessTreeRows` fix. Audit formatting in rows, parent
+rollups, totals, KPI tiles, AND tooltips (native `title=` attributes were
+not covered by the §-16 fix — check `rentabilidadBarRow`/
+`certEjecGroupTooltip`-style tooltip builders for a similar raw-number
+interpolation bypass) through the shared `fmtNum`/`renderDashboardKpi`
+path — do not assume §-16 closed every occurrence just because its own
+reported example (table cells) is fixed.
+
+#### Test baseline provenance — 8 vs 9 pre-existing failures — UNRESOLVED, do not silently normalize
+Every full-suite run in this branch, from `aed2ab2` onward (confirmed via
+stash-based isolation testing at multiple points, always the identical 9:
+`test_route_contract.py::test_route_surface_matches_snapshot`,
+`test_platform_topbar.py::test_operations_internal_selector_shows_staffing_identity_disabled`,
+`test_staffing_absence_ui.py::test_toggle_grouping_never_calls_load_absences_again`,
+`test_staffing_director_priority_v2.py::test_grouping_switch_uses_one_timeline_implementation`,
+`test_staffing_director_priority_v2.py::test_dashboard_template_has_gold_grouping_button_distinct_from_expand_collapse`,
+`test_staffing_production_corrective.py::test_15_route_surface_still_84`,
+`test_staffing_production_corrective.py::test_f1_collapse_all_in_consultant_mode_then_switch_to_project_keeps_all_collapsed`,
+`test_staffing_production_corrective.py::test_f4_grouping_switch_never_issues_a_graph_request`,
+`test_workspace_sidebar_frame.py::test_operations_still_renders_its_own_staffing_navigation`)
+— has shown **9**, never 8. An earlier session summary (pre-dating the
+visible transcript of this work) stated "8 pre-existing failures" as the
+baseline at an earlier point in this same branch's history. That earlier
+"8" was never re-verified by direct measurement within this visible
+session — every actual `pytest` run this agent performed, from the very
+first one, already showed 9. **This discrepancy is NOT resolved.**
+Candidate explanations, neither confirmed: (a) the "8" figure was itself
+imprecise (a summarization artifact, not a literally re-run measurement)
+and 9 has been the true count since before this branch's Reporting work
+began; (b) some commit between the "8" measurement point and `aed2ab2`
+introduced a 9th Staffing/route-contract failure as a side effect (all 9
+are Staffing/topbar/sidebar/route-contract — NONE touch Reporting files,
+confirmed by content). Next agent: `git bisect` or manually walk commits
+between the branch's divergence from `main` and `aed2ab2` running the full
+suite at each point to find exactly where (or if) 8 became 9, then either
+fix it (if Reporting-adjacent code caused it) or document definitively
+that it predates all Reporting work (if not). Do not keep re-stating "9
+pre-existing" without this being resolved once — it hasn't been, only
+observed as currently stable.
+
+#### Next agent execution order
+1. Read this section + verify HEAD (`git log --oneline -5`, confirm on
+   `work/reporting-real-data`).
+2. Rentabilidad Año/Mes/Estado (item B).
+3. Horas Vendidas Año/Mes/Estado (item C).
+4. Participación population reconciliation + Año/Estado (item D) — run
+   the join-count audit BEFORE writing filter UI.
+5. Horas Productivas PBIP two-panel parity (item E) — exhaust primary
+   PBIP evidence before writing code.
+6. Continue Cartera/Horas Vendidas performance root-cause optimization
+   with real stage timings from the owner (item A).
+7. Transversal regression audit (float formatting in tooltips especially,
+   per item E's note).
+8. Baseline failure provenance (8 vs 9, above) — bisect or document.
+9. Deliver one consolidated owner smoke checklist covering everything
+   above, not a per-increment checklist each time.
+
+Do not prioritize further cosmetic polish ahead of items 2–6.
 
 ### -16. HUB EXPERIENCE POLISH — PERFORMANCE/FILTERS/RENDERING/VISUAL/HORAS PRODUCTIVAS PARITY (PARTIAL — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
 
@@ -6172,7 +6372,7 @@ first-load with `danwor.reporting.perf` at INFO — expect `proyectos`/
 payload size alone; report the new number so a decision can be made on
 whether `$filter` push-down is still worth pursuing.
 
-#### 3. RENDERING — Participación "sparse values, missing text" (FIXED)
+#### 3. RENDERING — Participación "sparse values, missing text" (BLANK-LABEL SYMPTOM FIXED — POPULATION CORRECTNESS STILL OPEN, see "-17." item D)
 Root cause: Participación's real PBIP hierarchy (ID Frecuencia > Permite
 Adelanto > Condición de Pago > Cliente, confirmed via
 page_inventory.json/PBIR — see the dataset comment above
