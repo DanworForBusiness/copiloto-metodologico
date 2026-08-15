@@ -6080,7 +6080,8 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
 | Reporting Integral — Cartera real data | **LIVE VALIDATED / READY** (branch `work/reporting-real-data`) |
 | Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
-| Reporting Integral — Batch A (5-exp real data) | **NOT STARTED — Phase S precede (ver sección dedicada)** |
+| Reporting Integral — Batch A (5-exp real data, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
+| Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
 
 ## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
 
@@ -6092,7 +6093,9 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
-- `5dcbb58` — **Batch A — Horas Productivas CONECTADA, contradicción de lineage RESUELTA**: `feat(reporting): connect productive-hours data, resolve lineage contradiction`. **BATCH A = 4/4 backbone conectadas**, estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
+- `c7ec896` — **Batch A — Salud de Cliente CONECTADA (Correction 2 del owner)**: `feat(reporting): connect client health data (Salud de Cliente)`. **BATCH A = 5/5 backbone conectadas**, estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
+- `26b18ac` — **QA4 — fix de reconciliación jerárquica (bug "Avanti")**: `fix(reporting): reconcile hierarchical rollup leaf aggregation (Avanti bug)`.
+- `5dcbb58` — **Batch A — Horas Productivas CONECTADA, contradicción de lineage RESUELTA**: `feat(reporting): connect productive-hours data, resolve lineage contradiction`.
 - `5991fdb` — **Batch A — Horas Vendidas/Participación/Calendario CONECTADAS**: `feat(reporting): connect sold-hours, participation, and calendar data`.
 - `c37b56b` — **S.4 CERRADO — PHASE S = CLOSED (contrato de presentación + interacción)**: disclosure jerárquico unificado (`refactor(hub): unify hierarchy disclosure interaction`).
 - `e73f14b` — **Corrective pre-Batch-A CERRADO**: 3 gaps de aceptación de Cartera (`fix(reporting): align canonical Cartera presentation`).
@@ -6103,15 +6106,73 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
 
-### -3. BATCH A — 4/4 BACKBONE CONECTADAS (`5991fdb` + `5dcbb58`) — BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION
+### -5. QA4 — reconciliación jerárquica de rollups (CERRADO, `26b18ac`) — owner live QA ("Avanti")
+Owner reportó en vivo: en Cartera, un padre "Avanti" mostraba
+Certificadas=80/Vendidas=120/Facturadas=80 mientras su único hijo VISIBLE
+mostraba 40/40/40 — violación directa de "padre = SUMA(hijos)". Causa
+raíz (no específica de Avanti): `renderBusinessTreeRows` (motor de render
+de árbol NO-mensual, usado por Cartera/Participación/Salud/Productivas)
+asumía que un nodo "hoja" (sin hijos DECLARADOS en el árbol) siempre tenía
+exactamente 1 fila fuente y renderizaba `node.rows[0]` directo — falso
+para Cartera/Mantenimiento (grano mensual preservado: proyectos
+multi-mes comparten UNA clave de hoja con VARIAS facts). Fix: siempre usar
+`c.rollup(node.rows)` cuando la columna lo define (matemáticamente
+idéntico a `render()` para el caso de 1 fila), solo cae a
+`c.render(node.rows[0])` para hoja-sin-rollup-y-exactamente-1-fila, blank
+en cualquier otro caso. `renderTreeRows` (motor mensual de Horas
+Vendidas/Calendario/Capacidad-No-Asignadas) YA era correcto — usa
+`sumMonthly(node.rows)` sin importar `hasChildren`, nunca indexa `[0]` —
+NO afectado por esta clase de bug.
+
+**Invariante canónico establecido y testeado con evidencia genuina de
+ejecución** (no solo aserción sobre el string fuente): nuevo harness
+`tests/webapp/reporting_rollup_reconciliation.node.js` carga
+`reporting.js` real en sandbox `vm` de Node (sin jsdom/framework de
+browser) y ejecuta `buildTree`/`renderBusinessTreeRows`/`sumField`/
+`uniformValue` contra fixtures sintéticos: (1) hijo único = igualdad
+exacta padre/hijo (reproduce Avanti); (2) multi-hijo = distribución
+correcta (ej. Hijo A trab=10/cert=20/vend=30/fact=20, Hijo B
+trab=5/cert=8/vend=12/fact=8 → padre trab=15/cert=28/vend=42/fact=28); (3)
+reconciliación sobre población YA filtrada; (4) categórico uniforme/mixto
+se propaga solo si es unánime. Invocado desde pytest vía `subprocess.run`
+(`test_reporting_rollup_reconciliation.py`), skip si `node` no está
+disponible. 2 tests nuevos. Suite completa: **879 passed** (877+2), mismos
+8 fallos preexistentes sin relación.
+
+### -4. BATCH A — 5/5 BACKBONE CONECTADA — Salud de Cliente (CERRADO, `c7ec896`) — Correction 2 del owner
+El owner rechazó explícitamente el cierre de Batch A a nivel "bookkeeping
+de batch": Comercial/Participación tiene DOS perspectivas (Participación +
+Salud), y Salud seguía en mock cuando Batch A se declaró "4/4". Completado
+correctamente: el owner dio los internal names REALES confirmados por
+diagnóstico Graph en vivo (no adivinados) — `Salud`,
+`Salud_x0020_Continuidad`, `Salud_x0020_Estrategico`,
+`Salud_x0020_Financiera`, `Salud_x0020_Operativo`,
+`Salud_x0020_Relaci_x00f3_n` en la MISMA lista Cliente ya usada por
+Cartera (sin lista física nueva, sin fetch Graph nuevo — extensión de
+`cliente_dim` dentro de `get_batch_a_facts`). Jerarquía Client Partner →
+Cliente (reuso de la resolución de dimensión ya existente). Estrictamente
+CATEGÓRICO: los 6 campos se propagan verbatim, sin agregación numérica, sin
+orden/severidad inventada — la regla existente de propagación-uniforme-o-
+blank aplica sin cambios (no hay override especial para Salud). Frontend
+gateado con el mismo ciclo de vida `batchADataStatus`
+idle→loading→ready|error que las otras 4 experiencias; mock runtime
+retirado (`renderComercialSalud` ya no puede mostrar `COMERCIAL_SALUD_ROWS`
+sin pasar por el fetch real). 2 tests nuevos de backend (lectura verbatim
+de los 6 campos + omisión de Clientes sin nombre) + tests de frontend
+actualizados (gate de 5 renderers, no-mezcla-mock/real). Suite completa:
+**880 passed** (879+2 nuevos − 1 test obsoleto de mock retirado), mismos 8
+fallos preexistentes sin relación.
+
+### -3. BATCH A — 5/5 BACKBONE CONECTADA (`5991fdb` + `5dcbb58` + `c7ec896`) — BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION
 Horas Vendidas / Participación / Calendario / **Horas Productivas-
-Productivas** leen datos REALES (reusan Cartera: Horas por proyectos ×
-Proyectos × Cliente + Client Partner, UN fetch consolidado
-`get_batch_a_facts` → UN endpoint `/data/batch-a`, MISMO ciclo de vida
-idle→loading→ready|error que Cartera, `.dashboard-table`/`.dashboard-
-status-badge`/disclosure compartido de Phase S sin variantes locales).
-**NO** están cubiertas (permanecen en mock, deliberadamente fuera de
-Batch A): Salud de Cliente, Horas Productivas/No Asignadas.
+Productivas** / **Salud de Cliente** leen datos REALES (reusan Cartera:
+Horas por proyectos × Proyectos × Cliente + Client Partner, UN fetch
+consolidado `get_batch_a_facts` → UN endpoint `/data/batch-a`, MISMO ciclo
+de vida idle→loading→ready|error que Cartera, `.dashboard-table`/
+`.dashboard-status-badge`/disclosure compartido de Phase S sin variantes
+locales). **NO** está cubierta (permanece en mock, deliberadamente fuera
+de Batch A — es Batch B): Horas Productivas/No Asignadas (fuente CSV Time
+Logs, distinta a la de Productivas).
 
 **Nuevas columnas de Cliente leídas** (mismo sitio/lista ya usados por
 Cartera, sin lista nueva): `Frecuencia_x0020_Actualizacion`, `Permite_
@@ -6151,22 +6212,25 @@ array vigente.
 19 tests nuevos en total (repositorio/service: join, agrupamiento
 mensual, agregación de denominador fijo, derivación/normalización de
 frecuencia, presencia booleana, suma por Cliente/Proyecto; frontend:
-ciclo de vida + protección del primitivo compartido). Suite completa:
-**877 passed** (859 baseline + 18 neto), mismos 8 fallos preexistentes.
+ciclo de vida + protección del primitivo compartido) + 2 (QA4) + 2
+(Salud). Suite completa: **880 passed** (859 baseline + 21 neto), mismos
+8 fallos preexistentes.
 
 #### Checklist de smoke consolidado del owner (Batch A, live)
-Para CADA una de las 4 experiencias conectadas:
+Para CADA una de las 5 experiencias conectadas:
 
 | Experiencia | Perspectiva | Rango recomendado | Resultado esperado | Medida representativa | Chequeo de jerarquía |
 |---|---|---|---|---|---|
 | Horas Vendidas | Proyecto | Desde=1/ene/2026 Hasta=hoy | filas no vacías | suma mensual de un proyecto conocido > 0 | expandir Tipo→Cliente→Proyecto, click en el LABEL (no solo el triángulo) |
 | Horas Vendidas | Client Partner | ídem | filas no vacías | KPI "Hs Estimadas anuales" > 0 | igual, con CP como raíz |
 | Participación | Participación | Desde=1/ene/2026 Hasta=hoy | filas no vacías | % Participación Hs Vendidas de un cliente conocido (NO debe sumar 100% entre todos los visibles si hay filtro activo) | expandir ID Frecuencia→Permite Adelanto→Condición de Pago→Cliente |
+| Participación | Salud | sin filtro de fecha | filas no vacías | los 6 campos de Salud (Financiera/Relación/Operativo/Continuidad/Estratégico/Final) muestran valores categóricos reales (Verde/Amarillo/Rojo u otro valor del negocio), NUNCA en blanco para un cliente con dato conocido | expandir Client Partner→Cliente |
 | Calendario | Frecuencia | sin filtro de fecha | filas no vacías | al menos un ✓ visible en un mes con checkpoint conocido | expandir ID Frecuencia→Cliente→Client Partner |
 | Calendario | Client Partner | ídem | filas no vacías | columna Total = cuenta real (no booleana) | igual, con CP como raíz |
 | Horas Productivas | Productivas | sin filtro de fecha | filas no vacías | Horas de un cliente/proyecto conocido == `trabajadas` de ese mismo proyecto en Cartera (validación cruzada directa) | expandir Cliente→Proyecto |
+| Cartera (regresión QA4) | cualquiera | rango con un cliente multi-proyecto/multi-mes conocido | padre = SUMA exacta de sus hijos visibles (Certificadas/Vendidas/Facturadas/Trabajadas), nunca igual a un solo hijo | expandir el padre y sumar los hijos a mano una vez |
 
-**Chequeos de plantilla compartida (las 4 experiencias):**
+**Chequeos de plantilla compartida (las 5 experiencias):**
 - loader Hub aparece brevemente al entrar a cada tab (sin flash de mock);
 - badges de estado (donde aplique) con la forma/paleta compartida;
 - hover de fila sutil, sin mover columnas;
@@ -6370,19 +6434,47 @@ arquitectónico, no una tercera interpretación).
    PHASE S = CLOSED** — ver sección "-2." arriba. No reabrir salvo evidencia
    live nueva del owner o un problema genuino de integración descubierto en
    Batch A.
-2. ~~**Batch A**~~ **4/4 backbone CONECTADAS (`5991fdb` + `5dcbb58`)** — ver
-   sección "-3." arriba. Horas Vendidas/Participación/Calendario/Horas
-   Productivas-Productivas: **BATCH A IMPLEMENTATION READY FOR LIVE
-   VALIDATION** (checklist de smoke consolidado en esa sección). Salud de
-   Cliente sigue en mock (sin lineage documentado); No Asignadas es Batch
-   B (CSV de Time Logs real). Internal names NUEVOS de Cliente
-   (Frecuencia/Permite Adelanto/Condición de Pago/Calendario_Act)
+2. ~~**Batch A**~~ **5/5 backbone CONECTADA (`5991fdb` + `5dcbb58` +
+   `c7ec896`)** — ver sección "-3." arriba. Horas Vendidas/Participación/
+   Calendario/Horas Productivas-Productivas/Salud de Cliente: **BATCH A
+   IMPLEMENTATION READY FOR LIVE VALIDATION** (checklist de smoke
+   consolidado en esa sección). Solo No Asignadas queda fuera — es Batch B
+   (CSV de Time Logs real). Internal names NUEVOS de Cliente
+   (Frecuencia/Permite Adelanto/Condición de Pago/Calendario_Act/Salud*)
    PENDIENTES de confirmar en smoke real (mismo proceso que corrigió los de
    Cartera). No reabrir salvo evidencia live del owner.
-3. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
+2bis. ~~**QA4 — reconciliación jerárquica de rollups**~~ **CERRADO
+   (`26b18ac`)** — ver sección "-5." arriba. Fix transversal en
+   `renderBusinessTreeRows`, afecta los 4 consumidores no-mensuales
+   (Cartera/Participación/Salud/Productivas). No reabrir salvo evidencia
+   live nueva del owner.
+3. **Correction 1 (owner, pendiente)** — verificar lineage de Horas
+   Productivas-Productivas contra evidencia PRIMARIA del PBIP (`E:\Joe\
+   Metodologia\Refactorizacion\Tablero Integral\Danwor - Tablero
+   Integral.pbip`, TMDL/DAX/M/relaciones de modelo/bindings de visual) — la
+   correlación de valores mock (`5dcbb58`) es evidencia corroborante FUERTE
+   pero NO suficiente por sí sola según el owner. 3 resultados posibles: (A)
+   el PBIP confirma que `hsTrabajadas`/Horas-por-proyectos es correcto
+   (implementación actual se mantiene); (B) el PBIP confirma que `Time Logs
+   Reports.HORAS` es la fuente correcta (cambiar al adapter de Time Logs,
+   Batch B); (C) tabla calculada intermedia donde ambas convergen
+   (implementar la semántica real del modelo). Corregir HANDOFF/
+   `real-data-lineage.md` si la redacción actual sobre-afirmó certeza.
+4. **Q1/Q2/Q3 (owner live QA, pendientes)** — Q1: sizing de columnas en
+   Rentabilidad/Certificadas vs Ejecutadas/Detalle por proyecto (vocabulario
+   semántico compartido de `tools.css`, sin hacks locales). Q2: consistencia
+   de rango de fechas — meses fuera de Desde/Hasta deben quedar en blanco/no
+   contribuir a totales en TODA sección de una experiencia (Rentabilidad
+   matriz mensual de Concepto + Horas Vendidas matriz mensual/totales/KPIs
+   trimestrales), grano mensual (nunca inventar grano diario sobre datos
+   mensuales). Q3: confirmar/documentar/testear el grano de los totales
+   mensuales de Calendario contra el PBIP (conteo de celdas true al grano
+   visible vs. conteo de hojas Cliente vs. medida PBIP explícita), sin doble
+   conteo padre+hijo.
+5. **Batch B** — Rentabilidad (resolver Ejecutadas de `Resumen Horas x Proyecto Fac
    y Ejec` ANTES de codificar) + Horas Productivas-No asignadas (adapter CSV Time
    Logs). Reusar `core.microsoft365` (`graph_get_bytes`); sin cliente Graph nuevo.
-4. **Smoke consolidado del owner** por batch (checklist determinístico: perspectiva,
+6. **Smoke consolidado del owner** por batch (checklist determinístico: perspectiva,
    rango con datos, medida representativa, un expand/collapse; + loader/geometría/
    formato KPI/facet año/no-mock-flash). **Nota:** la validación LIVE contra
    SharePoint real (igual que Cartera) requiere sesión con Graph token del
