@@ -6095,6 +6095,9 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
 
 ### Commits (en `work/reporting-real-data`, todos pusheados)
+- `3915ab7` — **TAB-LEVEL HYDRATION — refresh explícito + tests transversales**: `feat(reporting): explicit per-tab refresh + cross-cutting main-tab hydration contract tests`. Ver sección "-15." abajo.
+- `e76564f` — **TAB-LEVEL HYDRATION — Cartera main-tab + filtro perspective-local + Año hot/cold**: `perf(reporting): main-tab hydration + perspective-local filter state for Cartera`. Ver sección "-15." abajo.
+- `e5fb1d3` — **TAB-LEVEL HYDRATION — ventana caliente de Mantenimiento**: `perf(reporting): hot-window Cartera/Mantenimiento's Horas por proyectos read`. Ver sección "-15." abajo.
 - `4dcc36b` — **P0/P2/P7 + fix CRLF del harness KPI**: `perf(reporting): instrument colaboradores lookup, prove Batch A boundary + single-flight cache`. Ver sección "-14." abajo.
 - `b6f3745` — **P3/P4/P5 + UX1/UX2/UX3 — Cartera lazy-load + contrato Año/Mes**: `perf(reporting): lazy-load filtered Cartera data, split Mantenimiento/Proyecto lifecycle`. Ver sección "-14." abajo.
 - `aed2ab2` — **PERFORMANCE CORRECTIVE — root cause de Horas Vendidas >40s**: `perf(reporting): eliminate 4x redundant Graph fetch in Batch A`. Ver sección "-14." abajo.
@@ -6111,6 +6114,189 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 - `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
 - `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
 - (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -15. REPORTING PERFORMANCE CORRECTIVE — TAB-LEVEL HYDRATION + PERSPECTIVE STATE (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner live QA identificó dos defectos arquitectónicos relacionados, más un
+corrective adicional de historia acotada plegado a la misma tanda de
+trabajo (owner: "Do not stop current work to request authorization for
+this addition"):
+
+**A. Estado de filtro perspective-local roto** — Cartera/Mantenimiento
+perdía Año/Mes al ir a Proyecto y volver.
+**B. Hidratación demasiado tardía/granular** — cada MAIN TAB debía
+hidratar UNA vez (ambas perspectivas internas), no re-pagar una espera
+completa nueva al cambiar de perspectiva interna.
+**C. (Addendum) Hot window / cold history** — Cartera/Mantenimiento
+hidrataba TODA la historia (~2023→2026) aunque el default aterriza en el
+año/mes calendario actual.
+
+#### Causa exacta del reset de filtro de Mantenimiento (A)
+`setPerspective(expId, p)` hacía `state.filters.cartera =
+carteraDefaultFilters(p)` en CADA cambio de perspectiva — no solo en la
+inicialización. Mismo patrón (menos grave, mismos síntomas) en `comercial`
+(`state.filters.comercial = ...`) y en el resto de las experiencias vía un
+`else if (state.filters[expId]) state.filters[expId] = {}` genérico:
+CUALQUIER cambio de perspectiva interna en CUALQUIER experiencia con
+Desde/Hasta (Rentabilidad, Horas Vendidas) borraba esa selección.
+
+#### Modelo de estado — antes vs. después
+**Antes**: `setPerspective` reinicializaba `state.filters[expId]` en cada
+cambio, asumiendo (incorrectamente) que cada perspectiva necesita sus
+propios defaults frescos.
+**Después**: `setPerspective` NUNCA toca `state.filters` — el objeto
+único por experiencia YA soporta múltiples perspectivas sin colisión,
+porque `FACET_CONFIG` selecciona los `fields` correctos según la
+perspectiva ACTIVA (Cartera: `anio`/`mes` solo aplican bajo Mantenimiento,
+`cp`/`proyecto`/`cliente` son compartidos; Capacidad: `cliente`
+[Productivas] vs. `consultor` [No Asignadas], claves distintas, conviven
+sin pisarse). Los defaults corren SOLO en: (1) la construcción inicial de
+`state` (una vez, al cargar el script), o (2) "Limpiar" (`resetFilters`,
+acción EXPLÍCITA del usuario). Un cambio de perspectiva nunca dispara
+ninguno de los dos. No se introdujo namespacing por perspectiva
+(`state.filters.cartera.Mantenimiento = {...}`) porque no hacía falta —
+las claves ya son mutuamente exclusivas por diseño del propio
+`FACET_CONFIG`.
+
+#### Reconciliación de facets — sigue aplicando, pero solo ante invalidez real
+Cambiar de perspectiva NUNCA reconcilia/podá nada (no hay razón — nada se
+volvió inválido). La reconciliación real sigue disparando en 2 momentos,
+sin cambios de criterio: (1) el usuario toca un facet (`setFilter`/
+`toggleCarteraStatus`/`toggleCarteraAnioInicio`, ya llamaban
+`reconcileExperienceFacets`); (2) datos reales terminan de hidratarse por
+primera vez (NUEVO: `loadCarteraMantenimiento`/
+`loadCarteraMantenimientoColdYear` ahora llaman
+`reconcileExperienceFacets("cartera")` en su `then` — antes NO lo hacían,
+así que un default calendario sin ningún hecho real bajo el Estado activo
+podía quedar seleccionado sin podar hasta que el usuario tocara algo a
+mano).
+
+#### Contrato MAIN-TAB HYDRATION (B) — 1 hidratación por tab, perspectivas locales
+**Hallazgo clave**: de las 6 experiencias, SOLO Cartera tenía el defecto
+real de re-hidratación — Rentabilidad/Horas Vendidas/Participación-
+Comercial/Calendario/Horas Productivas YA hidratan sus 2 perspectivas
+internas con UN ÚNICO fetch compartido (`rentabilidadDataStatus`/
+`batchADataStatus`/`batchBDataStatus`, ver commits previos de esta serie)
+— cambiar de perspectiva interna en esas 5 SIEMPRE fue local (confirmado,
+nunca corregido porque nunca estuvo roto — ver tests nuevos en
+`test_reporting_main_tab_hydration.py`). El defecto vivía SOLO en Cartera,
+introducido por el corrective P5 de la sesión anterior: split
+Mantenimiento/Proyecto en 2 fetches INDEPENDIENTES, cada uno gateado LAZY
+(solo se disparaba al activar esa perspectiva) — exactamente lo que causó
+el "segundo ~15s al entrar a Proyecto".
+
+**Fix**: `hydrateCarteraTab()` — la PRIMERA activación de CUALQUIER
+perspectiva de Cartera dispara AMBOS fetches (`loadCarteraMantenimiento`/
+`loadCarteraProyecto`) + la metadata de años (ver C abajo) de una vez,
+concurrentes (JS `fetch` no bloqueante — llamarlos uno tras otro ya los
+corre en paralelo). El render de la perspectiva ACTIVA sigue gateado SOLO
+por SU status (progresivo — Mantenimiento nunca espera a Proyecto, que es
+más lento por la XLSX). Para cuando el usuario cambia a Proyecto,
+normalmente ya está tibio.
+
+#### Single-flight (ya existía, documentado/testeado ahora explícitamente)
+Cada `load*` pone su status en `"loading"` como PRIMERA sentencia síncrona
+antes de cualquier `await` — un segundo render mientras el fetch está en
+vuelo nunca ve `"idle"`. `hydrateCarteraTab()` se llama en CADA render de
+Cartera (gratis, ya que verificar 3 strings es O(1)) sin romper esto.
+
+#### EXPLICIT REFRESH — "↻ Actualizar datos" (nuevo, distinto de "Actualizar↗")
+El "Actualizar" preexistente es un link EXTERNO a SharePoint (para que el
+owner edite la fuente — Reporting es de solo lectura, nunca escribe). Se
+agregó un botón SEPARADO "↻ Actualizar datos" (`invalidateExperience`,
+`EXPERIENCE_INVALIDATORS`) — invalida SOLO el status del main
+tab/source-family correspondiente (nunca global: Cartera/Rentabilidad/
+Capacidad tienen status independientes; horasvendidas/comercial/
+calendario comparten `batchADataStatus` A PROPÓSITO — genuinamente
+comparten un único fetch físico). `idleIfNotLoading()` evita pisar un
+fetch ya en vuelo con "idle" (evitaría un segundo fetch concurrente,
+rompiendo single-flight). La selección de filtros del usuario NUNCA se
+toca acá — se preserva, y se reconcilia normalmente cuando los datos
+frescos llegan.
+
+#### HOT WINDOW / COLD HISTORY (C) — SOLO Cartera/Mantenimiento
+**Causa**: `get_cartera_facts` leía "Horas por proyectos" COMPLETO, sin
+ningún filtro de año — Mantenimiento (grano mensual, default = mes/año
+calendario actual) pagaba el costo de TODA la historia (~2023-2026)
+aunque solo mostrara el mes en curso.
+
+**Fix — filtro Graph con fallback probado en producción**: `hot_years`
+(nuevo param de `get_cartera_facts`) intenta `$filter` OData (`A_x00f1_o
+eq '2026' or A_x00f1_o eq '2025'`) + header `Prefer:
+HonorNonIndexedQueriesWarningMayFailRandomly` — EXACTAMENTE el patrón que
+`staffing_repository._fetch_asignaciones` ya usa en producción para el
+scope operational/historical_inactive de Asignaciones (nunca un filtro
+"a ciegas" — este entorno no tiene acceso Graph real para validar, pero el
+patrón YA está probado por Staffing). Si Graph rechaza el filtro (columna
+no indexada, cualquier fallo de transporte), cae automáticamente a lectura
+completa + filtro en Python — Cartera NUNCA se rompe por una query no
+soportada.
+
+`get_cartera_mantenimiento` resuelve el default a año actual + anterior
+(`datetime.now()`, nunca hardcodeado) cuando el router no recibe `anios`
+explícito. **Proyecto NUNCA recibe ventana** — agrega la VIDA COMPLETA del
+proyecto (certificadas/trabajadas/vendidas son sumas de TODOS los meses
+históricos, ver `_proyecto_rows`); acotarlo rompería ese contrato de
+totales. `get_cartera()` (combo retrocompat) tampoco.
+
+**Años fríos siguen siendo opciones válidas** (nunca se esconden): nuevo
+endpoint liviano `POST /data/cartera/anios-disponibles`
+(`get_cartera_mantenimiento_anio_estado_pairs`, `$select` acotado a
+año+lookup de Proyecto en Horas por proyectos + Tipo/Status en Proyectos
+— NUNCA Cliente/HsTrabajadas/HsVendidas/HsFacturadas/la XLSX) — disparado
+en PARALELO por `hydrateCarteraTab`, nunca bloquea el primer render de
+Mantenimiento. El <select> de Año (`carteraAnioField`/
+`carteraAnioOptions`) une esta metadata con los años YA cargados,
+faceteado por Estado (canónico: "STATUS STILL FACETS YEAR OPTIONS").
+Elegir un año frío dispara `loadCarteraMantenimientoColdYear(anio)`
+(single-flight POR AÑO) que `mergeRows` (nunca `replaceRows`) sobre lo ya
+hidratado — la ventana caliente se preserva, el año frío se agrega y
+queda tibio para el resto de la sesión.
+
+#### Auditoría explícita — ¿aplica hot window a Horas Vendidas/Rentabilidad/Horas Productivas?
+**NO, y no es un descuido — es un hallazgo real de auditoría.** Los 3 son
+contratos de VIDA COMPLETA/agregado, no de año-y-mes como Mantenimiento:
+- `_shape_horas_vendidas` (Horas Vendidas): agrupa `monthly[12]` SOLO por
+  número de mes (`n = _month_num(f["mes"])`, `g["monthly"][n-1] +=
+  f["hsVendidas"]`) — SIN distinguir año. Un proyecto con datos de Marzo
+  2023/2024/2025/2026 los suma TODOS en el mismo `monthly[2]`. Acotar a
+  2 años cambiaría el NÚMERO que el owner ve, no solo la velocidad —
+  sería un bug de datos disfrazado de optimización.
+- `get_rentabilidad`/`certMonthly`/`trabMonthly`: MISMO patrón
+  (`g["certMonthly"][n-1] += f["hsCertificadas"]`, sin año).
+- `_shape_horas_productivas` (Horas Productivas): ni siquiera tiene
+  desglose mensual — `horas` es UN escalar sumado sobre TODO Time Logs sin
+  ninguna dimensión temporal.
+
+Los 3 REQUIEREN historia completa para seguir siendo correctos bajo su
+contrato actual — un hot window ahí sería una regresión de negocio, no
+una mejora de performance. El >40s de Horas Vendidas YA tenía su root
+cause real corregido en el corrective anterior (4x-refetch redundante de
+Batch A, ver sección "-14."); este addendum no encontró una causa
+ADICIONAL ahí. Si el owner quiere ACOTAR el alcance de estas 3 medidas
+(p. ej. redefinir "Horas Vendidas" como año-en-curso en vez de vida
+completa), es una decisión de PRODUCTO explícita — no algo que este
+corrective deba inferir ni forzar.
+
+#### Tests (behavior-based, nunca latencia hardcodeada)
+`test_reporting_cartera.py`: filtro `$filter` aceptado/rechazado-fallback/
+sin ventana, `anio`/`estado` pares distintos y solo-Mantenimiento, default
+de servicio = año actual+anterior, Proyecto/combo nunca reciben ventana,
+router `anios` parseado/omitido, endpoint `anios-disponibles` (auth gate +
+payload + nunca bundleado en la respuesta rápida), `hydrateCarteraTab`
+dispara ambas perspectivas + metadata, Año/Mes ambos con `predicate`
+(exentos de la reconciliación genérica), `pruneCarteraAnio` metadata-
+driven. `test_reporting_main_tab_hydration.py` (nuevo, transversal a las 6
+experiencias): `setPerspective` nunca asigna a `state.filters`,
+Rentabilidad/Capacidad/Horas Vendidas gatean AMBAS perspectivas contra UN
+status compartido (nunca uno por perspectiva fuera de Cartera), la tabla
+de invalidación nunca cruza a un tab no relacionado, ningún invalidador
+pisa un fetch en vuelo, `setExperience` nunca toca ningún status de datos.
+
+#### Commits de esta sección
+`e5fb1d3` (hot window backend), `e76564f` (main-tab hydration + filtro
+perspective-local + Año hot/cold frontend), `3915ab7` (refresh explícito +
+tests transversales). Todos pusheados a `work/reporting-real-data`.
 
 ### -14. REPORTING LIVE QA — PERFORMANCE + FILTER CONTRACT + RENTABILIDAD LAYOUT (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
 
