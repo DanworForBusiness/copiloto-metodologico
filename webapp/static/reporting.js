@@ -244,6 +244,35 @@ function pruneCarteraAnioInicio() {
   const available = new Set(carteraAnioInicioOptions());
   state.carteraAnioInicio = new Set([...state.carteraAnioInicio].filter(y => available.has(y)));
 }
+
+// HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): a diferencia del
+// resto de los facets <select> de Cartera (data-driven contra las filas YA
+// cargadas), Año de Mantenimiento NO puede derivar sus opciones solo de
+// `CARTERA_MANTENIMIENTO_ROWS` — con la ventana caliente por defecto (año
+// actual + anterior) esas filas NUNCA incluyen los años fríos, y "DO NOT
+// CONFUSE OPTIONS WITH HYDRATED FACTS" exige que un año frío siga siendo
+// una opción SELECCIONABLE. Unión de la metadata liviana
+// (`state.carteraMantenimientoAniosDisponibles`, ver
+// loadCarteraMantenimientoAnios) con los años YA presentes en filas
+// cargadas (defensivo: si la metadata todavía no llegó, los años calientes
+// recién hidratados igual aparecen) — ambos faceteados por Estado, MISMO
+// criterio que Año de Inicio de Proyecto arriba.
+function carteraAnioOptions() {
+  const fromMetadata = state.carteraMantenimientoAniosDisponibles
+    .filter(p => state.carteraStatus[p.estado])
+    .map(p => p.anio);
+  const fromRows = CARTERA_MANTENIMIENTO_ROWS.filter(r => state.carteraStatus[r.status]).map(r => r.anio);
+  return [...new Set([...fromMetadata, ...fromRows])].filter(Boolean).sort().reverse();
+}
+// Prune (MISMO criterio que pruneCarteraAnioInicio) — SOLO ante invalidez
+// real (Estado ya no representa el año seleccionado), NUNCA por el mero
+// cambio de perspectiva (ver setPerspective, PERSPECTIVE-LOCAL FILTER
+// STATE corrective).
+function pruneCarteraAnio() {
+  const available = new Set(carteraAnioOptions());
+  const current = (state.filters.cartera || {}).anio;
+  if (current && !available.has(current)) state.filters.cartera.anio = "";
+}
 // Desde/Hasta compartido (owner feedback, ver HANDOFF: Rentabilidad/
 // Participación/Horas Vendidas también necesitan un rango de fecha por
 // defecto) — MISMO default que Cartera/Mantenimiento ya usa (primer día
@@ -687,6 +716,16 @@ const state = {
   // → ready | error, mismo criterio que el resto del Hub.
   carteraMantenimientoStatus: "idle",
   carteraProyectoStatus: "idle",
+  // HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): metadata de años
+  // disponibles de Mantenimiento (año/estado, endpoint separado y liviano
+  // — ver loadCarteraMantenimientoAnios) + qué año frío puntual está en
+  // vuelo/falló (single-flight POR AÑO, `carteraMantenimientoYearLoading`
+  // es un Set — más de un año nunca compite entre sí, aunque la UI actual
+  // solo permite seleccionar uno a la vez).
+  carteraMantenimientoAniosDisponibles: [],
+  carteraMantenimientoAniosStatus: "idle",
+  carteraMantenimientoYearLoading: new Set(),
+  carteraMantenimientoYearError: "",
   // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
@@ -887,19 +926,26 @@ const FACET_CONFIG = {
     const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status])
       .filter(r => persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio));
     // Mantenimiento (UX1, owner live QA — vuelve de Desde/Hasta a Año+Mes,
-    // grano MENSUAL real de la fuente): Año es un facet <select> normal
-    // (SIN predicate) — participa de la reconciliación de opciones válidas
-    // igual que Client Partner/Proyecto/Cliente (canonical:
-    // availableOptions(Año) = filas por todos los demás filtros activos,
-    // excluyendo Año). Mes usa `predicate` (igualdad exacta) para quedar
-    // FUERA de esa reconciliación — el <select> de Mes SIEMPRE ofrece los
-    // 12 meses fijos (ver carteraMesField), nunca se poda por falta de
-    // datos ese mes. Proyecto NO agrega un facet de Año de Inicio acá (se
-    // convirtió en checkbox multi-select, ver arriba — ya no es un
-    // <select> de valor único).
+    // grano MENSUAL real de la fuente): Año y Mes usan `predicate`
+    // (igualdad exacta) — AMBOS quedan FUERA de la reconciliación genérica
+    // (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF: Año dejó de ser
+    // reconciliable contra `baseRows` porque con la ventana caliente por
+    // defecto esas filas NUNCA incluyen años fríos — reconciliarlo acá lo
+    // podría a "Todos" apenas el usuario elige un año que todavía no
+    // hidrató, exactamente lo que "DO NOT CONFUSE OPTIONS WITH HYDRATED
+    // FACTS" prohíbe). Año tiene su PROPIA reconciliación
+    // (`pruneCarteraAnio`, ver `reconcileExperienceFacets` — metadata-
+    // driven, no rows-driven) — el `predicate` de acá SIGUE aplicando el
+    // filtro real a la tabla (igual que siempre), solo cambia de dónde
+    // salen las OPCIONES del <select> (ver `carteraAnioField`/
+    // `carteraAnioOptions`). Mes sigue exento por el motivo de siempre: el
+    // <select> de Mes SIEMPRE ofrece los 12 meses fijos (ver
+    // carteraMesField), nunca se poda por falta de datos ese mes. Proyecto
+    // NO agrega un facet de Año de Inicio acá (se convirtió en checkbox
+    // multi-select, ver arriba — ya no es un <select> de valor único).
     const dateFields = persp === "Mantenimiento"
       ? [
-          { key: "anio", field: "anio" },
+          { key: "anio", field: "anio", predicate: (anio, selected) => anio === selected },
           { key: "mes", field: "mes", predicate: (mes, selected) => mes === selected },
         ]
       : [];
@@ -964,7 +1010,10 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   reconcileFacetFilters(expId, baseRows, fields, justChangedKey);
   // Año de Inicio (Cartera/Proyecto) es multi-select fuera del motor <select>;
   // se reconcilia su selección obsoleta acá con el MISMO criterio faceteado.
-  if (expId === "cartera") pruneCarteraAnioInicio();
+  // Año (Cartera/Mantenimiento, HOT WINDOW/COLD HISTORY corrective) usa su
+  // propia reconciliación metadata-driven (ver pruneCarteraAnio) por el
+  // mismo motivo — exento del motor genérico vía `predicate`.
+  if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); }
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
@@ -1033,6 +1082,25 @@ function selectField(expId, key, label, options) {
     <select onchange="setFilter('${expId}','${key}', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
       ${options.map(o => `<option value="${esc(o)}" ${current === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+// Año de Cartera/Mantenimiento (HOT WINDOW / COLD HISTORY corrective, ver
+// HANDOFF): opciones vía `carteraAnioOptions()` (metadata + filas
+// cargadas, NUNCA solo `CARTERA_MANTENIMIENTO_ROWS` — ver comentario ahí)
+// en vez de `facetSelectField`, para que un año frío siga siendo
+// seleccionable aunque sus filas todavía no se hayan hidratado. Elegir un
+// año frío dispara su lazy-load (ver renderCartera/
+// loadCarteraMantenimientoColdYear) — este <select> en sí no sabe ni le
+// importa si el año elegido ya está tibio o no, solo expone la opción.
+function carteraAnioField() {
+  const current = getFilter("cartera", "anio");
+  const options = carteraAnioOptions();
+  return `<label class="whatsnew-filter">
+    <span>Año</span>
+    <select onchange="setFilter('cartera','anio', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
     </select>
   </label>`;
 }
@@ -1151,7 +1219,7 @@ function renderCarteraFilterBar() {
   // permite VARIOS años tildados a la vez — checkbox-group DINÁMICO (años
   // realmente presentes en el dataset), no un <select> de valor único.
   const dateFields = persp === "Mantenimiento"
-    ? facetSelectField("cartera", "anio", "Año") + carteraMesField()
+    ? carteraAnioField() + carteraMesField()
     : checkboxGroupField("Año de Inicio", carteraAnioInicioOptions().map(a =>
         ({ value: a, checked: state.carteraAnioInicio.has(a), onclick: `toggleCarteraAnioInicio('${a}')` })));
   const fields = facetSelectField("cartera", "cp", "Client Partner")
@@ -1243,19 +1311,21 @@ function perspectiveSwitch(expId, withLabel = true) {
 }
 
 function setPerspective(expId, p) {
+  // PERSPECTIVE-LOCAL FILTER STATE corrective (owner live QA — Mantenimiento
+  // perdía Año/Mes al ir y volver de Proyecto): cambiar de perspectiva
+  // NUNCA reinicializa/toca `state.filters[expId]` — los defaults corren
+  // SOLO en la inicialización real de `state` (arriba) o en "Limpiar"
+  // (`resetFilters`, acción explícita del usuario), nunca en cada
+  // `setPerspective`. Cada perspectiva de una experiencia usa SUS PROPIAS
+  // keys de filtro (Cartera: anio/mes de Mantenimiento vs. cp/proyecto/
+  // cliente compartidos; Capacidad: cliente de Productivas vs. consultor de
+  // No Asignadas) — conviven en el MISMO objeto `state.filters[expId]` sin
+  // colisión porque `FACET_CONFIG` ya selecciona los `fields` correctos
+  // según la perspectiva activa (ver FACET_CONFIG.cartera/capacidad/
+  // comercial); una key que no aplica a la vista actual simplemente queda
+  // sin usar hasta que la perspectiva vuelve a necesitarla — exactamente el
+  // comportamiento que el owner pidió.
   state.perspective[expId] = p;
-  // Cada perspectiva puede tener dimensiones de filtro distintas (ver
-  // Capacidad Productivas↔No Asignadas) — se resetea el filtro de la
-  // experiencia al cambiar de perspectiva para no arrastrar un valor que ya
-  // no aplica a la nueva vista. Cartera resetea al default sensato de la
-  // NUEVA perspectiva (año/mes actual o año de inicio actual, ver
-  // carteraDefaultFilters) en vez de blanco.
-  if (expId === "cartera") state.filters.cartera = carteraDefaultFilters(p);
-  // Comercial: Desde/Hasta solo tiene sentido en Participación (Salud no
-  // tiene `fecha`, ver renderComercialFilterBar) — blanco en Salud, default
-  // año-a-la-fecha al volver a Participación.
-  else if (expId === "comercial") state.filters.comercial = p === "Participación" ? defaultYearToDateFilters() : {};
-  else if (state.filters[expId]) state.filters[expId] = {};
   render();
 }
 
@@ -1302,6 +1372,14 @@ function replaceRows(arr, rows) {
   arr.length = 0;
   (rows || []).forEach(r => arr.push(r));
 }
+// HOT WINDOW / COLD HISTORY corrective (ver HANDOFF) — a diferencia de
+// `replaceRows` (hidratación inicial, reemplaza TODO), un año frío
+// lazy-loaded se AGREGA a lo ya hidratado (la ventana caliente sigue
+// siendo válida, nunca se descarta). Nunca duplica: cada año se pide una
+// sola vez (single-flight por año, ver loadCarteraMantenimientoColdYear).
+function mergeRows(arr, rows) {
+  (rows || []).forEach(r => arr.push(r));
+}
 // MISMO patrón que `replaceRows`, para arrays mensuales[12] planos (no
 // filas) — Rentabilidad/Vendidas y No asignadas a servicios (portfolio
 // fijo), ver loadRentabilidadData.
@@ -1328,6 +1406,12 @@ async function loadCarteraMantenimiento() {
     if (data.state === "ok" && data.cartera) {
       replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
       state.carteraMantenimientoStatus = "ready";
+      // Reconcilia Año/Mes (y Año de Inicio, no-op si Proyecto no está
+      // activo) contra los datos REALES recién llegados — el default
+      // calendario (ver carteraDefaultFilters) pudo no tener ningún hecho
+      // real bajo el Estado activo; nunca se deja una selección imposible
+      // sin podar solo porque nadie tocó un filtro a mano todavía.
+      reconcileExperienceFacets("cartera");
     } else {
       state.carteraMantenimientoStatus = "error";
     }
@@ -1364,9 +1448,97 @@ function carteraStatusFor(persp) {
 function loadCarteraFor(persp) {
   if (persp === "Mantenimiento") loadCarteraMantenimiento(); else loadCarteraProyecto();
 }
+// MAIN-TAB HYDRATION CONTRACT (owner corrective — ver HANDOFF): Cartera
+// es un MAIN TAB con 2 perspectivas internas (Mantenimiento/Proyecto).
+// Antes, cada perspectiva se hidrataba LAZY e INDEPENDIENTE — recién al
+// activarla (ver el viejo gate `if (status === "idle") loadCarteraFor
+// (persp)` dentro de renderCartera). Eso daba un segundo ~15s de espera
+// completo la PRIMERA vez que el usuario cambiaba a Proyecto, aunque ya
+// llevara un rato mirando Mantenimiento. `hydrateCarteraTab()` dispara
+// AMBOS fetches (+ la metadata de años, ver abajo) en la PRIMERA
+// activación del tab — progresivo, nunca bloqueante: cada `load*` sigue
+// gateado por su PROPIO status (single-flight, ver P2 del corrective
+// anterior), así que llamar esto en cada render es gratis una vez que las
+// 3 cargas ya no están "idle". El render de la perspectiva ACTIVA sigue
+// gateado SOLO por su propio status (`carteraStatusFor(persp)`, ver
+// renderCartera) — Mantenimiento nunca espera a que Proyecto (más lento,
+// XLSX incluida) termine, y viceversa.
+function hydrateCarteraTab() {
+  if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();
+  if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();
+  if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();
+}
+// HOT WINDOW / COLD HISTORY corrective: años que YA están en el array
+// hidratado (ventana caliente inicial o un año frío ya mergeado) — fuente
+// de verdad ÚNICA (nunca un Set paralelo que pueda desincronizarse del
+// array real).
+function carteraMantenimientoLoadedYears() {
+  return new Set(CARTERA_MANTENIMIENTO_ROWS.map(r => r.anio));
+}
+// Metadata liviana de año/estado (ver /data/cartera/anios-disponibles) —
+// disparada UNA vez por `hydrateCarteraTab`, en PARALELO con los 2 fetches
+// de datos (nunca bloquea el primer render de Mantenimiento/Proyecto).
+async function loadCarteraMantenimientoAnios() {
+  state.carteraMantenimientoAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/cartera/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.carteraMantenimientoAniosDisponibles = data.aniosDisponibles;
+      state.carteraMantenimientoAniosStatus = "ready";
+    } else {
+      state.carteraMantenimientoAniosStatus = "error";
+    }
+  } catch (e) {
+    state.carteraMantenimientoAniosStatus = "error";
+  }
+  render();
+}
+// Lazy-load de un año FRÍO puntual (HOT WINDOW / COLD HISTORY corrective)
+// — disparado desde renderCartera cuando el Año seleccionado todavía no
+// está en `carteraMantenimientoLoadedYears()`. Single-flight POR AÑO
+// (`carteraMantenimientoYearLoading`, un Set — nunca dos requests para el
+// mismo año en vuelo a la vez). `mergeRows` (nunca `replaceRows`): la
+// ventana caliente ya hidratada se PRESERVA, el año frío se agrega.
+async function loadCarteraMantenimientoColdYear(anio) {
+  if (state.carteraMantenimientoYearLoading.has(anio)) return;
+  state.carteraMantenimientoYearLoading.add(anio);
+  state.carteraMantenimientoYearError = "";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
+      method: "POST",
+      body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento", anios: anio }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.cartera && data.cartera.mantenimiento) {
+      mergeRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      reconcileExperienceFacets("cartera");
+    } else {
+      state.carteraMantenimientoYearError = anio;
+    }
+  } catch (e) {
+    state.carteraMantenimientoYearError = anio;
+  }
+  state.carteraMantenimientoYearLoading.delete(anio);
+  render();
+}
 function renderCarteraDataState() {
-  if (carteraStatusFor(state.perspective.cartera) === "error") {
+  const persp = state.perspective.cartera;
+  if (carteraStatusFor(persp) === "error") {
     return reportingSourceErrorHtml("los datos de Cartera");
+  }
+  if (persp === "Mantenimiento") {
+    const anio = getFilter("cartera", "anio");
+    if (anio && state.carteraMantenimientoYearError === anio) {
+      return reportingSourceErrorHtml(`los datos de Cartera del año ${anio}`);
+    }
+    if (anio && !carteraMantenimientoLoadedYears().has(anio)) {
+      return reportingLoadingHtml(`Cargando datos de Cartera del año ${anio}…`);
+    }
   }
   return reportingLoadingHtml("Cargando datos de Cartera…");
 }
@@ -1479,14 +1651,30 @@ function renderBatchBDataState(label) {
 }
 
 function renderCartera() {
-  // Gate del ciclo de vida real-data — POR PERSPECTIVA (P5, ver
-  // loadCarteraMantenimiento/loadCarteraProyecto): dispara SOLO el fetch de
-  // la perspectiva activa (idle) y muestra loading/error hasta tener filas
-  // reales; recién ahí corre el renderer/motor existente sin cambios.
+  // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF): la
+  // PRIMERA vez que se renderiza CUALQUIER perspectiva de Cartera dispara
+  // la hidratación de AMBAS (+ metadata de años) — nunca una espera
+  // completa nueva al cambiar de Mantenimiento a Proyecto la primera vez.
+  // El GATE de este render sigue siendo SOLO el status de la perspectiva
+  // ACTIVA (progresivo — Mantenimiento no espera a Proyecto ni viceversa).
+  hydrateCarteraTab();
   const persp = state.perspective.cartera;
   const status = carteraStatusFor(persp);
-  if (status === "idle") loadCarteraFor(persp);
   if (status !== "ready") return renderCarteraDataState();
+  // HOT WINDOW / COLD HISTORY corrective: si Mantenimiento tiene un Año
+  // seleccionado que todavía no está hidratado (año frío), dispara su
+  // lazy-load (single-flight, ver loadCarteraMantenimientoColdYear) y
+  // muestra el loader compartido SOLO para ese trabajo pendiente — el
+  // filter bar (render aparte, ver FILTER_BARS) sigue interactivo. Un
+  // cambio de perspectiva NUNCA llega acá con un año inválido para la
+  // OTRA perspectiva (Año/anioInicio son namespaces de filtro distintos).
+  if (persp === "Mantenimiento") {
+    const anio = getFilter("cartera", "anio");
+    if (anio && !carteraMantenimientoLoadedYears().has(anio) && state.carteraMantenimientoYearError !== anio) {
+      loadCarteraMantenimientoColdYear(anio);
+      return renderCarteraDataState();
+    }
+  }
   const cfg = CARTERA_CONFIG[persp];
   // `facetFilteredRows` es la MISMA fuente de verdad que las opciones
   // faceteadas del filter bar (ver FACET_CONFIG.cartera) — tabla/KPI y

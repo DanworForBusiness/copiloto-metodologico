@@ -800,9 +800,20 @@ def test_cartera_populates_existing_arrays_in_place_not_reassign():
 
 
 def test_cartera_render_is_gated_by_data_status():
+    # MAIN-TAB HYDRATION CONTRACT: la primera activación de CUALQUIER
+    # perspectiva dispara `hydrateCarteraTab()` (ambas perspectivas +
+    # metadata de años) — el render en sí sigue gateado SOLO por el status
+    # de la perspectiva ACTIVA (progresivo).
     render_block = _REPORTING_JS[_REPORTING_JS.index("function renderCartera()"):_REPORTING_JS.index("const stateKey")]
-    assert "if (status === \"idle\") loadCarteraFor(persp);" in render_block
+    assert "hydrateCarteraTab();" in render_block
     assert "if (status !== \"ready\") return renderCarteraDataState();" in render_block
+
+
+def test_hydrate_cartera_tab_triggers_both_perspectives_and_anios_metadata():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function hydrateCarteraTab()"):_REPORTING_JS.index("function carteraMantenimientoLoadedYears")]
+    assert 'if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();' in fn
+    assert 'if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();' in fn
+    assert 'if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();' in fn
 
 
 def test_cartera_failure_is_localized_fail_soft():
@@ -861,10 +872,15 @@ def test_all_source_family_loaders_flip_status_synchronously_before_any_await():
         assert "await" not in pre_flip, fn_name
 
 
-def test_facet_config_cartera_mes_has_predicate_anio_does_not():
-    # `predicate` es lo que exime a un facet de `reconcileFacetFilters` (mismo
-    # mecanismo ya usado para Desde/Hasta) — Mes SIEMPRE debe mostrar los 12
-    # meses fijos; Año SÍ debe participar en la poda de opciones stale.
+def test_facet_config_cartera_anio_and_mes_both_have_predicate():
+    # HOT WINDOW / COLD HISTORY corrective: Año DEJÓ de participar en la
+    # reconciliación genérica (`predicate` lo exime, mismo mecanismo que
+    # Mes/Desde-Hasta) — con la ventana caliente por defecto, `baseRows`
+    # NUNCA contiene años fríos, así que la reconciliación genérica
+    # (`availableOptions(F) = baseRows sin F`) podría un año frío recién
+    # elegido a "Todos" antes de que termine de cargar. Año usa su PROPIA
+    # reconciliación metadata-driven (`pruneCarteraAnio`, ver
+    # test_stale_anio_is_pruned_via_own_metadata_driven_function abajo).
     idx = _REPORTING_JS.index("const FACET_CONFIG = {")
     idx = _REPORTING_JS.index("cartera:", idx)
     block = _REPORTING_JS[idx:idx + 2500]
@@ -872,8 +888,21 @@ def test_facet_config_cartera_mes_has_predicate_anio_does_not():
     mes_idx = block.index('key: "mes"')
     anio_entry = block[anio_idx:mes_idx if mes_idx > anio_idx else anio_idx + 200]
     mes_entry = block[mes_idx:mes_idx + 200]
-    assert "predicate" not in anio_entry
+    assert "predicate" in anio_entry
     assert "predicate" in mes_entry
+
+
+def test_stale_anio_is_pruned_via_own_metadata_driven_function():
+    assert "function carteraAnioOptions()" in _REPORTING_JS
+    assert "function pruneCarteraAnio()" in _REPORTING_JS
+    fn = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioOptions()"):_REPORTING_JS.index("function pruneCarteraAnio()")]
+    # Unión metadata (años fríos incluidos) + filas ya cargadas, faceteado por Estado.
+    assert "carteraMantenimientoAniosDisponibles" in fn
+    assert "CARTERA_MANTENIMIENTO_ROWS" in fn
+    assert "state.carteraStatus[" in fn
+    prune = _REPORTING_JS[_REPORTING_JS.index("function pruneCarteraAnio()"):]
+    prune = prune[:prune.index("\n}")]
+    assert "available.has(current)" in prune
 
 
 # ============================================================================
@@ -1079,7 +1108,10 @@ def test_anio_inicio_options_are_faceted_through_the_shared_engine():
 def test_stale_anio_inicio_is_pruned_on_facet_change():
     # Al cambiar Estado u otro facet, se reconcilia la selección obsoleta de año.
     assert "function pruneCarteraAnioInicio()" in _REPORTING_JS
-    assert 'if (expId === "cartera") pruneCarteraAnioInicio();' in _REPORTING_JS
+    reconcile = _REPORTING_JS[_REPORTING_JS.index("function reconcileExperienceFacets"):]
+    reconcile = reconcile[:reconcile.index("\n}")]
+    assert "pruneCarteraAnioInicio();" in reconcile
+    assert "pruneCarteraAnio();" in reconcile  # HOT WINDOW/COLD HISTORY: misma reconciliación, Año de Mantenimiento
     prune = _REPORTING_JS[_REPORTING_JS.index("function pruneCarteraAnioInicio"):]
     prune = prune[:prune.index("\n}")]
     assert "available.has(y)" in prune  # conserva solo los válidos, nunca reselecciona
