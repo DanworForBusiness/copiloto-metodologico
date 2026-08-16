@@ -6125,6 +6125,134 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 
 ### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
 
+> **✅ HORAS PRODUCTIVAS — SOURCE-PARITY CORRECTIVE** (commit `b79dd91`) —
+> owner did a LIVE side-by-side comparison against the actual PBIP report
+> (not just a live smoke of the Hub in isolation) and found 3 real semantic
+> defects. All three were root-caused against PRIMARY PBIP evidence (the
+> `.pbip`/`.SemanticModel`/`.Report` source files at `E:\Joe\Metodologia\
+> Refactorizacion\Tablero Integral\`), not guessed.
+>
+> **1. LEFT panel's % Incidencia denominator was wrong.** Evidence: for the
+> SAME Cliente/Año, PBI's LEFT ratio implies a denominator ≈50.5 (e.g.
+> Danone 5.422/10.74%≈50.48) while the visible LEFT "Total Horas" KPI is
+> 42.182 — Hub was dividing against the visible panel total, which is
+> WRONG. Root cause found in `Time Logs Reports.tmdl`: LEFT uses `% Hs
+> ejecutadas = DIVIDE(SUM(HORAS), CALCULATE(SUM(HORAS),
+> REMOVEFILTERS(Cliente[Client Partner], Cliente[Frecuencia Actualizacion],
+> Cliente[Permite Adelanto], Cliente[Condicion de Pago], Cliente[Cliente]),
+> REMOVEFILTERS('Time Logs Reports'[Client])))` — a grand total that stays
+> scoped by whatever Año/Mes is externally selected (REMOVEFILTERS never
+> touches Date) but removes ALL Cliente-family filters plus its own
+> identity column. `page.json` has two page-level filters excluding the
+> internal "Danwor" placeholder client (used to log "No Asignadas" hours) —
+> exactly `Cliente[Cliente]` and `'Time Logs Reports'[Client]`, the SAME two
+> columns LEFT's REMOVEFILTERS undoes. So the denominator's CALCULATE
+> reintroduces the placeholder's hours (never shown in any row/KPI) —
+> that's the ≈50.5 vs 42.182 gap, a genuine PBI-side DAX artifact (an
+> over-broad REMOVEFILTERS), not a Hub bug. Reproducing it is what
+> "source-parity" requires here. RIGHT uses the structurally-identical `%
+> Hs ejecutadas2` but REMOVEFILTERS's `Cliente[Cliente + Part]` instead of
+> `[Client]` — a column the page-level Danwor filter never targets, so
+> RIGHT's denominator legitimately equals its own visible total (confirmed:
+> Danone 2.503/14.65%≈17.085 ≈ RIGHT KPI 17.084). The two panels do NOT
+> share one denominator rule — verified via `visual.json` bindings (LEFT
+> pivotTable groups by `Client`/uses `Rank_T2`+`% Hs ejecutadas`; RIGHT
+> groups by `Cliente + Part`/uses `Rank_T3`+`% Hs ejecutadas2`), never
+> retrofitted. Also explains why an explicit-month selection looked correct
+> before this fix: a narrower window is less likely to catch any of the
+> placeholder's sparse hours than the full-year "Todos" window. Fix: new
+> `_shape_horas_productivas_denominador` (`reporting_service.py`) ships a
+> separate Año→[12 months] grand total (Estado/Proyecto/Cliente-blind by
+> design — none of those have any representation in the source DAX) via
+> `get_batch_b`'s new `horasProductivasDenominador` key;
+> `CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR` (frontend) feeds a REWRITTEN
+> `capacidadProductivasTotal(panel)` that reuses the SAME temporal engine
+> (`_maskMeses`/`_applyMonthCap`/`_operationalMonthCap`) already used by
+> `capacidadProductivasSelectedRows`, just against the new source instead of
+> the displayed rows. The numerator/displayed rows (`_shape_horas_
+> productivas`, Danwor-placeholder already excluded, Estado-filtered) are
+> UNTOUCHED — Hours values keep matching PBI exactly, as they already did.
+> **This is a Hub extension the owner explicitly approved reproducing "the
+> denominator must reproduce the source measure semantics" — it is NOT
+> "fixed" to match the visible Total Horas, because that would diverge from
+> the actual PBIP measure.**
+>
+> **2. Año dropdown collapsed to only 2026.** Root cause: SAME root cause
+> as defect #3 below, not a separate frontend facet bug —
+> `capacidadProductivasAnioOptions()` was already correctly Año-blind
+> (`_CAPACIDAD_SELECT_FIELDS` only lists `cliente`/`proyecto`, never
+> `anio_cliente`/`anio_clientePart`, so `facetRowsExcept` structurally never
+> filters by Año), but it DOES filter by `state.capacidadStatus[r.estado]`
+> first — and the OLD default (`En curso` only, `Finalizado` off) excluded
+> almost all historical Time Logs rows, since old projects are almost
+> always `Finalizado` by now. Fixing #3 fixes this as a side effect; no
+> separate frontend change was needed or made.
+>
+> **3. Estado default changed to both checked.** The PBIP page has NO
+> Estado filter at all (confirmed: no slicer/filter targets `Proyectos.
+> Status` anywhere on the page) — Estado is a Hub-only extension (current
+> `Proyectos.Status` applied to historical Time Logs rows, owner-approved).
+> `state.capacidadStatus` default and `resetFilters('capacidad')` both
+> changed from `{ "En curso": true, "Finalizado": false }` to `{ "En
+> curso": true, "Finalizado": true }` — the neutral baseline that
+> reproduces the PBIP's "no filter" behavior. Scoped to Horas Productivas
+> ONLY; Cartera/Rentabilidad/Horas Vendidas/Participación Estado defaults
+> are untouched.
+>
+> **Not changed (explicitly out of scope per ticket):** layout, panel-
+> independent Año/Mes state (already source-faithful — `page.json`'s
+> `visualInteractions` confirm each panel's Año/Mes slicer is `NoFilter`
+> against the other panel, matching the existing architecture), Cliente +
+> Participación semantics, Hours extraction/numerator, decimal display
+> precision (PBI shows more decimals — e.g. 5.422 vs Hub's 5.4 — documented
+> as a cosmetic, non-semantic gap, not fixed).
+>
+> Tests (`test_reporting_batch_b.py` + `reporting_capacidad_ux_corrective.
+> node.js`): denominador shaping reintroduces the placeholder and ignores
+> invalid month/year; `capacidadProductivasTotal` rewritten to source from
+> the denominador object, not rows (source-seam assertion on the function
+> body); a fixture proving LEFT's denominator (240) differs from BOTH the
+> displayed-rows sum (180) and the Proyecto-filtered panel total (120) —
+> `120/240 = 50.0%`, never 66.7% (old wrong behavior) or 100%; Año options
+> survive 3 historical years and stay identical regardless of which Año is
+> selected in either panel (LEFT/RIGHT independence); Estado default is
+> both-checked (regex on the `state` literal), `Limpiar` restores both,
+> narrowing to either single status works in both directions; a source-seam
+> check that `toggleCapacidadMes`/`setFilter` never call `loadBatchBData`
+> (no new fetch on Año/Mes UI changes). Full suite: **1134 passed, 9
+> pre-existing unrelated Staffing/route-contract failures** (same set as
+> every prior measurement in this branch).
+>
+> **NOT re-measured live**: this pass could not connect to real Graph/CSV —
+> the DAX-parity reasoning is verified against the PBIP source files and
+> deterministic fixtures, but confirming the ACTUAL numbers now match
+> (Año=2026/Mes=Todos especially, per the owner's own clue) requires an
+> owner live smoke. See the smoke checklist delivered in the final report
+> for this ticket.
+
+> **✅ HORAS PRODUCTIVAS — LABEL RENAME + TOOLBAR PACKING/ALIGNMENT**
+> (commits `89e3ed4`, `fa51d1e`, `20f02f1`, undocumented until now). Three
+> small owner-driven correctives on top of the visual composition pass
+> below: (1) "Cliente + Part" panel header/column label renamed to "Cliente
+> + Participación" — UI text only, lineage comments describing the PBI's
+> actual `'Cliente + Part'` calculated-column name were left untouched,
+> since they describe the source system, not UI copy; (2) the panel
+> toolbar's `grid-template-columns: auto minmax(0, 1fr) auto` stretched the
+> Mes column to fill all leftover width even though its 12 buttons didn't
+> need it, leaving a large visible gap before Expandir/Contraer — changed
+> to `auto auto auto` so all three groups pack tight from the left, same as
+> every other Reporting toolbar; (3) Expandir/Contraer sat at a different
+> vertical position than Año/Mes because Año/Mes are `.whatsnew-filter`
+> (a label `<span>` stacked above the control via `flex-direction: column`)
+> while Expandir/Contraer have no label — the grid's default `align-items:
+> stretch` made all three items fill the row's full height (as tall as the
+> label+control stack), and `.staffing-timeline-toolbar__actions`'s own
+> `align-items: center` then centered its buttons WITHIN that stretched
+> box, landing between the label text and the real control. Fixed by adding
+> `align-items: end` to `.staffing-timeline-toolbar--panel`, so all three
+> items keep their natural height and share one bottom-edge baseline
+> regardless of label presence.
+
 > **✅ TEMPORAL CONTRACT CORRECTIVE** (commits `3cd5522` backend, `4524a01`
 > frontend, `14936eb` tests) — owner live smoke on the Año/Mes/Estado
 > migration below found real defects, all fixed in this pass:
