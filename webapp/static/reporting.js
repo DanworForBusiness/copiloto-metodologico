@@ -570,24 +570,41 @@ const COMERCIAL_SALUD_COLUMNS = [
 //
 // Valores BOOLEANOS (owner feedback, ver HANDOFF): cada celda mensual de
 // `Calendario_Cliente` es un indicador de presencia (1 = tiene entrega/
-// checkpoint programado ese mes, 0 = no) — NUNCA una cantidad. Semanal
-// significa "todos los meses tiene algo programado" (1 en los 12 meses),
-// no "4 veces por mes" — la cantidad de eventos DENTRO del mes no es lo
-// que esta tabla representa. Se renderiza como tilde (✓) cuando 1, blanco
-// cuando 0 — ver `renderCalendarioCell`. La columna Total (perspectiva
-// Client Partner) SÍ sigue siendo una cuenta real (meses con checkpoint en
-// el año), no booleana — un total de "12" es información genuina.
+// checkpoint programado ese mes, 0 = no) — NUNCA una cantidad. Bimestral
+// significa "cada 2 meses tiene algo programado" (1 en 6 de los 12 meses),
+// no una cuenta — la cantidad de eventos DENTRO del mes no es lo que esta
+// tabla representa. Se renderiza como tilde (✓) cuando 1, blanco cuando 0
+// — ver `renderCalendarioCell`. La columna Total (perspectiva Client
+// Partner) SÍ sigue siendo una cuenta real (meses con checkpoint en el
+// año), no booleana — un total de "12" es información genuina.
 const CALENDARIO_ROWS = [
-  { frecuencia: "Semanal", cliente: "Andesmar", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
-  { frecuencia: "Semanal", cliente: "AySA", cp: "Diego Ramos", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+  { frecuencia: "Bimestral", cliente: "Andesmar", cp: "María López", monthly: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0] },
+  { frecuencia: "Bimestral", cliente: "AySA", cp: "Diego Ramos", monthly: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0] },
   { frecuencia: "Mensual", cliente: "Danone", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { frecuencia: "Mensual", cliente: "Molinos", cp: "María López", monthly: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
   { frecuencia: "Trimestral", cliente: "YPF", cp: "Diego Ramos", monthly: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1] },
   { frecuencia: "Trimestral", cliente: "Ternium", cp: "Diego Ramos", monthly: [0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0] },
 ];
-// Orden real de negocio (ID Frecuencia, ver TMDL de Cliente[ID Frecuencia]:
-// SWITCH 1 Mensual…6 Anual) — cadencia creciente, nunca alfabético.
-const FRECUENCIA_ORDER = ["Mensual", "Semanal", "Trimestral", "Cuatrimestral", "Semestral", "Anual"];
+// Orden real de negocio (ID Frecuencia) — CORREGIDO contra evidencia
+// PRIMARIA del PBIP (owner live comparison: "la tabla Frecuencia no ordena
+// por ID Frecuencia igual al PBIP"). `Cliente.tmdl`, columna calculada
+// 'ID Frecuencia': SWITCH(Frecuencia Actualizacion, "Mensual",1,
+// "Bimestral",2, "Trimestral",3, "Cuatrimestral",4, "Semestral",5,
+// "Anual",6, "7  Sin especificar") — cadencia creciente REAL, nunca
+// alfabético. La lista previa tenía "Semanal" en el índice 2 — un valor
+// que ni existe en el SWITCH del PBIP y que rompía la cronología (semanal
+// < mensual, nunca podría ir segundo).
+const FRECUENCIA_ORDER = ["Mensual", "Bimestral", "Trimestral", "Cuatrimestral", "Semestral", "Anual"];
+// Comparador compartido (Calendario + Participación/Comercial, ver
+// `_RENT_SELECT_FIELDS`-style listas de facet fields abajo): un valor NO
+// reconocido (fuera de las 6 categorías del SWITCH real, ver comentario
+// arriba) ordena AL FINAL — MISMO criterio que el PBIP ("7  Sin
+// especificar", siempre el índice más alto) — nunca primero, que es lo que
+// `indexOf` (-1) produciría sin este guard.
+function _frecuenciaCompare(a, b) {
+  const ia = FRECUENCIA_ORDER.indexOf(a), ib = FRECUENCIA_ORDER.indexOf(b);
+  return (ia === -1 ? FRECUENCIA_ORDER.length : ia) - (ib === -1 ? FRECUENCIA_ORDER.length : ib);
+}
 const CALENDARIO_HIERARCHY = {
   "Frecuencia": { keys: ["frecuencia", "cliente", "cp"], labels: ["ID Frecuencia", "Cliente", "Client Partner"] },
   "Client Partner": { keys: ["cp", "cliente", "frecuencia"], labels: ["Client Partner", "Cliente", "ID Frecuencia"] },
@@ -1153,7 +1170,7 @@ const FACET_CONFIG = {
     // negocio (FRECUENCIA_ORDER), nunca alfabético.
     fields: [
       { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
-      { key: "frecuencia", field: "frecuencia", compareFn: (a, b) => FRECUENCIA_ORDER.indexOf(a) - FRECUENCIA_ORDER.indexOf(b) },
+      { key: "frecuencia", field: "frecuencia", compareFn: _frecuenciaCompare },
     ],
   }),
   // Productivas: Cliente/Proyecto viven en este motor genérico de <select>

@@ -61,12 +61,19 @@ def _round2(x: float) -> float:
 # Reusa `_MESES`/`_month_num` de arriba (Cartera) — MISMO parseo del texto
 # de mes de "Horas por proyectos", nunca una segunda función.
 
-# Orden real de negocio de Frecuencia (ver TMDL de Cliente[ID Frecuencia]:
-# SWITCH 1 Mensual…6 Anual, YA verificado/vivo en el mock de Participación/
-# Calendario de este mismo V0 — "1 Mensual"/"3 Trimestral"/"5 Semestral"/
-# "6 Anual") — MISMA lista que `FRECUENCIA_ORDER` en reporting.js, nunca
-# reordenada acá.
-_FRECUENCIA_ORDER = ["Mensual", "Semanal", "Trimestral", "Cuatrimestral", "Semestral", "Anual"]
+# Orden real de negocio de Frecuencia — CORREGIDO contra evidencia PRIMARIA
+# del PBIP (owner live comparison: "la tabla Frecuencia no ordena igual al
+# PBIP, que ordena por ID donde además es cronológico"). `Cliente.tmdl`,
+# columna calculada `'ID Frecuencia'`:
+#   SWITCH(Cliente[Frecuencia Actualizacion],
+#     "Mensual", 1, "Bimestral", 2, "Trimestral", 3, "Cuatrimestral", 4,
+#     "Semestral", 5, "Anual", 6, "7  Sin especificar")
+# La lista previa tenía "Semanal" (semanal) en el índice 2 — un valor que ni
+# siquiera existe en el SWITCH real del PBIP (el mock V0 lo "verificaba"
+# contra sí mismo, nunca contra el TMDL) y que además rompía la
+# cronología (semanal < mensual, nunca podría ir segundo). MISMA lista que
+# `FRECUENCIA_ORDER` en reporting.js, nunca reordenada acá.
+_FRECUENCIA_ORDER = ["Mensual", "Bimestral", "Trimestral", "Cuatrimestral", "Semestral", "Anual"]
 
 
 def _normalize_frecuencia(raw: str) -> str:
