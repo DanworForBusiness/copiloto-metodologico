@@ -89,18 +89,6 @@ def _normalize_frecuencia(raw: str) -> str:
     return text
 
 
-def _id_frecuencia(raw: str) -> str:
-    """`ID Frecuencia` es una columna DERIVADA en el PBIP (no física, ver
-    real-data-lineage.md sección 8) — se reconstruye acá con la MISMA regla
-    ya verificada por el mock ("1 Mensual".."6 Anual" == índice+1 en
-    `_FRECUENCIA_ORDER`). Valor no reconocido ⇒ se devuelve tal cual, sin
-    número — nunca se inventa un índice."""
-    label = _normalize_frecuencia(raw)
-    if label in _FRECUENCIA_ORDER:
-        return f"{_FRECUENCIA_ORDER.index(label) + 1} {label}"
-    return label
-
-
 _MESES_NOMBRES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -729,7 +717,16 @@ class ReportingService:
             key = dim["clienteId"] or dim["cliente"]
             g = by_cliente.get(key) or {"vendidasByYear": {}, "certificadasByYear": {}, "facts": []}
             rows.append({
-                "idFrecuencia": _id_frecuencia(dim["frecuenciaActualizacion"]),
+                # SOLO texto (owner request — "si en calendario decidimos no
+                # mostrar los IDs de frecuencia... acá haría lo mismo"):
+                # Calendario ya mostraba solo texto (`_normalize_frecuencia`,
+                # ver `_shape_calendario`) — Participación mostraba "1
+                # Mensual" (`_id_frecuencia`, con el número), inconsistente.
+                # Clave del campo/columna sigue siendo `idFrecuencia`
+                # (nombre interno, matchea el rótulo "ID Frecuencia" del
+                # PBIP — un LABEL, no el valor) para no forzar un rename en
+                # cascada de columnas/jerarquía/tests por algo cosmético.
+                "idFrecuencia": _normalize_frecuencia(dim["frecuenciaActualizacion"]),
                 "permiteAdelanto": dim["permiteAdelanto"],
                 "condicionPago": dim["condicionPago"],
                 "cliente": dim["cliente"],

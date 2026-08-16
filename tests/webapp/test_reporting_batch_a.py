@@ -240,7 +240,11 @@ def test_participacion_sums_vendidas_certificadas_by_year_and_estado_across_all_
     # POR ESTADO (ambos proyectos "En curso" acá, se suman en el MISMO bucket).
     assert r["vendidasByYear"] == {"2026": {"En curso": 15}}
     assert r["certificadasByYear"] == {"2026": {"En curso": 12}}
-    assert r["idFrecuencia"] == "3 Trimestral"  # derivado: índice+1 en FRECUENCIA_ORDER
+    # SOURCE-PARITY corrective (owner request — "si en calendario decidimos
+    # no mostrar los IDs de frecuencia... acá haría lo mismo"): solo texto
+    # normalizado, MISMO criterio que Calendario (_normalize_frecuencia),
+    # nunca el índice numérico antepuesto.
+    assert r["idFrecuencia"] == "Trimestral"
     assert r["permiteAdelanto"] == "Si" and r["condicionPago"] == "15"
     assert r["cliente"] == "YPF" and r["cp"] == "Diego Ramos"
 
@@ -342,7 +346,7 @@ def test_participacion_keeps_clientes_without_any_project_facts_as_empty_row(mon
     r = rows[0]
     assert r["cliente"] == "SinProyectos"
     assert r["vendidasByYear"] == {} and r["certificadasByYear"] == {}
-    assert r["idFrecuencia"] == "1 Mensual"
+    assert r["idFrecuencia"] == "Mensual"  # solo texto (SOURCE-PARITY corrective, ver test de arriba)
     assert r["fecha"] == ""
 
 

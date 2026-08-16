@@ -461,12 +461,12 @@ const HORASVENDIDAS_ROWS = [
 // mismo criterio que el resto del dataset mock (todo visible bajo el
 // default Desde=1/ene→Hasta=hoy).
 const COMERCIAL_PARTICIPACION_ROWS = [
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "30", cliente: "Andesmar", cp: "María López", horasVendidas: 140, horasCertificadas: 128, fecha: "2026-08-01" },
-  { idFrecuencia: "3 Trimestral", permiteAdelanto: "No", condicionPago: "60", cliente: "Danone", cp: "María López", horasVendidas: 88, horasCertificadas: 96, fecha: "2026-07-01" },
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "No", condicionPago: "30", cliente: "Molinos", cp: "María López", horasVendidas: 60, horasCertificadas: 60, fecha: "2026-06-01" },
-  { idFrecuencia: "6 Anual", permiteAdelanto: "No", condicionPago: "30", cliente: "AySA", cp: "Diego Ramos", horasVendidas: 208, horasCertificadas: 212, fecha: "2026-05-01" },
-  { idFrecuencia: "1 Mensual", permiteAdelanto: "Si", condicionPago: "15", cliente: "YPF", cp: "Diego Ramos", horasVendidas: 360, horasCertificadas: 322, fecha: "2026-04-01" },
-  { idFrecuencia: "5 Semestral", permiteAdelanto: "Si", condicionPago: "30", cliente: "Ternium", cp: "Diego Ramos", horasVendidas: 180, horasCertificadas: 166, fecha: "2026-03-01" },
+  { idFrecuencia: "Mensual", permiteAdelanto: "Si", condicionPago: "30", cliente: "Andesmar", cp: "María López", horasVendidas: 140, horasCertificadas: 128, fecha: "2026-08-01" },
+  { idFrecuencia: "Trimestral", permiteAdelanto: "No", condicionPago: "60", cliente: "Danone", cp: "María López", horasVendidas: 88, horasCertificadas: 96, fecha: "2026-07-01" },
+  { idFrecuencia: "Mensual", permiteAdelanto: "No", condicionPago: "30", cliente: "Molinos", cp: "María López", horasVendidas: 60, horasCertificadas: 60, fecha: "2026-06-01" },
+  { idFrecuencia: "Anual", permiteAdelanto: "No", condicionPago: "30", cliente: "AySA", cp: "Diego Ramos", horasVendidas: 208, horasCertificadas: 212, fecha: "2026-05-01" },
+  { idFrecuencia: "Mensual", permiteAdelanto: "Si", condicionPago: "15", cliente: "YPF", cp: "Diego Ramos", horasVendidas: 360, horasCertificadas: 322, fecha: "2026-04-01" },
+  { idFrecuencia: "Semestral", permiteAdelanto: "Si", condicionPago: "30", cliente: "Ternium", cp: "Diego Ramos", horasVendidas: 180, horasCertificadas: 166, fecha: "2026-03-01" },
 ];
 
 // Salud de Cliente (ver corrective) — 5 sub-dimensiones + Salud Final,
@@ -534,6 +534,32 @@ function comercialPctVendidas(horas) {
 function comercialPctCertificadas(horas) {
   const total = comercialParticipacionTotalCertificadas();
   return (total ? (horas / total * 100) : 0).toFixed(2) + " %";
+}
+// Headers clickeables de % Participación (owner request — MISMO patrón que
+// Horas/% Incidencia de Horas Productivas): clickear una columna la vuelve
+// la clave activa (togglea asc/desc si ya era la activa). A diferencia de
+// Horas Productivas, cada columna ordena por su PROPIO numerador crudo
+// (`horasVendidas`/`horasCertificadas`) — nunca por el string "% Ya
+// Formateado" ya renderizado, ni comparte dirección con la otra columna
+// (Vendidas% y Certificadas% no son transform monótono una de la otra).
+function toggleComercialParticipacionSort(key) {
+  if (state.comercialParticipacionSortKey === key) {
+    state.comercialParticipacionSortDir = state.comercialParticipacionSortDir === "asc" ? "desc" : "asc";
+  } else {
+    state.comercialParticipacionSortKey = key;
+    state.comercialParticipacionSortDir = "desc";
+  }
+  render();
+}
+// PURO orden — nunca re-filtra ni re-agrega, solo reordena las filas hoja
+// ANTES de `buildTree` (mismo mecanismo que `rowsFor` de Horas Productivas:
+// reordenar las hojas cambia el orden en que sus grupos padre aparecen).
+function comercialParticipacionSorted(rows) {
+  const key = state.comercialParticipacionSortKey;
+  if (!key) return rows;
+  const field = key === "vendidas" ? "horasVendidas" : "horasCertificadas";
+  const sign = state.comercialParticipacionSortDir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => sign * (a[field] - b[field]));
 }
 // Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
 // Clase B, denominador FIJO (REMOVEFILTERS) — `sumField` re-suma el
@@ -841,6 +867,15 @@ const state = {
   comercialParticipacionLoadedYears: new Set(),
   comercialParticipacionYearLoading: new Set(),
   comercialParticipacionYearErrors: new Set(),
+  // Headers clickeables de % Participación (owner request — MISMO patrón
+  // que Horas/% Incidencia de Horas Productivas, ver `capacidadProductivas
+  // SortDir`). A diferencia de ese caso, Vendidas% y Certificadas% NO son
+  // transform monótono una de la otra (numeradores distintos) — cada
+  // columna necesita su PROPIA clave activa, no una dirección compartida
+  // ciega. `null` = sin orden explícito (orden de jerarquía/inserción de
+  // siempre); clickear una columna la vuelve la clave activa en "desc".
+  comercialParticipacionSortKey: null,
+  comercialParticipacionSortDir: "desc",
   // Horas Productivas (AMBAS perspectivas) — Batch B, CSV de Time Logs
   // Reports vía `loadBatchBData`. MISMO ciclo de vida idle→loading→
   // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
@@ -1195,9 +1230,14 @@ const FACET_CONFIG = {
   // `comercialParticipacionSelectedRows` — Desde/Hasta (full-history) se
   // RETIRÓ, superado por Año+Estado. Salud de Cliente: sin dimensión de
   // fecha propia (columnas categóricas puras), no se inventa una.
+  // Frecuencia (owner request, Participación ÚNICAMENTE — Salud de Cliente
+  // no tiene ese campo en sus filas, ver COMERCIAL_SALUD_ROWS): orden real
+  // de negocio (`_frecuenciaCompare`, MISMO criterio que Calendario), nunca
+  // alfabético.
   comercial: () => state.perspective.comercial === "Participación"
     ? { baseRows: comercialParticipacionSelectedRows(), fields: [
         { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
+        { key: "frecuencia", field: "idFrecuencia", compareFn: _frecuenciaCompare },
       ] }
     : { baseRows: COMERCIAL_SALUD_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] },
 };
@@ -1629,8 +1669,15 @@ function renderComercialFilterBar() {
           { value: "Finalizado", checked: state.comercialStatus["Finalizado"], onclick: "toggleComercialStatus('Finalizado')" },
         ])
     : "";
+  // Frecuencia (owner request — "agreguemos frecuencia como filtro también
+  // al lado de cliente y antes de año"): SOLO Participación, el facet
+  // "frecuencia" no existe en el FACET_CONFIG de Salud de Cliente (esas
+  // filas no tienen ese campo, ver COMERCIAL_SALUD_ROWS) — llamar
+  // facetSelectField acá para Salud rompería contra un field inexistente.
+  const frecuenciaField = persp === "Participación" ? facetSelectField("comercial", "frecuencia", "Frecuencia") : "";
   const fields = facetSelectField("comercial", "cp", "Client Partner")
     + facetSelectField("comercial", "cliente", "Cliente")
+    + frecuenciaField
     + temporalFields;
   return filterBarShell(fields, "comercial");
 }
@@ -3445,11 +3492,21 @@ function renderComercialParticipacion() {
     loadComercialParticipacionColdYears(missingYears);
     return renderParticipacionDataState();
   }
-  const rows = facetFilteredRows("comercial");
+  // Header clickeable de % Participación (owner request — MISMO patrón que
+  // Horas/% Incidencia de Horas Productivas): reordena las filas HOJA antes
+  // de `buildTree` (ver `comercialParticipacionSorted`), nunca re-agrega ni
+  // re-filtra.
+  const rows = comercialParticipacionSorted(facetFilteredRows("comercial"));
   const keys = ["idFrecuencia", "permiteAdelanto", "condicionPago", "cliente"];
   const stateKey = "comercial::Participación";
   const tree = buildTree(rows, keys);
   registerTreeContext(stateKey, rows, keys);
+
+  const sortHeader = (key, label) => {
+    const active = state.comercialParticipacionSortKey === key;
+    const arrow = active ? (state.comercialParticipacionSortDir === "asc" ? " ▲" : " ▼") : "";
+    return `<th class="dashboard-table-th--sortable" onclick="toggleComercialParticipacionSort('${key}')" title="Ordenar por ${esc(label)}">${esc(label)}${arrow}</th>`;
+  };
 
   const detalleBody = `
     ${sectionToolbar(perspectiveSwitch("comercial", false), treeToolbarButtons(stateKey))}
@@ -3458,7 +3515,7 @@ function renderComercialParticipacion() {
       <table class="dashboard-table">
         <thead><tr>
           <th class="row-label-col">ID Frecuencia / Permite Adelanto / Condición de Pago / Cliente</th>
-          ${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<th>${esc(c.label)}</th>`).join("")}
+          ${sortHeader("vendidas", COMERCIAL_PARTICIPACION_COLUMNS[0].label)}${sortHeader("certificadas", COMERCIAL_PARTICIPACION_COLUMNS[1].label)}
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_PARTICIPACION_COLUMNS)}</tbody>
       </table>
