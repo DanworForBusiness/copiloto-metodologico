@@ -870,8 +870,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    izquierdo del contenido. Solo usado por los 2 paneles de Horas
    Productivas — el resto de los toolbars de Reporting/Staffing
    (perspective-switch + Expandir/Contraer, sin Año/Mes) siguen usando la
-   base flex sin cambios. */
-.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto auto auto; justify-content: normal; gap: 16px; }
+   base flex sin cambios.
+   `align-items: end` (owner corrective — 3ra vuelta, seguía sin verse
+   alineado): Año/Mes son `.whatsnew-filter` (`display:flex;
+   flex-direction:column` — un `<span>` de ETIQUETA arriba + el control
+   abajo), mientras que Expandir/Contraer NO tienen etiqueta, son SOLO
+   botones. Con el `align-items:stretch` default de grid, los TRES ítems
+   se estiraban a la altura de la fila completa (la más alta = la de
+   Año/Mes CON etiqueta) y luego `.staffing-timeline-toolbar__actions`
+   centraba sus botones DENTRO de esa altura estirada — landing a mitad de
+   camino entre la etiqueta y el control real de Año/Mes, nunca al nivel
+   del `<select>`/fila de meses. `align-items:end` deja que cada ítem
+   ocupe SOLO su alto natural y alinea sus bordes INFERIORES — el borde
+   inferior de Año/Mes es el borde inferior de su control real (la
+   etiqueta queda arriba), el de Acciones es el borde inferior de sus
+   botones — control con control, MISMA línea de base. */
+.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto auto auto; justify-content: normal; align-items: end; gap: 16px; }
 .staffing-timeline-toolbar--panel > .staffing-timeline-toolbar__actions { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 640px) {
   .staffing-timeline-toolbar--panel { grid-template-columns: 1fr; gap: 8px; }
