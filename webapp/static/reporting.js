@@ -3772,7 +3772,7 @@ function renderCapacidadProductivas() {
     ${sectionToolbar(perspectiveSwitch("capacidad", false))}
     <div class="activity-grid-2">
       ${panel("cliente", stateKeyCliente, treeCliente, rowsCliente, "Cliente / Proyecto", "Cliente", totalHorasCliente)}
-      ${panel("clientePart", stateKeyPart, treePart, rowsPart, "Cliente + Part / Proyecto", "Cliente + Part", totalHorasPart)}
+      ${panel("clientePart", stateKeyPart, treePart, rowsPart, "Cliente + Participación / Proyecto", "Cliente + Participación", totalHorasPart)}
     </div>`;
   // countLabel = "N fila(s)" (owner feedback) — MISMO criterio que Cartera/
   // Proyectos, nunca la descripción de la jerarquía repetida acá (esa ya
