@@ -6706,6 +6706,91 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > selected (future months visibly greyed out instead of disappearing),
 > confirm "Expandir"/"Contraer" read correctly in both Reporting and
 > Staffing.
+>
+> **✅ HORAS PRODUCTIVAS — FINAL VISUAL COMPOSITION CORRECTIVE** (owner: "Owner
+> live smoke confirms the functionality is correct... This is a
+> PRESENTATION-ONLY corrective" — explicitly no backend/lineage/temporal-
+> state/filter/loader changes). Four composition defects, all closed:
+>
+> **1/2. Panel toolbar alignment + left indent**: Año/Mes/Expandir-Contraer
+> didn't share a common axis — the base `.staffing-timeline-toolbar` is
+> `justify-content: flex-end`, packing everything right, so Año's left edge
+> never lined up with the title/KPI/table's left edge and depended on how
+> wide the Mes button group happened to be. New modifier
+> `.staffing-timeline-toolbar--panel` (`display: grid;
+> grid-template-columns: auto minmax(0, 1fr) auto;`) replaces flex-end for
+> ONLY the two Horas Productivas panel toolbars — Año (auto), Mes (flexible
+> middle), Expandir/Contraer (auto, wrapped together in one
+> `.staffing-timeline-toolbar__actions` div so they land in the same grid
+> cell) are now three direct grid children, each panel built by
+> `panelToolbar()` instead of the generic `sectionToolbar()` (which
+> concatenates its parts into one blob — incompatible with needing three
+> separate grid items). Every other Reporting/Staffing toolbar
+> (perspective-switch + Expandir/Contraer, no Año/Mes) keeps the base flex
+> behavior untouched. A 640px breakpoint collapses the grid to a single
+> column; `.dashboard-view-switch--multi` gained `flex-wrap: wrap` so the
+> 12 month buttons degrade gracefully instead of clipping.
+>
+> **3. KPI→table spacing**: added `margin-bottom: 12px` to the shared
+> `.activity-kpi-grid` (Hub-wide, reuses the SAME 12px already used as that
+> grid's own internal `gap` — no new arbitrary value) so Total Horas and
+> the table below it have breathing room, everywhere a KPI grid precedes
+> content, not just Horas Productivas.
+>
+> **4/5/6. Horizontal scroll / dead space before Horas / long names**: root
+> cause was TWO overrides in `reporting.css` that outrank anything in
+> `tools.css` by specificity — `.reporting-integral-preview
+> table.dashboard-table { min-width: 900px; }` (correct for the full-width
+> monthly matrices, e.g. Rentabilidad's 12-month columns) and
+> `.reporting-integral-preview table.dashboard-table th.row-label-col {
+> width: 300px; }` — the second one was SILENTLY OVERRIDING the
+> `row-label-col--panel` (190px) modifier added two tickets ago, because a
+> 3-class selector beats a 2-class one regardless of source order or which
+> file loads last. That modifier never actually took effect in a real
+> browser; the earlier "fix" only worked in isolated node-harness string
+> assertions, never live — this is why the owner kept seeing the same
+> symptom. Real fix: a new `.dashboard-table--compact` modifier neutralizes
+> both overrides for ONLY the two Horas Productivas tables
+> (`min-width: 0`, `row-label-col { width: auto }`), combined with an
+> EXPLICIT `<colgroup>` in the table markup — `<col
+> class="dashboard-table-col--flex">` (label, `width: auto`, consumes
+> whatever's left) + two `<col class="dashboard-table-col--compact">`
+> (Horas/% Incidencia, `width: 72px`). A `<col>`'s width wins over ANY
+> `th`/CSS width in `table-layout: fixed` regardless of specificity — this
+> is the SAME documented escape hatch Asignaciones' `.staffing-detail-table`
+> already uses (see the pre-existing comment in `tools.css`), not a new
+> pattern. `row-label-col--panel` (the ineffective modifier) was deleted
+> entirely. The existing `text-overflow: ellipsis` + `title` tooltip on
+> `td.row-label` (Hub-wide, untouched) keeps handling genuinely long names
+> — now against a column that's actually flexible instead of a phantom
+> 300px fixed width.
+>
+> **7/8. Symmetry + responsive**: both panels were already built by the
+> exact same `panel()`/`panelToolbar()` functions before this ticket, so
+> structural symmetry falls out of that by construction — no separate work
+> needed. `.activity-grid-2`'s existing 900px stack breakpoint is
+> untouched; the new 640px toolbar breakpoint and the month row's
+> `flex-wrap` are the only NEW responsive behavior, both additive.
+>
+> Tests: `reporting_capacidad_composition.node.js` extended — both panels
+> use `dashboard-table--compact`, the colgroup's first `<col>` is `--flex`
+> and the other two are `--compact`, `row-label-col--panel` is gone from
+> both the CSS and the JS, the toolbar's three children appear in DOM order
+> Año → Mes → actions, Expandir/Contraer are wrapped together (not two
+> loose grid items). `test_reporting_capacidad_composition.py` checks the
+> `.dashboard-table-col--flex`/`--compact` primitives and the
+> `reporting.css` `--compact` overrides exist with the exact expected
+> values. No brittle pixel-position assertions — all checks are structural
+> (class presence, DOM order, CSS rule existence).
+>
+> Suite after this corrective: **1132 passed / 9 known stale / 1 skipped**.
+> PENDIENTE: **owner live smoke** — confirm Año/Mes/Expandir/Contraer read
+> as one aligned row starting at the same left edge as the title/KPI/table,
+> confirm visible breathing room between Total Horas and the table, confirm
+> both panels fit at normal desktop width with NO horizontal scrollbar and
+> a visibly reduced gap before the Horas column, confirm long project names
+> still read reasonably (via the wider flexible column) with the tooltip
+> covering any genuinely truncated tail.
 
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this

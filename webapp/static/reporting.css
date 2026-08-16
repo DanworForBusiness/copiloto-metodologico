@@ -137,5 +137,18 @@
    ancho de la columna de jerarquía) quedan acá. */
 .reporting-integral-preview table.dashboard-table { min-width: 900px; }
 .reporting-integral-preview table.dashboard-table th.row-label-col { width: 300px; }
+/* Horas Productivas — 2 tablas COMPACTAS de solo 3 columnas (label/Horas/%
+   Incidencia), owner corrective ("FINAL VISUAL COMPOSITION"): el min-width
+   900px de arriba es correcto para las matrices mensuales de ancho
+   completo (12 columnas de mes), pero es la CAUSA RAÍZ del scroll
+   horizontal innecesario acá — dos tablas de 3 columnas a mitad de ancho
+   de panel nunca necesitan 900px, y los 300px fijos de la columna de
+   label dejaban un hueco vacío antes de Horas. Modifier `--compact` anula
+   AMBOS para estas 2 tablas — el ancho real de las 3 columnas lo fija el
+   `<colgroup>` explícito en el markup (gana sobre CUALQUIER ancho de `th`
+   en `table-layout:fixed`, sin importar especificidad — ver
+   `.dashboard-table-col--flex`/`--compact` en tools.css). */
+.reporting-integral-preview table.dashboard-table.dashboard-table--compact { min-width: 0; }
+.reporting-integral-preview table.dashboard-table.dashboard-table--compact th.row-label-col { width: auto; }
 
 .reporting-integral-preview .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }

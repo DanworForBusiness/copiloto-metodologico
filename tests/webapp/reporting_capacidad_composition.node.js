@@ -126,11 +126,33 @@ assertTrue(rightPanel.includes('class="perspective-label"'), "el panel derecho u
 assertTrue(html.includes("2 fila(s)"), "el countLabel de la sección envolvente es 'N fila(s)' (2 Clientes en la fixture), nunca la descripción larga de la jerarquía");
 assertTrue(!html.includes("(izq.)") && !html.includes("(der.)"), "NUNCA se imprime 'Cliente › Proyecto (izq.)/(der.)' como countLabel (owner feedback explícito)");
 
-// --- Ancho angosto de la columna de label (owner live QA — ambos paneles
-// deben entrar en pantalla sin scroll horizontal, ver .row-label-col--panel
-// en tools.css) — modifier del primitivo compartido, NUNCA el default
-// 340px de ancho completo usado por el resto del Hub. ----------------------
-assertTrue(html.includes('class="row-label-col row-label-col--panel"'), "la columna de label usa el modifier angosto --panel (nunca el 340px default)");
+// --- FINAL VISUAL COMPOSITION corrective: colgroup explícito FLEXIBLE +
+// COMPACTO (ambos paneles deben entrar en pantalla sin scroll horizontal
+// Y sin un hueco vacío antes de Horas) — <col> explícito gana sobre
+// CUALQUIER ancho de th en table-layout:fixed. La tabla usa el modifier
+// `dashboard-table--compact` (anula min-width:900px/300px pensados para
+// las matrices mensuales de ancho completo). --------------------------------
+assertTrue(leftPanel.includes('<table class="dashboard-table dashboard-table--compact">'), "el panel IZQUIERDO usa el modifier --compact (anula min-width:900px)");
+assertTrue(rightPanel.includes('<table class="dashboard-table dashboard-table--compact">'), "el panel DERECHO usa el modifier --compact");
+const leftColgroup = leftPanel.slice(leftPanel.indexOf("<colgroup>"), leftPanel.indexOf("</colgroup>") + 11);
+assertTrue(leftColgroup.includes('class="dashboard-table-col--flex"'), "la 1ra columna (label) es FLEXIBLE (--flex)");
+assertEqual((leftColgroup.match(/dashboard-table-col--compact/g) || []).length, 2, "las columnas 2 y 3 (Horas/% Incidencia) son COMPACTAS (--compact)");
+assertTrue(!leftPanel.includes("row-label-col--panel"), "la columna de label ya NO depende de un ancho fijo en el th — el <colgroup> manda");
+
+// --- Toolbar de panel: Año | Mes | Expandir/Contraer como TRES hijos
+// DIRECTOS del grid (owner corrective — "Año alineado al borde izquierdo,
+// Mes en la misma línea de base, Expandir/Contraer alineados") ------------
+assertTrue(leftPanel.includes('class="staffing-timeline-toolbar staffing-timeline-toolbar--panel"'), "el panel IZQUIERDO usa el grid de toolbar --panel");
+assertTrue(rightPanel.includes('class="staffing-timeline-toolbar staffing-timeline-toolbar--panel"'), "el panel DERECHO usa el grid de toolbar --panel");
+const leftToolbarStart = leftPanel.indexOf('class="staffing-timeline-toolbar staffing-timeline-toolbar--panel"');
+const leftToolbarActionsIdx = leftPanel.indexOf('class="staffing-timeline-toolbar__actions"', leftToolbarStart);
+const leftAnioIdx = leftPanel.indexOf("setFilter('capacidad','anio_cliente'", leftToolbarStart);
+const leftMesIdx = leftPanel.indexOf("toggleCapacidadMes('cliente'", leftToolbarStart);
+assertTrue(leftToolbarStart < leftAnioIdx && leftAnioIdx < leftMesIdx && leftMesIdx < leftToolbarActionsIdx, "orden DOM dentro del toolbar: Año → Mes → acciones (Expandir/Contraer)");
+assertTrue(leftPanel.slice(leftToolbarActionsIdx, leftToolbarActionsIdx + 200).includes("expandAllTree"), "Expandir/Contraer viven envueltos en .staffing-timeline-toolbar__actions (1 solo hijo de grid, no 2 sueltos)");
+
+// --- KPI → tabla: respiración vertical (owner corrective) ------------------
+assertTrue(html.includes('class="activity-kpi-grid"'), "el KPI sigue usando el primitivo compartido (el margen vive en la clase, no inline en reporting.js)");
 
 // --- Headers de Horas/% Incidencia son CLICKEABLES para ordenar -----------
 assertTrue(leftPanel.includes(`onclick="toggleCapacidadProductivasSort('cliente')"`), "el panel IZQUIERDO tiene headers clickeables que ordenan SU PROPIO panel (cliente)");

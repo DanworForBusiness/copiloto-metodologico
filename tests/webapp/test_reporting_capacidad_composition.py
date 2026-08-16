@@ -51,13 +51,46 @@ def test_activity_grid_2_has_min_width_zero_for_wide_children():
 # ordenables, ambos paneles entran en pantalla sin scroll, Expandir/Contraer
 # ya no más altos de lo que deberían ---------------------------------------
 
-def test_row_label_col_panel_modifier_is_narrower_than_hub_default():
-    # Modifier del primitivo COMPARTIDO `th.row-label-col` (340px default) —
-    # nunca un override del default (eso rompería Cartera/Rentabilidad/HV/
-    # Participación/Salud/Calendario, que siguen queriendo 340px).
+def test_row_label_col_default_is_untouched_by_capacidad_colgroup():
+    # FINAL VISUAL COMPOSITION corrective: la columna de label de Horas
+    # Productivas ya NO usa un ancho fijo en el `th` (ni el 340px default
+    # ni el `--panel` de 190px retirado) — el `<colgroup>` explícito del
+    # markup (ver test_capacidad_composition_invariants_hold) gana sobre
+    # CUALQUIER ancho de `th` en table-layout:fixed, así que el label es
+    # genuinamente FLEXIBLE. El default de 340px sigue intacto para
+    # Cartera/Rentabilidad/HV/Participación/Salud/Calendario (tablas de
+    # ancho completo, sin colgroup propio).
     css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
     assert "table.dashboard-table th.row-label-col { width: 340px; }" in css
-    assert "table.dashboard-table th.row-label-col--panel { width: 190px; }" in css
+    assert "row-label-col--panel" not in css
+    assert "row-label-col--panel" not in _REPORTING_JS
+
+
+def test_capacidad_table_uses_explicit_colgroup_flex_and_compact_columns():
+    # Escape hatch YA documentado en tools.css ("un dominio con su propio
+    # <colgroup>... el <col> explícito gana en table-layout:fixed") — la
+    # columna de label es FLEXIBLE (`--flex`, consume el espacio
+    # disponible), Horas/% Incidencia son COMPACTAS (`--compact`,
+    # content-sized/bounded). Reusable Hub-wide, no clases inventadas por
+    # Horas Productivas.
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".dashboard-table-col--flex { width: auto; }" in css
+    assert ".dashboard-table-col--compact { width: 72px; }" in css
+    assert '<col class="dashboard-table-col--flex">' in _REPORTING_JS
+    assert '<col class="dashboard-table-col--compact">' in _REPORTING_JS
+
+
+def test_capacidad_table_neutralizes_full_width_min_width_and_row_label_defaults():
+    # `min-width:900px`/`width:300px` en reporting.css son correctos para
+    # las matrices mensuales de ancho completo (12 columnas de mes) — pero
+    # son la causa raíz del scroll horizontal innecesario en las 2 tablas
+    # compactas de Horas Productivas. `.dashboard-table--compact` los anula
+    # SOLO para esas 2 tablas (nunca para el resto del Hub).
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.css").read_text(encoding="utf-8")
+    assert ".reporting-integral-preview table.dashboard-table { min-width: 900px; }" in css
+    assert ".reporting-integral-preview table.dashboard-table.dashboard-table--compact { min-width: 0; }" in css
+    assert ".reporting-integral-preview table.dashboard-table.dashboard-table--compact th.row-label-col { width: auto; }" in css
+    assert '<table class="dashboard-table dashboard-table--compact">' in _REPORTING_JS
 
 
 def test_sortable_header_css_reuses_shared_table_primitive():

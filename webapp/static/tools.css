@@ -554,7 +554,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-empty p { margin: 0 auto; max-width: 480px; color: #55555c; font-size: .82rem; line-height: 1.55; }
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
 
-.activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
+/* `margin-bottom` (owner corrective — "FINAL VISUAL COMPOSITION": Total
+   Horas terminaba y la tabla empezaba casi sin transición). Reusa el
+   MISMO 12px ya usado como `gap` interno de esta grilla — nunca un margen
+   nuevo/arbitrario. Hub-wide (toda experiencia con KPI seguida de
+   contenido gana la misma respiración), no un caso especial de Horas
+   Productivas. */
 /* `min-width:0` (Phase S, ver HANDOFF — antes solo en reporting.css, Phase
    0C): deja que el tile de grid se ENCOJA en vez de empujar a los vecinos
    con valores reales de 5-7 dígitos — CUALQUIER consumidor de KPI tiles
@@ -846,6 +852,26 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
      especial de Horas Productivas — cualquier toolbar con un label de
      dos líneas junto a botones de una línea tenía el mismo problema). */
 }
+/* Grid de toolbar de PANEL (owner corrective — "FINAL VISUAL COMPOSITION":
+   Año / Mes / Expandir-Contraer no compartían un eje de alineación — Año
+   empezaba corrido hacia adentro respecto del título/KPI/tabla, y
+   Expandir/Contraer quedaban "sueltos" a la derecha). Modifier del MISMO
+   primitivo de arriba (nunca duplica borde/tipografía de botón) — Año
+   (auto) | Mes (flexible, `minmax(0,1fr)`) | acciones de jerarquía (auto)
+   en UNA fila coherente. La base `justify-content:flex-end` empaquetaba
+   todo a la derecha — por eso Año nunca alineaba con el borde izquierdo
+   del contenido, y por eso su posición dependía del ancho del grupo de
+   Mes (ya resuelto en el SÍNTOMA por "12 botones siempre en el DOM", ver
+   `.dashboard-view-switch--multi`, pero la causa de fondo era que Año no
+   debía depender del ancho de sus hermanos en absoluto). Solo usado por
+   los 2 paneles de Horas Productivas — el resto de los toolbars de
+   Reporting/Staffing (perspective-switch + Expandir/Contraer, sin Año/Mes)
+   siguen usando la base flex sin cambios. */
+.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; justify-content: normal; gap: 16px; }
+.staffing-timeline-toolbar--panel > .staffing-timeline-toolbar__actions { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .staffing-timeline-toolbar--panel { grid-template-columns: 1fr; gap: 8px; }
+}
 .staffing-timeline-toolbar button {
   border: 1px solid rgba(128,128,128,.32); background: transparent; border-radius: 6px;
   padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
@@ -883,6 +909,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    `.is-active` ya soporta varios botones activos a la vez sin ajuste — el
    single-select original solo tildaba uno, el multi-select puede tildar
    cualquier subconjunto. */
+.dashboard-view-switch--multi { flex-wrap: wrap; }
 .dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
 /* Mes futuro bajo el año en curso (owner corrective: "que la posicion del
    dropdown de año no cambie de lugar... eventualmente si los meses son a
@@ -940,18 +967,19 @@ table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-ali
    `hierarchyToggleHtml` en reporting.js) cubre la cola de nombres larguísimos
    que aún exceden este ancho. */
 table.dashboard-table th.row-label-col { width: 340px; }
-/* Modifier ANGOSTO (owner live QA — Horas Productivas: "aca es importante
-   asegurarse que ambos paneles entran en pantalla" — con DOS tablas
-   side-by-side en `.activity-grid-2`, cada panel tiene aprox. la MITAD del
-   ancho horizontal de una tabla Hub normal de ancho completo; el 340px
-   reservado de arriba fuerza scroll horizontal ahí y esconde % Incidencia
-   del todo). Reduce el ancho reservado para que Cliente/Proyecto + Horas +
-   % Incidencia quepan sin scroll — el nombre se recorta con "…" (mismo
-   mecanismo `text-overflow:ellipsis` de `td.row-label` de arriba, el
-   tooltip `title` sigue cubriendo la cola completa). Modifier, no un
-   override del default — cualquier otra tabla Hub de ancho completo
-   conserva 340px. */
-table.dashboard-table th.row-label-col--panel { width: 190px; }
+/* Colgroup explícito FLEXIBLE + COMPACTO (owner corrective — "FINAL VISUAL
+   COMPOSITION": Horas Productivas necesita la columna de label FLEXIBLE
+   —consume el espacio disponible— y las columnas numéricas COMPACTAS
+   —content-sized/bounded—, nunca un ancho fijo grande para el label que
+   deja un hueco vacío antes de Horas). Reusa el escape hatch YA
+   documentado arriba ("un dominio con su propio `<colgroup>`... el `<col>`
+   explícito gana en `table-layout:fixed`") — reusable por cualquier tabla
+   Hub angosta con esta forma (label + pocas columnas numéricas), no
+   exclusivo de Horas Productivas. Ver `.dashboard-table--compact` en
+   reporting.css (anula el min-width:900px/300px pensados para las
+   matrices mensuales de ancho completo, que no aplican acá). */
+.dashboard-table-col--flex { width: auto; }
+.dashboard-table-col--compact { width: 72px; }
 /* Header clickeable de orden (owner live QA: "falta que los header de las
    columnas sean clickeables para ordenar ascendente/descendente"). Reusa
    la MISMA base `table.dashboard-table th` (alineación derecha, tipografía)

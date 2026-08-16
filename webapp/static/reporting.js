@@ -3726,16 +3726,35 @@ function renderCapacidadProductivas() {
     const arrow = state.capacidadProductivasSortDir[panelKey] === "asc" ? "▲" : "▼";
     return `<th class="dashboard-table-th--sortable" onclick="toggleCapacidadProductivasSort('${panelKey}')" title="Ordenar por ${esc(label)}">${esc(label)} ${arrow}</th>`;
   };
+  // Toolbar de panel: Año | Mes | acciones de jerarquía como TRES hijos
+  // directos del grid `.staffing-timeline-toolbar--panel` (owner corrective
+  // — "FINAL VISUAL COMPOSITION"). Ya NO pasa por `sectionToolbar` (esa
+  // función CONCATENA sus partes en un solo blob — acá cada parte necesita
+  // ser su PROPIO hijo de grid para caer en su propia columna auto/1fr/
+  // auto). Las acciones (2 `<button>` sueltos) se envuelven en UN `<div>`
+  // para que caigan JUNTAS en la columna derecha, nunca cada botón en su
+  // propia columna.
+  const panelToolbar = (panelKey, stateKey) => `
+    <div class="staffing-timeline-toolbar staffing-timeline-toolbar--panel">
+      ${capacidadProductivasAnioField(panelKey)}
+      ${capacidadProductivasMesButtons(panelKey)}
+      <div class="staffing-timeline-toolbar__actions">${treeToolbarButtons(stateKey)}</div>
+    </div>`;
   const panel = (panelKey, stateKey, tree, rowsForPanel, columnLabel, title, totalHoras) => `
     <div class="dashboard-section">
       <div class="dashboard-section__body">
         <p class="perspective-label">${esc(title)}</p>
-        ${sectionToolbar(capacidadProductivasAnioField(panelKey) + capacidadProductivasMesButtons(panelKey), treeToolbarButtons(stateKey))}
+        ${panelToolbar(panelKey, stateKey)}
         <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours" })}</div>
         ${rowsForPanel.length ? `
         <div class="matrix-scroll">
-          <table class="dashboard-table">
-            <thead><tr><th class="row-label-col row-label-col--panel">${columnLabel}</th>${sortHeader(panelKey, "Horas")}${sortHeader(panelKey, "% Incidencia")}</tr></thead>
+          <table class="dashboard-table dashboard-table--compact">
+            <colgroup>
+              <col class="dashboard-table-col--flex">
+              <col class="dashboard-table-col--compact">
+              <col class="dashboard-table-col--compact">
+            </colgroup>
+            <thead><tr><th class="row-label-col">${columnLabel}</th>${sortHeader(panelKey, "Horas")}${sortHeader(panelKey, "% Incidencia")}</tr></thead>
             <tbody>${renderBusinessTreeRows(stateKey, tree, 0, capacidadProductivasColumns(panelKey))}</tbody>
           </table>
         </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
