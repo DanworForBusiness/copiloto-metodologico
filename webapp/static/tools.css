@@ -835,7 +835,17 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 /* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
    sección entera). */
-.staffing-timeline-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.staffing-timeline-toolbar {
+  display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 8px;
+  /* `align-items:center` (owner live QA — Horas Productivas: "Expandir/
+     Contraer siguen mas altos de lo que deberian"). Causa raíz: `flex`
+     default es `align-items:stretch` — con un Año/Mes de UN panel (`<label>`
+     con `<span>` + `<select>` apilados) como hermano en la MISMA fila, el
+     stretch por defecto estiraba los botones Expandir/Contraer a la altura
+     del label MÁS ALTO. Fix del primitivo COMPARTIDO (nunca un caso
+     especial de Horas Productivas — cualquier toolbar con un label de
+     dos líneas junto a botones de una línea tenía el mismo problema). */
+}
 .staffing-timeline-toolbar button {
   border: 1px solid rgba(128,128,128,.32); background: transparent; border-radius: 6px;
   padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
@@ -864,6 +874,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-view-switch button:hover { color: #1f1f24; }
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* Mes de Horas Productivas — multi-select (owner live QA corrective: "el
+   PBIP original permite tildar varios meses a la vez... boton cuadrado
+   minimalista por cada mes... gris/claro... mas obscuro/gold al hacer
+   click"). Modifier del MISMO primitivo de arriba (nunca una clase de
+   botón nueva) — más compacto/cuadrado que el perspective-switch base (ese
+   usa 2-3 palabras por botón; esto usa abreviaturas de 3 letras, Ene..Dic).
+   `.is-active` ya soporta varios botones activos a la vez sin ajuste — el
+   single-select original solo tildaba uno, el multi-select puede tildar
+   cualquier subconjunto. */
+.dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
 
 /* Hub dashboard table (Phase S — estandarización visual del Hub, ver
    HANDOFF "REPORTING INTEGRAL — REAL DATA"): UNA sola fuente de verdad
@@ -913,6 +933,24 @@ table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-ali
    `hierarchyToggleHtml` en reporting.js) cubre la cola de nombres larguísimos
    que aún exceden este ancho. */
 table.dashboard-table th.row-label-col { width: 340px; }
+/* Modifier ANGOSTO (owner live QA — Horas Productivas: "aca es importante
+   asegurarse que ambos paneles entran en pantalla" — con DOS tablas
+   side-by-side en `.activity-grid-2`, cada panel tiene aprox. la MITAD del
+   ancho horizontal de una tabla Hub normal de ancho completo; el 340px
+   reservado de arriba fuerza scroll horizontal ahí y esconde % Incidencia
+   del todo). Reduce el ancho reservado para que Cliente/Proyecto + Horas +
+   % Incidencia quepan sin scroll — el nombre se recorta con "…" (mismo
+   mecanismo `text-overflow:ellipsis` de `td.row-label` de arriba, el
+   tooltip `title` sigue cubriendo la cola completa). Modifier, no un
+   override del default — cualquier otra tabla Hub de ancho completo
+   conserva 340px. */
+table.dashboard-table th.row-label-col--panel { width: 190px; }
+/* Header clickeable de orden (owner live QA: "falta que los header de las
+   columnas sean clickeables para ordenar ascendente/descendente"). Reusa
+   la MISMA base `table.dashboard-table th` (alineación derecha, tipografía)
+   — el modifier solo agrega el affordance de click. */
+table.dashboard-table th.dashboard-table-th--sortable { cursor: pointer; user-select: none; }
+table.dashboard-table th.dashboard-table-th--sortable:hover { color: var(--gold); }
 /* Ancho estándar de columna numérica/de-medida (corrective pre-Batch-A,
    owner live QA — regresión de Phase S: al fusionar `tree-matrix`/
    `data-table` en un solo primitivo se perdió el ancho fijo que la matriz

@@ -45,3 +45,44 @@ def test_activity_grid_2_has_min_width_zero_for_wide_children():
     # nunca empujando la página entera.
     css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
     assert ".activity-grid-2 > * { min-width: 0; }" in css
+
+
+# --- UX CORRECTIVE (owner live QA, 2da pasada): Mes multi-select, columnas
+# ordenables, ambos paneles entran en pantalla sin scroll, Expandir/Contraer
+# ya no más altos de lo que deberían ---------------------------------------
+
+def test_row_label_col_panel_modifier_is_narrower_than_hub_default():
+    # Modifier del primitivo COMPARTIDO `th.row-label-col` (340px default) —
+    # nunca un override del default (eso rompería Cartera/Rentabilidad/HV/
+    # Participación/Salud/Calendario, que siguen queriendo 340px).
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert "table.dashboard-table th.row-label-col { width: 340px; }" in css
+    assert "table.dashboard-table th.row-label-col--panel { width: 190px; }" in css
+
+
+def test_sortable_header_css_reuses_shared_table_primitive():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert "table.dashboard-table th.dashboard-table-th--sortable { cursor: pointer" in css
+
+
+def test_timeline_toolbar_centers_items_never_stretches_buttons():
+    # Owner live QA: "los botones de expandir y contraer siguen mas altos de
+    # lo que deberian" — causa raíz `align-items:stretch` (default de flex)
+    # estirando los botones a la altura del label Año/Mes más alto. Fix del
+    # primitivo COMPARTIDO `.staffing-timeline-toolbar` (Staffing + las 5
+    # experiencias de Reporting con toolbar, nunca un caso especial de
+    # Horas Productivas).
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert "align-items: center" in css[css.index(".staffing-timeline-toolbar {"):css.index(".staffing-timeline-toolbar {") + 300]
+
+
+def test_month_multi_select_reuses_dashboard_view_switch_primitive():
+    # Owner: "boton cuadrado minimalista... gris/claro... mas obscuro/gold
+    # al hacer click" — MISMO primitivo `.dashboard-view-switch` que el
+    # perspective-switch (nunca una clase de botón nueva), solo un modifier
+    # `--multi` más compacto.
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".dashboard-view-switch--multi button {" in css
+    import re
+    assert not re.search(r"\.mes-boton|\.month-toggle|\.capacidad-mes-btn", _REPORTING_JS)
+    assert not re.search(r"\.mes-boton|\.month-toggle|\.capacidad-mes-btn", css)

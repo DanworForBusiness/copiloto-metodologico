@@ -26,7 +26,7 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
 const {
-  getFilter, capacidadProductivasSelectedRows, capacidadPanelAnioKey, capacidadPanelMesKey, fmtNum,
+  getFilter, capacidadProductivasSelectedRows, capacidadPanelAnioKey, fmtNum,
 } = sandbox;
 // `state`/`CAPACIDAD_PRODUCTIVAS_ROWS` son `const` a nivel de módulo — no se
 // adjuntan como propiedad del objeto de contexto (MISMO caveat que `state`
@@ -85,18 +85,19 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   assertEqual(getFilter("capacidad", capacidadPanelAnioKey("cliente")), "2018", "cambiar Año derecho a 2019 NO muta el izquierdo (sigue en 2018)");
   assertEqual(getFilter("capacidad", capacidadPanelAnioKey("clientePart")), "2019", "el derecho sí refleja su propio cambio");
 
-  // Mismo criterio para Mes.
-  state.filters.capacidad[capacidadPanelMesKey("cliente")] = "3";
-  assertEqual(getFilter("capacidad", capacidadPanelMesKey("clientePart")), "", "cambiar Mes izquierdo NO muta el Mes derecho (sigue en Todos/'')");
+  // Mismo criterio para Mes — MULTI-SELECT (owner corrective), Set POR
+  // PANEL en `state.capacidadMesesSeleccionados`, ya no una key dentro de
+  // `state.filters.capacidad`.
+  state.capacidadMesesSeleccionados = { cliente: new Set(["3"]), clientePart: new Set() };
+  assertEqual([...state.capacidadMesesSeleccionados.clientePart], [], "cambiar Mes izquierdo NO muta el Set de Mes derecho (sigue vacío/Todos)");
 }
 
 // --- Cada panel proyecta SU PROPIO Año/Mes — nunca el del otro panel ------
 {
   state.filters.capacidad = {};
   state.filters.capacidad[capacidadPanelAnioKey("cliente")] = "2019";
-  state.filters.capacidad[capacidadPanelMesKey("cliente")] = "";
   state.filters.capacidad[capacidadPanelAnioKey("clientePart")] = "2018";
-  state.filters.capacidad[capacidadPanelMesKey("clientePart")] = "";
+  state.capacidadMesesSeleccionados = { cliente: new Set(), clientePart: new Set() };
 
   const rowsCliente = capacidadProductivasSelectedRows("cliente");
   const rowsPart = capacidadProductivasSelectedRows("clientePart");
@@ -107,14 +108,13 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
 }
 
 // --- MISMA implementación temporal compartida: mismo Año/Mes en ambos ⇒ ---
-// --- mismo resultado (prueba _applyMonthCap/_maskMes compartidos, no dos --
+// --- mismo resultado (prueba _applyMonthCap/_maskMeses compartidos, no dos
 // --- copias que puedan divergir) ------------------------------------------
 {
   state.filters.capacidad = {};
   state.filters.capacidad[capacidadPanelAnioKey("cliente")] = "2019";
-  state.filters.capacidad[capacidadPanelMesKey("cliente")] = "3"; // Marzo
   state.filters.capacidad[capacidadPanelAnioKey("clientePart")] = "2019";
-  state.filters.capacidad[capacidadPanelMesKey("clientePart")] = "3";
+  state.capacidadMesesSeleccionados = { cliente: new Set(["3"]), clientePart: new Set(["3"]) }; // Marzo
 
   const rowsCliente = capacidadProductivasSelectedRows("cliente");
   const rowsPart = capacidadProductivasSelectedRows("clientePart");

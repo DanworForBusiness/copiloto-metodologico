@@ -25,7 +25,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
-const { renderCapacidadProductivas, capacidadPanelAnioKey, capacidadPanelMesKey } = sandbox;
+const { renderCapacidadProductivas, capacidadPanelAnioKey } = sandbox;
 const state = vm.runInContext("state", sandbox);
 const CAPACIDAD_PRODUCTIVAS_ROWS = vm.runInContext("CAPACIDAD_PRODUCTIVAS_ROWS", sandbox);
 
@@ -85,12 +85,15 @@ const leftPanel = html.slice(leftStart, rightStart);
 const rightPanel = html.slice(rightStart);
 
 // --- Cada panel posee su PROPIO Año/Mes (nunca el del otro) ---------------
+// Mes es multi-select (botones, owner corrective) — `toggleCapacidadMes('<panel>', ...)`
+// reemplaza el `<select>` de valor único retirado.
 assertTrue(leftPanel.includes(`setFilter('capacidad','${capacidadPanelAnioKey("cliente")}'`), "el panel IZQUIERDO monta su propio <select> de Año (anio_cliente)");
-assertTrue(leftPanel.includes(`setFilter('capacidad','${capacidadPanelMesKey("cliente")}'`), "el panel IZQUIERDO monta su propio <select> de Mes (mes_cliente)");
+assertTrue(leftPanel.includes(`toggleCapacidadMes('cliente',`), "el panel IZQUIERDO monta sus propios botones de Mes (toggleCapacidadMes('cliente', ...))");
 assertTrue(!leftPanel.includes(`anio_clientePart`), "el panel IZQUIERDO NUNCA referencia la key de Año del panel derecho");
 assertTrue(rightPanel.includes(`setFilter('capacidad','${capacidadPanelAnioKey("clientePart")}'`), "el panel DERECHO monta su propio <select> de Año (anio_clientePart)");
-assertTrue(rightPanel.includes(`setFilter('capacidad','${capacidadPanelMesKey("clientePart")}'`), "el panel DERECHO monta su propio <select> de Mes (mes_clientePart)");
+assertTrue(rightPanel.includes(`toggleCapacidadMes('clientePart',`), "el panel DERECHO monta sus propios botones de Mes (toggleCapacidadMes('clientePart', ...))");
 assertTrue(!rightPanel.includes(`anio_cliente'`), "el panel DERECHO NUNCA referencia la key de Año del panel izquierdo (no confundir con 'anio_clientePart' que SÍ contiene el substring 'anio_cliente')");
+assertTrue(!leftPanel.includes(`toggleCapacidadMes('clientePart',`), "el panel IZQUIERDO NUNCA monta los botones de Mes del panel derecho");
 
 // --- Cada panel posee su PROPIO KPI "Total Horas" --------------------------
 const leftKpiCount = (leftPanel.match(/activity-kpi__label">Total Horas</g) || []).length;
@@ -122,6 +125,19 @@ assertTrue(rightPanel.includes('class="perspective-label"'), "el panel derecho u
 // Proyectos/Calendario) ------------------------------------------------
 assertTrue(html.includes("2 fila(s)"), "el countLabel de la sección envolvente es 'N fila(s)' (2 Clientes en la fixture), nunca la descripción larga de la jerarquía");
 assertTrue(!html.includes("(izq.)") && !html.includes("(der.)"), "NUNCA se imprime 'Cliente › Proyecto (izq.)/(der.)' como countLabel (owner feedback explícito)");
+
+// --- Ancho angosto de la columna de label (owner live QA — ambos paneles
+// deben entrar en pantalla sin scroll horizontal, ver .row-label-col--panel
+// en tools.css) — modifier del primitivo compartido, NUNCA el default
+// 340px de ancho completo usado por el resto del Hub. ----------------------
+assertTrue(html.includes('class="row-label-col row-label-col--panel"'), "la columna de label usa el modifier angosto --panel (nunca el 340px default)");
+
+// --- Headers de Horas/% Incidencia son CLICKEABLES para ordenar -----------
+assertTrue(leftPanel.includes(`onclick="toggleCapacidadProductivasSort('cliente')"`), "el panel IZQUIERDO tiene headers clickeables que ordenan SU PROPIO panel (cliente)");
+assertTrue(rightPanel.includes(`onclick="toggleCapacidadProductivasSort('clientePart')"`), "el panel DERECHO tiene headers clickeables que ordenan SU PROPIO panel (clientePart)");
+assertTrue(!leftPanel.includes(`toggleCapacidadProductivasSort('clientePart')`), "el panel IZQUIERDO nunca dispara el orden del panel derecho");
+const leftHeaderMatches = [...leftPanel.matchAll(/dashboard-table-th--sortable/g)];
+assertEqual(leftHeaderMatches.length, 2, "el panel IZQUIERDO tiene EXACTAMENTE 2 headers ordenables (Horas + % Incidencia)");
 
 // --- Ningún elemento con overflow horizontal a nivel PÁGINA introducido ---
 // (el scroll ancho, si hace falta, vive DENTRO de .matrix-scroll por panel,

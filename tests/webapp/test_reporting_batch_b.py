@@ -416,9 +416,11 @@ def test_capacidad_productivas_renders_two_panels_with_independent_state():
     # ver capacidadProductivasColumns) — cada uno con su propio `panelKey`.
     assert 'capacidadProductivasColumns(panelKey)' in fn
     # Owner corrective: cada panel monta su PROPIO Año/Mes en su propio
-    # toolbar (nunca un único Año/Mes compartido en el filter bar).
+    # toolbar (nunca un único Año/Mes compartido en el filter bar). Mes es
+    # multi-select (botones, owner live QA — ver capacidadProductivasMesButtons),
+    # ya NO un `<select>` de valor único.
     assert "capacidadProductivasAnioField(panelKey)" in fn
-    assert "capacidadProductivasMesField(panelKey)" in fn
+    assert "capacidadProductivasMesButtons(panelKey)" in fn
 
 
 def test_capacidad_productivas_anio_field_offers_todos_unlike_rentabilidad_hv():
@@ -457,7 +459,10 @@ def test_capacidad_productivas_total_uses_anio_mes_scoped_population():
 
 def test_capacidad_panels_use_distinct_filter_keys_never_shared():
     assert 'function capacidadPanelAnioKey(panel) { return `anio_${panel}`; }' in _REPORTING_JS
-    assert 'function capacidadPanelMesKey(panel) { return `mes_${panel}`; }' in _REPORTING_JS
+    # Mes es multi-select (owner live QA corrective) — vive FUERA de
+    # `state.filters.capacidad`, un Set POR PANEL en
+    # `state.capacidadMesesSeleccionados`, nunca la misma key/Set para ambos.
+    assert "capacidadMesesSeleccionados: { cliente: new Set(), clientePart: new Set() }" in _REPORTING_JS
     # CAPACIDAD_PRODUCTIVAS_PANELS enumera los dos paneles reales — nunca un
     # tercer panel fantasma ni uno solo.
     assert 'const CAPACIDAD_PRODUCTIVAS_PANELS = ["cliente", "clientePart"];' in _REPORTING_JS
@@ -470,7 +475,7 @@ def test_prune_capacidad_productivas_reconciles_both_panels_independently():
     body = _fn_body_batch_b("reconcileExperienceFacets", 2600)
     assert "CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel =>" in body
     assert "pruneCapacidadProductivasAnio(panel)" in body
-    assert "pruneCapacidadProductivasMes(panel)" in body
+    assert "pruneCapacidadProductivasMeses(panel)" in body
 
 
 def test_capacidad_productivas_columns_closes_over_a_per_panel_total():

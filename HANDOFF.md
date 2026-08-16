@@ -6544,6 +6544,82 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > Horas Vendidas/Rentabilidad/Participación keeps the existing filters and
 > table visible with only the incremental loader appearing, never a reset to
 > the initial-loading screen.
+>
+> **✅ HORAS PRODUCTIVAS — 2nd owner live QA pass (Mes multi-select + sortable
+> columns + overflow + toolbar height)**. Four concrete UX defects reported
+> against the two-panel composition from the prior pass, all closed:
+>
+> **A. Mes single-select dropdown → multi-select button row**: the owner's
+> PBIP reference screenshot showed the original visual lets the user tick
+> ANY combination of months at once (Ene/Feb/Mar highlighted together) — a
+> single-value `<select>` can't represent that. `capacidadProductivasMesField`
+> (the `<select>`) is retired; `capacidadProductivasMesButtons(panel)` renders
+> a row of month toggle buttons reusing the EXISTING `.dashboard-view-switch`
+> primitive (same "light when inactive, gold when active" look as the
+> perspective-switch, never a new button class) with a `--multi` modifier
+> (smaller/square, `.dashboard-view-switch--multi`). Selection state moved
+> from `state.filters.capacidad.mes_<panel>` (a string) to
+> `state.capacidadMesesSeleccionados = { cliente: Set, clientePart: Set }` —
+> still panel-independent (same "shared implementation != shared state"
+> principle as Año). New mask helper `_maskMeses(arr, mesesSet)` (empty Set =
+> "Todos", preserving the retired `<select>`'s default exactly) sits beside
+> — never inside — the existing single-value `_maskMes` used by
+> Rentabilidad/HV (their single-select Mes contract is untouched).
+> `pruneCapacidadProductivasMeses(panel)` reconciles stale month selections
+> against the future-month cap on Año change, mirroring
+> `pruneCarteraAnioInicio`.
+>
+> **B. Column headers not sortable**: `Horas`/`% Incidencia` headers are now
+> clickable (`toggleCapacidadProductivasSort(panel)`), toggling
+> `state.capacidadProductivasSortDir[panel]` between `desc` (default — same
+> Rank order as before, zero behavior change until clicked) and `asc`, shown
+> via a `▲`/`▼` indicator. Both columns share ONE direction per panel —
+> `% Incidencia` is a monotonic transform of `Horas` against the panel's
+> fixed total (`pct = horas/total*100`), so sorting by either produces the
+> identical row order; tracking two independent sorts that could disagree
+> would be a lie. Sort is per-panel, matching every other piece of
+> panel-independent state here.
+>
+> **C. Horizontal scrollbar hiding % Incidencia**: root cause was the SAME
+> `th.row-label-col { width: 340px }` used by every full-width Hub table —
+> correct there, but with TWO tables side-by-side in `.activity-grid-2` each
+> panel has roughly half the horizontal room, so 340px+88px+88px routinely
+> exceeded it and `.matrix-scroll` kicked in, scrolling `% Incidencia` off
+> screen. Fixed with a new narrower modifier, `th.row-label-col--panel {
+> width: 190px }` — a modifier of the shared primitive (only these two
+> tables opt in via an extra class), never an override of the 340px Hub
+> default. The existing `text-overflow: ellipsis` on `td.row-label` (already
+> shared Hub-wide) does the actual character trimming — no bespoke
+> JS string-slicing needed; the `title` tooltip still carries the full name.
+>
+> **D. Expandir/Contraer taller than they should be**: root cause was
+> `.staffing-timeline-toolbar`'s default `align-items: stretch` (flexbox
+> default) — with a two-line Año/Mes `<label>` (span + control stacked) as a
+> flex sibling, the single-line Expandir/Contraer buttons got stretched to
+> match its height. Fixed by adding `align-items: center` to the SHARED
+> `.staffing-timeline-toolbar` primitive (used by Staffing's timeline toolbar
+> and every Reporting section toolbar with a perspective-switch/date field) —
+> not a Horas-Productivas-only fix.
+>
+> Tests: extended `reporting_capacidad_composition.node.js` (narrower
+> row-label-col, clickable-header markup present per panel, never
+> cross-wired) + new `reporting_capacidad_ux_corrective.node.js` (real
+> `capacidadProductivasSelectedRows`/`renderCapacidadProductivas` against
+> synthetic fixtures — proves empty-Set-mask still means "Todos" exactly like
+> the retired `<select>`, a single ticked month isolates that month, several
+> ticked months sum only those, each panel's Set is independent, default
+> sort preserves the original Rank, toggling one panel's sort direction
+> flips its row order without touching the other panel's). Updated the 5
+> pre-existing tests that referenced the retired `capacidadPanelMesKey`/
+> `capacidadProductivasMesField` (stale-test pattern, not a regression).
+>
+> Suite after this corrective: **1130 passed / 9 known stale / 1 skipped**.
+> PENDIENTE: **owner live smoke** — confirm both panels show a full row of
+> Ene..Dic toggle buttons (gold when ticked, several tickable at once) with
+> no leftover Mes `<select>`, confirm clicking Horas/% Incidencia headers
+> visibly reorders both panels' Cliente ranking, confirm % Incidencia is
+> visible without scrolling at a normal desktop width, confirm Expandir/
+> Contraer read as normal-height buttons next to Año/Mes.
 
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this
