@@ -113,6 +113,27 @@ def test_get_time_logs_facts_joins_project_and_cliente_via_normalized_key(monkey
     assert f["email"] == "a@danwor.com"
 
 
+def test_get_time_logs_facts_reads_porcentaje_de_part_from_cliente(monkeypatch):
+    # "Cliente + Part" (Horas Productivas panel derecho, §8ter item 1):
+    # `Porcentaje de Part.` es una columna FÍSICA de Cliente (Percentage.Type
+    # en el M, fracción 0-1) — se lee vía el MISMO join Proyecto→Cliente ya
+    # usado para resolver `cliente`, candidato codificado confirmado por
+    # esta fixture (`PorcentajedePart_x002e_`).
+    _patch(
+        monkeypatch,
+        proyectos=[{"id": "p1", "Title": "SADI v2", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "YPF", "PorcentajedePart_x002e_": "0.125"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-03-15", "Project": "SADI v2", "Task": "Dev", "Email": "a@danwor.com",
+             "Duration Decimal": "8000", "Client": "csv-raw-client"},
+        ]},
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    assert len(facts) == 1
+    assert facts[0]["porcentajePart"] == 0.125
+
+
 def test_get_time_logs_facts_falls_back_to_raw_csv_text_when_no_project_match(monkeypatch):
     _patch(
         monkeypatch,
@@ -193,14 +214,21 @@ def test_list_time_logs_csv_items_filters_extension_and_excludes_old(monkeypatch
 
 def test_shape_horas_productivas_sums_horas_and_excludes_danwor_placeholder():
     facts = [
-        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026"},
-        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 3.0, "mes": "2026-02", "anio": "2026"},
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026", "porcentajePart": 0.125},
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 3.0, "mes": "2026-02", "anio": "2026", "porcentajePart": 0.125},
         # Placeholder interno — excluido de Productivas (page.json real: NOT Cliente CONTAINS "Danwor").
         {"cliente": "Danwor Internal", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
-         "email": "b@danwor.com", "horas": 8.0, "mes": "2026-01", "anio": "2026"},
+         "email": "b@danwor.com", "horas": 8.0, "mes": "2026-01", "anio": "2026", "porcentajePart": 0.0},
     ]
     rows = _service()._shape_horas_productivas(facts)
-    assert rows == [{"cliente": "YPF", "proyecto": "SADI v2", "horas": 8.0}]
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["cliente"] == "YPF" and r["proyecto"] == "SADI v2" and r["horas"] == 8.0
+    # Grano POR-AÑO (Año/Mes, ticket "CONTINUE REPORTING") — Ene=5, Feb=3.
+    assert r["horasByYear"] == {"2026": [5.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+    # "Cliente + Part" (§8ter item 1) — fracción *100, redondeada, NUNCA
+    # una segunda agregación separada.
+    assert r["porcentajePart"] == 12.5
 
 
 def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
@@ -260,7 +288,9 @@ def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
     )
     result = _service().get_batch_b("tok")
     assert calls == {"time_logs": 1, "colaboradores": 1}
-    assert result["horasProductivas"] == [{"cliente": "YPF", "proyecto": "SADI v2", "horas": 1.0}]
+    assert len(result["horasProductivas"]) == 1
+    r = result["horasProductivas"][0]
+    assert r["cliente"] == "YPF" and r["proyecto"] == "SADI v2" and r["horas"] == 1.0
     assert result["horasProductivasNoAsignadas"] == []
 
 
@@ -305,3 +335,53 @@ def test_horas_productivas_and_no_asignadas_gate_on_batch_b_status_not_batch_a()
         assert 'state.batchBDataStatus === "idle"' in body
         assert "loadBatchBData()" in body
         assert "batchADataStatus" not in body
+
+
+# ============================================================================
+# "Cliente + Part" two-panel parity (ticket "CONTINUE REPORTING" — evidencia
+# PRIMARIA en real-data-lineage.md §8ter item 1: "Cliente + Part" reusa el
+# MISMO Rank/Horas/%Incidencia que el panel Cliente, solo con un rótulo
+# enriquecido por el % de referencia ESTÁTICO de cada cliente)
+# ============================================================================
+
+def _fn_body_batch_b(name: str, window: int = 2600) -> str:
+    start = _REPORTING_JS.index(f"function {name}(")
+    return _REPORTING_JS[start:start + window]
+
+
+def test_capacidad_productivas_renders_two_panels_sharing_the_same_rows():
+    fn = _fn_body_batch_b("renderCapacidadProductivas")
+    assert 'class="activity-grid-2"' in fn
+    # DOS stateKeys distintos (árboles de expansión independientes) — nunca
+    # el mismo stateKey reusado para ambos paneles.
+    assert '"capacidad::Productivas::Cliente"' in fn
+    assert '"capacidad::Productivas::ClientePart"' in fn
+    # El panel derecho reusa `rowsSorted` (MISMA población/orden que el
+    # izquierdo) — nunca un fetch/agregación paralela.
+    assert "rowsSorted.map(r =>" in fn
+    assert "clientePart:" in fn and '"clientePart"' in fn
+    # AMBOS paneles consumen las MISMAS columnas (measure family compartida).
+    assert fn.count("CAPACIDAD_PRODUCTIVAS_COLUMNS") >= 1
+
+
+def test_capacidad_productivas_anio_field_offers_todos_unlike_rentabilidad_hv():
+    # Sin hot/cold (CSV completo ya en memoria) — a diferencia de
+    # Rentabilidad/HV, "Todos" SÍ es una opción válida (MISMO criterio que
+    # el Año de Cartera/Mantenimiento).
+    fn = _fn_body_batch_b("capacidadProductivasAnioField", 700)
+    assert '>Todos</option>' in fn
+    assert "capacidadProductivasAnioOptions()" in fn
+
+
+def test_capacidad_productivas_selected_rows_collapses_all_years_when_anio_is_todos():
+    fn = _fn_body_batch_b("capacidadProductivasSelectedRows")
+    assert "_sumMonthlyArrays(Object.values(r.horasByYear || {}))" in fn
+
+
+def test_capacidad_productivas_total_uses_anio_mes_scoped_population():
+    # Gran total FIJO (denominador REMOVEFILTERS de Cliente/Client Partner)
+    # recalculado contra la población YA proyectada a Año/Mes — MISMO
+    # criterio que Participación (Año/Estado no son dimensiones REMOVEFILTERS,
+    # son scope real de los datos).
+    fn = _fn_body_batch_b("capacidadProductivasTotal", 200)
+    assert "capacidadProductivasSelectedRows()" in fn

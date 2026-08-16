@@ -6284,12 +6284,58 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > smoke** de Participación (conteo de clientes antes/después, Año multi +
 > Estado funcionando, hot/cold — no marcar LIVE VALIDATED sin eso).
 >
-> **PRÓXIMO: Horas Productivas** (two-panel "Cliente"/"Cliente + Part") —
-> ver item E abajo, todavía sin evidencia PBIP primaria revisada para
-> "Cliente + Part".
+> **✅ HORAS PRODUCTIVAS = IMPLEMENTATION READY FOR LIVE VALIDATION** (this
+> pass — "CONTINUE REPORTING" ticket, item E cerrado). "Cliente + Part"
+> resuelto con evidencia PRIMARIA (ver real-data-lineage.md §8ter item 1,
+> leída directamente de `Danwor - Tablero Integral.Report/definition/pages/
+> 7d1191c1e755ac3abe70/visuals/` + `.SemanticModel/definition/tables/Time
+> Logs Reports.tmdl` + `Cliente.tmdl`):
 >
-> **Nota rutas:** se agregaron `/data/horas-vendidas` y
-> `/data/horas-vendidas/anios-disponibles` — el snapshot de route-surface (ya
+> 1. **"Cliente + Part" NO es una dimensión de agrupamiento distinta** — es
+>    una COLUMNA CALCULADA (`Time Logs Reports.tmdl` línea 300):
+>    `[Client] &" "& RELATED(Cliente[Porcentaje de Part.])*100`. El
+>    pivotTable derecho (`789c200b688d20a418d8`) reusa el MISMO
+>    RANKX/SUM/REMOVEFILTERS que el izquierdo (`ccdefff9e63140f74665`,
+>    `renderCapacidadProductivas` ya existente) — Rank_T3/'% Hs
+>    ejecutadas2' apuntan `ALLSELECTED`/`REMOVEFILTERS` a la columna
+>    calculada en vez de `[Client]` (patrón típico de PBI para que RANKX
+>    calce con el contexto de fila del visual), NO una fórmula de negocio
+>    distinta. `Porcentaje de Part.` es una columna FÍSICA de Cliente
+>    (`Percentage.Type`, fracción 0-1, valor de referencia ESTÁTICO
+>    asignado por cliente en SharePoint — NUNCA derivado de Horas).
+> 2. **Implementación**: `_shape_horas_productivas` NO shapea un segundo
+>    dataset — cada fila (Cliente×Proyecto) ya trae `porcentajePart`
+>    (fracción×100, redondeada) + `horasByYear` (grano POR-AÑO, `{anio:
+>    [12]}`, MISMO patrón que `_shape_horas_vendidas`). El frontend arma
+>    AMBOS paneles desde las MISMAS `rowsSorted` — izquierdo agrupado por
+>    `cliente`, derecho por un `clientePart` computado ("{Cliente}
+>    {Porcentaje de Part.}%") — vía `.activity-grid-2` (MISMO primitivo que
+>    Rentabilidad Mejor/Peor), cada uno con su PROPIO stateKey/árbol de
+>    expansión independiente. Internal name físico de `Porcentaje de Part.`
+>    NO confirmado todavía (gap documentado, candidatos vía `_first()`,
+>    MISMA convención que el resto de columnas opcionales de Cliente) — a
+>    confirmar en el smoke real.
+> 3. **Año/Mes**: el PBI tiene DOS pares de slicers Año/Mes independientes
+>    (uno por panel, posiciones no solapadas) — el Hub V0 simplifica
+>    deliberadamente a UN filtro Año/Mes COMPARTIDO que controla ambos
+>    paneles (decisión documentada, ver lineage §8ter item 1). SIN hot/cold
+>    (el CSV completo de Time Logs ya se carga entero, sin mecanismo
+>    `$filter` de Graph aplicable a un archivo ya descargado) — Año SÍ
+>    ofrece "Todos" (colapsa todos los años vía `_sumMonthlyArrays`, MISMO
+>    criterio que Cartera/Mantenimiento, a diferencia de Rentabilidad/HV
+>    que lo retiraron por el hot-window). Gran total fijo
+>    (`capacidadProductivasTotal`) recalculado contra la población
+>    Año/Mes-escopeada, MISMO principio que Estado en Participación.
+>
+> Suite: **215 tests de Reporting, 1106 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
+> smoke** (valores reales de "Porcentaje de Part." una vez confirmado el
+> internal name, Año/Mes funcionando, dos paneles mostrando el mismo
+> ranking con rótulos distintos).
+>
+> **Nota rutas:** se agregaron `/data/horas-vendidas`,
+> `/data/horas-vendidas/anios-disponibles`, `/data/participacion` y
+> `/data/participacion/anios-disponibles` — el snapshot de route-surface (ya
 > stale por Staffing) debe regenerarse para incluirlas.
 >
 > **ENTORNO DE TEST:** usar `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe
@@ -6403,25 +6449,20 @@ the grand total over the Año+Estado-scoped population, never a filtered
 subtotal. PENDING: owner live smoke (population counts before/after, Año
 multi + Estado behavior, hot/cold).
 
-#### E. HORAS PRODUCTIVAS — PBI parity — investigated, NOT reworked
-Owner's real PBI reference shows TWO simultaneous panels: **left = Cliente
-(Rank, Horas, % Incidencia, with Año/Mes)**, **right = "Cliente + Part"
-(same measures, with Año/Mes)**. Current Hub implementation
-(`renderCapacidadProductivas`) only reproduces the LEFT panel (Cliente ›
-Proyecto, Rank by Horas desc. — already confirmed to match the PBIP's
-RANKX measure). The right panel ("Cliente + Part") has **no primary PBIP
-evidence reviewed yet in this codebase** for what "Part" means in this
-specific page — it is explicitly NOT the same "Participación" as the
-Comercial/Participación experience (different page, different measure
-family, see lineage.md §8bis). **Do not infer from the screenshot alone,
-but do not leave this deferred without exhausting the PBIP first** —
-inspect `page.json`, the visual's query/bindings, TMDL, DAX, calculated
-fields, and sort/filter definitions for the actual Horas Productivas page
-that holds this second visual (likely in the same Time Logs/`Horas por
-proyectos` family already documented in lineage.md §8bis) before writing
-any code. Target composition once the measure is confirmed: reuse the
-shared responsive 2-column primitive (`.activity-grid-2`, same one already
-used for Rentabilidad's Mejor/Peor), never a new grid.
+#### E. HORAS PRODUCTIVAS — PBI parity — RESOLVED (this pass, see "-17" top block)
+~~Investigated, NOT reworked~~ — primary PBIP evidence read directly from
+the `.Report`/`.SemanticModel` source (page.json Rows/Values + TMDL) and
+implemented. "Cliente + Part" is a calculated column (`[Client] &" "&
+RELATED(Cliente[Porcentaje de Part.])*100`), NOT a distinct grouping
+dimension — the right panel reuses the SAME Rank/Horas/%Incidencia measure
+family as the left, just with an enriched row label carrying each client's
+static reference percentage. Both panels now render side by side via
+`.activity-grid-2` (as originally targeted), sharing one Año/Mes filter
+(deliberate simplification — the PBIP has two independent per-panel
+slicers, documented in lineage.md §8ter item 1). See the "-17" top block
+for the full writeup. PENDING: owner live smoke, and the `Porcentaje de
+Part.` internal SharePoint field name (candidates tried, not yet confirmed
+against live Graph).
 
 Also still open, transversal: raw float artifacts (e.g.
 `3.5999999999999996`) were observed LIVE in Horas Productivas even after

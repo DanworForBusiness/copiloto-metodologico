@@ -687,7 +687,13 @@ class ReportingService:
 
     def _shape_horas_productivas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `CAPACIDAD_PRODUCTIVAS_ROWS`: una fila por
-        (Cliente, Proyecto) con `horas` aditivo.
+        (Cliente, Proyecto) con `horas` aditivo (colapsado retrocompat,
+        TODOS los meses) + `horasByYear` (grano POR-AÑO, `{anio: [12]}`,
+        MISMO patrón que `_shape_horas_vendidas` — Año/Mes, ticket "CONTINUE
+        REPORTING": el PBI de referencia muestra Año/Mes como slicers de
+        página sobre ESTA tabla, ver real-data-lineage.md §8ter item 1) +
+        `porcentajePart` (número YA multiplicado por 100, constante por
+        Cliente — alimenta el panel "Cliente + Part", ver abajo).
 
         CORRECTION 1 CERRADA (ver HANDOFF/real-data-lineage.md §8bis):
         reimplementado sobre `get_time_logs_facts` (CSV, sitio Operaciones)
@@ -701,8 +707,25 @@ class ReportingService:
         Asignadas) — y se excluye por Proyecto placeholder también, belt-
         and-suspenders con el mismo criterio que No Asignadas usa para
         incluir. `% Incidencia` (denominador gran-total fijo) se calcula en
-        el FRONTEND, sin cambios (mismo criterio que Participación)."""
-        groups: dict[tuple, float] = {}
+        el FRONTEND, sin cambios (mismo criterio que Participación).
+
+        "CLIENTE + PART" (§8ter item 1 — RESUELTO): evidencia PRIMARIA
+        (`Time Logs Reports.tmdl` línea 300) muestra que la columna
+        calculada `'Cliente + Part'` NO es una dimensión de agrupamiento
+        distinta — es `[Client] &" "& RELATED(Cliente[Porcentaje de
+        Part.])*100`, el MISMO Cliente con un valor de referencia ESTÁTICO
+        pegado al rótulo. El panel derecho del PBI reusa el MISMO
+        RANKX/SUM/REMOVEFILTERS que el panel izquierdo (`Rank_T3` apunta
+        `ALLSELECTED` a la columna calculada en vez de `[Client]`, patrón
+        típico de PBI para que RANKX calce con el contexto de fila del
+        visual — no una fórmula de negocio distinta). Por eso este método
+        NO shapea un segundo dataset: `porcentajePart` viaja en la MISMA
+        fila que `cliente`/`horas`, y el frontend arma el rótulo compuesto
+        "{cliente} {porcentajePart}%" para el panel derecho reusando ESTAS
+        MISMAS filas (ver `renderCapacidadProductivasClientePart` en
+        reporting.js) — nunca un fetch/agregación paralela que pueda
+        divergir del panel izquierdo."""
+        groups: dict[tuple, dict] = {}
         for f in facts:
             cliente, proyecto = f["cliente"], f["proyecto"]
             if not cliente or not proyecto:
@@ -712,10 +735,23 @@ class ReportingService:
             if proyecto in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 continue
             key = (cliente, proyecto)
-            groups[key] = groups.get(key, 0.0) + f["horas"]
+            g = groups.setdefault(key, {"byYear": {}, "collapsed": 0.0, "porcentajePart": f.get("porcentajePart", 0.0)})
+            n = _time_logs_month_num(f["mes"])
+            if n is not None:
+                g["collapsed"] += f["horas"]
+                anio = f.get("anio")
+                # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio`, nunca `if anio:`
+                # solo — reusado tal cual (ver reporting_repository.py).
+                if _is_valid_anio(anio):
+                    g["byYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["horas"]
         return [
-            {"cliente": cliente, "proyecto": proyecto, "horas": _round2(horas)}
-            for (cliente, proyecto), horas in groups.items()
+            {
+                "cliente": cliente, "proyecto": proyecto,
+                "horas": _round2(g["collapsed"]),
+                "horasByYear": {a: [_round2(v) for v in arr] for a, arr in g["byYear"].items()},
+                "porcentajePart": _round2(g["porcentajePart"] * 100),
+            }
+            for (cliente, proyecto), g in groups.items()
         ]
 
     def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:

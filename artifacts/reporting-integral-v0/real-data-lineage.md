@@ -330,37 +330,76 @@ que este pase de trabajo dejó EXPLÍCITAMENTE sin resolver (evidencia
 primaria del PBIP todavía no revisada para estos dos casos puntuales — ver
 HANDOFF.md sección "-17." para el contexto completo de owner-QA):
 
-1. **Horas Productivas — segunda vista "Cliente + Part"**: el PBI de
-   referencia que aportó el owner muestra DOS paneles simultáneos: uno
-   agrupado por Cliente (YA implementado, `renderCapacidadProductivas` —
-   Cliente › Proyecto, Rank por Horas desc., coincide con el RANKX del
-   PBIP ya documentado) y otro agrupado por "Cliente + Part" — sin
-   evidencia PRIMARIA todavía revisada en este repo (page.json/TMDL/DAX de
-   esa página puntual) sobre qué significa "Part" en ESTE contexto
-   específico de Horas Productivas. **NO es lo mismo que la experiencia
-   Comercial/Participación** (página distinta, familia de medidas
-   distinta — ver sección 8bis arriba, que ya estableció que Horas
-   Productivas usa el adapter de Time Logs, no el backbone de Cartera).
-   Antes de implementar un segundo grouping, hay que localizar la página
-   PBIP real que contiene ese visual y confirmar su binding/measure — NO
-   inferir del screenshot solo.
+1. **RESUELTO (ticket "CONTINUE REPORTING", evidencia PRIMARIA leída
+   directamente de `Danwor - Tablero Integral.Report/definition/pages/
+   7d1191c1e755ac3abe70/visuals/` + `.SemanticModel/definition/tables/
+   Time Logs Reports.tmdl` + `Cliente.tmdl`) — Horas Productivas —
+   segunda vista "Cliente + Part"**:
+   - La página "Horas Productivas consumidas" (`7d1191c1e755ac3abe70`)
+     tiene DOS pivotTable visuals lado a lado: `ccdefff9e63140f74665`
+     (izquierda, Rows: `Time Logs Reports.Client` (nativeQueryRef
+     "Cliente") › `Project`, Values: `Rank_T2`/`SUM(HORAS)`/`% Hs
+     ejecutadas2`... — este es el YA implementado `renderCapacidadProductivas`)
+     y `789c200b688d20a418d8` (derecha, Rows: `Time Logs Reports.'Cliente
+     + Part'` › `Project`, Values: `Rank_T3`/`SUM(HORAS)`/`% Hs
+     ejecutadas2`).
+   - **`'Cliente + Part'` es una COLUMNA CALCULADA** (Time Logs Reports.tmdl
+     línea 300): `'Time Logs Reports'[Client] &" "& 'Time Logs Reports'[%
+     part (Fact)]`, donde `'% part (Fact)'` (línea 294) =
+     `ROUND(RELATED(Cliente[Porcentaje de Part.]) * 100, 2) & " %"` — un
+     RELATED() que trae, para cada fila, el valor ESTÁTICO de referencia
+     `Cliente.'Porcentaje de Part.'` (columna FÍSICA de la lista Cliente,
+     `sourceColumn: Porcentaje de Part.`, `dataType: double`,
+     `Percentage.Type` en el M — un número de referencia asignado por
+     Cliente en SharePoint, NO derivado de Horas Vendidas/Certificadas).
+   - **Conclusión de negocio**: "Cliente + Part" NO es una dimensión de
+     agrupamiento distinta — es la MISMA agrupación por Cliente que el
+     panel izquierdo (mismo `RANKX`/`REMOVEFILTERS` sobre `SUM(HORAS)`,
+     solo con el contexto de `ALLSELECTED` apuntado a la columna calculada
+     en vez de `[Client]`, patrón típico de PBI para que RANKX calce con
+     el contexto de fila del visual). La ÚNICA diferencia visible es el
+     RÓTULO de cada fila: "{Cliente} {Porcentaje de Part.}%" en vez de
+     "{Cliente}" — el panel derecho muestra el mismo ranking/horas/%
+     incidencia que el izquierdo, pero con el % de referencia estático de
+     cada cliente pegado al nombre para comparación visual rápida.
+   - **Internal name físico NO confirmado todavía** (gap real, documentado
+     — no adivinado a ciegas): el M de Cliente.tmdl solo muestra el nombre
+     YA RENOMBRADO por Power Query (`"PorcentajedePart."` → `"Porcentaje de
+     Part."`), no el internal name crudo que Graph devolvería. Se prueban
+     candidatos siguiendo la MISMA convención ya confirmada para el resto
+     de columnas opcionales de Cliente (`CLI_PORCENTAJE_PART` en
+     `reporting_repository.py`, tupla de candidatos vía `_first()`) — a
+     confirmar en el smoke real del owner, mismo criterio que el resto de
+     columnas de Cliente.
+   - **Año/Mes**: NINGÚN pivotTable de esta página tiene Año/Mes en
+     Rows/Values — Año/Mes viven como DOS PARES de slicers INDEPENDIENTES
+     posicionados directamente sobre cada panel (`acd4d653693bc72a6417`/
+     `fad86226a51d715e75a2` para Año, en x=756 sobre el panel derecho y
+     x=72.5 sobre el izquierdo respectivamente — posiciones que NO se
+     solapan, sugiriendo slicers por-panel independientes en el PBI
+     original, no necesariamente sincronizados). El Hub V0 simplifica esto
+     a UN filtro Año/Mes COMPARTIDO que controla ambos paneles a la vez —
+     MISMO criterio "single-select Año + Mes Todos" ya establecido para
+     Rentabilidad/Horas Vendidas/Cartera (TEMPORAL DOMAIN CONTRACT), nunca
+     un segundo mecanismo de filtro paralelo — decisión de simplificación
+     deliberada y documentada (dos filtros de fecha independientes por
+     panel sería una superficie de UI sin precedente en el resto del Hub).
 
-2. **Participación — grano temporal (Año/Estado)**: el pivotTable real de
-   "Analisis Participacion - Condiciones Comerciales -" (ya documentado
-   arriba en la sección de Comercial del dataset comment de
-   `reporting.js`) tiene Rows: ID Frecuencia, Permite Adelanto, Condición
-   de Pago, Cliente — SIN eje de Año/Mes. `_shape_participacion` agrega
-   horasVendidas/horasCertificadas de CADA Cliente sobre TODA la historia
-   (mismo patrón "lifetime aggregate" que Horas Vendidas/Rentabilidad, ver
-   HANDOFF sección "-15." hot-window audit). El owner pidió Año como
-   checkbox multi-select faceteado por Estado — pero Estado vive en
-   `Proyectos.Status` (por PROYECTO, no por Cliente: un Cliente puede
-   tener proyectos En curso Y Finalizado simultáneamente) y Año no existe
-   como dimensión en la fuente real de esta página. Implementarlo requiere
-   una decisión de producto explícita sobre el grano de agregación (¿sumar
-   solo horas de proyectos En curso? ¿ponderar por Año de qué hecho
-   exactamente?) antes de tocar código — no hay una única transformación
-   "correcta" derivable del PBIP tal cual existe hoy.
+2. **RESUELTO (ticket "CONTINUE REPORTING", commit `972b7e5`) — Participación
+   — grano temporal (Año/Estado)**: el owner tomó la decisión de producto
+   pendiente explícitamente — Año como checkbox multi-select + Estado
+   (default En curso), reusando la MISMA infraestructura temporal hot/cold
+   de Rentabilidad/HV, es una adición del Hub por encima del PBIP fuente
+   (que en efecto no tiene ese eje), no una re-derivación de una medida
+   real. Como Estado vive en `Proyectos.Status` (por PROYECTO) pero
+   Participación agrega por CLIENTE, `_shape_participacion` bucketiza el
+   numerador por `(año, estado)` — `vendidasByYear`/`certificadasByYear`
+   son mapas `{anio: {estado: horas}}` — así "sumar solo horas de
+   proyectos En curso" (la interpretación aquí escogida) se puede aplicar
+   selectivamente por cliente sin re-fetchear al tildar/destildar Estado.
+   Ver HANDOFF.md sección "-17." (bloque top "✅ PARTICIPACIÓN") para el
+   detalle completo (root cause de la población dispersa + Año/Estado +
+   hot/cold + endpoints).
 
 ## 9. Plan de batches (evidence-based)
 

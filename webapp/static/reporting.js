@@ -1056,8 +1056,11 @@ const FACET_CONFIG = {
       { key: "frecuencia", field: "frecuencia", compareFn: (a, b) => FRECUENCIA_ORDER.indexOf(a) - FRECUENCIA_ORDER.indexOf(b) },
     ],
   }),
+  // Productivas: Año/Mes (owner directive — ver §8ter item 1) proyectan
+  // `baseRows` ANTES del facet <select> de Cliente — MISMO orden en dos
+  // pasos que Rentabilidad/HV (scope temporal primero, selects después).
   capacidad: () => state.perspective.capacidad === "Productivas"
-    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
+    ? { baseRows: capacidadProductivasSelectedRows(), fields: [{ key: "cliente", field: "cliente" }] }
     : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
   // Client Partner/Cliente son los ÚNICOS slicers <select> de ambas páginas
   // fuente. Participación: Año/Estado (owner directive — "Do NOT keep
@@ -1091,6 +1094,12 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // Participación: Año es checkbox multi-select (como Año de Inicio de
   // Cartera/Proyecto) — se reconcilia con el MISMO criterio faceteado.
   if (expId === "comercial") pruneComercialParticipacionAnios();
+  // Capacidad/Productivas: Año single-select (MISMO criterio que
+  // Rentabilidad/HV) — no-op en No Asignadas (sin filtro.anio/mes ahí).
+  if (expId === "capacidad" && state.perspective.capacidad === "Productivas") {
+    pruneCapacidadProductivasAnio();
+    pruneCapacidadProductivasMes();
+  }
 }
 // Mes queda fuera del año en curso tras un cambio de Año (ej. Mes=Octubre
 // bajo 2025, usuario cambia Año a 2026 en Agosto-2026 ⇒ Octubre ya no es
@@ -1430,10 +1439,34 @@ function renderCalendarioFilterBar() {
 // Asignadas" — Client Partner/Año/Mes/Task/Semana/Estado NO son campos del
 // dataset mock de ninguna de las dos subvistas, así que se ocultan (nunca se
 // copian mecánicamente los slicers de Power BI solo para que luzcan iguales).
+// Año/Mes de Capacidad/Productivas (ticket "CONTINUE REPORTING", ver §8ter
+// item 1) — CON "Todos" en Año (a diferencia de Rentabilidad/HV, ver
+// comentario de `capacidadProductivasAnioOptions`). Mes reusa el MISMO
+// TEMPORAL DOMAIN CONTRACT (`_validMesOptions`) que el resto del Hub.
+function capacidadProductivasAnioField() {
+  const current = getFilter("capacidad", "anio");
+  const options = capacidadProductivasAnioOptions();
+  return `<label class="whatsnew-filter whatsnew-filter--narrow">
+    <span>Año</span>
+    <select onchange="setFilter('capacidad','anio', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+function capacidadProductivasMesField() {
+  const current = getFilter("capacidad", "mes");
+  const anio = getFilter("capacidad", "anio");
+  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
+    <select onchange="setFilter('capacidad','mes', this.value)">
+      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${_validMesOptions(anio).map(m => `<option value="${m.value}" ${current === m.value ? "selected" : ""}>${esc(m.label)}</option>`).join("")}
+    </select></label>`;
+}
 function renderCapacidadFilterBar() {
   const persp = state.perspective.capacidad;
   const fields = persp === "Productivas"
-    ? facetSelectField("capacidad", "cliente", "Cliente")
+    ? facetSelectField("capacidad", "cliente", "Cliente") + capacidadProductivasAnioField() + capacidadProductivasMesField()
     : facetSelectField("capacidad", "consultor", "Consultor");
   return filterBarShell(fields, "capacidad");
 }
@@ -3336,12 +3369,64 @@ function renderCalendario() {
   return dashboardSections("reporting-calendario", resumen + detalle);
 }
 
+// --- Capacidad/Productivas Año/Mes (ticket "CONTINUE REPORTING" — el PBI de
+// referencia muestra Año/Mes como slicers de página sobre "Horas Productivas
+// consumidas", ver real-data-lineage.md §8ter item 1) — SIN hot/cold: el CSV
+// completo de Time Logs YA se carga entero en `loadBatchBData` (sin
+// paginación/$filter de Graph aplicable a un archivo ya descargado, ver
+// HANDOFF "-17." nota de Rentabilidad/Ejecutadas), así que Año/Mes acá son
+// PURO filtro client-side sobre `horasByYear`. A diferencia de Rentabilidad/
+// HV (Año single-select SIN "Todos", retirado por owner directive junto con
+// el hot-window), Capacidad/Productivas SÍ ofrece "Todos" (colapsa TODOS los
+// años vía `_sumMonthlyArrays`) — MISMO criterio que el Año de Cartera/
+// Mantenimiento (`carteraAnioField`): sin hot/cold no hay motivo de negocio
+// para prohibir "Todos", los datos ya están completos en memoria.
+function capacidadProductivasAnioOptions() {
+  const years = new Set();
+  CAPACIDAD_PRODUCTIVAS_ROWS.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
+  return [...years].filter(_isValidAnioValue).sort();
+}
+// Prune (MISMO criterio que pruneCarteraAnio): si el año elegido deja de
+// ser válido, cae a "" (Todos) — nunca a un año "adivinado".
+function pruneCapacidadProductivasAnio() {
+  const available = new Set(capacidadProductivasAnioOptions());
+  const anio = (state.filters.capacidad || {}).anio;
+  if (anio && !available.has(anio)) state.filters.capacidad.anio = "";
+}
+function pruneCapacidadProductivasMes() {
+  const anio = getFilter("capacidad", "anio");
+  const mes = getFilter("capacidad", "mes");
+  if (!mes) return;
+  if (!_validMesOptions(anio).some(m => m.value === mes)) state.filters.capacidad.mes = "";
+}
+// Población canónica: Año+Mes proyectados a `horas` (recalculado desde
+// `horasByYear`, nunca el `horas` colapsado retrocompat) — alimenta AMBOS
+// paneles (Cliente/Cliente+Part) Y el gran total fijo de abajo. CP/Cliente
+// se aplican DESPUÉS vía FACET_CONFIG.capacidad (facetRowsExcept). Año=""
+// (Todos) colapsa TODOS los años presentes (`_sumMonthlyArrays`), MISMO
+// motor null-aware que Rentabilidad/HV — sin cap de mes futuro (
+// `_operationalMonthCap("")` = null, "Todos" no es "el año actual").
+function capacidadProductivasSelectedRows() {
+  const anio = getFilter("capacidad", "anio");
+  const mes = getFilter("capacidad", "mes");
+  const cap = _operationalMonthCap(anio);
+  return CAPACIDAD_PRODUCTIVAS_ROWS.map(r => {
+    const arr = anio ? ((r.horasByYear || {})[anio] || _z12()) : _sumMonthlyArrays(Object.values(r.horasByYear || {}));
+    const monthly = _applyMonthCap(_maskMes(arr, mes), cap);
+    return { ...r, horas: monthly.reduce((a, b) => a + (b || 0), 0) };
+  });
+}
+
 // FUNCIÓN, no `const` precalculada (mismo corrective que
 // comercialParticipacionTotalVendidas — ver HANDOFF Batch A):
 // `CAPACIDAD_PRODUCTIVAS_ROWS` se reemplaza IN PLACE con datos reales
 // (`replaceRows`), una constante calculada una sola vez al cargar el
-// script habría quedado stale contra el mock para siempre.
-function capacidadProductivasTotal() { return CAPACIDAD_PRODUCTIVAS_ROWS.reduce((s, r) => s + r.horas, 0); }
+// script habría quedado stale contra el mock para siempre. Recalculada
+// contra `capacidadProductivasSelectedRows()` (Año+Mes YA proyectados) —
+// Año/Mes son scope real de los datos (como Estado en Participación),
+// nunca una de las dimensiones REMOVEFILTERS (esas son Cliente/Client
+// Partner, ver `capacidadPctIncidencia`).
+function capacidadProductivasTotal() { return capacidadProductivasSelectedRows().reduce((s, r) => s + r.horas, 0); }
 
 function capacidadPctIncidencia(horas) {
   // % Incidencia real (medida `Time Logs Reports.[% Hs ejecutadas]`) =
@@ -3358,12 +3443,25 @@ function capacidadPctIncidencia(horas) {
 // Horas es Clase A (aditiva, `sumField` sin formatFn); % Incidencia es
 // Clase B contra el total FIJO (`sumField` con `capacidadPctIncidencia`
 // como formatFn) — mismo contrato que Comercial/Participación, cero
-// duplicación de la fórmula de ratio.
+// duplicación de la fórmula de ratio. MISMAS columnas para AMBOS paneles
+// (Cliente/Cliente+Part) — comparten measure family 1:1 (ver §8ter item 1:
+// "Cliente + Part" reusa el MISMO Rank/Horas/%Incidencia, solo cambia el
+// rótulo de agrupamiento), nunca una segunda definición de columnas.
 const CAPACIDAD_PRODUCTIVAS_COLUMNS = [
   { label: "Horas", numeric: true, render: r => r.horas, rollup: sumField("horas") },
   { label: "% Incidencia", numeric: true, render: r => capacidadPctIncidencia(r.horas), rollup: sumField("horas", capacidadPctIncidencia) },
 ];
 
+// DOS paneles simultáneos (ticket "CONTINUE REPORTING" — el PBI de
+// referencia muestra Cliente y "Cliente + Part" lado a lado, ver
+// real-data-lineage.md §8ter item 1 — evidencia PRIMARIA confirmó que
+// "Cliente + Part" reusa el MISMO Rank/Horas/%Incidencia del panel
+// izquierdo, solo con un rótulo de fila enriquecido con el % de referencia
+// ESTÁTICO de cada cliente). `.activity-grid-2` (MISMO primitivo compartido
+// que Rentabilidad Mejor/Peor) — nunca un grid nuevo. Cada panel tiene su
+// PROPIO `stateKey`/árbol de expansión (independientes entre sí) pero
+// comparten la MISMA población `rowsSorted` (Año/Mes/CP/Cliente YA
+// aplicados) — nunca un segundo fetch/agregación paralela.
 function renderCapacidadProductivas() {
   // Gate del ciclo de vida real-data Batch B (ver loadBatchBData) —
   // Correction 1 CERRADA: Productivas es CSV de Time Logs, no backbone de
@@ -3375,27 +3473,49 @@ function renderCapacidadProductivas() {
 
   // Orden por Horas de Cliente descendente == el Rank real del PBIP
   // (RANKX por Horas), representado vía orden visual (ver comentario del
-  // dataset) — nunca una columna Rank redundante con el orden.
+  // dataset) — nunca una columna Rank redundante con el orden. MISMO orden
+  // para AMBOS paneles (comparten measure family).
   const clientTotals = new Map();
   rows.forEach(r => clientTotals.set(r.cliente, (clientTotals.get(r.cliente) || 0) + r.horas));
   const rowsSorted = [...rows].sort((a, b) => clientTotals.get(b.cliente) - clientTotals.get(a.cliente));
-  const stateKey = "capacidad::Productivas";
-  const tree = buildTree(rowsSorted, ["cliente", "proyecto"]);
-  registerTreeContext(stateKey, rowsSorted, ["cliente", "proyecto"]);
+
+  const stateKeyCliente = "capacidad::Productivas::Cliente";
+  const treeCliente = buildTree(rowsSorted, ["cliente", "proyecto"]);
+  registerTreeContext(stateKeyCliente, rowsSorted, ["cliente", "proyecto"]);
+
+  // Rótulo compuesto "{Cliente} {Porcentaje de Part.}%" — NUNCA una segunda
+  // agregación (mismas `rowsSorted`, agrupadas por un campo distinto).
+  const rowsPart = rowsSorted.map(r => ({ ...r, clientePart: `${r.cliente} ${fmtNum(r.porcentajePart, "percent")}` }));
+  const stateKeyPart = "capacidad::Productivas::ClientePart";
+  const treePart = buildTree(rowsPart, ["clientePart", "proyecto"]);
+  registerTreeContext(stateKeyPart, rowsPart, ["clientePart", "proyecto"]);
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
+    ${sectionToolbar(perspectiveSwitch("capacidad", false))}
     <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: filteredTotal, format: "hours" })}</div>`);
 
-  const detalleBody = `
-    ${sectionToolbar(perspectiveSwitch("capacidad", false), treeToolbarButtons(stateKey))}
+  const panel = (stateKey, tree, label) => `
+    ${sectionToolbar(null, treeToolbarButtons(stateKey))}
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="dashboard-table">
-        <thead><tr><th class="row-label-col">Cliente / Proyecto</th><th>Horas</th><th>% Incidencia</th></tr></thead>
+        <thead><tr><th class="row-label-col">${label}</th><th>Horas</th><th>% Incidencia</th></tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, CAPACIDAD_PRODUCTIVAS_COLUMNS)}</tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
-  const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", "Cliente › Proyecto, ordenado por Rank (Horas desc.)", detalleBody);
+
+  const detalleBody = `
+    <div class="activity-grid-2">
+      <div>
+        <p class="perspective-label">Cliente</p>
+        ${panel(stateKeyCliente, treeCliente, "Cliente / Proyecto")}
+      </div>
+      <div>
+        <p class="perspective-label">Cliente + Part</p>
+        ${panel(stateKeyPart, treePart, "Cliente + Part / Proyecto")}
+      </div>
+    </div>`;
+  const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", "Cliente › Proyecto (izq.) y Cliente + % de referencia › Proyecto (der.), ordenados por Rank (Horas desc.)", detalleBody);
 
   return resumen + detalle;
 }

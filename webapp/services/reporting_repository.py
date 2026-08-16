@@ -143,6 +143,16 @@ CLI_SALUD_OPERATIVO = ("Salud_x0020_Operativo",)
 CLI_SALUD_CONTINUIDAD = ("Salud_x0020_Continuidad",)
 CLI_SALUD_ESTRATEGICO = ("Salud_x0020_Estrategico",)
 CLI_SALUD_FINAL = ("Salud",)
+# Horas Productivas — panel "Cliente + Part" (ver real-data-lineage.md §8ter
+# item 1, ticket "CONTINUE REPORTING"): Time Logs Reports.tmdl línea 300
+# define la columna calculada `'Cliente + Part'` = `[Client] &" "&
+# RELATED(Cliente[Porcentaje de Part.])*100` — un valor de referencia
+# ESTÁTICO por Cliente (SharePoint, `Percentage.Type`), NUNCA derivado de
+# Horas. Internal name físico NO confirmado todavía (el M solo expone el
+# nombre YA renombrado por Power Query) — candidatos codificado/sin-codificar,
+# MISMA convención que el resto de columnas opcionales de Cliente arriba; a
+# confirmar en el smoke real del owner.
+CLI_PORCENTAJE_PART = ("PorcentajedePart_x002e_", "PorcentajedePart", "Porcentaje_x0020_de_x0020_Part_x002e_")
 
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
@@ -860,6 +870,11 @@ class ReportingRepository:
                 "horas": _num(row.get("Duration Decimal")) / 1000.0,
                 "mes": _time_logs_mes(row.get("Date")),
                 "anio": _time_logs_anio(row.get("Date")),
+                # "Cliente + Part" (Horas Productivas, panel derecho — ver
+                # CLI_PORCENTAJE_PART arriba): fracción CRUDA (0-1) tal cual
+                # SharePoint la guarda — el *100 vive en el service (shaping
+                # de negocio), MISMO criterio que el resto de este método.
+                "porcentajePart": _num(_first(cli, *CLI_PORCENTAJE_PART)),
             })
         timer.stage("shaping", len(facts))
         timer.total()
