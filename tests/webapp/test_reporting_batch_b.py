@@ -259,6 +259,47 @@ def test_shape_horas_productivas_sums_horas_and_excludes_danwor_placeholder():
     assert r["porcentajePart"] == 12.5
 
 
+def test_shape_horas_productivas_denominador_reintroduces_danwor_placeholder():
+    # SOURCE-PARITY corrective (owner live comparison contra el PBI —
+    # evidencia PRIMARIA en Time Logs Reports.tmdl: medidas '% Hs
+    # ejecutadas'/'% Hs ejecutadas2' hacen REMOVEFILTERS(Cliente[Cliente])
+    # + REMOVEFILTERS('Time Logs Reports'[Client/Cliente + Part]) — el
+    # MISMO campo donde viven los 2 filtros de página que excluyen el
+    # cliente placeholder interno de "No Asignadas". El denominador REAL
+    # los deshace y reintroduce esas horas — a diferencia de
+    # `_shape_horas_productivas` (filas MOSTRADAS), que SIGUE excluyendo
+    # el placeholder tal cual. MISMA fixture que
+    # test_shape_horas_productivas_sums_horas_and_excludes_danwor_placeholder
+    # — prueba EXACTAMENTE que el denominador (16, incluye las 8 del
+    # placeholder) es MAYOR que la suma de las filas mostradas (8).
+    facts = [
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026", "porcentajePart": 0.125},
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 3.0, "mes": "2026-02", "anio": "2026", "porcentajePart": 0.125},
+        {"cliente": "Danwor Internal", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
+         "email": "b@danwor.com", "horas": 8.0, "mes": "2026-01", "anio": "2026", "porcentajePart": 0.0},
+    ]
+    svc = _service()
+    rows = svc._shape_horas_productivas(facts)
+    denominador = svc._shape_horas_productivas_denominador(facts)
+    filas_total = sum(r["horas"] for r in rows)
+    denominador_total = sum(denominador["2026"])
+    assert filas_total == 8.0
+    assert denominador_total == 16.0  # 5 + 3 (YPF) + 8 (Danwor placeholder reintroducido)
+    assert denominador_total != filas_total  # LA prueba central del corrective
+    # Grano mensual real (no solo el total) — Ene=5(YPF)+8(Danwor)=13, Feb=3.
+    assert denominador["2026"] == [13.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_shape_horas_productivas_denominador_ignores_month_gaps_and_invalid_anio():
+    facts = [
+        {"cliente": "X", "proyecto": "Y", "task": "", "email": "", "horas": 4.0, "mes": "2025-06", "anio": "2025", "porcentajePart": 0.0},
+        # Fila sin mes reconocible (fail-soft de _time_logs_mes) — no aporta.
+        {"cliente": "X", "proyecto": "Y", "task": "", "email": "", "horas": 99.0, "mes": "", "anio": "", "porcentajePart": 0.0},
+    ]
+    denominador = _service()._shape_horas_productivas_denominador(facts)
+    assert denominador == {"2025": [0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+
+
 def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
     facts = [
         {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
@@ -440,14 +481,24 @@ def test_capacidad_productivas_selected_rows_collapses_all_years_when_anio_is_to
 
 
 def test_capacidad_productivas_total_uses_anio_mes_scoped_population():
-    # Gran total FIJO (denominador REMOVEFILTERS de Cliente/Client Partner)
-    # recalculado contra la población YA proyectada a Año/Mes DE ESE PANEL —
-    # MISMO criterio que Participación (Año/Estado no son dimensiones
-    # REMOVEFILTERS, son scope real de los datos). Parametrizado por panel —
-    # nunca un total compartido entre ambos.
-    fn = _fn_body_batch_b("capacidadProductivasTotal", 200)
-    assert "function capacidadProductivasTotal(panel)" in fn
-    assert "capacidadProductivasSelectedRows(panel)" in fn
+    # SOURCE-PARITY corrective (owner live comparison: LEFT PBI ≈50.5 vs
+    # KPI visible 42.182) — el denominador de "% Incidencia" YA NO suma
+    # `capacidadProductivasSelectedRows(panel)` (esas son las filas
+    # MOSTRADAS, Cliente-placeholder interno ya excluido, Estado ya
+    # filtrado — reproduce el "Total Horas" VISIBLE, no la medida DAX
+    # real). Ahora lee `CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR` (grand
+    # total poblado por el backend, ver `_shape_horas_productivas_
+    # denominador`) proyectado por el MISMO motor Año/Mes/mes-cap que
+    # `capacidadProductivasSelectedRows` (nunca una copia) — Año/Mes SIGUEN
+    # siendo scope real (como antes), pero Estado/Cliente/Proyecto ya NO
+    # participan (REMOVEFILTERS real, evidencia PRIMARIA TMDL). Parametrizado
+    # por panel — nunca un total compartido entre ambos.
+    assert "function capacidadProductivasTotal(panel)" in _REPORTING_JS
+    fn = _fn_body_exact("capacidadProductivasTotal")
+    assert "capacidadProductivasSelectedRows(panel)" not in fn
+    assert "CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR" in fn
+    assert "_maskMeses(arr, meses)" in fn
+    assert "_operationalMonthCap(anio)" in fn
 
 
 # ============================================================================

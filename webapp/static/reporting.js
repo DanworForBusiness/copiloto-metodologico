@@ -609,6 +609,14 @@ const CAPACIDAD_PRODUCTIVAS_ROWS = [
   { cliente: "AySA", proyecto: "Costeo Federal", horas: 210 },
   { cliente: "Ternium", proyecto: "Rollout Reporting", horas: 175 },
 ];
+// Denominador REAL de "% Incidencia" — SOURCE-PARITY corrective (owner live
+// comparison contra el PBI, ver capacidadProductivasTotal). `{anio: [horas
+// x 12]}`, poblado por `loadBatchBData` (`data.horasProductivasDenominador`
+// — ver `_shape_horas_productivas_denominador` en reporting_service.py).
+// Objeto PLANO (no array, `replaceRows` no aplica) — se reemplaza entero en
+// cada carga, MISMO criterio que `RENTABILIDAD_VENDIDAS_BY_YEAR`. `let`
+// porque se reasigna, no se mutan sus keys in-place.
+let CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = {};
 
 // No Asignadas: pivotTable real Columns=Mes, Rows="Consultor + Hs asig"
 // (columna calculada = Consultor & " (" & [HS asignadas a proy] & " hs
@@ -824,14 +832,33 @@ const state = {
   // diferencia de Año de Inicio/Estado (esos SÍ arrancan con una selección
   // default no vacía porque ahí vacío significa "nada", nunca "todo").
   capacidadMesesSeleccionados: { cliente: new Set(), clientePart: new Set() },
-  // Estado de Horas Productivas (owner corrective — filtro faltante) —
-  // MISMO patrón que carteraStatus/rentabilidadStatus: default "En curso"
-  // únicamente. Escopea la POBLACIÓN real (como Año/Mes, ver
+  // Estado de Horas Productivas — SOURCE-PARITY CORRECTIVE (owner live
+  // comparison contra el PBI original): a diferencia de carteraStatus/
+  // rentabilidadStatus (default SOLO "En curso" — filtros NUEVOS que el
+  // PBIP original no tenía), acá el default es AMBOS tildados. El PBIP
+  // original de Horas Productivas NO EXPONE un filtro de Estado en
+  // absoluto — su baseline natural incluye TODOS los proyectos sin
+  // importar status. Estado es una extensión Hub sobre ese reporte
+  // (ver §9 del corrective — Status viene de `Proyectos.Status`
+  // ACTUAL, aplicado retroactivamente sobre Time Logs históricos; el
+  // owner la aprobó como extensión, no como reinterpretación del
+  // reporte original), así que el default debe ser NEUTRAL respecto al
+  // baseline del PBIP — ambos tildados reproduce exactamente "sin
+  // filtro de Estado". Default distinto SOLO para Productivas — Cartera/
+  // Rentabilidad/HV/Participación NO cambian (piden explícitamente "En
+  // curso" como default operativo, ver sus propios comentarios).
+  // Escopea la POBLACIÓN real (como Año/Mes, ver
   // capacidadProductivasSelectedRows) — nunca una dimensión REMOVEFILTERS
-  // como Cliente/Proyecto — así que también participa de qué Años aparecen
-  // como opción (capacidadProductivasAnioOptions), MISMO criterio que
-  // Rentabilidad/HV.
-  capacidadStatus: { "En curso": true, "Finalizado": false },
+  // como Cliente/Proyecto — así que también participa de qué Años
+  // aparecen como opción (capacidadProductivasAnioOptions). CAUSA RAÍZ
+  // del bug "el Año dropdown solo ofrece 2026" (owner corrective): con el
+  // default previo (solo "En curso"), los Time Logs históricos —
+  // mayormente de proyectos YA "Finalizado" a esta altura — quedaban
+  // excluidos de la población, y con ellos, sus años. Ambos tildados
+  // restaura la historia completa sin ningún cambio adicional en
+  // capacidadProductivasAnioOptions (esa función ya sigue el invariante
+  // canónico correcto — el bug vivía acá, no ahí).
+  capacidadStatus: { "En curso": true, "Finalizado": true },
   // Orden de Horas Productivas — CLICKEABLE en los headers Horas/%
   // Incidencia (owner live QA). % Incidencia es un transform MONÓTONO de
   // Horas contra el total FIJO del panel (`pct = horas/total*100`) — el
@@ -1235,16 +1262,20 @@ function resetFilters(expId) {
   } else if (expId === "capacidad") {
     // Mes de Horas Productivas vive FUERA de `filters` (Set por panel, ver
     // `capacidadMesesSeleccionados`) — "Limpiar" lo vuelve a vacío (==
-    // "Todos"). Estado vuelve a "En curso" únicamente (MISMO criterio que
-    // Cartera/Rentabilidad). Año — owner corrective — vuelve al default
-    // SENSATO (año actual válido) de CADA panel, nunca a blanco: se
-    // reasigna DESPUÉS de vaciar `filters.capacidad` (capacidadProductivasDefaultAnio
-    // lee `capacidadProductivasAnioOptions`, que a su vez lee
-    // `state.capacidadStatus` — debe estar ya reseteado a "En curso" para
-    // que el default salga del universo correcto).
+    // "Todos"). Estado vuelve a AMBOS tildados (SOURCE-PARITY corrective —
+    // ver comentario en `state` arriba: el PBIP original no tiene filtro
+    // de Estado, "Limpiar" debe reproducir ESE baseline neutral, nunca el
+    // criterio "En curso únicamente" de Cartera/Rentabilidad, que SÍ son
+    // filtros nuevos con default operativo propio). Año — owner
+    // corrective — vuelve al default SENSATO (año actual válido) de CADA
+    // panel, nunca a blanco: se reasigna DESPUÉS de vaciar
+    // `filters.capacidad` (capacidadProductivasDefaultAnio lee
+    // `capacidadProductivasAnioOptions`, que a su vez lee
+    // `state.capacidadStatus` — debe estar ya reseteado para que el
+    // default salga del universo correcto).
     state.filters.capacidad = {};
     state.capacidadMesesSeleccionados = { cliente: new Set(), clientePart: new Set() };
-    state.capacidadStatus = { "En curso": true, "Finalizado": false };
+    state.capacidadStatus = { "En curso": true, "Finalizado": true };
     CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel => {
       state.filters.capacidad[capacidadPanelAnioKey(panel)] = capacidadProductivasDefaultAnio();
     });
@@ -2247,6 +2278,9 @@ async function loadBatchBData() {
     if (data.state === "ok") {
       replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
       replaceRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas);
+      // SOURCE-PARITY corrective: denominador REAL de "% Incidencia" —
+      // objeto plano, se reemplaza entero (ver capacidadProductivasTotal).
+      CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = data.horasProductivasDenominador || {};
       // Default Año = año actual válido — SOLO en hidratación (owner
       // corrective, MISMO criterio que Rentabilidad/HV), un panel a la vez,
       // nunca pisa una elección ya hecha por el usuario (`getFilter` vacío
@@ -3554,15 +3588,48 @@ function capacidadProductivasSelectedRows(panel) {
   });
 }
 
-// Gran total FIJO de UN panel — FUNCIÓN, no `const` precalculada (mismo
-// corrective que comercialParticipacionTotalVendidas). Recalculada contra
-// `capacidadProductivasSelectedRows(panel)` (Año+Mes de ESE panel YA
-// proyectados) — Año/Mes son scope real de los datos (como Estado en
-// Participación), nunca una de las dimensiones REMOVEFILTERS (esas son
-// Cliente/Client Partner, ver `capacidadProductivasColumns`). Cada panel
-// tiene su PROPIO gran total — nunca uno compartido, o el % Incidencia del
-// panel derecho quedaría contaminado por el Año/Mes del izquierdo.
-function capacidadProductivasTotal(panel) { return capacidadProductivasSelectedRows(panel).reduce((s, r) => s + r.horas, 0); }
+// Gran total FIJO de UN panel — DENOMINADOR REAL de "% Incidencia" —
+// SOURCE-PARITY corrective (owner live comparison: LEFT PBI ≈50.5 vs KPI
+// visible 42.182 para el MISMO Cliente/Año — ver evidencia PRIMARIA en
+// `_shape_horas_productivas_denominador`, reporting_service.py).
+//
+// ANTES: sumaba `capacidadProductivasSelectedRows(panel)` — las MISMAS
+// filas que alimentan la tabla/KPI (Cliente-placeholder interno YA
+// excluido en el backend, Estado ya filtrado). Eso reproduce el "Total
+// Horas" VISIBLE, NO el denominador real de la medida DAX — evidencia
+// PRIMARIA (`Time Logs Reports.tmdl`, medidas `% Hs ejecutadas`/`% Hs
+// ejecutadas2`) prueba que el denominador es:
+//     DIVIDE(SUM(HORAS), CALCULATE(SUM(HORAS),
+//       REMOVEFILTERS(Cliente[Client Partner], Cliente[Frecuencia
+//         Actualizacion], Cliente[Permite Adelanto], Cliente[Condicion de
+//         Pago], Cliente[Cliente]),
+//       REMOVEFILTERS('Time Logs Reports'[<propia columna de identidad>])))
+// — que REMUEVE (entre otros) el filtro de página que excluye el cliente
+// placeholder interno de "No Asignadas" (mismo campo, `Cliente[Cliente]`/
+// `'Time Logs Reports'[Client]`), REINTRODUCIENDO esas horas al
+// denominador — la causa RAÍZ exacta del ≈50.5 vs 42.182 (ver HANDOFF).
+// REMOVEFILTERS NUNCA toca Año/Mes/Proyecto — el denominador SIGUE
+// escopeado por Año/Mes de ESE panel (por eso reusa el MISMO motor
+// `_sumMonthlyArrays`/`_maskMeses`/`_applyMonthCap` que
+// `capacidadProductivasSelectedRows`, nunca una copia), pero es AGNÓSTICO
+// de Cliente/Client Partner/Proyecto/Estado — ninguno de estos tiene
+// slicer/filtro equivalente en la página real del PBIP (confirmado por
+// `page.json`: solo hay slicers de Año/Mes/Cliente/Client Partner, CERO
+// de Proyecto; Estado no existe en el modelo original en absoluto).
+// FUNCIÓN, no `const` precalculada (mismo corrective que
+// comercialParticipacionTotalVendidas) — cada panel tiene su PROPIO gran
+// total vía su PROPIO Año/Mes, nunca uno compartido.
+function capacidadProductivasTotal(panel) {
+  const anioKey = capacidadPanelAnioKey(panel);
+  const anio = getFilter("capacidad", anioKey);
+  const meses = state.capacidadMesesSeleccionados[panel];
+  const cap = _operationalMonthCap(anio);
+  const arr = anio
+    ? (CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR[anio] || _z12())
+    : _sumMonthlyArrays(Object.values(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR));
+  const monthly = _applyMonthCap(_maskMeses(arr, meses), cap);
+  return monthly.reduce((a, b) => a + (b || 0), 0);
+}
 
 // Rollup jerárquico (ver Hierarchical Measure Rollup Backbone corrective):
 // Horas es Clase A (aditiva, `sumField` sin formatFn); % Incidencia es

@@ -15,11 +15,21 @@ const vm = require("vm");
 const REPORTING_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "reporting.js");
 const src = fs.readFileSync(REPORTING_JS, "utf-8");
 
+// DOM mínimo: `resetFilters`/`toggleCapacidadMes`/`setFilter` disparan
+// `render()` real (MISMO criterio que reporting_initial_load_contract.node.js)
+// — se necesita un stub de `getElementById`/`initDashboardSections`, aunque
+// este harness solo inspecciona estado/HTML devuelto por las funciones
+// puras, nunca el DOM mutado por `render()`.
+function makeEl() { return { innerHTML: "" }; }
 const sandbox = {
-  document: { addEventListener() {} },
+  document: {
+    addEventListener() {},
+    getElementById() { return makeEl(); },
+  },
   window: {},
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },
+  initDashboardSections() {},
   console,
 };
 vm.createContext(sandbox);
@@ -28,9 +38,36 @@ vm.runInContext(src, sandbox, { filename: "reporting.js" });
 const {
   capacidadProductivasSelectedRows, capacidadPanelAnioKey, renderCapacidadProductivas,
   capacidadProductivasAnioOptions, capacidadProductivasDefaultAnio, renderCapacidadFilterBar,
+  resetFilters, toggleCapacidadMes, setFilter, toggleCapacidadStatus,
 } = sandbox;
+// Extractor de cuerpo de función por balance de llaves (MISMO criterio que
+// `_fn_body_exact` en test_reporting_batch_b.py) — para pruebas de
+// source-seam (§11 REGRESSION: "no new Time Logs fetch on Año/Mes changes")
+// sin depender de que loadBatchBData realmente dispare un fetch de red en
+// este sandbox mínimo.
+function fnBody(name) {
+  const sig = `function ${name}(`;
+  const start = src.indexOf(sig);
+  if (start === -1) throw new Error(`función no encontrada: ${name}`);
+  const braceStart = src.indexOf("{", start);
+  let depth = 0, i = braceStart;
+  for (; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") { depth--; if (depth === 0) break; }
+  }
+  return src.slice(braceStart, i + 1);
+}
 const state = vm.runInContext("state", sandbox);
 const CAPACIDAD_PRODUCTIVAS_ROWS = vm.runInContext("CAPACIDAD_PRODUCTIVAS_ROWS", sandbox);
+// Denominador REAL de "% Incidencia" (SOURCE-PARITY corrective) — objeto
+// PLANO {anio: [horas x 12]}, mutado in-place (nunca reasignado — `let` en
+// reporting.js, pero esta referencia sigue siendo válida mientras solo se
+// le agreguen/borren keys, nunca `= {}` desde afuera del sandbox).
+const CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = vm.runInContext("CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR", sandbox);
+function setDenominador(byYear) {
+  Object.keys(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR).forEach(k => delete CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR[k]);
+  Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, byYear);
+}
 
 let failures = 0;
 function assertEqual(actual, expected, label) {
@@ -181,12 +218,21 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   assertEqual(capacidadProductivasAnioOptions(), ["2018", "2019"], "tildar Finalizado también trae 2018 de vuelta a las opciones");
 }
 
-// --- Proyecto es REMOVEFILTERS (narrows la POBLACIÓN mostrada — el rollup
-// --- de "YPF" pasa de 180 a 120 —, pero el DENOMINADOR fijo del %
-// --- Incidencia sigue siendo 180, MISMO criterio que Cliente) —————————
-// --- Por defecto el árbol arranca colapsado (treeExpandedSet vacío), así
-// --- que se verifica en el rollup del nodo Cliente, no en una fila hija
-// --- todavía no expandida.
+// --- SOURCE-PARITY corrective: el DENOMINADOR real de "% Incidencia" ya
+// --- NO se deriva de las filas mostradas (CAPACIDAD_PRODUCTIVAS_ROWS,
+// --- Cliente-placeholder-interno ya excluido, Estado ya filtrado) sino de
+// --- CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR (grand total real del
+// --- backend — evidencia PRIMARIA: LEFT PBI ≈50.5 vs KPI visible 42.182
+// --- para el MISMO Cliente/Año). Prueba EXACTAMENTE lo que pide el
+// --- ticket: "LEFT visible Total Horas != LEFT incidence denominator" —
+// --- acá el denominador (240) es DISTINTO tanto de la suma de filas
+// --- mostradas (180) como del Total Horas del panel tras filtrar
+// --- Proyecto (120). Proyecto SIGUE siendo REMOVEFILTERS de las filas
+// --- MOSTRADAS (narrows 180→120, mismo criterio que Cliente) — pero el
+// --- denominador ya ni siquiera "ve" las filas, es un grand total
+// --- independiente. Por defecto el árbol arranca colapsado
+// --- (treeExpandedSet vacío), así que se verifica en el rollup del nodo
+// --- Cliente, no en una fila hija todavía no expandida.
 {
   CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
   CAPACIDAD_PRODUCTIVAS_ROWS.push(
@@ -195,6 +241,11 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
     { cliente: "YPF", proyecto: "Costeo", horas: 0, porcentajePart: 12.5, estado: "En curso",
       horasByYear: { "2019": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5] } },
   );
+  // Denominador REAL (240) — MAYOR que la suma de las filas mostradas
+  // (180): simula el cliente placeholder interno de "No Asignadas" que
+  // REMOVEFILTERS(Cliente[Cliente]) reintroduce en el DAX real, nunca
+  // visible en las filas mostradas ni en ningún KPI de panel.
+  setDenominador({ "2019": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20] });
   state.filters.capacidad = { cliente: "", proyecto: "SADI v2" };
   state.filters.capacidad[capacidadPanelAnioKey("cliente")] = "2019";
   state.filters.capacidad[capacidadPanelAnioKey("clientePart")] = "2019";
@@ -205,8 +256,9 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   const html = renderCapacidadProductivas();
   const ypfRowStart = html.indexOf(">YPF<");
   const ypfRow = html.slice(ypfRowStart, ypfRowStart + 200);
-  assertTrue(ypfRow.includes(">120<"), "Proyecto='SADI v2': el rollup de YPF muestra 120 (SOLO SADI v2, Costeo narrowed out)");
-  assertTrue(ypfRow.includes("66.7%"), "el % Incidencia (120/180) prueba que el DENOMINADOR sigue siendo el total SIN filtrar por Proyecto (REMOVEFILTERS)");
+  assertTrue(ypfRow.includes(">120<"), "Proyecto='SADI v2': el rollup MOSTRADO de YPF sigue siendo 120 (numerador/filas visibles sin cambios — REMOVEFILTERS de Proyecto en las filas, no en el denominador)");
+  assertTrue(ypfRow.includes("50.0%"), "% Incidencia = 120/240 = 50.0% — usa el DENOMINADOR REAL (240), NUNCA la suma de filas mostradas (180, daría 66.7%) ni el Total Horas del panel filtrado (120, daría 100%)");
+  setDenominador({});
 }
 
 // --- Año default = año actual válido (owner corrective) --------------------
@@ -290,6 +342,77 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   const estadoIdx = fb.indexOf("toggleCapacidadStatus(");
   assertTrue(clienteIdx !== -1 && proyectoIdx !== -1 && estadoIdx !== -1, "el filter bar de Productivas monta Cliente + Proyecto + Estado");
   assertTrue(clienteIdx < proyectoIdx && proyectoIdx < estadoIdx, "orden: Cliente → Proyecto (a su derecha) → Estado (a la derecha de Proyecto)");
+}
+
+// --- SOURCE-PARITY §11 YEAR DOMAIN: los años históricos sobreviven, el Año
+// --- seleccionado de un panel NUNCA elimina opciones del otro (ni las
+// --- propias), y las opciones se derivan de las filas hidratadas CRUDAS
+// --- excluyendo el propio facet de Año — evidencia PRIMARIA:
+// --- `_CAPACIDAD_SELECT_FIELDS` (capacidadProductivasAnioOptions) solo
+// --- lista cliente/proyecto, nunca anio_cliente/anio_clientePart, así que
+// --- `facetRowsExcept` estructuralmente NUNCA filtra por Año — la lista de
+// --- opciones es la MISMA sin importar qué año esté elegido en NINGÚN
+// --- panel. Esto también prueba que el bug real (colapso a solo 2026) no
+// --- era un defecto de este motor de facets sino el default viejo de
+// --- Estado (ver bloque "Estado ... escopea qué Años aparecen").
+{
+  CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
+  CAPACIDAD_PRODUCTIVAS_ROWS.push(
+    { cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5, estado: "En curso",
+      horasByYear: { "2019": [1,1,1,1,1,1,1,1,1,1,1,1], "2021": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+    { cliente: "Aluar", proyecto: "Costeo", horas: 0, porcentajePart: 5, estado: "En curso",
+      horasByYear: { "2023": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+  );
+  state.filters.capacidad = {};
+  state.capacidadStatus = { "En curso": true, "Finalizado": true };
+  const baseline = capacidadProductivasAnioOptions();
+  assertEqual(baseline, ["2019", "2021", "2023"], "los 3 años históricos hidratados aparecen como opción, ninguno perdido");
+
+  // Elegir un Año en el panel LEFT (cliente) no debe quitar opciones —
+  // ni siquiera las que ese propio panel ya no puede mostrar.
+  state.filters.capacidad[capacidadPanelAnioKey("cliente")] = "2019";
+  assertEqual(capacidadProductivasAnioOptions(), baseline, "seleccionar Año=2019 en el panel LEFT no elimina 2021/2023 de las opciones (propio facet excluido)");
+
+  // Elegir un Año DISTINTO en el panel RIGHT (clientePart) — independiente
+  // del LEFT — tampoco debe alterar las opciones ni pisar la selección LEFT.
+  state.filters.capacidad[capacidadPanelAnioKey("clientePart")] = "2023";
+  assertEqual(capacidadProductivasAnioOptions(), baseline, "seleccionar Año=2023 en el panel RIGHT no elimina años de las opciones, ni afecta al LEFT");
+  assertEqual(state.filters.capacidad[capacidadPanelAnioKey("cliente")], "2019", "la selección de Año del panel LEFT sigue intacta tras elegir un Año distinto en el RIGHT");
+}
+
+// --- SOURCE-PARITY §8/§9/§11 ESTADO: default = AMBOS tildados (el PBIP
+// --- original no tiene filtro de Estado — extensión Hub neutral, ver
+// --- comentario en `state` de reporting.js), "Limpiar" restaura AMBOS, y
+// --- angostar a un solo estado sigue funcionando en cada sentido ----------
+{
+  assertTrue(/capacidadStatus:\s*\{\s*"En curso":\s*true,\s*"Finalizado":\s*true\s*\}/.test(src), "el literal `state.capacidadStatus` por default tilda AMBOS 'En curso' y 'Finalizado' (source-parity con el PBIP, que no filtra Estado)");
+
+  CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
+  CAPACIDAD_PRODUCTIVAS_ROWS.push(
+    { cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5, estado: "En curso",
+      horasByYear: { "2019": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+    { cliente: "Molinos", proyecto: "Legacy", horas: 0, porcentajePart: 3, estado: "Finalizado",
+      horasByYear: { "2019": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+  );
+  state.filters.capacidad = { cliente: "" };
+  state.capacidadMesesSeleccionados = { cliente: new Set(["1"]), clientePart: new Set(["2"]) };
+  state.capacidadStatus = { "En curso": true, "Finalizado": false };
+  resetFilters("capacidad");
+  assertEqual(state.capacidadStatus, { "En curso": true, "Finalizado": true }, "'Limpiar' en Horas Productivas restaura AMBOS estados tildados (baseline neutral del PBIP), nunca 'solo En curso' (criterio de Cartera/Rentabilidad, NO aplica acá)");
+
+  state.capacidadStatus = { "En curso": true, "Finalizado": false };
+  assertEqual(capacidadProductivasSelectedRows("cliente").map(r => r.cliente), ["YPF"], "tildar SOLO En curso angosta correctamente (excluye Molinos)");
+  state.capacidadStatus = { "En curso": false, "Finalizado": true };
+  assertEqual(capacidadProductivasSelectedRows("cliente").map(r => r.cliente), ["Molinos"], "tildar SOLO Finalizado angosta correctamente en el otro sentido (excluye YPF)");
+}
+
+// --- SOURCE-PARITY §11 REGRESSION: cambiar Año/Mes de Horas Productivas es
+// --- PURO estado de UI sobre datos ya hidratados — NUNCA dispara un nuevo
+// --- fetch de Time Logs (source-seam: los cuerpos de `toggleCapacidadMes`
+// --- y `setFilter` no invocan `loadBatchBData`) ----------------------------
+{
+  assertTrue(!fnBody("toggleCapacidadMes").includes("loadBatchBData"), "toggleCapacidadMes (togglear un botón de Mes) nunca invoca loadBatchBData — puro re-render sobre datos ya hidratados");
+  assertTrue(!fnBody("setFilter").includes("loadBatchBData"), "setFilter (cambiar Año vía Cliente/Proyecto/Estado o el <select> de Año) nunca invoca loadBatchBData — mismo criterio, ningún facet de Reporting re-fetchea al cambiar filtros locales");
 }
 
 if (failures > 0) {

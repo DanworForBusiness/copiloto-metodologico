@@ -194,6 +194,12 @@ class ReportingService:
         return {
             "horasProductivas": self._shape_horas_productivas(facts),
             "horasProductivasNoAsignadas": self._shape_horas_productivas_no_asignadas(facts, colaboradores),
+            # SOURCE-PARITY corrective (ver _shape_horas_productivas_denominador):
+            # denominador REAL de "% Incidencia", grano {anio: [horas x 12]} —
+            # UN solo grand-total compartido por AMBOS paneles (misma fórmula
+            # DAX salvo cuál columna de identidad se remueve, lo que no cambia
+            # la suma), nunca por-fila.
+            "horasProductivasDenominador": self._shape_horas_productivas_denominador(facts),
         }
 
     def get_salud(self, access_token: str) -> list[dict]:
@@ -790,6 +796,77 @@ class ReportingService:
             }
             for (cliente, proyecto), g in groups.items()
         ]
+
+    def _shape_horas_productivas_denominador(self, facts: list[dict]) -> dict[str, list[float]]:
+        """Denominador REAL de "% Incidencia" (Horas Productivas — SOURCE-
+        PARITY corrective, owner live comparison contra el PBI). Evidencia
+        PRIMARIA (`Danwor - Tablero Integral.SemanticModel/definition/
+        tables/Time Logs Reports.tmdl`): AMBOS paneles bindean a medidas
+        DAX distintas pero de forma IDÉNTICA —
+
+            '% Hs ejecutadas'  (panel izquierdo, Rank_T2):
+            '% Hs ejecutadas2' (panel derecho, Rank_T3):
+                DIVIDE(
+                    SUM('Time Logs Reports'[HORAS]),
+                    CALCULATE(
+                        SUM('Time Logs Reports'[HORAS]),
+                        REMOVEFILTERS(Cliente[Client Partner], Cliente[Frecuencia
+                          Actualizacion], Cliente[Permite Adelanto],
+                          Cliente[Condicion de Pago], Cliente[Cliente]),
+                        REMOVEFILTERS('Time Logs Reports'[<propia columna de
+                          identidad — Client para el panel izquierdo,
+                          Cliente + Part para el derecho>])
+                    )
+                )
+
+        REMOVEFILTERS NO toca Año/Mes/Proyecto — el denominador SIGUE
+        escopeado por el filtro de fecha ambiental (Año/Mes activos), pero
+        es un GRAN TOTAL respecto de TODO lo demás (Cliente/Client
+        Partner/Proyecto — ninguno de estos tiene equivalente de slicer en
+        la página real de Horas Productivas del PBIP, confirmado por
+        `page.json`: solo hay slicers de Año/Mes ×2 —uno por panel— y
+        Cliente/Client Partner compartidos, CERO slicer de Proyecto).
+
+        HALLAZGO CRÍTICO (explica owner live evidence: LEFT ≈50.5 vs KPI
+        visible 42.182 para el mismo Cliente/Año): `page.json` tiene DOS
+        filtros de página que excluyen el cliente placeholder interno
+        donde se cargan las 2 horas de "No Asignadas" — uno sobre
+        `Cliente[Cliente]` ("NOT CONTAINS 'Danwor'"), otro sobre
+        `'Time Logs Reports'[Client]` (mismo criterio). El denominador de
+        AMBAS medidas hace `REMOVEFILTERS(Cliente[Cliente])` — Y la de
+        LEFT además `REMOVEFILTERS('Time Logs Reports'[Client])` — ambos
+        remueven EXACTAMENTE los campos donde viven esos 2 filtros de
+        página, así que el denominador los DESHACE y reintroduce esas
+        horas placeholder. Por eso es MÁS GRANDE que "Total Horas" (que sí
+        las excluye, igual que cada fila mostrada) — un artefacto REAL del
+        DAX original (REMOVEFILTERS es más amplio de lo que el autor
+        probablemente intentaba), no un bug de Hub. "The denominator must
+        reproduce the source measure semantics" (ticket) exige
+        reproducirlo tal cual, no "corregirlo" a lo que Hub asumiría que
+        es más prolijo.
+
+        Por eso este método NO excluye el cliente placeholder interno NI
+        proyectos "No Asignadas" (a diferencia de `_shape_horas_
+        productivas`) — suma TODOS los hechos con mes/año reconocibles,
+        SIN agrupar por Cliente/Proyecto. Tampoco filtra por Estado:
+        Estado (`Proyectos.Status`) es una extensión Hub sin equivalente
+        en el DAX original (no hay filtro/slicer de Estado en la página
+        real) — el denominador queda Estado-AGNÓSTICO por diseño, MISMO
+        criterio que Proyecto. Devuelve `{anio: [horas x 12]}` — grano
+        idéntico a `horasByYear` de cada fila, para que el frontend
+        reutilice el MISMO motor de proyección Año/Mes/mes-cap
+        (`_sumMonthlyArrays`/`_maskMeses`/`_applyMonthCap`) sin duplicar
+        lógica temporal."""
+        totals: dict[str, list[float]] = {}
+        for f in facts:
+            n = _time_logs_month_num(f["mes"])
+            if n is None:
+                continue
+            anio = f.get("anio")
+            if not _is_valid_anio(anio):
+                continue
+            totals.setdefault(anio, [0.0] * 12)[n - 1] += f["horas"]
+        return {a: [_round2(v) for v in arr] for a, arr in totals.items()}
 
     def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas_no_asignadas` con
