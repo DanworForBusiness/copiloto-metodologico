@@ -856,18 +856,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    Año / Mes / Expandir-Contraer no compartían un eje de alineación — Año
    empezaba corrido hacia adentro respecto del título/KPI/tabla, y
    Expandir/Contraer quedaban "sueltos" a la derecha). Modifier del MISMO
-   primitivo de arriba (nunca duplica borde/tipografía de botón) — Año
-   (auto) | Mes (flexible, `minmax(0,1fr)`) | acciones de jerarquía (auto)
-   en UNA fila coherente. La base `justify-content:flex-end` empaquetaba
-   todo a la derecha — por eso Año nunca alineaba con el borde izquierdo
-   del contenido, y por eso su posición dependía del ancho del grupo de
-   Mes (ya resuelto en el SÍNTOMA por "12 botones siempre en el DOM", ver
-   `.dashboard-view-switch--multi`, pero la causa de fondo era que Año no
-   debía depender del ancho de sus hermanos en absoluto). Solo usado por
-   los 2 paneles de Horas Productivas — el resto de los toolbars de
-   Reporting/Staffing (perspective-switch + Expandir/Contraer, sin Año/Mes)
-   siguen usando la base flex sin cambios. */
-.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; justify-content: normal; gap: 16px; }
+   primitivo de arriba (nunca duplica borde/tipografía de botón) — Año |
+   Mes | acciones de jerarquía, las TRES columnas `auto` (content-sized) —
+   owner corrective (2da vuelta): la columna de Mes había quedado
+   `minmax(0,1fr)` (flexible), que la ESTIRABA a ocupar todo el ancho
+   disponible aunque sus 12 botones no lo llenaran, dejando un hueco vacío
+   ENTRE Mes y Expandir/Contraer. `auto auto auto` + `justify-content:
+   normal` (packa al INICIO/izquierda, MISMO comportamiento de agrupación
+   compacta que el resto de los toolbars del Hub — Expandir/Contraer caen
+   INMEDIATAMENTE después de Mes, "igual que los demás", nunca lejos a la
+   derecha con un hueco). La base `justify-content:flex-end` de arriba
+   empaquetaba todo a la derecha — por eso Año nunca alineaba con el borde
+   izquierdo del contenido. Solo usado por los 2 paneles de Horas
+   Productivas — el resto de los toolbars de Reporting/Staffing
+   (perspective-switch + Expandir/Contraer, sin Año/Mes) siguen usando la
+   base flex sin cambios. */
+.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto auto auto; justify-content: normal; gap: 16px; }
 .staffing-timeline-toolbar--panel > .staffing-timeline-toolbar__actions { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 640px) {
   .staffing-timeline-toolbar--panel { grid-template-columns: 1fr; gap: 8px; }
