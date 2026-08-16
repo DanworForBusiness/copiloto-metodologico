@@ -57,9 +57,14 @@ def test_set_perspective_never_touches_state_filters():
 def test_reset_filters_still_applies_defaults_explicitly_on_limpiar():
     # "Limpiar" SIGUE siendo el único lugar donde se reaplica un default —
     # acción explícita del usuario, nunca implícita en un cambio de vista.
+    # `defaultYearToDateFilters` se RETIRÓ (owner directive — Participación
+    # convergió a Año/Estado, MISMO mecanismo que Rentabilidad/HV, ver
+    # comercialParticipacionDefaultAnios) — ninguna experiencia usa Desde/
+    # Hasta full-history ya.
     body = _function_body("resetFilters")
     assert "carteraDefaultFilters" in body
-    assert "defaultYearToDateFilters" in body
+    assert "comercialParticipacionDefaultAnios" in body
+    assert "defaultYearToDateFilters" not in body
 
 
 # ============================================================================

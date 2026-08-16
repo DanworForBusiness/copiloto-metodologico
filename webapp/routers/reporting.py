@@ -235,15 +235,17 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
 
 @router.post("/operaciones/reporting/integral/data/batch-a", include_in_schema=False)
 def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
-    """Datos REALES normalizados de Participación/Calendario/Salud de Cliente
-    (Reporting Integral Batch A — backbone reuse de Cartera, FULL-HISTORY). UN
-    endpoint consolidado (no 3 POSTs separados) porque las 3 experiencias
-    comparten el mismo fetch de origen (`ReportingService.get_batch_a`). MISMO
-    gate/token/fail-soft que `reporting_cartera_data`. Horas Vendidas SALIÓ de
-    acá (owner directive — frontera de runtime): tiene su propio endpoint con
-    scope temporal (`reporting_horas_vendidas_data` abajo), para no arrastrar
-    la historia completa de Participación al visitar HV. Horas Productivas
-    queda FUERA (Correction 1: CSV de Time Logs) — ver `reporting_batch_b_data`."""
+    """Datos REALES normalizados de Calendario/Salud de Cliente (Reporting
+    Integral Batch A — backbone reuse de Cartera, categóricas puras sobre
+    `cliente_dim`, sin grano temporal). UN endpoint consolidado (no 2 POSTs
+    separados) porque ambas experiencias comparten el mismo fetch de origen
+    (`ReportingService.get_batch_a`). MISMO gate/token/fail-soft que
+    `reporting_cartera_data`. Horas Vendidas Y Participación SALIERON de acá
+    (owner directive — frontera de runtime, "no mantener Participación en
+    full-history"): AMBAS tienen su propio endpoint con scope temporal
+    (`reporting_horas_vendidas_data`/`reporting_participacion_data` abajo).
+    Horas Productivas queda FUERA (Correction 1: CSV de Time Logs) — ver
+    `reporting_batch_b_data`."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -328,6 +330,76 @@ def reporting_horas_vendidas_anios_disponibles(request: Request, graph_token: st
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
         _logger.exception("reporting horas-vendidas anios-disponibles: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "aniosDisponibles": anios})
+
+
+@router.post("/operaciones/reporting/integral/data/participacion", include_in_schema=False)
+def reporting_participacion_data(request: Request, graph_token: str = Form(""), anios: str = Form("")):
+    """Datos REALES de Participación con SCOPE TEMPORAL (owner directive —
+    "no mantener Participación en full-history solo porque el batch-a viejo
+    lo hacía", MISMO principio que Horas Vendidas/Rentabilidad). MISMO gate/
+    token/fail-soft y MISMO contrato de `anios` que `reporting_horas_
+    vendidas_data`:
+
+    `anios` (HOT WINDOW / COLD HISTORY, Año MULTI-SELECT): CSV de años (p. ej.
+    "2024" o "2024,2023") a hidratar; vacío/omitido resuelve al default de
+    ventana caliente (año actual + anterior, `ReportingService.
+    _default_hot_years`). Una lista de un año es el lazy-load de un año FRÍO
+    al tildarlo en el checkbox-group de Año — a diferencia de HV/Rentabilidad
+    (Año single-select), acá el frontend puede pedir MÁS de un año FRÍO a la
+    vez si el usuario tilda varios de un saque (ver `loadComercialParticipacionColdYears`
+    en reporting.js). La metadata de años seleccionables NO viaja acá — vive
+    en `/data/participacion/anios-disponibles`."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
+        participacion = service.get_participacion(graph_token, anios=anios_list)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting participacion data: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "participacion": participacion})
+
+
+@router.post("/operaciones/reporting/integral/data/participacion/anios-disponibles", include_in_schema=False)
+def reporting_participacion_anios_disponibles(request: Request, graph_token: str = Form("")):
+    """Metadata de año/estado de Participación (todos los tipos) — SEPARADA
+    del fetch de datos a propósito (misma razón que Cartera/Horas Vendidas:
+    puebla el checkbox-group de Año con años FRÍOS sin sumarle costo a la
+    respuesta rápida de la ventana caliente). El frontend la dispara en
+    PARALELO durante la hidratación del tab. MISMO gate/token/fail-soft que
+    `reporting_cartera_data`."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        anios = service.get_participacion_anios(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting participacion anios-disponibles: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", "aniosDisponibles": anios})
 

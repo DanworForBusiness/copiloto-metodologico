@@ -1307,12 +1307,16 @@ def test_horas_vendidas_cold_year_lazy_loads_and_merges_by_project():
     assert "vendidasByYear" in merge and "HORASVENDIDAS_ROWS.push(inc)" in merge
 
 
-def test_batch_a_loader_no_longer_populates_horas_vendidas():
-    # Frontera de runtime: batch-a (Participación/Calendario/Salud) ya NO puebla
-    # HORASVENDIDAS_ROWS — HV lo hace por su propio loader scoped.
+def test_batch_a_loader_no_longer_populates_horas_vendidas_or_participacion():
+    # Frontera de runtime: batch-a (Calendario/Salud) ya NO puebla
+    # HORASVENDIDAS_ROWS ni COMERCIAL_PARTICIPACION_ROWS — HV/Participación
+    # lo hacen por su propio loader scoped (loadHorasVendidasData/
+    # loadComercialParticipacionData).
     fn = _REPORTING_JS[_REPORTING_JS.index("async function loadBatchAData"):_REPORTING_JS.index("function renderBatchADataState")]
     assert "replaceRows(HORASVENDIDAS_ROWS" not in fn
-    assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion)" in fn
+    assert "replaceRows(COMERCIAL_PARTICIPACION_ROWS" not in fn
+    assert "replaceRows(CALENDARIO_ROWS, data.calendario)" in fn
+    assert "replaceRows(COMERCIAL_SALUD_ROWS, data.salud)" in fn
 
 
 def test_horas_vendidas_anio_options_offer_cold_metadata_years():

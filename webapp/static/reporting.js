@@ -176,14 +176,6 @@ function carteraKpiTiles(cfg, rows) {
   }).join("");
 }
 
-// Fecha local en YYYY-MM-DD (formato nativo de `<input type="date">`) — a
-// propósito NO usa `toISOString()` (convierte a UTC, puede correr la fecha
-// un día para atrás/adelante cerca de medianoche según el huso horario del
-// browser); esto siempre refleja el día calendario LOCAL del usuario.
-function isoDateLocal(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 // Default de Desde/Hasta/Año de Inicio (ver corrective — HANDOFF: "Cartera
 // + Rentabilidad Completeness" + owner feedback posterior): resuelve al
 // año/fecha calendario ACTUAL (`new Date()`, nunca un literal hardcodeado
@@ -273,17 +265,6 @@ function pruneCarteraAnio() {
   const current = (state.filters.cartera || {}).anio;
   if (current && !available.has(current)) state.filters.cartera.anio = "";
 }
-// Desde/Hasta compartido (owner feedback, ver HANDOFF: Rentabilidad/
-// Participación/Horas Vendidas también necesitan un rango de fecha por
-// defecto) — MISMO default que Cartera/Mantenimiento ya usa (primer día
-// del año calendario en curso → hoy), un solo generador en vez de 3
-// literales repetidos por experiencia.
-function defaultYearToDateFilters() {
-  const hoy = new Date();
-  const desde = new Date(hoy.getFullYear(), 0, 1);
-  return { desde: isoDateLocal(desde), hasta: isoDateLocal(hoy) };
-}
-
 // Rentabilidad / Performance (ver corrective — HANDOFF/task): a diferencia
 // de Horas Vendidas/Calendario, "Analisis Rentabilidad" y "Hs Certificadas
 // vs Hs Ejecutadas" NO son la misma pregunta de negocio reordenada — son DOS
@@ -498,17 +479,46 @@ function statusPillSalud(value) {
   return `<span class="dashboard-status-badge dashboard-status-badge--${color}">${esc(value)}</span>`;
 }
 
+// Población canónica de Participación: Año + Estado (AMBOS checkbox
+// multi-select, FUERA del motor de facets <select> — mismo criterio que Año
+// de Inicio/Status de Cartera) proyectados a `horasVendidas`/
+// `horasCertificadas` CRUDOS (suma sobre los años Y estados tildados de los
+// mapas por-año-por-estado que entrega el backend, ver `_shape_
+// participacion`). Año/Estado son SCOPE real de los datos (qué años están
+// hidratados, qué proyectos cuentan) — nunca una de las dimensiones
+// REMOVEFILTERS del pivotTable (esas son CP/ID Frecuencia/Permite Adelanto/
+// Condición de Pago/Cliente, ver comentario de COMERCIAL_PARTICIPACION_
+// COLUMNS más abajo). CP/Cliente se aplican DESPUÉS vía FACET_CONFIG.comercial
+// (facetRowsExcept) — MISMO orden en dos pasos que Rentabilidad/Horas
+// Vendidas (Estado primero, selects después). Alimenta la jerarquía (vía
+// facetFilteredRows) Y el gran total fijo de abajo.
+function comercialParticipacionSelectedRows() {
+  const anios = state.comercialParticipacionAnios;
+  const estados = state.comercialStatus;
+  return COMERCIAL_PARTICIPACION_ROWS.map(r => {
+    let vendidas = 0, certificadas = 0;
+    anios.forEach(anio => {
+      const vByEstado = (r.vendidasByYear || {})[anio] || {};
+      const cByEstado = (r.certificadasByYear || {})[anio] || {};
+      Object.keys(vByEstado).forEach(e => { if (estados[e]) vendidas += vByEstado[e] || 0; });
+      Object.keys(cByEstado).forEach(e => { if (estados[e]) certificadas += cByEstado[e] || 0; });
+    });
+    return { ...r, horasVendidas: vendidas, horasCertificadas: certificadas };
+  });
+}
 // Gran total FIJO (denominador REMOVEFILTERS) — FUNCIÓN, no `const`
 // precalculada (corrective Batch A, ver HANDOFF): `COMERCIAL_PARTICIPACION_ROWS`
-// se reemplaza IN PLACE con datos reales (`replaceRows`, mismo patrón que
-// Cartera) — una constante calculada una sola vez al cargar el script
-// habría quedado STALE contra el mock para siempre, rompiendo el % real.
-// Recalculada en cada llamada contra el array ACTUAL (mock o real, según
-// el ciclo de vida vigente) — sigue siendo "fijo" en el sentido correcto:
-// fijo por RENDER contra el dataset completo sin filtrar, nunca contra el
-// subtotal del grupo filtrado (REMOVEFILTERS).
-function comercialParticipacionTotalVendidas() { return COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasVendidas, 0); }
-function comercialParticipacionTotalCertificadas() { return COMERCIAL_PARTICIPACION_ROWS.reduce((s, r) => s + r.horasCertificadas, 0); }
+// se reemplaza IN PLACE con datos reales (`replaceRows`/`mergeComercial
+// ParticipacionRows`, mismo patrón que Cartera/Horas Vendidas) — una
+// constante calculada una sola vez al cargar el script habría quedado STALE
+// contra el mock para siempre, rompiendo el % real. Recalculada en cada
+// llamada contra `comercialParticipacionSelectedRows()` (Año+Estado YA
+// proyectados, mock o real según el ciclo de vida vigente) — sigue siendo
+// "fijo" en el sentido correcto: fijo por RENDER contra la población
+// Año+Estado completa sin filtrar por CP/Cliente/etc, nunca contra el
+// subtotal del grupo filtrado.
+function comercialParticipacionTotalVendidas() { return comercialParticipacionSelectedRows().reduce((s, r) => s + r.horasVendidas, 0); }
+function comercialParticipacionTotalCertificadas() { return comercialParticipacionSelectedRows().reduce((s, r) => s + r.horasCertificadas, 0); }
 function comercialPctVendidas(horas) {
   const total = comercialParticipacionTotalVendidas();
   return (total ? (horas / total * 100) : 0).toFixed(2) + " %";
@@ -631,9 +641,9 @@ const CALENDARIO_COMERCIAL_UPDATE_URL = "https://danwor.sharepoint.com/sites/Ges
 // tiene un selector de Año discreto (reemplazado por Desde/Hasta, ver
 // corrective "Cartera + Rentabilidad Completeness") — se toma el año de
 // "Hasta" (string YYYY-MM-DD, se lee por substring y NUNCA vía `new
-// Date(...).getFullYear()` — mismo motivo que isoDateLocal: parsear un
-// string de fecha como Date corre el riesgo de UTC shift de día/año cerca
-// de fin de año en husos horarios negativos). "Hasta" SIEMPRE tiene un
+// Date(...).getFullYear()`: parsear un string de fecha como Date corre el
+// riesgo de UTC shift de día/año cerca de fin de año en husos horarios
+// negativos). "Hasta" SIEMPRE tiene un
 // valor (ver carteraDefaultFilters — nunca "Todos" para un rango de fecha),
 // currentYear es solo el fallback defensivo. Proyecto ahora permite VARIOS
 // años tildados (ver carteraDefaultAnioInicio) — se toma el más reciente de
@@ -692,14 +702,14 @@ const state = {
   // Cartera arranca con Año/Mes en el valor calendario actual (ver
   // corrective — HANDOFF: "Cartera + Rentabilidad Completeness", A1) — las
   // otras 5 experiencias arrancan sin filtro (Todos).
-  // Rentabilidad/Horas Vendidas/Comercial arrancan con Desde/Hasta = año
-  // calendario en curso a la fecha (owner feedback, ver HANDOFF) — MISMO
-  // default que Cartera/Mantenimiento ya usaba, generado por
-  // `defaultYearToDateFilters()` en vez de repetido a mano. Calendario/
-  // Capacidad quedan sin filtro de fecha (Todos) — ningún corrective pidió
-  // uno ahí.
+  // Calendario/Capacidad quedan sin filtro de fecha (Todos) — ningún
+  // corrective pidió uno ahí. Rentabilidad/Horas Vendidas/Participación
+  // (Comercial) NO usan Desde/Hasta — migraron a Año/Mes/Estado (Rentabilidad/
+  // HV) o Año/Estado (Participación, checkbox multi-select propio, ver
+  // comercialParticipacionAnios abajo) — `filters.comercial` solo guarda
+  // CP/Cliente.
   filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {},
-             horasvendidas: {}, calendario: {}, capacidad: {}, comercial: defaultYearToDateFilters() },
+             horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
   // genérico de arriba) porque su semántica default NO es "todo tildado":
@@ -762,12 +772,42 @@ const state = {
   horasVendidasAniosStatus: "idle",
   horasVendidasYearLoading: new Set(),
   horasVendidasYearError: "",
-  // Backbone reuse de Cartera (Participación/Calendario/Salud de Cliente, ver
-  // HANDOFF): MISMO ciclo de vida, UN solo status para las 3 FULL-HISTORY que
-  // quedan (comparten UN fetch/endpoint consolidado — ver loadBatchAData).
-  // Horas Vendidas ya NO está acá (ver horasVendidasDataStatus). Horas
+  // Backbone reuse de Cartera (Calendario/Salud de Cliente, ver HANDOFF):
+  // MISMO ciclo de vida, UN solo status para las 2 FULL-HISTORY categóricas
+  // que quedan (comparten UN fetch/endpoint consolidado — ver
+  // loadBatchAData). Horas Vendidas Y Participación ya NO están acá (ver
+  // horasVendidasDataStatus/comercialParticipacionDataStatus abajo). Horas
   // Productivas usa su PROPIO status (`batchBDataStatus`) — fuente CSV.
   batchADataStatus: "idle",
+  // Estado de Participación — mismo patrón/pattern que Rentabilidad/HV.
+  comercialStatus: { "En curso": true, "Finalizado": false },
+  // Participación — ciclo de vida PROPIO con SCOPE TEMPORAL (owner directive:
+  // "Do NOT keep Participación on full-history simply because old batch-a
+  // did" — MISMO principio que Horas Vendidas/Rentabilidad). Pide su ventana
+  // caliente (año actual + anterior) por su endpoint propio; un año FRÍO se
+  // lazy-loadea al tildarlo (Año es MULTI-SELECT acá, a diferencia del
+  // single-select de HV/Rentabilidad — puede haber VARIOS años frios
+  // pendientes a la vez, `loadComercialParticipacionColdYears` los bundlea
+  // en UN solo request `anios=y1,y2`, ver reporting.py).
+  comercialParticipacionDataStatus: "idle",
+  comercialParticipacionAniosDisponibles: [],
+  comercialParticipacionAniosStatus: "idle",
+  // Años tildados (Set) — arranca vacío, se puebla con la ventana caliente
+  // REAL recién en `loadComercialParticipacionData` (nunca con un año
+  // "adivinado" antes de que lleguen los datos, MISMO criterio que
+  // rentabilidadDefaultAnio/horasVendidasDefaultAnio, aplicados post-fetch).
+  comercialParticipacionAnios: new Set(),
+  // Años YA hidratados — set EXPLÍCITO (a diferencia de Cartera/HV, que lo
+  // derivan de las filas cargadas): Participación mantiene una fila por
+  // Cliente SIEMPRE (ver `_shape_participacion`, población = `cliente_dim`
+  // completa) — un año sin NINGÚN hecho real en NINGÚN cliente dejaría
+  // `vendidasByYear`/`certificadasByYear` sin esa key en NINGUNA fila,
+  // haciendo indistinguible "año hidratado sin datos" de "año todavía no
+  // pedido" si se derivara de las filas (reintentaría el fetch en cada
+  // render). Marcado explícito evita esa ambigüedad.
+  comercialParticipacionLoadedYears: new Set(),
+  comercialParticipacionYearLoading: new Set(),
+  comercialParticipacionYearErrors: new Set(),
   // Horas Productivas (AMBAS perspectivas) — Batch B, CSV de Time Logs
   // Reports vía `loadBatchBData`. MISMO ciclo de vida idle→loading→
   // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
@@ -1019,20 +1059,16 @@ const FACET_CONFIG = {
   capacidad: () => state.perspective.capacidad === "Productivas"
     ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
     : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
-  // Client Partner/Cliente son los ÚNICOS slicers reales de ambas páginas
-  // fuente (page_inventory.json: slicer_fields) representables en el mock
-  // actual — Año (Participación) y el slicer de Status de
-  // "Empresas con proyectos activos" (Salud) no tienen una dimensión
-  // limpia en este dataset todavía, se ocultan (ver corrective: "si un
-  // filtro fuente no se puede representar con fidelidad, ocultarlo").
-  // Desde/Hasta (owner feedback, ver HANDOFF) SOLO en Participación —
-  // Salud de Cliente no tiene una dimensión de fecha propia (columnas
-  // categóricas puras, ver comentario del dataset), no se inventa una.
+  // Client Partner/Cliente son los ÚNICOS slicers <select> de ambas páginas
+  // fuente. Participación: Año/Estado (owner directive — "Do NOT keep
+  // Participación on full-history", reusar la infraestructura temporal de
+  // HV/Rentabilidad) son checkbox multi-select FUERA de este motor, ver
+  // `comercialParticipacionSelectedRows` — Desde/Hasta (full-history) se
+  // RETIRÓ, superado por Año+Estado. Salud de Cliente: sin dimensión de
+  // fecha propia (columnas categóricas puras), no se inventa una.
   comercial: () => state.perspective.comercial === "Participación"
-    ? { baseRows: COMERCIAL_PARTICIPACION_ROWS, fields: [
+    ? { baseRows: comercialParticipacionSelectedRows(), fields: [
         { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
-        { key: "desde", field: "fecha", predicate: (fecha, desde) => fecha >= desde },
-        { key: "hasta", field: "fecha", predicate: (fecha, hasta) => fecha <= hasta },
       ] }
     : { baseRows: COMERCIAL_SALUD_ROWS, fields: [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }] },
 };
@@ -1052,6 +1088,9 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // CAP, ver TEMPORAL DOMAIN CONTRACT — depende del Año YA reconciliado).
   if (expId === "rentabilidad") { pruneRentabilidadAnio(); pruneRentabilidadMes(); }
   if (expId === "horasvendidas") { pruneHorasVendidasAnio(); pruneHorasVendidasMes(); }
+  // Participación: Año es checkbox multi-select (como Año de Inicio de
+  // Cartera/Proyecto) — se reconcilia con el MISMO criterio faceteado.
+  if (expId === "comercial") pruneComercialParticipacionAnios();
 }
 // Mes queda fuera del año en curso tras un cambio de Año (ej. Mes=Octubre
 // bajo 2025, usuario cambia Año a 2026 en Agosto-2026 ⇒ Octubre ya no es
@@ -1103,16 +1142,13 @@ function setFilter(expId, key, value) {
   render();
 }
 // Experiencias con default de fecha SENSATO (año en curso a la fecha) en
-// vez de blanco — mismo criterio ya establecido para Cartera/Estado, ahora
-// extendido (owner feedback, ver HANDOFF) a las 3 experiencias que también
-// arrancan con Desde/Hasta.
-// "rentabilidad"/"horasvendidas" SALIERON de este Set (migración Año/Mes/
-// Estado, TEMPORAL DOMAIN CONTRACT) — ya NO tienen Desde/Hasta, "Limpiar"
-// las resetea explícito abajo (Año actual + Mes Todos + Estado En curso,
-// MISMO criterio que Cartera). Comercial/Participación sigue con
-// Desde/Hasta (full-history a propósito, ver HANDOFF — deuda pendiente de
-// convergencia al migrar).
-const YEAR_TO_DATE_EXPERIENCES = new Set(["comercial"]);
+// vez de blanco — mismo criterio ya establecido para Cartera/Estado.
+// "rentabilidad"/"horasvendidas"/"comercial" SALIERON de este Set (migración
+// Año/Mes/Estado — Participación converge al mismo mecanismo scoped, owner
+// directive: "Do NOT keep Participación on full-history") — ya NO tienen
+// Desde/Hasta, "Limpiar" las resetea explícito abajo (Año(es) + Estado En
+// curso, MISMO criterio que Cartera).
+const YEAR_TO_DATE_EXPERIENCES = new Set();
 function resetFilters(expId) {
   if (expId === "cartera") {
     // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
@@ -1129,8 +1165,12 @@ function resetFilters(expId) {
   } else if (expId === "horasvendidas") {
     state.horasVendidasStatus = { "En curso": true, "Finalizado": false };
     state.filters.horasvendidas = { anio: horasVendidasDefaultAnio(), mes: "" };
-  } else if (YEAR_TO_DATE_EXPERIENCES.has(expId)) {
-    state.filters[expId] = defaultYearToDateFilters();
+  } else if (expId === "comercial") {
+    // Default SENSATO (ventana caliente tildada + Estado En curso), NUNCA
+    // Desde/Hasta (retirado) ni blanco — MISMO criterio que Rentabilidad/HV.
+    state.comercialStatus = { "En curso": true, "Finalizado": false };
+    state.filters.comercial = {};
+    state.comercialParticipacionAnios = comercialParticipacionDefaultAnios();
   } else {
     state.filters[expId] = {};
   }
@@ -1190,20 +1230,6 @@ function carteraMesField() {
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
       ${MESES_LARGOS.map((nombre, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(nombre)}</option>`).join("")}
     </select>
-  </label>`;
-}
-// Filtro de fecha nativo — MISMO `<input type="date">` + `.whatsnew-filter`
-// que ya usa el dashboard de Actividad (Desde/Hasta, ver
-// admin_activity_content.html), CERO CSS nuevo (`.whatsnew-filter
-// input[type="date"]` ya existe en tools.css). No pasa por `facetSelectField`
-// (no hay una lista de opciones discretas que ofrecer — es un date picker
-// nativo, no un `<select>`); el FILTRADO real sí corre por el mismo motor
-// de facets vía `predicate` (ver facetRowsExcept).
-function dateField(expId, key, label) {
-  const current = getFilter(expId, key);
-  return `<label class="whatsnew-filter">
-    <span>${esc(label)}</span>
-    <input type="date" value="${esc(current)}" onchange="setFilter('${expId}','${key}', this.value)">
   </label>`;
 }
 // items: [{ value, checked, onclick }] — MISMA marca visual que el Estado/
@@ -1412,17 +1438,24 @@ function renderCapacidadFilterBar() {
   return filterBarShell(fields, "capacidad");
 }
 
-// Desde/Hasta (owner feedback, ver HANDOFF) SOLO en Participación — Salud
-// de Cliente no tiene `fecha` en el dataset (columnas categóricas puras,
-// ver comentario de COMERCIAL_SALUD_ROWS), no se inventa una.
+// Año/Estado (owner directive — "Do NOT keep Participación on full-history",
+// checkbox multi-select propio, MISMO criterio que Año de Inicio/Status de
+// Cartera) SOLO en Participación — Salud de Cliente no tiene grano temporal
+// en el dataset (columnas categóricas puras, ver comentario de COMERCIAL_
+// SALUD_ROWS), no se inventa uno.
 function renderComercialFilterBar() {
   const persp = state.perspective.comercial;
-  const dateFields = persp === "Participación"
-    ? dateField("comercial", "desde", "Desde") + dateField("comercial", "hasta", "Hasta")
+  const temporalFields = persp === "Participación"
+    ? checkboxGroupField("Año", comercialParticipacionAnioOptions().map(a =>
+        ({ value: a, checked: state.comercialParticipacionAnios.has(a), onclick: `toggleComercialParticipacionAnio('${a}')` })))
+      + checkboxGroupField("Estado", [
+          { value: "En curso", checked: state.comercialStatus["En curso"], onclick: "toggleComercialStatus('En curso')" },
+          { value: "Finalizado", checked: state.comercialStatus["Finalizado"], onclick: "toggleComercialStatus('Finalizado')" },
+        ])
     : "";
   const fields = facetSelectField("comercial", "cp", "Client Partner")
     + facetSelectField("comercial", "cliente", "Cliente")
-    + dateFields;
+    + temporalFields;
   return filterBarShell(fields, "comercial");
 }
 
@@ -1827,9 +1860,9 @@ async function loadBatchAData() {
     });
     const data = await resp.json();
     if (data.state === "ok") {
-      // Horas Vendidas ya NO viaja acá (scope decoupling — tiene su propio
-      // endpoint con ventana temporal, ver loadHorasVendidasData).
-      replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
+      // Horas Vendidas Y Participación ya NO viajan acá (scope decoupling —
+      // cada una tiene su propio endpoint con ventana temporal, ver
+      // loadHorasVendidasData/loadComercialParticipacionData).
       replaceRows(CALENDARIO_ROWS, data.calendario);
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
       state.batchADataStatus = "ready";
@@ -1972,6 +2005,134 @@ function renderHorasVendidasDataState() {
     return reportingLoadingHtml(`Cargando datos de Horas Vendidas del año ${anio}…`);
   }
   return reportingLoadingHtml("Cargando datos de Horas Vendidas…");
+}
+
+// Participación — fetch PROPIO con SCOPE TEMPORAL (owner directive: "Do NOT
+// keep Participación on full-history simply because old batch-a did" —
+// converge al MISMO principio que Horas Vendidas/Rentabilidad, "batch-a como
+// frontera de runtime"). MISMO patrón que loadHorasVendidasData: ventana
+// caliente por defecto (año actual + anterior, resuelto server-side),
+// `replaceRows` en la hidratación, status propio. La metadata de años va en
+// paralelo (loadComercialParticipacionAnios); a diferencia de HV (Año
+// single-select, UN año frío a la vez), Participación es MULTI-SELECT — un
+// año frío se lazy-loadea al tildarlo, y VARIOS años fríos tildados de un
+// saque se bundlean en UN solo request (loadComercialParticipacionColdYears
+// acepta un array).
+function hydrateComercialParticipacionTab() {
+  if (state.comercialParticipacionDataStatus === "idle") loadComercialParticipacionData();
+  if (state.comercialParticipacionAniosStatus === "idle") loadComercialParticipacionAnios();
+}
+async function loadComercialParticipacionData() {
+  state.comercialParticipacionDataStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.participacion) {
+      replaceRows(COMERCIAL_PARTICIPACION_ROWS, data.participacion);
+      const current = String(new Date().getFullYear());
+      const previous = String(new Date().getFullYear() - 1);
+      state.comercialParticipacionLoadedYears.add(current);
+      state.comercialParticipacionLoadedYears.add(previous);
+      // Default Año = ventana caliente tildada (SOLO en la primera
+      // hidratación, Set vacío) — MISMO criterio "SOLO en hidratación, nunca
+      // en cambio de perspectiva" que Rentabilidad/HV, pero con 2 años
+      // (Año es MULTI-SELECT acá, owner directive).
+      if (state.comercialParticipacionAnios.size === 0) {
+        state.comercialParticipacionAnios = comercialParticipacionDefaultAnios();
+      }
+      state.comercialParticipacionDataStatus = "ready";
+    } else {
+      state.comercialParticipacionDataStatus = "error";
+    }
+  } catch (e) {
+    state.comercialParticipacionDataStatus = "error";
+  }
+  render();
+}
+// Metadata liviana de año/estado (todos los tipos) — disparada UNA vez por
+// hydrateComercialParticipacionTab, en PARALELO con el fetch de datos (nunca
+// bloquea el primer render de la ventana caliente). MISMO endpoint/dominio
+// que Horas Vendidas/Rentabilidad (reuso, ver get_participacion_anios).
+async function loadComercialParticipacionAnios() {
+  state.comercialParticipacionAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/participacion/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.comercialParticipacionAniosDisponibles = data.aniosDisponibles;
+      state.comercialParticipacionAniosStatus = "ready";
+    } else {
+      state.comercialParticipacionAniosStatus = "error";
+    }
+  } catch (e) {
+    state.comercialParticipacionAniosStatus = "error";
+  }
+  render();
+}
+// Fusión por CLIENTE (owner directive — cache por scope en el cliente, MISMO
+// criterio que mergeHorasVendidasRows/mergeRentabilidadRows): Participación
+// es UNA fila por Cliente con vendidasByYear/certificadasByYear que abarcan
+// años — un año frío se fusiona en ESOS mapas, nunca crea una fila
+// duplicada del cliente. `cliente` (nombre) es la clave natural — MISMO
+// criterio que el resto del Hub (campos de negocio visibles, no un ID
+// interno que el contrato de datos no expone).
+function mergeComercialParticipacionRows(incoming) {
+  const byKey = new Map(COMERCIAL_PARTICIPACION_ROWS.map(r => [r.cliente, r]));
+  (incoming || []).forEach(inc => {
+    const existing = byKey.get(inc.cliente);
+    if (existing) {
+      Object.assign(existing.vendidasByYear || (existing.vendidasByYear = {}), inc.vendidasByYear || {});
+      Object.assign(existing.certificadasByYear || (existing.certificadasByYear = {}), inc.certificadasByYear || {});
+    } else {
+      COMERCIAL_PARTICIPACION_ROWS.push(inc);
+      byKey.set(inc.cliente, inc);
+    }
+  });
+}
+// Lazy-load de uno o VARIOS años FRÍOS a la vez (Año MULTI-SELECT, owner
+// directive — a diferencia del single-select de HV/Rentabilidad, tildar
+// varios años fríos de un saque no debe disparar N requests separados) —
+// bundleados en UN solo `anios=y1,y2` (ver reporting.py, MISMO parseo CSV
+// que el resto de los endpoints con scope temporal). Single-flight POR AÑO
+// vía `comercialParticipacionYearLoading` (un Set — el caller ya filtra los
+// años en vuelo antes de armar el batch, ver renderComercialParticipacion).
+async function loadComercialParticipacionColdYears(anios) {
+  anios.forEach(y => state.comercialParticipacionYearLoading.add(y));
+  anios.forEach(y => state.comercialParticipacionYearErrors.delete(y));
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: anios.join(",") }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.participacion) {
+      mergeComercialParticipacionRows(data.participacion);
+      anios.forEach(y => state.comercialParticipacionLoadedYears.add(y));
+      reconcileExperienceFacets("comercial");
+    } else {
+      anios.forEach(y => state.comercialParticipacionYearErrors.add(y));
+    }
+  } catch (e) {
+    anios.forEach(y => state.comercialParticipacionYearErrors.add(y));
+  }
+  anios.forEach(y => state.comercialParticipacionYearLoading.delete(y));
+  render();
+}
+function renderParticipacionDataState() {
+  if (state.comercialParticipacionDataStatus === "error") {
+    return reportingSourceErrorHtml("los datos de Participación");
+  }
+  const erroredChecked = [...state.comercialParticipacionAnios].filter(y => state.comercialParticipacionYearErrors.has(y));
+  if (erroredChecked.length) {
+    return reportingSourceErrorHtml(`los datos de Participación del año ${erroredChecked.join(", ")}`);
+  }
+  return reportingLoadingHtml("Cargando datos de Participación…");
 }
 
 // Horas Productivas (AMBAS perspectivas, Productivas Y No Asignadas) —
@@ -2303,6 +2464,67 @@ function horasVendidasSelectedRows() {
     const arr = anio ? ((r.vendidasByYear || {})[anio] || _z12()) : (r.monthly || _z12());
     return { ...r, monthly: _applyMonthCap(_maskMes(arr, mes), cap) };
   });
+}
+
+// --- Participación Año/Estado (owner directive — "Do NOT keep Participación
+// on full-history", reusar la infraestructura temporal de HV/Rentabilidad) --
+// Año es MULTI-SELECT (a diferencia del single-select de HV/Rentabilidad —
+// el pivotTable de Participación agrega SOBRE el conjunto de años tildados,
+// nunca muestra un año a la vez) — checkbox-group con estado propio
+// (`state.comercialParticipacionAnios`, un Set), MISMO patrón que Año de
+// Inicio de Cartera/Proyecto pero con semántica de hot/cold FETCH además de
+// filtro visual (ver hydrateComercialParticipacionTab/loadComercial
+// ParticipacionColdYears abajo).
+const _COMERCIAL_PART_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "cliente", field: "cliente" }];
+// Años disponibles: unión de años presentes en los mapas por-año-por-estado
+// de las filas que pasan CP/Cliente activos (excepto Año, que no es un facet
+// <select>) CON AL MENOS UN estado tildado + metadata de años FRÍOS no
+// hidratados todavía (HOT WINDOW / COLD HISTORY: "no confundir OPCIONES con
+// años HIDRATADOS" — MISMO criterio que Cartera/HV/Rentabilidad).
+function comercialParticipacionAnioOptions() {
+  const rows = facetRowsExcept(COMERCIAL_PARTICIPACION_ROWS, state.filters.comercial || {}, _COMERCIAL_PART_SELECT_FIELDS, "");
+  const years = new Set();
+  rows.forEach(r => {
+    [r.vendidasByYear, r.certificadasByYear].forEach(byYear => {
+      Object.entries(byYear || {}).forEach(([anio, byEstado]) => {
+        if (Object.keys(byEstado || {}).some(e => state.comercialStatus[e])) years.add(anio);
+      });
+    });
+  });
+  (state.comercialParticipacionAniosDisponibles || []).forEach(p => {
+    if (state.comercialStatus[p.estado]) years.add(p.anio);
+  });
+  // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa, MISMO criterio que
+  // el resto de los <select>/checkbox-group de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort();
+}
+// Default: ventana caliente (año actual + anterior) tildada — MISMO criterio
+// que `_default_hot_years` del backend, filtrado a lo que realmente resultó
+// disponible (nunca un año tildado sin representación real bajo el Estado
+// activo).
+function comercialParticipacionDefaultAnios() {
+  const current = String(new Date().getFullYear());
+  const previous = String(new Date().getFullYear() - 1);
+  const options = new Set(comercialParticipacionAnioOptions());
+  return new Set([current, previous].filter(y => options.has(y)));
+}
+// Prune de selección obsoleta (MISMO criterio que pruneCarteraAnioInicio):
+// al cambiar Estado u otro facet, quita de la selección los años que ya no
+// son opción válida.
+function pruneComercialParticipacionAnios() {
+  const available = new Set(comercialParticipacionAnioOptions());
+  state.comercialParticipacionAnios = new Set([...state.comercialParticipacionAnios].filter(y => available.has(y)));
+}
+function toggleComercialParticipacionAnio(anio) {
+  if (state.comercialParticipacionAnios.has(anio)) state.comercialParticipacionAnios.delete(anio);
+  else state.comercialParticipacionAnios.add(anio);
+  reconcileExperienceFacets("comercial");
+  render();
+}
+function toggleComercialStatus(key) {
+  state.comercialStatus[key] = !state.comercialStatus[key];
+  reconcileExperienceFacets("comercial");
+  render();
 }
 
 // `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
@@ -2982,10 +3204,23 @@ function renderHorasVendidas() {
 // de Pago > Cliente, EXACTO ese orden de Rows. Reusa buildTree/
 // renderBusinessTreeRows sin cambios — mismo motor que Cartera/Capacidad.
 function renderComercialParticipacion() {
-  // Gate del ciclo de vida real-data Batch A — MISMO status que Salud de
-  // Cliente (ambas perspectivas de Comercial ya conectadas, ver HANDOFF).
-  if (state.batchADataStatus === "idle") loadBatchAData();
-  if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Participación");
+  // Gate del ciclo de vida PROPIO de Participación (scope temporal — ver
+  // loadComercialParticipacionData). La hidratación YA corrió en
+  // renderComercial() (dispatcher, MAIN-TAB HYDRATION CONTRACT) — acá solo
+  // se verifica el status, nunca se dispara un load propio.
+  if (state.comercialParticipacionDataStatus !== "ready") return renderParticipacionDataState();
+  // Años tildados que todavía no están hidratados/en vuelo/errados ⇒
+  // lazy-load bundleado (HOT WINDOW / COLD HISTORY, Año MULTI-SELECT) — la
+  // ventana caliente + los años fríos ya mergeados se PRESERVAN
+  // (mergeComercialParticipacionRows).
+  const missingYears = [...state.comercialParticipacionAnios].filter(y =>
+    !state.comercialParticipacionLoadedYears.has(y)
+    && !state.comercialParticipacionYearErrors.has(y)
+    && !state.comercialParticipacionYearLoading.has(y));
+  if (missingYears.length) {
+    loadComercialParticipacionColdYears(missingYears);
+    return renderParticipacionDataState();
+  }
   const rows = facetFilteredRows("comercial");
   const keys = ["idFrecuencia", "permiteAdelanto", "condicionPago", "cliente"];
   const stateKey = "comercial::Participación";
@@ -3015,7 +3250,8 @@ function renderComercialParticipacion() {
 function renderComercialSalud() {
   // Gate del ciclo de vida real-data (ver loadBatchAData) — internal names
   // reales de Cliente confirmados por diagnóstico Graph en vivo del owner.
-  if (state.batchADataStatus === "idle") loadBatchAData();
+  // La hidratación YA corrió en renderComercial() (dispatcher) — acá solo
+  // se verifica el status, nunca se dispara un load propio.
   if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Salud de Cliente");
   const rows = facetFilteredRows("comercial");
   const keys = ["cp", "cliente"];
@@ -3041,6 +3277,15 @@ function renderComercialSalud() {
 }
 
 function renderComercial() {
+  // MAIN-TAB HYDRATION CONTRACT (MISMO patrón que renderCartera/
+  // renderRentabilidad/renderHorasVendidas): la PRIMERA vez que se
+  // renderiza CUALQUIER perspectiva de Comercial dispara AMBOS ciclos de
+  // vida — Participación (scope temporal propio, ver hydrateComercial
+  // ParticipacionTab) Y Salud de Cliente (categórica pura, sigue en el
+  // backbone full-history de batch-a, ver loadBatchAData) — nunca una
+  // espera nueva al cambiar de perspectiva.
+  hydrateComercialParticipacionTab();
+  if (state.batchADataStatus === "idle") loadBatchAData();
   const persp = state.perspective.comercial;
   return persp === "Participación" ? renderComercialParticipacion() : renderComercialSalud();
 }

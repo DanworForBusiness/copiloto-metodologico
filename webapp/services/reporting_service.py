@@ -161,27 +161,24 @@ class ReportingService:
 
     def get_batch_a(self, access_token: str) -> dict:
         """UN método de entrada para las experiencias FULL-HISTORY que reusan
-        el backbone de Cartera — Participación, Calendario y Salud de Cliente.
-        El router llama esto UNA vez (endpoint consolidado), nunca 3 POSTs
-        separados que repitan el mismo fetch de Cliente/Proyectos/Horas.
+        el backbone de Cartera — Calendario y Salud de Cliente (categóricas
+        puras sobre `cliente_dim`, sin grano temporal). El router llama esto
+        UNA vez (endpoint consolidado), nunca 2 POSTs separados que repitan
+        el mismo fetch de Cliente.
 
         SCOPE DECOUPLING (owner directive — "batch-a como frontera de runtime:
-        visitar Horas Vendidas no debería cargar datos de Participación sólo
-        porque comparten fuente física"): Horas Vendidas SALIÓ de este grupo.
-        HV consume su propia ventana caliente (`get_horas_vendidas(anios=...)`,
-        scope temporal) por un endpoint propio, sin pagar el volumen de la
-        historia completa que Participación todavía necesita (Participación
-        agrega el gran total sobre TODOS los años hasta que migre a Año/
-        Estado — recién ahí converge al mismo mecanismo scoped). Las 3 que
-        quedan comparten `cliente_dim` (Participación además `project_facts`
-        full-history), un solo fetch acá — nunca fetches redundantes.
+        visitar una experiencia no debería cargar datos de otra sólo porque
+        comparten fuente física"): Horas Vendidas Y Participación SALIERON de
+        este grupo — AMBAS consumen su propia ventana caliente (`anios=...`,
+        scope temporal) por un endpoint propio (ver `get_horas_vendidas`/
+        `get_participacion`), sin pagar el volumen de la historia completa
+        que Calendario/Salud (sin Año, no la necesitan) siguen leyendo acá.
 
         PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
         HANDOFF): las experiencias comparten `get_batch_a_facts` en UN fetch,
         shaping puro de Python (barato) por separado."""
         raw = self._repository.get_batch_a_facts(access_token)
         return {
-            "participacion": self._shape_participacion(raw),
             "calendario": self._shape_calendario(raw["cliente_dim"]),
             "salud": self._shape_salud(raw["cliente_dim"]),
         }
@@ -563,50 +560,95 @@ class ReportingService:
             })
         return rows
 
-    def get_participacion(self, access_token: str) -> list[dict]:
-        """Wrapper delgado de `_shape_participacion` con su PROPIO fetch —
-        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
-        las 4 experiencias y llama el shaping directo (ver ahí)."""
-        raw = self._repository.get_batch_a_facts(access_token)
+    def get_participacion(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
+        """Participación con SCOPE TEMPORAL (owner directive — MISMO
+        principio que Horas Vendidas/Rentabilidad, "no mantener Participación
+        en full-history solo porque el batch-a viejo lo hacía"): `anios=None`
+        (primera hidratación del tab) resuelve a la ventana caliente por
+        defecto (año actual + anterior, `_default_hot_years`). Una lista
+        explícita (`["2024"]`) es el lazy-load de un año FRÍO puntual —
+        MISMO contrato que `get_horas_vendidas(anios=...)`. El scope acota
+        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`);
+        `cliente_dim` (la POBLACIÓN de clientes) siempre se lee completa —
+        Año NUNCA filtra qué clientes existen, solo qué años de Vendidas/
+        Certificadas se suman (ver `_shape_participacion`)."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        raw = self._repository.get_batch_a_facts(access_token, hot_years=hot_years)
         return self._shape_participacion(raw)
+
+    def get_participacion_anios(self, access_token: str) -> list[dict]:
+        """Metadata de años/estado disponibles de Participación — MISMO
+        dominio que Horas Vendidas/Rentabilidad (todos los tipos de
+        proyecto, misma lectura mínima de Proyectos/Horas por proyectos) —
+        reusa el MISMO `get_horas_anio_estado_pairs` en vez de un método
+        idéntico (owner directive — "do not duplicate temporal runtime
+        logic")."""
+        return self._repository.get_horas_anio_estado_pairs(access_token)
 
     def _shape_participacion(self, raw: dict) -> list[dict]:
         """Contrato EXACTO de `COMERCIAL_PARTICIPACION_ROWS`: una fila por
-        Cliente con `horasVendidas`/`horasCertificadas` sumadas sobre TODOS
-        sus proyectos/meses (Mantenimiento + Proyecto, sin distinguir tipo —
-        `% Hs Vendidas 2`/`% Hs Certificadas 2` no filtran por tipo en el
-        PBIP fuente) + las columnas categóricas de Cliente ya resueltas.
-        El % contra el gran total fijo se calcula en el FRONTEND
-        (`comercialPctVendidas`/`comercialPctCertificadas`, ya existente,
-        sin cambios) — este método solo entrega el numerador crudo por
-        Cliente, nunca el % pre-calculado."""
+        Cliente con `vendidasByYear`/`certificadasByYear` (mapas año→horas,
+        sumadas sobre TODOS sus proyectos/meses de ese año — Mantenimiento +
+        Proyecto, sin distinguir tipo, `% Hs Vendidas 2`/`% Hs Certificadas 2`
+        no filtran por tipo en el PBIP fuente) + las columnas categóricas de
+        Cliente ya resueltas. El % contra el gran total fijo Y la suma sobre
+        los años tildados se calculan en el FRONTEND (Año es MULTI-SELECT,
+        owner directive — ver `comercialParticipacionSelectedRows`); este
+        método solo entrega el numerador crudo POR AÑO, nunca pre-sumado ni
+        el % pre-calculado.
+
+        POR-AÑO (owner directive — "Año as MULTI-SELECT CHECKBOXES... reuse
+        the hot/cold infrastructure"): MISMO patrón que `_shape_horas_
+        vendidas` (`vendidasByYear`) — un año frío lazy-loaded se FUSIONA acá
+        (`Object.assign` en el frontend, ver `mergeComercialParticipacionRows`)
+        sin perder los años ya hidratados, y el usuario puede des-tildar un
+        año sin re-fetchear (el numerador de ESE año simplemente se excluye
+        de la suma client-side).
+
+        POBLACIÓN (owner live QA — "suspiciously few clients"): la fuente
+        de verdad de QUÉ clientes existen es `cliente_dim` (una fila por
+        Cliente de SharePoint, YA completa — `get_batch_a_facts` no filtra
+        esa lista, y Año NUNCA la acota — ver `get_participacion`). Un
+        Cliente sin ningún hecho de Horas por proyectos (en los años
+        actualmente hidratados) SIGUE siendo un Cliente válido — antes se
+        omitía por completo (`g is None: continue`), perdiendo filas reales
+        de la dimensión; ahora solo se omite si el nombre no resolvió (`not
+        dim["cliente"]`, fila sin identidad). Atributos de negocio opcionales
+        en blanco (idFrecuencia/permiteAdelanto/condicionPago) llegan como ""
+        acá — `buildTree` en el frontend YA los convierte en "Sin dato",
+        nunca se fabrica un valor acá."""
         by_cliente: dict[str, dict] = {}
         for f in raw["project_facts"]:
             key = f["clienteId"] or f["cliente"]
             if not key:
                 continue
-            g = by_cliente.setdefault(key, {"vendidas": 0.0, "certificadas": 0.0, "facts": []})
-            g["vendidas"] += f["hsVendidas"]
-            g["certificadas"] += f["hsCertificadas"]
+            g = by_cliente.setdefault(key, {"vendidasByYear": {}, "certificadasByYear": {}, "facts": []})
+            anio = f.get("anio")
+            # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio`, nunca `if anio:`
+            # solo (ver reporting_repository.py) — reusado tal cual.
+            if _is_valid_anio(anio):
+                g["vendidasByYear"][anio] = g["vendidasByYear"].get(anio, 0.0) + f["hsVendidas"]
+                g["certificadasByYear"][anio] = g["certificadasByYear"].get(anio, 0.0) + f["hsCertificadas"]
             g["facts"].append(f)
 
         rows = []
         for dim in raw["cliente_dim"]:
-            key = dim["clienteId"] or dim["cliente"]
-            g = by_cliente.get(key)
-            if g is None or not dim["cliente"]:
-                # Cliente sin ningún hecho de Horas por proyectos (o sin
-                # nombre resuelto) ⇒ no aporta participación medible, se
-                # omite (nunca una fila con 0/0 fabricada).
+            if not dim["cliente"]:
+                # Fila de dimensión sin nombre resuelto ⇒ sin identidad,
+                # nunca una fila "Sin dato" fabricada para el Cliente mismo
+                # (a diferencia de sus atributos opcionales, que SÍ pueden
+                # llegar en blanco).
                 continue
+            key = dim["clienteId"] or dim["cliente"]
+            g = by_cliente.get(key) or {"vendidasByYear": {}, "certificadasByYear": {}, "facts": []}
             rows.append({
                 "idFrecuencia": _id_frecuencia(dim["frecuenciaActualizacion"]),
                 "permiteAdelanto": dim["permiteAdelanto"],
                 "condicionPago": dim["condicionPago"],
                 "cliente": dim["cliente"],
                 "cp": dim["clientPartner"],
-                "horasVendidas": _round2(g["vendidas"]),
-                "horasCertificadas": _round2(g["certificadas"]),
+                "vendidasByYear": {a: _round2(v) for a, v in g["vendidasByYear"].items()},
+                "certificadasByYear": {a: _round2(v) for a, v in g["certificadasByYear"].items()},
                 "fecha": _fecha_min(g["facts"]),
             })
         return rows

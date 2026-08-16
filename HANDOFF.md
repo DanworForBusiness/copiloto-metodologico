@@ -6234,20 +6234,59 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > por proyecto, nunca duplica fila) + `<select>` de Año que ofrece años fríos
 > desde metadata. Cache por scope = los rows hidratados en el cliente.
 >
-> **⚠️ DEUDA / CONVERGENCIA PENDIENTE (Participación):** Participación sigue
-> FULL-HISTORY a propósito (prioridad 1 del owner: preservar su semántica
-> actual — gran total sobre todos los años — hasta migrarla). Cuando Participación
-> migre a Año+Estado, debe **consumir el MISMO mecanismo scoped** (get_batch_a
-> con `hot_years`, o su propio endpoint scoped) y ahí se pueden **converger
-> scopes/caches** donde coincidan. Un **cache server-side por (scope, token)**
-> es la optimización siguiente (hoy el single-flight/cache vive en el cliente);
-> no se implementó por el riesgo del token delegado rotante — es el punto de
-> convergencia natural al migrar Participación.
+> **✅ PARTICIPACIÓN = IMPLEMENTATION READY FOR LIVE VALIDATION** (this pass —
+> "CONTINUE REPORTING" ticket). Convergió al MISMO mecanismo scoped que
+> Rentabilidad/HV, cerrando la deuda arriba. Dos hallazgos + fix:
 >
-> **PRÓXIMO: Participación / Comercial** (población + Año multi-select + Estado,
-> denominador gran-total fijo, + converger al mecanismo scoped ↑) → luego
-> **Horas Productivas** (two-panel). `estado` ya fluye a `project_facts`/
-> `cliente_dim`; patrón Año/Mes/Estado + ventana caliente ya probados para reusar.
+> 1. **ROOT CAUSE de la población dispersa** ("suspiciously few clients"):
+>    `_shape_participacion` dropeaba CUALQUIER Cliente de `cliente_dim` sin
+>    NINGÚN hecho de Horas por proyectos (`if g is None: continue`) — pero
+>    `cliente_dim` (la lista Cliente completa de SharePoint) es la fuente de
+>    verdad de qué clientes EXISTEN, no `project_facts`. NO era un bug de
+>    join (el mismo `EmpresaLookupId → Cliente.id` que Cartera ya usa
+>    probado correcto) — era una regla de negocio demasiado agresiva.
+>    Fix: un Cliente sin hechos SIGUE apareciendo (con mapas vacíos →
+>    0 horas), solo se omite si el nombre no resolvió (`not dim["cliente"]`,
+>    fila sin identidad). Atributos opcionales en blanco (idFrecuencia/
+>    permiteAdelanto/condicionPago) ya llegaban como "" — `buildTree` en el
+>    frontend YA los convierte en "Sin dato" (no era el problema).
+> 2. **Año MULTI-SELECT + Estado + hot/cold**: `_shape_participacion` ahora
+>    bucketiza el numerador por `(año, estado)` — `vendidasByYear`/
+>    `certificadasByYear` son mapas `{anio: {estado: horas}}` (nunca un
+>    escalar pre-sumado) — necesario porque Estado es un atributo de
+>    PROYECTO (`Proyectos.Status`) pero Participación agrega por CLIENTE;
+>    sin este grano, tildar/destildar Estado no podría excluir selectivamente
+>    horas de proyectos Finalizados sin re-fetchear. `get_participacion(*,
+>    anios=None)` (default = ventana caliente, MISMO `_default_hot_years`
+>    que HV/Rentabilidad) + `get_participacion_anios` (reusa
+>    `get_horas_anio_estado_pairs`, CERO duplicación) + nuevos endpoints
+>    `/data/participacion` + `/data/participacion/anios-disponibles`.
+>    Participación SALIÓ de `get_batch_a`/`batchADataStatus` (que ahora solo
+>    sirve Calendario/Salud, categóricas puras). Frontend: `state.
+>    comercialParticipacionAnios` (Set, checkbox multi-select — a diferencia
+>    del single-select de HV/Rentabilidad) + `state.comercialStatus` (Estado,
+>    mismo patrón que `rentabilidadStatus`/`horasVendidasStatus`) +
+>    `comercialParticipacionSelectedRows()` (única función que colapsa los
+>    mapas año→estado→horas a `horasVendidas`/`horasCertificadas` planos,
+>    consumida por FACET_CONFIG.comercial Y el gran total fijo — nunca dos
+>    cálculos paralelos). Tildar VARIOS años fríos de un saque bundlea en UN
+>    request `anios=y1,y2` (`loadComercialParticipacionColdYears`, acepta un
+>    array — HV/Rentabilidad solo lazy-loadean uno a la vez). Años
+>    hidratados se trackean en un Set EXPLÍCITO (`comercialParticipacionLoadedYears`,
+>    no derivado de las filas — un año sin NINGÚN hecho real en NINGÚN
+>    cliente sería indistinguible de "todavía no pedido" si se derivara,
+>    reintentando el fetch en cada render). Denominador gran-total fijo
+>    (REMOVEFILTERS) preservado — Año/Estado son scope real de los datos,
+>    nunca una de las dimensiones que se remueven.
+>
+> Suite: **190 tests de Reporting, 1101 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
+> smoke** de Participación (conteo de clientes antes/después, Año multi +
+> Estado funcionando, hot/cold — no marcar LIVE VALIDATED sin eso).
+>
+> **PRÓXIMO: Horas Productivas** (two-panel "Cliente"/"Cliente + Part") —
+> ver item E abajo, todavía sin evidencia PBIP primaria revisada para
+> "Cliente + Part".
 >
 > **Nota rutas:** se agregaron `/data/horas-vendidas` y
 > `/data/horas-vendidas/anios-disponibles` — el snapshot de route-surface (ya
@@ -6350,31 +6389,19 @@ switch must stay local once the main tab has hydrated (already true today
 — HORASVENDIDAS_HIERARCHY just re-groups the same hydrated rows, verify
 this still holds once the filter model changes).
 
-#### D. PARTICIPACIÓN / COMERCIAL — still functionally suspect, NOT just a label fix
-§-16's "Sin dato" fallback fixed ONE visible symptom (blank tree-node text)
-— it does **not** prove client population/counts are correct. The owner's
-live screenshot still looks sparse. Requested filter model: Estado
-(default En curso, optional Finalizado) + Año as **multi-select
-checkboxes** (mirroring Cartera/Proyecto's Año de Inicio pattern), with
-available years depending on Estado. Critical constraint: Año must NOT be
-read off a static Cliente attribute — it has to filter the temporal
-Vendidas/Certificadas FACT population that feeds Participación (i.e. the
-underlying `project_facts`, not `cliente_dim`). Before writing any new
-filter code, reconcile row counts through the actual join pipeline to find
-where clients are silently dropping out — this list is the concrete
-audit the next agent should run and log at each stage (via a throwaway
-script/test, not necessarily new production logging):
-`cliente_source → cliente_with_cp → cliente_with_project_status →
-cliente_with_frecuencia → cliente_with_permite_adelanto →
-cliente_with_condicion_pago → cliente_with_vendidas →
-cliente_with_certificadas → final_participacion_leaves`. Preserve the
-PBIP's fixed-denominator semantics for the % measures — visible/filtered
-groups must NOT renormalize to 100% (the denominator is the grand total,
-`REMOVEFILTERS`, already correctly implemented via
-`comercialPctVendidas`/`comercialPctCertificadas`, see §-15/-16's Class-B
-percent-measure audit — don't regress this when adding the new facets).
-See lineage.md §8ter item 2 for why Año/Estado at Cliente grain has no
-clean PBIP answer yet — a product decision may be needed before code.
+#### D. PARTICIPACIÓN / COMERCIAL — RESOLVED (this pass, see "-17" top block)
+~~Still functionally suspect~~ — root cause found and fixed: `_shape_
+participacion` was dropping any Cliente without a matching `project_facts`
+row (`if g is None: continue`), losing valid rows from `cliente_dim` (the
+actual source of truth for which clients exist). Año multi-select
+checkboxes + Estado (default En curso) + hot/cold implemented, converging
+to the SAME scoped mechanism as Rentabilidad/HV — see the "-17" top block
+for the full writeup (root cause, `(año, estado)` bucketing, endpoints,
+frontend state). Fixed-denominator (`REMOVEFILTERS`) semantics preserved —
+`comercialPctVendidas`/`comercialPctCertificadas` unchanged, still consume
+the grand total over the Año+Estado-scoped population, never a filtered
+subtotal. PENDING: owner live smoke (population counts before/after, Año
+multi + Estado behavior, hot/cold).
 
 #### E. HORAS PRODUCTIVAS — PBI parity — investigated, NOT reworked
 Owner's real PBI reference shows TWO simultaneous panels: **left = Cliente

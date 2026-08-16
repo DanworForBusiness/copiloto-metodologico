@@ -61,12 +61,14 @@ def test_limpiar_resets_rentabilidad_and_horas_vendidas_to_anio_mes_estado():
     fn = _REPORTING_JS[_REPORTING_JS.index("function resetFilters("):_REPORTING_JS.index("function toggleCarteraAnioInicio(")]
     assert 'state.filters.rentabilidad = { anio: rentabilidadDefaultAnio(), mes: "" };' in fn
     assert 'state.filters.horasvendidas = { anio: horasVendidasDefaultAnio(), mes: "" };' in fn
-    # YEAR_TO_DATE_EXPERIENCES (el generador Desde/Hasta viejo) ya NO debe
-    # incluir estas 2 experiencias -- migraron a Año/Mes/Estado.
+    # YEAR_TO_DATE_EXPERIENCES (el generador Desde/Hasta viejo) quedó VACÍO —
+    # las 3 experiencias que alguna vez lo usaron migraron a Año/Mes/Estado
+    # (Rentabilidad/HV) o Año/Estado (Participación, owner directive — "Do
+    # NOT keep Participación on full-history").
     ytd = _REPORTING_JS[_REPORTING_JS.index("const YEAR_TO_DATE_EXPERIENCES"):_REPORTING_JS.index("const YEAR_TO_DATE_EXPERIENCES") + 200]
     assert '"rentabilidad"' not in ytd
     assert '"horasvendidas"' not in ytd
-    assert '"comercial"' in ytd  # Participación sigue full-history a propósito
+    assert '"comercial"' not in ytd
 
 
 # --- Rentabilidad hot/cold mirrors Horas Vendidas (owner: "apply the SAME
