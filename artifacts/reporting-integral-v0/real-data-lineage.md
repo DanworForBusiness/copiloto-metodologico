@@ -367,23 +367,35 @@ HANDOFF.md sección "-17." para el contexto completo de owner-QA):
      YA RENOMBRADO por Power Query (`"PorcentajedePart."` → `"Porcentaje de
      Part."`), no el internal name crudo que Graph devolvería. Se prueban
      candidatos siguiendo la MISMA convención ya confirmada para el resto
-     de columnas opcionales de Cliente (`CLI_PORCENTAJE_PART` en
-     `reporting_repository.py`, tupla de candidatos vía `_first()`) — a
-     confirmar en el smoke real del owner, mismo criterio que el resto de
-     columnas de Cliente.
+     de columnas opcionales de Cliente. **CORREGIDO (ticket "HORAS
+     PRODUCTIVAS CORRECTIVE")**: el internal name YA NO se adivina —
+     `ReportingRepository._resolve_porcentaje_part_field(site_id)`
+     descubre el internal name real en vivo desde
+     `/lists/{cliente}/columns` → `displayName`, MISMO mecanismo que
+     `_resolve_client_partners`. `CLI_PORCENTAJE_PART_DISPLAY_NAMES`
+     (`"Porcentaje de Part."`/`"PorcentajedePart."`) son los `displayName`
+     candidatos a matchear, NUNCA un internal name codificado a mano — a
+     confirmar en el smoke real del owner que el `displayName` real
+     coincide con uno de estos dos.
    - **Año/Mes**: NINGÚN pivotTable de esta página tiene Año/Mes en
      Rows/Values — Año/Mes viven como DOS PARES de slicers INDEPENDIENTES
      posicionados directamente sobre cada panel (`acd4d653693bc72a6417`/
      `fad86226a51d715e75a2` para Año, en x=756 sobre el panel derecho y
      x=72.5 sobre el izquierdo respectivamente — posiciones que NO se
-     solapan, sugiriendo slicers por-panel independientes en el PBI
-     original, no necesariamente sincronizados). El Hub V0 simplifica esto
-     a UN filtro Año/Mes COMPARTIDO que controla ambos paneles a la vez —
-     MISMO criterio "single-select Año + Mes Todos" ya establecido para
-     Rentabilidad/Horas Vendidas/Cartera (TEMPORAL DOMAIN CONTRACT), nunca
-     un segundo mecanismo de filtro paralelo — decisión de simplificación
-     deliberada y documentada (dos filtros de fecha independientes por
-     panel sería una superficie de UI sin precedente en el resto del Hub).
+     solapan). **CORREGIDO (ticket "HORAS PRODUCTIVAS CORRECTIVE" —
+     owner: "PRESERVE PBIP PANEL-INDEPENDENT TEMPORAL STATE")**: la
+     simplificación previa a UN filtro Año/Mes compartido NO estaba
+     autorizada — se retiró. El Hub ahora replica fielmente los DOS PARES
+     de slicers independientes: cada panel (Cliente/Cliente + Part) tiene
+     su PROPIO Año/Mes, montado en el toolbar de SU PROPIA sección (posición
+     fiel a la del PBIP original, uno sobre cada visual) — reusando la
+     MISMA implementación del TEMPORAL DOMAIN CONTRACT ("single-select Año
+     + Mes Todos", `_operationalMonthCap`/`_applyMonthCap`/`_maskMes`/
+     `_validMesOptions`, ya establecida para Rentabilidad/Horas Vendidas/
+     Cartera) pero con DOS instancias de estado independientes — "shared
+     implementation != shared state" (ver
+     `capacidadProductivasSelectedRows(panel)`/`capacidadPanelAnioKey(panel)`
+     en reporting.js, y HANDOFF.md sección "-17." para el detalle completo).
 
 2. **RESUELTO (ticket "CONTINUE REPORTING", commit `972b7e5`) — Participación
    — grano temporal (Año/Estado)**: el owner tomó la decisión de producto

@@ -39,11 +39,15 @@ def _csv_bytes(rows):
     return buf.getvalue().encode("utf-8")
 
 
-def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=None, file_rows=None, ops_site_id=_OPS_SITE):
+def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=None, file_rows=None,
+           ops_site_id=_OPS_SITE, cliente_columns=None):
     """`csv_files`: lista de items de `/children` (id/name). `file_rows`:
     dict item_id -> lista de filas CSV crudas para ESE archivo (permite
     simular un archivo con headers faltantes devolviendo bytes malformados
-    vía una lista vacía + header custom, ver test de skip)."""
+    vía una lista vacía + header custom, ver test de skip). `cliente_columns`:
+    metadata cruda de `/lists/{cliente}/columns` (descubrimiento en vivo del
+    internal name de `Porcentaje de Part.`, ver `_resolve_porcentaje_part_field`)
+    — default `[]` (sin match, fail-soft)."""
     file_rows = file_rows or {}
 
     def fake_json(url, access_token=None, **kw):
@@ -55,7 +59,7 @@ def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=No
         if f"/sites/{ops_site_id}/drive/root:" in url and ":/children" in url:
             return csv_files if csv_files is not None else [{"id": "f1", "name": "TimeLogs_2026.csv"}]
         if "/columns" in url:
-            return []
+            return cliente_columns if cliente_columns is not None else []
         if _PROY in url:
             return _items(proyectos)
         if _CLI in url:
@@ -116,22 +120,46 @@ def test_get_time_logs_facts_joins_project_and_cliente_via_normalized_key(monkey
 def test_get_time_logs_facts_reads_porcentaje_de_part_from_cliente(monkeypatch):
     # "Cliente + Part" (Horas Productivas panel derecho, §8ter item 1):
     # `Porcentaje de Part.` es una columna FÍSICA de Cliente (Percentage.Type
-    # en el M, fracción 0-1) — se lee vía el MISMO join Proyecto→Cliente ya
-    # usado para resolver `cliente`, candidato codificado confirmado por
-    # esta fixture (`PorcentajedePart_x002e_`).
+    # en el M, fracción 0-1). Owner corrective ("Do not rely indefinitely on
+    # guessed candidate names"): el internal name se DESCUBRE en vivo de la
+    # metadata de columnas (`/lists/{cliente}/columns` → displayName), MISMO
+    # mecanismo que `_resolve_client_partners` — la fixture simula Graph
+    # devolviendo un internal name ARBITRARIO (`AlgunNombreInternoRaro`) para
+    # probar que NUNCA se depende de un candidato codificado a mano.
     _patch(
         monkeypatch,
         proyectos=[{"id": "p1", "Title": "SADI v2", "EmpresaLookupId": "c1"}],
-        clientes=[{"id": "c1", "Title": "YPF", "PorcentajedePart_x002e_": "0.125"}],
+        clientes=[{"id": "c1", "Title": "YPF", "AlgunNombreInternoRaro": "0.125"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
             {"Date": "2026-03-15", "Project": "SADI v2", "Task": "Dev", "Email": "a@danwor.com",
              "Duration Decimal": "8000", "Client": "csv-raw-client"},
         ]},
+        cliente_columns=[{"name": "AlgunNombreInternoRaro", "displayName": "Porcentaje de Part."}],
     )
     facts = _repo().get_time_logs_facts("tok")
     assert len(facts) == 1
     assert facts[0]["porcentajePart"] == 0.125
+
+
+def test_get_time_logs_facts_porcentaje_de_part_is_zero_without_column_match(monkeypatch):
+    # Fail-soft: sin match en la metadata de columnas (owner todavía no
+    # confirmó el nombre real, o Graph no devuelve la columna) ⇒ 0.0, NUNCA
+    # un candidato codificado a mano como último recurso.
+    _patch(
+        monkeypatch,
+        proyectos=[{"id": "p1", "Title": "SADI v2", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "YPF", "AlgunNombreInternoRaro": "0.125"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-03-15", "Project": "SADI v2", "Task": "Dev", "Email": "a@danwor.com",
+             "Duration Decimal": "8000", "Client": "csv-raw-client"},
+        ]},
+        cliente_columns=[],  # sin match — displayName distinto/columna no listada
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    assert len(facts) == 1
+    assert facts[0]["porcentajePart"] == 0.0
 
 
 def test_get_time_logs_facts_falls_back_to_raw_csv_text_when_no_project_match(monkeypatch):
@@ -344,44 +372,89 @@ def test_horas_productivas_and_no_asignadas_gate_on_batch_b_status_not_batch_a()
 # enriquecido por el % de referencia ESTÁTICO de cada cliente)
 # ============================================================================
 
-def _fn_body_batch_b(name: str, window: int = 2600) -> str:
+def _fn_body_batch_b(name: str, window: int = 3600) -> str:
     start = _REPORTING_JS.index(f"function {name}(")
     return _REPORTING_JS[start:start + window]
 
 
-def test_capacidad_productivas_renders_two_panels_sharing_the_same_rows():
-    fn = _fn_body_batch_b("renderCapacidadProductivas")
+def test_capacidad_productivas_renders_two_panels_with_independent_state():
+    fn = _fn_body_batch_b("renderCapacidadProductivas", 4200)
     assert 'class="activity-grid-2"' in fn
     # DOS stateKeys distintos (árboles de expansión independientes) — nunca
     # el mismo stateKey reusado para ambos paneles.
     assert '"capacidad::Productivas::Cliente"' in fn
     assert '"capacidad::Productivas::ClientePart"' in fn
-    # El panel derecho reusa `rowsSorted` (MISMA población/orden que el
-    # izquierdo) — nunca un fetch/agregación paralela.
-    assert "rowsSorted.map(r =>" in fn
+    # El panel derecho reusa el MISMO motor `rowsFor` (MISMA implementación
+    # de selección/orden que el izquierdo) — nunca un fetch/agregación
+    # paralela — pero cada uno con su PROPIO argumento de panel.
+    assert 'rowsFor("cliente")' in fn
+    assert 'rowsFor("clientePart")' in fn
     assert "clientePart:" in fn and '"clientePart"' in fn
-    # AMBOS paneles consumen las MISMAS columnas (measure family compartida).
-    assert fn.count("CAPACIDAD_PRODUCTIVAS_COLUMNS") >= 1
+    # AMBOS paneles consumen las MISMAS columnas (measure family compartida,
+    # ver capacidadProductivasColumns) — cada uno con su propio `panelKey`.
+    assert 'capacidadProductivasColumns(panelKey)' in fn
+    # Owner corrective: cada panel monta su PROPIO Año/Mes en su propio
+    # toolbar (nunca un único Año/Mes compartido en el filter bar).
+    assert "capacidadProductivasAnioField(panelKey)" in fn
+    assert "capacidadProductivasMesField(panelKey)" in fn
 
 
 def test_capacidad_productivas_anio_field_offers_todos_unlike_rentabilidad_hv():
     # Sin hot/cold (CSV completo ya en memoria) — a diferencia de
     # Rentabilidad/HV, "Todos" SÍ es una opción válida (MISMO criterio que
-    # el Año de Cartera/Mantenimiento).
+    # el Año de Cartera/Mantenimiento). Parametrizado por panel.
     fn = _fn_body_batch_b("capacidadProductivasAnioField", 700)
+    assert "function capacidadProductivasAnioField(panel)" in fn
     assert '>Todos</option>' in fn
     assert "capacidadProductivasAnioOptions()" in fn
 
 
 def test_capacidad_productivas_selected_rows_collapses_all_years_when_anio_is_todos():
     fn = _fn_body_batch_b("capacidadProductivasSelectedRows")
+    assert "function capacidadProductivasSelectedRows(panel)" in fn
     assert "_sumMonthlyArrays(Object.values(r.horasByYear || {}))" in fn
 
 
 def test_capacidad_productivas_total_uses_anio_mes_scoped_population():
     # Gran total FIJO (denominador REMOVEFILTERS de Cliente/Client Partner)
-    # recalculado contra la población YA proyectada a Año/Mes — MISMO
-    # criterio que Participación (Año/Estado no son dimensiones REMOVEFILTERS,
-    # son scope real de los datos).
+    # recalculado contra la población YA proyectada a Año/Mes DE ESE PANEL —
+    # MISMO criterio que Participación (Año/Estado no son dimensiones
+    # REMOVEFILTERS, son scope real de los datos). Parametrizado por panel —
+    # nunca un total compartido entre ambos.
     fn = _fn_body_batch_b("capacidadProductivasTotal", 200)
-    assert "capacidadProductivasSelectedRows()" in fn
+    assert "function capacidadProductivasTotal(panel)" in fn
+    assert "capacidadProductivasSelectedRows(panel)" in fn
+
+
+# ============================================================================
+# Owner corrective — "PRESERVE PBIP PANEL-INDEPENDENT TEMPORAL STATE": cada
+# panel tiene su PROPIA key de Año/Mes en `state.filters.capacidad`, nunca
+# la misma key compartida entre ambos. "Shared implementation != shared
+# state" — mismas funciones, dos instancias de estado independientes.
+# ============================================================================
+
+def test_capacidad_panels_use_distinct_filter_keys_never_shared():
+    assert 'function capacidadPanelAnioKey(panel) { return `anio_${panel}`; }' in _REPORTING_JS
+    assert 'function capacidadPanelMesKey(panel) { return `mes_${panel}`; }' in _REPORTING_JS
+    # CAPACIDAD_PRODUCTIVAS_PANELS enumera los dos paneles reales — nunca un
+    # tercer panel fantasma ni uno solo.
+    assert 'const CAPACIDAD_PRODUCTIVAS_PANELS = ["cliente", "clientePart"];' in _REPORTING_JS
+
+
+def test_prune_capacidad_productivas_reconciles_both_panels_independently():
+    # reconcileExperienceFacets debe reconciliar AMBOS paneles (cada uno con
+    # su propia key) — nunca solo uno, y nunca una función sin el parámetro
+    # `panel`.
+    body = _fn_body_batch_b("reconcileExperienceFacets", 2600)
+    assert "CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel =>" in body
+    assert "pruneCapacidadProductivasAnio(panel)" in body
+    assert "pruneCapacidadProductivasMes(panel)" in body
+
+
+def test_capacidad_productivas_columns_closes_over_a_per_panel_total():
+    # `capacidadProductivasColumns` es una FUNCIÓN (no un array `const`
+    # compartido) — cada panel necesita su propio total en el cierre del
+    # % Incidencia, nunca uno global.
+    fn = _fn_body_batch_b("capacidadProductivasColumns", 700)
+    assert "capacidadProductivasTotal(panel)" in fn
+    assert "const CAPACIDAD_PRODUCTIVAS_COLUMNS =" not in _REPORTING_JS

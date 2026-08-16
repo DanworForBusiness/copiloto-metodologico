@@ -6317,21 +6317,72 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 >    confirmar en el smoke real.
 > 3. **Año/Mes**: el PBI tiene DOS pares de slicers Año/Mes independientes
 >    (uno por panel, posiciones no solapadas) — el Hub V0 simplifica
->    deliberadamente a UN filtro Año/Mes COMPARTIDO que controla ambos
->    paneles (decisión documentada, ver lineage §8ter item 1). SIN hot/cold
->    (el CSV completo de Time Logs ya se carga entero, sin mecanismo
->    `$filter` de Graph aplicable a un archivo ya descargado) — Año SÍ
->    ofrece "Todos" (colapsa todos los años vía `_sumMonthlyArrays`, MISMO
->    criterio que Cartera/Mantenimiento, a diferencia de Rentabilidad/HV
->    que lo retiraron por el hot-window). Gran total fijo
+>    ~~deliberadamente a UN filtro Año/Mes COMPARTIDO que controla ambos
+>    paneles~~ — **RETIRADO, ver corrective inmediatamente abajo: esa
+>    simplificación NO estaba autorizada por el owner.** SIN hot/cold (el
+>    CSV completo de Time Logs ya se carga entero, sin mecanismo `$filter`
+>    de Graph aplicable a un archivo ya descargado) — Año SÍ ofrece "Todos"
+>    (colapsa todos los años vía `_sumMonthlyArrays`, MISMO criterio que
+>    Cartera/Mantenimiento, a diferencia de Rentabilidad/HV que lo
+>    retiraron por el hot-window). Gran total fijo
 >    (`capacidadProductivasTotal`) recalculado contra la población
 >    Año/Mes-escopeada, MISMO principio que Estado en Participación.
 >
 > Suite: **215 tests de Reporting, 1106 passed / 9 known stale / 1 skipped**
-> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
-> smoke** (valores reales de "Porcentaje de Part." una vez confirmado el
-> internal name, Año/Mes funcionando, dos paneles mostrando el mismo
-> ranking con rótulos distintos).
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`).
+>
+> **✅ HORAS PRODUCTIVAS CORRECTIVE — panel-independent Año/Mes RESTORED**
+> (immediate follow-up ticket, owner: "PRESERVE PBIP PANEL-INDEPENDENT
+> TEMPORAL STATE"). The shared-Año/Mes simplification above was explicitly
+> NOT authorized — primary PBIP evidence (two independent slicer pairs, one
+> positioned over each visual) was already documented but the implementation
+> collapsed them into one shared filter anyway. Fixed:
+>
+> 1. **Panel-independent state**: `state.filters.capacidad` now stores
+>    `anio_cliente`/`mes_cliente` and `anio_clientePart`/`mes_clientePart`
+>    as DISTINCT keys (`capacidadPanelAnioKey(panel)`/
+>    `capacidadPanelMesKey(panel)`) — changing one panel's Año/Mes never
+>    touches the other's. "Shared implementation != shared state":
+>    `capacidadProductivasSelectedRows(panel)`/`capacidadProductivasTotal(panel)`/
+>    `pruneCapacidadProductivasAnio(panel)`/`pruneCapacidadProductivasMes(panel)`/
+>    `capacidadProductivasAnioField(panel)`/`capacidadProductivasMesField(panel)`
+>    are the SAME functions (parametrized by `panel`, never duplicated),
+>    reusing the SAME TEMPORAL DOMAIN CONTRACT primitives
+>    (`_operationalMonthCap`/`_applyMonthCap`/`_maskMes`/`_validMesOptions`/
+>    `_sumMonthlyArrays`) as Rentabilidad/HV/Cartera. `capacidadProductivasColumns(panel)`
+>    replaced the old shared `CAPACIDAD_PRODUCTIVAS_COLUMNS` const — each
+>    panel's % Incidencia now divides against its OWN grand total (a panel
+>    showing a different Año/Mes must never contaminate the other's
+>    denominator). Each panel mounts its own Año/Mes `<select>` pair inside
+>    its own section toolbar (position now faithful to the PBIP: two slicer
+>    pairs, one over each visual) — the shared top filter bar keeps only
+>    Cliente (the one control genuinely shared between both panels, per the
+>    ticket). Resumen now shows two KPI tiles ("Total Horas (Cliente)" /
+>    "Total Horas (Cliente + Part)") since the two panels can now diverge.
+> 2. **`Porcentaje de Part.` internal name — no longer guessed**: the
+>    static candidate tuple was replaced with
+>    `ReportingRepository._resolve_porcentaje_part_field(site_id)`, which
+>    discovers the REAL internal name live from `/lists/{cliente}/columns`
+>    → `displayName` — the EXACT same mechanism already used for Client
+>    Partner (`_resolve_client_partners`). No match ⇒ `""` (fail-soft,
+>    `porcentajePart` reads `0.0`) — never a coded-by-hand fallback anymore.
+>    **Still needs an owner live smoke** to confirm Graph actually returns
+>    a column whose `displayName` is exactly `"Porcentaje de Part."` (or
+>    `"PorcentajedePart."`) for the Cliente list — if the real display name
+>    differs, `CLI_PORCENTAJE_PART_DISPLAY_NAMES` needs one more candidate
+>    added, but the DISCOVERY MECHANISM itself does not change.
+> 3. **Tests**: new `reporting_capacidad_panel_independence.node.js` +
+>    `test_reporting_capacidad_panel_independence.py` prove — with the
+>    REAL runtime functions, not just source-seam string checks — that
+>    changing one panel's Año/Mes never mutates the other's, that both
+>    panels produce IDENTICAL results when given the identical Año/Mes
+>    (proving the shared implementation), and that the "Cliente + Part"
+>    label includes the resolved percentage.
+>
+> Suite after this corrective: **1113 passed / 9 known stale / 1 skipped**.
+> PENDIENTE: **owner live smoke** — confirm both panels can independently
+> show different periods side by side, confirm the real `Porcentaje de
+> Part.` internal name resolves via the live column-discovery call.
 >
 > **Nota rutas:** se agregaron `/data/horas-vendidas`,
 > `/data/horas-vendidas/anios-disponibles`, `/data/participacion` y
@@ -6449,7 +6500,7 @@ the grand total over the Año+Estado-scoped population, never a filtered
 subtotal. PENDING: owner live smoke (population counts before/after, Año
 multi + Estado behavior, hot/cold).
 
-#### E. HORAS PRODUCTIVAS — PBI parity — RESOLVED (this pass, see "-17" top block)
+#### E. HORAS PRODUCTIVAS — PBI parity — RESOLVED (this pass + corrective, see "-17" top block)
 ~~Investigated, NOT reworked~~ — primary PBIP evidence read directly from
 the `.Report`/`.SemanticModel` source (page.json Rows/Values + TMDL) and
 implemented. "Cliente + Part" is a calculated column (`[Client] &" "&
@@ -6457,12 +6508,17 @@ RELATED(Cliente[Porcentaje de Part.])*100`), NOT a distinct grouping
 dimension — the right panel reuses the SAME Rank/Horas/%Incidencia measure
 family as the left, just with an enriched row label carrying each client's
 static reference percentage. Both panels now render side by side via
-`.activity-grid-2` (as originally targeted), sharing one Año/Mes filter
-(deliberate simplification — the PBIP has two independent per-panel
-slicers, documented in lineage.md §8ter item 1). See the "-17" top block
-for the full writeup. PENDING: owner live smoke, and the `Porcentaje de
-Part.` internal SharePoint field name (candidates tried, not yet confirmed
-against live Graph).
+`.activity-grid-2` (as originally targeted). Año/Mes are PANEL-INDEPENDENT
+(owner corrective, see "-17" top block "HORAS PRODUCTIVAS CORRECTIVE" —
+the earlier shared-filter simplification was not authorized and was
+reverted; the PBIP's two independent per-panel slicers are now faithfully
+reproduced, one Año/Mes pair per panel toolbar). The `Porcentaje de Part.`
+internal name is no longer guessed either — `_resolve_porcentaje_part_field`
+discovers it live from Cliente's column metadata, same mechanism as Client
+Partner. See the "-17" top block for the full writeup. PENDING: owner live
+smoke — confirm both panels can show independent periods side by side, and
+confirm the live column-discovery call actually resolves `Porcentaje de
+Part.` against real Graph.
 
 Also still open, transversal: raw float artifacts (e.g.
 `3.5999999999999996`) were observed LIVE in Horas Productivas even after

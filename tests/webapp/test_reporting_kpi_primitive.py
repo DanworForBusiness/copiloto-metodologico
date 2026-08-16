@@ -28,16 +28,17 @@ import pytest
 _HARNESS = Path(__file__).resolve().parent / "reporting_kpi_primitive.node.js"
 _REPORTING_JS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
 
-# Las 16 llamadas KPI de Reporting (5 grids: Cartera 2 fijas + N via
+# Las 17 llamadas KPI de Reporting (5 grids: Cartera 2 fijas + N via
 # carteraKpiTiles, Rentabilidad 5, Horas Vendidas 7, Calendario 2,
-# Horas Productivas 1) — ver HANDOFF para el inventario completo.
+# Horas Productivas 2 — panel-independent Año/Mes, ver §8ter item 1) — ver
+# HANDOFF para el inventario completo.
 _EXPECTED_MIGRATED_LABELS = [
     "Horas Vendidas", "Horas Certificadas", "Horas Trabajadas",
     "Rentabilidad horas", "No asignadas a servicios",  # Rentabilidad Resumen
     "Hs Estimadas anuales", "Mantenimiento", "Proyecto",
     "Vendidas Q1", "Vendidas Q2", "Vendidas Q3", "Vendidas Q4",  # Horas Vendidas
     "Clientes con calendario", "Entregas/checkpoints (año)",  # Calendario
-    "Total Horas",  # Horas Productivas
+    "Total Horas (Cliente)", "Total Horas (Cliente + Part)",  # Horas Productivas — panel-independent, ver §8ter item 1
 ]
 
 

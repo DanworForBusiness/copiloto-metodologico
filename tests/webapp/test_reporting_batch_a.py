@@ -471,8 +471,10 @@ def test_participacion_has_its_own_scoped_lifecycle_not_batch_a():
 def test_capacidad_productivas_denominator_recomputes_not_a_stale_constant():
     # Mismo corrective que Participación: `CAPACIDAD_PRODUCTIVAS_TOTAL` era
     # una `const` calculada UNA vez contra el mock — ahora es una función,
-    # recalculada contra el array vigente (mock o real).
-    assert "function capacidadProductivasTotal()" in _REPORTING_JS
+    # recalculada contra el array vigente (mock o real). Parametrizada por
+    # `panel` (owner corrective — panel-independent Año/Mes, ver §8ter
+    # item 1): cada panel tiene su PROPIO total, nunca uno compartido.
+    assert "function capacidadProductivasTotal(panel)" in _REPORTING_JS
     assert "const CAPACIDAD_PRODUCTIVAS_TOTAL =" not in _REPORTING_JS
 
 

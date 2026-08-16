@@ -148,11 +148,12 @@ CLI_SALUD_FINAL = ("Salud",)
 # define la columna calculada `'Cliente + Part'` = `[Client] &" "&
 # RELATED(Cliente[Porcentaje de Part.])*100` — un valor de referencia
 # ESTÁTICO por Cliente (SharePoint, `Percentage.Type`), NUNCA derivado de
-# Horas. Internal name físico NO confirmado todavía (el M solo expone el
-# nombre YA renombrado por Power Query) — candidatos codificado/sin-codificar,
-# MISMA convención que el resto de columnas opcionales de Cliente arriba; a
-# confirmar en el smoke real del owner.
-CLI_PORCENTAJE_PART = ("PorcentajedePart_x002e_", "PorcentajedePart", "Porcentaje_x0020_de_x0020_Part_x002e_")
+# Horas. Owner corrective ("Do not rely indefinitely on guessed candidate
+# names"): el internal name YA NO se adivina — se DESCUBRE en vivo de la
+# metadata de columnas de Cliente (`_resolve_porcentaje_part_field`, MISMO
+# mecanismo que `_resolve_client_partners` abajo, `/lists/{cliente}/columns`
+# → `displayName`), nunca un candidato codificado a mano.
+CLI_PORCENTAJE_PART_DISPLAY_NAMES = ("Porcentaje de Part.", "PorcentajedePart.")
 
 # XLSX Facturadas (Tabla24)
 FAC_PROYECTO_BASE = "Proyecto Base"
@@ -489,6 +490,24 @@ class ReportingRepository:
             return {}
         items = self._items(site_id, target, "client_partner")
         return {_text(it.get("id")): _first(it.get("fields") or {}, PM_TITLE) for it in items}
+
+    def _resolve_porcentaje_part_field(self, site_id: str) -> str:
+        """Internal name REAL de `Cliente['Porcentaje de Part.']` — DESCUBIERTO
+        en vivo de la metadata de columnas (`/lists/{cliente}/columns` →
+        `displayName`), MISMO mecanismo que `_resolve_client_partners` arriba
+        (owner corrective: "Do not rely indefinitely on guessed candidate
+        names" — el M del PBIP solo expone el nombre YA renombrado por Power
+        Query, nunca el internal name crudo, ver real-data-lineage.md §8ter
+        item 1). Sin match ⇒ "" (fail-soft — "Cliente + Part" queda sin el %
+        de referencia en el rótulo, NUNCA un valor inventado; ver caller en
+        `get_time_logs_facts`)."""
+        columns = _call_graph("cliente_columns_porcentaje_part", lambda: microsoft365.graph_get_paged_values(
+            f"{GRAPH_BASE}/sites/{site_id}/lists/{self.cliente_list_id}/columns", access_token=self._token,
+        ))
+        for col in columns:
+            if _text(col.get("displayName")) in CLI_PORCENTAJE_PART_DISPLAY_NAMES:
+                return _text(col.get("name"))
+        return ""
 
     # --- ensamble de hechos normalizados ------------------------------------
 
@@ -847,6 +866,8 @@ class ReportingRepository:
         timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
         timer.stage("cliente", len(clientes_items))
+        porcentaje_part_field = self._resolve_porcentaje_part_field(site_id)
+        timer.stage("cliente_columns_porcentaje_part")
         proy_by_key: dict[str, dict] = {}
         for it in proyectos_items:
             fields = it.get("fields") or {}
@@ -871,10 +892,13 @@ class ReportingRepository:
                 "mes": _time_logs_mes(row.get("Date")),
                 "anio": _time_logs_anio(row.get("Date")),
                 # "Cliente + Part" (Horas Productivas, panel derecho — ver
-                # CLI_PORCENTAJE_PART arriba): fracción CRUDA (0-1) tal cual
-                # SharePoint la guarda — el *100 vive en el service (shaping
-                # de negocio), MISMO criterio que el resto de este método.
-                "porcentajePart": _num(_first(cli, *CLI_PORCENTAJE_PART)),
+                # _resolve_porcentaje_part_field arriba): fracción CRUDA
+                # (0-1) tal cual SharePoint la guarda — el *100 vive en el
+                # service (shaping de negocio), MISMO criterio que el resto
+                # de este método. `porcentaje_part_field` DESCUBIERTO en
+                # vivo, nunca un candidato codificado a mano — "" (columna no
+                # encontrada) ⇒ 0.0, fail-soft.
+                "porcentajePart": _num(cli.get(porcentaje_part_field)) if porcentaje_part_field else 0.0,
             })
         timer.stage("shaping", len(facts))
         timer.total()
