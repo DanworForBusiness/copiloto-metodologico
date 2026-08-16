@@ -40,7 +40,13 @@ def test_table_formatting_invariants_hold():
 
 def test_render_business_tree_rows_formats_any_raw_number_before_dom():
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderBusinessTreeRows("):_REPORTING_JS.index("function renderHorasVendidas(")]
-    assert 'if (typeof content === "number") content = fmtNum(content, "hours");' in fn
+    # `c.format || "hours"` (owner request — Horas Productivas 3-decimal
+    # corrective, ver test_reporting_capacidad_ux_corrective.py): default
+    # sigue siendo "hours" para cualquier columna que no declare `format`
+    # explícitamente — CERO cambio de comportamiento para Cartera/
+    # Comercial-Participación, las otras dos experiencias que usan este
+    # motor de tabla.
+    assert 'if (typeof content === "number") content = fmtNum(content, c.format || "hours");' in fn
     # El guard corre DESPUÉS de resolver rollup/render (nunca antes, o
     # perdería el contenido ya calculado).
     assert fn.index('if (typeof content === "number")') > fn.index("c.render(node.rows[0])")

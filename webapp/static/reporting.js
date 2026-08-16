@@ -928,6 +928,12 @@ function renderHubCallout({ tone = "note", icon = "", title = "", bodyHtml = "" 
 const _NF = {
   count: new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }),
   hours: new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 }),
+  // hours3 (owner request — Horas Productivas ÚNICAMENTE, ver
+  // capacidadProductivasColumns/renderCapacidadProductivas): PBIP muestra
+  // más precisión que el resto del Hub (5.422 vs 5.4) — nuevo tipo
+  // semántico en vez de tocar "hours" (usado por Cartera/Rentabilidad/
+  // Horas Vendidas/Participación, que deben seguir en 1 decimal).
+  hours3: new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 3 }),
   percent: new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
 };
 function fmtNum(value, type = "hours") {
@@ -936,6 +942,7 @@ function fmtNum(value, type = "hours") {
   if (!isFinite(n)) return "—";
   if (type === "count") return _NF.count.format(Math.round(n));
   if (type === "percent") return _NF.percent.format(n) + "%";
+  if (type === "hours3") return _NF.hours3.format(n);
   if (type === "signed") return (n > 0 ? "+" : "") + _NF.hours.format(n);
   return _NF.hours.format(n);  // "hours" (default)
 }
@@ -3316,7 +3323,12 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
           // que siga siendo un `number` (columnas ya formateadas como
           // diff/status/porcentaje devuelven string, nunca entran acá) se
           // formatea recién en el último paso antes de tocar el HTML.
-          if (typeof content === "number") content = fmtNum(content, "hours");
+          // `c.format` (owner request, Horas Productivas — ver
+          // capacidadProductivasColumns): opcional, default "hours" (MISMO
+          // comportamiento de siempre para cualquier columna que no lo
+          // declare — Cartera/Rentabilidad/Horas Vendidas/Participación
+          // nunca lo setean, cero cambio para ellas).
+          if (typeof content === "number") content = fmtNum(content, c.format || "hours");
           return `<td class="${c.statusTerminal ? "dashboard-table-cell--status" : (c.numeric ? "" : "left")}">${content}</td>`;
         }).join("")}
       </tr>`;
@@ -3683,9 +3695,14 @@ function capacidadProductivasTotal(panel) {
 // que se divide difiere por panel.
 function capacidadProductivasColumns(panel) {
   const total = capacidadProductivasTotal(panel);
-  const pct = horas => (total ? (horas / total * 100) : 0).toFixed(1) + "%";
+  // Precisión (owner request): Horas Productivas muestra más decimales que
+  // el resto del Hub — PBIP también lo hace (ej. 5.422 vs 5.4 en otras
+  // experiencias), ver `hours3` en fmtNum. % Incidencia a 2 decimales
+  // (antes 1) — este `pct` ya construye su propio string, nunca pasa por
+  // fmtNum, así que el cambio queda 100% local a esta función.
+  const pct = horas => (total ? (horas / total * 100) : 0).toFixed(2) + "%";
   return [
-    { label: "Horas", numeric: true, render: r => r.horas, rollup: sumField("horas") },
+    { label: "Horas", numeric: true, format: "hours3", render: r => r.horas, rollup: sumField("horas") },
     { label: "% Incidencia", numeric: true, render: r => pct(r.horas), rollup: sumField("horas", pct) },
   ];
 }
@@ -3853,7 +3870,7 @@ function renderCapacidadProductivas() {
       <div class="dashboard-section__body">
         <p class="perspective-label">${esc(title)}</p>
         ${panelToolbar(panelKey, stateKey)}
-        <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours" })}</div>
+        <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours3" })}</div>
         ${rowsForPanel.length ? `
         <div class="matrix-scroll">
           <table class="dashboard-table dashboard-table--compact">

@@ -38,7 +38,7 @@ vm.runInContext(src, sandbox, { filename: "reporting.js" });
 const {
   capacidadProductivasSelectedRows, capacidadPanelAnioKey, renderCapacidadProductivas,
   capacidadProductivasAnioOptions, capacidadProductivasDefaultAnio, renderCapacidadFilterBar,
-  resetFilters, toggleCapacidadMes, setFilter, toggleCapacidadStatus,
+  resetFilters, toggleCapacidadMes, setFilter, toggleCapacidadStatus, fmtNum,
 } = sandbox;
 // Extractor de cuerpo de función por balance de llaves (MISMO criterio que
 // `_fn_body_exact` en test_reporting_batch_b.py) — para pruebas de
@@ -257,7 +257,7 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   const ypfRowStart = html.indexOf(">YPF<");
   const ypfRow = html.slice(ypfRowStart, ypfRowStart + 200);
   assertTrue(ypfRow.includes(">120<"), "Proyecto='SADI v2': el rollup MOSTRADO de YPF sigue siendo 120 (numerador/filas visibles sin cambios — REMOVEFILTERS de Proyecto en las filas, no en el denominador)");
-  assertTrue(ypfRow.includes("50.0%"), "% Incidencia = 120/240 = 50.0% — usa el DENOMINADOR REAL (240), NUNCA la suma de filas mostradas (180, daría 66.7%) ni el Total Horas del panel filtrado (120, daría 100%)");
+  assertTrue(ypfRow.includes("50.00%"), "% Incidencia = 120/240 = 50.00% (owner request: 2 decimales) — usa el DENOMINADOR REAL (240), NUNCA la suma de filas mostradas (180, daría 66.67%) ni el Total Horas del panel filtrado (120, daría 100.00%)");
   setDenominador({});
 }
 
@@ -413,6 +413,34 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
 {
   assertTrue(!fnBody("toggleCapacidadMes").includes("loadBatchBData"), "toggleCapacidadMes (togglear un botón de Mes) nunca invoca loadBatchBData — puro re-render sobre datos ya hidratados");
   assertTrue(!fnBody("setFilter").includes("loadBatchBData"), "setFilter (cambiar Año vía Cliente/Proyecto/Estado o el <select> de Año) nunca invoca loadBatchBData — mismo criterio, ningún facet de Reporting re-fetchea al cambiar filtros locales");
+}
+
+// --- Precisión (owner request): Horas Productivas muestra 3 decimales en
+// --- Horas (fila + tile) y 2 en % Incidencia — nunca el default de 1
+// --- decimal del resto del Hub -------------------------------------------
+{
+  assertEqual(fmtNum(5.4219, "hours3"), "5.422", "fmtNum('hours3') redondea a 3 decimales");
+  assertEqual(fmtNum(5.4, "hours"), "5.4", "fmtNum('hours') (default, resto del Hub) sigue en 1 decimal — sin regresión");
+
+  CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
+  CAPACIDAD_PRODUCTIVAS_ROWS.push(
+    { cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5, estado: "En curso",
+      horasByYear: { "2019": [5.4219, 0,0,0,0,0,0,0,0,0,0,0] } },
+  );
+  setDenominador({ "2019": [5.4219, 0,0,0,0,0,0,0,0,0,0,0] });
+  state.filters.capacidad = { cliente: "" };
+  state.filters.capacidad[capacidadPanelAnioKey("cliente")] = "2019";
+  state.filters.capacidad[capacidadPanelAnioKey("clientePart")] = "2019";
+  state.capacidadMesesSeleccionados = { cliente: new Set(), clientePart: new Set() };
+  state.capacidadProductivasSortDir = { cliente: "desc", clientePart: "desc" };
+  state.capacidadStatus = { "En curso": true, "Finalizado": true };
+  state.perspective.capacidad = "Productivas";
+  state.batchBDataStatus = "ready";
+  const html = renderCapacidadProductivas();
+  assertTrue(html.includes(">5.422<"), "fila de la tabla: Horas con 3 decimales (5.422, no 5.4)");
+  assertTrue(html.includes("100.00%"), "% Incidencia con 2 decimales (100.00%, no 100.0%)");
+  assertTrue(html.includes(">5.422<".repeat(1)) && (html.match(/5\.422/g) || []).length >= 2, "el tile 'Total Horas' TAMBIÉN usa 3 decimales (mismo valor 5.422 aparece en el tile Y en la fila)");
+  setDenominador({});
 }
 
 if (failures > 0) {
