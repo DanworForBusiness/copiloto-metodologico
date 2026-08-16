@@ -588,6 +588,15 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-kpi--warning { --kpi-accent: #c0392b; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+/* Grid items default to `min-width:auto` — un hijo con contenido intrínsecamente
+   ancho (ej. `table.dashboard-table` de Horas Productivas Cliente + Part, owner
+   live QA corrective: "right panel controls/table approach or overflow the
+   viewport edge") fuerza el track a crecer y empuja al vecino/la página entera
+   fuera del viewport. `min-width:0` en TODO consumidor de `.activity-grid-2`
+   (no solo Horas Productivas) deja que el hijo se encoja al ancho del grid y
+   delega el overflow horizontal a `.matrix-scroll` (scroll INTERNO al panel,
+   nunca a nivel página) — fix del primitivo compartido, no un caso especial. */
+.activity-grid-2 > * { min-width: 0; }
 
 /* Serie diaria: barras verticales — se lee como un gráfico real, no una lista. */
 .activity-chart { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 18px; }

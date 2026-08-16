@@ -208,7 +208,12 @@ def test_horas_vendidas_groups_distinct_projects_separately(monkeypatch):
 # comercialPctVendidas/comercialPctCertificadas)
 # ============================================================================
 
-def test_participacion_sums_vendidas_certificadas_by_year_across_all_tipos(monkeypatch):
+def test_participacion_sums_vendidas_certificadas_by_year_and_estado_across_all_tipos(monkeypatch):
+    # ROOT CAUSE CORRECTIVE (owner live QA — "127 clientes, TODOS 0.00%"):
+    # vendidasByYear/certificadasByYear son `{anio: {estado: horas}}`, NUNCA
+    # `{anio: horas}` plano — el frontend siempre esperó el grano por-estado
+    # (ver comercialParticipacionSelectedRows), el backend simplemente no lo
+    # producía todavía.
     _patch(
         monkeypatch,
         horas=[
@@ -218,8 +223,8 @@ def test_participacion_sums_vendidas_certificadas_by_year_across_all_tipos(monke
              "HsVendidas": "5", "HsFacturadas": "4"},
         ],
         proyectos=[
-            {"id": "p1", "Title": "Mant", "TipodeProyecto": "Tiempo & Materiales"},
-            {"id": "p2", "Title": "Proy", "TipodeProyecto": "Proyecto"},
+            {"id": "p1", "Title": "Mant", "TipodeProyecto": "Tiempo & Materiales", "Status": "En curso"},
+            {"id": "p2", "Title": "Proy", "TipodeProyecto": "Proyecto", "Status": "En curso"},
         ],
         clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1",
                    "Frecuencia_x0020_Actualizacion": "Trimestral", "Permite_x0020_Adelanto": "Si",
@@ -231,11 +236,35 @@ def test_participacion_sums_vendidas_certificadas_by_year_across_all_tipos(monke
     assert len(rows) == 1
     r = rows[0]
     # Suma SIN distinguir tipo (Mantenimiento + Proyecto) — % Hs Vendidas 2 /
-    # % Hs Certificadas 2 no filtran por tipo en el PBIP fuente — POR AÑO.
-    assert r["vendidasByYear"] == {"2026": 15} and r["certificadasByYear"] == {"2026": 12}
+    # % Hs Certificadas 2 no filtran por tipo en el PBIP fuente — POR AÑO Y
+    # POR ESTADO (ambos proyectos "En curso" acá, se suman en el MISMO bucket).
+    assert r["vendidasByYear"] == {"2026": {"En curso": 15}}
+    assert r["certificadasByYear"] == {"2026": {"En curso": 12}}
     assert r["idFrecuencia"] == "3 Trimestral"  # derivado: índice+1 en FRECUENCIA_ORDER
     assert r["permiteAdelanto"] == "Si" and r["condicionPago"] == "15"
     assert r["cliente"] == "YPF" and r["cp"] == "Diego Ramos"
+
+
+def test_participacion_keeps_estado_buckets_separate_within_the_same_year(monkeypatch):
+    # Un Cliente con proyectos En curso Y Finalizado en el MISMO año — cada
+    # estado queda en su PROPIO bucket, nunca colapsados en uno solo (así
+    # el frontend puede incluir/excluir selectivamente al tildar/destildar
+    # Estado, ver comercialParticipacionSelectedRows).
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsVendidas": "10"},
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero", "HsVendidas": "7"},
+        ],
+        proyectos=[
+            {"id": "p1", "Title": "Activo", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+            {"id": "p2", "Title": "Cerrado", "TipodeProyecto": "Proyecto", "Status": "Finalizado"},
+        ],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+    )
+    rows = _service().get_participacion("tok", anios=["2026"])
+    assert len(rows) == 1
+    assert rows[0]["vendidasByYear"] == {"2026": {"En curso": 10, "Finalizado": 7}}
 
 
 class _HotYearsRecordingBatchARepo:
@@ -708,3 +737,88 @@ def test_participacion_selected_rows_sums_only_checked_anios_and_estados():
     assert "comercialParticipacionSelectedRows()" in _fn_body("comercialParticipacionTotalVendidas", 200)
     facet_cfg = _REPORTING_JS[_REPORTING_JS.index("comercial: () => state.perspective.comercial"):_REPORTING_JS.index("comercial: () => state.perspective.comercial") + 400]
     assert "comercialParticipacionSelectedRows()" in facet_cfg
+
+
+# ============================================================================
+# A5 — PARTICIPACIÓN ACCEPTANCE TEST (REPORTING LIVE-QA CORRECTIVE): fixture
+# end-to-end desde el fetch crudo (SharePoint-shaped) hasta `_shape_
+# participacion`, cubriendo TODOS los casos pedidos por el owner en un solo
+# escenario determinístico — 3+ Clientes, proyectos calificantes y no
+# calificantes, 2025/2026, En curso/Finalizado, Vendidas/Certificadas
+# no-cero, un Cliente sin hechos, un atributo comercial opcional en blanco.
+# ============================================================================
+
+def test_participacion_acceptance_end_to_end(monkeypatch):
+    _patch(
+        monkeypatch,
+        horas=[
+            # YPF — En curso, 2025 Y 2026 (proyecto calificante en ambos años).
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Marzo",
+             "HsVendidas": "40", "HsFacturadas": "35"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+             "HsVendidas": "60", "HsFacturadas": "55"},
+            # Danone — Finalizado, SOLO 2026 (no calificante bajo Estado=En curso).
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c2", "A_x00f1_o": "2026", "Mes": "Febrero",
+             "HsVendidas": "25", "HsFacturadas": "20"},
+            # AySA — En curso, SOLO 2025 (tercer Cliente calificante, para
+            # probar que 3+ Clientes con hechos reales conviven sin pisarse).
+            {"ProyectoLookupId": "p3", "EmpresaLookupId": "c3", "A_x00f1_o": "2025", "Mes": "Mayo",
+             "HsVendidas": "12", "HsFacturadas": "10"},
+        ],
+        proyectos=[
+            {"id": "p1", "Title": "SADI v2", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+            {"id": "p2", "Title": "Soporte Analytica", "TipodeProyecto": "Proyecto", "Status": "Finalizado"},
+            {"id": "p3", "Title": "Legacy", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+        ],
+        clientes=[
+            {"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1",
+             "Frecuencia_x0020_Actualizacion": "Mensual", "Permite_x0020_Adelanto": "Si",
+             "Condicion_x0020_de_x0020_Pago": "30"},
+            {"id": "c2", "Title": "Danone", "Frecuencia_x0020_Actualizacion": "Trimestral"},
+            {"id": "c3", "Title": "AySA", "Frecuencia_x0020_Actualizacion": "Anual"},
+            # Cliente SIN ningún hecho de Horas por proyectos — debe seguir
+            # apareciendo (población = cliente_dim), Y con un atributo
+            # comercial opcional en blanco (Permite_x0020_Adelanto ausente).
+            {"id": "c4", "Title": "Molinos"},
+        ],
+        cp_columns=_CP_COLUMNS,
+        client_partners=[{"id": "pm1", "Title": "Diego Ramos"}],
+    )
+    rows = _service().get_participacion("tok", anios=["2025", "2026"])
+    by_cliente = {r["cliente"]: r for r in rows}
+
+    # 4 Clientes esperados — población = cliente_dim completa (owner: "Do
+    # NOT revert to dropping Cliente dimension rows").
+    assert set(by_cliente.keys()) == {"YPF", "Danone", "AySA", "Molinos"}
+
+    # YPF: hechos calificantes en AMBOS años, bucketizados por (año, estado).
+    assert by_cliente["YPF"]["vendidasByYear"] == {"2025": {"En curso": 40}, "2026": {"En curso": 60}}
+    assert by_cliente["YPF"]["certificadasByYear"] == {"2025": {"En curso": 35}, "2026": {"En curso": 55}}
+
+    # Danone: Finalizado, 2026 — bucket separado, presente aunque Estado
+    # default del frontend sea "En curso" únicamente (la EXCLUSIÓN ocurre
+    # client-side, ver comercialParticipacionSelectedRows — el backend
+    # entrega TODOS los buckets, nunca pre-filtra por Estado).
+    assert by_cliente["Danone"]["vendidasByYear"] == {"2026": {"Finalizado": 25}}
+
+    # AySA: tercer Cliente calificante, En curso, SOLO 2025 — convive con
+    # YPF/Danone sin pisarse (buckets independientes por Cliente).
+    assert by_cliente["AySA"]["vendidasByYear"] == {"2025": {"En curso": 12}}
+    # El scope temporal (`anios=["2025","2026"]` pedido al fetch, HOT WINDOW
+    # / COLD HISTORY) se prueba aparte con un fake repo que graba `hot_years`
+    # — ver test_participacion_scopes_fetch_to_requested_anios_like_horas_vendidas
+    # arriba (este mock de Graph no simula `$filter` OData real).
+
+    # Molinos: SIN hechos — mapas vacíos (nunca omitido de la población), Y
+    # el atributo opcional en blanco (permiteAdelanto) llega como "" — el
+    # frontend (buildTree) lo convierte en "Sin dato", nunca se fabrica acá.
+    assert by_cliente["Molinos"]["vendidasByYear"] == {}
+    assert by_cliente["Molinos"]["permiteAdelanto"] == ""
+    assert by_cliente["Molinos"]["idFrecuencia"] == ""  # sin Frecuencia_x0020_Actualizacion tampoco
+
+    # Denominador fijo: NUNCA pre-sumado acá — el service entrega el
+    # numerador crudo por (cliente, año, estado), la suma sobre Años/Estado
+    # tildados Y el % contra el gran total viven en el frontend (ver
+    # test_reporting_participacion_numerator.py para la cadena completa
+    # numerador→denominador→porcentaje).
+    assert "horasVendidas" not in by_cliente["YPF"]  # nunca un campo pre-sumado/pre-colapsado

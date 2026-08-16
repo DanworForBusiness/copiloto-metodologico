@@ -38,7 +38,11 @@ _EXPECTED_MIGRATED_LABELS = [
     "Hs Estimadas anuales", "Mantenimiento", "Proyecto",
     "Vendidas Q1", "Vendidas Q2", "Vendidas Q3", "Vendidas Q4",  # Horas Vendidas
     "Clientes con calendario", "Entregas/checkpoints (año)",  # Calendario
-    "Total Horas (Cliente)", "Total Horas (Cliente + Part)",  # Horas Productivas — panel-independent, ver §8ter item 1
+    "Total Horas",  # Horas Productivas — AHORA 2 tiles (una por panel, cada
+    # una dentro de su propia tarjeta autocontenida, owner composition
+    # corrective) pero MISMO label "Total Horas" en ambas — el contexto lo
+    # da la tarjeta que lo envuelve (Cliente / Cliente + Part), ver §8ter
+    # item 1 + composition corrective en HANDOFF.
 ]
 
 

@@ -3354,7 +3354,7 @@ function renderCalendario() {
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
-  const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
+  const detalle = dashboardSection("detalle", persp, rows.length + " fila(s)", detalleBody);
 
   return dashboardSections("reporting-calendario", resumen + detalle);
 }
@@ -3521,37 +3521,58 @@ function renderCapacidadProductivas() {
 
   const totalHorasCliente = rowsCliente.reduce((s, r) => s + r.horas, 0);
   const totalHorasPart = rowsPart.reduce((s, r) => s + r.horas, 0);
-  const resumen = dashboardSection("resumen", "Resumen", "", `
-    ${sectionToolbar(perspectiveSwitch("capacidad", false))}
-    <div class="activity-kpi-grid">
-      ${renderDashboardKpi({ label: "Total Horas (Cliente)", value: totalHorasCliente, format: "hours" })}
-      ${renderDashboardKpi({ label: "Total Horas (Cliente + Part)", value: totalHorasPart, format: "hours" })}
-    </div>`);
 
-  const panel = (panelKey, stateKey, tree, rowsForPanel, label) => `
-    ${sectionToolbar(capacidadProductivasAnioField(panelKey) + capacidadProductivasMesField(panelKey), treeToolbarButtons(stateKey))}
-    ${rowsForPanel.length ? `
-    <div class="matrix-scroll">
-      <table class="dashboard-table">
-        <thead><tr><th class="row-label-col">${label}</th><th>Horas</th><th>% Incidencia</th></tr></thead>
-        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, capacidadProductivasColumns(panelKey))}</tbody>
-      </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
-
-  const detalleBody = `
-    <div class="activity-grid-2">
-      <div>
-        <p class="perspective-label">Cliente</p>
-        ${panel("cliente", stateKeyCliente, treeCliente, rowsCliente, "Cliente / Proyecto")}
-      </div>
-      <div>
-        <p class="perspective-label">Cliente + Part</p>
-        ${panel("clientePart", stateKeyPart, treePart, rowsPart, "Cliente + Part / Proyecto")}
+  // COMPOSITION CORRECTIVE (owner live QA — "the two analytical units do
+  // not visually read as two equivalent panels"): cada panel es ahora una
+  // TARJETA AUTOCONTENIDA — título → controles temporales + acciones de
+  // jerarquía → KPI Total Horas → tabla — en vez de un Total Horas
+  // "desprendido" arriba de ambos y Año/Mes flotando sobre la tabla.
+  // Reusa `.dashboard-section`/`.dashboard-section__body` (borde/radio/
+  // padding YA existentes, ver tools.css) en un <div> PLANO — NUNCA
+  // `<details>`/`draggable="true"`/`data-section-id` — visualmente una
+  // tarjeta, pero jamás capturada por el drag-and-drop de secciones
+  // (`initDashboardSections` filtra por `.dashboard-section__head`, que
+  // este panel no usa — ver `.perspective-label` como título en su lugar,
+  // MISMO primitivo ya usado por Rentabilidad Mejor/Peor). AMBOS paneles
+  // comparten ESTA MISMA función — nunca una estructura DOM bespoke por
+  // lado, la única diferencia es contenido de negocio (título/columna).
+  const panel = (panelKey, stateKey, tree, rowsForPanel, columnLabel, title, totalHoras) => `
+    <div class="dashboard-section">
+      <div class="dashboard-section__body">
+        <p class="perspective-label">${esc(title)}</p>
+        ${sectionToolbar(capacidadProductivasAnioField(panelKey) + capacidadProductivasMesField(panelKey), treeToolbarButtons(stateKey))}
+        <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours" })}</div>
+        ${rowsForPanel.length ? `
+        <div class="matrix-scroll">
+          <table class="dashboard-table">
+            <thead><tr><th class="row-label-col">${columnLabel}</th><th>Horas</th><th>% Incidencia</th></tr></thead>
+            <tbody>${renderBusinessTreeRows(stateKey, tree, 0, capacidadProductivasColumns(panelKey))}</tbody>
+          </table>
+        </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
       </div>
     </div>`;
-  const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", "Cliente › Proyecto (izq.) y Cliente + % de referencia › Proyecto (der.), CADA panel con su propio Año/Mes — Rank por Horas desc.", detalleBody);
 
-  return resumen + detalle;
+  // El perspective-switch (Productivas ↔ No Asignadas) es navegación de
+  // EXPERIENCIA, no pertenece a ningún panel — vive en su propio toolbar
+  // arriba de la grilla, MISMO criterio que `renderCapacidadNoAsignadas`.
+  // `.activity-grid-2` (MISMO primitivo compartido que Rentabilidad Mejor/
+  // Peor, `min-width:0` reforzado en tools.css) — nunca un grid nuevo; al
+  // angostarse (responsive) colapsa a una columna y las tarjetas se apilan
+  // solas, sin mecanismo propio.
+  const detalleBody = `
+    ${sectionToolbar(perspectiveSwitch("capacidad", false))}
+    <div class="activity-grid-2">
+      ${panel("cliente", stateKeyCliente, treeCliente, rowsCliente, "Cliente / Proyecto", "Cliente", totalHorasCliente)}
+      ${panel("clientePart", stateKeyPart, treePart, rowsPart, "Cliente + Part / Proyecto", "Cliente + Part", totalHorasPart)}
+    </div>`;
+  // countLabel = "N fila(s)" (owner feedback) — MISMO criterio que Cartera/
+  // Proyectos, nunca la descripción de la jerarquía repetida acá (esa ya
+  // vive en el título de cada tarjeta/columna de la tabla). Ambos paneles
+  // comparten la MISMA población de Clientes (solo el rótulo de fila
+  // difiere), así que `rowsCliente.length` representa a los dos.
+  const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", rowsCliente.length + " fila(s)", detalleBody);
+
+  return detalle;
 }
 
 function renderCapacidadNoAsignadas() {

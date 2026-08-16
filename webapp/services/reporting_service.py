@@ -616,7 +616,24 @@ class ReportingService:
         dim["cliente"]`, fila sin identidad). Atributos de negocio opcionales
         en blanco (idFrecuencia/permiteAdelanto/condicionPago) llegan como ""
         acá — `buildTree` en el frontend YA los convierte en "Sin dato",
-        nunca se fabrica un valor acá."""
+        nunca se fabrica un valor acá.
+
+        ROOT CAUSE CORRECTIVE (owner live QA — "127 clientes visibles, TODOS
+        con % Participación = 0.00%"): esta función producía `vendidasByYear`/
+        `certificadasByYear` como `{anio: number}` (escalar plano por año),
+        pero el frontend (`comercialParticipacionSelectedRows`, ver
+        reporting.js) SIEMPRE esperó `{anio: {estado: number}}` — itera
+        `Object.keys(r.vendidasByYear[anio])` para sumar SOLO los estados
+        tildados. `Object.keys()` sobre un NÚMERO devuelve `[]` (un primitivo
+        no tiene claves enumerables propias) — el `.forEach` nunca ejecutaba
+        su cuerpo, así que `vendidas`/`certificadas` quedaban en 0 SIEMPRE,
+        sin importar cuántos hechos reales existieran. Fix: el numerador
+        ahora se bucketiza por `(año, estado)` de verdad — necesario además
+        porque Estado es un atributo de PROYECTO (`Proyectos.Status`, un
+        Cliente puede tener proyectos En curso Y Finalizado a la vez) pero
+        Participación agrega por CLIENTE; sin este grano, tildar/destildar
+        Estado no podría incluir/excluir selectivamente horas de proyectos
+        sin re-fetchear (ver `comercialParticipacionSelectedRows`)."""
         by_cliente: dict[str, dict] = {}
         for f in raw["project_facts"]:
             key = f["clienteId"] or f["cliente"]
@@ -627,8 +644,11 @@ class ReportingService:
             # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio`, nunca `if anio:`
             # solo (ver reporting_repository.py) — reusado tal cual.
             if _is_valid_anio(anio):
-                g["vendidasByYear"][anio] = g["vendidasByYear"].get(anio, 0.0) + f["hsVendidas"]
-                g["certificadasByYear"][anio] = g["certificadasByYear"].get(anio, 0.0) + f["hsCertificadas"]
+                estado = f.get("estado") or ""
+                vendidas_por_estado = g["vendidasByYear"].setdefault(anio, {})
+                certificadas_por_estado = g["certificadasByYear"].setdefault(anio, {})
+                vendidas_por_estado[estado] = vendidas_por_estado.get(estado, 0.0) + f["hsVendidas"]
+                certificadas_por_estado[estado] = certificadas_por_estado.get(estado, 0.0) + f["hsCertificadas"]
             g["facts"].append(f)
 
         rows = []
@@ -647,8 +667,14 @@ class ReportingService:
                 "condicionPago": dim["condicionPago"],
                 "cliente": dim["cliente"],
                 "cp": dim["clientPartner"],
-                "vendidasByYear": {a: _round2(v) for a, v in g["vendidasByYear"].items()},
-                "certificadasByYear": {a: _round2(v) for a, v in g["certificadasByYear"].items()},
+                "vendidasByYear": {
+                    a: {e: _round2(v) for e, v in por_estado.items()}
+                    for a, por_estado in g["vendidasByYear"].items()
+                },
+                "certificadasByYear": {
+                    a: {e: _round2(v) for e, v in por_estado.items()}
+                    for a, por_estado in g["certificadasByYear"].items()
+                },
                 "fecha": _fecha_min(g["facts"]),
             })
         return rows

@@ -6380,9 +6380,85 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 >    label includes the resolved percentage.
 >
 > Suite after this corrective: **1113 passed / 9 known stale / 1 skipped**.
-> PENDIENTE: **owner live smoke** — confirm both panels can independently
-> show different periods side by side, confirm the real `Porcentaje de
-> Part.` internal name resolves via the live column-discovery call.
+>
+> **✅ REPORTING LIVE-QA CORRECTIVE — Participación 0.00% root cause FIXED +
+> Horas Productivas composition rebuilt** (immediate follow-up ticket).
+> Owner live smoke on the two prior passes found ONE real data bug and ONE
+> real layout defect. Both closed:
+>
+> **A. PARTICIPACIÓN — ROOT CAUSE of "127 clientes, TODOS 0.00%"**: the
+> population fix landed correctly (127 real clients render), but
+> `_shape_participacion` produced `vendidasByYear`/`certificadasByYear` as
+> `{anio: number}` (a flat scalar per year) while the frontend
+> (`comercialParticipacionSelectedRows`) had ALWAYS expected `{anio:
+> {estado: number}}` — it does `Object.keys(r.vendidasByYear[anio]).forEach(...)`
+> to sum only the checked Estado buckets. `Object.keys()` on a raw NUMBER
+> returns `[]` (a primitive has no own enumerable keys), so that `.forEach`
+> body NEVER executed — `vendidas`/`certificadas` stayed `0` unconditionally,
+> for every row, regardless of how much real data existed. This was a
+> genuine backend/frontend shape mismatch, not a business-logic bug and not
+> "127 legitimately zero clients." Fix: `_shape_participacion` now buckets
+> the numerator by `(año, estado)` for real (`webapp/services/
+> reporting_service.py`), matching what the frontend already consumed —
+> zero frontend changes needed. Verified end-to-end against the OWNER'S
+> EXACT scenario (Años={2025,2026}, Estado={En curso}) via
+> `reporting_participacion_numerator.node.js` — a client with real "En
+> curso" facts now produces a non-zero numerator, a non-zero fixed
+> denominator, and a non-"0.00 %" rendered percentage; a client whose only
+> facts are "Finalizado" correctly stays at 0 while Estado excludes it and
+> becomes non-zero once Estado includes it (proving Estado genuinely changes
+> contribution, not just cosmetically); Año multi-select aggregates across
+> checked years without mixing in unchecked ones. A full A5 acceptance
+> fixture (`test_participacion_acceptance_end_to_end`) covers 4 Clientes —
+> 3 with qualifying facts across both years/both Estados, 1 with zero facts
+> and a blank optional attribute — proving the Cliente-dimension-vs-active-
+> population distinction holds (all 4 still appear; the zero-fact Cliente's
+> `permiteAdelanto`/`idFrecuencia` come back `""`, never fabricated) and
+> that the shaped output is the raw numerator only, never pre-summed.
+>
+> **B. HORAS PRODUCTIVAS — visual composition corrective**: the business
+> logic (two panels, independent Año/Mes, Cliente vs Cliente+Part) was
+> already correct and untouched. The layout was awkward: Total Horas KPIs
+> floated above both panels instead of belonging to one each, Año/Mes
+> visually detached from the table they filter, Expandir/Contraer crowded
+> left, and the right panel could push past the viewport edge. Fixed by
+> making each panel a genuinely self-contained card: title →
+> Año/Mes + Expandir/Contraer toolbar → its OWN "Total Horas" KPI → its OWN
+> table, all inside a plain (non-interactive, non-draggable)
+> `.dashboard-section`/`.dashboard-section__body` — the SAME bordered-card
+> CSS the rest of the Hub already uses, never a new class, and deliberately
+> NOT `<details>`/`draggable`/`data-section-id` so `initDashboardSections`'s
+> `:scope > .dashboard-section` drag query can never pick up a nested panel.
+> Both panels are built by the exact same `panel(...)` function — no
+> bespoke left/right DOM. Root CSS cause of the overflow: `.activity-grid-2`
+> children default to `min-width:auto`, so a wide `<table>` forces its grid
+> track to grow and pushes the sibling/page — fixed with `.activity-grid-2
+> > * { min-width: 0; }` in tools.css, a fix to the SHARED primitive (used
+> by Rentabilidad Mejor/Peor too), not a Horas-Productivas special case;
+> horizontal overflow now resolves inside each panel's own `.matrix-scroll`.
+> Proven structurally (not just source-seam) by
+> `reporting_capacidad_composition.node.js`, which renders the real
+> `renderCapacidadProductivas()` HTML and asserts: exactly 2 panel
+> containers, each with its own Año/Mes `<select>` pair, its own single
+> "Total Horas" KPI (zero KPIs live outside either panel), its own
+> Expandir/Contraer wired to its own stateKey, no bespoke grid/card CSS
+> class introduced, and the "Cliente + Part" live-resolved percentage
+> labels (e.g. "Danone 6.4%") the owner's screenshot showed are preserved
+> verbatim — that semantic definition was NOT reopened.
+>
+> **Also fixed on user request mid-pass**: the "Horas consumidas por
+> Cliente" and Calendario section headers no longer repeat the hierarchy
+> path ("Cliente › Proyecto (izq.)…" / "ID Frecuencia › Cliente › Client
+> Partner") as their `dashboardSection` count label — both now show
+> `rows.length + " fila(s)"`, the SAME convention Cartera/Proyectos already
+> used (`rows.length + " proyecto(s)"` etc.) — never a bespoke label format
+> per experience.
+>
+> Suite after this corrective: **1119 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
+> smoke** — confirm Participación shows real non-zero percentages for
+> Años={2025,2026}/Estado={En curso}, confirm both Horas Productivas panels
+> now read as self-contained cards with no overflow at the viewport edge.
 >
 > **Nota rutas:** se agregaron `/data/horas-vendidas`,
 > `/data/horas-vendidas/anios-disponibles`, `/data/participacion` y
@@ -6486,19 +6562,26 @@ switch must stay local once the main tab has hydrated (already true today
 — HORASVENDIDAS_HIERARCHY just re-groups the same hydrated rows, verify
 this still holds once the filter model changes).
 
-#### D. PARTICIPACIÓN / COMERCIAL — RESOLVED (this pass, see "-17" top block)
+#### D. PARTICIPACIÓN / COMERCIAL — RESOLVED (this pass + corrective, see "-17" top block)
 ~~Still functionally suspect~~ — root cause found and fixed: `_shape_
 participacion` was dropping any Cliente without a matching `project_facts`
 row (`if g is None: continue`), losing valid rows from `cliente_dim` (the
 actual source of truth for which clients exist). Año multi-select
 checkboxes + Estado (default En curso) + hot/cold implemented, converging
-to the SAME scoped mechanism as Rentabilidad/HV — see the "-17" top block
-for the full writeup (root cause, `(año, estado)` bucketing, endpoints,
-frontend state). Fixed-denominator (`REMOVEFILTERS`) semantics preserved —
-`comercialPctVendidas`/`comercialPctCertificadas` unchanged, still consume
-the grand total over the Año+Estado-scoped population, never a filtered
-subtotal. PENDING: owner live smoke (population counts before/after, Año
-multi + Estado behavior, hot/cold).
+to the SAME scoped mechanism as Rentabilidad/HV. Fixed-denominator
+(`REMOVEFILTERS`) semantics preserved — `comercialPctVendidas`/
+`comercialPctCertificadas` unchanged, still consume the grand total over
+the Año+Estado-scoped population, never a filtered subtotal.
+**LIVE-QA CORRECTIVE (immediate follow-up)**: the owner's smoke of the
+above found ALL percentages rendering as 0.00% for 127 real clients — root
+cause was `vendidasByYear`/`certificadasByYear` shipping as `{anio:
+number}` while the frontend always expected `{anio: {estado: number}}`
+(`Object.keys()` on a number returns `[]`, so the summing `.forEach` never
+ran). Fixed by actually bucketing the backend numerator by `(año, estado)`
+— see the "-17" top block for the full root-cause writeup, proof chain,
+and acceptance test. PENDING: owner live smoke (population counts,
+Año multi + Estado behavior, hot/cold, AND now non-zero percentages for
+Años={2025,2026}/Estado={En curso}).
 
 #### E. HORAS PRODUCTIVAS — PBI parity — RESOLVED (this pass + corrective, see "-17" top block)
 ~~Investigated, NOT reworked~~ — primary PBIP evidence read directly from
@@ -6515,10 +6598,15 @@ reverted; the PBIP's two independent per-panel slicers are now faithfully
 reproduced, one Año/Mes pair per panel toolbar). The `Porcentaje de Part.`
 internal name is no longer guessed either — `_resolve_porcentaje_part_field`
 discovers it live from Cliente's column metadata, same mechanism as Client
-Partner. See the "-17" top block for the full writeup. PENDING: owner live
-smoke — confirm both panels can show independent periods side by side, and
-confirm the live column-discovery call actually resolves `Porcentaje de
-Part.` against real Graph.
+Partner. **LIVE-QA CORRECTIVE (immediate follow-up)**: the owner's smoke
+confirmed the business behavior (`Porcentaje de Part.` resolving live —
+"Danone 6.4%", "Aluar 11.8%") but flagged the COMPOSITION as awkward
+(detached KPIs, floating Año/Mes, right panel overflowing). Rebuilt each
+panel as a self-contained `.dashboard-section` card (title → toolbar →
+KPI → table), fixed `.activity-grid-2`'s `min-width:auto` overflow root
+cause in tools.css — see the "-17" top block for the full writeup. PENDING:
+owner live smoke — confirm both panels now read as clean, symmetric,
+self-contained cards with no viewport overflow.
 
 Also still open, transversal: raw float artifacts (e.g.
 `3.5999999999999996`) were observed LIVE in Horas Productivas even after

@@ -377,8 +377,26 @@ def _fn_body_batch_b(name: str, window: int = 3600) -> str:
     return _REPORTING_JS[start:start + window]
 
 
+def _fn_body_exact(name: str) -> str:
+    """Cuerpo EXACTO de una función vía brace-matching — a diferencia de
+    `_fn_body_batch_b` (ventana fija en caracteres), nunca queda corto
+    cuando la función crece (MISMO criterio que `_function_body` en
+    test_reporting_main_tab_hydration.py)."""
+    start = _REPORTING_JS.index(f"function {name}(")
+    brace = _REPORTING_JS.index("{", start)
+    depth = 0
+    for i in range(brace, len(_REPORTING_JS)):
+        if _REPORTING_JS[i] == "{":
+            depth += 1
+        elif _REPORTING_JS[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return _REPORTING_JS[brace:i + 1]
+    raise AssertionError(f"no se encontró el cierre de function {name}(")
+
+
 def test_capacidad_productivas_renders_two_panels_with_independent_state():
-    fn = _fn_body_batch_b("renderCapacidadProductivas", 4200)
+    fn = _fn_body_exact("renderCapacidadProductivas")
     assert 'class="activity-grid-2"' in fn
     # DOS stateKeys distintos (árboles de expansión independientes) — nunca
     # el mismo stateKey reusado para ambos paneles.
