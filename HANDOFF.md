@@ -6125,6 +6125,132 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 
 ### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
 
+> **✅ RENTABILIDAD — PBIP ↔ HUB SOURCE-PARITY RECONCILIATION** (commit
+> `e32cd91`) — owner live comparison against the PBIP proved Rentabilidad
+> was NOT source-faithful. Golden case (Año=2026, Mes=Junio, Tipo
+> Proyecto=Mantenimiento, Estado=En curso): PBIP showed Vendidas=4,883.00/
+> Certificadas=4,858.00/Trabajadas=4,624.50/Rentabilidad=233.50; Hub showed
+> 5,775/4,858/4.6/4,853.4. Certificadas already reconciled EXACTLY — the
+> other two had independent root causes, both traced against PRIMARY PBIP
+> evidence (`Comparativo.tmdl`, `'Horas  Trabajadas por Mes'.tmdl`, `'Horas
+> por proyectos'.tmdl`, `page.json` of "Analisis Rentabilidad").
+>
+> **RECONCILIATION MATRIX:**
+>
+> | Medida | PBIP source | PBIP fórmula | Hub ANTES | Root cause | Hub DESPUÉS |
+> |---|---|---|---|---|---|
+> | Horas Vendidas | `'Horas por proyectos'[HsVendidas]` (SharePoint, GUID `6c3a8689…`) | `SUM(HsVendidas)`, filtrado por Tipo Proyecto Dash/Status (slicers de página) | Escalar de portfolio, SUM sobre TODOS los proyectos, ignoraba Tipo/Estado/Cliente/Proyecto/CP | Vendidas vive en la MISMA fila que Certificadas (`hsVendidas`/`hsCertificadas`, mismo `get_cartera_facts`) — es igual de atribuible por proyecto, pero un comentario previo asumía lo contrario y lo dejó como escalar fijo | Per-proyecto (`vendByYear`/`vendMonthly`, mismo shape que `certByYear`), fluye por el MISMO facet pipeline que Certificadas/Trabajadas |
+> | Horas Certificadas | `'Horas por proyectos'[Hs certificadas]` (col. fuente `HsFacturadas`, renombrada) | `SUM(Hs certificadas)` | Ya correcto (`get_cartera_facts`, mismo backbone) | — (ya reconciliaba EXACTO, sin cambios) | Sin cambios |
+> | Horas Trabajadas | `'Horas  Trabajadas por Mes'` = `SUMMARIZE('Time Logs Reports', Project, Mes, SUM(HORAS))`, unida a `Comparativo` por `Key_Proyect_desc` (`Upper+sin espacios` del `Project` CRUDO del CSV) | `SUM(Horas Trabajadas)` bajo esa clave normalizada | `get_rentabilidad` unía Cartera↔Time Logs por el TÍTULO RESUELTO exacto (string equality) | El PBIP nunca exige match exacto — normaliza (`Key_Proyect_desc`/`Proyecto_Key`) antes de unir. Proyectos históricos/archivados cuyo texto en Cartera vs. Time Logs difiere solo en mayúsculas/espacios perdían su join bajo el string exacto, colapsando Trabajadas a casi 0 | `cert_by_proyecto`/`trab_by_proyecto` ahora agrupan por `_norm_key(proyecto)` (YA existía en el codebase para el join Facturadas XLSX↔Horas por proyectos, nunca reusado acá) |
+> | Rentabilidad horas | `Comparativo['Diff Cer vs Tr'] = [Total Horas Certificadas] - [Total Horas Trabajadas]` | Resta simple | `certificadas - trabajadas` (ya correcto en fórmula) | Heredaba el error de Trabajadas — la fórmula en sí NUNCA estuvo mal | Automático al reconciliar Trabajadas — sin cambio de fórmula |
+>
+> **Exact DAX measures** (`Time Logs Reports.tmdl`/`Comparativo.tmdl`/`Horas
+> por proyectos.tmdl`, evidencia PRIMARIA):
+> ```
+> // Comparativo — partition calculado, UNION de 4 fuentes por (Mes,
+> // Key_Proyect_desc, Proyecto), GROUPBY→SUMX:
+> column 'Diff Cer vs Tr' = Comparativo[Total Horas Certificadas] - Comparativo[Total Horas Trabajadas]
+>
+> // 'Horas  Trabajadas por Mes' (fuente física real de Trabajadas):
+> partition = SUMMARIZE('Time Logs Reports','Time Logs Reports'[Project],'Time Logs Reports'[Mes],
+>     "Key_Proyect_desc", SUBSTITUTE(UPPER('Time Logs Reports'[Project])," ",""),
+>     "Horas", SUM('Time Logs Reports'[HORAS]))
+>
+> // 'Horas por proyectos' (fuente física real de Vendidas/Certificadas —
+> // SharePoint list GUID 6c3a8689-e7ed-4a2c-b358-10c5ca1b37b8):
+> column Proyecto_Key = Upper(Replace(Proyecto," ",""))   // M, misma normalización
+> column HsVendidas, 'Hs certificadas' (renombrada de HsFacturadas)
+> ```
+>
+> **Por qué Trabajadas caía a ~4.6**: `get_rentabilidad` agrupaba
+> `cert_by_proyecto`/`trab_by_proyecto` por el texto EXACTO resuelto de
+> Proyecto. El PBIP en cambio nunca exige esa igualdad — `Comparativo` une
+> sus 4 fuentes por `Key_Proyect_desc`/`Proyecto_Key`, ambos `Upper+sin
+> espacios` — la MISMA normalización que `_norm_key` ya implementaba en
+> este codebase (usada para el join Facturadas XLSX↔Horas por proyectos,
+> nunca reusada para ESTE join). Un proyecto histórico/archivado (fuera de
+> la lista Proyectos actual) cuyo texto en Cartera y en Time Logs difiere
+> solo en mayúsculas/espacios perdía su join bajo comparación exacta de
+> string — sus horas de Trabajadas quedaban invisibles en `proyectos_rows`,
+> colapsando el total a lo poco que SÍ lograba unir por casualidad.
+>
+> **Por qué Vendidas sumaba +892 de más**: `get_rentabilidad` sumaba
+> `HsVendidas` como un escalar de portfolio (TODOS los `cartera_facts`,
+> ignorando Tipo Proyecto/Estado/Cliente/Proyecto/Client Partner). Un
+> comentario previo justificaba esto diciendo "Vendidas no existe como
+> campo por-proyecto" — evidencia primaria lo desmiente: `HsVendidas` vive
+> en la MISMA fila SharePoint que `Hs certificadas` (`get_cartera_facts`),
+> así que es igual de atribuible/filtrable. El PBIP confirma que DEBE
+> filtrarse — la página "Analisis Rentabilidad" tiene slicers de "Tipo
+> Proyecto Dash" Y "Status" que aplican a Vendidas igual que a Certificadas
+> (ver `page.json`, visuals `9bb2d01b6a60b857bd60`/`f95009c36148b204a046`).
+>
+> **Fix**: (1) `cert_by_proyecto`/`trab_by_proyecto` en `get_rentabilidad`
+> ahora agrupan por `_norm_key(proyecto)` en vez del título exacto —
+> estrictamente MÁS permisivo (solo puede sumar joins que antes fallaban,
+> nunca introduce un falso positivo que el PBIP no consideraría el mismo
+> proyecto). (2) Vendidas se movió a `vendByYear`/`vendMonthly` por
+> proyecto (mismo shape que `certByYear`/`trabByYear`), reemplazando el
+> escalar `vendidasByYear`/`vendidasMonthly` de portfolio — fluye por el
+> MISMO `rentabilidadSelectedRows()` (Estado + CP/Cliente/Tipo/Proyecto +
+> Año/Mes) que Certificadas/Trabajadas, en el KPI tile Y en la matriz
+> mensual de Concepto. "No asignadas a servicios" queda intacta como
+> portfolio fijo (Time Logs de los proyectos placeholder, fuera del
+> universo de Proyectos — sin Tipo/Estado propios que filtrar, el PBIP
+> tampoco lo filtra).
+>
+> **Project-level reconciliation**: no fue posible correr contra datos
+> LIVE (sin acceso a Graph/SharePoint real en este entorno) — la prueba de
+> que el fix realmente rescata joins que el string exacto perdía se hizo
+> con un fixture determinístico (`test_get_rentabilidad_trabajadas_join_
+> uses_normalized_key_not_exact_title`: un proyecto histórico con texto
+> "Proyecto  Legado X" en Cartera vs. "PROYECTO LEGADO X" en Time Logs —
+> el join viejo lo pierde, el nuevo lo une). El owner smoke checklist abajo
+> es el paso que falta para confirmar el caso dorado real.
+>
+> **Ranking**: sin cambios de código — ya derivaba `rentabilidad =
+> certificadas - trabajadas` sobre el MISMO `rows` filtrado
+> (`rentabilidadRanked`), así que hereda la reconciliación automáticamente
+> en cuanto Trabajadas/Vendidas están correctos. No se introdujo ningún
+> factor de ajuste.
+>
+> **Tests**: fixture de join normalizado (arriba); shaping per-proyecto de
+> `vendMonthly`/`vendByYear` (`test_get_rentabilidad_portfolio_monthly_
+> totals_real_grain`, reescrito); harness frontend nuevo
+> (`reporting_rentabilidad_source_parity.node.js`) probando que Vendidas se
+> angosta bajo Tipo Proyecto/Estado exactamente igual que Certificadas
+> (nunca queda en el total de portfolio completo — la prueba directa del
+> defecto real), que Mes enmascara `vendMonthly` igual que cert/trabMonthly,
+> y que `rentabilidadAnioOptions()` deriva años también de `vendByYear`.
+> Ningún test hardcodea los valores 4,883/4,858/4,624.5/233.5 del caso
+> dorado real — todos usan fixtures sintéticas. Suite completa: **1136
+> passed, 9 pre-existing unrelated Staffing/route-contract failures**
+> (mismo set que toda medición previa en esta branch).
+>
+> **NOT re-measured live**: este entorno no tiene acceso a Graph/SharePoint
+> real — el razonamiento de paridad de fuente está verificado contra los
+> archivos PBIP primarios y fixtures determinísticas, pero confirmar que el
+> caso dorado (2026/Junio/Mantenimiento/En curso) ahora reconcilia
+> numéricamente contra el PBIP real requiere un smoke del owner. Status:
+> **IMPLEMENTATION READY FOR OWNER LIVE RECONCILIATION, NO LIVE VALIDATED.**
+>
+> **Owner smoke checklist**: (1) Año=2026/Mes=Junio/Tipo Proyecto=
+> Mantenimiento/Estado=En curso — Vendidas/Certificadas/Trabajadas/
+> Rentabilidad horas del tile deberían acercarse a 4,883/4,858/4,624.5/
+> 233.5; (2) destildar Tipo Proyecto=Mantenimiento (dejar Todos) —
+> Vendidas/Certificadas/Trabajadas deberían SUBIR (población más amplia);
+> (3) Certificadas debería seguir IDÉNTICO a antes de este fix, en
+> cualquier combinación de filtros; (4) el ranking Mejor/Peor debería
+> mostrar diferencias de magnitud razonable (no +799.2/+539.5/+320.7 como
+> antes); (5) probar un cliente/proyecto con historial 2023-2024 — si
+> Trabajadas seguía en 0 antes de este fix, confirmar que ahora aparece.
+>
+> **Formatting (owner ticket §10, cosmético, documentado NO arreglado en
+> este pase)**: PBIP muestra más decimales que Hub para Horas (ej. 5.422 vs
+> 5.4 en Horas Productivas) — explícitamente NO es el defecto primario, y
+> el ticket pidió documentar la diferencia en vez de tocar formato salvo
+> que una config existente lo soporte limpiamente. Sin cambios acá.
+
 > **✅ HORAS PRODUCTIVAS — SOURCE-PARITY CORRECTIVE** (commit `b79dd91`) —
 > owner did a LIVE side-by-side comparison against the actual PBIP report
 > (not just a live smoke of the Hub in isolation) and found 3 real semantic
