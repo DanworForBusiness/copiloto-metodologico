@@ -899,6 +899,25 @@ state.carteraAnioInicio = carteraDefaultAnioInicio();
 
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
+// HUB TRANSVERSAL PRIMITIVE TEST (owner directive): Copilot renderiza
+// `{{callout:...}}...{{/callout}}` desde Markdown vía `content_service.py::
+// callout()` — ese parser es 100% de Copilot y NO se toca ni se mueve acá.
+// Lo que SÍ es un primitivo genérico de presentación compartido es el HTML/
+// CSS resultante (`.callout`/`.callout__head`/`.callout__icon`/
+// `.callout__title`/`.callout__body`, ya movido a tools.css — ver comentario
+// ahí). `renderHubCallout` arma esa MISMA forma directo desde datos
+// estructurados (nunca Markdown) — Reporting no necesita fingir que su
+// contenido vino de un parser de texto solo para reusar la presentación.
+// `bodyHtml` ya viene armado (nunca markdown crudo) — el caller decide su
+// propio marcado (memorable: acá SIEMPRE texto plano vía `esc`, ningún
+// experience de Reporting necesita bullets/links dentro del callout todavía).
+function renderHubCallout({ tone = "note", icon = "", title = "", bodyHtml = "" }) {
+  return `<aside class="callout callout--${esc(tone)}">
+    <div class="callout__head">${icon ? `<span class="callout__icon">${esc(icon)}</span>` : ""}<strong class="callout__title">${esc(title)}</strong></div>
+    <div class="callout__body">${bodyHtml}</div>
+  </aside>`;
+}
+
 // --- Formateo numérico semántico compartido (Phase 0C) ----------------------
 // UN solo Intl.NumberFormat por tipo (locale en-US, la MISMA convención de
 // miles/decimales que el resto del Hub — ver Staffing). Elimina el ruido de
@@ -3870,7 +3889,21 @@ function renderCapacidadProductivas() {
   // difiere), así que `rowsCliente.length` representa a los dos.
   const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", rowsCliente.length + " fila(s)", detalleBody);
 
-  return detalle;
+  // HUB TRANSVERSAL PRIMITIVE TEST (owner directive): describe el contrato
+  // semántico de TODA la experiencia Horas Productivas (Ejecución = Time,
+  // Participación = facturación) — vive AFUERA de "Horas consumidas por
+  // Cliente" (independiente visualmente del grupo analítico, MISMA jerarquía
+  // que el ticket pide: filtros → callout → contenido). SOLO esta
+  // perspectiva (Horas Productivas) — `renderCapacidadNoAsignadas` no lo
+  // llama. `renderHubCallout` consume el MISMO primitivo que Copilot (ver
+  // tools.css), nunca una imitación local.
+  const notaMetodologica = renderHubCallout({
+    tone: "note",
+    title: "Nota metodológica",
+    bodyHtml: `<p>${esc("Las horas visualizadas corresponden a la “Ejecución” declarada en Time. La participación indicada junto al nombre del cliente corresponde a la declarada sobre la facturación.")}</p>`,
+  });
+
+  return notaMetodologica + detalle;
 }
 
 function renderCapacidadNoAsignadas() {
