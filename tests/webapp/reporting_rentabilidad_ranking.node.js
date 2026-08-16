@@ -51,7 +51,10 @@ function assertTrue(cond, label) {
   }
 }
 function countBarRows(html) {
-  return (html.match(/class="bar-row"/g) || []).length;
+  // HUB CHART TOOLTIP PRIMITIVE corrective: `.bar-row` ahora comparte la
+  // clase con `.chart-tooltip-anchor` (`class="bar-row chart-tooltip-
+  // anchor"`) — match por PREFIJO del atributo, no por igualdad exacta.
+  return (html.match(/class="bar-row(?: |")/g) || []).length;
 }
 
 const sevenItems = Array.from({ length: 7 }, (_, i) => ({ proyecto: `Proyecto ${i + 1}`, rentabilidad: 100 - i }));

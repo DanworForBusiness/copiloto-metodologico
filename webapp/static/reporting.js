@@ -2782,18 +2782,30 @@ function toggleComercialStatus(key) {
   render();
 }
 
-// `title` nativo (ver corrective — HANDOFF: "Cartera + Rentabilidad
-// Completeness", B1): el ancho de la barra es una representación RELATIVA
-// (% del máximo del ranking) — el tooltip expone el proyecto, ese % relativo
-// Y el valor numérico real de Rentabilidad horas detrás, sin librería de
-// tooltips nueva (atributo `title` nativo, accesible).
+// HUB CHART TOOLTIP PRIMITIVE (owner request — "los tooltip de Rentabilidad
+// debieran ser una experiencia transversal... en asignaciones renderizamos
+// un tooltip propio que amerita respetar en casos de gráficos"): MISMO
+// diseño/mecanismo visual que `.staffing-timeline__tooltip` (caja flotante
+// CSS puro, :hover/:focus, sin librería — ver `.chart-tooltip`/
+// `.chart-tooltip-anchor` en tools.css) — reemplaza el `title` nativo del
+// navegador. `aria-label` en el contenedor foco-able repite el MISMO texto
+// en plano (MISMO patrón que `barAriaLabel` de Staffing) para lectores de
+// pantalla; el tooltip visual queda `aria-hidden` para no duplicar el
+// anuncio. `lines`: un string (una sola línea) o array de strings (una
+// `<p>` por línea — MISMO patrón que Staffing separa Consultor/Estado/
+// Cliente/Proyecto/Fechas en párrafos propios).
+function chartTooltip(lines) {
+  const arr = Array.isArray(lines) ? lines : [lines];
+  return `<div class="chart-tooltip" aria-hidden="true">${arr.map(l => `<p>${esc(l)}</p>`).join("")}</div>`;
+}
 function rentabilidadBarRow(label, value, maxAbs) {
   const cls = value < 0 ? "negativo" : "positivo";
   const width = maxAbs ? (Math.abs(value) / maxAbs * 100).toFixed(1) : 0;
-  const tooltip = `${label} — Rentabilidad horas: ${diffPlain(value)} (${width}% del máximo del ranking)`;
-  return `<div class="bar-row" title="${esc(tooltip)}"><span class="bar-label">${esc(label)}</span>
+  const tooltipText = `${label} — Rentabilidad horas: ${diffPlain(value)} (${width}% del máximo del ranking)`;
+  return `<div class="bar-row chart-tooltip-anchor" tabindex="0" aria-label="${esc(tooltipText)}"><span class="bar-label">${esc(label)}</span>
     <div class="bar-track"><div class="bar-fill ${cls}" style="width:${width}%"></div></div>
     <span class="bar-value">${diffCell(value)}</span>
+    ${chartTooltip(tooltipText)}
   </div>`;
 }
 
@@ -2989,15 +3001,23 @@ function renderRentabilidadCertEjecutadas() {
   // vertical automático en viewport angosto, misma media query). Todo valor
   // numérico pasa por `fmtNum` (sin ruido de punto flotante 1.9500…/3.599…).
   const groupBlock = (g) => {
-    const tooltip = esc(certEjecGroupTooltip(g));
+    // HUB CHART TOOLTIP PRIMITIVE (ver rentabilidadBarRow/chartTooltip) —
+    // reemplaza el `title` nativo. `certEjecGroupTooltip` sigue devolviendo
+    // UN string `\n`-joined (aria-label lo necesita plano); `chartTooltip`
+    // lo parte en líneas para el `<p>` por línea del tooltip visual, MISMO
+    // patrón que Staffing.
+    const tooltipText = certEjecGroupTooltip(g);
+    const tooltipHtml = chartTooltip(tooltipText.split("\n"));
     return `
-      <div class="bar-row" title="${tooltip}"><span class="bar-label">Certificadas</span>
+      <div class="bar-row chart-tooltip-anchor" tabindex="0" aria-label="${esc(tooltipText)}"><span class="bar-label">Certificadas</span>
         <div class="bar-track"><div class="bar-fill certificadas" style="width:${(g.certificadas / maxVal * 100).toFixed(1)}%"></div></div>
         <span class="bar-value">${fmtNum(g.certificadas, "hours")}</span>
+        ${tooltipHtml}
       </div>
-      <div class="bar-row" title="${tooltip}"><span class="bar-label">Ejecutadas</span>
+      <div class="bar-row chart-tooltip-anchor" tabindex="0" aria-label="${esc(tooltipText)}"><span class="bar-label">Ejecutadas</span>
         <div class="bar-track"><div class="bar-fill ejecutadas" style="width:${(g.trabajadas / maxVal * 100).toFixed(1)}%"></div></div>
         <span class="bar-value">${fmtNum(g.trabajadas, "hours")}</span>
+        ${tooltipHtml}
       </div>
       <p style="margin:4px 0 0;font-size:.76rem;color:var(--ink-soft)">
         Margen Absoluto ${diffCell(g.margenAbsoluto)} · Margen Relativo ${fmtNum(g.margenRelativo, "percent")}
@@ -3028,6 +3048,18 @@ function renderRentabilidadCertEjecutadas() {
   // a comprimirse en vez de habilitar scroll horizontal, que es el
   // comportamiento que CUALQUIER otra tabla ancha de Reporting ya tiene.
   // Corrective: mismo wrapper compartido, cero CSS nuevo/one-off.
+  // Fila Total (owner request — "así como calendario tiene en su tabla al
+  // final un total calculado... me gustaría incluir lo mismo en
+  // rentabilidad"): MISMO criterio que la fila Total de Calendario
+  // (`tr.is-total`, primitivo YA compartido en tools.css) — suma cruda de
+  // Certificadas/Trabajadas sobre TODOS los proyectos listados (Mantenimiento
+  // + Proyecto juntos, la MISMA población que ya alimenta esta tabla), Margen
+  // Absoluto/Relativo recalculados sobre esos totales (nunca un promedio de
+  // los % ya redondeados por fila).
+  const totalCertificadas = rows.reduce((s, p) => s + p.certificadas, 0);
+  const totalTrabajadas = rows.reduce((s, p) => s + p.trabajadas, 0);
+  const totalMargenAbsoluto = totalCertificadas - totalTrabajadas;
+  const totalMargenRelativo = totalCertificadas ? Math.round((totalMargenAbsoluto / totalCertificadas) * 1000) / 10 : 0;
   const detailBody = rows.length ? `
     <div class="matrix-scroll">
     <table class="dashboard-table">
@@ -3040,7 +3072,12 @@ function renderRentabilidadCertEjecutadas() {
           <td>${fmtNum(p.certificadas, "hours")}</td><td>${fmtNum(p.trabajadas, "hours")}</td>
           <td>${diffCell(margenAbsoluto)}</td><td>${diffCell(margenRelativo)}%</td>
         </tr>`;
-      }).join("")}</tbody>
+      }).join("")}
+      <tr class="is-total">
+        <td class="left">Total</td><td class="left"></td>
+        <td>${fmtNum(totalCertificadas, "hours")}</td><td>${fmtNum(totalTrabajadas, "hours")}</td>
+        <td>${diffCell(totalMargenAbsoluto)}</td><td>${diffCell(totalMargenRelativo)}%</td>
+      </tr></tbody>
     </table>
     </div>
   ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;

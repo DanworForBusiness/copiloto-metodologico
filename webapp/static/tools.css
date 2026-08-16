@@ -2062,4 +2062,30 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
 .callout-row .callout { height: 100%; margin: 0; }
 @media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
+
+/* HUB CHART TOOLTIP PRIMITIVE (owner request — Rentabilidad: "los tooltip
+   debieran ser una experiencia transversal... en asignaciones renderizamos
+   un tooltip propio que amerita respetar"). MISMO diseño visual/mecanismo
+   que `.staffing-timeline__tooltip` (staffing_dashboard.html) — caja
+   flotante CSS puro revelada por :hover/:focus, sin librería — pero
+   desacoplado de la POSICIÓN específica de la barra de Staffing (esa usa
+   `position:absolute` propio de su Gantt; acá el anchor es cualquier
+   contenedor `position:relative`, MISMO patrón que `.bar-row` de
+   Rentabilidad). Nueva clase (no un rename de la de Staffing): Staffing
+   queda intacto, cero riesgo de regresión ahí — el objetivo es que
+   CUALQUIER gráfico futuro del Hub pueda optar a este MISMO tooltip sin
+   reinventar la caja. */
+.chart-tooltip-anchor { position: relative; }
+.chart-tooltip {
+  position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  min-width: 200px; max-width: 280px; padding: 8px 10px; border-radius: 6px;
+  background: #1f1f24; color: #f2f2f4; font: 500 .68rem var(--sans); text-align: left;
+  box-shadow: 0 4px 14px rgba(0,0,0,.28); z-index: 30; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .12s ease;
+}
+.chart-tooltip p { margin: 0 0 3px; white-space: normal; }
+.chart-tooltip p:last-child { margin-bottom: 0; }
+.chart-tooltip-anchor:hover .chart-tooltip,
+.chart-tooltip-anchor:focus .chart-tooltip,
+.chart-tooltip-anchor:focus-within .chart-tooltip { opacity: 1; visibility: visible; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }
