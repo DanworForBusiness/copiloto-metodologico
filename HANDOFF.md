@@ -6125,6 +6125,65 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 
 ### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
 
+> **✅ TEMPORAL CONTRACT CORRECTIVE** (commits `3cd5522` backend, `4524a01`
+> frontend, `14936eb` tests) — owner live smoke on the Año/Mes/Estado
+> migration below found real defects, all fixed in this pass:
+>
+> 1. **"Septiembre" in Año dropdown** — root cause: NO point in the
+>    pipeline (backend metadata, backend shaping, frontend options) ever
+>    validated that `A_x00f1_o` actually held a 4-digit year; it's a
+>    free-text/Choice SharePoint column without strict Graph-side schema,
+>    so any non-numeric value present in the source flowed straight
+>    through. Fixed with ONE shared validator on each side:
+>    `_is_valid_anio` (Python, `reporting_repository.py`, regex
+>    `^\d{4}$`) applied at every year-collection point (`_anio_estado_pairs`,
+>    `_shape_horas_vendidas`, `get_rentabilidad`'s two independent year
+>    sources); `_isValidAnioValue` (JS, same regex) as a second line of
+>    defense on `horasVendidasAnioOptions`/`rentabilidadAnioOptions`.
+> 2. **Año offered "Todos"** — removed; Año is single-select now for both
+>    experiences (`horasVendidasAnioField`/`rentabilidadAnioField`), Mes
+>    keeps "Todos" (that's where it belongs).
+> 3. **Current-year future months leaked into the matrix/quarters/totals**
+>    — new shared TEMPORAL DOMAIN CONTRACT block in `reporting.js`
+>    (`_operationalMonthCap`/`_applyMonthCap`/`_sumMonthlyArrays`/
+>    `_diffMonthly`/`_quarterValue`/`_validMesOptions`): months beyond the
+>    real calendar month become `null` (not `0`) when the selected Año is
+>    the actual current year — `null` propagates cleanly through the
+>    ALREADY-established `fmtNum`/`diffCell`/`renderDashboardKpi` null→"—"
+>    contract with zero formatter changes, only the accumulation points
+>    (`sumMonthly`, the Concepto matrix's manual sum) needed to become
+>    null-aware so an all-capped index doesn't silently collapse to a
+>    misleading `0`. Historical years are untouched (full source grain).
+> 4. **Hot window was Horas Vendidas-only** — Rentabilidad now has the
+>    IDENTICAL lifecycle (`hydrateRentabilidadTab`/`rentabilidadLoadedYears`/
+>    `loadRentabilidadAnios`/`loadRentabilidadColdYear`/
+>    `mergeRentabilidadRows`, new `/data/rentabilidad/anios-disponibles`
+>    endpoint reusing `get_horas_anio_estado_pairs`) plus
+>    `include_facturadas=False` (Rentabilidad never reads
+>    `facturadasProyecto` — was downloading the XLSX for nothing, same bug
+>    class already fixed for Cartera in §-14).
+> 5. **Also found and fixed while touching this code** (not in the
+>    original owner list, discovered during implementation): "Limpiar" for
+>    Rentabilidad/Horas Vendidas still routed through the OLD Desde/Hasta
+>    default generator (`YEAR_TO_DATE_EXPERIENCES` still listed both,
+>    leftover from before their Año/Mes/Estado migration) — would have
+>    left `anio`/`mes` unset after a click. Now resets to the sensible
+>    Año/Mes/Estado default explicitly.
+>
+> **NOT re-measured live**: this pass could not connect to real Graph — the
+> `$select`/`$filter`/hot-window mechanics are unit-tested against
+> deterministic fixtures, but the OWNER's own live timing numbers (stage
+> `elapsed_ms` from `danwor.reporting.perf`) are still the only thing that
+> can confirm the actual before/after Rentabilidad load-time improvement.
+> Time Logs' CSV read stays fully unscoped (no request-level filter
+> mechanism analogous to Graph `$filter` for an already-downloaded file) —
+> flagged, not silently declared solved.
+>
+> Full suite after this pass: **1090 passed, 9 pre-existing unrelated
+> Staffing/route-contract failures** (same set as every prior measurement
+> in this branch — see "Test baseline provenance" below, still
+> unresolved/unbisected).
+
 > **✅ RENTABILIDAD = IMPLEMENTATION READY FOR LIVE VALIDATION** (commits
 > `f8db50a` estado en shapes → `7e755e2` estado en `get_batch_a_facts.project_facts`
 > → **`bc4c7dd` vertical completa**). DOM: filter bar muestra Client Partner /
