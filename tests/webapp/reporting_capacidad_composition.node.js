@@ -48,11 +48,11 @@ function assertEqual(actual, expected, label) {
 CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
 CAPACIDAD_PRODUCTIVAS_ROWS.push(
   {
-    cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5,
+    cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5, estado: "En curso",
     horasByYear: { "2019": [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10] },
   },
   {
-    cliente: "AySA", proyecto: "Costeo Federal", horas: 0, porcentajePart: 8,
+    cliente: "AySA", proyecto: "Costeo Federal", horas: 0, porcentajePart: 8, estado: "En curso",
     horasByYear: { "2018": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2] },
   },
 );

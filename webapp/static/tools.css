@@ -832,7 +832,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    del dashboard, solo informa que el próximo toggle puede reintentar. */
 .staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
 
-/* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
+/* Barra de "Contraer / Expandir" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
    sección entera). */
 .staffing-timeline-toolbar {
@@ -884,6 +884,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    single-select original solo tildaba uno, el multi-select puede tildar
    cualquier subconjunto. */
 .dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
+/* Mes futuro bajo el año en curso (owner corrective: "que la posicion del
+   dropdown de año no cambie de lugar... eventualmente si los meses son a
+   futuro que queden en su lugar deshabilitados mas que desaparecer") — el
+   botón SIGUE en el DOM (ancho de grupo constante, ver
+   capacidadProductivasMesButtons) pero no es clickeable ni se lee como
+   una opción real. */
+.dashboard-view-switch--multi button:disabled { opacity: .35; cursor: not-allowed; }
 
 /* Hub dashboard table (Phase S — estandarización visual del Hub, ver
    HANDOFF "REPORTING INTEGRAL — REAL DATA"): UNA sola fuente de verdad

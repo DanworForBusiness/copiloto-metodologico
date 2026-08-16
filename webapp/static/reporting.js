@@ -824,6 +824,14 @@ const state = {
   // diferencia de Año de Inicio/Estado (esos SÍ arrancan con una selección
   // default no vacía porque ahí vacío significa "nada", nunca "todo").
   capacidadMesesSeleccionados: { cliente: new Set(), clientePart: new Set() },
+  // Estado de Horas Productivas (owner corrective — filtro faltante) —
+  // MISMO patrón que carteraStatus/rentabilidadStatus: default "En curso"
+  // únicamente. Escopea la POBLACIÓN real (como Año/Mes, ver
+  // capacidadProductivasSelectedRows) — nunca una dimensión REMOVEFILTERS
+  // como Cliente/Proyecto — así que también participa de qué Años aparecen
+  // como opción (capacidadProductivasAnioOptions), MISMO criterio que
+  // Rentabilidad/HV.
+  capacidadStatus: { "En curso": true, "Finalizado": false },
   // Orden de Horas Productivas — CLICKEABLE en los headers Horas/%
   // Incidencia (owner live QA). % Incidencia es un transform MONÓTONO de
   // Horas contra el total FIJO del panel (`pct = horas/total*100`) — el
@@ -1087,15 +1095,20 @@ const FACET_CONFIG = {
       { key: "frecuencia", field: "frecuencia", compareFn: (a, b) => FRECUENCIA_ORDER.indexOf(a) - FRECUENCIA_ORDER.indexOf(b) },
     ],
   }),
-  // Productivas: SOLO Cliente vive en este motor genérico de <select> — Año/
-  // Mes son PANEL-INDEPENDIENTES (owner corrective: dos pares de slicers en
-  // el PBIP original, ver §8ter item 1) y se aplican DENTRO de
+  // Productivas: Cliente/Proyecto viven en este motor genérico de <select>
+  // (owner corrective — Proyecto agregado, faceteado contra Cliente:
+  // elegir un Cliente narrows las opciones de Proyecto a las de ESE
+  // cliente, MISMO motor multi-direccional que Cartera/Rentabilidad, cero
+  // código nuevo). `baseRows` escopeada por Estado (checkbox-group, fuera
+  // de este motor — MISMO criterio que Cartera/Rentabilidad) para que las
+  // opciones de Cliente/Proyecto respeten Estado. Año/Mes son PANEL-
+  // INDEPENDIENTES (owner corrective: dos pares de slicers en el PBIP
+  // original, ver §8ter item 1) y se aplican DENTRO de
   // renderCapacidadProductivas vía capacidadProductivasSelectedRows(panel),
   // nunca acá (no hay un único "baseRows" Año/Mes-escopeado compartido por
-  // ambos paneles). `baseRows` SIN escopear — el <select> de Cliente ofrece
-  // el roster completo, aplicado IGUAL a ambos paneles.
+  // ambos paneles).
   capacidad: () => state.perspective.capacidad === "Productivas"
-    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS, fields: [{ key: "cliente", field: "cliente" }] }
+    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]), fields: [{ key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }] }
     : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
   // Client Partner/Cliente son los ÚNICOS slicers <select> de ambas páginas
   // fuente. Participación: Año/Estado (owner directive — "Do NOT keep
@@ -1222,9 +1235,19 @@ function resetFilters(expId) {
   } else if (expId === "capacidad") {
     // Mes de Horas Productivas vive FUERA de `filters` (Set por panel, ver
     // `capacidadMesesSeleccionados`) — "Limpiar" lo vuelve a vacío (==
-    // "Todos") igual que Año vuelve a "" al vaciar `filters.capacidad`.
+    // "Todos"). Estado vuelve a "En curso" únicamente (MISMO criterio que
+    // Cartera/Rentabilidad). Año — owner corrective — vuelve al default
+    // SENSATO (año actual válido) de CADA panel, nunca a blanco: se
+    // reasigna DESPUÉS de vaciar `filters.capacidad` (capacidadProductivasDefaultAnio
+    // lee `capacidadProductivasAnioOptions`, que a su vez lee
+    // `state.capacidadStatus` — debe estar ya reseteado a "En curso" para
+    // que el default salga del universo correcto).
     state.filters.capacidad = {};
     state.capacidadMesesSeleccionados = { cliente: new Set(), clientePart: new Set() };
+    state.capacidadStatus = { "En curso": true, "Finalizado": false };
+    CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel => {
+      state.filters.capacidad[capacidadPanelAnioKey(panel)] = capacidadProductivasDefaultAnio();
+    });
   } else {
     state.filters[expId] = {};
   }
@@ -1492,8 +1515,19 @@ function renderCalendarioFilterBar() {
 // sobre cada visual, ver real-data-lineage.md §8ter item 1).
 function renderCapacidadFilterBar() {
   const persp = state.perspective.capacidad;
+  // Owner corrective — filtros faltantes en Productivas: Proyecto a la
+  // derecha de Cliente (faceteado — elegir un Cliente narrows Proyecto a
+  // los de ESE cliente, MISMO motor multi-direccional que Cartera, ver
+  // FACET_CONFIG.capacidad), Estado a la derecha de Proyecto (checkbox-
+  // group, MISMO criterio que Cartera/Rentabilidad — filtra la población
+  // real Y qué Años aparecen como opción, ver capacidadProductivasAnioOptions).
   const fields = persp === "Productivas"
     ? facetSelectField("capacidad", "cliente", "Cliente")
+      + facetSelectField("capacidad", "proyecto", "Proyecto")
+      + checkboxGroupField("Estado", [
+          { value: "En curso", checked: state.capacidadStatus["En curso"], onclick: "toggleCapacidadStatus('En curso')" },
+          { value: "Finalizado", checked: state.capacidadStatus["Finalizado"], onclick: "toggleCapacidadStatus('Finalizado')" },
+        ])
     : facetSelectField("capacidad", "consultor", "Consultor");
   return filterBarShell(fields, "capacidad");
 }
@@ -2213,6 +2247,16 @@ async function loadBatchBData() {
     if (data.state === "ok") {
       replaceRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas);
       replaceRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas);
+      // Default Año = año actual válido — SOLO en hidratación (owner
+      // corrective, MISMO criterio que Rentabilidad/HV), un panel a la vez,
+      // nunca pisa una elección ya hecha por el usuario (`getFilter` vacío
+      // ⇒ todavía sin elegir).
+      CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel => {
+        const key = capacidadPanelAnioKey(panel);
+        if (!getFilter("capacidad", key)) {
+          state.filters.capacidad[key] = capacidadProductivasDefaultAnio();
+        }
+      });
       state.batchBDataStatus = "ready";
     } else {
       state.batchBDataStatus = "error";
@@ -2922,16 +2966,23 @@ function expandAllTree(stateKey) {
 // especifica el corrective. Se combinan con el perspective-switch de la
 // sección (si corresponde) dentro de UN solo `sectionToolbar(...)`, nunca
 // dos toolbars apilados.
-// "Expandir todo"/"Contraer todo" (Hub Dashboard Contextual View Control
-// corrective, ver HANDOFF) — MISMO texto y MISMO orden que Staffing (antes
-// "Contraer"/"Expandir", sin "todo" y en el orden inverso): estos botones
-// afectan la jerarquía COMPLETA, no solo la fila actual.
+// "Expandir"/"Contraer" (Hub Dashboard Contextual View Control corrective,
+// ver HANDOFF) — MISMO texto y MISMO orden que Staffing (ver
+// staffing_dashboard.html): estos botones afectan la jerarquía COMPLETA,
+// no solo la fila actual. Owner corrective (2da pasada, Horas Productivas
+// — "cambiemos los textos... para que haya mas espacio"): "todo" se
+// retiró del rótulo — el toolbar de Horas Productivas es el más apretado
+// del Hub (dos paneles a mitad de ancho, Año+12 botones de Mes+Expandir+
+// Contraer en UNA sola fila), pero el texto es COMPARTIDO por las 6
+// experiencias de Reporting Y Staffing (MISMO criterio de consistencia
+// Hub-wide que ya regía "Expandir todo"/"Contraer todo") — se acortó en
+// AMBOS lados, nunca solo acá.
 function treeToolbarButtons(stateKey) {
-  return `<button type="button" onclick="expandAllTree('${stateKey}')">Expandir todo</button>
-    <button type="button" onclick="collapseAllTree('${stateKey}')">Contraer todo</button>`;
+  return `<button type="button" onclick="expandAllTree('${stateKey}')">Expandir</button>
+    <button type="button" onclick="collapseAllTree('${stateKey}')">Contraer</button>`;
 }
-// `.staffing-timeline-toolbar` — MISMA clase que el "Expandir todo/Contraer
-// todo" de Staffing (ver staffing_dashboard.html), reusada tal cual (Align
+// `.staffing-timeline-toolbar` — MISMA clase que el "Expandir/Contraer"
+// de Staffing (ver staffing_dashboard.html), reusada tal cual (Align
 // with Hub backbone corrective, ver HANDOFF: "reusar el motor de árbol
 // existente, nunca un segundo modelo de expansión"). Hub Visual Consistency
 // corrective (ver HANDOFF): ahora también aloja el perspective-switch de la
@@ -3425,19 +3476,49 @@ function capacidadPanelAnioKey(panel) { return `anio_${panel}`; }
 // el dataset, compartido entre ambos <select> por construcción: ambos
 // paneles ofrecen el MISMO rango de años seleccionables, aunque cada uno
 // elige el suyo de forma independiente).
+// Facets <select> de Capacidad/Productivas (Cliente/Proyecto) — para
+// computar las opciones de Año de forma faceteada, MISMO criterio que
+// _RENT_SELECT_FIELDS/_CARTERA_SELECT_FIELDS.
+const _CAPACIDAD_SELECT_FIELDS = [{ key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }];
+// Owner corrective — filtro de Estado faltante: los Años ofrecidos ahora
+// respetan Estado + Cliente/Proyecto activos, MISMO criterio que
+// rentabilidadAnioOptions/horasVendidasAnioOptions ("como en las demas
+// tabs").
 function capacidadProductivasAnioOptions() {
+  const statusRows = CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]);
+  const rows = facetRowsExcept(statusRows, state.filters.capacidad || {}, _CAPACIDAD_SELECT_FIELDS, "");
   const years = new Set();
-  CAPACIDAD_PRODUCTIVAS_ROWS.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
+  rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
   return [...years].filter(_isValidAnioValue).sort();
 }
-// Prune (MISMO criterio que pruneCarteraAnio, un panel a la vez): si el año
-// elegido de ESE panel deja de ser válido, cae a "" (Todos) — nunca a un
-// año "adivinado", y NUNCA toca la key del otro panel.
+// Default Año = año actual válido (owner corrective) — MISMO criterio que
+// rentabilidadDefaultAnio/horasVendidasDefaultAnio, aplicado UNA vez por
+// panel en la primera hidratación (ver loadBatchBData), nunca pisa una
+// elección ya hecha por el usuario.
+function capacidadProductivasDefaultAnio() {
+  const anioActual = String(new Date().getFullYear());
+  const options = capacidadProductivasAnioOptions();
+  if (options.includes(anioActual)) return anioActual;
+  return options.length ? options[options.length - 1] : "";
+}
+// Estado de Horas Productivas — MISMO patrón que toggleCarteraStatus/
+// toggleRentabilidadStatus: participa del mismo contexto de faceting que
+// Cliente/Proyecto (ver FACET_CONFIG.capacidad) y de qué Años aparecen
+// como opción (capacidadProductivasAnioOptions).
+function toggleCapacidadStatus(key) {
+  state.capacidadStatus[key] = !state.capacidadStatus[key];
+  reconcileExperienceFacets("capacidad");
+  render();
+}
+// Prune (MISMO criterio que pruneRentabilidadAnio, un panel a la vez): si
+// el año elegido de ESE panel deja de ser válido, cae al default SENSATO
+// (año actual válido, owner corrective — nunca a blanco/"Todos"), y NUNCA
+// toca la key del otro panel.
 function pruneCapacidadProductivasAnio(panel) {
   const key = capacidadPanelAnioKey(panel);
   const available = new Set(capacidadProductivasAnioOptions());
   const anio = (state.filters.capacidad || {})[key];
-  if (anio && !available.has(anio)) state.filters.capacidad[key] = "";
+  if (anio && !available.has(anio)) state.filters.capacidad[key] = capacidadProductivasDefaultAnio();
 }
 // Prune de Mes (multi-select, owner corrective — MISMO criterio que
 // `pruneCarteraAnioInicio`): al cambiar de Año, los meses tildados que
@@ -3450,20 +3531,23 @@ function pruneCapacidadProductivasMeses(panel) {
   const set = state.capacidadMesesSeleccionados[panel];
   state.capacidadMesesSeleccionados[panel] = new Set([...set].filter(m => valid.has(m)));
 }
-// Población canónica de UN panel: Año+Mes(es) de ESE panel proyectados a
-// `horas` (recalculado desde `horasByYear`, nunca el `horas` colapsado
-// retrocompat) — alimenta ese panel Y su propio gran total fijo. Cliente
-// (el ÚNICO <select> compartido, ver renderCapacidadFilterBar) se aplica
-// DESPUÉS, igual en ambos paneles (ver renderCapacidadProductivas). Año=""
-// (Todos) colapsa TODOS los años presentes (`_sumMonthlyArrays`), MISMO
-// motor null-aware que Rentabilidad/HV — sin cap de mes futuro
-// (`_operationalMonthCap("")` = null, "Todos" no es "el año actual").
+// Población canónica de UN panel: Estado (owner corrective, MISMO scope
+// real que Año/Mes — ver comentario de capacidadProductivasTotal abajo) +
+// Año+Mes(es) de ESE panel proyectados a `horas` (recalculado desde
+// `horasByYear`, nunca el `horas` colapsado retrocompat) — alimenta ese
+// panel Y su propio gran total fijo. Cliente/Proyecto (los <select>
+// compartidos, ver renderCapacidadFilterBar) se aplican DESPUÉS, igual en
+// ambos paneles (ver renderCapacidadProductivas) — esos SÍ son
+// REMOVEFILTERS, nunca escopean el total. Año="" (Todos) colapsa TODOS los
+// años presentes (`_sumMonthlyArrays`), MISMO motor null-aware que
+// Rentabilidad/HV — sin cap de mes futuro (`_operationalMonthCap("")` =
+// null, "Todos" no es "el año actual").
 function capacidadProductivasSelectedRows(panel) {
   const anioKey = capacidadPanelAnioKey(panel);
   const anio = getFilter("capacidad", anioKey);
   const meses = state.capacidadMesesSeleccionados[panel];
   const cap = _operationalMonthCap(anio);
-  return CAPACIDAD_PRODUCTIVAS_ROWS.map(r => {
+  return CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]).map(r => {
     const arr = anio ? ((r.horasByYear || {})[anio] || _z12()) : _sumMonthlyArrays(Object.values(r.horasByYear || {}));
     const monthly = _applyMonthCap(_maskMeses(arr, meses), cap);
     return { ...r, horas: monthly.reduce((a, b) => a + (b || 0), 0) };
@@ -3531,11 +3615,24 @@ function capacidadProductivasMesButtons(panel) {
   const anioKey = capacidadPanelAnioKey(panel);
   const anio = getFilter("capacidad", anioKey);
   const selected = state.capacidadMesesSeleccionados[panel];
-  const options = _validMesOptions(anio);
+  // Owner corrective — "que la posicion del dropdown de año no cambie de
+  // lugar": SIEMPRE los 12 botones en el DOM (nunca `_validMesOptions`
+  // recortando la lista) — con `.staffing-timeline-toolbar` alineado a la
+  // derecha (`justify-content: flex-end`), un ancho de grupo VARIABLE
+  // (menos botones bajo el año en curso) corría el Año hacia la derecha
+  // cada vez que cambiaba de año. Ancho CONSTANTE = posición constante. Los
+  // meses futuros (más allá del cap operativo del Año elegido) quedan
+  // DESHABILITADOS en su lugar en vez de desaparecer — mismo dato, misma
+  // estructura, solo no clickeables.
+  const cap = _operationalMonthCap(anio);
   return `<label class="whatsnew-filter whatsnew-filter--compact">
     <span>Mes</span>
     <div class="dashboard-view-switch dashboard-view-switch--multi">
-      ${options.map(m => `<button type="button" class="${selected.has(m.value) ? "is-active" : ""}" onclick="toggleCapacidadMes('${panel}','${m.value}')" title="${esc(m.label)}">${esc(MESES[Number(m.value) - 1])}</button>`).join("")}
+      ${MESES_LARGOS.map((nombre, i) => {
+        const value = String(i + 1);
+        const isFuture = cap && i >= cap;
+        return `<button type="button" class="${selected.has(value) ? "is-active" : ""}" ${isFuture ? "disabled" : ""} onclick="toggleCapacidadMes('${panel}','${value}')" title="${esc(nombre)}">${esc(MESES[i])}</button>`;
+      }).join("")}
     </div>
   </label>`;
 }
@@ -3568,6 +3665,10 @@ function renderCapacidadProductivas() {
   if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas Productivas");
 
   const clienteFilter = getFilter("capacidad", "cliente");
+  // Proyecto (owner corrective) — REMOVEFILTERS, MISMO criterio que
+  // Cliente: narrows las filas MOSTRADAS, nunca el gran total fijo (ese
+  // vive en capacidadProductivasTotal, que no conoce Cliente/Proyecto).
+  const proyectoFilter = getFilter("capacidad", "proyecto");
   // Orden por Horas de Cliente == el Rank real del PBIP (RANKX por Horas),
   // representado vía orden visual — nunca una columna Rank redundante con
   // el orden. Descendente por default (Rank original); CLICKEABLE en los
@@ -3576,7 +3677,9 @@ function renderCapacidadProductivas() {
   // Calculado POR PANEL (cada uno con su propia población Año/Mes-escopeada
   // Y su propia dirección de orden, pueden divergir).
   const rowsFor = panel => {
-    const rows = capacidadProductivasSelectedRows(panel).filter(r => !clienteFilter || r.cliente === clienteFilter);
+    const rows = capacidadProductivasSelectedRows(panel)
+      .filter(r => !clienteFilter || r.cliente === clienteFilter)
+      .filter(r => !proyectoFilter || r.proyecto === proyectoFilter);
     const clientTotals = new Map();
     rows.forEach(r => clientTotals.set(r.cliente, (clientTotals.get(r.cliente) || 0) + r.horas));
     const sign = state.capacidadProductivasSortDir[panel] === "asc" ? 1 : -1;

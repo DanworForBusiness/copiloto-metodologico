@@ -719,7 +719,10 @@ class ReportingService:
         REPORTING": el PBI de referencia muestra Año/Mes como slicers de
         página sobre ESTA tabla, ver real-data-lineage.md §8ter item 1) +
         `porcentajePart` (número YA multiplicado por 100, constante por
-        Cliente — alimenta el panel "Cliente + Part", ver abajo).
+        Cliente — alimenta el panel "Cliente + Part", ver abajo) + `estado`
+        (Proyectos.Status, constante por Proyecto — owner corrective:
+        filtro de Estado faltante, MISMO campo/join que Cartera/Rentabilidad
+        leen, nunca un segundo fetch).
 
         CORRECTION 1 CERRADA (ver HANDOFF/real-data-lineage.md §8bis):
         reimplementado sobre `get_time_logs_facts` (CSV, sitio Operaciones)
@@ -761,7 +764,14 @@ class ReportingService:
             if proyecto in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 continue
             key = (cliente, proyecto)
-            g = groups.setdefault(key, {"byYear": {}, "collapsed": 0.0, "porcentajePart": f.get("porcentajePart", 0.0)})
+            g = groups.setdefault(key, {
+                "byYear": {}, "collapsed": 0.0, "porcentajePart": f.get("porcentajePart", 0.0),
+                # Estado (Proyectos.Status, owner corrective — filtro
+                # faltante en Horas Productivas): constante por
+                # (Cliente, Proyecto), viaja igual que porcentajePart —
+                # todas las filas de UN proyecto comparten el mismo Estado.
+                "estado": f.get("estado", ""),
+            })
             n = _time_logs_month_num(f["mes"])
             if n is not None:
                 g["collapsed"] += f["horas"]
@@ -776,6 +786,7 @@ class ReportingService:
                 "horas": _round2(g["collapsed"]),
                 "horasByYear": {a: [_round2(v) for v in arr] for a, arr in g["byYear"].items()},
                 "porcentajePart": _round2(g["porcentajePart"] * 100),
+                "estado": g["estado"],
             }
             for (cliente, proyecto), g in groups.items()
         ]

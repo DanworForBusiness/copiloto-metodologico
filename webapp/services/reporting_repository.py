@@ -886,6 +886,15 @@ class ReportingRepository:
             facts.append({
                 "cliente": _text(cli.get(CLI_NOMBRE)) or _text(row.get("Client")),
                 "proyecto": _first(proy, PROY_TITLE) or project_raw,
+                # Estado (Proyectos.Status) — owner corrective: Horas
+                # Productivas necesita un filtro de Estado como el resto del
+                # Hub. `proy` YA trae el item completo de Proyectos (mismo
+                # join usado para cliente/porcentajePart arriba) — MISMO
+                # campo que Cartera/Rentabilidad leen (`PROY_ESTADO`), nunca
+                # un segundo fetch. Proyecto sin match ⇒ "" (fail-soft,
+                # queda fuera de ambos checkboxes de Estado hasta que el
+                # join se resuelva, nunca un valor inventado).
+                "estado": _text(proy.get(PROY_ESTADO)),
                 "task": _text(row.get("Task")),
                 "email": _text(row.get("Email")),
                 "horas": _num(row.get("Duration Decimal")) / 1000.0,

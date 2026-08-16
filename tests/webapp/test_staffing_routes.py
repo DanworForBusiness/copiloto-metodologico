@@ -387,8 +387,8 @@ def test_post_dashboard_timeline_has_expand_collapse_controls(monkeypatch):
     )
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     text = response.text
-    assert "Expandir todo" in text
-    assert "Contraer todo" in text
+    assert "Expandir" in text
+    assert "Contraer" in text
     assert "toggleConsultant(" in text
     assert "expandAllConsultants()" in text
     assert "collapseAllConsultants()" in text

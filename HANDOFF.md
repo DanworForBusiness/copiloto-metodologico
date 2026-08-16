@@ -6620,6 +6620,92 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > visibly reorders both panels' Cliente ranking, confirm % Incidencia is
 > visible without scrolling at a normal desktop width, confirm Expandir/
 > Contraer read as normal-height buttons next to Año/Mes.
+>
+> **✅ HORAS PRODUCTIVAS — 3rd owner pass (Año default, Proyecto/Estado
+> filters, Mes structural stability, button rename)**. Four more asks
+> against Horas Productivas, plus a re-confirmation of the SHARED REPORTING
+> INITIAL-LOAD CONTRACT from earlier this session:
+>
+> **A. Año defaults to the current year** on both panels (was `""`/Todos).
+> New `capacidadProductivasDefaultAnio()` (MISMO fallback que
+> `rentabilidadDefaultAnio`/`horasVendidasDefaultAnio`: año actual si está
+> representado, si no el más reciente disponible, nunca blanco) applied
+> once per panel in `loadBatchBData()` on first hydration (never overwrites
+> a year the user already picked) and reused by `pruneCapacidadProductivasAnio`
+> (a year that becomes invalid now falls back to the default, not to
+> blank) and by "Limpiar".
+>
+> **B. Proyecto + Estado added to the shared Productivas filter bar**
+> (Cliente → Proyecto → Estado, left to right). Proyecto reuses the
+> EXISTING multi-directional facet engine (`FACET_CONFIG.capacidad` fields
+> now `[cliente, proyecto]`) — picking a Cliente narrows Proyecto options
+> to that client's projects for free, zero bespoke code. Estado is a new
+> `state.capacidadStatus` checkbox-group (`carteraStatus`/`rentabilidadStatus`
+> pattern, default "En curso" only) that scopes the REAL population — like
+> Año/Mes, never a REMOVEFILTERS dimension — so it also narrows which Años
+> appear as options (`capacidadProductivasAnioOptions`, now faceted exactly
+> like `rentabilidadAnioOptions`: "como en las demas tabs"). Required a
+> backend addition: `estado` didn't exist on Time Logs facts before —
+> `get_time_logs_facts` now reads `Proyectos.Status` (`PROY_ESTADO`) off the
+> SAME `proy` item already joined for `porcentajePart`/cliente (no second
+> fetch), threaded through `_shape_horas_productivas` onto
+> `CAPACIDAD_PRODUCTIVAS_ROWS[].estado`. Proyecto itself stays REMOVEFILTERS
+> (narrows the DISPLAYED rollup, e.g. a Cliente's Horas cell drops from 180
+> to 120 when a Proyecto is picked) while the % Incidencia denominator
+> (`capacidadProductivasTotal`) stays untouched by it — same distinction
+> Cliente already had.
+>
+> **C. Mes toolbar is now structurally stable** — owner: "que la posicion
+> del dropdown de año no cambie de lugar por elegir 2026 y desaparecer
+> meses." Root cause: `.staffing-timeline-toolbar` is `justify-content:
+> flex-end`, so a Mes button GROUP whose width shrank (current-year cap
+> dropping future months from the DOM) pushed the whole row — Año included —
+> further right. Fix: `capacidadProductivasMesButtons` now ALWAYS renders
+> all 12 buttons; months beyond the operational cap get the `disabled`
+> attribute (+ `.dashboard-view-switch--multi button:disabled { opacity:
+> .35 }`) instead of being omitted — same data, constant group width, Año's
+> position never moves.
+>
+> **D. "Expandir todo"/"Contraer todo" → "Expandir"/"Contraer"** — owner:
+> more room in Horas Productivas' tight two-panel toolbar. This text is
+> SHARED Hub-wide (Reporting's `treeToolbarButtons` AND Staffing's own copy
+> in `staffing_dashboard.html`, deliberately kept in sync by an earlier
+> corrective) — shortened in BOTH, never diverged just for Reporting.
+>
+> **Re-confirmed, not re-implemented**: the owner also re-described the
+> SHARED REPORTING INITIAL-LOAD CONTRACT from earlier this session (commit
+> `8497531`, before this Horas Productivas work started) as if it might be
+> missing. Verified it's still fully intact — `TAB_HYDRATION_TRIGGERS`,
+> `state.reportingTabHydrated`, `reportingTabRawStatus`, and `render()`'s
+> hydrated/not-hydrated split are untouched by the two commits since
+> (`f7a6201` and this one) — and that all 7 of the owner's required
+> regression scenarios (first visit, hydration complete, cold year,
+> perspective switch, return to cached tab, first-load error, incremental
+> error) are already covered by `reporting_initial_load_contract.node.js`/
+> `test_reporting_initial_load_contract.py`, all still green. No new work
+> was needed there this pass.
+>
+> Tests: `reporting_capacidad_ux_corrective.node.js` extended with new
+> blocks — Estado scopes both the real population AND the Año options list
+> (mirrors `rentabilidadAnioOptions`), Proyecto narrows a Cliente's rollup
+> without touching the fixed % denominator, `capacidadProductivasDefaultAnio`
+> picks the current year when represented and falls back to the latest
+> available year otherwise (never blank), the Mes toolbar renders exactly
+> 12 buttons for both a historical year (none disabled) and the current
+> year (future months disabled, never fewer than 12), and the filter bar
+> montage order (Cliente → Proyecto → Estado). Updated
+> `tests/webapp/test_staffing_routes.py` for the Expandir/Contraer text
+> shorten.
+>
+> Suite after this pass: **1130 passed / 9 known stale / 1 skipped**
+> (same venv/baseline as every prior pass this session). PENDIENTE: **owner
+> live smoke** — confirm both Año dropdowns start on the current year,
+> confirm Proyecto narrows to the selected Cliente's projects and Estado
+> narrows both the table and the Año dropdown's options, confirm the Año
+> dropdown's horizontal position stays fixed regardless of which year is
+> selected (future months visibly greyed out instead of disappearing),
+> confirm "Expandir"/"Contraer" read correctly in both Reporting and
+> Staffing.
 
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this
