@@ -42,7 +42,12 @@ def test_rentabilidad_mensual_and_resumen_apply_the_same_month_mask():
     assert "monthsInRange" not in resumen  # Desde/Hasta retirado de Rentabilidad
 
     mensual = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadMensual"):_REPORTING_JS.index("function renderRentabilidadResumen")]
-    assert "portfolio.vendidas" in mensual and "portfolio.noAsignadas" in mensual
+    # SOURCE-PARITY corrective: Vendidas dejó de ser `portfolio.vendidas`
+    # (escalar fijo) — ahora es `vendMonthly`, sumado de `rows` igual que
+    # certMonthly/trabMonthly (ver test_reporting_rentabilidad_source_parity.py).
+    # Solo "No asignadas a servicios" SIGUE viniendo de `portfolio`.
+    assert "_sumMonthlyArrays(rows.map(p => p.vendMonthly))" in mensual
+    assert "portfolio.noAsignadas" in mensual
     assert "maskMonthly" not in mensual  # ya no aplica la máscara Desde/Hasta
 
 

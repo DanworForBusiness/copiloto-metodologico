@@ -191,16 +191,62 @@ def test_get_rentabilidad_portfolio_monthly_totals_real_grain(monkeypatch):
         ]},
     )
     result = _service().get_rentabilidad("tok")
-    # Vendidas portfolio real por mes: Enero=10+7=17, Febrero=3.
-    assert result["vendidasMonthly"][0] == 17
-    assert result["vendidasMonthly"][1] == 3
-    assert sum(result["vendidasMonthly"]) == 20
-    # No asignadas portfolio: Enero=4 (SOLO el proyecto placeholder).
+    # SOURCE-PARITY corrective: Vendidas ya NO es un escalar de portfolio —
+    # vive POR PROYECTO (vendMonthly, mismo shape que certMonthly/trabMonthly),
+    # ver test_reporting_rentabilidad_source_parity.py para el porqué (PBIP
+    # filtra Vendidas por Tipo Proyecto/Estado igual que Certificadas).
+    by_proyecto = {p["proyecto"]: p for p in result["proyectos"]}
+    assert by_proyecto["Proyecto Uno"]["vendMonthly"][0] == 10
+    assert by_proyecto["Proyecto Uno"]["vendMonthly"][1] == 3
+    assert by_proyecto["Proyecto Dos"]["vendMonthly"][0] == 7
+    assert by_proyecto["Proyecto Uno"]["vendidas"] == 13
+    assert by_proyecto["Proyecto Dos"]["vendidas"] == 7
+    # No asignadas SIGUE siendo portfolio: Enero=4 (SOLO el proyecto placeholder).
     assert result["noAsignadasMonthly"][0] == 4
     assert sum(result["noAsignadasMonthly"]) == 4
     # El placeholder NUNCA aparece como fila de proyecto real.
-    proyecto_names = {p["proyecto"] for p in result["proyectos"]}
+    proyecto_names = set(by_proyecto)
     assert "Danwor - Horas No Productivas (#1)" not in proyecto_names
+
+
+def test_get_rentabilidad_trabajadas_join_uses_normalized_key_not_exact_title(monkeypatch):
+    """SOURCE-PARITY corrective (defecto #1, Trabajadas 4.6 vs 4,624.5 en el
+    caso dorado del owner): el join Cartera<->Time Logs usa `_norm_key`
+    (Upper+sin espacios) — MISMA normalización que el PBIP usa para unir
+    estas 2 fuentes en `Comparativo` (Key_Proyect_desc/Proyecto_Key), NUNCA
+    un match exacto de string.
+
+    Fixture: un proyecto HISTÓRICO que ya no existe en la lista Proyectos
+    actual (ProyectoLookupId/Project sin match) — AMBOS lados caen a su
+    propio fallback de texto crudo con distinta capitalización/espaciado
+    entre sí ("Proyecto  Legado X" en Horas por proyectos vs "PROYECTO
+    LEGADO X" en el CSV de Time Logs). El join EXACTO viejo nunca los habría
+    unido (son strings distintos); `_norm_key` sí, porque colapsan a la
+    MISMA clave — prueba directa de que Trabajadas ya no desaparece por
+    drift de nombres históricos entre las 2 fuentes físicas."""
+    _patch(
+        monkeypatch,
+        horas=[
+            {"ProyectoLookupId": "missing-id", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Enero",
+             "HsVendidas": "10", "HsFacturadas": "8", "HsTrabajadas": "0",
+             "Proyecto": "Proyecto  Legado X"},
+        ],
+        proyectos=[],  # el proyecto NO existe en Proyectos (archivado/histórico)
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-01-10", "Project": "PROYECTO LEGADO X", "Duration Decimal": "5000",
+             "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
+    )
+    result = _service().get_rentabilidad("tok")
+    assert len(result["proyectos"]) == 1
+    p = result["proyectos"][0]
+    assert p["trabajadas"] == 5, (
+        "el join debe unir 'Proyecto  Legado X' (Cartera) con 'PROYECTO LEGADO X' "
+        "(Time Logs) vía _norm_key pese a NO ser el mismo string exacto"
+    )
+    assert p["certificadas"] == 8  # Certificadas sin cambios — no forma parte de este defecto.
 
 
 # ============================================================================
@@ -220,8 +266,11 @@ def test_rentabilidad_endpoint_and_lifecycle_exist():
 def test_rentabilidad_never_mixes_mock_and_real_data():
     load_fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadData"):_REPORTING_JS.index("async function loadRentabilidadData") + 1200]
     assert "replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos)" in load_fn
-    assert "replaceMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, data.rentabilidad.vendidasMonthly)" in load_fn
     assert "replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly)" in load_fn
+    # SOURCE-PARITY corrective: Vendidas dejó de ser un escalar de portfolio
+    # (ver test_reporting_rentabilidad_source_parity.py) — ya NO se puebla acá,
+    # llega dentro de cada fila de `data.rentabilidad.proyectos` (vendByYear).
+    assert "vendidasMonthly" not in load_fn
 
 
 def test_rentabilidad_resumen_and_cert_ejec_gate_on_rentabilidad_status():
@@ -305,7 +354,7 @@ def test_get_rentabilidad_keeps_year_grain_separate(monkeypatch):
     p = r["proyectos"][0]
     assert p["certByYear"]["2026"][0] == 8 and p["certByYear"]["2025"][0] == 3   # Ene por año
     assert p["trabByYear"]["2026"][0] == 5
-    assert r["vendidasByYear"]["2026"][0] == 10 and r["vendidasByYear"]["2025"][0] == 4
+    assert p["vendByYear"]["2026"][0] == 10 and p["vendByYear"]["2025"][0] == 4
     assert p["estado"] == "En curso"
 
 
@@ -372,7 +421,7 @@ def test_get_rentabilidad_anios_reuses_horas_vendidas_metadata(monkeypatch):
 
 def test_get_rentabilidad_rejects_non_year_anio_value(monkeypatch):
     # Un valor no-4-dígitos en A_x00f1_o (dato de origen corrupto/mal cargado)
-    # NUNCA debe alcanzar certByYear/vendidasByYear — se descarta en la
+    # NUNCA debe alcanzar certByYear/vendByYear — se descarta en la
     # fuente, nunca filtrado recién en el HTML.
     _patch(
         monkeypatch,
@@ -393,5 +442,5 @@ def test_get_rentabilidad_rejects_non_year_anio_value(monkeypatch):
     r = _service().get_rentabilidad("tok")
     p = r["proyectos"][0]
     assert "Septiembre" not in p["certByYear"]
-    assert "Septiembre" not in r["vendidasByYear"]
+    assert "Septiembre" not in p["vendByYear"]
     assert set(p["certByYear"].keys()) == {"2026"}

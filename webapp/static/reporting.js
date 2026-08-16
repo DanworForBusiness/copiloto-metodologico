@@ -371,11 +371,19 @@ function maskMonthly(monthly, mask) {
   return mask ? monthly.map((v, i) => (mask[i] ? v : 0)) : monthly;
 }
 
-const RENTABILIDAD_VENDIDAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.vendidas);
+// SOURCE-PARITY RECONCILIATION (owner live comparison vs PBIP): Vendidas
+// dejó de ser un escalar de portfolio — PBIP filtra Vendidas por Tipo
+// Proyecto Dash/Status igual que Certificadas (ver page.json de "Analisis
+// Rentabilidad"), y `HsVendidas` vive en la MISMA fila de "Horas por
+// proyectos" que `Hs certificadas`, así que es igual de atribuible por
+// proyecto — ver `vendByYear`/`vendMonthly` en `RENTABILIDAD_PROYECTOS`
+// (mismo shape que certByYear/trabByYear) y `rentabilidadSelectedRows`.
+// Solo "No asignadas a servicios" SIGUE siendo portfolio fijo (Time Logs de
+// los 2 proyectos placeholder, fuera del universo de Proyectos — sin Tipo/
+// Estado propios que filtrar, el PBIP tampoco lo filtra).
 const RENTABILIDAD_NOASIGNADAS_MENSUAL = flatMonthly(RENTABILIDAD_RESUMEN.noAsignadas);
-// Portfolio POR-AÑO (Vendidas / No asignadas) — poblados por loadRentabilidadData
-// desde el service; el filtro Año elige el [12] del año (o colapsado si Todos).
-let RENTABILIDAD_VENDIDAS_BY_YEAR = {};
+// Portfolio POR-AÑO (No asignadas) — poblado por loadRentabilidadData desde
+// el service; el filtro Año elige el [12] del año (o colapsado si Todos).
 let RENTABILIDAD_NOASIGNADAS_BY_YEAR = {};
 
 // Horas Vendidas (ver corrective — HANDOFF/task): campos reales del PBIP son
@@ -1851,10 +1859,13 @@ function hydrateRentabilidadTab() {
   if (state.rentabilidadAniosStatus === "idle") loadRentabilidadAnios();
 }
 // Años YA hidratados — fuente de verdad ÚNICA: las claves de
-// RENTABILIDAD_VENDIDAS_BY_YEAR (portfolio, poblado en CADA hidratación
-// exitosa — hot o fría — sin importar si esa carga trajo 0 proyectos).
+// RENTABILIDAD_NOASIGNADAS_BY_YEAR (portfolio, poblado en CADA hidratación
+// exitosa — hot o fría — sin importar si esa carga trajo 0 proyectos; era
+// RENTABILIDAD_VENDIDAS_BY_YEAR antes del SOURCE-PARITY corrective —
+// Vendidas dejó de ser portfolio, No asignadas sigue siéndolo y cumple el
+// MISMO rol de centinela).
 function rentabilidadLoadedYears() {
-  return new Set(Object.keys(RENTABILIDAD_VENDIDAS_BY_YEAR));
+  return new Set(Object.keys(RENTABILIDAD_NOASIGNADAS_BY_YEAR));
 }
 async function loadRentabilidadData() {
   state.rentabilidadDataStatus = "loading";
@@ -1866,9 +1877,7 @@ async function loadRentabilidadData() {
     const data = await resp.json();
     if (data.state === "ok" && data.rentabilidad) {
       replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos);
-      replaceMonthly(RENTABILIDAD_VENDIDAS_MENSUAL, data.rentabilidad.vendidasMonthly);
       replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly);
-      RENTABILIDAD_VENDIDAS_BY_YEAR = data.rentabilidad.vendidasByYear || {};
       RENTABILIDAD_NOASIGNADAS_BY_YEAR = data.rentabilidad.noAsignadasByYear || {};
       // Default Año = año actual válido (faceted fallback) — SOLO en hidratación
       // (nunca en cambio de perspectiva; ver §10 del batch).
@@ -1910,9 +1919,10 @@ async function loadRentabilidadAnios() {
 // Fusión por PROYECTO (owner directive — cache por scope en el cliente,
 // MISMO criterio que `mergeHorasVendidasRows`): Rentabilidad es UNA fila
 // por proyecto (clave natural: `proyecto`, único en `RENTABILIDAD_
-// PROYECTOS`) con certByYear/trabByYear que abarcan años — un año frío se
-// fusiona en ESOS mapas, nunca crea una fila duplicada. Portfolio
-// (Vendidas/No asignadas por año) se fusiona directo por Object.assign.
+// PROYECTOS`) con certByYear/trabByYear/vendByYear que abarcan años — un
+// año frío se fusiona en ESOS mapas, nunca crea una fila duplicada.
+// Portfolio (No asignadas por año — Vendidas dejó de ser portfolio, ver
+// SOURCE-PARITY corrective arriba) se fusiona directo por Object.assign.
 function mergeRentabilidadRows(incoming) {
   const byKey = new Map(RENTABILIDAD_PROYECTOS.map(p => [p.proyecto, p]));
   (incoming.proyectos || []).forEach(inc => {
@@ -1920,12 +1930,12 @@ function mergeRentabilidadRows(incoming) {
     if (existing) {
       Object.assign(existing.certByYear || (existing.certByYear = {}), inc.certByYear || {});
       Object.assign(existing.trabByYear || (existing.trabByYear = {}), inc.trabByYear || {});
+      Object.assign(existing.vendByYear || (existing.vendByYear = {}), inc.vendByYear || {});
     } else {
       RENTABILIDAD_PROYECTOS.push(inc);
       byKey.set(inc.proyecto, inc);
     }
   });
-  Object.assign(RENTABILIDAD_VENDIDAS_BY_YEAR, incoming.vendidasByYear || {});
   Object.assign(RENTABILIDAD_NOASIGNADAS_BY_YEAR, incoming.noAsignadasByYear || {});
 }
 // Lazy-load de un año FRÍO puntual — disparado desde renderRentabilidad
@@ -2495,6 +2505,7 @@ function rentabilidadAnioOptions() {
   rows.forEach(p => {
     Object.keys(p.certByYear || {}).forEach(y => years.add(y));
     Object.keys(p.trabByYear || {}).forEach(y => years.add(y));
+    Object.keys(p.vendByYear || {}).forEach(y => years.add(y));
   });
   (state.rentabilidadAniosDisponibles || []).forEach(p => {
     if (state.rentabilidadStatus[p.estado]) years.add(p.anio);
@@ -2536,25 +2547,31 @@ function rentabilidadSelectedRows() {
   return rows.map(p => {
     const certArr = anio ? ((p.certByYear || {})[anio] || _z12()) : (p.certMonthly || _z12());
     const trabArr = anio ? ((p.trabByYear || {})[anio] || _z12()) : (p.trabMonthly || _z12());
+    // Vendidas ahora POR PROYECTO (SOURCE-PARITY corrective — ver comentario
+    // de RENTABILIDAD_NOASIGNADAS_MENSUAL arriba), MISMO tratamiento que
+    // Certificadas/Trabajadas: responde a Estado + CP/Cliente/Tipo/Proyecto,
+    // nunca un escalar de portfolio fijo.
+    const vendArr = anio ? ((p.vendByYear || {})[anio] || _z12()) : (p.vendMonthly || _z12());
     // CURRENT-YEAR FUTURE-MONTH CAP aplicado DESPUÉS de la máscara de Mes
     // (orden defensivo: si Año=año actual, el cap gana incluso si algún
     // día un Mes futuro llegara seleccionado — ver `_validMesOptions`, que
     // ya evita ofrecerlo como opción).
     const cm = _applyMonthCap(_maskMes(certArr, mes), cap);
     const tm = _applyMonthCap(_maskMes(trabArr, mes), cap);
-    return { ...p, certMonthly: cm, trabMonthly: tm,
-      certificadas: cm.reduce((a, b) => a + (b || 0), 0), trabajadas: tm.reduce((a, b) => a + (b || 0), 0) };
+    const vm = _applyMonthCap(_maskMes(vendArr, mes), cap);
+    return { ...p, certMonthly: cm, trabMonthly: tm, vendMonthly: vm,
+      certificadas: cm.reduce((a, b) => a + (b || 0), 0), trabajadas: tm.reduce((a, b) => a + (b || 0), 0),
+      vendidas: vm.reduce((a, b) => a + (b || 0), 0) };
   });
 }
-// Portfolio (Vendidas / No asignadas) para el Año+Mes seleccionados.
+// Portfolio (SOLO No asignadas — Vendidas dejó de ser portfolio, ver
+// rentabilidadSelectedRows) para el Año+Mes seleccionados.
 function rentabilidadSelectedPortfolio() {
   const anio = getFilter("rentabilidad", "anio");
   const mes = getFilter("rentabilidad", "mes");
   const cap = _operationalMonthCap(anio);
-  const vend = anio ? (RENTABILIDAD_VENDIDAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_VENDIDAS_MENSUAL;
   const noas = anio ? (RENTABILIDAD_NOASIGNADAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_NOASIGNADAS_MENSUAL;
   return {
-    vendidas: _applyMonthCap(_maskMes(vend, mes), cap),
     noAsignadas: _applyMonthCap(_maskMes(noas, mes), cap),
   };
 }
@@ -2709,20 +2726,21 @@ function renderRentabilidadMensual(rows, portfolio) {
   // filas preserva `null` (blanco), nunca colapsa a "0" en la matriz.
   const certMonthly = _sumMonthlyArrays(rows.map(p => p.certMonthly));
   const trabMonthly = _sumMonthlyArrays(rows.map(p => p.trabMonthly));
+  const vendMonthly = _sumMonthlyArrays(rows.map(p => p.vendMonthly));
   const rentMonthly = _diffMonthly(certMonthly, trabMonthly);
-  // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5) — Horas
-  // Vendidas/No asignadas a servicios quedan a nivel portfolio fijo (ver
-  // comentario del dataset), Certificadas/Trabajadas/Rentabilidad horas sí
-  // responden a los filtros vigentes de esta experiencia. Q2 (owner live
-  // QA): las 5 conceptos pasan por la MISMA `monthMask` de Desde/Hasta —
-  // meses fuera del rango activo quedan en blanco en TODAS, incluidas las
-  // 2 fijas de portfolio (antes solo el filtro de Tipo/Proyecto llegaba
-  // acá, la fecha nunca se aplicaba a esta matriz).
-  // `rows` ya vienen proyectadas al Año+Mes seleccionados (certMonthly/trabMonthly
-  // enmascarados en rentabilidadSelectedRows); `portfolio` (Vendidas/No asignadas)
-  // también — nada de máscara Desde/Hasta acá.
+  // Orden real (Rentabilidad Unpivot.tmdl, columna Orden 1→5). SOURCE-PARITY
+  // corrective: Horas Vendidas ahora responde a los MISMOS filtros que
+  // Certificadas/Trabajadas (por-proyecto, ver rentabilidadSelectedRows) —
+  // solo "No asignadas a servicios" queda a nivel portfolio fijo (Time Logs
+  // de los proyectos placeholder, fuera del universo de Proyectos). Q2
+  // (owner live QA): los 5 conceptos pasan por la MISMA `monthMask` de
+  // Desde/Hasta — meses fuera del rango activo quedan en blanco en TODAS,
+  // incluida la fija de portfolio.
+  // `rows` ya vienen proyectadas al Año+Mes seleccionados (certMonthly/
+  // trabMonthly/vendMonthly enmascarados en rentabilidadSelectedRows);
+  // `portfolio.noAsignadas` también — nada de máscara Desde/Hasta acá.
   const conceptos = [
-    { concepto: "Horas Vendidas", monthly: portfolio.vendidas, signed: false },
+    { concepto: "Horas Vendidas", monthly: vendMonthly, signed: false },
     { concepto: "Horas Certificadas", monthly: certMonthly, signed: false },
     { concepto: "Horas Trabajadas", monthly: trabMonthly, signed: false },
     { concepto: "Rentabilidad horas", monthly: rentMonthly, signed: true },
@@ -2782,10 +2800,16 @@ function renderRentabilidadResumen() {
   // fetch, ver HANDOFF/real-data-lineage.md §10).
   if (state.rentabilidadDataStatus !== "ready") return renderRentabilidadDataState();
   const rows = rentabilidadFilteredProyectos();
-  // Horas Certificadas/Trabajadas/Rentabilidad horas (owner feedback: los
-  // tiles quedaban estáticos al filtrar) — se recalculan de `rows` YA
-  // filtradas (mismo criterio que la matriz mensual de abajo, ver
-  // renderRentabilidadMensual), nunca del total fijo de portfolio.
+  // Horas Vendidas/Certificadas/Trabajadas/Rentabilidad horas (owner
+  // feedback: los tiles quedaban estáticos al filtrar) — se recalculan de
+  // `rows` YA filtradas (mismo criterio que la matriz mensual de abajo, ver
+  // renderRentabilidadMensual). SOURCE-PARITY corrective: Vendidas se sumó
+  // acá también (dejó de ser un escalar de portfolio, ver comentario de
+  // RENTABILIDAD_NOASIGNADAS_MENSUAL arriba) — responde a Tipo Proyecto/
+  // Estado/Cliente/Proyecto igual que Certificadas/Trabajadas, MISMO
+  // criterio que el PBIP (slicers "Tipo Proyecto Dash"/"Status" en la
+  // página "Analisis Rentabilidad" aplican a las 3 medidas por igual).
+  const vendidas = rows.reduce((s, p) => s + p.vendidas, 0);
   const certificadas = rows.reduce((s, p) => s + p.certificadas, 0);
   const trabajadas = rows.reduce((s, p) => s + p.trabajadas, 0);
   const rentabilidadHoras = certificadas - trabajadas;
@@ -2794,21 +2818,19 @@ function renderRentabilidadResumen() {
   const negativos = ranked.filter(p => p.rentabilidad < 0).slice().reverse(); // más negativo primero
   const maxAbs = Math.max(...ranked.map(p => Math.abs(p.rentabilidad)), 1);
 
-  // Q2 (owner live QA): Horas Vendidas/No asignadas a servicios no existen
-  // como campo por-proyecto (no responden al filtro de Tipo/Proyecto —
-  // inventar una distribución filtrable sería peor que ser explícito sobre
-  // ese límite), pero SÍ deben responder al filtro de FECHA como el resto
-  // de la sección — antes quedaban fijas al total anual completo aunque
+  // "No asignadas a servicios" SIGUE siendo portfolio fijo (Time Logs de
+  // los proyectos placeholder, fuera del universo de Proyectos — sin Tipo/
+  // Estado propios que filtrar) pero SÍ responde al filtro de FECHA como el
+  // resto de la sección — antes quedaba fija al total anual completo aunque
   // Desde/Hasta acotara a unos pocos meses (misma matriz `flatMonthly` que
   // usa la sección "Detalle mensual por Concepto" de abajo, MISMA máscara).
   const portfolio = rentabilidadSelectedPortfolio();
-  const vendidasPortfolio = portfolio.vendidas.reduce((a, b) => a + b, 0);
   const noAsignadasPortfolio = portfolio.noAsignadas.reduce((a, b) => a + b, 0);
 
   const resumen = dashboardSection("resumen", "Resumen", "", `
     ${sectionToolbar(perspectiveSwitch("rentabilidad", false))}
     <div class="activity-kpi-grid">
-      ${renderDashboardKpi({ label: "Horas Vendidas", value: vendidasPortfolio, format: "hours" })}
+      ${renderDashboardKpi({ label: "Horas Vendidas", value: vendidas, format: "hours" })}
       ${renderDashboardKpi({ label: "Horas Certificadas", value: certificadas, format: "hours" })}
       ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours" })}
       ${renderDashboardKpi({ label: "Rentabilidad horas", value: rentabilidadHoras, format: "signed" })}

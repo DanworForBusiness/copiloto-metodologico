@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio
+from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
 
 # Nombres de mes → número (la columna `Mes` de "Horas por proyectos" es texto;
 # puede venir como nombre español, número, o "MM"). Se usa SOLO para construir
@@ -378,29 +378,69 @@ class ReportingService:
     # "Certificadas viene de SharePoint, Ejecutadas/Trabajadas viene de
     # Time"). Certificadas = `Horas por proyectos[Hs certificadas]`
     # (SharePoint, MISMO backbone que Cartera — `get_cartera_facts`, sin
-    # fetch nuevo para esa mitad). Vendidas/No asignadas a servicios son
-    # escalares de PORTFOLIO (nunca por-proyecto en la fuente real, mismo
-    # límite ya documentado en el mock V0) — pero ahora con grano MENSUAL
-    # real (antes `flatMonthly` de un total anual, una simplificación de V0
-    # sin datos vivos): Vendidas = SUM(Horas por proyectos.HsVendidas) por
-    # mes a través de TODOS los proyectos; No asignadas = SUM(Time Logs
-    # Reports.HORAS) por mes de los 2 proyectos placeholder (MISMA fuente
-    # que Horas Productivas/No Asignadas, ver `_shape_horas_productivas_
-    # no_asignadas` — acá solo el TOTAL agregado, sin desglose por
-    # consultor).
+    # fetch nuevo para esa mitad).
+    #
+    # SOURCE-PARITY RECONCILIATION (owner live comparison vs PBIP, golden
+    # caso 2026/Junio/Mantenimiento/En curso — PBIP Vendidas=4,883/
+    # Certificadas=4,858/Trabajadas=4,624.5/Rentabilidad=233.5, Hub mostraba
+    # 5,775/4,858/4.6/4,853.4). Certificadas YA reconciliaba exacto — prueba
+    # de que esa mitad era correcta. Los otros dos SÍ eran defectos reales,
+    # cada uno en un punto distinto:
+    #
+    # 1) TRABAJADAS casi desaparecía (4.6 en vez de 4,624.5). Causa raíz: el
+    #    join Cartera↔Time Logs de este método usaba el TÍTULO RESUELTO de
+    #    Proyecto como CLAVE EXACTA de diccionario. `get_time_logs_facts`
+    #    resuelve ese título vía `_norm_key` (Upper+sin espacios) contra
+    #    Proyectos — pero cuando el texto crudo del CSV de Time Logs no
+    #    matchea ningún título de Proyectos (nombres históricos con drift),
+    #    el join falla ahí y esa fila cae al texto CRUDO del CSV (fallback
+    #    ya documentado en `get_time_logs_facts`), que después nunca
+    #    matchea la clave prolija que `get_cartera_facts` sí resuelve — esas
+    #    horas quedaban invisibles en `proyectos_rows`. El PBIP nunca exige
+    #    ese match exacto: `Comparativo` (el partition calculado que
+    #    unifica las 4 fuentes) agrupa por `Key_Proyect_desc`/`Proyecto_Key`
+    #    — la MISMA normalización Upper+sin-espacios que `_norm_key` ya
+    #    implementa acá (docstring de esa función, ya usada para el join de
+    #    Facturadas XLSX). Fix: `cert_by_proyecto`/`trab_by_proyecto` ahora
+    #    usan `_norm_key(proyecto)` como clave — estrictamente MÁS
+    #    permisivo que el match exacto anterior (solo puede sumar joins que
+    #    antes fallaban, nunca introduce un falso positivo que el PBIP no
+    #    consideraría el mismo proyecto), reproduciendo el mecanismo real.
+    #
+    # 2) VENDIDAS sumaba de más (5,775 vs 4,883, +892). Causa raíz: Vendidas
+    #    se trataba como un escalar de PORTFOLIO fijo (sumado sobre TODOS
+    #    los `cartera_facts` sin importar Tipo Proyecto/Estado/Cliente/
+    #    Proyecto/Client Partner) — un comentario previo afirmaba "Vendidas
+    #    no existe como campo por-proyecto", pero `HsVendidas` vive en la
+    #    MISMA fila de "Horas por proyectos" que `Hs certificadas` (ver
+    #    `get_cartera_facts` — mismo `f["hsVendidas"]` por proyecto×mes),
+    #    así que SÍ es atribuible por proyecto, e igual de filtrable. El
+    #    PBIP confirma que debe filtrarse: la página "Analisis Rentabilidad"
+    #    tiene slicers de "Tipo Proyecto Dash" Y "Status" (ver page.json),
+    #    que aplican a Vendidas igual que a Certificadas. Fix: Vendidas
+    #    ahora se acumula POR PROYECTO (`vendByYear`, mismo shape que
+    #    `certByYear`) en vez de un escalar de portfolio, y fluye por el
+    #    MISMO pipeline de facets que Certificadas/Trabajadas (Estado +
+    #    CP/Cliente/Tipo/Proyecto, ver `rentabilidadSelectedRows` en
+    #    reporting.js). "No asignadas a servicios" SIGUE siendo portfolio
+    #    fijo — es Time Logs de los 2 proyectos placeholder, fuera del
+    #    universo de Proyectos (sin Tipo/Estado propios que filtrar), el
+    #    PBIP tampoco lo filtra.
     def get_rentabilidad(self, access_token: str, *, anios: list[str] | None = None) -> dict:
         """Contrato para AMBAS perspectivas de Rentabilidad: `proyectos`
         (una fila por proyecto — TODOS los tipos, a diferencia de Cartera
-        que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`
-        escalares agregados sobre la vida del proyecto para el detalle/
-        ranking, MÁS `certMonthly`/`trabMonthly[12]` reales para la matriz
-        mensual de Concepto) + `vendidasMonthly`/`noAsignadasMonthly[12]`
-        (portfolio, fijos, ver arriba). Join Cartera↔Time Logs por nombre
-        EXACTO de proyecto (ambos derivan de `Proyectos.Title` — Time Logs
-        ya resuelve al título real cuando hay match, ver
-        `get_time_logs_facts`). Un proyecto SharePoint sin ninguna hora en
-        Time Logs (sin tracking aún) aporta trabajadas=0 en TODOS los
-        meses — NUNCA se omite la fila.
+        que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`/
+        `vendidas` escalares agregados sobre la vida del proyecto para el
+        detalle/ranking, MÁS `certMonthly`/`trabMonthly`/`vendMonthly[12]`
+        reales para la matriz mensual de Concepto) + `noAsignadasMonthly[12]`
+        (portfolio fijo, ver arriba). Join Cartera↔Time Logs por
+        `_norm_key(proyecto)` (Upper+sin espacios — MISMA normalización que
+        el PBIP usa para unir estas dos fuentes en `Comparativo`, ver
+        comentario arriba; ambas fuentes derivan del mismo universo de
+        Proyectos, pero el join YA NO exige que ambos lados hayan resuelto
+        al string EXACTO). Un proyecto SharePoint sin ninguna hora en Time
+        Logs (sin tracking aún) aporta trabajadas=0 en TODOS los meses —
+        NUNCA se omite la fila.
 
         `anios` (HOT WINDOW / COLD HISTORY corrective, owner live QA —
         "hot window was applied to Horas Vendidas but not Rentabilidad"):
@@ -429,21 +469,30 @@ class ReportingService:
         # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio` (nunca `if anio:` solo,
         # ver reporting_repository.py) en AMBOS loops — Cartera Y Time Logs
         # son fuentes de año independientes, cualquiera puede traer basura.
+        #
+        # Clave de agrupación = `_norm_key(proyecto)` (ver comentario del
+        # SOURCE-PARITY RECONCILIATION arriba, defecto #1) — el nombre de
+        # negocio para MOSTRAR se preserva por separado (`g["proyecto"]`,
+        # primer valor visto bajo esa clave) porque `_norm_key` no es
+        # presentable (Upper+sin espacios).
         cert_by_proyecto: dict[str, dict] = {}
-        vendidas_by_year: dict[str, list[float]] = {}
         for f in cartera_facts:
             proyecto = f.get("proyecto")
             if not proyecto:
                 continue
-            g = cert_by_proyecto.setdefault(proyecto, {
-                "cliente": f["cliente"], "cp": f["clientPartner"], "tipo": f["tipoProyecto"],
-                "estado": f.get("estado", ""), "certByYear": {}, "facts": [],
+            key = _norm_key(proyecto)
+            g = cert_by_proyecto.setdefault(key, {
+                "proyecto": proyecto, "cliente": f["cliente"], "cp": f["clientPartner"],
+                "tipo": f["tipoProyecto"], "estado": f.get("estado", ""),
+                "certByYear": {}, "vendByYear": {}, "facts": [],
             })
             anio = f.get("anio")
             n = _month_num(f.get("mes"))
             if _is_valid_anio(anio) and n is not None:
                 g["certByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsCertificadas"]
-                vendidas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
+                # Defecto #2 (ver arriba): Vendidas ahora POR PROYECTO, ya no
+                # un escalar de portfolio — mismo tratamiento que Certificadas.
+                g["vendByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
             g["facts"].append(f)
 
         trab_by_proyecto: dict[str, dict] = {}
@@ -456,7 +505,10 @@ class ReportingService:
             if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
                 continue
-            trab_by_proyecto.setdefault(tl.get("proyecto"), {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
+            # Defecto #1 (ver arriba): `_norm_key`, no el título exacto —
+            # reproduce el join real del PBIP (`Key_Proyect_desc`).
+            key = _norm_key(tl.get("proyecto"))
+            trab_by_proyecto.setdefault(key, {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
 
         def _round_year_map(m: dict) -> dict:
             return {a: [_round2(v) for v in arr] for a, arr in m.items()}
@@ -469,31 +521,33 @@ class ReportingService:
             return [_round2(v) for v in out]
 
         proyectos_rows = []
-        for proyecto, g in cert_by_proyecto.items():
-            trab_by_year = trab_by_proyecto.get(proyecto, {})
+        for key, g in cert_by_proyecto.items():
+            trab_by_year = trab_by_proyecto.get(key, {})
             cert_collapsed = _collapse(g["certByYear"])
             trab_collapsed = _collapse(trab_by_year)
+            vend_collapsed = _collapse(g["vendByYear"])
             proyectos_rows.append({
-                "tipo": g["tipo"], "cliente": g["cliente"], "cp": g["cp"], "proyecto": proyecto,
+                "tipo": g["tipo"], "cliente": g["cliente"], "cp": g["cp"], "proyecto": g["proyecto"],
                 "estado": g["estado"],
                 # Per-año (grano preservado hasta el filtrado en el browser).
                 "certByYear": _round_year_map(g["certByYear"]),
                 "trabByYear": _round_year_map(trab_by_year),
+                "vendByYear": _round_year_map(g["vendByYear"]),
                 # Colapsado a través de años — retrocompat (contrato previo) para
                 # tests/consumidores que no seleccionan año.
                 "certificadas": _round2(sum(cert_collapsed)),
                 "trabajadas": _round2(sum(trab_collapsed)),
+                "vendidas": _round2(sum(vend_collapsed)),
                 "certMonthly": cert_collapsed,
                 "trabMonthly": trab_collapsed,
+                "vendMonthly": vend_collapsed,
                 "fecha": _fecha_min(g["facts"]),
             })
 
         return {
             "proyectos": proyectos_rows,
-            "vendidasByYear": _round_year_map(vendidas_by_year),
             "noAsignadasByYear": _round_year_map(no_asignadas_by_year),
             # Colapsado retrocompat.
-            "vendidasMonthly": _collapse(vendidas_by_year),
             "noAsignadasMonthly": _collapse(no_asignadas_by_year),
         }
 
