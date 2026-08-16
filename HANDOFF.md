@@ -6470,6 +6470,80 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > Baseline conocida: **9 fallas de contrato stale** (route-surface 84→86, topbar
 > staffing selector, staffing grouping/absence retired-impl, Operations sidebar
 > STAFFING nav) — migraciones Hub/Reporting/Staffing ya autorizadas, NO Reporting.
+>
+> **✅ SHARED REPORTING INITIAL-LOAD CONTRACT** (immediate follow-up ticket —
+> owner live UX corrective, "APPLY TO ALL REPORTING MAIN TABS"). First-visit
+> behavior was visually inconsistent: tabs + filter bar rendered immediately,
+> while the report body stayed empty with the loader appearing UNDERNEATH the
+> already-interactive filters — never replacing them. Owner rule: during the
+> FIRST hydration of a main tab, show ONLY the Reporting tab navigation + the
+> shared initial loader; filter bar/KPIs/sections/tables stay unrendered
+> (never a disabled/transparent placeholder) until first usable content is
+> ready — then filters + content enter TOGETHER as one stable surface. A
+> SUBSEQUENT scoped/incremental load (cold year, per-perspective status still
+> catching up) must never re-collapse an already-hydrated tab back to that
+> loader-only screen.
+>
+> **State model**: one new one-way flag, `state.reportingTabHydrated[expId]`
+> (`{cartera, rentabilidad, horasvendidas, comercial, calendario, capacidad}`,
+> all `false` initially) — set `true` the first time
+> `reportingTabRawStatus(expId)` reads `"ready"`, and **never reset** after
+> (not by an unrelated perspective still loading, not by a later incremental
+> error). `reportingTabRawStatus(expId)` is the single shared accessor that
+> reuses each experience's EXISTING status field(s) (`rentabilidadDataStatus`,
+> `batchBDataStatus`, etc. — no new duplicated status fields), combining
+> multi-source tabs (Cartera: Mantenimiento+Proyecto; Comercial: Participación
+> +Salud share `batchADataStatus`) with "any ready wins, error only if ALL
+> sources errored."
+>
+> **Shell wiring**: hydration triggers were centralized into one map,
+> `TAB_HYDRATION_TRIGGERS` (`{cartera: hydrateCarteraTab, ...}`), called
+> UNCONDITIONALLY by `render()` on every call regardless of which branch it
+> then takes — this solves the chicken-and-egg problem where hiding content
+> would also silently stop a never-visited tab from ever hydrating. The 6
+> experience dispatchers (`renderCartera`/`renderRentabilidad`/
+> `renderHorasVendidas`/`renderComercial`/`renderCalendario`/
+> `renderCapacidadProductivas`/`renderCapacidadNoAsignadas`) no longer call
+> `hydrateXTab()`/`loadBatchXData()` themselves as their first line — they
+> KEEP their own "if not ready, return an inline loading/error fragment" gate
+> (still needed for progressive per-perspective loads within an already-
+> hydrated tab, e.g. Cartera/Proyecto still catching up while Cartera/
+> Mantenimiento is ready). `render()` itself: trigger hydration → flip the
+> flag if now ready → if hydrated, render `filterBarHtml + RENDERERS[expId]()`
+> together; else render ONLY the shared loader or, if the raw status is
+> `"error"`, the shared error state (`reportingSourceErrorHtml`) — no per-tab
+> `if (tab === "cartera")` branches anywhere in this decision, exactly one
+> shared predicate driven by the state model above.
+>
+> **Tests**: new `reporting_initial_load_contract.node.js` +
+> `test_reporting_initial_load_contract.py` render the REAL `render()`
+> against synthetic state (not a mock of its HTML) and prove: first visit
+> shows tabs+loader with the filter bar and report body genuinely absent from
+> the DOM; the hydration trigger DID fire (status flips `idle`→`loading`
+> synchronously); after first hydration the loader disappears and filter bar
+> + content render together; a tab already hydrated that later regresses to
+> an error status keeps its filter bar visible and never re-shows the
+> loader-only screen (the one-way flag holds); switching perspective inside
+> an already-hydrated tab never re-triggers loader-only mode; returning to a
+> previously-hydrated tab shows filters/content immediately; a tab whose
+> FIRST hydration itself errors shows the shared error state with the filter
+> bar genuinely absent, never a usable-looking filter bar over an empty
+> report. Source-seam tests confirm: no per-tab conditional in `render()`,
+> `TAB_HYDRATION_TRIGGERS` is the one place hydration is triggered from (no
+> dispatcher self-triggers anymore), and `reportingTabHydrated[...]` is never
+> assigned `false` anywhere outside its initial state literal. The 9
+> pre-existing tests that asserted the OLD architecture (hydration trigger
+> inline inside each dispatcher body) were updated to assert the NEW
+> centralized-trigger invariant instead — same stale-test pattern hit in the
+> two prior tickets this session, not a new regression.
+>
+> Suite after this corrective: **1125 passed / 9 known stale / 1 skipped**
+> (same venv as above). PENDIENTE: **owner live smoke** — confirm first
+> visit to each of the 6 main tabs shows tabs+centered "Cargando…" only
+> (no filter bar flash), confirm switching to a historical/cold year on
+> Horas Vendidas/Rentabilidad/Participación keeps the existing filters and
+> table visible with only the incremental loader appearing, never a reset to
+> the initial-loading screen.
 
 **Status is NOT "Reporting complete."** Cartera's business-data lineage was
 live-validated by the owner and stays valid. Everything else in this

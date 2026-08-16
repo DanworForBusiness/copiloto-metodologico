@@ -225,15 +225,18 @@ def test_rentabilidad_never_mixes_mock_and_real_data():
 
 
 def test_rentabilidad_resumen_and_cert_ejec_gate_on_rentabilidad_status():
-    # MAIN-TAB HYDRATION CONTRACT (HANDOFF §-15/-17): la hidratación corre
-    # UNA vez en el dispatcher (`renderRentabilidad`), no en cada
-    # sub-renderer — mismo patrón que Cartera/Horas Vendidas.
+    # MAIN-TAB HYDRATION CONTRACT (HANDOFF §-15/-17): la hidratación ya no
+    # corre en cada sub-renderer — mismo patrón que Cartera/Horas Vendidas.
+    # SHARED REPORTING INITIAL-LOAD CONTRACT (HANDOFF §-18): el trigger se
+    # centralizó en el shell (`TAB_HYDRATION_TRIGGERS.rentabilidad`, ver
+    # `render()`) — tampoco vive ya en el dispatcher `renderRentabilidad`.
     for fn in ("renderRentabilidadResumen", "renderRentabilidadCertEjecutadas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 400]
         assert 'state.rentabilidadDataStatus !== "ready"' in body
         assert "loadRentabilidadData()" not in body
     dispatcher = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidad()"):_REPORTING_JS.index("function renderRentabilidad()") + 700]
-    assert "hydrateRentabilidadTab();" in dispatcher
+    assert "hydrateRentabilidadTab();" not in dispatcher
+    assert "rentabilidad: hydrateRentabilidadTab," in _REPORTING_JS
 
 
 def test_rentabilidad_mensual_uses_real_monthly_grain_not_flat_spread():

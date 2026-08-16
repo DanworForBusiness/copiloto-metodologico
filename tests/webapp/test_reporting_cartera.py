@@ -852,12 +852,16 @@ def test_cartera_populates_existing_arrays_in_place_not_reassign():
 
 
 def test_cartera_render_is_gated_by_data_status():
-    # MAIN-TAB HYDRATION CONTRACT: la primera activación de CUALQUIER
-    # perspectiva dispara `hydrateCarteraTab()` (ambas perspectivas +
-    # metadata de años) — el render en sí sigue gateado SOLO por el status
-    # de la perspectiva ACTIVA (progresivo).
+    # SHARED REPORTING INITIAL-LOAD CONTRACT (owner corrective, ver HANDOFF):
+    # el trigger de hidratación (ambas perspectivas + metadata de años) ya NO
+    # vive en `renderCartera()` — se centralizó en el shell
+    # (`TAB_HYDRATION_TRIGGERS.cartera`, ver `render()`) para poder mostrar
+    # SOLO tabs+loader durante la primera hidratación sin dejar el tab
+    # "idle" para siempre. El dispatcher sigue gateado SOLO por el status de
+    # la perspectiva ACTIVA (progresivo).
+    assert "cartera: hydrateCarteraTab," in _REPORTING_JS
     render_block = _REPORTING_JS[_REPORTING_JS.index("function renderCartera()"):_REPORTING_JS.index("const stateKey")]
-    assert "hydrateCarteraTab();" in render_block
+    assert "hydrateCarteraTab();" not in render_block
     assert "if (status !== \"ready\") return renderCarteraDataState();" in render_block
 
 
@@ -1282,7 +1286,11 @@ def test_hierarchy_toggle_has_title_tooltip_for_full_label():
 def test_horas_vendidas_has_its_own_scoped_lifecycle_not_batch_a():
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidas() {"):_REPORTING_JS.index("function renderComercialParticipacion")]
     # HV se hidrata por su ciclo PROPIO (ventana temporal), nunca por batch-a.
-    assert "hydrateHorasVendidasTab()" in fn
+    # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
+    # shell (`TAB_HYDRATION_TRIGGERS.horasvendidas`, ver `render()`) — el
+    # dispatcher solo gatea por status.
+    assert "horasvendidas: hydrateHorasVendidasTab," in _REPORTING_JS
+    assert "hydrateHorasVendidasTab()" not in fn
     assert 'state.horasVendidasDataStatus' in fn
     assert "loadBatchAData()" not in fn
     assert "state.batchADataStatus" not in fn

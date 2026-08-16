@@ -358,10 +358,14 @@ def test_batch_b_never_mixes_mock_and_real_data():
 
 
 def test_horas_productivas_and_no_asignadas_gate_on_batch_b_status_not_batch_a():
+    # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
+    # shell (`TAB_HYDRATION_TRIGGERS.capacidad`, ver `render()`) — ambos
+    # sub-renderers solo gatean por status, nunca disparan su propio load.
+    assert 'capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); }' in _REPORTING_JS
     for fn in ("renderCapacidadProductivas", "renderCapacidadNoAsignadas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
-        assert 'state.batchBDataStatus === "idle"' in body
-        assert "loadBatchBData()" in body
+        assert 'state.batchBDataStatus === "idle"' not in body
+        assert "loadBatchBData()" not in body
         assert "batchADataStatus" not in body
 
 

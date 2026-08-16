@@ -76,24 +76,30 @@ def test_reset_filters_still_applies_defaults_explicitly_on_limpiar():
 def test_rentabilidad_both_perspectives_gate_on_the_same_shared_status():
     # HOT WINDOW / COLD HISTORY corrective (HANDOFF §-17): Rentabilidad se
     # upgradeó al MISMO patrón de dispatcher que Cartera/Horas Vendidas —
-    # la hidratación corre UNA vez en `renderRentabilidad()`, los
-    # sub-renderers solo verifican el status (ya no disparan su propio
-    # load independiente).
+    # los sub-renderers solo verifican el status (nunca disparan su propio
+    # load independiente). SHARED REPORTING INITIAL-LOAD CONTRACT (HANDOFF
+    # §-18): el trigger de hidratación se centralizó en el shell
+    # (`TAB_HYDRATION_TRIGGERS.rentabilidad`, ver `render()`) — el
+    # dispatcher de experiencia ya NO lo dispara él mismo.
     resumen = _function_body("renderRentabilidadResumen")
     cert = _function_body("renderRentabilidadCertEjecutadas")
     for body in (resumen, cert):
         assert "loadRentabilidadData()" not in body
         assert 'state.rentabilidadDataStatus !== "ready"' in body
     dispatcher = _function_body("renderRentabilidad")
-    assert "hydrateRentabilidadTab();" in dispatcher
+    assert "hydrateRentabilidadTab();" not in dispatcher
+    assert "rentabilidad: hydrateRentabilidadTab," in _REPORTING_JS
 
 
 def test_capacidad_both_perspectives_gate_on_the_same_shared_status():
+    # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
+    # shell (`TAB_HYDRATION_TRIGGERS.capacidad`, ver `render()`).
+    assert 'capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); }' in _REPORTING_JS
     productivas = _function_body("renderCapacidadProductivas")
     no_asignadas = _function_body("renderCapacidadNoAsignadas")
     for body in (productivas, no_asignadas):
-        assert 'state.batchBDataStatus === "idle"' in body
-        assert "loadBatchBData()" in body
+        assert 'state.batchBDataStatus === "idle"' not in body
+        assert "loadBatchBData()" not in body
         assert 'state.batchBDataStatus !== "ready"' in body
 
 
@@ -102,10 +108,13 @@ def test_horas_vendidas_perspective_switch_is_pure_local_regrouping():
     # ya hidratado — nunca un fetch propio por perspectiva. HV tiene UN status
     # POR TAB (`horasVendidasDataStatus`, ciclo de vida scoped propio — salió de
     # batch-a, ver scope decoupling), NUNCA uno por perspectiva.
-    # `HORASVENDIDAS_HIERARCHY` decide SOLO las keys del árbol.
+    # `HORASVENDIDAS_HIERARCHY` decide SOLO las keys del árbol. SHARED
+    # REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el shell
+    # (`TAB_HYDRATION_TRIGGERS.horasvendidas`, ver `render()`).
+    assert "horasvendidas: hydrateHorasVendidasTab," in _REPORTING_JS
     body = _function_body("renderHorasVendidas")
-    assert 'state.horasVendidasDataStatus === "idle"' in body
-    assert "hydrateHorasVendidasTab()" in body
+    assert 'state.horasVendidasDataStatus === "idle"' not in body
+    assert "hydrateHorasVendidasTab()" not in body
     assert "HORASVENDIDAS_HIERARCHY[persp]" in body
     # Ningún status POR PERSPECTIVA — el único `*Status` del body es el status
     # de tab (horasVendidasDataStatus); no hay horasVendidasProyectoStatus etc.

@@ -818,6 +818,17 @@ const state = {
   // pura, nunca dispara un fetch (los datos YA están cargados). Reset
   // implícito al recargar la página, mismo criterio que `treeExpanded`.
   rentabilidadRankingExpanded: { positivos: false, negativos: false },
+  // SHARED REPORTING INITIAL-LOAD CONTRACT (owner corrective): flag de UNA
+  // SOLA VÍA por tab principal — "esta pestaña mostró contenido usable
+  // alguna vez". Se prende la PRIMERA vez que `reportingTabRawStatus(expId)`
+  // ve "ready" (ver `render()`) y NUNCA se apaga después — ni al cambiar a
+  // una perspectiva individualmente todavía no lista (Cartera/Proyecto,
+  // Comercial/Salud), ni por un error incremental posterior (año frío
+  // fallido). DISTINTO del status crudo por-perspectiva, que SÍ puede
+  // volver a "loading" — necesario para que un cambio de perspectiva
+  // dentro de un tab YA hidratado nunca vuelva a mostrar el modo
+  // "solo tabs + loader inicial".
+  reportingTabHydrated: { cartera: false, rentabilidad: false, horasvendidas: false, comercial: false, calendario: false, capacidad: false },
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -2194,12 +2205,11 @@ function renderBatchBDataState(label) {
 
 function renderCartera() {
   // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF): la
-  // PRIMERA vez que se renderiza CUALQUIER perspectiva de Cartera dispara
-  // la hidratación de AMBAS (+ metadata de años) — nunca una espera
-  // completa nueva al cambiar de Mantenimiento a Proyecto la primera vez.
-  // El GATE de este render sigue siendo SOLO el status de la perspectiva
-  // ACTIVA (progresivo — Mantenimiento no espera a Proyecto ni viceversa).
-  hydrateCarteraTab();
+  // hidratación de AMBAS perspectivas (+ metadata de años) la dispara el
+  // SHELL (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING
+  // INITIAL-LOAD CONTRACT), nunca este dispatcher — acá solo queda el GATE
+  // de qué mostrar según el status de la perspectiva ACTIVA (progresivo —
+  // Mantenimiento no espera a Proyecto ni viceversa).
   const persp = state.perspective.cartera;
   const status = carteraStatusFor(persp);
   if (status !== "ready") return renderCarteraDataState();
@@ -2814,11 +2824,9 @@ function renderRentabilidadCertEjecutadas() {
 
 function renderRentabilidad() {
   // MAIN-TAB HYDRATION CONTRACT (MISMO patrón que renderCartera/
-  // renderHorasVendidas): la PRIMERA vez que se renderiza CUALQUIER
-  // perspectiva de Rentabilidad dispara la hidratación (ventana caliente +
-  // metadata de años) — nunca una espera nueva al cambiar de Resumen a
-  // Certificadas vs Ejecutadas.
-  hydrateRentabilidadTab();
+  // renderHorasVendidas): la hidratación (ventana caliente + metadata de
+  // años) la dispara el SHELL (`TAB_HYDRATION_TRIGGERS`, ver `render()` —
+  // SHARED REPORTING INITIAL-LOAD CONTRACT), nunca este dispatcher.
   const anio = getFilter("rentabilidad", "anio");
   if (anio && !rentabilidadLoadedYears().has(anio) && state.rentabilidadYearError !== anio) {
     loadRentabilidadColdYear(anio);
@@ -3156,9 +3164,10 @@ function renderBusinessTreeRows(stateKey, nodes, depth, columns) {
 
 function renderHorasVendidas() {
   // Gate del ciclo de vida PROPIO de HV (scope temporal — ver
-  // loadHorasVendidasData). Hidrata la ventana caliente + la metadata de años
-  // en paralelo; NO carga batch-a (Participación no se toca al visitar HV).
-  if (state.horasVendidasDataStatus === "idle") hydrateHorasVendidasTab();
+  // loadHorasVendidasData). El trigger de hidratación (ventana caliente +
+  // metadata de años en paralelo) vive en el SHELL (`TAB_HYDRATION_TRIGGERS`,
+  // ver `render()` — SHARED REPORTING INITIAL-LOAD CONTRACT); acá solo el
+  // gate — NO carga batch-a (Participación no se toca al visitar HV).
   if (state.horasVendidasDataStatus !== "ready") return renderHorasVendidasDataState();
   // Año FRÍO seleccionado que aún no está hidratado ⇒ lazy-load y estado de
   // carga (single-flight por año). La ventana caliente ya hidratada se
@@ -3301,14 +3310,11 @@ function renderComercialSalud() {
 
 function renderComercial() {
   // MAIN-TAB HYDRATION CONTRACT (MISMO patrón que renderCartera/
-  // renderRentabilidad/renderHorasVendidas): la PRIMERA vez que se
-  // renderiza CUALQUIER perspectiva de Comercial dispara AMBOS ciclos de
-  // vida — Participación (scope temporal propio, ver hydrateComercial
-  // ParticipacionTab) Y Salud de Cliente (categórica pura, sigue en el
-  // backbone full-history de batch-a, ver loadBatchAData) — nunca una
-  // espera nueva al cambiar de perspectiva.
-  hydrateComercialParticipacionTab();
-  if (state.batchADataStatus === "idle") loadBatchAData();
+  // renderRentabilidad/renderHorasVendidas): el trigger de AMBOS ciclos de
+  // vida — Participación (scope temporal propio) Y Salud de Cliente
+  // (categórica pura, backbone full-history de batch-a) — vive en el SHELL
+  // (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING INITIAL-
+  // LOAD CONTRACT), nunca este dispatcher.
   const persp = state.perspective.comercial;
   return persp === "Participación" ? renderComercialParticipacion() : renderComercialSalud();
 }
@@ -3324,8 +3330,8 @@ function renderCalendarioCell(v) {
 }
 
 function renderCalendario() {
-  // Gate del ciclo de vida real-data Batch A (ver loadBatchAData).
-  if (state.batchADataStatus === "idle") loadBatchAData();
+  // Gate del ciclo de vida real-data Batch A — el trigger vive en el SHELL
+  // (`TAB_HYDRATION_TRIGGERS`, ver `render()`), acá solo el gate.
   if (state.batchADataStatus !== "ready") return renderBatchADataState("los datos de Calendario");
   const persp = state.perspective.calendario;
   const hierarchy = CALENDARIO_HIERARCHY[persp];
@@ -3489,10 +3495,10 @@ function capacidadProductivasMesField(panel) {
 // ambos paneles — nunca duplicado, eso NO forma parte del corrective de
 // panel-independencia (solo Año/Mes lo hacen, ver ticket).
 function renderCapacidadProductivas() {
-  // Gate del ciclo de vida real-data Batch B (ver loadBatchBData) —
-  // Correction 1 CERRADA: Productivas es CSV de Time Logs, no backbone de
-  // Cartera (ver HANDOFF/real-data-lineage.md §8bis).
-  if (state.batchBDataStatus === "idle") loadBatchBData();
+  // Gate del ciclo de vida real-data Batch B — Correction 1 CERRADA:
+  // Productivas es CSV de Time Logs, no backbone de Cartera (ver HANDOFF/
+  // real-data-lineage.md §8bis). El trigger vive en el SHELL
+  // (`TAB_HYDRATION_TRIGGERS`, ver `render()`), acá solo el gate.
   if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas Productivas");
 
   const clienteFilter = getFilter("capacidad", "cliente");
@@ -3576,11 +3582,10 @@ function renderCapacidadProductivas() {
 }
 
 function renderCapacidadNoAsignadas() {
-  // Gate del ciclo de vida real-data Batch B (ver loadBatchBData) — MISMO
-  // fetch/endpoint que Productivas (Correction 1 CERRADA, ver HANDOFF/
-  // real-data-lineage.md §8bis), gateado independiente por si el usuario
-  // entra directo a esta perspectiva.
-  if (state.batchBDataStatus === "idle") loadBatchBData();
+  // Gate del ciclo de vida real-data Batch B — MISMO fetch/endpoint que
+  // Productivas (Correction 1 CERRADA, ver HANDOFF/real-data-lineage.md
+  // §8bis). El trigger vive en el SHELL (`TAB_HYDRATION_TRIGGERS`, ver
+  // `render()`), acá solo el gate.
   if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas No Asignadas");
   const baseRows = facetFilteredRows("capacidad");
   // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
@@ -3635,12 +3640,90 @@ const FILTER_BARS = {
   capacidad: renderCapacidadFilterBar, comercial: renderComercialFilterBar,
 };
 
+// --- SHARED REPORTING INITIAL-LOAD CONTRACT (owner corrective) -------------
+// Antes, cada dispatcher de experiencia (`renderCartera`/`renderRentabilidad`/
+// etc.) disparaba SU PROPIA hidratación como primera línea — pero el filter
+// bar (`FILTER_BARS[expId]()`) se renderizaba SIEMPRE, sin importar si esa
+// hidratación ya terminó. Resultado visible: tabs + filtros ya interactivos
+// + página de contenido vacía + el loader recién aparecía DEBAJO de los
+// filtros (nunca reemplazándolos). El owner pidió que la PRIMERA hidratación
+// de un tab principal muestre SOLO tabs + loader — filtros/KPIs/secciones/
+// tablas entran TODOS JUNTOS recién cuando hay contenido usable.
+//
+// El trigger de hidratación se CENTRALIZA acá (nunca condicionado a si se
+// termina mostrando el contenido completo o solo el loader — si no se
+// dispara, el tab quedaría "idle" para siempre). Los dispatchers de
+// experiencia YA NO llaman `hydrateXTab()`/`loadBatchXData()` ellos mismos
+// (ver comentario en cada uno) — siguen siendo responsables SOLO de decidir
+// qué mostrar dado el status actual (su propio "gate" interno, necesario
+// para años fríos/perspectivas individuales todavía cargando DENTRO de un
+// tab ya hidratado).
+const TAB_HYDRATION_TRIGGERS = {
+  cartera: hydrateCarteraTab,
+  rentabilidad: hydrateRentabilidadTab,
+  horasvendidas: hydrateHorasVendidasTab,
+  comercial: () => { hydrateComercialParticipacionTab(); if (state.batchADataStatus === "idle") loadBatchAData(); },
+  calendario: () => { if (state.batchADataStatus === "idle") loadBatchAData(); },
+  capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); },
+};
+// Status CRUDO del tab para el propósito ÚNICO de "primera hidratación" —
+// reusa los MISMOS campos que cada experiencia ya usa internamente para su
+// propio gate (nunca un campo nuevo duplicado, ver `carteraStatusFor` etc.
+// arriba). Para tabs con más de una fuente/perspectiva (Cartera: Mantenimiento
+// + Proyecto; Comercial: Participación + Salud, comparten `batchADataStatus`
+// con Calendario) alcanza con que UNA esté lista para tener contenido usable
+// ("ready" gana); "error" solo si TODAS fallaron (nunca error solo porque
+// una fuente todavía no se disparó — sería "loading"/"idle").
+function reportingTabRawStatus(expId) {
+  const combine = (...statuses) => {
+    if (statuses.some(s => s === "ready")) return "ready";
+    if (statuses.every(s => s === "error")) return "error";
+    return "loading";
+  };
+  switch (expId) {
+    case "cartera": return combine(state.carteraMantenimientoStatus, state.carteraProyectoStatus);
+    case "rentabilidad": return state.rentabilidadDataStatus;
+    case "horasvendidas": return state.horasVendidasDataStatus;
+    case "comercial": return combine(state.comercialParticipacionDataStatus, state.batchADataStatus);
+    case "calendario": return state.batchADataStatus;
+    case "capacidad": return state.batchBDataStatus;
+    default: return "ready";
+  }
+}
+
 function render() {
   document.getElementById("reporting-experience-tabs").innerHTML = EXPERIENCES.map(e => `
     <button class="${state.experience === e.id ? "is-active" : ""}" onclick="setExperience('${e.id}')">${esc(e.label)}</button>
   `).join("");
-  const filterBarHtml = FILTER_BARS[state.experience] ? FILTER_BARS[state.experience]() : "";
-  document.getElementById("reporting-main-content").innerHTML = filterBarHtml + RENDERERS[state.experience]();
+
+  const expId = state.experience;
+  if (TAB_HYDRATION_TRIGGERS[expId]) TAB_HYDRATION_TRIGGERS[expId]();
+  // Marca de UNA SOLA VÍA — ver comentario del campo en `state` arriba.
+  if (!state.reportingTabHydrated[expId] && reportingTabRawStatus(expId) === "ready") {
+    state.reportingTabHydrated[expId] = true;
+  }
+
+  const mainContent = document.getElementById("reporting-main-content");
+  if (state.reportingTabHydrated[expId]) {
+    // READY (incluye "hidratado con un error incremental posterior" — el
+    // flag NUNCA se apaga, ver arriba): filtros + contenido entran JUNTOS
+    // como una sola superficie estable. El contenido de la experiencia
+    // sigue gateando SU PROPIO status para años fríos/perspectivas
+    // individuales todavía cargando (ver cada dispatcher).
+    const filterBarHtml = FILTER_BARS[expId] ? FILTER_BARS[expId]() : "";
+    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]();
+  } else {
+    // INITIAL LOADER MODE — SOLO tabs + loader inicial (o el estado de
+    // error compartido si la PRIMERA hidratación falló). Filtros/KPIs/
+    // secciones/tablas NUNCA se renderizan todavía — nunca el flash
+    // "filtros visibles + página vacía + loader debajo" que reportó el
+    // owner. Deliberadamente NO se renderiza un filter bar "vacío"/
+    // deshabilitado — se prefiere no renderizarlo en absoluto.
+    const rawStatus = reportingTabRawStatus(expId);
+    mainContent.innerHTML = rawStatus === "error"
+      ? reportingSourceErrorHtml("los datos de esta pestaña")
+      : reportingLoadingHtml("Cargando…");
+  }
   // Backbone compartido de drag-and-drop/colapso (app.js) — se re-aplica en
   // cada render() porque acá el contenido se reemplaza por innerHTML
   // completo (sin htmx), a diferencia de Staffing/Actividad que lo disparan

@@ -456,18 +456,23 @@ def test_batch_a_endpoint_and_lifecycle_gate_the_full_history_renderers():
     # Calendario NO tiene dispatcher (una sola función cubre sus 2
     # perspectivas internas) — se auto-gatea. Salud de Cliente SÍ vive
     # detrás de un dispatcher (`renderComercial`, MAIN-TAB HYDRATION
-    # CONTRACT — comparte tab con Participación) — el trigger vive AHÍ, el
-    # sub-renderer solo verifica el status (MISMO criterio que Rentabilidad/
-    # HV, ver test_reporting_main_tab_hydration.py).
+    # CONTRACT — comparte tab con Participación) — el sub-renderer solo
+    # verifica el status (MISMO criterio que Rentabilidad/HV, ver
+    # test_reporting_main_tab_hydration.py). SHARED REPORTING INITIAL-LOAD
+    # CONTRACT (owner corrective, ver HANDOFF): el trigger de hidratación de
+    # AMBOS ya NO vive en el propio renderer/dispatcher — se centralizó en
+    # el shell (`TAB_HYDRATION_TRIGGERS.calendario`/`.comercial`, ver
+    # `render()`).
+    assert 'calendario: () => { if (state.batchADataStatus === "idle") loadBatchAData(); }' in _REPORTING_JS
     calendario = _REPORTING_JS[_REPORTING_JS.index("function renderCalendario("):_REPORTING_JS.index("function renderCalendario(") + 400]
-    assert 'state.batchADataStatus === "idle"' in calendario
-    assert "loadBatchAData()" in calendario
+    assert 'state.batchADataStatus === "idle"' not in calendario
+    assert "loadBatchAData()" not in calendario
     salud = _REPORTING_JS[_REPORTING_JS.index("function renderComercialSalud("):_REPORTING_JS.index("function renderComercial(")]
     assert "loadBatchAData()" not in salud
     assert 'state.batchADataStatus !== "ready"' in salud
     dispatcher = _REPORTING_JS[_REPORTING_JS.index("function renderComercial("):_REPORTING_JS.index("function renderComercial(") + 700]
-    assert 'state.batchADataStatus === "idle"' in dispatcher
-    assert "loadBatchAData()" in dispatcher
+    assert 'state.batchADataStatus === "idle"' not in dispatcher
+    assert "loadBatchAData()" not in dispatcher
 
 
 def test_batch_a_never_mixes_mock_and_real_data():
@@ -490,8 +495,11 @@ def test_participacion_has_its_own_scoped_lifecycle_not_batch_a():
     # test_reporting_cartera.py::test_horas_vendidas_has_its_own_scoped_
     # lifecycle_not_batch_a: Participación se hidrata por su ciclo PROPIO
     # (ventana temporal), nunca por batch-a.
+    # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
+    # shell (`TAB_HYDRATION_TRIGGERS.comercial`, ver `render()`).
+    assert "comercial: () => { hydrateComercialParticipacionTab();" in _REPORTING_JS
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderComercial() {"):_REPORTING_JS.index("function renderComercial() {") + 700]
-    assert "hydrateComercialParticipacionTab()" in fn
+    assert "hydrateComercialParticipacionTab()" not in fn
     detalle = _REPORTING_JS[_REPORTING_JS.index("function renderComercialParticipacion() {"):_REPORTING_JS.index("function renderComercialSalud(")]
     assert "loadBatchAData()" not in detalle
     assert 'state.comercialParticipacionDataStatus !== "ready"' in detalle
