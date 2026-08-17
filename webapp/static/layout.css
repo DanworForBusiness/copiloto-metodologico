@@ -14,6 +14,21 @@
   border-top: 1px solid var(--line);
 }
 
+/* Sidebar workspace kicker — ritmo vertical CANÓNICO del Hub (owner
+   corrective: "Copiloto/Operations/Comercial deben compartir el mismo
+   ritmo sidebar", Copiloto es la referencia). Mismo padding/margin sin
+   importar si el kicker vive en un <button> colapsable (Copiloto Core,
+   con acordeón — ver `.nav-toggle` abajo, que YA lo resolvía para
+   Copiloto pero acoplado a esa clase) o en un <p> plano (Operations/
+   Comercial, sin acordeón, nav flat) — la interactividad es una
+   preocupación DISTINTA del ritmo vertical, nunca duplicar este número
+   por workspace. Un futuro workspace agrega esta clase a su kicker
+   (button o <p>, lo que corresponda) y hereda el mismo ritmo sin CSS
+   adicional. NO se tocó `.nav-toggle` (ver abajo) para no alterar el
+   comportamiento/spacing ya aprobado de Copiloto — esta clase es
+   puramente ADITIVA. */
+.sidebar-workspace-kicker { margin: 0; padding: 4px 0 8px; }
+
 /* Toggles colapsables del nav izquierdo (Core / Apéndices). Reusan el look del
    kicker; el separador del grupo de apéndices se traslada al botón. */
 .nav-toggle {

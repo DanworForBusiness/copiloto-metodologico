@@ -10,7 +10,7 @@
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user, readonly) }}
   <nav aria-label="Módulos metodológicos">
-    <button type="button" class="nav-toggle" @click="navCore=!navCore" :aria-expanded="navCore">
+    <button type="button" class="nav-toggle sidebar-workspace-kicker" @click="navCore=!navCore" :aria-expanded="navCore">
       <span class="nav-kicker">CORE {{ pack_label }}</span><span class="nav-toggle-sign" x-text="navCore?'−':'+'"></span>
     </button>
     <div x-show="navCore" x-transition.opacity{% if active_group != 'core' %} style="display:none"{% endif %}>

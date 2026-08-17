@@ -126,7 +126,10 @@ def test_shell_shows_workspace_switcher_when_multiple_workspaces_available():
 def test_commercial_nav_highlights_the_single_crm_capability():
     response = client.get("/comercial")
     text = response.text
-    assert '<p class="nav-kicker">COMERCIAL</p>' in text
+    # Sidebar Vertical Rhythm micro-corrective (ver HANDOFF): el kicker
+    # ganó la clase compartida `sidebar-workspace-kicker` (mismo ritmo que
+    # Copiloto/Operations) — mismo texto/rótulo.
+    assert '<p class="nav-kicker sidebar-workspace-kicker">COMERCIAL</p>' in text
     assert '<strong>CRM</strong>' in text
     assert 'href="/comercial" class="module-link is-active"' in text
 

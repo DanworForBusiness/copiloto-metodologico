@@ -32,16 +32,20 @@ from webapp.main import app
 from webapp.services import auth_service
 
 _TEMPLATES = Path(__file__).resolve().parents[2] / "webapp" / "templates"
+_STATIC = Path(__file__).resolve().parents[2] / "webapp" / "static"
 _COPILOT_NAV = (_TEMPLATES / "partials" / "copilot_nav.html").read_text(encoding="utf-8")
 _OPERATIONS_NAV = (_TEMPLATES / "partials" / "operations_nav.html").read_text(encoding="utf-8")
+_COMMERCIAL_NAV = (_TEMPLATES / "partials" / "commercial_nav.html").read_text(encoding="utf-8")
 _SHELL_PARTIAL = (_TEMPLATES / "partials" / "workspace_shell.html").read_text(encoding="utf-8")
 _STAFFING_PAGE = (_TEMPLATES / "operations" / "staffing.html").read_text(encoding="utf-8")
 _MODULE_PAGE = (_TEMPLATES / "module.html").read_text(encoding="utf-8")
 _ACADEMY_PAGE = (_TEMPLATES / "academy.html").read_text(encoding="utf-8")
+_LAYOUT_CSS = (_STATIC / "layout.css").read_text(encoding="utf-8")
 
 _MODULE_URL = "/modules/01_Arquitectura_y_Conectividad"
 _STAFFING_URL = "/operaciones/staffing/asignaciones"
 _ACADEMY_URL = "/academy/ACAD01_Paradigmas"
+_COMMERCIAL_URL = "/comercial"
 
 
 def _copilot_client(monkeypatch):
@@ -59,6 +63,17 @@ def _operations_client(monkeypatch):
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "sidebar-ops@danwor.com")
     session = auth_service.create_session(
         {"email": "sidebar-ops@danwor.com", "name": "Sidebar Ops", "first_name": "Sidebar", "family_name": "Ops"}
+    )
+    c = TestClient(app)
+    c.cookies.set(auth_service.COOKIE_NAME, session)
+    return c
+
+
+def _commercial_client(monkeypatch):
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "sidebar-crm@danwor.com")
+    session = auth_service.create_session(
+        {"email": "sidebar-crm@danwor.com", "name": "Sidebar Crm", "first_name": "Sidebar", "family_name": "Crm"}
     )
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, session)
@@ -125,6 +140,74 @@ def test_welcome_markup_defined_once_and_reused_by_both_nav_partials():
     assert _SHELL_PARTIAL.count('<p class="nav-welcome">') == 1
 
 
+# --- MICRO-CORRECTIVE: ritmo vertical del sidebar (Bienvenido → kicker →
+# primer nav item) unificado entre Copiloto/Operations/Comercial -----------
+#
+# Auditoría (owner live QA): Copiloto ya tenía el ritmo correcto porque su
+# kicker vive DENTRO de un <button class="nav-toggle"> (colapsable — Core),
+# cuyo padding (4px 0 8px, layout.css) provee el espaciado. Operations/
+# Comercial usan un <p class="nav-kicker"> plano (sin acordeón, nav flat) —
+# ese <p> nunca tuvo padding/margin propio (el reset de Tailwind CDN
+# zeroea el margin default de <p>, y ningún selector existente lo
+# compensaba: `.module-nav > .nav-kicker` no matchea porque hay un <nav>
+# de por medio en los TRES workspaces). Resultado: kicker pegado al
+# "Bienvenido" y al primer nav item en Operations/Comercial.
+#
+# Fix: `.sidebar-workspace-kicker` (layout.css) — clase ADITIVA nueva,
+# mismo padding que YA usaba `.nav-toggle` para Copiloto, agregada a los
+# TRES kickers (el <button> de Copiloto Y los <p> de Operations/Comercial).
+# CERO cambios a `.nav-toggle`/`.nav-toggle--appendix`/`.nav-toggle--academy`
+# — Copiloto queda pixel-idéntico (mismo padding, ahora desde una clase
+# adicional cuyo valor coincide con el que ya tenía).
+
+def test_all_three_workspaces_share_the_sidebar_workspace_kicker_class():
+    # La MISMA clase en los tres — nunca `.operations-sidebar-spacing`/
+    # `.commercial-sidebar-spacing` ni un offset ad-hoc por vertical.
+    assert 'class="nav-toggle sidebar-workspace-kicker"' in _COPILOT_NAV
+    assert 'class="nav-kicker sidebar-workspace-kicker"' in _OPERATIONS_NAV
+    assert 'class="nav-kicker sidebar-workspace-kicker"' in _COMMERCIAL_NAV
+
+
+def test_sidebar_workspace_kicker_rhythm_defined_once_not_per_workspace():
+    # Una sola declaración de la regla compartida — nunca duplicada ni
+    # reescrita con números distintos por workspace.
+    assert _LAYOUT_CSS.count(".sidebar-workspace-kicker {") == 1
+    for banned in (".operations-sidebar-spacing", ".commercial-sidebar-spacing", ".copilot-sidebar-spacing"):
+        assert banned not in _LAYOUT_CSS
+        assert banned not in _OPERATIONS_NAV
+        assert banned not in _COMMERCIAL_NAV
+        assert banned not in _COPILOT_NAV
+
+
+def test_sidebar_workspace_kicker_rule_is_additive_never_touched_nav_toggle_base():
+    # El corrective es puramente ADITIVO — `.nav-toggle` (Copiloto) conserva
+    # EXACTAMENTE su padding original, nunca se le quitó/movió nada para
+    # "hacerlo coincidir" con Operations/Comercial.
+    assert ".nav-toggle {" in _LAYOUT_CSS
+    nav_toggle_rule = _LAYOUT_CSS[_LAYOUT_CSS.index(".nav-toggle {"):_LAYOUT_CSS.index("}", _LAYOUT_CSS.index(".nav-toggle {"))]
+    assert "padding: 4px 0 8px;" in nav_toggle_rule
+
+
+def test_appendix_and_academy_toggles_never_use_the_workspace_kicker_class():
+    # Sección DISTINTA (separador con su propio margin-top/border-top) —
+    # nunca confundir con el kicker de nivel workspace.
+    for marker in ("nav-toggle--appendix", "nav-toggle--academy"):
+        start = _COPILOT_NAV.index(marker)
+        line_start = _COPILOT_NAV.rfind("\n", 0, start)
+        line_end = _COPILOT_NAV.index("\n", start)
+        line = _COPILOT_NAV[line_start:line_end]
+        assert "sidebar-workspace-kicker" not in line
+
+
+def test_kicker_renders_with_the_shared_class_on_all_three_live_pages(monkeypatch):
+    copilot_html = _copilot_client(monkeypatch).get(_MODULE_URL).text
+    operations_html = _operations_client(monkeypatch).get(_STAFFING_URL).text
+    commercial_html = _commercial_client(monkeypatch).get(_COMMERCIAL_URL).text
+    assert 'class="nav-toggle sidebar-workspace-kicker"' in copilot_html
+    assert 'class="nav-kicker sidebar-workspace-kicker"' in operations_html
+    assert 'class="nav-kicker sidebar-workspace-kicker"' in commercial_html
+
+
 # --- corrective: el <div data-resize> ya no vive copy-pasteado -------------
 
 def test_resize_handle_markup_defined_once_and_reused_by_all_page_templates():
@@ -172,7 +255,10 @@ def test_operations_still_renders_its_own_staffing_navigation(monkeypatch):
     # (Asignaciones/Reporting), sin acordeón. Sigue siendo 100% workspace-
     # owned (nunca el nav CORE del Copiloto) — solo cambió su rótulo/alcance.
     response = _operations_client(monkeypatch).get(_STAFFING_URL)
-    assert '<p class="nav-kicker">OPERACIONES</p>' in response.text
+    # Sidebar Vertical Rhythm micro-corrective (ver HANDOFF): el kicker
+    # ganó la clase compartida `sidebar-workspace-kicker` — mismo texto,
+    # mismo rótulo, solo el ritmo vertical se unificó con Copiloto.
+    assert '<p class="nav-kicker sidebar-workspace-kicker">OPERACIONES</p>' in response.text
     assert "Asignaciones" in response.text
     assert "Reporting" in response.text
 
