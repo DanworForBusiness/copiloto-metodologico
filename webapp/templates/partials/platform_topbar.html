@@ -98,4 +98,16 @@
     <button class="mobile-menu" @click="navOpen=!navOpen">{{ mobile_menu_label }}</button>
   </div>
 </header>
+{# read-progress — ÚNICO loader/progress bar del Hub (promovido acá desde
+   module.html, owner corrective: "REUTILIZAR, NO COPIAR" — antes vivía SOLO
+   en module.html, montado por página; ahora vive UNA vez en este macro
+   compartido para que CUALQUIER consumidor de `platform_topbar` — Copiloto,
+   Reporting, Staffing, futuros — tenga el MISMO nodo en la MISMA posición
+   canónica, sin duplicar markup/CSS/JS). Copiloto sigue alimentándolo con
+   progreso REAL de scroll (`copilotLayout().init()` en app.js, SIN CAMBIOS —
+   sigue haciendo `document.querySelector(".read-progress__fill")`, que
+   ahora encuentra ESTE nodo en cualquier página, no solo module.html);
+   Reporting lo alimenta con progreso ESTIMADO por tiempo (ver reporting.js
+   `HubEstimatedProgress`) — misma barra, distinta FUENTE del valor. #}
+<div class="read-progress" aria-hidden="true"><span class="read-progress__fill"></span></div>
 {% endmacro %}

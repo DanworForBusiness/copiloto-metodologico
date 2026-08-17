@@ -100,7 +100,9 @@ def test_monthly_matrix_footers_and_cells_no_longer_interpolate_raw_numbers():
     calendario = _REPORTING_JS[_REPORTING_JS.index("function renderCalendario("):_REPORTING_JS.index("function capacidadProductivasTotal")]
     assert '${totalMonthly.map(v => `<td>${fmtNum(v, "count")}</td>`).join("")}<td>${fmtNum(grandTotal, "count")}</td>' in calendario
     no_asignadas = _REPORTING_JS[_REPORTING_JS.index("function renderCapacidadNoAsignadas("):_REPORTING_JS.index("function renderCapacidad(")]
-    assert '${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}' in no_asignadas
+    # CORRECTIVO UX (owner: Horas Productivas SIN decimales) — "hours0" en
+    # vez de "hours" (1 decimal, resto del Hub), mismo criterio 0/falsy -> "—".
+    assert '${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours0") : "—"}</td>`).join("")}' in no_asignadas
     mensual = _REPORTING_JS[_REPORTING_JS.index("function renderRentabilidadMensual("):_REPORTING_JS.index("function renderRentabilidadResumen")]
     assert '${c.monthly.map(v => `<td>${c.signed ? diffCell(v) : (v ? fmtNum(v, "hours") : "—")}</td>`).join("")}' in mensual
     assert '<td>${c.signed ? diffCell(total) : fmtNum(total, "hours")}</td>' in mensual

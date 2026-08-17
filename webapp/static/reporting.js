@@ -734,13 +734,18 @@ let CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = {};
 // fija del consultor, NO la métrica mensual), Values=HORAS filtrado a
 // Task="01. No Asignación a Servicio en Cliente" — horas NO PRODUCTIVAS que
 // el propio colaborador registra en Time. `hsAsig` (referencia estática) y
-// `monthly` (horas no asignadas REALES por mes) son dimensiones separadas a
-// propósito — nunca se confunden.
+// `horasByYear` (`{anio: [12]}`, MISMO patrón que `CAPACIDAD_PRODUCTIVAS_
+// ROWS.horasByYear` — CORRECTIVO UX Año, ver capacidadNoAsignadasSelectedRows)
+// son dimensiones separadas a propósito — nunca se confunden. Placeholder
+// SIN `horasByYear` (MISMO criterio minimalista que `CAPACIDAD_PRODUCTIVAS_
+// ROWS` arriba, sin `horasByYear` propio) — `replaceRows` lo reemplaza
+// entero en la primera hidratación, antes de que cualquier filtro/tabla lo
+// lea (ver INITIAL LOAD CONTRACT).
 const CAPACIDAD_NOASIGNADAS_ROWS = [
-  { consultor: "Federico Bressi", hsAsig: 160, monthly: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8] },
-  { consultor: "Franco Delucchi", hsAsig: 160, monthly: [0, 0, 4, 4, 0, 0, 4, 0, 0, 4, 0, 0] },
-  { consultor: "Gabriela Mendez", hsAsig: 160, monthly: [12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12] },
-  { consultor: "Martina Suárez", hsAsig: 120, monthly: [0, 0, 0, 6, 6, 6, 0, 0, 0, 0, 0, 0] },
+  { consultor: "Federico Bressi", hsAsig: 160 },
+  { consultor: "Franco Delucchi", hsAsig: 160 },
+  { consultor: "Gabriela Mendez", hsAsig: 160 },
+  { consultor: "Martina Suárez", hsAsig: 120 },
 ];
 
 // --- "Actualizar" — mantenimiento de origen SharePoint (ver corrective —
@@ -1042,12 +1047,14 @@ function renderHubCallout({ tone = "note", icon = "", title = "", bodyHtml = "" 
 const _NF = {
   count: new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }),
   hours: new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 }),
-  // hours3 (owner request — Horas Productivas ÚNICAMENTE, ver
-  // capacidadProductivasColumns/renderCapacidadProductivas): PBIP muestra
-  // más precisión que el resto del Hub (5.422 vs 5.4) — nuevo tipo
-  // semántico en vez de tocar "hours" (usado por Cartera/Rentabilidad/
-  // Horas Vendidas/Participación, que deben seguir en 1 decimal).
-  hours3: new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 3 }),
+  // hours0 (owner request — Horas Productivas ÚNICAMENTE, tiles Y tablas,
+  // ver capacidadProductivasColumns/renderCapacidadProductivas/
+  // renderCapacidadNoAsignadas): sin decimales (5,424.334 → 5,424) — nuevo
+  // tipo semántico en vez de tocar "hours" (usado por Cartera/Rentabilidad/
+  // Horas Vendidas/Participación, que deben seguir en 1 decimal). Antes
+  // llamado "hours3" (3 decimales, PBIP mostraba más precisión que el
+  // resto del Hub) — owner corrective: 0 decimales, no 3, en toda esta tab.
+  hours0: new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }),
   percent: new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
 };
 function fmtNum(value, type = "hours") {
@@ -1056,7 +1063,7 @@ function fmtNum(value, type = "hours") {
   if (!isFinite(n)) return "—";
   if (type === "count") return _NF.count.format(Math.round(n));
   if (type === "percent") return _NF.percent.format(n) + "%";
-  if (type === "hours3") return _NF.hours3.format(n);
+  if (type === "hours0") return _NF.hours0.format(n);
   if (type === "signed") return (n > 0 ? "+" : "") + _NF.hours.format(n);
   return _NF.hours.format(n);  // "hours" (default)
 }
@@ -1114,12 +1121,14 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
 
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
 // Asignaciones (`section-analysis-loading` + spinner + copy), nunca una
-// imitación propia de Reporting. Copy contextual por experiencia. `barHtml`
-// opcional (HUB FOREGROUND ESTIMATED PROGRESS): SOLO el loader de primera
-// hidratación de main tab lo pasa (ver render()) — los loaders de años
-// fríos/perspectivas individuales siguen sin barra, sin cambio de contrato.
-function reportingLoadingHtml(label, barHtml) {
-  return `<p class="section-analysis-loading">${barHtml || ""}<span class="section-analysis-spinner"></span>`
+// imitación propia de Reporting. Copy contextual por experiencia. La barra
+// de HUB FOREGROUND ESTIMATED PROGRESS NUNCA viaja acá (owner corrective:
+// "EL PROGRESS ES DEL HUB, NO DEL RENDER DE REPORTING") — vive en un nodo
+// propio fuera del árbol de Reporting, ver `_reportingHubProgressPaint`/
+// `reportingHubProgressBegin`. Este loader queda ESTABLE (nunca se
+// recrea) mientras esa barra tickea, precisamente porque no la contiene.
+function reportingLoadingHtml(label) {
+  return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
     + `<span class="section-analysis-loading-copy">${esc(label)}</span></p>`;
 }
 function reportingSourceErrorHtml(label) {
@@ -1301,7 +1310,11 @@ const FACET_CONFIG = {
   // ambos paneles).
   capacidad: () => state.perspective.capacidad === "Productivas"
     ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]), fields: [{ key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }] }
-    : { baseRows: CAPACIDAD_NOASIGNADAS_ROWS, fields: [{ key: "consultor", field: "consultor" }] },
+    // No Asignadas: Año es PANEL-INDEPENDIENTE del motor genérico (owner
+    // corrective, MISMO criterio que Productivas) — `baseRows` ya viene
+    // proyectado al Año elegido vía `capacidadNoAsignadasSelectedRows`,
+    // Consultor se aplica ACÁ (facet <select> normal).
+    : { baseRows: capacidadNoAsignadasSelectedRows(), fields: _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS },
   // Client Partner/Cliente son los ÚNICOS slicers <select> de ambas páginas
   // fuente. Participación: Año/Estado (owner directive — "Do NOT keep
   // Participación on full-history", reusar la infraestructura temporal de
@@ -1342,12 +1355,17 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // Capacidad/Productivas: Año/Mes PANEL-INDEPENDIENTE (owner corrective —
   // ver bloque `CAPACIDAD_PRODUCTIVAS_PANELS`) — se reconcilian los DOS
   // paneles, cada uno contra su PROPIA key, nunca una selección del otro
-  // panel. No-op en No Asignadas (sin filtro.anio/mes ahí).
+  // panel.
   if (expId === "capacidad" && state.perspective.capacidad === "Productivas") {
     CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel => {
       pruneCapacidadProductivasAnio(panel);
       pruneCapacidadProductivasMeses(panel);
     });
+  }
+  // No Asignadas: UN Año, SIN Mes (owner corrective UX — ver
+  // capacidadNoAsignadasAnioField/pruneCapacidadNoAsignadasAnio).
+  if (expId === "capacidad" && state.perspective.capacidad === "No Asignadas") {
+    pruneCapacidadNoAsignadasAnio();
   }
 }
 // Mes queda fuera del año en curso tras un cambio de Año (ej. Mes=Octubre
@@ -1451,6 +1469,8 @@ function resetFilters(expId) {
     CAPACIDAD_PRODUCTIVAS_PANELS.forEach(panel => {
       state.filters.capacidad[capacidadPanelAnioKey(panel)] = capacidadProductivasDefaultAnio();
     });
+    // No Asignadas: MISMO criterio, un solo panel, Año NUNCA a blanco.
+    state.filters.capacidad[capacidadPanelAnioKey("noAsignadas")] = capacidadNoAsignadasDefaultAnio();
   } else {
     state.filters[expId] = {};
   }
@@ -1735,7 +1755,10 @@ function renderCapacidadFilterBar() {
           { value: "En curso", checked: state.capacidadStatus["En curso"], onclick: "toggleCapacidadStatus('En curso')" },
           { value: "Finalizado", checked: state.capacidadStatus["Finalizado"], onclick: "toggleCapacidadStatus('Finalizado')" },
         ])
-    : facetSelectField("capacidad", "consultor", "Consultor");
+    // Consultor + Año juntos (owner: "CONSULTOR AÑO", uno junto al otro,
+    // ver capacidadNoAsignadasAnioField) — a diferencia de Productivas,
+    // cuyo Año vive en el toolbar de cada panel, no en este filter bar.
+    : facetSelectField("capacidad", "consultor", "Consultor") + capacidadNoAsignadasAnioField();
   return filterBarShell(fields, "capacidad");
 }
 
@@ -2583,6 +2606,11 @@ async function loadBatchBData() {
           state.filters.capacidad[key] = capacidadProductivasDefaultAnio();
         }
       });
+      // No Asignadas: MISMO criterio, un solo panel (owner corrective UX).
+      const noAsignadasAnioKey = capacidadPanelAnioKey("noAsignadas");
+      if (!getFilter("capacidad", noAsignadasAnioKey)) {
+        state.filters.capacidad[noAsignadasAnioKey] = capacidadNoAsignadasDefaultAnio();
+      }
       state.batchBDataStatus = "ready";
     } else {
       state.batchBDataStatus = "error";
@@ -3965,6 +3993,54 @@ function capacidadProductivasSelectedRows(panel) {
   });
 }
 
+// --- No Asignadas — Año (CORRECTIVO UX, owner live QA: la tabla mostraba
+// 12 meses sin ningún selector de Año — implícito, y semánticamente
+// incorrecto en cuanto hubiera más de un año en los facts, ver
+// `_shape_horas_productivas_no_asignadas`). UN solo panel (a diferencia de
+// Productivas, que tiene 2 — Cliente/Cliente+Part), MISMO namespacing de
+// key que `capacidadPanelAnioKey` (panel "noAsignadas"). Deliberadamente
+// SIN "Todos" (owner: sumar Ene de varios años en una misma columna
+// mensual sería semánticamente incorrecto) y SIN multi-select de Meses
+// (los 12 meses siempre visibles, owner: "Los 12 meses permanecen siempre
+// visibles") — MUCHO más simple que Productivas, sin cap de mes futuro ni
+// máscara de meses.
+const _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS = [{ key: "consultor", field: "consultor" }];
+function capacidadNoAsignadasAnioOptions() {
+  const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
+  const years = new Set();
+  rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
+  return [...years].filter(_isValidAnioValue).sort();
+}
+// Default Año = año actual válido (owner corrective, MISMO criterio que
+// capacidadProductivasDefaultAnio) — si no está representado en los datos,
+// el año MÁS RECIENTE disponible (nunca blanco, Año no ofrece "Todos").
+function capacidadNoAsignadasDefaultAnio() {
+  const anioActual = String(new Date().getFullYear());
+  const options = capacidadNoAsignadasAnioOptions();
+  if (options.includes(anioActual)) return anioActual;
+  return options.length ? options[options.length - 1] : "";
+}
+// Prune (MISMO criterio que pruneCapacidadProductivasAnio): si el año
+// elegido deja de ser válido (o todavía no se eligió ninguno), cae al
+// default SENSATO — nunca a blanco.
+function pruneCapacidadNoAsignadasAnio() {
+  const key = capacidadPanelAnioKey("noAsignadas");
+  const available = new Set(capacidadNoAsignadasAnioOptions());
+  const anio = (state.filters.capacidad || {})[key];
+  if (!anio || !available.has(anio)) state.filters.capacidad[key] = capacidadNoAsignadasDefaultAnio();
+}
+// Población canónica: TODOS los consultores, proyectados al Año elegido
+// (recalculado desde `horasByYear`, nunca un `monthly` colapsado — ese
+// campo ya no existe en el contrato real, ver `_shape_horas_productivas_
+// no_asignadas`). Consultor (el <select> compartido, ver
+// renderCapacidadFilterBar) se aplica DESPUÉS, vía `facetFilteredRows`
+// (MISMO criterio que Productivas/Comercial — Año vive FUERA del motor
+// genérico de facets, Consultor SÍ es un facet <select> normal).
+function capacidadNoAsignadasSelectedRows() {
+  const anio = getFilter("capacidad", capacidadPanelAnioKey("noAsignadas")) || capacidadNoAsignadasDefaultAnio();
+  return CAPACIDAD_NOASIGNADAS_ROWS.map(r => ({ ...r, monthly: (r.horasByYear || {})[anio] || _z12() }));
+}
+
 // Gran total FIJO de UN panel — DENOMINADOR REAL de "% Incidencia" —
 // SOURCE-PARITY corrective (owner live comparison: LEFT PBI ≈50.5 vs KPI
 // visible 42.182 para el MISMO Cliente/Año — ver evidencia PRIMARIA en
@@ -4019,14 +4095,13 @@ function capacidadProductivasTotal(panel) {
 // que se divide difiere por panel.
 function capacidadProductivasColumns(panel) {
   const total = capacidadProductivasTotal(panel);
-  // Precisión (owner request): Horas Productivas muestra más decimales que
-  // el resto del Hub — PBIP también lo hace (ej. 5.422 vs 5.4 en otras
-  // experiencias), ver `hours3` en fmtNum. % Incidencia a 2 decimales
-  // (antes 1) — este `pct` ya construye su propio string, nunca pasa por
-  // fmtNum, así que el cambio queda 100% local a esta función.
+  // Precisión (owner corrective — Horas Productivas SIN decimales, tiles Y
+  // tablas, ver `hours0` en fmtNum). % Incidencia a 2 decimales (antes 1) —
+  // este `pct` ya construye su propio string, nunca pasa por fmtNum, así
+  // que el cambio de Horas queda 100% local a esta función.
   const pct = horas => (total ? (horas / total * 100) : 0).toFixed(2) + "%";
   return [
-    { label: "Horas", numeric: true, format: "hours3", render: r => r.horas, rollup: sumField("horas") },
+    { label: "Horas", numeric: true, format: "hours0", render: r => r.horas, rollup: sumField("horas") },
     { label: "% Incidencia", numeric: true, render: r => pct(r.horas), rollup: sumField("horas", pct) },
   ];
 }
@@ -4044,6 +4119,24 @@ function capacidadProductivasAnioField(panel) {
     <span>Año</span>
     <select onchange="setFilter('capacidad','${key}', this.value)">
       <option value="" ${current === "" ? "selected" : ""}>Todos</option>
+      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+// Año de No Asignadas — MISMA marca `<select>`/`.whatsnew-filter` que el
+// resto del Hub, pero SIN opción "Todos" (a diferencia de
+// `capacidadProductivasAnioField` arriba) — owner: sumar Ene de varios años
+// en una misma columna mensual sería semánticamente incorrecto. Vive en el
+// filter bar COMPARTIDO junto a Consultor (ver renderCapacidadFilterBar),
+// no en un toolbar propio — posición pedida explícitamente por el owner
+// ("CONSULTOR AÑO", uno junto al otro).
+function capacidadNoAsignadasAnioField() {
+  const key = capacidadPanelAnioKey("noAsignadas");
+  const current = getFilter("capacidad", key) || capacidadNoAsignadasDefaultAnio();
+  const options = capacidadNoAsignadasAnioOptions();
+  return `<label class="whatsnew-filter whatsnew-filter--narrow">
+    <span>Año</span>
+    <select onchange="setFilter('capacidad','${key}', this.value)">
       ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
     </select>
   </label>`;
@@ -4194,7 +4287,7 @@ function renderCapacidadProductivas() {
       <div class="dashboard-section__body">
         <p class="perspective-label">${esc(title)}</p>
         ${panelToolbar(panelKey, stateKey)}
-        <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours3" })}</div>
+        <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHoras, format: "hours0" })}</div>
         ${rowsForPanel.length ? `
         <div class="matrix-scroll">
           <table class="dashboard-table dashboard-table--compact">
@@ -4269,12 +4362,19 @@ function renderCapacidadNoAsignadas() {
   // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
   // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
   // inventada. `hsAsig` es la capacidad de referencia estática del
-  // consultor, separada de `monthly` (horas NO asignadas reales por mes,
-  // ver dataset).
+  // consultor, separada de `monthly` (horas NO asignadas del Año elegido,
+  // ya proyectado por `capacidadNoAsignadasSelectedRows` — ver
+  // facetFilteredRows("capacidad")/FACET_CONFIG.capacidad).
   const rows = baseRows.map(r => ({ ...r, consultorLabel: `${r.consultor} (${r.hsAsig} hs Asig)` }));
   const tree = buildTree(rows, ["consultorLabel"]);
   const totalMonthly = sumMonthly(rows);
   const stateKey = "capacidad::No Asignadas";
+  // CORRECTIVO UX (owner live QA): la tabla mostraba 12 meses sin ningún
+  // selector de Año (implícito qué año representaban) — el Año elegido
+  // (ver capacidadNoAsignadasAnioField, filter bar compartido junto a
+  // Consultor) ahora aparece en el copy de negocio del subtítulo, nunca
+  // hardcodeado.
+  const anioSeleccionado = getFilter("capacidad", capacidadPanelAnioKey("noAsignadas")) || capacidadNoAsignadasDefaultAnio();
 
   // Sin Expandir/Contraer a propósito: jerarquía de UN solo nivel
   // (Consultor), flat — el corrective es explícito en que las tablas planas
@@ -4288,12 +4388,15 @@ function renderCapacidadNoAsignadas() {
       <table class="dashboard-table">
         <thead><tr><th class="row-label-col">Consultor</th>${MESES.map(m => `<th>${m}</th>`).join("")}</tr></thead>
         <tbody>
-          ${renderTreeRows(stateKey, tree, 0)}
-          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
+          ${renderTreeRows(stateKey, tree, 0, false, v => (v === 0 || v ? fmtNum(v, "hours0") : "—"))}
+          <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours0") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
-  const detalle = dashboardSection("detalle", "Horas No Asignadas", "Consultor — Task: No Asignación a Servicio en Cliente", body);
+  // Copy de negocio (owner corrective — el usuario no necesita conocer el
+  // Task fuente): "Horas sin asignación por consultor · {Año}", nunca el
+  // literal técnico "Consultor — Task: No Asignación a Servicio en Cliente".
+  const detalle = dashboardSection("detalle", "Horas No Asignadas", `Horas sin asignación por consultor · ${esc(anioSeleccionado)}`, body);
 
   // PUNCH compartido (§8, owner): la nota metodológica salió del section
   // analítico (antes era un <p class="empty-note"> INLINE dentro de la tabla) y
@@ -4301,12 +4404,12 @@ function renderCapacidadNoAsignadas() {
   // callout--punch de tools.css) — AFUERA y DESPUÉS del grupo analítico. El
   // feedback (¿Qué te pareció este reporte?) queda como último elemento del tab
   // (lo agrega render() a nivel main-tab, después de esto). Wording business-
-  // friendly (sin el prefijo "01." del Task fuente — la presentación NUNCA
-  // maneja el predicado de filtrado, §9).
+  // friendly (sin el Task fuente ni su prefijo "01." — la presentación NUNCA
+  // expone el predicado de filtrado, §9/owner corrective copy).
   const notaMetodologica = renderHubCallout({
     tone: "punch",
     title: "Nota metodológica",
-    bodyHtml: `<p>${esc("Horas No Productivas registradas por cada colaborador en Time (Task: No Asignación a Servicio en Cliente) — indicador distinto de la disponibilidad de Asignaciones.")}</p>`,
+    bodyHtml: `<p>${esc("Horas No Productivas registradas por cada colaborador en Time — indicador distinto de la disponibilidad de Asignaciones.")}</p>`,
   });
 
   return detalle + notaMetodologica;
@@ -4331,14 +4434,35 @@ const FILTER_BARS = {
   capacidad: renderCapacidadFilterBar, comercial: renderComercialFilterBar,
 };
 
-// --- HUB FOREGROUND ESTIMATED PROGRESS (adopción, ver app.js
-// `HubEstimatedProgress` para el primitivo/contrato de UX compartido) -------
-// Reporting es el PRIMER adopter, no el dueño. SOLO se engancha en el loader
-// de PRIMERA hidratación de main tab (ver render(), rama `else` de abajo) —
-// nunca en años fríos/perspectivas individuales, nunca en el prefetch en
-// background de la "hermana" (Cartera Mantenimiento+Proyecto, Comercial
-// Participación+Salud vía batch-a) ni en el switch de perspectiva post-
-// hidratación (ese contrato ya existe, ver reportingTabHydrated/render()).
+// --- HUB FOREGROUND ESTIMATED PROGRESS (adopción del loader CANÓNICO del
+// Hub, ver app.js `HubEstimatedProgress` para la matemática de estimación) -
+// CORRECTIVO (owner live QA — "STOP REINVENTING THE HUB LOADER"): el Hub ya
+// tiene UN loader/progress bar real — `.read-progress`/`.read-progress__fill`
+// (montado en `platform_topbar.html`, MISMO nodo para toda página que use el
+// macro), hoy alimentado por progreso REAL de scroll (`copilotLayout().init()`
+// en app.js, SIN TOCAR). Reporting NO crea otra barra — escribe
+// `style.width` sobre ESE MISMO `.read-progress__fill`, con progreso
+// ESTIMADO por tiempo en vez de scroll (Graph no expone un % real). Mismo
+// DOM/CSS/posición/comportamiento — solo cambia la FUENTE del valor.
+//
+// El tick NUNCA llama `render()`: solo escribe `style.width` directamente
+// sobre `.read-progress__fill`. Antes (versión anterior de este corrective)
+// tickear vía `render()` reemplazaba `mainContent.innerHTML` entero en cada
+// tick — recreando el loader "Cargando…" (`.section-analysis-loading`/
+// spinner) una y otra vez (bug reportado en live QA, "el GIF se reinicia").
+// Ahora el DOM del loader se escribe UNA sola vez (cuando `render()` entra a
+// la rama "todavía cargando") y queda estable hasta que la carga termina.
+//
+// Reporting es el PRIMER adopter, no el dueño. SOLO se engancha en el
+// loader de PRIMERA hidratación de main tab (ver render(), rama `else` de
+// abajo) — nunca en años fríos/perspectivas individuales, nunca en el
+// prefetch en background de la "hermana" (Cartera Mantenimiento+Proyecto,
+// Comercial Participación+Salud vía batch-a) ni en el switch de
+// perspectiva post-hidratación (ese contrato ya existe, ver
+// reportingTabHydrated/render()). Durante esta fase el contenido todavía no
+// se renderiza (nada scrollable), así que nunca compite con el scroll-
+// tracking real de Copiloto — ambos escriben el MISMO `style.width`, pero
+// en ventanas de tiempo disjuntas.
 //
 // Key por FUENTE de datos, NO por tab: Comercial y Calendario disparan el
 // MISMO `loadBatchAData()` (ver TAB_HYDRATION_TRIGGERS) — deben aprender el
@@ -4354,21 +4478,30 @@ const REPORTING_HUB_PROGRESS = {
 const _reportingHubProgress = {};  // expId -> { controller } — SOLO tabs con carga en curso
 let _reportingHubProgressTimer = null;
 
-// Barra HTML para el expId dado — crea el controller la PRIMERA vez que se
-// pide (idempotente en renders sucesivos mientras sigue cargando) y arranca
-// el ÚNICO timer compartido (nunca uno por tab — evitaría un timer "húerfano"
-// si el usuario conmuta de tab antes de que la carga termine).
-function reportingHubProgressBarHtml(expId) {
+// Pinta el nodo REAL del Hub (`.read-progress__fill`, ver arriba) según el
+// controller del tab ACTIVO — nunca según el de un tab en background (ese
+// sigue cargando, pero SIN UI visible, MISMO criterio "silencioso" que la
+// prefetch hermana de Cartera/Comercial). Sin tab activo con carga en curso,
+// se resetea a 0% (equivalente a "oculta" — un fill de ancho 0 es invisible,
+// MISMO criterio que el estado inicial de Copiloto antes del primer scroll).
+function _reportingHubProgressPaint() {
+  const fill = document.querySelector(".read-progress__fill");
+  if (!fill) return;
+  const entry = _reportingHubProgress[state.experience];
+  fill.style.width = entry ? entry.controller.tick().percent + "%" : "0%";
+}
+
+// Arranca (idempotente) el controller del expId dado — llamado desde el
+// loader de PRIMERA hidratación (ver render()). Arranca el ÚNICO timer
+// compartido (nunca uno por tab — evitaría un timer "huérfano" si el
+// usuario conmuta de tab antes de que la carga termine) y pinta de
+// inmediato (nunca espera al primer tick del timer para mostrarse).
+function reportingHubProgressBegin(expId) {
   const cfg = REPORTING_HUB_PROGRESS[expId];
-  if (!cfg) return "";
-  if (!_reportingHubProgress[expId]) {
-    _reportingHubProgress[expId] = { controller: HubEstimatedProgress.start(cfg.key, { seedMs: cfg.seedMs }) };
-    if (!_reportingHubProgressTimer) _reportingHubProgressTimer = setInterval(_reportingHubProgressSweep, 200);
-  }
-  const { percent, overrun } = _reportingHubProgress[expId].controller.tick();
-  return `<div class="hub-progress${overrun ? " hub-progress--overrun" : ""}" role="progressbar" `
-    + `aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">`
-    + `<div class="hub-progress__fill" style="width:${percent}%"></div></div>`;
+  if (!cfg || _reportingHubProgress[expId]) return;
+  _reportingHubProgress[expId] = { controller: HubEstimatedProgress.start(cfg.key, { seedMs: cfg.seedMs }) };
+  if (!_reportingHubProgressTimer) _reportingHubProgressTimer = setInterval(_reportingHubProgressSweep, 150);
+  _reportingHubProgressPaint();
 }
 
 // Idempotente — puede llamarse aunque no haya controller activo (no-op).
@@ -4377,20 +4510,22 @@ function reportingHubProgressSettle(expId, success) {
   if (!entry) return;
   if (success) entry.controller.finishSuccess(); else entry.controller.finishError();
   delete _reportingHubProgress[expId];
+  _reportingHubProgressPaint();
 }
 
-// Único timer compartido: liquida cualquier tab cuyo status YA resolvió
-// aunque el usuario haya conmutado a OTRO tab mientras tanto (si no, el
+// Único timer compartido: NUNCA llama `render()` (ver comentario de
+// arriba) — solo (a) liquida cualquier tab cuyo status YA resolvió aunque
+// el usuario haya conmutado a OTRO tab mientras tanto (si no, el
 // controller de ese tab quedaría vivo para siempre esperando que ese mismo
-// tab vuelva a estar activo). Solo dispara `render()` si el tab ACTIVO sigue
-// en esta lista — nunca re-renderiza por un tab en background.
+// tab vuelva a estar activo) y (b) repinta el nodo del Hub para el tab
+// ACTIVO. Se auto-limpia apenas no queda ningún tab esperando.
 function _reportingHubProgressSweep() {
   Object.keys(_reportingHubProgress).forEach(expId => {
     const status = reportingTabRawStatus(expId);
     if (status === "ready") reportingHubProgressSettle(expId, true);
     else if (status === "error") reportingHubProgressSettle(expId, false);
   });
-  if (_reportingHubProgress[state.experience]) render();
+  _reportingHubProgressPaint();
   if (!Object.keys(_reportingHubProgress).length && _reportingHubProgressTimer) {
     clearInterval(_reportingHubProgressTimer);
     _reportingHubProgressTimer = null;
@@ -4503,9 +4638,19 @@ function render() {
       reportingHubProgressSettle(expId, false);
       mainContent.innerHTML = reportingSourceErrorHtml("los datos de esta pestaña");
     } else {
-      mainContent.innerHTML = reportingLoadingHtml("Cargando…", reportingHubProgressBarHtml(expId));
+      // Arranca (idempotente) la barra COMPARTIDA del Hub — nunca embebida
+      // en este innerHTML (ver reportingLoadingHtml/reportingHubProgressBegin).
+      reportingHubProgressBegin(expId);
+      mainContent.innerHTML = reportingLoadingHtml("Cargando…");
     }
   }
+  // Repinta el nodo COMPARTIDO según el tab ACTIVO (idempotente, nunca toca
+  // mainContent — ver _reportingHubProgressPaint): cubre el caso "volver a
+  // un tab ya hidratado mientras OTRO sigue cargando en background" sin
+  // esperar al próximo tick del timer compartido (settle/begin ya pintan
+  // por su cuenta; esto es el fallback para cualquier otro render() —
+  // p. ej. un simple cambio de tab — que no pasó por ninguno de los dos).
+  _reportingHubProgressPaint();
   // Backbone compartido de drag-and-drop/colapso (app.js) — se re-aplica en
   // cada render() porque acá el contenido se reemplaza por innerHTML
   // completo (sin htmx), a diferencia de Staffing/Actividad que lo disparan

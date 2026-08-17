@@ -21,6 +21,10 @@ const src = fs.readFileSync(REPORTING_JS, "utf-8");
 function makeEl() { return { innerHTML: "" }; }
 const tabsEl = makeEl();
 const mainEl = makeEl();
+// Nodo REAL del Hub (`.read-progress__fill`, ver platform_topbar.html) —
+// stub suficiente para no romper `_reportingHubProgressPaint` (no prueba la
+// barra en sí, ver reporting_hub_estimated_progress_glue.node.js para eso).
+const readProgressFill = { style: { width: "" } };
 const sandbox = {
   document: {
     addEventListener() {},
@@ -29,6 +33,7 @@ const sandbox = {
       if (id === "reporting-main-content") return mainEl;
       return makeEl();
     },
+    querySelector(sel) { return sel === ".read-progress__fill" ? readProgressFill : null; },
   },
   window: {},
   sessionStorage: { getItem() { return ""; } },

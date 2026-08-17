@@ -17,7 +17,7 @@ const REPORTING_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "re
 const src = fs.readFileSync(REPORTING_JS, "utf-8");
 
 const sandbox = {
-  document: { addEventListener() {} },
+  document: { addEventListener() {}, querySelector() { return null; } },
   window: {},
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },

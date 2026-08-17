@@ -11,7 +11,7 @@ const vm = require("vm");
 const REPORTING_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "reporting.js");
 const src = fs.readFileSync(REPORTING_JS, "utf-8");
 const sandbox = {
-  document: { addEventListener() {} }, window: {},
+  document: { addEventListener() {}, querySelector() { return null; } }, window: {},
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({}) }); }, console,
 };

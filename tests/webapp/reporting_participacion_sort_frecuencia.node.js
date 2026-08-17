@@ -17,7 +17,7 @@ const src = fs.readFileSync(REPORTING_JS, "utf-8");
 
 function makeEl() { return { innerHTML: "" }; }
 const sandbox = {
-  document: { addEventListener() {}, getElementById() { return makeEl(); } },
+  document: { addEventListener() {}, getElementById() { return makeEl(); }, querySelector() { return null; } },
   window: {},
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },

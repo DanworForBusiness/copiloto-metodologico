@@ -73,5 +73,8 @@ def test_calendario_and_no_asignadas_are_not_month_masked_no_date_filter_there()
     assert "monthMask" not in calendario
 
     no_asignadas = _REPORTING_JS[_REPORTING_JS.index("function renderCapacidadNoAsignadas"):_REPORTING_JS.index("function renderCapacidad(")]
-    assert "renderTreeRows(stateKey, tree, 0)" in no_asignadas
+    # CORRECTIVO UX (owner: Horas Productivas SIN decimales) — pasa un
+    # cellFormatter propio ("hours0") en vez del default heredado de
+    # renderTreeRows ("hours", 1 decimal), pero SIGUE sin `monthMask`.
+    assert 'renderTreeRows(stateKey, tree, 0, false, v => (v === 0 || v ? fmtNum(v, "hours0") : "—"))' in no_asignadas
     assert "monthMask" not in no_asignadas
