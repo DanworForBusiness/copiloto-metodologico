@@ -232,6 +232,16 @@ render();
 assertFalse(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL E: volver a un tab ya hidratado no re-muestra el loader inicial");
 assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL E: superficie (feedback/filtros) inmediata al volver");
 
+// Case F (auditoría del mismo invariante) — tras hidratar, conmutar a la
+// perspectiva hermana (Salud) con su dataset (batch-a) TODAVÍA cargando NO
+// oculta la filter bar (renderComercialFilterBar no gatea por status).
+state.perspective.comercial = "Salud de Cliente";
+state.batchADataStatus = "loading";
+render();
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL F: filter bar PRESENTE con Salud (hermana) en carga, post-hidratación");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL F: feedback PRESENTE");
+state.batchADataStatus = "ready";
+
 // ============================================================================
 // 8) CARTERA — la PRIMERA hidratación gatea por la PERSPECTIVA ACTIVA, NO por
 //    "alguna fuente ready" (hardening: se eliminó el `combine` que asumía que
@@ -267,21 +277,29 @@ state.carteraProyectoStatus = "ready";
 render();
 assertTrue(state.reportingTabHydrated.cartera, "CARTERA B (inversa): se hidrata cuando Proyecto (activa) está ready");
 
-// Case C — tras hidratar, conmutar a una perspectiva cuyo dataset sigue
-// cargando NO re-entra al modo "solo loader inicial": el SHELL permanece
-// (filter bar visible). El CONTENIDO puede mostrar su propio loader contextual
-// inline (comportamiento existente/protegido — mismo criterio que el paso 3);
-// la garantía es que el shell NO colapsa a tabs+loader-solo (filter bar out).
-// (Cartera oculta su filter bar cuando la perspectiva activa está cargando —
-// comportamiento pre-existente/protegido por el ticket; NO es colapso del
-// shell. La prueba definitiva de "no re-entró al modo loader-inicial-solo" es
-// que el feedback —siempre presente en la rama hidratada de render()— sigue
-// ahí; en el modo loader-inicial el else-branch NO renderiza feedback.)
+// Case C — tras la PRIMERA hidratación, conmutar a una perspectiva hermana cuyo
+// dataset sigue cargando debe MANTENER la superficie report-level: filter bar +
+// feedback presentes, el contenido muestra su loader contextual. NUNCA se
+// oculta la filter bar ni se vuelve al layout de primer-loader (owner: "only
+// FIRST hydration may hide filters"). Se prueban AMBAS direcciones.
+// C.1 — Proyecto (hidratado en B) → Mantenimiento con Mantenimiento loading.
 state.perspective.cartera = "Mantenimiento";
 state.carteraMantenimientoStatus = "loading";
 render();
-assertTrue(state.reportingTabHydrated.cartera, "CARTERA C: flag one-way sigue hidratado al conmutar");
-assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C: el shell sigue hidratado (feedback presente), no re-entra a 'solo loader inicial'");
+assertTrue(state.reportingTabHydrated.cartera, "CARTERA C.1: flag one-way sigue hidratado al conmutar a Mantenimiento");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA C.1: filter bar PRESENTE pese a Mantenimiento en carga (post-hidratación)");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.1: feedback PRESENTE");
+assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA C.1: loader CONTEXTUAL del contenido presente (perspectiva en carga)");
+// C.2 — inversa: Mantenimiento ready → Proyecto con Proyecto loading.
+state.carteraMantenimientoStatus = "ready";
+state.perspective.cartera = "Proyecto";
+state.carteraProyectoStatus = "loading";
+render();
+assertTrue(state.reportingTabHydrated.cartera, "CARTERA C.2 (inversa): sigue hidratado al conmutar a Proyecto");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA C.2 (inversa): filter bar PRESENTE pese a Proyecto en carga");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.2 (inversa): feedback PRESENTE");
+assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA C.2 (inversa): loader contextual del contenido presente");
+state.carteraProyectoStatus = "ready";  // deja el estado limpio
 
 if (failures > 0) {
   console.log(`${failures} initial-load contract invariant(s) FAILED`);

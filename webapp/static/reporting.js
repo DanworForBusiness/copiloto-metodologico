@@ -1584,10 +1584,14 @@ function toggleCarteraStatus(key) {
 // Cliente, Desde/Hasta (o Año de Inicio), Estado.
 function renderCarteraFilterBar() {
   const persp = state.perspective.cartera;
-  // Sin barra de filtros hasta que los datos reales de ESTA perspectiva
-  // estén listos — evita mostrar opciones de un dataset que todavía no
-  // llegó (o que falló).
-  if (carteraStatusFor(persp) !== "ready") return "";
+  // INITIAL HYDRATION CONTRACT (owner): SOLO la PRIMERA hidratación puede
+  // ocultar la barra de filtros. Una vez que el tab hidrató
+  // (`reportingTabHydrated.cartera`), conmutar a una perspectiva hermana cuyo
+  // dataset todavía carga NUNCA vuelve a ocultar los filtros/acciones — la
+  // barra permanece y el CONTENIDO muestra su loader contextual. Antes gateaba
+  // SOLO por `carteraStatusFor(persp) === "ready"`, lo que la escondía al
+  // conmutar a una perspectiva en carga aun después de hidratar.
+  if (!state.reportingTabHydrated.cartera && carteraStatusFor(persp) !== "ready") return "";
   // Mantenimiento (UX1, owner live QA): Año (facet <select> normal,
   // data-driven) + Mes (fijo, 12 meses siempre — ver carteraMesField).
   // Año de Inicio (Proyecto, owner feedback ver HANDOFF): el slicer real

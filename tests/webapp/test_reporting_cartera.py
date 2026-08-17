@@ -880,9 +880,14 @@ def test_cartera_failure_is_localized_fail_soft():
     assert "siguen disponibles" in _REPORTING_JS
 
 
-def test_filter_bar_hidden_until_data_ready():
+def test_filter_bar_hidden_until_first_hydration_only():
+    # INITIAL HYDRATION CONTRACT (owner): la filter bar se oculta SOLO durante la
+    # PRIMERA hidratación (nunca hidratado). Una vez hidratado el tab, conmutar a
+    # una perspectiva hermana en carga NO vuelve a ocultarla (se mantiene + loader
+    # contextual en el contenido) — de ahí el guard por reportingTabHydrated,
+    # no solo por status de perspectiva.
     fb = _REPORTING_JS[_REPORTING_JS.index("function renderCarteraFilterBar()"):_REPORTING_JS.index("function renderRentabilidadFilterBar()")]
-    assert 'if (carteraStatusFor(persp) !== "ready") return "";' in fb
+    assert 'if (!state.reportingTabHydrated.cartera && carteraStatusFor(persp) !== "ready") return "";' in fb
 
 
 # --- UX1: contrato de filtro Año/Mes de Mantenimiento -------------------------
