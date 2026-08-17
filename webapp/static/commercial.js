@@ -30,6 +30,19 @@
 // del TTL, o el switch Todos/NN/BI que golpea el MISMO cache — ver
 // commercial_service.py) resuelve casi instantáneo: begin()+complete() en
 // sucesión inmediata, sin espera artificial (ver HANDOFF §12).
+//
+// KPI → Contextual Drilldown (ver HANDOFF — Batch 2A, Oportunidades
+// Activas): "Oportunidades activas" es HOY el único KPI clickeable
+// (`commercialClickableKpi`) — el resto del grid sigue siendo
+// `commercialKpi` display-only hasta que tengan su propio drilldown real.
+// Reusa el motor COMPARTIDO `initEventBreakdown` (app.js, ya usado por
+// "Eventos y catálogo" en Actividad/Admin) vía el contrato
+// `[data-breakdown-group]`/`[data-event]`/`[data-breakdown]` — nunca un
+// handler de click propio. `{openFirst:false}` (parámetro nuevo del motor,
+// ver app.js) evita el auto-open del primer trigger que "Eventos y
+// catálogo" sí quiere; acá el análisis arranca cerrado (estado codificado
+// directo en el markup: panel `data-breakdown=""` visible, panel
+// `data-breakdown="activas"` `hidden`).
 
 const commercialState = {
   tipo: "todos",
@@ -65,6 +78,16 @@ function commercialKpi(label, value) {
     + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
 }
 
+// KPI → Contextual Drilldown (ver HANDOFF): variante clickeable de
+// `commercialKpi`, trigger de `initEventBreakdown` (app.js) vía `data-event`
+// — NUNCA un handler propio. Solo el KPI con un drilldown real gana esta
+// forma; el resto sigue siendo `commercialKpi` display-only.
+function commercialClickableKpi(label, value, eventKey) {
+  return `<div class="activity-kpi activity-kpi--clickable" data-event="${eventKey}" role="button" tabindex="0" aria-label="Ver análisis de ${commercialEsc(label)}">`
+    + `<span class="activity-kpi__value">${commercialEsc(value)}</span>`
+    + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
+}
+
 function commercialLoadingHtml(label) {
   return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
     + `<span class="section-analysis-loading-copy">${commercialEsc(label)}</span></p>`;
@@ -79,7 +102,10 @@ function commercialLoadingHtml(label) {
 // el layout interno que arma Staffing para VARIOS controles + un botón
 // Limpiar en una fila (ese es un helper propio de esa vertical).
 function commercialFilterHtml() {
-  const tipos = [["todos", "Todos"], ["nn", "NN"], ["bi", "BI"]];
+  // Copy visible (micro-corrective aprobado): "New Name"/"Base Instalada" en
+  // vez de las siglas NN/BI — los valores TÉCNICOS internos (data attribute,
+  // query param `tipo=nn|bi`, contrato del service/endpoint) NO cambian.
+  const tipos = [["todos", "Todos"], ["nn", "New Name"], ["bi", "Base Instalada"]];
   const buttons = tipos.map(([key, label]) =>
     `<button type="button" class="${commercialState.tipo === key ? "is-active" : ""}" data-commercial-tipo="${key}">${commercialEsc(label)}</button>`
   ).join("");
@@ -150,8 +176,17 @@ function commercialDashboardSection(id, title, countLabel, bodyHtml) {
     <div class="dashboard-section__body">${bodyHtml}</div>
   </details>`;
 }
+// `data-breakdown-group` (KPI → Contextual Drilldown, ver HANDOFF): ancestro
+// compartido que `initEventBreakdown` (app.js) necesita para emparejar el
+// trigger `[data-event]` (tile "Oportunidades activas", dentro de "Resumen")
+// con su panel `[data-breakdown]` (dentro de "Oportunidades Activas —
+// Análisis") — coexiste sin conflicto con `data-dashboard-key` (drag/collapse
+// de secciones, `initDashboardSections`), son contratos ortogonales sobre el
+// mismo contenedor. Hoy Comercial tiene un solo grupo; si en el futuro
+// aparecen relaciones drilldown que NO deban compartir scope con otras, ahí
+// sí correspondería acotar `data-breakdown-group` a un wrapper más chico.
 function commercialDashboardSections(dashboardKey, sectionsHtml) {
-  return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}">${sectionsHtml}</div>`;
+  return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}" data-breakdown-group>${sectionsHtml}</div>`;
 }
 
 function commercialRender() {
@@ -175,18 +210,37 @@ function commercialRender() {
   const kpiGrid = `<div class="activity-kpi-grid">
       ${commercialKpi("Pipeline horas", commercialFmtInt(s.pipeline.hours))}
       ${commercialKpi("Pipeline ponderado (hs)", commercialFmtInt(s.pipeline.weighted_hours))}
-      ${commercialKpi("Oportunidades activas", commercialFmtInt(s.activas.count))}
+      ${commercialClickableKpi("Oportunidades activas", commercialFmtInt(s.activas.count), "activas")}
       ${commercialKpi("Ganadas", commercialFmtInt(s.ganadas.count))}
       ${commercialKpi("Perdidas", commercialFmtInt(s.perdidas.count))}
       ${commercialKpi("Conversión", commercialFmtPercent(s.conversion))}
     </div>`;
+  // "Oportunidades Activas — Análisis" (KPI → Contextual Drilldown, ver
+  // HANDOFF): la tabla stages 1–8 (antes sección paralela "Pipeline por
+  // Etapa") es semánticamente el detalle de "Oportunidades activas", no de
+  // Pipeline Total (universo 0–8, drilldown propio no implementado en este
+  // batch) — audit live legacy confirmó ambos universos son distintos.
+  // Panel `data-breakdown=""` = estado "sin selección" (MISMO patrón que
+  // "Eventos y catálogo"): visible por default, se oculta recién cuando
+  // `initEventBreakdown` activa `data-breakdown="activas"` al click. Arranca
+  // así en el markup — `initEventBreakdown(document, {openFirst:false})` NO
+  // auto-abre el primero (ver app.js), a diferencia de su comportamiento
+  // histórico.
+  const analysisPanels = `
+    <div class="activity-breakdown__panel" data-breakdown="">
+      <p class="empty-panel">Hacé clic en "Oportunidades activas" para ver el detalle por etapa.</p>
+    </div>
+    <div class="activity-breakdown__panel" data-breakdown="activas" hidden>
+      ${commercialPipelineTableHtml(p)}
+    </div>`;
   const sections = commercialDashboardSection("resumen", "Resumen", `${commercialFmtInt(s.activas.count)} oportunidad(es) activa(s)`, kpiGrid)
-    + commercialDashboardSection("pipeline", "Pipeline por Etapa", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, commercialPipelineTableHtml(p));
+    + commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, analysisPanels);
   root.innerHTML = `
     ${commercialFilterHtml()}
     ${commercialDashboardSections("commercial", sections)}
   `;
   initDashboardSections(document);
+  initEventBreakdown(document, { openFirst: false });
 }
 
 async function commercialLoadData() {

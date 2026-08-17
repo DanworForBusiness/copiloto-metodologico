@@ -656,7 +656,15 @@ document.body.addEventListener("htmx:load", () => initDashboardSections(document
 // muestra su desglose (precalculado en summary.event_breakdowns) a la derecha.
 // Sin request extra; el swap de htmx recrea el grupo, por eso se re-cablea en
 // cada htmx:load igual que initDashboardSections.
-function initEventBreakdown(scope) {
+//
+// `openFirst` (KPI → Contextual Drilldown, ver HANDOFF): default `true`
+// preserva el comportamiento histórico de "Eventos y catálogo" (auto-abre el
+// primer trigger al cablear, "el evento más frecuente"). Un caller con un
+// grupo que debe arrancar CERRADO (ver commercial.js — la tarjeta
+// "Oportunidades activas" no debe auto-abrir su análisis al cargar el
+// dashboard) pasa `{openFirst:false}`; el estado inicial hidden/is-active en
+// ese caso lo define el propio markup, no esta función.
+function initEventBreakdown(scope, { openFirst = true } = {}) {
   scope.querySelectorAll("[data-breakdown-group]").forEach(group => {
     const rows = [...group.querySelectorAll("[data-event]")];
     const panels = [...group.querySelectorAll("[data-breakdown]")];
@@ -681,7 +689,7 @@ function initEventBreakdown(scope) {
     group.querySelectorAll("[data-event-reset]").forEach(btn => {
       btn.addEventListener("click", () => show(""));
     });
-    if (rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
+    if (openFirst && rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
   });
 }
 document.body.addEventListener("htmx:load", () => initEventBreakdown(document));

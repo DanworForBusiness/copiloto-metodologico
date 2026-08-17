@@ -215,7 +215,11 @@ def test_commercial_summary_and_pipeline_each_live_inside_their_own_dashboard_se
     # cada uno con su propio `data-section-id`, no una plantilla duplicada
     # a mano por sección.
     assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
-    assert 'commercialDashboardSection("pipeline", "Pipeline por Etapa",' in _COMMERCIAL_JS
+    # KPI → Contextual Drilldown corrective: "pipeline"/"Pipeline por Etapa"
+    # se renombró a "activas-analisis"/"Oportunidades Activas — Análisis" —
+    # la tabla stages 1-8 es semánticamente el detalle de Oportunidades
+    # Activas, no de Pipeline Total (ver test específico más abajo).
+    assert 'commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis",' in _COMMERCIAL_JS
     assert 'data-section-id="${id}"' in _COMMERCIAL_JS
     # El KPI grid y la tabla siguen siendo los MISMOS primitives de siempre
     # (sin tocar tiles/columnas) — solo ahora viven dentro del body de cada
@@ -297,10 +301,12 @@ def test_commercial_did_not_adopt_staffing_filter_bar_layout():
 
 
 def test_commercial_todos_nn_bi_selector_behavior_is_unchanged():
-    # Mismos 3 valores, mismo atributo de datos, mismo mecanismo de toggle —
-    # el corrective es puramente estructural (contenedor), cero cambio de
-    # comportamiento o copy.
-    assert '[["todos", "Todos"], ["nn", "NN"], ["bi", "BI"]]' in _COMMERCIAL_JS
+    # Mismos 3 valores TÉCNICOS (data attribute/query param), mismo mecanismo
+    # de toggle — el corrective de spine era puramente estructural (cero
+    # cambio de comportamiento). El COPY visible sí cambió después (ver
+    # test_commercial_filter_copy_shows_new_name_and_base_instalada), pero
+    # el contrato de datos sigue siendo exactamente todos/nn/bi.
+    assert '["todos", "Todos"]' in _COMMERCIAL_JS
     assert "data-commercial-tipo=" in _COMMERCIAL_JS
     assert "commercialState.tipo === key" in _COMMERCIAL_JS
 
@@ -388,7 +394,148 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
     assert '"dashboard-sticky-header"' in _COMMERCIAL_JS
     assert '"dashboard-view-switch"' in _COMMERCIAL_JS
     assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
-    assert 'commercialDashboardSection("pipeline", "Pipeline por Etapa",' in _COMMERCIAL_JS
+    assert 'commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis",' in _COMMERCIAL_JS
+
+
+# ============================================================================
+# Batch 2A — KPI → Contextual Drilldown (Oportunidades Activas). Audit live
+# legacy confirmó que la tabla stages 1-8 corresponde semánticamente a
+# Oportunidades Activas, no a Pipeline Total — este batch reposiciona esa
+# tabla como el detalle contextual del ÚNICO KPI clickeable de este batch,
+# reusando el motor shared `initEventBreakdown` (app.js), nunca un handler
+# de click propio de Comercial.
+# ============================================================================
+
+def test_only_active_opportunities_kpi_is_clickable():
+    # Único call site de `commercialClickableKpi` en todo el archivo — el
+    # resto de los 5 KPIs del grid siguen siendo `commercialKpi` (display-only).
+    assert 'commercialClickableKpi("Oportunidades activas", commercialFmtInt(s.activas.count), "activas")' in _COMMERCIAL_JS
+    assert _COMMERCIAL_JS.count("commercialClickableKpi(") == 2  # definición + un único call site
+
+
+def test_other_kpi_tiles_remain_display_only():
+    for label in ("Pipeline horas", "Pipeline ponderado (hs)", "Ganadas", "Perdidas", "Conversión"):
+        assert f'commercialKpi("{label}"' in _COMMERCIAL_JS
+    # Ninguno de los otros 5 pasa por la variante clickeable.
+    for banned_call in (
+        'commercialClickableKpi("Pipeline horas"', 'commercialClickableKpi("Pipeline ponderado',
+        'commercialClickableKpi("Ganadas"', 'commercialClickableKpi("Perdidas"',
+        'commercialClickableKpi("Conversión"',
+    ):
+        assert banned_call not in _COMMERCIAL_JS
+
+
+def test_clickable_kpi_reuses_the_shared_activity_kpi_clickable_modifier():
+    clickable_fn = _COMMERCIAL_JS.split("function commercialClickableKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'class="activity-kpi activity-kpi--clickable"' in clickable_fn
+    assert "data-event=" in clickable_fn
+    assert 'role="button"' in clickable_fn
+    assert 'tabindex="0"' in clickable_fn
+    assert "aria-label=" in clickable_fn
+
+
+def test_commercial_reuses_shared_init_event_breakdown_never_a_parallel_handler():
+    assert "initEventBreakdown(document" in _COMMERCIAL_JS
+    # Nunca un listener de click propio sobre el trigger — el motor shared
+    # ya resuelve click + keydown + toggle/deselect.
+    for banned in ("addEventListener(\"click\", () => show", "function commercialShowActive", "function commercialToggleActive"):
+        assert banned not in _COMMERCIAL_JS
+
+
+def test_init_event_breakdown_gains_an_opt_out_of_auto_open_without_changing_default():
+    # Firma nueva con default `true` — CERO cambio de comportamiento para el
+    # consumidor histórico ("Eventos y catálogo"), que sigue llamando
+    # `initEventBreakdown(document)` sin opciones.
+    assert "function initEventBreakdown(scope, { openFirst = true } = {})" in _APP_JS
+    assert 'document.body.addEventListener("htmx:load", () => initEventBreakdown(document));' in _APP_JS
+    assert "if (openFirst && rows.length) show(rows[0].dataset.event);" in _APP_JS
+
+
+def test_commercial_opts_out_of_auto_open_for_its_own_group():
+    assert "initEventBreakdown(document, { openFirst: false })" in _COMMERCIAL_JS
+
+
+def test_analysis_panel_starts_hidden_not_via_default_auto_open():
+    # El estado inicial "cerrado" está codificado en el propio markup (panel
+    # "" visible, panel "activas" hidden) — NO depende de que la función lo
+    # calcule, porque con openFirst:false la función no llama a show() en absoluto.
+    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
+    assert 'data-breakdown=""' in render_fn
+    assert 'data-breakdown="activas" hidden' in render_fn
+
+
+def test_breakdown_group_attribute_wraps_the_dashboard_sections_container():
+    sections_fn = _COMMERCIAL_JS.split("function commercialDashboardSections(", 1)[1].split("\nfunction ", 1)[0]
+    assert "data-breakdown-group" in sections_fn
+    # Coexiste con data-dashboard-key en el MISMO div — contratos ortogonales.
+    assert "data-dashboard-key=" in sections_fn
+
+
+def test_active_opportunities_analysis_contains_the_stage_1_8_table_not_pipeline_total():
+    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
+    assert "commercialPipelineTableHtml(p)" in render_fn
+    # Ya no existe la sección paralela "Pipeline por Etapa" ligada a Pipeline Total.
+    assert "Pipeline por Etapa" not in _COMMERCIAL_JS
+    assert 'commercialDashboardSection("pipeline",' not in _COMMERCIAL_JS
+
+
+def test_stage_table_shared_primitives_and_totals_row_untouched_by_this_batch():
+    # Este batch es EXCLUSIVAMENTE reposicionamiento — la tabla en sí (Table
+    # Spine corrective) no cambia: row-label-col, matrix-scroll, tr.is-total.
+    assert '<th class="row-label-col">Etapa</th>' in _COMMERCIAL_JS
+    assert '<div class="matrix-scroll">' in _COMMERCIAL_JS
+    assert '<tr class="is-total">' in _COMMERCIAL_JS
+    assert "pipeline.stages.reduce(" in _COMMERCIAL_JS
+
+
+def test_commercial_filter_copy_shows_new_name_and_base_instalada_not_abbreviations():
+    assert '[["todos", "Todos"], ["nn", "New Name"], ["bi", "Base Instalada"]]' in _COMMERCIAL_JS
+    assert '"nn", "NN"' not in _COMMERCIAL_JS
+    assert '"bi", "BI"' not in _COMMERCIAL_JS
+
+
+def test_commercial_technical_tipo_values_are_unchanged_by_the_copy_relabel(monkeypatch):
+    # El copy visible cambió; el contrato de datos (query param real que
+    # llega al backend) sigue siendo exactamente todos/nn/bi — sin tocar
+    # service/endpoint.
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _StubService())
+    for tipo in ("todos", "nn", "bi"):
+        response = client.get(f"/comercial/data/summary?tipo={tipo}")
+        assert response.json()["summary"]["tipo"] == tipo
+
+
+def test_no_new_chart_or_commercial_specific_drilldown_css_this_batch():
+    # Explícitamente fuera de alcance de este batch (ver HANDOFF — Batch 2A):
+    # ni Funnel, ni .bar-row promovido, ni ninguna clase .commercial-* nueva.
+    _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    for banned in ("commercial-funnel", "commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
+        assert banned not in _COMMERCIAL_JS
+        assert banned not in _TOOLS_CSS
+    assert ".reporting-integral-preview .bar-row" in (_STATIC / "reporting.css").read_text(encoding="utf-8")  # sigue scoped, no promovido
+
+
+def test_no_other_kpi_gained_a_drilldown_this_batch():
+    # Pipeline Total/Ponderado, Ganadas, Perdidas, Prospectos, Suspendidas,
+    # Creadas, Target: ninguno gana `data-event` ni panel propio en este batch
+    # — contar solo MARKUP real dentro de cada función, no menciones en
+    # comentarios (que mencionan `data-event`/`data-breakdown` varias veces).
+    clickable_fn = _COMMERCIAL_JS.split("function commercialClickableKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert clickable_fn.count('data-event="') == 1  # un solo trigger posible por tile
+    # Aislar el LITERAL de los paneles (no el comentario que lo precede,
+    # que también menciona `data-breakdown` en prosa).
+    panels_literal = _COMMERCIAL_JS.split("const analysisPanels = `", 1)[1].split("\n  const sections =", 1)[0]
+    assert panels_literal.count('data-breakdown="') == 2  # "" (vacío) + "activas"
+    # Ningún otro helper (commercialKpi, el display-only) emite data-event.
+    plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n// KPI", 1)[0]
+    assert "data-event" not in plain_kpi_fn
+
+
+def test_loader_and_odoo_business_logic_untouched_by_this_batch():
+    assert 'HubForegroundProgress.begin("commercial"' in _COMMERCIAL_JS
+    assert 'HubForegroundProgress.complete("commercial")' in _COMMERCIAL_JS
+    assert 'HubForegroundProgress.fail("commercial")' in _COMMERCIAL_JS
+    assert "/comercial/data/summary" in _COMMERCIAL_JS
+    assert "/comercial/data/pipeline" in _COMMERCIAL_JS
 
 
 # ============================================================================

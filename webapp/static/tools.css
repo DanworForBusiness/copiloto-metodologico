@@ -602,6 +602,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    defecto, ver el primitivo). */
 .activity-kpi.activity-kpi--positive { --kpi-accent: #2e9e5b; }
 .activity-kpi.activity-kpi--negative { --kpi-accent: #c0392b; }
+/* KPI tile clickeable (KPI → Contextual Drilldown, ver HANDOFF): MISMO
+   lenguaje visual que `.activity-bar-row--clickable` de abajo (hover sutil,
+   acento dorado en foco/activo) — un tile con esta clase es trigger de
+   `initEventBreakdown` (app.js) vía `data-event`, nunca un handler propio.
+   Modifier opcional: la mayoría de los tiles de un KPI grid siguen siendo
+   display-only, solo el que tenga un drilldown real gana esta clase. */
+.activity-kpi--clickable { cursor: pointer; transition: background .12s ease, border-color .12s ease; }
+.activity-kpi--clickable:hover { background: rgba(128,128,128,.06); }
+.activity-kpi--clickable.is-active { border-color: var(--gold); background: rgba(231,176,8,.08); }
+.activity-kpi--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 /* Grid items default to `min-width:auto` — un hijo con contenido intrínsecamente
