@@ -146,8 +146,8 @@ def test_content_shows_expected_eyebrow_title_and_copy_without_banned_words():
     response = client.get("/comercial")
     text = response.text
     assert '<p class="eyebrow">Comercial</p>' in text
-    assert "<h1>CRM Danwor</h1>" in text
-    assert "Gestión y analítica comercial integrada con nuestro CRM." in text
+    assert "<h1>Dashboard CRM</h1>" in text
+    assert "Gestión y analítica comercial integrada con nuestro CRM Odoo." in text
     for banned in ("Preview", "PoC", "Prototype", "Coming Soon", "preview", "coming soon"):
         assert banned not in text
 
