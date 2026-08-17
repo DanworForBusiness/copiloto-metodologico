@@ -56,7 +56,7 @@ def test_kpi_primitive_invariants_hold():
 
 
 def test_renderdashboardkpi_is_the_single_source_of_kpi_markup():
-    assert "function renderDashboardKpi({ label, value, format = \"hours\", accent }) {" in _REPORTING_JS
+    assert "function renderDashboardKpi({ label, value, format = \"hours\", accent, smartAccent }) {" in _REPORTING_JS
     # El primitivo llama a fmtNum internamente — nunca al revés (un call
     # site formateando y pasando ya-texto).
     fn = _REPORTING_JS[_REPORTING_JS.index("function renderDashboardKpi("):_REPORTING_JS.index("function renderDashboardKpi(") + 1200]

@@ -1027,15 +1027,29 @@ function fmtNum(value, type = "hours") {
 // `accent` (opcional): clase adicional en el CARD, mismo patrón que
 // `.activity-kpi--warning` de Asignaciones — ningún KPI de Reporting la
 // necesita hoy, queda disponible para el próximo caso real.
-function renderDashboardKpi({ label, value, format = "hours", accent }) {
+// `smartAccent` (SMART KPI TILE ACCENT OVERRIDE): capa OPCIONAL de override
+// semántico del accent/borde de la tile. Default = derivado de la metadata
+// semántica ya existente (`format === "signed"` = KPI firmado bueno/malo, p. ej.
+// Rentabilidad horas / Diff HS) — el caller puede forzarlo con `smartAccent:
+// true/false`. Cuando aplica, el accent refleja el SIGNO del valor CRUDO (nunca
+// el texto renderizado): >0 verde, <0 rojo, 0/null/no-finito conserva el accent
+// por defecto (patrón nth-child o el `accent` explícito). KPIs neutros (hours/
+// count/totales) usan `format` no-"signed" ⇒ nunca se overridean. Lógica ÚNICA
+// acá (primitivo compartido), nunca duplicada por experiencia.
+function renderDashboardKpi({ label, value, format = "hours", accent, smartAccent }) {
   const display = fmtNum(value, format);
+  const n = typeof value === "number" ? value : Number(value);
   let valueClass = "activity-kpi__value";
   if (format === "signed") {
-    const n = typeof value === "number" ? value : Number(value);
     if (isFinite(n) && n > 0) valueClass += " diff-pos";
     else if (isFinite(n) && n < 0) valueClass += " diff-neg";
   }
-  const cardClass = accent ? `activity-kpi activity-kpi--${accent}` : "activity-kpi";
+  const semanticSigned = smartAccent === undefined ? (format === "signed") : smartAccent;
+  let effectiveAccent = accent;
+  if (semanticSigned && isFinite(n) && n !== 0) {
+    effectiveAccent = n > 0 ? "positive" : "negative";
+  }
+  const cardClass = effectiveAccent ? `activity-kpi activity-kpi--${effectiveAccent}` : "activity-kpi";
   return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span></div>`;
 }
 

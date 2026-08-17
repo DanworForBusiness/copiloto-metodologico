@@ -592,6 +592,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    no un dato neutro: acento de alerta dedicado (rojo/naranja), distinto de
    los tokens "normales" de arriba a propósito. */
 .activity-kpi--warning { --kpi-accent: #c0392b; }
+/* SMART KPI TILE ACCENT OVERRIDE (ver renderDashboardKpi `smartAccent`): override
+   SEMÁNTICO opcional del accent para KPIs firmados (bueno/malo). Doble clase
+   (specificity 0,2,0) + declarado DESPUÉS de los `nth-child` de arriba (misma
+   specificity) para GANARLES por orden de fuente — si no, el color rotativo por
+   posición pisaría el semántico. Verde/rojo reusan los MISMOS tokens que el
+   resto (verde de Part Time, rojo de warning), nunca colores nuevos. Solo se
+   aplica cuando el valor crudo es >0 / <0 (0/null conserva el patrón por
+   defecto, ver el primitivo). */
+.activity-kpi.activity-kpi--positive { --kpi-accent: #2e9e5b; }
+.activity-kpi.activity-kpi--negative { --kpi-accent: #c0392b; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 /* Grid items default to `min-width:auto` — un hijo con contenido intrínsecamente
