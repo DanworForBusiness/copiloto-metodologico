@@ -7,6 +7,7 @@ router, MISMO patrón que `test_staffing_routes.py` con `StaffingService`).
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -180,8 +181,16 @@ def test_commercial_js_notifies_the_canonical_hub_foreground_progress():
 def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader():
     assert "read-progress" not in _COMMERCIAL_JS
     assert "hub-progress" not in _COMMERCIAL_JS
-    assert "querySelector" not in _COMMERCIAL_JS
     assert "setInterval" not in _COMMERCIAL_JS  # el timer del progress vive SOLO en HubForegroundProgress
+    # El ban original de `querySelector` a secas era un PROXY de la intención
+    # real: "no salgas a buscar nodos ajenos (los del progress) en el DOM".
+    # Batch 2B necesita UNA búsqueda acotada al propio subárbol para el
+    # re-render quirúrgico del switch, así que el contrato se vuelve explícito
+    # en vez de aproximado — se permite exactamente ese hook y nada más, y
+    # siempre colgando de `root`, nunca de `document`.
+    queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
+    assert queries == ['"[data-commercial-dist]"'], queries
+    assert "document.querySelector" not in _COMMERCIAL_JS
 
 
 def test_hub_foreground_progress_boundary_itself_is_untouched_by_this_batch():
@@ -473,10 +482,30 @@ def test_breakdown_group_attribute_wraps_the_dashboard_sections_container():
 
 def test_active_opportunities_analysis_contains_the_stage_1_8_table_not_pipeline_total():
     render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
-    assert "commercialPipelineTableHtml(p)" in render_fn
+    # Batch 2B: el panel ahora se COMPONE (gráfico arriba + tabla abajo) en
+    # `commercialActivasAnalysisHtml`, que es quien invoca la tabla. La tabla
+    # sigue siendo exactamente la misma y sigue perteneciendo a este panel —
+    # cambió el punto de composición, no el universo ni el dueño.
+    assert "commercialActivasAnalysisHtml(p)" in render_fn
+    analysis_fn = _COMMERCIAL_JS.split("function commercialActivasAnalysisHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialPipelineTableHtml(pipeline)" in analysis_fn
+    assert "commercialDistribucionHtml(pipeline" in analysis_fn
     # Ya no existe la sección paralela "Pipeline por Etapa" ligada a Pipeline Total.
     assert "Pipeline por Etapa" not in _COMMERCIAL_JS
     assert 'commercialDashboardSection("pipeline",' not in _COMMERCIAL_JS
+
+
+def test_dimension_switch_does_not_refetch_rerender_globally_or_rewire_the_shared_engine():
+    # Invariante central del batch: el switch vive DENTRO del panel que abre
+    # `initEventBreakdown`, y ese motor guarda el estado abierto/cerrado sólo
+    # en el DOM. Un re-render global (o un re-wire del motor) cerraría el
+    # panel justo al conmutar la dimensión.
+    branch = _COMMERCIAL_JS.split(
+        'const dimButton = event.target.closest("[data-commercial-dim]");', 1
+    )[1].split("const button = event.target.closest", 1)[0]
+    assert "commercialDistribucionHtml(" in branch
+    for banned in ("commercialLoadData", "commercialRender(", "initEventBreakdown", "fetch("):
+        assert banned not in branch, banned
 
 
 def test_stage_table_shared_primitives_and_totals_row_untouched_by_this_batch():
@@ -535,6 +564,12 @@ def test_no_commercial_specific_chart_css_or_class_was_invented():
     for banned in ("commercial-funnel", "commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
         assert banned not in _COMMERCIAL_JS
         assert banned not in tools_css
+
+
+def test_commercial_charts_introduce_no_library_canvas_or_svg():
+    # La decisión de diseño es CSS/DOM sobre el primitivo compartido.
+    for banned in ("<canvas", "<svg", "new Chart(", "Chart.js", "chart.js", "d3.", "import "):
+        assert banned not in _COMMERCIAL_JS, banned
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():

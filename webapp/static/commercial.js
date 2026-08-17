@@ -7,7 +7,12 @@
 // primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/.activity-kpi,
 // .dashboard-view-switch, table.dashboard-table, .empty-panel,
 // .section-analysis-loading — todos en app.css/tools.css, ya usados por
-// Reporting/Asignaciones) — CERO CSS nuevo, CERO chart library.
+// Reporting/Asignaciones) — CERO CSS propio de esta vertical, CERO chart
+// library. Batch 2B suma los small multiples de "Distribución por Etapa",
+// dibujados con el primitivo de barra COMPARTIDO (.bar-row/.bar-track/
+// .bar-fill/.bar-value/.perspective-label, promovidos a tools.css en ese
+// batch) + el tooltip compartido .chart-tooltip: sin canvas, sin SVG y sin
+// dependencia nueva.
 //
 // UI Spine corrective (ver HANDOFF — Commercial UI Spine Audit): el KPI
 // grid y la tabla de Pipeline viven DENTRO del backbone de dashboard
@@ -46,6 +51,10 @@
 
 const commercialState = {
   tipo: "todos",
+  // Dimensión de horas de "Distribución por Etapa" (small multiple #2). NO es
+  // un filtro: no cambia universo, etapas, capability ni la tabla — sólo qué
+  // magnitud dibuja el segundo gráfico. Por eso vive acá y NO dispara fetch.
+  horasDim: "hours", // hours | weighted
   status: "idle", // idle | loading | ready | error
   errorState: "", // "config_incomplete" | "source_error" | ""
   summary: null,
@@ -112,6 +121,108 @@ function commercialFilterHtml() {
   return `<div class="dashboard-sticky-header">
     <div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>
   </div>`;
+}
+
+// ── Distribución por Etapa — SMALL MULTIPLES coordinados ────────────────────
+// (ver HANDOFF — Batch 2B). Decisión de diseño del owner: DOS visualizaciones
+// single-series independientes sobre las MISMAS etapas, NO grouped bars y NO
+// doble eje. Oportunidades (count) y Horas son unidades heterogéneas de
+// órdenes de magnitud distintos: meterlas en un mismo sistema visual con dos
+// escalas produce un "cruce" que es artefacto de la escala elegida, no un
+// dato — es justamente el vicio del gráfico legacy que se decidió NO copiar.
+// Cada small multiple lleva su PROPIA escala (max de su serie), así que lo
+// que se compara entre ambos es la FORMA/DISTRIBUCIÓN a lo largo del embudo,
+// nunca la magnitud absoluta entre unidades distintas.
+//
+// Todo se dibuja con el primitivo COMPARTIDO `.bar-row/.bar-track/.bar-fill`
+// (promovido a tools.css en este batch — antes estaba scopeado a Reporting,
+// o sea inerte acá porque base.html no carga reporting.css) + el tooltip
+// compartido `.chart-tooltip`. Cero librería, cero canvas, cero SVG.
+// Invariante del primitivo: UNA `.bar-fill` por `.bar-row` — si alguna vez se
+// necesitaran dos barras en una fila, eso NO es este primitivo.
+function commercialChartTooltip(lines) {
+  // Copia local mínima del helper homónimo de reporting.js — MISMA convención
+  // ya establecida para `dashboardSection` (cada vertical define su copia
+  // chica contra las clases compartidas; no existe renderer global). Con un
+  // tercer consumidor real corresponde extraerlo, no antes.
+  const arr = Array.isArray(lines) ? lines : [lines];
+  return `<div class="chart-tooltip" aria-hidden="true">${arr.map(l => `<p>${commercialEsc(l)}</p>`).join("")}</div>`;
+}
+
+// Tooltip por etapa: SIEMPRE el cuadro completo (las 4 métricas), idéntico en
+// ambos small multiples — es la misma etapa, y así el usuario no necesita
+// cruzar a la tabla para leer el resto. Revenue vive acá y en la tabla, nunca
+// como serie gráfica (es una tercera unidad; graficarla volvería a mezclar
+// magnitudes heterogéneas).
+function commercialStageTooltipLines(stage) {
+  return [
+    stage.stage,
+    `Oportunidades: ${commercialFmtInt(stage.count)}`,
+    `Horas: ${commercialFmtInt(stage.hours)}`,
+    `Ponderadas: ${commercialFmtInt(stage.weighted_hours)} hs`,
+    `Revenue: ${commercialFmtMoney(stage.revenue)}`,
+  ];
+}
+
+// Una fila = una categoría → UNA magnitud → UNA barra. `max` es el máximo de
+// SU propia serie. Guard de división por cero (MISMO criterio que
+// rentabilidadBarRow en reporting.js): con la serie entera en 0 el ancho es
+// 0, nunca NaN/Infinity en el style.
+function commercialBarRow(label, value, max, valueText, tooltipLines) {
+  const width = max > 0 ? (value / max * 100).toFixed(1) : "0.0";
+  // `aria-label` repite el MISMO contenido en plano (el tooltip visual queda
+  // aria-hidden para no duplicar el anuncio) y `tabindex=0` lo hace foco-able:
+  // :focus-within revela el tooltip sin mouse. MISMO patrón que Staffing/
+  // Reporting. Nunca el `title` nativo del navegador.
+  const plain = tooltipLines.join(" · ");
+  return `<div class="bar-row chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(plain)}">`
+    + `<span class="bar-label">${commercialEsc(label)}</span>`
+    + `<div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>`
+    + `<span class="bar-value">${commercialEsc(valueText)}</span>`
+    + `${commercialChartTooltip(tooltipLines)}</div>`;
+}
+
+// Contenido INTERNO de `[data-commercial-dist]` — el switch y los dos small
+// multiples. Se devuelve aparte del wrapper justamente para que el switch
+// pueda re-renderizar SÓLO este subárbol (ver el handler): un
+// `commercialRender()` completo reconstruiría todo `#commercial-main-content`
+// y, como `initEventBreakdown` guarda el estado abierto/cerrado únicamente en
+// el DOM (`hidden` + `.is-active`), cerraría el panel de Activas justo cuando
+// el usuario toca el switch que vive adentro.
+function commercialDistribucionHtml(pipeline, dim) {
+  const stages = (pipeline && pipeline.stages) || [];
+  if (!stages.length) return "";
+  // Sólo las etapas PRESENTES en la respuesta y en el orden recibido (el
+  // service ya las entrega ordenadas 1→8 y agrupa únicamente las que tienen
+  // oportunidades) — nunca 8 filas hardcodeadas, nunca la etapa 0.
+  const hoursOf = s => (dim === "weighted" ? (s.weighted_hours || 0) : (s.hours || 0));
+  const maxCount = Math.max(...stages.map(s => s.count || 0));
+  const maxHours = Math.max(...stages.map(hoursOf));
+  const hoursLabel = dim === "weighted" ? "Horas Ponderadas" : "Horas";
+  const dims = [["hours", "Horas"], ["weighted", "Ponderadas"]];
+  const switchButtons = dims.map(([key, label]) =>
+    `<button type="button" class="${dim === key ? "is-active" : ""}" data-commercial-dim="${key}">${commercialEsc(label)}</button>`
+  ).join("");
+  const countRows = stages.map(s =>
+    commercialBarRow(s.stage, s.count || 0, maxCount, commercialFmtInt(s.count), commercialStageTooltipLines(s))
+  ).join("");
+  const hoursRows = stages.map(s =>
+    commercialBarRow(s.stage, hoursOf(s), maxHours, commercialFmtInt(hoursOf(s)), commercialStageTooltipLines(s))
+  ).join("");
+  // El switch va en `.staffing-timeline-toolbar` (primitivo COMPARTIDO de fila
+  // de controles, MISMO uso que sectionToolbar() en Reporting), no suelto.
+  return `
+    <div class="staffing-timeline-toolbar">
+      <div class="dashboard-view-switch" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
+    </div>
+    <section aria-label="Oportunidades por etapa">
+      <p class="perspective-label">Oportunidades</p>
+      ${countRows}
+    </section>
+    <section aria-label="${commercialEsc(hoursLabel)} por etapa">
+      <p class="perspective-label">${commercialEsc(hoursLabel)}</p>
+      ${hoursRows}
+    </section>`;
 }
 
 // Table Spine corrective (ver HANDOFF — Commercial Table Spine Audit):
@@ -189,6 +300,22 @@ function commercialDashboardSections(dashboardKey, sectionsHtml) {
   return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}" data-breakdown-group>${sectionsHtml}</div>`;
 }
 
+// Cuerpo del panel de "Oportunidades Activas — Análisis": gráfico ARRIBA
+// (patrón), tabla ABAJO (precisión). Ambos en la MISMA `.dashboard-section`
+// — no una sección nueva, que rompería la relación contextual con el KPI que
+// abre este panel. La tabla NO se filtra ni se re-renderiza con el switch:
+// sigue mostrando Horas y Ponderadas en columnas, así que es la referencia
+// numérica completa en cualquier modo del gráfico.
+// Sin etapas, `commercialDistribucionHtml` devuelve "" y el único mensaje lo
+// da el `.empty-panel` de la tabla — nunca rótulos huérfanos sobre la nada.
+function commercialActivasAnalysisHtml(pipeline) {
+  const dist = commercialDistribucionHtml(pipeline, commercialState.horasDim);
+  return `${dist ? `<p class="perspective-label">Distribución por Etapa</p>
+      <div data-commercial-dist>${dist}</div>
+      <p class="perspective-label">Detalle por Etapa</p>` : ""}
+    ${commercialPipelineTableHtml(pipeline)}`;
+}
+
 function commercialRender() {
   const root = document.getElementById("commercial-main-content");
   if (!root) return;
@@ -231,7 +358,7 @@ function commercialRender() {
       <p class="empty-panel">Hacé clic en "Oportunidades activas" para ver el detalle por etapa.</p>
     </div>
     <div class="activity-breakdown__panel" data-breakdown="activas" hidden>
-      ${commercialPipelineTableHtml(p)}
+      ${commercialActivasAnalysisHtml(p)}
     </div>`;
   const sections = commercialDashboardSection("resumen", "Resumen", `${commercialFmtInt(s.activas.count)} oportunidad(es) activa(s)`, kpiGrid)
     + commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, analysisPanels);
@@ -276,6 +403,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("commercial-main-content");
   if (!root) return; // otra página del Hub — este script no aplica.
   root.addEventListener("click", event => {
+    // Switch Horas | Ponderadas (ver commercialDistribucionHtml). Re-render
+    // QUIRÚRGICO de `[data-commercial-dist]` y nada más: sin fetch (el dato ya
+    // está en `commercialState.pipeline`, las dos dimensiones vienen en la
+    // MISMA respuesta), sin `commercialRender()` completo y sin volver a
+    // llamar `initEventBreakdown` (re-wirearlo duplicaría listeners sobre los
+    // mismos triggers). Así el panel de Activas sigue abierto mientras se
+    // conmuta la dimensión, y la tabla queda intacta. La delegación vive en
+    // `root`, que NO se reemplaza, así que el switch re-renderizado sigue
+    // respondiendo sin re-wirear nada.
+    const dimButton = event.target.closest("[data-commercial-dim]");
+    if (dimButton) {
+      const dim = dimButton.dataset.commercialDim;
+      if (dim === commercialState.horasDim) return;
+      commercialState.horasDim = dim;
+      const host = root.querySelector("[data-commercial-dist]");
+      if (host) host.innerHTML = commercialDistribucionHtml(commercialState.pipeline, dim);
+      return;
+    }
     const button = event.target.closest("[data-commercial-tipo]");
     if (!button) return;
     const tipo = button.dataset.commercialTipo;
