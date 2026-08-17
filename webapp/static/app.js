@@ -1626,3 +1626,94 @@ const HubEstimatedProgress = (() => {
 
   return { start, percentForRatio };
 })();
+
+// ============================================================================
+// HubForegroundProgress — el BOUNDARY compartido del Hub para toda espera
+// FOREGROUND visible causada por Graph/SharePoint, sin importar qué vertical
+// la inició (owner corrective: "el loader pertenece al HUB", auditado en
+// Copiloto/Reporting/Staffing — Asignaciones usa htmx, Reporting usa fetch()
+// + Alpine, y ambos deben terminar en la MISMA barra sin que ninguno sepa
+// de su existencia). Los consumidores SOLO notifican lifecycle —
+// begin/complete/fail — nunca tocan DOM/CSS/width/sweep: eso es
+// responsabilidad EXCLUSIVA de este módulo (pinta sobre
+// `.read-progress__fill`, el MISMO nodo que Copiloto alimenta con scroll
+// real — ver `copilotLayout().init()` arriba — nunca un segundo elemento).
+//
+// `key` identifica la FUENTE/operación (p. ej. "cartera", "assignments"),
+// NO el vertical que la dispara — dos consumidores que comparten la MISMA
+// operación real deberían compartir la MISMA key (ver HubEstimatedProgress:
+// EWMA aprende por key). `begin` es idempotente (una operación ya en curso
+// no se reinicia); `complete`/`fail` son no-op si esa key no está activa.
+//
+// Un único timer COMPARTIDO para todas las keys activas (nunca uno por
+// key) — arranca en el primer `begin()`, se auto-limpia cuando la última
+// key activa se liquida. El tick NUNCA dispara render()/side-effects de
+// ningún consumidor: solo re-lee el controller y escribe `style.width`.
+// Sin noción de "operación activa/visible" — si dos keys estuvieran
+// simultáneamente en curso (raro: cada vertical dispara como máximo una a
+// la vez en la práctica), se pinta cualquiera; no se modela más que eso a
+// propósito (YAGNI — ver corrective: "elegir la opción mínima").
+const HubForegroundProgress = (() => {
+  const active = {};  // key -> { controller }
+  let timer = null;
+
+  function paint() {
+    const fill = document.querySelector(".read-progress__fill");
+    if (!fill) return;
+    const keys = Object.keys(active);
+    fill.style.width = keys.length ? active[keys[0]].controller.tick().percent + "%" : "0%";
+  }
+
+  function sweepStep() {
+    paint();
+    if (!Object.keys(active).length && timer) { clearInterval(timer); timer = null; }
+  }
+
+  // Arranca (idempotente) la espera foreground de `key`. `seedMs` es el
+  // seed inicial SOLO la primera vez que se ve esta key (después, el
+  // estimate aprendido de HubEstimatedProgress la reemplaza — ver ahí).
+  function begin(key, { seedMs = 8000 } = {}) {
+    if (active[key]) return;
+    active[key] = { controller: HubEstimatedProgress.start(key, { seedMs }) };
+    if (!timer) timer = setInterval(sweepStep, 150);
+    paint();
+  }
+  // La operación resolvió OK — graba la duración real (EWMA) y limpia.
+  function complete(key) {
+    const entry = active[key];
+    if (!entry) return;
+    entry.controller.finishSuccess();
+    delete active[key];
+    paint();
+  }
+  // La operación falló — limpia SIN grabar estimate (ver HubEstimatedProgress
+  // finishError). Mismo fail-soft de siempre en el consumidor; esto solo
+  // apaga la barra.
+  function fail(key) {
+    const entry = active[key];
+    if (!entry) return;
+    entry.controller.finishError();
+    delete active[key];
+    paint();
+  }
+
+  return { begin, complete, fail };
+})();
+
+// Asignaciones (Staffing) — first load vía htmx (`#staffing-rows`,
+// hx-trigger="load", ver staffing.html), NO un fetch()+Alpine como
+// Reporting. MISMO boundary (HubForegroundProgress) — el listener global de
+// htmx (ya usado arriba para el spinner de Sección/Chat/wizard) es el punto
+// de integración natural: detecta la request por el elemento que la
+// disparó, nunca por asumir "cualquier fetch Graph es foreground" (background
+// prefetch de Reporting/Staffing NUNCA pasa por htmx con este id, así que
+// nunca activa esto). Sin seed histórico confiable todavía — 8000ms
+// (default de HubForegroundProgress.begin) y que EWMA aprenda.
+document.body.addEventListener("htmx:beforeRequest", event => {
+  if (event.detail.elt?.closest("#staffing-rows")) HubForegroundProgress.begin("assignments");
+});
+document.body.addEventListener("htmx:afterRequest", event => {
+  if (!event.detail.elt?.closest("#staffing-rows")) return;
+  if (event.detail.successful) HubForegroundProgress.complete("assignments");
+  else HubForegroundProgress.fail("assignments");
+});

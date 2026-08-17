@@ -81,7 +81,7 @@ def test_rentabilidad_hot_cold_lifecycle_mirrors_horas_vendidas():
 
 
 def test_rentabilidad_data_endpoint_accepts_anios_param():
-    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadColdYear"):_REPORTING_JS.index("async function loadRentabilidadColdYear") + 700]
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadColdYear"):_REPORTING_JS.index("async function loadRentabilidadColdYear") + 950]
     assert '"/operaciones/reporting/integral/data/rentabilidad"' in fn
     assert "anios: anio" in fn
 

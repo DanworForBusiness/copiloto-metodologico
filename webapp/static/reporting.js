@@ -1122,10 +1122,11 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
 // Asignaciones (`section-analysis-loading` + spinner + copy), nunca una
 // imitación propia de Reporting. Copy contextual por experiencia. La barra
-// de HUB FOREGROUND ESTIMATED PROGRESS NUNCA viaja acá (owner corrective:
-// "EL PROGRESS ES DEL HUB, NO DEL RENDER DE REPORTING") — vive en un nodo
-// propio fuera del árbol de Reporting, ver `_reportingHubProgressPaint`/
-// `reportingHubProgressBegin`. Este loader queda ESTABLE (nunca se
+// canónica del Hub NUNCA viaja acá (owner corrective: "el loader pertenece
+// al Hub") — vive en el nodo de progreso canónico (montado en
+// platform_topbar.html), alimentada vía `HubForegroundProgress.begin/
+// complete/fail` (app.js, ver
+// `reportingHubProgressBegin`). Este loader queda ESTABLE (nunca se
 // recrea) mientras esa barra tickea, precisamente porque no la contiene.
 function reportingLoadingHtml(label) {
   return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
@@ -2113,6 +2114,12 @@ async function loadCarteraMantenimientoColdYear(anio) {
   state.carteraMantenimientoYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "cartera", load_scope: anio });
   state.carteraMantenimientoYearError = "";
+  // Cold-year foreground load (owner corrective — "toda espera Graph
+  // visible usa el loader canónico del Hub", no solo first hydration): el
+  // ownership del begin/complete/fail vive ACÁ, en la operación real —
+  // nunca detectado desde render(). MISMA key que la primera hidratación
+  // de Cartera (mismo endpoint real).
+  HubForegroundProgress.begin("cartera", { seedMs: 9000 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
@@ -2123,11 +2130,14 @@ async function loadCarteraMantenimientoColdYear(anio) {
     if (data.state === "ok" && data.cartera && data.cartera.mantenimiento) {
       mergeRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
       reconcileExperienceFacets("cartera");
+      HubForegroundProgress.complete("cartera");
     } else {
       state.carteraMantenimientoYearError = anio;
+      HubForegroundProgress.fail("cartera");
     }
   } catch (e) {
     state.carteraMantenimientoYearError = anio;
+    HubForegroundProgress.fail("cartera");
   }
   state.carteraMantenimientoYearLoading.delete(anio);
   render();
@@ -2249,6 +2259,10 @@ async function loadRentabilidadColdYear(anio) {
   state.rentabilidadYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "rentabilidad", load_scope: anio });
   state.rentabilidadYearError = "";
+  // Cold-year foreground load — MISMO criterio que Cartera (ver
+  // loadCarteraMantenimientoColdYear): ownership del begin/complete/fail
+  // vive ACÁ. MISMA key que la primera hidratación de Rentabilidad.
+  HubForegroundProgress.begin("rentabilidad", { seedMs: 14500 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
@@ -2258,11 +2272,14 @@ async function loadRentabilidadColdYear(anio) {
     if (data.state === "ok" && data.rentabilidad) {
       mergeRentabilidadRows(data.rentabilidad);
       reconcileExperienceFacets("rentabilidad");
+      HubForegroundProgress.complete("rentabilidad");
     } else {
       state.rentabilidadYearError = anio;
+      HubForegroundProgress.fail("rentabilidad");
     }
   } catch (e) {
     state.rentabilidadYearError = anio;
+    HubForegroundProgress.fail("rentabilidad");
   }
   state.rentabilidadYearLoading.delete(anio);
   render();
@@ -2396,6 +2413,9 @@ async function loadHorasVendidasColdYear(anio) {
   state.horasVendidasYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "horasvendidas", load_scope: anio });
   state.horasVendidasYearError = "";
+  // Cold-year foreground load — MISMO criterio que Cartera/Rentabilidad.
+  // MISMA key que la primera hidratación de Horas Vendidas.
+  HubForegroundProgress.begin("horasvendidas", { seedMs: 9500 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
@@ -2405,11 +2425,14 @@ async function loadHorasVendidasColdYear(anio) {
     if (data.state === "ok" && data.horasVendidas) {
       mergeHorasVendidasRows(data.horasVendidas);
       reconcileExperienceFacets("horasvendidas");
+      HubForegroundProgress.complete("horasvendidas");
     } else {
       state.horasVendidasYearError = anio;
+      HubForegroundProgress.fail("horasvendidas");
     }
   } catch (e) {
     state.horasVendidasYearError = anio;
+    HubForegroundProgress.fail("horasvendidas");
   }
   state.horasVendidasYearLoading.delete(anio);
   render();
@@ -2545,6 +2568,12 @@ function mergeComercialParticipacionRows(incoming) {
 async function loadComercialParticipacionColdYears(anios) {
   anios.forEach(y => state.comercialParticipacionYearLoading.add(y));
   anios.forEach(y => state.comercialParticipacionYearErrors.delete(y));
+  // Cold-year foreground load — MISMO criterio que Cartera/Rentabilidad/
+  // Horas Vendidas. Key PROPIA ("participacion", distinta de la de Salud/
+  // Calendario): esta request SIEMPRE pega contra `/data/participacion` —
+  // MISMO endpoint que `loadComercialParticipacionData` (primera hidratación cuando
+  // Participación es la perspectiva activa), nunca el batch-a de Salud.
+  HubForegroundProgress.begin("participacion", { seedMs: 10000 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
     const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
@@ -2555,11 +2584,14 @@ async function loadComercialParticipacionColdYears(anios) {
       mergeComercialParticipacionRows(data.participacion);
       anios.forEach(y => state.comercialParticipacionLoadedYears.add(y));
       reconcileExperienceFacets("comercial");
+      HubForegroundProgress.complete("participacion");
     } else {
       anios.forEach(y => state.comercialParticipacionYearErrors.add(y));
+      HubForegroundProgress.fail("participacion");
     }
   } catch (e) {
     anios.forEach(y => state.comercialParticipacionYearErrors.add(y));
+    HubForegroundProgress.fail("participacion");
   }
   anios.forEach(y => state.comercialParticipacionYearLoading.delete(y));
   render();
@@ -4434,39 +4466,34 @@ const FILTER_BARS = {
   capacidad: renderCapacidadFilterBar, comercial: renderComercialFilterBar,
 };
 
-// --- HUB FOREGROUND ESTIMATED PROGRESS (adopción del loader CANÓNICO del
-// Hub, ver app.js `HubEstimatedProgress` para la matemática de estimación) -
-// CORRECTIVO (owner live QA — "STOP REINVENTING THE HUB LOADER"): el Hub ya
-// tiene UN loader/progress bar real — `.read-progress`/`.read-progress__fill`
-// (montado en `platform_topbar.html`, MISMO nodo para toda página que use el
-// macro), hoy alimentado por progreso REAL de scroll (`copilotLayout().init()`
-// en app.js, SIN TOCAR). Reporting NO crea otra barra — escribe
-// `style.width` sobre ESE MISMO `.read-progress__fill`, con progreso
-// ESTIMADO por tiempo en vez de scroll (Graph no expone un % real). Mismo
-// DOM/CSS/posición/comportamiento — solo cambia la FUENTE del valor.
-//
-// El tick NUNCA llama `render()`: solo escribe `style.width` directamente
-// sobre `.read-progress__fill`. Antes (versión anterior de este corrective)
-// tickear vía `render()` reemplazaba `mainContent.innerHTML` entero en cada
-// tick — recreando el loader "Cargando…" (`.section-analysis-loading`/
-// spinner) una y otra vez (bug reportado en live QA, "el GIF se reinicia").
-// Ahora el DOM del loader se escribe UNA sola vez (cuando `render()` entra a
-// la rama "todavía cargando") y queda estable hasta que la carga termina.
-//
-// Reporting es el PRIMER adopter, no el dueño. SOLO se engancha en el
-// loader de PRIMERA hidratación de main tab (ver render(), rama `else` de
-// abajo) — nunca en años fríos/perspectivas individuales, nunca en el
-// prefetch en background de la "hermana" (Cartera Mantenimiento+Proyecto,
-// Comercial Participación+Salud vía batch-a) ni en el switch de
-// perspectiva post-hidratación (ese contrato ya existe, ver
-// reportingTabHydrated/render()). Durante esta fase el contenido todavía no
-// se renderiza (nada scrollable), así que nunca compite con el scroll-
-// tracking real de Copiloto — ambos escriben el MISMO `style.width`, pero
-// en ventanas de tiempo disjuntas.
+// --- HUB FOREGROUND PROGRESS — adopción del BOUNDARY compartido del Hub
+// (`HubForegroundProgress.begin/complete/fail`, ver app.js) ----------------
+// CORRECTIVO (owner live QA — "el loader pertenece al HUB", auditado además
+// en Staffing/Asignaciones): Reporting NUNCA toca DOM/CSS/timer del progress
+// — eso es responsabilidad EXCLUSIVA de `HubForegroundProgress` (app.js).
+// Acá solo se NOTIFICA lifecycle (begin al empezar una espera foreground
+// real, complete/fail al terminar) desde dos puntos:
+//   1. PRIMERA hidratación de main tab (ver render(), rama `else` de abajo,
+//      + el sweep de status más abajo para el caso "el usuario conmutó de
+//      tab antes de que la carga en curso resolviera").
+//   2. Cold-year foreground load (loadCarteraMantenimientoColdYear/
+//      loadRentabilidadColdYear/loadHorasVendidasColdYear/
+//      loadComercialParticipacionColdYears, ver esas funciones) — el
+//      ownership vive DENTRO de cada una (comienza la request real/
+//      termina/falla), nunca detectado desde render().
+// Nunca en el prefetch en background de la "hermana" (Cartera
+// Mantenimiento+Proyecto, Comercial Participación+Salud vía batch-a) ni en
+// el switch de perspectiva post-hidratación (ese contrato ya existe, ver
+// reportingTabHydrated/render()).
 //
 // Key por FUENTE de datos, NO por tab: Comercial y Calendario disparan el
 // MISMO `loadBatchAData()` (ver TAB_HYDRATION_TRIGGERS) — deben aprender el
-// MISMO estimate, no dos independientes desincronizados entre sí.
+// MISMO estimate, no dos independientes desincronizados entre sí. Cold-year
+// de Cartera/Rentabilidad/Horas Vendidas reusa la MISMA key que su propia
+// primera hidratación (mismo endpoint real); Participación (Comercial) usa
+// su propia key "participacion" — su primera hidratación puede estar
+// gateada por "batch-a" (Salud, ver arriba) mientras el cold-year SIEMPRE
+// pega contra `/data/participacion`, una operación real distinta.
 const REPORTING_HUB_PROGRESS = {
   cartera: { key: "cartera", seedMs: 9000 },
   rentabilidad: { key: "rentabilidad", seedMs: 14500 },
@@ -4475,60 +4502,48 @@ const REPORTING_HUB_PROGRESS = {
   calendario: { key: "batch-a", seedMs: 10000 },
   capacidad: { key: "batch-b", seedMs: 7500 },
 };
-const _reportingHubProgress = {};  // expId -> { controller } — SOLO tabs con carga en curso
-let _reportingHubProgressTimer = null;
+const _reportingForegroundExpIds = new Set();  // expId cuya PRIMERA hidratación notificó begin() y todavía no completó/falló
+let _reportingForegroundSweepTimer = null;
 
-// Pinta el nodo REAL del Hub (`.read-progress__fill`, ver arriba) según el
-// controller del tab ACTIVO — nunca según el de un tab en background (ese
-// sigue cargando, pero SIN UI visible, MISMO criterio "silencioso" que la
-// prefetch hermana de Cartera/Comercial). Sin tab activo con carga en curso,
-// se resetea a 0% (equivalente a "oculta" — un fill de ancho 0 es invisible,
-// MISMO criterio que el estado inicial de Copiloto antes del primer scroll).
-function _reportingHubProgressPaint() {
-  const fill = document.querySelector(".read-progress__fill");
-  if (!fill) return;
-  const entry = _reportingHubProgress[state.experience];
-  fill.style.width = entry ? entry.controller.tick().percent + "%" : "0%";
-}
-
-// Arranca (idempotente) el controller del expId dado — llamado desde el
-// loader de PRIMERA hidratación (ver render()). Arranca el ÚNICO timer
-// compartido (nunca uno por tab — evitaría un timer "huérfano" si el
-// usuario conmuta de tab antes de que la carga termine) y pinta de
-// inmediato (nunca espera al primer tick del timer para mostrarse).
+// Notifica el comienzo de la espera foreground de PRIMERA hidratación de
+// `expId` (idempotente). Arranca el sweep de status (ver abajo) — SOLO
+// necesario para este caso: `HubForegroundProgress` no sabe nada de tabs de
+// Reporting, así que si el usuario conmuta de tab antes de que la carga
+// resuelva, alguien tiene que seguir preguntando "¿ya terminó?" para poder
+// notificar complete/fail — eso es este sweep, nunca una segunda barra/
+// estimación (esas viven enteras en HubForegroundProgress).
 function reportingHubProgressBegin(expId) {
   const cfg = REPORTING_HUB_PROGRESS[expId];
-  if (!cfg || _reportingHubProgress[expId]) return;
-  _reportingHubProgress[expId] = { controller: HubEstimatedProgress.start(cfg.key, { seedMs: cfg.seedMs }) };
-  if (!_reportingHubProgressTimer) _reportingHubProgressTimer = setInterval(_reportingHubProgressSweep, 150);
-  _reportingHubProgressPaint();
+  if (!cfg || _reportingForegroundExpIds.has(expId)) return;
+  _reportingForegroundExpIds.add(expId);
+  HubForegroundProgress.begin(cfg.key, { seedMs: cfg.seedMs });
+  if (!_reportingForegroundSweepTimer) _reportingForegroundSweepTimer = setInterval(_reportingForegroundSweep, 150);
 }
 
-// Idempotente — puede llamarse aunque no haya controller activo (no-op).
+// Idempotente — no-op si `expId` no tiene una espera de PRIMERA hidratación
+// en curso (p. ej. ya se liquidó, o nunca se llamó begin() para ella).
 function reportingHubProgressSettle(expId, success) {
-  const entry = _reportingHubProgress[expId];
-  if (!entry) return;
-  if (success) entry.controller.finishSuccess(); else entry.controller.finishError();
-  delete _reportingHubProgress[expId];
-  _reportingHubProgressPaint();
+  if (!_reportingForegroundExpIds.has(expId)) return;
+  _reportingForegroundExpIds.delete(expId);
+  if (success) HubForegroundProgress.complete(REPORTING_HUB_PROGRESS[expId].key);
+  else HubForegroundProgress.fail(REPORTING_HUB_PROGRESS[expId].key);
 }
 
-// Único timer compartido: NUNCA llama `render()` (ver comentario de
-// arriba) — solo (a) liquida cualquier tab cuyo status YA resolvió aunque
-// el usuario haya conmutado a OTRO tab mientras tanto (si no, el
-// controller de ese tab quedaría vivo para siempre esperando que ese mismo
-// tab vuelva a estar activo) y (b) repinta el nodo del Hub para el tab
-// ACTIVO. Se auto-limpia apenas no queda ningún tab esperando.
-function _reportingHubProgressSweep() {
-  Object.keys(_reportingHubProgress).forEach(expId => {
+// Único sweep compartido (nunca uno por tab): liquida cualquier tab de
+// PRIMERA hidratación cuyo status YA resolvió aunque el usuario haya
+// conmutado a OTRO tab mientras tanto (si no, HubForegroundProgress seguiría
+// mostrando esa espera para siempre). NUNCA llama `render()` — solo lee
+// `reportingTabRawStatus`, que no tiene side-effects. Se auto-limpia apenas
+// no queda ningún tab de primera-hidratación pendiente.
+function _reportingForegroundSweep() {
+  _reportingForegroundExpIds.forEach(expId => {
     const status = reportingTabRawStatus(expId);
     if (status === "ready") reportingHubProgressSettle(expId, true);
     else if (status === "error") reportingHubProgressSettle(expId, false);
   });
-  _reportingHubProgressPaint();
-  if (!Object.keys(_reportingHubProgress).length && _reportingHubProgressTimer) {
-    clearInterval(_reportingHubProgressTimer);
-    _reportingHubProgressTimer = null;
+  if (!_reportingForegroundExpIds.size && _reportingForegroundSweepTimer) {
+    clearInterval(_reportingForegroundSweepTimer);
+    _reportingForegroundSweepTimer = null;
   }
 }
 
@@ -4644,13 +4659,12 @@ function render() {
       mainContent.innerHTML = reportingLoadingHtml("Cargando…");
     }
   }
-  // Repinta el nodo COMPARTIDO según el tab ACTIVO (idempotente, nunca toca
-  // mainContent — ver _reportingHubProgressPaint): cubre el caso "volver a
-  // un tab ya hidratado mientras OTRO sigue cargando en background" sin
-  // esperar al próximo tick del timer compartido (settle/begin ya pintan
-  // por su cuenta; esto es el fallback para cualquier otro render() —
-  // p. ej. un simple cambio de tab — que no pasó por ninguno de los dos).
-  _reportingHubProgressPaint();
+  // NOTA: no hay un "repaint" acá — HubForegroundProgress (app.js) pinta
+  // por su cuenta (su propio timer + cada begin/complete/fail), sin ninguna
+  // noción de "tab activo de Reporting". Una espera foreground ya iniciada
+  // sigue reflejándose en la barra aunque el usuario conmute a otro tab
+  // hidratado mientras tanto — deliberado, ver comentario del bloque de
+  // arriba (el sweep de ESTE archivo es quien eventualmente la liquida).
   // Backbone compartido de drag-and-drop/colapso (app.js) — se re-aplica en
   // cada render() porque acá el contenido se reemplaza por innerHTML
   // completo (sin htmx), a diferencia de Staffing/Actividad que lo disparan

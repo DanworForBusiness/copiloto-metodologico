@@ -1,21 +1,25 @@
 // reporting_hub_estimated_progress_glue.node.js — invocado por
 // test_hub_estimated_progress.py::test_reporting_hub_progress_glue_invariants_hold.
-// HUB FOREGROUND ESTIMATED PROGRESS — CORRECTIVO (owner live QA: "STOP
-// REINVENTING THE HUB LOADER"). El Hub tiene UN loader real
-// (`.read-progress`/`.read-progress__fill`, montado en platform_topbar.html,
-// hoy alimentado por scroll real en Copiloto vía app.js). Reporting NO crea
-// otra barra: escribe `style.width` sobre ESE MISMO `.read-progress__fill`
-// con progreso ESTIMADO por tiempo. Este harness prueba, ejecutando
-// `render()` REAL (mismo patrón que reporting_initial_load_contract.node.js):
-//   - la barra pintada es EXACTAMENTE `.read-progress__fill` (nunca otro nodo/
-//     clase inventada);
-//   - tickear la barra NUNCA recrea/reinicia el loader "Cargando…" (el DOM de
-//     `#reporting-main-content` queda BYTE-IDÉNTICO mientras la barra
-//     tickea, sin ningún cambio de status);
-//   - los invariantes A-K del corrective (visible/settle/cleanup/background/
-//     perspective-switch/early-completion/overrun-cap), contra un stub
-//     CONTROLABLE de `HubEstimatedProgress` (el primitivo en sí se prueba con
-//     datos reales en hub_estimated_progress_primitive.node.js).
+// HUB FOREGROUND PROGRESS — reporting.js's GLUE (owner corrective: "el
+// loader pertenece al Hub, los consumidores SOLO notifican lifecycle").
+// Reporting NUNCA toca DOM/CSS/timer del progress — eso vive enteramente en
+// `HubForegroundProgress` (app.js, probado con datos reales en
+// hub_foreground_progress.node.js). Este harness ejecuta `render()` REAL
+// (mismo patrón que reporting_initial_load_contract.node.js) contra un
+// STUB/SPY de `HubForegroundProgress` para probar:
+//   - PRIMERA hidratación: begin/complete/fail con la key/seed correctos,
+//     idempotencia, y que el DOM de #reporting-main-content queda ESTABLE
+//     (byte-idéntico) mientras el sweep tickea (el bug "el GIF se reinicia"
+//     de live QA — la causa era que el tick llamaba render());
+//   - el sweep de PRIMERA hidratación liquida un tab en background (el
+//     usuario conmutó de tab antes de que la carga resolviera) sin
+//     re-renderizar Reporting;
+//   - los 4 loaders de COLD-YEAR (Cartera/Rentabilidad/Horas Vendidas/
+//     Participación) llaman begin/complete/fail DIRECTAMENTE desde la
+//     operación real (nunca detectado desde render()), preservan la
+//     superficie ya hidratada (filtros/contenido, nunca vuelven al
+//     first-load blanking), y nunca disparan un Graph request adicional
+//     más allá del ya esperado.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -28,19 +32,33 @@ function makeEl() { return { innerHTML: "" }; }
 const tabsEl = makeEl();
 const mainEl = makeEl();
 
-// El nodo REAL del Hub — `.read-progress__fill` — MISMA API que un elemento
-// DOM real necesita para este contrato: `style.width`. `document.
-// querySelector` (no `getElementById`, porque el nodo real es un `<span
-// class="read-progress__fill">`, sin id) es lo que reporting.js realmente usa.
-const readProgressFill = { style: { width: "" } };
+// --- Stub/spy de HubForegroundProgress (el primitivo en sí, y el listener
+// htmx de Asignaciones, se prueban con código REAL en
+// hub_foreground_progress.node.js) ------------------------------------------
+const foregroundCalls = [];  // { op: "begin"|"complete"|"fail", key, seedMs }
+const foregroundActive = new Set();
+const HubForegroundProgress = {
+  begin(key, opts) {
+    foregroundCalls.push({ op: "begin", key, seedMs: opts && opts.seedMs });
+    foregroundActive.add(key);
+  },
+  complete(key) {
+    foregroundCalls.push({ op: "complete", key });
+    foregroundActive.delete(key);
+  },
+  fail(key) {
+    foregroundCalls.push({ op: "fail", key });
+    foregroundActive.delete(key);
+  },
+};
+function callsFor(key, op) { return foregroundCalls.filter(c => c.key === key && (!op || c.op === op)); }
 
-// --- Stub CONTROLABLE de HubEstimatedProgress + timer (spy) ----------------
-const startCalls = [];              // { key, seedMs }
-const controllers = {};             // key -> { percent, overrun, finishSuccessCalls, finishErrorCalls }
-function controllerFor(key) {
-  if (!controllers[key]) controllers[key] = { percent: 6, overrun: false, finishSuccessCalls: 0, finishErrorCalls: 0 };
-  return controllers[key];
-}
+// Fetch controlable — cada test setea `fetchImpl` para simular éxito/error
+// del endpoint que corresponda; cuenta invocaciones para el chequeo "cero
+// Graph requests adicionales".
+let fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) });
+let fetchCallCount = 0;
+
 let intervalCallback = null;
 let intervalCleared = false;
 
@@ -52,23 +70,12 @@ const sandbox = {
       if (id === "reporting-main-content") return mainEl;
       return makeEl();
     },
-    querySelector(sel) { return sel === ".read-progress__fill" ? readProgressFill : null; },
   },
   window: {},
   sessionStorage: { getItem() { return ""; } },
-  fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },
+  fetch(...args) { fetchCallCount++; return fetchImpl(...args); },
   initDashboardSections() {},
-  HubEstimatedProgress: {
-    start(key, opts) {
-      startCalls.push({ key, seedMs: opts && opts.seedMs });
-      const c = controllerFor(key);
-      return {
-        tick() { return { percent: c.percent, overrun: c.overrun }; },
-        finishSuccess() { c.finishSuccessCalls++; },
-        finishError() { c.finishErrorCalls++; },
-      };
-    },
-  },
+  HubForegroundProgress,
   setInterval(fn) { intervalCallback = fn; intervalCleared = false; return 1; },
   clearInterval() { intervalCallback = null; intervalCleared = true; },
   URLSearchParams,
@@ -77,128 +84,166 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
-const { render } = sandbox;
+const { render, loadCarteraMantenimientoColdYear, loadRentabilidadColdYear,
+  loadHorasVendidasColdYear, loadComercialParticipacionColdYears } = sandbox;
 const state = vm.runInContext("state", sandbox);
-const _reportingHubProgress = () => vm.runInContext("_reportingHubProgress", sandbox);
+const _reportingForegroundExpIds = () => vm.runInContext("_reportingForegroundExpIds", sandbox);
 
 let failures = 0;
 function assertTrue(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
 function assertFalse(cond, label) { assertTrue(!cond, label); }
 function assertEqual(a, b, label) { assertTrue(a === b, `${label} (got ${JSON.stringify(a)}, expected ${JSON.stringify(b)})`); }
 
+// Los loaders de cold-year son `async function` — top-level await no está
+// disponible en un script CommonJS plano (`node file.js`), de ahí el IIFE.
+(async () => {
+
 // ============================================================================
-// A — primera hidratación FOREGROUND escribe sobre el nodo REAL del Hub
-//     (`.read-progress__fill`) — NUNCA un elemento/clase inventada, NUNCA
-//     embebida dentro de `#reporting-main-content`.
+// A — primera hidratación FOREGROUND notifica begin() con la key/seed
+//     correctos — NUNCA toca DOM/CSS/width (eso es 100% de HubForegroundProgress).
 // ============================================================================
 state.experience = "rentabilidad";
 state.rentabilidadDataStatus = "idle";
 state.rentabilidadAniosStatus = "idle";
 state.reportingTabHydrated.rentabilidad = false;
 render();
-assertEqual(readProgressFill.style.width, "6%", "A: el ancho inicial se escribe sobre .read-progress__fill (checkpoint de arranque ~6%)");
+assertEqual(callsFor("rentabilidad", "begin").length, 1, "A: un único begin() para rentabilidad");
+assertEqual(callsFor("rentabilidad", "begin")[0].seedMs, 14500, "A: seed de Rentabilidad es el pedido por el owner (~14-15s)");
 assertFalse(mainEl.innerHTML.includes("read-progress"), "A: la barra NUNCA vive dentro del render de Reporting (#reporting-main-content)");
-assertEqual(startCalls.filter(c => c.key === "rentabilidad").length, 1, "A: un único HubEstimatedProgress.start() para rentabilidad");
-assertEqual(startCalls[0].seedMs, 14500, "A: seed de Rentabilidad es el pedido por el owner (~14-15s)");
 
-// Renders sucesivos MIENTRAS sigue cargando NO vuelven a llamar start() (bar
-// creation es idempotente por tab, ver reportingHubProgressBegin).
+// Renders sucesivos MIENTRAS sigue cargando NO vuelven a llamar begin().
 render();
 render();
-assertEqual(startCalls.filter(c => c.key === "rentabilidad").length, 1, "A: renders sucesivos en 'loading' no duplican el controller");
+assertEqual(callsFor("rentabilidad", "begin").length, 1, "A: renders sucesivos en 'loading' no duplican el begin()");
 
 // ============================================================================
-// G — tickear la barra (sin cambio de status) NUNCA recrea/reinicia el
-//     loader "Cargando…": el DOM de #reporting-main-content queda ESTABLE
-//     (byte-idéntico) mientras el timer compartido tickea. Este es el bug
-//     reportado en live QA ("el GIF se reinicia") — la causa era que el tick
-//     llamaba render() y render() reemplaza mainContent.innerHTML entero.
+// G — el sweep de PRIMERA hidratación NUNCA llama render(): el DOM de
+//     #reporting-main-content queda ESTABLE (byte-idéntico) mientras
+//     tickea, sin ningún cambio de status real (el bug "el GIF se reinicia"
+//     de live QA — la causa era que el tick anterior llamaba render()).
 // ============================================================================
 const mainHtmlDuringLoad = mainEl.innerHTML;
 assertTrue(mainHtmlDuringLoad.includes("section-analysis-loading"), "G setup: el loader está montado");
-controllerFor("rentabilidad").percent = 35;               // el tick avanza...
-intervalCallback();                                        // ...simulando un tick del timer compartido
-assertEqual(mainEl.innerHTML, mainHtmlDuringLoad, "G: tickear la barra (percent 6->35) NUNCA toca #reporting-main-content");
-assertEqual(readProgressFill.style.width, "35%", "G: el nodo REAL del Hub SÍ se actualiza (width), solo el loader de Reporting no");
-controllerFor("rentabilidad").percent = 60;
+assertTrue(!!intervalCallback, "G setup: el sweep de primera hidratación está corriendo");
 intervalCallback();
 intervalCallback();
-assertEqual(mainEl.innerHTML, mainHtmlDuringLoad, "G: varios ticks seguidos siguen sin tocar #reporting-main-content");
+assertEqual(mainEl.innerHTML, mainHtmlDuringLoad, "G: varios ticks del sweep (sin cambio de status) NUNCA tocan #reporting-main-content");
+assertEqual(callsFor("rentabilidad").length, 1, "G: ticks sin cambio de status no vuelven a notificar begin/complete/fail");
 
 // ============================================================================
-// C — overrun: el ancho se mantiene clavado (~94%, tope), sin exceder el
-//     valor que el controller reporta — reporting.js no le agrega ningún
-//     tratamiento visual propio (ver corrective: "no crear otro sweep").
-// ============================================================================
-controllerFor("rentabilidad").overrun = true;
-controllerFor("rentabilidad").percent = 94;
-intervalCallback();
-assertEqual(readProgressFill.style.width, "94%", "C: overrun se refleja como el mismo % clavado (~94%), sin clase/animación propia");
-assertEqual(mainEl.innerHTML, mainHtmlDuringLoad, "C: el overrun tampoco toca #reporting-main-content");
-
-// ============================================================================
-// H — early/overrun finish: ready reemplaza el loader por contenido
-//     INMEDIATO, resetea la barra a 0% y liquida (finishSuccess) el
-//     controller — nunca se espera la animación.
+// H — early finish: ready reemplaza el loader por contenido INMEDIATO y
+//     notifica complete() — nunca se espera ninguna animación.
 // ============================================================================
 state.rentabilidadDataStatus = "ready";
 render();
-assertEqual(readProgressFill.style.width, "0%", "H: la barra se resetea (0%, invisible) apenas hay contenido real");
-assertEqual(controllerFor("rentabilidad").finishSuccessCalls, 1, "H: finishSuccess() se llama exactamente una vez al hidratar");
-assertFalse(!!_reportingHubProgress().rentabilidad, "H: el controller se libera (delete) al hidratar");
+assertEqual(callsFor("rentabilidad", "complete").length, 1, "H: complete() se notifica exactamente una vez al hidratar");
+assertFalse(_reportingForegroundExpIds().has("rentabilidad"), "H: el tracking interno se libera al hidratar");
 
-// K — perspective/tab churn post-hidratación NUNCA vuelve a mostrar la barra
-// ni a llamar start() de nuevo.
+// K — perspective/tab churn post-hidratación NUNCA vuelve a notificar begin().
 render(); render();
-assertEqual(startCalls.filter(c => c.key === "rentabilidad").length, 1, "K: un tab ya hidratado nunca re-dispara start()");
+assertEqual(callsFor("rentabilidad", "begin").length, 1, "K: un tab ya hidratado nunca re-dispara begin()");
 
 // ============================================================================
-// E — error en la primera hidratación: resetea la barra (finishError), sin
-//     tocar el fail-soft existente (estado de error compartido).
+// E — error en la primera hidratación: notifica fail(), sin tocar el
+//     fail-soft existente (estado de error compartido).
 // ============================================================================
 state.experience = "horasvendidas";
 state.horasVendidasDataStatus = "idle";
 state.reportingTabHydrated.horasvendidas = false;
-render();  // arranca loading -> crea el controller
-assertEqual(readProgressFill.style.width, "6%", "E setup: barra activa mientras Horas Vendidas carga");
+render();  // arranca loading -> begin()
+assertEqual(callsFor("horasvendidas", "begin").length, 1, "E setup: begin() para horasvendidas");
 state.horasVendidasDataStatus = "error";
 render();
-assertEqual(readProgressFill.style.width, "0%", "E: la barra se resetea en el estado de error compartido");
 assertTrue(mainEl.innerHTML.includes("empty-panel"), "E: el fail-soft existente (estado de error) sigue intacto");
-assertEqual(controllerFor("horasvendidas").finishErrorCalls, 1, "E: finishError() se llama exactamente una vez");
-assertFalse(!!_reportingHubProgress().horasvendidas, "E: el controller se libera también en error");
+assertEqual(callsFor("horasvendidas", "fail").length, 1, "E: fail() se notifica exactamente una vez");
+assertFalse(_reportingForegroundExpIds().has("horasvendidas"), "E: el tracking interno se libera también en error");
 
 // ============================================================================
 // I/D — background/switch-away: el usuario conmuta a OTRO tab mientras el
-//       primero sigue cargando -> la barra refleja el tab ACTIVO (nunca el
-//       de background) y el timer compartido liquida ese controller igual
-//       (nunca queda huérfano) sin re-renderizar Reporting.
+//       primero sigue cargando -> el sweep de primera hidratación liquida
+//       ese controller igual (nunca queda huérfano) sin re-renderizar
+//       Reporting. (La barra en sí SIGUE reflejando esa espera hasta que se
+//       liquide — deliberado, ver comentario en render(): el boundary no
+//       tiene noción de "tab activo de Reporting".)
 // ============================================================================
 state.experience = "capacidad";
 state.batchBDataStatus = "idle";
 state.reportingTabHydrated.capacidad = false;
-render();  // dispara loadBatchBData (-> "loading") y crea el controller de "batch-b"
-assertTrue(!!_reportingHubProgress().capacidad, "I setup: hay un controller vivo para capacidad");
-assertTrue(!!intervalCallback, "I setup: el timer compartido está corriendo");
-assertEqual(readProgressFill.style.width, "6%", "I setup: la barra está activa (capacidad es el tab activo)");
+render();  // dispara loadBatchBData (-> "loading") y notifica begin("batch-b")
+assertTrue(_reportingForegroundExpIds().has("capacidad"), "I setup: capacidad sigue trackeada como primera-hidratación en curso");
+assertTrue(!!intervalCallback, "I setup: el sweep está corriendo");
 
-// El usuario se va a OTRO tab ya hidratado (rentabilidad, del bloque H) antes
-// de que capacidad termine de cargar.
+// El usuario se va a OTRO tab ya hidratado (rentabilidad) antes de que
+// capacidad termine de cargar.
 state.experience = "rentabilidad";
 render();
-assertEqual(readProgressFill.style.width, "0%", "I: la barra se resetea al volver a un tab hidratado (nunca muestra el progreso de OTRO tab en background)");
+assertEqual(callsFor("batch-b", "complete").length, 0, "I: switch-away por sí solo NO liquida la espera en background (la liquida el sweep, no render())");
 
 // El fetch de "batch-b" resuelve EN BACKGROUND (nadie está mirando capacidad).
 state.batchBDataStatus = "ready";
 const mainHtmlBeforeSweep = mainEl.innerHTML;
-intervalCallback();  // simula el tick del timer compartido
-assertEqual(controllerFor("batch-b").finishSuccessCalls, 1, "D/I: el sweep liquida el controller aunque el tab no esté activo");
-assertFalse(!!_reportingHubProgress().capacidad, "D/I: el controller de un tab en background se libera igual");
+intervalCallback();  // simula el tick del sweep de primera hidratación
+assertEqual(callsFor("batch-b", "complete").length, 1, "D/I: el sweep notifica complete() aunque el tab no esté activo (key 'batch-b', ver REPORTING_HUB_PROGRESS.capacidad)");
+assertFalse(_reportingForegroundExpIds().has("capacidad"), "D/I: el tracking interno de un tab en background se libera igual");
 assertEqual(mainEl.innerHTML, mainHtmlBeforeSweep, "I: liquidar un tab en background NUNCA re-renderiza Reporting (nunca llama render())");
 
-// D — el timer compartido se auto-limpia cuando ya no queda ningún tab
-// esperando (nunca queda corriendo para siempre).
-assertTrue(intervalCleared, "D: el timer compartido se limpia solo cuando no queda ningún controller vivo");
+// D — el sweep de primera hidratación se auto-limpia cuando ya no queda
+// ningún tab esperando (nunca queda corriendo para siempre).
+assertTrue(intervalCleared, "D: el sweep se limpia solo cuando no queda ningún tab de primera-hidratación pendiente");
+
+// ============================================================================
+// COLD-YEAR — el ownership del begin/complete/fail vive DENTRO de la
+// operación real (nunca detectado desde render()); preserva la superficie
+// ya hidratada; cero Graph requests adicionales más allá del esperado.
+// ============================================================================
+
+// Cartera: éxito.
+fetchCallCount = 0;
+fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", cartera: { mantenimiento: [] } }) });
+state.carteraMantenimientoYearLoading = new Set();
+state.carteraMantenimientoYearError = "";
+await loadCarteraMantenimientoColdYear("2023");
+assertEqual(callsFor("cartera", "begin").length, 1, "Cartera cold-year: begin() con la MISMA key que su primera hidratación");
+assertEqual(callsFor("cartera", "complete").length, 1, "Cartera cold-year: complete() al resolver OK");
+assertEqual(fetchCallCount, 1, "Cartera cold-year: exactamente UN fetch (cero requests adicionales)");
+
+// Cartera: fetch OK pero backend reporta error de negocio -> fail().
+fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "graph_error" }) });
+state.carteraMantenimientoYearLoading = new Set();
+await loadCarteraMantenimientoColdYear("2022");
+assertEqual(callsFor("cartera", "fail").length, 1, "Cartera cold-year: fail() cuando el backend responde error");
+assertTrue(state.carteraMantenimientoYearError === "2022", "Cartera cold-year: el fail-soft existente (error de año) sigue intacto");
+
+// Cartera: excepción de red -> fail() también (catch).
+fetchImpl = () => Promise.reject(new Error("network down"));
+state.carteraMantenimientoYearLoading = new Set();
+await loadCarteraMantenimientoColdYear("2021");
+assertEqual(callsFor("cartera", "fail").length, 2, "Cartera cold-year: fail() también ante una excepción de red (catch)");
+
+// Rentabilidad: éxito, MISMA key que su primera hidratación.
+fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", rentabilidad: {} }) });
+state.rentabilidadYearLoading = new Set();
+await loadRentabilidadColdYear("2023");
+assertEqual(callsFor("rentabilidad", "begin").length, 2, "Rentabilidad cold-year: begin() (el 2do — el 1ro fue la primera hidratación del bloque A)");
+assertTrue(callsFor("rentabilidad", "complete").length >= 1, "Rentabilidad cold-year: complete() al resolver OK");
+
+// Horas Vendidas: éxito.
+fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", horasVendidas: [] }) });
+state.horasVendidasYearLoading = new Set();
+await loadHorasVendidasColdYear("2023");
+assertEqual(callsFor("horasvendidas", "begin").filter(c => c.seedMs === 9500).length >= 1, true, "Horas Vendidas cold-year: begin() con su propia key/seed");
+assertTrue(callsFor("horasvendidas", "complete").length >= 1, "Horas Vendidas cold-year: complete() al resolver OK");
+
+// Participación (Comercial): key PROPIA ("participacion"), NUNCA "batch-a"
+// (esa es la key de Salud/Calendario — un endpoint real distinto).
+fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", participacion: [] }) });
+state.comercialParticipacionYearLoading = new Set();
+state.comercialParticipacionYearErrors = new Set();
+state.comercialParticipacionLoadedYears = new Set();
+await loadComercialParticipacionColdYears(["2023"]);
+assertEqual(callsFor("participacion", "begin").length, 1, "Participación cold-year: begin() con key propia 'participacion'");
+assertEqual(callsFor("participacion", "complete").length, 1, "Participación cold-year: complete() al resolver OK");
+assertEqual(callsFor("batch-a", "begin").length, 0, "Participación cold-year: NUNCA reusa la key 'batch-a' de Salud/Calendario");
 
 if (failures > 0) {
   console.log(`${failures} Hub Estimated Progress glue invariant(s) FAILED`);
@@ -206,3 +251,8 @@ if (failures > 0) {
 }
 console.log("ALL HUB ESTIMATED PROGRESS GLUE INVARIANTS PASSED");
 process.exit(0);
+
+})().catch(e => {
+  console.log(`FAIL: excepción no capturada: ${(e && e.stack) || e}`);
+  process.exit(1);
+});
