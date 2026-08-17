@@ -429,9 +429,14 @@ def test_lazy_history_watcher_triggers_once_and_merges_by_assignment_id():
 
 
 def test_grouping_switch_uses_one_timeline_implementation():
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF): el
+    # botón único con label dinámico (`groupToggleLabel()`) fue retirado a
+    # favor de un segmented switch (.dashboard-view-switch) que muestra
+    # ambos modos a la vez — `setGrouping(mode)` es la primitiva real única
+    # (no-op si ya está en ese modo); `toggleGrouping()` sigue como wrapper.
     assert 'groupBy: "consultant",' in _APP_JS
     assert "toggleGrouping()" in _APP_JS
-    assert "get groupToggleLabel()" in _APP_JS
+    assert "setGrouping(mode) {" in _APP_JS
     # Una sola definición de timelineGroups (no dos timelines paralelos).
     assert _APP_JS.count("get timelineGroups() {") == 1
     assert "rowGroupSecondaryLabel(row)" in _APP_JS
@@ -516,8 +521,17 @@ def test_dashboard_template_has_dashboard_key_for_generic_drag_reorder():
 
 
 def test_dashboard_template_has_gold_grouping_button_distinct_from_expand_collapse():
-    assert 'class="staffing-timeline__group-toggle"' in _DASHBOARD_HTML
-    assert 'x-text="groupToggleLabel"' in _DASHBOARD_HTML
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF): el
+    # botón único `.staffing-timeline__group-toggle` fue reemplazado por un
+    # segmented switch (.dashboard-view-switch, compartido con Reporting)
+    # con dos botones Consultor/Proyecto — sigue siendo un control DISTINTO
+    # de Expandir/Contraer todo, solo que ahora muestra ambos modos a la vez
+    # en vez de un label dinámico.
+    assert 'class="dashboard-view-switch"' in _DASHBOARD_HTML
+    assert "@click=\"setGrouping('consultant')\"" in _DASHBOARD_HTML
+    assert "@click=\"setGrouping('project')\"" in _DASHBOARD_HTML
+    assert "expandAllConsultants()" in _DASHBOARD_HTML
+    assert "collapseAllConsultants()" in _DASHBOARD_HTML
 
 
 def test_dashboard_template_has_n_days_control_defaulting_to_35():

@@ -327,6 +327,17 @@ def test_operations_internal_selector_shows_staffing_identity_disabled():
     assert response.status_code == 200
     assert 'aria-label="Área operativa" disabled' in response.text
     assert "Staffing" in response.text
-    # No opciones futuras inventadas.
-    assert "Projects" not in response.text
-    assert "Reporting" not in response.text
+    # No opciones futuras inventadas DENTRO del selector — Reporting ya es
+    # una vertical productiva real (nav real, ver más abajo), pero JAMÁS
+    # como <option> de este selector de área operativa (single-value,
+    # disabled, sin dropdown). Ámbito acotado al propio <select>, no a toda
+    # la página, para no acoplarse a texto de otras partes del layout.
+    select_start = response.text.index('class="pack-select"')
+    select_end = response.text.index("</select>", select_start)
+    select_block = response.text[select_start:select_end]
+    assert "Projects" not in select_block
+    assert "Reporting" not in select_block
+    # Reporting SÍ debe existir como link de navegación real de Operaciones
+    # (nav plana Asignaciones/Reporting, ver operations_nav.html) — validamos
+    # su presencia correcta en vez de solo borrar la vieja assertion negativa.
+    assert '<a href="/operaciones/reporting/integral" class="module-link' in response.text

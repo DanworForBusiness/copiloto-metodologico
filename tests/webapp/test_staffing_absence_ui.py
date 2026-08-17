@@ -70,7 +70,11 @@ def test_absences_by_consultant_is_a_pure_getter_no_fetch():
 
 
 def test_toggle_grouping_never_calls_load_absences_again():
-    toggle_block = _APP_JS[_APP_JS.index("toggleGrouping()"):_APP_JS.index("get groupToggleLabel")]
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF):
+    # `groupToggleLabel()` fue retirado (segmented switch reemplazó el botón
+    # único) — `setGrouping(mode)` es la primitiva real donde vivía este
+    # invariante; `toggleGrouping()` sigue siendo el wrapper fino.
+    toggle_block = _APP_JS[_APP_JS.index("setGrouping(mode) {"):_APP_JS.index("rowGroupSecondaryLabel(row) {")]
     assert "_loadAbsences" not in toggle_block
 
 

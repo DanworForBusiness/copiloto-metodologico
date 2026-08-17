@@ -166,9 +166,15 @@ def test_copilot_still_renders_its_own_module_pack_navigation(monkeypatch):
 
 
 def test_operations_still_renders_its_own_staffing_navigation(monkeypatch):
+    # Platform Entry / Workspace Resolution (ver HANDOFF): Operaciones dejó
+    # de tener un kicker "STAFFING" propio de una sola vertical — ahora es
+    # nav plana "OPERACIONES" (operations_nav.html) con dos áreas productivas
+    # (Asignaciones/Reporting), sin acordeón. Sigue siendo 100% workspace-
+    # owned (nunca el nav CORE del Copiloto) — solo cambió su rótulo/alcance.
     response = _operations_client(monkeypatch).get(_STAFFING_URL)
-    assert '<p class="nav-kicker">STAFFING</p>' in response.text
+    assert '<p class="nav-kicker">OPERACIONES</p>' in response.text
     assert "Asignaciones" in response.text
+    assert "Reporting" in response.text
 
 
 # --- 6/7: sin fuga de contenido específico de un workspace al otro ---------

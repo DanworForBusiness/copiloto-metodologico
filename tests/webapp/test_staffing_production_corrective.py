@@ -502,18 +502,36 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_84():
-    # 83 -> 84 (Staffing Vacation Timeline Overlay original, ver HANDOFF): UN
-    # endpoint nuevo (POST .../vacaciones), documentado explícito — mismo
-    # patrón que el historial de Inactivo que ya subió 82 -> 83. Approved
-    # Absence Overlay (generalización, ver HANDOFF) lo RENOMBRÓ one-for-one a
-    # .../ausencias (endpoint interno sin contrato externo, sin alias de
-    # compatibilidad) — sigue siendo 84, ni sube ni baja.
+def test_15_route_surface_still_98():
+    # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
+    # este test se había quedado pinneado en 84 mientras el snapshot real
+    # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
+    # test_route_contract.py::test_route_surface_matches_snapshot) ya había
+    # crecido a 98 en varios commits legítimos sin actualizar ESTE número.
+    # Historial documentado del conteo:
+    #   83 -> 84: Staffing Vacation Timeline Overlay original (POST
+    #     .../vacaciones), luego RENOMBRADO one-for-one a .../ausencias por
+    #     el Approved Absence Overlay (generalización) — sin alias de
+    #     compatibilidad, sigue siendo 84.
+    #   84 -> 86 (commit 2ea606f, "route_surface 84->86 (+GET reporting V0
+    #     que faltaba snapshotear, +POST cartera), regenerado
+    #     deliberadamente"): el shell GET de Reporting Integral que faltaba
+    #     snapshotear + el primer endpoint POST de datos (Cartera).
+    #   86 -> 98: el resto de la epopeya Reporting Integral, todos POST ya
+    #     productivos (ver webapp/routers/reporting.py): data/cartera/
+    #     anios-disponibles, data/rentabilidad(+anios-disponibles),
+    #     data/batch-a, data/horas-vendidas(+anios-disponibles),
+    #     data/participacion(+anios-disponibles), data/batch-b, feedback,
+    #     telemetry — más POST /operaciones/staffing/feedback. Nunca
+    #     regenerado en este archivo puntual hasta ahora.
+    # Esta prueba SIGUE cubriendo lo que le importa a Staffing
+    # específicamente (historial/ausencias presentes, vacaciones sin alias
+    # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 84
+    assert len(snapshot) == 98
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
@@ -524,7 +542,13 @@ def test_15_route_surface_still_84():
 # ============================================================================
 
 def test_f1_collapse_all_in_consultant_mode_then_switch_to_project_keeps_all_collapsed():
-    body = _APP_JS[_APP_JS.index("toggleGrouping() {"): _APP_JS.index("get groupToggleLabel()")]
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF): el
+    # control visible pasó de un botón único con label dinámico
+    # (`groupToggleLabel()`, retirado) a un segmented switch
+    # (.dashboard-view-switch) — `setGrouping(mode)` es ahora la primitiva
+    # real donde vive este invariante; `toggleGrouping()` queda como wrapper
+    # fino sobre ella. La ventana cubre AMBAS.
+    body = _APP_JS[_APP_JS.index("setGrouping(mode) {"): _APP_JS.index("rowGroupSecondaryLabel(row) {")]
     assert 'if (this.timelineGlobalCollapseIntent === "collapsed") {' in body
     assert "this.timelineGroups.forEach(g => { next[g.key] = true; });" in body
 
@@ -542,5 +566,6 @@ def test_f_manual_individual_toggle_clears_the_global_intent_to_avoid_stale_mixe
 
 
 def test_f4_grouping_switch_never_issues_a_graph_request():
-    body = _APP_JS[_APP_JS.index("toggleGrouping() {"): _APP_JS.index("get groupToggleLabel()")]
+    # Ver comentario en test_f1 — misma ventana setGrouping/toggleGrouping.
+    body = _APP_JS[_APP_JS.index("setGrouping(mode) {"): _APP_JS.index("rowGroupSecondaryLabel(row) {")]
     assert "fetch(" not in body
