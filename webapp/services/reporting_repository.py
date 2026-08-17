@@ -928,7 +928,19 @@ class ReportingRepository:
                 "estado": _text(proy.get(PROY_ESTADO)),
                 "task": _text(row.get("Task")),
                 "email": _text(row.get("Email")),
-                "horas": _num(row.get("Duration Decimal")) / 1000.0,
+                # FINAL RECONCILIATION CORRECTIVE (owner live golden case
+                # 2026/Julio/Mantenimiento/En curso: PBI Trabajadas=4.568, Hub
+                # daba 4,6 = 4568/1000 EXACTO). `Duration Decimal` YA es horas
+                # decimales (estándar de export de time-tracking: p. ej. "8,5" =
+                # 8h30m); `_num` la parsea correctamente y la SUMA ya coincidía
+                # con el PBI (4.568). El `/1000` era una división ESPURIA —
+                # asumía milli-horas, contradicho por la evidencia viva (una
+                # sola división 1000×, no doble: si `_num` mis-parseara por
+                # locale el resultado sería ~0,0046, no 4,6). PBIP: HORAS =
+                # SUM(Time Logs Reports[HORAS]) = Duration Decimal, SIN escala.
+                # (La nota `/1000` de real-data-lineage.md quedó desmentida por
+                # el caso golden — ver HANDOFF.)
+                "horas": _num(row.get("Duration Decimal")),
                 "mes": _time_logs_mes(row.get("Date")),
                 "anio": _time_logs_anio(row.get("Date")),
                 # "Cliente + Part" (Horas Productivas, panel derecho — ver

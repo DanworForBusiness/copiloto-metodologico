@@ -101,7 +101,7 @@ def test_get_time_logs_facts_joins_project_and_cliente_via_normalized_key(monkey
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
             {"Date": "2026-03-15", "Project": "Implementación SADI v2", "Task": "Dev", "Email": "a@danwor.com",
-             "Duration Decimal": "8000", "Client": "csv-raw-client"},
+             "Duration Decimal": "8.5", "Client": "csv-raw-client"},
         ]},
     )
     facts = _repo().get_time_logs_facts("tok")
@@ -110,7 +110,10 @@ def test_get_time_logs_facts_joins_project_and_cliente_via_normalized_key(monkey
     # Cliente resuelto vía join (YPF), NUNCA el texto crudo del CSV.
     assert f["cliente"] == "YPF"
     assert f["proyecto"] == "Implementación SADI v2"
-    assert f["horas"] == 8.0  # Duration Decimal / 1000
+    # FINAL RECONCILIATION CORRECTIVE: `Duration Decimal` YA es horas decimales
+    # (8,5 = 8h30m) — se toma tal cual, SIN /1000 (que daba 1000× menos, owner
+    # golden case). Ver reporting_repository get_time_logs_facts.
+    assert f["horas"] == 8.5
     assert f["mes"] == "2026-03"
     assert f["anio"] == "2026"
     assert f["task"] == "Dev"
@@ -373,7 +376,7 @@ def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
         colaboradores=[{"id": "co1", "Title": "Federico Bressi", "EMail": "a@danwor.com"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
-            {"Date": "2026-01-05", "Project": "SADI v2", "Client": "YPF", "Duration Decimal": "1000", "Email": "a@danwor.com", "Task": "Dev"},
+            {"Date": "2026-01-05", "Project": "SADI v2", "Client": "YPF", "Duration Decimal": "1", "Email": "a@danwor.com", "Task": "Dev"},
         ]},
     )
     result = _service().get_batch_b("tok")
@@ -557,3 +560,31 @@ def test_capacidad_productivas_columns_closes_over_a_per_panel_total():
     fn = _fn_body_batch_b("capacidadProductivasColumns", 700)
     assert "capacidadProductivasTotal(panel)" in fn
     assert "const CAPACIDAD_PRODUCTIVAS_COLUMNS =" not in _REPORTING_JS
+
+
+def test_time_logs_horas_is_decimal_hours_not_milli_hours(monkeypatch):
+    # FINAL RECONCILIATION CORRECTIVE (owner golden case 2026/Julio/Mantenimiento/
+    # En curso: PBI Trabajadas = 4.568, el Hub daba 4,6 = 4568/1000 EXACTO). El
+    # `/1000` era una división ESPURIA: `Duration Decimal` YA es horas decimales
+    # (estándar de export de time-tracking) — `_num` la parseaba bien y su SUMA
+    # ya coincidía con el PBI. Este test fija el CONTRATO de parseo/transformación
+    # (raw → parsed → agregación), NUNCA el síntoma: la suma del Hub == suma
+    # cruda de Duration Decimal = SUM(HORAS) del PBIP, sin escala.
+    _patch(
+        monkeypatch,
+        proyectos=[{"id": "p1", "Title": "Mantenimiento X", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "YPF"}],
+        csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
+        file_rows={"f1": [
+            {"Date": "2026-07-01", "Project": "Mantenimiento X", "Duration Decimal": "8.5", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+            {"Date": "2026-07-02", "Project": "Mantenimiento X", "Duration Decimal": "160", "Email": "b@danwor.com", "Client": "YPF", "Task": "Dev"},
+            {"Date": "2026-07-03", "Project": "Mantenimiento X", "Duration Decimal": "1.25", "Email": "c@danwor.com", "Client": "YPF", "Task": "Dev"},
+        ]},
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    horas = sorted(f["horas"] for f in facts)
+    # Identidad: cada valor se toma tal cual (horas decimales), NUNCA ÷1000.
+    assert horas == [1.25, 8.5, 160.0]
+    total = sum(horas)
+    assert total == 169.75          # = SUM(HORAS) del PBIP, sin escala
+    assert total != 0.16975         # el defecto ÷1000 habría dado esto (1000× menos)

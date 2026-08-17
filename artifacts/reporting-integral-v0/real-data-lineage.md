@@ -310,7 +310,14 @@ E:\Joe\Metodologia\Refactorizacion\Tablero Integral):
   matcheados (`Csv.Document(...,[Delimiter=",", Encoding=65001,
   QuoteStyle=QuoteStyle.Csv])`, header promovido) → columnas: Date/From/To/
   Description/Duration/`Duration Decimal`/Client/Project/Task/User/Email/
-  `Billable Amount`/Billable/Cost. `HORAS = [Duration Decimal] / 1000`. La
+  `Billable Amount`/Billable/Cost. **`HORAS = [Duration Decimal]` (SIN escala)**
+  — ⚠️ CORRECCIÓN (FINAL RECONCILIATION CORRECTIVE, owner golden case
+  2026/Julio/Mantenimiento/En curso: PBI Trabajadas=4.568, el Hub daba 4,6 =
+  4568/1000 EXACTO): la nota previa `HORAS = [Duration Decimal] / 1000` era
+  INCORRECTA. `Duration Decimal` YA es horas decimales (estándar de export de
+  time-tracking); el `/1000` en el Hub era una división espuria (una sola
+  división 1000×, confirmado por aritmética: un mis-parseo de locale habría
+  dado ~0,0046, no 4,6). Corregido en `get_time_logs_facts`. La
   MISMA carpeta `General/Template Dashboard` en el sitio Operaciones que ya usa
   `staffing_repository.ABSENCE_XLSX_PATH` (confirmada existente/alcanzable).
 

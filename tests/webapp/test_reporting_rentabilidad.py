@@ -111,8 +111,10 @@ def test_get_rentabilidad_joins_certificadas_sharepoint_with_trabajadas_time_log
         clientes=[{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
-            {"Date": "2026-01-10", "Project": "Implementación SADI v2", "Duration Decimal": "3000", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
-            {"Date": "2026-02-10", "Project": "Implementación SADI v2", "Duration Decimal": "2000", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+            # `Duration Decimal` = horas decimales directas (SIN /1000, ver
+            # FINAL RECONCILIATION CORRECTIVE): 3h en Enero, 2h en Febrero.
+            {"Date": "2026-01-10", "Project": "Implementación SADI v2", "Duration Decimal": "3", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
+            {"Date": "2026-02-10", "Project": "Implementación SADI v2", "Duration Decimal": "2", "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
         ]},
     )
     result = _service().get_rentabilidad("tok")
@@ -120,7 +122,7 @@ def test_get_rentabilidad_joins_certificadas_sharepoint_with_trabajadas_time_log
     p = result["proyectos"][0]
     assert p["proyecto"] == "Implementación SADI v2" and p["cliente"] == "YPF" and p["tipo"] == "Proyecto"
     assert p["certificadas"] == 12  # 8 + 4, SharePoint
-    assert p["trabajadas"] == 5  # 3 + 2, Time Logs
+    assert p["trabajadas"] == 5  # 3 + 2, Time Logs (horas decimales, sin escala)
     assert p["certMonthly"][0] == 8 and p["certMonthly"][1] == 4
     assert p["trabMonthly"][0] == 3 and p["trabMonthly"][1] == 2
     assert p["fecha"] == "2026-01-01"
@@ -187,7 +189,7 @@ def test_get_rentabilidad_portfolio_monthly_totals_real_grain(monkeypatch):
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
             # Proyecto placeholder de No Asignadas — NUNCA aporta a "proyectos", solo al portfolio noAsignadasMonthly.
-            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "4000", "Email": "b@danwor.com", "Client": "Danwor", "Task": "Admin"},
+            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "4", "Email": "b@danwor.com", "Client": "Danwor", "Task": "Admin"},
         ]},
     )
     result = _service().get_rentabilidad("tok")
@@ -235,7 +237,7 @@ def test_get_rentabilidad_trabajadas_join_uses_normalized_key_not_exact_title(mo
         clientes=[{"id": "c1", "Title": "YPF"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
-            {"Date": "2026-01-10", "Project": "PROYECTO LEGADO X", "Duration Decimal": "5000",
+            {"Date": "2026-01-10", "Project": "PROYECTO LEGADO X", "Duration Decimal": "5",
              "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
         ]},
     )
@@ -346,7 +348,7 @@ def test_get_rentabilidad_keeps_year_grain_separate(monkeypatch):
         clientes=[{"id": "c1", "Title": "YPF"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
-            {"Date": "2026-01-10", "Project": "SADI", "Duration Decimal": "5000",
+            {"Date": "2026-01-10", "Project": "SADI", "Duration Decimal": "5",
              "Email": "a@danwor.com", "Client": "YPF", "Task": "Dev"},
         ]},
     )
