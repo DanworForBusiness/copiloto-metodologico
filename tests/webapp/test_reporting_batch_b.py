@@ -300,6 +300,27 @@ def test_shape_horas_productivas_denominador_ignores_month_gaps_and_invalid_anio
     assert denominador == {"2025": [0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
 
 
+def test_shape_horas_productivas_preserves_3rd_decimal_owner_live_screenshot():
+    # Owner live screenshot (regresión — "pedí 3 decimales, sigo viendo 2"):
+    # root cause fue que `_shape_horas_productivas`/`_shape_horas_
+    # productivas_denominador` redondeaban a 2 decimales (`_round2`) ANTES
+    # de que el dato llegara al frontend — el formatter `hours3` (reporting.js,
+    # ya correcto) nunca podía mostrar un 3er decimal que el backend ya
+    # había destruido. Fixture reproduce el caso real (Danone ≈5.422h,
+    # visible en pantalla como "5.42" en vez de "5.422"): la suma cruda
+    # NUNCA debe perder el 3er decimal en el shaping.
+    facts = [
+        {"cliente": "Danone", "proyecto": "Soporte Analítica", "task": "Dev", "email": "a@danwor.com",
+         "horas": 5.4219, "mes": "2026-01", "anio": "2026", "porcentajePart": 0.064},
+    ]
+    svc = _service()
+    rows = svc._shape_horas_productivas(facts)
+    assert rows[0]["horas"] == 5.422  # 3 decimales preservados, NUNCA 5.42
+    assert rows[0]["horasByYear"]["2026"][0] == 5.422
+    denominador = svc._shape_horas_productivas_denominador(facts)
+    assert denominador["2026"][0] == 5.422  # el denominador (Total Horas tile) TAMBIÉN a 3 decimales
+
+
 def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
     facts = [
         {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",

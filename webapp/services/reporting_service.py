@@ -57,6 +57,18 @@ def _round2(x: float) -> float:
     return round(x * 100) / 100
 
 
+def _round3(x: float) -> float:
+    """SOLO Horas Productivas (owner request — "representacion de horas con
+    3 decimales, tile incluido"): `_round2` en `_shape_horas_productivas`/
+    `_shape_horas_productivas_denominador` estaba destruyendo el 3er
+    decimal ANTES de que el valor llegara al frontend — el formatter
+    `hours3` (reporting.js) nunca podía mostrar precisión que ya no existía
+    en el dato (ej. 5.4219999... llegaba pre-redondeado a 5.42, el frontend
+    solo podía mostrar "5.42" sin importar cuántos decimales permitiera).
+    Nunca usado por otras experiencias — esas siguen en `_round2`."""
+    return round(x * 1000) / 1000
+
+
 # --- Batch A (Horas Vendidas / Participación / Calendario) -----------------
 # Reusa `_MESES`/`_month_num` de arriba (Cartera) — MISMO parseo del texto
 # de mes de "Horas por proyectos", nunca una segunda función.
@@ -847,8 +859,8 @@ class ReportingService:
         return [
             {
                 "cliente": cliente, "proyecto": proyecto,
-                "horas": _round2(g["collapsed"]),
-                "horasByYear": {a: [_round2(v) for v in arr] for a, arr in g["byYear"].items()},
+                "horas": _round3(g["collapsed"]),
+                "horasByYear": {a: [_round3(v) for v in arr] for a, arr in g["byYear"].items()},
                 "porcentajePart": _round2(g["porcentajePart"] * 100),
                 "estado": g["estado"],
             }
@@ -924,7 +936,12 @@ class ReportingService:
             if not _is_valid_anio(anio):
                 continue
             totals.setdefault(anio, [0.0] * 12)[n - 1] += f["horas"]
-        return {a: [_round2(v) for v in arr] for a, arr in totals.items()}
+        # _round3 (owner request — mismo criterio que _shape_horas_productivas
+        # de arriba): el denominador alimenta directo el tile "Total Horas"
+        # (capacidadProductivasTotal) — redondear acá a 2 decimales
+        # reproducía el mismo corte de precisión aunque el frontend ya
+        # pidiera "hours3".
+        return {a: [_round3(v) for v in arr] for a, arr in totals.items()}
 
     def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas_no_asignadas` con
