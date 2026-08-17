@@ -6641,6 +6641,26 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > smoke** de Participación (conteo de clientes antes/después, Año multi +
 > Estado funcionando, hot/cold — no marcar LIVE VALIDATED sin eso).
 >
+> ### ✅ NO ASIGNADAS — FINAL PBIP SOURCE-PARITY CORRECTIVE (commit `04c04f4`)
+> Owner golden case (2026, Task No Asignación): Ene-Ago 130/90/113/152/216/172/
+> 208/59. El subtab Horas Productivas → No Asignadas daba "Sin filas" pese a
+> haber data. **Primera etapa donde desaparecían las filas:** el predicado de
+> `_shape_horas_productivas_no_asignadas` (0 matches). **Causa raíz:** filtraba
+> por 2 PROYECTOS placeholder (`_TIME_LOGS_NO_ASIGNADAS_PROJECTS`), pero el
+> visual del PBI filtra por **TASK** (slicer "01. No Asignación a Servicio en
+> Cliente"). **Fix:** filtra por `_NO_ASIGNADAS_TASK` con match normalizado
+> (`_norm_task`: NFC + whitespace + casefold), source-faithful (conserva el
+> prefijo "01.", no lo strippea). Grano consultor-céntrico preservado.
+> Rentabilidad "No asignadas a servicios" (portfolio, LIVE RECONCILED) y
+> Productivas NO se tocaron. **Punch (§8):** la nota metodológica salió del
+> section analítico (era `<p empty-note>` inline) y reusa el primitivo compartido
+> `renderHubCallout({tone:"punch"})` AFUERA/DESPUÉS del section; jerarquía
+> filtros → section → PUNCH → feedback. **Owner smoke:** 2026/Task No Asignación
+> → filas por consultor con Ene-Ago ~130..59, Total ~1.139 (el screenshot lista
+> 1.140 por mes vs 1.139 total = redondeo). Si sigue en "Sin filas", confirmar
+> el string EXACTO del Task fuente (el match está en `_NO_ASIGNADAS_TASK`, un
+> solo lugar). Status: IMPLEMENTATION READY FOR OWNER LIVE RECONCILIATION.
+>
 > **✅ HORAS PRODUCTIVAS = IMPLEMENTATION READY FOR LIVE VALIDATION** (this
 > pass — "CONTINUE REPORTING" ticket, item E cerrado). "Cliente + Part"
 > resuelto con evidencia PRIMARIA (ver real-data-lineage.md §8ter item 1,
