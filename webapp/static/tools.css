@@ -846,7 +846,8 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 /* Fallo de la carga lazy de historial (Staffing Director Priority V2
    pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
    del dashboard, solo informa que el próximo toggle puede reintentar. */
-.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
+.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: #1f1f24; font-size: .74rem; }
+.content-theme-dark .staffing-history-error { color: #e4c9c9; }
 
 /* Barra de "Contraer / Expandir" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
@@ -1267,8 +1268,12 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    label "Ausencias" ya vive en `.staffing-timeline__row-status` (reuso de
    la misma clase que Estado, texto literal en vez de x-text de status) —
    la barra misma no repite el texto, mismo criterio que las barras de
-   asignación. */
-.staffing-absence-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
+   asignación. Color explícito (antes `var(--ink)`, contraste insuficiente
+   sobre el fondo rojo tenue en algunos temas — dev override local) + su
+   equivalente en `.content-theme-dark`, mismo criterio que
+   `.staffing-history-error` de arriba. */
+.staffing-absence-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: #1f1f24; font-size: .74rem; }
+.content-theme-dark .staffing-absence-error { color: #e4c9c9; }
 .staffing-timeline__absence-row { opacity: .9; }
 .staffing-timeline__absence-bar {
   position: absolute; top: 50%; transform: translateY(-50%); height: 12px; border-radius: 4px; min-width: 6px;
