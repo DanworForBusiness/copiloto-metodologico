@@ -2143,6 +2143,16 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; }
 .perspective-label { color: var(--ink-faint, var(--soft)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
 .content-theme-dark { --bar-track-bg: rgba(255,255,255,.10); }
+/* Viewport angosto: `.bar-label`/`.bar-value` fijos (190px + 60px) dejaban el
+   track sin ancho útil — se descubrió con el SEGUNDO consumidor, así que la
+   regla es del primitivo, no un parche de Comercial. La fila pasa a 2 líneas
+   (label arriba, track+valor abajo) en vez de comprimir la barra a nada. */
+@media (max-width: 760px) {
+  .bar-row { flex-wrap: wrap; gap: 4px 10px; }
+  .bar-row .bar-label { width: 100%; }
+  .bar-track { flex: 1 1 auto; min-width: 0; }
+}
+
 /* HUB CHART TOOLTIP PRIMITIVE (owner request — Rentabilidad: "los tooltip
    debieran ser una experiencia transversal... en asignaciones renderizamos
    un tooltip propio que amerita respetar"). MISMO diseño visual/mecanismo
