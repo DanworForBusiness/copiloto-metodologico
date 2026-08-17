@@ -101,16 +101,26 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)
 @media (prefers-reduced-motion:reduce){.hero-scroll-line{animation:none}}
 
 /* ── Selector de workspace (2+ espacios disponibles, /onedanwor) — tarjetas
-   ricas con la MISMA grilla visual que `.access-brand` de la landing
-   (kicker/título+acento/descripción/checklist), reutilizada tal cual
-   adentro de cada tile. Solo `h2` (no `h1`, para no repetir el heading
-   principal de la página) necesita sus propias reglas. ── */
+   CUADRADAS (owner corrective: "3 cuadrados en una fila, con TODO su
+   contenido reducido proporcionalmente" — no solo angostar el ancho
+   dejando la tipografía intacta). `aspect-ratio:1/1` en `.workspace-tile`
+   es la única regla de geometría — nunca height/min-height arbitrario, y
+   la MISMA para las tres cards (ninguna excepción por workspace). La
+   escala tipográfica/espacial interna de abajo está scoped bajo
+   `.workspace-tile` para no tocar `.access-brand`/`.access-list`
+   compartidos (pantalla de acceso, `.hub-hero`) — esos conservan su
+   escala original sin cambios. Solo `h2` (no `h1`, para no repetir el
+   heading principal de la página) necesita sus propias reglas. ── */
 .workspace-tiles{width:min(1080px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px;margin-top:22px}
-.workspace-tile{display:block;text-decoration:none;color:var(--ink);transition:border-color .16s ease,transform .16s ease}
+.workspace-tile{display:block;aspect-ratio:1/1;text-decoration:none;color:var(--ink);transition:border-color .16s ease,transform .16s ease}
 .workspace-tile:hover{border-color:rgba(231,176,8,.5);transform:translateY(-2px)}
-.workspace-tile .access-brand{padding:38px 34px}
-.workspace-tile .access-brand h2{margin:16px 0 0;font-size:clamp(1.5rem,2.6vw,2.1rem);font-weight:800;letter-spacing:-.03em;line-height:1.06}
+.workspace-tile .access-brand{height:100%;display:flex;flex-direction:column;justify-content:center;padding:22px 26px}
+.workspace-tile .access-brand h2{margin:10px 0 0;font-size:clamp(1.05rem,1.7vw,1.32rem);font-weight:800;letter-spacing:-.02em;line-height:1.1}
 .workspace-tile .access-brand h2 span{display:block;color:var(--gold)}
+.workspace-tile .access-brand p{margin:10px 0 0;font-size:.82rem;line-height:1.45;max-width:none}
+.workspace-tile .access-list{gap:7px;margin:14px 0 0}
+.workspace-tile .access-list li{font-size:.78rem;gap:8px}
+.workspace-tile .access-check{width:17px;height:17px;font-size:.58rem}
 
 /* ── Overlay "Completando acceso…" (mientras se procesa el callback de Microsoft) ── */
 .auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;

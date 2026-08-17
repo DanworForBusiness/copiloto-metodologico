@@ -246,6 +246,52 @@ def test_tile_grid_is_a_single_shared_responsive_component_no_per_tile_hacks():
     assert _BRAND_HERO_CSS.count(".workspace-tiles{") == 1
 
 
+def test_workspace_tile_geometry_is_square_via_aspect_ratio_not_arbitrary_height():
+    # CORRECTIVE VISUAL (owner): los tiles deben ser CUADRADOS — geometría
+    # real (aspect-ratio), nunca height/min-height fijo ni altura derivada
+    # del contenido. Verificado como contrato de fuente acá; la geometría
+    # REAL (computed width==height en las 3 anchuras) se verificó en vivo
+    # en browser (ver STOP report) — este test protege contra que alguien
+    # borre la regla sin querer, no sustituye esa verificación visual.
+    tile_rule = re.search(r"\.workspace-tile\s*\{([^}]*)\}", _BRAND_HERO_CSS)
+    assert tile_rule is not None
+    assert re.search(r"aspect-ratio\s*:\s*1\s*/\s*1", tile_rule.group(1))
+    assert "height:" not in tile_rule.group(1)
+    assert "min-height" not in _BRAND_HERO_CSS[_BRAND_HERO_CSS.index(".workspace-tile{"):_BRAND_HERO_CSS.index(".workspace-tile{") + 2000]
+
+
+def test_workspace_tile_typography_scale_is_smaller_than_the_shared_access_brand_default():
+    # CORRECTIVE VISUAL (owner): "no comprimir únicamente el ancho dejando
+    # la tipografía intacta" — la escala tipográfica/espacial DENTRO de
+    # `.workspace-tile .access-brand` debe ser explícitamente MENOR que el
+    # default compartido de `.access-brand` (usado por la pantalla de
+    # acceso/`.hub-hero`, que NO se toca). Nunca la misma escala solo con
+    # un contenedor más angosto.
+    shared_h1_match = re.search(r"\.access-brand h1\s*\{[^}]*font-size:\s*clamp\(([\d.]+)rem", _BRAND_HERO_CSS)
+    tile_h2_match = re.search(r"\.workspace-tile \.access-brand h2\s*\{[^}]*font-size:\s*clamp\(([\d.]+)rem", _BRAND_HERO_CSS)
+    assert shared_h1_match and tile_h2_match
+    assert float(tile_h2_match.group(1)) < float(shared_h1_match.group(1))
+
+    shared_p_match = re.search(r"\.access-brand p\s*\{[^}]*font-size:\s*([\d.]+)rem", _BRAND_HERO_CSS)
+    tile_p_match = re.search(r"\.workspace-tile \.access-brand p\s*\{[^}]*font-size:\s*([\d.]+)rem", _BRAND_HERO_CSS)
+    assert shared_p_match and tile_p_match
+    assert float(tile_p_match.group(1)) < float(shared_p_match.group(1))
+
+    # El padding scoped al tile también debe ser menor que el shared default.
+    shared_padding_match = re.search(r"\.access-brand\s*\{padding:\s*(\d+)px", _BRAND_HERO_CSS)
+    tile_padding_match = re.search(r"\.workspace-tile \.access-brand\s*\{[^}]*padding:\s*(\d+)px", _BRAND_HERO_CSS)
+    assert shared_padding_match and tile_padding_match
+    assert int(tile_padding_match.group(1)) < int(shared_padding_match.group(1))
+
+
+def test_workspace_tile_rules_apply_identically_no_per_workspace_css_exception():
+    # CORRECTIVE VISUAL (owner): "la tarjeta Comercial no puede introducir
+    # una excepción" — ninguna clase con modificador por workspace
+    # (--commercial/--copilot/--operations) en la hoja de estilos.
+    for banned in ("workspace-tile--commercial", "workspace-tile--copilot", "workspace-tile--operations"):
+        assert banned not in _BRAND_HERO_CSS
+
+
 # ============================================================================
 # 8 — Sin iframe/link al CRM legacy (Odoo/DigitalOcean)
 # ============================================================================
