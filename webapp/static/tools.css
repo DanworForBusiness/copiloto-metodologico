@@ -1111,6 +1111,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .dashboard-status-badge--amber { background: rgba(200,145,0,.14); color: #c89100; }
 .dashboard-status-badge--red { background: rgba(192,57,43,.12); color: #c0392b; }
 .dashboard-status-badge--grey { background: rgba(122,122,130,.14); color: #7a7a82; }
+/* Punto semafórico discreto del badge de Salud de Cliente (Objetivo 1 — más
+   legible a simple vista que solo texto, sin ser estridente). Hereda el color
+   del badge (`currentColor`), va antes del texto y es `aria-hidden` — la
+   accesibilidad NO depende del color (el texto de la clasificación queda). */
+.dashboard-status-badge .salud-dot { margin-right: 4px; font-size: .8em; line-height: 1; vertical-align: baseline; }
 
 /* Action link — mismo lenguaje visual que `.support-link`/`.support-links`
    del pipeline de contenido (content_service.py `{{support:...}}`, ver

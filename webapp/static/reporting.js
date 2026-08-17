@@ -482,9 +482,57 @@ const COMERCIAL_SALUD_ROWS = [
   { cp: "Diego Ramos", cliente: "Ternium", saludFinanciera: "Amarillo", saludRelacion: "Verde", saludOperativo: "Verde", saludContinuidad: "Verde", saludEstrategico: "Verde", saludFinal: "Verde" },
 ];
 
+// --- Semáforo de Salud de Cliente (primitive visual compartido) ------------
+// Reconoce AMBOS vocabularios de la fuente: clasificación (Saludable/Regular/
+// Crítico) Y color (Verde/Amarillo/Rojo) — el bug del owner ("casi todo el
+// mismo estilo, solo cambia el texto") era que el mapeo viejo solo entendía
+// "Verde"/"Rojo" y TODO lo demás caía a ámbar (si la fuente real usa Saludable/
+// Regular/Crítico, todo salía ámbar). Score: Crítico=1, Regular=2, Saludable=3,
+// vacío/no reconocido=null (no contamina el promedio del rollup). Normaliza
+// acentos/case ("Crítico" → "critico").
+function saludScore(value) {
+  const v = String(value == null ? "" : value).trim().toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (v === "saludable" || v === "verde") return 3;
+  if (v === "regular" || v === "amarillo" || v === "amber") return 2;
+  if (v === "critico" || v === "rojo") return 1;
+  return null;
+}
+function saludColor(score) {
+  return score === 3 ? "green" : score === 2 ? "amber" : score === 1 ? "red" : "grey";
+}
+const _SALUD_CLASS_LABEL = { 3: "Saludable", 2: "Regular", 1: "Crítico" };
+// Badge semafórico: punto de color discreto (semáforo, `aria-hidden` — no se
+// depende SOLO del color) + texto (accesible). Reusa el primitive compartido
+// `dashboard-status-badge--{green|amber|red|grey}` (tools.css), nunca styling
+// aislado. `label` opcional fuerza el texto (p. ej. la clase canónica del
+// rollup); por defecto muestra el valor fuente tal cual (fidelidad en la hoja).
+function saludBadge(score, label) {
+  const text = label != null ? label : "Sin dato";
+  return `<span class="dashboard-status-badge dashboard-status-badge--${saludColor(score)}">`
+    + `<span class="salud-dot" aria-hidden="true">●</span>${esc(text)}</span>`;
+}
 function statusPillSalud(value) {
-  const color = value === "Verde" ? "green" : (value === "Rojo" ? "red" : "amber");
-  return `<span class="dashboard-status-badge dashboard-status-badge--${color}">${esc(value)}</span>`;
+  const score = saludScore(value);
+  const text = String(value == null ? "" : value).trim() || "Sin dato";
+  return saludBadge(score, text);
+}
+// Rollup SEMÁNTICO para las filas padre COLAPSADAS (Objetivo 2): recibe las
+// hojas del subárbol. Si todos los hijos no-null son el MISMO valor fuente →
+// muestra ese valor. Si hay mezcla → promedio aritmético de los scores válidos
+// mapeado a clase (>=2.5 Saludable, >=1.5 Regular, <1.5 Crítico). Si no hay
+// datos válidos → "Sin dato". Para una hoja (1 fila) = statusPillSalud (mismo
+// resultado, ver contrato de renderBusinessTreeRows).
+function saludRollup(field) {
+  return rows => {
+    const scored = rows.map(r => ({ v: r[field], s: saludScore(r[field]) })).filter(x => x.s !== null);
+    if (scored.length === 0) return saludBadge(null, "Sin dato");
+    const distinctVals = [...new Set(scored.map(x => String(x.v).trim()))];
+    if (distinctVals.length === 1) return statusPillSalud(scored[0].v);  // homogéneo: valor fuente
+    const avg = scored.reduce((a, x) => a + x.s, 0) / scored.length;
+    const cls = avg >= 2.5 ? 3 : (avg >= 1.5 ? 2 : 1);
+    return saludBadge(cls, _SALUD_CLASS_LABEL[cls]);
+  };
 }
 
 // Población canónica de Participación: Año + Estado (AMBOS checkbox
@@ -572,13 +620,16 @@ const COMERCIAL_PARTICIPACION_COLUMNS = [
   { label: "% Participación Hs Vendidas", numeric: true, render: r => comercialPctVendidas(r.horasVendidas), rollup: sumField("horasVendidas", comercialPctVendidas) },
   { label: "% Participación Hs Certificadas", numeric: true, render: r => comercialPctCertificadas(r.horasCertificadas), rollup: sumField("horasCertificadas", comercialPctCertificadas) },
 ];
+// `rollup` (Objetivo 2 — filas padre COLAPSADas informativas): rollup SEMÁNTICO
+// por columna (ver `saludRollup`). Para una hoja da lo mismo que `render` (el
+// motor usa rollup cuando existe, ver renderBusinessTreeRows).
 const COMERCIAL_SALUD_COLUMNS = [
-  { label: "Financiera", numeric: false, render: r => statusPillSalud(r.saludFinanciera) },
-  { label: "Relación", numeric: false, render: r => statusPillSalud(r.saludRelacion) },
-  { label: "Operativo", numeric: false, render: r => statusPillSalud(r.saludOperativo) },
-  { label: "Continuidad", numeric: false, render: r => statusPillSalud(r.saludContinuidad) },
-  { label: "Estratégico", numeric: false, render: r => statusPillSalud(r.saludEstrategico) },
-  { label: "Salud Final", numeric: false, render: r => statusPillSalud(r.saludFinal) },
+  { label: "Financiera", numeric: false, render: r => statusPillSalud(r.saludFinanciera), rollup: saludRollup("saludFinanciera") },
+  { label: "Relación", numeric: false, render: r => statusPillSalud(r.saludRelacion), rollup: saludRollup("saludRelacion") },
+  { label: "Operativo", numeric: false, render: r => statusPillSalud(r.saludOperativo), rollup: saludRollup("saludOperativo") },
+  { label: "Continuidad", numeric: false, render: r => statusPillSalud(r.saludContinuidad), rollup: saludRollup("saludContinuidad") },
+  { label: "Estratégico", numeric: false, render: r => statusPillSalud(r.saludEstrategico), rollup: saludRollup("saludEstrategico") },
+  { label: "Salud Final", numeric: false, render: r => statusPillSalud(r.saludFinal), rollup: saludRollup("saludFinal") },
 ];
 
 // Calendario (ver corrective — consolida "Calendario x Frecuencia" +
