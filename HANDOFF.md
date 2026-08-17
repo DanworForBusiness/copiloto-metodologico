@@ -6848,6 +6848,31 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > staffing selector, staffing grouping/absence retired-impl, Operations sidebar
 > STAFFING nav) — migraciones Hub/Reporting/Staffing ya autorizadas, NO Reporting.
 >
+> **✅ SALUD DE CLIENTE — semáforo + rollup semántico** (commit `c22adf6`).
+> Objetivo 1: `statusPillSalud` solo mapeaba "Verde"/"Rojo" → todo lo demás caía
+> a ámbar (si la fuente real usa Saludable/Regular/Crítico, TODO salía ámbar =
+> síntoma del owner). Fix: `saludScore` reconoce ambos vocabularios (Saludable/
+> Regular/Crítico Y Verde/Amarillo/Rojo), normaliza acentos → 3/2/1/null; badge
+> reusa el primitive compartido `dashboard-status-badge--{green|amber|red|grey}`
+> + punto semafórico discreto aria-hidden. Objetivo 2: `saludRollup(field)` en
+> las 6 columnas — homogéneo→valor fuente; mezcla→promedio de scores→clase
+> (>=2.5 Saludable / >=1.5 Regular / <1.5 Crítico); null no contamina; todos
+> null→Sin dato. Scope acotado a Salud + primitive de badge.
+>
+> **⚠️ DIAGNÓSTICO PENDIENTE — RuntimeError "Response content longer than
+> Content-Length"** (owner: al abrir Horas Productivas Y Cartera/Proyectos, en
+> la terminal). Verificado que el ciclo ASGI de `JSONResponse` calcula el
+> Content-Length CORRECTO (bytes, incluso con acentos — repro con el venv real:
+> 64 declarados = 64 enviados). El error abarca Cartera (endpoint NO tocado en
+> estos tickets) y los 1171 tests pasan por TestClient → **no es una regresión
+> del código de Reporting**. Sospecha: entorno/deploy — `starlette 1.4.1`
+> inusual, o el "wrapper enmascarado"/proxy (ver memoria: cookies server-side
+> SameSite=None) que puede setear su propio Content-Length y desincronizarse.
+> Checklist owner: (1) reiniciar el dev server; (2) confirmar si corre detrás de
+> un proxy/wrapper que agregue Content-Length; (3) `pip show starlette uvicorn
+> fastapi` y comparar con constraints.txt; (4) reproducir sin el wrapper (uvicorn
+> directo) para aislar. NO se aplicó un fix a ciegas.
+>
 > **✅ COMERCIAL INITIAL-HYDRATION REGRESSION FIX** (commit `5ce0751`). Owner
 > live smoke: en la 1ª visita a Participación, mientras mostraba "Cargando datos
 > de Participación…" ya se veían filtros + Limpiar/Actualizar + feedback. Causa:
