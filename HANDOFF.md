@@ -6848,6 +6848,20 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > staffing selector, staffing grouping/absence retired-impl, Operations sidebar
 > STAFFING nav) — migraciones Hub/Reporting/Staffing ya autorizadas, NO Reporting.
 >
+> **✅ COMERCIAL INITIAL-HYDRATION REGRESSION FIX** (commit `5ce0751`). Owner
+> live smoke: en la 1ª visita a Participación, mientras mostraba "Cargando datos
+> de Participación…" ya se veían filtros + Limpiar/Actualizar + feedback. Causa:
+> `reportingTabRawStatus("comercial")` = `combine(comercialParticipacionDataStatus,
+> batchADataStatus)` y `combine` daba "ready" si CUALQUIERA lo estaba → batch-a
+> (Salud/Calendario) hidrataba primero → el shell declaraba Comercial hidratado.
+> Fix (1 línea, fuente de verdad del lifecycle): Comercial gatea por la
+> PERSPECTIVA ACTIVA (Participación→comercialParticipacionDataStatus; Salud→
+> batchADataStatus); la hermana warmea en background, el flag es one-way. Feedback
+> ya estaba dentro de la rama hidratada — el guard reportaba ready de más.
+> Harness `reporting_initial_load_contract.node.js` extendido con casos A-E
+> (Comercial). Auditoría §9: resto de tabs OK (single-source o Cartera con activa
+> = fuente más rápida). Status: IMPLEMENTATION READY FOR OWNER LIVE VALIDATION.
+>
 > **✅ SHARED REPORTING INITIAL-LOAD CONTRACT** (immediate follow-up ticket —
 > owner live UX corrective, "APPLY TO ALL REPORTING MAIN TABS"). First-visit
 > behavior was visually inconsistent: tabs + filter bar rendered immediately,
