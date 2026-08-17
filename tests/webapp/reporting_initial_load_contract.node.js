@@ -232,6 +232,57 @@ render();
 assertFalse(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL E: volver a un tab ya hidratado no re-muestra el loader inicial");
 assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL E: superficie (feedback/filtros) inmediata al volver");
 
+// ============================================================================
+// 8) CARTERA — la PRIMERA hidratación gatea por la PERSPECTIVA ACTIVA, NO por
+//    "alguna fuente ready" (hardening: se eliminó el `combine` que asumía que
+//    Mantenimiento resolvía antes que Proyecto — supuesto de timing, no
+//    contrato).
+// ============================================================================
+// Case A — activa=Mantenimiento loading, Proyecto YA ready → loader solo.
+state.experience = "cartera";
+state.perspective.cartera = "Mantenimiento";
+state.carteraMantenimientoStatus = "loading";
+state.carteraProyectoStatus = "ready";
+state.reportingTabHydrated.cartera = false;
+render();
+assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA A: loader inicial visible");
+assertFalse(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA A: filtros AUSENTES (Proyecto ready NO hidrata si la activa es Mantenimiento)");
+assertFalse(state.reportingTabHydrated.cartera, "CARTERA A: NO hidratado con solo Proyecto ready");
+// Mantenimiento (activa) ready → superficie hidratada.
+state.carteraMantenimientoStatus = "ready";
+render();
+assertTrue(state.reportingTabHydrated.cartera, "CARTERA A: se hidrata cuando Mantenimiento (activa) está ready");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA A: filtros aparecen al hidratar");
+
+// Case B — inversa: activa=Proyecto loading, Mantenimiento ready → loader solo.
+state.perspective.cartera = "Proyecto";
+state.carteraProyectoStatus = "loading";
+state.carteraMantenimientoStatus = "ready";
+state.reportingTabHydrated.cartera = false;
+render();
+assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA B (inversa): loader inicial visible");
+assertFalse(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA B (inversa): filtros AUSENTES (Mantenimiento ready NO hidrata si la activa es Proyecto)");
+assertFalse(state.reportingTabHydrated.cartera, "CARTERA B (inversa): NO hidratado con solo Mantenimiento ready");
+state.carteraProyectoStatus = "ready";
+render();
+assertTrue(state.reportingTabHydrated.cartera, "CARTERA B (inversa): se hidrata cuando Proyecto (activa) está ready");
+
+// Case C — tras hidratar, conmutar a una perspectiva cuyo dataset sigue
+// cargando NO re-entra al modo "solo loader inicial": el SHELL permanece
+// (filter bar visible). El CONTENIDO puede mostrar su propio loader contextual
+// inline (comportamiento existente/protegido — mismo criterio que el paso 3);
+// la garantía es que el shell NO colapsa a tabs+loader-solo (filter bar out).
+// (Cartera oculta su filter bar cuando la perspectiva activa está cargando —
+// comportamiento pre-existente/protegido por el ticket; NO es colapso del
+// shell. La prueba definitiva de "no re-entró al modo loader-inicial-solo" es
+// que el feedback —siempre presente en la rama hidratada de render()— sigue
+// ahí; en el modo loader-inicial el else-branch NO renderiza feedback.)
+state.perspective.cartera = "Mantenimiento";
+state.carteraMantenimientoStatus = "loading";
+render();
+assertTrue(state.reportingTabHydrated.cartera, "CARTERA C: flag one-way sigue hidratado al conmutar");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C: el shell sigue hidratado (feedback presente), no re-entra a 'solo loader inicial'");
+
 if (failures > 0) {
   console.log(`${failures} initial-load contract invariant(s) FAILED`);
   process.exit(1);

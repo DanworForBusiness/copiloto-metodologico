@@ -4348,13 +4348,16 @@ const TAB_HYDRATION_TRIGGERS = {
 // ("ready" gana); "error" solo si TODAS fallaron (nunca error solo porque
 // una fuente todavía no se disparó — sería "loading"/"idle").
 function reportingTabRawStatus(expId) {
-  const combine = (...statuses) => {
-    if (statuses.some(s => s === "ready")) return "ready";
-    if (statuses.every(s => s === "error")) return "error";
-    return "loading";
-  };
   switch (expId) {
-    case "cartera": return combine(state.carteraMantenimientoStatus, state.carteraProyectoStatus);
+    // INITIAL HYDRATION CONTRACT: la PRIMERA hidratación gatea por el dataset de
+    // la PERSPECTIVA ACTIVA, nunca por "alguna fuente ready" (eliminado el
+    // `combine`, que asumía un ORDEN de resolución — Mantenimiento antes que
+    // Proyecto porque Proyecto espera la XLSX; eso era un supuesto de timing, no
+    // un contrato). Mismo principio que Comercial. El flag reportingTabHydrated
+    // es one-way: conmutar perspectivas tras hidratar NUNCA re-entra al loader.
+    case "cartera": return state.perspective.cartera === "Proyecto"
+      ? state.carteraProyectoStatus
+      : state.carteraMantenimientoStatus;
     case "rentabilidad": return state.rentabilidadDataStatus;
     case "horasvendidas": return state.horasVendidasDataStatus;
     // INITIAL HYDRATION CONTRACT (owner live smoke): la PRIMERA hidratación de
