@@ -33,9 +33,9 @@
       <h1>CRM Danwor</h1>
       <p class="hero-lead full-page-subtitle">Gestión y analítica comercial integrada con nuestro CRM.</p>
     </section>
-    <div class="glass" style="padding:38px 34px">
-      <p>El Dashboard comercial será la primera capacidad incorporada a este espacio.</p>
-    </div>
+    <div id="commercial-main-content"></div>
   </main>
 </div>
+
+<script src="{{ url_for('static', path='commercial.js') }}?v={{ static_version }}"></script>
 {% endblock %}

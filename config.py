@@ -183,6 +183,17 @@ OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # que exista un mecanismo de entitlement central (Commercial Hub Workspace
 # Foundation, ver HANDOFF).
 COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
+# Credenciales del CRM Odoo (Commercial Hub — Batch 1, read-only). Server-side
+# EXCLUSIVAMENTE — el browser nunca las ve ni las envía; ver
+# webapp/services/odoo_client.py. Sin default de producción (ni URL/DB
+# reales ni credenciales): ausente/vacío en CUALQUIERA de las cuatro ⇒
+# `webapp.services.commercial_service` trata Comercial como "sin configurar"
+# y falla contextual/fail-soft (nunca rompe el Hub completo). No hay editor
+# de estas variables desde el browser — solo `.env`/entorno del deploy.
+ODOO_URL      = _env("ODOO_URL", "")
+ODOO_DB       = _env("ODOO_DB", "")
+ODOO_USERNAME = _env("ODOO_USERNAME", "")
+ODOO_API_KEY  = _env("ODOO_API_KEY", "")
 # Cierre del dialog de invitación (/desafio) cuando la app corre enmascarada en
 # el frame de danwor.com: la cruz navega la ventana completa (target=_top) a esta
 # URL "limpia" para que el refresh no vuelva a pasar por /desafio. Sin frame

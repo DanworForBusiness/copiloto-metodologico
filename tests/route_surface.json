@@ -21,6 +21,8 @@
   "GET /catalog/security",
   "GET /catalog/security/detail",
   "GET /comercial",
+  "GET /comercial/data/pipeline",
+  "GET /comercial/data/summary",
   "GET /copilot",
   "GET /desafio",
   "GET /desafio/cerrar",

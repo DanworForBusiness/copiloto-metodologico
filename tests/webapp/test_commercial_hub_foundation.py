@@ -41,15 +41,14 @@ _COMMERCIAL_PY = (_ROUTERS / "commercial.py").read_text(encoding="utf-8")
 _COMMERCIAL_ACCESS_PY = (Path(__file__).resolve().parents[2] / "webapp" / "commercial_access.py").read_text(encoding="utf-8")
 
 auth_service.ALLOWED_USERS = "ALL"
-# COMMERCIAL_ALLOWED_USERS es una allowlist propia de este archivo — no
-# colisiona con OPERATIONS_ALLOWED_USERS (variable distinta) que otros
-# archivos de test asignan a nivel de módulo. Deliberadamente lista SOLO
-# el email propio de este archivo — nunca un email compartido de otro
-# archivo (p. ej. onedanwor-full@danwor.com), que rompería las
-# aserciones de esos otros archivos sobre cuántos workspaces ve ese
-# usuario (asignación de módulo, no revertida entre archivos — mismo
-# riesgo ya documentado para OPERATIONS_ALLOWED_USERS).
-auth_service.COMMERCIAL_ALLOWED_USERS = "commercial-test@danwor.com"
+# COMMERCIAL_ALLOWED_USERS: asignación de MÓDULO (no monkeypatch, no se
+# revierte entre archivos) — mismo riesgo ya documentado para
+# OPERATIONS_ALLOWED_USERS en test_staffing_routes.py: "la última que se
+# ejecute durante el collection de pytest gana". El CSV lista los emails
+# default de AMBOS archivos de Commercial Odoo Batch 1 que asignan esta
+# variable a nivel de módulo (este archivo + test_commercial_odoo_routes.py)
+# para que ninguno pise al otro sin importar el orden de collection.
+auth_service.COMMERCIAL_ALLOWED_USERS = "commercial-test@danwor.com,commercial-odoo-test@danwor.com"
 
 _SESSION = auth_service.create_session(
     {"email": "commercial-test@danwor.com", "name": "Commercial Test", "first_name": "Commercial", "family_name": "Test"}
@@ -297,11 +296,18 @@ def test_workspace_tile_rules_apply_identically_no_per_workspace_css_exception()
 # ============================================================================
 
 def test_no_reference_to_legacy_crm_app_anywhere_in_commercial_surface():
-    # Referencias TÉCNICAS reales (import path, dominio, cliente) — no la
-    # palabra "Odoo" en prosa explicando qué NO se integra todavía (eso sí
-    # aparece legítimamente en los docstrings de este batch).
+    # Referencias al REPO/APP legacy específico (`crm-comercial`, el backend
+    # DigitalOcean) — NO la palabra "Odoo"/"odoo_client" en general:
+    # Commercial Hub Odoo Batch 1 (ver HANDOFF) integra Odoo de verdad y
+    # tiene su PROPIO `webapp/services/odoo_client.py`, legítimamente
+    # nombrado en docstrings/imports — nunca se copió el archivo legacy
+    # (`crm-comercial/backend/odoo_client.py`), así que lo que se verifica
+    # acá es la ausencia del path/dominio LEGACY específico, no del
+    # concepto "Odoo" en sí (ver test_commercial_odoo_routes.py::
+    # test_no_legacy_crm_auth_primitives_anywhere_in_commercial_surface
+    # para la verificación complementaria de auth/JWT/DB legacy).
     haystacks = [_CRM_HTML, _COMMERCIAL_PY, _COMMERCIAL_ACCESS_PY, _COMMERCIAL_NAV_HTML]
-    for banned in ("odoo_client", "backend/odoo", "digitalocean.app", "ondigitalocean", "backend.odoo_client"):
+    for banned in ("backend/odoo_client", "backend.odoo_client", "digitalocean.app", "ondigitalocean", "crm-comercial"):
         for text in haystacks:
             assert banned not in text.lower(), banned
 
