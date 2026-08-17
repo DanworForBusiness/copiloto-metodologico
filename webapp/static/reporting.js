@@ -604,7 +604,15 @@ function toggleComercialParticipacionSort(key) {
 // reordenar las hojas cambia el orden en que sus grupos padre aparecen).
 function comercialParticipacionSorted(rows) {
   const key = state.comercialParticipacionSortKey;
-  if (!key) return rows;
+  if (!key) {
+    // DEFAULT (primera carga, sin click en columnas): orden CRONOLÓGICO por
+    // frecuencia (Mensual→Anual, `_frecuenciaCompare` compartido con
+    // Calendario), NUNCA alfabético — el nivel superior de la jerarquía es
+    // Frecuencia, así que ordenar las hojas por frecuencia hace que
+    // `buildTree` emita los grupos en secuencia cronológica. Si el usuario
+    // luego clickea una columna de %, gana ese orden (rama de abajo).
+    return [...rows].sort((a, b) => _frecuenciaCompare(a.idFrecuencia, b.idFrecuencia));
+  }
   const field = key === "vendidas" ? "horasVendidas" : "horasCertificadas";
   const sign = state.comercialParticipacionSortDir === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => sign * (a[field] - b[field]));
@@ -3744,10 +3752,13 @@ function renderComercialParticipacion() {
     <div class="matrix-scroll">
       <table class="dashboard-table">
         <thead><tr>
-          <th class="row-label-col">ID Frecuencia / Permite Adelanto / Condición de Pago / Cliente</th>
+          <th class="row-label-col">Frecuencia / Permite Adelanto / Condición de Pago / Cliente</th>
           ${sortHeader("vendidas", COMERCIAL_PARTICIPACION_COLUMNS[0].label)}${sortHeader("certificadas", COMERCIAL_PARTICIPACION_COLUMNS[1].label)}
         </tr></thead>
-        <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_PARTICIPACION_COLUMNS)}</tbody>
+        <tbody>
+          ${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_PARTICIPACION_COLUMNS)}
+          <tr class="is-total"><td class="row-label">Total</td>${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<td>${c.rollup(rows)}</td>`).join("")}</tr>
+        </tbody>
       </table>
     </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
   const detalle = dashboardSection("detalle", "Participación por condición comercial", rows.length + " cliente(s)", detalleBody);
