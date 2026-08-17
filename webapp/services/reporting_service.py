@@ -126,24 +126,36 @@ _TIME_LOGS_CLIENTE_INTERNO_MARCA = "danwor"
 # owner golden case 2026: PBI Task slicer = "01. No Asignación a Servicio en
 # Cliente", Ene-Ago = 130/90/113/152/216/172/208/59, Total 1.139). El subtab
 # Horas Productivas → No Asignadas se filtra por TASK (grano consultor-céntrico),
-# NO por los 2 proyectos placeholder (con los que el Hub daba 0 filas). El
-# prefijo "01. " ES parte del valor fuente (visible en el slicer del PBI) — se
-# conserva; solo se normaliza whitespace/case/acentos para robustez, NUNCA se
-# strippea el prefijo (sería inferir). Rentabilidad/"No asignadas a servicios"
-# (escalar de portfolio, LIVE RECONCILED) sigue con el filtro por proyecto
-# placeholder — NO se toca.
+# NO por los 2 proyectos placeholder (con los que el Hub daba 0 filas).
+# Rentabilidad/"No asignadas a servicios" (escalar de portfolio, LIVE RECONCILED)
+# sigue con el filtro por proyecto placeholder — NO se toca.
+#
+# MATCH POR FRASE NÚCLEO (owner: el match al string COMPLETO seguía dejando No
+# Asignadas en 0 filas en vivo — el valor real difiere del literal del slicer en
+# algún detalle de representación). Se matchea por CONTENIDO del núcleo estable
+# "no asignacion a servicio" (acento-insensible) — robusto al prefijo numérico
+# ("01. "/"1. "/ninguno), singular/plural ("servicio"/"servicios") y variantes
+# de cierre ("en cliente"/"en el cliente"), sin dejar de ser específico (no
+# matchea tareas no relacionadas).
 _NO_ASIGNADAS_TASK = "01. No Asignación a Servicio en Cliente"
 
 
 def _norm_task(task: str) -> str:
-    """Normalización semántica de un Task de Time Logs para el match de No
-    Asignadas: NFC (acentos precompuestos/combinados equivalentes) + colapso de
-    whitespace + casefold. Source-faithful (conserva el prefijo "01. " y la
-    frase completa) — solo neutraliza diferencias de representación."""
-    return unicodedata.normalize("NFC", " ".join((task or "").split())).casefold()
+    """Normaliza un Task de Time Logs para el match: quita acentos (NFD +
+    descarta diacríticos), colapsa whitespace y casefold — neutraliza toda
+    diferencia de representación (case/acento/espacios)."""
+    s = unicodedata.normalize("NFD", str(task or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return " ".join(s.split()).casefold()
 
 
-_NO_ASIGNADAS_TASK_NORM = _norm_task(_NO_ASIGNADAS_TASK)
+_NO_ASIGNADAS_TASK_CORE = _norm_task("No Asignación a Servicio")
+
+
+def _is_no_asignadas_task(task: str) -> bool:
+    """True si el Task es el de "No Asignación a Servicio" (match por frase
+    núcleo, ver arriba)."""
+    return _NO_ASIGNADAS_TASK_CORE in _norm_task(task)
 
 
 def _time_logs_month_num(mes: str) -> int | None:
@@ -1005,11 +1017,11 @@ class ReportingService:
         name/ID)."""
         groups: dict[str, list[float]] = {}
         for f in facts:
-            # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK
-            # (`_NO_ASIGNADAS_TASK`, slicer del PBI), NO por los 2 proyectos
-            # placeholder (con los que el Hub daba "Sin filas" pese a haber data
-            # 2026). Match normalizado (whitespace/case/acentos), source-faithful.
-            if _norm_task(f.get("task", "")) != _NO_ASIGNADAS_TASK_NORM:
+            # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK (slicer del
+            # PBI "No Asignación a Servicio"), NO por los 2 proyectos placeholder
+            # (con los que el Hub daba "Sin filas" pese a haber data 2026). Match
+            # por frase núcleo (ver `_is_no_asignadas_task`).
+            if not _is_no_asignadas_task(f.get("task", "")):
                 continue
             consultor = colaboradores.get(f["email"].lower())
             if not consultor:

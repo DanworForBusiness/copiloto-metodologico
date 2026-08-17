@@ -359,23 +359,35 @@ def test_shape_horas_productivas_no_asignadas_omits_unresolved_email():
     assert _service()._shape_horas_productivas_no_asignadas(facts, {}) == []
 
 
-def test_no_asignadas_matches_task_normalized_and_ignores_other_tasks():
-    # SOURCE PARITY + NORMALIZATION: el Task fuente lleva prefijo "01. " y no debe
-    # excluirse; el match tolera case/whitespace/acentos (NFC) pero NO strippea
-    # el prefijo (source-faithful). Otros Tasks se excluyen.
+def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
+    # SOURCE PARITY + NORMALIZATION (match por FRASE NÚCLEO, owner: el match al
+    # string COMPLETO seguía dejando No Asignadas en 0 filas en vivo). Robusto a:
+    # prefijo "01." / "1." / sin prefijo, case, doble espacio, acentos,
+    # singular/plural y cierre "en cliente"/"en el cliente". Específico: otras
+    # tareas se excluyen.
     facts = [
         {"cliente": "C", "proyecto": "P", "task": "01. No Asignación a Servicio en Cliente",
          "email": "a@danwor.com", "horas": 3.0, "mes": "2026-05", "anio": "2026"},
-        # Variación de representación (doble espacio + mayúsculas) → mismo match.
+        # Doble espacio + mayúsculas.
         {"cliente": "C", "proyecto": "P", "task": "01.  NO ASIGNACIÓN A SERVICIO EN CLIENTE",
          "email": "a@danwor.com", "horas": 2.0, "mes": "2026-05", "anio": "2026"},
-        # Task distinto (sin prefijo / otra tarea) → excluido.
+        # Sin prefijo numérico.
+        {"cliente": "C", "proyecto": "P", "task": "No Asignación a Servicio en el Cliente",
+         "email": "a@danwor.com", "horas": 4.0, "mes": "2026-06", "anio": "2026"},
+        # Plural + prefijo "1. " + sin acento en la fuente.
+        {"cliente": "C", "proyecto": "P", "task": "1. No asignacion a Servicios",
+         "email": "a@danwor.com", "horas": 1.0, "mes": "2026-06", "anio": "2026"},
+        # Task distinto (otra tarea) → excluido.
         {"cliente": "C", "proyecto": "P", "task": "Desarrollo",
          "email": "a@danwor.com", "horas": 99.0, "mes": "2026-05", "anio": "2026"},
+        # Task vacío → excluido.
+        {"cliente": "C", "proyecto": "P", "task": "",
+         "email": "a@danwor.com", "horas": 88.0, "mes": "2026-05", "anio": "2026"},
     ]
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Ana"})
     assert len(rows) == 1
-    assert rows[0]["monthly"][4] == 5.0  # Mayo: 3 + 2 (el Task "Desarrollo" NO suma)
+    assert rows[0]["monthly"][4] == 5.0  # Mayo: 3 + 2 (Desarrollo y vacío NO suman)
+    assert rows[0]["monthly"][5] == 5.0  # Junio: 4 (sin prefijo) + 1 (plural)
 
 
 def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
