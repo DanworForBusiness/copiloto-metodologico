@@ -3205,7 +3205,17 @@ function sumMonthly(rows, monthMask) {
 // no-mensuales (Cartera/Proyectos, Capacidad-Productivas, vía
 // `renderBusinessTreeRows`) — un solo motor de agrupación para los dos
 // tipos de tabla jerárquica del prototipo.
-function buildTree(rows, keys, path = []) {
+// `comparators` (owner corrective — "la tabla frecuencia no ordena por ID
+// Frecuencia igual al PBIP"): mapa OPCIONAL `{ key: compareFn }`. La
+// primera pasada de este corrective solo reordenó las OPCIONES del <select>
+// de Frecuencia (`facetOptions`/`distinctValues`, que sí acepta compareFn) —
+// nunca tocó el orden de los GRUPOS del árbol en sí, que `buildTree`
+// determina por orden de PRIMERA APARICIÓN en `rows` (un `Map` preserva
+// orden de inserción), ciego a cualquier criterio de negocio. Default
+// `{}` (ningún caller existente lo pasaba) preserva EXACTO el
+// comportamiento de siempre para Cartera/Capacidad/Comercial — SOLO
+// Calendario ahora pasa `{ frecuencia: _frecuenciaCompare }`.
+function buildTree(rows, keys, path = [], comparators = {}) {
   if (keys.length === 0) return [];
   const [key, ...restKeys] = keys;
   const groups = new Map();
@@ -3214,7 +3224,9 @@ function buildTree(rows, keys, path = []) {
     if (!groups.has(val)) groups.set(val, []);
     groups.get(val).push(r);
   });
-  return [...groups.entries()].map(([val, groupRows]) => {
+  let entries = [...groups.entries()];
+  if (comparators[key]) entries = entries.sort((a, b) => comparators[key](a[0], b[0]));
+  return entries.map(([val, groupRows]) => {
     const nodePath = [...path, val];
     return {
       // "Sin dato" (owner live QA — Participación real mostraba filas de
@@ -3228,7 +3240,7 @@ function buildTree(rows, keys, path = []) {
       label: (val === "" || val === null || val === undefined) ? "Sin dato" : val,
       pathKey: nodePath.join("|"),
       rows: groupRows,
-      children: buildTree(groupRows, restKeys, nodePath),
+      children: buildTree(groupRows, restKeys, nodePath, comparators),
     };
   });
 }
@@ -3623,7 +3635,13 @@ function renderCalendario() {
   const hierarchy = CALENDARIO_HIERARCHY[persp];
   const rows = facetFilteredRows("calendario");
   const stateKey = "calendario::" + persp;
-  const tree = buildTree(rows, hierarchy.keys);
+  // `{ frecuencia: _frecuenciaCompare }` (owner corrective — el fix previo
+  // solo reordenaba las OPCIONES del <select> de Frecuencia, nunca los
+  // GRUPOS de la tabla en sí, ver comentario de `buildTree`): aplica en
+  // AMBAS perspectivas — "Frecuencia" (nivel 1, ordena los grupos raíz) Y
+  // "Client Partner" (nivel 3, ordena los hijos de cada Cliente) — mismo
+  // criterio cronológico real en cualquier profundidad de la jerarquía.
+  const tree = buildTree(rows, hierarchy.keys, [], { frecuencia: _frecuenciaCompare });
   registerTreeContext(stateKey, rows, hierarchy.keys);
   const totalMonthly = sumMonthly(rows);
   const grandTotal = totalMonthly.reduce((a, b) => a + b, 0);
