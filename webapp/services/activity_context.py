@@ -274,6 +274,10 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     "reporting.sort_change",
     "reporting.refresh",
     "reporting.feedback",
+    # Operations — Asignaciones/Staffing: feedback transversal (misma capacidad
+    # compartida que Reporting/Copilot), owner: "no aplica solo al tablero
+    # integral, sino también a asignaciones".
+    "staffing.feedback",
 })
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
@@ -332,6 +336,7 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.sort_change": "Reporting — cambio de orden",
     "reporting.refresh": "Reporting — actualizar",
     "reporting.feedback": "Reporting — feedback de reporte",
+    "staffing.feedback": "Asignaciones — feedback de reporte",
 }
 
 

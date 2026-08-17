@@ -1444,7 +1444,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    mover el mouse en la sección; acá quedaba greyed y solo se activaba sobre el
    texto). El contenedor de contenido es la "sección" equivalente. */
 #reporting-main-content:hover .section-feedback__bar,
-.staffing-dashboard:hover .section-feedback__bar,
+#staffing-rows:hover .section-feedback__bar,
 .section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;

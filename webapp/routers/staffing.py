@@ -64,12 +64,14 @@ página real se re-inicializa y dispara su propio POST de HTMX fresco).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
-from webapp.services import auth_service
+from webapp.services import auth_service, feedback_store
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
     SCOPE_OPERATIONS, AREA_STAFFING,
@@ -104,6 +106,39 @@ def _flatten_staffing_diagnostics(diagnostics: dict) -> dict:
         for key, value in stats.items():
             flat[f"{source}_{key}"] = value
     return flat
+
+
+@router.post("/operaciones/staffing/feedback", include_in_schema=False)
+def staffing_feedback(request: Request, rating: str = Form(""), comment: str = Form("")):
+    """Feedback "¿Qué te pareció este reporte?" al cierre de Asignaciones
+    (owner: la capacidad es TRANSVERSAL, no solo del tablero integral). Reusa
+    el MISMO store compartido (`feedback_store` → FEEDBACK_LOG_DIR, campo
+    `type`) y el MISMO pipeline de Activity que Reporting/Copilot — nunca un
+    almacenamiento propio. Emite `staffing.feedback` (scope operations/area
+    staffing), clasificado como `usage` para el dashboard de uso."""
+    blocked = _require_operations_session(request)
+    if blocked is not None:
+        return blocked
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Feedback inválido")
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "operations_dashboard",
+        "surface": "asignaciones",
+        "rating": rating,
+        "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
+        "ts": now.isoformat(),
+    }
+    clean_comment = (comment or "").strip()
+    if clean_comment:
+        payload["comment"] = clean_comment
+    feedback_store.write_feedback_record(payload, prefix="staffing_feedback", stamp=now.strftime("%Y%m%d_%H%M%S"))
+    log_activity(
+        "staffing.feedback", user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,
+        module=OP01_MODULE_ID, feedback_sentiment=("positive" if rating == "up" else "negative"),
+    )
+    return JSONResponse({"state": "ok"})
 
 
 def _require_operations_session(request: Request, *, next_path: str | None = None):
