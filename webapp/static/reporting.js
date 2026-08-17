@@ -4223,11 +4223,24 @@ function renderCapacidadNoAsignadas() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
-    <p class="empty-note" style="text-align:left">Horas No Productivas registradas por cada colaborador en Time (Task: No Asignación a Servicio en Cliente) — indicador distinto de la disponibilidad de Asignaciones.</p>`;
+    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
   const detalle = dashboardSection("detalle", "Horas No Asignadas", "Consultor — Task: No Asignación a Servicio en Cliente", body);
 
-  return detalle;
+  // PUNCH compartido (§8, owner): la nota metodológica salió del section
+  // analítico (antes era un <p class="empty-note"> INLINE dentro de la tabla) y
+  // pasa a reusar el MISMO primitivo `punch` que Productivas (renderHubCallout,
+  // callout--punch de tools.css) — AFUERA y DESPUÉS del grupo analítico. El
+  // feedback (¿Qué te pareció este reporte?) queda como último elemento del tab
+  // (lo agrega render() a nivel main-tab, después de esto). Wording business-
+  // friendly (sin el prefijo "01." del Task fuente — la presentación NUNCA
+  // maneja el predicado de filtrado, §9).
+  const notaMetodologica = renderHubCallout({
+    tone: "punch",
+    title: "Nota metodológica",
+    bodyHtml: `<p>${esc("Horas No Productivas registradas por cada colaborador en Time (Task: No Asignación a Servicio en Cliente) — indicador distinto de la disponibilidad de Asignaciones.")}</p>`,
+  });
+
+  return detalle + notaMetodologica;
 }
 
 function renderCapacidad() {

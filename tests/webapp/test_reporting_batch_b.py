@@ -324,15 +324,20 @@ def test_shape_horas_productivas_preserves_3rd_decimal_owner_live_screenshot():
     assert denominador["2026"][0] == 5.422  # el denominador (Total Horas tile) TAMBIÉN a 3 decimales
 
 
+_NA_TASK = "01. No Asignación a Servicio en Cliente"  # slicer del PBI (con prefijo "01. ")
+
+
 def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
+    # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK (slicer del PBI),
+    # NO por proyecto placeholder. El proyecto es irrelevante para el match.
     facts = [
-        {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK,
          "email": "A@Danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
-        {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#2)", "task": "Admin",
+        {"cliente": "Molinos", "proyecto": "Otro", "task": _NA_TASK,
          "email": "a@danwor.com", "horas": 2.0, "mes": "2026-01", "anio": "2026"},
-        {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK,
          "email": "a@danwor.com", "horas": 6.0, "mes": "2026-03", "anio": "2026"},
-        # Proyecto real (Productivas) — NUNCA debe aparecer en No Asignadas.
+        # Otro Task (Productivas) — NUNCA debe aparecer en No Asignadas.
         {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026"},
     ]
     colaboradores = {"a@danwor.com": "Federico Bressi"}
@@ -348,10 +353,60 @@ def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
 
 def test_shape_horas_productivas_no_asignadas_omits_unresolved_email():
     facts = [
-        {"cliente": "Danwor", "proyecto": "Danwor - Horas No Productivas (#1)", "task": "Admin",
+        {"cliente": "Danwor", "proyecto": "X", "task": _NA_TASK,
          "email": "sin-colaborador@danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
     ]
     assert _service()._shape_horas_productivas_no_asignadas(facts, {}) == []
+
+
+def test_no_asignadas_matches_task_normalized_and_ignores_other_tasks():
+    # SOURCE PARITY + NORMALIZATION: el Task fuente lleva prefijo "01. " y no debe
+    # excluirse; el match tolera case/whitespace/acentos (NFC) pero NO strippea
+    # el prefijo (source-faithful). Otros Tasks se excluyen.
+    facts = [
+        {"cliente": "C", "proyecto": "P", "task": "01. No Asignación a Servicio en Cliente",
+         "email": "a@danwor.com", "horas": 3.0, "mes": "2026-05", "anio": "2026"},
+        # Variación de representación (doble espacio + mayúsculas) → mismo match.
+        {"cliente": "C", "proyecto": "P", "task": "01.  NO ASIGNACIÓN A SERVICIO EN CLIENTE",
+         "email": "a@danwor.com", "horas": 2.0, "mes": "2026-05", "anio": "2026"},
+        # Task distinto (sin prefijo / otra tarea) → excluido.
+        {"cliente": "C", "proyecto": "P", "task": "Desarrollo",
+         "email": "a@danwor.com", "horas": 99.0, "mes": "2026-05", "anio": "2026"},
+    ]
+    rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Ana"})
+    assert len(rows) == 1
+    assert rows[0]["monthly"][4] == 5.0  # Mayo: 3 + 2 (el Task "Desarrollo" NO suma)
+
+
+def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
+    # Owner golden case (2026, Task No Asignación): Ene-Ago = 130/90/113/152/
+    # 216/172/208/59, Total = 1.139. Fixture determinística que reproduce esos
+    # totales mensuales (repartidos en 2 consultores) — prueba mapeo mes→índice,
+    # agregación y grano consultor-céntrico. Los valores NO se hardcodean en
+    # producción (son evidencia de validación del owner).
+    monthly_expected = [130, 90, 113, 152, 216, 172, 208, 59, 0, 0, 0, 0]
+    facts = []
+    for i, total in enumerate(monthly_expected):
+        if total == 0:
+            continue
+        mes = f"2026-{i + 1:02d}"
+        # Repartido en 2 consultores para probar el grano consultor-céntrico.
+        facts.append({"cliente": "C", "proyecto": "P", "task": _NA_TASK,
+                      "email": "u1@danwor.com", "horas": float(total - 10), "mes": mes, "anio": "2026"})
+        facts.append({"cliente": "C", "proyecto": "P", "task": _NA_TASK,
+                      "email": "u2@danwor.com", "horas": 10.0, "mes": mes, "anio": "2026"})
+    rows = _service()._shape_horas_productivas_no_asignadas(
+        facts, {"u1@danwor.com": "Consultor Uno", "u2@danwor.com": "Consultor Dos"})
+    assert len(rows) == 2  # grano consultor-céntrico
+    # Total por mes (suma de ambos consultores) reproduce el mapeo mes→índice.
+    total_por_mes = [round(sum(r["monthly"][m] for r in rows), 2) for m in range(12)]
+    assert total_por_mes == [float(v) for v in monthly_expected]
+    # El total reconcilia con la suma de los meses del fixture. Nota: el
+    # screenshot del owner lista Ene-Ago = 130..59 (suma 1140) pero muestra
+    # TOTAL 1.139 — diferencia de REDONDEO (los valores reales son decimales); la
+    # validación exacta del par es owner-live, no un oráculo de unit test. Acá se
+    # prueba la MECÁNICA (mes/grano/agregación) con un fixture auto-consistente.
+    assert round(sum(sum(r["monthly"]) for r in rows), 2) == float(sum(monthly_expected))
 
 
 def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
@@ -588,3 +643,33 @@ def test_time_logs_horas_is_decimal_hours_not_milli_hours(monkeypatch):
     total = sum(horas)
     assert total == 169.75          # = SUM(HORAS) del PBIP, sin escala
     assert total != 0.16975         # el defecto ÷1000 habría dado esto (1000× menos)
+
+
+# ============================================================================
+# PUNCH migration — No Asignadas usa el primitivo compartido, fuera del section
+# (FINAL PBIP SOURCE-PARITY CORRECTIVE §8)
+# ============================================================================
+
+def test_no_asignadas_nota_metodologica_uses_shared_punch_outside_section():
+    fn = _fn_body_exact("renderCapacidadNoAsignadas")
+    # La nota YA NO es un <p class="empty-note"> INLINE dentro de la tabla.
+    assert 'empty-note" style="text-align:left">Horas No Productivas' not in fn
+    # Reusa el MISMO primitivo compartido `renderHubCallout` con tono `punch`
+    # (NUNCA un estilo No-Asignadas nuevo) — mismo que Productivas.
+    assert "renderHubCallout({" in fn and 'tone: "punch"' in fn
+    assert "indicador distinto de la disponibilidad de Asignaciones" in fn
+    # El punch va AFUERA y DESPUÉS del grupo analítico (dashboardSection detalle).
+    assert "return detalle + notaMetodologica;" in fn
+    # Wording business-friendly: el bodyHtml del punch NO muestra el prefijo
+    # "01." del Task fuente (la presentación no maneja el predicado de filtrado).
+    body_html = fn[fn.index("bodyHtml:"):fn.index("bodyHtml:") + 260]
+    assert "01." not in body_html
+
+
+def test_no_asignadas_and_productivas_share_the_same_punch_primitive():
+    # Un solo primitivo (renderHubCallout) — nunca un renderer/CSS duplicado
+    # por perspectiva.
+    for fn_name in ("renderCapacidadProductivas", "renderCapacidadNoAsignadas"):
+        assert 'tone: "punch"' in _fn_body_exact(fn_name)
+    # renderHubCallout está definido UNA sola vez (primitivo compartido).
+    assert _REPORTING_JS.count("function renderHubCallout(") == 1

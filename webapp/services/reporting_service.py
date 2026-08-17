@@ -19,6 +19,7 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 """
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime
 
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
@@ -120,6 +121,29 @@ _TIME_LOGS_NO_ASIGNADAS_PROJECTS = {
     "Danwor - Horas No Productivas (#2)",
 }
 _TIME_LOGS_CLIENTE_INTERNO_MARCA = "danwor"
+
+# Task fuente de "Horas No Asignadas" (FINAL PBIP SOURCE-PARITY CORRECTIVE —
+# owner golden case 2026: PBI Task slicer = "01. No Asignación a Servicio en
+# Cliente", Ene-Ago = 130/90/113/152/216/172/208/59, Total 1.139). El subtab
+# Horas Productivas → No Asignadas se filtra por TASK (grano consultor-céntrico),
+# NO por los 2 proyectos placeholder (con los que el Hub daba 0 filas). El
+# prefijo "01. " ES parte del valor fuente (visible en el slicer del PBI) — se
+# conserva; solo se normaliza whitespace/case/acentos para robustez, NUNCA se
+# strippea el prefijo (sería inferir). Rentabilidad/"No asignadas a servicios"
+# (escalar de portfolio, LIVE RECONCILED) sigue con el filtro por proyecto
+# placeholder — NO se toca.
+_NO_ASIGNADAS_TASK = "01. No Asignación a Servicio en Cliente"
+
+
+def _norm_task(task: str) -> str:
+    """Normalización semántica de un Task de Time Logs para el match de No
+    Asignadas: NFC (acentos precompuestos/combinados equivalentes) + colapso de
+    whitespace + casefold. Source-faithful (conserva el prefijo "01. " y la
+    frase completa) — solo neutraliza diferencias de representación."""
+    return unicodedata.normalize("NFC", " ".join((task or "").split())).casefold()
+
+
+_NO_ASIGNADAS_TASK_NORM = _norm_task(_NO_ASIGNADAS_TASK)
 
 
 def _time_logs_month_num(mes: str) -> int | None:
@@ -960,8 +984,10 @@ class ReportingService:
         Consultor con `monthly[12]` (horas No Asignadas por mes, aditivo) +
         `hsAsig`. Reusa los MISMOS `facts`/`colaboradores` que Productivas
         (ver `get_batch_b` — UN fetch/combine de CSV para las 2
-        perspectivas), filtrado a los 2 Proyectos PLACEHOLDER (page.json
-        "Hs No Asignadas": `Project IN {...}`), agrupado por Consultor vía
+        perspectivas), filtrado por TASK = `_NO_ASIGNADAS_TASK` (slicer del
+        PBI "01. No Asignación a Servicio en Cliente" — FINAL PBIP SOURCE-
+        PARITY CORRECTIVE, antes filtraba por 2 proyectos placeholder y daba
+        0 filas pese a haber data 2026), agrupado por Consultor vía
         `colaboradores` (join `Time Logs Reports.Email →
         Colaboradores.EMail_Colaborador`, MISMA relación confirmada en el
         TMDL del PBIP). Filas con Email sin Colaborador resuelto se omiten
@@ -979,7 +1005,11 @@ class ReportingService:
         name/ID)."""
         groups: dict[str, list[float]] = {}
         for f in facts:
-            if f["proyecto"] not in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+            # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK
+            # (`_NO_ASIGNADAS_TASK`, slicer del PBI), NO por los 2 proyectos
+            # placeholder (con los que el Hub daba "Sin filas" pese a haber data
+            # 2026). Match normalizado (whitespace/case/acentos), source-faithful.
+            if _norm_task(f.get("task", "")) != _NO_ASIGNADAS_TASK_NORM:
                 continue
             consultor = colaboradores.get(f["email"].lower())
             if not consultor:
