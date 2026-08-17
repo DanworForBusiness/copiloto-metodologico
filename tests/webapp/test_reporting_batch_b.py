@@ -355,9 +355,45 @@ def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
     r = rows[0]
     assert r["consultor"] == "Federico Bressi"
     assert r["hsAsig"] == 0  # gap documentado — no adivinado
-    assert r["monthly"][0] == 6.0  # Enero: 4.0 (case-insensitive email match) + 2.0
-    assert r["monthly"][2] == 6.0  # Marzo
-    assert sum(r["monthly"]) == 12.0
+    # CORRECTIVO UX Año: `horasByYear` (no `monthly` colapsado), MISMO
+    # contrato que Productivas — el selector Año vive en reporting.js.
+    assert set(r["horasByYear"].keys()) == {"2026"}
+    assert r["horasByYear"]["2026"][0] == 6.0  # Enero: 4.0 (case-insensitive email match) + 2.0
+    assert r["horasByYear"]["2026"][2] == 6.0  # Marzo
+    assert sum(r["horasByYear"]["2026"]) == 12.0
+
+
+def test_shape_horas_productivas_no_asignadas_keeps_years_separate():
+    # LA razón de ser de horasByYear: dos años NUNCA se colapsan en la misma
+    # columna mensual (antes de este corrective, `monthly[n-1] += horas` no
+    # miraba `anio` y sumaba Enero-2025 + Enero-2026 en el mismo índice).
+    facts = [
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "a@danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "a@danwor.com", "horas": 9.0, "mes": "2025-01", "anio": "2025"},
+    ]
+    rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Federico Bressi"})
+    assert len(rows) == 1
+    by_year = rows[0]["horasByYear"]
+    assert set(by_year.keys()) == {"2025", "2026"}
+    assert by_year["2026"][0] == 4.0
+    assert by_year["2025"][0] == 9.0
+
+
+def test_shape_horas_productivas_no_asignadas_omits_facts_with_invalid_anio():
+    # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio` (nunca `if anio:` solo,
+    # MISMO criterio que `_shape_horas_productivas`) — un `anio` ausente o
+    # no-4-dígitos no forma parte de ningún `horasByYear`, nunca un fallback
+    # a un año inventado.
+    facts = [
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "a@danwor.com", "horas": 4.0, "mes": "2026-01", "anio": None},
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "a@danwor.com", "horas": 3.0, "mes": "2026-01", "anio": "26"},
+    ]
+    rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Federico Bressi"})
+    assert rows == []
 
 
 def test_shape_horas_productivas_no_asignadas_groups_unresolved_email_under_blank():
@@ -371,7 +407,7 @@ def test_shape_horas_productivas_no_asignadas_groups_unresolved_email_under_blan
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {})
     assert len(rows) == 1
     assert rows[0]["consultor"] == "(Blank)"
-    assert rows[0]["monthly"][0] == 4.0
+    assert rows[0]["horasByYear"]["2026"][0] == 4.0
 
 
 def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
@@ -401,8 +437,8 @@ def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
     ]
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Ana"})
     assert len(rows) == 1
-    assert rows[0]["monthly"][4] == 5.0  # Mayo: 3 + 2 (Desarrollo y vacío NO suman)
-    assert rows[0]["monthly"][5] == 5.0  # Junio: 4 (sin prefijo) + 1 (plural)
+    assert rows[0]["horasByYear"]["2026"][4] == 5.0  # Mayo: 3 + 2 (Desarrollo y vacío NO suman)
+    assert rows[0]["horasByYear"]["2026"][5] == 5.0  # Junio: 4 (sin prefijo) + 1 (plural)
 
 
 def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
@@ -426,14 +462,14 @@ def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
         facts, {"u1@danwor.com": "Consultor Uno", "u2@danwor.com": "Consultor Dos"})
     assert len(rows) == 2  # grano consultor-céntrico
     # Total por mes (suma de ambos consultores) reproduce el mapeo mes→índice.
-    total_por_mes = [round(sum(r["monthly"][m] for r in rows), 2) for m in range(12)]
+    total_por_mes = [round(sum(r["horasByYear"]["2026"][m] for r in rows), 2) for m in range(12)]
     assert total_por_mes == [float(v) for v in monthly_expected]
     # El total reconcilia con la suma de los meses del fixture. Nota: el
     # screenshot del owner lista Ene-Ago = 130..59 (suma 1140) pero muestra
     # TOTAL 1.139 — diferencia de REDONDEO (los valores reales son decimales); la
     # validación exacta del par es owner-live, no un oráculo de unit test. Acá se
     # prueba la MECÁNICA (mes/grano/agregación) con un fixture auto-consistente.
-    assert round(sum(sum(r["monthly"]) for r in rows), 2) == float(sum(monthly_expected))
+    assert round(sum(sum(r["horasByYear"]["2026"]) for r in rows), 2) == float(sum(monthly_expected))
 
 
 def test_no_asignadas_golden_conserves_unresolved_identity_under_blank_in_total():
@@ -451,8 +487,8 @@ def test_no_asignadas_golden_conserves_unresolved_identity_under_blank_in_total(
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {"resuelto@danwor.com": "Consultor Uno"})
     assert len(rows) == 2
     blank = next(r for r in rows if r["consultor"] == "(Blank)")
-    assert blank["monthly"][3] == 8.0  # Abril
-    assert round(sum(sum(r["monthly"]) for r in rows), 2) == 1138.5
+    assert blank["horasByYear"]["2026"][3] == 8.0  # Abril
+    assert round(sum(sum(r["horasByYear"]["2026"]) for r in rows), 2) == 1138.5
 
 
 def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):

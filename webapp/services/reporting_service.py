@@ -1007,13 +1007,17 @@ class ReportingService:
 
     def _shape_horas_productivas_no_asignadas(self, facts: list[dict], colaboradores: dict[str, str]) -> list[dict]:
         """Contrato EXACTO de `CAPACIDAD_NOASIGNADAS_ROWS`: una fila por
-        Consultor con `monthly[12]` (horas No Asignadas por mes, aditivo) +
-        `hsAsig`. Reusa los MISMOS `facts`/`colaboradores` que Productivas
-        (ver `get_batch_b` — UN fetch/combine de CSV para las 2
-        perspectivas). Población PBIP real (real-data-lineage.md:284):
-        `Project IN _HORAS_NO_PRODUCTIVAS_PROJECTS AND Task ==
-        _NO_ASIGNADAS_TASK` — Task-only da hoy la misma población pero es
-        circunstancial, no la relación de negocio.
+        Consultor con `horasByYear` (`{anio: [12]}`, MISMO patrón que
+        `_shape_horas_productivas` — CORRECTIVO UX: antes `monthly[12]`
+        colapsaba TODOS los años presentes en una sola columna mensual sin
+        que la UI mostrara ningún Año, semánticamente incorrecto en cuanto
+        hubiera más de un año de datos; el selector Año vive en reporting.js,
+        ver `capacidadNoAsignadasSelectedRows`) + `hsAsig`. Reusa los MISMOS
+        `facts`/`colaboradores` que Productivas (ver `get_batch_b` — UN
+        fetch/combine de CSV para las 2 perspectivas). Población PBIP real
+        (real-data-lineage.md:284): `Project IN _HORAS_NO_PRODUCTIVAS_PROJECTS
+        AND Task == _NO_ASIGNADAS_TASK` — Task-only da hoy la misma
+        población pero es circunstancial, no la relación de negocio.
 
         `colaboradores` (`ReportingRepository.get_colaboradores_email_map`)
         resuelve el Email vía Colaboradores.Colaborador_x002e_LookupId →
@@ -1034,19 +1038,27 @@ class ReportingService:
         resolver cuando el owner confirme esa lista (mismo criterio que
         cualquier otro gap de este proyecto: nunca inventar un internal
         name/ID)."""
-        groups: dict[str, list[float]] = {}
+        groups: dict[str, dict[str, list[float]]] = {}
         for f in facts:
             if f.get("proyecto") not in _HORAS_NO_PRODUCTIVAS_PROJECTS:
                 continue
             if not _is_no_asignadas_task(f.get("task", "")):
                 continue
-            consultor = colaboradores.get((f.get("email") or "").lower()) or _SIN_CONSULTOR_LABEL
             n = _time_logs_month_num(f["mes"])
             if n is None:
                 continue
-            monthly = groups.setdefault(consultor, [0.0] * 12)
-            monthly[n - 1] += f["horas"]
+            anio = f.get("anio")
+            # TEMPORAL DOMAIN CONTRACT: `_is_valid_anio`, nunca `if anio:`
+            # solo — reusado tal cual (ver _shape_horas_productivas arriba).
+            if not _is_valid_anio(anio):
+                continue
+            consultor = colaboradores.get((f.get("email") or "").lower()) or _SIN_CONSULTOR_LABEL
+            by_year = groups.setdefault(consultor, {})
+            by_year.setdefault(anio, [0.0] * 12)[n - 1] += f["horas"]
         return [
-            {"consultor": consultor, "hsAsig": 0, "monthly": [_round2(v) for v in monthly]}
-            for consultor, monthly in groups.items()
+            {
+                "consultor": consultor, "hsAsig": 0,
+                "horasByYear": {a: [_round2(v) for v in arr] for a, arr in by_year.items()},
+            }
+            for consultor, by_year in groups.items()
         ]
