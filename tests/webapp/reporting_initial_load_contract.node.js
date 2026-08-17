@@ -178,6 +178,60 @@ assertTrue(mainEl.innerHTML.includes(ERROR_MARK), "ERROR (primera hidratación):
 assertFalse(mainEl.innerHTML.includes(FILTERBAR_MARK), "ERROR (primera hidratación): NUNCA se muestra una filter bar usable sobre un reporte vacío");
 assertFalse(state.reportingTabHydrated.horasvendidas, "ERROR (primera hidratación): el flag de hidratación NO se prende con un status de error");
 
+// ============================================================================
+// 7) COMERCIAL / PARTICIPACIÓN — la PRIMERA hidratación depende del dataset de
+//    la PERSPECTIVA ACTIVA (Participación), NUNCA de batch-a/Salud. Owner live
+//    smoke: batch-a (Salud/Calendario) ready revelaba filtros+feedback con
+//    Participación (perspectiva por defecto) todavía en "Cargando…".
+// ============================================================================
+const FEEDBACK_MARK = "section-feedback";
+
+// Case A — PRIMERA visita: Participación loading, batch-a (Salud) YA ready.
+// Repro exacta del bug: antes `combine(...)` devolvía "ready" y hidrataba el tab.
+state.experience = "comercial";
+state.perspective.comercial = "Participación";
+state.comercialParticipacionDataStatus = "loading";
+state.batchADataStatus = "ready";
+state.reportingTabHydrated.comercial = false;
+render();
+assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL A: loader inicial visible");
+assertFalse(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL A: filtros AUSENTES (batch-a/Salud ready NO hidrata el tab)");
+assertFalse(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL A: feedback AUSENTE durante la primera hidratación");
+assertFalse(mainEl.innerHTML.includes(ERROR_MARK), "COMERCIAL A: no es estado de error (Participación sigue cargando)");
+assertFalse(state.reportingTabHydrated.comercial, "COMERCIAL A: el tab NO se marca hidratado con solo batch-a ready");
+
+// Case B — Participación (perspectiva activa) ready → primer paint completo.
+state.comercialParticipacionDataStatus = "ready";
+render();
+assertTrue(state.reportingTabHydrated.comercial, "COMERCIAL B: el tab se hidrata cuando Participación (activa) está ready");
+assertFalse(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL B: loader inicial desaparece");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL B: filtros visibles");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL B: feedback visible (misma superficie que filtros/contenido)");
+
+// Case C — año frío de Participación tras hidratar: NO re-entra al loader-only.
+state.comercialParticipacionDataStatus = "loading";
+render();
+assertTrue(state.reportingTabHydrated.comercial, "COMERCIAL C: flag one-way sigue hidratado");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL C: filtros permanecen durante el año frío");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL C: feedback permanece durante el año frío");
+state.comercialParticipacionDataStatus = "ready";
+
+// Case D — switch a Salud de Cliente tras hidratar: sin blanking.
+state.perspective.comercial = "Salud de Cliente";
+render();
+assertTrue(state.reportingTabHydrated.comercial, "COMERCIAL D: sigue hidratado al conmutar a Salud");
+assertFalse(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL D: no vuelve al loader inicial al conmutar de perspectiva");
+assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL D: filtros siguen visibles en Salud");
+
+// Case E — volver a un Comercial ya hidratado: superficie inmediata (sin loader).
+state.experience = "rentabilidad";
+render();
+state.experience = "comercial";
+state.perspective.comercial = "Participación";
+render();
+assertFalse(mainEl.innerHTML.includes(LOADER_MARK), "COMERCIAL E: volver a un tab ya hidratado no re-muestra el loader inicial");
+assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL E: superficie (feedback/filtros) inmediata al volver");
+
 if (failures > 0) {
   console.log(`${failures} initial-load contract invariant(s) FAILED`);
   process.exit(1);

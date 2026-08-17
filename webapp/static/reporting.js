@@ -4306,7 +4306,18 @@ function reportingTabRawStatus(expId) {
     case "cartera": return combine(state.carteraMantenimientoStatus, state.carteraProyectoStatus);
     case "rentabilidad": return state.rentabilidadDataStatus;
     case "horasvendidas": return state.horasVendidasDataStatus;
-    case "comercial": return combine(state.comercialParticipacionDataStatus, state.batchADataStatus);
+    // INITIAL HYDRATION CONTRACT (owner live smoke): la PRIMERA hidratación de
+    // un main tab depende del dataset de su PERSPECTIVA ACTIVA, NUNCA de "alguna
+    // fuente ready". Comercial tiene 2 familias (Participación = endpoint propio
+    // scopeado; Salud = batch-a). Antes `combine(...)` devolvía "ready" si
+    // CUALQUIERA estaba lista → batch-a/Salud hidrataba primero y revelaba
+    // filtros+feedback con Participación (perspectiva por defecto) todavía en
+    // "Cargando…". Ahora gatea por la perspectiva activa; la hermana warmea en
+    // background y el flag de hidratación es one-way (no re-entra al loader al
+    // conmutar perspectivas — ver render()).
+    case "comercial": return state.perspective.comercial === "Salud de Cliente"
+      ? state.batchADataStatus
+      : state.comercialParticipacionDataStatus;
     case "calendario": return state.batchADataStatus;
     case "capacidad": return state.batchBDataStatus;
     default: return "ready";
