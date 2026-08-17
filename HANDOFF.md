@@ -6227,6 +6227,26 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > passed, 9 pre-existing unrelated Staffing/route-contract failures**
 > (mismo set que toda medición previa en esta branch).
 >
+> ### ✅ FINAL RECONCILIATION CORRECTIVE — Horas Trabajadas /1000 espurio (commit `f8a69ce`)
+> Segundo caso golden del owner (2026/**Julio**/Mantenimiento/En curso): PBI
+> Vendidas=4.979 / Cert=3.686 / **Trab=4.568** / Rent=-882; Hub daba Vendidas=
+> 4.979 ✓ / Cert=3.686 ✓ / **Trab=4,6** ✗ / Rent=+3.681,4 ✗. Vendidas y
+> Certificadas YA reconcilian EXACTO (no se tocaron). Único defecto = Trabajadas,
+> 1000× menos (4,6 = 4568/1000 exacto; ranking -508 vs -0,5, -208 vs -0,2 →
+> factor sistemático). **Primera etapa donde 4568→4.568:** `get_time_logs_facts`,
+> campo `horas`. **Causa raíz:** `horas = _num("Duration Decimal") / 1000.0` — el
+> `/1000` era ESPURIO. `Duration Decimal` YA es horas decimales (estándar de
+> export); `_num` sumaba bien (4.568) y el /1000 la achicaba. Prueba de que NO es
+> locale: una sola división 1000× (no doble — un mis-parseo daría ~0,0046).
+> **Fix:** `horas = _num("Duration Decimal")` (sin escala). Rentabilidad + ranking
+> recomputan solos (fórmula/algoritmo intactos). Horas Productivas (mismo source)
+> también corregida en magnitud; su % Incidencia (ratio) no cambia. La nota
+> `HORAS=[Duration Decimal]/1000` de real-data-lineage.md quedó corregida.
+> **Owner smoke (Julio):** Trab debe dar ~4.568, Rent ~-882, Vendidas 4.979 y
+> Cert 3.686 SIN cambio; ranking negativo ~ML -508/Raizen -208/Pluspetrol -121;
+> ranking positivo con magnitudes realistas (no +743/+304). Status: IMPLEMENTATION
+> READY FOR OWNER LIVE RECONCILIATION.
+>
 > **NOT re-measured live**: este entorno no tiene acceso a Graph/SharePoint
 > real — el razonamiento de paridad de fuente está verificado contra los
 > archivos PBIP primarios y fixtures determinísticas, pero confirmar que el
