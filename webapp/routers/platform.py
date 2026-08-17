@@ -61,7 +61,7 @@ router = APIRouter()
 _ONEDANWOR_LANDING_COPY = {
     "title": "Danwor Hub · Danwor",
     "eyebrow_ink": "Una plataforma",
-    "eyebrow_gold": "Todos los servicios Danwor",
+    "eyebrow_gold": "Todos nuestros servicios",
     "hub_brand_lockup": True,
     "brand_description": (
         "Un punto de encuentro donde se conectan necesidades, capacidades, "
