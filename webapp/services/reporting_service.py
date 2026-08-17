@@ -184,10 +184,14 @@ class ReportingService:
         PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
         HANDOFF): las experiencias comparten `get_batch_a_facts` en UN fetch,
         shaping puro de Python (barato) por separado."""
-        raw = self._repository.get_batch_a_facts(access_token)
+        # PERF: SOLO cliente_dim (Calendario/Salud son categóricas puras) — NO
+        # se lee "Horas por proyectos" (full-history, la lectura más cara) ni
+        # Proyectos: su `project_facts` ya no lo consume nadie acá (Participación
+        # migró a su endpoint scopeado). Ver `get_cliente_dim`.
+        cliente_dim = self._repository.get_cliente_dim(access_token)
         return {
-            "calendario": self._shape_calendario(raw["cliente_dim"]),
-            "salud": self._shape_salud(raw["cliente_dim"]),
+            "calendario": self._shape_calendario(cliente_dim),
+            "salud": self._shape_salud(cliente_dim),
         }
 
     def get_batch_b(self, access_token: str) -> dict:
@@ -210,11 +214,11 @@ class ReportingService:
         }
 
     def get_salud(self, access_token: str) -> list[dict]:
-        """Wrapper delgado de `_shape_salud` con su PROPIO fetch — usado
-        standalone/en tests; `get_batch_a` hace el fetch UNA vez para las
-        4 experiencias y llama el shaping directo (ver ahí)."""
-        raw = self._repository.get_batch_a_facts(access_token)
-        return self._shape_salud(raw["cliente_dim"])
+        """Wrapper delgado de `_shape_salud` con su PROPIO fetch (lean:
+        SOLO cliente_dim, sin leer Horas por proyectos) — usado standalone/en
+        tests; `get_batch_a` hace el fetch UNA vez para Calendario+Salud."""
+        cliente_dim = self._repository.get_cliente_dim(access_token)
+        return self._shape_salud(cliente_dim)
 
     def _shape_salud(self, cliente_dim: list[dict]) -> list[dict]:
         """Contrato EXACTO de `COMERCIAL_SALUD_ROWS`: una fila por Cliente
@@ -756,11 +760,11 @@ class ReportingService:
         return rows
 
     def get_calendario(self, access_token: str) -> list[dict]:
-        """Wrapper delgado de `_shape_calendario` con su PROPIO fetch —
-        usado standalone/en tests; `get_batch_a` hace el fetch UNA vez para
-        las 4 experiencias y llama el shaping directo (ver ahí)."""
-        raw = self._repository.get_batch_a_facts(access_token)
-        return self._shape_calendario(raw["cliente_dim"])
+        """Wrapper delgado de `_shape_calendario` con su PROPIO fetch (lean:
+        SOLO cliente_dim, sin leer Horas por proyectos) — usado standalone/en
+        tests; `get_batch_a` hace el fetch UNA vez para Calendario+Salud."""
+        cliente_dim = self._repository.get_cliente_dim(access_token)
+        return self._shape_calendario(cliente_dim)
 
     def _shape_calendario(self, cliente_dim: list[dict]) -> list[dict]:
         """Contrato EXACTO de `CALENDARIO_ROWS`: una fila por Cliente con

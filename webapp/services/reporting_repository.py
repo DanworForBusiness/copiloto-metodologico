@@ -756,10 +756,23 @@ class ReportingRepository:
                 "hsCertificadas": _num(h.get(HP_HS_FACTURADAS)),
             })
 
-        cliente_dim = []
+        cliente_dim = self._build_cliente_dim(clientes_items, cp_by_id)
+
+        timer.stage("shaping", len(project_facts))
+        timer.total()
+        return {"project_facts": project_facts, "cliente_dim": cliente_dim}
+
+    def _build_cliente_dim(self, clientes_items: list[dict], cp_by_id: dict) -> list[dict]:
+        """Construye `cliente_dim` (una fila por Cliente con Client Partner +
+        columnas de Participación/Calendario/Salud) desde la lista Cliente ya
+        leída. Extraído para reuso EXACTO entre `get_batch_a_facts` (que además
+        necesita el hecho) y `get_cliente_dim` (que NO — Calendario/Salud son
+        categóricas puras). Sin lógica Graph acá: solo shaping de items ya
+        traídos."""
+        dim = []
         for it in clientes_items:
             c = it.get("fields") or {}
-            cliente_dim.append({
+            dim.append({
                 "clienteId": _text(it.get("id")),
                 "cliente": _text(c.get(CLI_NOMBRE)),
                 "clientPartner": cp_by_id.get(_first(c, *CLI_CP_LOOKUP), ""),
@@ -774,10 +787,28 @@ class ReportingRepository:
                 "saludEstrategico": _first(c, *CLI_SALUD_ESTRATEGICO),
                 "saludFinal": _first(c, *CLI_SALUD_FINAL),
             })
+        return dim
 
-        timer.stage("shaping", len(project_facts))
+    def get_cliente_dim(self, access_token: str) -> list[dict]:
+        """SOLO la dimensión Cliente (+ Client Partner) — PERF corrective
+        (owner: Calendario "preloaded"/comercial ~10s). Calendario y Salud de
+        Cliente son categóricas PURAS sobre Cliente: NO necesitan el hecho
+        "Horas por proyectos" ni la lista Proyectos. Este fetch lean evita la
+        lectura full-history más cara (Horas por proyectos) que
+        `get_batch_a_facts` hacía y cuyo `project_facts` ya NO consume nadie en
+        el endpoint batch-a (Participación migró a su endpoint scopeado). Lee
+        únicamente Cliente + resuelve Client Partner."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        timer = _StageTimer("cliente_dim")
+        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        timer.stage("cliente", len(clientes_items))
+        cp_by_id = self._resolve_client_partners(site_id)
+        timer.stage("client_partner", len(cp_by_id))
+        dim = self._build_cliente_dim(clientes_items, cp_by_id)
+        timer.stage("shaping", len(dim))
         timer.total()
-        return {"project_facts": project_facts, "cliente_dim": cliente_dim}
+        return dim
 
     # --- Batch B: Time Logs Reports (CSV) -----------------------------------
 

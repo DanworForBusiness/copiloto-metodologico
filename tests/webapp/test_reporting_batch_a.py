@@ -81,35 +81,35 @@ def test_get_batch_a_facts_joins_project_facts_and_cliente_dim(monkeypatch):
     assert dim["calendarioAct"] == "Marzo, Julio"
 
 
-def test_get_batch_a_fetches_backbone_exactly_once_not_four_times(monkeypatch):
-    # PERFORMANCE CORRECTIVE (owner live QA — Horas Vendidas >40s, ver
-    # HANDOFF): ANTES `get_batch_a()` llamaba `get_batch_a_facts` UNA vez
-    # POR experiencia (4 veces total) — un solo POST a /data/batch-a
-    # disparaba 4x la latencia real de Graph. Ahora es UN fetch, shaping
-    # puro de Python por separado.
-    calls = {"count": 0}
-    real_get_batch_a_facts = ReportingRepository.get_batch_a_facts
+def test_get_batch_a_reads_only_cliente_dim_never_horas_proyectos(monkeypatch):
+    # PERF corrective (owner: Calendario "preloaded"/comercial ~10s): get_batch_a
+    # sirve SOLO Calendario+Salud (categóricas puras sobre Cliente). Horas
+    # Vendidas Y Participación migraron a sus endpoints scopeados, así que su
+    # `project_facts` ya no lo consume nadie acá — get_batch_a usa el fetch LEAN
+    # `get_cliente_dim` y NUNCA lee la lista pesada "Horas por proyectos" ni
+    # Proyectos (la lectura full-history más cara del path).
+    reads: list[str] = []
+    orig = repo_mod.microsoft365.graph_get_paged_values
 
-    def counted(self, access_token):
-        calls["count"] += 1
-        return real_get_batch_a_facts(self, access_token)
+    def recording(url, access_token=None, **kw):
+        reads.append(url)
+        if "/columns" in url:
+            return _CP_COLUMNS
+        if _CP in url:
+            return _items([{"id": "pm1", "Title": "Diego Ramos"}])
+        if _CLI in url:
+            return _items([{"id": "c1", "Title": "YPF", "ClientPartnerLookupId": "pm1",
+                            "Frecuencia_x0020_Actualizacion": "Mensual", "Calendario_Act": "Marzo"}])
+        return []
 
-    monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", counted)
-    _patch(
-        monkeypatch,
-        horas=[{"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Marzo",
-                "HsTrabajadas": "10", "HsVendidas": "12", "HsFacturadas": "11"}],
-        proyectos=[{"id": "p1", "Title": "SADI v2", "TipodeProyecto": "Proyecto"}],
-        clientes=[{"id": "c1", "Title": "YPF", "Frecuencia_x0020_Actualizacion": "Mensual", "Calendario_Act": "Marzo"}],
-    )
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", recording)
     result = _service().get_batch_a("tok")
-    assert calls["count"] == 1
-    # Horas Vendidas Y Participación SALIERON de get_batch_a (scope
-    # decoupling, owner directive) — ambas se sirven aparte con ventana
-    # temporal propia (get_horas_vendidas/get_participacion).
     assert set(result.keys()) == {"calendario", "salud"}
-    assert len(result["calendario"]) == 1
-    assert len(result["salud"]) == 1
+    assert len(result["calendario"]) == 1 and len(result["salud"]) == 1
+    # La lista Cliente SÍ se lee; "Horas por proyectos" y Proyectos NO.
+    assert any(_CLI in u for u in reads)
+    assert not any(_HP in u for u in reads), "get_batch_a NO debe leer Horas por proyectos"
+    assert not any(_PROY in u for u in reads), "get_batch_a NO debe leer Proyectos"
 
 
 def test_get_batch_a_never_touches_time_logs_or_facturadas_xlsx(monkeypatch):
@@ -592,20 +592,25 @@ def test_get_horas_vendidas_cold_year_passes_explicit_scope(monkeypatch):
     assert captured["hot_years"] == ["2024"]
 
 
-def test_get_batch_a_calendario_salud_still_full_history_no_scope(monkeypatch):
-    # Calendario/Salud (categóricas puras sobre cliente_dim, sin grano
-    # temporal) NUNCA acotan por año — Participación SALIÓ de get_batch_a
-    # (scope decoupling, ver test_participacion_scopes_fetch_to_requested_
-    # anios_like_horas_vendidas arriba) y ya no es lo que este test cubre.
-    captured = {"hot_years": "SENTINEL"}
+def test_get_batch_a_uses_lean_cliente_dim_not_the_fact(monkeypatch):
+    # Calendario/Salud (categóricas puras sobre cliente_dim) NO leen el hecho:
+    # get_batch_a usa el fetch LEAN get_cliente_dim, NUNCA get_batch_a_facts
+    # (que traería Horas por proyectos full-history en vano). Participación/HV
+    # migraron a sus endpoints scopeados y ya no viven acá.
+    calls = {"cliente_dim": 0, "facts": 0}
 
-    def fake_facts(self, access_token, *, hot_years=None):
-        captured["hot_years"] = hot_years
+    def fake_cliente_dim(self, access_token):
+        calls["cliente_dim"] += 1
+        return []
+
+    def fake_facts(self, access_token, **kw):
+        calls["facts"] += 1
         return {"project_facts": [], "cliente_dim": []}
 
+    monkeypatch.setattr(ReportingRepository, "get_cliente_dim", fake_cliente_dim)
     monkeypatch.setattr(ReportingRepository, "get_batch_a_facts", fake_facts)
     _service().get_batch_a("tok")
-    assert captured["hot_years"] is None  # historia completa
+    assert calls["cliente_dim"] == 1 and calls["facts"] == 0
 
 
 def test_get_horas_vendidas_anios_includes_all_project_types(monkeypatch):
