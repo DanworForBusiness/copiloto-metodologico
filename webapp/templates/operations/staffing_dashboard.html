@@ -171,9 +171,12 @@
       </summary>
       <div class="dashboard-section__body">
         <div class="staffing-timeline-toolbar">
-          <button type="button" @click="expandAllConsultants()">Expandir todo</button>
-          <button type="button" @click="collapseAllConsultants()">Contraer todo</button>
-          <button type="button" class="staffing-timeline__group-toggle" @click="toggleGrouping()" x-text="groupToggleLabel"></button>
+          <div class="dashboard-view-switch">
+            <button type="button" :class="groupBy === 'consultant' ? 'is-active' : ''" @click="setGrouping('consultant')">Consultor</button>
+            <button type="button" :class="groupBy === 'project' ? 'is-active' : ''" @click="setGrouping('project')">Proyecto</button>
+          </div>
+          <button type="button" @click="expandAllConsultants()">Expandir</button>
+          <button type="button" @click="collapseAllConsultants()">Contraer</button>
         </div>
         <div class="staffing-timeline-scroll">
           <div class="staffing-timeline">
@@ -291,52 +294,100 @@
             <span>día(s)</span>
           </label>
         </div>
-        <table class="admin-table staffing-detail-table">
+        <table class="dashboard-table staffing-detail-table">
           <colgroup>
-            <col style="width:3%"><col style="width:14%"><col style="width:11%"><col style="width:14%">
+            <col style="width:17%"><col style="width:11%"><col style="width:14%">
             <col style="width:12%"><col style="width:8%"><col style="width:9%"><col style="width:8%">
             <col style="width:8%"><col style="width:13%">
           </colgroup>
           <thead>
             <tr>
-              <th></th>
-              <th>Consultor</th>
-              <th>Cliente</th>
-              <th>Proyecto</th>
-              <th>Asignación hoy</th>
-              <th x-text="projectionColumnLabel"></th>
-              <th>Estado</th>
-              <th>Desde</th>
-              <th>Hasta</th>
-              <th>Disponibilidad</th>
+              <th class="left">Consultor</th>
+              <th class="left">Cliente</th>
+              <th class="left">Proyecto</th>
+              <th class="left">Asignación hoy</th>
+              <th class="left" x-text="projectionColumnLabel"></th>
+              <th class="left">Estado</th>
+              <th class="left">Desde</th>
+              <th class="left">Hasta</th>
+              <th class="left">Disponibilidad</th>
             </tr>
           </thead>
           <tbody>
             <template x-for="item in detailRows" :key="item.key">
-              <tr :class="item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row'">
-                <td>
-                  <button type="button" class="staffing-detail__expand-btn" x-show="item.is_aggregate" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
-                    <span x-text="item.expanded ? '▾' : '▸'"></span>
-                  </button>
+              <tr :class="(item.is_aggregate ? 'staffing-detail__aggregate-row' : 'staffing-detail__child-row') + ' depth-' + (item.is_aggregate ? 0 : 1)">
+                <td class="row-label">
+                  <!-- Disclosure jerárquico compartido (corrective S.4, ver
+                       HANDOFF): MISMA clase `.dashboard-table-toggle` que
+                       Reporting (tools.css) — clic en triángulo O en el
+                       nombre disparan el MISMO toggle, un solo control
+                       accesible (button real, aria-expanded, foco/teclado
+                       nativo). Filas hijo (sin más expansión) usan el
+                       `<span>` no interactivo `--leaf`, nunca un botón. -->
+                  <template x-if="item.is_aggregate">
+                    <button type="button" class="dashboard-table-toggle" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded" :aria-label="(item.expanded ? 'Contraer ' : 'Expandir ') + item.consultant_label">
+                      <span class="caret" x-text="item.expanded ? '▾' : '▸'"></span>
+                      <span x-text="item.consultant_label"></span>
+                    </button>
+                  </template>
+                  <template x-if="!item.is_aggregate">
+                    <span class="dashboard-table-toggle dashboard-table-toggle--leaf">
+                      <span class="caret leaf"></span>
+                      <span x-text="item.consultant_label"></span>
+                    </span>
+                  </template>
                 </td>
-                <td x-text="item.consultant_label"></td>
-                <td x-text="item.client_label"></td>
-                <td>
+                <td class="left" x-text="item.client_label"></td>
+                <td class="left">
                   <span x-text="item.project_label"></span>
                   <span class="tree-panel-chip" x-show="item.project_unresolved">sin resolver</span>
                 </td>
-                <td x-text="item.hoy_label"></td>
-                <td x-text="item.proyectada_label"></td>
-                <td><span class="status-badge" :class="'status-badge--' + item.estado_slug" x-text="item.estado_label"></span></td>
-                <td x-text="item.desde_label"></td>
-                <td x-text="item.hasta_label"></td>
-                <td x-text="item.disponibilidad_label"></td>
+                <td class="left" x-text="item.hoy_label"></td>
+                <td class="left" x-text="item.proyectada_label"></td>
+                <td class="left"><span class="dashboard-status-badge" :class="'dashboard-status-badge--' + item.estado_color" x-text="item.estado_label"></span></td>
+                <td class="left" x-text="item.desde_label"></td>
+                <td class="left" x-text="item.hasta_label"></td>
+                <td class="left" x-text="item.disponibilidad_label"></td>
               </tr>
             </template>
           </tbody>
         </table>
       </div>
     </details>
+  </div>
+
+  {# Feedback transversal "¿Qué te pareció este reporte?" — ÚLTIMO elemento del
+     dashboard. Reusa la MISMA botonera compartida (.section-feedback*, tools.css)
+     y el MISMO store + pipeline de Activity que Reporting/Copilot vía POST
+     /operaciones/staffing/feedback. 👍 registra al toque; 👎 despliega el
+     comentario OPCIONAL (paridad con Copilot). Isla Alpine anidada propia. #}
+  <div class="section-feedback" x-data="{ mode: 'bar', comment: '', busy: false,
+       async send(rating) {
+         if (this.busy) return; this.busy = true;
+         const body = new URLSearchParams({ rating });
+         if (rating === 'down' && this.comment.trim()) body.set('comment', this.comment.trim());
+         try {
+           const r = await fetch('/operaciones/staffing/feedback', { method: 'POST', body });
+           const d = await r.json(); this.mode = d.state === 'ok' ? ('done_' + rating) : 'bar';
+         } catch (e) { this.mode = 'bar'; }
+         this.busy = false;
+       } }">
+    <div class="section-feedback__bar" x-show="mode === 'bar'">
+      <span class="section-feedback__prompt">¿Qué te pareció este reporte?</span>
+      <button type="button" class="section-feedback__react" :disabled="busy" aria-label="Útil" title="Útil" @click="send('up')">&#128077;</button>
+      <button type="button" class="section-feedback__react" :disabled="busy" aria-label="Puede mejorar" title="Puede mejorar" @click="mode='form'">&#128078;</button>
+    </div>
+    <div class="section-feedback__form" x-show="mode === 'form'" x-cloak>
+      <label class="section-feedback__formlabel" for="staffing-fb-comment">&iquest;Qu&eacute; esperabas o qu&eacute; falt&oacute; ac&aacute;? <span>(opcional)</span></label>
+      <textarea id="staffing-fb-comment" rows="2" placeholder="Una l&iacute;nea alcanza&hellip;" x-model="comment"></textarea>
+      <div class="section-feedback__formactions">
+        <button type="button" class="section-feedback__ghost" @click="mode='bar'">Cancelar</button>
+        <button type="button" class="section-feedback__send" :disabled="busy" @click="send('down')">Enviar</button>
+      </div>
+    </div>
+    <p class="section-feedback__thanks" role="status" x-show="mode === 'done_up' || mode === 'done_down'" x-cloak>
+      <span class="section-feedback__emoji" x-text="mode === 'done_up' ? '&#128077;' : '&#128078;'"></span> &iexcl;Gracias!
+    </p>
   </div>
 </div>
 {% endif %}

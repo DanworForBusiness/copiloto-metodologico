@@ -1,0 +1,1764 @@
+[
+  {
+    "page_id": "27f754a35bede848c8a7",
+    "display_name": "Inicio",
+    "visual_count": 5,
+    "visual_types": {
+      "actionButton": 4,
+      "image": 1
+    },
+    "fields": [],
+    "measures": [],
+    "slicer_fields": [],
+    "page_filters": [
+      "Meses.Periodos hasta hoy",
+      "Proyectos.Sociedad",
+      "Proyectos.TipodeProyecto",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "148f40ad35aa4fed566d",
+        "type": "actionButton",
+        "x": 653.3532041728763,
+        "y": 469.74664679582713,
+        "w": 369.59761549925486,
+        "h": 109.68703427719821
+      },
+      {
+        "visual": "5fdc911e79969fcf388d",
+        "type": "actionButton",
+        "x": 1065.8718330849479,
+        "y": 469.74664679582713,
+        "w": 317.1385991058122,
+        "h": 109.68703427719821
+      },
+      {
+        "visual": "bd758d3731ee89b01e73",
+        "type": "image",
+        "x": 0,
+        "y": 40.53651266766021,
+        "w": 1600,
+        "h": 858.4202682563339
+      },
+      {
+        "visual": "d85174319ee46fa7ca65",
+        "type": "actionButton",
+        "x": 250.3725782414307,
+        "y": 469.74664679582713,
+        "w": 350.52160953800296,
+        "h": 109.68703427719821
+      },
+      {
+        "visual": "f08183e6bf8a888695b7",
+        "type": "actionButton",
+        "x": 653.3333333333334,
+        "y": 626.6666666666667,
+        "w": 370,
+        "h": 110
+      }
+    ]
+  },
+  {
+    "page_id": "15003be6cf3f3cadcd64",
+    "display_name": "Estimación Horas Vendidas",
+    "visual_count": 19,
+    "visual_types": {
+      "actionButton": 1,
+      "card": 9,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 4,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Hs vendidas Mant",
+      "Horas por proyectos.Hs vendidas Proy",
+      "Horas por proyectos.HsVendidas",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Meses.Nombre Mes corto",
+      "Proyectos.Empresa",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Proyecto Dash",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa"
+    ],
+    "page_filters": [
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "1df995fcbd2536cc21d8",
+        "type": "card",
+        "x": 1243.4020618556708,
+        "y": 181.24999999999991,
+        "w": 127.5,
+        "h": 78.75
+      },
+      {
+        "visual": "1f543fa4da2aab9cb4c6",
+        "type": "card",
+        "x": 1604.6520618556713,
+        "y": 181.24999999999991,
+        "w": 121.25,
+        "h": 78.75
+      },
+      {
+        "visual": "22c29cd0e00767ebeb99",
+        "type": "image",
+        "x": 0,
+        "y": 1818.3333333333335,
+        "w": 273.33333333333337,
+        "h": 103.33333333333334
+      },
+      {
+        "visual": "2b7ad55ac9c3f168989e",
+        "type": "slicer",
+        "x": 1372,
+        "y": 112,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "3788e31e0a5a12b4f75a",
+        "type": "card",
+        "x": 1908.3333333333333,
+        "y": 144.99999999999991,
+        "w": 225,
+        "h": 81.66666666666667
+      },
+      {
+        "visual": "3e2ff1617b3da78e0df6",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 271.6666666666667,
+        "w": 2600,
+        "h": 1530
+      },
+      {
+        "visual": "674a4e7fa912c2279978",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "75443976ed1e8e62edd3",
+        "type": "image",
+        "x": 0,
+        "y": 103.33333333333334,
+        "w": 235,
+        "h": 95
+      },
+      {
+        "visual": "7efbb7f337eed34b9d58",
+        "type": "card",
+        "x": 1370.9020618556713,
+        "y": 181.24999999999991,
+        "w": 112.5,
+        "h": 78.75
+      },
+      {
+        "visual": "a0d63f3fda19058dfe28",
+        "type": "card",
+        "x": 653.4020618556707,
+        "y": 189.99999999999994,
+        "w": 170,
+        "h": 78.33333333333334
+      },
+      {
+        "visual": "a2bfefc01b3b857b64e8",
+        "type": "slicer",
+        "x": 1180,
+        "y": 112,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "aca7aa1afeac6b5976bc",
+        "type": "card",
+        "x": 100,
+        "y": 181.25,
+        "w": 403.75,
+        "h": 90
+      },
+      {
+        "visual": "b31147d80008bd72af9e",
+        "type": "card",
+        "x": 503.4020618556707,
+        "y": 189.99999999999994,
+        "w": 161.66666666666669,
+        "h": 78.33333333333334
+      },
+      {
+        "visual": "c4244dcf5ab9a50abce2",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 273.32428266372517,
+        "y": 112,
+        "w": 426.6666666666667,
+        "h": 70
+      },
+      {
+        "visual": "caf985efa6818243d1f0",
+        "type": "card",
+        "x": 311.6666666666667,
+        "y": 810,
+        "w": 1086.6666666666667,
+        "h": 90
+      },
+      {
+        "visual": "cb1374ccd646f0aebb00",
+        "type": "slicer",
+        "x": 731.9659748147119,
+        "y": 112,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "d2ece381e7072fefcc52",
+        "type": "card",
+        "x": 1483.4020618556713,
+        "y": 181.24999999999991,
+        "w": 121.25,
+        "h": 78.75
+      },
+      {
+        "visual": "d7de04276e8302609b02",
+        "type": "textbox",
+        "x": 273.33333333333337,
+        "y": 1818.3333333333335,
+        "w": 2155,
+        "h": 131.66666666666669
+      },
+      {
+        "visual": "f57b95d14f702e2d7964",
+        "type": "slicer",
+        "x": 956.4658845664035,
+        "y": 112,
+        "w": 190,
+        "h": 80
+      }
+    ]
+  },
+  {
+    "page_id": "ade8ccee31181e75539c",
+    "display_name": "Estimación Horas Vendidas  x CP",
+    "visual_count": 19,
+    "visual_types": {
+      "actionButton": 1,
+      "card": 9,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 4,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Horas por proyectos.Hs vendidas Mant",
+      "Horas por proyectos.Hs vendidas Proy",
+      "Horas por proyectos.HsVendidas",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Meses.Nombre Mes corto",
+      "Proyectos.Empresa",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Proyecto Dash",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa"
+    ],
+    "page_filters": [
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "008184016e1aa45cb359",
+        "type": "card",
+        "x": 1596.2500000000007,
+        "y": 102.91666666666661,
+        "w": 121.25,
+        "h": 78.75
+      },
+      {
+        "visual": "0fdd37aeeb1b9f0b4d6c",
+        "type": "card",
+        "x": 1362.5000000000007,
+        "y": 102.91666666666661,
+        "w": 112.5,
+        "h": 78.75
+      },
+      {
+        "visual": "1a39799cdeade76530b5",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "2242d5f7147f2abf9f63",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "27172e5dc14a56a483cd",
+        "type": "card",
+        "x": 1475.0000000000007,
+        "y": 102.91666666666661,
+        "w": 121.25,
+        "h": 78.75
+      },
+      {
+        "visual": "2a042c9d4d0d670c61b4",
+        "type": "image",
+        "x": 21.666666666666668,
+        "y": 945,
+        "w": 273.33333333333337,
+        "h": 103.33333333333334
+      },
+      {
+        "visual": "36c8517a06b1ff48245a",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 261.6666666666667,
+        "y": 40,
+        "w": 426.6666666666667,
+        "h": 70
+      },
+      {
+        "visual": "3772657e75da32705e7d",
+        "type": "card",
+        "x": 1235.0000000000002,
+        "y": 102.91666666666661,
+        "w": 127.5,
+        "h": 78.75
+      },
+      {
+        "visual": "393e0c6f4b7a5756a261",
+        "type": "card",
+        "x": 495,
+        "y": 111.66666666666667,
+        "w": 161.66666666666669,
+        "h": 78.33333333333334
+      },
+      {
+        "visual": "4b1b946f71caba0c026b",
+        "type": "card",
+        "x": 311.6666666666667,
+        "y": 810,
+        "w": 1086.6666666666667,
+        "h": 90
+      },
+      {
+        "visual": "7e80bcb32e73d367e29f",
+        "type": "card",
+        "x": 1993.3333333333335,
+        "y": 106.66666666666667,
+        "w": 225,
+        "h": 81.66666666666667
+      },
+      {
+        "visual": "7f968b6c5e7df49c3d0d",
+        "type": "card",
+        "x": 168.57142857142858,
+        "y": 106.66666666666667,
+        "w": 360,
+        "h": 81.42857142857143
+      },
+      {
+        "visual": "c66f2fb26ad83e8713a0",
+        "type": "slicer",
+        "x": 1380,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "daa041b79a0320996c89",
+        "type": "slicer",
+        "x": 1172,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "dad4f88ea6b852ea70b6",
+        "type": "slicer",
+        "x": 935,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "e4ce44af23206a0edbd1",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 190,
+        "w": 2231.666666666667,
+        "h": 740
+      },
+      {
+        "visual": "e6df6fa22efe0aa56a81",
+        "type": "slicer",
+        "x": 730,
+        "y": 40,
+        "w": 191.66666666666669,
+        "h": 80
+      },
+      {
+        "visual": "ef2afdb83ea8801af506",
+        "type": "card",
+        "x": 645,
+        "y": 111.66666666666667,
+        "w": 170,
+        "h": 78.33333333333334
+      },
+      {
+        "visual": "f4b55cb071971b98e6c7",
+        "type": "textbox",
+        "x": 278.33333333333337,
+        "y": 930,
+        "w": 1786.6666666666667,
+        "h": 131.66666666666669
+      }
+    ]
+  },
+  {
+    "page_id": "935832a7763cbd1216cd",
+    "display_name": "Client Partner - Status de Cliente detalle",
+    "visual_count": 9,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 3,
+      "textbox": 2
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.Salud",
+      "Cliente.Salud Continuidad",
+      "Cliente.Salud Estrategico",
+      "Cliente.Salud Financiera",
+      "Cliente.Salud Operativo",
+      "Cliente.Salud Relación",
+      "Empresas con proyectos activos.Status"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Empresas con proyectos activos.Status"
+    ],
+    "page_filters": [
+      "Cliente.Status ",
+      "Empresas con proyectos activos.Status",
+      "Meses.Periodos hasta hoy",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "4fcf4f3ea3940dc117f5",
+        "type": "slicer",
+        "x": 270,
+        "y": 40,
+        "w": 330,
+        "h": 80
+      },
+      {
+        "visual": "6223a4efa6b83be236aa",
+        "type": "textbox",
+        "x": 1437,
+        "y": 0,
+        "w": 150,
+        "h": 150
+      },
+      {
+        "visual": "6df08dc144e81033cc52",
+        "type": "slicer",
+        "x": 645,
+        "y": 40,
+        "w": 386.6666666666667,
+        "h": 80
+      },
+      {
+        "visual": "7c4ee71032c673b09044",
+        "type": "textbox",
+        "x": 270,
+        "y": 810,
+        "w": 1316.6666666666667,
+        "h": 156.66666666666669
+      },
+      {
+        "visual": "7ff654fd3cde070c3e4b",
+        "type": "image",
+        "x": 0,
+        "y": 810,
+        "w": 270,
+        "h": 110
+      },
+      {
+        "visual": "83bae589f53e58da6821",
+        "type": "pivotTable",
+        "x": 21.666666666666668,
+        "y": 155,
+        "w": 1520,
+        "h": 641.6666666666667
+      },
+      {
+        "visual": "94fb8f6cf84783d3e3ac",
+        "type": "slicer",
+        "x": 1050,
+        "y": 34.285714285714285,
+        "w": 387.14285714285717,
+        "h": 80
+      },
+      {
+        "visual": "b7e566972d69b28feefd",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "e497b0073b865b4bf008",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      }
+    ]
+  },
+  {
+    "page_id": "52d9d1dc997bdf2c366b",
+    "display_name": "Analisis Participacion - Condiciones Comerciales -",
+    "visual_count": 11,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 2,
+      "pivotTable": 3,
+      "slicer": 3,
+      "textbox": 2
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.Cliente part",
+      "Cliente.Condicion de Pago",
+      "Cliente.Frecuencia Actualizacion",
+      "Cliente.ID Frecuencia",
+      "Cliente.Permite Adelanto",
+      "Horas por proyectos.HsVendidas",
+      "Meses.Año"
+    ],
+    "measures": [
+      "Horas por proyectos.% Hs Certificadas",
+      "Horas por proyectos.% Hs Certificadas 2",
+      "Horas por proyectos.% Hs Vendidas",
+      "Horas por proyectos.% Hs Vendidas 2"
+    ],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año"
+    ],
+    "page_filters": [
+      "Meses.Periodos hasta hoy",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "08a84a9ad8565d9a5653",
+        "type": "image",
+        "x": 0,
+        "y": 771.6666666666667,
+        "w": 275,
+        "h": 111.66666666666667
+      },
+      {
+        "visual": "1fec6fc0a26ce29cddca",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "38c5431e565240453d55",
+        "type": "slicer",
+        "x": 270,
+        "y": 40,
+        "w": 330,
+        "h": 80
+      },
+      {
+        "visual": "664bfd5060a8fb7942a5",
+        "type": "textbox",
+        "x": 50,
+        "y": 118.57142857142858,
+        "w": 1137.142857142857,
+        "h": 61.42857142857143
+      },
+      {
+        "visual": "67aefd747c83a62d3596",
+        "type": "textbox",
+        "x": 270,
+        "y": 771.6666666666667,
+        "w": 1465,
+        "h": 128.33333333333334
+      },
+      {
+        "visual": "73f6e09f75c81a9e4ade",
+        "type": "pivotTable",
+        "x": 1126,
+        "y": 484,
+        "w": 662,
+        "h": 304
+      },
+      {
+        "visual": "b606f7ecc76c3d9c889d",
+        "type": "pivotTable",
+        "x": 16.666666666666668,
+        "y": 180,
+        "w": 1028.3333333333335,
+        "h": 546.6666666666667
+      },
+      {
+        "visual": "c9b53e606e0e8eeb0a08",
+        "type": "slicer",
+        "x": 1172,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "e977434a1bd176c7d4af",
+        "type": "slicer",
+        "x": 645,
+        "y": 40,
+        "w": 386.6666666666667,
+        "h": 80
+      },
+      {
+        "visual": "e98faf512297d4b52c68",
+        "type": "pivotTable",
+        "x": 1126,
+        "y": 180,
+        "w": 680,
+        "h": 270
+      },
+      {
+        "visual": "fab86468b0d410756cf6",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      }
+    ]
+  },
+  {
+    "page_id": "277e0d8037c3cabce9ab",
+    "display_name": "Analisis Mantenimiento",
+    "visual_count": 14,
+    "visual_types": {
+      "actionButton": 1,
+      "card": 2,
+      "image": 2,
+      "pivotTable": 2,
+      "slicer": 5,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Diff Fac vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Facturadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Horas por proyectos.Proyecto",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.HorasVendidas",
+      "Proyectos.Proyecto",
+      "Proyectos.Sociedad",
+      "Proyectos.Status",
+      "Time Logs Reports.User",
+      "Ultimos status Proyectos.Coment",
+      "Ultimos status Proyectos.Salud del Proyecto"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Status"
+    ],
+    "page_filters": [
+      "Meses.Periodos hasta hoy",
+      "Proyectos.Sociedad",
+      "Proyectos.TipodeProyecto",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "057521e620daa74b5dba",
+        "type": "card",
+        "x": 1326.6666666666667,
+        "y": 131.66666666666669,
+        "w": 243.33333333333334,
+        "h": 93.33333333333334
+      },
+      {
+        "visual": "17fa22f00d9990d6f109",
+        "type": "slicer",
+        "x": 1090,
+        "y": 86.66666666666667,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "32bd0bf26c54030ca904",
+        "type": "card",
+        "x": 12.401574803149607,
+        "y": 765.3543307086615,
+        "w": 869.8818897637796,
+        "h": 134.64566929133858
+      },
+      {
+        "visual": "59711907a20786ce57b6",
+        "type": "image",
+        "x": 0,
+        "y": 1296.6666666666667,
+        "w": 275,
+        "h": 111.66666666666667
+      },
+      {
+        "visual": "7298dfdf028e34f75a8e",
+        "type": "pivotTable",
+        "x": 80.67529544175576,
+        "y": 327.64048556957954,
+        "w": 214.0364981107806,
+        "h": 121.83616046305973
+      },
+      {
+        "visual": "8053abf0e96e3dda8354",
+        "type": "slicer",
+        "x": 255,
+        "y": 169.9999999999999,
+        "w": 388.33333333333337,
+        "h": 55
+      },
+      {
+        "visual": "841c142a5b06e48be956",
+        "type": "image",
+        "x": 0,
+        "y": 72.28965270318653,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "8c4e801a3b0ae65f5fbd",
+        "type": "slicer",
+        "x": 856.2111604923764,
+        "y": 85.32850030736607,
+        "w": 190.32258064516128,
+        "h": 91.93548387096774
+      },
+      {
+        "visual": "b7c42126e17b05c68b2b",
+        "type": "textbox",
+        "x": 275,
+        "y": 1256.6666666666667,
+        "w": 1325,
+        "h": 193.33333333333334
+      },
+      {
+        "visual": "bf8d99a8da9c861f36ee",
+        "type": "pivotTable",
+        "x": 11.666666666666668,
+        "y": 225,
+        "w": 1588.3333333333335,
+        "h": 1018.3333333333334
+      },
+      {
+        "visual": "ca07c3de38e5a125279c",
+        "type": "slicer",
+        "x": 659.6774193548387,
+        "y": 85.53763440860217,
+        "w": 190.32258064516128,
+        "h": 91.93548387096774
+      },
+      {
+        "visual": "e718eba92e52b0a5b403",
+        "type": "slicer",
+        "x": 453.2258064516129,
+        "y": 85.53763440860217,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "f3854eaec6b2fe53acaa",
+        "type": "actionButton",
+        "x": 0,
+        "y": 13.333333333333334,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "f4565b76b4f4512ab42a",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 254.83870967741936,
+        "y": 85.53763440860217,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      }
+    ]
+  },
+  {
+    "page_id": "27b8d56f76c40db0321d",
+    "display_name": "Analisis Rentabilidad",
+    "visual_count": 12,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 1,
+      "pivotTable": 3,
+      "slicer": 6,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Status",
+      "Proyectos.Tipo Proyecto Dash",
+      "Rentabilidad Unpivot.Año",
+      "Rentabilidad Unpivot.Concepto",
+      "Rentabilidad Unpivot.MesNombre",
+      "Rentabilidad Unpivot.Proyecto",
+      "Rentabilidad Unpivot.Valor",
+      "Rentabilidad Unpivot.empresa"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Status",
+      "Proyectos.Tipo Proyecto Dash",
+      "Rentabilidad Unpivot.Año",
+      "Rentabilidad Unpivot.MesNombre",
+      "Rentabilidad Unpivot.empresa"
+    ],
+    "page_filters": [
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "031e2ce5c87ca1c0f046",
+        "type": "slicer",
+        "x": 1110,
+        "y": 37.5,
+        "w": 210,
+        "h": 105
+      },
+      {
+        "visual": "253008981bd693e63631",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "3e8063aceb8f4a82da9b",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 255,
+        "y": 37.5,
+        "w": 190,
+        "h": 81.25
+      },
+      {
+        "visual": "414fefb6a07ebde4ee4d",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "4fce393965ace6f9eb2c",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 468.75,
+        "w": 681.25,
+        "h": 260
+      },
+      {
+        "visual": "894a19c638a641a48de9",
+        "type": "slicer",
+        "x": 681.25,
+        "y": 37.5,
+        "w": 190,
+        "h": 92.5
+      },
+      {
+        "visual": "9bb2d01b6a60b857bd60",
+        "type": "slicer",
+        "x": 1416.25,
+        "y": 57.5,
+        "w": 168.75,
+        "h": 111.25
+      },
+      {
+        "visual": "bcbfe5f778d29fb89425",
+        "type": "pivotTable",
+        "x": 776.25,
+        "y": 468.75,
+        "w": 707.5,
+        "h": 260
+      },
+      {
+        "visual": "c4043a4ef94558f02d25",
+        "type": "slicer",
+        "x": 881.25,
+        "y": 37.5,
+        "w": 190,
+        "h": 92.5
+      },
+      {
+        "visual": "d006eb329e24e5e3950b",
+        "type": "pivotTable",
+        "x": 10,
+        "y": 185,
+        "w": 1440,
+        "h": 226.25
+      },
+      {
+        "visual": "ef865a04e64794227c85",
+        "type": "slicer",
+        "x": 480,
+        "y": 37.5,
+        "w": 190,
+        "h": 81.25
+      },
+      {
+        "visual": "f95009c36148b204a046",
+        "type": "slicer",
+        "x": 0,
+        "y": 130,
+        "w": 388.75,
+        "h": 55
+      }
+    ]
+  },
+  {
+    "page_id": "a131ee9b9f4898f6bff4",
+    "display_name": "Analisis Proyectos",
+    "visual_count": 11,
+    "visual_types": {
+      "actionButton": 1,
+      "card": 1,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 4,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Facturadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Horas por proyectos.Proyecto",
+      "Proyectos.Año de Inicio",
+      "Proyectos.Empresa",
+      "Proyectos.HorasVendidas",
+      "Proyectos.ID Proyecto Danwor",
+      "Proyectos.Proyecto",
+      "Proyectos.Status"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Proyectos.Año de Inicio",
+      "Proyectos.Empresa",
+      "Proyectos.Status"
+    ],
+    "page_filters": [
+      "Meses.Periodos hasta hoy",
+      "Proyectos.Sociedad",
+      "Proyectos.TipodeProyecto",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "010c338fd3798c03c0b9",
+        "type": "slicer",
+        "x": 11.666666666666668,
+        "y": 171.66666666666669,
+        "w": 370,
+        "h": 55
+      },
+      {
+        "visual": "08ca1b13c011092700b9",
+        "type": "card",
+        "x": 1146.6666666666667,
+        "y": 145,
+        "w": 330,
+        "h": 81.66666666666667
+      },
+      {
+        "visual": "09b1d19dc680dd089497",
+        "type": "textbox",
+        "x": 275,
+        "y": 805,
+        "w": 1325,
+        "h": 171.66666666666669
+      },
+      {
+        "visual": "494643621fda5a756913",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "86c496ccc1f5f87de586",
+        "type": "slicer",
+        "x": 896.6666666666667,
+        "y": 40,
+        "w": 278.33333333333337,
+        "h": 80
+      },
+      {
+        "visual": "87f8054ea3bb776ed3a4",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 254.83870967741936,
+        "y": 33.87096774193549,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "9b092d45e06fc71f7005",
+        "type": "slicer",
+        "x": 453.2258064516129,
+        "y": 33.87096774193549,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "c0ba0de9014772f05f13",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "d0057cdce7abca7771bb",
+        "type": "slicer",
+        "x": 659.6774193548387,
+        "y": 33.87096774193549,
+        "w": 190.32258064516128,
+        "h": 91.93548387096774
+      },
+      {
+        "visual": "d5173488d2ec7bbca394",
+        "type": "pivotTable",
+        "x": 6.666666666666667,
+        "y": 241.66666666666669,
+        "w": 1586.6666666666667,
+        "h": 550
+      },
+      {
+        "visual": "f26efc134a93c8e5a67d",
+        "type": "image",
+        "x": 0,
+        "y": 823.3333333333334,
+        "w": 275,
+        "h": 111.66666666666667
+      }
+    ]
+  },
+  {
+    "page_id": "7d1191c1e755ac3abe70",
+    "display_name": "Horas Productivas consumidas",
+    "visual_count": 13,
+    "visual_types": {
+      "actionButton": 1,
+      "card": 2,
+      "image": 1,
+      "pivotTable": 2,
+      "slicer": 6,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año",
+      "Meses.Nombre Mes corto",
+      "Time Logs Reports.Client",
+      "Time Logs Reports.Cliente + Part",
+      "Time Logs Reports.HORAS",
+      "Time Logs Reports.Project"
+    ],
+    "measures": [
+      "Time Logs Reports.% Hs ejecutadas",
+      "Time Logs Reports.% Hs ejecutadas2",
+      "Time Logs Reports.Rank_T2",
+      "Time Logs Reports.Rank_T3"
+    ],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Meses.Año",
+      "Meses.Nombre Mes corto"
+    ],
+    "page_filters": [
+      "Cliente.Cliente",
+      "Meses.Periodos hasta hoy",
+      "Time Logs Reports.Client",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "234f8a30634a449c3df3",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "3a83b3d03e4ddd246a89",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "789c200b688d20a418d8",
+        "type": "pivotTable",
+        "x": 770,
+        "y": 266.6666666666667,
+        "w": 801.6666666666667,
+        "h": 521.6666666666667
+      },
+      {
+        "visual": "8f6df1a0763e004b2304",
+        "type": "slicer",
+        "x": 30,
+        "y": 211.25,
+        "w": 658.75,
+        "h": 55
+      },
+      {
+        "visual": "acd4d653693bc72a6417",
+        "type": "slicer",
+        "x": 756,
+        "y": 126,
+        "w": 158,
+        "h": 80
+      },
+      {
+        "visual": "b64981f01237f4b91a55",
+        "type": "card",
+        "x": 913.75,
+        "y": 126,
+        "w": 182.5,
+        "h": 77.5
+      },
+      {
+        "visual": "be382058e5b03bb1c278",
+        "type": "slicer",
+        "x": 742.5,
+        "y": 210,
+        "w": 768.75,
+        "h": 56.25
+      },
+      {
+        "visual": "bfd7802f368e441513b3",
+        "type": "textbox",
+        "x": 14,
+        "y": 832,
+        "w": 1296,
+        "h": 68
+      },
+      {
+        "visual": "ccdefff9e63140f74665",
+        "type": "pivotTable",
+        "x": 50,
+        "y": 266.6666666666667,
+        "w": 693.3333333333334,
+        "h": 521.6666666666667
+      },
+      {
+        "visual": "ce8603ad6f7ed5f99038",
+        "type": "card",
+        "x": 245,
+        "y": 128.75,
+        "w": 201.25,
+        "h": 77.5
+      },
+      {
+        "visual": "e3ee35ab87f83ceb9346",
+        "type": "slicer",
+        "x": 645,
+        "y": 40,
+        "w": 386.6666666666667,
+        "h": 80
+      },
+      {
+        "visual": "ed0d5d1c2f261a3ec913",
+        "type": "slicer",
+        "x": 270,
+        "y": 40,
+        "w": 330,
+        "h": 80
+      },
+      {
+        "visual": "fad86226a51d715e75a2",
+        "type": "slicer",
+        "x": 72.5,
+        "y": 126,
+        "w": 183.75,
+        "h": 80
+      }
+    ]
+  },
+  {
+    "page_id": "60880ce4bfc5858346a5",
+    "display_name": "Hs Certificadas vs Hs  Ejecutadas",
+    "visual_count": 11,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 1,
+      "lineClusteredColumnComboChart": 1,
+      "pivotTable": 2,
+      "slicer": 4,
+      "textFilter25A4896A83E0487089E2B90C9AE57C8A": 1,
+      "textbox": 1
+    },
+    "fields": [
+      "Cliente.Client Partner",
+      "Comparativo.Diff Cer vs Tr",
+      "Comparativo.Total Horas Certificadas",
+      "Comparativo.Total Horas Trabajadas",
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Proyecto",
+      "Proyectos.Tipo Pro + Status",
+      "Proyectos.Tipo Proyecto Dash",
+      "Proyectos.TipodeProyecto"
+    ],
+    "measures": [
+      "Comparativo.MR"
+    ],
+    "slicer_fields": [
+      "Meses.Año",
+      "Meses.Mes",
+      "Proyectos.Empresa",
+      "Proyectos.Tipo Pro + Status"
+    ],
+    "page_filters": [
+      "Meses.Periodos hasta hoy",
+      "Proyectos.Sociedad",
+      "Proyectos.TipodeProyecto",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "28f41f7a7bd46d165f40",
+        "type": "slicer",
+        "x": 1190,
+        "y": 40,
+        "w": 366.6666666666667,
+        "h": 171.66666666666669
+      },
+      {
+        "visual": "2cc6be486bc35d2c4837",
+        "type": "textFilter25A4896A83E0487089E2B90C9AE57C8A",
+        "x": 254.83870967741936,
+        "y": 33.87096774193549,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "2f6139a204353f12e4b1",
+        "type": "lineClusteredColumnComboChart",
+        "x": 0,
+        "y": 346,
+        "w": 1154,
+        "h": 472
+      },
+      {
+        "visual": "30a66237e6523b91237a",
+        "type": "textbox",
+        "x": 14,
+        "y": 834,
+        "w": 1324,
+        "h": 66
+      },
+      {
+        "visual": "51622fbdd52eeed4e222",
+        "type": "slicer",
+        "x": 486.19047619047615,
+        "y": 33.87096774193549,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "93f196d3b3f6bdb6aeb3",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 193.33333333333334,
+        "w": 1153.3333333333335,
+        "h": 231.66666666666669
+      },
+      {
+        "visual": "a759ce45ba494487a52b",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 211.42857142857144,
+        "w": 905.7142857142858,
+        "h": 325.7142857142857
+      },
+      {
+        "visual": "b95267cde48ce48d9c48",
+        "type": "slicer",
+        "x": 948.5714285714286,
+        "y": 33.87096774193549,
+        "w": 191.42857142857144,
+        "h": 91.42857142857143
+      },
+      {
+        "visual": "e0c5d26102ae7139248d",
+        "type": "slicer",
+        "x": 717.542242703533,
+        "y": 33.87096774193549,
+        "w": 190,
+        "h": 91.42857142857143
+      },
+      {
+        "visual": "e22ff5193ab8ababf6c2",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "ebc3767e654800f6d379",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      }
+    ]
+  },
+  {
+    "page_id": "5685cf18d9eca3f61e36",
+    "display_name": "Hs No Asignadas",
+    "visual_count": 10,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 1,
+      "pivotTable": 1,
+      "slicer": 6,
+      "textbox": 1
+    },
+    "fields": [
+      "Colaboradores.Consultor",
+      "Colaboradores.Consultor + Hs asig",
+      "Colaboradores.Estado",
+      "Meses.Año",
+      "Meses.Mes",
+      "Time Logs Reports.Email",
+      "Time Logs Reports.HORAS",
+      "Time Logs Reports.Mes Titulo",
+      "Time Logs Reports.Task",
+      "Time Logs Reports.semana"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Colaboradores.Consultor",
+      "Colaboradores.Estado",
+      "Meses.Año",
+      "Meses.Mes",
+      "Time Logs Reports.Task",
+      "Time Logs Reports.semana"
+    ],
+    "page_filters": [
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "0711feed7fa6cdfac603",
+        "type": "slicer",
+        "x": 468.3779952039293,
+        "y": 66.82343854780898,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "1d831ea522965624037e",
+        "type": "slicer",
+        "x": 256.60380165554204,
+        "y": 68.49010521447565,
+        "w": 190.32258064516128,
+        "h": 80.64516129032258
+      },
+      {
+        "visual": "29e6bc94317f55ccbd4b",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "6b5729c129ca7259340f",
+        "type": "slicer",
+        "x": 917.9079638866481,
+        "y": 68.49010521447565,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "7e8b2a85c29e4de9081e",
+        "type": "slicer",
+        "x": 1338.3333333333335,
+        "y": 71.66666666666667,
+        "w": 188.33333333333334,
+        "h": 85
+      },
+      {
+        "visual": "8431aa2c4bf7c41d46dd",
+        "type": "pivotTable",
+        "x": 13.333333333333334,
+        "y": 186.66666666666669,
+        "w": 1586.6666666666667,
+        "h": 521.6666666666667
+      },
+      {
+        "visual": "88604081054a31fc9d21",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "961ea17d28ce2160caf4",
+        "type": "slicer",
+        "x": 705.050821029505,
+        "y": 68.49010521447565,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "dc098d3520d0a0a58025",
+        "type": "textbox",
+        "x": 13.333333333333334,
+        "y": 803.3333333333334,
+        "w": 1586.6666666666667,
+        "h": 96.66666666666667
+      },
+      {
+        "visual": "f5d30e3803eba0752032",
+        "type": "slicer",
+        "x": 1121.6129032258063,
+        "y": 67.9032258064516,
+        "w": 190.96774193548384,
+        "h": 80.86021505376344
+      }
+    ]
+  },
+  {
+    "page_id": "d47ccf097e651670288d",
+    "display_name": "Calendario x Frecuencia",
+    "visual_count": 9,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 3,
+      "textbox": 2
+    },
+    "fields": [
+      "Calendario_Cliente.Abr",
+      "Calendario_Cliente.Ago",
+      "Calendario_Cliente.Dic",
+      "Calendario_Cliente.Ene",
+      "Calendario_Cliente.Feb",
+      "Calendario_Cliente.Jul",
+      "Calendario_Cliente.Jun",
+      "Calendario_Cliente.Mar",
+      "Calendario_Cliente.May",
+      "Calendario_Cliente.Nov",
+      "Calendario_Cliente.Oct",
+      "Calendario_Cliente.Sep",
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "page_filters": [
+      "Cliente.Con Proyectos Activos",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "234242c0e3d58d4aa0a4",
+        "type": "textbox",
+        "x": 270,
+        "y": 771.6666666666667,
+        "w": 1483.3333333333335,
+        "h": 128.33333333333334
+      },
+      {
+        "visual": "2e295ec9040e2d99332b",
+        "type": "image",
+        "x": 0,
+        "y": 771.6666666666667,
+        "w": 270,
+        "h": 111.66666666666667
+      },
+      {
+        "visual": "37a3e143a58980626b50",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "430e3e66950304628c68",
+        "type": "slicer",
+        "x": 270,
+        "y": 40,
+        "w": 330,
+        "h": 80
+      },
+      {
+        "visual": "53425dc408d04105b45d",
+        "type": "slicer",
+        "x": 1031.4285714285716,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "659e52ee6368bb45aa03",
+        "type": "pivotTable",
+        "x": 20,
+        "y": 170,
+        "w": 1733.3333333333335,
+        "h": 590
+      },
+      {
+        "visual": "92292a309051d4a15282",
+        "type": "textbox",
+        "x": 32,
+        "y": 120,
+        "w": 1155,
+        "h": 50
+      },
+      {
+        "visual": "a02450c99a330176a710",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "c1cedff97a0e230596ec",
+        "type": "slicer",
+        "x": 645,
+        "y": 40,
+        "w": 386.6666666666667,
+        "h": 80
+      }
+    ]
+  },
+  {
+    "page_id": "f2a10ec32a0031d22cb7",
+    "display_name": "Calendario x CP",
+    "visual_count": 9,
+    "visual_types": {
+      "actionButton": 1,
+      "image": 2,
+      "pivotTable": 1,
+      "slicer": 3,
+      "textbox": 2
+    },
+    "fields": [
+      "Calendario_Cliente.Abr",
+      "Calendario_Cliente.Ago",
+      "Calendario_Cliente.Dic",
+      "Calendario_Cliente.Ene",
+      "Calendario_Cliente.Feb",
+      "Calendario_Cliente.Jul",
+      "Calendario_Cliente.Jun",
+      "Calendario_Cliente.Mar",
+      "Calendario_Cliente.May",
+      "Calendario_Cliente.Nov",
+      "Calendario_Cliente.Oct",
+      "Calendario_Cliente.Sep",
+      "Calendario_Cliente.Total",
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "measures": [],
+    "slicer_fields": [
+      "Cliente.Client Partner",
+      "Cliente.Cliente",
+      "Cliente.ID Frecuencia"
+    ],
+    "page_filters": [
+      "Cliente.Con Proyectos Activos",
+      "Time Logs Reports.Project"
+    ],
+    "layout": [
+      {
+        "visual": "1ad49d9deb677e730cdd",
+        "type": "textbox",
+        "x": 32,
+        "y": 120,
+        "w": 1155,
+        "h": 50
+      },
+      {
+        "visual": "21efaa76034ab85201a7",
+        "type": "pivotTable",
+        "x": 31.666666666666668,
+        "y": 170,
+        "w": 1701.6666666666667,
+        "h": 588.3333333333334
+      },
+      {
+        "visual": "3da8bc8bce12a70a706d",
+        "type": "slicer",
+        "x": 270,
+        "y": 40,
+        "w": 330,
+        "h": 80
+      },
+      {
+        "visual": "48c595da164d1e1ba0e8",
+        "type": "slicer",
+        "x": 1031.4285714285716,
+        "y": 40,
+        "w": 190,
+        "h": 80
+      },
+      {
+        "visual": "92e479a6a16043ea2ec9",
+        "type": "image",
+        "x": 0,
+        "y": 20.62298603651987,
+        "w": 235.4457572502685,
+        "h": 94.5220193340494
+      },
+      {
+        "visual": "9923ecf93434261ede5e",
+        "type": "slicer",
+        "x": 645,
+        "y": 40,
+        "w": 386.6666666666667,
+        "h": 80
+      },
+      {
+        "visual": "a1912f6d00984ccd3028",
+        "type": "textbox",
+        "x": 270,
+        "y": 771.6666666666666,
+        "w": 1483.3333333333335,
+        "h": 128.33333333333334
+      },
+      {
+        "visual": "a4d2766630d3a6a23518",
+        "type": "actionButton",
+        "x": 0,
+        "y": 0,
+        "w": 100,
+        "h": 40
+      },
+      {
+        "visual": "c4429dfa73289176a5d7",
+        "type": "image",
+        "x": 0,
+        "y": 771.6666666666667,
+        "w": 275,
+        "h": 111.66666666666667
+      }
+    ]
+  },
+  {
+    "page_id": "5a03ab8bf3e469126f8a",
+    "display_name": "Page 1",
+    "visual_count": 1,
+    "visual_types": {
+      "pivotTable": 1
+    },
+    "fields": [
+      "Rentabilidad Unpivot.Concepto",
+      "Rentabilidad Unpivot.MesNombre",
+      "Rentabilidad Unpivot.Valor"
+    ],
+    "measures": [],
+    "slicer_fields": [],
+    "page_filters": [],
+    "layout": [
+      {
+        "visual": "2c8326b4b4002335ba97",
+        "type": "pivotTable",
+        "x": 0,
+        "y": 80,
+        "w": 1095,
+        "h": 233.75
+      }
+    ]
+  }
+]

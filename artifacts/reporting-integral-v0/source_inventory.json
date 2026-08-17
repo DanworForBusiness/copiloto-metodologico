@@ -1,0 +1,807 @@
+[
+  {
+    "table": "Asignaciones por proyecto",
+    "is_hidden": false,
+    "column_count": 37,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Calendario",
+    "is_hidden": false,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Calendario-3815bcd8-31a0-44d0-ae9d-63554ff7da0b",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Calendario_Cliente",
+    "is_hidden": false,
+    "column_count": 14,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Calendario_Cliente",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": [
+      "Calendario x CP",
+      "Calendario x Frecuencia"
+    ]
+  },
+  {
+    "table": "Cliente",
+    "is_hidden": false,
+    "column_count": 40,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Cliente-b0e26438-d492-41ca-9cc5-fad94d9ca308",
+        "source_kind": "OData.Feed",
+        "source_detail": ""
+      }
+    ],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Analisis Participacion - Condiciones Comerciales -",
+      "Analisis Proyectos",
+      "Analisis Rentabilidad",
+      "Calendario x CP",
+      "Calendario x Frecuencia",
+      "Client Partner - Status de Cliente detalle",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP",
+      "Horas Productivas consumidas",
+      "Hs Certificadas vs Hs  Ejecutadas"
+    ]
+  },
+  {
+    "table": "Colaboradores",
+    "is_hidden": false,
+    "column_count": 51,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Colaboradores-33d1e12b-dc41-42aa-9ff9-589c4d48ea6e",
+        "source_kind": "SharePoint.Tables",
+        "source_detail": "https://danwor.sharepoint.com/sites/Gestion\", [ApiVersion = 15]),"
+      }
+    ],
+    "referenced_by_pages": [
+      "Hs No Asignadas"
+    ]
+  },
+  {
+    "table": "Comparativo",
+    "is_hidden": false,
+    "column_count": 14,
+    "measure_count": 1,
+    "measures": [
+      "MR"
+    ],
+    "partitions": [
+      {
+        "name": "Comparativo",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Analisis Proyectos",
+      "Hs Certificadas vs Hs  Ejecutadas"
+    ]
+  },
+  {
+    "table": "DateTableTemplate_f2b71630-d4d6-419b-aa0c-c5976a0a1ed1",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "DateTableTemplate_f2b71630-d4d6-419b-aa0c-c5976a0a1ed1-ad66abd9-6a76-42a4-ae89-2da78dd8ffdb",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Dias Habiles",
+    "is_hidden": false,
+    "column_count": 4,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Empresas con proyectos activos",
+    "is_hidden": false,
+    "column_count": 3,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": [
+      "Client Partner - Status de Cliente detalle"
+    ]
+  },
+  {
+    "table": "Hitos",
+    "is_hidden": false,
+    "column_count": 30,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Hitos-e9bf9fc5-a6ca-4774-8718-e240e375063a",
+        "source_kind": "OData.Feed",
+        "source_detail": ""
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Horas  Trabajadas por Mes",
+    "is_hidden": false,
+    "column_count": 5,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Horas Facturadas",
+    "is_hidden": false,
+    "column_count": 13,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Horas por proyectos",
+    "is_hidden": false,
+    "column_count": 30,
+    "measure_count": 4,
+    "measures": [
+      "% Hs Vendidas",
+      "% Hs Certificadas",
+      "% Hs Vendidas 2",
+      "% Hs Certificadas 2"
+    ],
+    "partitions": [],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Analisis Participacion - Condiciones Comerciales -",
+      "Analisis Proyectos",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP"
+    ]
+  },
+  {
+    "table": "ID Ultimo Status Proyecto",
+    "is_hidden": false,
+    "column_count": 2,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "KPIs",
+    "is_hidden": false,
+    "column_count": 1,
+    "measure_count": 12,
+    "measures": [
+      "Ult Fecha",
+      "Cantidad MEses",
+      "Average HS mensuales Trabajadas",
+      "Cantidad consultores",
+      "Diff Fact vs Trabajado",
+      "Diff Fact vs HS Vendidas",
+      "Diff Vendidas vs Trabajado",
+      "Titulo de proyecto",
+      "Proyecto",
+      "periodos seleccion",
+      "DifHsHab",
+      "Medida"
+    ],
+    "partitions": [
+      {
+        "name": "KPIs-53c0dc2c-a3e6-43bb-97a7-857c754bafbf",
+        "source_kind": "Json.Document",
+        "source_detail": "Binary.Decompress(Binary.FromText(\"i44FAA==\", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable te"
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_0833e2f0-0ec1-4e10-afce-8fce1b545f6e",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_0833e2f0-0ec1-4e10-afce-8fce1b545f6e-b56c3846-3674-45f5-99b5-428b8aee22ca",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_1a918e28-bc8c-4273-8326-6d99f289d817",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_1a918e28-bc8c-4273-8326-6d99f289d817-edb16937-de97-4600-897f-b0dbbd54dab5",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_1cda707e-de39-47e1-b7f0-cb1dd5177cad",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_1cda707e-de39-47e1-b7f0-cb1dd5177cad-62ae7b65-a204-4445-8e9c-b3b9bc35bf99",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_36a5e9b8-4760-4c11-88f1-5d76708036d9",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_36a5e9b8-4760-4c11-88f1-5d76708036d9-c956a3a9-b096-4e55-85f7-958802a5636b",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_380e7a87-0cec-458c-a2cf-4d1ad51f223b",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_380e7a87-0cec-458c-a2cf-4d1ad51f223b-81e01412-7870-4c29-aa12-6becf5804e66",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_45c243ce-4f8b-440e-a4ed-58339a937012",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_45c243ce-4f8b-440e-a4ed-58339a937012",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_4dbcf204-f42a-4735-b905-64269760b772",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_4dbcf204-f42a-4735-b905-64269760b772",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_578cc36e-adf3-40ab-85dd-530e3fb054ee",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_578cc36e-adf3-40ab-85dd-530e3fb054ee-62cb3cea-76f9-42ab-8d09-b2e8d8b22d02",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_57a5fb9e-cbc2-497d-9d80-ff9c94aea74b",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_57a5fb9e-cbc2-497d-9d80-ff9c94aea74b-554d426e-5f02-4bf7-afcf-a5b941c16ace",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_5af6b5d3-f170-41af-9e08-d46e15fb63e7",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_5af6b5d3-f170-41af-9e08-d46e15fb63e7-d7773450-d608-4d00-8ef7-ed57437967d4",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_873e7525-2302-4930-9bc7-ec31b8b72506",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_873e7525-2302-4930-9bc7-ec31b8b72506-9a583440-9742-496e-a077-f8510d4397d3",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_92642cc2-eae8-4e0b-9d93-e048e7aaa1d9",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_92642cc2-eae8-4e0b-9d93-e048e7aaa1d9",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_9b140abe-4512-472d-902b-0b8388c30894",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_9b140abe-4512-472d-902b-0b8388c30894",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_9f4f602b-659d-4ff7-bd6a-db8f992098bb",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_9f4f602b-659d-4ff7-bd6a-db8f992098bb-d4c2d84b-4124-46d0-8870-32acaeb354d0",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_a3e6a894-e859-462d-a334-682987167251",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_a3e6a894-e859-462d-a334-682987167251",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_b1e75e0e-76ae-4572-94c0-272625ada93b",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_b1e75e0e-76ae-4572-94c0-272625ada93b",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_ccee6d12-53a5-4902-9f29-c9bba9cf0527",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_ccee6d12-53a5-4902-9f29-c9bba9cf0527-811d17fe-5cf0-4683-89b5-52bf006aae6f",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_cfdae85f-bfd2-4d2f-b5fa-eeec9f01bbf1",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_cfdae85f-bfd2-4d2f-b5fa-eeec9f01bbf1",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_ef9c63f7-e602-446f-84a6-5d9cc890fefd",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_ef9c63f7-e602-446f-84a6-5d9cc890fefd-19d475ec-4104-405d-9a06-7cfeef06c634",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_f1dab2d7-1912-4475-b26a-432e92f3843f",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_f1dab2d7-1912-4475-b26a-432e92f3843f",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "LocalDateTable_fe9202a3-6773-47c4-9ed1-b69af5a81981",
+    "is_hidden": true,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "LocalDateTable_fe9202a3-6773-47c4-9ed1-b69af5a81981",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Meses",
+    "is_hidden": false,
+    "column_count": 9,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "Meses",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Analisis Participacion - Condiciones Comerciales -",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP",
+      "Horas Productivas consumidas",
+      "Hs Certificadas vs Hs  Ejecutadas",
+      "Hs No Asignadas"
+    ]
+  },
+  {
+    "table": "NombreMeses",
+    "is_hidden": false,
+    "column_count": 2,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "NombreMeses",
+        "source_kind": "Json.Document",
+        "source_detail": "Binary.Decompress(Binary.FromText(\"i45WMjBU0lFyzUstyleK1QFyjYBct9SkIriAMVDAN7GoCso1AXIdk4oycyBcU7BsJVTSDMjzKs3LhHLNwdwcG"
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "PMs",
+    "is_hidden": false,
+    "column_count": 19,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [
+      {
+        "name": "PMs",
+        "source_kind": "OData.Feed",
+        "source_detail": ""
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Proyectos",
+    "is_hidden": false,
+    "column_count": 69,
+    "measure_count": 2,
+    "measures": [
+      "Dif Hs Vendidas - Hs Trabajadas",
+      "% Dif Hs"
+    ],
+    "partitions": [
+      {
+        "name": "Proyectos-b83e8a9a-ca8a-4293-bc63-4c4e0890e136",
+        "source_kind": "SharePoint.Tables",
+        "source_detail": "https://danwor.sharepoint.com/sites/Gestion\", [ApiVersion = 15]),"
+      }
+    ],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Analisis Proyectos",
+      "Analisis Rentabilidad",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP",
+      "Hs Certificadas vs Hs  Ejecutadas"
+    ]
+  },
+  {
+    "table": "Ranking Clientes Ult 3Meses",
+    "is_hidden": false,
+    "column_count": 3,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Rentabilidad Unpivot",
+    "is_hidden": false,
+    "column_count": 10,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": [
+      "Analisis Rentabilidad",
+      "Page 1"
+    ]
+  },
+  {
+    "table": "Resumen Asignaciones Proyecto_Consultor",
+    "is_hidden": false,
+    "column_count": 6,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Resumen Asignaciones",
+    "is_hidden": false,
+    "column_count": 4,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "resumen Horas Proyectos 3",
+    "is_hidden": false,
+    "column_count": 7,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "resumen Horas Proyectos 4",
+    "is_hidden": false,
+    "column_count": 8,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "resumen Horas Proyectos",
+    "is_hidden": false,
+    "column_count": 4,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Resumen Horas x Proyecto Fac y Ejec",
+    "is_hidden": false,
+    "column_count": 9,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Resumen Mes",
+    "is_hidden": false,
+    "column_count": 5,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Resumen Ultimo  Mes proy",
+    "is_hidden": false,
+    "column_count": 5,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Resumen Ultimo  Mes",
+    "is_hidden": false,
+    "column_count": 4,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "resumen",
+    "is_hidden": false,
+    "column_count": 2,
+    "measure_count": 1,
+    "measures": [
+      "Rank"
+    ],
+    "partitions": [
+      {
+        "name": "resumen-4cc211ef-573f-46ad-a989-112c8dbfd708",
+        "source_kind": null,
+        "source_detail": null
+      }
+    ],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Solicitud vacaciones",
+    "is_hidden": false,
+    "column_count": 22,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Status Proyectos",
+    "is_hidden": false,
+    "column_count": 34,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  },
+  {
+    "table": "Time Logs Reports",
+    "is_hidden": false,
+    "column_count": 32,
+    "measure_count": 5,
+    "measures": [
+      "Rank_T",
+      "% Hs ejecutadas",
+      "Rank_T2",
+      "% Hs ejecutadas2",
+      "Rank_T3"
+    ],
+    "partitions": [],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP",
+      "Horas Productivas consumidas",
+      "Hs No Asignadas"
+    ]
+  },
+  {
+    "table": "Ultimos status Proyectos",
+    "is_hidden": false,
+    "column_count": 12,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": [
+      "Analisis Mantenimiento",
+      "Estimación Horas Vendidas",
+      "Estimación Horas Vendidas  x CP"
+    ]
+  },
+  {
+    "table": "Vista Hitos",
+    "is_hidden": false,
+    "column_count": 10,
+    "measure_count": 0,
+    "measures": [],
+    "partitions": [],
+    "referenced_by_pages": []
+  }
+]

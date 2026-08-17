@@ -1026,6 +1026,16 @@ function staffingDashboard(payload) {
       return known[status] || "otro";
     },
 
+    // Variante de color del primitivo Hub compartido `.dashboard-status-badge`
+    // (Phase S, ver HANDOFF — MISMO badge que Reporting, tools.css). Mapeo
+    // presentacional aparte de `statusSlug` (ese sigue alimentando
+    // `.staffing-timeline__row-status.is-status-*`, sin tocar el timeline).
+    statusColor(status) {
+      if (status === "Activo") return "green";
+      if (status === "Tentativo") return "amber";
+      return "grey";
+    },
+
     paletteClass(row) {
       return "staffing-palette-" + paletteIndex(row);
     },
@@ -1204,9 +1214,16 @@ function staffingDashboard(payload) {
     },
 
     // Grouping switch (Consultor ↔ Proyecto) — mismo dataset filtrado, sin
-    // Graph. El botón describe la ACCIÓN (a qué modo cambiaría al clickear).
-    toggleGrouping() {
-      this.groupBy = this.groupBy === "consultant" ? "project" : "consultant";
+    // Graph. Hub Dashboard Contextual View Control corrective (ver
+    // HANDOFF): el control visible pasó de un botón de acción única
+    // ("Agrupar por proyecto"/su inverso) a un segmented switch
+    // (.dashboard-view-switch, compartido con Reporting) que muestra el
+    // modo ACTUAL y la alternativa a la vez — `setGrouping(mode)` es la
+    // primitiva real (no-op si ya está en ese modo); `toggleGrouping()`
+    // queda como wrapper fino sobre ella para no romper otros callers.
+    setGrouping(mode) {
+      if (this.groupBy === mode) return;
+      this.groupBy = mode;
       // Colapso global (pedido del owner, ver HANDOFF): si había un intent
       // limpio de "todo colapsado", el NUEVO groupBy arranca con TODOS sus
       // grupos colapsados (recalculado con las keys de la agrupación
@@ -1221,8 +1238,8 @@ function staffingDashboard(payload) {
         this.collapsedConsultants = {};
       }
     },
-    get groupToggleLabel() {
-      return this.groupBy === "consultant" ? "Agrupar por proyecto" : "Agrupar por consultor";
+    toggleGrouping() {
+      this.setGrouping(this.groupBy === "consultant" ? "project" : "consultant");
     },
     // Etiqueta secundaria de la fila del timeline — depende de qué está
     // agrupado: agrupado por Consultor, la fila muestra Cliente-Proyecto
@@ -1362,6 +1379,7 @@ function staffingDashboard(payload) {
           proyectada_label: group.asignacion_proyectada_label,
           estado_label: group.estado,
           estado_slug: this.statusSlug(group.estado),
+          estado_color: this.statusColor(group.estado),
           desde_label: group.desde_label,
           hasta_label: group.hasta_label,
           disponibilidad_label: group.disponibilidad,
@@ -1379,6 +1397,7 @@ function staffingDashboard(payload) {
             proyectada_label: this.rowEffectiveLabel(row, targetIso),
             estado_label: row.status || "—",
             estado_slug: this.statusSlug(row.status),
+            estado_color: this.statusColor(row.status),
             desde_label: this.formatDateDMY(row.start_date) || "—",
             hasta_label: this.formatDateDMY(row.end_date) || "—",
             disponibilidad_label: row.availability,
@@ -1530,3 +1549,171 @@ function staffingDashboard(payload) {
   };
 }
 document.body.addEventListener("htmx:load", () => initModuleFilter(document));
+
+// ============================================================================
+// HubEstimatedProgress — primitivo COMPARTIDO del Hub (Operations) para
+// esperas FOREGROUND causadas por fetch de Graph/SharePoint. Reporting es el
+// PRIMER adopter (ver reporting.js), no el dueño — cualquier otra pestaña del
+// Hub puede reusarlo sin reimplementar esta lógica.
+//
+// Contrato de UX (Graph no expone % real de avance):
+//   - NUNCA porcentaje real/ETA — es tiempo ESTIMADO contra un `seedMs` que
+//     aprende con EWMA (0.70 anterior + 0.30 última duración real) por `key`,
+//     persistido en localStorage (sin backend nuevo, sin requests extra).
+//   - Nunca llega a 100% solo por tiempo (tope ~94%, ver CHECKPOINTS) — el
+//     100%/contenido real lo decide el caller cuando el fetch efectivamente
+//     resuelve, jamás la animación.
+//   - Si el fetch tarda más que el estimado, el llamador debe mostrar un
+//     estado "overrun" (sweep/highlight continuo) en vez de seguir subiendo.
+//
+// Pull-based (sin su propio setInterval): el caller decide la cadencia de
+// re-render llamando `.tick()` cuando le convenga (evita timers duplicados
+// por cada consumidor).
+const HubEstimatedProgress = (() => {
+  const STORAGE_PREFIX = "dw-hub-progress-estimate:";
+  const MIN_ESTIMATE_MS = 1200;
+  // [ratio_transcurrido, porcentaje] — interpolado linealmente entre puntos
+  // consecutivos. Seeds de UX pedidas: inicio ~5-8%, 25% del estimado ~35%,
+  // 50% ~60%, 75% ~80%, fin del estimado ~93-95% (nunca 100).
+  const CHECKPOINTS = [[0, 0.06], [0.25, 0.35], [0.50, 0.60], [0.75, 0.80], [1, 0.94]];
+
+  function percentForRatio(ratio) {
+    const r = Math.max(0, Math.min(1, ratio));
+    for (let i = 1; i < CHECKPOINTS.length; i++) {
+      const [t0, p0] = CHECKPOINTS[i - 1];
+      const [t1, p1] = CHECKPOINTS[i];
+      if (r <= t1) return p0 + (p1 - p0) * ((r - t0) / (t1 - t0));
+    }
+    return CHECKPOINTS[CHECKPOINTS.length - 1][1];
+  }
+
+  function readEstimate(key, seedMs) {
+    try {
+      const v = parseFloat(localStorage.getItem(STORAGE_PREFIX + key));
+      return Number.isFinite(v) && v > 0 ? v : seedMs;
+    } catch (_e) { return seedMs; }
+  }
+
+  function writeEstimate(key, previousMs, actualMs) {
+    try {
+      localStorage.setItem(STORAGE_PREFIX + key, String(previousMs * 0.70 + actualMs * 0.30));
+    } catch (_e) { /* localStorage no disponible (incógnito/cuota) — fail-soft, sigue con el seed */ }
+  }
+
+  // `key` identifica la FUENTE de datos (no la pestaña que la dispara — dos
+  // pestañas que comparten el mismo fetch deben aprender el MISMO estimate).
+  function start(key, { seedMs = 8000 } = {}) {
+    const estimateMs = Math.max(readEstimate(key, seedMs), MIN_ESTIMATE_MS);
+    const startedAt = Date.now();
+    let settled = false;
+    return {
+      tick() {
+        const elapsed = Date.now() - startedAt;
+        const overrun = elapsed > estimateMs;
+        return { percent: Math.round(percentForRatio(overrun ? 1 : elapsed / estimateMs) * 100), overrun };
+      },
+      // Fetch resuelto OK: graba la duración real (EWMA) para la próxima vez.
+      finishSuccess() {
+        if (settled) return;
+        settled = true;
+        writeEstimate(key, estimateMs, Date.now() - startedAt);
+      },
+      // Fetch en error: detiene el estimate SIN grabar (una duración hasta un
+      // error no es evidencia de cuánto tarda un fetch exitoso).
+      finishError() { settled = true; },
+    };
+  }
+
+  return { start, percentForRatio };
+})();
+
+// ============================================================================
+// HubForegroundProgress — el BOUNDARY compartido del Hub para toda espera
+// FOREGROUND visible causada por Graph/SharePoint, sin importar qué vertical
+// la inició (owner corrective: "el loader pertenece al HUB", auditado en
+// Copiloto/Reporting/Staffing — Asignaciones usa htmx, Reporting usa fetch()
+// + Alpine, y ambos deben terminar en la MISMA barra sin que ninguno sepa
+// de su existencia). Los consumidores SOLO notifican lifecycle —
+// begin/complete/fail — nunca tocan DOM/CSS/width/sweep: eso es
+// responsabilidad EXCLUSIVA de este módulo (pinta sobre
+// `.read-progress__fill`, el MISMO nodo que Copiloto alimenta con scroll
+// real — ver `copilotLayout().init()` arriba — nunca un segundo elemento).
+//
+// `key` identifica la FUENTE/operación (p. ej. "cartera", "assignments"),
+// NO el vertical que la dispara — dos consumidores que comparten la MISMA
+// operación real deberían compartir la MISMA key (ver HubEstimatedProgress:
+// EWMA aprende por key). `begin` es idempotente (una operación ya en curso
+// no se reinicia); `complete`/`fail` son no-op si esa key no está activa.
+//
+// Un único timer COMPARTIDO para todas las keys activas (nunca uno por
+// key) — arranca en el primer `begin()`, se auto-limpia cuando la última
+// key activa se liquida. El tick NUNCA dispara render()/side-effects de
+// ningún consumidor: solo re-lee el controller y escribe `style.width`.
+// Sin noción de "operación activa/visible" — si dos keys estuvieran
+// simultáneamente en curso (raro: cada vertical dispara como máximo una a
+// la vez en la práctica), se pinta cualquiera; no se modela más que eso a
+// propósito (YAGNI — ver corrective: "elegir la opción mínima").
+const HubForegroundProgress = (() => {
+  const active = {};  // key -> { controller }
+  let timer = null;
+
+  function paint() {
+    const fill = document.querySelector(".read-progress__fill");
+    if (!fill) return;
+    const keys = Object.keys(active);
+    fill.style.width = keys.length ? active[keys[0]].controller.tick().percent + "%" : "0%";
+  }
+
+  function sweepStep() {
+    paint();
+    if (!Object.keys(active).length && timer) { clearInterval(timer); timer = null; }
+  }
+
+  // Arranca (idempotente) la espera foreground de `key`. `seedMs` es el
+  // seed inicial SOLO la primera vez que se ve esta key (después, el
+  // estimate aprendido de HubEstimatedProgress la reemplaza — ver ahí).
+  function begin(key, { seedMs = 8000 } = {}) {
+    if (active[key]) return;
+    active[key] = { controller: HubEstimatedProgress.start(key, { seedMs }) };
+    if (!timer) timer = setInterval(sweepStep, 150);
+    paint();
+  }
+  // La operación resolvió OK — graba la duración real (EWMA) y limpia.
+  function complete(key) {
+    const entry = active[key];
+    if (!entry) return;
+    entry.controller.finishSuccess();
+    delete active[key];
+    paint();
+  }
+  // La operación falló — limpia SIN grabar estimate (ver HubEstimatedProgress
+  // finishError). Mismo fail-soft de siempre en el consumidor; esto solo
+  // apaga la barra.
+  function fail(key) {
+    const entry = active[key];
+    if (!entry) return;
+    entry.controller.finishError();
+    delete active[key];
+    paint();
+  }
+
+  return { begin, complete, fail };
+})();
+
+// Asignaciones (Staffing) — first load vía htmx (`#staffing-rows`,
+// hx-trigger="load", ver staffing.html), NO un fetch()+Alpine como
+// Reporting. MISMO boundary (HubForegroundProgress) — el listener global de
+// htmx (ya usado arriba para el spinner de Sección/Chat/wizard) es el punto
+// de integración natural: detecta la request por el elemento que la
+// disparó, nunca por asumir "cualquier fetch Graph es foreground" (background
+// prefetch de Reporting/Staffing NUNCA pasa por htmx con este id, así que
+// nunca activa esto). Sin seed histórico confiable todavía — 8000ms
+// (default de HubForegroundProgress.begin) y que EWMA aprenda.
+document.body.addEventListener("htmx:beforeRequest", event => {
+  if (event.detail.elt?.closest("#staffing-rows")) HubForegroundProgress.begin("assignments");
+});
+document.body.addEventListener("htmx:afterRequest", event => {
+  if (!event.detail.elt?.closest("#staffing-rows")) return;
+  if (event.detail.successful) HubForegroundProgress.complete("assignments");
+  else HubForegroundProgress.fail("assignments");
+});

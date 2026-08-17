@@ -554,9 +554,23 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-empty p { margin: 0 auto; max-width: 480px; color: #55555c; font-size: .82rem; line-height: 1.55; }
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
 
-.activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.activity-kpi { padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
-.activity-kpi__value { font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em; }
+.activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
+/* `margin-bottom` (owner corrective — "FINAL VISUAL COMPOSITION": Total
+   Horas terminaba y la tabla empezaba casi sin transición). Reusa el
+   MISMO 12px ya usado como `gap` interno de esta grilla — nunca un margen
+   nuevo/arbitrario. Hub-wide (toda experiencia con KPI seguida de
+   contenido gana la misma respiración), no un caso especial de Horas
+   Productivas. */
+/* `min-width:0` (Phase S, ver HANDOFF — antes solo en reporting.css, Phase
+   0C): deja que el tile de grid se ENCOJA en vez de empujar a los vecinos
+   con valores reales de 5-7 dígitos — CUALQUIER consumidor de KPI tiles
+   (Asignaciones/Reporting/futuro Activity) lo necesita por igual, no es
+   específico de un dominio. */
+.activity-kpi { min-width: 0; padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.activity-kpi__value {
+  font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em;
+  white-space: nowrap; font-variant-numeric: tabular-nums; overflow-wrap: normal;
+}
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
 .activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 /* Acento distinto por tile — paleta canónica de estados de catálogo (mismos
@@ -578,8 +592,27 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    no un dato neutro: acento de alerta dedicado (rojo/naranja), distinto de
    los tokens "normales" de arriba a propósito. */
 .activity-kpi--warning { --kpi-accent: #c0392b; }
+/* SMART KPI TILE ACCENT OVERRIDE (ver renderDashboardKpi `smartAccent`): override
+   SEMÁNTICO opcional del accent para KPIs firmados (bueno/malo). Doble clase
+   (specificity 0,2,0) + declarado DESPUÉS de los `nth-child` de arriba (misma
+   specificity) para GANARLES por orden de fuente — si no, el color rotativo por
+   posición pisaría el semántico. Verde/rojo reusan los MISMOS tokens que el
+   resto (verde de Part Time, rojo de warning), nunca colores nuevos. Solo se
+   aplica cuando el valor crudo es >0 / <0 (0/null conserva el patrón por
+   defecto, ver el primitivo). */
+.activity-kpi.activity-kpi--positive { --kpi-accent: #2e9e5b; }
+.activity-kpi.activity-kpi--negative { --kpi-accent: #c0392b; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+/* Grid items default to `min-width:auto` — un hijo con contenido intrínsecamente
+   ancho (ej. `table.dashboard-table` de Horas Productivas Cliente + Part, owner
+   live QA corrective: "right panel controls/table approach or overflow the
+   viewport edge") fuerza el track a crecer y empuja al vecino/la página entera
+   fuera del viewport. `min-width:0` en TODO consumidor de `.activity-grid-2`
+   (no solo Horas Productivas) deja que el hijo se encoja al ancho del grid y
+   delega el overflow horizontal a `.matrix-scroll` (scroll INTERNO al panel,
+   nunca a nivel página) — fix del primitivo compartido, no un caso especial. */
+.activity-grid-2 > * { min-width: 0; }
 
 /* Serie diaria: barras verticales — se lee como un gráfico real, no una lista. */
 .activity-chart { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 18px; }
@@ -800,30 +833,306 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    campos (margin-left:auto lo empuja a la derecha) y ya no comparte
    columna con el stack de Estado, para no leerse como una opción más. */
 .staffing-filter-bar__clear { align-self: flex-start; margin-left: auto; white-space: nowrap; }
+/* Wrapper de Limpiar+Actualizar (owner feedback, ver HANDOFF — Reporting
+   "Actualizar" corrective): Staffing usa `.staffing-filter-bar__clear`
+   SUELTO (staffing_dashboard.html, sin Actualizar) — su `margin-left:auto`
+   de arriba sigue intacto para ese caso. Reporting lo envuelve en ESTE
+   wrapper junto con Actualizar; ahí el margin-left:auto pasa al WRAPPER
+   (para que los dos controles envuelvan juntos como una sola unidad en
+   viewports angostos, nunca en líneas separadas) y se neutraliza el propio
+   de Limpiar para no duplicar el corrimiento. */
+.staffing-filter-bar__actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: nowrap; }
+.staffing-filter-bar__actions .staffing-filter-bar__clear { margin-left: 0; }
 /* Fallo de la carga lazy de historial (Staffing Director Priority V2
    pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
    del dashboard, solo informa que el próximo toggle puede reintentar. */
-.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
+.staffing-history-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: #1f1f24; font-size: .74rem; }
+.content-theme-dark .staffing-history-error { color: #e4c9c9; }
 
-/* Barra de "Contraer todo / Expandir todo" — arriba del timeline, fuera
+/* Barra de "Contraer / Expandir" — arriba del timeline, fuera
    del <summary> colapsable (evita que un click ahí también toggee la
    sección entera). */
-.staffing-timeline-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
+.staffing-timeline-toolbar {
+  display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 8px;
+  /* `align-items:center` (owner live QA — Horas Productivas: "Expandir/
+     Contraer siguen mas altos de lo que deberian"). Causa raíz: `flex`
+     default es `align-items:stretch` — con un Año/Mes de UN panel (`<label>`
+     con `<span>` + `<select>` apilados) como hermano en la MISMA fila, el
+     stretch por defecto estiraba los botones Expandir/Contraer a la altura
+     del label MÁS ALTO. Fix del primitivo COMPARTIDO (nunca un caso
+     especial de Horas Productivas — cualquier toolbar con un label de
+     dos líneas junto a botones de una línea tenía el mismo problema). */
+}
+/* Grid de toolbar de PANEL (owner corrective — "FINAL VISUAL COMPOSITION":
+   Año / Mes / Expandir-Contraer no compartían un eje de alineación — Año
+   empezaba corrido hacia adentro respecto del título/KPI/tabla, y
+   Expandir/Contraer quedaban "sueltos" a la derecha). Modifier del MISMO
+   primitivo de arriba (nunca duplica borde/tipografía de botón) — Año |
+   Mes | acciones de jerarquía, las TRES columnas `auto` (content-sized) —
+   owner corrective (2da vuelta): la columna de Mes había quedado
+   `minmax(0,1fr)` (flexible), que la ESTIRABA a ocupar todo el ancho
+   disponible aunque sus 12 botones no lo llenaran, dejando un hueco vacío
+   ENTRE Mes y Expandir/Contraer. `auto auto auto` + `justify-content:
+   normal` (packa al INICIO/izquierda, MISMO comportamiento de agrupación
+   compacta que el resto de los toolbars del Hub — Expandir/Contraer caen
+   INMEDIATAMENTE después de Mes, "igual que los demás", nunca lejos a la
+   derecha con un hueco). La base `justify-content:flex-end` de arriba
+   empaquetaba todo a la derecha — por eso Año nunca alineaba con el borde
+   izquierdo del contenido. Solo usado por los 2 paneles de Horas
+   Productivas — el resto de los toolbars de Reporting/Staffing
+   (perspective-switch + Expandir/Contraer, sin Año/Mes) siguen usando la
+   base flex sin cambios.
+   `align-items: end` (owner corrective — 3ra vuelta, seguía sin verse
+   alineado): Año/Mes son `.whatsnew-filter` (`display:flex;
+   flex-direction:column` — un `<span>` de ETIQUETA arriba + el control
+   abajo), mientras que Expandir/Contraer NO tienen etiqueta, son SOLO
+   botones. Con el `align-items:stretch` default de grid, los TRES ítems
+   se estiraban a la altura de la fila completa (la más alta = la de
+   Año/Mes CON etiqueta) y luego `.staffing-timeline-toolbar__actions`
+   centraba sus botones DENTRO de esa altura estirada — landing a mitad de
+   camino entre la etiqueta y el control real de Año/Mes, nunca al nivel
+   del `<select>`/fila de meses. `align-items:end` deja que cada ítem
+   ocupe SOLO su alto natural y alinea sus bordes INFERIORES — el borde
+   inferior de Año/Mes es el borde inferior de su control real (la
+   etiqueta queda arriba), el de Acciones es el borde inferior de sus
+   botones — control con control, MISMA línea de base. */
+.staffing-timeline-toolbar--panel { display: grid; grid-template-columns: auto auto auto; justify-content: normal; align-items: end; gap: 16px; }
+.staffing-timeline-toolbar--panel > .staffing-timeline-toolbar__actions { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .staffing-timeline-toolbar--panel { grid-template-columns: 1fr; gap: 8px; }
+}
 .staffing-timeline-toolbar button {
   border: 1px solid rgba(128,128,128,.32); background: transparent; border-radius: 6px;
   padding: 4px 10px; color: var(--soft); font: 600 .68rem var(--mono); cursor: pointer;
 }
 .staffing-timeline-toolbar button:hover { border-color: var(--gold); color: var(--gold); }
-/* Switch de agrupación Consultor ↔ Proyecto (Staffing Director Priority V2,
-   ver HANDOFF) — dorado/negro, deliberadamente DISTINTO de Expandir/Contraer
-   (mismo patrón gold-fill que .tool-suggest__send, nunca un color nuevo). La
-   especificidad (2 clases) es intencional: sin esto, la regla genérica
-   `.staffing-timeline-toolbar button` de arriba (borde gris) le ganaría al
-   fondo dorado por especificidad, sin importar el orden en el archivo. */
-.staffing-timeline-toolbar .staffing-timeline__group-toggle {
-  border: 0; background: var(--gold); color: #0c0c0d; font-weight: 700;
+/* Segmented view/perspective switch (Hub Dashboard Contextual View Control
+   corrective, ver HANDOFF) — primitivo NEUTRAL compartido por Staffing
+   (Consultor/Proyecto, reemplaza el botón de acción único "Agrupar
+   por...") y Reporting (switch de perspectiva por experiencia, reemplaza
+   el `.perspective-switch` que antes vivía solo en reporting.css) — MISMA
+   regla para ambos, nunca duplicada. Muestra el estado actual (botón
+   `.is-active`, fill dorado) Y la alternativa disponible en el mismo
+   control, a diferencia de un botón de acción que solo describe el
+   próximo click. Colores literales + override `.content-theme-dark`
+   (mismo criterio que `.dashboard-section`/`.activity-kpi` más arriba —
+   Staffing/Reporting corren sobre la superficie CLARA de
+   `.module-content`, `--soft`/`--ink` son del panel oscuro, no aplican
+   acá). */
+.dashboard-view-switch { display: inline-flex; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; overflow: hidden; }
+.dashboard-view-switch button {
+  background: #ffffff; border: none; border-right: 1px solid rgba(128,128,128,.28);
+  padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; cursor: pointer;
 }
-.staffing-timeline-toolbar .staffing-timeline__group-toggle:hover { border-color: transparent; color: #0c0c0d; opacity: .88; }
+.content-theme-dark .dashboard-view-switch button { background: #181819; color: #b2b2bc; }
+.dashboard-view-switch button:last-child { border-right: none; }
+.dashboard-view-switch button:hover { color: #1f1f24; }
+.content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
+.dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* Mes de Horas Productivas — multi-select (owner live QA corrective: "el
+   PBIP original permite tildar varios meses a la vez... boton cuadrado
+   minimalista por cada mes... gris/claro... mas obscuro/gold al hacer
+   click"). Modifier del MISMO primitivo de arriba (nunca una clase de
+   botón nueva) — más compacto/cuadrado que el perspective-switch base (ese
+   usa 2-3 palabras por botón; esto usa abreviaturas de 3 letras, Ene..Dic).
+   `.is-active` ya soporta varios botones activos a la vez sin ajuste — el
+   single-select original solo tildaba uno, el multi-select puede tildar
+   cualquier subconjunto. */
+.dashboard-view-switch--multi { flex-wrap: wrap; }
+.dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
+/* Mes futuro bajo el año en curso (owner corrective: "que la posicion del
+   dropdown de año no cambie de lugar... eventualmente si los meses son a
+   futuro que queden en su lugar deshabilitados mas que desaparecer") — el
+   botón SIGUE en el DOM (ancho de grupo constante, ver
+   capacidadProductivasMesButtons) pero no es clickeable ni se lee como
+   una opción real. */
+.dashboard-view-switch--multi button:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Hub dashboard table (Phase S — estandarización visual del Hub, ver
+   HANDOFF "REPORTING INTEGRAL — REAL DATA"): UNA sola fuente de verdad
+   para shell/header/fila/hover/jerarquía/alineación numérica de CUALQUIER
+   tabla de dashboard del Hub. Antes existían dos implementaciones que solo
+   se PARECÍAN: Reporting (`table.tree-matrix`/`table.data-table`, en
+   reporting.css) y Asignaciones (`table.admin-table`, pensada para el
+   panel oscuro de Copilot — sus tokens `--soft`/`--line` no están
+   definidos fuera de `.copilot-panel`, y de hecho NO tenía hover). El
+   owner eligió la dirección visual de Reporting como baseline — este
+   primitivo la generaliza. Colores LITERALES + override
+   `.content-theme-dark` (mismo criterio que `.dashboard-view-switch` de
+   arriba — Staffing/Reporting corren sobre `.module-content`, superficie
+   CLARA, tokens del panel oscuro no aplican acá). Geometría: `table-layout:
+   fixed` — los anchos SIEMPRE salen del header, NUNCA del body, así que
+   expandir/colapsar una fila jerárquica nunca mueve columnas numéricas
+   (invariante ya validado en Reporting, ahora es del primitivo). Un
+   dominio declara sus PROPIAS columnas/anchos (`th`/`td` con `class="left"`
+   para texto, sin clase para numérico — DEFAULT ya es alineación derecha)
+   — el primitivo nunca fuerza un set de columnas. */
+table.dashboard-table { width: 100%; border-collapse: collapse; font-size: .76rem; table-layout: fixed; }
+table.dashboard-table th {
+  text-align: right; padding: 6px 8px; color: #7a7a82; font: 600 .62rem var(--mono);
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid rgba(0,0,0,.1);
+  /* SIN `white-space: nowrap` (Q1, owner live QA): con `table-layout:fixed` +
+     ancho numérico fijo de 88px, un header MÁS LARGO que su columna (ej.
+     "Margen Relativo") desbordaba visualmente sobre la columna vecina —
+     "colisión" a la derecha de la matriz. Envolver a 2 líneas es geometría
+     ESTABLE (headers salen del `<thead>`, table-layout:fixed ya garantiza que
+     nunca mueve columnas) — genérico para cualquier tabla del Hub con un
+     label numérico largo, no un ajuste puntual de Rentabilidad. */
+  white-space: normal; line-height: 1.15;
+}
+.content-theme-dark table.dashboard-table th { color: #9a9aa2; border-bottom-color: rgba(255,255,255,.12); }
+table.dashboard-table th.left, table.dashboard-table th.row-label-col { text-align: left; }
+/* Ancho RESERVADO de la columna de label jerárquico (owner live QA — Horas
+   Vendidas: "no identifica textos para algunos proyectos"). Causa raíz: con
+   `table-layout:fixed` las 12 columnas de mes a 88px consumen el ancho de la
+   tabla y la columna de label, SIN ancho propio, tomaba solo el espacio
+   RESIDUAL — que en un contenedor no extra-ancho colapsa hacia ~0px y recorta
+   el nombre entero a "…" (peor a mayor profundidad: Proyecto está a 60px de
+   sangría). Reservar un ancho fijo hace que la matriz scrollee horizontalmente
+   (`.matrix-scroll` ya existe para eso) en vez de matar el label — los nombres
+   de proyecto vuelven a leerse. Genérico para TODA matriz jerárquica del Hub
+   (Cartera/Rentabilidad/HV/Participación/Salud/Calendario/Capacidad), nunca un
+   ajuste puntual de una experiencia. El tooltip `title` (ver
+   `hierarchyToggleHtml` en reporting.js) cubre la cola de nombres larguísimos
+   que aún exceden este ancho. */
+table.dashboard-table th.row-label-col { width: 340px; }
+/* Colgroup explícito FLEXIBLE + COMPACTO (owner corrective — "FINAL VISUAL
+   COMPOSITION": Horas Productivas necesita la columna de label FLEXIBLE
+   —consume el espacio disponible— y las columnas numéricas COMPACTAS
+   —content-sized/bounded—, nunca un ancho fijo grande para el label que
+   deja un hueco vacío antes de Horas). Reusa el escape hatch YA
+   documentado arriba ("un dominio con su propio `<colgroup>`... el `<col>`
+   explícito gana en `table-layout:fixed`") — reusable por cualquier tabla
+   Hub angosta con esta forma (label + pocas columnas numéricas), no
+   exclusivo de Horas Productivas. Ver `.dashboard-table--compact` en
+   reporting.css (anula el min-width:900px/300px pensados para las
+   matrices mensuales de ancho completo, que no aplican acá). */
+.dashboard-table-col--flex { width: auto; }
+.dashboard-table-col--compact { width: 72px; }
+/* Header clickeable de orden (owner live QA: "falta que los header de las
+   columnas sean clickeables para ordenar ascendente/descendente"). Reusa
+   la MISMA base `table.dashboard-table th` (alineación derecha, tipografía)
+   — el modifier solo agrega el affordance de click. */
+table.dashboard-table th.dashboard-table-th--sortable { cursor: pointer; user-select: none; }
+table.dashboard-table th.dashboard-table-th--sortable:hover { color: var(--gold); }
+/* Ancho estándar de columna numérica/de-medida (corrective pre-Batch-A,
+   owner live QA — regresión de Phase S: al fusionar `tree-matrix`/
+   `data-table` en un solo primitivo se perdió el ancho fijo que la matriz
+   jerárquica tenía antes, así que con `table-layout:fixed` el espacio
+   restante se repartía EN PARTES IGUALES entre columnas numéricas Y
+   columnas de texto sin `.row-label-col` — ej. Estado terminal quedaba con
+   el mismo ancho ancho que Diff Hs/Trabajadas/etc., dejando un área vacía
+   grande después del badge). Solo aplica a columnas SIN `.left`/
+   `.row-label-col` — un dominio con su propio `<colgroup>` (Asignaciones,
+   ver `.staffing-detail-table`) ya fija el ancho ahí, esta regla nunca
+   compite (el `<col>` explícito gana en `table-layout:fixed`). */
+table.dashboard-table th:not(.left):not(.row-label-col) { width: 88px; }
+table.dashboard-table td {
+  padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.05); text-align: right;
+  font-variant-numeric: tabular-nums; color: #1f1f24;
+}
+.content-theme-dark table.dashboard-table td { border-bottom-color: rgba(255,255,255,.06); color: #e4e4ec; }
+table.dashboard-table td.left, table.dashboard-table td.row-label {
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Columna de status COMPACTA/alineada a la derecha (corrective pre-Batch-A,
+   owner live QA): un dominio la usa SOLO cuando su columna de estado es la
+   ÚLTIMA de la matriz y quiere que cierre limpio con el resto de las
+   columnas de medida (Cartera) — NUNCA forzado globalmente. Asignaciones
+   tiene Estado en el medio de su tabla y se queda con el comportamiento
+   default `.left` (mismo criterio que el resto de sus columnas de texto),
+   sin tocar acá. `width` explícito (más ancho que el default numérico de
+   88px — el badge necesita más espacio que un número de 3-4 dígitos). */
+table.dashboard-table th.dashboard-table-col--status { text-align: right; width: 112px; }
+table.dashboard-table td.dashboard-table-cell--status { text-align: right; }
+/* Columna categórica COMPACTA (Q1, owner live QA — Rentabilidad/Certificadas
+   vs Ejecutadas, Detalle por proyecto): Tipo y Proyecto son ambas `.left`
+   (texto), pero sin distinción de rol se reparten el espacio remanente EN
+   PARTES IGUALES — Tipo (valor categórico corto y fijo: "Mantenimiento"/
+   "Proyecto") queda con el mismo ancho que Proyecto (descriptivo, necesita
+   crecer), comprimiendo ambas. Un dominio agrega esta clase JUNTO a `.left`
+   (no la reemplaza — sigue siendo texto alineado a la izquierda) en su
+   columna categórica corta para sacarla del reparto y dejar que la(s)
+   columna(s) `.left` restante(s) absorban el espacio libre. Rol GENÉRICO,
+   reusable por cualquier tabla del Hub con este patrón categórica+
+   descriptiva lado a lado — no es un ancho puntual de Rentabilidad. */
+table.dashboard-table th.dashboard-table-col--compact { width: 100px; }
+/* Hover — sutil, sobre el `td` (no el `tr`) para que pinte encima de
+   cualquier tinte estático de fila (p.ej. child-rows de Asignaciones) sin
+   alterar geometría; funciona igual en filas padre/hijo. */
+table.dashboard-table tr:hover td { background: rgba(231,176,8,.06); }
+table.dashboard-table tr.is-total td { font-weight: 700; border-top: 2px solid rgba(0,0,0,.1); border-bottom: none; }
+.content-theme-dark table.dashboard-table tr.is-total td { border-top-color: rgba(255,255,255,.14); }
+/* Jerarquía — peso/color decreciente por profundidad, reusable por
+   CUALQUIER tabla del Hub con filas padre/hijo (no solo árboles con
+   toggle — Asignaciones también puede usar depth-0/1 en filas
+   agregado/hijo si quiere el mismo lenguaje visual). */
+table.dashboard-table tr.depth-0 td.row-label { font-weight: 700; }
+table.dashboard-table tr.depth-1 td.row-label { font-weight: 600; color: #55555c; }
+table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c; }
+.content-theme-dark table.dashboard-table tr.depth-1 td.row-label,
+.content-theme-dark table.dashboard-table tr.depth-2 td.row-label { color: #b2b2bc; }
+/* Toggle/indent de expansión — SIEMPRE dentro de la columna descriptiva
+   (nunca desplaza columnas numéricas); ancho de indent por profundidad se
+   fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo
+   da la mecánica visual. */
+/* Control de disclosure jerárquico (corrective S.4, ver HANDOFF: "shared
+   Hub hierarchy disclosure interaction") — UN solo contrato para CUALQUIER
+   tabla del Hub con filas padre/hijo. Con hijos: `<button>` real (reset de
+   estilos nativos de botón) — foco/teclado (Enter/Space) gratis del
+   browser, sin JS de teclado a mano. Clic en CUALQUIER parte del control
+   (triángulo o label, están en el MISMO elemento) dispara el mismo toggle
+   — nunca dos manejadores separados que puedan doble-disparar. Sin hijos
+   (hoja): `--leaf` es un `<span>` NO interactivo — sin cursor de puntero,
+   sin foco, clic no hace nada (owner live QA: "leaf rows must not appear
+   expandable"). */
+.dashboard-table-toggle {
+  display: inline-flex; align-items: center; border: 0; background: transparent; padding: 0;
+  margin: 0; font: inherit; color: inherit; text-align: left; user-select: none;
+}
+button.dashboard-table-toggle { cursor: pointer; }
+button.dashboard-table-toggle:hover { color: var(--gold); }
+button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 2px; }
+.dashboard-table-toggle.dashboard-table-toggle--leaf { cursor: default; }
+.dashboard-table-toggle .caret { color: var(--gold); font-size: .7rem; width: 14px; display: inline-block; flex-shrink: 0; }
+.dashboard-table-toggle .caret.leaf { visibility: hidden; }
+.dashboard-table-indent { display: inline-block; }
+
+/* Hub status badge — MISMA forma (pill redondeado, dirección de Reporting)
+   para cualquier estado de dominio. Reemplaza `.status-pill` (Reporting) y
+   `.status-badge` (Asignaciones) — dos nombres/formas para el mismo
+   concepto, ahora uno. El primitivo SOLO define mecánica (tipografía/
+   padding/forma/paleta restringida a 4 colores) — el dominio elige la
+   VARIANTE semántica (Asignaciones: activo→green, tentativo→amber,
+   inactivo/otro→grey; Reporting: en curso→green, finalizado→grey,
+   verde/amarillo/rojo→green/amber/red), nunca una ontología cross-dominio
+   nueva. */
+.dashboard-status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
+.dashboard-status-badge--green { background: rgba(46,158,91,.12); color: #2e9e5b; }
+.dashboard-status-badge--amber { background: rgba(200,145,0,.14); color: #c89100; }
+.dashboard-status-badge--red { background: rgba(192,57,43,.12); color: #c0392b; }
+.dashboard-status-badge--grey { background: rgba(122,122,130,.14); color: #7a7a82; }
+/* Punto semafórico discreto del badge de Salud de Cliente (Objetivo 1 — más
+   legible a simple vista que solo texto, sin ser estridente). Hereda el color
+   del badge (`currentColor`), va antes del texto y es `aria-hidden` — la
+   accesibilidad NO depende del color (el texto de la clasificación queda). */
+.dashboard-status-badge .salud-dot { margin-right: 4px; font-size: .8em; line-height: 1; vertical-align: baseline; }
+
+/* Action link — mismo lenguaje visual que `.support-link`/`.support-links`
+   del pipeline de contenido (content_service.py `{{support:...}}`, ver
+   HANDOFF: "Actualizar" de Reporting): borde sutil + flecha dorada en un
+   <span>. NO se reusa esa clase tal cual acá porque sus tokens (`--soft`/
+   `--line`) solo están definidos dentro de `.copilot-panel` (light theme) —
+   fuera de ese contenedor caen al default OSCURO de :root, que en la
+   superficie CLARA de `.module-content` deja el borde casi invisible
+   (mismo motivo que `.dashboard-view-switch` de arriba: colores literales +
+   override `.content-theme-dark`, nunca var(--soft)/var(--line) acá).
+   Alias NEUTRAL — cualquier acción secundaria de un dashboard (no solo
+   Reporting) puede reusarlo. */
+.dashboard-action-link { display: inline-flex; align-items: center; padding: 8px 12px; border: 1px solid rgba(128,128,128,.32); font-size: .74rem; color: #55555c; text-decoration: none; }
+.content-theme-dark .dashboard-action-link { color: #b2b2bc; }
+.dashboard-action-link:hover { border-color: var(--gold); }
+.dashboard-action-link span { margin-left: 8px; color: var(--gold); }
 
 /* Toolbar del Detalle agregado (Staffing Director Priority V2) — control
    numérico de "+N días", recalcula client-side, sin Graph. */
@@ -836,23 +1145,21 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .staffing-detail-toolbar__n input:focus { outline: none; border-color: var(--gold); }
 
 /* Detalle agregado por consultor (default V2) — fila hija visualmente
-   subordinada (fondo sutil + indent), botón de expandir compacto. */
-.staffing-detail__expand-btn {
-  border: 0; background: transparent; cursor: pointer; color: var(--gold); font-size: .72rem;
-  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
-}
+   subordinada (fondo sutil + indent). El botón de expandir/label ahora es
+   el control compartido `.dashboard-table-toggle` de arriba (corrective
+   S.4, ver HANDOFF) — `.staffing-detail__expand-btn` propio se retiró, sin
+   consumidores. */
 .staffing-detail__child-row { background: rgba(128,128,128,.05); }
-.staffing-detail__child-row td:nth-child(2) { padding-left: 26px; }
+.staffing-detail__child-row td:nth-child(1) { padding-left: 26px; }
 
-/* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): sin esto, el
-   layout automático de <table> recalcula el ancho de cada columna según
-   TODAS las filas presentes en el DOM en ese momento — expandir/contraer
-   un consultor cambia qué filas hay, así que la tabla entera "saltaba" de
-   ancho en cada click. `table-layout:fixed` + `<colgroup>` (ver template)
-   fija el ancho desde la primera fila, para siempre — expandir solo
-   revela/oculta filas, nunca reacomoda columnas. Contenido largo envuelve
-   dentro de su columna en vez de forzar un ancho nuevo. */
-.staffing-detail-table { table-layout: fixed; width: 100%; }
+/* Ancho de columna FIJO (pedido del usuario, ver HANDOFF): `table-layout:
+   fixed` (ahora del primitivo compartido `.dashboard-table`, Phase S) +
+   `<colgroup>` propio (ver template) fija el ancho desde la primera fila,
+   para siempre — expandir/contraer un consultor solo revela/oculta filas,
+   nunca reacomoda columnas. `overflow-wrap:anywhere` es la única regla
+   genuinamente propia que queda acá: contenido largo envuelve dentro de su
+   columna angosta en vez de forzar un ancho nuevo (Reporting usa ellipsis
+   en vez de wrap para sus columnas, ver `.dashboard-table td.left`). */
 .staffing-detail-table td, .staffing-detail-table th { overflow-wrap: anywhere; }
 
 /* Timeline mensual — header de meses en grid CSS (8 columnas iguales,
@@ -961,8 +1268,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    label "Ausencias" ya vive en `.staffing-timeline__row-status` (reuso de
    la misma clase que Estado, texto literal en vez de x-text de status) —
    la barra misma no repite el texto, mismo criterio que las barras de
-   asignación. */
-.staffing-absence-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: var(--ink); font-size: .74rem; }
+   asignación. Color explícito (antes `var(--ink)`, contraste insuficiente
+   sobre el fondo rojo tenue en algunos temas — dev override local) + su
+   equivalente en `.content-theme-dark`, mismo criterio que
+   `.staffing-history-error` de arriba. */
+.staffing-absence-error { margin: 8px 0; padding: 8px 10px; border-left: 2px solid #c0392b; background: rgba(192,57,43,.08); color: #1f1f24; font-size: .74rem; }
+.content-theme-dark .staffing-absence-error { color: #e4c9c9; }
 .staffing-timeline__absence-row { opacity: .9; }
 .staffing-timeline__absence-bar {
   position: absolute; top: 50%; transform: translateY(-50%); height: 12px; border-radius: 4px; min-width: 6px;
@@ -1148,6 +1459,12 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 }
 .content-section:hover .section-feedback__bar,
 .catalog-lineage:hover .section-feedback__bar,
+/* Reporting/Asignaciones reusan la MISMA botonera: la barra se ilumina al pasar
+   el mouse por CUALQUIER parte del contenido (owner: en Copilot basta scrollear/
+   mover el mouse en la sección; acá quedaba greyed y solo se activaba sobre el
+   texto). El contenedor de contenido es la "sección" equivalente. */
+#reporting-main-content:hover .section-feedback__bar,
+#staffing-rows:hover .section-feedback__bar,
 .section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;
@@ -1733,4 +2050,68 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .ln-edge--hana { stroke-dasharray: 5 5; opacity: .58; }
 /* Leyenda sutil sobre las punteadas cross-band (publicación HANA→HDLF vía TF). */
 .ln-edge-legend { font: 500 .58rem var(--mono); letter-spacing: .04em; fill: var(--soft); opacity: .72; }
+
+/* HUB CALLOUT PRIMITIVE (movido acá desde content.css — owner directive:
+   "reuse the existing Punch/shared presentation mechanism, DO NOT recreate
+   that visual in Reporting"). Presentación GENÉRICA únicamente — el parser
+   de Markdown `{{callout:tone="..." title="..."}}...{{/callout}}` sigue
+   siendo 100% de Copilot (`content_service.py::callout()`, que arma este
+   MISMO HTML/estas MISMAS clases desde texto). Reporting (`renderHubCallout`
+   en reporting.js) construye la MISMA forma directo desde datos
+   estructurados — nunca finge que su contenido vino de Markdown solo para
+   reusar la presentación. tono default (sin modificador `--tone`) = gris
+   neutro informativo (`--callout-accent: #8b95a5`), MISMO tono que Copilot
+   usa para "Nota metodológica". */
+.callout {
+  --callout-accent: #8b95a5;
+  position: relative;
+  margin: 18px 0;
+  padding: 20px 22px;
+  border: 1px solid color-mix(in srgb, var(--callout-accent) 30%, transparent);
+  border-left: 3px solid var(--callout-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--callout-accent) 9%, var(--card));
+  overflow: hidden;
+}
+.callout--success { --callout-accent: #22a85a; }
+.callout--punch { --callout-accent: #d3a000; }
+.callout--warn { --callout-accent: #d64c5f; }
+.callout__head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.callout__icon { font-size: 1.35rem; line-height: 1; }
+.callout__title { color: var(--ink); font-size: .95rem; font-weight: 800; line-height: 1.25; }
+.callout__body { color: var(--soft); }
+.callout__body p { margin: 0 0 10px; color: inherit; }
+.callout__body p:last-child { margin-bottom: 0; }
+.callout-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.callout-list li { position: relative; padding-left: 19px; color: inherit; }
+.callout-list li::before { content: "✓"; position: absolute; left: 0; color: var(--callout-accent); font-weight: 800; }
+.callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
+.callout-row .callout { height: 100%; margin: 0; }
+@media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
+
+/* HUB CHART TOOLTIP PRIMITIVE (owner request — Rentabilidad: "los tooltip
+   debieran ser una experiencia transversal... en asignaciones renderizamos
+   un tooltip propio que amerita respetar"). MISMO diseño visual/mecanismo
+   que `.staffing-timeline__tooltip` (staffing_dashboard.html) — caja
+   flotante CSS puro revelada por :hover/:focus, sin librería — pero
+   desacoplado de la POSICIÓN específica de la barra de Staffing (esa usa
+   `position:absolute` propio de su Gantt; acá el anchor es cualquier
+   contenedor `position:relative`, MISMO patrón que `.bar-row` de
+   Rentabilidad). Nueva clase (no un rename de la de Staffing): Staffing
+   queda intacto, cero riesgo de regresión ahí — el objetivo es que
+   CUALQUIER gráfico futuro del Hub pueda optar a este MISMO tooltip sin
+   reinventar la caja. */
+.chart-tooltip-anchor { position: relative; }
+.chart-tooltip {
+  position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  min-width: 200px; max-width: 280px; padding: 8px 10px; border-radius: 6px;
+  background: #1f1f24; color: #f2f2f4; font: 500 .68rem var(--sans); text-align: left;
+  box-shadow: 0 4px 14px rgba(0,0,0,.28); z-index: 30; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .12s ease;
+}
+.chart-tooltip p { margin: 0 0 3px; white-space: normal; }
+.chart-tooltip p:last-child { margin-bottom: 0; }
+.chart-tooltip-anchor:hover .chart-tooltip,
+.chart-tooltip-anchor:focus .chart-tooltip,
+.chart-tooltip-anchor:focus-within .chart-tooltip { opacity: 1; visibility: visible; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }

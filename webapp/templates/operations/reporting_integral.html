@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Tablero Integral · Reporting · Operaciones · Danwor{% endblock %}
+{% block body %}
+{# reporting_integral.html — Reporting Integral (Operations, ver HANDOFF).
+   Navegable como "02 Reporting" en partials/operations_nav.html (Align with
+   Hub backbone corrective) — no es solo URL directa. MISMO shell/grammar
+   que staffing.html (platform_topbar/operations_nav/sidebar_resize_handle,
+   idéntico patrón .app-shell.no-copilot). El contenido de Reporting
+   consume el mismo backbone de dashboard que Staffing/Actividad
+   (dashboard-sticky-header, whatsnew-filters, dashboard-checkbox-group,
+   activity-kpi-grid, dashboard-section draggable/colapsable,
+   staffing-timeline-toolbar para Expandir/Contraer) — solo la
+   visualización de negocio en sí (tree-matrix/data-table/bar-row/
+   perspective-switch/experience-tabs) es CSS/JS propio de Reporting, en
+   reporting.css/reporting.js (datos reales hidratados desde SharePoint/
+   Graph — arrays hardcodeados sirven SOLO de estado inicial pre-
+   hidratación, reemplazados en el lugar apenas resuelve el primer fetch,
+   ver INITIAL LOAD CONTRACT en reporting.js).
+
+   Hub Visual Consistency corrective (ver HANDOFF): el drawer de mapeo
+   12→6 páginas se retiró de la UI operativa — era un artefacto de
+   desarrollo/assessment, no un control de producto (los artifacts en
+   artifacts/reporting-integral-v0/ siguen intactos, esto solo tocó la UI
+   visible en /operaciones/reporting/integral). #}
+<div
+  x-data="copilotLayout('reporting')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Reporting</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      {# "V0" retirado del título (Typography/Structure corrective, ver
+         HANDOFF); "Preview" retirado del eyebrow (Productionization sweep —
+         Reporting Integral ya es producto real con datos en tiempo real
+         desde SharePoint, ver hero-lead abajo, no una superficie de
+         preview): eyebrow = solo el nombre del módulo, MISMO primitivo que
+         el "Staffing" de Asignaciones, sin un tratamiento de título
+         separado. #}
+      <p class="eyebrow">Reporting</p>
+      <h1>Tablero Integral</h1>
+      <p class="hero-lead full-page-subtitle">Analítica integral de mantenimiento, proyectos, rentabilidad, horas vendidas, participación comercial, calendario y horas productivas, con datos en tiempo real desde SharePoint.</p>
+    </section>
+
+    <div class="reporting-integral-preview">
+      <nav class="experience-tabs" id="reporting-experience-tabs"></nav>
+      <div id="reporting-main-content" class="reporting-main"></div>
+    </div>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='reporting.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='reporting.js') }}?v={{ static_version }}"></script>
+{% endblock %}

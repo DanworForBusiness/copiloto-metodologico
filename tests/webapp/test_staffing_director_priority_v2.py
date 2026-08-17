@@ -429,9 +429,14 @@ def test_lazy_history_watcher_triggers_once_and_merges_by_assignment_id():
 
 
 def test_grouping_switch_uses_one_timeline_implementation():
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF): el
+    # botón único con label dinámico (`groupToggleLabel()`) fue retirado a
+    # favor de un segmented switch (.dashboard-view-switch) que muestra
+    # ambos modos a la vez — `setGrouping(mode)` es la primitiva real única
+    # (no-op si ya está en ese modo); `toggleGrouping()` sigue como wrapper.
     assert 'groupBy: "consultant",' in _APP_JS
     assert "toggleGrouping()" in _APP_JS
-    assert "get groupToggleLabel()" in _APP_JS
+    assert "setGrouping(mode) {" in _APP_JS
     # Una sola definición de timelineGroups (no dos timelines paralelos).
     assert _APP_JS.count("get timelineGroups() {") == 1
     assert "rowGroupSecondaryLabel(row)" in _APP_JS
@@ -516,8 +521,17 @@ def test_dashboard_template_has_dashboard_key_for_generic_drag_reorder():
 
 
 def test_dashboard_template_has_gold_grouping_button_distinct_from_expand_collapse():
-    assert 'class="staffing-timeline__group-toggle"' in _DASHBOARD_HTML
-    assert 'x-text="groupToggleLabel"' in _DASHBOARD_HTML
+    # Hub Dashboard Contextual View Control corrective (ver HANDOFF): el
+    # botón único `.staffing-timeline__group-toggle` fue reemplazado por un
+    # segmented switch (.dashboard-view-switch, compartido con Reporting)
+    # con dos botones Consultor/Proyecto — sigue siendo un control DISTINTO
+    # de Expandir/Contraer todo, solo que ahora muestra ambos modos a la vez
+    # en vez de un label dinámico.
+    assert 'class="dashboard-view-switch"' in _DASHBOARD_HTML
+    assert "@click=\"setGrouping('consultant')\"" in _DASHBOARD_HTML
+    assert "@click=\"setGrouping('project')\"" in _DASHBOARD_HTML
+    assert "expandAllConsultants()" in _DASHBOARD_HTML
+    assert "collapseAllConsultants()" in _DASHBOARD_HTML
 
 
 def test_dashboard_template_has_n_days_control_defaulting_to_35():
@@ -537,9 +551,16 @@ def test_dashboard_template_detail_table_has_fixed_column_widths():
     # Pedido del usuario: la tabla no debe reacomodar columnas al
     # expandir/contraer un consultor — table-layout fijo + colgroup, nunca
     # el layout automático (que recalcula anchos según qué filas hay).
-    assert 'class="admin-table staffing-detail-table"' in _DASHBOARD_HTML
+    # Phase S (ver HANDOFF "REPORTING INTEGRAL — REAL DATA"): migrado del
+    # primitivo `admin-table` (pensado para el panel oscuro de Copilot) al
+    # primitivo Hub compartido `.dashboard-table` — MISMO que consume
+    # Reporting.
+    assert 'class="dashboard-table staffing-detail-table"' in _DASHBOARD_HTML
     assert "<colgroup>" in _DASHBOARD_HTML
-    assert _DASHBOARD_HTML.count("<col style=") == 10
+    # 9 columnas visibles (corrective S.4, ver HANDOFF): el toggle de
+    # disclosure ya no es una columna propia — vive DENTRO de la celda
+    # Consultor (`.dashboard-table-toggle`), mismo contrato que Reporting.
+    assert _DASHBOARD_HTML.count("<col style=") == 9
     assert "table-layout: fixed" in (
         Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css"
     ).read_text(encoding="utf-8")
@@ -561,11 +582,38 @@ def test_detail_table_column_widths_favor_disponibilidad_over_projection_column(
     # el ancho.
     colgroup = _DASHBOARD_HTML[_DASHBOARD_HTML.index("<colgroup>"): _DASHBOARD_HTML.index("</colgroup>")]
     widths = [int(w) for w in __import__("re").findall(r'width:(\d+)%', colgroup)]
-    assert len(widths) == 10
+    # 9 columnas (corrective S.4, ver HANDOFF): el toggle ya no es una
+    # columna propia, se fusionó dentro de Consultor (ver test dedicado
+    # `test_dashboard_template_detail_table_has_fixed_column_widths`) — los
+    # índices de Proyección/Disponibilidad se corren uno hacia atrás.
+    assert len(widths) == 9
     assert sum(widths) == 100
-    projection_width, disponibilidad_width = widths[5], widths[9]
+    projection_width, disponibilidad_width = widths[4], widths[8]
     assert projection_width < 13  # angostada respecto del ancho previo
     assert disponibilidad_width > 6  # ensanchada respecto del ancho previo
+
+
+def test_hierarchy_disclosure_shares_the_hub_toggle_primitive_not_a_staffing_dialect():
+    # S.4 (owner live QA, ver HANDOFF "shared Hub hierarchy disclosure
+    # interaction"): clic en el triángulo O en el nombre del consultor
+    # deben disparar el MISMO toggle — antes solo el triángulo reaccionaba.
+    # Consume la MISMA clase `.dashboard-table-toggle` que Reporting
+    # (tools.css), nunca un `.staffing-detail__expand-btn` propio.
+    assert "staffing-detail__expand-btn" not in _DASHBOARD_HTML
+    assert 'class="dashboard-table-toggle" @click="toggleDetailGroup(item.toggle_key)"' in _DASHBOARD_HTML
+    assert ':aria-expanded="item.expanded"' in _DASHBOARD_HTML
+    # El toggle y el nombre del consultor viven en LA MISMA celda/control —
+    # ya no en dos <td> separados (uno con el botón, otro con el label).
+    assert '<button type="button" class="dashboard-table-toggle" @click="toggleDetailGroup(item.toggle_key)" :aria-expanded="item.expanded"' in _DASHBOARD_HTML
+    assert '<span x-text="item.consultant_label"></span>' in _DASHBOARD_HTML
+
+
+def test_hierarchy_child_rows_are_not_falsely_expandable_in_staffing():
+    # S.4 (owner live QA: "leaf rows must not appear expandable"): filas
+    # hijo (sin más expansión) usan el `<span>` no interactivo compartido
+    # `--leaf`, nunca un botón — mismo contrato que Reporting.
+    assert 'x-if="!item.is_aggregate"' in _DASHBOARD_HTML
+    assert '<span class="dashboard-table-toggle dashboard-table-toggle--leaf">' in _DASHBOARD_HTML
 
 
 def test_dashboard_template_detail_rows_are_flattened_not_nested_templates():

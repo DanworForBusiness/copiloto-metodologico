@@ -272,9 +272,12 @@ def test_post_dashboard_fragment_contains_filter_kpi_timeline_availability_detai
     # Priority V2, ver HANDOFF): "Asignación" única se reemplaza por dos
     # columnas de capacidad puntual (hoy / +N días).
     assert "Detalle de asignaciones" in text
+    # Phase S (ver HANDOFF "REPORTING INTEGRAL — REAL DATA"): headers de
+    # texto llevan `class="left"` — el primitivo compartido `.dashboard-table`
+    # alinea a la derecha por default (columnas numéricas), como Reporting.
     for column in ("Consultor", "Cliente", "Proyecto", "Estado", "Desde", "Hasta", "Disponibilidad"):
-        assert f"<th>{column}</th>" in text
-    assert "<th>Asignación hoy</th>" in text
+        assert f'<th class="left">{column}</th>' in text
+    assert '<th class="left">Asignación hoy</th>' in text
     assert 'x-text="projectionColumnLabel"' in text
 
 
@@ -384,8 +387,8 @@ def test_post_dashboard_timeline_has_expand_collapse_controls(monkeypatch):
     )
     response = client.post("/operaciones/staffing/asignaciones/data", data={"graph_token": "tok"})
     text = response.text
-    assert "Expandir todo" in text
-    assert "Contraer todo" in text
+    assert "Expandir" in text
+    assert "Contraer" in text
     assert "toggleConsultant(" in text
     assert "expandAllConsultants()" in text
     assert "collapseAllConsultants()" in text
@@ -763,3 +766,47 @@ def test_staffing_diagnostics_stay_verbose_only_and_receive_context(monkeypatch,
     assert diag[0]["module"] == "OP01"
     assert diag[0]["payload"].get("operation") == "initial"
     assert secret_token not in json.dumps(diag[0])            # el token nunca se loguea
+
+
+# --- Feedback transversal de Asignaciones (Shared Hub Feedback) -------------
+
+def test_staffing_feedback_persists_shared_record_and_activity(monkeypatch):
+    saved = {}
+    events = []
+    monkeypatch.setattr(staffing_router.feedback_store, "write_feedback_record",
+                        lambda payload, *, prefix, stamp: saved.update({"payload": payload, "prefix": prefix}))
+    monkeypatch.setattr(staffing_router, "log_activity", lambda event, **kw: events.append((event, kw)))
+    r = client.post("/operaciones/staffing/feedback", data={"rating": "up"})
+    assert r.status_code == 200 and r.json() == {"state": "ok"}
+    # Mismo store compartido que Reporting/Copilot (campo `type`).
+    assert saved["payload"]["type"] == "operations_dashboard"
+    assert saved["payload"]["surface"] == "asignaciones" and saved["payload"]["rating"] == "up"
+    assert saved["prefix"] == "staffing_feedback"
+    # Mismo pipeline de Activity, clasificable como usage para métricas.
+    assert events and events[0][0] == "staffing.feedback"
+    kw = events[0][1]
+    assert kw["scope"] == "operations" and kw["area"] == "staffing"
+    assert kw["feedback_sentiment"] == "positive"
+
+
+def test_staffing_feedback_down_with_comment(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(staffing_router.feedback_store, "write_feedback_record",
+                        lambda payload, *, prefix, stamp: saved.update({"payload": payload}))
+    monkeypatch.setattr(staffing_router, "log_activity", lambda event, **kw: None)
+    r = client.post("/operaciones/staffing/feedback", data={"rating": "down", "comment": "faltó X"})
+    assert r.json() == {"state": "ok"}
+    assert saved["payload"]["rating"] == "down" and saved["payload"]["comment"] == "faltó X"
+
+
+def test_staffing_feedback_requires_session():
+    anon = TestClient(app)
+    r = anon.post("/operaciones/staffing/feedback", data={"rating": "up"}, follow_redirects=False)
+    assert r.status_code in (302, 303)
+
+
+def test_staffing_feedback_rejects_invalid_rating(monkeypatch):
+    monkeypatch.setattr(staffing_router.feedback_store, "write_feedback_record",
+                        lambda payload, *, prefix, stamp: None)
+    monkeypatch.setattr(staffing_router, "log_activity", lambda event, **kw: None)
+    assert client.post("/operaciones/staffing/feedback", data={"rating": "meh"}).status_code == 400

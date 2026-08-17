@@ -6077,6 +6077,2674 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 | Module Identifier Convention V2 — Registry Foundation (Fase 1) | **CLOSED / GREEN** |
 | Module Identifier Convention V2 — Canonical Module Adoption (Fase 2) | **CLOSED / GREEN** |
 | **Module Identifier Convention V2 — alcance actualmente autorizado** | **COMPLETE / GREEN** |
+| Staffing — Vacation/Approved Absence Overlay | **IMPLEMENTED / PENDING CI** |
+| Reporting Integral — Cartera real data (corrección de negocio) | **LIVE VALIDATED / READY** — dato/lineage FÍSICO confirmado por el owner, no reabierto por la QA de performance. **PERO** los cambios de performance/UX más recientes sobre Cartera (main-tab hydration, ventana caliente/fría, persistencia de filtro por perspectiva — sección "-15."/"-16.") TODAVÍA NO tienen confirmación live del owner — ver sección "-17." |
+| Reporting Integral — Phase 0 (loader/geometry/KPI format) + Año facet | **IMPLEMENTATION READY FOR LIVE VALIDATION** |
+| Reporting Integral — Rentabilidad Año/Mes/Estado + Cert-vs-Ejec two-panel | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`bc4c7dd`) — ver §-17 |
+| Reporting Integral — Batch A (4-exp backbone reuse, incl. Salud) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (branch `work/reporting-real-data`) |
+| Reporting Integral — Batch B (Horas Productivas + Rentabilidad, CSV Time Logs) | **IMPLEMENTATION READY FOR LIVE VALIDATION** (`hsAsig` gap documentado) — Batch B 100% CERRADO |
+| Reporting Integral — QA4 rollup reconciliation (Avanti bug) | **CLOSED / GREEN** (fix transversal, 4 consumidores) |
+| **Reporting Integral — estado GLOBAL (post owner live QA de performance/UX/semántica)** | **FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN** — ver sección "-17." (briefing de continuación autoritativo, empieza por ahí) y "-14."/"-15."/"-16." (historial). NUNCA marcar "IMPLEMENTATION COMPLETE" ni "REPORTING COMPLETE" mientras esta fila diga esto. |
+
+## REPORTING INTEGRAL — REAL DATA (branch `work/reporting-real-data`)
+
+> **Sección autoritativa del estado actual de Reporting.** Reemplaza en autoridad
+> al bloque histórico "Reporting Integral V0 = MOCK DATA" de más abajo (queda como
+> registro de la fase V0, ya superada). TODO el trabajo de datos reales vive en el
+> worktree `C:\Users\Joe\DanworWorktrees\reporting-real-data`, branch
+> `work/reporting-real-data` (pusheada a origin). **NUNCA** trabajar en el worktree
+> normal del owner `C:\Users\Joe\ArquitectoDanwor` (ver invariantes al final).
+
+### Commits (en `work/reporting-real-data`, todos pusheados)
+- `6a702c6` — **$select acotado en Proyectos/Cliente/Horas de Cartera**: `perf(reporting): narrow $select on Cartera's Proyectos/Cliente/Horas reads`. Ver sección "-16." abajo.
+- `c4ac77c` — **fix layout Certificadas vs Ejecutadas (matrix-scroll faltante)**: `fix(reporting): wrap Rentabilidad Cert-vs-Ejecutadas detail table in matrix-scroll`. Ver sección "-16." abajo.
+- `a709f0f` — **Ranking Top 5 de Rentabilidad**: `feat(reporting): Top-5 default for Rentabilidad Mejor/Peor performance rankings`. Ver sección "-16." abajo.
+- `c06c3ac` — **auditoría de rollups (3+ niveles, medidas %)**: `test(reporting): extend rollup audit to 3+ level hierarchies and Class B percent measures`. Ver sección "-16." abajo.
+- `edfd2a4` — **fix "Sin dato" en jerarquías con dimensión vacía (Participación)**: `fix(reporting): fallback label for blank hierarchy dimensions (Participacion)`. Ver sección "-16." abajo.
+- `d21e338` — **fix artefacto crudo de punto flotante transversal (Horas Productivas)**: `fix(reporting): close transversal raw-float bypass in the business tree table engine`. Ver sección "-16." abajo.
+- `5a82eb3` — **retiro del botón "Actualizar datos"**: `fix(reporting): remove disruptive explicit refresh button`. Ver sección "-16." abajo.
+- `3915ab7` — **TAB-LEVEL HYDRATION — refresh explícito + tests transversales**: `feat(reporting): explicit per-tab refresh + cross-cutting main-tab hydration contract tests`. Ver sección "-15." abajo.
+- `e76564f` — **TAB-LEVEL HYDRATION — Cartera main-tab + filtro perspective-local + Año hot/cold**: `perf(reporting): main-tab hydration + perspective-local filter state for Cartera`. Ver sección "-15." abajo.
+- `e5fb1d3` — **TAB-LEVEL HYDRATION — ventana caliente de Mantenimiento**: `perf(reporting): hot-window Cartera/Mantenimiento's Horas por proyectos read`. Ver sección "-15." abajo.
+- `4dcc36b` — **P0/P2/P7 + fix CRLF del harness KPI**: `perf(reporting): instrument colaboradores lookup, prove Batch A boundary + single-flight cache`. Ver sección "-14." abajo.
+- `b6f3745` — **P3/P4/P5 + UX1/UX2/UX3 — Cartera lazy-load + contrato Año/Mes**: `perf(reporting): lazy-load filtered Cartera data, split Mantenimiento/Proyecto lifecycle`. Ver sección "-14." abajo.
+- `aed2ab2` — **PERFORMANCE CORRECTIVE — root cause de Horas Vendidas >40s**: `perf(reporting): eliminate 4x redundant Graph fetch in Batch A`. Ver sección "-14." abajo.
+- `779fd83` — **CRITICAL HUB STANDARDIZATION CORRECTIVE — primitivo KPI único**: `refactor(hub): establish single KPI rendering primitive across Reporting`. Ver sección "-12." abajo.
+- `c7ec896` — **Batch A — Salud de Cliente CONECTADA (Correction 2 del owner)**: `feat(reporting): connect client health data (Salud de Cliente)`. **BATCH A = 5/5 backbone conectadas**, estado: **BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION**.
+- `26b18ac` — **QA4 — fix de reconciliación jerárquica (bug "Avanti")**: `fix(reporting): reconcile hierarchical rollup leaf aggregation (Avanti bug)`.
+- `5dcbb58` — **Batch A — Horas Productivas CONECTADA, contradicción de lineage RESUELTA**: `feat(reporting): connect productive-hours data, resolve lineage contradiction`.
+- `5991fdb` — **Batch A — Horas Vendidas/Participación/Calendario CONECTADAS**: `feat(reporting): connect sold-hours, participation, and calendar data`.
+- `c37b56b` — **S.4 CERRADO — PHASE S = CLOSED (contrato de presentación + interacción)**: disclosure jerárquico unificado (`refactor(hub): unify hierarchy disclosure interaction`).
+- `e73f14b` — **Corrective pre-Batch-A CERRADO**: 3 gaps de aceptación de Cartera (`fix(reporting): align canonical Cartera presentation`).
+- `6dd7e99` — Phase S (visual): primitivos Hub compartidos de tabla/badge (`refactor(hub): standardize dashboard table primitives`).
+- `5f88324` — **Cartera live-data VALIDADA/READY** (cierre; retiro de diagnósticos temporales).
+- `765fd53` — discovery + plan de batches de las 5 experiencias restantes (`docs`).
+- `bcf3b5c` — **Phase 0** hardening transversal (loader / geometría de matriz / formateo KPI).
+- `2bfb052` — **corrective del facet Año de Inicio** (multidireccional + prune).
+- (base de Cartera: `b68e0c7` lineage → `2ea606f`/`053c958`/`eb4b8ba`/`97adbb1`/`ed68645`/`0ac6110` → `5f88324`).
+
+### -17. OWNER LIVE QA — CONTINUATION BRIEFING FOR THE NEXT AGENT (READ THIS FIRST — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE / UX / SEMANTIC QA OPEN)
+
+> **✅ RENTABILIDAD — PBIP ↔ HUB SOURCE-PARITY RECONCILIATION** (commit
+> `e32cd91`) — owner live comparison against the PBIP proved Rentabilidad
+> was NOT source-faithful. Golden case (Año=2026, Mes=Junio, Tipo
+> Proyecto=Mantenimiento, Estado=En curso): PBIP showed Vendidas=4,883.00/
+> Certificadas=4,858.00/Trabajadas=4,624.50/Rentabilidad=233.50; Hub showed
+> 5,775/4,858/4.6/4,853.4. Certificadas already reconciled EXACTLY — the
+> other two had independent root causes, both traced against PRIMARY PBIP
+> evidence (`Comparativo.tmdl`, `'Horas  Trabajadas por Mes'.tmdl`, `'Horas
+> por proyectos'.tmdl`, `page.json` of "Analisis Rentabilidad").
+>
+> **RECONCILIATION MATRIX:**
+>
+> | Medida | PBIP source | PBIP fórmula | Hub ANTES | Root cause | Hub DESPUÉS |
+> |---|---|---|---|---|---|
+> | Horas Vendidas | `'Horas por proyectos'[HsVendidas]` (SharePoint, GUID `6c3a8689…`) | `SUM(HsVendidas)`, filtrado por Tipo Proyecto Dash/Status (slicers de página) | Escalar de portfolio, SUM sobre TODOS los proyectos, ignoraba Tipo/Estado/Cliente/Proyecto/CP | Vendidas vive en la MISMA fila que Certificadas (`hsVendidas`/`hsCertificadas`, mismo `get_cartera_facts`) — es igual de atribuible por proyecto, pero un comentario previo asumía lo contrario y lo dejó como escalar fijo | Per-proyecto (`vendByYear`/`vendMonthly`, mismo shape que `certByYear`), fluye por el MISMO facet pipeline que Certificadas/Trabajadas |
+> | Horas Certificadas | `'Horas por proyectos'[Hs certificadas]` (col. fuente `HsFacturadas`, renombrada) | `SUM(Hs certificadas)` | Ya correcto (`get_cartera_facts`, mismo backbone) | — (ya reconciliaba EXACTO, sin cambios) | Sin cambios |
+> | Horas Trabajadas | `'Horas  Trabajadas por Mes'` = `SUMMARIZE('Time Logs Reports', Project, Mes, SUM(HORAS))`, unida a `Comparativo` por `Key_Proyect_desc` (`Upper+sin espacios` del `Project` CRUDO del CSV) | `SUM(Horas Trabajadas)` bajo esa clave normalizada | `get_rentabilidad` unía Cartera↔Time Logs por el TÍTULO RESUELTO exacto (string equality) | El PBIP nunca exige match exacto — normaliza (`Key_Proyect_desc`/`Proyecto_Key`) antes de unir. Proyectos históricos/archivados cuyo texto en Cartera vs. Time Logs difiere solo en mayúsculas/espacios perdían su join bajo el string exacto, colapsando Trabajadas a casi 0 | `cert_by_proyecto`/`trab_by_proyecto` ahora agrupan por `_norm_key(proyecto)` (YA existía en el codebase para el join Facturadas XLSX↔Horas por proyectos, nunca reusado acá) |
+> | Rentabilidad horas | `Comparativo['Diff Cer vs Tr'] = [Total Horas Certificadas] - [Total Horas Trabajadas]` | Resta simple | `certificadas - trabajadas` (ya correcto en fórmula) | Heredaba el error de Trabajadas — la fórmula en sí NUNCA estuvo mal | Automático al reconciliar Trabajadas — sin cambio de fórmula |
+>
+> **Exact DAX measures** (`Time Logs Reports.tmdl`/`Comparativo.tmdl`/`Horas
+> por proyectos.tmdl`, evidencia PRIMARIA):
+> ```
+> // Comparativo — partition calculado, UNION de 4 fuentes por (Mes,
+> // Key_Proyect_desc, Proyecto), GROUPBY→SUMX:
+> column 'Diff Cer vs Tr' = Comparativo[Total Horas Certificadas] - Comparativo[Total Horas Trabajadas]
+>
+> // 'Horas  Trabajadas por Mes' (fuente física real de Trabajadas):
+> partition = SUMMARIZE('Time Logs Reports','Time Logs Reports'[Project],'Time Logs Reports'[Mes],
+>     "Key_Proyect_desc", SUBSTITUTE(UPPER('Time Logs Reports'[Project])," ",""),
+>     "Horas", SUM('Time Logs Reports'[HORAS]))
+>
+> // 'Horas por proyectos' (fuente física real de Vendidas/Certificadas —
+> // SharePoint list GUID 6c3a8689-e7ed-4a2c-b358-10c5ca1b37b8):
+> column Proyecto_Key = Upper(Replace(Proyecto," ",""))   // M, misma normalización
+> column HsVendidas, 'Hs certificadas' (renombrada de HsFacturadas)
+> ```
+>
+> **Por qué Trabajadas caía a ~4.6**: `get_rentabilidad` agrupaba
+> `cert_by_proyecto`/`trab_by_proyecto` por el texto EXACTO resuelto de
+> Proyecto. El PBIP en cambio nunca exige esa igualdad — `Comparativo` une
+> sus 4 fuentes por `Key_Proyect_desc`/`Proyecto_Key`, ambos `Upper+sin
+> espacios` — la MISMA normalización que `_norm_key` ya implementaba en
+> este codebase (usada para el join Facturadas XLSX↔Horas por proyectos,
+> nunca reusada para ESTE join). Un proyecto histórico/archivado (fuera de
+> la lista Proyectos actual) cuyo texto en Cartera y en Time Logs difiere
+> solo en mayúsculas/espacios perdía su join bajo comparación exacta de
+> string — sus horas de Trabajadas quedaban invisibles en `proyectos_rows`,
+> colapsando el total a lo poco que SÍ lograba unir por casualidad.
+>
+> **Por qué Vendidas sumaba +892 de más**: `get_rentabilidad` sumaba
+> `HsVendidas` como un escalar de portfolio (TODOS los `cartera_facts`,
+> ignorando Tipo Proyecto/Estado/Cliente/Proyecto/Client Partner). Un
+> comentario previo justificaba esto diciendo "Vendidas no existe como
+> campo por-proyecto" — evidencia primaria lo desmiente: `HsVendidas` vive
+> en la MISMA fila SharePoint que `Hs certificadas` (`get_cartera_facts`),
+> así que es igual de atribuible/filtrable. El PBIP confirma que DEBE
+> filtrarse — la página "Analisis Rentabilidad" tiene slicers de "Tipo
+> Proyecto Dash" Y "Status" que aplican a Vendidas igual que a Certificadas
+> (ver `page.json`, visuals `9bb2d01b6a60b857bd60`/`f95009c36148b204a046`).
+>
+> **Fix**: (1) `cert_by_proyecto`/`trab_by_proyecto` en `get_rentabilidad`
+> ahora agrupan por `_norm_key(proyecto)` en vez del título exacto —
+> estrictamente MÁS permisivo (solo puede sumar joins que antes fallaban,
+> nunca introduce un falso positivo que el PBIP no consideraría el mismo
+> proyecto). (2) Vendidas se movió a `vendByYear`/`vendMonthly` por
+> proyecto (mismo shape que `certByYear`/`trabByYear`), reemplazando el
+> escalar `vendidasByYear`/`vendidasMonthly` de portfolio — fluye por el
+> MISMO `rentabilidadSelectedRows()` (Estado + CP/Cliente/Tipo/Proyecto +
+> Año/Mes) que Certificadas/Trabajadas, en el KPI tile Y en la matriz
+> mensual de Concepto. "No asignadas a servicios" queda intacta como
+> portfolio fijo (Time Logs de los proyectos placeholder, fuera del
+> universo de Proyectos — sin Tipo/Estado propios que filtrar, el PBIP
+> tampoco lo filtra).
+>
+> **Project-level reconciliation**: no fue posible correr contra datos
+> LIVE (sin acceso a Graph/SharePoint real en este entorno) — la prueba de
+> que el fix realmente rescata joins que el string exacto perdía se hizo
+> con un fixture determinístico (`test_get_rentabilidad_trabajadas_join_
+> uses_normalized_key_not_exact_title`: un proyecto histórico con texto
+> "Proyecto  Legado X" en Cartera vs. "PROYECTO LEGADO X" en Time Logs —
+> el join viejo lo pierde, el nuevo lo une). El owner smoke checklist abajo
+> es el paso que falta para confirmar el caso dorado real.
+>
+> **Ranking**: sin cambios de código — ya derivaba `rentabilidad =
+> certificadas - trabajadas` sobre el MISMO `rows` filtrado
+> (`rentabilidadRanked`), así que hereda la reconciliación automáticamente
+> en cuanto Trabajadas/Vendidas están correctos. No se introdujo ningún
+> factor de ajuste.
+>
+> **Tests**: fixture de join normalizado (arriba); shaping per-proyecto de
+> `vendMonthly`/`vendByYear` (`test_get_rentabilidad_portfolio_monthly_
+> totals_real_grain`, reescrito); harness frontend nuevo
+> (`reporting_rentabilidad_source_parity.node.js`) probando que Vendidas se
+> angosta bajo Tipo Proyecto/Estado exactamente igual que Certificadas
+> (nunca queda en el total de portfolio completo — la prueba directa del
+> defecto real), que Mes enmascara `vendMonthly` igual que cert/trabMonthly,
+> y que `rentabilidadAnioOptions()` deriva años también de `vendByYear`.
+> Ningún test hardcodea los valores 4,883/4,858/4,624.5/233.5 del caso
+> dorado real — todos usan fixtures sintéticas. Suite completa: **1136
+> passed, 9 pre-existing unrelated Staffing/route-contract failures**
+> (mismo set que toda medición previa en esta branch).
+>
+> ### ✅ FINAL RECONCILIATION CORRECTIVE — Horas Trabajadas /1000 espurio (commit `f8a69ce`)
+> Segundo caso golden del owner (2026/**Julio**/Mantenimiento/En curso): PBI
+> Vendidas=4.979 / Cert=3.686 / **Trab=4.568** / Rent=-882; Hub daba Vendidas=
+> 4.979 ✓ / Cert=3.686 ✓ / **Trab=4,6** ✗ / Rent=+3.681,4 ✗. Vendidas y
+> Certificadas YA reconcilian EXACTO (no se tocaron). Único defecto = Trabajadas,
+> 1000× menos (4,6 = 4568/1000 exacto; ranking -508 vs -0,5, -208 vs -0,2 →
+> factor sistemático). **Primera etapa donde 4568→4.568:** `get_time_logs_facts`,
+> campo `horas`. **Causa raíz:** `horas = _num("Duration Decimal") / 1000.0` — el
+> `/1000` era ESPURIO. `Duration Decimal` YA es horas decimales (estándar de
+> export); `_num` sumaba bien (4.568) y el /1000 la achicaba. Prueba de que NO es
+> locale: una sola división 1000× (no doble — un mis-parseo daría ~0,0046).
+> **Fix:** `horas = _num("Duration Decimal")` (sin escala). Rentabilidad + ranking
+> recomputan solos (fórmula/algoritmo intactos). Horas Productivas (mismo source)
+> también corregida en magnitud; su % Incidencia (ratio) no cambia. La nota
+> `HORAS=[Duration Decimal]/1000` de real-data-lineage.md quedó corregida.
+> **Owner smoke (Julio):** Trab debe dar ~4.568, Rent ~-882, Vendidas 4.979 y
+> Cert 3.686 SIN cambio; ranking negativo ~ML -508/Raizen -208/Pluspetrol -121;
+> ranking positivo con magnitudes realistas (no +743/+304). Status: IMPLEMENTATION
+> READY FOR OWNER LIVE RECONCILIATION.
+>
+> **NOT re-measured live**: este entorno no tiene acceso a Graph/SharePoint
+> real — el razonamiento de paridad de fuente está verificado contra los
+> archivos PBIP primarios y fixtures determinísticas, pero confirmar que el
+> caso dorado (2026/Junio/Mantenimiento/En curso) ahora reconcilia
+> numéricamente contra el PBIP real requiere un smoke del owner. Status:
+> **IMPLEMENTATION READY FOR OWNER LIVE RECONCILIATION, NO LIVE VALIDATED.**
+>
+> **Owner smoke checklist**: (1) Año=2026/Mes=Junio/Tipo Proyecto=
+> Mantenimiento/Estado=En curso — Vendidas/Certificadas/Trabajadas/
+> Rentabilidad horas del tile deberían acercarse a 4,883/4,858/4,624.5/
+> 233.5; (2) destildar Tipo Proyecto=Mantenimiento (dejar Todos) —
+> Vendidas/Certificadas/Trabajadas deberían SUBIR (población más amplia);
+> (3) Certificadas debería seguir IDÉNTICO a antes de este fix, en
+> cualquier combinación de filtros; (4) el ranking Mejor/Peor debería
+> mostrar diferencias de magnitud razonable (no +799.2/+539.5/+320.7 como
+> antes); (5) probar un cliente/proyecto con historial 2023-2024 — si
+> Trabajadas seguía en 0 antes de este fix, confirmar que ahora aparece.
+>
+> **Formatting (owner ticket §10, cosmético, documentado NO arreglado en
+> este pase)**: PBIP muestra más decimales que Hub para Horas (ej. 5.422 vs
+> 5.4 en Horas Productivas) — explícitamente NO es el defecto primario, y
+> el ticket pidió documentar la diferencia en vez de tocar formato salvo
+> que una config existente lo soporte limpiamente. Sin cambios acá.
+
+> **✅ HORAS PRODUCTIVAS — SOURCE-PARITY CORRECTIVE** (commit `b79dd91`) —
+> owner did a LIVE side-by-side comparison against the actual PBIP report
+> (not just a live smoke of the Hub in isolation) and found 3 real semantic
+> defects. All three were root-caused against PRIMARY PBIP evidence (the
+> `.pbip`/`.SemanticModel`/`.Report` source files at `E:\Joe\Metodologia\
+> Refactorizacion\Tablero Integral\`), not guessed.
+>
+> **1. LEFT panel's % Incidencia denominator was wrong.** Evidence: for the
+> SAME Cliente/Año, PBI's LEFT ratio implies a denominator ≈50.5 (e.g.
+> Danone 5.422/10.74%≈50.48) while the visible LEFT "Total Horas" KPI is
+> 42.182 — Hub was dividing against the visible panel total, which is
+> WRONG. Root cause found in `Time Logs Reports.tmdl`: LEFT uses `% Hs
+> ejecutadas = DIVIDE(SUM(HORAS), CALCULATE(SUM(HORAS),
+> REMOVEFILTERS(Cliente[Client Partner], Cliente[Frecuencia Actualizacion],
+> Cliente[Permite Adelanto], Cliente[Condicion de Pago], Cliente[Cliente]),
+> REMOVEFILTERS('Time Logs Reports'[Client])))` — a grand total that stays
+> scoped by whatever Año/Mes is externally selected (REMOVEFILTERS never
+> touches Date) but removes ALL Cliente-family filters plus its own
+> identity column. `page.json` has two page-level filters excluding the
+> internal "Danwor" placeholder client (used to log "No Asignadas" hours) —
+> exactly `Cliente[Cliente]` and `'Time Logs Reports'[Client]`, the SAME two
+> columns LEFT's REMOVEFILTERS undoes. So the denominator's CALCULATE
+> reintroduces the placeholder's hours (never shown in any row/KPI) —
+> that's the ≈50.5 vs 42.182 gap, a genuine PBI-side DAX artifact (an
+> over-broad REMOVEFILTERS), not a Hub bug. Reproducing it is what
+> "source-parity" requires here. RIGHT uses the structurally-identical `%
+> Hs ejecutadas2` but REMOVEFILTERS's `Cliente[Cliente + Part]` instead of
+> `[Client]` — a column the page-level Danwor filter never targets, so
+> RIGHT's denominator legitimately equals its own visible total (confirmed:
+> Danone 2.503/14.65%≈17.085 ≈ RIGHT KPI 17.084). The two panels do NOT
+> share one denominator rule — verified via `visual.json` bindings (LEFT
+> pivotTable groups by `Client`/uses `Rank_T2`+`% Hs ejecutadas`; RIGHT
+> groups by `Cliente + Part`/uses `Rank_T3`+`% Hs ejecutadas2`), never
+> retrofitted. Also explains why an explicit-month selection looked correct
+> before this fix: a narrower window is less likely to catch any of the
+> placeholder's sparse hours than the full-year "Todos" window. Fix: new
+> `_shape_horas_productivas_denominador` (`reporting_service.py`) ships a
+> separate Año→[12 months] grand total (Estado/Proyecto/Cliente-blind by
+> design — none of those have any representation in the source DAX) via
+> `get_batch_b`'s new `horasProductivasDenominador` key;
+> `CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR` (frontend) feeds a REWRITTEN
+> `capacidadProductivasTotal(panel)` that reuses the SAME temporal engine
+> (`_maskMeses`/`_applyMonthCap`/`_operationalMonthCap`) already used by
+> `capacidadProductivasSelectedRows`, just against the new source instead of
+> the displayed rows. The numerator/displayed rows (`_shape_horas_
+> productivas`, Danwor-placeholder already excluded, Estado-filtered) are
+> UNTOUCHED — Hours values keep matching PBI exactly, as they already did.
+> **This is a Hub extension the owner explicitly approved reproducing "the
+> denominator must reproduce the source measure semantics" — it is NOT
+> "fixed" to match the visible Total Horas, because that would diverge from
+> the actual PBIP measure.**
+>
+> **2. Año dropdown collapsed to only 2026.** Root cause: SAME root cause
+> as defect #3 below, not a separate frontend facet bug —
+> `capacidadProductivasAnioOptions()` was already correctly Año-blind
+> (`_CAPACIDAD_SELECT_FIELDS` only lists `cliente`/`proyecto`, never
+> `anio_cliente`/`anio_clientePart`, so `facetRowsExcept` structurally never
+> filters by Año), but it DOES filter by `state.capacidadStatus[r.estado]`
+> first — and the OLD default (`En curso` only, `Finalizado` off) excluded
+> almost all historical Time Logs rows, since old projects are almost
+> always `Finalizado` by now. Fixing #3 fixes this as a side effect; no
+> separate frontend change was needed or made.
+>
+> **3. Estado default changed to both checked.** The PBIP page has NO
+> Estado filter at all (confirmed: no slicer/filter targets `Proyectos.
+> Status` anywhere on the page) — Estado is a Hub-only extension (current
+> `Proyectos.Status` applied to historical Time Logs rows, owner-approved).
+> `state.capacidadStatus` default and `resetFilters('capacidad')` both
+> changed from `{ "En curso": true, "Finalizado": false }` to `{ "En
+> curso": true, "Finalizado": true }` — the neutral baseline that
+> reproduces the PBIP's "no filter" behavior. Scoped to Horas Productivas
+> ONLY; Cartera/Rentabilidad/Horas Vendidas/Participación Estado defaults
+> are untouched.
+>
+> **Not changed (explicitly out of scope per ticket):** layout, panel-
+> independent Año/Mes state (already source-faithful — `page.json`'s
+> `visualInteractions` confirm each panel's Año/Mes slicer is `NoFilter`
+> against the other panel, matching the existing architecture), Cliente +
+> Participación semantics, Hours extraction/numerator, decimal display
+> precision (PBI shows more decimals — e.g. 5.422 vs Hub's 5.4 — documented
+> as a cosmetic, non-semantic gap, not fixed).
+>
+> Tests (`test_reporting_batch_b.py` + `reporting_capacidad_ux_corrective.
+> node.js`): denominador shaping reintroduces the placeholder and ignores
+> invalid month/year; `capacidadProductivasTotal` rewritten to source from
+> the denominador object, not rows (source-seam assertion on the function
+> body); a fixture proving LEFT's denominator (240) differs from BOTH the
+> displayed-rows sum (180) and the Proyecto-filtered panel total (120) —
+> `120/240 = 50.0%`, never 66.7% (old wrong behavior) or 100%; Año options
+> survive 3 historical years and stay identical regardless of which Año is
+> selected in either panel (LEFT/RIGHT independence); Estado default is
+> both-checked (regex on the `state` literal), `Limpiar` restores both,
+> narrowing to either single status works in both directions; a source-seam
+> check that `toggleCapacidadMes`/`setFilter` never call `loadBatchBData`
+> (no new fetch on Año/Mes UI changes). Full suite: **1134 passed, 9
+> pre-existing unrelated Staffing/route-contract failures** (same set as
+> every prior measurement in this branch).
+>
+> **NOT re-measured live**: this pass could not connect to real Graph/CSV —
+> the DAX-parity reasoning is verified against the PBIP source files and
+> deterministic fixtures, but confirming the ACTUAL numbers now match
+> (Año=2026/Mes=Todos especially, per the owner's own clue) requires an
+> owner live smoke. See the smoke checklist delivered in the final report
+> for this ticket.
+
+> **✅ HORAS PRODUCTIVAS — LABEL RENAME + TOOLBAR PACKING/ALIGNMENT**
+> (commits `89e3ed4`, `fa51d1e`, `20f02f1`, undocumented until now). Three
+> small owner-driven correctives on top of the visual composition pass
+> below: (1) "Cliente + Part" panel header/column label renamed to "Cliente
+> + Participación" — UI text only, lineage comments describing the PBI's
+> actual `'Cliente + Part'` calculated-column name were left untouched,
+> since they describe the source system, not UI copy; (2) the panel
+> toolbar's `grid-template-columns: auto minmax(0, 1fr) auto` stretched the
+> Mes column to fill all leftover width even though its 12 buttons didn't
+> need it, leaving a large visible gap before Expandir/Contraer — changed
+> to `auto auto auto` so all three groups pack tight from the left, same as
+> every other Reporting toolbar; (3) Expandir/Contraer sat at a different
+> vertical position than Año/Mes because Año/Mes are `.whatsnew-filter`
+> (a label `<span>` stacked above the control via `flex-direction: column`)
+> while Expandir/Contraer have no label — the grid's default `align-items:
+> stretch` made all three items fill the row's full height (as tall as the
+> label+control stack), and `.staffing-timeline-toolbar__actions`'s own
+> `align-items: center` then centered its buttons WITHIN that stretched
+> box, landing between the label text and the real control. Fixed by adding
+> `align-items: end` to `.staffing-timeline-toolbar--panel`, so all three
+> items keep their natural height and share one bottom-edge baseline
+> regardless of label presence.
+
+> **✅ TEMPORAL CONTRACT CORRECTIVE** (commits `3cd5522` backend, `4524a01`
+> frontend, `14936eb` tests) — owner live smoke on the Año/Mes/Estado
+> migration below found real defects, all fixed in this pass:
+>
+> 1. **"Septiembre" in Año dropdown** — root cause: NO point in the
+>    pipeline (backend metadata, backend shaping, frontend options) ever
+>    validated that `A_x00f1_o` actually held a 4-digit year; it's a
+>    free-text/Choice SharePoint column without strict Graph-side schema,
+>    so any non-numeric value present in the source flowed straight
+>    through. Fixed with ONE shared validator on each side:
+>    `_is_valid_anio` (Python, `reporting_repository.py`, regex
+>    `^\d{4}$`) applied at every year-collection point (`_anio_estado_pairs`,
+>    `_shape_horas_vendidas`, `get_rentabilidad`'s two independent year
+>    sources); `_isValidAnioValue` (JS, same regex) as a second line of
+>    defense on `horasVendidasAnioOptions`/`rentabilidadAnioOptions`.
+> 2. **Año offered "Todos"** — removed; Año is single-select now for both
+>    experiences (`horasVendidasAnioField`/`rentabilidadAnioField`), Mes
+>    keeps "Todos" (that's where it belongs).
+> 3. **Current-year future months leaked into the matrix/quarters/totals**
+>    — new shared TEMPORAL DOMAIN CONTRACT block in `reporting.js`
+>    (`_operationalMonthCap`/`_applyMonthCap`/`_sumMonthlyArrays`/
+>    `_diffMonthly`/`_quarterValue`/`_validMesOptions`): months beyond the
+>    real calendar month become `null` (not `0`) when the selected Año is
+>    the actual current year — `null` propagates cleanly through the
+>    ALREADY-established `fmtNum`/`diffCell`/`renderDashboardKpi` null→"—"
+>    contract with zero formatter changes, only the accumulation points
+>    (`sumMonthly`, the Concepto matrix's manual sum) needed to become
+>    null-aware so an all-capped index doesn't silently collapse to a
+>    misleading `0`. Historical years are untouched (full source grain).
+> 4. **Hot window was Horas Vendidas-only** — Rentabilidad now has the
+>    IDENTICAL lifecycle (`hydrateRentabilidadTab`/`rentabilidadLoadedYears`/
+>    `loadRentabilidadAnios`/`loadRentabilidadColdYear`/
+>    `mergeRentabilidadRows`, new `/data/rentabilidad/anios-disponibles`
+>    endpoint reusing `get_horas_anio_estado_pairs`) plus
+>    `include_facturadas=False` (Rentabilidad never reads
+>    `facturadasProyecto` — was downloading the XLSX for nothing, same bug
+>    class already fixed for Cartera in §-14).
+> 5. **Also found and fixed while touching this code** (not in the
+>    original owner list, discovered during implementation): "Limpiar" for
+>    Rentabilidad/Horas Vendidas still routed through the OLD Desde/Hasta
+>    default generator (`YEAR_TO_DATE_EXPERIENCES` still listed both,
+>    leftover from before their Año/Mes/Estado migration) — would have
+>    left `anio`/`mes` unset after a click. Now resets to the sensible
+>    Año/Mes/Estado default explicitly.
+>
+> **NOT re-measured live**: this pass could not connect to real Graph — the
+> `$select`/`$filter`/hot-window mechanics are unit-tested against
+> deterministic fixtures, but the OWNER's own live timing numbers (stage
+> `elapsed_ms` from `danwor.reporting.perf`) are still the only thing that
+> can confirm the actual before/after Rentabilidad load-time improvement.
+> Time Logs' CSV read stays fully unscoped (no request-level filter
+> mechanism analogous to Graph `$filter` for an already-downloaded file) —
+> flagged, not silently declared solved.
+>
+> Full suite after this pass: **1090 passed, 9 pre-existing unrelated
+> Staffing/route-contract failures** (same set as every prior measurement
+> in this branch — see "Test baseline provenance" below, still
+> unresolved/unbisected).
+
+> ### ✅ CLOSE REPORTING (sesión A+B+C) — commits `330bf32` (feedback/activity),
+> `afdbb2b` (perf batch-a lean). Estado del worktree al empezar: LIMPIO — la
+> tarea de Feedback/Activity NO se había empezado (no había trabajo sin
+> commitear que preservar).
+>
+> **A. FEEDBACK + ACTIVITY (`330bf32`) — DONE.** "¿Qué te pareció este reporte?"
+> como ÚLTIMO elemento de las 6 main tabs (Cartera/Rentabilidad/HV/Comercial/
+> Calendario/Horas Productivas), UNO por MAIN TAB, solo en READY (para Horas
+> Productivas queda después de la nota Punch). Reusa capacidades compartidas:
+> `webapp/services/feedback_store.write_feedback_record` (seam mínimo extraído
+> del mecanismo que feedback.py duplicaba; store = FEEDBACK_LOG_DIR, `type:
+> reporting_report`, misma analítica por `type` que Copilot) + endpoint
+> `POST /operaciones/reporting/integral/feedback` que además emite
+> `log_activity('reporting.feedback', scope=operations, area=reporting,
+> feedback_sentiment=...)`. UI: reusa las clases EXACTAS de `.section-feedback*`
+> (tools.css) del feedback de sección de Copilot (a la derecha, sin línea, mono,
+> opacity .4→1 greyed/focus) — pedido del owner de paridad visual.
+> Activity semántica vía beacon `POST .../telemetry` (whitelist + gate VERBOSE +
+> scope/area fijados server-side, mismo modelo que telemetry.py): tab_view,
+> perspective_change, filter_change, filter_clear, cold_year_load, feedback.
+> Nuevo `AREA_REPORTING` en activity_context.
+>
+> **C. PERFORMANCE (`afdbb2b`) — batch-a lean + matriz + causa de Calendario.**
+> Optimización IMPLEMENTADA: el endpoint batch-a hoy sólo sirve Calendario+Salud
+> (categóricas puras sobre Cliente); Horas Vendidas y Participación ya migraron
+> a endpoints scopeados, así que `project_facts` (que forzaba la lectura
+> full-history de "Horas por proyectos" + Proyectos) ya no lo usa nadie ahí →
+> nuevo `get_cliente_dim` (fetch LEAN: solo Cliente + Client Partner). Elimina
+> la lectura más cara del path Calendario/comercial-Salud. **Matriz de
+> dependencias** (fuente real por tab):
+>
+> | TAB | ENDPOINT | GRAPH SOURCES | SCOPE | SHARED |
+> |---|---|---|---|---|
+> | Cartera/Proyectos | /data/cartera (+/anios-disponibles) | Proyectos, Cliente, Horas×proyectos, CP; Proyecto persp +XLSX Facturadas | Mant=hot 2añ +cold lazy; Proyecto=vida completa | fetch propio |
+> | Rentabilidad | /data/rentabilidad | Cartera-facts (Proy+Cli+Horas+CP) + Time Logs CSV | hot 2añ en el lado Cartera-facts (anios); **Time Logs baja TODA la carpeta** (C8) | fetch propio |
+> | Horas Vendidas | /data/horas-vendidas (+/anios) | get_batch_a_facts(hot_years): Proy+Cli+Horas+CP | hot 2añ +cold lazy | comparte adapter get_batch_a_facts (scopeado) |
+> | Participación | /data/participacion | Horas+Cli+CP (scopeado Año/Estado) | hot años multi +cold | endpoint scopeado propio |
+> | Salud (comercial) | /data/batch-a | **get_cliente_dim: SOLO Cliente+CP** (post-opt) | n/a categórica | comparte batch-a con Calendario |
+> | Calendario | /data/batch-a | **get_cliente_dim: SOLO Cliente+CP** (post-opt) | n/a | ídem — preloaded al visitar comercial |
+> | Horas Productivas | /data/batch-b | Time Logs CSV (todos) + colaboradores | carpeta completa | fetch propio |
+>
+> **Causa del preload de Calendario (C9, definitiva):** los triggers
+> `TAB_HYDRATION_TRIGGERS.comercial` y `.calendario` llaman AMBOS
+> `loadBatchAData()`; un fetch puebla CALENDARIO_ROWS + COMERCIAL_SALUD_ROWS.
+> Visitar Comercial (para Salud) hidrata Calendario de yapa. Post-opt es reuse
+> BARATO (una sola lectura de Cliente compartida, sin el hecho pesado) →
+> **mantener** el prefetch (no es acoplamiento accidental caro).
+> **Instrumentación (C10):** `_StageTimer` YA loguea stage-level a
+> `danwor.reporting.perf <label>.<stage> elapsed_ms=.. items=..` + `.total`
+> (labels: cartera, batch_a, cliente_dim, batch_b, rentabilidad, anios_
+> disponibles). **Pendiente medido (owner, needs live Graph):** Rentabilidad
+> ~14s → sospecha principal Time Logs baja toda la carpeta CSV sin scope (C8);
+> evaluar cache request-scoped o selección por fecha. Cartera ~8s → XLSX
+> Facturadas (persp Proyecto). Paralelizar lecturas independientes (Proy/Cli/CP
+> hoy seriales) sólo DESPUÉS de medir. NO se inventó ningún % — ver checklist.
+>
+> **B. RENTABILIDAD RECONCILIATION — fixes presentes (`e32cd91`), FALTA owner
+> live validation.** Los dos correctivos con evidencia PBIP están en HEAD:
+> (1) Trabajadas: join Cartera↔Time Logs por `_norm_key(proyecto)` (Upper+strip,
+> = Comparativo.tmdl del PBIP) en vez de igualdad exacta de título;
+> (2) Vendidas: por-proyecto (`vendByYear`/`vendMonthly`) pasando por los MISMOS
+> facets (Tipo/Estado/…) que Certificadas, no un escalar de portfolio sin
+> filtrar. Caso golden (2026/Junio/Mantenimiento/En curso) debe converger a
+> Vendidas 4.883 / Cert 4.858 / Trab 4.624,5 / Rent 233,5. **Este entorno no
+> tiene Graph vivo → no verificable acá; ver checklist de owner abajo.** Rent =
+> Certificadas − Trabajadas (sin aritmética especial).
+>
+> **CHECKLIST DE OWNER (live):**
+> 1. *Feedback*: entrar a cada tab (READY) → el control aparece abajo a la
+>    derecha, igual que en Copilot. 👍 y 👎 → "¡Gracias!". Verificar un YAML
+>    `reporting_feedback_*.yaml` en `feedback_log/` con `type: reporting_report`,
+>    `report_tab`, `rating`. Con `LOG_ACTIVITY=VERBOSE`, un evento
+>    `reporting.feedback` (scope operations/area reporting) en `activity_*.jsonl`.
+> 2. *Activity*: con VERBOSE, navegar tabs/perspectivas/filtros/año frío → ver
+>    `reporting.tab_view|perspective_change|filter_change|filter_clear|
+>    cold_year_load` en `activity_*.jsonl`.
+> 3. *Rentabilidad recon*: filtros del caso golden → comparar los 4 tiles con
+>    PBIP (4.883/4.858/4.624,5/233,5). Si divergen, mirar `danwor.reporting.perf`
+>    + logs para aislar (source vs filtro vs join).
+> 4. *Perf*: cronometrar cada tab (owner baseline 8/14/9/10/preloaded/7);
+>    Calendario/Comercial deberían bajar (ya no leen Horas por proyectos).
+>    Leer `danwor.reporting.perf *.total` para el desglose por etapa.
+>
+> **✅ RENTABILIDAD = IMPLEMENTATION READY FOR LIVE VALIDATION** (commits
+> `f8db50a` estado en shapes → `7e755e2` estado en `get_batch_a_facts.project_facts`
+> → **`bc4c7dd` vertical completa**). DOM: filter bar muestra Client Partner /
+> Cliente / Tipo Proyecto / Proyecto / **Año / Mes / Estado** — Desde/Hasta
+> REMOVIDOS. Service `get_rentabilidad` con grano POR-AÑO (`certByYear`/`trabByYear`/
+> `vendidasByYear`/`noAsignadasByYear`; Ene-2025≠Ene-2026), colapsado retrocompat.
+> UNA población canónica (`rentabilidadSelectedRows()`/`rentabilidadSelectedPortfolio()`
+> proyectan al Año+Mes) alimenta KPIs/Mejor-Peor/matriz Concepto/Cert-vs-Ejec/
+> detalle/totales. Año single-select faceteado por Estado+selects (default año
+> actual/último; `pruneRentabilidadAnio`), Mes Todos+12, Estado checkbox default En
+> curso. Cert-vs-Ejec = Mantenimiento|Proyecto lado a lado (`activity-grid-2`),
+> todo número por `fmtNum`. Año/Mes con `whatsnew-filter--narrow` (fila no wrappea;
+> aplicado también a Cartera). Suite: 1060 passed / 9 known stale / 1 skipped (venv
+> REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live smoke** de
+> Rentabilidad (no marcar LIVE VALIDATED sin eso).
+>
+> **✅ HORAS VENDIDAS = IMPLEMENTATION READY FOR LIVE VALIDATION** (commit
+> `f60c718`). Misma migración Año/Mes/Estado que Rentabilidad: `_shape_horas_vendidas`
+> ahora con `vendidasByYear` (Jul-2025≠Jul-2026) + `estado`; filter bar Año/Mes/
+> Estado (Desde/Hasta removidos, narrow); `horasVendidasSelectedRows()` = población
+> canónica que alimenta jerarquía (Proyecto / Client Partner), matriz, Total,
+> Mant/Proyecto KPI, Q1-Q4 y Hs Estimadas anuales. Mes=Julio → solo Q3.
+> **Hs Estimadas anuales** = interpretación B (SUM de HsVendidas del período),
+> preservada del V0 — NO es `Proyectos.HorasEstimadasalCierredeProyecto` (columna
+> distinta, no cableada). Perspectiva local (cero fetch tras hidratación). PENDIENTE:
+> owner live smoke.
+>
+> **✅ CORRECTIVO — texto de proyecto recortado a "…" en la matriz** (commit
+> `8d97e2d`). Causa raíz (confirmada reproduciendo markup+CSS real): con
+> `table-layout:fixed` la columna de label jerárquico tomaba el ancho RESIDUAL
+> tras las 12 columnas de mes (88px c/u) y colapsaba hacia ~0px → recortaba el
+> nombre entero. Fix: ancho reservado `th.row-label-col { width: 340px }` (la
+> matriz scrollea horizontal) + `title` con nombre completo en
+> `hierarchyToggleHtml`. Genérico para TODA matriz del Hub. NO era dato vacío
+> (dos hojas hermanas distintas descartan proyecto="").
+>
+> **✅ CORRECTIVO — ventana caliente (2 años) scoped para HV** (commit `2e4e0df`).
+> Regla transversal HOT WINDOW / COLD HISTORY (ya en Cartera) extendida a HV,
+> con la directiva del owner: adapter ÚNICO con SCOPE TEMPORAL OPCIONAL, sin
+> duplicar Graph. `get_batch_a_facts(*, hot_years=None)` rutea la lectura de
+> Horas por proyectos por el MISMO `_fetch_horas_proyectos` de Cartera.
+> `get_horas_vendidas(*, anios=None)` (default = año actual + anterior; lista =
+> año frío) por endpoint propio `/data/horas-vendidas` (+ `/anios-disponibles`,
+> metadata TODOS los tipos vía `_anio_estado_pairs` compartido). HV salió de
+> `get_batch_a`/`batchADataStatus` → **frontera de runtime: visitar HV ya no
+> carga Participación**. Front: ciclo propio `horasVendidasDataStatus` + año
+> frío con single-flight + `mergeHorasVendidasRows` (fusiona `vendidasByYear`
+> por proyecto, nunca duplica fila) + `<select>` de Año que ofrece años fríos
+> desde metadata. Cache por scope = los rows hidratados en el cliente.
+>
+> **✅ PARTICIPACIÓN = IMPLEMENTATION READY FOR LIVE VALIDATION** (this pass —
+> "CONTINUE REPORTING" ticket). Convergió al MISMO mecanismo scoped que
+> Rentabilidad/HV, cerrando la deuda arriba. Dos hallazgos + fix:
+>
+> 1. **ROOT CAUSE de la población dispersa** ("suspiciously few clients"):
+>    `_shape_participacion` dropeaba CUALQUIER Cliente de `cliente_dim` sin
+>    NINGÚN hecho de Horas por proyectos (`if g is None: continue`) — pero
+>    `cliente_dim` (la lista Cliente completa de SharePoint) es la fuente de
+>    verdad de qué clientes EXISTEN, no `project_facts`. NO era un bug de
+>    join (el mismo `EmpresaLookupId → Cliente.id` que Cartera ya usa
+>    probado correcto) — era una regla de negocio demasiado agresiva.
+>    Fix: un Cliente sin hechos SIGUE apareciendo (con mapas vacíos →
+>    0 horas), solo se omite si el nombre no resolvió (`not dim["cliente"]`,
+>    fila sin identidad). Atributos opcionales en blanco (idFrecuencia/
+>    permiteAdelanto/condicionPago) ya llegaban como "" — `buildTree` en el
+>    frontend YA los convierte en "Sin dato" (no era el problema).
+> 2. **Año MULTI-SELECT + Estado + hot/cold**: `_shape_participacion` ahora
+>    bucketiza el numerador por `(año, estado)` — `vendidasByYear`/
+>    `certificadasByYear` son mapas `{anio: {estado: horas}}` (nunca un
+>    escalar pre-sumado) — necesario porque Estado es un atributo de
+>    PROYECTO (`Proyectos.Status`) pero Participación agrega por CLIENTE;
+>    sin este grano, tildar/destildar Estado no podría excluir selectivamente
+>    horas de proyectos Finalizados sin re-fetchear. `get_participacion(*,
+>    anios=None)` (default = ventana caliente, MISMO `_default_hot_years`
+>    que HV/Rentabilidad) + `get_participacion_anios` (reusa
+>    `get_horas_anio_estado_pairs`, CERO duplicación) + nuevos endpoints
+>    `/data/participacion` + `/data/participacion/anios-disponibles`.
+>    Participación SALIÓ de `get_batch_a`/`batchADataStatus` (que ahora solo
+>    sirve Calendario/Salud, categóricas puras). Frontend: `state.
+>    comercialParticipacionAnios` (Set, checkbox multi-select — a diferencia
+>    del single-select de HV/Rentabilidad) + `state.comercialStatus` (Estado,
+>    mismo patrón que `rentabilidadStatus`/`horasVendidasStatus`) +
+>    `comercialParticipacionSelectedRows()` (única función que colapsa los
+>    mapas año→estado→horas a `horasVendidas`/`horasCertificadas` planos,
+>    consumida por FACET_CONFIG.comercial Y el gran total fijo — nunca dos
+>    cálculos paralelos). Tildar VARIOS años fríos de un saque bundlea en UN
+>    request `anios=y1,y2` (`loadComercialParticipacionColdYears`, acepta un
+>    array — HV/Rentabilidad solo lazy-loadean uno a la vez). Años
+>    hidratados se trackean en un Set EXPLÍCITO (`comercialParticipacionLoadedYears`,
+>    no derivado de las filas — un año sin NINGÚN hecho real en NINGÚN
+>    cliente sería indistinguible de "todavía no pedido" si se derivara,
+>    reintentando el fetch en cada render). Denominador gran-total fijo
+>    (REMOVEFILTERS) preservado — Año/Estado son scope real de los datos,
+>    nunca una de las dimensiones que se remueven.
+>
+> Suite: **190 tests de Reporting, 1101 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
+> smoke** de Participación (conteo de clientes antes/después, Año multi +
+> Estado funcionando, hot/cold — no marcar LIVE VALIDATED sin eso).
+>
+> ### ✅ NO ASIGNADAS — FINAL PBIP SOURCE-PARITY CORRECTIVE (commit `04c04f4`)
+> Owner golden case (2026, Task No Asignación): Ene-Ago 130/90/113/152/216/172/
+> 208/59. El subtab Horas Productivas → No Asignadas daba "Sin filas" pese a
+> haber data. **Primera etapa donde desaparecían las filas:** el predicado de
+> `_shape_horas_productivas_no_asignadas` (0 matches). **Causa raíz:** filtraba
+> por 2 PROYECTOS placeholder (`_TIME_LOGS_NO_ASIGNADAS_PROJECTS`), pero el
+> visual del PBI filtra por **TASK** (slicer "01. No Asignación a Servicio en
+> Cliente"). **Fix:** filtra por `_NO_ASIGNADAS_TASK` con match normalizado
+> (`_norm_task`: NFC + whitespace + casefold), source-faithful (conserva el
+> prefijo "01.", no lo strippea). Grano consultor-céntrico preservado.
+> Rentabilidad "No asignadas a servicios" (portfolio, LIVE RECONCILED) y
+> Productivas NO se tocaron. **Punch (§8):** la nota metodológica salió del
+> section analítico (era `<p empty-note>` inline) y reusa el primitivo compartido
+> `renderHubCallout({tone:"punch"})` AFUERA/DESPUÉS del section; jerarquía
+> filtros → section → PUNCH → feedback. **Owner smoke:** 2026/Task No Asignación
+> → filas por consultor con Ene-Ago ~130..59, Total ~1.139 (el screenshot lista
+> 1.140 por mes vs 1.139 total = redondeo). Si sigue en "Sin filas", confirmar
+> el string EXACTO del Task fuente (el match está en `_NO_ASIGNADAS_TASK`, un
+> solo lugar). Status: IMPLEMENTATION READY FOR OWNER LIVE RECONCILIATION.
+>
+> **✅ HORAS PRODUCTIVAS = IMPLEMENTATION READY FOR LIVE VALIDATION** (this
+> pass — "CONTINUE REPORTING" ticket, item E cerrado). "Cliente + Part"
+> resuelto con evidencia PRIMARIA (ver real-data-lineage.md §8ter item 1,
+> leída directamente de `Danwor - Tablero Integral.Report/definition/pages/
+> 7d1191c1e755ac3abe70/visuals/` + `.SemanticModel/definition/tables/Time
+> Logs Reports.tmdl` + `Cliente.tmdl`):
+>
+> 1. **"Cliente + Part" NO es una dimensión de agrupamiento distinta** — es
+>    una COLUMNA CALCULADA (`Time Logs Reports.tmdl` línea 300):
+>    `[Client] &" "& RELATED(Cliente[Porcentaje de Part.])*100`. El
+>    pivotTable derecho (`789c200b688d20a418d8`) reusa el MISMO
+>    RANKX/SUM/REMOVEFILTERS que el izquierdo (`ccdefff9e63140f74665`,
+>    `renderCapacidadProductivas` ya existente) — Rank_T3/'% Hs
+>    ejecutadas2' apuntan `ALLSELECTED`/`REMOVEFILTERS` a la columna
+>    calculada en vez de `[Client]` (patrón típico de PBI para que RANKX
+>    calce con el contexto de fila del visual), NO una fórmula de negocio
+>    distinta. `Porcentaje de Part.` es una columna FÍSICA de Cliente
+>    (`Percentage.Type`, fracción 0-1, valor de referencia ESTÁTICO
+>    asignado por cliente en SharePoint — NUNCA derivado de Horas).
+> 2. **Implementación**: `_shape_horas_productivas` NO shapea un segundo
+>    dataset — cada fila (Cliente×Proyecto) ya trae `porcentajePart`
+>    (fracción×100, redondeada) + `horasByYear` (grano POR-AÑO, `{anio:
+>    [12]}`, MISMO patrón que `_shape_horas_vendidas`). El frontend arma
+>    AMBOS paneles desde las MISMAS `rowsSorted` — izquierdo agrupado por
+>    `cliente`, derecho por un `clientePart` computado ("{Cliente}
+>    {Porcentaje de Part.}%") — vía `.activity-grid-2` (MISMO primitivo que
+>    Rentabilidad Mejor/Peor), cada uno con su PROPIO stateKey/árbol de
+>    expansión independiente. Internal name físico de `Porcentaje de Part.`
+>    NO confirmado todavía (gap documentado, candidatos vía `_first()`,
+>    MISMA convención que el resto de columnas opcionales de Cliente) — a
+>    confirmar en el smoke real.
+> 3. **Año/Mes**: el PBI tiene DOS pares de slicers Año/Mes independientes
+>    (uno por panel, posiciones no solapadas) — el Hub V0 simplifica
+>    ~~deliberadamente a UN filtro Año/Mes COMPARTIDO que controla ambos
+>    paneles~~ — **RETIRADO, ver corrective inmediatamente abajo: esa
+>    simplificación NO estaba autorizada por el owner.** SIN hot/cold (el
+>    CSV completo de Time Logs ya se carga entero, sin mecanismo `$filter`
+>    de Graph aplicable a un archivo ya descargado) — Año SÍ ofrece "Todos"
+>    (colapsa todos los años vía `_sumMonthlyArrays`, MISMO criterio que
+>    Cartera/Mantenimiento, a diferencia de Rentabilidad/HV que lo
+>    retiraron por el hot-window). Gran total fijo
+>    (`capacidadProductivasTotal`) recalculado contra la población
+>    Año/Mes-escopeada, MISMO principio que Estado en Participación.
+>
+> Suite: **215 tests de Reporting, 1106 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`).
+>
+> **✅ HORAS PRODUCTIVAS CORRECTIVE — panel-independent Año/Mes RESTORED**
+> (immediate follow-up ticket, owner: "PRESERVE PBIP PANEL-INDEPENDENT
+> TEMPORAL STATE"). The shared-Año/Mes simplification above was explicitly
+> NOT authorized — primary PBIP evidence (two independent slicer pairs, one
+> positioned over each visual) was already documented but the implementation
+> collapsed them into one shared filter anyway. Fixed:
+>
+> 1. **Panel-independent state**: `state.filters.capacidad` now stores
+>    `anio_cliente`/`mes_cliente` and `anio_clientePart`/`mes_clientePart`
+>    as DISTINCT keys (`capacidadPanelAnioKey(panel)`/
+>    `capacidadPanelMesKey(panel)`) — changing one panel's Año/Mes never
+>    touches the other's. "Shared implementation != shared state":
+>    `capacidadProductivasSelectedRows(panel)`/`capacidadProductivasTotal(panel)`/
+>    `pruneCapacidadProductivasAnio(panel)`/`pruneCapacidadProductivasMes(panel)`/
+>    `capacidadProductivasAnioField(panel)`/`capacidadProductivasMesField(panel)`
+>    are the SAME functions (parametrized by `panel`, never duplicated),
+>    reusing the SAME TEMPORAL DOMAIN CONTRACT primitives
+>    (`_operationalMonthCap`/`_applyMonthCap`/`_maskMes`/`_validMesOptions`/
+>    `_sumMonthlyArrays`) as Rentabilidad/HV/Cartera. `capacidadProductivasColumns(panel)`
+>    replaced the old shared `CAPACIDAD_PRODUCTIVAS_COLUMNS` const — each
+>    panel's % Incidencia now divides against its OWN grand total (a panel
+>    showing a different Año/Mes must never contaminate the other's
+>    denominator). Each panel mounts its own Año/Mes `<select>` pair inside
+>    its own section toolbar (position now faithful to the PBIP: two slicer
+>    pairs, one over each visual) — the shared top filter bar keeps only
+>    Cliente (the one control genuinely shared between both panels, per the
+>    ticket). Resumen now shows two KPI tiles ("Total Horas (Cliente)" /
+>    "Total Horas (Cliente + Part)") since the two panels can now diverge.
+> 2. **`Porcentaje de Part.` internal name — no longer guessed**: the
+>    static candidate tuple was replaced with
+>    `ReportingRepository._resolve_porcentaje_part_field(site_id)`, which
+>    discovers the REAL internal name live from `/lists/{cliente}/columns`
+>    → `displayName` — the EXACT same mechanism already used for Client
+>    Partner (`_resolve_client_partners`). No match ⇒ `""` (fail-soft,
+>    `porcentajePart` reads `0.0`) — never a coded-by-hand fallback anymore.
+>    **Still needs an owner live smoke** to confirm Graph actually returns
+>    a column whose `displayName` is exactly `"Porcentaje de Part."` (or
+>    `"PorcentajedePart."`) for the Cliente list — if the real display name
+>    differs, `CLI_PORCENTAJE_PART_DISPLAY_NAMES` needs one more candidate
+>    added, but the DISCOVERY MECHANISM itself does not change.
+> 3. **Tests**: new `reporting_capacidad_panel_independence.node.js` +
+>    `test_reporting_capacidad_panel_independence.py` prove — with the
+>    REAL runtime functions, not just source-seam string checks — that
+>    changing one panel's Año/Mes never mutates the other's, that both
+>    panels produce IDENTICAL results when given the identical Año/Mes
+>    (proving the shared implementation), and that the "Cliente + Part"
+>    label includes the resolved percentage.
+>
+> Suite after this corrective: **1113 passed / 9 known stale / 1 skipped**.
+>
+> **✅ REPORTING LIVE-QA CORRECTIVE — Participación 0.00% root cause FIXED +
+> Horas Productivas composition rebuilt** (immediate follow-up ticket).
+> Owner live smoke on the two prior passes found ONE real data bug and ONE
+> real layout defect. Both closed:
+>
+> **A. PARTICIPACIÓN — ROOT CAUSE of "127 clientes, TODOS 0.00%"**: the
+> population fix landed correctly (127 real clients render), but
+> `_shape_participacion` produced `vendidasByYear`/`certificadasByYear` as
+> `{anio: number}` (a flat scalar per year) while the frontend
+> (`comercialParticipacionSelectedRows`) had ALWAYS expected `{anio:
+> {estado: number}}` — it does `Object.keys(r.vendidasByYear[anio]).forEach(...)`
+> to sum only the checked Estado buckets. `Object.keys()` on a raw NUMBER
+> returns `[]` (a primitive has no own enumerable keys), so that `.forEach`
+> body NEVER executed — `vendidas`/`certificadas` stayed `0` unconditionally,
+> for every row, regardless of how much real data existed. This was a
+> genuine backend/frontend shape mismatch, not a business-logic bug and not
+> "127 legitimately zero clients." Fix: `_shape_participacion` now buckets
+> the numerator by `(año, estado)` for real (`webapp/services/
+> reporting_service.py`), matching what the frontend already consumed —
+> zero frontend changes needed. Verified end-to-end against the OWNER'S
+> EXACT scenario (Años={2025,2026}, Estado={En curso}) via
+> `reporting_participacion_numerator.node.js` — a client with real "En
+> curso" facts now produces a non-zero numerator, a non-zero fixed
+> denominator, and a non-"0.00 %" rendered percentage; a client whose only
+> facts are "Finalizado" correctly stays at 0 while Estado excludes it and
+> becomes non-zero once Estado includes it (proving Estado genuinely changes
+> contribution, not just cosmetically); Año multi-select aggregates across
+> checked years without mixing in unchecked ones. A full A5 acceptance
+> fixture (`test_participacion_acceptance_end_to_end`) covers 4 Clientes —
+> 3 with qualifying facts across both years/both Estados, 1 with zero facts
+> and a blank optional attribute — proving the Cliente-dimension-vs-active-
+> population distinction holds (all 4 still appear; the zero-fact Cliente's
+> `permiteAdelanto`/`idFrecuencia` come back `""`, never fabricated) and
+> that the shaped output is the raw numerator only, never pre-summed.
+>
+> **B. HORAS PRODUCTIVAS — visual composition corrective**: the business
+> logic (two panels, independent Año/Mes, Cliente vs Cliente+Part) was
+> already correct and untouched. The layout was awkward: Total Horas KPIs
+> floated above both panels instead of belonging to one each, Año/Mes
+> visually detached from the table they filter, Expandir/Contraer crowded
+> left, and the right panel could push past the viewport edge. Fixed by
+> making each panel a genuinely self-contained card: title →
+> Año/Mes + Expandir/Contraer toolbar → its OWN "Total Horas" KPI → its OWN
+> table, all inside a plain (non-interactive, non-draggable)
+> `.dashboard-section`/`.dashboard-section__body` — the SAME bordered-card
+> CSS the rest of the Hub already uses, never a new class, and deliberately
+> NOT `<details>`/`draggable`/`data-section-id` so `initDashboardSections`'s
+> `:scope > .dashboard-section` drag query can never pick up a nested panel.
+> Both panels are built by the exact same `panel(...)` function — no
+> bespoke left/right DOM. Root CSS cause of the overflow: `.activity-grid-2`
+> children default to `min-width:auto`, so a wide `<table>` forces its grid
+> track to grow and pushes the sibling/page — fixed with `.activity-grid-2
+> > * { min-width: 0; }` in tools.css, a fix to the SHARED primitive (used
+> by Rentabilidad Mejor/Peor too), not a Horas-Productivas special case;
+> horizontal overflow now resolves inside each panel's own `.matrix-scroll`.
+> Proven structurally (not just source-seam) by
+> `reporting_capacidad_composition.node.js`, which renders the real
+> `renderCapacidadProductivas()` HTML and asserts: exactly 2 panel
+> containers, each with its own Año/Mes `<select>` pair, its own single
+> "Total Horas" KPI (zero KPIs live outside either panel), its own
+> Expandir/Contraer wired to its own stateKey, no bespoke grid/card CSS
+> class introduced, and the "Cliente + Part" live-resolved percentage
+> labels (e.g. "Danone 6.4%") the owner's screenshot showed are preserved
+> verbatim — that semantic definition was NOT reopened.
+>
+> **Also fixed on user request mid-pass**: the "Horas consumidas por
+> Cliente" and Calendario section headers no longer repeat the hierarchy
+> path ("Cliente › Proyecto (izq.)…" / "ID Frecuencia › Cliente › Client
+> Partner") as their `dashboardSection` count label — both now show
+> `rows.length + " fila(s)"`, the SAME convention Cartera/Proyectos already
+> used (`rows.length + " proyecto(s)"` etc.) — never a bespoke label format
+> per experience.
+>
+> Suite after this corrective: **1119 passed / 9 known stale / 1 skipped**
+> (venv REAL `C:\Users\Joe\ArquitectoDanwor\.venv`). PENDIENTE: **owner live
+> smoke** — confirm Participación shows real non-zero percentages for
+> Años={2025,2026}/Estado={En curso}, confirm both Horas Productivas panels
+> now read as self-contained cards with no overflow at the viewport edge.
+>
+> **Nota rutas:** se agregaron `/data/horas-vendidas`,
+> `/data/horas-vendidas/anios-disponibles`, `/data/participacion` y
+> `/data/participacion/anios-disponibles` — el snapshot de route-surface (ya
+> stale por Staffing) debe regenerarse para incluirlas.
+>
+> **ENTORNO DE TEST:** usar `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe
+> -m pytest` desde el worktree (NO el venv-gate del scratchpad, que quedó corrupto).
+> Baseline conocida: **9 fallas de contrato stale** (route-surface 84→86, topbar
+> staffing selector, staffing grouping/absence retired-impl, Operations sidebar
+> STAFFING nav) — migraciones Hub/Reporting/Staffing ya autorizadas, NO Reporting.
+>
+> **✅ SALUD DE CLIENTE — semáforo + rollup semántico** (commit `c22adf6`).
+> Objetivo 1: `statusPillSalud` solo mapeaba "Verde"/"Rojo" → todo lo demás caía
+> a ámbar (si la fuente real usa Saludable/Regular/Crítico, TODO salía ámbar =
+> síntoma del owner). Fix: `saludScore` reconoce ambos vocabularios (Saludable/
+> Regular/Crítico Y Verde/Amarillo/Rojo), normaliza acentos → 3/2/1/null; badge
+> reusa el primitive compartido `dashboard-status-badge--{green|amber|red|grey}`
+> + punto semafórico discreto aria-hidden. Objetivo 2: `saludRollup(field)` en
+> las 6 columnas — homogéneo→valor fuente; mezcla→promedio de scores→clase
+> (>=2.5 Saludable / >=1.5 Regular / <1.5 Crítico); null no contamina; todos
+> null→Sin dato. Scope acotado a Salud + primitive de badge.
+>
+> **⚠️ DIAGNÓSTICO PENDIENTE — RuntimeError "Response content longer than
+> Content-Length"** (owner: al abrir Horas Productivas Y Cartera/Proyectos, en
+> la terminal). Verificado que el ciclo ASGI de `JSONResponse` calcula el
+> Content-Length CORRECTO (bytes, incluso con acentos — repro con el venv real:
+> 64 declarados = 64 enviados). El error abarca Cartera (endpoint NO tocado en
+> estos tickets) y los 1171 tests pasan por TestClient → **no es una regresión
+> del código de Reporting**. Sospecha: entorno/deploy — `starlette 1.4.1`
+> inusual, o el "wrapper enmascarado"/proxy (ver memoria: cookies server-side
+> SameSite=None) que puede setear su propio Content-Length y desincronizarse.
+> Checklist owner: (1) reiniciar el dev server; (2) confirmar si corre detrás de
+> un proxy/wrapper que agregue Content-Length; (3) `pip show starlette uvicorn
+> fastapi` y comparar con constraints.txt; (4) reproducir sin el wrapper (uvicorn
+> directo) para aislar. NO se aplicó un fix a ciegas.
+>
+> **✅ COMERCIAL INITIAL-HYDRATION REGRESSION FIX** (commit `5ce0751`). Owner
+> live smoke: en la 1ª visita a Participación, mientras mostraba "Cargando datos
+> de Participación…" ya se veían filtros + Limpiar/Actualizar + feedback. Causa:
+> `reportingTabRawStatus("comercial")` = `combine(comercialParticipacionDataStatus,
+> batchADataStatus)` y `combine` daba "ready" si CUALQUIERA lo estaba → batch-a
+> (Salud/Calendario) hidrataba primero → el shell declaraba Comercial hidratado.
+> Fix (1 línea, fuente de verdad del lifecycle): Comercial gatea por la
+> PERSPECTIVA ACTIVA (Participación→comercialParticipacionDataStatus; Salud→
+> batchADataStatus); la hermana warmea en background, el flag es one-way. Feedback
+> ya estaba dentro de la rama hidratada — el guard reportaba ready de más.
+> Harness `reporting_initial_load_contract.node.js` extendido con casos A-E
+> (Comercial). Auditoría §9: resto de tabs OK (single-source o Cartera con activa
+> = fuente más rápida). Status: IMPLEMENTATION READY FOR OWNER LIVE VALIDATION.
+>
+> **✅ SHARED REPORTING INITIAL-LOAD CONTRACT** (immediate follow-up ticket —
+> owner live UX corrective, "APPLY TO ALL REPORTING MAIN TABS"). First-visit
+> behavior was visually inconsistent: tabs + filter bar rendered immediately,
+> while the report body stayed empty with the loader appearing UNDERNEATH the
+> already-interactive filters — never replacing them. Owner rule: during the
+> FIRST hydration of a main tab, show ONLY the Reporting tab navigation + the
+> shared initial loader; filter bar/KPIs/sections/tables stay unrendered
+> (never a disabled/transparent placeholder) until first usable content is
+> ready — then filters + content enter TOGETHER as one stable surface. A
+> SUBSEQUENT scoped/incremental load (cold year, per-perspective status still
+> catching up) must never re-collapse an already-hydrated tab back to that
+> loader-only screen.
+>
+> **State model**: one new one-way flag, `state.reportingTabHydrated[expId]`
+> (`{cartera, rentabilidad, horasvendidas, comercial, calendario, capacidad}`,
+> all `false` initially) — set `true` the first time
+> `reportingTabRawStatus(expId)` reads `"ready"`, and **never reset** after
+> (not by an unrelated perspective still loading, not by a later incremental
+> error). `reportingTabRawStatus(expId)` is the single shared accessor that
+> reuses each experience's EXISTING status field(s) (`rentabilidadDataStatus`,
+> `batchBDataStatus`, etc. — no new duplicated status fields), combining
+> multi-source tabs (Cartera: Mantenimiento+Proyecto; Comercial: Participación
+> +Salud share `batchADataStatus`) with "any ready wins, error only if ALL
+> sources errored."
+>
+> **Shell wiring**: hydration triggers were centralized into one map,
+> `TAB_HYDRATION_TRIGGERS` (`{cartera: hydrateCarteraTab, ...}`), called
+> UNCONDITIONALLY by `render()` on every call regardless of which branch it
+> then takes — this solves the chicken-and-egg problem where hiding content
+> would also silently stop a never-visited tab from ever hydrating. The 6
+> experience dispatchers (`renderCartera`/`renderRentabilidad`/
+> `renderHorasVendidas`/`renderComercial`/`renderCalendario`/
+> `renderCapacidadProductivas`/`renderCapacidadNoAsignadas`) no longer call
+> `hydrateXTab()`/`loadBatchXData()` themselves as their first line — they
+> KEEP their own "if not ready, return an inline loading/error fragment" gate
+> (still needed for progressive per-perspective loads within an already-
+> hydrated tab, e.g. Cartera/Proyecto still catching up while Cartera/
+> Mantenimiento is ready). `render()` itself: trigger hydration → flip the
+> flag if now ready → if hydrated, render `filterBarHtml + RENDERERS[expId]()`
+> together; else render ONLY the shared loader or, if the raw status is
+> `"error"`, the shared error state (`reportingSourceErrorHtml`) — no per-tab
+> `if (tab === "cartera")` branches anywhere in this decision, exactly one
+> shared predicate driven by the state model above.
+>
+> **Tests**: new `reporting_initial_load_contract.node.js` +
+> `test_reporting_initial_load_contract.py` render the REAL `render()`
+> against synthetic state (not a mock of its HTML) and prove: first visit
+> shows tabs+loader with the filter bar and report body genuinely absent from
+> the DOM; the hydration trigger DID fire (status flips `idle`→`loading`
+> synchronously); after first hydration the loader disappears and filter bar
+> + content render together; a tab already hydrated that later regresses to
+> an error status keeps its filter bar visible and never re-shows the
+> loader-only screen (the one-way flag holds); switching perspective inside
+> an already-hydrated tab never re-triggers loader-only mode; returning to a
+> previously-hydrated tab shows filters/content immediately; a tab whose
+> FIRST hydration itself errors shows the shared error state with the filter
+> bar genuinely absent, never a usable-looking filter bar over an empty
+> report. Source-seam tests confirm: no per-tab conditional in `render()`,
+> `TAB_HYDRATION_TRIGGERS` is the one place hydration is triggered from (no
+> dispatcher self-triggers anymore), and `reportingTabHydrated[...]` is never
+> assigned `false` anywhere outside its initial state literal. The 9
+> pre-existing tests that asserted the OLD architecture (hydration trigger
+> inline inside each dispatcher body) were updated to assert the NEW
+> centralized-trigger invariant instead — same stale-test pattern hit in the
+> two prior tickets this session, not a new regression.
+>
+> Suite after this corrective: **1125 passed / 9 known stale / 1 skipped**
+> (same venv as above). PENDIENTE: **owner live smoke** — confirm first
+> visit to each of the 6 main tabs shows tabs+centered "Cargando…" only
+> (no filter bar flash), confirm switching to a historical/cold year on
+> Horas Vendidas/Rentabilidad/Participación keeps the existing filters and
+> table visible with only the incremental loader appearing, never a reset to
+> the initial-loading screen.
+>
+> **✅ HORAS PRODUCTIVAS — 2nd owner live QA pass (Mes multi-select + sortable
+> columns + overflow + toolbar height)**. Four concrete UX defects reported
+> against the two-panel composition from the prior pass, all closed:
+>
+> **A. Mes single-select dropdown → multi-select button row**: the owner's
+> PBIP reference screenshot showed the original visual lets the user tick
+> ANY combination of months at once (Ene/Feb/Mar highlighted together) — a
+> single-value `<select>` can't represent that. `capacidadProductivasMesField`
+> (the `<select>`) is retired; `capacidadProductivasMesButtons(panel)` renders
+> a row of month toggle buttons reusing the EXISTING `.dashboard-view-switch`
+> primitive (same "light when inactive, gold when active" look as the
+> perspective-switch, never a new button class) with a `--multi` modifier
+> (smaller/square, `.dashboard-view-switch--multi`). Selection state moved
+> from `state.filters.capacidad.mes_<panel>` (a string) to
+> `state.capacidadMesesSeleccionados = { cliente: Set, clientePart: Set }` —
+> still panel-independent (same "shared implementation != shared state"
+> principle as Año). New mask helper `_maskMeses(arr, mesesSet)` (empty Set =
+> "Todos", preserving the retired `<select>`'s default exactly) sits beside
+> — never inside — the existing single-value `_maskMes` used by
+> Rentabilidad/HV (their single-select Mes contract is untouched).
+> `pruneCapacidadProductivasMeses(panel)` reconciles stale month selections
+> against the future-month cap on Año change, mirroring
+> `pruneCarteraAnioInicio`.
+>
+> **B. Column headers not sortable**: `Horas`/`% Incidencia` headers are now
+> clickable (`toggleCapacidadProductivasSort(panel)`), toggling
+> `state.capacidadProductivasSortDir[panel]` between `desc` (default — same
+> Rank order as before, zero behavior change until clicked) and `asc`, shown
+> via a `▲`/`▼` indicator. Both columns share ONE direction per panel —
+> `% Incidencia` is a monotonic transform of `Horas` against the panel's
+> fixed total (`pct = horas/total*100`), so sorting by either produces the
+> identical row order; tracking two independent sorts that could disagree
+> would be a lie. Sort is per-panel, matching every other piece of
+> panel-independent state here.
+>
+> **C. Horizontal scrollbar hiding % Incidencia**: root cause was the SAME
+> `th.row-label-col { width: 340px }` used by every full-width Hub table —
+> correct there, but with TWO tables side-by-side in `.activity-grid-2` each
+> panel has roughly half the horizontal room, so 340px+88px+88px routinely
+> exceeded it and `.matrix-scroll` kicked in, scrolling `% Incidencia` off
+> screen. Fixed with a new narrower modifier, `th.row-label-col--panel {
+> width: 190px }` — a modifier of the shared primitive (only these two
+> tables opt in via an extra class), never an override of the 340px Hub
+> default. The existing `text-overflow: ellipsis` on `td.row-label` (already
+> shared Hub-wide) does the actual character trimming — no bespoke
+> JS string-slicing needed; the `title` tooltip still carries the full name.
+>
+> **D. Expandir/Contraer taller than they should be**: root cause was
+> `.staffing-timeline-toolbar`'s default `align-items: stretch` (flexbox
+> default) — with a two-line Año/Mes `<label>` (span + control stacked) as a
+> flex sibling, the single-line Expandir/Contraer buttons got stretched to
+> match its height. Fixed by adding `align-items: center` to the SHARED
+> `.staffing-timeline-toolbar` primitive (used by Staffing's timeline toolbar
+> and every Reporting section toolbar with a perspective-switch/date field) —
+> not a Horas-Productivas-only fix.
+>
+> Tests: extended `reporting_capacidad_composition.node.js` (narrower
+> row-label-col, clickable-header markup present per panel, never
+> cross-wired) + new `reporting_capacidad_ux_corrective.node.js` (real
+> `capacidadProductivasSelectedRows`/`renderCapacidadProductivas` against
+> synthetic fixtures — proves empty-Set-mask still means "Todos" exactly like
+> the retired `<select>`, a single ticked month isolates that month, several
+> ticked months sum only those, each panel's Set is independent, default
+> sort preserves the original Rank, toggling one panel's sort direction
+> flips its row order without touching the other panel's). Updated the 5
+> pre-existing tests that referenced the retired `capacidadPanelMesKey`/
+> `capacidadProductivasMesField` (stale-test pattern, not a regression).
+>
+> Suite after this corrective: **1130 passed / 9 known stale / 1 skipped**.
+> PENDIENTE: **owner live smoke** — confirm both panels show a full row of
+> Ene..Dic toggle buttons (gold when ticked, several tickable at once) with
+> no leftover Mes `<select>`, confirm clicking Horas/% Incidencia headers
+> visibly reorders both panels' Cliente ranking, confirm % Incidencia is
+> visible without scrolling at a normal desktop width, confirm Expandir/
+> Contraer read as normal-height buttons next to Año/Mes.
+>
+> **✅ HORAS PRODUCTIVAS — 3rd owner pass (Año default, Proyecto/Estado
+> filters, Mes structural stability, button rename)**. Four more asks
+> against Horas Productivas, plus a re-confirmation of the SHARED REPORTING
+> INITIAL-LOAD CONTRACT from earlier this session:
+>
+> **A. Año defaults to the current year** on both panels (was `""`/Todos).
+> New `capacidadProductivasDefaultAnio()` (MISMO fallback que
+> `rentabilidadDefaultAnio`/`horasVendidasDefaultAnio`: año actual si está
+> representado, si no el más reciente disponible, nunca blanco) applied
+> once per panel in `loadBatchBData()` on first hydration (never overwrites
+> a year the user already picked) and reused by `pruneCapacidadProductivasAnio`
+> (a year that becomes invalid now falls back to the default, not to
+> blank) and by "Limpiar".
+>
+> **B. Proyecto + Estado added to the shared Productivas filter bar**
+> (Cliente → Proyecto → Estado, left to right). Proyecto reuses the
+> EXISTING multi-directional facet engine (`FACET_CONFIG.capacidad` fields
+> now `[cliente, proyecto]`) — picking a Cliente narrows Proyecto options
+> to that client's projects for free, zero bespoke code. Estado is a new
+> `state.capacidadStatus` checkbox-group (`carteraStatus`/`rentabilidadStatus`
+> pattern, default "En curso" only) that scopes the REAL population — like
+> Año/Mes, never a REMOVEFILTERS dimension — so it also narrows which Años
+> appear as options (`capacidadProductivasAnioOptions`, now faceted exactly
+> like `rentabilidadAnioOptions`: "como en las demas tabs"). Required a
+> backend addition: `estado` didn't exist on Time Logs facts before —
+> `get_time_logs_facts` now reads `Proyectos.Status` (`PROY_ESTADO`) off the
+> SAME `proy` item already joined for `porcentajePart`/cliente (no second
+> fetch), threaded through `_shape_horas_productivas` onto
+> `CAPACIDAD_PRODUCTIVAS_ROWS[].estado`. Proyecto itself stays REMOVEFILTERS
+> (narrows the DISPLAYED rollup, e.g. a Cliente's Horas cell drops from 180
+> to 120 when a Proyecto is picked) while the % Incidencia denominator
+> (`capacidadProductivasTotal`) stays untouched by it — same distinction
+> Cliente already had.
+>
+> **C. Mes toolbar is now structurally stable** — owner: "que la posicion
+> del dropdown de año no cambie de lugar por elegir 2026 y desaparecer
+> meses." Root cause: `.staffing-timeline-toolbar` is `justify-content:
+> flex-end`, so a Mes button GROUP whose width shrank (current-year cap
+> dropping future months from the DOM) pushed the whole row — Año included —
+> further right. Fix: `capacidadProductivasMesButtons` now ALWAYS renders
+> all 12 buttons; months beyond the operational cap get the `disabled`
+> attribute (+ `.dashboard-view-switch--multi button:disabled { opacity:
+> .35 }`) instead of being omitted — same data, constant group width, Año's
+> position never moves.
+>
+> **D. "Expandir todo"/"Contraer todo" → "Expandir"/"Contraer"** — owner:
+> more room in Horas Productivas' tight two-panel toolbar. This text is
+> SHARED Hub-wide (Reporting's `treeToolbarButtons` AND Staffing's own copy
+> in `staffing_dashboard.html`, deliberately kept in sync by an earlier
+> corrective) — shortened in BOTH, never diverged just for Reporting.
+>
+> **Re-confirmed, not re-implemented**: the owner also re-described the
+> SHARED REPORTING INITIAL-LOAD CONTRACT from earlier this session (commit
+> `8497531`, before this Horas Productivas work started) as if it might be
+> missing. Verified it's still fully intact — `TAB_HYDRATION_TRIGGERS`,
+> `state.reportingTabHydrated`, `reportingTabRawStatus`, and `render()`'s
+> hydrated/not-hydrated split are untouched by the two commits since
+> (`f7a6201` and this one) — and that all 7 of the owner's required
+> regression scenarios (first visit, hydration complete, cold year,
+> perspective switch, return to cached tab, first-load error, incremental
+> error) are already covered by `reporting_initial_load_contract.node.js`/
+> `test_reporting_initial_load_contract.py`, all still green. No new work
+> was needed there this pass.
+>
+> Tests: `reporting_capacidad_ux_corrective.node.js` extended with new
+> blocks — Estado scopes both the real population AND the Año options list
+> (mirrors `rentabilidadAnioOptions`), Proyecto narrows a Cliente's rollup
+> without touching the fixed % denominator, `capacidadProductivasDefaultAnio`
+> picks the current year when represented and falls back to the latest
+> available year otherwise (never blank), the Mes toolbar renders exactly
+> 12 buttons for both a historical year (none disabled) and the current
+> year (future months disabled, never fewer than 12), and the filter bar
+> montage order (Cliente → Proyecto → Estado). Updated
+> `tests/webapp/test_staffing_routes.py` for the Expandir/Contraer text
+> shorten.
+>
+> Suite after this pass: **1130 passed / 9 known stale / 1 skipped**
+> (same venv/baseline as every prior pass this session). PENDIENTE: **owner
+> live smoke** — confirm both Año dropdowns start on the current year,
+> confirm Proyecto narrows to the selected Cliente's projects and Estado
+> narrows both the table and the Año dropdown's options, confirm the Año
+> dropdown's horizontal position stays fixed regardless of which year is
+> selected (future months visibly greyed out instead of disappearing),
+> confirm "Expandir"/"Contraer" read correctly in both Reporting and
+> Staffing.
+>
+> **✅ HORAS PRODUCTIVAS — FINAL VISUAL COMPOSITION CORRECTIVE** (owner: "Owner
+> live smoke confirms the functionality is correct... This is a
+> PRESENTATION-ONLY corrective" — explicitly no backend/lineage/temporal-
+> state/filter/loader changes). Four composition defects, all closed:
+>
+> **1/2. Panel toolbar alignment + left indent**: Año/Mes/Expandir-Contraer
+> didn't share a common axis — the base `.staffing-timeline-toolbar` is
+> `justify-content: flex-end`, packing everything right, so Año's left edge
+> never lined up with the title/KPI/table's left edge and depended on how
+> wide the Mes button group happened to be. New modifier
+> `.staffing-timeline-toolbar--panel` (`display: grid;
+> grid-template-columns: auto minmax(0, 1fr) auto;`) replaces flex-end for
+> ONLY the two Horas Productivas panel toolbars — Año (auto), Mes (flexible
+> middle), Expandir/Contraer (auto, wrapped together in one
+> `.staffing-timeline-toolbar__actions` div so they land in the same grid
+> cell) are now three direct grid children, each panel built by
+> `panelToolbar()` instead of the generic `sectionToolbar()` (which
+> concatenates its parts into one blob — incompatible with needing three
+> separate grid items). Every other Reporting/Staffing toolbar
+> (perspective-switch + Expandir/Contraer, no Año/Mes) keeps the base flex
+> behavior untouched. A 640px breakpoint collapses the grid to a single
+> column; `.dashboard-view-switch--multi` gained `flex-wrap: wrap` so the
+> 12 month buttons degrade gracefully instead of clipping.
+>
+> **3. KPI→table spacing**: added `margin-bottom: 12px` to the shared
+> `.activity-kpi-grid` (Hub-wide, reuses the SAME 12px already used as that
+> grid's own internal `gap` — no new arbitrary value) so Total Horas and
+> the table below it have breathing room, everywhere a KPI grid precedes
+> content, not just Horas Productivas.
+>
+> **4/5/6. Horizontal scroll / dead space before Horas / long names**: root
+> cause was TWO overrides in `reporting.css` that outrank anything in
+> `tools.css` by specificity — `.reporting-integral-preview
+> table.dashboard-table { min-width: 900px; }` (correct for the full-width
+> monthly matrices, e.g. Rentabilidad's 12-month columns) and
+> `.reporting-integral-preview table.dashboard-table th.row-label-col {
+> width: 300px; }` — the second one was SILENTLY OVERRIDING the
+> `row-label-col--panel` (190px) modifier added two tickets ago, because a
+> 3-class selector beats a 2-class one regardless of source order or which
+> file loads last. That modifier never actually took effect in a real
+> browser; the earlier "fix" only worked in isolated node-harness string
+> assertions, never live — this is why the owner kept seeing the same
+> symptom. Real fix: a new `.dashboard-table--compact` modifier neutralizes
+> both overrides for ONLY the two Horas Productivas tables
+> (`min-width: 0`, `row-label-col { width: auto }`), combined with an
+> EXPLICIT `<colgroup>` in the table markup — `<col
+> class="dashboard-table-col--flex">` (label, `width: auto`, consumes
+> whatever's left) + two `<col class="dashboard-table-col--compact">`
+> (Horas/% Incidencia, `width: 72px`). A `<col>`'s width wins over ANY
+> `th`/CSS width in `table-layout: fixed` regardless of specificity — this
+> is the SAME documented escape hatch Asignaciones' `.staffing-detail-table`
+> already uses (see the pre-existing comment in `tools.css`), not a new
+> pattern. `row-label-col--panel` (the ineffective modifier) was deleted
+> entirely. The existing `text-overflow: ellipsis` + `title` tooltip on
+> `td.row-label` (Hub-wide, untouched) keeps handling genuinely long names
+> — now against a column that's actually flexible instead of a phantom
+> 300px fixed width.
+>
+> **7/8. Symmetry + responsive**: both panels were already built by the
+> exact same `panel()`/`panelToolbar()` functions before this ticket, so
+> structural symmetry falls out of that by construction — no separate work
+> needed. `.activity-grid-2`'s existing 900px stack breakpoint is
+> untouched; the new 640px toolbar breakpoint and the month row's
+> `flex-wrap` are the only NEW responsive behavior, both additive.
+>
+> Tests: `reporting_capacidad_composition.node.js` extended — both panels
+> use `dashboard-table--compact`, the colgroup's first `<col>` is `--flex`
+> and the other two are `--compact`, `row-label-col--panel` is gone from
+> both the CSS and the JS, the toolbar's three children appear in DOM order
+> Año → Mes → actions, Expandir/Contraer are wrapped together (not two
+> loose grid items). `test_reporting_capacidad_composition.py` checks the
+> `.dashboard-table-col--flex`/`--compact` primitives and the
+> `reporting.css` `--compact` overrides exist with the exact expected
+> values. No brittle pixel-position assertions — all checks are structural
+> (class presence, DOM order, CSS rule existence).
+>
+> Suite after this corrective: **1132 passed / 9 known stale / 1 skipped**.
+> PENDIENTE: **owner live smoke** — confirm Año/Mes/Expandir/Contraer read
+> as one aligned row starting at the same left edge as the title/KPI/table,
+> confirm visible breathing room between Total Horas and the table, confirm
+> both panels fit at normal desktop width with NO horizontal scrollbar and
+> a visibly reduced gap before the Horas column, confirm long project names
+> still read reasonably (via the wider flexible column) with the tooltip
+> covering any genuinely truncated tail.
+
+**Status is NOT "Reporting complete."** Cartera's business-data lineage was
+live-validated by the owner and stays valid. Everything else in this
+section — performance, 3 experiences' filter models, Participación's
+actual data population, Horas Productivas' PBI parity — is OPEN. This
+section is the authoritative entry point; -14/-15/-16 below are the
+historical record of HOW the current code got here and stay useful for
+that, but do not treat their "FIXED"/"CLOSED" language as covering more
+than what each literally describes (e.g. -16's "Participación blank-label
+fix" closed ONE rendering symptom — it did NOT validate that the
+underlying client population/counts are correct; see item D below).
+
+#### Shared Hub principle (why this keeps mattering)
+A Danwor Hub primitive owns GENERIC presentation + interaction. A domain
+experience (Cartera, Rentabilidad, Horas Vendidas, Participación, Horas
+Productivas, Calendario) declares business fields, measures, semantic
+formats, hierarchy, and filters — it never reinvents table styling, hover,
+hierarchy disclosure, KPI markup, numeric formatting, the loader, the
+responsive 2-column grid, faceting mechanics, or tab-hydration mechanics.
+The owner is actively testing for this specifically because earlier passes
+repeatedly produced experiences that *looked* similar while *behaving*
+differently underneath. When implementing items B–E below, reuse
+`FACET_CONFIG`/`facetSelectField`/`facetFilteredRows`/`renderDashboardKpi`/
+`renderBusinessTreeRows`/`.activity-grid-2`/`.matrix-scroll` — do not build
+a parallel mechanism for "just this one experience."
+
+#### Filter/state contract (canonical, already implemented for Cartera — replicate, don't reinvent)
+- `availableOptions(F) = rows filtered by all active filters EXCEPT F`.
+- Defaults (re)apply ONLY at: first hydration of a perspective, "Limpiar",
+  or genuine invalid-selection reconciliation (a facet/data change makes
+  the current selection impossible). Never on a plain perspective switch.
+- A MAIN TAB hydrates once (both internal perspectives, concurrently);
+  switching the internal perspective afterward is local — zero new
+  fetches (see `hydrateCarteraTab()`/§-15 for the reference
+  implementation).
+- Cold historical year: lazy-load once on selection, merge into the
+  existing cache (never `replaceRows`), stays warm for the rest of the
+  page session.
+- Month switching inside an already-hydrated year: local, zero network.
+
+#### Performance principle
+Do NOT declare performance solved because `$select` was narrowed, a cache
+exists, or hot/cold history is in place — those are real, shipped
+improvements, but the owner's own live measurement is the only thing that
+closes this. **Current live observation: Cartera initial hot load ≈ 13
+seconds.** Product target is roughly 5–6 seconds for a normal main-tab
+first load — this is a goal to steer toward with real measurement, NOT a
+hardcoded latency assertion in a test (do not write
+`assert elapsed_ms < 6000`). Next agent must pull actual
+`danwor.reporting.perf` stage timings (`proyectos`/`cliente`/
+`horas_proyectos`/`client_partner`/`shaping`/`.total()`) from the owner's
+live smoke and determine what physically dominates before proposing the
+next optimization — do not guess again without that data.
+
+---
+
+#### A. PERFORMANCE — Cartera ≈13s, still open
+Hot/cold navigation is functionally correct (2026/2025 navigable without
+reload, older years lazy-load, filters survive Mantenimiento↔Proyecto).
+`$select` narrowing (§-16) was a real, safe win but its actual live impact
+is unmeasured. **Do not assume it "solved" the 13s** — get the real
+before/after stage timings first.
+
+#### B. RENTABILIDAD — Año/Mes/Estado filter model — NOT IMPLEMENTED
+Only the ranking Top-5/matrix-scroll/side-by-side polish landed (§-16).
+The core ask is still open: **remove Desde/Hasta, add Año dropdown + Mes
+dropdown (with "Todos") + Estado checkboxes (En curso/Finalizado, default
+En curso only)**, Año defaults to current valid year, Mes defaults to
+Todos, and available Año/Mes must facet against Estado + other active
+filters (canonical `availableOptions(F)`, same mechanism as Cartera's
+`FACET_CONFIG.cartera`). Physical Estado lineage is already known:
+`fact → ProyectoLookupId → Proyectos.Status` — the SAME join Cartera
+already performs, just not yet projected into Rentabilidad's row shape
+(`grep '"estado"' reporting_service.py` → only Cartera's 2 hits today).
+Preserve everything already shipped: Top-5 default, "+ Ver N más"
+affordance, Mejor-left/Peor-right, and the common filtered population
+feeding KPI/ranking/matrix/detail (all four already derive from
+`rentabilidadFilteredProyectos()` — keep that single source of truth when
+Año/Mes/Estado replaces Desde/Hasta as the filter's underlying fields).
+
+#### C. HORAS VENDIDAS — Año/Mes/Estado filter model — NOT IMPLEMENTED
+Same ask, same mechanism: remove Desde/Hasta, add Año/Mes(Todos)/Estado
+(En curso default), current-year/Todos/En-curso defaults, Estado from the
+same `Proyectos.Status` mapping (no new adapter). Performance stays a live
+concern here too — owner previously observed >40s (root-caused as the
+Batch A 4x-redundant-fetch and fixed in §-14, but the experience itself
+has never been re-measured after that fix on a real dataset — do not
+assume "fixed" without a fresh number). Internal Proyecto↔Client Partner
+switch must stay local once the main tab has hydrated (already true today
+— HORASVENDIDAS_HIERARCHY just re-groups the same hydrated rows, verify
+this still holds once the filter model changes).
+
+#### D. PARTICIPACIÓN / COMERCIAL — RESOLVED (this pass + corrective, see "-17" top block)
+~~Still functionally suspect~~ — root cause found and fixed: `_shape_
+participacion` was dropping any Cliente without a matching `project_facts`
+row (`if g is None: continue`), losing valid rows from `cliente_dim` (the
+actual source of truth for which clients exist). Año multi-select
+checkboxes + Estado (default En curso) + hot/cold implemented, converging
+to the SAME scoped mechanism as Rentabilidad/HV. Fixed-denominator
+(`REMOVEFILTERS`) semantics preserved — `comercialPctVendidas`/
+`comercialPctCertificadas` unchanged, still consume the grand total over
+the Año+Estado-scoped population, never a filtered subtotal.
+**LIVE-QA CORRECTIVE (immediate follow-up)**: the owner's smoke of the
+above found ALL percentages rendering as 0.00% for 127 real clients — root
+cause was `vendidasByYear`/`certificadasByYear` shipping as `{anio:
+number}` while the frontend always expected `{anio: {estado: number}}`
+(`Object.keys()` on a number returns `[]`, so the summing `.forEach` never
+ran). Fixed by actually bucketing the backend numerator by `(año, estado)`
+— see the "-17" top block for the full root-cause writeup, proof chain,
+and acceptance test. PENDING: owner live smoke (population counts,
+Año multi + Estado behavior, hot/cold, AND now non-zero percentages for
+Años={2025,2026}/Estado={En curso}).
+
+#### E. HORAS PRODUCTIVAS — PBI parity — RESOLVED (this pass + corrective, see "-17" top block)
+~~Investigated, NOT reworked~~ — primary PBIP evidence read directly from
+the `.Report`/`.SemanticModel` source (page.json Rows/Values + TMDL) and
+implemented. "Cliente + Part" is a calculated column (`[Client] &" "&
+RELATED(Cliente[Porcentaje de Part.])*100`), NOT a distinct grouping
+dimension — the right panel reuses the SAME Rank/Horas/%Incidencia measure
+family as the left, just with an enriched row label carrying each client's
+static reference percentage. Both panels now render side by side via
+`.activity-grid-2` (as originally targeted). Año/Mes are PANEL-INDEPENDENT
+(owner corrective, see "-17" top block "HORAS PRODUCTIVAS CORRECTIVE" —
+the earlier shared-filter simplification was not authorized and was
+reverted; the PBIP's two independent per-panel slicers are now faithfully
+reproduced, one Año/Mes pair per panel toolbar). The `Porcentaje de Part.`
+internal name is no longer guessed either — `_resolve_porcentaje_part_field`
+discovers it live from Cliente's column metadata, same mechanism as Client
+Partner. **LIVE-QA CORRECTIVE (immediate follow-up)**: the owner's smoke
+confirmed the business behavior (`Porcentaje de Part.` resolving live —
+"Danone 6.4%", "Aluar 11.8%") but flagged the COMPOSITION as awkward
+(detached KPIs, floating Año/Mes, right panel overflowing). Rebuilt each
+panel as a self-contained `.dashboard-section` card (title → toolbar →
+KPI → table), fixed `.activity-grid-2`'s `min-width:auto` overflow root
+cause in tools.css — see the "-17" top block for the full writeup. PENDING:
+owner live smoke — confirm both panels now read as clean, symmetric,
+self-contained cards with no viewport overflow.
+
+Also still open, transversal: raw float artifacts (e.g.
+`3.5999999999999996`) were observed LIVE in Horas Productivas even after
+§-16's `renderBusinessTreeRows` fix. Audit formatting in rows, parent
+rollups, totals, KPI tiles, AND tooltips (native `title=` attributes were
+not covered by the §-16 fix — check `rentabilidadBarRow`/
+`certEjecGroupTooltip`-style tooltip builders for a similar raw-number
+interpolation bypass) through the shared `fmtNum`/`renderDashboardKpi`
+path — do not assume §-16 closed every occurrence just because its own
+reported example (table cells) is fixed.
+
+#### Test baseline provenance — 8 vs 9 pre-existing failures — UNRESOLVED, do not silently normalize
+Every full-suite run in this branch, from `aed2ab2` onward (confirmed via
+stash-based isolation testing at multiple points, always the identical 9:
+`test_route_contract.py::test_route_surface_matches_snapshot`,
+`test_platform_topbar.py::test_operations_internal_selector_shows_staffing_identity_disabled`,
+`test_staffing_absence_ui.py::test_toggle_grouping_never_calls_load_absences_again`,
+`test_staffing_director_priority_v2.py::test_grouping_switch_uses_one_timeline_implementation`,
+`test_staffing_director_priority_v2.py::test_dashboard_template_has_gold_grouping_button_distinct_from_expand_collapse`,
+`test_staffing_production_corrective.py::test_15_route_surface_still_84`,
+`test_staffing_production_corrective.py::test_f1_collapse_all_in_consultant_mode_then_switch_to_project_keeps_all_collapsed`,
+`test_staffing_production_corrective.py::test_f4_grouping_switch_never_issues_a_graph_request`,
+`test_workspace_sidebar_frame.py::test_operations_still_renders_its_own_staffing_navigation`)
+— has shown **9**, never 8. An earlier session summary (pre-dating the
+visible transcript of this work) stated "8 pre-existing failures" as the
+baseline at an earlier point in this same branch's history. That earlier
+"8" was never re-verified by direct measurement within this visible
+session — every actual `pytest` run this agent performed, from the very
+first one, already showed 9. **This discrepancy is NOT resolved.**
+Candidate explanations, neither confirmed: (a) the "8" figure was itself
+imprecise (a summarization artifact, not a literally re-run measurement)
+and 9 has been the true count since before this branch's Reporting work
+began; (b) some commit between the "8" measurement point and `aed2ab2`
+introduced a 9th Staffing/route-contract failure as a side effect (all 9
+are Staffing/topbar/sidebar/route-contract — NONE touch Reporting files,
+confirmed by content). Next agent: `git bisect` or manually walk commits
+between the branch's divergence from `main` and `aed2ab2` running the full
+suite at each point to find exactly where (or if) 8 became 9, then either
+fix it (if Reporting-adjacent code caused it) or document definitively
+that it predates all Reporting work (if not). Do not keep re-stating "9
+pre-existing" without this being resolved once — it hasn't been, only
+observed as currently stable.
+
+#### Next agent execution order
+1. Read this section + verify HEAD (`git log --oneline -5`, confirm on
+   `work/reporting-real-data`).
+2. Rentabilidad Año/Mes/Estado (item B).
+3. Horas Vendidas Año/Mes/Estado (item C).
+4. Participación population reconciliation + Año/Estado (item D) — run
+   the join-count audit BEFORE writing filter UI.
+5. Horas Productivas PBIP two-panel parity (item E) — exhaust primary
+   PBIP evidence before writing code.
+6. Continue Cartera/Horas Vendidas performance root-cause optimization
+   with real stage timings from the owner (item A).
+7. Transversal regression audit (float formatting in tooltips especially,
+   per item E's note).
+8. Baseline failure provenance (8 vs 9, above) — bisect or document.
+9. Deliver one consolidated owner smoke checklist covering everything
+   above, not a per-increment checklist each time.
+
+Do not prioritize further cosmetic polish ahead of items 2–6.
+
+### -16. HUB EXPERIENCE POLISH — PERFORMANCE/FILTERS/RENDERING/VISUAL/HORAS PRODUCTIVAS PARITY (PARTIAL — FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner asked for 5 concern groups in one pass. **Completed and pushed**:
+button removal, transversal float-format fix, Participación blank-label
+fix, rollup/aggregation audit (clean result, coverage strengthened),
+Rentabilidad Top-5 ranking, wide-table layout fix, Cartera `$select`
+narrowing. **Deliberately deferred** (documented below with concrete
+continuation notes, not abandoned): the Año/Mes/Estado filter-model
+migration for Rentabilidad/Horas Vendidas, Participación's Año-checkbox
+migration, and the Horas Productivas PBI-parity rework — each is a
+Cartera-UX1-sized effort in its own right and genuinely needs its own
+pass rather than a rushed version bolted onto this one.
+
+#### 1. PERFORMANCE — "Actualizar datos" button removed
+Owner feedback: the explicit per-tab refresh button added in the prior
+corrective (§-15) broke the filter bar's action-row layout (wrapped to a
+second row) and wasn't wanted in this form — the pre-existing
+"Actualizar↗" SharePoint link already covers "get fresher data". Removed
+the button AND its entire now-dead invalidation mechanism
+(`invalidateExperience`/`EXPERIENCE_INVALIDATORS`/`idleIfNotLoading`)
+rather than leaving unused code. 4 tests that covered that mechanism were
+replaced with a regression guard confirming it stays removed.
+
+#### 2. PERFORMANCE — Cartera ~13s hot-load, continued investigation
+With the hot-window (§-15) already bounding "Horas por proyectos" to
+current+previous year, the remaining cost is: Proyectos/Cliente dimension
+reads (small, unbounded — correct, they're not time-series) + Client
+Partner resolution + shaping. Found and fixed one more real, SAFE win:
+`get_cartera_facts` requested the FULL item body (every SharePoint system
+metadata field) for Proyectos/Cliente/Horas, when the shaping code reads
+only a handful of named fields from each. `$select` narrows the Graph
+response to exactly those fields — this can only shrink per-item payload,
+never drop/filter a row, so it carries none of `$filter`'s indexing risk.
+The one real risk (a candidate lookup name — `HP_PROYECTO_LOOKUP`/
+`HP_EMPRESA_LOOKUP`/`CLI_CP_LOOKUP` are each "try both forms, never
+confirmed against live Graph") is guarded by the SAME never-break fallback
+pattern already proven for `$filter`: any `$select` failure degrades to
+the full unselected read. `_fetch_horas_proyectos`'s existing `$filter`
+fallback was ALSO hardened to drop `select` on its own fallback path (it
+previously kept re-passing the same possibly-broken `select`, which could
+have failed a second time with no further safety net).
+
+No further Graph-cost reduction is possible without either true `$filter`
+validation (already deferred, needs live Graph) or restructuring the
+SharePoint list itself (out of scope). **Owner smoke**: re-measure Cartera
+first-load with `danwor.reporting.perf` at INFO — expect `proyectos`/
+`cliente`/`horas_proyectos` stage `elapsed_ms` to drop somewhat from
+payload size alone; report the new number so a decision can be made on
+whether `$filter` push-down is still worth pursuing.
+
+#### 3. RENDERING — Participación "sparse values, missing text" (BLANK-LABEL SYMPTOM FIXED — POPULATION CORRECTNESS STILL OPEN, see "-17." item D)
+Root cause: Participación's real PBIP hierarchy (ID Frecuencia > Permite
+Adelanto > Condición de Pago > Cliente, confirmed via
+page_inventory.json/PBIR — see the dataset comment above
+`COMERCIAL_PARTICIPACION_ROWS`) has 3 dimensions that are OPTIONAL on real
+Cliente records — always populated in the V0 mock, frequently blank in
+production SharePoint data. `buildTree` used the raw (possibly empty)
+string as BOTH the grouping key and the display label — a blank category
+produced a tree node with an invisible label: a clickable row with a
+caret and no visible text, reading as "missing" even though the row
+carries real horasVendidas/horasCertificadas underneath. Fix: grouping
+still uses the raw value (blank rows keep collapsing into one node
+together); only the DISPLAY label now falls back to "Sin dato". Applies
+transversally everywhere `buildTree` feeds a hierarchy (Cartera,
+Capacidad/Productivas, Comercial), not just Participación. The
+`_shape_participacion` join itself (clienteId-keyed, same pattern as the
+already-validated Cartera join) was re-audited and found structurally
+sound — no evidence of a join-key bug, only the blank-dimension rendering
+gap.
+
+#### 4. RENDERING — raw float artifact in Horas Productivas (FIXED, transversal)
+Reported artifact: `3.5999999999999996`. The prior KPI-primitive
+corrective (§-12) closed the raw-number bypass in `renderDashboardKpi` and
+in monthly-matrix footers, but never touched `renderBusinessTreeRows` —
+the shared table engine behind Cartera, Capacidad/Productivas, and
+Comercial/Participación's non-monthly business tables. Numeric columns
+without an explicit `formatFn` (Hs Trabajadas/Certificadas/Vendidas/
+Facturadas, Horas) rely on `sumField` returning a RAW number ON PURPOSE —
+`renderDashboardKpi`/`carteraKpiTiles` format it exactly once, and
+formatting it a second time inside `sumField` itself would double-format
+totals ≥ 1000 and reproduce the already-fixed S.3 "Diff Hs KPI blank" bug.
+So the fix lives at the render BOUNDARY instead:
+`renderBusinessTreeRows` now runs any `content` that is still a raw
+`number` through `fmtNum(hours)` as the LAST step before touching the
+DOM, leaving pre-formatted strings (`diffCell` HTML, percent strings,
+status pills) untouched. Closes the bug class for every current and
+future numeric column in that engine. `0` now renders as `"0"`, never
+blank, per the established convention. New
+`reporting_table_formatting.node.js` executes the REAL primitive against
+the exact floating-point noise pattern (`1.2+1.2+1.2 ===
+3.5999999999999996` in JS) plus the 0-render contract.
+
+#### 5. AGGREGATION AUDIT — transversal review, clean result
+Owner: "don't assume prior fixes (QA4 'Avanti') covered every case."
+Extended `reporting_rollup_reconciliation.node.js` with a 3-level
+hierarchy case (matching Participación's real shape) proving an
+INTERMEDIATE node's rollup equals the sum of its own direct children —
+not the root total, not a sibling's — and a Class B percent-measure case
+proving the numerator is summed across the filtered subtree and divided
+by the fixed denominator exactly once, never averaging already-computed
+per-row percentages. **Both pass against the existing engine unmodified**
+— this is a coverage-strengthening exercise with a clean audit result,
+not a bug fix. The rollup engine already generalizes correctly to deeper
+hierarchies and percentage measures.
+
+#### 6. VISUAL — Certificadas vs Ejecutadas table squeeze (FIXED)
+Was the ONLY `table.dashboard-table` in the file missing the
+`.matrix-scroll` wrapper (`overflow-x:auto`) that every sibling wide table
+already uses. With `table-layout:fixed` + 4 fixed-width numeric columns
+(88px each) + a compact Tipo column (100px), the one flexible column
+(Proyecto) had no overflow escape valve and got forced to compress instead
+of the table scrolling horizontally like every other detail/matrix table
+in Reporting. Fixed by reusing the existing shared wrapper (zero new CSS)
+— a one-off width hack was explicitly avoided per the ticket's own
+instruction. Added a transversal regression test asserting every
+`table.dashboard-table` in the file is preceded by `.matrix-scroll`, so a
+future new table can't silently omit it again.
+
+#### 7. VISUAL — Rentabilidad rankings (verified, then improved)
+Mejor (left) / Peor (right) side-by-side via `.activity-grid-2` — verified
+still correct from the prior corrective (§-14), no regression. Added the
+requested Top-5 default: both panels now show the top 5 by rentabilidad
+with a "+ Ver N más" / "Ver menos" toggle (reuses `.dashboard-action-link`,
+same visual language as "Actualizar", no new component) that only appears
+when there are actually more than 5 to reveal. Mejor/Peor keep independent
+expand state. The bar-width scale (`maxAbs`) still comes from the combined
+Mejor+Peor ranking computed once by the caller — both panels stay on one
+comparable scale instead of each rescaling to its own visible subset (a
+subtle correctness requirement: without this, a "peor" project at −50
+could render with the same bar width as a "mejor" project at +500).
+
+#### 8. DEFERRED — Rentabilidad/Horas Vendidas Año+Mes+Estado filter migration
+Not implemented this pass. Scope is genuinely as large as Cartera's own
+UX1 corrective (§-14): needs dependent-options logic (Año options depend
+on Estado, Mes options depend on Año+Estado), defaults (Año=current,
+Mes=Todos, Estado=En curso), and — critically — a **backend shaping
+change that doesn't exist yet**: `estado` is currently populated ONLY on
+Cartera's `_mantenimiento_rows`/`_proyecto_rows` output (verified via
+`grep '"estado"' reporting_service.py` — exactly 2 hits, both Cartera).
+Rentabilidad's `RENTABILIDAD_PROYECTOS`-shaped rows and Horas Vendidas'
+`HORASVENDIDAS_ROWS`-shaped rows carry NO `estado` field at all today,
+even though the underlying `project_facts`/Cartera facts they're built
+from already have it. Adding Estado-aware filtering to these two
+experiences means projecting `estado` into `_shape_horas_vendidas` and
+Rentabilidad's project-grouping method first — straightforward, but real
+work, not a UI-only change. **Continuation point for the next pass**:
+add `estado` to both shapes → mirror Cartera's `FACET_CONFIG` dependent-
+options pattern (Año `{key,field}` participating in reconciliation, Mes
+`{key,field,predicate}` exempt from it, same as Cartera/Mantenimiento) →
+replace the `desde`/`hasta` fields in `FACET_CONFIG.rentabilidad`/
+`FACET_CONFIG.horasvendidas` → new Año/Mes/Estado filter bar fields →
+tests mirroring `test_reporting_cartera.py`'s Año/Mes suite.
+
+**Annual/monthly accumulation vs. selected period** (owner's explicit PBIP
+concern, re-verified before deferring the rest): ALREADY correct, not a
+new bug. `renderRentabilidadResumen`'s KPI tiles (Horas Certificadas/
+Trabajadas/Rentabilidad horas) already recompute from
+`rentabilidadFilteredProyectos()` — the date-filtered set — confirmed by
+the Q2 corrective (§-13/HANDOFF) with PBIP evidence that none of
+Reporting's measures have DAX proof of being filter-independent. Horas
+Vendidas/No asignadas stay at fixed portfolio level (no per-project field
+exists for them) but ARE masked by the active date range via `monthMask`
+— this is the PBIP-verified, already-implemented exception, not an
+oversight. This behavior will carry over unchanged once Año/Mes replaces
+Desde/Hasta (masking derives from whatever the active period resolves to,
+regardless of which UI control set it).
+
+#### 9. DEFERRED — Participación Año multi-select checkboxes
+Not implemented. Real finding, not a scoping shortcut: Participación's
+real PBIP pivotTable (confirmed in the dataset comment above
+`COMERCIAL_PARTICIPACION_ROWS`, from page_inventory.json/PBIR) has NO
+Año/Mes axis at all — Rows are ID Frecuencia/Permite Adelanto/Condición de
+Pago/Cliente, and `_shape_participacion` aggregates each Cliente's
+horasVendidas/horasCertificadas across ALL time into one lifetime total
+(same pattern as Horas Vendidas/Rentabilidad, see §-15's hot-window
+audit). There is no per-row year to filter by without re-deriving one
+that the source report doesn't have, and no PBIP evidence for what
+"Estado" would even mean at the Cliente grain (Estado lives on Proyectos,
+one Cliente can have both En curso and Finalizado projects
+simultaneously). Forcing this filter model onto Participación would be
+inventing a business rule the source doesn't support — explicitly against
+this ticket's own instruction. If the owner wants year/estado narrowing
+here anyway, it needs an explicit product decision on the aggregation
+grain first (e.g., "sum only En-curso projects' hours"), not a code
+change.
+
+#### 10. DEFERRED — Horas Productivas PBI parity rework
+Investigated, not reworked. Owner's PBI reference describes two visuals:
+Cliente, and Cliente + Participación. Current implementation
+(`renderCapacidadProductivas`) already groups Cliente › Proyecto with a
+Rank-by-Horas-desc order (documented as matching the PBIP's RANKX
+measure, see the existing comment above `CAPACIDAD_PRODUCTIVAS_COLUMNS`) —
+this maps to the PBI's "Cliente" visual. The SECOND visual ("Cliente +
+Participación") has no confirmed PBIP/lineage evidence in this codebase
+yet for what "Participación" means in this specific Horas Productivas
+context — it is NOT the same "Participación" as the Comercial/
+Participación experience (different page, different measure family per
+real-data-lineage.md). Implementing a second grouping here without
+re-reading the actual PBIP page/TMDL for "Horas Productivas consumidas"
+(or whichever page holds this second visual) would be inventing the
+business rule the ticket explicitly warns against. **Continuation point**:
+locate the exact PBIP page/visual for "Cliente + Participación" in
+Horas Productivas (likely in the same `Horas por proyectos`/Time Logs
+family already documented in real-data-lineage.md §8bis) and confirm
+its measure before adding a second perspective/column.
+
+#### Tests
+`reporting_table_formatting.node.js`/`test_reporting_table_formatting.py`
+(new): raw-float-bypass closure + 0-render contract. `reporting_rollup_
+reconciliation.node.js`: 2 new cases (3-level hierarchy, Class B percent).
+`reporting_rentabilidad_ranking.node.js`/extended `test_reporting_
+rentabilidad.py`: Top-5 default, toggle round-trip, independent Mejor/
+Peor state, shared bar scale, Mejor-before-Peor markup order.
+`test_reporting_main_tab_hydration.py`: explicit-refresh-removed guard,
+transversal matrix-scroll-wrapper guard. `test_reporting_cartera.py`: new
+`$select`-narrowing-applied and `$select`-rejected-falls-back-safely
+cases, widened one pre-existing test's slice window (broke from added
+comments, not from a behavior change).
+
+Full suite: 1050 passed, 9 pre-existing unrelated Staffing/route-contract
+failures (same set as §-15, confirmed unchanged — not a new baseline).
+
+### -15. REPORTING PERFORMANCE CORRECTIVE — TAB-LEVEL HYDRATION + PERSPECTIVE STATE (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner live QA identificó dos defectos arquitectónicos relacionados, más un
+corrective adicional de historia acotada plegado a la misma tanda de
+trabajo (owner: "Do not stop current work to request authorization for
+this addition"):
+
+**A. Estado de filtro perspective-local roto** — Cartera/Mantenimiento
+perdía Año/Mes al ir a Proyecto y volver.
+**B. Hidratación demasiado tardía/granular** — cada MAIN TAB debía
+hidratar UNA vez (ambas perspectivas internas), no re-pagar una espera
+completa nueva al cambiar de perspectiva interna.
+**C. (Addendum) Hot window / cold history** — Cartera/Mantenimiento
+hidrataba TODA la historia (~2023→2026) aunque el default aterriza en el
+año/mes calendario actual.
+
+#### Causa exacta del reset de filtro de Mantenimiento (A)
+`setPerspective(expId, p)` hacía `state.filters.cartera =
+carteraDefaultFilters(p)` en CADA cambio de perspectiva — no solo en la
+inicialización. Mismo patrón (menos grave, mismos síntomas) en `comercial`
+(`state.filters.comercial = ...`) y en el resto de las experiencias vía un
+`else if (state.filters[expId]) state.filters[expId] = {}` genérico:
+CUALQUIER cambio de perspectiva interna en CUALQUIER experiencia con
+Desde/Hasta (Rentabilidad, Horas Vendidas) borraba esa selección.
+
+#### Modelo de estado — antes vs. después
+**Antes**: `setPerspective` reinicializaba `state.filters[expId]` en cada
+cambio, asumiendo (incorrectamente) que cada perspectiva necesita sus
+propios defaults frescos.
+**Después**: `setPerspective` NUNCA toca `state.filters` — el objeto
+único por experiencia YA soporta múltiples perspectivas sin colisión,
+porque `FACET_CONFIG` selecciona los `fields` correctos según la
+perspectiva ACTIVA (Cartera: `anio`/`mes` solo aplican bajo Mantenimiento,
+`cp`/`proyecto`/`cliente` son compartidos; Capacidad: `cliente`
+[Productivas] vs. `consultor` [No Asignadas], claves distintas, conviven
+sin pisarse). Los defaults corren SOLO en: (1) la construcción inicial de
+`state` (una vez, al cargar el script), o (2) "Limpiar" (`resetFilters`,
+acción EXPLÍCITA del usuario). Un cambio de perspectiva nunca dispara
+ninguno de los dos. No se introdujo namespacing por perspectiva
+(`state.filters.cartera.Mantenimiento = {...}`) porque no hacía falta —
+las claves ya son mutuamente exclusivas por diseño del propio
+`FACET_CONFIG`.
+
+#### Reconciliación de facets — sigue aplicando, pero solo ante invalidez real
+Cambiar de perspectiva NUNCA reconcilia/podá nada (no hay razón — nada se
+volvió inválido). La reconciliación real sigue disparando en 2 momentos,
+sin cambios de criterio: (1) el usuario toca un facet (`setFilter`/
+`toggleCarteraStatus`/`toggleCarteraAnioInicio`, ya llamaban
+`reconcileExperienceFacets`); (2) datos reales terminan de hidratarse por
+primera vez (NUEVO: `loadCarteraMantenimiento`/
+`loadCarteraMantenimientoColdYear` ahora llaman
+`reconcileExperienceFacets("cartera")` en su `then` — antes NO lo hacían,
+así que un default calendario sin ningún hecho real bajo el Estado activo
+podía quedar seleccionado sin podar hasta que el usuario tocara algo a
+mano).
+
+#### Contrato MAIN-TAB HYDRATION (B) — 1 hidratación por tab, perspectivas locales
+**Hallazgo clave**: de las 6 experiencias, SOLO Cartera tenía el defecto
+real de re-hidratación — Rentabilidad/Horas Vendidas/Participación-
+Comercial/Calendario/Horas Productivas YA hidratan sus 2 perspectivas
+internas con UN ÚNICO fetch compartido (`rentabilidadDataStatus`/
+`batchADataStatus`/`batchBDataStatus`, ver commits previos de esta serie)
+— cambiar de perspectiva interna en esas 5 SIEMPRE fue local (confirmado,
+nunca corregido porque nunca estuvo roto — ver tests nuevos en
+`test_reporting_main_tab_hydration.py`). El defecto vivía SOLO en Cartera,
+introducido por el corrective P5 de la sesión anterior: split
+Mantenimiento/Proyecto en 2 fetches INDEPENDIENTES, cada uno gateado LAZY
+(solo se disparaba al activar esa perspectiva) — exactamente lo que causó
+el "segundo ~15s al entrar a Proyecto".
+
+**Fix**: `hydrateCarteraTab()` — la PRIMERA activación de CUALQUIER
+perspectiva de Cartera dispara AMBOS fetches (`loadCarteraMantenimiento`/
+`loadCarteraProyecto`) + la metadata de años (ver C abajo) de una vez,
+concurrentes (JS `fetch` no bloqueante — llamarlos uno tras otro ya los
+corre en paralelo). El render de la perspectiva ACTIVA sigue gateado SOLO
+por SU status (progresivo — Mantenimiento nunca espera a Proyecto, que es
+más lento por la XLSX). Para cuando el usuario cambia a Proyecto,
+normalmente ya está tibio.
+
+#### Single-flight (ya existía, documentado/testeado ahora explícitamente)
+Cada `load*` pone su status en `"loading"` como PRIMERA sentencia síncrona
+antes de cualquier `await` — un segundo render mientras el fetch está en
+vuelo nunca ve `"idle"`. `hydrateCarteraTab()` se llama en CADA render de
+Cartera (gratis, ya que verificar 3 strings es O(1)) sin romper esto.
+
+#### EXPLICIT REFRESH — "↻ Actualizar datos" (nuevo, distinto de "Actualizar↗")
+El "Actualizar" preexistente es un link EXTERNO a SharePoint (para que el
+owner edite la fuente — Reporting es de solo lectura, nunca escribe). Se
+agregó un botón SEPARADO "↻ Actualizar datos" (`invalidateExperience`,
+`EXPERIENCE_INVALIDATORS`) — invalida SOLO el status del main
+tab/source-family correspondiente (nunca global: Cartera/Rentabilidad/
+Capacidad tienen status independientes; horasvendidas/comercial/
+calendario comparten `batchADataStatus` A PROPÓSITO — genuinamente
+comparten un único fetch físico). `idleIfNotLoading()` evita pisar un
+fetch ya en vuelo con "idle" (evitaría un segundo fetch concurrente,
+rompiendo single-flight). La selección de filtros del usuario NUNCA se
+toca acá — se preserva, y se reconcilia normalmente cuando los datos
+frescos llegan.
+
+#### HOT WINDOW / COLD HISTORY (C) — SOLO Cartera/Mantenimiento
+**Causa**: `get_cartera_facts` leía "Horas por proyectos" COMPLETO, sin
+ningún filtro de año — Mantenimiento (grano mensual, default = mes/año
+calendario actual) pagaba el costo de TODA la historia (~2023-2026)
+aunque solo mostrara el mes en curso.
+
+**Fix — filtro Graph con fallback probado en producción**: `hot_years`
+(nuevo param de `get_cartera_facts`) intenta `$filter` OData (`A_x00f1_o
+eq '2026' or A_x00f1_o eq '2025'`) + header `Prefer:
+HonorNonIndexedQueriesWarningMayFailRandomly` — EXACTAMENTE el patrón que
+`staffing_repository._fetch_asignaciones` ya usa en producción para el
+scope operational/historical_inactive de Asignaciones (nunca un filtro
+"a ciegas" — este entorno no tiene acceso Graph real para validar, pero el
+patrón YA está probado por Staffing). Si Graph rechaza el filtro (columna
+no indexada, cualquier fallo de transporte), cae automáticamente a lectura
+completa + filtro en Python — Cartera NUNCA se rompe por una query no
+soportada.
+
+`get_cartera_mantenimiento` resuelve el default a año actual + anterior
+(`datetime.now()`, nunca hardcodeado) cuando el router no recibe `anios`
+explícito. **Proyecto NUNCA recibe ventana** — agrega la VIDA COMPLETA del
+proyecto (certificadas/trabajadas/vendidas son sumas de TODOS los meses
+históricos, ver `_proyecto_rows`); acotarlo rompería ese contrato de
+totales. `get_cartera()` (combo retrocompat) tampoco.
+
+**Años fríos siguen siendo opciones válidas** (nunca se esconden): nuevo
+endpoint liviano `POST /data/cartera/anios-disponibles`
+(`get_cartera_mantenimiento_anio_estado_pairs`, `$select` acotado a
+año+lookup de Proyecto en Horas por proyectos + Tipo/Status en Proyectos
+— NUNCA Cliente/HsTrabajadas/HsVendidas/HsFacturadas/la XLSX) — disparado
+en PARALELO por `hydrateCarteraTab`, nunca bloquea el primer render de
+Mantenimiento. El <select> de Año (`carteraAnioField`/
+`carteraAnioOptions`) une esta metadata con los años YA cargados,
+faceteado por Estado (canónico: "STATUS STILL FACETS YEAR OPTIONS").
+Elegir un año frío dispara `loadCarteraMantenimientoColdYear(anio)`
+(single-flight POR AÑO) que `mergeRows` (nunca `replaceRows`) sobre lo ya
+hidratado — la ventana caliente se preserva, el año frío se agrega y
+queda tibio para el resto de la sesión.
+
+#### Auditoría explícita — ¿aplica hot window a Horas Vendidas/Rentabilidad/Horas Productivas?
+**NO, y no es un descuido — es un hallazgo real de auditoría.** Los 3 son
+contratos de VIDA COMPLETA/agregado, no de año-y-mes como Mantenimiento:
+- `_shape_horas_vendidas` (Horas Vendidas): agrupa `monthly[12]` SOLO por
+  número de mes (`n = _month_num(f["mes"])`, `g["monthly"][n-1] +=
+  f["hsVendidas"]`) — SIN distinguir año. Un proyecto con datos de Marzo
+  2023/2024/2025/2026 los suma TODOS en el mismo `monthly[2]`. Acotar a
+  2 años cambiaría el NÚMERO que el owner ve, no solo la velocidad —
+  sería un bug de datos disfrazado de optimización.
+- `get_rentabilidad`/`certMonthly`/`trabMonthly`: MISMO patrón
+  (`g["certMonthly"][n-1] += f["hsCertificadas"]`, sin año).
+- `_shape_horas_productivas` (Horas Productivas): ni siquiera tiene
+  desglose mensual — `horas` es UN escalar sumado sobre TODO Time Logs sin
+  ninguna dimensión temporal.
+
+Los 3 REQUIEREN historia completa para seguir siendo correctos bajo su
+contrato actual — un hot window ahí sería una regresión de negocio, no
+una mejora de performance. El >40s de Horas Vendidas YA tenía su root
+cause real corregido en el corrective anterior (4x-refetch redundante de
+Batch A, ver sección "-14."); este addendum no encontró una causa
+ADICIONAL ahí. Si el owner quiere ACOTAR el alcance de estas 3 medidas
+(p. ej. redefinir "Horas Vendidas" como año-en-curso en vez de vida
+completa), es una decisión de PRODUCTO explícita — no algo que este
+corrective deba inferir ni forzar.
+
+#### Tests (behavior-based, nunca latencia hardcodeada)
+`test_reporting_cartera.py`: filtro `$filter` aceptado/rechazado-fallback/
+sin ventana, `anio`/`estado` pares distintos y solo-Mantenimiento, default
+de servicio = año actual+anterior, Proyecto/combo nunca reciben ventana,
+router `anios` parseado/omitido, endpoint `anios-disponibles` (auth gate +
+payload + nunca bundleado en la respuesta rápida), `hydrateCarteraTab`
+dispara ambas perspectivas + metadata, Año/Mes ambos con `predicate`
+(exentos de la reconciliación genérica), `pruneCarteraAnio` metadata-
+driven. `test_reporting_main_tab_hydration.py` (nuevo, transversal a las 6
+experiencias): `setPerspective` nunca asigna a `state.filters`,
+Rentabilidad/Capacidad/Horas Vendidas gatean AMBAS perspectivas contra UN
+status compartido (nunca uno por perspectiva fuera de Cartera), la tabla
+de invalidación nunca cruza a un tab no relacionado, ningún invalidador
+pisa un fetch en vuelo, `setExperience` nunca toca ningún status de datos.
+
+#### Commits de esta sección
+`e5fb1d3` (hot window backend), `e76564f` (main-tab hydration + filtro
+perspective-local + Año hot/cold frontend), `3915ab7` (refresh explícito +
+tests transversales). Todos pusheados a `work/reporting-real-data`.
+
+### -14. REPORTING LIVE QA — PERFORMANCE + FILTER CONTRACT + RENTABILIDAD LAYOUT (FUNCTIONALLY CONNECTED — LIVE PERFORMANCE/UX QA OPEN)
+
+Owner reportó en el smoke live: Cartera ~17s de carga inicial (incluso con
+Estado=En curso por default); Horas Vendidas >40s con el loader trabado en
+"Cargando los datos de Horas Vendidas...". Esta sección documenta root
+cause, fix, límites de runtime antes/después, el nuevo contrato Año/Mes de
+Mantenimiento, y los gaps deliberadamente diferidos. **Reporting NO vuelve a
+"IMPLEMENTATION READY FOR LIVE VALIDATION" hasta que el owner confirme esta
+sección con timings reales — usar exactamente el estado FUNCTIONALLY
+CONNECTED — LIVE PERFORMANCE/UX QA OPEN mientras tanto.**
+
+#### Root cause #1 — Horas Vendidas >40s: fetch 4x redundante de Batch A (`aed2ab2`)
+`ReportingService.get_batch_a()` llamaba `self._repository.get_batch_a_facts(access_token)`
+de forma INDEPENDIENTE dentro de CADA UNA de `get_horas_vendidas`/
+`get_participacion`/`get_calendario`/`get_salud` — un solo POST a
+`/data/batch-a` disparaba el MISMO fetch de Graph (Horas por proyectos ×
+Proyectos × Cliente × Client Partner) **4 veces secuenciales**. Fix: fetch
+único en `get_batch_a()`, shaping puro de Python vía 4 métodos privados
+`_shape_*` nuevos (mismo patrón que Batch B). Regresión cubierta por
+`test_get_batch_a_fetches_backbone_exactly_once_not_four_times`
+(`tests/webapp/test_reporting_batch_a.py`).
+
+#### Root cause #2 — Cartera ~17s: XLSX de Facturadas incondicional (`b6f3745`)
+`get_cartera_facts` descargaba/parseaba SIEMPRE la XLSX de Facturadas
+(SharePoint, archivo real — no un GET de lista), incluso para Mantenimiento
+(donde `facturadas == certificadas`, la XLSX es 100% descartada después de
+leerla) y para el default Estado=En curso (que no necesita historia
+Finalizada). Fix: `include_facturadas: bool = True` en `get_cartera_facts`
+(default preserva retrocompat) + split completo Mantenimiento/Proyecto en 3
+capas — repository → `ReportingService.get_cartera_mantenimiento()` (nunca
+XLSX) / `get_cartera_proyecto()` (con XLSX) → router `perspectiva` param →
+frontend `loadCarteraMantenimiento()`/`loadCarteraProyecto()` con status
+independientes (`carteraMantenimientoStatus`/`carteraProyectoStatus`).
+Regresión: `test_include_facturadas_false_never_downloads_xlsx`,
+`test_cartera_endpoint_perspectiva_mantenimiento_calls_only_that_method`
+(`tests/webapp/test_reporting_cartera.py`).
+
+#### P0 — instrumentación de timing (server-side, `danwor.reporting.perf`, INFO)
+`_StageTimer` en `reporting_repository.py` — SOLO loguea `{label}.{stage}
+elapsed_ms=N items=N`, NUNCA token/valores de negocio/body de Graph/
+contenido de archivo. Cubre: `cartera` (proyectos/cliente/horas_proyectos/
+facturadas_xlsx/client_partner/shaping), `batch_a` (proyectos/cliente/
+horas_proyectos/client_partner/shaping), `time_logs` (operaciones_site/
+proyectos/cliente/csv_download_parse/shaping), `colaboradores`
+(colaboradores). Cada uno logea `.total()` al final. **Instrucción de smoke
+para el owner**: reproducir Cartera y Horas Vendidas con el logger
+`danwor.reporting.perf` en INFO y pegar acá las líneas —no hace falta
+exponer el payload de timing en el JSON del browser, los logs de server
+alcanzan.
+
+#### P1/P6 — auditoría de límites de request, respuestas a las 10 preguntas explícitas
+1. **Cantidad de requests al abrir Horas Vendidas**: exactamente UN POST
+   (`/data/batch-a`), gateado por `state.batchADataStatus === "idle"`.
+2. **Endpoints**: solo `/operaciones/reporting/integral/data/batch-a`.
+3. **Llamados a Graph (antes del fix)**: el MISMO set de 4 listas
+   (Horas por proyectos/Proyectos/Cliente/Client Partner) leído 4 veces →
+   16 llamadas Graph por 1 POST. **Después**: 4 llamadas (una vez cada
+   lista).
+4. **Descargas de archivo**: CERO — Batch A es 100% listas SharePoint vía
+   Graph, nunca un archivo.
+5. **¿Toca Time Logs?**: NO — probado por
+   `test_get_batch_a_never_touches_time_logs_or_facturadas_xlsx`.
+6. **¿Toca la XLSX de Facturadas?**: NO — mismo test.
+7. **¿Se preparan las otras 3 experiencias de Batch A sin pedirlas?**: SÍ,
+   por diseño — Horas Vendidas/Participación/Calendario/Salud comparten
+   GENUINAMENTE el mismo fetch físico (mismo join fuente) — esto es lineage
+   real, no un defecto. El defecto real era el 4x-refetch (root cause #1),
+   ya corregido.
+8. **¿Proyectos/Cliente se leen más de una vez?**: Antes, sí (4x). Después,
+   no — una vez por POST.
+9. **¿El ciclo de render dispara el mismo request más de una vez?**: NO —
+   `loadBatchAData()` pone `state.batchADataStatus = "loading"` como
+   PRIMERA sentencia síncrona, antes de cualquier `await` — un segundo
+   render mientras el fetch está en vuelo nunca ve `"idle"`. Ver
+   `test_all_source_family_loaders_flip_status_synchronously_before_any_await`.
+10. **¿Hay llamados independientes serializados sin necesidad?**: SÍ, sin
+    cambiar — las 4 lecturas de lista dentro de `get_batch_a_facts` son
+    secuenciales (nunca paralelizadas). **Deliberadamente NO
+    paralelizado** (P9): sin acceso Graph real en este entorno no hay
+    evidencia de que la latencia dominante sea la serialización vs. el
+    costo de red por-llamada — decisión pendiente de los timings reales
+    que pegue el owner.
+
+#### P2 — cache single-flight por source-family (sin infraestructura nueva)
+Ya lo garantiza el patrón `idle → loading → ready/error` existente: los 5
+loaders de source-family (`loadCarteraMantenimiento`, `loadCarteraProyecto`,
+`loadRentabilidadData`, `loadBatchAData`, `loadBatchBData`) ponen su status
+en `"loading"` como primera sentencia síncrona, antes de cualquier `await` —
+ninguna infraestructura de Redis/DB/cache nueva hacía falta. Documentado y
+probado en `test_all_source_family_loaders_flip_status_synchronously_before_any_await`.
+
+#### P3/P4/P8 — push-down de filtros al nivel Graph: DIFERIDO, con razón explícita
+NO implementado: `$select`/`$filter` a nivel Graph (P3), Estado-conditional
+fetch a nivel Graph para Cartera (P4), ni Desde/Hasta de Horas Vendidas
+empujado a un `$filter` de Graph (P8). Razón: sin acceso Graph real en este
+entorno no hay forma de validar que un `$filter`/`$select` específico sea
+soportado por la lista SharePoint real sin arriesgar una regresión de datos
+silenciosa (mismo criterio que el ticket permite explícitamente: "si un
+filtro no está soportado o es inseguro, no forzarlo"). Lo que SÍ se hizo en
+su lugar, sin tocar `core.microsoft365`: (a) dejar de leer archivos enteros
+innecesarios cuando no se necesitan (P5, XLSX), (b) partir el ciclo de vida
+por perspectiva para que cada tab pida solo lo suyo (P5/UX1-3), (c) eliminar
+la redundancia de fetch (root cause #1). **Próximo candidato de bajo riesgo
+si el owner lo pide**: filtrado Python-level por Año/Mes DENTRO de
+`get_cartera_mantenimiento` (reduce shaping/payload, no reduce el costo del
+GET de Graph en sí) — ver gap de UX2 abajo.
+
+#### UX1/UX2/UX3 — contrato Año/Mes de Mantenimiento
+Reemplazado Desde/Hasta por **Año** (select de valor único, faceteado —
+participa de `reconcileFacetFilters` igual que Client Partner/Proyecto/
+Cliente, se poda si el valor seleccionado deja de ser válido bajo los demás
+filtros activos) + **Mes** (`carteraMesField()`, 12 opciones fijas +
+"Todos", vía `MESES_LARGOS` — exento de poda mediante el mismo mecanismo
+`predicate` que antes usaban Desde/Hasta, así el <select> nunca desaparece
+un mes sin datos). Grano real de la fuente (mensual), sin fabricar
+precisión diaria. Proyecto conserva su contrato Año de Inicio SIN cambios
+(UX3). Tests: `test_service_mantenimiento_rows_carry_anio_mes_for_ux1_facets`,
+`test_meses_largos_is_fixed_twelve_months_not_derived_from_data`,
+`test_cartera_mes_field_renders_all_twelve_months_plus_todos`,
+`test_facet_config_cartera_mes_has_predicate_anio_does_not`.
+
+**Gap UX2 (documentado, decisión consciente, NO implementado)**: la letra
+del ticket pide que "Estado/Año/Mes participen del request al backend, no
+solo la presentación". Lo implementado empuja `perspectiva` al backend
+(Mantenimiento nunca pide la XLSX ni los datos de Proyecto) pero Año/Mes
+siguen siendo 100% client-side post-fetch, igual que Estado/Client Partner/
+Proyecto/Cliente en la MISMA experiencia. Se decidió NO convertir Año/Mes a
+push-down de servidor porque eso los volvería el ÚNICO facet de Cartera con
+un modelo de interacción distinto (re-fetch de red por cada cambio de
+filtro, en vez de filtrado instantáneo contra el dataset ya cargado) —
+una arquitectura híbrida inconsistente sería peor que el modelo actual
+uniforme. Si el owner prioriza reducir payload/shaping por sobre mantener
+la interacción instantánea, la implementación es de bajo riesgo (filtrado
+Python puro en `get_cartera_mantenimiento`, sin tocar `core.microsoft365`)
+y puede hacerse como siguiente incremento explícito.
+
+#### UX4/UX5 — Rentabilidad Mejor/Peor Performance lado a lado (CERRADO, `aed2ab2`)
+Reusa el primitivo Hub YA existente `.activity-grid-2` (usado por Activity,
+2 columnas desktop / 1 columna <900px) — CERO CSS nuevo. Cálculo/orden/
+colores/población de ranking sin cambios; medida `Certificadas −
+Trabajadas` preservada.
+
+#### Tests nuevos de esta sección (behavior-based, nunca latencia hardcodeada)
+`tests/webapp/test_reporting_cartera.py`: XLSX-skip/still-downloads,
+anio/mes en filas de Mantenimiento, router `perspectiva` (mantenimiento/
+proyecto/omitido), `carteraMesField` 12 meses fijos, `FACET_CONFIG.cartera`
+predicate en Mes/ausente en Año, single-flight síncrono de los 5 loaders.
+`tests/webapp/test_reporting_batch_a.py`: fetch único (no 4x), Batch A
+nunca toca Time Logs/XLSX. Fix adicional (no relacionado a este ticket pero
+descubierto en el camino): `reporting_kpi_primitive.node.js` normaliza a LF
+antes de ubicar el bloque de `renderDashboardKpi` — el checkout CRLF de
+Windows rompía esa costura estructural con un falso positivo de bypass.
+
+#### Estado de runtime — antes vs. después (SharePoint reads por tab, sin timings reales aún)
+| Tab | Antes | Después |
+|---|---|---|
+| Cartera → Mantenimiento (default) | Proyectos+Cliente+Horas+CP + **XLSX Facturadas siempre** | Proyectos+Cliente+Horas+CP, **sin XLSX** |
+| Cartera → Proyecto | Igual (XLSX necesaria) | Igual (XLSX necesaria) — sin cambio |
+| Horas Vendidas (y las 3 hermanas de Batch A) | Backbone leído **4 veces** por 1 POST | Backbone leído **1 vez** por 1 POST |
+| Horas Vendidas | Nunca tocaba Time Logs/XLSX (ya era correcto) | Sin cambio — probado explícitamente ahora |
+
+#### Commits de esta sección
+`aed2ab2` (root cause #1), `b6f3745` (root cause #2 + UX1-3), `4dcc36b`
+(P0/P2/P7 + fix CRLF harness). Todos pusheados a `work/reporting-real-data`.
+
+### -13. CLARIFICACIÓN — filtros de fecha son una adición del Hub V0, no del PBIP (CERRADO, docs-only)
+Owner corrigió un supuesto implícito de Q2: los controles Desde/Hasta de
+Rentabilidad/Horas Vendidas NO existen en el PBIP original — son una
+adición del Hub V0. Por lo tanto no hay contrato de interacción PBIP que
+pruebe "seleccionar un rango parcial + seguir mostrando/calculando el año
+completo" NI lo contrario — la decisión debe tomarse explícitamente, y
+CUALQUIER medida marcada como "anual"/filter-independent debe verificarse
+contra su DAX antes de forzarle el enmascarado, en vez de asumir
+automáticamente que TODA medida se vuelve parcial por el solo hecho de que
+el Hub ahora tiene Desde/Hasta.
+
+**Decisión canónica** (ya era el comportamiento implementado en Q2, ahora
+confirmada explícitamente como la regla): se preserva el layout Ene-Dic
+estable; meses DENTRO del rango se muestran/calculan normal; meses FUERA
+quedan en blanco/no-aplicable; los totales de período, KPIs trimestrales y
+medidas derivadas NUNCA incluyen meses excluidos.
+
+**Auditoría de "Hs Estimadas anuales"** (candidata explícita a excepción
+filter-independent, Horas Vendidas): verificado contra evidencia PRIMARIA
+del PBIP — la página real ("Estimación Horas Vendidas x CP"/"Estimación
+Horas Vendidas", visual `7f968b6c5e7df49c3d0d`/`aca7aa1afeac6b5976bc`) liga
+esa tarjeta a `Sum(Horas por proyectos.HsVendidas)` — una agregación PLANA,
+SIN `ALL()`/`REMOVEFILTERS` sobre Mes/Año. Las tarjetas "Vendidas Q1-Q4" de
+la MISMA página usan la MISMA medida plana con un filtro de visual
+`Meses[Trimestre]=N` propio (hardcodeado por tarjeta, no derivado de un
+slicer de rango). **Conclusión: ninguna de estas medidas tiene evidencia
+DAX de ser filter-independent — "anuales" es solo el NOMBRE del estado
+default (sin filtro activo), no una garantía de inmunidad a filtros.**
+Por lo tanto la implementación actual (Q2: `annual`/`quarter(0-3)` derivan
+de `totalMonthly` YA enmascarado por `monthMask`) es la CORRECTA y no
+requiere cambio — quedó confirmada, no corregida. **No se encontró ninguna
+medida de Reporting con evidencia DAX de anualidad filter-independent** —
+si el owner identifica una en el smoke real, debe documentarse acá
+explícitamente antes de excluirla del enmascarado (nunca por default).
+Sin cambio de código; investigación documentada como evidencia de cierre.
+
+### -12. CRITICAL HUB STANDARDIZATION CORRECTIVE — primitivo KPI único (CERRADO)
+Owner live QA: "Horas Productivas → Resumen → TOTAL HORAS" renderizaba
+`184613.24999999997` — el ruido de punto flotante de sumar en JS varias
+horas de Time Logs YA individualmente redondeadas (`_round2` en el
+service) reaparece al sumarlas en el FRONTEND (`filteredTotal =
+rows.reduce((s,r)=>s+r.horas,0)`), interpolado directo sin pasar por
+`fmtNum`. **Causa raíz real**: `.activity-kpi`/`.activity-kpi-grid` YA
+eran una clase CSS compartida (Phase S), pero el nivel JS NO — cada
+renderer decidía a mano si envolvía su valor en `fmtNum(...)` antes de
+interpolarlo, dejando SIEMPRE abierta la puerta a un bypass silencioso en
+cualquier tile nuevo (exactamente lo que pasó acá).
+
+**Inventario completo de render-paths KPI** (Reporting): 16 tiles en 5
+grids — Cartera (2 fijas + N vía `carteraKpiTiles`, YA pasaban por
+`fmtNum` pero construían su propio markup), Rentabilidad/Resumen (5,
+una de ellas — "Rentabilidad horas" — pasaba HTML de `diffCell` en vez
+de un número crudo), Horas Vendidas (7, TODAS crudas — `annual`/`mant`/
+`proy`/`quarter(0-3)`), Calendario (2, crudas), Horas Productivas (1,
+cruda — el bug reportado). Asignaciones (`staffing_dashboard.html`) usa
+la MISMA clase CSS compartida pero un motor de renderizado
+estructuralmente DISTINTO (bindings reactivos Alpine `x-text`, no
+template-strings — `webapp/static/app.js`), YA con formateo limpio propio
+(`roundedActiveHours.toLocaleString("en-US")`); Activity/Usage Metrics
+renderiza server-side vía Jinja (`{{ summary.total_events }}`), un
+tercer motor incompatible con un primitivo JS de cliente. Ninguno de los
+dos tiene el bug — ambos quedan **excepciones intencionales**, no
+migrados (ver razón abajo).
+
+**Primitivo único establecido**: `renderDashboardKpi({label, value,
+format, accent})` — la ÚNICA función del archivo que construye markup
+`.activity-kpi` (verificado con test de costura estructural: la clase
+`activity-kpi__value` aparece EXACTAMENTE una vez fuera de comentarios,
+dentro de esta función). El dominio declara SOLO label/value crudo
+semántico/format(/accent) — numérico (miles/decimales/signo/null/0),
+markup y color son responsabilidad EXCLUSIVA del primitivo. `format`
+reusa los 4 tipos ya existentes de `fmtNum` (count/hours/signed/percent);
+`signed` además colorea el valor con `.diff-pos`/`.diff-neg` (MISMA
+paleta que `diffCell` en celdas de tabla, sin duplicar). Contrato 0 vs
+null preservado (0 → "0" válido, null/undefined → "—", NUNCA
+intercambiados).
+
+**Migración completa** (16/16 tiles): Cartera (`carteraKpiTiles` +
+tile de conteo del Resumen), Rentabilidad/Resumen (5, incl. "Rentabilidad
+horas" ahora con valor CRUDO + `format:"signed"`, retirando el HTML de
+`diffCell` del tile), Horas Vendidas (7), Calendario (2), Horas
+Productivas (1 — cierra el bug reportado). Cero sitio de llamada
+interpola un valor crudo.
+
+**Auditoría extendida** (mismo root cause, encontrado durante la
+migración — NO en el inventario original del owner pero la MISMA clase de
+bypass): las filas "Total" de pie de las matrices mensuales (Horas
+Vendidas/Calendario/Capacidad No Asignadas) y la matriz "Detalle mensual
+por Concepto" de Rentabilidad interpolaban celdas/columna Total crudas.
+Corregidas con el MISMO `fmtNum`, preservando la convención de cada tabla
+(0/falsy → "—" en matrices de horas — mismo criterio que las celdas hoja
+ya usaban; Calendario usa `format:"count"` siempre, es un conteo real
+confirmado en Q3, nunca horas).
+
+**Tests**: nuevo harness Node `reporting_kpi_primitive.node.js` (mismo
+patrón que QA4/Q2/Q3 — evidencia de EJECUCIÓN real, no solo aserción de
+patrón de fuente) prueba el valor EXACTO reportado por el owner
+(`184613.24999999997` → "184,613.2"), otro artefacto representativo
+(`52111.100000000006` → "52,111.1"), contrato 0/null, signo +/− con
+color, rechazo de un string ya-formateado (nunca reproducido literal), y
+la costura estructural (única ocurrencia de la clase en todo el archivo).
+5 tests nuevos (`test_reporting_kpi_primitive.py`) + 3 tests preexistentes
+corregidos (asertaban el patrón viejo, ahora incorrecto:
+`test_semantic_number_formatter_exists_and_kpis_use_it`,
+`test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_formatted`,
+`test_calendario_footer_total_is_leaf_grain_never_a_tree_node_total`).
+Suite completa: **910 passed** (905+8−3 corregidos), mismos 8 fallos
+preexistentes.
+
+### -11. MOCK AUDIT + AUDITORÍA TRANSVERSAL (CERRADO, docs-only)
+Tras Batch A + Batch B, las **6 experiencias / 12 perspectivas** de
+Reporting Integral están conectadas a datos reales: Cartera (Mantenimiento/
+Proyecto), Rentabilidad (Resumen/Certificadas vs Ejecutadas), Horas
+Vendidas (Proyecto/Client Partner), Participación/Comercial (Participación/
+Salud), Calendario (Frecuencia/Client Partner), Horas Productivas
+(Productivas/No Asignadas). **Auditoría de los 8 renderers de nivel
+experiencia** (`renderCartera`/`renderRentabilidad`/`renderHorasVendidas`/
+`renderComercialParticipacion`/`renderComercialSalud`/`renderCalendario`/
+`renderCapacidadProductivas`/`renderCapacidadNoAsignadas`): CADA UNO gatea
+(directo o vía delegación — `renderRentabilidad`→`renderRentabilidadResumen`/
+`renderRentabilidadCertEjecutadas`, ambas gateadas) contra su ciclo de vida
+real-data ANTES de leer su array mock — CERO camino de lectura de mock
+alcanzable sin pasar por `idle→loading→ready|error`. Las 9 constantes mock
+(`CARTERA_*`, `RENTABILIDAD_PROYECTOS`/`_VENDIDAS_MENSUAL`/
+`_NOASIGNADAS_MENSUAL`, `HORASVENDIDAS_ROWS`, `COMERCIAL_PARTICIPACION_ROWS`,
+`COMERCIAL_SALUD_ROWS`, `CALENDARIO_ROWS`, `CAPACIDAD_PRODUCTIVAS_ROWS`,
+`CAPACIDAD_NOASIGNADAS_ROWS`) solo sobreviven como el valor INICIAL
+pre-conexión (mismo instante en que el usuario ve el loader por primera
+vez) — `replaceRows`/`replaceMonthly` las reemplaza EN EL LUGAR apenas
+responde el fetch real, nunca un flash de mock tras el primer load.
+`RENTABILIDAD_RESUMEN.certificadas`/`.trabajadas` quedan como campos
+MUERTOS del literal mock (nunca leídos por ningún renderer) — inertes, no
+representan un riesgo de mock-fallback.
+
+**Auditoría transversal de filtros** (`availableOptions(F) = filas por
+TODOS los demás filtros activos, excluyendo F`): preservada sin cambios en
+las 6 experiencias — el fix de Q2 (`monthsInRange`/`maskMonthly`) es
+ADICIONAL a esa regla, nunca la reemplaza (aplica DESPUÉS de que
+`facetFilteredRows`/`rentabilidadFilteredProyectos` ya filtraron por
+fila). Revisado el resto de experiencias por la MISMA clase de bug de Q2
+(un cálculo derivado que ignora el filtro de fecha activo): Participación
+(`comercialParticipacionTotalVendidas`/`_Certificadas`) usa
+deliberadamente el gran total SIN filtrar como denominador — semántica
+REMOVEFILTERS real del PBIP, no el bug de Q2 (Q2 era sobre celdas
+MOSTRADAS que contradecían el filtro, no sobre un denominador
+intencionalmente fijo); Cartera no tiene una segunda agregación derivada
+(su matriz es un árbol jerárquico, sus rollups ya operan sobre
+`node.rows`, YA filtrado); Calendario/Capacidad-No-Asignadas no tienen
+filtro de fecha (sin superficie para el bug). Ningún otro caso encontrado.
+
+**Auditoría transversal de plantilla del Hub**: los cambios de Batch B
+(Rentabilidad/Horas Productivas) reusan `table.dashboard-table`/
+`.dashboard-table-col--compact`/`--status`/`.dashboard-table-toggle`/
+`dashboardSection`/`sectionToolbar`/`perspectiveSwitch`/`activity-kpi-grid`
+sin excepción — CERO clase/selector nuevo de un solo uso. El único
+vocabulario NUEVO agregado esta sesión (`--compact`, Q1) es GENÉRICO
+(tools.css, reusable por cualquier tabla del Hub), no una copia local.
+
+### -10. BATCH B — Rentabilidad CONECTADA, AMBAS perspectivas (CERRADO)
+Última pieza funcional pendiente de Batch B. Semántica **Ejecutadas**
+resuelta con evidencia PRIMARIA del PBIP (`Comparativo.tmdl` +
+`'Horas  Trabajadas por Mes'.tmdl`, ver real-data-lineage.md §10):
+`Total Horas Trabajadas` = `SUMMARIZE('Time Logs Reports', Project, Mes,
+SUM(HORAS))` — la MISMA fuente/adapter que Horas Productivas (Correction
+1), **NO** `Horas por proyectos[HsTrabajadas]` (ese es un campo DISTINTO
+de tracking manual SharePoint que Cartera usa para SU PROPIO "Trabajadas"
+— misma palabra, medida distinta; confirma el comentario histórico de V0
+en `reporting.js`: "Certificadas viene de SharePoint, Ejecutadas/
+Trabajadas viene de Time").
+
+**Service** (`get_rentabilidad`, sin repositorio nuevo — reusa
+`get_cartera_facts` + `get_time_logs_facts`, ambos ya construidos):
+Certificadas por proyecto×mes desde el backbone de Cartera (SharePoint).
+Trabajadas/Ejecutadas por proyecto×mes desde Time Logs, join por nombre
+EXACTO de proyecto (ambos derivan de `Proyectos.Title`). Un proyecto
+SharePoint sin ninguna hora en Time Logs aporta trabajadas=0 en TODOS los
+meses — NUNCA se omite la fila. Vendidas/No asignadas a servicios
+(portfolio, fijo — sin campo por-proyecto en la fuente real, mismo límite
+documentado desde V0) ahora con **grano MENSUAL REAL** (antes `flatMonthly`
+de un total anual, simplificación de V0 sin datos vivos): Vendidas = SUM
+mensual de `Horas por proyectos.HsVendidas` a través de TODOS los
+proyectos; No asignadas = SUM mensual de Time Logs de los 2 proyectos
+placeholder (MISMO total que alimenta Horas Productivas/No Asignadas, acá
+sin desglose por consultor).
+
+**Frontend**: `state.rentabilidadDataStatus` propio, `loadRentabilidadData`/
+`renderRentabilidadDataState` nuevos (mismo patrón que Cartera — fetch
+único para AMBAS perspectivas), `replaceRows(RENTABILIDAD_PROYECTOS,...)`
++ nuevo `replaceMonthly()` (mismo patrón in-place que `replaceRows`, para
+los 2 arrays mensuales de portfolio). `renderRentabilidadMensual` deja de
+usar `flatMonthly(p.certificadas)`/`flatMonthly(p.trabajadas)` — ahora suma
+`p.certMonthly`/`p.trabMonthly` reales por proyecto (grano mensual
+genuino, no una simplificación de V0) — la máscara de Q2
+(`monthsInRange`/`maskMonthly`) sigue aplicando sin cambios sobre estos
+arrays ahora reales.
+
+12 tests nuevos (`test_reporting_rentabilidad.py`: join Cartera↔Time Logs
+por nombre exacto, proyecto sin Time Logs → trabajadas=0 sin omitir fila,
+totales de portfolio con grano mensual real, placeholder nunca aparece
+como fila de proyecto, wiring de frontend, retiro de `flatMonthly` de
+`renderRentabilidadMensual`). Suite completa: **905 passed** (898+7),
+mismos 8 fallos preexistentes. **Estado: Rentabilidad (AMBAS perspectivas)
+IMPLEMENTATION READY FOR LIVE VALIDATION** — PENDIENTE de smoke real
+(formato exacto de fecha del CSV, mismo gap que Horas Productivas).
+**Batch B queda 100% CERRADO** (Time Logs adapter + Horas Productivas
+ambas perspectivas + Rentabilidad ambas perspectivas).
+
+### -9. BATCH B — Horas Productivas CONECTADA, AMBAS perspectivas (CERRADO) — Correction 1 resuelta en código
+Cierra el BLOCKED dejado por Correction 1 (ver sección arriba): Horas
+Productivas (Productivas Y No Asignadas) reimplementado sobre el adapter
+NUEVO de Time Logs Reports (CSV, sitio Operaciones/General/Template
+Dashboard — contrato físico completo ya documentado en real-data-
+lineage.md §8bis: `SharePoint.Files`→filtro `.csv`+sin "OLD"→
+`Csv.Document(Delimiter=",",Encoding=65001)`→header promovido).
+
+**Repositorio** (`reporting_repository.py`): `get_time_logs_facts` — lista
+`General/Template Dashboard` (`/children`, filtro extensión+nombre),
+descarga+combina TODOS los CSV (`/drive/items/{id}/content`, fail-soft
+por-archivo: un CSV con headers faltantes se SALTEA sin romper el combine;
+`ReportingSourceError` si NINGÚN archivo aporta filas), une a Cliente vía
+`Project` (CSV) → clave normalizada (`_norm_key`, MISMA regla que
+Facturadas) → título de Proyectos → `EmpresaLookupId` (MISMO lookup
+CONFIRMADO por `staffing_repository.py`) → Cliente.id → Title. Sin match
+⇒ conserva el texto crudo de Client/Project del CSV (nunca descarta la
+fila). Nuevo `get_colaboradores_email_map` (lista Colaboradores, MISMA
+que Staffing, internal names `Title`/`EMail` confirmados por el M del
+PBIP) para resolver Consultor por Email en No Asignadas.
+
+**Service**: `get_batch_b` — UN fetch de Time Logs + Colaboradores para
+AMBAS perspectivas (nunca 2 descargas/combines de CSV redundantes).
+`_shape_horas_productivas`: SUM(horas) por (Cliente, Proyecto), excluye
+Cliente CONTAINS "Danwor" (placeholder interno) y los 2 Proyectos
+placeholder — reproduce el filtro real de la página "Horas Productivas
+consumidas". `_shape_horas_productivas_no_asignadas`: filtra a los 2
+Proyectos placeholder (page.json "Hs No Asignadas"), agrupa por Consultor
+(vía Colaboradores) × mes. **Gap documentado, no adivinado**: `hsAsig`
+(capacidad de referencia estática del consultor) requiere
+`Colaboradores['HS asignadas a proy'] = RELATED('Resumen
+Asignaciones'[Hs Asignadas])` — lista `Resumen Asignaciones` SIN ID
+confirmado en este repositorio; queda en `0` explícitamente hasta que el
+owner confirme esa lista.
+
+**Router**: nuevo `/data/batch-b` (mismo gate/token/fail-soft que los
+demás endpoints), `get_batch_a` YA NO incluye `horasProductivas` (Batch A
+vuelve a ser 4/4: Horas Vendidas/Participación/Calendario/Salud).
+
+**Frontend**: `state.batchBDataStatus` propio (idle→loading→ready|error,
+independiente de `batchADataStatus`), `loadBatchBData`/
+`renderBatchBDataState` nuevos, `renderCapacidadProductivas`/
+`renderCapacidadNoAsignadas` gateados ahí — mock retirado de AMBAS
+perspectivas, sin flash.
+
+15 tests nuevos en `test_reporting_batch_b.py` (join CSV↔Proyectos↔Cliente,
+fallback a texto crudo sin match, skip de archivo malformado, `Reporting
+SourceError` sin CSV, filtro de extensión/OLD, shaping de las 2
+perspectivas, exclusión de placeholders, Email case-insensitive, fetch
+único en `get_batch_b`, Colaboradores email→nombre, wiring de
+frontend) + 4 tests de `test_reporting_batch_a.py` corregidos/eliminados
+(los que aseveraban el lineage viejo, ya incorrecto). Suite completa:
+**898 passed** (889 + 13 nuevos − 4 retirados), mismos 8 fallos
+preexistentes. **Estado: Horas Productivas (AMBAS perspectivas)
+IMPLEMENTATION READY FOR LIVE VALIDATION** — PENDIENTE de smoke real
+(formato exacto de fecha del CSV, existencia de subcarpetas, `hsAsig`).
+
+### -8. Q3 — grano de totales mensuales de Calendario (CERRADO, docs+tests-only) — owner live QA
+Owner reportó: "el gran total suma aritméticamente bien, pero los totales
+mensuales individuales no reconcilian con los chequeos booleanos
+visibles". Investigado contra evidencia PRIMARIA del PBIP: la tabla
+CALCULADA `Calendario_Cliente.tmdl` es UNA fila por Cliente, 12 columnas
+booleanas (misma regla `CONTAINSSTRING` que `_calendario_monthly` ya
+implementa) y `Total = Ene+...+Dic` POR FILA (grano Cliente). El footer de
+la matriz del Hub (`sumMonthly(rows)` sobre la lista PLANA de Cliente)
+reproduce EXACTAMENTE ese grano — un subtotal de columna real, siempre al
+nivel de hoja, independiente de expand/collapse (mismo comportamiento que
+Power BI, que nunca recalcula un subtotal por interacción de UI).
+**Conclusión: comportamiento CORRECTO por diseño, sin bug — la "no
+reconciliación" reportada es la consecuencia esperada de mostrar
+presencia BOOLEANA (✓) en filas padre colapsadas junto a un footer que es
+cuenta real de hojas, no una inconsistencia.** Verificado con evidencia de
+EJECUCIÓN real (nuevo harness Node `reporting_calendario_total_grain.node.js`,
+mismo patrón que QA4/Q2): footer = COUNT de Clientes con checkpoint por
+mes, idéntico colapsado vs. expandido, columna Total-por-fila = cuenta
+real agregada (nunca booleana) incluso en un nodo padre con múltiples
+hojas, sin doble conteo. **Sin cambio de código** (`reporting.js` ya
+coincidía con el grano PBIP) — 3 tests nuevos documentando/probando la
+conclusión. Suite completa: **889 passed** (886+3), mismos 8 fallos
+preexistentes.
+
+### -7. Q2 — consistencia de rango de fechas (CERRADO) — owner live QA
+Con Desde=01/01/2026 Hasta=14/08/2026, Rentabilidad seguía mostrando Sep-
+Oct-Nov-Dic no-cero en "Detalle mensual por Concepto" (y el mismo bug
+existía en Horas Vendidas). Causa raíz: el filtro de fecha SOLO operaba a
+nivel de FILA (`fecha >= desde && fecha <= hasta`, vía FACET_CONFIG) — una
+fila que pasaba el filtro (su `fecha` representativa cae dentro del rango)
+seguía aportando TODOS sus 12 meses a la matriz/KPIs, incluidos los meses
+fuera del rango activo (Rentabilidad: `flatMonthly` reparte el total anual
+en partes iguales entre los 12 meses sin conocer el filtro; Horas Vendidas:
+cada fila ya trae `monthly[12]` real por mes, pero un proyecto activo
+Ene-Dic con `fecha`=Enero pasaba el filtro y seguía sumando Sep-Dic).
+Regla canónica aplicada: TODO visual/sección de una experiencia deriva de
+la MISMA población filtrada activa; si el grano de la fuente es mensual,
+el filtro de fecha se aplica a grano MENSUAL (Desde/Hasta redondean al mes
+calendario que contienen, nunca día); los headers Ene-Dic se preservan
+SIEMPRE (geometría estable), los meses excluidos quedan en blanco/0, nunca
+se inventa comportamiento de grano día. Dos helpers GENÉRICOS nuevos
+(`monthsInRange(desde,hasta)` → boolean[12], `maskMonthly(monthly,mask)` →
+array[12] con los excluidos en 0, mask `undefined` = passthrough): (1)
+`sumMonthly(rows, monthMask)` y `renderTreeRows(...,monthMask)` ganan un
+parámetro OPCIONAL — Calendario/Capacidad No Asignadas (sin filtro de
+fecha) siguen llamando sin él, comportamiento exacto de siempre; Horas
+Vendidas (matriz, Total, Mantenimiento/Proyecto, Q1-Q4, Hs Estimadas
+anuales) SÍ lo pasa. (2) Rentabilidad: `renderRentabilidadMensual` aplica
+la MISMA máscara a las 5 filas de Concepto (incluidas las 2 fijas de
+portfolio, Horas Vendidas/No asignadas — antes NUNCA respondían a ningún
+filtro); `renderRentabilidadResumen` usa los mismos totales enmascarados
+para sus tiles de Horas Vendidas/No asignadas, así Resumen y el detalle
+mensual quedan consistentes entre sí. Verificado con evidencia de
+EJECUCIÓN real (no solo aserción de patrón de fuente) vía nuevo harness
+Node `reporting_date_range_masking.node.js` (mismo patrón que QA4):
+sin-filtro, el caso exacto reportado por el owner (Ene-Ago incluidos,
+Sep-Dic excluidos), rango dentro de un mes, cruce de año calendario,
+`maskMonthly`/`sumMonthly` con y sin máscara. 4 tests nuevos. Suite
+completa: **886 passed** (882+4), mismos 8 fallos preexistentes.
+
+### -6. Q1 — Rentabilidad/Cert-vs-Ejec column sizing (CERRADO) — owner live QA
+Detalle por proyecto: Tipo (categórico corto) y Proyecto (descriptivo) eran
+ambas `.left` sin distinción de rol → `table-layout:fixed` repartía el
+espacio remanente EN PARTES IGUALES entre ambas, comprimiendo Proyecto.
+Además, headers numéricos más largos que su columna fija de 88px (ej.
+"Margen Relativo") desbordaban visualmente sobre la columna vecina
+("colisión") porque `table.dashboard-table th` forzaba `white-space:
+nowrap` sin `overflow:hidden`. Dos fixes GENÉRICOS al vocabulario
+compartido (`tools.css`), ninguno puntual de Rentabilidad: (1) nuevo rol
+`.dashboard-table-col--compact` (100px, se agrega JUNTO a `.left`, no la
+reemplaza) para columnas categóricas cortas — Tipo lo usa, Proyecto sigue
+sin ancho fijo y absorbe el espacio libre; (2) `table.dashboard-table th`
+pasa de `white-space:nowrap` a `white-space:normal` (wrap a 2 líneas,
+geometría estable, sin JS de medición) — aplica a CUALQUIER tabla del Hub
+con un label numérico largo, no solo Rentabilidad. 2 tests de regresión
+nuevos. Suite completa: **882 passed** (880+2), mismos 8 fallos
+preexistentes.
+
+### -5. QA4 — reconciliación jerárquica de rollups (CERRADO, `26b18ac`) — owner live QA ("Avanti")
+Owner reportó en vivo: en Cartera, un padre "Avanti" mostraba
+Certificadas=80/Vendidas=120/Facturadas=80 mientras su único hijo VISIBLE
+mostraba 40/40/40 — violación directa de "padre = SUMA(hijos)". Causa
+raíz (no específica de Avanti): `renderBusinessTreeRows` (motor de render
+de árbol NO-mensual, usado por Cartera/Participación/Salud/Productivas)
+asumía que un nodo "hoja" (sin hijos DECLARADOS en el árbol) siempre tenía
+exactamente 1 fila fuente y renderizaba `node.rows[0]` directo — falso
+para Cartera/Mantenimiento (grano mensual preservado: proyectos
+multi-mes comparten UNA clave de hoja con VARIAS facts). Fix: siempre usar
+`c.rollup(node.rows)` cuando la columna lo define (matemáticamente
+idéntico a `render()` para el caso de 1 fila), solo cae a
+`c.render(node.rows[0])` para hoja-sin-rollup-y-exactamente-1-fila, blank
+en cualquier otro caso. `renderTreeRows` (motor mensual de Horas
+Vendidas/Calendario/Capacidad-No-Asignadas) YA era correcto — usa
+`sumMonthly(node.rows)` sin importar `hasChildren`, nunca indexa `[0]` —
+NO afectado por esta clase de bug.
+
+**Invariante canónico establecido y testeado con evidencia genuina de
+ejecución** (no solo aserción sobre el string fuente): nuevo harness
+`tests/webapp/reporting_rollup_reconciliation.node.js` carga
+`reporting.js` real en sandbox `vm` de Node (sin jsdom/framework de
+browser) y ejecuta `buildTree`/`renderBusinessTreeRows`/`sumField`/
+`uniformValue` contra fixtures sintéticos: (1) hijo único = igualdad
+exacta padre/hijo (reproduce Avanti); (2) multi-hijo = distribución
+correcta (ej. Hijo A trab=10/cert=20/vend=30/fact=20, Hijo B
+trab=5/cert=8/vend=12/fact=8 → padre trab=15/cert=28/vend=42/fact=28); (3)
+reconciliación sobre población YA filtrada; (4) categórico uniforme/mixto
+se propaga solo si es unánime. Invocado desde pytest vía `subprocess.run`
+(`test_reporting_rollup_reconciliation.py`), skip si `node` no está
+disponible. 2 tests nuevos. Suite completa: **879 passed** (877+2), mismos
+8 fallos preexistentes sin relación.
+
+### -4. BATCH A — 5/5 BACKBONE CONECTADA — Salud de Cliente (CERRADO, `c7ec896`) — Correction 2 del owner
+El owner rechazó explícitamente el cierre de Batch A a nivel "bookkeeping
+de batch": Comercial/Participación tiene DOS perspectivas (Participación +
+Salud), y Salud seguía en mock cuando Batch A se declaró "4/4". Completado
+correctamente: el owner dio los internal names REALES confirmados por
+diagnóstico Graph en vivo (no adivinados) — `Salud`,
+`Salud_x0020_Continuidad`, `Salud_x0020_Estrategico`,
+`Salud_x0020_Financiera`, `Salud_x0020_Operativo`,
+`Salud_x0020_Relaci_x00f3_n` en la MISMA lista Cliente ya usada por
+Cartera (sin lista física nueva, sin fetch Graph nuevo — extensión de
+`cliente_dim` dentro de `get_batch_a_facts`). Jerarquía Client Partner →
+Cliente (reuso de la resolución de dimensión ya existente). Estrictamente
+CATEGÓRICO: los 6 campos se propagan verbatim, sin agregación numérica, sin
+orden/severidad inventada — la regla existente de propagación-uniforme-o-
+blank aplica sin cambios (no hay override especial para Salud). Frontend
+gateado con el mismo ciclo de vida `batchADataStatus`
+idle→loading→ready|error que las otras 4 experiencias; mock runtime
+retirado (`renderComercialSalud` ya no puede mostrar `COMERCIAL_SALUD_ROWS`
+sin pasar por el fetch real). 2 tests nuevos de backend (lectura verbatim
+de los 6 campos + omisión de Clientes sin nombre) + tests de frontend
+actualizados (gate de 5 renderers, no-mezcla-mock/real). Suite completa:
+**880 passed** (879+2 nuevos − 1 test obsoleto de mock retirado), mismos 8
+fallos preexistentes sin relación.
+
+### CORRECTION 1 — Productivas lineage verificado con evidencia PRIMARIA (CERRADO, docs-only, ver `artifacts/reporting-integral-v0/real-data-lineage.md` §8bis)
+El owner rechazó correctamente la resolución de `5dcbb58` (correlación de
+valores mock == `hsTrabajadas`) como INSUFICIENTE — exigió evidencia PRIMARIA
+del PBIP (`E:\Joe\Metodologia\Refactorizacion\Tablero Integral\Danwor -
+Tablero Integral.pbip`). Verificado leyendo TMDL/M/relaciones/bindings de
+visual directamente: **Outcome (B)** de las 3 hipótesis planteadas —
+"Horas Productivas" (AMBAS perspectivas, Productivas Y No Asignadas) =
+`SUM('Time Logs Reports'[HORAS])` (CSV, sitio Operaciones/General/Template
+Dashboard), la MISMA tabla/medida, diferenciadas por filtro (`NOT
+Cliente[Cliente] CONTAINS "Danwor"` para Productivas vs. `Project IN
+{"Danwor - Horas No Productivas (#1)","(#2)"}` para No Asignadas) y
+dimensión de agrupamiento (Cliente×Proyecto vs. Consultor). El comentario
+ORIGINAL de V0 en `reporting.js` era correcto; `5dcbb58` (backbone reuse vía
+`hsTrabajadas`) estaba equivocado — la coincidencia de valores del mock era
+COINCIDENCIA, no la misma fuente física. Join Time Logs→Cliente confirmado:
+`Key_proyect_desc` normalizado → `Proyectos.Key_proyect_desc` →
+`Proyectos.EmpresaLookupId` (MISMO lookup ya confirmado contra Graph real por
+`staffing_repository.py`) → `Cliente.id`. **Impacto:** Horas
+Productivas/Productivas baja de "BATCH A IMPLEMENTATION READY FOR LIVE
+VALIDATION" a **BLOCKED — pendiente de reimplementación (Batch B)**; las
+otras 4 experiencias de Batch A (Horas Vendidas/Participación/Calendario/
+Salud) NO están afectadas. **Este pase es SOLO verificación + corrección de
+docs — el código de `get_horas_productivas` NO fue reimplementado todavía**
+(la reimplementación sobre el adapter de Time Logs es Batch B, ver sección
+"Secuencia" abajo — contrato físico completo ya documentado en
+real-data-lineage.md §8bis: sitio/carpeta/columnas/M/join, listo para
+codificar sin re-descubrir nada).
+
+### -3. BATCH A — 4/4 BACKBONE CONECTADA (`5991fdb` + `5dcbb58` + `c7ec896`) — Horas Vendidas/Participación/Calendario/Salud: BATCH A IMPLEMENTATION READY FOR LIVE VALIDATION (Horas Productivas se retiró de este grupo hacia Batch B — ver sección "-9." arriba, ya CERRADA)
+Horas Vendidas / Participación / Calendario / **Horas Productivas-
+Productivas** / **Salud de Cliente** leen datos REALES (reusan Cartera:
+Horas por proyectos × Proyectos × Cliente + Client Partner, UN fetch
+consolidado `get_batch_a_facts` → UN endpoint `/data/batch-a`, MISMO ciclo
+de vida idle→loading→ready|error que Cartera, `.dashboard-table`/
+`.dashboard-status-badge`/disclosure compartido de Phase S sin variantes
+locales). **NO** está cubierta (permanece en mock, deliberadamente fuera
+de Batch A — es Batch B): Horas Productivas/No Asignadas (fuente CSV Time
+Logs, distinta a la de Productivas).
+
+**Nuevas columnas de Cliente leídas** (mismo sitio/lista ya usados por
+Cartera, sin lista nueva): `Frecuencia_x0020_Actualizacion`, `Permite_
+x0020_Adelanto`, `Condicion_x0020_de_x0020_Pago`, `Calendario_Act` —
+internal names codificados vía la MISMA convención `_x0020_` ya CONFIRMADA
+en este repositorio, con candidato sin-codificar de respaldo. **`ID
+Frecuencia` es una columna DERIVADA en el PBIP** (no física) —
+reconstruida en el service con la regla YA verificada por el mock
+("1 Mensual".."6 Anual" == índice+1 en `FRECUENCIA_ORDER`). **PENDIENTE DE
+CONFIRMAR EN EL SMOKE REAL** (mismo estado de madurez que Cartera antes de
+su primer smoke — `ed68645`/`0ac6110` corrigieron internal names mal
+supuestos entonces; acá aplica el mismo proceso si hace falta).
+
+**Horas Productivas/Productivas — contradicción de lineage RESUELTA
+(`5dcbb58`), no adivinada:** el comentario de V0 en `reporting.js` decía
+`Horas` = `Sum(Time Logs Reports.HORAS)` (fuente distinta, CSV); el
+resumen de Batch A en `real-data-lineage.md` clasificaba esto como reuso
+del backbone Horas por proyectos. Ambas NO podían ser correctas a la vez.
+Resuelto con evidencia directa: los 6 valores del mock
+`CAPACIDAD_PRODUCTIVAS_ROWS.horas` (134/40/92/340/210/175) coinciden
+EXACTAMENTE, cliente×proyecto por cliente×proyecto, con `trabajadas` de
+`CARTERA_MANTENIMIENTO_ROWS`/`CARTERA_PROYECTO_ROWS` — el propio autor del
+mock lo sembró desde `hsTrabajadas`. `get_horas_productivas` reusa
+`project_facts` (mismo fetch, sin fuente nueva), agrupa por (Cliente,
+Proyecto), suma `hsTrabajadas`. **No Asignadas** (Batch B, CSV de Time
+Logs real) queda intacta — es la fuente DISTINTA que el comentario viejo
+describía, no Productivas.
+
+**Corrective adicional encontrado en el camino (x2):**
+`COMERCIAL_PARTICIPACION_TOTAL_VENDIDAS`/`_CERTIFICADAS` y
+`CAPACIDAD_PRODUCTIVAS_TOTAL` eran `const` calculadas UNA vez al cargar el
+script contra el mock — tras `replaceRows` habrían quedado stale para
+siempre (el % real habría seguido comparando contra el total del MOCK).
+Ambas convertidas a funciones, recalculadas en cada render contra el
+array vigente.
+
+19 tests nuevos en total (repositorio/service: join, agrupamiento
+mensual, agregación de denominador fijo, derivación/normalización de
+frecuencia, presencia booleana, suma por Cliente/Proyecto; frontend:
+ciclo de vida + protección del primitivo compartido) + 2 (QA4) + 2
+(Salud). Suite completa: **880 passed** (859 baseline + 21 neto), mismos
+8 fallos preexistentes.
+
+#### Checklist de smoke consolidado del owner (Batch A, live)
+Para CADA una de las 5 experiencias conectadas:
+
+| Experiencia | Perspectiva | Rango recomendado | Resultado esperado | Medida representativa | Chequeo de jerarquía |
+|---|---|---|---|---|---|
+| Horas Vendidas | Proyecto | Desde=1/ene/2026 Hasta=hoy | filas no vacías | suma mensual de un proyecto conocido > 0 | expandir Tipo→Cliente→Proyecto, click en el LABEL (no solo el triángulo) |
+| Horas Vendidas | Client Partner | ídem | filas no vacías | KPI "Hs Estimadas anuales" > 0 | igual, con CP como raíz |
+| Participación | Participación | Desde=1/ene/2026 Hasta=hoy | filas no vacías | % Participación Hs Vendidas de un cliente conocido (NO debe sumar 100% entre todos los visibles si hay filtro activo) | expandir ID Frecuencia→Permite Adelanto→Condición de Pago→Cliente |
+| Participación | Salud | sin filtro de fecha | filas no vacías | los 6 campos de Salud (Financiera/Relación/Operativo/Continuidad/Estratégico/Final) muestran valores categóricos reales (Verde/Amarillo/Rojo u otro valor del negocio), NUNCA en blanco para un cliente con dato conocido | expandir Client Partner→Cliente |
+| Calendario | Frecuencia | sin filtro de fecha | filas no vacías | al menos un ✓ visible en un mes con checkpoint conocido | expandir ID Frecuencia→Cliente→Client Partner |
+| Calendario | Client Partner | ídem | filas no vacías | columna Total = cuenta real (no booleana) | igual, con CP como raíz |
+| Horas Productivas | Productivas | sin filtro de fecha | filas no vacías | Horas de un cliente/proyecto conocido (fuente: `Time Logs Reports` CSV, sitio Operaciones — ver sección "-9." BATCH B) | expandir Cliente→Proyecto |
+| Horas Productivas | No Asignadas | sin filtro de fecha | filas no vacías | Horas No Asignadas de un consultor conocido por mes; `hsAsig` = 0 SIEMPRE (gap documentado, PENDIENTE de lista `Resumen Asignaciones`) | tabla plana, sin jerarquía |
+| Cartera (regresión QA4) | cualquiera | rango con un cliente multi-proyecto/multi-mes conocido | padre = SUMA exacta de sus hijos visibles (Certificadas/Vendidas/Facturadas/Trabajadas), nunca igual a un solo hijo | expandir el padre y sumar los hijos a mano una vez |
+
+**Chequeos de plantilla compartida (las 5 experiencias):**
+- loader Hub aparece brevemente al entrar a cada tab (sin flash de mock);
+- badges de estado (donde aplique) con la forma/paleta compartida;
+- hover de fila sutil, sin mover columnas;
+- click en el LABEL de jerarquía (no solo el triángulo) expande/colapsa;
+- triángulo también expande/colapsa (mismo estado que el label);
+- columnas numéricas NUNCA se mueven al expandir/colapsar;
+- KPIs sin ruido de punto flotante, separador de miles correcto.
+
+**Estado hasta validación del owner: BATCH A IMPLEMENTATION READY FOR LIVE
+VALIDATION.**
+
+### -2. S.4 — disclosure jerárquico compartido (CERRADO, `c37b56b`) — PHASE S = CLOSED
+Owner live QA: Phase S estandarizaba APARIENCIA más que COMPORTAMIENTO —
+Reporting reaccionaba a clic en triángulo O en el label (mismo toggle);
+Asignaciones solo reaccionaba al triángulo, el nombre del consultor no hacía
+nada. Corregido con UN contrato compartido, no un handler paralelo que imite:
+- `reporting.js`: `hierarchyToggleHtml(...)` — un solo helper, fuente única
+  para `renderTreeRows`/`renderBusinessTreeRows` (antes dos bloques de markup
+  casi idénticos copiados a mano). Con hijos: `<button class="dashboard-
+  table-toggle">` real envolviendo caret+label — foco/teclado (Enter/Space)
+  gratis del browser, `aria-expanded` sincronizado, un solo listener (nunca
+  doble-disparo por bubbling, porque es UN elemento). Sin hijos (hoja):
+  `<span class="dashboard-table-toggle dashboard-table-toggle--leaf">` NO
+  interactivo — sin botón, sin onclick, sin affordance de puntero engañosa.
+- `tools.css`: `.dashboard-table-toggle` ahora es un primitivo de reset de
+  botón (border/background/padding limpios, `cursor:pointer` SOLO en la
+  variante `<button>`, `focus-visible` con outline dorado, `--leaf` fuerza
+  `cursor:default`) — una sola definición, ambos consumidores.
+- `staffing_dashboard.html`: el botón de expandir y el label "Consultor" del
+  Detalle se fusionaron en UNA celda — `<template x-if="item.is_aggregate">`
+  renderiza el MISMO `.dashboard-table-toggle` (llamando al `toggleDetailGroup()`
+  YA existente, sin JS nuevo de Staffing), `<template x-if="!item.is_aggregate">`
+  renderiza el `--leaf` span para filas hijo. `.staffing-detail__expand-btn`
+  propio se retiró (único consumidor, migrado). Colgroup pasó de 10 a 9
+  columnas (la del toggle se fusionó dentro de Consultor); tests dependientes
+  del índice de columna actualizados.
+- El código de dominio sigue dueño de su propia función de toggle
+  (`toggleTreeNode` vanilla-JS vs `toggleDetailGroup` Alpine — frameworks
+  distintos, no unificables sin una migración de framework fuera de alcance)
+  y de su estructura de estado expandido — SOLO el contrato genérico de
+  disclosure (DOM/CSS/accesibilidad) es compartido.
+7 tests de regresión nuevos. Suite completa sin cambios vs. baseline
+establecida: **859 passed** (854+5), mismos 8 fallos preexistentes.
+
+**PHASE S = CLOSED** (contrato de presentación + interacción): Asignaciones y
+Reporting ahora comparten fuente de verdad real para grammar visual de tabla,
+hover de fila, badge de estado, Y comportamiento de disclosure jerárquico —
+no solo se PARECEN, consumen los mismos primitivos (`table.dashboard-table`,
+`.dashboard-status-badge`, `.dashboard-table-toggle`). Reporting preserva
+además: geometría estable de expand/collapse, formateo numérico semántico
+(`fmtNum`), alineación terminal de Estado (`--status`), y labels de
+jerarquía business-facing (Cliente › Proyecto, nunca IDs técnicos). Futuros
+consumidores (Activity/Usage Metrics, cuando se toque) deben heredar este
+contrato — nunca una tercera variante.
+
+### -1. Corrective pre-Batch-A — Cartera canónica (CERRADO, `e73f14b`)
+Owner live QA encontró 3 gaps de aceptación en Cartera ANTES de que sirva de
+plantilla para Batch A — corregidos, no reabrir salvo evidencia nueva:
+- **S.1 Estado terminal desalineado:** regresión de Phase S — al fusionar
+  `tree-matrix`/`data-table` se perdió el ancho fijo (88px) de columna
+  numérica, así que `table-layout:fixed` repartía el espacio restante EN
+  PARTES IGUALES entre columnas de medida y Estado (texto corto,
+  izquierda) → área vacía grande después del badge. Restaurado el ancho
+  88px default (`table.dashboard-table th:not(.left):not(.row-label-col)`)
+  + nuevo modificador OPCIONAL `.dashboard-table-col--status`/
+  `--cell--status` (compacto, alineado a la derecha) que un dominio usa
+  SOLO si su columna de estado es terminal — Cartera (`statusTerminal:
+  true` en ambas perspectivas) lo usa, Asignaciones (Estado en el medio)
+  sigue con `.left`, sin forzar nada globalmente.
+- **S.2 Proyecto mostraba ID técnico:** `CARTERA_CONFIG.Proyecto.keys`
+  tenía `["cliente","idProyecto","proyecto"]` (3 niveles) — el nivel medio
+  mostraba literalmente `idProyecto` (ej. "PROJ-0206") en vez de la
+  descripción de negocio. Reducido a `["cliente","proyecto"]` (2 niveles);
+  `idProyecto` sigue en cada fila (join key / desambiguación interna), solo
+  dejó de ser nivel visible. Header de sección actualizado (ya no dice "Cliente
+  › ID Proyecto Danwor › Proyecto").
+- **S.3 Diff Hs KPI en blanco:** `carteraKpiTiles` pasaba `col.rollup(rows)`
+  de la columna "diff" (que YA es HTML de `diffCell`, pensado para la celda
+  de tabla) por `fmtNum` de nuevo → `Number(htmlString)` = `NaN` → "—",
+  aunque el detalle filtrado tuviera valores reales (ej. Certificadas=1544/
+  Trabajadas=800 → Diff debía ser +744). Fix: el tile recalcula el número
+  CRUDO con el mismo `sumField("diff")` aditivo (sin `diffCell`) y lo
+  formatea directo con `fmtNum(valor, "signed")`. Validado que `fmtNum`
+  distingue 0 (renderiza "0") de null/undefined/"" (renderiza "—").
+5 tests de regresión nuevos + suite completa sin cambios vs. baseline de
+Phase S: **854 passed** (849+5), mismos 8 fallos preexistentes sin relación.
+
+### 0. Phase S — estandarización visual del Hub (CERRADA, `6dd7e99`)
+Un solo primitivo compartido en `tools.css`: `table.dashboard-table` (shell/
+header/fila/hover/jerarquía por profundidad/alineación numérica,
+`table-layout:fixed` — expand/collapse nunca mueve columnas numéricas) +
+`.dashboard-status-badge`/`--{green,amber,red,grey}` (pill de Reporting,
+generalizado; el dominio mapea su propio estado a un color, sin ontología
+cross-dominio) + `.dashboard-table-toggle`/`.dashboard-table-indent`. Dirección
+visual = Reporting (elegida por el owner). Migrados: `reporting.js` (`tree-
+matrix`/`data-table`/`status-pill`/`tree-toggle`/`tree-indent` → clases
+compartidas; `reporting.css` conserva SOLO tabs/bar-chart/legend, genuinamente
+propio) y el Detalle de Asignaciones (`staffing_dashboard.html`: `admin-table`/
+`status-badge` → `dashboard-table`/`dashboard-status-badge`, gana hover real y
+jerarquía por profundidad que antes NO tenía — `admin-table`/`status-badge`
+dependían de tokens `--soft`/`--line` del panel oscuro de Copilot, sin efecto
+fuera de `.copilot-panel`). `.activity-kpi{min-width:0}`/tabular-nums (antes
+solo en `reporting.css`, Phase 0C) promovido a la regla base compartida. El
+Timeline de Asignaciones (Gantt, no una tabla) y su `.staffing-timeline__row-
+status` quedaron INTACTOS a propósito — patrón visual distinto, sin cambio de
+agrupamiento/jerarquía/cálculos. 3 tests actualizados (aserciones sobre los
+strings literales viejos); suite completa (`tests/webapp/`) igual al baseline:
+**849 passed**, mismos 8 fallos preexistentes sin relación (tests stale de un
+botón de agrupamiento ya migrado a `.dashboard-view-switch` en un corrective
+anterior, no tocado acá). Activity/Usage Metrics: NO migrado (fuera de
+alcance de esta fase), pero el primitivo ya es apropiado para que lo consuma
+cuando se toque.
+
+### 1. Cartera — LIVE VALIDATED (evidencia del owner)
+Ambas perspectivas cargan datos reales; jerarquía/rollups correctos. Ej. rango
+01/06–31/07/2026: Mantenimientos=71, Trabajadas=1761, Certificadas=8544,
+Vendidas=9862; Aluar rollup Trab=800/Cert=1544/Vend=1680/Estado=En curso. El cero
+de agosto 2026 es DATO real (no defecto). Lineage físico completo + mappings reales
+en `artifacts/reporting-integral-v0/real-data-lineage.md` (fuente de verdad):
+sitio Gestión; listas Horas por proyectos (`6c3a8689…`) / Proyectos (`efa2e279…`) /
+Cliente (`9c09571c…`) + XLSX Facturadas (Tabla24); lookups Graph = `*LookupId` con
+target `item["id"]`; internal names codificados (`A_x00f1_o`/`Status`/
+`ID_x0020_Proyecto_x0020_Danwor`/`Cliente.Title`); Client Partner = lookup de
+Cliente cuyo target se DESCUBRE de `/lists/{cliente}/columns` (`lookup.listId`),
+cargado una vez (sin N+1). Safeguards de producción conservados:
+`ReportingConfigurationError`→`config_incomplete`, `ReportingGraphError`/
+`ReportingSourceError`→`source_error`+stage, `Exception`→traceback server-side
+(`danwor.reporting`) + `{state:source_error,stage:unexpected}`. Endpoint limpio
+`{state, cartera}`.
+
+### 2. Phase 0 — hardening transversal (implementado, `bcf3b5c`)
+- **0A Loader compartido:** `reportingLoadingHtml(label)` reusa el MISMO primitivo
+  Hub de Asignaciones (`section-analysis-loading`+spinner+copy). NO se tocó
+  `tools.css` ni Asignaciones.
+- **0B Geometría estable:** `table.tree-matrix { table-layout: fixed }` → los anchos
+  salen del header, NUNCA del body → expand/collapse no mueve columnas numéricas.
+  Jerarquía 300px fija + numéricas/mes 88px; label con overflow ellipsis
+  (indentación DENTRO de la columna descriptiva).
+- **0C Formateo KPI semántico:** `fmtNum(value, type)` (Intl.NumberFormat en-US,
+  tipos `count/hours/signed/percent`) elimina ruido de punto flotante y unifica
+  miles/decimales; aplicado a tiles, `diffCell`/`diffPlain`, formatter default de
+  `renderTreeRows`. CSS de tile: `min-width:0`+`nowrap`+`tabular-nums`.
+
+### 3. Facet Año de Inicio — corrective (implementado, `2bfb052`)
+`carteraAnioInicioOptions()` computa los años con el MISMO motor faceteado
+(`facetRowsExcept`) sobre filas ya filtradas por Estado+CP/Proyecto/Cliente,
+excluyendo solo el propio año: `availableOptions(F)=filas por todos los otros
+filtros activos`. `pruneCarteraAnioInicio()` (llamado en
+`reconcileExperienceFacets("cartera")`) quita selecciones obsoletas, conserva
+válidas, respeta el facet-empty existente. `carteraAnioInicio` se inicializa tras
+el literal de `state`. Verificado con dataset 2022(Fin)/2023(ambos)/2025(EnCurso)/
+2026(EnCurso): En curso→2023/2025/2026; Finalizado→2022/2023; ambos→unión;
+multidireccional con CP/Cliente.
+
+### 4. Discovery de las 5 experiencias restantes (`765fd53`, detalle en el artefacto)
+Hallazgo central: **~80% reusa el backbone de Cartera** (Horas por proyectos /
+Proyectos / Cliente / Client Partner / XLSX). Solo 2 fuentes NUEVAS: CSV de
+**Time Logs** (`/sites/Operaciones`, "Template Dashboard") para Horas Productivas/
+No asignadas; y la semántica **Ejecutadas** de Rentabilidad (`Comparativo`/`Resumen
+Horas x Proyecto Fac y Ejec`, base Horas por proyectos + XLSX). Participación y
+Calendario **no** requieren fuente nueva: sus campos ya son columnas de la lista
+Cliente (`Frecuencia Actualizacion`/`Permite Adelanto`/`Condicion de Pago`/
+`Calendario_Act`/`ID Frecuencia`). Semántica a preservar: denominadores
+gran-total FIJOS (Participación % y Horas Productivas % Incidencia — NO renormalizar
+a 100%), Calendario = presencia BOOLEANA (✓/blank, nunca conteo), Salud =
+categórico (sin agregación numérica), ratios recomputados tras agregar (nunca
+promediar ratios de hijos). Plan: **Batch A** = Horas Vendidas / Participación /
+Calendario / Horas Productivas-Productivas (backbone reuse). **Batch B** =
+Rentabilidad + Horas Productivas-No asignadas (CSV + Ejecutadas).
+
+### 5. NUEVA DIRECCIÓN DEL OWNER — Phase S: estandarización visual de dashboards
+Antes de Batch A, el próximo agente debe cerrar una inconsistencia visual del Hub:
+Asignaciones y Reporting expresan los MISMOS conceptos (headers de tabla, status
+badges, hover, filas jerárquicas, spacing/tipografía) de forma distinta. **El
+owner prefiere el lenguaje visual de la tabla de Reporting como dirección canónica**
+del Hub. Objetivo: **extraer/generalizar** ese lenguaje en **primitivos Hub
+compartidos** (fuente de verdad única) y que Asignaciones/Reporting/Activity los
+CONSUMAN — NO copiar `reporting.css` a cada módulo, NO crear copias que "se parezcan".
+Vocabulario compartido a cubrir: shell de tabla, header, fila body, hover, fila
+jerárquica/indentación, alineación numérica, geometría estable de columnas, status
+badge, KPI tile, loading/empty/error, filtros/acciones reusables. **Status badges:**
+estandarizar el PRIMITIVO (forma/tipografía/padding/radius/variantes/alineación),
+NO la semántica de negocio (ACTIVO vs En curso/Finalizado siguen siendo valores de
+dominio; sin ontología cross-dominio). **Hover:** intencional y compartido, baseline
+= dirección de Reporting; sutil, sin alterar geometría, funciona en filas padre/hijo.
+Preservar los requisitos de Reporting ya implementados (geometría estable, indent en
+la primera columna, formateo numérico semántico, sin shifts). NO rediseñar la
+arquitectura de información de ninguna experiencia. **Activity/Usage Metrics: NO
+tocar ahora**, pero cuando se toque debe consumir los MISMOS primitivos (requisito
+arquitectónico, no una tercera interpretación).
+
+### 6. Secuencia para el próximo agente (ORDEN)
+1. ~~**Phase S — estandarización visual**~~ **CERRADA (`6dd7e99`)** — ver
+   sección "0. Phase S" arriba para el detalle completo. No reabrir salvo que
+   Batch A revele un problema genuino de integración con el primitivo
+   compartido.
+1bis. ~~**Corrective pre-Batch-A — Cartera canónica**~~ **CERRADO (`e73f14b`)**
+   — ver sección "-1." arriba (Estado terminal / jerarquía Proyecto / Diff Hs
+   KPI). No reabrir salvo evidencia live nueva del owner.
+1ter. ~~**S.4 — disclosure jerárquico compartido**~~ **CERRADO (`c37b56b`) —
+   PHASE S = CLOSED** — ver sección "-2." arriba. No reabrir salvo evidencia
+   live nueva del owner o un problema genuino de integración descubierto en
+   Batch A.
+2. ~~**Batch A**~~ **5/5 backbone CONECTADA (`5991fdb` + `5dcbb58` +
+   `c7ec896`)** — ver sección "-3." arriba. Horas Vendidas/Participación/
+   Calendario/Horas Productivas-Productivas/Salud de Cliente: **BATCH A
+   IMPLEMENTATION READY FOR LIVE VALIDATION** (checklist de smoke
+   consolidado en esa sección). Solo No Asignadas queda fuera — es Batch B
+   (CSV de Time Logs real). Internal names NUEVOS de Cliente
+   (Frecuencia/Permite Adelanto/Condición de Pago/Calendario_Act/Salud*)
+   PENDIENTES de confirmar en smoke real (mismo proceso que corrigió los de
+   Cartera). No reabrir salvo evidencia live del owner.
+2bis. ~~**QA4 — reconciliación jerárquica de rollups**~~ **CERRADO
+   (`26b18ac`)** — ver sección "-5." arriba. Fix transversal en
+   `renderBusinessTreeRows`, afecta los 4 consumidores no-mensuales
+   (Cartera/Participación/Salud/Productivas). No reabrir salvo evidencia
+   live nueva del owner.
+3. ~~**Correction 1 — verificar lineage de Productivas**~~ **CERRADO
+   (docs-only, ver "CORRECTION 1" arriba + real-data-lineage.md §8bis)** —
+   **Outcome (B) confirmado con evidencia PRIMARIA**: `Time Logs
+   Reports.HORAS` es la fuente real (AMBAS perspectivas), no `hsTrabajadas`.
+   El CÓDIGO todavía usa `hsTrabajadas` (no reimplementado en este pase) —
+   Horas Productivas/Productivas queda BLOCKED hasta Batch B. Contrato físico
+   completo (sitio/carpeta/columnas/M/join a Cliente) ya documentado, listo
+   para codificar sin re-descubrir nada.
+4. **Q1/Q2/Q3 (owner live QA, pendientes)** — Q1: sizing de columnas en
+   Rentabilidad/Certificadas vs Ejecutadas/Detalle por proyecto (vocabulario
+   semántico compartido de `tools.css`, sin hacks locales). Q2: consistencia
+   de rango de fechas — meses fuera de Desde/Hasta deben quedar en blanco/no
+   contribuir a totales en TODA sección de una experiencia (Rentabilidad
+   matriz mensual de Concepto + Horas Vendidas matriz mensual/totales/KPIs
+   trimestrales), grano mensual (nunca inventar grano diario sobre datos
+   mensuales). Q3: confirmar/documentar/testear el grano de los totales
+   mensuales de Calendario contra el PBIP (conteo de celdas true al grano
+   visible vs. conteo de hojas Cliente vs. medida PBIP explícita), sin doble
+   conteo padre+hijo.
+5. ~~**Batch B**~~ **100% CERRADO** — Time Logs adapter (ver sección "-9."),
+   Horas Productivas AMBAS perspectivas (sección "-9."), Rentabilidad AMBAS
+   perspectivas (sección "-10."). Ejecutadas resuelta con evidencia PRIMARIA
+   del PBIP (`Comparativo.tmdl` — no hizo falta `Resumen Horas x Proyecto
+   Fac y Ejec`, esa tabla corroboró la misma conclusión sin agregar
+   información nueva). No reabrir salvo evidencia live nueva del owner.
+6. **Único paso restante: SMOKE CONSOLIDADO DEL OWNER** — las 6
+   experiencias/12 perspectivas están en **IMPLEMENTATION READY FOR LIVE
+   VALIDATION** (checklist determinístico por experiencia disperso en cada
+   sección "-N." de este documento; + loader/geometría/formato KPI/facet
+   año/no-mock-flash, ver auditoría transversal sección "-11."). La
+   validación LIVE contra SharePoint/CSV real requiere sesión con Graph
+   token del owner — un agente sin ese acceso puede implementar/testear-en-
+   frío pero NO puede confirmar el dato real por sí mismo; STOP rule (d)
+   aplica acá. Gaps conocidos a confirmar en el smoke: formato exacto de
+   fecha del CSV de Time Logs (ISO vs DD/MM/YYYY), existencia de
+   subcarpetas en Template Dashboard, lista `Resumen Asignaciones` para
+   `hsAsig` de No Asignadas (sin ID confirmado, gap documentado).
+
+### 7. STOP rules (parar SOLO ante un blocker genuino)
+Parar únicamente si: (a) evidencia PBIP/fuente deja DOS interpretaciones de negocio
+materialmente plausibles; (b) acceso live delegado es necesario e indisponible para
+determinar una fuente física; (c) hace falta un cambio en `core.microsoft365`/shared
+Graph fuera de Reporting (STOP y explicar antes); (d) el único paso restante es la
+validación live del owner. NO parar por: nombres codificados, resolución de LookupId,
+joins, paginación, complejidad/tamaño/budget, ajustes de fixtures, reuso de CSS,
+mappings mecánicos.
+
+### 8. Invariantes de seguridad del worktree
+- Worktree del owner `C:\Users\Joe\ArquitectoDanwor` **INTACTO** (lleva cambios
+  locales del owner en `config.py` `OPERATIONS_ALLOWED_USERS="joconnor"` y
+  `webapp/static/tools.css` `.staffing-absence-error`). NUNCA `reset --hard`/`stash`/
+  `restore`/`checkout --`/`clean` sobre él; NUNCA `git add` de esos dos archivos.
+- Todo el trabajo en `C:\Users\Joe\DanworWorktrees\reporting-real-data` (branch
+  `work/reporting-real-data`). Pushear SOLO esa branch.
+- **NO** pushear `work/staffing-vacation-overlay`. **NO** abrir PR salvo pedido
+  explícito. **NO** mergear a la branch del owner.
 
 ## CURRENT EXECUTION POINT
 - **Estado consolidado — Module Identifier Convention V2 CERRADO por
@@ -6123,6 +8791,48 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
     rows`) agregado a Activity para que **owner live smoke #6** identifique
     la etapa exacta. Ningún cambio de negocio/filtro — sigue pendiente la
     corrección real.
+  - **Reporting Integral V0 (SUPERADO — ver sección autoritativa "REPORTING
+    INTEGRAL — REAL DATA (branch `work/reporting-real-data`)" arriba).** Lo que
+    sigue describe la fase V0/mock, ya superada por la integración de datos
+    reales: Cartera está LIVE VALIDATED en `work/reporting-real-data`; Phase 0 +
+    facet de año implementados; Batch A pendiente (precedido por Phase S de
+    estandarización visual). Registro histórico V0:
+  - Reporting Integral V0 = V0 / MOCK DATA, mergeado localmente en
+    `work/staffing-vacation-overlay` — NO pusheado. Vive en
+    `/operaciones/reporting/integral` (Operations nav: "01 Asignaciones" /
+    "02 Reporting"). Desarrollado en la branch `work/reporting-integral-v0`
+    (varios batches correctivos, ver `git log`); último commit incorporado
+    `782119a`, integrado al worktree real del owner
+    (`C:\Users\Joe\ArquitectoDanwor`) por fast-forward sobre la historia de
+    Vacation/Absence Overlay (esta branch resultó ser ancestro de
+    `work/reporting-integral-v0`, así que el fast-forward no generó merge
+    commit). Seis experiencias finales: Cartera/Proyectos, Rentabilidad,
+    Horas Vendidas, Participación/Comercial, Calendario, Horas
+    Productivas — todas reusan el mismo backbone de dashboard del Hub
+    (tipografía/tokens compartidos, filtros funcionales sticky, filtros
+    faceteados/en cascada multidireccionales, rollups jerárquicos de
+    padres, filtros de fecha/específicos de perspectiva, tooltips nativos +
+    matriz mensual acumulada de Rentabilidad, semántica booleana de
+    presencia en Calendario, acción opcional "Actualizar" de mantenimiento
+    SharePoint). Dataset 100% mock hardcodeado — integración de datasource
+    real **todavía NO iniciada**; próximo paso: diseñar contratos
+    normalizados de servicio/repositorio por experiencia (mismo patrón que
+    `StaffingService`), **nunca** conectar cada renderer individual
+    directo a Graph/SharePoint. Artefactos de assessment/prototipo en
+    `artifacts/reporting-integral-v0/` (mapa funcional completo en
+    `v0-functional-map.md`); fuente PBIP real en
+    `E:\Joe\Metodologia\Refactorizacion\Tablero Integral\Danwor - Tablero
+    Integral.pbip`. **Higiene de branch — IMPORTANTE:** la branch local
+    `work/staffing-vacation-overlay` quedó ~32 commits adelante de su
+    remoto (absorbió toda la historia de Reporting vía fast-forward) — su
+    nombre ahora es histórico/engañoso (ya no describe solo el overlay de
+    vacaciones) y **NO debe pushearse casualmente** (redefiniría qué es esa
+    branch en `origin`). Dos overrides locales intencionales del owner
+    deben preservarse SIEMPRE (nunca stash/reset/restore/clean):
+    `config.py` (`OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS",
+    "joconnor")`) y `webapp/static/tools.css` (override de legibilidad de
+    texto, migrado durante el merge de `.staffing-vacation-error` a
+    `.staffing-absence-error` tras el rename Vacation→Absence upstream).
   - **Activity Admin Shell Ownership = FOLLOW-UP / NOT STARTED** — ver
     sección dedicada arriba (inconsistencia cosmética de baja severidad,
     sin corrección chica y segura disponible todavía).
