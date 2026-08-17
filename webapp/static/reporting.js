@@ -1,4 +1,4 @@
-// reporting.js — Reporting Integral V0 preview (Operations, ver HANDOFF).
+// reporting.js — Reporting Integral (Operations, ver HANDOFF).
 //
 // Align with Hub backbone corrective (ver HANDOFF): este archivo consume el
 // MISMO backbone de dashboard ya usado por Staffing/Actividad en vez de
@@ -16,7 +16,7 @@
 // namespacing adicional a propósito (no introducir un framework/wrapper
 // nuevo). Deduplicar contra el prototipo standalone
 // (prototypes/reporting-integral-v0/index.html, que queda como referencia
-// de diseño congelada) es tarea de V1, no de este preview.
+// de diseño congelada) es tarea futura, no de este archivo.
 
 // ============================================================================
 // Dataset representativo (hardcoded, NO producción) — nombres reconocibles
@@ -3424,7 +3424,7 @@ function sumMonthly(rows, monthMask) {
 // vía `sumMonthly(node.rows)` en el renderer) Y por tablas de negocio
 // no-mensuales (Cartera/Proyectos, Capacidad-Productivas, vía
 // `renderBusinessTreeRows`) — un solo motor de agrupación para los dos
-// tipos de tabla jerárquica del prototipo.
+// tipos de tabla jerárquica de Reporting.
 // `comparators` (owner corrective — "la tabla frecuencia no ordena por ID
 // Frecuencia igual al PBIP"): mapa OPCIONAL `{ key: compareFn }`. La
 // primera pasada de este corrective solo reordenó las OPCIONES del <select>

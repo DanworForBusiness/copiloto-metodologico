@@ -1,33 +1,36 @@
 """
-reporting.py — Operations / Reporting Integral V0 preview (ver HANDOFF).
+reporting.py — Operations / Reporting Integral (ver HANDOFF).
 
-`GET /operaciones/reporting/integral` — superficie de PREVISUALIZACIÓN
-interna para que el owner revise el prototipo de consolidación del reporte
-Power BI "Danwor - Tablero Integral" (12 páginas → 6 experiencias) dentro
-del Hub real, no como HTML standalone. Deliberadamente mínima: sin Graph,
-sin persistencia, sin fragmento HTMX — el dataset es mock y vive embebido
-client-side (`webapp/static/reporting.js`, portado 1:1 del prototipo
-standalone `prototypes/reporting-integral-v0/index.html`, que sigue siendo
-la referencia de diseño). Un solo GET, sin POST — no hay nada que cargar
-de una fuente externa todavía.
+`GET /operaciones/reporting/integral` — renderiza SOLO el shell (tabs +
+loader inicial vacíos, ver INITIAL LOAD CONTRACT en reporting.js): consolida
+el reporte Power BI "Danwor - Tablero Integral" (12 páginas → 6 experiencias)
+dentro del Hub real, no como HTML standalone. Ese GET no llama Graph ni
+persiste nada — el dato real lo traen los POST `/data/*` de este mismo
+router (cartera/rentabilidad/horas-vendidas/participación/batch-a/batch-b),
+cada uno vía `ReportingRepository`/`ReportingService` con el token delegado
+del browser (MISMO mecanismo que Staffing, NUNCA un cliente Graph nuevo por
+endpoint). El dataset hardcodeado que vive en `webapp/static/reporting.js`
+(portado 1:1 del prototipo standalone `prototypes/reporting-integral-v0/
+index.html`, que sigue siendo la referencia de diseño congelada) es SOLO
+estado inicial pre-hidratación — se reemplaza en el lugar apenas resuelve
+el primer POST real, nunca coexiste con datos reales.
 
 Agregada a `partials/operations_nav.html` como "02 Reporting" (Align with
-Hub backbone corrective, ver HANDOFF) — YA es navegación real, no solo URL
-directa. Sigue sin ser la ruta canónica final: el nombre/ubicación pueden
-cambiar cuando Reporting deje de ser un preview.
+Hub backbone corrective, ver HANDOFF) — navegación real, no solo URL directa.
 
 Reusa el MISMO gate de autorización que Staffing
 (`webapp.operations_access.is_operations_authorized` + sesión vía
-`auth_service`) — NUNCA un mecanismo de auth nuevo. Mismo criterio que
-`staffing_page`: sin `graph_token`, sin llamada a Graph en el GET (acá
-directamente no hay ninguna, ni siquiera vía POST — todo el dato es mock
-embebido en el JS servido).
+`auth_service`) — NUNCA un mecanismo de auth nuevo. El GET en sí sigue sin
+`graph_token`/llamada a Graph (mismo criterio que `staffing_page`); son los
+POST de abajo los que reciben `graph_token` del browser y hacen el fetch
+real.
 
-Clasificación: OPERATIONS / REPORTING HTTP (preview). NOT PLATFORM /
-SHARED. NO importa `webapp.main`, no posee transporte Graph, no define
-lógica de negocio de Reporting (eso vive enteramente en
-`webapp/static/reporting.js` mientras siga siendo mock — se moverá a un
-service real cuando haya fuente de datos)."""
+Clasificación: OPERATIONS / REPORTING HTTP. NOT PLATFORM / SHARED. NO
+importa `webapp.main`; el transporte Graph vive en
+`webapp.services.reporting_repository`/`core.microsoft365` (nunca acá
+directamente), la lógica de negocio/shaping en `webapp.services.
+reporting_service` — este router solo conecta HTTP↔service, MISMO patrón
+que `staffing.py`."""
 from __future__ import annotations
 
 import logging
