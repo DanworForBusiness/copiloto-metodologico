@@ -116,6 +116,20 @@ _WORKSPACE_CARD_COPY = {
             "Analítica operativa",
         ],
     },
+    "commercial": {
+        "eyebrow": None,
+        "title": "Gestión Comercial",
+        "accent": "CRM Danwor",
+        "description": (
+            "Un espacio para gestionar oportunidades, seguir la actividad del CRM y "
+            "convertir la información comercial en decisiones accionables."
+        ),
+        "features": [
+            "Pipeline y oportunidades",
+            "Seguimiento de actividad comercial",
+            "Indicadores y analítica CRM",
+        ],
+    },
 }
 
 

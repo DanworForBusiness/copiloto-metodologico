@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_98():
+def test_15_route_surface_still_99():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -524,6 +524,10 @@ def test_15_route_surface_still_98():
     #     data/participacion(+anios-disponibles), data/batch-b, feedback,
     #     telemetry — más POST /operaciones/staffing/feedback. Nunca
     #     regenerado en este archivo puntual hasta ahora.
+    #   98 -> 99 (Commercial Hub Workspace Foundation, Batch 0): +GET
+    #     /comercial, el shell mínimo del tercer workspace (ver
+    #     webapp/routers/commercial.py) — un único endpoint nuevo, sin dato/
+    #     Odoo real todavía.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -531,7 +535,7 @@ def test_15_route_surface_still_98():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 98
+    assert len(snapshot) == 99
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

@@ -24,6 +24,11 @@ LOGO_URL     = _env("DANWOR_LOGO_URL", "https://certificaciones.greatplacetowork
 OPERATIONS_APP_TITLE    = _env("DANWOR_OPERATIONS_APP_TITLE", "Gestión Inteligente · Operaciones")
 OPERATIONS_APP_SUBTITLE = _env("DANWOR_OPERATIONS_APP_SUBTITLE", "Analítica y gestión operativa | Danwor Transversal")
 
+# App identity — workspace Comercial (mismo patrón que OPERATIONS_APP_TITLE/
+# SUBTITLE arriba; Commercial Hub Workspace Foundation, ver HANDOFF).
+COMMERCIAL_APP_TITLE    = _env("DANWOR_COMMERCIAL_APP_TITLE", "Gestión Comercial · CRM Danwor")
+COMMERCIAL_APP_SUBTITLE = _env("DANWOR_COMMERCIAL_APP_SUBTITLE", "Gestión y analítica comercial | Danwor Transversal")
+
 # Paths
 BASE_DIR          = Path(__file__).parent
 CONTENT_PACKS_DIR = BASE_DIR / "content_packs"
@@ -172,6 +177,12 @@ ACADEMY_USERS    = _env("ACADEMY_USERS", "")
 # autorizado (fail-closed explícito). Provisorio hasta que un mecanismo de
 # entitlement central (Entra Groups/App Roles) lo justifique.
 OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
+# Allowlist explícita del workspace Comercial — MISMO contrato fail-closed
+# que OPERATIONS_ALLOWED_USERS arriba (ver ese comentario): ausente/vacío/
+# "ALL" = NADIE autorizado, nunca un fallback a "abierto". Provisorio hasta
+# que exista un mecanismo de entitlement central (Commercial Hub Workspace
+# Foundation, ver HANDOFF).
+COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
 # Cierre del dialog de invitación (/desafio) cuando la app corre enmascarada en
 # el frame de danwor.com: la cruz navega la ventana completa (target=_top) a esta
 # URL "limpia" para que el refresh no vuelva a pasar por /desafio. Sin frame

@@ -20,6 +20,7 @@
   "GET /catalog/guide/{slug}",
   "GET /catalog/security",
   "GET /catalog/security/detail",
+  "GET /comercial",
   "GET /copilot",
   "GET /desafio",
   "GET /desafio/cerrar",

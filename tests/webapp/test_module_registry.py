@@ -52,6 +52,19 @@ def test_assignments_resolves_to_op01():
     assert entry.module_id == "OP01"
 
 
+# test 3b — Commercial Hub Workspace Foundation (Batch 0): CMxx se activa,
+# MISMO criterio exacto que OP01 arriba.
+def test_cm01_commercial_entry_registered():
+    entry = mr.resolve("crm")
+    assert entry is not None
+    assert entry.module_id == "CM01"
+    assert entry.workspace == "commercial"
+    assert entry.area == "crm"
+    assert entry.content_key is None
+    by_id = mr.resolve("CM01")
+    assert by_id is entry or by_id == entry
+
+
 # test 4
 def test_canonical_id_and_legacy_alias_resolve_to_the_same_descriptor():
     for entry in mr.all_entries():
@@ -79,7 +92,9 @@ def test_unknown_key_behaves_deterministically():
     assert mr.resolve("no_existe_este_modulo") is None
     assert mr.resolve("") is None
     assert mr.resolve("CPAC01") is None  # namespace reservado, sin entradas activas
-    assert mr.resolve("CM01") is None
+    # CMxx (Comercial) se activó en Commercial Hub Workspace Foundation
+    # (Batch 0) — CM01 YA es una entrada real (ver test_cm01_commercial_entry_registered
+    # más abajo); CHxx (Capital Humano) sigue reservado, sin entradas.
     assert mr.resolve("CH01") is None
 
 
@@ -265,4 +280,7 @@ def test_registry_covers_every_currently_discovered_copilot_stem():
 
 
 def test_all_entries_count_matches_approved_inventory():
-    assert len(mr.all_entries()) == len(_COPILOT_MODULE_STEMS) + len(_COPILOT_APPENDIX_STEMS) + 1
+    # "+ 2" = OP01 (Operations/Asignaciones) + CM01 (Comercial/CRM, Batch 0)
+    # — las dos únicas entradas sin Markdown backing, fuera de las
+    # colecciones de Copiloto/apéndices.
+    assert len(mr.all_entries()) == len(_COPILOT_MODULE_STEMS) + len(_COPILOT_APPENDIX_STEMS) + 2

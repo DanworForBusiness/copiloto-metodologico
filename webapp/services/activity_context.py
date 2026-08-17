@@ -45,6 +45,7 @@ from __future__ import annotations
 SCOPE_PLATFORM = "platform"
 SCOPE_COPILOT = "copilot"
 SCOPE_OPERATIONS = "operations"
+SCOPE_COMMERCIAL = "commercial"
 SCOPE_UNKNOWN = "unknown"
 
 # --- area (área funcional) ---
@@ -55,6 +56,7 @@ AREA_ACADEMY = "academy"
 AREA_CATALOG = "catalog"
 AREA_STAFFING = "staffing"
 AREA_REPORTING = "reporting"
+AREA_CRM = "crm"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -99,6 +101,7 @@ SCOPE_LABELS: dict[str, str] = {
     SCOPE_PLATFORM: "Plataforma",
     SCOPE_COPILOT: "Copiloto",
     SCOPE_OPERATIONS: "Operaciones",
+    SCOPE_COMMERCIAL: "Comercial",
     SCOPE_UNKNOWN: "Sin clasificar",
 }
 AREA_LABELS: dict[str, str] = {
@@ -109,6 +112,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_CATALOG: "Catálogo",
     AREA_STAFFING: "Staffing",
     AREA_REPORTING: "Reporting",
+    AREA_CRM: "CRM",
     AREA_UNKNOWN: "Sin clasificar",
 }
 

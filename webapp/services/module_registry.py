@@ -46,8 +46,10 @@ Principios congelados (discovery previo — ver HANDOFF):
 Namespace reservado, NO implementado en esta fase (sin entradas en el
 registro, sin mapeo): `CPACxx` (Academy de Copiloto — su espacio de
 identidad ya difiere del nav normal, ver HANDOFF; requiere su propio
-discovery), `CMxx` (Comercial), `CHxx` (Capital Humano) — ninguno de los
-tres tiene todavía workspace/área/contenido real en el repo.
+discovery), `CHxx` (Capital Humano) — ninguno de los dos tiene todavía
+workspace/área/contenido real en el repo. `CMxx` (Comercial) SÍ se activa
+en esta fase (`CM01`, ver más abajo) — Commercial Hub Workspace
+Foundation, Batch 0.
 """
 
 from __future__ import annotations
@@ -133,6 +135,15 @@ _OP01_LEGACY_KEY = "assignments"
 _OP01_VISIBLE_LABEL = "Asignaciones"
 _OP01_DISPLAY_ORDER = 1
 
+# CM01 — Comercial/CRM (Commercial Hub Workspace Foundation, Batch 0: solo
+# plataforma/shell, sin Odoo/dashboard real todavía). MISMO criterio que
+# OP01 arriba — literales propios del registro, `content_key=None` (sin
+# Markdown backing), única entrada de SU colección (`display_order=1`).
+CM01_MODULE_ID = "CM01"
+_CM01_LEGACY_KEY = "crm"
+_CM01_VISIBLE_LABEL = "CRM"
+_CM01_DISPLAY_ORDER = 1
+
 
 def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # `display_order` viene SIEMPRE del segundo elemento de la tupla
@@ -187,6 +198,15 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
         kind="module", content_key=None,
         visible_label=_OP01_VISIBLE_LABEL,
         display_order=_OP01_DISPLAY_ORDER, legacy_aliases=(_OP01_LEGACY_KEY,),
+    ))
+    # Comercial/CRM — sin Markdown backing (`content_key=None`), MISMO
+    # criterio que Operations/Asignaciones arriba (`kind="module"`, sin
+    # evidencia de un consumidor que necesite distinguir "appendix").
+    entries.append(ModuleDescriptor(
+        module_id=CM01_MODULE_ID, workspace="commercial", area="crm",
+        kind="module", content_key=None,
+        visible_label=_CM01_VISIBLE_LABEL,
+        display_order=_CM01_DISPLAY_ORDER, legacy_aliases=(_CM01_LEGACY_KEY,),
     ))
     return tuple(entries)
 
