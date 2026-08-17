@@ -161,13 +161,13 @@ FAC_CANTIDAD = "Suma de Cantidad"
 
 # Colaboradores (MISMA lista que Staffing, `config.SHAREPOINT_COLABORADORES_
 # LIST_ID`) — usada acá SOLO para resolver Email→Consultor de Horas
-# Productivas/No Asignadas (Batch B). Internal names `Title`/`EMail`
-# confirmados por el M del PBIP (`Colaboradores.tmdl`, partición: el
-# rename `{"Title","Consultor"}`/`{"Colaborador..EMail","EMail_Colaborador"}`
-# revela que "Title"/"EMail" SON los internal names crudos de Graph, antes
-# del rename de negocio del propio PBIP).
+# Productivas/No Asignadas (Batch B). `Title` confirmado por el M del PBIP
+# (rename `{"Title","Consultor"}`). El email NO está en un campo directo de
+# Colaboradores (LIVE GRAPH VALIDATED, ver `get_colaboradores_email_map`) —
+# se resuelve vía `COLAB_LOOKUP_ID` → User Information List (`USER_INFO_NAME`).
 COLAB_TITLE = ("Title",)
-COLAB_EMAIL = ("EMail", "Email")
+COLAB_LOOKUP_ID = "Colaborador_x002e_LookupId"
+USER_INFO_NAME = "Name"
 
 # Time Logs Reports (CSV, sitio Operaciones) — Batch B, ÚNICA fuente física
 # nueva (junto con "Ejecutadas" de Rentabilidad, que reusa este MISMO
@@ -357,12 +357,14 @@ class ReportingRepository:
         proyectos_list_id: str | None = None,
         cliente_list_id: str | None = None,
         colaboradores_list_id: str | None = None,
+        user_information_list_id: str | None = None,
     ):
         self.site_id = site_id if site_id is not None else config.SHAREPOINT_GESTION_SITE_ID
         self.horas_proyectos_list_id = horas_proyectos_list_id or config.SHAREPOINT_HORAS_PROYECTOS_LIST_ID
         self.proyectos_list_id = proyectos_list_id or config.SHAREPOINT_PROYECTOS_LIST_ID
         self.cliente_list_id = cliente_list_id or config.SHAREPOINT_CLIENTE_LIST_ID
         self.colaboradores_list_id = colaboradores_list_id or config.SHAREPOINT_COLABORADORES_LIST_ID
+        self.user_information_list_id = user_information_list_id or config.SHAREPOINT_USER_INFORMATION_LIST_ID
 
     def _require_site_id(self) -> str:
         if not self.site_id:
@@ -957,24 +959,46 @@ class ReportingRepository:
         return facts
 
     def get_colaboradores_email_map(self, access_token: str) -> dict[str, str]:
-        """Email (lowercase) → nombre de Consultor, desde la lista
-        Colaboradores (MISMA lista/ID que Staffing). Usada SOLO por Horas
-        Productivas/No Asignadas para resolver el consultor dueño de cada
-        fila de Time Logs (join por Email, `Time Logs Reports.Email` →
-        `Colaboradores.EMail_Colaborador`, MISMA relación confirmada en el
-        TMDL del PBIP)."""
+        """Email (lowercase) → nombre de Consultor. El person field
+        `Colaborador` NO expone email en Graph (LIVE GRAPH VALIDATED:
+        ninguna variante de `$select` sobre Colaboradores devuelve un
+        campo con "@" — ni `Colaborador`, `Colaborador_x002e_` ni
+        `Colaborador_x002e_LookupId`); el email real vive en la SharePoint
+        User Information List (`config.SHAREPOINT_USER_INFORMATION_LIST_ID`,
+        template `userInformation`, MISMO sitio Gestión), resuelta por:
+
+            Colaboradores.Colaborador_x002e_LookupId → UserInfo.id → UserInfo.Name
+
+        `Name` es un claims/login SharePoint (`i:0#.f|membership|user@dom`,
+        LIVE GRAPH VALIDATED: 148/148 Colaboradores con LookupId resuelto
+        tienen `|` en `Name`, 0 son email puro) — el email real es el
+        último segmento tras el último `|`. Reproduce la relación TMDL del
+        PBIP `Time Logs Reports.Email → Colaboradores.EMail_Colaborador`
+        (esa columna del modelo es una expansión de Power Query del person
+        field, no un internal name literal de Graph). Bulk: UNA lectura de
+        Colaboradores + UNA lectura de User Information List, nunca N+1."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("colaboradores")
         items = self._items(site_id, self.colaboradores_list_id, "colaboradores")
         timer.stage("colaboradores", len(items))
+        userinfo_items = self._items(site_id, self.user_information_list_id, "user_information")
+        timer.stage("user_information", len(userinfo_items))
+        name_by_id = {_text(it.get("id")): _text((it.get("fields") or {}).get(USER_INFO_NAME)) for it in userinfo_items}
         mapping: dict[str, str] = {}
         for it in items:
             fields = it.get("fields") or {}
-            email = _first(fields, *COLAB_EMAIL).lower()
             title = _first(fields, *COLAB_TITLE)
-            if email and title:
-                mapping[email] = title
+            lookup_id = _text(fields.get(COLAB_LOOKUP_ID))
+            if not title or not lookup_id:
+                continue
+            name = name_by_id.get(lookup_id)
+            if not name:
+                continue
+            email = (name.rsplit("|", 1)[-1] if "|" in name else name).strip().lower()
+            if "@" not in email:
+                continue
+            mapping[email] = title
         timer.total()
         return mapping
 

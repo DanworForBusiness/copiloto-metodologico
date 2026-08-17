@@ -24,6 +24,20 @@ from datetime import datetime
 
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
 
+# Proyectos placeholder "Horas No Productivas" del PBIP (real-data-lineage.md:284,
+# página "Hs No Asignadas": `[Project] IN {...}`) — parte del criterio de
+# población de `_shape_horas_productivas_no_asignadas` (Project ∩ Task; la
+# equivalencia con Task-only observada en los datos vivos es circunstancial,
+# no la relación de negocio real).
+_HORAS_NO_PRODUCTIVAS_PROJECTS = {"Danwor - Horas No Productivas (#1)", "Danwor - Horas No Productivas (#2)"}
+
+# Etiqueta para facts cuyo Email no resuelve a un Consultor vía
+# `get_colaboradores_email_map` — MISMO literal que Power BI muestra como
+# miembro de la relación Time Logs Reports.Email → Colaboradores sin match
+# (LIVE QA: PBI conserva esas horas bajo una fila "(Blank)", no las excluye
+# del total). Nunca se fabrica un nombre de consultor.
+_SIN_CONSULTOR_LABEL = "(Blank)"
+
 # Nombres de mes → número (la columna `Mes` de "Horas por proyectos" es texto;
 # puede venir como nombre español, número, o "MM"). Se usa SOLO para construir
 # `fecha` (primer día del mes) del rango de fechas de Mantenimiento.
@@ -996,14 +1010,19 @@ class ReportingService:
         Consultor con `monthly[12]` (horas No Asignadas por mes, aditivo) +
         `hsAsig`. Reusa los MISMOS `facts`/`colaboradores` que Productivas
         (ver `get_batch_b` — UN fetch/combine de CSV para las 2
-        perspectivas), filtrado por TASK = `_NO_ASIGNADAS_TASK` (slicer del
-        PBI "01. No Asignación a Servicio en Cliente" — FINAL PBIP SOURCE-
-        PARITY CORRECTIVE, antes filtraba por 2 proyectos placeholder y daba
-        0 filas pese a haber data 2026), agrupado por Consultor vía
-        `colaboradores` (join `Time Logs Reports.Email →
-        Colaboradores.EMail_Colaborador`, MISMA relación confirmada en el
-        TMDL del PBIP). Filas con Email sin Colaborador resuelto se omiten
-        (nunca un Consultor "Desconocido" fabricado).
+        perspectivas). Población PBIP real (real-data-lineage.md:284):
+        `Project IN _HORAS_NO_PRODUCTIVAS_PROJECTS AND Task ==
+        _NO_ASIGNADAS_TASK` — Task-only da hoy la misma población pero es
+        circunstancial, no la relación de negocio.
+
+        `colaboradores` (`ReportingRepository.get_colaboradores_email_map`)
+        resuelve el Email vía Colaboradores.Colaborador_x002e_LookupId →
+        User Information List → email (LIVE GRAPH VALIDATED). Facts cuyo
+        Email no resuelve (LIVE QA: 2/264 — identidad ausente incluso de la
+        User Information List completa) se agrupan bajo `_SIN_CONSULTOR_LABEL`
+        en vez de omitirse: Power BI, con la MISMA relación, muestra esas
+        mismas horas bajo una fila "(Blank)" y las conserva en el total
+        (golden 1138.5h/1139 visual) — omitirlas rompería la paridad.
 
         GAP DOCUMENTADO (no adivinado): `hsAsig` (capacidad de referencia
         estática del consultor, mock `Colaboradores['Consultor + Hs asig']`)
@@ -1017,15 +1036,11 @@ class ReportingService:
         name/ID)."""
         groups: dict[str, list[float]] = {}
         for f in facts:
-            # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK (slicer del
-            # PBI "No Asignación a Servicio"), NO por los 2 proyectos placeholder
-            # (con los que el Hub daba "Sin filas" pese a haber data 2026). Match
-            # por frase núcleo (ver `_is_no_asignadas_task`).
+            if f.get("proyecto") not in _HORAS_NO_PRODUCTIVAS_PROJECTS:
+                continue
             if not _is_no_asignadas_task(f.get("task", "")):
                 continue
-            consultor = colaboradores.get(f["email"].lower())
-            if not consultor:
-                continue
+            consultor = colaboradores.get((f.get("email") or "").lower()) or _SIN_CONSULTOR_LABEL
             n = _time_logs_month_num(f["mes"])
             if n is None:
                 continue

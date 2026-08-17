@@ -19,8 +19,10 @@ from webapp.services import reporting_repository as repo_mod
 from webapp.services.reporting_repository import ReportingRepository, ReportingSourceError
 from webapp.services.reporting_service import ReportingService
 
-_SITE, _PROY, _CLI, _COLAB = "site-1", "proy-list", "cli-list", "colab-list"
+_SITE, _PROY, _CLI, _COLAB, _USERINFO = "site-1", "proy-list", "cli-list", "colab-list", "userinfo-list"
 _OPS_SITE = "ops-site-1"
+_HNP_PROJECT_1 = "Danwor - Horas No Productivas (#1)"
+_HNP_PROJECT_2 = "Danwor - Horas No Productivas (#2)"
 
 _CSV_HEADERS = ["Date", "From", "To", "Description", "Duration", "Duration Decimal",
                 "Client", "Project", "Task", "User", "Email", "Billable Amount", "Billable", "Cost"]
@@ -39,7 +41,7 @@ def _csv_bytes(rows):
     return buf.getvalue().encode("utf-8")
 
 
-def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=None, file_rows=None,
+def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, user_information=None, csv_files=None, file_rows=None,
            ops_site_id=_OPS_SITE, cliente_columns=None):
     """`csv_files`: lista de items de `/children` (id/name). `file_rows`:
     dict item_id -> lista de filas CSV crudas para ESE archivo (permite
@@ -66,6 +68,8 @@ def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=No
             return _items(clientes)
         if _COLAB in url:
             return _items(colaboradores or [])
+        if _USERINFO in url:
+            return _items(user_information or [])
         return []
 
     def fake_bytes(url, access_token, **kw):
@@ -82,6 +86,7 @@ def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, csv_files=No
 def _repo():
     return ReportingRepository(
         site_id=_SITE, proyectos_list_id=_PROY, cliente_list_id=_CLI, colaboradores_list_id=_COLAB,
+        user_information_list_id=_USERINFO,
     )
 
 
@@ -328,17 +333,21 @@ _NA_TASK = "01. No Asignación a Servicio en Cliente"  # slicer del PBI (con pre
 
 
 def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
-    # FINAL PBIP SOURCE-PARITY CORRECTIVE: se filtra por TASK (slicer del PBI),
-    # NO por proyecto placeholder. El proyecto es irrelevante para el match.
+    # Población PBIP real (real-data-lineage.md:284): Project IN
+    # {_HNP_PROJECT_1, _HNP_PROJECT_2} AND Task == _NA_TASK. Task-only daba la
+    # misma población en los datos vivos, pero es circunstancial — se prueba
+    # el filtro de Project activo (última fila, mismo Task, otro proyecto).
     facts = [
-        {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK,
+        {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
          "email": "A@Danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
-        {"cliente": "Molinos", "proyecto": "Otro", "task": _NA_TASK,
+        {"cliente": "Molinos", "proyecto": _HNP_PROJECT_2, "task": _NA_TASK,
          "email": "a@danwor.com", "horas": 2.0, "mes": "2026-01", "anio": "2026"},
-        {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK,
+        {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
          "email": "a@danwor.com", "horas": 6.0, "mes": "2026-03", "anio": "2026"},
         # Otro Task (Productivas) — NUNCA debe aparecer en No Asignadas.
-        {"cliente": "YPF", "proyecto": "SADI v2", "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026"},
+        {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026"},
+        # MISMO Task, proyecto NO placeholder → excluido por el filtro de Project.
+        {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK, "email": "a@danwor.com", "horas": 99.0, "mes": "2026-01", "anio": "2026"},
     ]
     colaboradores = {"a@danwor.com": "Federico Bressi"}
     rows = _service()._shape_horas_productivas_no_asignadas(facts, colaboradores)
@@ -351,12 +360,18 @@ def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
     assert sum(r["monthly"]) == 12.0
 
 
-def test_shape_horas_productivas_no_asignadas_omits_unresolved_email():
+def test_shape_horas_productivas_no_asignadas_groups_unresolved_email_under_blank():
+    # LIVE QA (owner, Power BI): las filas cuyo Email no resuelve a un
+    # Consultor vía la MISMA relación se conservan bajo una fila "(Blank)"
+    # (el total de la visual las incluye) — nunca se excluyen del total.
     facts = [
-        {"cliente": "Danwor", "proyecto": "X", "task": _NA_TASK,
+        {"cliente": "Danwor", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
          "email": "sin-colaborador@danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
     ]
-    assert _service()._shape_horas_productivas_no_asignadas(facts, {}) == []
+    rows = _service()._shape_horas_productivas_no_asignadas(facts, {})
+    assert len(rows) == 1
+    assert rows[0]["consultor"] == "(Blank)"
+    assert rows[0]["monthly"][0] == 4.0
 
 
 def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
@@ -366,22 +381,22 @@ def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
     # singular/plural y cierre "en cliente"/"en el cliente". Específico: otras
     # tareas se excluyen.
     facts = [
-        {"cliente": "C", "proyecto": "P", "task": "01. No Asignación a Servicio en Cliente",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "01. No Asignación a Servicio en Cliente",
          "email": "a@danwor.com", "horas": 3.0, "mes": "2026-05", "anio": "2026"},
         # Doble espacio + mayúsculas.
-        {"cliente": "C", "proyecto": "P", "task": "01.  NO ASIGNACIÓN A SERVICIO EN CLIENTE",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "01.  NO ASIGNACIÓN A SERVICIO EN CLIENTE",
          "email": "a@danwor.com", "horas": 2.0, "mes": "2026-05", "anio": "2026"},
         # Sin prefijo numérico.
-        {"cliente": "C", "proyecto": "P", "task": "No Asignación a Servicio en el Cliente",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "No Asignación a Servicio en el Cliente",
          "email": "a@danwor.com", "horas": 4.0, "mes": "2026-06", "anio": "2026"},
         # Plural + prefijo "1. " + sin acento en la fuente.
-        {"cliente": "C", "proyecto": "P", "task": "1. No asignacion a Servicios",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "1. No asignacion a Servicios",
          "email": "a@danwor.com", "horas": 1.0, "mes": "2026-06", "anio": "2026"},
         # Task distinto (otra tarea) → excluido.
-        {"cliente": "C", "proyecto": "P", "task": "Desarrollo",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "Desarrollo",
          "email": "a@danwor.com", "horas": 99.0, "mes": "2026-05", "anio": "2026"},
         # Task vacío → excluido.
-        {"cliente": "C", "proyecto": "P", "task": "",
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "",
          "email": "a@danwor.com", "horas": 88.0, "mes": "2026-05", "anio": "2026"},
     ]
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Ana"})
@@ -403,9 +418,9 @@ def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
             continue
         mes = f"2026-{i + 1:02d}"
         # Repartido en 2 consultores para probar el grano consultor-céntrico.
-        facts.append({"cliente": "C", "proyecto": "P", "task": _NA_TASK,
+        facts.append({"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
                       "email": "u1@danwor.com", "horas": float(total - 10), "mes": mes, "anio": "2026"})
-        facts.append({"cliente": "C", "proyecto": "P", "task": _NA_TASK,
+        facts.append({"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
                       "email": "u2@danwor.com", "horas": 10.0, "mes": mes, "anio": "2026"})
     rows = _service()._shape_horas_productivas_no_asignadas(
         facts, {"u1@danwor.com": "Consultor Uno", "u2@danwor.com": "Consultor Dos"})
@@ -419,6 +434,25 @@ def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
     # validación exacta del par es owner-live, no un oráculo de unit test. Acá se
     # prueba la MECÁNICA (mes/grano/agregación) con un fixture auto-consistente.
     assert round(sum(sum(r["monthly"]) for r in rows), 2) == float(sum(monthly_expected))
+
+
+def test_no_asignadas_golden_conserves_unresolved_identity_under_blank_in_total():
+    # LIVE QA (owner, Power BI + funnel de reconciliación): de los facts golden
+    # 2026, 2 no resuelven Consultor (identidad ausente incluso de la User
+    # Information List completa) — 8.0h en Abril. Power BI conserva esas horas
+    # bajo una fila "(Blank)" y el total de la visual las incluye (1138.5). El
+    # total agregado (resueltos + blank) debe reconciliar, nunca perder filas.
+    facts = [
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "resuelto@danwor.com", "horas": 1130.5, "mes": "2026-01", "anio": "2026"},
+        {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
+         "email": "ex-empleado@danwor.com", "horas": 8.0, "mes": "2026-04", "anio": "2026"},
+    ]
+    rows = _service()._shape_horas_productivas_no_asignadas(facts, {"resuelto@danwor.com": "Consultor Uno"})
+    assert len(rows) == 2
+    blank = next(r for r in rows if r["consultor"] == "(Blank)")
+    assert blank["monthly"][3] == 8.0  # Abril
+    assert round(sum(sum(r["monthly"]) for r in rows), 2) == 1138.5
 
 
 def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
@@ -440,7 +474,8 @@ def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
         monkeypatch,
         proyectos=[{"id": "p1", "Title": "SADI v2", "EmpresaLookupId": "c1"}],
         clientes=[{"id": "c1", "Title": "YPF"}],
-        colaboradores=[{"id": "co1", "Title": "Federico Bressi", "EMail": "a@danwor.com"}],
+        colaboradores=[{"id": "co1", "Title": "Federico Bressi", "Colaborador_x002e_LookupId": "12"}],
+        user_information=[{"id": "12", "Name": "i:0#.f|membership|a@danwor.com"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
             {"Date": "2026-01-05", "Project": "SADI v2", "Client": "YPF", "Duration Decimal": "1", "Email": "a@danwor.com", "Task": "Dev"},
@@ -458,15 +493,73 @@ def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
 # Colaboradores — Email (lowercase) -> Consultor
 # ============================================================================
 
-def test_get_colaboradores_email_map_lowercases_email(monkeypatch):
+def test_get_colaboradores_email_map_resolves_via_userinfo_claims_login(monkeypatch):
+    # LIVE GRAPH VALIDATED: Colaborador_x002e_LookupId -> User Information
+    # List.id -> Name, `Name` es claims/login SharePoint
+    # ("i:0#.f|membership|user@dom"), NUNCA email puro — el email real es el
+    # último segmento tras el último "|", lowercased.
+    _patch(
+        monkeypatch,
+        proyectos=[], clientes=[],
+        colaboradores=[{"id": "co1", "Title": "Federico Bressi", "Colaborador_x002e_LookupId": "12"}],
+        user_information=[{"id": "12", "Name": "i:0#.f|membership|Federico.Bressi@Danwor.com"}],
+    )
+    mapping = _repo().get_colaboradores_email_map("tok")
+    assert mapping == {"federico.bressi@danwor.com": "Federico Bressi"}
+
+
+def test_get_colaboradores_email_map_omits_colaborador_without_lookupid(monkeypatch):
+    # LIVE QA: 3/151 Colaboradores no tienen LookupId (nunca visitaron el
+    # sitio) — sin identidad para resolver, se omiten del mapa (fail-soft,
+    # nunca un email inventado).
+    _patch(
+        monkeypatch,
+        proyectos=[], clientes=[],
+        colaboradores=[{"id": "co1", "Title": "Sin Lookup"}],
+        user_information=[],
+    )
+    assert _repo().get_colaboradores_email_map("tok") == {}
+
+
+def test_get_colaboradores_email_map_omits_lookupid_missing_from_userinfo(monkeypatch):
+    # LIVE QA: 2/264 facts de No Asignadas no resuelven porque su identidad
+    # no existe en la User Information List (aunque el Colaborador SÍ tenga
+    # LookupId) — fail-soft, se omite del mapa (Power BI muestra el mismo
+    # hueco como fila "(Blank)", ver `_shape_horas_productivas_no_asignadas`).
+    _patch(
+        monkeypatch,
+        proyectos=[], clientes=[],
+        colaboradores=[{"id": "co1", "Title": "Ex Empleado", "Colaborador_x002e_LookupId": "99"}],
+        user_information=[{"id": "12", "Name": "i:0#.f|membership|otro@danwor.com"}],
+    )
+    assert _repo().get_colaboradores_email_map("tok") == {}
+
+
+def test_get_colaboradores_email_map_is_single_bulk_read_no_n_plus_1(monkeypatch):
+    calls = {"colaboradores": 0, "user_information": 0}
+
     def fake_paged(url, access_token=None, **kw):
         if _COLAB in url:
-            return _items([{"id": "co1", "Title": "Federico Bressi", "EMail": "Federico.Bressi@Danwor.com"}])
+            calls["colaboradores"] += 1
+            return _items([
+                {"id": "co1", "Title": "Federico Bressi", "Colaborador_x002e_LookupId": "12"},
+                {"id": "co2", "Title": "Ana Diaz", "Colaborador_x002e_LookupId": "13"},
+            ])
+        if _USERINFO in url:
+            calls["user_information"] += 1
+            return _items([
+                {"id": "12", "Name": "i:0#.f|membership|federico.bressi@danwor.com"},
+                {"id": "13", "Name": "i:0#.f|membership|ana.diaz@danwor.com"},
+            ])
         return []
 
     monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
     mapping = _repo().get_colaboradores_email_map("tok")
-    assert mapping == {"federico.bressi@danwor.com": "Federico Bressi"}
+    assert calls == {"colaboradores": 1, "user_information": 1}  # UNA lectura de cada lista, nunca N+1
+    assert mapping == {
+        "federico.bressi@danwor.com": "Federico Bressi",
+        "ana.diaz@danwor.com": "Ana Diaz",
+    }
 
 
 # ============================================================================
