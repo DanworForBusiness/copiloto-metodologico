@@ -34,6 +34,19 @@ const sandbox = {
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },
   initDashboardSections() {},
+  // HubEstimatedProgress vive en app.js, no en reporting.js (mismo motivo que
+  // `initDashboardSections` arriba) — stub no-op suficiente para este
+  // contrato (no prueba la barra en sí, ver test_hub_estimated_progress.py).
+  HubEstimatedProgress: {
+    start() {
+      return { tick() { return { percent: 6, overrun: false }; }, finishSuccess() {}, finishError() {} };
+    },
+  },
+  // `vm.createContext` no inyecta timers de browser/Node globalScope por
+  // default — stubs no-op (este contrato no depende de que el timer
+  // realmente dispare, ver test_hub_estimated_progress.py para eso).
+  setInterval() { return 0; },
+  clearInterval() {},
   URLSearchParams,
   console,
 };

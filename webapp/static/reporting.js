@@ -1114,9 +1114,12 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
 
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
 // Asignaciones (`section-analysis-loading` + spinner + copy), nunca una
-// imitación propia de Reporting. Copy contextual por experiencia.
-function reportingLoadingHtml(label) {
-  return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
+// imitación propia de Reporting. Copy contextual por experiencia. `barHtml`
+// opcional (HUB FOREGROUND ESTIMATED PROGRESS): SOLO el loader de primera
+// hidratación de main tab lo pasa (ver render()) — los loaders de años
+// fríos/perspectivas individuales siguen sin barra, sin cambio de contrato.
+function reportingLoadingHtml(label, barHtml) {
+  return `<p class="section-analysis-loading">${barHtml || ""}<span class="section-analysis-spinner"></span>`
     + `<span class="section-analysis-loading-copy">${esc(label)}</span></p>`;
 }
 function reportingSourceErrorHtml(label) {
@@ -4328,6 +4331,72 @@ const FILTER_BARS = {
   capacidad: renderCapacidadFilterBar, comercial: renderComercialFilterBar,
 };
 
+// --- HUB FOREGROUND ESTIMATED PROGRESS (adopción, ver app.js
+// `HubEstimatedProgress` para el primitivo/contrato de UX compartido) -------
+// Reporting es el PRIMER adopter, no el dueño. SOLO se engancha en el loader
+// de PRIMERA hidratación de main tab (ver render(), rama `else` de abajo) —
+// nunca en años fríos/perspectivas individuales, nunca en el prefetch en
+// background de la "hermana" (Cartera Mantenimiento+Proyecto, Comercial
+// Participación+Salud vía batch-a) ni en el switch de perspectiva post-
+// hidratación (ese contrato ya existe, ver reportingTabHydrated/render()).
+//
+// Key por FUENTE de datos, NO por tab: Comercial y Calendario disparan el
+// MISMO `loadBatchAData()` (ver TAB_HYDRATION_TRIGGERS) — deben aprender el
+// MISMO estimate, no dos independientes desincronizados entre sí.
+const REPORTING_HUB_PROGRESS = {
+  cartera: { key: "cartera", seedMs: 9000 },
+  rentabilidad: { key: "rentabilidad", seedMs: 14500 },
+  horasvendidas: { key: "horasvendidas", seedMs: 9500 },
+  comercial: { key: "batch-a", seedMs: 10000 },
+  calendario: { key: "batch-a", seedMs: 10000 },
+  capacidad: { key: "batch-b", seedMs: 7500 },
+};
+const _reportingHubProgress = {};  // expId -> { controller } — SOLO tabs con carga en curso
+let _reportingHubProgressTimer = null;
+
+// Barra HTML para el expId dado — crea el controller la PRIMERA vez que se
+// pide (idempotente en renders sucesivos mientras sigue cargando) y arranca
+// el ÚNICO timer compartido (nunca uno por tab — evitaría un timer "húerfano"
+// si el usuario conmuta de tab antes de que la carga termine).
+function reportingHubProgressBarHtml(expId) {
+  const cfg = REPORTING_HUB_PROGRESS[expId];
+  if (!cfg) return "";
+  if (!_reportingHubProgress[expId]) {
+    _reportingHubProgress[expId] = { controller: HubEstimatedProgress.start(cfg.key, { seedMs: cfg.seedMs }) };
+    if (!_reportingHubProgressTimer) _reportingHubProgressTimer = setInterval(_reportingHubProgressSweep, 200);
+  }
+  const { percent, overrun } = _reportingHubProgress[expId].controller.tick();
+  return `<div class="hub-progress${overrun ? " hub-progress--overrun" : ""}" role="progressbar" `
+    + `aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">`
+    + `<div class="hub-progress__fill" style="width:${percent}%"></div></div>`;
+}
+
+// Idempotente — puede llamarse aunque no haya controller activo (no-op).
+function reportingHubProgressSettle(expId, success) {
+  const entry = _reportingHubProgress[expId];
+  if (!entry) return;
+  if (success) entry.controller.finishSuccess(); else entry.controller.finishError();
+  delete _reportingHubProgress[expId];
+}
+
+// Único timer compartido: liquida cualquier tab cuyo status YA resolvió
+// aunque el usuario haya conmutado a OTRO tab mientras tanto (si no, el
+// controller de ese tab quedaría vivo para siempre esperando que ese mismo
+// tab vuelva a estar activo). Solo dispara `render()` si el tab ACTIVO sigue
+// en esta lista — nunca re-renderiza por un tab en background.
+function _reportingHubProgressSweep() {
+  Object.keys(_reportingHubProgress).forEach(expId => {
+    const status = reportingTabRawStatus(expId);
+    if (status === "ready") reportingHubProgressSettle(expId, true);
+    else if (status === "error") reportingHubProgressSettle(expId, false);
+  });
+  if (_reportingHubProgress[state.experience]) render();
+  if (!Object.keys(_reportingHubProgress).length && _reportingHubProgressTimer) {
+    clearInterval(_reportingHubProgressTimer);
+    _reportingHubProgressTimer = null;
+  }
+}
+
 // --- SHARED REPORTING INITIAL-LOAD CONTRACT (owner corrective) -------------
 // Antes, cada dispatcher de experiencia (`renderCartera`/`renderRentabilidad`/
 // etc.) disparaba SU PROPIA hidratación como primera línea — pero el filter
@@ -4412,6 +4481,10 @@ function render() {
     // como una sola superficie estable. El contenido de la experiencia
     // sigue gateando SU PROPIO status para años fríos/perspectivas
     // individuales todavía cargando (ver cada dispatcher).
+    // API terminó → contenido INMEDIATO, nunca se espera la animación del
+    // progress bar (ver HubEstimatedProgress) — liquida el controller (si
+    // había uno) antes de reemplazar el loader por el contenido real.
+    reportingHubProgressSettle(expId, true);
     const filterBarHtml = FILTER_BARS[expId] ? FILTER_BARS[expId]() : "";
     // Feedback SIEMPRE como ÚLTIMO elemento del main tab (ver ticket §A1: para
     // Horas Productivas queda después del contenido Y de la nota Punch, que el
@@ -4425,9 +4498,13 @@ function render() {
     // owner. Deliberadamente NO se renderiza un filter bar "vacío"/
     // deshabilitado — se prefiere no renderizarlo en absoluto.
     const rawStatus = reportingTabRawStatus(expId);
-    mainContent.innerHTML = rawStatus === "error"
-      ? reportingSourceErrorHtml("los datos de esta pestaña")
-      : reportingLoadingHtml("Cargando…");
+    if (rawStatus === "error") {
+      // Fail-soft actual intacto — solo se agrega detener la barra/sweep.
+      reportingHubProgressSettle(expId, false);
+      mainContent.innerHTML = reportingSourceErrorHtml("los datos de esta pestaña");
+    } else {
+      mainContent.innerHTML = reportingLoadingHtml("Cargando…", reportingHubProgressBarHtml(expId));
+    }
   }
   // Backbone compartido de drag-and-drop/colapso (app.js) — se re-aplica en
   // cada render() porque acá el contenido se reemplaza por innerHTML

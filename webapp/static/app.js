@@ -1549,3 +1549,80 @@ function staffingDashboard(payload) {
   };
 }
 document.body.addEventListener("htmx:load", () => initModuleFilter(document));
+
+// ============================================================================
+// HubEstimatedProgress — primitivo COMPARTIDO del Hub (Operations) para
+// esperas FOREGROUND causadas por fetch de Graph/SharePoint. Reporting es el
+// PRIMER adopter (ver reporting.js), no el dueño — cualquier otra pestaña del
+// Hub puede reusarlo sin reimplementar esta lógica.
+//
+// Contrato de UX (Graph no expone % real de avance):
+//   - NUNCA porcentaje real/ETA — es tiempo ESTIMADO contra un `seedMs` que
+//     aprende con EWMA (0.70 anterior + 0.30 última duración real) por `key`,
+//     persistido en localStorage (sin backend nuevo, sin requests extra).
+//   - Nunca llega a 100% solo por tiempo (tope ~94%, ver CHECKPOINTS) — el
+//     100%/contenido real lo decide el caller cuando el fetch efectivamente
+//     resuelve, jamás la animación.
+//   - Si el fetch tarda más que el estimado, el llamador debe mostrar un
+//     estado "overrun" (sweep/highlight continuo) en vez de seguir subiendo.
+//
+// Pull-based (sin su propio setInterval): el caller decide la cadencia de
+// re-render llamando `.tick()` cuando le convenga (evita timers duplicados
+// por cada consumidor).
+const HubEstimatedProgress = (() => {
+  const STORAGE_PREFIX = "dw-hub-progress-estimate:";
+  const MIN_ESTIMATE_MS = 1200;
+  // [ratio_transcurrido, porcentaje] — interpolado linealmente entre puntos
+  // consecutivos. Seeds de UX pedidas: inicio ~5-8%, 25% del estimado ~35%,
+  // 50% ~60%, 75% ~80%, fin del estimado ~93-95% (nunca 100).
+  const CHECKPOINTS = [[0, 0.06], [0.25, 0.35], [0.50, 0.60], [0.75, 0.80], [1, 0.94]];
+
+  function percentForRatio(ratio) {
+    const r = Math.max(0, Math.min(1, ratio));
+    for (let i = 1; i < CHECKPOINTS.length; i++) {
+      const [t0, p0] = CHECKPOINTS[i - 1];
+      const [t1, p1] = CHECKPOINTS[i];
+      if (r <= t1) return p0 + (p1 - p0) * ((r - t0) / (t1 - t0));
+    }
+    return CHECKPOINTS[CHECKPOINTS.length - 1][1];
+  }
+
+  function readEstimate(key, seedMs) {
+    try {
+      const v = parseFloat(localStorage.getItem(STORAGE_PREFIX + key));
+      return Number.isFinite(v) && v > 0 ? v : seedMs;
+    } catch (_e) { return seedMs; }
+  }
+
+  function writeEstimate(key, previousMs, actualMs) {
+    try {
+      localStorage.setItem(STORAGE_PREFIX + key, String(previousMs * 0.70 + actualMs * 0.30));
+    } catch (_e) { /* localStorage no disponible (incógnito/cuota) — fail-soft, sigue con el seed */ }
+  }
+
+  // `key` identifica la FUENTE de datos (no la pestaña que la dispara — dos
+  // pestañas que comparten el mismo fetch deben aprender el MISMO estimate).
+  function start(key, { seedMs = 8000 } = {}) {
+    const estimateMs = Math.max(readEstimate(key, seedMs), MIN_ESTIMATE_MS);
+    const startedAt = Date.now();
+    let settled = false;
+    return {
+      tick() {
+        const elapsed = Date.now() - startedAt;
+        const overrun = elapsed > estimateMs;
+        return { percent: Math.round(percentForRatio(overrun ? 1 : elapsed / estimateMs) * 100), overrun };
+      },
+      // Fetch resuelto OK: graba la duración real (EWMA) para la próxima vez.
+      finishSuccess() {
+        if (settled) return;
+        settled = true;
+        writeEstimate(key, estimateMs, Date.now() - startedAt);
+      },
+      // Fetch en error: detiene el estimate SIN grabar (una duración hasta un
+      // error no es evidencia de cuánto tarda un fetch exitoso).
+      finishError() { settled = true; },
+    };
+  }
+
+  return { start, percentForRatio };
+})();

@@ -121,7 +121,7 @@ def test_telemetry_is_noop_when_not_verbose(monkeypatch):
 def test_feedback_is_the_last_element_of_a_ready_tab():
     # UN control por MAIN TAB, SIEMPRE el último elemento (después del renderer,
     # que para Horas Productivas ya incluye la nota Punch). Solo en READY.
-    render = _REPORTING_JS[_REPORTING_JS.index("function render()"):_REPORTING_JS.index("function render()") + 1600]
+    render = _REPORTING_JS[_REPORTING_JS.index("function render()"):_REPORTING_JS.index("function render()") + 2200]
     assert "RENDERERS[expId]() + reportingFeedbackHtml(expId)" in render
 
 

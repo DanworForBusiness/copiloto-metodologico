@@ -2115,3 +2115,21 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .chart-tooltip-anchor:focus .chart-tooltip,
 .chart-tooltip-anchor:focus-within .chart-tooltip { opacity: 1; visibility: visible; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }
+
+/* HubEstimatedProgress — primitivo COMPARTIDO del Hub (ver app.js), MISMO
+   lenguaje visual gold que `.section-analysis-spinner`/`.progress` (nunca una
+   estética Reporting-only). Barra determinate-looking (width% estimado, JS la
+   fija inline) + variante "overrun" con un highlight que barre continuo sin
+   subir de porcentaje — nunca llega a 100% por tiempo (ver HubEstimatedProgress
+   CHECKPOINTS). Reporting es el PRIMER adopter, no el dueño. */
+.hub-progress { height: 3px; margin: 0 0 9px; border-radius: 2px; overflow: hidden; background: var(--line); }
+.hub-progress__fill { position: relative; height: 100%; width: 0%; overflow: hidden; background: var(--gold); transition: width .25s ease-out; }
+.hub-progress--overrun .hub-progress__fill::after {
+  content: ""; position: absolute; inset: 0; width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent);
+  animation: hub-progress-sweep 1.15s ease-in-out infinite;
+}
+@keyframes hub-progress-sweep { 0% { transform: translateX(-120%); } 100% { transform: translateX(280%); } }
+@media (prefers-reduced-motion: reduce) {
+  .hub-progress--overrun .hub-progress__fill::after { animation: none; display: none; }
+}
