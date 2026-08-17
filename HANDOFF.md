@@ -6438,6 +6438,89 @@ durante un outage de OpenAI, un `POST .../assistant/chat` terminó en
 > in this branch — see "Test baseline provenance" below, still
 > unresolved/unbisected).
 
+> ### ✅ CLOSE REPORTING (sesión A+B+C) — commits `330bf32` (feedback/activity),
+> `afdbb2b` (perf batch-a lean). Estado del worktree al empezar: LIMPIO — la
+> tarea de Feedback/Activity NO se había empezado (no había trabajo sin
+> commitear que preservar).
+>
+> **A. FEEDBACK + ACTIVITY (`330bf32`) — DONE.** "¿Qué te pareció este reporte?"
+> como ÚLTIMO elemento de las 6 main tabs (Cartera/Rentabilidad/HV/Comercial/
+> Calendario/Horas Productivas), UNO por MAIN TAB, solo en READY (para Horas
+> Productivas queda después de la nota Punch). Reusa capacidades compartidas:
+> `webapp/services/feedback_store.write_feedback_record` (seam mínimo extraído
+> del mecanismo que feedback.py duplicaba; store = FEEDBACK_LOG_DIR, `type:
+> reporting_report`, misma analítica por `type` que Copilot) + endpoint
+> `POST /operaciones/reporting/integral/feedback` que además emite
+> `log_activity('reporting.feedback', scope=operations, area=reporting,
+> feedback_sentiment=...)`. UI: reusa las clases EXACTAS de `.section-feedback*`
+> (tools.css) del feedback de sección de Copilot (a la derecha, sin línea, mono,
+> opacity .4→1 greyed/focus) — pedido del owner de paridad visual.
+> Activity semántica vía beacon `POST .../telemetry` (whitelist + gate VERBOSE +
+> scope/area fijados server-side, mismo modelo que telemetry.py): tab_view,
+> perspective_change, filter_change, filter_clear, cold_year_load, feedback.
+> Nuevo `AREA_REPORTING` en activity_context.
+>
+> **C. PERFORMANCE (`afdbb2b`) — batch-a lean + matriz + causa de Calendario.**
+> Optimización IMPLEMENTADA: el endpoint batch-a hoy sólo sirve Calendario+Salud
+> (categóricas puras sobre Cliente); Horas Vendidas y Participación ya migraron
+> a endpoints scopeados, así que `project_facts` (que forzaba la lectura
+> full-history de "Horas por proyectos" + Proyectos) ya no lo usa nadie ahí →
+> nuevo `get_cliente_dim` (fetch LEAN: solo Cliente + Client Partner). Elimina
+> la lectura más cara del path Calendario/comercial-Salud. **Matriz de
+> dependencias** (fuente real por tab):
+>
+> | TAB | ENDPOINT | GRAPH SOURCES | SCOPE | SHARED |
+> |---|---|---|---|---|
+> | Cartera/Proyectos | /data/cartera (+/anios-disponibles) | Proyectos, Cliente, Horas×proyectos, CP; Proyecto persp +XLSX Facturadas | Mant=hot 2añ +cold lazy; Proyecto=vida completa | fetch propio |
+> | Rentabilidad | /data/rentabilidad | Cartera-facts (Proy+Cli+Horas+CP) + Time Logs CSV | hot 2añ en el lado Cartera-facts (anios); **Time Logs baja TODA la carpeta** (C8) | fetch propio |
+> | Horas Vendidas | /data/horas-vendidas (+/anios) | get_batch_a_facts(hot_years): Proy+Cli+Horas+CP | hot 2añ +cold lazy | comparte adapter get_batch_a_facts (scopeado) |
+> | Participación | /data/participacion | Horas+Cli+CP (scopeado Año/Estado) | hot años multi +cold | endpoint scopeado propio |
+> | Salud (comercial) | /data/batch-a | **get_cliente_dim: SOLO Cliente+CP** (post-opt) | n/a categórica | comparte batch-a con Calendario |
+> | Calendario | /data/batch-a | **get_cliente_dim: SOLO Cliente+CP** (post-opt) | n/a | ídem — preloaded al visitar comercial |
+> | Horas Productivas | /data/batch-b | Time Logs CSV (todos) + colaboradores | carpeta completa | fetch propio |
+>
+> **Causa del preload de Calendario (C9, definitiva):** los triggers
+> `TAB_HYDRATION_TRIGGERS.comercial` y `.calendario` llaman AMBOS
+> `loadBatchAData()`; un fetch puebla CALENDARIO_ROWS + COMERCIAL_SALUD_ROWS.
+> Visitar Comercial (para Salud) hidrata Calendario de yapa. Post-opt es reuse
+> BARATO (una sola lectura de Cliente compartida, sin el hecho pesado) →
+> **mantener** el prefetch (no es acoplamiento accidental caro).
+> **Instrumentación (C10):** `_StageTimer` YA loguea stage-level a
+> `danwor.reporting.perf <label>.<stage> elapsed_ms=.. items=..` + `.total`
+> (labels: cartera, batch_a, cliente_dim, batch_b, rentabilidad, anios_
+> disponibles). **Pendiente medido (owner, needs live Graph):** Rentabilidad
+> ~14s → sospecha principal Time Logs baja toda la carpeta CSV sin scope (C8);
+> evaluar cache request-scoped o selección por fecha. Cartera ~8s → XLSX
+> Facturadas (persp Proyecto). Paralelizar lecturas independientes (Proy/Cli/CP
+> hoy seriales) sólo DESPUÉS de medir. NO se inventó ningún % — ver checklist.
+>
+> **B. RENTABILIDAD RECONCILIATION — fixes presentes (`e32cd91`), FALTA owner
+> live validation.** Los dos correctivos con evidencia PBIP están en HEAD:
+> (1) Trabajadas: join Cartera↔Time Logs por `_norm_key(proyecto)` (Upper+strip,
+> = Comparativo.tmdl del PBIP) en vez de igualdad exacta de título;
+> (2) Vendidas: por-proyecto (`vendByYear`/`vendMonthly`) pasando por los MISMOS
+> facets (Tipo/Estado/…) que Certificadas, no un escalar de portfolio sin
+> filtrar. Caso golden (2026/Junio/Mantenimiento/En curso) debe converger a
+> Vendidas 4.883 / Cert 4.858 / Trab 4.624,5 / Rent 233,5. **Este entorno no
+> tiene Graph vivo → no verificable acá; ver checklist de owner abajo.** Rent =
+> Certificadas − Trabajadas (sin aritmética especial).
+>
+> **CHECKLIST DE OWNER (live):**
+> 1. *Feedback*: entrar a cada tab (READY) → el control aparece abajo a la
+>    derecha, igual que en Copilot. 👍 y 👎 → "¡Gracias!". Verificar un YAML
+>    `reporting_feedback_*.yaml` en `feedback_log/` con `type: reporting_report`,
+>    `report_tab`, `rating`. Con `LOG_ACTIVITY=VERBOSE`, un evento
+>    `reporting.feedback` (scope operations/area reporting) en `activity_*.jsonl`.
+> 2. *Activity*: con VERBOSE, navegar tabs/perspectivas/filtros/año frío → ver
+>    `reporting.tab_view|perspective_change|filter_change|filter_clear|
+>    cold_year_load` en `activity_*.jsonl`.
+> 3. *Rentabilidad recon*: filtros del caso golden → comparar los 4 tiles con
+>    PBIP (4.883/4.858/4.624,5/233,5). Si divergen, mirar `danwor.reporting.perf`
+>    + logs para aislar (source vs filtro vs join).
+> 4. *Perf*: cronometrar cada tab (owner baseline 8/14/9/10/preloaded/7);
+>    Calendario/Comercial deberían bajar (ya no leen Horas por proyectos).
+>    Leer `danwor.reporting.perf *.total` para el desglose por etapa.
+>
 > **✅ RENTABILIDAD = IMPLEMENTATION READY FOR LIVE VALIDATION** (commits
 > `f8db50a` estado en shapes → `7e755e2` estado en `get_batch_a_facts.project_facts`
 > → **`bc4c7dd` vertical completa**). DOM: filter bar muestra Client Partner /
