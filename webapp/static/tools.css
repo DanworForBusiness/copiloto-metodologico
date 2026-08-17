@@ -2109,6 +2109,40 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout-row .callout { height: 100%; margin: 0; }
 @media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
 
+/* HUB BAR PRIMITIVE — categoría → UNA magnitud → UNA barra horizontal.
+   Promovido desde reporting.css (donde vivía scopeado a
+   `.reporting-integral-preview`, o sea: inerte fuera de Reporting, porque
+   base.html NO carga reporting.css) al ganar su SEGUNDO consumidor real —
+   los small multiples de "Distribución por Etapa" en Comercial. MISMO
+   precedente y misma diligencia que la promoción de `.matrix-scroll`.
+
+   Lo promovido es SOLO la estructura. Los modificadores de COLOR de dominio
+   de Reporting (.vendidas/.certificadas/.ejecutadas/.positivo/.negativo) y
+   su `.legend` SIGUEN scopeados en reporting.css: son semántica de negocio
+   de esa vertical, no primitivo. Como todos los usos de Reporting traen
+   modificador — y `.reporting-integral-preview .bar-fill.x` (0,3,0) le gana
+   al default de acá (0,1,0) — Reporting conserva su color exacto.
+
+   SEMÁNTICA: una sola serie por barra. Este primitivo NO expresa grouped/
+   multi-series ni doble escala; para comparar dos magnitudes se componen
+   DOS bloques independientes (small multiples), cada uno con su propia
+   escala — nunca dos `.bar-fill` dentro de un mismo `.bar-track`.
+
+   TEMA: Reporting fija su propia superficie clara SIEMPRE (ver el bloque de
+   tokens de `.reporting-integral-preview`), pero un consumidor Hub normal
+   vive en `.module-content`, que es #fff en tema claro y #181819 en oscuro.
+   Por eso el fondo del track sale por token con fallback: en claro (y en
+   Reporting, que lo fija) queda el MISMO `rgba(0,0,0,.06)` de siempre; en
+   oscuro se invierte para no quedar negro-sobre-negro. Mismo criterio para
+   los grises de texto: `--ink-soft`/`--ink-faint` sólo existen dentro de
+   Reporting, así que fuera de ahí caen al `--soft` real del Hub. */
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: .76rem; }
+.bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { flex: 1; height: 14px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 4px; position: relative; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--gold); }
+.bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; }
+.perspective-label { color: var(--ink-faint, var(--soft)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+.content-theme-dark { --bar-track-bg: rgba(255,255,255,.10); }
 /* HUB CHART TOOLTIP PRIMITIVE (owner request — Rentabilidad: "los tooltip
    debieran ser una experiencia transversal... en asignaciones renderizamos
    un tooltip propio que amerita respetar"). MISMO diseño visual/mecanismo

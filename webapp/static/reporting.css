@@ -57,6 +57,13 @@
   --ink: #1f1f24; --ink-soft: #55555c; --ink-faint: #7a7a82;
   --panel: #ffffff; --border: rgba(0,0,0,.1);
   --green: #2e9e5b; --amber: #c89100; --red: #c0392b; --grey: #7a7a82;
+  /* Fondo del track de `.bar-track` (primitivo Hub, ahora en tools.css). Se
+     fija ACÁ por la MISMA razón que los tokens de arriba: Reporting dibuja
+     su superficie clara propia SIEMPRE, independiente del tema del Hub —
+     sin este pin, el override de tema oscuro del primitivo (que cuelga de
+     <html>) le pintaría un track claro sobre su panel blanco. Valor
+     idéntico al que la regla tenía cuando vivía en este archivo. */
+  --bar-track-bg: rgba(0,0,0,.06);
   color: var(--ink); font-size: 14px; line-height: 1.4;
 }
 /* Tabs de experiencia — antes una "tarjeta" propia (fondo blanco + borde +
@@ -83,7 +90,11 @@
    HANDOFF) necesita su propio margen inferior. */
 .reporting-integral-preview .dashboard-view-switch { margin-bottom: 14px; }
 .reporting-integral-preview .staffing-timeline-toolbar .dashboard-view-switch { margin-bottom: 0; }
-.reporting-integral-preview .perspective-label { color: var(--ink-faint); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+/* `.perspective-label` PROMOVIDA a tools.css (primitivo Hub) junto con la
+   familia `.bar-*` — Comercial la consume para los subtítulos de sus small
+   multiples. Allá el color sale como `var(--ink-faint, var(--soft))`: acá
+   `--ink-faint` está definido, así que Reporting resuelve al MISMO #7a7a82
+   de siempre. */
 
 /* KPI tiles / paneles con caja propia / filtros con caja propia / grupo de
    checkboxes horizontal: RETIRADOS (Align with Hub backbone corrective, ver
@@ -107,16 +118,19 @@
 .reporting-integral-preview .diff-pos { color: var(--green); font-weight: 600; }
 .reporting-integral-preview .diff-neg { color: var(--red); font-weight: 600; }
 
-.reporting-integral-preview .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: .76rem; }
-.reporting-integral-preview .bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reporting-integral-preview .bar-track { flex: 1; height: 14px; background: rgba(0,0,0,.06); border-radius: 4px; position: relative; overflow: hidden; }
-.reporting-integral-preview .bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; }
+/* ESTRUCTURA de la barra (`.bar-row`/`.bar-label`/`.bar-track`/`.bar-fill`/
+   `.bar-value`) PROMOVIDA a tools.css como primitivo Hub al ganar su segundo
+   consumidor real (small multiples de Comercial) — MISMO precedente que
+   `.matrix-scroll`. Declaraciones idénticas, así que Reporting no cambia.
+   Lo que queda ACÁ es lo que NO es primitivo: el color por SEMÁNTICA DE
+   NEGOCIO de Reporting. Estos modificadores (0,3,0) le ganan al default
+   neutro del primitivo (0,1,0), así que cada barra de Reporting conserva
+   exactamente su color. */
 .reporting-integral-preview .bar-fill.vendidas { background: #4C7EA8; }
 .reporting-integral-preview .bar-fill.certificadas { background: #3F9C82; }
 .reporting-integral-preview .bar-fill.ejecutadas { background: var(--gold); }
 .reporting-integral-preview .bar-fill.positivo { background: var(--green); }
 .reporting-integral-preview .bar-fill.negativo { background: var(--red); }
-.reporting-integral-preview .bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); flex-shrink: 0; }
 /* Año/Mes: selects angostos (contenido corto — un año / un mes) para que la fila
    de filtros no caiga a dos líneas. Override del min-width:190px compartido, solo
    para estos campos y scoped a Reporting. */

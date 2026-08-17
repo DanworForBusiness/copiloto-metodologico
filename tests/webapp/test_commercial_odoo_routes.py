@@ -504,14 +504,37 @@ def test_commercial_technical_tipo_values_are_unchanged_by_the_copy_relabel(monk
         assert response.json()["summary"]["tipo"] == tipo
 
 
-def test_no_new_chart_or_commercial_specific_drilldown_css_this_batch():
-    # Explícitamente fuera de alcance de este batch (ver HANDOFF — Batch 2A):
-    # ni Funnel, ni .bar-row promovido, ni ninguna clase .commercial-* nueva.
-    _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
+def test_bar_primitive_is_promoted_hub_wide_and_reporting_keeps_its_domain_colors():
+    # CONTRATO ACTUALIZADO DELIBERADAMENTE EN BATCH 2B. Hasta 2A este test
+    # exigía que `.bar-row` siguiera scopeado a Reporting ("no promovido") —
+    # ese contrato quedó obsoleto por decisión arquitectónica explícita del
+    # owner: los small multiples de Comercial son el SEGUNDO consumidor real,
+    # y como base.html no carga reporting.css, sin promoción el primitivo era
+    # literalmente inerte fuera de Reporting.
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    reporting_css = (_STATIC / "reporting.css").read_text(encoding="utf-8")
+    # La ESTRUCTURA vive ahora en tools.css, sin scope de vertical.
+    for rule in (".bar-row {", ".bar-row .bar-label {", ".bar-track {", ".bar-fill {", ".bar-value {", ".perspective-label {"):
+        assert rule in tools_css, rule
+        assert f".reporting-integral-preview {rule}" not in reporting_css, rule
+    # El COLOR por semántica de negocio sigue siendo de Reporting, no primitivo.
+    for modifier in ("vendidas", "certificadas", "ejecutadas", "positivo", "negativo"):
+        assert f".reporting-integral-preview .bar-fill.{modifier}" in reporting_css, modifier
+        assert f".bar-fill.{modifier}" not in tools_css, modifier
+    # Reporting fija su propia superficie clara SIEMPRE: sin este pin, el
+    # override de tema oscuro del primitivo (que cuelga de <html>) le pintaría
+    # un track claro sobre su panel blanco.
+    assert "--bar-track-bg" in reporting_css
+    assert ".content-theme-dark { --bar-track-bg" in tools_css
+
+
+def test_no_commercial_specific_chart_css_or_class_was_invented():
+    # Sigue vigente de 2A: Comercial no gana clases propias — consume el
+    # primitivo compartido o no dibuja.
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
     for banned in ("commercial-funnel", "commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
         assert banned not in _COMMERCIAL_JS
-        assert banned not in _TOOLS_CSS
-    assert ".reporting-integral-preview .bar-row" in (_STATIC / "reporting.css").read_text(encoding="utf-8")  # sigue scoped, no promovido
+        assert banned not in tools_css
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
