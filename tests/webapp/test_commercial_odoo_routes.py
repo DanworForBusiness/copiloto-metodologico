@@ -306,6 +306,81 @@ def test_commercial_todos_nn_bi_selector_behavior_is_unchanged():
 
 
 # ============================================================================
+# Table Spine corrective — la tabla de Pipeline adopta el contrato de
+# distribución de columnas ya compartido en tools.css (`.row-label-col` +
+# ancho default de columnas métricas), en vez de que la columna descriptiva
+# absorba todo el ancho sobrante bajo `table-layout:fixed`.
+# ============================================================================
+
+def test_commercial_pipeline_table_still_uses_the_shared_table_primitive():
+    assert 'class="dashboard-table"' in _COMMERCIAL_JS
+
+
+def test_commercial_pipeline_table_is_wrapped_in_the_shared_scroll_container():
+    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert '<div class="matrix-scroll">' in table_fn
+    assert table_fn.index('<div class="matrix-scroll">') < table_fn.index("<table")
+
+
+def test_commercial_pipeline_descriptive_column_adopts_row_label_col():
+    assert '<th class="row-label-col">Etapa</th>' in _COMMERCIAL_JS
+    # Ya no vive bajo `.left` (ese solo daba text-align, nunca el ancho).
+    assert '<th class="left">Etapa</th>' not in _COMMERCIAL_JS
+
+
+def test_commercial_pipeline_row_label_cell_adopts_shared_row_label_class():
+    assert '<td class="row-label">${commercialEsc(stage.stage)}</td>' in _COMMERCIAL_JS
+
+
+def test_commercial_metric_columns_receive_no_commercial_specific_width():
+    # Las columnas métricas (Oportunidades/Horas/Ponderadas/Revenue) siguen
+    # sin clase — heredan el ancho default (88px) del primitive compartido,
+    # nunca un ancho puntual de Comercial.
+    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for header in ("Oportunidades", "Horas", "Ponderadas (hs)", "Revenue"):
+        assert f"<th>{header}</th>" in table_fn
+
+
+def test_no_commercial_specific_css_for_table_column_distribution():
+    _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    _APP_CSS = (_STATIC / "app.css").read_text(encoding="utf-8")
+    for banned in (".commercial-table", ".commercial-pipeline-table", ".commercial-col"):
+        assert banned not in _TOOLS_CSS
+        assert banned not in _APP_CSS
+        assert banned not in _COMMERCIAL_JS
+
+
+def test_commercial_pipeline_numeric_alignment_still_inherited_not_overridden():
+    # Ningún `text-align` inline ni override puntual — la alineación numérica
+    # sigue viniendo del default compartido (`table.dashboard-table td`).
+    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "text-align" not in table_fn
+
+
+def test_matrix_scroll_is_promoted_to_an_unscoped_shared_hub_primitive():
+    # `.matrix-scroll` vivía scoped a `.reporting-integral-preview` (única
+    # regla real, sin semántica propia de Reporting) — promovido a
+    # tools.css sin scope, para que cualquier vertical con una tabla ancha
+    # obtenga scroll real en vez de que un ancestro con overflow la recorte.
+    _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    _REPORTING_CSS = (_STATIC / "reporting.css").read_text(encoding="utf-8")
+    assert ".matrix-scroll { overflow-x: auto; }" in _TOOLS_CSS
+    assert ".reporting-integral-preview .matrix-scroll" not in _REPORTING_CSS
+    assert ".matrix-scroll {" not in _REPORTING_CSS
+    # Una sola declaración real en todo el CSS del Hub — nunca duplicada.
+    assert _TOOLS_CSS.count(".matrix-scroll {") == 1
+
+
+def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
+    # Este corrective es EXCLUSIVAMENTE table layout — el resto del spine
+    # (secciones + view control) sigue intacto.
+    assert '"dashboard-sticky-header"' in _COMMERCIAL_JS
+    assert '"dashboard-view-switch"' in _COMMERCIAL_JS
+    assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
+    assert 'commercialDashboardSection("pipeline", "Pipeline por Etapa",' in _COMMERCIAL_JS
+
+
+# ============================================================================
 # 19 — Ningún auth/JWT/DB del CRM legacy
 # ============================================================================
 

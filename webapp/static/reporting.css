@@ -101,7 +101,7 @@
    tools.css como primitivo compartido del Hub — MISMO consumido por el
    Detalle de Asignaciones. Acá NO queda CSS propio de tabla/badge — solo
    lo que sigue siendo genuinamente de Reporting (tabs, bar-chart/legend,
-   diff, matrix-scroll). `.num`/`.status-pill`/`table.data-table`/
+   diff). `.num`/`.status-pill`/`table.data-table`/
    `table.tree-matrix` se retiraron (reemplazados 1:1 por el primitivo
    compartido en el markup de reporting.js). */
 .reporting-integral-preview .diff-pos { color: var(--green); font-weight: 600; }
@@ -127,7 +127,9 @@
 .reporting-integral-preview .legend .l-certificadas::before { background: #3F9C82; }
 .reporting-integral-preview .legend .l-ejecutadas::before { background: var(--gold); }
 
-.reporting-integral-preview .matrix-scroll { overflow-x: auto; }
+/* `.matrix-scroll` (overflow-x:auto) promovido a primitivo Hub compartido
+   en tools.css (Table Spine corrective, ver HANDOFF) — ya no scoped acá,
+   mismo comportamiento, ahora reusable por cualquier vertical. */
 /* Geometría ESTABLE de matrices jerárquicas (antes Phase 0B, ahora del
    primitivo compartido `.dashboard-table` en tools.css — `table-layout:
    fixed`, anchos desde el HEADER, expand/collapse nunca mueve columnas

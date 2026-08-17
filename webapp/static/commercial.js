@@ -88,23 +88,33 @@ function commercialFilterHtml() {
   </div>`;
 }
 
+// Table Spine corrective (ver HANDOFF — Commercial Table Spine Audit):
+// `table-layout:fixed` (tools.css) reparte el ancho sobrante ENTERO a
+// cualquier columna sin ancho explícito — `.row-label-col` (340px) es el
+// contrato compartido ya usado por Reporting para la columna descriptiva,
+// que deja a las columnas métricas (sin clase) con el ancho default de
+// 88px cada una, en vez de que la descriptiva absorba todo el espacio. Cero
+// ancho/CSS propio de Comercial — mismo contrato, misma forma (1 columna
+// de texto + varias métricas) que ya resuelve Reporting.
 function commercialPipelineTableHtml(pipeline) {
   if (!pipeline || !pipeline.stages || !pipeline.stages.length) {
     return `<p class="empty-panel">Sin oportunidades activas en pipeline para este filtro.</p>`;
   }
   const rows = pipeline.stages.map(stage => `
     <tr>
-      <td class="left">${commercialEsc(stage.stage)}</td>
+      <td class="row-label">${commercialEsc(stage.stage)}</td>
       <td>${commercialFmtInt(stage.count)}</td>
       <td>${commercialFmtInt(stage.hours)}</td>
       <td>${commercialFmtInt(stage.weighted_hours)}</td>
       <td>${commercialFmtMoney(stage.revenue)}</td>
     </tr>`).join("");
   return `
-    <table class="dashboard-table">
-      <thead><tr><th class="left">Etapa</th><th>Oportunidades</th><th>Horas</th><th>Ponderadas (hs)</th><th>Revenue</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <thead><tr><th class="row-label-col">Etapa</th><th>Oportunidades</th><th>Horas</th><th>Ponderadas (hs)</th><th>Revenue</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver

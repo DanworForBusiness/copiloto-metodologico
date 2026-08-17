@@ -1072,6 +1072,16 @@ table.dashboard-table tr.depth-1 td.row-label { font-weight: 600; color: #55555c
 table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c; }
 .content-theme-dark table.dashboard-table tr.depth-1 td.row-label,
 .content-theme-dark table.dashboard-table tr.depth-2 td.row-label { color: #b2b2bc; }
+/* Wrapper de overflow horizontal para cualquier tabla/matriz ancha del Hub
+   (Table Spine corrective — ver HANDOFF): vivía scoped a
+   `.reporting-integral-preview` en reporting.css por ser el único
+   consumidor histórico, pero la regla en sí (`overflow-x:auto`) no tiene
+   NINGUNA semántica propia de Reporting — promovida acá, al lado del
+   primitivo `.dashboard-table` que envuelve, para que cualquier vertical
+   (Comercial incluida) obtenga scroll real en vez de que un ancestro con
+   `overflow` recorte la tabla en silencio. Comportamiento de Reporting sin
+   cambios (misma regla, mismo efecto, ahora sin scope). */
+.matrix-scroll { overflow-x: auto; }
 /* Toggle/indent de expansión — SIEMPRE dentro de la columna descriptiva
    (nunca desplaza columnas numéricas); ancho de indent por profundidad se
    fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo
