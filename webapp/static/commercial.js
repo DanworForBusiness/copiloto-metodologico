@@ -70,12 +70,22 @@ function commercialLoadingHtml(label) {
     + `<span class="section-analysis-loading-copy">${commercialEsc(label)}</span></p>`;
 }
 
+// View Controls Spine corrective (ver HANDOFF — Tabs vs View Controls
+// Audit): Todos/NN/BI es un VIEW CONTROL (filtra la población de TODAS las
+// secciones), no navegación entre capacidades — por eso vive dentro de
+// `.dashboard-sticky-header`, el MISMO contenedor page-level que Reporting
+// (filterBarShell()) y Staffing ya usan para su fila de filtros, nunca
+// suelto contra el hero. Comercial tiene un solo control simple: no adopta
+// el layout interno que arma Staffing para VARIOS controles + un botón
+// Limpiar en una fila (ese es un helper propio de esa vertical).
 function commercialFilterHtml() {
   const tipos = [["todos", "Todos"], ["nn", "NN"], ["bi", "BI"]];
   const buttons = tipos.map(([key, label]) =>
     `<button type="button" class="${commercialState.tipo === key ? "is-active" : ""}" data-commercial-tipo="${key}">${commercialEsc(label)}</button>`
   ).join("");
-  return `<div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>`;
+  return `<div class="dashboard-sticky-header">
+    <div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>
+  </div>`;
 }
 
 function commercialPipelineTableHtml(pipeline) {

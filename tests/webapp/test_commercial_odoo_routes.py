@@ -266,6 +266,46 @@ def test_commercial_kpi_tiles_and_table_and_switch_primitives_unchanged():
 
 
 # ============================================================================
+# View Controls Spine corrective — Todos/NN/BI es un VIEW CONTROL page-level
+# (filtra Resumen Y Pipeline a la vez), no navegación entre capacidades —
+# vive dentro de `.dashboard-sticky-header`, el mismo contenedor page-level
+# que Reporting/Staffing, nunca suelto contra el hero.
+# ============================================================================
+
+def test_commercial_view_switch_lives_inside_the_shared_sticky_header():
+    assert '"dashboard-sticky-header"' in _COMMERCIAL_JS
+    sticky_block = _COMMERCIAL_JS.split('function commercialFilterHtml()', 1)[1].split('\n}\n', 1)[0]
+    assert '"dashboard-sticky-header"' in sticky_block
+    assert '"dashboard-view-switch"' in sticky_block
+
+
+def test_commercial_sticky_header_appears_before_dashboard_sections_in_render():
+    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
+    assert render_fn.index("commercialFilterHtml()") < render_fn.index("commercialDashboardSections(")
+
+
+def test_commercial_did_not_adopt_experience_tabs():
+    # Una única capability hoy — no navegación por tabs todavía.
+    assert "experience-tabs" not in _COMMERCIAL_JS
+
+
+def test_commercial_did_not_adopt_staffing_filter_bar_layout():
+    # Un solo control simple — `.staffing-filter-bar` es el layout de
+    # Staffing para VARIOS controles + botón Limpiar en una fila, no
+    # necesario acá; no emular Staffing sin una necesidad real.
+    assert "staffing-filter-bar" not in _COMMERCIAL_JS
+
+
+def test_commercial_todos_nn_bi_selector_behavior_is_unchanged():
+    # Mismos 3 valores, mismo atributo de datos, mismo mecanismo de toggle —
+    # el corrective es puramente estructural (contenedor), cero cambio de
+    # comportamiento o copy.
+    assert '[["todos", "Todos"], ["nn", "NN"], ["bi", "BI"]]' in _COMMERCIAL_JS
+    assert "data-commercial-tipo=" in _COMMERCIAL_JS
+    assert "commercialState.tipo === key" in _COMMERCIAL_JS
+
+
+# ============================================================================
 # 19 — Ningún auth/JWT/DB del CRM legacy
 # ============================================================================
 
