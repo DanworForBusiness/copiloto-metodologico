@@ -108,11 +108,28 @@ function commercialPipelineTableHtml(pipeline) {
       <td>${commercialFmtInt(stage.weighted_hours)}</td>
       <td>${commercialFmtMoney(stage.revenue)}</td>
     </tr>`).join("");
+  // Fila de totales — rollup client-side sobre las etapas ya recibidas
+  // (MISMO criterio que Reporting: `tr.is-total`/`td.row-label`, nunca un
+  // query ni un campo de total propio en el backend).
+  const totals = pipeline.stages.reduce((acc, stage) => ({
+    count: acc.count + (stage.count || 0),
+    hours: acc.hours + (stage.hours || 0),
+    weighted_hours: acc.weighted_hours + (stage.weighted_hours || 0),
+    revenue: acc.revenue + (stage.revenue || 0),
+  }), { count: 0, hours: 0, weighted_hours: 0, revenue: 0 });
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label">Total</td>
+      <td>${commercialFmtInt(totals.count)}</td>
+      <td>${commercialFmtInt(totals.hours)}</td>
+      <td>${commercialFmtInt(totals.weighted_hours)}</td>
+      <td>${commercialFmtMoney(totals.revenue)}</td>
+    </tr>`;
   return `
     <div class="matrix-scroll">
       <table class="dashboard-table">
         <thead><tr><th class="row-label-col">Etapa</th><th>Oportunidades</th><th>Horas</th><th>Ponderadas (hs)</th><th>Revenue</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${totalRow}</tbody>
       </table>
     </div>`;
 }

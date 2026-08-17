@@ -371,6 +371,17 @@ def test_matrix_scroll_is_promoted_to_an_unscoped_shared_hub_primitive():
     assert _TOOLS_CSS.count(".matrix-scroll {") == 1
 
 
+def test_commercial_pipeline_table_has_a_totals_row():
+    # MISMO patrón que Reporting: `tr.is-total`/`td.row-label`, rollup
+    # client-side sobre las etapas ya recibidas — nunca un query/campo de
+    # total propio en el backend.
+    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert '<tr class="is-total">' in table_fn
+    assert '<td class="row-label">Total</td>' in table_fn
+    assert "pipeline.stages.reduce(" in table_fn
+    assert "${totalRow}" in table_fn
+
+
 def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
     # Este corrective es EXCLUSIVAMENTE table layout — el resto del spine
     # (secciones + view control) sigue intacto.
