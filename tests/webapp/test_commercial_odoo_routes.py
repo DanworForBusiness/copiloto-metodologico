@@ -192,6 +192,80 @@ def test_hub_foreground_progress_boundary_itself_is_untouched_by_this_batch():
 
 
 # ============================================================================
+# UI Spine corrective — Commercial adopta el backbone de dashboard
+# compartido (.dashboard-sections/.dashboard-section, wireado por
+# app.js::initDashboardSections) en vez de un KPI grid/tabla sueltos.
+# ============================================================================
+
+def test_commercial_js_uses_the_shared_dashboard_sections_container():
+    # `data-dashboard-key` se interpola en runtime (helper parametrizado,
+    # ver test de abajo) — la marca ESTÁTICA a verificar es el atributo
+    # dentro del template del helper + la key real pasada en el call site.
+    assert '"dashboard-sections"' in _COMMERCIAL_JS
+    assert "data-dashboard-key=" in _COMMERCIAL_JS
+    # Key propia de Comercial — nunca la de otra vertical (Reporting usa
+    # "reporting-<id>", Staffing usa "staffing").
+    assert 'commercialDashboardSections("commercial",' in _COMMERCIAL_JS
+
+
+def test_commercial_summary_and_pipeline_each_live_inside_their_own_dashboard_section():
+    # El helper `commercialDashboardSection` es un template PARAMETRIZADO
+    # (una sola definición, ver test del helper local más abajo) — lo que
+    # se verifica acá son los DOS call sites reales (Resumen/Pipeline),
+    # cada uno con su propio `data-section-id`, no una plantilla duplicada
+    # a mano por sección.
+    assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
+    assert 'commercialDashboardSection("pipeline", "Pipeline por Etapa",' in _COMMERCIAL_JS
+    assert 'data-section-id="${id}"' in _COMMERCIAL_JS
+    # El KPI grid y la tabla siguen siendo los MISMOS primitives de siempre
+    # (sin tocar tiles/columnas) — solo ahora viven dentro del body de cada
+    # sección en vez de sueltos en el root.
+    assert '<div class="activity-kpi-grid">' in _COMMERCIAL_JS
+    assert 'class="dashboard-table"' in _COMMERCIAL_JS
+
+
+def test_commercial_js_calls_the_shared_init_dashboard_sections():
+    assert "initDashboardSections(document)" in _COMMERCIAL_JS
+
+
+def test_commercial_local_section_helper_defined_once_mirrors_reporting_shape():
+    # Helper LOCAL mínimo (auditado: no existe un renderer compartido
+    # global — Reporting lo define local, Staffing lo arma directo en su
+    # template Alpine) — una sola definición, reusada por los dos call
+    # sites (Resumen/Pipeline), nunca una plantilla copiada por sección.
+    assert _COMMERCIAL_JS.count("function commercialDashboardSection(") == 1
+    assert _COMMERCIAL_JS.count("function commercialDashboardSections(") == 1
+    assert '"dashboard-section__head"' in _COMMERCIAL_JS
+    assert '"dashboard-section__title"' in _COMMERCIAL_JS
+    assert '"dashboard-section__body"' in _COMMERCIAL_JS
+
+
+def test_commercial_js_never_reimplements_drag_or_collapse_itself():
+    # El comportamiento de drag/collapse/orden vive ÚNICAMENTE en
+    # app.js::initDashboardSections — Comercial nunca define su propio
+    # listener de dragstart/dragover/drop ni maneja el estado open/closed
+    # de un <details> a mano.
+    for banned in ("addEventListener(\"dragstart\"", "addEventListener(\"dragover\"", "addEventListener(\"drop\"", ".open ="):
+        assert banned not in _COMMERCIAL_JS
+
+
+def test_commercial_pipeline_heading_dead_class_is_gone():
+    assert "commercial-pipeline-heading" not in _COMMERCIAL_JS
+    _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    _APP_CSS = (_STATIC / "app.css").read_text(encoding="utf-8")
+    assert "commercial-pipeline-heading" not in _TOOLS_CSS
+    assert "commercial-pipeline-heading" not in _APP_CSS
+
+
+def test_commercial_kpi_tiles_and_table_and_switch_primitives_unchanged():
+    # Los primitives de nivel TILE (nunca tocados por este corrective, solo
+    # el contenedor que los envuelve cambió).
+    assert 'class="activity-kpi"' in _COMMERCIAL_JS
+    assert 'class="dashboard-table"' in _COMMERCIAL_JS
+    assert 'class="dashboard-view-switch"' in _COMMERCIAL_JS
+
+
+# ============================================================================
 # 19 — Ningún auth/JWT/DB del CRM legacy
 # ============================================================================
 

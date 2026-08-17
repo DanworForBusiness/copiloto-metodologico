@@ -9,6 +9,20 @@
 // .section-analysis-loading — todos en app.css/tools.css, ya usados por
 // Reporting/Asignaciones) — CERO CSS nuevo, CERO chart library.
 //
+// UI Spine corrective (ver HANDOFF — Commercial UI Spine Audit): el KPI
+// grid y la tabla de Pipeline viven DENTRO del backbone de dashboard
+// compartido (.dashboard-sections[data-dashboard-key] > <details
+// class="dashboard-section"> > .dashboard-section__body, wireado por
+// app.js::initDashboardSections — MISMA marca que Reporting/Staffing,
+// nunca un motor de collapse/drag propio). `commercialDashboardSection`/
+// `commercialDashboardSections` son un helper LOCAL mínimo (mismo shape
+// que reporting.js::dashboardSection/dashboardSections) — NO existe un
+// renderer compartido global para esto (auditado: Reporting lo define
+// local, Staffing lo arma directo en su template Alpine) — extraer un
+// helper transversal ahora sería una refactorización prematura fuera de
+// scope; si esta duplicación reaparece en una futura vertical, ahí sí es
+// candidato natural de extracción.
+//
 // Loader: el ÚNICO progress bar del Hub es `HubForegroundProgress`
 // (app.js) — este archivo NUNCA toca el nodo/DOM del progress
 // directamente, solo notifica lifecycle (begin/complete/fail) con la key
@@ -83,6 +97,26 @@ function commercialPipelineTableHtml(pipeline) {
     </table>`;
 }
 
+// Backbone de secciones draggable/colapsables (UI Spine corrective, ver
+// arriba) — MISMA marca que reporting.js::dashboardSection/
+// dashboardSections, helper LOCAL (sin renderer compartido global, ver
+// auditoría). `dashboardKey` propio de Comercial ("commercial") para que
+// el orden guardado no choque con el de otra vertical.
+function commercialDashboardSection(id, title, countLabel, bodyHtml) {
+  return `<details class="dashboard-section" data-section-id="${id}" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">${commercialEsc(title)}</span>
+      ${countLabel ? `<span class="dashboard-section__count">${commercialEsc(countLabel)}</span>` : ""}
+    </summary>
+    <div class="dashboard-section__body">${bodyHtml}</div>
+  </details>`;
+}
+function commercialDashboardSections(dashboardKey, sectionsHtml) {
+  return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}">${sectionsHtml}</div>`;
+}
+
 function commercialRender() {
   const root = document.getElementById("commercial-main-content");
   if (!root) return;
@@ -101,19 +135,21 @@ function commercialRender() {
 
   const s = commercialState.summary;
   const p = commercialState.pipeline;
-  root.innerHTML = `
-    ${commercialFilterHtml()}
-    <div class="activity-kpi-grid">
+  const kpiGrid = `<div class="activity-kpi-grid">
       ${commercialKpi("Pipeline horas", commercialFmtInt(s.pipeline.hours))}
       ${commercialKpi("Pipeline ponderado (hs)", commercialFmtInt(s.pipeline.weighted_hours))}
       ${commercialKpi("Oportunidades activas", commercialFmtInt(s.activas.count))}
       ${commercialKpi("Ganadas", commercialFmtInt(s.ganadas.count))}
       ${commercialKpi("Perdidas", commercialFmtInt(s.perdidas.count))}
       ${commercialKpi("Conversión", commercialFmtPercent(s.conversion))}
-    </div>
-    <h2 class="commercial-pipeline-heading">Pipeline por Etapa</h2>
-    ${commercialPipelineTableHtml(p)}
+    </div>`;
+  const sections = commercialDashboardSection("resumen", "Resumen", `${commercialFmtInt(s.activas.count)} oportunidad(es) activa(s)`, kpiGrid)
+    + commercialDashboardSection("pipeline", "Pipeline por Etapa", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, commercialPipelineTableHtml(p));
+  root.innerHTML = `
+    ${commercialFilterHtml()}
+    ${commercialDashboardSections("commercial", sections)}
   `;
+  initDashboardSections(document);
 }
 
 async function commercialLoadData() {
