@@ -4017,21 +4017,33 @@ function renderCapacidadProductivas() {
   // difiere), así que `rowsCliente.length` representa a los dos.
   const detalle = dashboardSection("detalle", "Horas consumidas por Cliente", rowsCliente.length + " fila(s)", detalleBody);
 
-  // HUB TRANSVERSAL PRIMITIVE TEST (owner directive): describe el contrato
-  // semántico de TODA la experiencia Horas Productivas (Ejecución = Time,
-  // Participación = facturación) — vive AFUERA de "Horas consumidas por
-  // Cliente" (independiente visualmente del grupo analítico, MISMA jerarquía
-  // que el ticket pide: filtros → callout → contenido). SOLO esta
-  // perspectiva (Horas Productivas) — `renderCapacidadNoAsignadas` no lo
-  // llama. `renderHubCallout` consume el MISMO primitivo que Copilot (ver
-  // tools.css), nunca una imitación local.
+  // HUB TRANSVERSAL PRIMITIVE TEST (owner corrective — live smoke encontró
+  // 2 defectos en la primera pasada): describe el contrato semántico de
+  // TODA la experiencia Horas Productivas (Ejecución = Time, Participación
+  // = facturación) — vive AFUERA de "Horas consumidas por Cliente"
+  // (independiente visualmente del grupo analítico), pero AL FINAL — es un
+  // footnote/aclaración de cierre para TODA la superficie analítica, no una
+  // introducción — jerarquía real: filtros → contenido → callout, NUNCA
+  // callout → contenido. SOLO esta perspectiva (Horas Productivas) —
+  // `renderCapacidadNoAsignadas` no lo llama.
+  //
+  // Variante `punch` (owner: "locate the ACTUAL existing Punch semantics
+  // used by Copilot... do NOT create a Reporting-specific yellow/gold
+  // callout"): evidencia PRIMARIA en `content_service.py::callout()` — el
+  // tono `punch` (alias Markdown "yellow"/"amarillo") resuelve a la clase
+  // `callout--punch`, que YA vive en tools.css (`--callout-accent:
+  // #d3a000`, movida ahí junto con el resto del primitivo genérico en el
+  // corrective anterior — nunca quedó huérfana en content.css). Pasar
+  // `tone: "punch"` acá reusa ESA MISMA regla compartida — nunca una
+  // paleta local nueva. `renderHubCallout` sigue siendo el MISMO
+  // primitivo/nunca una imitación.
   const notaMetodologica = renderHubCallout({
-    tone: "note",
+    tone: "punch",
     title: "Nota metodológica",
     bodyHtml: `<p>${esc("Las horas visualizadas corresponden a la “Ejecución” declarada en Time. La participación indicada junto al nombre del cliente corresponde a la declarada sobre la facturación.")}</p>`,
   });
 
-  return notaMetodologica + detalle;
+  return detalle + notaMetodologica;
 }
 
 function renderCapacidadNoAsignadas() {

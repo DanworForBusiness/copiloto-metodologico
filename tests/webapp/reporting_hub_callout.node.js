@@ -1,8 +1,11 @@
 // reporting_hub_callout.node.js — invocado por test_reporting_hub_callout.py.
-// HUB TRANSVERSAL PRIMITIVE TEST (owner directive): Horas Productivas debe
-// consumir el MISMO primitivo de presentación que Copilot renderiza para
-// `{{callout:...}}` (`content_service.py::callout()`), nunca una imitación
-// local. Carga reporting.js en un sandbox mínimo y ejecuta el MOTOR REAL
+// HUB TRANSVERSAL PRIMITIVE TEST (owner corrective — live smoke found 2
+// defects in the first pass): Horas Productivas debe consumir el MISMO
+// primitivo de presentación que Copilot renderiza para `{{callout:...
+// punch}}` (`content_service.py::callout()`) — específicamente la variante
+// `punch` (NO el tono neutro "note" de la primera pasada), y debe aparecer
+// AL FINAL de la superficie analítica (footnote de cierre), nunca antes.
+// Carga reporting.js en un sandbox mínimo y ejecuta el MOTOR REAL
 // (`renderHubCallout`/`renderCapacidadProductivas`) contra fixtures
 // sintéticas.
 "use strict";
@@ -12,6 +15,9 @@ const vm = require("vm");
 
 const REPORTING_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "reporting.js");
 const src = fs.readFileSync(REPORTING_JS, "utf-8");
+const TOOLS_CSS = fs.readFileSync(
+  path.resolve(__dirname, "..", "..", "webapp", "static", "tools.css"), "utf-8",
+);
 
 function makeEl() { return { innerHTML: "" }; }
 const sandbox = {
@@ -42,15 +48,25 @@ function assertTrue(cond, label) {
 // --- content_service.py::callout() genera para Copilot (mismo primitivo
 // --- compartido, ver tools.css) ---------------------------------------
 {
-  const html = renderHubCallout({ tone: "note", title: "Nota metodológica", bodyHtml: "<p>Texto de prueba.</p>" });
-  assertTrue(html.includes('class="callout callout--note"'), "renderHubCallout usa la MISMA clase base 'callout' + modificador de tono que Copilot (content_service.py::callout())");
+  const html = renderHubCallout({ tone: "punch", title: "Nota metodológica", bodyHtml: "<p>Texto de prueba.</p>" });
+  assertTrue(html.includes('class="callout callout--punch"'), "renderHubCallout resuelve tone:'punch' a la MISMA clase que Copilot (content_service.py::callout(), tone='punch') — nunca una paleta local nueva");
   assertTrue(html.includes('class="callout__head"'), "incluye callout__head, MISMA estructura que Copilot");
   assertTrue(html.includes('class="callout__title"') && html.includes("Nota metodológica"), "título presente vía callout__title");
   assertTrue(html.includes('class="callout__body"') && html.includes("<p>Texto de prueba.</p>"), "bodyHtml pasado tal cual — Reporting NUNCA finge que su contenido vino de Markdown");
 }
 
-// --- Horas Productivas consume el primitivo compartido, callout FUERA de
-// --- "Horas consumidas por Cliente", nunca dentro -----------------------
+// --- El selector .callout--punch que consume Reporting es EL MISMO que
+// --- Copilot consume — una única regla compartida en tools.css, nunca una
+// --- variante duplicada/local de Reporting -------------------------------
+{
+  assertTrue(TOOLS_CSS.includes(".callout--punch {"), "tools.css define .callout--punch (movida desde content.css en el corrective anterior, nunca reimplementada acá)");
+  const punchOccurrences = (TOOLS_CSS.match(/\.callout--punch\s*\{/g) || []).length;
+  assertTrue(punchOccurrences === 1, "UNA sola definición de .callout--punch en todo tools.css — ninguna regla duplicada/override local de Reporting");
+}
+
+// --- Horas Productivas consume el primitivo compartido CON la variante
+// --- punch, callout FUERA de "Horas consumidas por Cliente" Y AL FINAL
+// --- (footnote de cierre, nunca antes del contenido) ----------------------
 {
   CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
   CAPACIDAD_PRODUCTIVAS_ROWS.push(
@@ -66,17 +82,18 @@ function assertTrue(cond, label) {
   state.batchBDataStatus = "ready";
 
   const html = renderCapacidadProductivas();
-  assertTrue(html.includes('class="callout callout--note"'), "renderCapacidadProductivas() incluye el callout compartido");
-  assertTrue(html.includes("Las horas visualizadas corresponden"), "contiene el texto informativo pedido por el owner");
-  const calloutIdx = html.indexOf('class="callout callout--note"');
-  const detalleIdx = html.indexOf('Horas consumidas por Cliente');
-  assertTrue(calloutIdx !== -1 && detalleIdx !== -1 && calloutIdx < detalleIdx, "el callout aparece ANTES/AFUERA del grupo 'Horas consumidas por Cliente', nunca dentro");
-  // El callout NUNCA queda envuelto por dashboard-section__body de "detalle"
-  // — se verifica que el bloque <aside class="callout ...</aside> completo
-  // termina ANTES de que abra el dashboard-section de detalle.
-  const asideCloseIdx = html.indexOf("</aside>");
+  assertTrue(html.includes('class="callout callout--punch"'), "renderCapacidadProductivas() incluye el callout compartido CON la variante punch (nunca 'note')");
+  assertTrue(!html.includes('callout--note'), "NUNCA la variante neutra 'note' — el owner pidió explícitamente punch");
+  assertTrue(html.includes("Las horas visualizadas corresponden"), "contiene el texto informativo pedido por el owner, sin reescribirlo");
+
+  // Posición: el callout debe aparecer DESPUÉS de que la dashboard-section
+  // "Horas consumidas por Cliente" (<details>...</details>) CIERRA — nunca
+  // antes, y estructuralmente imposible que quede anidado adentro.
   const detalleSectionOpenIdx = html.indexOf('data-section-id="detalle"');
-  assertTrue(asideCloseIdx !== -1 && detalleSectionOpenIdx !== -1 && asideCloseIdx < detalleSectionOpenIdx, "el <aside> del callout cierra ANTES de que abra la dashboard-section 'Horas consumidas por Cliente' — visualmente independiente, no anidado");
+  const detalleSectionCloseIdx = html.indexOf("</details>", detalleSectionOpenIdx);
+  const asideOpenIdx = html.indexOf('<aside class="callout callout--punch"');
+  assertTrue(detalleSectionOpenIdx !== -1 && detalleSectionCloseIdx !== -1 && asideOpenIdx !== -1, "todas las piezas (sección + callout) están presentes");
+  assertTrue(detalleSectionCloseIdx < asideOpenIdx, "el callout aparece DESPUÉS de que cierra '</details>' de la dashboard-section 'Horas consumidas por Cliente' — footnote de cierre, NUNCA antes del contenido");
 }
 
 // --- No Reporting-local duplicate callout renderer/CSS class -------------
@@ -90,7 +107,7 @@ function assertTrue(cond, label) {
 {
   state.batchBDataStatus = "loading";
   const html = renderCapacidadProductivas();
-  assertTrue(!html.includes('class="callout callout--note"'), "batchBDataStatus='loading' (primera hidratación) — el callout NO aparece, MISMO gate que el resto del contenido (renderBatchBDataState)");
+  assertTrue(!html.includes('class="callout callout--punch"'), "batchBDataStatus='loading' (primera hidratación) — el callout NO aparece, MISMO gate que el resto del contenido (renderBatchBDataState)");
   state.batchBDataStatus = "ready";
 }
 
