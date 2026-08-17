@@ -168,7 +168,13 @@ def test_filter_bar_actions_keep_only_limpiar_and_the_sharepoint_link():
 
 def test_set_experience_only_switches_the_active_tab_never_touches_data_status():
     body = _function_body("setExperience")
-    assert body.strip() == "{\n  state.experience = id;\n  render();\n}"
+    # Cambia el tab activo + emite telemetría de tab_view (beacon liviano, NO es
+    # una carga de datos) + render. NUNCA toca un status de datos ni dispara un
+    # loader/hidratación desde el cambio de tab (eso lo maneja render()).
+    assert "state.experience = id;" in body
+    assert 'reportingTelemetry("reporting.tab_view", { report_tab: id });' in body
+    assert "render();" in body
+    assert "DataStatus" not in body and "load" not in body and "hydrate" not in body and "fetch" not in body
 
 
 # ============================================================================

@@ -944,6 +944,9 @@ const state = {
   // dentro de un tab YA hidratado nunca vuelva a mostrar el modo
   // "solo tabs + loader inicial".
   reportingTabHydrated: { cartera: false, rentabilidad: false, horasvendidas: false, comercial: false, calendario: false, capacidad: false },
+  // Feedback "¿Qué te pareció este reporte?" por MAIN TAB (ver
+  // reportingFeedbackHtml): undefined | "sending" | "up" | "down" | "error".
+  reportingFeedback: {},
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -1314,6 +1317,7 @@ function getFilter(expId, key) { return (state.filters[expId] && state.filters[e
 function setFilter(expId, key, value) {
   if (!state.filters[expId]) state.filters[expId] = {};
   state.filters[expId][key] = value;
+  reportingTelemetry("reporting.filter_change", { report_tab: expId, filter_name: key });
   // `key` es el facet que el usuario ELIGIÓ recién — nunca se resetea a sí
   // mismo (ver reconcileFacetFilters); si entra en conflicto con una
   // selección vieja de otro facet, la vieja es la que cae a Todos.
@@ -1329,6 +1333,7 @@ function setFilter(expId, key, value) {
 // curso, MISMO criterio que Cartera).
 const YEAR_TO_DATE_EXPERIENCES = new Set();
 function resetFilters(expId) {
+  reportingTelemetry("reporting.filter_clear", { report_tab: expId });
   if (expId === "cartera") {
     // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
     // curso, Año de Inicio = año en curso si está representado), no a
@@ -1719,11 +1724,84 @@ function setPerspective(expId, p) {
   // sin usar hasta que la perspectiva vuelve a necesitarla — exactamente el
   // comportamiento que el owner pidió.
   state.perspective[expId] = p;
+  reportingTelemetry("reporting.perspective_change", { report_tab: expId, perspective: p });
   render();
 }
 
 function setExperience(id) {
   state.experience = id;
+  // Activity (Hub pipeline): activación de main tab. El contexto operations/
+  // reporting lo fija el servidor (ver reporting_telemetry) — acá solo el hecho.
+  reportingTelemetry("reporting.tab_view", { report_tab: id });
+  render();
+}
+
+// --- Activity / telemetría de Reporting (beacon liviano, MISMO patrón que
+// app.js::sendTelemetry) — el servidor (reporting_telemetry) whitelistea el
+// evento y fija scope=operations/area=reporting; el cliente NUNCA fija el
+// contexto de plataforma. Semántico, nunca "cada click del DOM". Solo se
+// persiste en LOG_ACTIVITY=VERBOSE (gate server-side). ---------------------
+function reportingTelemetry(event, payload) {
+  try {
+    const body = JSON.stringify({ event, ...(payload || {}) });
+    const url = "/operaciones/reporting/integral/telemetry";
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+    } else {
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+    }
+  } catch (e) { /* la telemetría nunca rompe la UI */ }
+}
+
+// --- Feedback "¿Qué te pareció este reporte?" (Shared Hub Feedback, ver
+// ticket §A) — UN control por MAIN TAB, SIEMPRE el último elemento del tab.
+// Reusa la capacidad compartida vía POST JSON a /feedback (mismo store +
+// mismo pipeline de Activity que Copilot); no es un almacenamiento propio de
+// Reporting. Estado por tab: undefined | "sending" | "up" | "down" | "error".
+const REPORT_TAB_TITLES = {
+  cartera: "Cartera / Proyectos", rentabilidad: "Rentabilidad", horasvendidas: "Horas Vendidas",
+  comercial: "Participación / Comercial", calendario: "Calendario", capacidad: "Horas Productivas",
+};
+function reportingFeedbackHtml(expId) {
+  // Reusa la MISMA botonera compartida que el feedback de sección del Copiloto
+  // (clases `.section-feedback*` de tools.css): discreta, ALINEADA A LA DERECHA,
+  // sin línea divisoria, opacity .4→1 en hover/focus, tipografía mono, mismos
+  // botones react greyed/gold. NO estilo propio de Reporting (owner: debe verse
+  // e interactuar igual que en el Copiloto). Copy fijo del ticket §A1.
+  const st = state.reportingFeedback[expId];
+  if (st === "up" || st === "down") {
+    return `<div class="section-feedback" data-report-tab="${esc(expId)}">
+      <p class="section-feedback__thanks" role="status">
+        <span class="section-feedback__emoji">${st === "up" ? "👍" : "👎"}</span> ¡Gracias!
+      </p>
+    </div>`;
+  }
+  const disabled = st === "sending" ? "disabled" : "";
+  return `<div class="section-feedback" data-report-tab="${esc(expId)}">
+    <div class="section-feedback__bar">
+      <span class="section-feedback__prompt">¿Qué te pareció este reporte?</span>
+      <button type="button" class="section-feedback__react" ${disabled} aria-label="Útil" title="Útil"
+        onclick="submitReportingFeedback('${esc(expId)}','up')">👍</button>
+      <button type="button" class="section-feedback__react" ${disabled} aria-label="Puede mejorar" title="Puede mejorar"
+        onclick="submitReportingFeedback('${esc(expId)}','down')">👎</button>
+      ${st === "error" ? `<span class="section-feedback__prompt">reintentá</span>` : ""}
+    </div>
+  </div>`;
+}
+async function submitReportingFeedback(expId, rating) {
+  if (state.reportingFeedback[expId] === "sending") return;
+  state.reportingFeedback[expId] = "sending";
+  render();
+  try {
+    const resp = await fetch("/operaciones/reporting/integral/feedback", {
+      method: "POST",
+      body: new URLSearchParams({ report_tab: expId, rating }),
+    });
+    const data = await resp.json();
+    state.reportingFeedback[expId] = data.state === "ok" ? rating : "error";
+  } catch (e) {
+    state.reportingFeedback[expId] = "error";
+  }
   render();
 }
 
@@ -1899,6 +1977,7 @@ async function loadCarteraMantenimientoAnios() {
 async function loadCarteraMantenimientoColdYear(anio) {
   if (state.carteraMantenimientoYearLoading.has(anio)) return;
   state.carteraMantenimientoYearLoading.add(anio);
+  reportingTelemetry("reporting.cold_year_load", { report_tab: "cartera", load_scope: anio });
   state.carteraMantenimientoYearError = "";
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -2034,6 +2113,7 @@ function mergeRentabilidadRows(incoming) {
 async function loadRentabilidadColdYear(anio) {
   if (state.rentabilidadYearLoading.has(anio)) return;
   state.rentabilidadYearLoading.add(anio);
+  reportingTelemetry("reporting.cold_year_load", { report_tab: "rentabilidad", load_scope: anio });
   state.rentabilidadYearError = "";
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -2180,6 +2260,7 @@ async function loadHorasVendidasAnios() {
 async function loadHorasVendidasColdYear(anio) {
   if (state.horasVendidasYearLoading.has(anio)) return;
   state.horasVendidasYearLoading.add(anio);
+  reportingTelemetry("reporting.cold_year_load", { report_tab: "horasvendidas", load_scope: anio });
   state.horasVendidasYearError = "";
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -4194,7 +4275,10 @@ function render() {
     // sigue gateando SU PROPIO status para años fríos/perspectivas
     // individuales todavía cargando (ver cada dispatcher).
     const filterBarHtml = FILTER_BARS[expId] ? FILTER_BARS[expId]() : "";
-    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]();
+    // Feedback SIEMPRE como ÚLTIMO elemento del main tab (ver ticket §A1: para
+    // Horas Productivas queda después del contenido Y de la nota Punch, que el
+    // renderer ya emite). Un solo control por MAIN TAB, nunca por perspectiva.
+    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]() + reportingFeedbackHtml(expId);
   } else {
     // INITIAL LOADER MODE — SOLO tabs + loader inicial (o el estado de
     // error compartido si la PRIMERA hidratación falló). Filtros/KPIs/

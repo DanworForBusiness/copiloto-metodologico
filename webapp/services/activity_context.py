@@ -54,6 +54,7 @@ AREA_ASSISTANT = "assistant"
 AREA_ACADEMY = "academy"
 AREA_CATALOG = "catalog"
 AREA_STAFFING = "staffing"
+AREA_REPORTING = "reporting"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -107,6 +108,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_ACADEMY: "Academy",
     AREA_CATALOG: "Catálogo",
     AREA_STAFFING: "Staffing",
+    AREA_REPORTING: "Reporting",
     AREA_UNKNOWN: "Sin clasificar",
 }
 

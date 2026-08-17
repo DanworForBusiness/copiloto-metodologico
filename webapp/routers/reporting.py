@@ -35,9 +35,13 @@ import logging
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from datetime import datetime, timezone
+
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
-from webapp.services import auth_service
+from webapp.services import auth_service, feedback_store
+from webapp.services.activity_context import AREA_REPORTING, SCOPE_OPERATIONS
+from webapp.services.activity_service import is_verbose, log_activity, log_verbose
 from webapp.services.reporting_repository import (
     ReportingConfigurationError,
     ReportingGraphError,
@@ -434,3 +438,111 @@ def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
         _logger.exception("reporting batch-b data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", **batch_b})
+
+
+# ── Feedback + telemetría de Reporting (Shared Hub Feedback + Activity) ──────
+# Reporting es SPA client-side (reporting.js), no HTMX — así que reusa las
+# CAPACIDADES compartidas (mismo store de feedback, mismo pipeline de Activity)
+# vía endpoints JSON, en vez del intercambio de partials de Copilot. Ver ticket
+# CLOSE REPORTING §A. El feedback es "un control por MAIN TAB".
+
+# Títulos canónicos de las 6 experiencias (main tabs) — misma taxonomía que
+# `EXPERIENCES` en reporting.js. `report_tab` del cliente se valida contra esto
+# (nunca se persiste/loguea un tab arbitrario inyectado).
+_REPORT_TABS: dict[str, str] = {
+    "cartera": "Cartera / Proyectos",
+    "rentabilidad": "Rentabilidad",
+    "horasvendidas": "Horas Vendidas",
+    "comercial": "Participación / Comercial",
+    "calendario": "Calendario",
+    "capacidad": "Horas Productivas",
+}
+
+# Eventos de Activity de Reporting permitidos desde el beacon de cliente
+# (whitelist — MISMO criterio de seguridad que `telemetry.py`: el cliente NUNCA
+# fija scope/area; los fija el servidor a operations/reporting). Semánticos, no
+# "cada click del DOM".
+_REPORTING_TELEMETRY_EVENTS = {
+    "reporting.tab_view", "reporting.perspective_change", "reporting.filter_change",
+    "reporting.filter_clear", "reporting.cold_year_load", "reporting.hierarchy_toggle",
+    "reporting.expand_all", "reporting.collapse_all", "reporting.sort_change",
+    "reporting.refresh",
+}
+
+
+def _reporting_gate(request: Request):
+    """Gate compartido de los endpoints de Reporting (sesión + autorización
+    Operations) — MISMO criterio que los endpoints de datos. Devuelve una
+    respuesta si hay que cortar, o `None` si puede continuar."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    return None
+
+
+@router.post("/operaciones/reporting/integral/feedback", include_in_schema=False)
+def reporting_feedback(request: Request, report_tab: str = Form(""), rating: str = Form(""),
+                       comment: str = Form("")):
+    """Feedback "¿Qué te pareció este reporte?" al cierre de cada main tab.
+    Reusa el store COMPARTIDO (`feedback_store` → `FEEDBACK_LOG_DIR`, mismo
+    formato/analítica que Copilot: campo `type`) y emite un evento del MISMO
+    pipeline de Activity (`log_activity('reporting.feedback', ...)`). NO crea
+    almacenamiento propio de Reporting. Best-effort: nunca rompe la vista."""
+    blocked = _reporting_gate(request)
+    if blocked is not None:
+        return blocked
+    tab = (report_tab or "").strip()
+    if rating not in {"up", "down"} or tab not in _REPORT_TABS:
+        raise HTTPException(400, "Feedback inválido")
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "reporting_report",
+        "report_tab": tab,
+        "report_title": _REPORT_TABS[tab],
+        "rating": rating,
+        "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
+        "ts": now.isoformat(),
+    }
+    clean_comment = (comment or "").strip()
+    if clean_comment:
+        payload["comment"] = clean_comment
+    feedback_store.write_feedback_record(payload, prefix="reporting_feedback", stamp=now.strftime("%Y%m%d_%H%M%S"))
+    # Evento del pipeline de Activity del Hub (mismo sink que Copilot/Staffing).
+    # Metadata semántica: report_tab + sentimiento (nunca valores de negocio).
+    log_activity(
+        "reporting.feedback", user=user, scope=SCOPE_OPERATIONS, area=AREA_REPORTING,
+        module="reporting", report_tab=tab,
+        feedback_sentiment=("positive" if rating == "up" else "negative"),
+    )
+    return JSONResponse({"state": "ok"})
+
+
+@router.post("/operaciones/reporting/integral/telemetry", include_in_schema=False)
+async def reporting_telemetry(request: Request):
+    """Beacon liviano de interacción de Reporting (tab view, cambio de
+    perspectiva/filtro, año frío, expandir/contraer, sort). MISMO pipeline y
+    MISMO modelo de seguridad que `telemetry.py`: solo VERBOSE, 204 siempre, y
+    el CLIENTE nunca fija scope/area — los fija el servidor a operations/
+    reporting. Se filtra por whitelist de eventos semánticos."""
+    if not is_verbose():
+        return JSONResponse({"state": "ok"}, status_code=204)
+    if not auth_service.session_user(request):
+        return JSONResponse({"state": "ok"}, status_code=204)
+    if not operations_access.is_operations_authorized(request):
+        return JSONResponse({"state": "ok"}, status_code=204)
+    user = auth_service.session_user(request)
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"state": "ok"}, status_code=204)
+    event = str((data or {}).get("event") or "").strip()
+    if event in _REPORTING_TELEMETRY_EVENTS:
+        # Se excluyen event/scope/area del body para que el cliente no pueda
+        # inyectar/colisionar el contexto de plataforma (keyword-only en
+        # log_verbose). `report_tab`/`perspective`/`filter_name`/`load_scope`
+        # viajan como payload semántico.
+        payload = {k: v for k, v in (data or {}).items() if k not in ("event", "scope", "area", "module")}
+        log_verbose(event, user=user, scope=SCOPE_OPERATIONS, area=AREA_REPORTING, module="reporting", **payload)
+    return JSONResponse({"state": "ok"}, status_code=204)
