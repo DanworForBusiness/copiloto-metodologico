@@ -1763,17 +1763,30 @@ const REPORT_TAB_TITLES = {
   comercial: "Participación / Comercial", calendario: "Calendario", capacidad: "Horas Productivas",
 };
 function reportingFeedbackHtml(expId) {
-  // Reusa la MISMA botonera compartida que el feedback de sección del Copiloto
-  // (clases `.section-feedback*` de tools.css): discreta, ALINEADA A LA DERECHA,
-  // sin línea divisoria, opacity .4→1 en hover/focus, tipografía mono, mismos
-  // botones react greyed/gold. NO estilo propio de Reporting (owner: debe verse
-  // e interactuar igual que en el Copiloto). Copy fijo del ticket §A1.
+  // Reusa la MISMA botonera + formulario compartidos que el feedback de sección
+  // del Copiloto (clases `.section-feedback*` de tools.css): discreta, ALINEADA
+  // A LA DERECHA, sin línea divisoria, opacity .4→1 en hover del contenido,
+  // tipografía mono, react greyed/gold. Mismo flujo transversal: 👍 registra al
+  // toque; 👎 despliega la línea de comentario OPCIONAL (no un "Gracias" seco).
+  // Copy fijo del ticket §A1. Estado por tab: undefined|"form"|"sending"|"up"|"down".
   const st = state.reportingFeedback[expId];
   if (st === "up" || st === "down") {
     return `<div class="section-feedback" data-report-tab="${esc(expId)}">
       <p class="section-feedback__thanks" role="status">
         <span class="section-feedback__emoji">${st === "up" ? "👍" : "👎"}</span> ¡Gracias!
       </p>
+    </div>`;
+  }
+  if (st === "form") {
+    return `<div class="section-feedback" data-report-tab="${esc(expId)}">
+      <div class="section-feedback__form">
+        <label class="section-feedback__formlabel" for="rfc-${esc(expId)}">¿Qué esperabas o qué faltó acá? <span>(opcional)</span></label>
+        <textarea id="rfc-${esc(expId)}" rows="2" placeholder="Una línea alcanza…"></textarea>
+        <div class="section-feedback__formactions">
+          <button type="button" class="section-feedback__ghost" onclick="cancelReportingFeedback('${esc(expId)}')">Cancelar</button>
+          <button type="button" class="section-feedback__send" onclick="submitReportingFeedback('${esc(expId)}','down')">Enviar</button>
+        </div>
+      </div>
     </div>`;
   }
   const disabled = st === "sending" ? "disabled" : "";
@@ -1783,19 +1796,37 @@ function reportingFeedbackHtml(expId) {
       <button type="button" class="section-feedback__react" ${disabled} aria-label="Útil" title="Útil"
         onclick="submitReportingFeedback('${esc(expId)}','up')">👍</button>
       <button type="button" class="section-feedback__react" ${disabled} aria-label="Puede mejorar" title="Puede mejorar"
-        onclick="submitReportingFeedback('${esc(expId)}','down')">👎</button>
+        onclick="openReportingFeedbackForm('${esc(expId)}')">👎</button>
       ${st === "error" ? `<span class="section-feedback__prompt">reintentá</span>` : ""}
     </div>
   </div>`;
 }
+// El 👎 despliega la línea de comentario OPCIONAL (todavía no persiste — igual
+// que el section-feedback del Copiloto), Cancelar vuelve a la botonera.
+function openReportingFeedbackForm(expId) {
+  state.reportingFeedback[expId] = "form";
+  render();
+}
+function cancelReportingFeedback(expId) {
+  state.reportingFeedback[expId] = undefined;
+  render();
+}
 async function submitReportingFeedback(expId, rating) {
   if (state.reportingFeedback[expId] === "sending") return;
+  // El comentario (opcional) del 👎 se lee del textarea ANTES de re-renderizar.
+  let comment = "";
+  if (rating === "down") {
+    const ta = document.getElementById("rfc-" + expId);
+    if (ta) comment = ta.value || "";
+  }
   state.reportingFeedback[expId] = "sending";
   render();
   try {
+    const body = { report_tab: expId, rating };
+    if (comment.trim()) body.comment = comment.trim();
     const resp = await fetch("/operaciones/reporting/integral/feedback", {
       method: "POST",
-      body: new URLSearchParams({ report_tab: expId, rating }),
+      body: new URLSearchParams(body),
     });
     const data = await resp.json();
     state.reportingFeedback[expId] = data.state === "ok" ? rating : "error";

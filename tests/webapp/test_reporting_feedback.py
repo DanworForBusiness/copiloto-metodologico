@@ -143,3 +143,30 @@ def test_semantic_activity_events_are_wired_client_side():
     # El beacon pega al endpoint scopeado de Reporting (no al de Copilot).
     beacon = _REPORTING_JS[_REPORTING_JS.index("function reportingTelemetry"):_REPORTING_JS.index("function reportingTelemetry") + 600]
     assert '"/operaciones/reporting/integral/telemetry"' in beacon
+
+
+# ── 👎 abre formulario de comentario (paridad transversal con Copilot) ──────
+
+def test_thumbs_down_opens_optional_comment_form_not_instant_thanks():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function reportingFeedbackHtml"):_REPORTING_JS.index("function openReportingFeedbackForm")]
+    # El 👎 despliega el formulario (openReportingFeedbackForm), NUNCA persiste
+    # de una ni muestra "Gracias" seco. Reusa las clases del form de Copilot.
+    assert "openReportingFeedbackForm(" in fn
+    assert 'st === "form"' in fn
+    assert "section-feedback__form" in fn and "section-feedback__send" in fn and "section-feedback__ghost" in fn
+    assert "¿Qué esperabas o qué faltó acá?" in fn
+
+
+def test_feedback_comment_flows_to_endpoint():
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function submitReportingFeedback"):_REPORTING_JS.index("async function submitReportingFeedback") + 900]
+    assert 'document.getElementById("rfc-" + expId)' in fn  # lee el textarea
+    assert "body.comment" in fn                              # y lo manda al endpoint
+
+
+def test_reporting_events_classify_as_usage_for_metrics():
+    # Sin esto caían en `unknown` y el dashboard de uso (event_class == usage)
+    # los descartaba (owner: el 👍 decía "Gracias" pero no aparecía en métricas).
+    from webapp.services.activity_context import EVENT_CLASS_USAGE, event_class
+    for ev in ("reporting.feedback", "reporting.tab_view", "reporting.perspective_change",
+               "reporting.filter_change", "reporting.filter_clear", "reporting.cold_year_load"):
+        assert event_class(ev) == EVENT_CLASS_USAGE, ev

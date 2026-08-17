@@ -259,6 +259,21 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     "academy_selected",
     "catalog_view",
     "catalog_regenerate",
+    # Operations — Reporting Integral (adopción real de las 6 experiencias +
+    # feedback por reporte). Sin esto caían en `unknown` y el dashboard de uso
+    # (event_class == usage) los descartaba (owner: el 👍 decía "Gracias" pero
+    # no aparecía en métricas de uso).
+    "reporting.tab_view",
+    "reporting.perspective_change",
+    "reporting.filter_change",
+    "reporting.filter_clear",
+    "reporting.cold_year_load",
+    "reporting.hierarchy_toggle",
+    "reporting.expand_all",
+    "reporting.collapse_all",
+    "reporting.sort_change",
+    "reporting.refresh",
+    "reporting.feedback",
 })
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
@@ -306,6 +321,17 @@ EVENT_LABELS: dict[str, str] = {
     "tree_started": "Inicio de recorrido",
     "tree_step": "Paso de recorrido",
     "tree_outcome": "Resultado de recorrido",
+    "reporting.tab_view": "Reporting — vista de pestaña",
+    "reporting.perspective_change": "Reporting — cambio de perspectiva",
+    "reporting.filter_change": "Reporting — cambio de filtro",
+    "reporting.filter_clear": "Reporting — limpiar filtros",
+    "reporting.cold_year_load": "Reporting — carga de año histórico",
+    "reporting.hierarchy_toggle": "Reporting — expandir/contraer nodo",
+    "reporting.expand_all": "Reporting — expandir todo",
+    "reporting.collapse_all": "Reporting — contraer todo",
+    "reporting.sort_change": "Reporting — cambio de orden",
+    "reporting.refresh": "Reporting — actualizar",
+    "reporting.feedback": "Reporting — feedback de reporte",
 }
 
 
