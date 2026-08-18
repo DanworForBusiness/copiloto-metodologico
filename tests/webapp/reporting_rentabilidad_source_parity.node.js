@@ -69,7 +69,11 @@ function resetProyectos(rows) {
       trabByYear: { "2026": [18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
       vendByYear: { "2026": [25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
   ]);
-  state.filters.rentabilidad = { anio: "2026", mes: "" };
+  // AÑO/MES MULTI-SELECT corrective: anio/mes ya no viven en
+  // `state.filters.rentabilidad` — son Sets propios.
+  state.filters.rentabilidad = {};
+  state.rentabilidadAnios = new Set(["2026"]);
+  state.rentabilidadMeses = new Set();
   state.rentabilidadStatus = { "En curso": true, "Finalizado": true };
 
   const allRows = rentabilidadSelectedRows();
@@ -101,7 +105,9 @@ function resetProyectos(rows) {
       trabByYear: { "2026": [7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
       vendByYear: { "2026": [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
   ]);
-  state.filters.rentabilidad = { anio: "2026", mes: "" };
+  state.filters.rentabilidad = {};
+  state.rentabilidadAnios = new Set(["2026"]);
+  state.rentabilidadMeses = new Set();
 
   state.rentabilidadStatus = { "En curso": true, "Finalizado": true };
   assertEqual(rentabilidadSelectedRows().reduce((s, p) => s + p.vendidas, 0), 17, "ambos Estado tildados: Vendidas = 6+11 = 17");
@@ -118,7 +124,9 @@ function resetProyectos(rows) {
       trabByYear: { "2026": [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
       vendByYear: { "2026": [4, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0] } },
   ]);
-  state.filters.rentabilidad = { anio: "2026", mes: "2" };
+  state.filters.rentabilidad = {};
+  state.rentabilidadAnios = new Set(["2026"]);
+  state.rentabilidadMeses = new Set(["2"]);
   state.rentabilidadStatus = { "En curso": true, "Finalizado": true };
   const rows = rentabilidadSelectedRows();
   assertEqual(rows[0].vendidas, 5, "Mes=Febrero: Vendidas aísla el mes 2 (5), MISMO criterio que Certificadas/Trabajadas");
@@ -138,6 +146,7 @@ function resetProyectos(rows) {
       certByYear: {}, trabByYear: {}, vendByYear: { "2019": [1,1,1,1,1,1,1,1,1,1,1,1] } },
   ]);
   state.filters.rentabilidad = {};
+  state.rentabilidadAnios = new Set();
   state.rentabilidadStatus = { "En curso": true, "Finalizado": true };
   state.rentabilidadAniosDisponibles = [];
   assertTrue(rentabilidadAnioOptions().includes("2019"), "un año presente SOLO en vendByYear (ningún hecho de cert/trab ese año) sigue apareciendo como opción de Año");

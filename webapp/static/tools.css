@@ -828,7 +828,18 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    se toca la regla base de .whatsnew-filter, compartida con What's New /
    admin) para que cada control arranque justo debajo de su propia label. */
 .staffing-filter-bar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
-.staffing-filter-bar .whatsnew-filters { align-items: flex-start; flex: 1 1 auto; margin: 0; }
+/* `flex-basis: 0` (nunca `auto`, owner live QA — AÑO/MES MULTI-SELECT
+   corrective): con `auto`, el tamaño hipotético de `.whatsnew-filters`
+   para la prueba de wrap del flex EXTERNO usa su max-content — que ahora
+   puede superar el ancho de la barra apenas un experience agrega una
+   segunda fila de campos (temporal-row de Año/Mes) — y eso fuerza a
+   Limpiar/Actualizar a caer SIEMPRE a una línea propia por debajo, aunque
+   sobre espacio visible arriba a la derecha. Con `flex-basis:0`, la
+   prueba de wrap usa 0 (cabe junto a las acciones SIEMPRE que haya
+   margen), y el `flex-grow:1` sigue absorbiendo el espacio libre
+   restante exactamente igual que antes — nunca reduce el ancho final en
+   los tabs que ya cabían de sobra. */
+.staffing-filter-bar .whatsnew-filters { align-items: flex-start; flex: 1 1 0; min-width: 0; margin: 0; }
 /* Limpiar es una ACCIÓN de la barra, no otro campo — separado del grupo de
    campos (margin-left:auto lo empuja a la derecha) y ya no comparte
    columna con el stack de Estado, para no leerse como una opción más. */
@@ -843,6 +854,18 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    de Limpiar para no duplicar el corrimiento. */
 .staffing-filter-bar__actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: nowrap; }
 .staffing-filter-bar__actions .staffing-filter-bar__clear { margin-left: 0; }
+/* Viewport angosto (MISMO breakpoint que .bar-row, ver arriba): con
+   `.whatsnew-filters` en `flex-basis:0` (owner live QA), acciones y
+   filtros SIEMPRE caben en la misma línea según la prueba de wrap del
+   flex externo — en mobile eso comprimiría los filtros a un ancho
+   inútil en vez de dejarlos usar el ancho completo. `flex-basis:100%`
+   fuerza a Limpiar/Actualizar a su PROPIA línea completa (mismo truco que
+   `.whatsnew-filters__temporal-row`), preservando el fallback mobile
+   histórico: acciones debajo, filtros con el ancho entero para su propio
+   wrap interno. */
+@media (max-width: 760px) {
+  .staffing-filter-bar__actions { flex: 1 0 100%; margin-left: 0; justify-content: flex-end; }
+}
 /* Fallo de la carga lazy de historial (Staffing Director Priority V2
    pre-PR corrective, ver HANDOFF) — fail-soft: nunca bloquea el resto
    del dashboard, solo informa que el próximo toggle puede reintentar. */
@@ -929,6 +952,11 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-view-switch button:hover { color: #1f1f24; }
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* ESTADO VACÍO corrective (owner — mejora transversal a Año/Mes multi-
+   select, ver pillMultiField/opts.disabledAll): base genérica, no solo
+   `--multi` — Año (base) y Mes (`--scroll`) también pueden deshabilitarse
+   enteros cuando Estado no tiene ningún tildado. */
+.dashboard-view-switch button:disabled { opacity: .35; cursor: not-allowed; }
 /* Mes de Horas Productivas — multi-select (owner live QA corrective: "el
    PBIP original permite tildar varios meses a la vez... boton cuadrado
    minimalista por cada mes... gris/claro... mas obscuro/gold al hacer
@@ -940,6 +968,18 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    cualquier subconjunto. */
 .dashboard-view-switch--multi { flex-wrap: wrap; }
 .dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
+/* Mes de Año/Mes multi-select (DECISIÓN VISUAL OWNER — AÑO/MES
+   MULTI-SELECT corrective, ver HANDOFF): a diferencia de `--multi`
+   arriba (Horas Productivas, compacta + wrap), esta variante mantiene la
+   altura/padding BASE (mismo peso visual que los demás controles
+   globales — "los filtros temporales son de primera clase") y NUNCA
+   envuelve a una segunda línea: scrollea horizontalmente en viewports
+   angostos en su lugar. */
+.dashboard-view-switch--scroll { flex-wrap: nowrap; overflow-x: auto; max-width: 100%;
+  align-self: flex-start; /* .whatsnew-filter es flex-column (stretch por default) — sin esto,
+    el borde se estira hasta el ancho completo de .whatsnew-filter--fill en vez de cortar
+    justo después del último botón, como cualquier otro control (owner live QA). */ }
+.dashboard-view-switch--scroll button { flex: 0 0 auto; }
 /* Mes futuro bajo el año en curso (owner corrective: "que la posicion del
    dropdown de año no cambie de lugar... eventualmente si los meses son a
    futuro que queden en su lugar deshabilitados mas que desaparecer") — el
@@ -1707,6 +1747,18 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    Colores explícitos por tema (no --ink, ilegible en claro); grises con alfa en bordes. */
 .whatsnew-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 4px 0 18px; }
 .whatsnew-filter { display: flex; flex-direction: column; gap: 5px; }
+/* AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER, ver HANDOFF):
+   Año/Mes van en su PROPIA fila, debajo de Client Partner/Proyecto/
+   Cliente/Estado — `flex-basis:100%` dentro del MISMO contenedor
+   flex-wrap (`.whatsnew-filters`, arriba) fuerza el salto de línea sin
+   tocar el shell (filterBarShell no cambia), MISMO gap/align que la fila
+   de arriba para que ambas luzcan como una sola composición, nunca un
+   título "Filtros temporales" — la posición ya comunica la agrupación. */
+.whatsnew-filters__temporal-row { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+/* Mes ocupa el espacio restante de la fila; Año se dimensiona a sus
+   propias opciones (sin flex-grow) — mismo criterio "control fijo +
+   control flexible" que .hero-lead-row (Commercial). */
+.whatsnew-filter--fill { flex: 1 1 auto; min-width: 0; }
 .whatsnew-filter > span { color: #7a7a82; font: 600 .6rem var(--mono); text-transform: uppercase; letter-spacing: .1em; }
 .content-theme-dark .whatsnew-filter > span { color: #8b8b96; }
 .whatsnew-filter select { min-width: 190px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);

@@ -693,14 +693,18 @@ def _fn_body(name: str, window: int = 1500) -> str:
     return _REPORTING_JS[start:start + window]
 
 
-def test_participacion_anio_is_a_checkbox_group_never_a_single_select():
-    # A diferencia de HV/Rentabilidad (Año single-select), Participación
-    # agrega SOBRE el conjunto de años tildados — checkbox multi-select.
+def test_participacion_anio_is_a_pill_multiselect_never_a_single_select():
+    # AÑO/MES MULTI-SELECT corrective (propagación del patrón Cartera,
+    # sección D — ver HANDOFF): Año pasó de checkbox-group a pill, MISMO
+    # contrato que Cartera/Rentabilidad/HV, pero SIN Mes (Participación no
+    # lo necesita) — sigue agregando SOBRE el conjunto de años tildados.
     fb = _fn_body("renderComercialFilterBar", 900)
-    assert "comercialParticipacionAnioOptions()" in fb
-    assert "toggleComercialParticipacionAnio" in fb
+    assert "comercialParticipacionAnioPills()" in fb
     assert "toggleComercialStatus" in fb
-    assert '>Todos</option>' not in fb  # nunca una opción "Todos" en un checkbox-group
+    pills = _fn_body("comercialParticipacionAnioPills")
+    assert "comercialParticipacionAnioOptions()" in pills
+    assert "toggleComercialParticipacionAnio" in pills
+    assert '>Todos</option>' not in fb  # nunca una opción "Todos" — vacío == Todos, MISMO criterio que Cartera
 
 
 def test_participacion_hot_cold_lifecycle_mirrors_horas_vendidas():
