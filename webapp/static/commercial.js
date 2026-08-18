@@ -8,11 +8,11 @@
 // .dashboard-view-switch, table.dashboard-table, .empty-panel,
 // .section-analysis-loading — todos en app.css/tools.css, ya usados por
 // Reporting/Asignaciones) — CERO CSS propio de esta vertical, CERO chart
-// library. Batch 2B suma los small multiples de "Distribución por Etapa",
-// dibujados con el primitivo de barra COMPARTIDO (.bar-row/.bar-track/
-// .bar-fill/.bar-value/.perspective-label, promovidos a tools.css en ese
-// batch) + el tooltip compartido .chart-tooltip: sin canvas, sin SVG y sin
-// dependencia nueva.
+// library. "Distribución por Etapa" se dibuja con el primitivo COMPARTIDO
+// `.category-plot` (tools.css): barras para Oportunidades sobre la escala
+// izquierda y una línea con puntos para Horas/Ponderadas sobre la derecha,
+// todo en UNA superficie de ~250-300px. Sin librería, sin canvas, sin
+// dependencia nueva — el único SVG es la polilínea, y es presentacional.
 //
 // UI Spine corrective (ver HANDOFF — Commercial UI Spine Audit): el KPI
 // grid y la tabla de Pipeline viven DENTRO del backbone de dashboard
@@ -64,9 +64,10 @@ const commercialState = {
   // criterio que Reporting (`state.experience`, sin URL) — no hay
   // requerimiento de deep-link a una capability.
   capability: "dashboard",
-  // Dimensión de horas de "Distribución por Etapa" (small multiple #2). NO es
-  // un filtro: no cambia universo, etapas, capability ni la tabla — sólo qué
-  // magnitud dibuja el segundo gráfico. Por eso vive acá y NO dispara fetch.
+  // Dimensión de horas de "Distribución por Etapa" (la serie de línea). NO
+  // es un filtro: no cambia universo, etapas, capability ni la tabla — sólo
+  // qué magnitud dibuja la línea y su eje. Por eso vive acá y NO dispara
+  // fetch.
   horasDim: "hours", // hours | weighted
   status: "idle", // idle | loading | ready | error
   errorState: "", // "config_incomplete" | "source_error" | ""
@@ -146,23 +147,28 @@ function commercialFilterHtml() {
   </div>`;
 }
 
-// ── Distribución por Etapa — SMALL MULTIPLES coordinados ────────────────────
-// (ver HANDOFF — Batch 2B). Decisión de diseño del owner: DOS visualizaciones
-// single-series independientes sobre las MISMAS etapas, NO grouped bars y NO
-// doble eje. Oportunidades (count) y Horas son unidades heterogéneas de
-// órdenes de magnitud distintos: meterlas en un mismo sistema visual con dos
-// escalas produce un "cruce" que es artefacto de la escala elegida, no un
-// dato — es justamente el vicio del gráfico legacy que se decidió NO copiar.
-// Cada small multiple lleva su PROPIA escala (max de su serie), así que lo
-// que se compara entre ambos es la FORMA/DISTRIBUCIÓN a lo largo del embudo,
-// nunca la magnitud absoluta entre unidades distintas.
+// ── Distribución por Etapa ─────────────────────────────────────────────────
+// UNA sola superficie compacta sobre el primitivo COMPARTIDO
+// `.category-plot` (tools.css): Oportunidades como barras (escala
+// izquierda) y Horas/Ponderadas como línea con puntos (escala derecha),
+// sobre las MISMAS posiciones de etapa.
 //
-// Todo se dibuja con el primitivo COMPARTIDO `.bar-row/.bar-track/.bar-fill`
-// (promovido a tools.css en este batch — antes estaba scopeado a Reporting,
-// o sea inerte acá porque base.html no carga reporting.css) + el tooltip
-// compartido `.chart-tooltip`. Cero librería, cero canvas, cero SVG.
-// Invariante del primitivo: UNA `.bar-fill` por `.bar-row` — si alguna vez se
-// necesitaran dos barras en una fila, eso NO es este primitivo.
+// Por qué así, y no como estaba: la primera versión usaba dos bloques de
+// barras horizontales (`.bar-row`), una fila por etapa y por serie. Con 8
+// etapas eran 16 filas, más de 500px de alto, y la tabla de abajo volvía a
+// listar las mismas etapas por tercera vez — se leía como un ranking, no
+// como una lectura de pipeline. Poner las etapas sobre el eje X gasta
+// ancho en vez de alto y devuelve la lectura rápida y conjunta que daba el
+// CRM legacy, con la jerarquía visual del Hub.
+//
+// DOBLE ESCALA, A PROPÓSITO: cantidad y horas no comparten unidad ni orden
+// de magnitud. Lo que se compara es la DISTRIBUCIÓN de cada serie a lo
+// largo del embudo — nunca la altura de una barra contra la posición de la
+// línea, que sería un artefacto de las escalas elegidas. De ahí las
+// mitigaciones obligatorias: ticks en ambos ejes, los dos arrancando en 0,
+// unidad explícita en la leyenda y dos marcas visualmente distintas. Los
+// valores REALES viven en el tooltip y en la tabla; el gráfico nunca
+// normaliza a porcentaje.
 function commercialChartTooltip(lines) {
   // Copia local mínima del helper homónimo de reporting.js — MISMA convención
   // ya establecida para `dashboardSection` (cada vertical define su copia
@@ -172,11 +178,9 @@ function commercialChartTooltip(lines) {
   return `<div class="chart-tooltip" aria-hidden="true">${arr.map(l => `<p>${commercialEsc(l)}</p>`).join("")}</div>`;
 }
 
-// Tooltip por etapa: SIEMPRE el cuadro completo (las 4 métricas), idéntico en
-// ambos small multiples — es la misma etapa, y así el usuario no necesita
-// cruzar a la tabla para leer el resto. Revenue vive acá y en la tabla, nunca
-// como serie gráfica (es una tercera unidad; graficarla volvería a mezclar
-// magnitudes heterogéneas).
+// Tooltip por etapa: SIEMPRE el cuadro completo (nombre de la etapa + las 4
+// métricas). El eje X sólo muestra el número de etapa — esa compacidad es
+// deliberada, y el nombre completo se recupera acá y en la tabla.
 function commercialStageTooltipLines(stage) {
   return [
     stage.stage,
@@ -187,65 +191,108 @@ function commercialStageTooltipLines(stage) {
   ];
 }
 
-// Una fila = una categoría → UNA magnitud → UNA barra. `max` es el máximo de
-// SU propia serie. Guard de división por cero (MISMO criterio que
-// rentabilidadBarRow en reporting.js): con la serie entera en 0 el ancho es
-// 0, nunca NaN/Infinity en el style.
-function commercialBarRow(label, value, max, valueText, tooltipLines) {
-  const width = max > 0 ? (value / max * 100).toFixed(1) : "0.0";
-  // `aria-label` repite el MISMO contenido en plano (el tooltip visual queda
-  // aria-hidden para no duplicar el anuncio) y `tabindex=0` lo hace foco-able:
-  // :focus-within revela el tooltip sin mouse. MISMO patrón que Staffing/
-  // Reporting. Nunca el `title` nativo del navegador.
-  const plain = tooltipLines.join(" · ");
-  return `<div class="bar-row chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(plain)}">`
-    + `<span class="bar-label">${commercialEsc(label)}</span>`
-    + `<div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>`
-    + `<span class="bar-value">${commercialEsc(valueText)}</span>`
-    + `${commercialChartTooltip(tooltipLines)}</div>`;
+// Tope "redondo" para el eje: SIEMPRE >= el máximo real, para que la escala
+// se lea en pasos limpios (2.760 → 3.000) y la serie no toque el techo.
+function commercialNiceMax(value) {
+  const v = Number(value);
+  if (!isFinite(v) || v <= 0) return 0;
+  const step = Math.pow(10, Math.floor(Math.log10(v))) / 2;
+  return Math.ceil(v / step) * step;
 }
 
-// Contenido INTERNO de `[data-commercial-dist]` — el switch y los dos small
-// multiples. Se devuelve aparte del wrapper justamente para que el switch
-// pueda re-renderizar SÓLO este subárbol (ver el handler): un
-// `commercialRender()` completo reconstruiría todo `#commercial-main-content`
-// y, como `initEventBreakdown` guarda el estado abierto/cerrado únicamente en
-// el DOM (`hidden` + `.is-active`), cerraría el panel de Activas justo cuando
-// el usuario toca el switch que vive adentro.
+// Número de etapa para el eje X: el prefijo del nombre ("4 Propuesta" → "4").
+// Si una etapa no lo trae, se cae al ordinal — nunca se rompe el eje.
+function commercialStageTick(stage, index) {
+  const first = String(stage.stage || "").trim().charAt(0);
+  return /[0-9]/.test(first) ? first : String(index + 1);
+}
+
+const COMMERCIAL_PLOT_TICKS = [0, 0.25, 0.5, 0.75, 1];
+
+function commercialAxisHtml(side, max) {
+  const ticks = COMMERCIAL_PLOT_TICKS.map(t =>
+    `<span style="bottom:${(t * 100).toFixed(0)}%">${commercialFmtInt(Math.round(max * t))}</span>`
+  ).join("");
+  return `<div class="category-plot__axis category-plot__axis--${side}">${ticks}</div>`;
+}
+
+// Contenido INTERNO de `[data-commercial-dist]` — el switch y el gráfico. Se
+// devuelve aparte del wrapper justamente para que el switch pueda
+// re-renderizar SÓLO este subárbol (ver el handler): un `commercialRender()`
+// completo reconstruiría todo `#commercial-main-content` y, como
+// `initEventBreakdown` guarda el estado abierto/cerrado únicamente en el DOM
+// (`hidden` + `.is-active`), cerraría el panel de Activas justo cuando el
+// usuario toca el switch que vive adentro.
 function commercialDistribucionHtml(pipeline, dim) {
   const stages = (pipeline && pipeline.stages) || [];
   if (!stages.length) return "";
   // Sólo las etapas PRESENTES en la respuesta y en el orden recibido (el
   // service ya las entrega ordenadas 1→8 y agrupa únicamente las que tienen
-  // oportunidades) — nunca 8 filas hardcodeadas, nunca la etapa 0.
+  // oportunidades) — nunca 8 columnas hardcodeadas, nunca la etapa 0.
   const hoursOf = s => (dim === "weighted" ? (s.weighted_hours || 0) : (s.hours || 0));
-  const maxCount = Math.max(...stages.map(s => s.count || 0));
-  const maxHours = Math.max(...stages.map(hoursOf));
+  const maxCount = commercialNiceMax(Math.max(...stages.map(s => s.count || 0)));
+  const maxHours = commercialNiceMax(Math.max(...stages.map(hoursOf)));
   const hoursLabel = dim === "weighted" ? "Horas Ponderadas" : "Horas";
+
   const dims = [["hours", "Horas"], ["weighted", "Ponderadas"]];
   const switchButtons = dims.map(([key, label]) =>
     `<button type="button" class="${dim === key ? "is-active" : ""}" data-commercial-dim="${key}">${commercialEsc(label)}</button>`
   ).join("");
-  const countRows = stages.map(s =>
-    commercialBarRow(s.stage, s.count || 0, maxCount, commercialFmtInt(s.count), commercialStageTooltipLines(s))
-  ).join("");
-  const hoursRows = stages.map(s =>
-    commercialBarRow(s.stage, hoursOf(s), maxHours, commercialFmtInt(hoursOf(s)), commercialStageTooltipLines(s))
-  ).join("");
-  // El switch va en `.staffing-timeline-toolbar` (primitivo COMPARTIDO de fila
-  // de controles, MISMO uso que sectionToolbar() en Reporting), no suelto.
+
+  // La COLUMNA es la superficie accesible (no la barra): cubre toda la banda
+  // de la etapa, lleva el `aria-label` plano con las magnitudes reales y
+  // ancla el tooltip compartido. El SVG de la línea queda `aria-hidden`
+  // para no duplicar esa semántica.
+  const cols = stages.map((stage, index) => {
+    const lines = commercialStageTooltipLines(stage);
+    const height = maxCount > 0 ? ((stage.count || 0) / maxCount * 100).toFixed(1) : "0.0";
+    return `<div class="category-plot__col chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(lines.join(" · "))}">`
+      + `<div class="category-plot__bar" style="height:${height}%"></div>`
+      + `${commercialChartTooltip(lines)}</div>`;
+  }).join("");
+
+  const point = (stage, index) => {
+    const x = ((index + 0.5) / stages.length * 100).toFixed(2);
+    const y = maxHours > 0 ? (100 - hoursOf(stage) / maxHours * 100).toFixed(2) : "100.00";
+    return [x, y];
+  };
+  const polyline = stages.map((s, i) => point(s, i).join(",")).join(" ");
+  // Los puntos son `<line>` de largo cero con `stroke-linecap:round`: un
+  // `<circle>` se deformaría en óvalo, porque el viewBox se estira de forma
+  // no uniforme para llenar el área.
+  const dots = stages.map((stage, index) => {
+    const [x, y] = point(stage, index);
+    return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y}" stroke="var(--gold)" stroke-width="6"`
+      + ` stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  }).join("");
+
+  const grid = COMMERCIAL_PLOT_TICKS.map(t => `<i style="bottom:${(t * 100).toFixed(0)}%"></i>`).join("");
+  const xlab = stages.map((stage, index) =>
+    `<span>${commercialEsc(commercialStageTick(stage, index))}</span>`).join("");
+
   return `
+    <p class="perspective-label">Distribución por Etapa</p>
     <div class="staffing-timeline-toolbar">
       <div class="dashboard-view-switch" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
     </div>
-    <section aria-label="Oportunidades por etapa">
-      <p class="perspective-label">Oportunidades</p>
-      ${countRows}
-    </section>
-    <section aria-label="${commercialEsc(hoursLabel)} por etapa">
-      <p class="perspective-label">${commercialEsc(hoursLabel)}</p>
-      ${hoursRows}
-    </section>`;
+    <div class="category-plot-legend">
+      <b><i class="swatch-bar"></i>Oportunidades <em>· escala izq.</em></b>
+      <b><i class="swatch-line"></i>${commercialEsc(hoursLabel)} <em>· escala der.</em></b>
+    </div>
+    <div class="category-plot">
+      ${commercialAxisHtml("left", maxCount)}
+      <div class="category-plot__area">
+        <div class="category-plot__grid">${grid}</div>
+        ${cols}
+        <svg class="category-plot__line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <polyline points="${polyline}" fill="none" stroke="var(--gold)" stroke-width="2"
+            vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+          ${dots}
+        </svg>
+      </div>
+      ${commercialAxisHtml("right", maxHours)}
+      <div class="category-plot__xlab">${xlab}</div>
+    </div>`;
 }
 
 // Table Spine corrective (ver HANDOFF — Commercial Table Spine Audit):
@@ -333,8 +380,10 @@ function commercialDashboardSections(dashboardKey, sectionsHtml) {
 // da el `.empty-panel` de la tabla — nunca rótulos huérfanos sobre la nada.
 function commercialActivasAnalysisHtml(pipeline) {
   const dist = commercialDistribucionHtml(pipeline, commercialState.horasDim);
-  return `${dist ? `<p class="perspective-label">Distribución por Etapa</p>
-      <div data-commercial-dist>${dist}</div>
+  // El rótulo "Distribución por Etapa" lo emite el propio gráfico (vive
+  // dentro del subárbol que re-renderiza el switch), así que acá NO se
+  // repite — sólo el de la tabla.
+  return `${dist ? `<div data-commercial-dist>${dist}</div>
       <p class="perspective-label">Detalle por Etapa</p>` : ""}
     ${commercialPipelineTableHtml(pipeline)}`;
 }

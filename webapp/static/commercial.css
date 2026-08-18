@@ -1,0 +1,84 @@
+/* commercial.css — CSS propio del workspace Comercial / CRM.
+
+   MECANISMO: stylesheet de vertical linkeado desde el template de la propia
+   pagina (`templates/commercial/crm.html`), MISMA convencion que
+   `reporting.css` en `operations/reporting_integral.html`. `base.html` NO lo
+   carga: solo llega a las paginas de Comercial.
+
+   POR QUE ACA Y NO EN tools.css (ownership gate del corrective visual): la
+   familia `.category-plot` nacio en tools.css, pero auditada contra el
+   criterio real de la plataforma NO es un primitivo elemental — es la
+   COMPOSICION concreta de este grafico. Lo demuestran sus propias
+   declaraciones, no su nombre:
+
+   - `grid-template-columns: 38px 1fr 52px` son canaletas AJUSTADAS a los
+     rotulos de este chart (2 digitos a la izquierda, "3,000" a la derecha);
+     otra magnitud las desborda;
+   - `height: 188px` esta calibrado para el footprint de ~250-300px que pidio
+     este corrective, no es una medida universal;
+   - el color de la barra (#2f6fbd) y el del eje izquierdo son el MISMO a
+     proposito: hornea "el eje izquierdo pertenece a la serie de barras";
+   - `.swatch-bar`/`.swatch-line` expresan exactamente DOS series, una de
+     barras y una de linea — dos series de barras, o barra + area, no tienen
+     forma de expresarse.
+
+   O sea: no son piezas recombinables (un eje, un area de plot, una grilla)
+   que otro grafico pueda componer distinto; es este grafico. Y no hay un
+   segundo consumidor ni una necesidad de plataforma que lo justifique. La
+   regla del repo ya se aplico asi varias veces — `.matrix-scroll`,
+   `.bar-row` y `.perspective-label` vivieron scopeadas a Reporting hasta que
+   aparecio un segundo consumidor REAL. Cuando otra vertical necesite este
+   contrato, ahi corresponde promoverlo.
+
+   Lo que SI se consume del Hub y NO se duplica aca: `.chart-tooltip`,
+   `.dashboard-view-switch`, `.staffing-timeline-toolbar`,
+   `.perspective-label`, `.dashboard-table`/`.matrix-scroll`,
+   `.activity-kpi*`, y los tokens (`--gold`, `--mono`, `--sans`).
+
+   Nota de nombre: se conserva `category-plot` (descriptivo de la forma) en
+   vez de un prefijo `commercial-*`, que ademas esta explicitamente prohibido
+   por el guard de tests. El ownership lo fija este archivo, no el nombre. */
+
+.category-plot { display: grid; grid-template-columns: 38px 1fr 52px; grid-template-rows: auto auto; }
+.category-plot__area {
+  position: relative; height: 188px; display: flex; align-items: flex-end; gap: 5px;
+  border-bottom: 1px solid rgba(128,128,128,.34); border-left: 1px solid rgba(128,128,128,.20);
+}
+.category-plot__grid { position: absolute; inset: 0; pointer-events: none; }
+.category-plot__grid i { position: absolute; left: 0; right: 0; height: 1px; background: rgba(128,128,128,.12); }
+/* La columna es la unidad ACCESIBLE: cubre el alto completo para que el
+   hover/foco tome toda la banda de la categoria, no solo la barra. */
+.category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.category-plot__col:hover { background: rgba(128,128,128,.07); }
+.category-plot__col:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.category-plot__bar { width: 56%; max-width: 34px; min-height: 2px; border-radius: 3px 3px 0 0; background: #2f6fbd; }
+.category-plot__line { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
+   grilla, incluido el 0 apoyado en el eje. */
+.category-plot__axis { position: relative; }
+.category-plot__axis span { position: absolute; font: 600 .56rem var(--mono); letter-spacing: .02em; white-space: nowrap; transform: translateY(50%); }
+.category-plot__axis--left { grid-column: 1; }
+.category-plot__axis--left span { right: 7px; color: #2f6fbd; }
+.category-plot__axis--right { grid-column: 3; }
+.category-plot__axis--right span { left: 7px; color: #a67c00; }
+.category-plot__xlab { grid-column: 2; display: flex; gap: 5px; margin-top: 5px; }
+.category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
+.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+.category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.category-plot-legend em { font-style: normal; color: #7a7a82; }
+.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #2f6fbd; }
+.category-plot-legend .swatch-line { position: relative; width: 16px; height: 0; border-top: 2.5px solid var(--gold); }
+.category-plot-legend .swatch-line::after { content: ""; position: absolute; left: 5px; top: -3px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.content-theme-dark .category-plot-legend { color: #b6b6c0; }
+.content-theme-dark .category-plot-legend em,
+.content-theme-dark .category-plot__xlab span { color: #8b8b96; }
+.content-theme-dark .category-plot__axis--left span { color: #6fa3e0; }
+.content-theme-dark .category-plot__axis--right span { color: #d9a520; }
+/* Viewport angosto: se achican las canaletas de los ejes y la separacion
+   entre columnas para que las categorias sigan entrando SIN scroll
+   horizontal — nunca se vuelve a apilarlas como filas. */
+@media (max-width: 760px) {
+  .category-plot { grid-template-columns: 30px 1fr 42px; }
+  .category-plot__area { gap: 3px; }
+  .category-plot__xlab { gap: 3px; }
+}

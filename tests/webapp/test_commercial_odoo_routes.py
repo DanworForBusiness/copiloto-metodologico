@@ -578,12 +578,61 @@ def test_no_commercial_specific_chart_css_or_class_was_invented():
     for banned in ("commercial-funnel", "commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
         assert banned not in _COMMERCIAL_JS
         assert banned not in tools_css
+    # OWNERSHIP (gate del corrective visual): la composición del gráfico
+    # (`.category-plot`) NO es un primitivo elemental del Hub — es este
+    # gráfico concreto: canaletas de eje ajustadas a sus rótulos, altura
+    # calibrada a su footprint, color de barra y de eje izquierdo acoplados,
+    # y una leyenda que sólo sabe expresar "una serie de barras + una de
+    # línea". Vive en el CSS de la vertical, con el MISMO mecanismo que
+    # `reporting.css`: stylesheet propio linkeado desde su template, nunca
+    # `base.html`. Se promoverá el día que exista un segundo consumidor real.
+    commercial_css = (_STATIC / "commercial.css").read_text(encoding="utf-8")
+    for rule in (".category-plot {", ".category-plot__area {", ".category-plot__bar {",
+                 ".category-plot__line {", ".category-plot__axis {", ".category-plot-legend {"):
+        assert rule in commercial_css, rule
+        assert rule not in tools_css, rule
+    crm_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "crm.html").read_text(encoding="utf-8")
+    assert "path='commercial.css'" in crm_html
+    base_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "commercial.css" not in base_html  # nunca global
 
 
-def test_commercial_charts_introduce_no_library_canvas_or_svg():
-    # La decisión de diseño es CSS/DOM sobre el primitivo compartido.
-    for banned in ("<canvas", "<svg", "new Chart(", "Chart.js", "chart.js", "d3.", "import "):
+def test_commercial_local_css_does_not_duplicate_shared_hub_primitives():
+    # El CSS de la vertical aporta SOLO su composición: no re-declara los
+    # primitivos que el Hub ya provee.
+    # Se miran las REGLAS, no la prosa: el encabezado del archivo enumera a
+    # propósito los primitivos compartidos que consume, y un scan del texto
+    # crudo daría un falso positivo por esa misma lista (patrón ya conocido
+    # en este repo — un comentario que menciona el literal prohibido).
+    raw = (_STATIC / "commercial.css").read_text(encoding="utf-8")
+    rules = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    for shared in (".chart-tooltip", ".dashboard-view-switch", ".perspective-label",
+                   ".staffing-timeline-toolbar", ".dashboard-table", ".matrix-scroll", ".activity-kpi"):
+        assert shared not in rules, shared
+
+
+def test_commercial_charts_introduce_no_library_canvas_or_external_dependency():
+    # CONTRATO ACTUALIZADO (corrective visual de Distribución por Etapa): el
+    # ban de `<svg` a secas describía la implementación anterior (CSS/DOM
+    # puro), no un requisito de producto. Lo que el producto exige es no
+    # incorporar librería/canvas/dependencia — el SVG inline que dibuja la
+    # polilínea y sus puntos es presentacional y explícitamente permitido
+    # (ver el test de accesibilidad de abajo).
+    for banned in ("<canvas", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
         assert banned not in _COMMERCIAL_JS, banned
+    # Un único SVG, y sólo para la serie de línea.
+    assert _COMMERCIAL_JS.count("<svg") == 1
+
+
+def test_line_series_svg_is_presentational_and_the_column_owns_accessibility():
+    # El SVG no debe duplicar semántica: la superficie accesible por etapa es
+    # la columna, con su aria-label y su tooltip.
+    assert 'aria-hidden="true" focusable="false"' in _COMMERCIAL_JS
+    col = _COMMERCIAL_JS.split("const cols = stages.map(", 1)[1].split("}).join", 1)[0]
+    assert "category-plot__col" in col
+    assert 'tabindex="0"' in col
+    assert "aria-label=" in col
+    assert "commercialChartTooltip(lines)" in col
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
