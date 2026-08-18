@@ -46,10 +46,10 @@ const commercialState = {
   // criterio que Reporting (`state.experience`, sin URL) — no hay
   // requerimiento de deep-link a una capability.
   capability: "dashboard",
-  // Dimensión de horas de "Distribución por Etapa" (la serie de línea). NO
-  // es un filtro: no cambia universo, etapas, capability ni la tabla — sólo
-  // qué magnitud dibuja la línea y su eje. Por eso vive acá y NO dispara
-  // fetch.
+  // Dimensión de horas del "Funnel por Etapa" (la segunda serie de barras).
+  // NO es un filtro: no cambia universo, etapas, capability ni la tabla —
+  // sólo qué magnitud dibuja esa serie y su eje. Por eso vive acá y NO
+  // dispara fetch.
   horasDim: "hours", // hours | weighted
   status: "idle", // idle | loading | ready | error
   errorState: "", // "config_incomplete" | "source_error" | ""
@@ -165,27 +165,26 @@ function commercialFilterHtml() {
   return `<div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>`;
 }
 
-// ── Distribución por Etapa ─────────────────────────────────────────────────
-// UNA sola superficie compacta sobre el primitivo COMPARTIDO
-// `.category-plot` (tools.css): Oportunidades como barras (escala
-// izquierda) y Horas/Ponderadas como línea con puntos (escala derecha),
-// sobre las MISMAS posiciones de etapa.
-//
-// Por qué así, y no como estaba: la primera versión usaba dos bloques de
-// barras horizontales (`.bar-row`), una fila por etapa y por serie. Con 8
-// etapas eran 16 filas, más de 500px de alto, y la tabla de abajo volvía a
-// listar las mismas etapas por tercera vez — se leía como un ranking, no
-// como una lectura de pipeline. Poner las etapas sobre el eje X gasta
-// ancho en vez de alto y devuelve la lectura rápida y conjunta que daba el
-// CRM legacy, con la jerarquía visual del Hub.
+// ── Funnel por Etapa ───────────────────────────────────────────────────────
+// Restauración de la representación legacy (Active Opportunities Phase 2 /
+// C3, ver HANDOFF) sobre el primitivo COMPARTIDO `.category-plot`
+// (tools.css): GROUPED BARS — dos barras por etapa, Oportunidades y Horas/
+// Ponderadas, sobre las MISMAS posiciones de etapa. Universo: Activas,
+// etapas 1-8 (ver `_build_pipeline`/C1 — nunca el 0-8 de Pipeline Total/
+// Forecast). Reemplaza la versión anterior (barra + línea con puntos, "A'"):
+// el owner pidió el grouped bar real del legacy, no una variante Hub nueva.
+// Ambas series son DOM puro — sin librería de charts ni elemento gráfico
+// nativo del navegador.
 //
 // DOBLE ESCALA, A PROPÓSITO: cantidad y horas no comparten unidad ni orden
 // de magnitud. Lo que se compara es la DISTRIBUCIÓN de cada serie a lo
-// largo del embudo — nunca la altura de una barra contra la posición de la
-// línea, que sería un artefacto de las escalas elegidas. De ahí las
-// mitigaciones obligatorias: ticks en ambos ejes, los dos arrancando en 0,
-// unidad explícita en la leyenda y dos marcas visualmente distintas. Los
-// valores REALES viven en el tooltip y en la tabla; el gráfico nunca
+// largo del embudo — nunca la altura de una barra de Oportunidades contra
+// la de Horas, que sería un artefacto de las escalas elegidas. De ahí las
+// mitigaciones obligatorias: ticks en AMBOS ejes, los dos arrancando en 0,
+// techo redondeado (`commercialNiceMax`), unidad explícita en la leyenda y
+// dos colores/swatches inequívocos (azul = Oportunidades/escala izq., oro =
+// Horas/escala der.). Los valores REALES viven en el tooltip (por columna,
+// las 4 métricas juntas) y en la tabla de detalle (C4); el gráfico nunca
 // normaliza a porcentaje.
 function commercialChartTooltip(lines) {
   // Copia local mínima del helper homónimo de reporting.js — MISMA convención
@@ -257,31 +256,20 @@ function commercialDistribucionHtml(pipeline, dim) {
     `<button type="button" class="${dim === key ? "is-active" : ""}" data-commercial-dim="${key}">${commercialEsc(label)}</button>`
   ).join("");
 
-  // La COLUMNA es la superficie accesible (no la barra): cubre toda la banda
-  // de la etapa, lleva el `aria-label` plano con las magnitudes reales y
-  // ancla el tooltip compartido. El SVG de la línea queda `aria-hidden`
-  // para no duplicar esa semántica.
+  // La COLUMNA es la superficie accesible (no la barra individual): cubre
+  // toda la banda de la etapa, lleva el `aria-label` plano con las CUATRO
+  // magnitudes reales y ancla el tooltip compartido — un solo punto de
+  // foco/hover por etapa, nunca uno por serie (evitaría duplicar el mismo
+  // dato dos veces en el lector de pantalla). Las dos barras son
+  // `aria-hidden` implícito (no son focusables ni tienen texto propio).
   const cols = stages.map((stage, index) => {
     const lines = commercialStageTooltipLines(stage);
-    const height = maxCount > 0 ? ((stage.count || 0) / maxCount * 100).toFixed(1) : "0.0";
+    const countHeight = maxCount > 0 ? ((stage.count || 0) / maxCount * 100).toFixed(1) : "0.0";
+    const hoursHeight = maxHours > 0 ? (hoursOf(stage) / maxHours * 100).toFixed(1) : "0.0";
     return `<div class="category-plot__col chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(lines.join(" · "))}">`
-      + `<div class="category-plot__bar" style="height:${height}%"></div>`
+      + `<div class="category-plot__bar category-plot__bar--count" style="height:${countHeight}%"></div>`
+      + `<div class="category-plot__bar category-plot__bar--hours" style="height:${hoursHeight}%"></div>`
       + `${commercialChartTooltip(lines)}</div>`;
-  }).join("");
-
-  const point = (stage, index) => {
-    const x = ((index + 0.5) / stages.length * 100).toFixed(2);
-    const y = maxHours > 0 ? (100 - hoursOf(stage) / maxHours * 100).toFixed(2) : "100.00";
-    return [x, y];
-  };
-  const polyline = stages.map((s, i) => point(s, i).join(",")).join(" ");
-  // Los puntos son `<line>` de largo cero con `stroke-linecap:round`: un
-  // `<circle>` se deformaría en óvalo, porque el viewBox se estira de forma
-  // no uniforme para llenar el área.
-  const dots = stages.map((stage, index) => {
-    const [x, y] = point(stage, index);
-    return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y}" stroke="var(--gold)" stroke-width="6"`
-      + ` stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
   }).join("");
 
   const grid = COMMERCIAL_PLOT_TICKS.map(t => `<i style="bottom:${(t * 100).toFixed(0)}%"></i>`).join("");
@@ -289,24 +277,19 @@ function commercialDistribucionHtml(pipeline, dim) {
     `<span>${commercialEsc(commercialStageTick(stage, index))}</span>`).join("");
 
   return `
-    <p class="perspective-label">Distribución por Etapa</p>
+    <p class="perspective-label">Funnel por Etapa</p>
     <div class="staffing-timeline-toolbar">
       <div class="dashboard-view-switch" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
     </div>
     <div class="category-plot-legend">
-      <b><i class="swatch-bar"></i>Oportunidades <em>· escala izq.</em></b>
-      <b><i class="swatch-line"></i>${commercialEsc(hoursLabel)} <em>· escala der.</em></b>
+      <b><i class="swatch-bar swatch-bar--count"></i>Oportunidades <em>· escala izq.</em></b>
+      <b><i class="swatch-bar swatch-bar--hours"></i>${commercialEsc(hoursLabel)} <em>· escala der.</em></b>
     </div>
     <div class="category-plot">
       ${commercialAxisHtml("left", maxCount)}
       <div class="category-plot__area">
         <div class="category-plot__grid">${grid}</div>
         ${cols}
-        <svg class="category-plot__line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-          <polyline points="${polyline}" fill="none" stroke="var(--gold)" stroke-width="2"
-            vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
-          ${dots}
-        </svg>
       </div>
       ${commercialAxisHtml("right", maxHours)}
       <div class="category-plot__xlab">${xlab}</div>
@@ -398,9 +381,12 @@ function commercialDashboardSections(dashboardKey, sectionsHtml) {
 // da el `.empty-panel` de la tabla — nunca rótulos huérfanos sobre la nada.
 function commercialActivasAnalysisHtml(pipeline) {
   const dist = commercialDistribucionHtml(pipeline, commercialState.horasDim);
-  // El rótulo "Distribución por Etapa" lo emite el propio gráfico (vive
-  // dentro del subárbol que re-renderiza el switch), así que acá NO se
-  // repite — sólo el de la tabla.
+  // El rótulo "Funnel por Etapa" lo emite el propio gráfico (vive dentro
+  // del subárbol que re-renderiza el switch), así que acá NO se repite —
+  // sólo el de la tabla. "Detalle por Etapa" (esta tabla agrupada por
+  // etapa) es un placeholder provisorio de Batch 2A — Active Opportunities
+  // Phase 2 / C4 la reemplaza por el detalle por OPORTUNIDAD real del
+  // legacy (ver HANDOFF); no se toca en C3, que es exclusivamente el chart.
   return `${dist ? `<div data-commercial-dist>${dist}</div>
       <p class="perspective-label">Detalle por Etapa</p>` : ""}
     ${commercialPipelineTableHtml(pipeline)}`;

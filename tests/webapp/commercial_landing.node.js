@@ -175,9 +175,9 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   assertTrue(html.includes('data-breakdown="activas" open hidden'), "la sección entera arranca oculta");
   assertTrue(count(html, "data-breakdown=") === 1, "un solo contrato de breakdown, sin panel placeholder");
   assertTrue(!/Hacé clic en/.test(html), "sin texto placeholder en el landing");
-  // Y cuando se muestra, adentro está A' intacto.
-  assertTrue(html.includes("category-plot"), "A' sigue siendo el gráfico");
-  assertTrue(html.includes("Distribución por Etapa"), "con su rótulo");
+  // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.
+  assertTrue(html.includes("category-plot"), "el Funnel sigue siendo el gráfico");
+  assertTrue(html.includes("Funnel por Etapa"), "con su rótulo");
   assertTrue(html.includes("Detalle por Etapa"), "y la tabla debajo");
 }
 

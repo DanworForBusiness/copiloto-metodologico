@@ -16,11 +16,14 @@
      otra magnitud las desborda;
    - `height: 188px` esta calibrado para el footprint de ~250-300px que pidio
      este corrective, no es una medida universal;
-   - el color de la barra (#2f6fbd) y el del eje izquierdo son el MISMO a
-     proposito: hornea "el eje izquierdo pertenece a la serie de barras";
-   - `.swatch-bar`/`.swatch-line` expresan exactamente DOS series, una de
-     barras y una de linea — dos series de barras, o barra + area, no tienen
-     forma de expresarse.
+   - el color de cada barra (#2f6fbd/`--gold`) y el de su eje correspondiente
+     son el MISMO a proposito: hornea "este eje pertenece a esta serie" (ver
+     Active Opportunities Phase 2 / C3 — grouped bars, restaura la
+     representacion legacy: Oportunidades y Horas/Ponderadas SON dos series
+     de barras, nunca barra + linea);
+   - `.swatch-bar`/`.swatch-bar--hours` expresan exactamente esas DOS series
+     — agregar una tercera exigiria repensar el ancho de columna, no es un
+     contrato generico de N series.
 
    O sea: no son piezas recombinables (un eje, un area de plot, una grilla)
    que otro grafico pueda componer distinto; es este grafico. Y no hay un
@@ -47,12 +50,19 @@
 .category-plot__grid { position: absolute; inset: 0; pointer-events: none; }
 .category-plot__grid i { position: absolute; left: 0; right: 0; height: 1px; background: rgba(128,128,128,.12); }
 /* La columna es la unidad ACCESIBLE: cubre el alto completo para que el
-   hover/foco tome toda la banda de la categoria, no solo la barra. */
-.category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+   hover/foco tome toda la banda de la categoria, no solo las barras. */
+.category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
 .category-plot__col:hover { background: rgba(128,128,128,.07); }
 .category-plot__col:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-.category-plot__bar { width: 56%; max-width: 34px; min-height: 2px; border-radius: 3px 3px 0 0; background: #2f6fbd; }
-.category-plot__line { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* Grouped bars (Active Opportunities Phase 2 / C3, ver HANDOFF — restore
+   legacy funnel representation): DOS barras por columna, cada una con su
+   propia escala independiente (izq./der., ver commercialDistribucionHtml) —
+   nunca una comparable numericamente contra la otra por su altura. Ancho
+   mas angosto que la version de una sola barra para que las dos entren
+   lado a lado sin que la columna se ensanche. */
+.category-plot__bar { width: 38%; max-width: 20px; min-height: 2px; border-radius: 3px 3px 0 0; }
+.category-plot__bar--count { background: #2f6fbd; }
+.category-plot__bar--hours { background: var(--gold); }
 /* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
    grilla, incluido el 0 apoyado en el eje. */
 .category-plot__axis { position: relative; }
@@ -67,8 +77,7 @@
 .category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .category-plot-legend em { font-style: normal; color: #7a7a82; }
 .category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #2f6fbd; }
-.category-plot-legend .swatch-line { position: relative; width: 16px; height: 0; border-top: 2.5px solid var(--gold); }
-.category-plot-legend .swatch-line::after { content: ""; position: absolute; left: 5px; top: -3px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.category-plot-legend .swatch-bar--hours { background: var(--gold); }
 .content-theme-dark .category-plot-legend { color: #b6b6c0; }
 .content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }

@@ -602,14 +602,16 @@ def test_no_commercial_specific_chart_css_or_class_was_invented():
     # OWNERSHIP (gate del corrective visual): la composición del gráfico
     # (`.category-plot`) NO es un primitivo elemental del Hub — es este
     # gráfico concreto: canaletas de eje ajustadas a sus rótulos, altura
-    # calibrada a su footprint, color de barra y de eje izquierdo acoplados,
-    # y una leyenda que sólo sabe expresar "una serie de barras + una de
-    # línea". Vive en el CSS de la vertical, con el MISMO mecanismo que
+    # calibrada a su footprint, color de cada serie acoplado al de su eje, y
+    # una leyenda que sólo sabe expresar EXACTAMENTE dos series de barras
+    # (Active Opportunities Phase 2 / C3 — grouped bars, restaura el Funnel
+    # legacy). Vive en el CSS de la vertical, con el MISMO mecanismo que
     # `reporting.css`: stylesheet propio linkeado desde su template, nunca
     # `base.html`. Se promoverá el día que exista un segundo consumidor real.
     commercial_css = (_STATIC / "commercial.css").read_text(encoding="utf-8")
     for rule in (".category-plot {", ".category-plot__area {", ".category-plot__bar {",
-                 ".category-plot__line {", ".category-plot__axis {", ".category-plot-legend {"):
+                 ".category-plot__bar--count {", ".category-plot__bar--hours {",
+                 ".category-plot__axis {", ".category-plot-legend {"):
         assert rule in commercial_css, rule
         assert rule not in tools_css, rule
     crm_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "crm.html").read_text(encoding="utf-8")
@@ -639,27 +641,29 @@ def test_commercial_local_css_does_not_duplicate_shared_hub_primitives():
 
 
 def test_commercial_charts_introduce_no_library_canvas_or_external_dependency():
-    # CONTRATO ACTUALIZADO (corrective visual de Distribución por Etapa): el
-    # ban de `<svg` a secas describía la implementación anterior (CSS/DOM
-    # puro), no un requisito de producto. Lo que el producto exige es no
-    # incorporar librería/canvas/dependencia — el SVG inline que dibuja la
-    # polilínea y sus puntos es presentacional y explícitamente permitido
-    # (ver el test de accesibilidad de abajo).
-    for banned in ("<canvas", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
+    # Active Opportunities Phase 2 / C3 (restore legacy funnel
+    # representation): el chart es 100% DOM puro (grouped bars, dos `<div>`
+    # por etapa) — cero SVG, cero canvas, cero librería. La versión anterior
+    # ("A'", barra + línea con puntos) usaba un SVG inline; se retiró junto
+    # con el resto de esa representación, no queda ningún SVG en el archivo.
+    for banned in ("<canvas", "<svg", "<polyline", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
         assert banned not in _COMMERCIAL_JS, banned
-    # Un único SVG, y sólo para la serie de línea.
-    assert _COMMERCIAL_JS.count("<svg") == 1
 
 
-def test_line_series_svg_is_presentational_and_the_column_owns_accessibility():
-    # El SVG no debe duplicar semántica: la superficie accesible por etapa es
-    # la columna, con su aria-label y su tooltip.
-    assert 'aria-hidden="true" focusable="false"' in _COMMERCIAL_JS
+def test_grouped_bar_columns_are_the_sole_accessible_surface():
+    # La superficie accesible por etapa es la COLUMNA (aria-label + tooltip
+    # compartido) — las dos barras (Oportunidades/Horas) son mudas, sin
+    # texto ni foco propio, para no duplicar la misma magnitud dos veces en
+    # el lector de pantalla.
     col = _COMMERCIAL_JS.split("const cols = stages.map(", 1)[1].split("}).join", 1)[0]
     assert "category-plot__col" in col
     assert 'tabindex="0"' in col
     assert "aria-label=" in col
     assert "commercialChartTooltip(lines)" in col
+    assert "category-plot__bar--count" in col and "category-plot__bar--hours" in col
+    # UN solo tabindex/aria-label por columna — nunca uno por barra.
+    assert col.count('tabindex="0"') == 1
+    assert col.count("aria-label=") == 1
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():

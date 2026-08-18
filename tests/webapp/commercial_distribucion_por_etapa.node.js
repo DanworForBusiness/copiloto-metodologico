@@ -1,8 +1,11 @@
 // commercial_distribucion_por_etapa.node.js — invocado por
-// test_commercial_distribucion_por_etapa.py. "Distribución por Etapa": UNA
-// superficie compacta con Oportunidades como barras (escala izquierda) y
-// Horas ↔ Horas Ponderadas como línea con puntos (escala derecha), dentro
-// del drilldown de Oportunidades Activas.
+// test_commercial_distribucion_por_etapa.py. "Funnel por Etapa" (Active
+// Opportunities Phase 2 / C3, ver HANDOFF — restore legacy funnel
+// representation): GROUPED BARS — Oportunidades (escala izquierda) y
+// Horas ↔ Horas Ponderadas (escala derecha) como DOS barras por etapa,
+// dentro del drilldown de Oportunidades Activas. Reemplaza la versión
+// anterior (barra + línea con puntos, "A'") — el owner pidió el grouped bar
+// real del legacy, no la variante Hub previa.
 //
 // Carga commercial.js en un sandbox mínimo y ejecuta el MOTOR REAL
 // (commercialDistribucionHtml / commercialNiceMax / commercialStageTick /
@@ -60,31 +63,24 @@ const PIPELINE = {
   ],
 };
 const count = (html, needle) => (html.match(new RegExp(needle, "g")) || []).length;
-const barHeights = html => (html.match(/category-plot__bar" style="height:([\d.]+)%/g) || [])
+const barHeights = (html, cls) => (html.match(new RegExp(`category-plot__bar ${cls}" style="height:([\\d.]+)%`, "g")) || [])
   .map(m => m.replace(/.*height:/, "").replace("%", ""));
-const polyPoints = html => {
-  const m = /<polyline points="([^"]*)"/.exec(html);
-  return m ? m[1].split(" ").filter(Boolean).map(p => p.split(",").map(Number)) : [];
-};
 const axisTicks = (html, side) => {
   const block = html.split(`category-plot__axis--${side}">`, 2)[1] || "";
   return (block.split("</div>")[0].match(/>([^<]+)</g) || []).map(t => t.replace(/[><]/g, ""));
 };
 
-// --- Una barra y un punto de línea por etapa presente, mismo orden ----------
+// --- Dos barras por etapa presente, mismo orden -----------------------------
 {
   const html = commercialDistribucionHtml(PIPELINE, "hours");
   assertTrue(count(html, "category-plot__col") === 4, "una columna por etapa presente (nunca 8 hardcodeadas)");
-  assertTrue(barHeights(html).length === 4, "una barra por etapa presente");
-  assertTrue(polyPoints(html).length === 4, "un punto de línea por etapa presente");
-  assertTrue(count(html, "<line ") === 4, "un marcador de punto por etapa");
+  assertTrue(barHeights(html, "category-plot__bar--count").length === 4, "una barra de Oportunidades por etapa presente");
+  assertTrue(barHeights(html, "category-plot__bar--hours").length === 4, "una barra de Horas por etapa presente");
   const ticks = (html.match(/category-plot__xlab">([\s\S]*?)<\/div>/)[1].match(/>([^<]+)</g) || [])
     .map(t => t.replace(/[><]/g, ""));
   assertTrue(ticks.join("") === "1248", `eje X usa el número de etapa, en orden (got ${ticks})`);
-  // barras y línea comparten el MISMO orden de categorías: la x del punto i
-  // crece monótonamente con i.
-  const xs = polyPoints(html).map(p => p[0]);
-  assertTrue(xs.every((x, i) => i === 0 || x > xs[i - 1]), "las x de la línea siguen el orden de las columnas");
+  // Las dos series comparten el MISMO orden de columnas: la barra i-ésima de
+  // cada serie corresponde a la etapa i-ésima (verificado abajo por altura).
 }
 
 // --- Escalas independientes, redondeadas y arrancando en 0 -----------------
@@ -99,21 +95,26 @@ const axisTicks = (html, side) => {
   assertTrue(commercialNiceMax(2760) >= 2760 && commercialNiceMax(534) >= 534 && commercialNiceMax(20) >= 20,
     "el tope redondeado siempre es >= el máximo real");
   assertTrue(commercialNiceMax(2760) === 3000 && commercialNiceMax(534) === 550, "redondeo legible (2760→3000, 534→550)");
-  // La barra más alta se mide contra SU máximo, no contra el de horas.
-  assertTrue(barHeights(html)[2] === "100.0", "la etapa con más oportunidades llega al tope del eje izquierdo");
-  assertTrue(barHeights(html)[0] === "35.0", "las barras se escalan contra el eje izquierdo redondeado (7/20)");
+  // Cada serie se mide contra SU PROPIO eje — nunca una barra de
+  // Oportunidades comparada numéricamente contra la de Horas.
+  const countBars = barHeights(html, "category-plot__bar--count");
+  const hoursBars = barHeights(html, "category-plot__bar--hours");
+  assertTrue(countBars[2] === "100.0", "la etapa con más oportunidades llega al tope del eje izquierdo (20/20)");
+  assertTrue(countBars[0] === "35.0", "Oportunidades se escala contra el eje izquierdo redondeado (7/20)");
+  assertTrue(hoursBars[0] === "92.0", "Horas se escala contra el eje derecho redondeado (2760/3000)");
+  assertTrue(countBars[0] !== hoursBars[0], "las dos series NO comparten escala — misma etapa, alturas distintas");
 }
 
-// --- El switch cambia SÓLO la línea y el eje derecho ------------------------
+// --- El switch cambia SÓLO la segunda serie (Horas/Ponderadas) y su eje ----
 {
   const normal = commercialDistribucionHtml(PIPELINE, "hours");
   const ponderado = commercialDistribucionHtml(PIPELINE, "weighted");
-  assertTrue(barHeights(normal).join() === barHeights(ponderado).join(),
+  assertTrue(barHeights(normal, "category-plot__bar--count").join() === barHeights(ponderado, "category-plot__bar--count").join(),
     "las barras de Oportunidades quedan INVARIANTES al conmutar la dimensión");
   assertTrue(axisTicks(normal, "left").join() === axisTicks(ponderado, "left").join(),
     "el eje izquierdo no se toca");
-  assertTrue(JSON.stringify(polyPoints(normal)) !== JSON.stringify(polyPoints(ponderado)),
-    "la línea sí cambia");
+  assertTrue(barHeights(normal, "category-plot__bar--hours").join() !== barHeights(ponderado, "category-plot__bar--hours").join(),
+    "las barras de Horas SÍ cambian al conmutar a Ponderadas");
   assertTrue(axisTicks(ponderado, "right").pop() === "550", "el eje derecho re-escala a max(weighted_hours)");
   assertTrue(normal.includes(">Horas <em>") && !normal.includes("Horas Ponderadas"), "leyenda 'Horas' en modo normal");
   assertTrue(ponderado.includes("Horas Ponderadas"), "leyenda pasa a 'Horas Ponderadas' en modo ponderado");
@@ -127,7 +128,7 @@ const axisTicks = (html, side) => {
   assertTrue(axisTicks(html, "right").includes("1,500"), "el eje derecho muestra horas reales, no %");
 }
 
-// --- max = 0: sin NaN / Infinity -------------------------------------------
+// --- max = 0: sin NaN / Infinity (ambas series) -----------------------------
 {
   const zeroed = { stages: [
     { stage: "1 Contacto Inicial", count: 0, hours: 0, weighted_hours: 0, revenue: 0 },
@@ -135,8 +136,8 @@ const axisTicks = (html, side) => {
   ] };
   const html = commercialDistribucionHtml(zeroed, "hours");
   assertTrue(!/NaN|Infinity/.test(html), "serie entera en 0 no produce NaN/Infinity");
-  assertTrue(barHeights(html).every(h => h === "0.0"), "todas las barras quedan en 0% cuando el máximo es 0");
-  assertTrue(polyPoints(html).every(p => p[1] === 100), "la línea se apoya en la base cuando el máximo es 0");
+  assertTrue(barHeights(html, "category-plot__bar--count").every(h => h === "0.0"), "Oportunidades queda en 0% cuando su máximo es 0");
+  assertTrue(barHeights(html, "category-plot__bar--hours").every(h => h === "0.0"), "Horas queda en 0% cuando su máximo es 0");
   assertTrue(commercialNiceMax(0) === 0 && commercialNiceMax(-5) === 0, "niceMax degrada a 0 sin romper");
 }
 
@@ -145,22 +146,21 @@ const axisTicks = (html, side) => {
   assertTrue(commercialDistribucionHtml({ stages: [] }, "hours") === "", "sin etapas no se dibuja gráfico");
   assertTrue(commercialDistribucionHtml(null, "hours") === "", "pipeline nulo no rompe");
   const analysis = commercialActivasAnalysisHtml({ stages: [] });
-  assertTrue(!analysis.includes("Distribución por Etapa") && !analysis.includes("Detalle por Etapa"),
+  assertTrue(!analysis.includes("Funnel por Etapa") && !analysis.includes("Detalle por Etapa"),
     "sin datos no quedan rótulos sobre la nada — sólo el .empty-panel de la tabla");
   assertTrue(analysis.includes("empty-panel"), "el vacío lo comunica el .empty-panel compartido");
 }
 
-// --- Accesibilidad: la columna es la superficie, el SVG es decorativo -------
+// --- Accesibilidad: la columna es la superficie, las barras son mudas -------
 {
   const html = commercialDistribucionHtml(PIPELINE, "hours");
   assertTrue(!/title="/.test(html), "NUNCA el atributo title nativo del navegador");
   assertTrue(count(html, "chart-tooltip-anchor") === 4, "cada columna es un anchor del tooltip compartido");
   assertTrue(count(html, 'class="chart-tooltip"') === 4, "cada columna incluye el tooltip visual compartido");
   assertTrue(count(html, 'tabindex="0"') === 4, "cada columna es foco-able por teclado");
-  assertTrue(html.includes('aria-hidden="true" focusable="false"'), "el SVG de la línea es presentacional");
-  assertTrue(count(html, "<svg") === 1, "un solo SVG, sólo para la línea");
   // El aria-label lleva magnitudes REALES y el nombre COMPLETO de la etapa
-  // (el eje X sólo muestra el número — esa compacidad es deliberada).
+  // (el eje X sólo muestra el número — esa compacidad es deliberada). UN
+  // solo punto de foco por etapa (la columna), no uno por barra.
   assertTrue(html.includes("1 Contacto Inicial · Oportunidades: 7 · Horas: 2,760 · Ponderadas: 276 hs · Revenue: 120,000"),
     "aria-label con nombre completo y magnitudes reales");
   const lines = commercialStageTooltipLines(PIPELINE.stages[0]);
@@ -168,9 +168,13 @@ const axisTicks = (html, side) => {
   assertTrue(html.includes("Revenue: 120,000"), "Revenue vive en el tooltip, nunca como serie gráfica");
 }
 
-// --- Sin librería / canvas ---------------------------------------------------
+// --- Sin línea/polyline/puntos de "A'", sin SVG, sin canvas, sin librería ---
 {
   const html = commercialDistribucionHtml(PIPELINE, "hours");
+  assertTrue(!html.includes("<svg"), "sin SVG — el chart es DOM puro (grouped bars)");
+  assertTrue(!html.includes("<polyline"), "sin polyline — la representación 'A' con línea se retiró");
+  assertTrue(!html.includes("<line "), "sin marcadores de punto de línea");
+  assertTrue(!html.includes("swatch-line"), "leyenda sin el swatch de línea");
   assertTrue(!html.includes("<canvas"), "sin canvas");
   assertTrue(!/Chart|d3\./.test(html), "sin librería de charts");
 }
