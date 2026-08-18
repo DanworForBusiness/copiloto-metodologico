@@ -42,15 +42,20 @@ def _csv_bytes(rows):
 
 
 def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, user_information=None, csv_files=None, file_rows=None,
-           ops_site_id=_OPS_SITE, cliente_columns=None):
-    """`csv_files`: lista de items de `/children` (id/name). `file_rows`:
+           ops_site_id=_OPS_SITE, cliente_columns=None, subfolder_csv_files=None):
+    """`csv_files`: lista de items de `/children` (id/name, o `folder: {...}`
+    para simular una subcarpeta — ver `subfolder_csv_files`). `file_rows`:
     dict item_id -> lista de filas CSV crudas para ESE archivo (permite
     simular un archivo con headers faltantes devolviendo bytes malformados
     vía una lista vacía + header custom, ver test de skip). `cliente_columns`:
     metadata cruda de `/lists/{cliente}/columns` (descubrimiento en vivo del
     internal name de `Porcentaje de Part.`, ver `_resolve_porcentaje_part_field`)
-    — default `[]` (sin match, fail-soft)."""
+    — default `[]` (sin match, fail-soft). `subfolder_csv_files`: dict
+    folder_item_id -> lista de items que devuelve SU PROPIO `/children`
+    (SOURCE COVERAGE corrective, ver HANDOFF — `_list_time_logs_csv_items`
+    ahora desciende a subcarpetas como `Times previos/`)."""
     file_rows = file_rows or {}
+    subfolder_csv_files = subfolder_csv_files or {}
 
     def fake_json(url, access_token=None, **kw):
         if url == f"{repo_mod.GRAPH_BASE}/sites/{repo_mod.TIME_LOGS_SITE_PATH}":
@@ -60,6 +65,9 @@ def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, user_informa
     def fake_paged(url, access_token=None, **kw):
         if f"/sites/{ops_site_id}/drive/root:" in url and ":/children" in url:
             return csv_files if csv_files is not None else [{"id": "f1", "name": "TimeLogs_2026.csv"}]
+        for folder_id, items in subfolder_csv_files.items():
+            if f"/sites/{ops_site_id}/drive/items/{folder_id}/children" in url:
+                return items
         if "/columns" in url:
             return cliente_columns if cliente_columns is not None else []
         if _PROY in url:
@@ -185,6 +193,119 @@ def test_get_time_logs_facts_falls_back_to_raw_csv_text_when_no_project_match(mo
     # Sin match en Proyectos -> conserva el texto crudo (nunca descarta la fila).
     assert facts[0]["proyecto"] == "Danwor - Horas No Productivas (#1)"
     assert facts[0]["cliente"] == "Danwor"
+
+
+def test_get_time_logs_facts_recurses_into_historical_subfolder(monkeypatch):
+    # SOURCE COVERAGE incident (owner report — "Horas Productivas solo
+    # muestra 2026 aunque hay historicos 2025 y anteriores en Template
+    # Dashboard/Times previos/", ver HANDOFF). El listado NO era recursivo
+    # ("sin evidencia de subcarpetas" en el comentario original — nunca
+    # confirmado en un smoke real hasta este incidente). Owner verificó los
+    # archivos reales: `Time Logs Reports 2026` (01/01–31/08/2026, current),
+    # `Time Logs Reports 2025` (02/01–31/12/2025) y `Time Logs Reports 2024`
+    # (01/01–31/12/2024) — AMBOS históricos viven en `Times previos/`,
+    # particiones por año SIN overlap de fechas (gate de duplicación
+    # levantado explícitamente por el owner — nunca se introduce dedup
+    # nueva). Este fixture reproduce esa estructura de 3 archivos/3 años:
+    # el CSV actual y una subcarpeta "Times previos" con DOS CSV históricos
+    # adentro, cada nivel devolviendo SU PROPIO `/children` (ver
+    # `subfolder_csv_files`). `get_time_logs_facts` es el ÚNICO loader real
+    # (compartido con Rentabilidad, ver get_batch_b/get_rentabilidad) — este
+    # test prueba la fuente compartida, nunca un parser nuevo de Productivas.
+    _patch(
+        monkeypatch, proyectos=[], clientes=[],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 2}},
+        ],
+        subfolder_csv_files={"folder-previos": [
+            {"id": "hist-2025", "name": "Time Logs Reports 2025.csv"},
+            {"id": "hist-2024", "name": "Time Logs Reports 2024.csv"},
+        ]},
+        file_rows={
+            "current-1": [{"Date": "2026-08-03", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "5", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-07-10", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "3", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2024": [{"Date": "2024-05-20", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "2", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    anios = {f["anio"] for f in facts}
+    assert anios == {"2026", "2025", "2024"}, anios
+
+
+def test_shape_horas_productivas_includes_historical_years_from_subfolder(monkeypatch):
+    # MISMO incidente, a nivel del contrato que Horas Productivas realmente
+    # consume (`horasByYear`, ver capacidadProductivasAnioOptions en
+    # reporting.js) — no alcanza probar solo los facts crudos, hay que
+    # demostrar que los 3 años (current + 2 históricos) llegan HASTA la
+    # forma que alimenta el selector comparativo two-side. Sin hardcodear
+    # los años en producción — el fixture usa 2024/2025/2026 porque
+    # reproduce la estructura real verificada por el owner, no porque el
+    # código conozca esos valores.
+    _patch(
+        monkeypatch,
+        proyectos=[{"id": "p1", "Title": "Soporte", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 2}},
+        ],
+        subfolder_csv_files={"folder-previos": [
+            {"id": "hist-2025", "name": "Time Logs Reports 2025.csv"},
+            {"id": "hist-2024", "name": "Time Logs Reports 2024.csv"},
+        ]},
+        file_rows={
+            "current-1": [{"Date": "2026-08-03", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "5", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-07-10", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "3", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2024": [{"Date": "2024-05-20", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "2", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    rows = _service().get_horas_productivas("tok")
+    assert len(rows) == 1
+    assert set(rows[0]["horasByYear"].keys()) == {"2026", "2025", "2024"}
+    # Two-side chart: cada año sigue siendo seleccionable independientemente
+    # por panel (capacidadPanelAnioKey) — no se tocó esa semántica, solo se
+    # ampliaron los años que la alimentan.
+    assert rows[0]["horasByYear"]["2026"][7] == 5.0  # Agosto, índice 7
+    assert rows[0]["horasByYear"]["2025"][6] == 3.0  # Julio, índice 6
+    assert rows[0]["horasByYear"]["2024"][4] == 2.0  # Mayo, índice 4
+
+
+def test_time_logs_current_and_historical_files_do_not_double_count(monkeypatch):
+    # DATA SAFETY GATE (owner verificó en vivo, gate levantado): 2024
+    # termina 31/12/2024, 2025 arranca 02/01/2025 y termina 31/12/2025,
+    # 2026 arranca 01/01/2026 — particiones temporales disjuntas por
+    # archivo/año, SIN overlap. Este test fija esa expectativa (nunca una
+    # dedup key inventada): la MISMA fecha/proyecto en dos archivos
+    # distintos SÍ debe sumar ambas filas (son hechos reales distintos,
+    # no un duplicado) — lo que NO debe pasar es que un archivo aporte
+    # horas más de una vez por listarse dos veces (ej. si algún día una
+    # subcarpeta apareciera anidada en más de un nivel).
+    _patch(
+        monkeypatch, proyectos=[], clientes=[],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 1}},
+        ],
+        subfolder_csv_files={"folder-previos": [{"id": "hist-2025", "name": "Time Logs Reports 2025.csv"}]},
+        file_rows={
+            "current-1": [{"Date": "2026-01-15", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "10", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-12-31", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "7", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    # Una fila por archivo — nunca 2 (el mismo id de carpeta/archivo nunca
+    # se procesa dos veces).
+    assert len(facts) == 2
+    assert sum(f["horas"] for f in facts) == 17.0
 
 
 def test_download_time_logs_rows_skips_files_missing_required_headers(monkeypatch):

@@ -824,22 +824,49 @@ class ReportingRepository:
         return site_id
 
     def _list_time_logs_csv_items(self, site_id: str) -> list[dict]:
-        """Children de `TIME_LOGS_FOLDER_PATH`, filtrados a `.csv` sin "OLD"
-        en el nombre — MISMA regla que el M del PBIP (`[Extension]=".csv"`
-        y `not Text.Contains([Name],"OLD")`). NO recursivo — sin evidencia
-        de subcarpetas para estos CSV (el M del PBIP escanea el sitio
-        completo vía el conector genérico de Power Query, pero la MISMA
-        carpeta ya está confirmada existente/alcanzable por la XLSX de
-        Vacaciones de Staffing); si el smoke real revela CSVs en
-        subcarpetas, extender a listado recursivo."""
-        children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
-            f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children",
-            access_token=self._token,
-        ))
-        return [
-            it for it in children
-            if _text(it.get("name")).lower().endswith(".csv") and "old" not in _text(it.get("name")).lower()
-        ]
+        """Children de `TIME_LOGS_FOLDER_PATH` + subcarpetas (recursivo),
+        filtrados a `.csv` sin "OLD" en el nombre — MISMA regla que el M del
+        PBIP (`[Extension]=".csv"` y `not Text.Contains([Name],"OLD")`).
+
+        RECURSIVO (owner incident — "Horas Productivas solo muestra 2026,
+        aunque hay históricos 2025 y anteriores en `Times previos/`", ver
+        HANDOFF): el gap estaba documentado desde el origen ("NO recursivo
+        — sin evidencia de subcarpetas... si el smoke real revela CSVs en
+        subcarpetas, extender a listado recursivo") pero nunca se confirmó
+        en un smoke real hasta este incidente — el owner confirmó que
+        `Template Dashboard/Times previos/` SÍ existe y contiene los CSV
+        históricos. `get_time_logs_facts` es el ÚNICO loader real de Time
+        Logs (Horas Productivas Y Rentabilidad lo comparten, ver
+        `get_batch_b`/`get_rentabilidad`) — arreglar ACÁ alcanza a ambos
+        consumidores, nunca un segundo parser específico de Productivas.
+
+        Un item de Graph es carpeta si trae la faceta `folder` (ausente en
+        archivos, que traen `file` en su lugar) — se desciende UN nivel por
+        subcarpeta encontrada (vía `/children` por id, no por path — la
+        subcarpeta puede tener espacios/tildes en el nombre) y se aplica el
+        MISMO filtro `.csv`/sin "OLD" en cada nivel. No hay evidencia de más
+        de un nivel de anidamiento, pero la recursión no asume un nivel fijo
+        — si en el futuro apareciera un nivel adicional, se sigue igual."""
+        def collect(folder_url: str) -> list[dict]:
+            children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+                folder_url, access_token=self._token,
+            ))
+            found: list[dict] = []
+            for it in children:
+                name_lower = _text(it.get("name")).lower()
+                if it.get("folder"):
+                    item_id = _text(it.get("id"))
+                    if item_id:
+                        # Sin `_quote`: MISMO criterio que `_download_time_logs_rows`
+                        # (`/drive/items/{item_id}/content`) — el id de Graph nunca
+                        # se url-encodea acá, consistente con ese otro consumidor.
+                        found.extend(collect(f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/children"))
+                    continue
+                if name_lower.endswith(".csv") and "old" not in name_lower:
+                    found.append(it)
+            return found
+
+        return collect(f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children")
 
     def _download_time_logs_rows(self, site_id: str) -> list[dict]:
         """Descarga + combina TODOS los CSV de la carpeta (MISMA semántica
