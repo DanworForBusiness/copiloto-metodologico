@@ -14,7 +14,7 @@ Tags: 10="New Names" (NN), 11="Base Instalada" (BI).
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -632,4 +632,179 @@ def test_segments_cover_every_landing_metric_that_shows_a_split():
     assert set(segments) == {"prospectos", "pipeline", "activas", "ganadas", "perdidas", "suspendidas"}
     for name, seg in segments.items():
         assert set(seg) == {"nn", "bi", "both", "neither"}, name
+    svc_module.clear_cache()
+
+
+# ============================================================================
+# Landing Homologation — Analíticas del Pipeline + Creadas
+# ============================================================================
+
+_TODAY = date.today()
+_THIS_MONDAY = _TODAY - timedelta(days=_TODAY.weekday())
+_LAST_MONDAY = _THIS_MONDAY - timedelta(days=7)
+
+
+def _d(day):
+    return day.isoformat()
+
+
+ANALYTICS_STAGES = STAGES + [{"id": 6, "name": "Lead"}]
+
+
+def _analytics_client():
+    # Etapas 1–8 del fixture base: id 2 ("1 Contacto") y id 3 ("5 Negociación").
+    leads = [
+        # Activa vieja y estancada (última transición hace 60 días).
+        {"id": 1, "type": "opportunity", "stage_id": 3, "active": True, "tag_ids": [10], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [], "create_date": _d(_TODAY - timedelta(days=90))},
+        # Activa reciente, con transición de ayer → NO estancada.
+        {"id": 2, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [11], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [], "create_date": _d(_TODAY - timedelta(days=10))},
+        # Ganada este año: creada hace 40 días, cerrada hace 10.
+        {"id": 3, "type": "opportunity", "stage_id": 4, "active": True, "tag_ids": [10], "probability": 100,
+         "expected_revenue": 0, "lead_properties": [],
+         "create_date": _d(_TODAY - timedelta(days=40)), "date_closed": _d(_TODAY - timedelta(days=10))},
+        # Creada ESTA semana y ya en etapa 1 sin historial → cuenta por create_date.
+        {"id": 4, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [10], "probability": 10,
+         "expected_revenue": 0, "lead_properties": [], "create_date": _d(_THIS_MONDAY)},
+        # Creada la semana PASADA, archivada — se cuenta igual.
+        {"id": 5, "type": "opportunity", "stage_id": 2, "active": False, "tag_ids": [11], "probability": 0,
+         "expected_revenue": 0, "lead_properties": [], "create_date": _d(_LAST_MONDAY)},
+    ]
+    messages = [
+        # id 1: entró a "5 Negociación" hace 60 días (desde "1 Contacto").
+        {"id": 100, "res_id": 1, "date": _d(_TODAY - timedelta(days=60)), "tracked_field": "stage_id",
+         "model": "crm.lead"},
+        # id 2: entró a "1 Contacto" ayer.
+        {"id": 101, "res_id": 2, "date": _d(_TODAY - timedelta(days=1)), "tracked_field": "stage_id",
+         "model": "crm.lead"},
+    ]
+    tracking = [
+        {"mail_message_id": 100, "field": "stage_id", "old_value_integer": 2, "new_value_integer": 3},
+        {"mail_message_id": 101, "field": "stage_id", "old_value_integer": 1, "new_value_integer": 2},
+    ]
+    return FakeOdooClient(stages=ANALYTICS_STAGES, tags=TAGS, leads=leads,
+                          messages=messages, tracking=tracking)
+
+
+def test_analytics_pipeline_age_averages_days_open_of_active_opportunities():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    # Activas en etapas 1–8: ids 1 (90d), 2 (10d), 4 (0d desde el lunes).
+    assert a["pipeline_age"]["count"] == 3
+    assert a["pipeline_age"]["avg_days"] > 0
+    svc_module.clear_cache()
+
+
+def test_analytics_close_time_only_counts_this_years_won_opportunities():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    assert a["close_time"]["count"] == 1
+    assert a["close_time"]["avg_days"] == 30  # creada hace 40, cerrada hace 10
+    svc_module.clear_cache()
+
+
+def test_analytics_stagnant_uses_last_stage_move_not_creation_date():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    # id 1 se movió hace 60 días (>30) → estancada.
+    # id 2 se movió AYER aunque se creó hace 10 días → NO estancada.
+    # id 4 se creó esta semana y no tiene historial → NO estancada.
+    assert a["stagnant"]["count"] == 1
+    assert a["stagnant"]["threshold_days"] == 30
+    svc_module.clear_cache()
+
+
+def test_analytics_stage_time_is_derived_from_transition_history():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    # id 1: entró a "1 Contacto" al crearse y salió 30 días después → hay
+    # una etapa con dato.
+    assert a["stage_time"]["stages_with_data"] >= 1
+    assert a["stage_time"]["avg_days"] is not None
+    svc_module.clear_cache()
+
+
+def test_analytics_stage_conversion_reports_the_bottleneck_rate():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    assert a["stage_conversion"]["min_rate"] is not None
+    assert 0 <= a["stage_conversion"]["min_rate"] <= 100
+    svc_module.clear_cache()
+
+
+def test_creadas_counts_pipeline_entry_by_monday_based_weeks():
+    svc_module.clear_cache()
+    a = CommercialService(_analytics_client()).get_analytics("todos")
+    # id 4 entró esta semana (create_date, sin historial, ya en etapa 1).
+    # id 5 entró la semana pasada — archivada, se cuenta igual.
+    assert a["creadas"]["this_week"] == 1
+    assert a["creadas"]["last_week"] == 1
+    svc_module.clear_cache()
+
+
+def test_analytics_views_are_partitioned_by_tag_without_extra_queries():
+    svc_module.clear_cache()
+    client = _analytics_client()
+    service = CommercialService(client)
+    service.get_analytics("todos")
+    service.get_analytics("nn")
+    service.get_analytics("bi")
+    # Una sola construcción: las tres vistas salen del mismo cache.
+    assert len([c for c in client.calls if c[0] == "mail.message"]) <= 2
+    svc_module.clear_cache()
+    nn = CommercialService(_analytics_client()).get_analytics("nn")
+    svc_module.clear_cache()
+    bi = CommercialService(_analytics_client()).get_analytics("bi")
+    # NN tiene las activas 1 y 4; BI sólo la 2.
+    assert nn["pipeline_age"]["count"] == 2
+    assert bi["pipeline_age"]["count"] == 1
+    svc_module.clear_cache()
+
+
+def test_analytics_without_valid_stages_degrades_instead_of_crashing():
+    svc_module.clear_cache()
+    client = FakeOdooClient(stages=[{"id": 1, "name": "0 Prospección"}], tags=TAGS, leads=[])
+    a = CommercialService(client).get_analytics("todos")
+    assert a["pipeline_age"] == {"avg_days": 0, "count": 0}
+    assert a["stage_time"]["avg_days"] is None
+    assert a["stage_conversion"]["min_rate"] is None
+    assert a["creadas"] == {"this_week": 0, "last_week": 0}
+    svc_module.clear_cache()
+
+
+def test_analytics_lead_conversion_measures_unique_companies():
+    svc_module.clear_cache()
+    leads = [
+        # Dos leads de la MISMA empresa: cuentan como una sola.
+        {"id": 20, "type": "lead", "active": True, "tag_ids": [10], "partner_id": [70, "ACME"],
+         "stage_id": 6, "probability": 0, "expected_revenue": 0, "lead_properties": []},
+        {"id": 21, "type": "lead", "active": True, "tag_ids": [10], "partner_id": [70, "ACME"],
+         "stage_id": 6, "probability": 0, "expected_revenue": 0, "lead_properties": []},
+        # Lead convertido a oportunidad activa en etapa 1–8.
+        {"id": 22, "type": "opportunity", "active": True, "tag_ids": [10], "partner_id": [71, "Globex"],
+         "stage_id": 2, "probability": 30, "expected_revenue": 0, "lead_properties": []},
+    ]
+    messages = [{"id": 200, "res_id": 22, "date": _d(_TODAY), "tracked_field": "type", "model": "crm.lead"}]
+    tracking = [{"mail_message_id": 200, "field": "type",
+                 "old_value_char": "Lead", "new_value_char": "Oportunidad"}]
+    client = FakeOdooClient(stages=ANALYTICS_STAGES, tags=TAGS, leads=leads,
+                            messages=messages, tracking=tracking)
+    lc = CommercialService(client).get_analytics("todos")["lead_conversion"]
+    assert lc["companies"] == 2, "ACME (2 leads) + Globex = 2 empresas"
+    assert lc["any_conv"] == 1 and lc["rate_any_conv"] == 50.0
+    assert lc["adv_opp"] == 1
+    svc_module.clear_cache()
+
+
+def test_analytics_path_is_read_only_and_fail_soft():
+    svc_module.clear_cache()
+    client = _analytics_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError):
+        CommercialService(client).get_analytics("todos")
+    svc_module.clear_cache()
+    unconfigured = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[], configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_analytics("todos")
     svc_module.clear_cache()

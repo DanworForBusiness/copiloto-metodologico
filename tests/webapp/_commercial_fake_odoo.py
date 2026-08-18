@@ -17,12 +17,20 @@ from webapp.services.odoo_client import OdooTransportError
 
 
 class FakeOdooClient:
-    def __init__(self, *, stages, tags, leads, lost_reasons=None, activities=None, configured=True):
+    def __init__(self, *, stages, tags, leads, lost_reasons=None, activities=None,
+                 messages=None, tracking=None, configured=True):
         self.stages = stages
         self.tags = tags
         self.leads = leads
         self.lost_reasons = lost_reasons or []
         self.activities = activities or []
+        # Historial de cambios de campo (`mail.message` + `mail.tracking.value`):
+        # es lo que Odoo usa para saber CUÁNDO una oportunidad cambió de
+        # etapa o dejó de ser lead. Sin esto no se pueden probar tiempo por
+        # etapa, conversión etapa a etapa, estancadas ni la entrada al
+        # pipeline que usa Creadas.
+        self.messages = messages or []
+        self.tracking = tracking or []
         self._configured = configured
         self.calls: list[tuple[str, list, list | None]] = []
         self._raise_for_model: str | None = None
@@ -59,6 +67,48 @@ class FakeOdooClient:
         if model == "crm.lead":
             matched = [lead for lead in self.leads if self._matches(lead, domain)]
             return [self._project(lead, fields) for lead in matched]
+        if model == "mail.message":
+            matched = []
+            for msg in self.messages:
+                ok = True
+                for cond in domain:
+                    field, op, value = cond
+                    if field == "tracking_value_ids.field_id.name":
+                        ok = msg.get("tracked_field") == value
+                    elif field == "res_id" and op == "in":
+                        ok = msg.get("res_id") in value
+                    elif op == "=":
+                        ok = msg.get(field) == value
+                    else:
+                        raise AssertionError(f"unsupported {op!r} on mail.message {field!r}")
+                    if not ok:
+                        break
+                if ok:
+                    matched.append(msg)
+            if order == "date asc":
+                matched = sorted(matched, key=lambda m: m.get("date") or "")
+            return [{f: m.get(f, False) for f in (fields or [])} | {"id": m["id"]} for m in matched]
+        if model == "mail.tracking.value":
+            matched = []
+            for tv in self.tracking:
+                ok = True
+                for cond in domain:
+                    field, op, value = cond
+                    if field == "mail_message_id" and op == "in":
+                        ok = tv.get("mail_message_id") in value
+                    elif field == "field_id.name":
+                        ok = tv.get("field") == value
+                    elif op == "ilike":
+                        ok = str(value).lower() in str(tv.get(field) or "").lower()
+                    elif op == "=":
+                        ok = tv.get(field) == value
+                    else:
+                        raise AssertionError(f"unsupported {op!r} on mail.tracking.value {field!r}")
+                    if not ok:
+                        break
+                if ok:
+                    matched.append(tv)
+            return [{f: t.get(f, False) for f in (fields or [])} for t in matched]
         if model == "mail.activity":
             # `mail.activity` no tiene el flag `active` de crm.lead: en Odoo el
             # modelo SOLO contiene actividades pendientes (las hechas se

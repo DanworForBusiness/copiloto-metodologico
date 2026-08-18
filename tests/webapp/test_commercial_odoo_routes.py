@@ -898,3 +898,44 @@ def test_activities_capability_only_shows_the_two_supported_kpis():
     assert 'commercialKpi("Retrasadas"' in fn
     assert fn.count("commercialKpi(") == 2, "sin métricas inventadas"
     assert "Actividades Pendientes" in fn
+
+
+# ============================================================================
+# Landing Homologation — endpoint de Analíticas del Pipeline
+# ============================================================================
+
+def test_analytics_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    assert anon.get("/comercial/data/analytics", follow_redirects=False).status_code == 303
+
+
+def test_analytics_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/analytics").status_code == 403
+
+
+def test_analytics_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _Stub(_StubService):
+        def get_analytics(self, tipo="todos"):
+            return {"tipo": tipo, "creadas": {"this_week": 2, "last_week": 3}}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Stub())
+    response = client.get("/comercial/data/analytics?tipo=bi")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["analytics"]["tipo"] == "bi"
+
+
+def test_analytics_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_analytics(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/analytics")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_analytics_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        assert getattr(client, verb)("/comercial/data/analytics").status_code == 405, verb

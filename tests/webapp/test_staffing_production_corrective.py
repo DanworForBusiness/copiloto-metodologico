@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_102():
+def test_15_route_surface_still_103():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -538,6 +538,10 @@ def test_15_route_surface_still_102():
     #     del workspace (`mail.activity` sobre `crm.lead`, read-only, mismo
     #     contrato fail-soft y misma gate de entitlement que summary/
     #     pipeline).
+    #   102 -> 103 (Commercial Landing Homologation, ver HANDOFF): +GET
+    #     /comercial/data/analytics, que alimenta el bloque "Analíticas del
+    #     Pipeline" del landing (seis métricas derivadas del historial de
+    #     etapas) y el tile "Creadas" — read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -545,7 +549,7 @@ def test_15_route_surface_still_102():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 102
+    assert len(snapshot) == 103
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
