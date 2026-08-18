@@ -272,13 +272,28 @@ class ReportingService:
             "salud": self._shape_salud(cliente_dim),
         }
 
-    def get_batch_b(self, access_token: str) -> dict:
+    def get_batch_b(self, access_token: str, *, anios: list[str] | None = None) -> dict:
         """UN método de entrada para Horas Productivas (AMBAS perspectivas,
         Productivas Y No Asignadas) — el router llama esto UNA vez, nunca 2
         POSTs separados que repitan la descarga/combine de TODOS los CSV de
         Time Logs (costo real, a diferencia de un GET de lista SharePoint —
-        ver `ReportingRepository.get_time_logs_facts`)."""
-        facts = self._repository.get_time_logs_facts(access_token)
+        ver `ReportingRepository.get_time_logs_facts`).
+
+        `anios` (HOT WINDOW / COLD HISTORY corrective — owner decision
+        2026-08-18, "Batch B nunca implementó el contrato transversal que
+        Cartera/Batch A sí tienen; el defecto estaba oculto porque la
+        fuente solo exponía 2026"): `None` (primera hidratación del tab)
+        resuelve a la ventana caliente por defecto (año actual + anterior,
+        `_default_hot_years` — MISMO contrato que Cartera/Rentabilidad/HV).
+        Una lista explícita es el lazy-load de un año FRÍO puntual,
+        disparado por el usuario al elegirlo en el <select> de Año — ver
+        `reporting_batch_b_data` (router). La optimización ocurre en
+        SOURCE LOADING (`get_time_logs_facts(hot_years=...)` selecciona
+        qué archivos descargar por su nombre, ANTES de bajarlos — ver
+        reporting_repository.py) — nunca un post-filtro después de
+        descargar todo el historial."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        facts = self._repository.get_time_logs_facts(access_token, hot_years=hot_years)
         colaboradores = self._repository.get_colaboradores_email_map(access_token)
         return {
             "horasProductivas": self._shape_horas_productivas(facts),
@@ -912,6 +927,15 @@ class ReportingService:
                 "monthly": _calendario_monthly(dim["calendarioAct"]),
             })
         return rows
+
+    def get_batch_b_anios(self, access_token: str) -> list[str]:
+        """Metadata de años disponibles de Horas Productivas (HOT WINDOW /
+        COLD HISTORY corrective) — separada de `get_batch_b` a propósito,
+        MISMO criterio que `get_cartera_mantenimiento_anios`: las OPCIONES
+        del <select> de Año nunca deben confundirse con los años ya
+        HIDRATADOS por la ventana caliente. Delegado 1:1 al repository
+        (lista archivos por metadata, sin descargar ningún CSV)."""
+        return self._repository.get_time_logs_years_available(access_token)
 
     def get_horas_productivas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas` con su PROPIO

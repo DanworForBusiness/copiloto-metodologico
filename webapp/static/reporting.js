@@ -978,6 +978,18 @@ const state = {
   // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
   // real, no se comparte con el backbone de Cartera).
   batchBDataStatus: "idle",
+  // HOT WINDOW / COLD HISTORY corrective (Horas Productivas — owner
+  // decision 2026-08-18, "Batch B nunca implementó el contrato
+  // transversal que Cartera/Batch A sí tienen"): metadata de años
+  // disponibles (endpoint separado y liviano, ver loadCapacidadAnios) +
+  // qué año(s) frío(s) están en vuelo/fallaron (single-flight POR AÑO,
+  // MISMO criterio que carteraMantenimientoYearLoading/YearErrors — los 3
+  // paneles de Batch B, cliente/clientePart/noAsignadas, comparten UN
+  // fetch por año, ver loadCapacidadColdYear).
+  capacidadAniosDisponibles: [],
+  capacidadAniosStatus: "idle",
+  capacidadYearLoading: new Set(),
+  capacidadYearErrors: new Set(),
   // Mes de Horas Productivas — MULTI-SELECT (owner live QA: el PBIP
   // original permite tildar VARIOS meses a la vez sobre el visual, un
   // `<select>` de valor único no lo representa — MISMO principio que Año de
@@ -2779,6 +2791,95 @@ function renderBatchBDataState(label) {
   }
   return reportingLoadingHtml(`Cargando ${label}…`);
 }
+// HOT WINDOW / COLD HISTORY corrective (Horas Productivas — owner decision
+// 2026-08-18): metadata liviana de años — disparada UNA vez por
+// TAB_HYDRATION_TRIGGERS.capacidad, en PARALELO con `loadBatchBData` (nunca
+// bloquea el primer render de la ventana caliente). MISMO patrón que
+// loadCarteraMantenimientoAnios/loadHorasVendidasAnios.
+async function loadCapacidadAnios() {
+  state.capacidadAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-b/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.capacidadAniosDisponibles = data.aniosDisponibles;
+      state.capacidadAniosStatus = "ready";
+    } else {
+      state.capacidadAniosStatus = "error";
+    }
+  } catch (e) {
+    state.capacidadAniosStatus = "error";
+  }
+  render();
+}
+// Años YA hidratados — fuente de verdad ÚNICA: las claves de
+// CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR (portfolio, poblado en CADA
+// hidratación exitosa — hot o fría — sin importar si esa carga trajo 0
+// filas por Cliente/Proyecto) — MISMO centinela que RENTABILIDAD_
+// NOASIGNADAS_BY_YEAR (ver rentabilidadLoadedYears).
+function capacidadLoadedYears() {
+  return new Set(Object.keys(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR));
+}
+// Fusión por (cliente, proyecto)/consultor (MISMO criterio que
+// mergeRentabilidadRows): un año frío se fusiona en el `horasByYear` de
+// cada fila ya hidratada, nunca crea una fila duplicada. Fila nueva
+// (Cliente/Proyecto o Consultor que solo tiene horas en el año frío) se
+// agrega entera. El denominador (portfolio) se fusiona directo.
+function _mergeCapacidadRows(target, incoming, keyOf) {
+  const byKey = new Map(target.map(r => [keyOf(r), r]));
+  (incoming || []).forEach(inc => {
+    const existing = byKey.get(keyOf(inc));
+    if (existing) {
+      Object.assign(existing.horasByYear || (existing.horasByYear = {}), inc.horasByYear || {});
+    } else {
+      target.push(inc);
+      byKey.set(keyOf(inc), inc);
+    }
+  });
+}
+function mergeBatchBRows(data) {
+  _mergeCapacidadRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas, r => `${r.cliente}|${r.proyecto}`);
+  _mergeCapacidadRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas, r => r.consultor);
+  Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, data.horasProductivasDenominador || {});
+}
+// Lazy-load de un año FRÍO puntual — disparado desde renderCapacidad cuando
+// el Año seleccionado de CUALQUIERA de los 3 paneles (cliente/clientePart/
+// noAsignadas) todavía no está en `capacidadLoadedYears()`. Single-flight
+// POR AÑO (MISMO criterio que Cartera/Rentabilidad/HV) — UN fetch alimenta
+// los 3 paneles a la vez (MISMO endpoint consolidado que la primera
+// hidratación, ver loadBatchBData). Key de progreso "batch-b" (MISMA que
+// REPORTING_HUB_PROGRESS.capacidad — mismo endpoint real que la primera
+// hidratación, ver comentario de esa tabla).
+async function loadCapacidadColdYear(anio) {
+  if (state.capacidadYearLoading.has(anio)) return;
+  state.capacidadYearLoading.add(anio);
+  reportingTelemetry("reporting.cold_year_load", { report_tab: "capacidad", load_scope: anio });
+  state.capacidadYearErrors.delete(anio);
+  HubForegroundProgress.begin("batch-b", { seedMs: 7500 });
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok") {
+      mergeBatchBRows(data);
+      reconcileExperienceFacets("capacidad");
+      HubForegroundProgress.complete("batch-b");
+    } else {
+      state.capacidadYearErrors.add(anio);
+      HubForegroundProgress.fail("batch-b");
+    }
+  } catch (e) {
+    state.capacidadYearErrors.add(anio);
+    HubForegroundProgress.fail("batch-b");
+  }
+  state.capacidadYearLoading.delete(anio);
+  render();
+}
 
 function renderCartera() {
   // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF): la
@@ -4185,11 +4286,20 @@ const _CAPACIDAD_SELECT_FIELDS = [{ key: "cliente", field: "cliente" }, { key: "
 // respetan Estado + Cliente/Proyecto activos, MISMO criterio que
 // rentabilidadAnioOptions/horasVendidasAnioOptions ("como en las demas
 // tabs").
+// HOT WINDOW / COLD HISTORY corrective (owner decision 2026-08-18): "DO
+// NOT CONFUSE OPTIONS WITH HYDRATED FACTS" (MISMO criterio que
+// carteraAnioOptions) — con la ventana caliente por defecto (año actual +
+// anterior), las filas YA hidratadas nunca incluyen los años fríos, pero
+// esos años deben seguir siendo una opción SELECCIONABLE. Unión de la
+// metadata liviana (`state.capacidadAniosDisponibles`, ver
+// loadCapacidadAnios) con los años ya presentes en filas cargadas
+// (defensivo: si la metadata todavía no llegó, los años calientes recién
+// hidratados igual aparecen).
 function capacidadProductivasAnioOptions() {
   // UNRESOLVED-ESTADO corrective (ver _capacidadEstadoAllows).
   const statusRows = CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => _capacidadEstadoAllows(r.estado));
   const rows = facetRowsExcept(statusRows, state.filters.capacidad || {}, _CAPACIDAD_SELECT_FIELDS, "");
-  const years = new Set();
+  const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
   return [...years].filter(_isValidAnioValue).sort();
 }
@@ -4285,9 +4395,11 @@ function capacidadProductivasSelectedRows(panel) {
 // visibles") — MUCHO más simple que Productivas, sin cap de mes futuro ni
 // máscara de meses.
 const _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS = [{ key: "consultor", field: "consultor" }];
+// HOT WINDOW / COLD HISTORY corrective — MISMO criterio que
+// capacidadProductivasAnioOptions (metadata ∪ años hidratados).
 function capacidadNoAsignadasAnioOptions() {
   const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
-  const years = new Set();
+  const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
   return [...years].filter(_isValidAnioValue).sort();
 }
@@ -4697,6 +4809,30 @@ function renderCapacidadNoAsignadas() {
 
 function renderCapacidad() {
   const persp = state.perspective.capacidad;
+  if (state.batchBDataStatus === "ready") {
+    // HOT WINDOW / COLD HISTORY corrective (owner decision 2026-08-18):
+    // si el/los Año(s) del panel/perspectiva ACTIVA todavía no está(n)
+    // hidratado(s) (frío), dispara su propio lazy-load (single-flight POR
+    // AÑO, ver loadCapacidadColdYear — UN fetch alimenta los 3 paneles a
+    // la vez, MISMO endpoint real que la primera hidratación) y muestra el
+    // loader compartido mientras falte alguno — el filter bar (render
+    // aparte) sigue interactivo. MISMO criterio que renderCartera.
+    const aniosActivos = persp === "Productivas"
+      ? CAPACIDAD_PRODUCTIVAS_PANELS.map(panel => getFilter("capacidad", capacidadPanelAnioKey(panel)))
+      : [getFilter("capacidad", capacidadPanelAnioKey("noAsignadas"))];
+    const erroredChecked = aniosActivos.filter(y => y && state.capacidadYearErrors.has(y));
+    if (erroredChecked.length) {
+      return dashboardSections("reporting-capacidad",
+        reportingSourceErrorHtml(`los datos de Horas Productivas del año ${erroredChecked.join(", ")}`));
+    }
+    const loadedYears = capacidadLoadedYears();
+    const pendientes = [...new Set(aniosActivos.filter(y => y && !loadedYears.has(y)))];
+    if (pendientes.length) {
+      pendientes.forEach(loadCapacidadColdYear);
+      return dashboardSections("reporting-capacidad",
+        reportingLoadingHtml(`Cargando datos de Horas Productivas del año ${pendientes.join(", ")}…`));
+    }
+  }
   const sectionsHtml = persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas();
   return dashboardSections("reporting-capacidad", sectionsHtml);
 }
@@ -4819,7 +4955,12 @@ const TAB_HYDRATION_TRIGGERS = {
   horasvendidas: hydrateHorasVendidasTab,
   comercial: () => { hydrateComercialParticipacionTab(); if (state.batchADataStatus === "idle") loadBatchAData(); },
   calendario: () => { if (state.batchADataStatus === "idle") loadBatchAData(); },
-  capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); },
+  // HOT WINDOW / COLD HISTORY corrective: metadata de años en PARALELO con
+  // el fetch de datos, MISMO criterio que Cartera/HV/Rentabilidad.
+  capacidad: () => {
+    if (state.batchBDataStatus === "idle") loadBatchBData();
+    if (state.capacidadAniosStatus === "idle") loadCapacidadAnios();
+  },
 };
 // Status CRUDO del tab para el propósito ÚNICO de "primera hidratación" —
 // reusa los MISMOS campos que cada experiencia ya usa internamente para su

@@ -1033,6 +1033,21 @@ class ReportingRepository:
         timer.total()
         return facts
 
+    def get_time_logs_years_available(self, access_token: str) -> list[str]:
+        """Metadata LIVIANA de años disponibles de Time Logs (HOT WINDOW /
+        COLD HISTORY corrective, Horas Productivas) — SOLO lista los
+        archivos de `TIME_LOGS_FOLDER_PATH` (Graph metadata, nunca
+        descarga/parsea ningún CSV) e infiere el año de cada uno por su
+        nombre (`_infer_time_logs_csv_year`). Separada de
+        `get_time_logs_facts` a propósito — MISMO criterio que
+        `get_cartera_mantenimiento_anio_estado_pairs`: las OPCIONES del
+        <select> de Año nunca deben confundirse con los años ya
+        HIDRATADOS por la ventana caliente."""
+        self._token = access_token
+        operaciones_site_id = self._resolve_time_logs_site_id()
+        items = self._list_time_logs_csv_items(operaciones_site_id)
+        return sorted({_infer_time_logs_csv_year(it) for it in items})
+
     def get_colaboradores_email_map(self, access_token: str) -> dict[str, str]:
         """Email (lowercase) → nombre de Consultor. El person field
         `Colaborador` NO expone email en Graph (LIVE GRAPH VALIDATED:

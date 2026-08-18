@@ -52,6 +52,7 @@ vm.runInContext(src, sandbox, { filename: "reporting.js" });
 const { render, capacidadPanelAnioKey } = sandbox;
 const state = vm.runInContext("state", sandbox);
 const CAPACIDAD_PRODUCTIVAS_ROWS = vm.runInContext("CAPACIDAD_PRODUCTIVAS_ROWS", sandbox);
+const CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = vm.runInContext("CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR", sandbox);
 
 let failures = 0;
 function assertTrue(cond, label) {
@@ -113,6 +114,13 @@ render();
 // Para probar el estado "ya hidratado" sin depender de esa mecánica async,
 // se fuerza el status a "ready" directamente (equivalente a que el fetch ya
 // resolvió) y se vuelve a renderizar.
+// HOT WINDOW/COLD HISTORY corrective (owner decision 2026-08-18): capacidad
+// ahora TAMBIÉN gatea el contenido por año hidratado (MISMO criterio que
+// Cartera/Rentabilidad/HV, ver `capacidadLoadedYears()`/renderCapacidad en
+// reporting.js) — simular que el año 2019 (seleccionado en ambos paneles,
+// ver arriba) YA fue hidratado, igual que un `loadBatchBData()` real
+// poblaría este centinela junto con las filas.
+Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, { "2019": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
 state.batchBDataStatus = "ready";
 render();
 
