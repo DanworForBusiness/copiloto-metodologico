@@ -23,6 +23,7 @@
   "GET /comercial",
   "GET /comercial/data/activities",
   "GET /comercial/data/analytics",
+  "GET /comercial/data/opportunities",
   "GET /comercial/data/pipeline",
   "GET /comercial/data/summary",
   "GET /copilot",

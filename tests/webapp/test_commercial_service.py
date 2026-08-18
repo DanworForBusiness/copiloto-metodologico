@@ -808,3 +808,177 @@ def test_analytics_path_is_read_only_and_fail_soft():
     with pytest.raises(CommercialConfigurationError):
         CommercialService(unconfigured).get_analytics("todos")
     svc_module.clear_cache()
+
+
+# ============================================================================
+# Active Opportunities Phase 2 / C1 — Detalle de Oportunidades Activas
+# (`get_opportunities`, `GET /comercial/data/opportunities`). Universo: MISMO
+# que el KPI "Oportunidades activas" (stages 1-8) — NUNCA Pipeline Total
+# (0-8, ver `_build_forecast`, C2). weighted_hours se centraliza en el
+# service; tag_ids sólo particiona en memoria, nunca viaja en la fila.
+# ============================================================================
+
+OPP_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 3, "name": "5 Negociación"},
+]
+OPP_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+
+
+def _prop_horas(value):
+    return {"string": "Horas", "value": str(value)}
+
+
+def _prop_date(label, iso):
+    return {"string": label, "type": "date", "value": iso}
+
+
+def _prop_selection(label, value, options):
+    return {"string": label, "value": value, "selection": options}
+
+
+OPP_LEADS = [
+    # Etapa 1 (activa 1-8) — el caso "completo": todas las properties.
+    {"id": 700, "name": "Opp Uno", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [80, "Cliente Uno"], "user_id": [50, "Vendedor Uno"],
+     "source_id": [60, "Google Ads"], "probability": 40, "priority": "2",
+     "lead_properties": [
+         _prop_horas(100),
+         _prop_date("Fecha de Ultima Respuesta", "2026-08-01"),
+         _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]]),
+     ]},
+    # Etapa 5 (activa 1-8) — sin source_id, sin properties (todo lo opcional
+    # en su default honesto: "Sin definir"/"Sin definir"/None/None).
+    {"id": 701, "name": "Opp Dos", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [11], "partner_id": [81, "Cliente Dos"], "user_id": [51, "Vendedor Dos"],
+     "source_id": False, "probability": 25, "priority": "0", "lead_properties": []},
+    # Etapa 0 (Prospecto) — debe quedar AFUERA del universo 1-8.
+    {"id": 702, "name": "Prospecto Cero", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [10, 11], "partner_id": False, "user_id": False, "source_id": False,
+     "probability": 10, "priority": "0", "lead_properties": []},
+]
+
+OPP_ACTIVITIES = [
+    # Opp Uno tiene DOS actividades pendientes — el legacy retiene ambas,
+    # nunca sólo "la próxima" (ver HANDOFF).
+    {"id": 1, "res_id": 700, "res_model": "crm.lead", "date_deadline": "2026-08-10",
+     "activity_type_id": [5, "Llamada"], "summary": "Seguimiento"},
+    {"id": 2, "res_id": 700, "res_model": "crm.lead", "date_deadline": "2026-08-05",
+     "activity_type_id": [6, "Reunión"], "summary": "Presentar propuesta"},
+]
+
+
+def _opportunities_client(**kwargs):
+    return FakeOdooClient(stages=OPP_STAGES, tags=OPP_TAGS, leads=OPP_LEADS, activities=OPP_ACTIVITIES, **kwargs)
+
+
+def test_opportunities_universe_is_stages_1_8_never_prospect_or_pipeline_total():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    names = {r["opportunity"] for r in rows}
+    assert names == {"Opp Uno", "Opp Dos"}, "Prospecto Cero (etapa 0) queda afuera"
+    svc_module.clear_cache()
+
+
+def test_opportunities_row_never_exposes_tag_ids_or_etiquetas():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    for row in rows:
+        assert "tag_ids" not in row and "etiquetas" not in row and "tags" not in row
+    svc_module.clear_cache()
+
+
+def test_opportunities_weighted_hours_is_centralized_in_service():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Opp Uno")
+    assert uno["hours"] == 100
+    assert uno["weighted_hours"] == 40.0, "probability 40% * 100hs"
+    svc_module.clear_cache()
+
+
+def test_opportunities_source_defaults_to_sin_definir_when_missing():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    assert next(r for r in rows if r["opportunity"] == "Opp Uno")["source"] == "Google Ads"
+    assert next(r for r in rows if r["opportunity"] == "Opp Dos")["source"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_opportunities_licencias_resolved_from_selection_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    assert next(r for r in rows if r["opportunity"] == "Opp Uno")["licencias"] == "Si"
+    assert next(r for r in rows if r["opportunity"] == "Opp Dos")["licencias"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_opportunities_last_response_and_days_elapsed_from_date_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Opp Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Opp Dos")
+    assert uno["last_response"] == "2026-08-01"
+    assert uno["days_elapsed"] == (date.today() - date.fromisoformat("2026-08-01")).days
+    assert dos["last_response"] is None and dos["days_elapsed"] is None
+    svc_module.clear_cache()
+
+
+def test_opportunities_activities_are_grouped_per_opportunity_all_not_just_next():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Opp Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Opp Dos")
+    assert len(uno["activities"]) == 2, "AMBAS actividades pendientes, no sólo la próxima"
+    assert {a["deadline"] for a in uno["activities"]} == {"2026-08-10", "2026-08-05"}
+    assert dos["activities"] == []
+    svc_module.clear_cache()
+
+
+def test_opportunities_partitions_by_nn_bi_tag_never_double_query():
+    svc_module.clear_cache()
+    client = _opportunities_client()
+    service = CommercialService(client)
+    todos = {r["opportunity"] for r in service.get_opportunities("todos")["opportunities"]}
+    nn = {r["opportunity"] for r in service.get_opportunities("nn")["opportunities"]}
+    bi = {r["opportunity"] for r in service.get_opportunities("bi")["opportunities"]}
+    assert todos == {"Opp Uno", "Opp Dos"}
+    assert nn == {"Opp Uno"}
+    assert bi == {"Opp Dos"}
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "una sola consulta a crm.lead"
+    svc_module.clear_cache()
+
+
+def test_opportunities_use_the_module_cache():
+    svc_module.clear_cache()
+    client = _opportunities_client()
+    service = CommercialService(client)
+    service.get_opportunities("todos")
+    service.get_opportunities("nn")
+    assert len([c for c in client.calls if c[0] == "mail.activity"]) == 1, "la segunda vista sale del cache"
+    svc_module.clear_cache()
+
+
+def test_opportunities_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    rows = CommercialService(_opportunities_client()).get_opportunities("not-a-real-tipo")["opportunities"]
+    assert {r["opportunity"] for r in rows} == {"Opp Uno", "Opp Dos"}
+    svc_module.clear_cache()
+
+
+def test_opportunities_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _opportunities_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_opportunities("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _opportunities_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_opportunities("todos")
+    svc_module.clear_cache()

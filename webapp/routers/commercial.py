@@ -162,6 +162,25 @@ def commercial_data_pipeline(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "pipeline": pipeline})
 
 
+@router.get("/comercial/data/opportunities", include_in_schema=False)
+def commercial_data_opportunities(request: Request, tipo: str = Query("todos")):
+    """Detalle por oportunidad de "Oportunidades activas" (Active
+    Opportunities Phase 2, ver HANDOFF) — universo stages 1-8, MISMO que el
+    KPI del landing. Alimenta la tabla de detalle Y el desglose por Origen
+    (derivado client-side, sin endpoint propio). MISMO contrato fail-soft y
+    MISMA gate que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        opportunities = CommercialService().get_opportunities(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="opportunities")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="opportunities")
+    return JSONResponse({"state": "ok", "opportunities": opportunities})
+
+
 @router.get("/comercial/data/activities", include_in_schema=False)
 def commercial_data_activities(request: Request, tipo: str = Query("todos")):
     """Actividades pendientes (`mail.activity` sobre `crm.lead`). MISMO

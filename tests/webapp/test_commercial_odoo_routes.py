@@ -834,6 +834,59 @@ def test_activities_endpoint_never_exposes_a_write_verb():
 
 
 # ============================================================================
+# Active Opportunities Phase 2 / C1 — GET /comercial/data/opportunities
+# ============================================================================
+
+def test_opportunities_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/opportunities", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_opportunities_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/opportunities").status_code == 403
+
+
+def test_opportunities_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _OppStub(_StubService):
+        def get_opportunities(self, tipo="todos"):
+            return {"tipo": tipo, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _OppStub())
+    response = client.get("/comercial/data/opportunities?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["opportunities"]["tipo"] == "nn"
+
+
+def test_opportunities_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_opportunities(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/opportunities")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_opportunities_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_opportunities(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/opportunities")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_opportunities_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/opportunities")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+# ============================================================================
 # Batch 3A / C3 — capability navigation
 # ============================================================================
 

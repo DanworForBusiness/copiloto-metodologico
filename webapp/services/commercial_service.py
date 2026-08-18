@@ -77,6 +77,14 @@ def _EMPTY_ANALYTICS() -> dict:
 _EXCLUDED_LOST_MOTIVOS = {"cierre administrativo"}
 _TIPOS = ("todos", "nn", "bi")
 
+# Labels EXACTOS de las `lead_properties` que usa el legacy para estos dos
+# datos (ver Active Opportunities Phase 2, HANDOFF) — portados 1:1 desde
+# `crm-comercial`/`backend/routers/crm.py` (`PROP_ULTIMA_RESPUESTA`/
+# `PROP_CIERRE_AJUSTADO`). Resueltos por STRING, nunca por posición: son
+# properties configurables en Odoo, no campos del modelo.
+_PROP_ULTIMA_RESPUESTA = "Fecha de Ultima Respuesta"
+_PROP_CIERRE_AJUSTADO = "Cierre Ajustado"
+
 
 class CommercialConfigurationError(Exception):
     """ODOO_URL/DB/USERNAME/API_KEY incompleto — Comercial no puede cargar
@@ -150,6 +158,22 @@ def _get_prop_label(properties, label: str) -> str:
         return "Sin definir"
     sel_label = next((opt[1] for opt in (prop.get("selection") or []) if opt[0] == val), None)
     return sel_label or "Sin definir"
+
+
+def _get_property_date(properties, label: str) -> str | None:
+    """Valor de una `lead_property` de TIPO fecha (p. ej. "Fecha de Ultima
+    Respuesta"/"Cierre Ajustado") — legacy-compatible semantic resolution,
+    portado 1:1 de `crm-comercial`. A diferencia de `get_property_num`/
+    `_get_prop_label`, exige `prop.get("type") == "date"`: son properties
+    DISTINTAS de "Horas"/"Licencias" y comparten label con propiedades de
+    otro tipo sería una coincidencia de nombre, no de dato."""
+    if not properties:
+        return None
+    for prop in properties:
+        if _prop_match(prop, label) and prop.get("type") == "date":
+            val = prop.get("value")
+            return val if val else None
+    return None
 
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -476,6 +500,96 @@ class CommercialService:
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
             views = _cached("commercial:pipeline", self._build_pipeline)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Detalle de Oportunidades Activas (Active Opportunities Phase 2) ──
+    # Universo: MISMO que "Oportunidades activas" (stages 1–8, `valid_ids`)
+    # — NO Pipeline Total (0–8): ese es el universo del Forecast, ver
+    # `_build_forecast` más abajo. `weighted_hours` se centraliza ACÁ
+    # (probability/100 * horas) — el legacy no lo traía en `/relevamiento`,
+    # pero la columna "Hs Pond." del detalle Hub lo necesita y no tiene
+    # sentido calcularlo en el cliente cuando ya se calcula igual en
+    # `_build_pipeline`/`_aggregate_full` para el mismo campo. `tag_ids`
+    # SOLO se usa para particionar todos/nn/bi en memoria — nunca viaja en
+    # la fila (ver HANDOFF: "No Etiquetas in output UI contract").
+    def _build_opportunities(self) -> dict:
+        valid_ids, _prospect_ids, _suspended_ids = self._stage_partition()
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", valid_ids]],
+            fields=["name", "partner_id", "user_id", "stage_id", "tag_ids", "source_id",
+                     "probability", "priority", "lead_properties"],
+        )
+        opp_ids = [o["id"] for o in opps]
+        # TODAS las actividades pendientes de estas oportunidades — MISMO
+        # criterio que el legacy (nunca solo "la próxima"): el cliente
+        # decide cuál mostrar/ordenar (ver HANDOFF — "sorting uses
+        # min(days_until)"), acá solo se agrupan por oportunidad.
+        acts_by_opp: dict[int, list] = {}
+        if opp_ids:
+            activities = self._client.search_read(
+                "mail.activity",
+                domain=[["res_model", "=", "crm.lead"], ["res_id", "in", opp_ids]],
+                fields=["res_id", "date_deadline", "activity_type_id", "summary"],
+                order="date_deadline asc",
+            )
+            for act in activities:
+                acts_by_opp.setdefault(act["res_id"], []).append({
+                    "type": act["activity_type_id"][1] if act.get("activity_type_id") else "",
+                    "summary": act.get("summary") or "",
+                    "deadline": iso_deadline(act.get("date_deadline")),
+                })
+
+        today = date.today()
+
+        def _row(opp: dict) -> dict:
+            props = opp.get("lead_properties") or []
+            hours_raw = get_property_num(props, "Horas")
+            # `get_property_num` devuelve 0 por ausencia — acá se distingue
+            # "sin horas cargadas" (None, tabla muestra "—") de "cargadas en
+            # cero" NO es posible con ese helper, así que se preserva el
+            # mismo comportamiento que ya usa el resto del servicio (0 real)
+            # en vez de inventar una distinción que Odoo no expone.
+            weighted_hours = round((opp.get("probability", 0) or 0) / 100 * hours_raw, 1)
+            last_response = _get_property_date(props, _PROP_ULTIMA_RESPUESTA)
+            days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
+                "source": opp["source_id"][1] if opp.get("source_id") else "Sin definir",
+                "licencias": _get_prop_label(props, "Licencias"),
+                "hours": hours_raw,
+                "weighted_hours": weighted_hours,
+                "probability": opp.get("probability"),
+                "priority": opp.get("priority") or "0",
+                "activities": acts_by_opp.get(opp["id"], []),
+                "last_response": last_response,
+                "days_elapsed": days_elapsed,
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_opportunities(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:opportunities", self._build_opportunities)
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
