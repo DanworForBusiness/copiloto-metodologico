@@ -277,8 +277,8 @@ function commercialDistribucionHtml(pipeline, dim) {
     `<span>${commercialEsc(commercialStageTick(stage, index))}</span>`).join("");
 
   return `
-    <p class="perspective-label">Funnel por Etapa</p>
-    <div class="staffing-timeline-toolbar">
+    <div class="category-plot-header">
+      <p class="perspective-label">Funnel por Etapa</p>
       <div class="dashboard-view-switch" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
     </div>
     <div class="category-plot-legend">
@@ -369,6 +369,25 @@ function commercialDashboardSection(id, title, countLabel, bodyHtml) {
 // sí correspondería acotar `data-breakdown-group` a un wrapper más chico.
 function commercialDashboardSections(dashboardKey, sectionsHtml) {
   return `<div class="dashboard-sections" data-dashboard-key="${dashboardKey}" data-breakdown-group>${sectionsHtml}</div>`;
+}
+
+// KPI → Contextual Drilldown, navegación al abrir (Active Opportunities
+// Phase 2 / C3.1, ver HANDOFF): sólo cuando el trigger QUEDÓ activo (el
+// motor compartido `initEventBreakdown` ya corrió su show()/toggle antes de
+// que esto se llame — ver los dos delegados que lo invocan) se hace scroll
+// a la sección — nunca al cerrar, cambiar Horas/Ponderadas o filtrar.
+// `scrollIntoView` SIN `behavior` explícito hereda `scroll-behavior` de
+// `<html>` (app.css): "smooth" normalmente, "auto" bajo
+// `prefers-reduced-motion:reduce` — MISMO mecanismo que ya cubre el resto
+// del Hub (`html{scroll-behavior:smooth}` + su media query), cero chequeo
+// de motion propio. El "heading debajo del topbar" lo resuelve
+// `scroll-margin-top` en `.dashboard-section` (commercial.css) — nunca un
+// `scrollTo` con offset numérico. La búsqueda cuelga de `root` (nunca de
+// `document`), MISMO contrato que el resto de las búsquedas puntuales de
+// este archivo (ver Loader canónico — cero exploración arbitraria del DOM).
+function commercialMaybeScrollToOpenedAnalysis(trigger, root) {
+  if (!trigger.classList.contains("is-active")) return;
+  root.querySelector(`[data-breakdown="${trigger.dataset.event}"]`)?.scrollIntoView({ block: "start" });
 }
 
 // Cuerpo del panel de "Oportunidades Activas — Análisis": gráfico ARRIBA
@@ -876,6 +895,20 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialDistribucionHtml(commercialState.pipeline, dim);
       return;
     }
+    // KPI → Contextual Drilldown (ver HANDOFF — C3.1, navegación al abrir):
+    // el trigger `[data-event]` ya fue procesado por el motor compartido de
+    // desglose (app.js — su listener cuelga directo del trigger y corre
+    // ANTES de que el click burbujee hasta `document` — para cuando este
+    // delegado se ejecuta, `.is-active` ya refleja el estado POST-click).
+    // Si quedó activo, este click fue una APERTURA — nunca al cerrar, al
+    // cambiar Horas/Ponderadas ni al filtrar. `commercialMaybeScrollToOpenedAnalysis`
+    // también la usa el delegado de teclado más abajo (mismo criterio, sin
+    // duplicar lógica).
+    const kpiTrigger = event.target.closest("[data-event]");
+    if (kpiTrigger) {
+      commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
+      return;
+    }
     const capButton = event.target.closest("[data-commercial-capability]");
     if (capButton) {
       commercialSetCapability(capButton.dataset.commercialCapability);
@@ -899,6 +932,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!select) return;
     commercialState.actUser = select.value;
     commercialRenderCapability();
+  });
+  // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
+  // motor compartido cablea su PROPIO `keydown` directo sobre el trigger
+  // (nunca dispara un evento `click` sintético), así que el delegado de
+  // click de arriba no lo ve — este delegado espeja el mismo criterio para
+  // ese segundo camino de activación, sin duplicar el toggle/show en sí.
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const kpiTrigger = event.target.closest("[data-event]");
+    if (!kpiTrigger) return;
+    commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();
 });

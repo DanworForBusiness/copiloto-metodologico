@@ -184,12 +184,14 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     assert "setInterval" not in _COMMERCIAL_JS  # el timer del progress vive SOLO en HubForegroundProgress
     # El ban original de `querySelector` a secas era un PROXY de la intención
     # real: "no salgas a buscar nodos ajenos (los del progress) en el DOM".
-    # Batch 2B necesita UNA búsqueda acotada al propio subárbol para el
-    # re-render quirúrgico del switch, así que el contrato se vuelve explícito
-    # en vez de aproximado — se permite exactamente ese hook y nada más, y
-    # siempre colgando de `root`, nunca de `document`.
+    # Batch 2B agregó UNA búsqueda acotada para el re-render quirúrgico del
+    # switch; C3.1 (ver HANDOFF — scroll al abrir el análisis) agrega una
+    # SEGUNDA, para ubicar la sección a la que hay que hacer scroll. El
+    # contrato sigue siendo explícito, no aproximado: se permiten
+    # EXACTAMENTE esos dos hooks y nada más, y ambos cuelgan de `root`,
+    # nunca de `document`.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert queries == ['"[data-commercial-dist]"'], queries
+    assert queries == ['`[data-breakdown="${trigger.dataset.event}"]`', '"[data-commercial-dist]"'], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
 
@@ -673,13 +675,15 @@ def test_no_other_kpi_gained_a_drilldown_this_batch():
     # comentarios (que mencionan `data-event`/`data-breakdown` varias veces).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # Un ÚNICO `data-breakdown` en todo el markup: el de la sección de
-    # Activas. Ya no hay panel placeholder que acompañar (Landing
-    # Homologation) — se cuenta sobre el markup, no sobre los comentarios,
+    # UN solo `data-breakdown` real en el markup (el de la sección de
+    # Activas) + UNA referencia al MISMO atributo dentro del selector que
+    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
+    # scroll al abrir) para ubicarla — nunca un SEGUNDO panel/KPI con su
+    # propio breakdown. Se cuenta sobre el markup, no sobre los comentarios,
     # que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 1
+    assert markup.count('data-breakdown="') == 2
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
     assert "data-event" not in plain_kpi_fn

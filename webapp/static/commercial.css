@@ -34,13 +34,30 @@
    contrato, ahi corresponde promoverlo.
 
    Lo que SI se consume del Hub y NO se duplica aca: `.chart-tooltip`,
-   `.dashboard-view-switch`, `.staffing-timeline-toolbar`,
-   `.perspective-label`, `.dashboard-table`/`.matrix-scroll`,
-   `.activity-kpi*`, y los tokens (`--gold`, `--mono`, `--sans`).
+   `.dashboard-view-switch`, `.perspective-label`,
+   `.dashboard-table`/`.matrix-scroll`, `.activity-kpi*`, y los tokens
+   (`--gold`, `--mono`, `--sans`).
 
    Nota de nombre: se conserva `category-plot` (descriptivo de la forma) en
    vez de un prefijo `commercial-*`, que ademas esta explicitamente prohibido
    por el guard de tests. El ownership lo fija este archivo, no el nombre. */
+
+/* Header compuesto (Active Opportunities Phase 2 / C3.1, ver HANDOFF —
+   spacing corrective): titulo y switch en la MISMA fila — antes vivian en
+   containers hermanos separados (`<p>`/`.staffing-timeline-toolbar`), cada
+   uno con su propio margin-bottom, y esa suma secuencial (title 13px + 6px
+   + toolbar 33px + 8px) era el hueco que el owner marco, no un margin
+   puntual exagerado. Mismo patron `justify-content:space-between` que
+   `.hero-lead-row` ya usa en este mismo archivo para "label izq. / control
+   der." — no un layout nuevo. */
+.category-plot-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+/* `white-space:nowrap` en el título + `flex-shrink:0` en el switch (MISMO
+   par de reglas que `.hero-lead-row` ya usa en este archivo para su propio
+   "texto + control"): en viewport angosto el switch cae a su PROPIA línea
+   en vez de comprimir el título hasta que su texto envuelva a dos renglones
+   — nunca layout artificial, es el wrap normal de flex. */
+.category-plot-header .perspective-label { margin-bottom: 0; white-space: nowrap; }
+.category-plot-header .dashboard-view-switch { flex-shrink: 0; }
 
 .category-plot { display: grid; grid-template-columns: 38px 1fr 52px; grid-template-rows: auto auto; }
 .category-plot__area {
@@ -59,16 +76,24 @@
    propia escala independiente (izq./der., ver commercialDistribucionHtml) —
    nunca una comparable numericamente contra la otra por su altura. Ancho
    mas angosto que la version de una sola barra para que las dos entren
-   lado a lado sin que la columna se ensanche. */
+   lado a lado sin que la columna se ensanche.
+
+   COLOR SEMANTICS (C3.1 — Danwor, ver HANDOFF): Oportunidades pasa de azul a
+   un neutral/graphite — MISMOS dos tokens que ya usa el resto del Hub para
+   texto/valor fuerte (`.activity-kpi__value` claro/oscuro: #1f1f24/#e4e4ec),
+   nunca un gris nuevo que desaparezca contra el fondo oscuro. Horas/
+   Ponderadas se queda en `--gold`: es la MISMA serie, el switch solo cambia
+   que magnitud mide, nunca de que color es. */
 .category-plot__bar { width: 38%; max-width: 20px; min-height: 2px; border-radius: 3px 3px 0 0; }
-.category-plot__bar--count { background: #2f6fbd; }
+.category-plot__bar--count { background: #1f1f24; }
+.content-theme-dark .category-plot__bar--count { background: #e4e4ec; }
 .category-plot__bar--hours { background: var(--gold); }
 /* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
    grilla, incluido el 0 apoyado en el eje. */
 .category-plot__axis { position: relative; }
 .category-plot__axis span { position: absolute; font: 600 .56rem var(--mono); letter-spacing: .02em; white-space: nowrap; transform: translateY(50%); }
 .category-plot__axis--left { grid-column: 1; }
-.category-plot__axis--left span { right: 7px; color: #2f6fbd; }
+.category-plot__axis--left span { right: 7px; color: #1f1f24; }
 .category-plot__axis--right { grid-column: 3; }
 .category-plot__axis--right span { left: 7px; color: #a67c00; }
 .category-plot__xlab { grid-column: 2; display: flex; gap: 5px; margin-top: 5px; }
@@ -76,13 +101,36 @@
 .category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
 .category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .category-plot-legend em { font-style: normal; color: #7a7a82; }
-.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #2f6fbd; }
+.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #1f1f24; }
 .category-plot-legend .swatch-bar--hours { background: var(--gold); }
 .content-theme-dark .category-plot-legend { color: #b6b6c0; }
 .content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }
-.content-theme-dark .category-plot__axis--left span { color: #6fa3e0; }
+.content-theme-dark .category-plot-legend .swatch-bar { background: #e4e4ec; }
+.content-theme-dark .category-plot__axis--left span { color: #e4e4ec; }
 .content-theme-dark .category-plot__axis--right span { color: #d9a520; }
+/* scroll-margin-top (C3.1 — click del KPI navega al analisis, ver HANDOFF):
+   despeja el `.topbar` sticky compartido (74px desktop / 66px <=760px, ver
+   app.css) + ~12px de aire — mismo criterio que `.content-section` en
+   app.css/tools.css (scroll-margin-top en vez de scrollTo con numeros
+   magicos), valor propio porque el offset real de ESTE topbar no es el
+   mismo que el de esas paginas. Local a Comercial: `.dashboard-section` es
+   un primitivo compartido con otras verticales que no pidieron este
+   comportamiento — promoverlo sin un segundo consumidor real seria
+   prematuro (commercial.css solo carga en esta pagina, ver encabezado). */
+.dashboard-section { scroll-margin-top: 86px; }
+/* `scroll-behavior` del contenedor REAL que scrollea (auditado en vivo):
+   en este layout de Hub el que tiene overflow propio es `.module-content`
+   — NO `<html>`, que sí declara `scroll-behavior:smooth` en app.css pero
+   esa propiedad no cruza a un scroll box distinto. Mismo par
+   smooth/reduced-motion que `html` ya usa (app.css) — acá aplicado al
+   contenedor que corresponde en esta pagina, no un mecanismo nuevo. Sin
+   esto, `scrollIntoView()` sin `behavior` explícito caía en el default
+   "auto" (instantáneo) SIEMPRE, sin distinguir preferencia de movimiento. */
+.module-content { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  .module-content { scroll-behavior: auto; }
+}
 /* Viewport angosto: se achican las canaletas de los ejes y la separacion
    entre columnas para que las categorias sigan entrando SIN scroll
    horizontal — nunca se vuelve a apilarlas como filas. */
@@ -90,6 +138,7 @@
   .category-plot { grid-template-columns: 30px 1fr 42px; }
   .category-plot__area { gap: 3px; }
   .category-plot__xlab { gap: 3px; }
+  .dashboard-section { scroll-margin-top: 78px; }
 }
 
 /* ── Filtro global en el hero ────────────────────────────────────────────────
