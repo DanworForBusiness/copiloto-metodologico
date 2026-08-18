@@ -982,3 +982,147 @@ def test_opportunities_path_is_fail_soft_on_transport_and_config():
     with pytest.raises(CommercialConfigurationError):
         CommercialService(unconfigured).get_opportunities("todos")
     svc_module.clear_cache()
+
+
+# ============================================================================
+# Active Opportunities Phase 2 / C2 — Forecast por mes (`get_forecast`,
+# `GET /comercial/data/forecast`). Universo: stages 0-8 (Pipeline Total/
+# Ponderado) — NUNCA 1-8 (ese es Oportunidades Activas, C1). Semántica
+# legacy INTENCIONAL preservada: NO es el mismo drilldown.
+# ============================================================================
+
+FORECAST_STAGES = [
+    {"id": 1, "name": "0 Prospección"},   # incluida en 0-8 (a diferencia de C1)
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 3, "name": "5 Negociación"},
+]
+FORECAST_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+
+FORECAST_LEADS = [
+    # "Cierre Ajustado" tiene prioridad sobre date_deadline.
+    {"id": 800, "name": "Forecast Uno", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [90, "Cliente A"], "user_id": [55, "Vendedor A"],
+     "probability": 50, "expected_revenue": 10000, "date_deadline": "2026-09-15",
+     "lead_properties": [_prop_horas(80), _prop_date("Cierre Ajustado", "2026-10-01")]},
+    # Sin "Cierre Ajustado" -> cae a date_deadline, MISMO mes que Forecast Uno
+    # si coincidiera, pero acá es distinto a propósito para separar buckets.
+    {"id": 801, "name": "Forecast Dos", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [11], "partner_id": [91, "Cliente B"], "user_id": [56, "Vendedor B"],
+     "probability": 20, "expected_revenue": 5000, "date_deadline": "2026-09-20",
+     "lead_properties": [_prop_horas(40)]},
+    # Etapa 0 (Prospecto) — DEBE estar incluida en Forecast (0-8).
+    {"id": 802, "name": "Forecast Prospecto", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [92, "Cliente C"], "user_id": [57, "Vendedor C"],
+     "probability": 10, "expected_revenue": 2000, "date_deadline": "2026-09-01",
+     "lead_properties": [_prop_horas(20)]},
+    # Sin ninguna fecha -> bucket "Sin fecha".
+    {"id": 803, "name": "Forecast Sin Fecha", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [], "partner_id": False, "user_id": False,
+     "probability": 30, "expected_revenue": 1000, "date_deadline": False,
+     "lead_properties": [_prop_horas(10)]},
+]
+
+
+def _forecast_client(**kwargs):
+    return FakeOdooClient(stages=FORECAST_STAGES, tags=FORECAST_TAGS, leads=FORECAST_LEADS, **kwargs)
+
+
+def test_forecast_universe_includes_prospect_stage_0():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    names = {o["opportunity"] for m in months for o in m["opportunities"]}
+    assert "Forecast Prospecto" in names, "Forecast es 0-8 — Prospecto SIEMPRE incluido"
+    svc_module.clear_cache()
+
+
+def test_forecast_prefers_cierre_ajustado_over_date_deadline():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    uno = next(o for m in months for o in m["opportunities"] if o["opportunity"] == "Forecast Uno")
+    assert uno["deadline"] == "2026-10-01", "Cierre Ajustado gana sobre date_deadline (2026-09-15)"
+    october = next(m for m in months if m["month"] == "2026-10")
+    assert october["count"] == 1
+    svc_module.clear_cache()
+
+
+def test_forecast_falls_back_to_date_deadline_without_cierre_ajustado():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    dos = next(o for m in months for o in m["opportunities"] if o["opportunity"] == "Forecast Dos")
+    assert dos["deadline"] == "2026-09-20"
+    svc_module.clear_cache()
+
+
+def test_forecast_undated_bucket_is_named_sin_fecha_and_sorted_last():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    assert months[-1]["month"] == "Sin fecha"
+    assert months[-1]["count"] == 1
+    assert [m["month"] for m in months[:-1]] == sorted(m["month"] for m in months[:-1])
+    svc_module.clear_cache()
+
+
+def test_forecast_bucket_aggregates_match_hand_computed_values():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    september = next(m for m in months if m["month"] == "2026-09")
+    # Forecast Dos (40hs, prob 20%) + Forecast Prospecto (20hs, prob 10%).
+    assert september["count"] == 2
+    assert september["hours"] == 60
+    assert september["weighted_hours"] == round(40 * 0.20 + 20 * 0.10, 1)
+    assert september["revenue"] == 5000 + 2000
+    svc_module.clear_cache()
+
+
+def test_forecast_month_bucket_embeds_its_own_opportunities_no_drill_endpoint():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("todos")["months"]
+    september = next(m for m in months if m["month"] == "2026-09")
+    assert {o["opportunity"] for o in september["opportunities"]} == {"Forecast Dos", "Forecast Prospecto"}
+    for o in september["opportunities"]:
+        assert set(o) >= {"opportunity", "client", "seller", "stage", "deadline", "revenue", "hours", "probability"}
+    svc_module.clear_cache()
+
+
+def test_forecast_partitions_by_nn_bi_tag():
+    svc_module.clear_cache()
+    service = CommercialService(_forecast_client())
+    nn_names = {o["opportunity"] for m in service.get_forecast("nn")["months"] for o in m["opportunities"]}
+    bi_names = {o["opportunity"] for m in service.get_forecast("bi")["months"] for o in m["opportunities"]}
+    assert nn_names == {"Forecast Uno", "Forecast Prospecto"}
+    assert bi_names == {"Forecast Dos"}
+    svc_module.clear_cache()
+
+
+def test_forecast_uses_the_module_cache():
+    svc_module.clear_cache()
+    client = _forecast_client()
+    service = CommercialService(client)
+    service.get_forecast("todos")
+    service.get_forecast("bi")
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "la segunda vista sale del cache"
+    svc_module.clear_cache()
+
+
+def test_forecast_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    months = CommercialService(_forecast_client()).get_forecast("not-a-real-tipo")["months"]
+    assert sum(m["count"] for m in months) == 4
+    svc_module.clear_cache()
+
+
+def test_forecast_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _forecast_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_forecast("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _forecast_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_forecast("todos")
+    svc_module.clear_cache()

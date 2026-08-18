@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_104():
+def test_15_route_surface_still_105():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -547,6 +547,10 @@ def test_15_route_surface_still_104():
     #     de "Oportunidades activas" (stages 1-8) — alimenta la tabla de
     #     detalle y el desglose por Origen (derivado client-side, sin
     #     endpoint propio) — read-only, mismo contrato fail-soft.
+    #   104 -> 105 (Active Opportunities Phase 2 / C2, ver HANDOFF): +GET
+    #     /comercial/data/forecast, Pipeline Total/Ponderado agrupado por mes
+    #     de cierre (universo 0-8, deliberadamente DISTINTO del de
+    #     Oportunidades Activas) — read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -554,7 +558,7 @@ def test_15_route_surface_still_104():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 104
+    assert len(snapshot) == 105
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

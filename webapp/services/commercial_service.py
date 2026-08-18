@@ -594,6 +594,105 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
+    # Phase 2, C2 ──────────────────────────────────────────────────────────
+    # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO
+    # universo que "Pipeline Total"/"Pipeline Ponderado", NUNCA el de
+    # Oportunidades Activas (1-8, ver `_build_opportunities`). Es semántica
+    # legacy INTENCIONAL, no un bug (ver HANDOFF): Forecast agrupa por mes de
+    # cierre sobre TODO el pipeline, prospectos incluidos.
+    #
+    # Agrupación por mes: prioriza la lead_property "Cierre Ajustado"
+    # (fecha que el vendedor corrigió a mano) y cae a `date_deadline`
+    # (fecha "de sistema") cuando no existe — MISMO criterio que
+    # `crm-comercial`/`backend/routers/crm.py::get_pipeline_by_month`,
+    # portado 1:1. Sin ninguna de las dos fechas, la oportunidad cae en el
+    # bucket "Sin fecha", que se ordena SIEMPRE al final (nunca por orden
+    # alfabético, que la pondría entre otros meses).
+    def _build_forecast(self) -> dict:
+        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
+        pipeline_ids = [s["id"] for s in all_stages if _stage_first_char(s) in "012345678"]
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        opps = (
+            self._client.search_read(
+                "crm.lead",
+                domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", pipeline_ids]],
+                fields=["name", "partner_id", "user_id", "stage_id", "tag_ids",
+                         "expected_revenue", "date_deadline", "probability", "lead_properties"],
+            )
+            if pipeline_ids else []
+        )
+
+        def _month_bucket_key(opp: dict) -> tuple[str, str | None]:
+            props = opp.get("lead_properties") or []
+            adjusted = _get_property_date(props, _PROP_CIERRE_AJUSTADO)
+            deadline = iso_deadline(opp.get("date_deadline"))
+            dd = adjusted or deadline
+            return (dd[:7] if dd else "Sin fecha"), dd
+
+        def _group(subset: list) -> dict:
+            buckets: dict = {}
+            for opp in subset:
+                key, dd = _month_bucket_key(opp)
+                props = opp.get("lead_properties") or []
+                hours = get_property_num(props, "Horas")
+                prob = (opp.get("probability", 0) or 0) / 100
+                revenue = round(opp.get("expected_revenue", 0) or 0, 2)
+                bucket = buckets.setdefault(
+                    key, {"count": 0, "hours": 0, "weighted_hours": 0.0, "revenue": 0.0, "opportunities": []}
+                )
+                bucket["count"] += 1
+                bucket["hours"] += hours
+                bucket["weighted_hours"] += prob * hours
+                bucket["revenue"] += revenue
+                bucket["opportunities"].append({
+                    "opportunity": opp.get("name") or "",
+                    "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                    "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                    "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
+                    "deadline": dd,
+                    "revenue": revenue,
+                    "hours": hours,
+                    "probability": opp.get("probability"),
+                })
+
+            def _fmt(key: str, bucket: dict) -> dict:
+                return {
+                    "month": key,
+                    "count": bucket["count"],
+                    "hours": round(bucket["hours"], 1),
+                    "weighted_hours": round(bucket["weighted_hours"], 1),
+                    "revenue": round(bucket["revenue"], 2),
+                    "opportunities": sorted(bucket["opportunities"], key=lambda o: o["deadline"] or ""),
+                }
+
+            months = sorted(
+                (_fmt(k, v) for k, v in buckets.items() if k != "Sin fecha"),
+                key=lambda m: m["month"],
+            )
+            if "Sin fecha" in buckets:
+                months.append(_fmt("Sin fecha", buckets["Sin fecha"]))
+            return {"months": months}
+
+        return {
+            "todos": _group(opps),
+            "nn": _group([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _group([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_forecast(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:forecast", self._build_forecast)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Analíticas del Pipeline ──────────────────────────────────────────
     # Homologación del bloque "Analíticas del Pipeline" del CRM legacy (ver
     # HANDOFF — Landing Homologation). Se portan los SEIS titulares que el

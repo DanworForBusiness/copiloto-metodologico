@@ -181,6 +181,25 @@ def commercial_data_opportunities(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "opportunities": opportunities})
 
 
+@router.get("/comercial/data/forecast", include_in_schema=False)
+def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
+    """Forecast por mes de cierre (Active Opportunities Phase 2, ver
+    HANDOFF) — universo stages 0-8, el MISMO que Pipeline Total/Ponderado
+    (nunca el de Oportunidades Activas, 1-8). Semántica legacy intencional,
+    no un bug. MISMO contrato fail-soft y MISMA gate que el resto de
+    Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        forecast = CommercialService().get_forecast(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="forecast")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="forecast")
+    return JSONResponse({"state": "ok", "forecast": forecast})
+
+
 @router.get("/comercial/data/activities", include_in_schema=False)
 def commercial_data_activities(request: Request, tipo: str = Query("todos")):
     """Actividades pendientes (`mail.activity` sobre `crm.lead`). MISMO
