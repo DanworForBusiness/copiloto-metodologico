@@ -73,7 +73,10 @@ function assertTrue(cond, label) {
       certMonthly: [20,0,0,0,0,0,0,0,0,0,0,0], trabMonthly: [15,0,0,0,0,0,0,0,0,0,0,0],
       certificadas: 20, trabajadas: 15 },
   );
-  state.filters.rentabilidad = { anio: "2026", mes: "" };
+  // AÑO/MES MULTI-SELECT corrective: anio/mes son Sets propios ahora.
+  state.filters.rentabilidad = {};
+  state.rentabilidadAnios = new Set(["2026"]);
+  state.rentabilidadMeses = new Set();
   state.rentabilidadStatus = { "En curso": true, "Finalizado": true };
   state.rentabilidadRankingExpanded = { positivos: false, negativos: false };
   state.rentabilidadDataStatus = "ready";

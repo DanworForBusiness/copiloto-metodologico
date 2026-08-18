@@ -186,18 +186,15 @@ function carteraKpiTiles(cfg, rows) {
 // reconciliación de facets YA existente (reconcileExperienceFacets, MISMO
 // mecanismo que Client Partner/Proyecto/Cliente) lo corrige — Año participa
 // del chequeo de opciones válidas (mismo criterio que Año de Inicio de
-// Proyecto), Mes NUNCA se poda (predicate lo excluye del chequeo, ver
-// FACET_CONFIG.cartera — el <select> de Mes siempre ofrece los 12 meses
-// fijos). Proyecto: Año de Inicio SOLO si ese año existe de verdad en el
+// Proyecto). Proyecto: Año de Inicio SOLO si ese año existe de verdad en el
 // dataset — si el mock no lo representa, cae a "Todos" ("") en vez de
 // mostrar un filtro que garantiza 0 filas.
-function carteraDefaultFilters(persp) {
-  if (persp === "Mantenimiento") {
-    const hoy = new Date();
-    return { anio: String(hoy.getFullYear()), mes: String(hoy.getMonth() + 1) };
-  }
-  return {};
-}
+// Año/Mes de Mantenimiento (AÑO/MES MULTI-SELECT corrective, ver HANDOFF):
+// dejaron de vivir en `state.filters.cartera` — son Sets propios
+// (`carteraAnios`/`carteraMeses`, MISMO criterio que `carteraAnioInicio`),
+// fuera del motor de facets de valor único. Default = año/mes calendario
+// actual tildado (paridad con el comportamiento previo del <select>), nunca
+// blanco — ver el literal de `state` más abajo.
 // Año de Inicio de Proyecto (owner feedback, ver HANDOFF): el slicer real
 // de "Analisis Proyectos" (Proyectos.Año de Inicio) permite elegir MÁS de
 // un año a la vez — un <select> de valor único no lo representa. Mismo
@@ -250,20 +247,35 @@ function pruneCarteraAnioInicio() {
 // recién hidratados igual aparecen) — ambos faceteados por Estado, MISMO
 // criterio que Año de Inicio de Proyecto arriba.
 function carteraAnioOptions() {
+  // Estado completamente destildado (owner corrective — mejora
+  // transversal): las opciones se calculan COMO SI ambos Estado
+  // estuvieran tildados (`_statusOrAllIfEmpty`) — Año/Mes conservan su
+  // estructura completa (mismos pills) en vez de colapsar a "sin
+  // opciones"; el pill group entero se deshabilita en la capa de UI
+  // (ver carteraAnioPills/carteraMesPills), nunca acá.
+  const statusGate = _statusOrAllIfEmpty(state.carteraStatus);
   const fromMetadata = state.carteraMantenimientoAniosDisponibles
-    .filter(p => state.carteraStatus[p.estado])
+    .filter(p => statusGate[p.estado])
     .map(p => p.anio);
-  const fromRows = CARTERA_MANTENIMIENTO_ROWS.filter(r => state.carteraStatus[r.status]).map(r => r.anio);
+  const fromRows = CARTERA_MANTENIMIENTO_ROWS.filter(r => statusGate[r.status]).map(r => r.anio);
   return [...new Set([...fromMetadata, ...fromRows])].filter(Boolean).sort().reverse();
 }
 // Prune (MISMO criterio que pruneCarteraAnioInicio) — SOLO ante invalidez
 // real (Estado ya no representa el año seleccionado), NUNCA por el mero
 // cambio de perspectiva (ver setPerspective, PERSPECTIVE-LOCAL FILTER
-// STATE corrective).
+// STATE corrective). Año pasó a multi-select (AÑO/MES MULTI-SELECT
+// corrective) — se podan individualmente los años tildados que dejaron de
+// ser opción, nunca se vacía la selección completa por uno solo inválido.
 function pruneCarteraAnio() {
   const available = new Set(carteraAnioOptions());
-  const current = (state.filters.cartera || {}).anio;
-  if (current && !available.has(current)) state.filters.cartera.anio = "";
+  state.carteraAnios = new Set([...state.carteraAnios].filter(y => available.has(y)));
+}
+// Mes — MISMO criterio de orden que Rentabilidad/Horas Vendidas (Año
+// primero, Mes segundo: su validez depende del Año YA reconciliado, ver
+// reconcileExperienceFacets). Un mes tildado que deja de ser válido para
+// TODOS los años tildados (ver _mesValidoParaAlgunAnio) se destilda solo.
+function pruneCarteraMes() {
+  state.carteraMeses = new Set([...state.carteraMeses].filter(m => _mesValidoParaAlgunAnio(state.carteraAnios, Number(m))));
 }
 // Rentabilidad / Performance (ver corrective — HANDOFF/task): a diferencia
 // de Horas Vendidas/Calendario, "Analisis Rentabilidad" y "Hs Certificadas
@@ -395,9 +407,9 @@ let RENTABILIDAD_NOASIGNADAS_BY_YEAR = {};
 // filas — nunca se hardcodea un total de grupo por separado.
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 // Nombres completos (UX1, owner live QA — Cartera/Mantenimiento vuelve a
-// un selector Año+Mes en vez de Desde/Hasta): el <select> de Mes SIEMPRE
-// ofrece los 12 meses fijos, nunca data-driven (ver carteraMesField) — a
-// diferencia de MESES (abreviado, solo para headers de columna de matriz).
+// un selector Año+Mes en vez de Desde/Hasta): Mes SIEMPRE ofrece los 12
+// meses fijos, nunca data-driven (ver carteraMesPills) — a diferencia de
+// MESES (abreviado, usado también como label de pill/header de matriz).
 const MESES_LARGOS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 // `fecha` (owner feedback, ver HANDOFF: Desde/Hasta faltante en Horas
 // Vendidas) — dentro del año calendario en curso para las 6 filas, mismo
@@ -767,7 +779,7 @@ const CALENDARIO_COMERCIAL_UPDATE_URL = "https://danwor.sharepoint.com/sites/Ges
 // Date(...).getFullYear()`: parsear un string de fecha como Date corre el
 // riesgo de UTC shift de día/año cerca de fin de año en husos horarios
 // negativos). "Hasta" SIEMPRE tiene un
-// valor (ver carteraDefaultFilters — nunca "Todos" para un rango de fecha),
+// valor — nunca "Todos" para un rango de fecha —,
 // currentYear es solo el fallback defensivo. Proyecto ahora permite VARIOS
 // años tildados (ver carteraDefaultAnioInicio) — se toma el más reciente de
 // los tildados como representativo (mismo criterio que "current year" del
@@ -775,14 +787,15 @@ const CALENDARIO_COMERCIAL_UPDATE_URL = "https://danwor.sharepoint.com/sites/Ges
 // si no hay ninguno tildado.
 function carteraUpdateLink() {
   const persp = state.perspective.cartera;
-  const filters = state.filters.cartera || {};
   const currentYear = new Date().getFullYear();
   let year = currentYear;
   if (persp === "Mantenimiento") {
-    // UX1 (owner live QA): Mantenimiento reemplazó Desde/Hasta por Año/Mes
-    // — el año seleccionado se lee directo de `filters.anio` (ya no hay
-    // `filters.hasta` del cual derivarlo).
-    year = filters.anio ? parseInt(filters.anio, 10) : currentYear;
+    // UX1 (owner live QA): Mantenimiento reemplazó Desde/Hasta por Año/Mes.
+    // Año pasó a multi-select (AÑO/MES MULTI-SELECT corrective) — MISMO
+    // criterio que el `else` de abajo (Año de Inicio): el más reciente de
+    // los tildados es el representativo, currentYear si no hay ninguno.
+    const selected = [...state.carteraAnios].map(Number);
+    if (selected.length) year = Math.max(...selected);
   } else {
     const selected = [...state.carteraAnioInicio].map(Number);
     if (selected.length) year = Math.max(...selected);
@@ -831,7 +844,7 @@ const state = {
   // HV) o Año/Estado (Participación, checkbox multi-select propio, ver
   // comercialParticipacionAnios abajo) — `filters.comercial` solo guarda
   // CP/Cliente.
-  filters: { cartera: carteraDefaultFilters("Mantenimiento"), rentabilidad: {},
+  filters: { cartera: {}, rentabilidad: {},
              horasvendidas: {}, calendario: {}, capacidad: {}, comercial: {} },
   // Status de Cartera/Proyectos — vocabulario real "En curso"/"Finalizado"
   // (Proyectos.Status). Checkbox-group propio (no el motor `filters`
@@ -846,6 +859,13 @@ const state = {
   // Inicializado tras el literal (ver abajo) — carteraDefaultAnioInicio() lee
   // `state`, que todavía no existe durante la evaluación de este objeto.
   carteraAnioInicio: new Set(),
+  // Año/Mes de Mantenimiento (AÑO/MES MULTI-SELECT corrective, ver
+  // HANDOFF) — MISMO criterio que carteraAnioInicio (Sets fuera de
+  // `filters`), default = año/mes calendario actual (paridad con el
+  // <select> retirado, que no chequeaba disponibilidad tampoco). Vacío ==
+  // "Todos" en ambos.
+  carteraAnios: new Set([String(new Date().getFullYear())]),
+  carteraMeses: new Set([String(new Date().getMonth() + 1)]),
   // Ciclo de vida de la carga de datos REALES de Cartera — UN status POR
   // PERSPECTIVA (P5, owner live QA de performance: Mantenimiento NUNCA
   // debe esperar el fetch+parse de la XLSX de Facturadas que solo Proyecto
@@ -855,14 +875,15 @@ const state = {
   carteraProyectoStatus: "idle",
   // HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): metadata de años
   // disponibles de Mantenimiento (año/estado, endpoint separado y liviano
-  // — ver loadCarteraMantenimientoAnios) + qué año frío puntual está en
-  // vuelo/falló (single-flight POR AÑO, `carteraMantenimientoYearLoading`
-  // es un Set — más de un año nunca compite entre sí, aunque la UI actual
-  // solo permite seleccionar uno a la vez).
+  // — ver loadCarteraMantenimientoAnios) + qué año(s) frío(s) están en
+  // vuelo/fallaron (single-flight POR AÑO — Año pasó a multi-select, ver
+  // AÑO/MES MULTI-SELECT corrective, así que varios años pueden estar en
+  // vuelo o fallar a la vez; MISMO criterio que
+  // comercialParticipacionYearLoading/YearErrors).
   carteraMantenimientoAniosDisponibles: [],
   carteraMantenimientoAniosStatus: "idle",
   carteraMantenimientoYearLoading: new Set(),
-  carteraMantenimientoYearError: "",
+  carteraMantenimientoYearErrors: new Set(),
   // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
@@ -876,7 +897,15 @@ const state = {
   rentabilidadAniosDisponibles: [],
   rentabilidadAniosStatus: "idle",
   rentabilidadYearLoading: new Set(),
-  rentabilidadYearError: "",
+  // AÑO/MES MULTI-SELECT corrective (owner directive — propagar el patrón
+  // aprobado de Cartera, ver HANDOFF): Año/Mes pasan a Sets multi-select
+  // (MISMO criterio que carteraAnios/carteraMeses), YearError pasa a Set
+  // (varios años fríos pueden fallar independientemente, MISMO criterio
+  // que carteraMantenimientoYearErrors). Default = año actual válido (o
+  // el más reciente disponible) tildado — paridad con el <select> previo.
+  rentabilidadAnios: new Set(),
+  rentabilidadMeses: new Set(),
+  rentabilidadYearErrors: new Set(),
   // Estado de Rentabilidad — checkbox-group propio (mismo patrón que
   // carteraStatus): default "En curso" únicamente (Finalizado disponible pero
   // no tildado de entrada). Migración Año/Mes/Estado (ver HANDOFF §-16 #8).
@@ -894,7 +923,11 @@ const state = {
   horasVendidasAniosDisponibles: [],
   horasVendidasAniosStatus: "idle",
   horasVendidasYearLoading: new Set(),
-  horasVendidasYearError: "",
+  // AÑO/MES MULTI-SELECT corrective — MISMO criterio que Rentabilidad/
+  // Cartera arriba.
+  horasVendidasAnios: new Set(),
+  horasVendidasMeses: new Set(),
+  horasVendidasYearErrors: new Set(),
   // Backbone reuse de Cartera (Calendario/Salud de Cliente, ver HANDOFF):
   // MISMO ciclo de vida, UN solo status para las 2 FULL-HISTORY categóricas
   // que quedan (comparten UN fetch/endpoint consolidado — ver
@@ -1234,48 +1267,37 @@ const FACET_CONFIG = {
   cartera: () => {
     const persp = state.perspective.cartera;
     const cfg = CARTERA_CONFIG[persp];
-    // Año de Inicio (Proyecto, ver toggleCarteraAnioInicio) se aplica ACÁ
-    // igual que Status — checkbox multi-select FUERA del motor de facets de
-    // valor único, pre-filtra `baseRows` antes de que Client Partner/
-    // Proyecto/Cliente faceteen sobre lo que queda.
+    // Año de Inicio (Proyecto, ver toggleCarteraAnioInicio) y Año/Mes de
+    // Mantenimiento (ver toggleCarteraAnio/toggleCarteraMes, AÑO/MES
+    // MULTI-SELECT corrective) se aplican ACÁ igual que Status — Sets
+    // multi-select FUERA del motor de facets de valor único (<select>),
+    // pre-filtran `baseRows` antes de que Client Partner/Proyecto/Cliente
+    // faceteen sobre lo que queda. Año de Mantenimiento tiene su PROPIA
+    // reconciliación (`pruneCarteraAnio`/`pruneCarteraMes`, ver
+    // `reconcileExperienceFacets` — metadata-driven, no rows-driven: con la
+    // ventana caliente por defecto `baseRows` NUNCA incluye años fríos,
+    // reconciliar contra eso los vaciaría apenas el usuario tilda uno que
+    // todavía no hidrató, exactamente lo que "DO NOT CONFUSE OPTIONS WITH
+    // HYDRATED FACTS" prohíbe). Selección vacía (Set vacío) == "Todos" en
+    // ambos, nunca 0 filas.
     const baseRows = cfg.rows.filter(r => state.carteraStatus[r.status])
-      .filter(r => persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio));
-    // Mantenimiento (UX1, owner live QA — vuelve de Desde/Hasta a Año+Mes,
-    // grano MENSUAL real de la fuente): Año y Mes usan `predicate`
-    // (igualdad exacta) — AMBOS quedan FUERA de la reconciliación genérica
-    // (HOT WINDOW / COLD HISTORY corrective, ver HANDOFF: Año dejó de ser
-    // reconciliable contra `baseRows` porque con la ventana caliente por
-    // defecto esas filas NUNCA incluyen años fríos — reconciliarlo acá lo
-    // podría a "Todos" apenas el usuario elige un año que todavía no
-    // hidrató, exactamente lo que "DO NOT CONFUSE OPTIONS WITH HYDRATED
-    // FACTS" prohíbe). Año tiene su PROPIA reconciliación
-    // (`pruneCarteraAnio`, ver `reconcileExperienceFacets` — metadata-
-    // driven, no rows-driven) — el `predicate` de acá SIGUE aplicando el
-    // filtro real a la tabla (igual que siempre), solo cambia de dónde
-    // salen las OPCIONES del <select> (ver `carteraAnioField`/
-    // `carteraAnioOptions`). Mes sigue exento por el motivo de siempre: el
-    // <select> de Mes SIEMPRE ofrece los 12 meses fijos (ver
-    // carteraMesField), nunca se poda por falta de datos ese mes. Proyecto
-    // NO agrega un facet de Año de Inicio acá (se convirtió en checkbox
-    // multi-select, ver arriba — ya no es un <select> de valor único).
-    const dateFields = persp === "Mantenimiento"
-      ? [
-          { key: "anio", field: "anio", predicate: (anio, selected) => anio === selected },
-          { key: "mes", field: "mes", predicate: (mes, selected) => mes === selected },
-        ]
-      : [];
+      .filter(r => persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio))
+      .filter(r => persp !== "Mantenimiento" || (
+        (state.carteraAnios.size === 0 || state.carteraAnios.has(r.anio)) &&
+        (state.carteraMeses.size === 0 || state.carteraMeses.has(String(r.mes)))
+      ));
     // Client Partner (owner feedback, ver HANDOFF: filtro faltante en
     // Cartera) — PRIMERO en el orden, mismo criterio que Rentabilidad/
     // Comercial/Horas Vendidas de acá en más.
     return {
       baseRows,
-      fields: [{ key: "cp", field: "cp" }, { key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }, ...dateFields],
+      fields: [{ key: "cp", field: "cp" }, { key: "proyecto", field: "proyecto" }, { key: "cliente", field: "cliente" }],
     };
   },
   rentabilidad: () => ({
     // baseRows escopeada por Estado (checkbox-group, fuera del motor <select>)
     // para que las opciones de CP/Cliente/Tipo/Proyecto respeten Estado. Año/Mes
-    // se manejan aparte (ver rentabilidadAnioOptions / carteraMesField-style).
+    // se manejan aparte (ver rentabilidadAnioOptions / carteraMesPills-style).
     baseRows: RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]),
     fields: [
       { key: "cp", field: "cp" }, { key: "cliente", field: "cliente" },
@@ -1310,7 +1332,9 @@ const FACET_CONFIG = {
   // nunca acá (no hay un único "baseRows" Año/Mes-escopeado compartido por
   // ambos paneles).
   capacidad: () => state.perspective.capacidad === "Productivas"
-    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]), fields: [{ key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }] }
+    // UNRESOLVED-ESTADO corrective (ver _capacidadEstadoAllows): nunca
+    // `state.capacidadStatus[r.estado]` directo.
+    ? { baseRows: CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => _capacidadEstadoAllows(r.estado)), fields: [{ key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }] }
     // No Asignadas: Año es PANEL-INDEPENDIENTE del motor genérico (owner
     // corrective, MISMO criterio que Productivas) — `baseRows` ya viene
     // proyectado al Año elegido vía `capacidadNoAsignadasSelectedRows`,
@@ -1344,7 +1368,7 @@ function reconcileExperienceFacets(expId, justChangedKey) {
   // Año (Cartera/Mantenimiento, HOT WINDOW/COLD HISTORY corrective) usa su
   // propia reconciliación metadata-driven (ver pruneCarteraAnio) por el
   // mismo motivo — exento del motor genérico vía `predicate`.
-  if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); }
+  if (expId === "cartera") { pruneCarteraAnioInicio(); pruneCarteraAnio(); pruneCarteraMes(); }
   // Rentabilidad/Horas Vendidas: Año se reconcilia PRIMERO (puede cambiar
   // el año activo), Mes SEGUNDO (su validez — CURRENT-YEAR FUTURE-MONTH
   // CAP, ver TEMPORAL DOMAIN CONTRACT — depende del Año YA reconciliado).
@@ -1376,16 +1400,10 @@ function reconcileExperienceFacets(expId, justChangedKey) {
 // es seguro sin esto (`_applyMonthCap` capa igual), esto es solo higiene
 // de estado para que el <select> nunca muestre una selección fantasma.
 function pruneRentabilidadMes() {
-  const anio = getFilter("rentabilidad", "anio");
-  const mes = getFilter("rentabilidad", "mes");
-  if (!mes) return;
-  if (!_validMesOptions(anio).some(m => m.value === mes)) state.filters.rentabilidad.mes = "";
+  state.rentabilidadMeses = new Set([...state.rentabilidadMeses].filter(m => _mesValidoParaAlgunAnio(state.rentabilidadAnios, Number(m))));
 }
 function pruneHorasVendidasMes() {
-  const anio = getFilter("horasvendidas", "anio");
-  const mes = getFilter("horasvendidas", "mes");
-  if (!mes) return;
-  if (!_validMesOptions(anio).some(m => m.value === mes)) state.filters.horasvendidas.mes = "";
+  state.horasVendidasMeses = new Set([...state.horasVendidasMeses].filter(m => _mesValidoParaAlgunAnio(state.horasVendidasAnios, Number(m))));
 }
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
@@ -1433,17 +1451,26 @@ function resetFilters(expId) {
     // "Limpiar" vuelve al default SENSATO (año/mes actual, Estado = En
     // curso, Año de Inicio = año en curso si está representado), no a
     // blanco — mismo criterio ya establecido para Estado.
-    state.filters.cartera = carteraDefaultFilters(state.perspective.cartera);
+    state.filters.cartera = {};
     state.carteraStatus = { "En curso": true, "Finalizado": false };
     state.carteraAnioInicio = carteraDefaultAnioInicio();
+    state.carteraAnios = new Set([String(new Date().getFullYear())]);
+    state.carteraMeses = new Set([String(new Date().getMonth() + 1)]);
   } else if (expId === "rentabilidad") {
-    // TEMPORAL DOMAIN CONTRACT: default SENSATO (año actual válido + Mes
-    // Todos + Estado En curso), NUNCA Desde/Hasta (retirado) ni blanco.
+    // Default SENSATO (año actual válido tildado + Mes Todos + Estado En
+    // curso), NUNCA Desde/Hasta (retirado) ni blanco — AÑO/MES
+    // MULTI-SELECT corrective: Año/Mes ahora son Sets propios
+    // (rentabilidadAnios/rentabilidadMeses), MISMO criterio que Cartera.
     state.rentabilidadStatus = { "En curso": true, "Finalizado": false };
-    state.filters.rentabilidad = { anio: rentabilidadDefaultAnio(), mes: "" };
+    state.filters.rentabilidad = {};
+    state.rentabilidadAnios = rentabilidadDefaultAniosSet();
+    state.rentabilidadMeses = new Set();
   } else if (expId === "horasvendidas") {
+    // AÑO/MES MULTI-SELECT corrective: MISMO criterio que Rentabilidad.
     state.horasVendidasStatus = { "En curso": true, "Finalizado": false };
-    state.filters.horasvendidas = { anio: horasVendidasDefaultAnio(), mes: "" };
+    state.filters.horasvendidas = {};
+    state.horasVendidasAnios = horasVendidasDefaultAniosSet();
+    state.horasVendidasMeses = new Set();
   } else if (expId === "comercial") {
     // Default SENSATO (ventana caliente tildada + Estado En curso), NUNCA
     // Desde/Hasta (retirado) ni blanco — MISMO criterio que Rentabilidad/HV.
@@ -1486,6 +1513,22 @@ function toggleCarteraAnioInicio(year) {
   reconcileExperienceFacets("cartera");
   render();
 }
+// Año/Mes de Mantenimiento (AÑO/MES MULTI-SELECT corrective) — MISMO
+// criterio que Año de Inicio arriba. Año dispara reconciliación (puede
+// habilitar/deshabilitar meses, ver pruneCarteraMes) y, al render
+// siguiente, su propio lazy-load de años fríos si corresponde (ver
+// renderCartera).
+function toggleCarteraAnio(year) {
+  if (state.carteraAnios.has(year)) state.carteraAnios.delete(year);
+  else state.carteraAnios.add(year);
+  reconcileExperienceFacets("cartera");
+  render();
+}
+function toggleCarteraMes(mes) {
+  if (state.carteraMeses.has(mes)) state.carteraMeses.delete(mes);
+  else state.carteraMeses.add(mes);
+  render();
+}
 function selectField(expId, key, label, options) {
   const current = getFilter(expId, key);
   return `<label class="whatsnew-filter">
@@ -1496,41 +1539,75 @@ function selectField(expId, key, label, options) {
     </select>
   </label>`;
 }
-// Año de Cartera/Mantenimiento (HOT WINDOW / COLD HISTORY corrective, ver
-// HANDOFF): opciones vía `carteraAnioOptions()` (metadata + filas
-// cargadas, NUNCA solo `CARTERA_MANTENIMIENTO_ROWS` — ver comentario ahí)
-// en vez de `facetSelectField`, para que un año frío siga siendo
-// seleccionable aunque sus filas todavía no se hayan hidratado. Elegir un
-// año frío dispara su lazy-load (ver renderCartera/
-// loadCarteraMantenimientoColdYear) — este <select> en sí no sabe ni le
-// importa si el año elegido ya está tibio o no, solo expone la opción.
-function carteraAnioField() {
-  const current = getFilter("cartera", "anio");
-  const options = carteraAnioOptions();
-  return `<label class="whatsnew-filter whatsnew-filter--narrow">
-    <span>Año</span>
-    <select onchange="setFilter('cartera','anio', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
-    </select>
-  </label>`;
+// Año/Mes de Cartera/Mantenimiento — SEGUNDA FILA, controles pill de
+// selección múltiple (DECISIÓN VISUAL OWNER, ver HANDOFF: Año/Mes son
+// filtros de primera clase, MISMO peso visual que los <select> globales —
+// nunca la variante compacta `--multi` de Horas Productivas). Reusa
+// `pillMultiField` (ver definición más abajo, junto a `selectField`).
+// Opciones de Año vía `carteraAnioOptions()` (metadata + filas cargadas,
+// NUNCA solo `CARTERA_MANTENIMIENTO_ROWS` — ver comentario ahí), para que
+// un año frío siga siendo tildable aunque sus filas todavía no se hayan
+// hidratado — tildarlo dispara su lazy-load (ver renderCartera/
+// loadCarteraMantenimientoColdYear).
+function carteraAnioPills() {
+  // ESTADO VACÍO corrective (mejora transversal, ver
+  // _statusOrAllIfEmpty/carteraAnioOptions): sin ningún Estado tildado,
+  // el pill group entero queda deshabilitado en vez de colapsar a "sin
+  // opciones".
+  const disabledAll = !_statusHasAnySelected(state.carteraStatus);
+  return pillMultiField("Año", carteraAnioOptions(), state.carteraAnios, "toggleCarteraAnio", { disabledAll });
 }
-// Mes de Cartera/Mantenimiento (UX1, owner live QA): SIEMPRE los 12 meses
-// fijos (a diferencia del resto de los facets <select>, que son
-// data-driven vía `facetSelectField` — un mes sin datos bajo el Año/Estado
-// activo sigue siendo una opción VÁLIDA, ver FACET_CONFIG.cartera). MISMA
-// marca `.whatsnew-filter`/`<select>` que `selectField`, pero con
-// value(1-12) != label(nombre completo) — el único facet del Hub con esa
-// necesidad (el resto son enums donde value==label), por eso no reusa
-// `selectField` tal cual.
-function carteraMesField() {
-  const current = getFilter("cartera", "mes");
-  return `<label class="whatsnew-filter whatsnew-filter--narrow">
-    <span>Mes</span>
-    <select onchange="setFilter('cartera','mes', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${MESES_LARGOS.map((nombre, i) => `<option value="${i + 1}" ${current === String(i + 1) ? "selected" : ""}>${esc(nombre)}</option>`).join("")}
-    </select>
+// Mes — SIEMPRE los 12 meses fijos (a diferencia del resto de los facets,
+// que son data-driven — un mes sin datos bajo el Año/Estado activo sigue
+// siendo una opción VÁLIDA, ver FACET_CONFIG.cartera). Deshabilitado (no
+// oculto) el mes futuro del año en curso — MISMO criterio visual que
+// Horas Productivas (`capacidadProductivasMesButtons`) — salvo que algún
+// otro año tildado ya lo habilite (`_mesValidoParaAlgunAnio`, owner
+// decision: AÑO/MES MULTI-SELECT corrective). Estado vacío deshabilita
+// el grupo ENTERO (ESTADO VACÍO corrective), sin importar el cap.
+function carteraMesPills() {
+  const options = MESES.map((abrev, i) => ({
+    value: String(i + 1), label: abrev, title: MESES_LARGOS[i],
+    disabled: !_mesValidoParaAlgunAnio(state.carteraAnios, i + 1),
+  }));
+  const disabledAll = !_statusHasAnySelected(state.carteraStatus);
+  return pillMultiField("Mes", options, state.carteraMeses, "toggleCarteraMes", { scroll: true, fill: true, disabledAll });
+}
+// Segmented pill multi-select (DECISIÓN VISUAL OWNER — AÑO/MES MULTI-
+// SELECT corrective, ver HANDOFF): Año/Mes de Cartera/Rentabilidad/Horas
+// Vendidas/Horas Productivas comparten este primitivo. Reusa
+// `.dashboard-view-switch` (MISMO look que el perspective-switch — altura/
+// padding BASE, nunca la variante compacta `--multi` que ya usaba Horas
+// Productivas: decisión explícita del owner, los filtros temporales son de
+// primera clase). `.is-active` ya soporta varios botones activos a la vez
+// sin ajuste (single-select y multi-select comparten el mismo CSS).
+// `options`: array de strings (value==label) o de objetos
+// `{value, label, title?, disabled?}` cuando difieren (ej. Mes: value=
+// "1".."12", label=abreviatura). `opts.scroll` (Mes): scroll horizontal
+// ANTES de wrap a 2 líneas en viewports angostos (nunca la variante que
+// envuelve — ver `.dashboard-view-switch--scroll`). `opts.fill`: el grupo
+// ocupa el espacio restante de su fila (Año, en cambio, se dimensiona a
+// sus propias opciones). `opts.disabledAll` (ESTADO VACÍO corrective,
+// mejora transversal): fuerza TODOS los botones a disabled sin importar
+// el `disabled` individual de cada option — Estado sin ningún tildado
+// nunca colapsa Año/Mes a "sin opciones", los mantiene con su estructura
+// completa pero enteros deshabilitados hasta que el usuario tilde Estado.
+function pillMultiField(label, options, selectedSet, toggleFnName, opts) {
+  opts = opts || {};
+  const buttons = options.map(o => {
+    const value = typeof o === "object" ? o.value : String(o);
+    const text = typeof o === "object" ? o.label : String(o);
+    const title = typeof o === "object" && o.title ? ` title="${esc(o.title)}"` : "";
+    const disabled = opts.disabledAll || (typeof o === "object" && o.disabled);
+    const active = selectedSet.has(value);
+    return `<button type="button" class="${active ? "is-active" : ""}" ${disabled ? "disabled" : ""}
+      onclick="${toggleFnName}('${value}')"${title}>${esc(text)}</button>`;
+  }).join("");
+  const switchClass = "dashboard-view-switch" + (opts.scroll ? " dashboard-view-switch--scroll" : "");
+  const fieldClass = "whatsnew-filter" + (opts.fill ? " whatsnew-filter--fill" : "");
+  return `<label class="${fieldClass}">
+    <span>${esc(label)}</span>
+    <div class="${switchClass}">${buttons}</div>
   </label>`;
 }
 // items: [{ value, checked, onclick }] — MISMA marca visual que el Estado/
@@ -1624,98 +1701,109 @@ function renderCarteraFilterBar() {
   // SOLO por `carteraStatusFor(persp) === "ready"`, lo que la escondía al
   // conmutar a una perspectiva en carga aun después de hidratar.
   if (!state.reportingTabHydrated.cartera && carteraStatusFor(persp) !== "ready") return "";
-  // Mantenimiento (UX1, owner live QA): Año (facet <select> normal,
-  // data-driven) + Mes (fijo, 12 meses siempre — ver carteraMesField).
-  // Año de Inicio (Proyecto, owner feedback ver HANDOFF): el slicer real
-  // permite VARIOS años tildados a la vez — checkbox-group DINÁMICO (años
-  // realmente presentes en el dataset), no un <select> de valor único.
+  // Mantenimiento (DECISIÓN VISUAL OWNER — AÑO/MES MULTI-SELECT
+  // corrective): Año/Mes van en su PROPIA segunda fila de pills
+  // (`.whatsnew-filters__temporal-row`, ver tools.css), no en la fila de
+  // Client Partner/Proyecto/Cliente/Estado — cascading semantics de esos
+  // 4 sin cambios. Año de Inicio (Proyecto, owner feedback ver HANDOFF):
+  // el slicer real permite VARIOS años tildados a la vez — checkbox-group
+  // DINÁMICO (años realmente presentes en el dataset), no un <select> de
+  // valor único.
   const dateFields = persp === "Mantenimiento"
-    ? carteraAnioField() + carteraMesField()
+    ? `<div class="whatsnew-filters__temporal-row">${carteraAnioPills()}${carteraMesPills()}</div>`
     : checkboxGroupField("Año de Inicio", carteraAnioInicioOptions().map(a =>
         ({ value: a, checked: state.carteraAnioInicio.has(a), onclick: `toggleCarteraAnioInicio('${a}')` })));
+  // Estado ANTES de dateFields en el orden (owner live QA — Estado queda a
+  // la derecha de Cliente en la PRIMERA fila, nunca empujado a una tercera
+  // fila propia): `dateFields` fuerza su propio salto de línea vía
+  // `flex-basis:100%` (ver `.whatsnew-filters__temporal-row`), así que
+  // cualquier campo que venga DESPUÉS de él en el DOM también cae a la
+  // fila siguiente — Estado tiene que preceder a `dateFields`, no seguirlo.
   const fields = facetSelectField("cartera", "cp", "Client Partner")
     + facetSelectField("cartera", "proyecto", "Proyecto")
     + facetSelectField("cartera", "cliente", "Cliente")
-    + dateFields
     + checkboxGroupField("Estado", [
         { value: "En curso", checked: state.carteraStatus["En curso"], onclick: "toggleCarteraStatus('En curso')" },
         { value: "Finalizado", checked: state.carteraStatus["Finalizado"], onclick: "toggleCarteraStatus('Finalizado')" },
-      ]);
+      ])
+    + dateFields;
   return filterBarShell(fields, "cartera");
 }
 
-// Año de Rentabilidad — single-select faceteado (mismo patrón que
-// carteraAnioField); "Todos" = vista colapsada de todos los años.
-// Año — SINGLE-SELECT, NUNCA "Todos" (owner: "Año as a SINGLE YEAR
-// selector — 'Todos' belongs to Mes, not Año", ver TEMPORAL DOMAIN
-// CONTRACT). `options` YA viene filtrado a /^\d{4}$/ (rentabilidadAnioOptions).
-function rentabilidadAnioField() {
-  const current = getFilter("rentabilidad", "anio");
-  const options = rentabilidadAnioOptions();
-  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
-    <select onchange="setFilter('rentabilidad','anio', this.value)">
-      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
-    </select></label>`;
+// Año/Mes de Rentabilidad — PROPAGACIÓN del patrón aprobado de Cartera
+// (owner directive, ver HANDOFF: "REPORTING INTEGRAL — PROPAGATE APPROVED
+// TEMPORAL FILTER PATTERN"): pills multi-select en su propia segunda fila
+// (`pillMultiField`, MISMO helper/CSS/interaction que Cartera — cero
+// duplicación). SUPERSEDE la regla previa "Año SINGLE-SELECT, NUNCA Todos"
+// (TEMPORAL DOMAIN CONTRACT) — decisión explícita del owner al aprobar el
+// patrón de Cartera como referencia canónica para TODO el Integral
+// Dashboard, Año incluido. `options` YA viene filtrado a /^\d{4}$/
+// (rentabilidadAnioOptions).
+function rentabilidadAnioPills() {
+  const disabledAll = !_statusHasAnySelected(state.rentabilidadStatus);
+  return pillMultiField("Año", rentabilidadAnioOptions(), state.rentabilidadAnios, "toggleRentabilidadAnio", { disabledAll });
 }
-// Mes — Todos + 12 fijos, PERO domain-aware del CURRENT-YEAR FUTURE-MONTH
-// CAP (owner: "available individual months should reflect actual valid
-// operational months" — nunca ofrecer Septiembre como mes seleccionable
-// en Agosto-2026 bajo el año en curso). Año histórico: los 12 completos,
-// sin cap (`_validMesOptions`, TEMPORAL DOMAIN CONTRACT).
-function rentabilidadMesField() {
-  const current = getFilter("rentabilidad", "mes");
-  const anio = getFilter("rentabilidad", "anio");
-  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
-    <select onchange="setFilter('rentabilidad','mes', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${_validMesOptions(anio).map(m => `<option value="${m.value}" ${current === m.value ? "selected" : ""}>${esc(m.label)}</option>`).join("")}
-    </select></label>`;
+// Mes — 12 fijos, domain-aware del CURRENT-YEAR FUTURE-MONTH CAP (owner:
+// "available individual months should reflect actual valid operational
+// months"), generalizado a multi-año (`_mesValidoParaAlgunAnio`, MISMO
+// criterio que Cartera: un año histórico tildado habilita el mes aunque
+// el actual todavía no llegue ahí).
+function rentabilidadMesPills() {
+  const options = MESES.map((abrev, i) => ({
+    value: String(i + 1), label: abrev, title: MESES_LARGOS[i],
+    disabled: !_mesValidoParaAlgunAnio(state.rentabilidadAnios, i + 1),
+  }));
+  const disabledAll = !_statusHasAnySelected(state.rentabilidadStatus);
+  return pillMultiField("Mes", options, state.rentabilidadMeses, "toggleRentabilidadMes", { scroll: true, fill: true, disabledAll });
 }
 function renderRentabilidadFilterBar() {
+  // Estado ANTES de la fila temporal (MISMO criterio que Cartera — ver su
+  // comentario): la fila temporal fuerza su propio salto de línea vía
+  // `flex-basis:100%`, así que Estado tiene que preceder a esa fila para
+  // quedar en ROW 1 junto a Proyecto/Cliente, nunca empujado a una fila
+  // propia.
   const fields = facetSelectField("rentabilidad", "cp", "Client Partner")
     + facetSelectField("rentabilidad", "cliente", "Cliente")
     + facetSelectField("rentabilidad", "tipo", "Tipo Proyecto")
     + facetSelectField("rentabilidad", "proyecto", "Proyecto")
-    + rentabilidadAnioField()
-    + rentabilidadMesField()
     + checkboxGroupField("Estado", [
         { value: "En curso", checked: state.rentabilidadStatus["En curso"], onclick: "toggleRentabilidadStatus('En curso')" },
         { value: "Finalizado", checked: state.rentabilidadStatus["Finalizado"], onclick: "toggleRentabilidadStatus('Finalizado')" },
-      ]);
+      ])
+    + `<div class="whatsnew-filters__temporal-row">${rentabilidadAnioPills()}${rentabilidadMesPills()}</div>`;
   return filterBarShell(fields, "rentabilidad");
 }
 
-// Año — SINGLE-SELECT, NUNCA "Todos" (MISMO contrato que Rentabilidad,
-// ver TEMPORAL DOMAIN CONTRACT).
-function horasVendidasAnioField() {
-  const current = getFilter("horasvendidas", "anio");
-  const options = horasVendidasAnioOptions();
-  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Año</span>
-    <select onchange="setFilter('horasvendidas','anio', this.value)">
-      ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
-    </select></label>`;
+// Año/Mes de Horas Vendidas — PROPAGACIÓN del patrón aprobado de Cartera
+// (owner directive, ver HANDOFF: "REPORTING INTEGRAL — PROPAGATE APPROVED
+// TEMPORAL FILTER PATTERN"). SUPERSEDE la regla previa "Año SINGLE-SELECT,
+// NUNCA Todos" (TEMPORAL DOMAIN CONTRACT) — MISMA decisión que Rentabilidad.
+function horasVendidasAnioPills() {
+  const disabledAll = !_statusHasAnySelected(state.horasVendidasStatus);
+  return pillMultiField("Año", horasVendidasAnioOptions(), state.horasVendidasAnios, "toggleHorasVendidasAnio", { disabledAll });
 }
-// Mes — MISMO contrato domain-aware que Rentabilidad (`_validMesOptions`).
-function horasVendidasMesField() {
-  const current = getFilter("horasvendidas", "mes");
-  const anio = getFilter("horasvendidas", "anio");
-  return `<label class="whatsnew-filter whatsnew-filter--narrow"><span>Mes</span>
-    <select onchange="setFilter('horasvendidas','mes', this.value)">
-      <option value="" ${current === "" ? "selected" : ""}>Todos</option>
-      ${_validMesOptions(anio).map(m => `<option value="${m.value}" ${current === m.value ? "selected" : ""}>${esc(m.label)}</option>`).join("")}
-    </select></label>`;
+// Mes — 12 fijos, cap generalizado a multi-año (`_mesValidoParaAlgunAnio`,
+// MISMO criterio que Cartera/Rentabilidad).
+function horasVendidasMesPills() {
+  const options = MESES.map((abrev, i) => ({
+    value: String(i + 1), label: abrev, title: MESES_LARGOS[i],
+    disabled: !_mesValidoParaAlgunAnio(state.horasVendidasAnios, i + 1),
+  }));
+  const disabledAll = !_statusHasAnySelected(state.horasVendidasStatus);
+  return pillMultiField("Mes", options, state.horasVendidasMeses, "toggleHorasVendidasMes", { scroll: true, fill: true, disabledAll });
 }
 function renderHorasVendidasFilterBar() {
+  // Estado ANTES de la fila temporal (MISMO criterio que Cartera/
+  // Rentabilidad — ver su comentario).
   const fields = facetSelectField("horasvendidas", "cp", "Client Partner")
     + facetSelectField("horasvendidas", "tipo", "Tipo Proyecto")
     + facetSelectField("horasvendidas", "cliente", "Cliente")
     + facetSelectField("horasvendidas", "proyecto", "Proyecto")
-    + horasVendidasAnioField()
-    + horasVendidasMesField()
     + checkboxGroupField("Estado", [
         { value: "En curso", checked: state.horasVendidasStatus["En curso"], onclick: "toggleHorasVendidasStatus('En curso')" },
         { value: "Finalizado", checked: state.horasVendidasStatus["Finalizado"], onclick: "toggleHorasVendidasStatus('Finalizado')" },
-      ]);
+      ])
+    + `<div class="whatsnew-filters__temporal-row">${horasVendidasAnioPills()}${horasVendidasMesPills()}</div>`;
   return filterBarShell(fields, "horasvendidas");
 }
 
@@ -1770,13 +1858,19 @@ function renderCapacidadFilterBar() {
 // SALUD_ROWS), no se inventa uno.
 function renderComercialFilterBar() {
   const persp = state.perspective.comercial;
+  // Estado ANTES de la fila temporal (MISMO criterio que Cartera/
+  // Rentabilidad/HV): la fila temporal fuerza su propio salto de línea
+  // vía `flex-basis:100%`. AÑO/MES MULTI-SELECT corrective, sección D:
+  // Año pasó de checkbox-group a pill (MISMO contrato que Cartera), SIN
+  // Mes (Participación no lo necesita).
+  const estadoField = persp === "Participación"
+    ? checkboxGroupField("Estado", [
+        { value: "En curso", checked: state.comercialStatus["En curso"], onclick: "toggleComercialStatus('En curso')" },
+        { value: "Finalizado", checked: state.comercialStatus["Finalizado"], onclick: "toggleComercialStatus('Finalizado')" },
+      ])
+    : "";
   const temporalFields = persp === "Participación"
-    ? checkboxGroupField("Año", comercialParticipacionAnioOptions().map(a =>
-        ({ value: a, checked: state.comercialParticipacionAnios.has(a), onclick: `toggleComercialParticipacionAnio('${a}')` })))
-      + checkboxGroupField("Estado", [
-          { value: "En curso", checked: state.comercialStatus["En curso"], onclick: "toggleComercialStatus('En curso')" },
-          { value: "Finalizado", checked: state.comercialStatus["Finalizado"], onclick: "toggleComercialStatus('Finalizado')" },
-        ])
+    ? `<div class="whatsnew-filters__temporal-row">${comercialParticipacionAnioPills()}</div>`
     : "";
   // Frecuencia (owner request — "agreguemos frecuencia como filtro también
   // al lado de cliente y antes de año"): SOLO Participación, el facet
@@ -1787,6 +1881,7 @@ function renderComercialFilterBar() {
   const fields = facetSelectField("comercial", "cp", "Client Partner")
     + facetSelectField("comercial", "cliente", "Cliente")
     + frecuenciaField
+    + estadoField
     + temporalFields;
   return filterBarShell(fields, "comercial");
 }
@@ -2014,9 +2109,9 @@ async function loadCarteraMantenimiento() {
       state.carteraMantenimientoStatus = "ready";
       // Reconcilia Año/Mes (y Año de Inicio, no-op si Proyecto no está
       // activo) contra los datos REALES recién llegados — el default
-      // calendario (ver carteraDefaultFilters) pudo no tener ningún hecho
-      // real bajo el Estado activo; nunca se deja una selección imposible
-      // sin podar solo porque nadie tocó un filtro a mano todavía.
+      // calendario (año/mes actual) pudo no tener ningún hecho real bajo
+      // el Estado activo; nunca se deja una selección imposible sin podar
+      // solo porque nadie tocó un filtro a mano todavía.
       reconcileExperienceFacets("cartera");
     } else {
       state.carteraMantenimientoStatus = "error";
@@ -2113,12 +2208,15 @@ async function loadCarteraMantenimientoColdYear(anio) {
   if (state.carteraMantenimientoYearLoading.has(anio)) return;
   state.carteraMantenimientoYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "cartera", load_scope: anio });
-  state.carteraMantenimientoYearError = "";
+  state.carteraMantenimientoYearErrors.delete(anio);
   // Cold-year foreground load (owner corrective — "toda espera Graph
   // visible usa el loader canónico del Hub", no solo first hydration): el
   // ownership del begin/complete/fail vive ACÁ, en la operación real —
   // nunca detectado desde render(). MISMA key que la primera hidratación
-  // de Cartera (mismo endpoint real).
+  // de Cartera (mismo endpoint real). AÑO/MES MULTI-SELECT corrective:
+  // cada año tildado dispara SU PROPIA carga independiente (owner
+  // decision — nunca bundleadas, a diferencia de Participación), así que
+  // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("cartera", { seedMs: 9000 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -2132,11 +2230,11 @@ async function loadCarteraMantenimientoColdYear(anio) {
       reconcileExperienceFacets("cartera");
       HubForegroundProgress.complete("cartera");
     } else {
-      state.carteraMantenimientoYearError = anio;
+      state.carteraMantenimientoYearErrors.add(anio);
       HubForegroundProgress.fail("cartera");
     }
   } catch (e) {
-    state.carteraMantenimientoYearError = anio;
+    state.carteraMantenimientoYearErrors.add(anio);
     HubForegroundProgress.fail("cartera");
   }
   state.carteraMantenimientoYearLoading.delete(anio);
@@ -2147,13 +2245,18 @@ function renderCarteraDataState() {
   if (carteraStatusFor(persp) === "error") {
     return reportingSourceErrorHtml("los datos de Cartera");
   }
+  // AÑO/MES MULTI-SELECT corrective: MISMO criterio que
+  // renderParticipacionDataState — varios años tildados pueden estar en
+  // vuelo/fallar a la vez, se listan todos los que efectivamente fallaron.
   if (persp === "Mantenimiento") {
-    const anio = getFilter("cartera", "anio");
-    if (anio && state.carteraMantenimientoYearError === anio) {
-      return reportingSourceErrorHtml(`los datos de Cartera del año ${anio}`);
+    const erroredChecked = [...state.carteraAnios].filter(y => state.carteraMantenimientoYearErrors.has(y));
+    if (erroredChecked.length) {
+      return reportingSourceErrorHtml(`los datos de Cartera del año ${erroredChecked.join(", ")}`);
     }
-    if (anio && !carteraMantenimientoLoadedYears().has(anio)) {
-      return reportingLoadingHtml(`Cargando datos de Cartera del año ${anio}…`);
+    const loadedYears = carteraMantenimientoLoadedYears();
+    const pendientes = [...state.carteraAnios].filter(y => !loadedYears.has(y));
+    if (pendientes.length) {
+      return reportingLoadingHtml(`Cargando datos de Cartera del año ${pendientes.join(", ")}…`);
     }
   }
   return reportingLoadingHtml("Cargando datos de Cartera…");
@@ -2192,10 +2295,13 @@ async function loadRentabilidadData() {
       replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos);
       replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly);
       RENTABILIDAD_NOASIGNADAS_BY_YEAR = data.rentabilidad.noAsignadasByYear || {};
-      // Default Año = año actual válido (faceted fallback) — SOLO en hidratación
-      // (nunca en cambio de perspectiva; ver §10 del batch).
-      if (!getFilter("rentabilidad", "anio")) {
-        state.filters.rentabilidad.anio = rentabilidadDefaultAnio();
+      // Default Año = año actual válido (faceted fallback) — SOLO en la
+      // PRIMERA hidratación (nunca en cambio de perspectiva; ver §10 del
+      // batch) — este bloque corre una única vez por el gate `idle` de
+      // `rentabilidadDataStatus`, así que el guard de abajo nunca pisa una
+      // selección posterior del usuario (AÑO/MES MULTI-SELECT corrective).
+      if (state.rentabilidadAnios.size === 0) {
+        state.rentabilidadAnios = rentabilidadDefaultAniosSet();
       }
       state.rentabilidadDataStatus = "ready";
     } else {
@@ -2258,10 +2364,13 @@ async function loadRentabilidadColdYear(anio) {
   if (state.rentabilidadYearLoading.has(anio)) return;
   state.rentabilidadYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "rentabilidad", load_scope: anio });
-  state.rentabilidadYearError = "";
+  state.rentabilidadYearErrors.delete(anio);
   // Cold-year foreground load — MISMO criterio que Cartera (ver
   // loadCarteraMantenimientoColdYear): ownership del begin/complete/fail
   // vive ACÁ. MISMA key que la primera hidratación de Rentabilidad.
+  // AÑO/MES MULTI-SELECT corrective: cada año tildado dispara SU PROPIA
+  // carga independiente (owner decision — nunca bundleadas), así que
+  // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("rentabilidad", { seedMs: 14500 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -2274,11 +2383,11 @@ async function loadRentabilidadColdYear(anio) {
       reconcileExperienceFacets("rentabilidad");
       HubForegroundProgress.complete("rentabilidad");
     } else {
-      state.rentabilidadYearError = anio;
+      state.rentabilidadYearErrors.add(anio);
       HubForegroundProgress.fail("rentabilidad");
     }
   } catch (e) {
-    state.rentabilidadYearError = anio;
+    state.rentabilidadYearErrors.add(anio);
     HubForegroundProgress.fail("rentabilidad");
   }
   state.rentabilidadYearLoading.delete(anio);
@@ -2288,12 +2397,17 @@ function renderRentabilidadDataState() {
   if (state.rentabilidadDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Rentabilidad");
   }
-  const anio = getFilter("rentabilidad", "anio");
-  if (anio && state.rentabilidadYearError === anio) {
-    return reportingSourceErrorHtml(`los datos de Rentabilidad del año ${anio}`);
+  // AÑO/MES MULTI-SELECT corrective: MISMO criterio que
+  // renderCarteraDataState — varios años tildados pueden estar en
+  // vuelo/fallar a la vez, se listan todos los que efectivamente fallaron.
+  const erroredChecked = [...state.rentabilidadAnios].filter(y => state.rentabilidadYearErrors.has(y));
+  if (erroredChecked.length) {
+    return reportingSourceErrorHtml(`los datos de Rentabilidad del año ${erroredChecked.join(", ")}`);
   }
-  if (anio && !rentabilidadLoadedYears().has(anio)) {
-    return reportingLoadingHtml(`Cargando datos de Rentabilidad del año ${anio}…`);
+  const loadedYears = rentabilidadLoadedYears();
+  const pendientes = [...state.rentabilidadAnios].filter(y => !loadedYears.has(y));
+  if (pendientes.length) {
+    return reportingLoadingHtml(`Cargando datos de Rentabilidad del año ${pendientes.join(", ")}…`);
   }
   return reportingLoadingHtml("Cargando datos de Rentabilidad…");
 }
@@ -2367,10 +2481,11 @@ async function loadHorasVendidasData() {
     const data = await resp.json();
     if (data.state === "ok" && data.horasVendidas) {
       replaceRows(HORASVENDIDAS_ROWS, data.horasVendidas);
-      // Default Año = año actual válido (faceted fallback) — SOLO en hidratación
-      // (nunca en cambio de perspectiva). Mismo criterio que Rentabilidad.
-      if (!getFilter("horasvendidas", "anio")) {
-        state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
+      // Default Año = año actual válido (faceted fallback) — SOLO en la
+      // PRIMERA hidratación (nunca en cambio de perspectiva). MISMO
+      // criterio que Rentabilidad (AÑO/MES MULTI-SELECT corrective).
+      if (state.horasVendidasAnios.size === 0) {
+        state.horasVendidasAnios = horasVendidasDefaultAniosSet();
       }
       state.horasVendidasDataStatus = "ready";
     } else {
@@ -2412,9 +2527,11 @@ async function loadHorasVendidasColdYear(anio) {
   if (state.horasVendidasYearLoading.has(anio)) return;
   state.horasVendidasYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "horasvendidas", load_scope: anio });
-  state.horasVendidasYearError = "";
+  state.horasVendidasYearErrors.delete(anio);
   // Cold-year foreground load — MISMO criterio que Cartera/Rentabilidad.
-  // MISMA key que la primera hidratación de Horas Vendidas.
+  // MISMA key que la primera hidratación de Horas Vendidas. AÑO/MES
+  // MULTI-SELECT corrective: cada año tildado dispara SU PROPIA carga
+  // independiente, varias pueden estar en vuelo/fallar a la vez.
   HubForegroundProgress.begin("horasvendidas", { seedMs: 9500 });
   try {
     const token = sessionStorage.getItem("dw-graph-token") || "";
@@ -2427,11 +2544,11 @@ async function loadHorasVendidasColdYear(anio) {
       reconcileExperienceFacets("horasvendidas");
       HubForegroundProgress.complete("horasvendidas");
     } else {
-      state.horasVendidasYearError = anio;
+      state.horasVendidasYearErrors.add(anio);
       HubForegroundProgress.fail("horasvendidas");
     }
   } catch (e) {
-    state.horasVendidasYearError = anio;
+    state.horasVendidasYearErrors.add(anio);
     HubForegroundProgress.fail("horasvendidas");
   }
   state.horasVendidasYearLoading.delete(anio);
@@ -2460,12 +2577,16 @@ function renderHorasVendidasDataState() {
   if (state.horasVendidasDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Horas Vendidas");
   }
-  const anio = getFilter("horasvendidas", "anio");
-  if (anio && state.horasVendidasYearError === anio) {
-    return reportingSourceErrorHtml(`los datos de Horas Vendidas del año ${anio}`);
+  // AÑO/MES MULTI-SELECT corrective: MISMO criterio que
+  // renderCarteraDataState/renderRentabilidadDataState.
+  const erroredChecked = [...state.horasVendidasAnios].filter(y => state.horasVendidasYearErrors.has(y));
+  if (erroredChecked.length) {
+    return reportingSourceErrorHtml(`los datos de Horas Vendidas del año ${erroredChecked.join(", ")}`);
   }
-  if (anio && !horasVendidasLoadedYears().has(anio)) {
-    return reportingLoadingHtml(`Cargando datos de Horas Vendidas del año ${anio}…`);
+  const loadedYears = horasVendidasLoadedYears();
+  const pendientes = [...state.horasVendidasAnios].filter(y => !loadedYears.has(y));
+  if (pendientes.length) {
+    return reportingLoadingHtml(`Cargando datos de Horas Vendidas del año ${pendientes.join(", ")}…`);
   }
   return reportingLoadingHtml("Cargando datos de Horas Vendidas…");
 }
@@ -2669,17 +2790,19 @@ function renderCartera() {
   const persp = state.perspective.cartera;
   const status = carteraStatusFor(persp);
   if (status !== "ready") return renderCarteraDataState();
-  // HOT WINDOW / COLD HISTORY corrective: si Mantenimiento tiene un Año
-  // seleccionado que todavía no está hidratado (año frío), dispara su
-  // lazy-load (single-flight, ver loadCarteraMantenimientoColdYear) y
-  // muestra el loader compartido SOLO para ese trabajo pendiente — el
-  // filter bar (render aparte, ver FILTER_BARS) sigue interactivo. Un
-  // cambio de perspectiva NUNCA llega acá con un año inválido para la
-  // OTRA perspectiva (Año/anioInicio son namespaces de filtro distintos).
+  // HOT WINDOW / COLD HISTORY corrective: si Mantenimiento tiene año(s)
+  // tildado(s) todavía no hidratado(s) (frío), dispara SU PROPIO lazy-load
+  // por cada uno (single-flight POR AÑO, ver loadCarteraMantenimientoColdYear
+  // — AÑO/MES MULTI-SELECT corrective: owner decision, nunca bundleados) y
+  // muestra el loader compartido mientras falte alguno — el filter bar
+  // (render aparte, ver FILTER_BARS) sigue interactivo. Un cambio de
+  // perspectiva NUNCA llega acá con un año inválido para la OTRA
+  // perspectiva (Año/anioInicio son namespaces de filtro distintos).
   if (persp === "Mantenimiento") {
-    const anio = getFilter("cartera", "anio");
-    if (anio && !carteraMantenimientoLoadedYears().has(anio) && state.carteraMantenimientoYearError !== anio) {
-      loadCarteraMantenimientoColdYear(anio);
+    const loadedYears = carteraMantenimientoLoadedYears();
+    const pendientes = [...state.carteraAnios].filter(y => !loadedYears.has(y) && !state.carteraMantenimientoYearErrors.has(y));
+    if (pendientes.length) {
+      pendientes.forEach(loadCarteraMantenimientoColdYear);
       return renderCarteraDataState();
     }
   }
@@ -2763,6 +2886,35 @@ function _currentYearStr() { return String(new Date().getFullYear()); }
 function _operationalMonthCap(anio) {
   return anio === _currentYearStr() ? (new Date().getMonth() + 1) : null;
 }
+// ESTADO VACÍO corrective (owner — mejora transversal a Año/Mes multi-
+// select): con AMBOS checkboxes de Estado destildados, las 0 filas
+// resultantes harían que Año/Mes calculen 0 opciones y la fila temporal
+// entera "desaparezca" (colapsa a nada) en vez de quedar deshabilitada
+// con su estructura intacta. Devuelve un status map "como si" todo
+// estuviera tildado — SOLO para calcular qué pills MOSTRAR (nunca para
+// filtrar filas reales: eso sigue usando `state.XStatus` sin tocar).
+function _statusHasAnySelected(statusMap) {
+  return Object.values(statusMap).some(Boolean);
+}
+function _statusOrAllIfEmpty(statusMap) {
+  if (_statusHasAnySelected(statusMap)) return statusMap;
+  const forced = {};
+  Object.keys(statusMap).forEach(k => { forced[k] = true; });
+  return forced;
+}
+// AÑO/MES MULTI-SELECT corrective (owner decision, ver HANDOFF): con Año
+// multi-select, un mes es válido si lo es para ALGÚN año tildado — un año
+// histórico tildado junto al actual habilita igual los meses futuros del
+// actual (el cap de un año NUNCA restringe a los demás). Selección vacía
+// (Todos) se comporta igual — nunca más restrictiva que elegir
+// explícitamente un año histórico.
+function _mesValidoParaAlgunAnio(anios, mesNum) {
+  if (anios.size === 0) return true;
+  return [...anios].some(a => {
+    const cap = _operationalMonthCap(a);
+    return !cap || mesNum <= cap;
+  });
+}
 // `cap` es 1-based (Agosto=8 ⇒ índices 0..7 válidos, 8..11 ⇒ null).
 // `cap` null/falsy ⇒ passthrough sin cambios (año histórico).
 function _applyMonthCap(arr, cap) {
@@ -2783,6 +2935,21 @@ function _sumMonthlyArrays(arrays) {
     totals[i] = (totals[i] || 0) + v;
   }));
   return totals;
+}
+// AÑO/MES MULTI-SELECT corrective (owner directive — propagar Cartera):
+// generaliza un mapa year→array[12] (ej. `p.certByYear`) a MÚLTIPLES años
+// tildados — "OR dentro de dimensión": el resultado es la SUMA null-aware
+// (`_sumMonthlyArrays`) de los años seleccionados. El cap de mes futuro se
+// aplica POR AÑO antes de sumar (`_operationalMonthCap`, null para
+// históricos) — un año histórico tildado junto al actual aporta sus
+// meses reales sin que el cap del actual los anule (MISMO criterio que
+// `_mesValidoParaAlgunAnio`, aplicado ahora al DATO en vez de al pill).
+// Selección vacía (Todos) devuelve `fallbackArr` — la vista colapsada de
+// todos los años, MISMO comportamiento que el <select> retirado.
+function _yearRangeMonthly(byYearMap, fallbackArr, anios) {
+  if (anios.size === 0) return fallbackArr || _z12();
+  const perYear = [...anios].map(a => _applyMonthCap((byYearMap || {})[a] || _z12(), _operationalMonthCap(a)));
+  return _sumMonthlyArrays(perYear);
 }
 // Diferencia elemento-a-elemento NULL-AWARE (ej. Rentabilidad horas =
 // Certificadas − Trabajadas por mes): si CUALQUIERA de los dos operandos
@@ -2836,12 +3003,23 @@ function _maskMes(arr, mes) {
 function _maskMeses(arr, mesesSet) {
   const a = (arr || _z12()).slice();
   if (!mesesSet || mesesSet.size === 0) return a;
-  return a.map((v, i) => (mesesSet.has(String(i + 1)) ? v : 0));
+  // NULL-AWARE (AÑO/MES MULTI-SELECT corrective — Rentabilidad/Horas
+  // Vendidas aplican el cap de mes futuro POR AÑO antes de enmascarar por
+  // Mes, ver _yearRangeMonthly): un índice ya `null` (cap futuro, "no
+  // aplicable") se mantiene `null` al excluirlo, nunca se pisa con un `0`
+  // real que sugeriría "ya sabemos que da cero" — MISMO criterio que
+  // _sumMonthlyArrays/_applyMonthCap.
+  return a.map((v, i) => (mesesSet.has(String(i + 1)) ? v : (v === null ? null : 0)));
 }
 // Años disponibles (facet MULTIDIRECCIONAL): unión de años presentes en los
 // proyectos que pasan Estado + CP/Cliente/Tipo/Proyecto (excluye el propio Año).
 function rentabilidadAnioOptions() {
-  const statusRows = RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]);
+  // ESTADO VACÍO corrective (mejora transversal, ver carteraAnioOptions):
+  // opciones calculadas COMO SI ambos Estado estuvieran tildados cuando
+  // no hay ninguno — la estructura de pills se conserva, se deshabilita
+  // en la UI (ver rentabilidadAnioPills/rentabilidadMesPills).
+  const statusGate = _statusOrAllIfEmpty(state.rentabilidadStatus);
+  const statusRows = RENTABILIDAD_PROYECTOS.filter(p => statusGate[p.estado]);
   const rows = facetRowsExcept(statusRows, state.filters.rentabilidad || {}, _RENT_SELECT_FIELDS, "");
   const years = new Set();
   rows.forEach(p => {
@@ -2850,7 +3028,7 @@ function rentabilidadAnioOptions() {
     Object.keys(p.vendByYear || {}).forEach(y => years.add(y));
   });
   (state.rentabilidadAniosDisponibles || []).forEach(p => {
-    if (state.rentabilidadStatus[p.estado]) years.add(p.anio);
+    if (statusGate[p.estado]) years.add(p.anio);
   });
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa (el backend YA
   // descarta valores no-4-dígitos en la fuente) — Año NUNCA muestra un
@@ -2863,44 +3041,64 @@ function rentabilidadDefaultAnio() {
   if (options.includes(anioActual)) return anioActual;
   return options.length ? options[options.length - 1] : "";  // más reciente válido
 }
-// Prune de Año obsoleto al cambiar Estado u otro facet: si el Año elegido deja
-// de ser válido, cae al default; "" (Todos) se respeta. Nunca año imposible.
+// AÑO/MES MULTI-SELECT corrective: default de la PRIMERA hidratación —
+// año actual válido (o el más reciente disponible) tildado, MISMO
+// criterio sensato que el <select> retirado, wrapeado en un Set.
+function rentabilidadDefaultAniosSet() {
+  const anio = rentabilidadDefaultAnio();
+  return anio ? new Set([anio]) : new Set();
+}
+// Prune de años obsoletos al cambiar Estado u otro facet — MISMO criterio
+// que pruneCarteraAnio: se podan INDIVIDUALMENTE los años tildados que ya
+// no son opción, nunca se vacía toda la selección por uno solo inválido.
 function pruneRentabilidadAnio() {
-  const anio = getFilter("rentabilidad", "anio");
-  if (!anio) return;
-  if (!rentabilidadAnioOptions().includes(anio)) {
-    state.filters.rentabilidad.anio = rentabilidadDefaultAnio();
-  }
+  const available = new Set(rentabilidadAnioOptions());
+  state.rentabilidadAnios = new Set([...state.rentabilidadAnios].filter(y => available.has(y)));
 }
 function toggleRentabilidadStatus(key) {
   state.rentabilidadStatus[key] = !state.rentabilidadStatus[key];
   reconcileExperienceFacets("rentabilidad");
   render();
 }
+// Año/Mes — AÑO/MES MULTI-SELECT corrective (MISMO criterio que
+// toggleCarteraAnio/toggleCarteraMes). Año dispara reconciliación (puede
+// habilitar/deshabilitar meses, ver pruneRentabilidadMes) y, al render
+// siguiente, su propio lazy-load de años fríos si corresponde (ver
+// renderRentabilidad).
+function toggleRentabilidadAnio(year) {
+  if (state.rentabilidadAnios.has(year)) state.rentabilidadAnios.delete(year);
+  else state.rentabilidadAnios.add(year);
+  reconcileExperienceFacets("rentabilidad");
+  render();
+}
+function toggleRentabilidadMes(mes) {
+  if (state.rentabilidadMeses.has(mes)) state.rentabilidadMeses.delete(mes);
+  else state.rentabilidadMeses.add(mes);
+  render();
+}
 // UNA población canónica: Estado + CP/Cliente/Tipo/Proyecto, proyectada al Año
 // elegido (o colapsada si Todos) y enmascarada por Mes. TODAS las secciones
 // (KPIs, ranking, matriz, Cert-vs-Ejec, detalle) consumen ESTO.
 function rentabilidadSelectedRows() {
-  const anio = getFilter("rentabilidad", "anio");
-  const mes = getFilter("rentabilidad", "mes");
-  const cap = _operationalMonthCap(anio);
+  // AÑO/MES MULTI-SELECT corrective: `_yearRangeMonthly` reemplaza la
+  // lectura de UN año (con su propio cap por-año ya aplicado, "OR dentro
+  // de dimensión") — Mes sigue enmascarando DESPUÉS vía `_maskMeses`
+  // (Set), MISMO orden defensivo que antes (mask tras la suma por-año).
+  const anios = state.rentabilidadAnios;
+  const meses = state.rentabilidadMeses;
   const base = RENTABILIDAD_PROYECTOS.filter(p => state.rentabilidadStatus[p.estado]);
   const rows = facetRowsExcept(base, state.filters.rentabilidad || {}, _RENT_SELECT_FIELDS, "");
   return rows.map(p => {
-    const certArr = anio ? ((p.certByYear || {})[anio] || _z12()) : (p.certMonthly || _z12());
-    const trabArr = anio ? ((p.trabByYear || {})[anio] || _z12()) : (p.trabMonthly || _z12());
+    const certArr = _yearRangeMonthly(p.certByYear, p.certMonthly, anios);
+    const trabArr = _yearRangeMonthly(p.trabByYear, p.trabMonthly, anios);
     // Vendidas ahora POR PROYECTO (SOURCE-PARITY corrective — ver comentario
     // de RENTABILIDAD_NOASIGNADAS_MENSUAL arriba), MISMO tratamiento que
     // Certificadas/Trabajadas: responde a Estado + CP/Cliente/Tipo/Proyecto,
     // nunca un escalar de portfolio fijo.
-    const vendArr = anio ? ((p.vendByYear || {})[anio] || _z12()) : (p.vendMonthly || _z12());
-    // CURRENT-YEAR FUTURE-MONTH CAP aplicado DESPUÉS de la máscara de Mes
-    // (orden defensivo: si Año=año actual, el cap gana incluso si algún
-    // día un Mes futuro llegara seleccionado — ver `_validMesOptions`, que
-    // ya evita ofrecerlo como opción).
-    const cm = _applyMonthCap(_maskMes(certArr, mes), cap);
-    const tm = _applyMonthCap(_maskMes(trabArr, mes), cap);
-    const vm = _applyMonthCap(_maskMes(vendArr, mes), cap);
+    const vendArr = _yearRangeMonthly(p.vendByYear, p.vendMonthly, anios);
+    const cm = _maskMeses(certArr, meses);
+    const tm = _maskMeses(trabArr, meses);
+    const vm = _maskMeses(vendArr, meses);
     return { ...p, certMonthly: cm, trabMonthly: tm, vendMonthly: vm,
       certificadas: cm.reduce((a, b) => a + (b || 0), 0), trabajadas: tm.reduce((a, b) => a + (b || 0), 0),
       vendidas: vm.reduce((a, b) => a + (b || 0), 0) };
@@ -2909,12 +3107,9 @@ function rentabilidadSelectedRows() {
 // Portfolio (SOLO No asignadas — Vendidas dejó de ser portfolio, ver
 // rentabilidadSelectedRows) para el Año+Mes seleccionados.
 function rentabilidadSelectedPortfolio() {
-  const anio = getFilter("rentabilidad", "anio");
-  const mes = getFilter("rentabilidad", "mes");
-  const cap = _operationalMonthCap(anio);
-  const noas = anio ? (RENTABILIDAD_NOASIGNADAS_BY_YEAR[anio] || _z12()) : RENTABILIDAD_NOASIGNADAS_MENSUAL;
+  const noas = _yearRangeMonthly(RENTABILIDAD_NOASIGNADAS_BY_YEAR, RENTABILIDAD_NOASIGNADAS_MENSUAL, state.rentabilidadAnios);
   return {
-    noAsignadas: _applyMonthCap(_maskMes(noas, mes), cap),
+    noAsignadas: _maskMeses(noas, state.rentabilidadMeses),
   };
 }
 function rentabilidadFilteredProyectos() {
@@ -2924,7 +3119,9 @@ function rentabilidadFilteredProyectos() {
 // --- Horas Vendidas Año/Mes/Estado (MISMO patrón que Rentabilidad) -----------
 const _HV_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "tipo", field: "tipo" }, { key: "cliente", field: "cliente" }, { key: "proyecto", field: "proyecto" }];
 function horasVendidasAnioOptions() {
-  const statusRows = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
+  // ESTADO VACÍO corrective (mejora transversal, ver carteraAnioOptions).
+  const statusGate = _statusOrAllIfEmpty(state.horasVendidasStatus);
+  const statusRows = HORASVENDIDAS_ROWS.filter(r => statusGate[r.estado]);
   const rows = facetRowsExcept(statusRows, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
   const years = new Set();
   rows.forEach(r => Object.keys(r.vendidasByYear || {}).forEach(y => years.add(y)));
@@ -2933,7 +3130,7 @@ function horasVendidasAnioOptions() {
   // caliente sigue siendo elegible, y al elegirlo se lazy-loadea). Respeta el
   // facet Estado (mismo criterio que las filas: estado activo en el map).
   (state.horasVendidasAniosDisponibles || []).forEach(p => {
-    if (state.horasVendidasStatus[p.estado]) years.add(p.anio);
+    if (statusGate[p.estado]) years.add(p.anio);
   });
   // TEMPORAL DOMAIN CONTRACT (owner live QA — "Septiembre" en el <select>
   // de Año): segunda línea de defensa, el backend YA descarta valores
@@ -2947,29 +3144,43 @@ function horasVendidasDefaultAnio() {
   if (options.includes(anioActual)) return anioActual;
   return options.length ? options[options.length - 1] : "";
 }
+// AÑO/MES MULTI-SELECT corrective — MISMO criterio que
+// rentabilidadDefaultAniosSet.
+function horasVendidasDefaultAniosSet() {
+  const anio = horasVendidasDefaultAnio();
+  return anio ? new Set([anio]) : new Set();
+}
 function pruneHorasVendidasAnio() {
-  const anio = getFilter("horasvendidas", "anio");
-  if (!anio) return;
-  if (!horasVendidasAnioOptions().includes(anio)) {
-    state.filters.horasvendidas.anio = horasVendidasDefaultAnio();
-  }
+  const available = new Set(horasVendidasAnioOptions());
+  state.horasVendidasAnios = new Set([...state.horasVendidasAnios].filter(y => available.has(y)));
 }
 function toggleHorasVendidasStatus(key) {
   state.horasVendidasStatus[key] = !state.horasVendidasStatus[key];
   reconcileExperienceFacets("horasvendidas");
   render();
 }
-// Población canónica: Estado + CP/Tipo/Cliente/Proyecto, proyectada al Año elegido
-// (o colapsada si Todos) y enmascarada por Mes. Alimenta jerarquía/matriz/KPIs/Q.
+function toggleHorasVendidasAnio(year) {
+  if (state.horasVendidasAnios.has(year)) state.horasVendidasAnios.delete(year);
+  else state.horasVendidasAnios.add(year);
+  reconcileExperienceFacets("horasvendidas");
+  render();
+}
+function toggleHorasVendidasMes(mes) {
+  if (state.horasVendidasMeses.has(mes)) state.horasVendidasMeses.delete(mes);
+  else state.horasVendidasMeses.add(mes);
+  render();
+}
+// Población canónica: Estado + CP/Tipo/Cliente/Proyecto, proyectada al Año
+// elegido (o colapsada si Todos) y enmascarada por Mes. Alimenta
+// jerarquía/matriz/KPIs/Q. AÑO/MES MULTI-SELECT corrective: MISMO
+// criterio que rentabilidadSelectedRows (`_yearRangeMonthly`).
 function horasVendidasSelectedRows() {
-  const anio = getFilter("horasvendidas", "anio");
-  const mes = getFilter("horasvendidas", "mes");
-  const cap = _operationalMonthCap(anio);
+  const anios = state.horasVendidasAnios;
   const base = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
   const rows = facetRowsExcept(base, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
   return rows.map(r => {
-    const arr = anio ? ((r.vendidasByYear || {})[anio] || _z12()) : (r.monthly || _z12());
-    return { ...r, monthly: _applyMonthCap(_maskMes(arr, mes), cap) };
+    const arr = _yearRangeMonthly(r.vendidasByYear, r.monthly, anios);
+    return { ...r, monthly: _maskMeses(arr, state.horasVendidasMeses) };
   });
 }
 
@@ -2989,17 +3200,19 @@ const _COMERCIAL_PART_SELECT_FIELDS = [{ key: "cp", field: "cp" }, { key: "clien
 // hidratados todavía (HOT WINDOW / COLD HISTORY: "no confundir OPCIONES con
 // años HIDRATADOS" — MISMO criterio que Cartera/HV/Rentabilidad).
 function comercialParticipacionAnioOptions() {
+  // ESTADO VACÍO corrective (mejora transversal, ver carteraAnioOptions).
+  const statusGate = _statusOrAllIfEmpty(state.comercialStatus);
   const rows = facetRowsExcept(COMERCIAL_PARTICIPACION_ROWS, state.filters.comercial || {}, _COMERCIAL_PART_SELECT_FIELDS, "");
   const years = new Set();
   rows.forEach(r => {
     [r.vendidasByYear, r.certificadasByYear].forEach(byYear => {
       Object.entries(byYear || {}).forEach(([anio, byEstado]) => {
-        if (Object.keys(byEstado || {}).some(e => state.comercialStatus[e])) years.add(anio);
+        if (Object.keys(byEstado || {}).some(e => statusGate[e])) years.add(anio);
       });
     });
   });
   (state.comercialParticipacionAniosDisponibles || []).forEach(p => {
-    if (state.comercialStatus[p.estado]) years.add(p.anio);
+    if (statusGate[p.estado]) years.add(p.anio);
   });
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa, MISMO criterio que
   // el resto de los <select>/checkbox-group de Año del Hub.
@@ -3027,6 +3240,17 @@ function toggleComercialParticipacionAnio(anio) {
   else state.comercialParticipacionAnios.add(anio);
   reconcileExperienceFacets("comercial");
   render();
+}
+// Año de Participación — PROPAGACIÓN del patrón aprobado de Cartera (owner
+// directive, ver HANDOFF: "REPORTING INTEGRAL — PROPAGATE APPROVED
+// TEMPORAL FILTER PATTERN", sección D): reemplaza el checkbox-group por el
+// MISMO pill multi-select de Cartera — sin Mes (Participación no lo
+// necesita), sin `--fill` (ancho natural según sus opciones, nunca
+// estirado a lo ancho disponible). ESTADO VACÍO corrective (mejora
+// transversal) aplica igual que Cartera/Rentabilidad/HV.
+function comercialParticipacionAnioPills() {
+  const disabledAll = !_statusHasAnySelected(state.comercialStatus);
+  return pillMultiField("Año", comercialParticipacionAnioOptions(), state.comercialParticipacionAnios, "toggleComercialParticipacionAnio", { disabledAll });
 }
 function toggleComercialStatus(key) {
   state.comercialStatus[key] = !state.comercialStatus[key];
@@ -3343,9 +3567,13 @@ function renderRentabilidad() {
   // renderHorasVendidas): la hidratación (ventana caliente + metadata de
   // años) la dispara el SHELL (`TAB_HYDRATION_TRIGGERS`, ver `render()` —
   // SHARED REPORTING INITIAL-LOAD CONTRACT), nunca este dispatcher.
-  const anio = getFilter("rentabilidad", "anio");
-  if (anio && !rentabilidadLoadedYears().has(anio) && state.rentabilidadYearError !== anio) {
-    loadRentabilidadColdYear(anio);
+  // AÑO/MES MULTI-SELECT corrective: cada año tildado todavía no
+  // hidratado dispara SU PROPIO lazy-load (MISMO criterio que
+  // renderCartera).
+  const loadedYearsRent = rentabilidadLoadedYears();
+  const pendientesRent = [...state.rentabilidadAnios].filter(y => !loadedYearsRent.has(y) && !state.rentabilidadYearErrors.has(y));
+  if (pendientesRent.length) {
+    pendientesRent.forEach(loadRentabilidadColdYear);
     return dashboardSections("reporting-rentabilidad", renderRentabilidadDataState());
   }
   const persp = state.perspective.rentabilidad;
@@ -3709,12 +3937,14 @@ function renderHorasVendidas() {
   // ver `render()` — SHARED REPORTING INITIAL-LOAD CONTRACT); acá solo el
   // gate — NO carga batch-a (Participación no se toca al visitar HV).
   if (state.horasVendidasDataStatus !== "ready") return renderHorasVendidasDataState();
-  // Año FRÍO seleccionado que aún no está hidratado ⇒ lazy-load y estado de
-  // carga (single-flight por año). La ventana caliente ya hidratada se
+  // Año(s) FRÍO(s) seleccionado(s) que aún no están hidratados ⇒ lazy-load
+  // independiente por cada uno y estado de carga (single-flight por año,
+  // AÑO/MES MULTI-SELECT corrective). La ventana caliente ya hidratada se
   // preserva (mergeHorasVendidasRows).
-  const anioSel = getFilter("horasvendidas", "anio");
-  if (anioSel && !horasVendidasLoadedYears().has(anioSel) && state.horasVendidasYearError !== anioSel) {
-    loadHorasVendidasColdYear(anioSel);
+  const loadedYearsHV = horasVendidasLoadedYears();
+  const pendientesHV = [...state.horasVendidasAnios].filter(y => !loadedYearsHV.has(y) && !state.horasVendidasYearErrors.has(y));
+  if (pendientesHV.length) {
+    pendientesHV.forEach(loadHorasVendidasColdYear);
     return renderHorasVendidasDataState();
   }
   const persp = state.perspective.horasvendidas;
@@ -3956,7 +4186,8 @@ const _CAPACIDAD_SELECT_FIELDS = [{ key: "cliente", field: "cliente" }, { key: "
 // rentabilidadAnioOptions/horasVendidasAnioOptions ("como en las demas
 // tabs").
 function capacidadProductivasAnioOptions() {
-  const statusRows = CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]);
+  // UNRESOLVED-ESTADO corrective (ver _capacidadEstadoAllows).
+  const statusRows = CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => _capacidadEstadoAllows(r.estado));
   const rows = facetRowsExcept(statusRows, state.filters.capacidad || {}, _CAPACIDAD_SELECT_FIELDS, "");
   const years = new Set();
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
@@ -3971,6 +4202,22 @@ function capacidadProductivasDefaultAnio() {
   const options = capacidadProductivasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
   return options.length ? options[options.length - 1] : "";
+}
+// UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
+// ofrece 2026 aunque el CSV tiene años anteriores"): `_shape_horas_
+// productivas` (reporting_service.py) une cada fila a Proyectos por
+// nombre para resolver Estado — si esa unión falla (proyecto viejo/
+// renombrado, típico de filas HISTÓRICAS cuyo nombre ya no matchea la
+// lista Proyectos actual), `estado` queda `""`. Filtrar por
+// `state.capacidadStatus[r.estado]` directo excluía esas filas SIEMPRE,
+// aunque ambos checkboxes estuvieran tildados — el PBIP original no
+// tiene esta dimensión en absoluto, así que "ambos tildados" debe
+// significar "sin filtro real", nunca "excluir lo no resuelto". Con
+// Estado genuinamente angostado a uno solo, una fila sin estado resuelto
+// SÍ se excluye (no sabemos a cuál de los dos pertenece).
+function _capacidadEstadoAllows(estado) {
+  if (Object.prototype.hasOwnProperty.call(state.capacidadStatus, estado)) return state.capacidadStatus[estado];
+  return Object.values(state.capacidadStatus).every(Boolean);
 }
 // Estado de Horas Productivas — MISMO patrón que toggleCarteraStatus/
 // toggleRentabilidadStatus: participa del mismo contexto de faceting que
@@ -4018,7 +4265,8 @@ function capacidadProductivasSelectedRows(panel) {
   const anio = getFilter("capacidad", anioKey);
   const meses = state.capacidadMesesSeleccionados[panel];
   const cap = _operationalMonthCap(anio);
-  return CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => state.capacidadStatus[r.estado]).map(r => {
+  // UNRESOLVED-ESTADO corrective (ver _capacidadEstadoAllows).
+  return CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => _capacidadEstadoAllows(r.estado)).map(r => {
     const arr = anio ? ((r.horasByYear || {})[anio] || _z12()) : _sumMonthlyArrays(Object.values(r.horasByYear || {}));
     const monthly = _applyMonthCap(_maskMeses(arr, meses), cap);
     return { ...r, horas: monthly.reduce((a, b) => a + (b || 0), 0) };

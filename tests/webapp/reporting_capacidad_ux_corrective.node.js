@@ -219,6 +219,34 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   assertEqual(capacidadProductivasAnioOptions(), ["2018", "2019"], "tildar Finalizado también trae 2018 de vuelta a las opciones");
 }
 
+// --- UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
+// ofrece el año actual aunque el CSV tiene años anteriores"): una fila cuyo
+// Proyecto no matcheó contra la lista Proyectos (típico de proyectos
+// HISTÓRICOS renombrados/archivados) llega con `estado: ""` desde
+// `_shape_horas_productivas` — el PBIP no tiene dimensión de Estado en
+// absoluto, así que "ambos tildados" debe incluirla igual que cualquier
+// otra fila, nunca excluirla silenciosamente.
+{
+  CAPACIDAD_PRODUCTIVAS_ROWS.length = 0;
+  CAPACIDAD_PRODUCTIVAS_ROWS.push(
+    { cliente: "YPF", proyecto: "SADI v2", horas: 0, porcentajePart: 12.5, estado: "En curso",
+      horasByYear: { "2026": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+    { cliente: "Aluar", proyecto: "Legacy sin join", horas: 0, porcentajePart: 3, estado: "",
+      horasByYear: { "2019": [1,1,1,1,1,1,1,1,1,1,1,1] } },
+  );
+  state.filters.capacidad = {};
+
+  state.capacidadStatus = { "En curso": true, "Finalizado": true };
+  assertEqual(capacidadProductivasAnioOptions(), ["2019", "2026"], "ambos Estado tildados == 'sin filtro' del PBIP: 2019 (estado sin resolver) aparece igual que 2026");
+  assertEqual(capacidadProductivasSelectedRows("cliente").map(r => r.cliente).sort(), ["Aluar", "YPF"], "la fila con estado sin resolver entra a la población cuando Estado no angosta de verdad");
+
+  state.capacidadStatus = { "En curso": true, "Finalizado": false };
+  assertEqual(capacidadProductivasAnioOptions(), ["2026"], "angostado a SOLO 'En curso', la fila sin estado resuelto se excluye (no sabemos a cuál de los dos pertenece) — MISMO criterio que una fila 'Finalizado' real");
+  assertEqual(capacidadProductivasSelectedRows("cliente").map(r => r.cliente), ["YPF"], "misma exclusión en la población real, no solo en las opciones de Año");
+
+  state.capacidadStatus = { "En curso": true, "Finalizado": true };
+}
+
 // --- SOURCE-PARITY corrective: el DENOMINADOR real de "% Incidencia" ya
 // --- NO se deriva de las filas mostradas (CAPACIDAD_PRODUCTIVAS_ROWS,
 // --- Cliente-placeholder-interno ya excluido, Estado ya filtrado) sino de
