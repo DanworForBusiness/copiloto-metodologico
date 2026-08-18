@@ -1,65 +1,45 @@
 """
-test_reporting_cartera_rentabilidad_worked_hours_sources.py — URGENT
-REPORTING HOTFIX, INCIDENTE A (owner report: "Cartera / Proyectos deja de
-mostrar correctamente Horas Trabajadas desde ~Julio 2026; Rentabilidad
-Agosto 2026 muestra ~2.682 hs, Cartera no muestra ese mismo volumen para el
-mismo período" — expectativa inicial del owner: ambas deberían reconciliar).
+test_reporting_cartera_rentabilidad_worked_hours_sources.py — RECONCILIACIÓN
+Cartera↔Rentabilidad "Horas Trabajadas" (owner decision 2026-08-18, "OWNER
+DECISION — CONTINUE HOTFIX").
 
-REVIEW GATE (primera vuelta de este incidente): el owner cuestionó
-correctamente la primera versión de este test/commit por basarse en un
-comentario de código ("Certificadas viene de SharePoint, Trabajadas viene
-de Time") sin trazar el binding PBIP real — ese comentario, leído aislado,
-en realidad apoya la EXPECTATIVA del owner (Trabajadas → Time Logs), no la
-conclusión de fuentes distintas. Se pidió explícitamente re-auditar contra
-el TMDL/DAX original, no contra comentarios.
+HISTORIA (contexto, no una regla eterna): el incidente original (owner
+report — "Cartera/Proyectos deja de mostrar Horas Trabajadas desde ~Julio
+2026; Rentabilidad Agosto 2026 muestra ~2.682 hs, Cartera no muestra ese
+mismo volumen para el mismo período") fue auditado contra evidencia PBIP
+PRIMARIA (TMDL/DAX citado textual, ver real-data-lineage.md/HANDOFF.md) y
+confirmó que eran dos medidas DELIBERADAMENTE distintas del modelo PBIP
+original — Cartera leía `Horas por proyectos[HsTrabajadas]` (campo MANUAL de
+SharePoint); Rentabilidad, `SUM('Time Logs Reports'[HORAS])` — coincidentes
+solo en el rótulo visible "Horas Trabajadas". Esa fidelidad al PBIP quedó
+demostrada (Fase de review anterior de este mismo incidente): NO era un
+defecto de código reconciliable contra el modelo original.
 
-RE-AUDIT CONTRA EVIDENCIA PRIMARIA (TMDL/DAX/page.json citados textual,
-NUNCA inferidos por nombre de campo):
+NUEVA DECISIÓN DE PRODUCTO (owner, 2026-08-18 — no una corrección de bug):
+para el mismo contexto Año/Mes/filtros, "Cartera / Horas Trabajadas" DEBE
+reconciliar con "Rentabilidad / Horas Trabajadas". Ambas ahora derivan del
+MISMO canonical Time Logs facts (`_trab_by_proyecto_by_year`, MISMO join
+`_norm_key(proyecto)`×año×mes) — ver `ReportingService._mantenimiento_rows`/
+`get_cartera_mantenimiento`. El campo SharePoint `HsTrabajadas` sigue
+existiendo (todavía consumido por `_proyecto_rows`, perspectiva Proyecto —
+fuera de alcance de esta decisión) pero YA NO alimenta "trabajadas" de
+Mantenimiento.
 
-- **Cartera** (`artifacts/reporting-integral-v0/real-data-lineage.md`,
-  Fase 1 — lineage trazada contra el PBIP ANTES de que existiera
-  Rentabilidad/Horas Productivas): "Horas por proyectos" (SharePoint list,
-  GUID `6c3a8689-e7ed-4a2c-b358-10c5ca1b37b8`) es "el hecho de Cartera",
-  grano proyecto×mes, con `HsTrabajadas`/`HsVendidas`/`HsFacturadas`
-  (renombrada "Hs certificadas"). Mapeo confirmado: `trabajadas←hsTrabajadas`.
-  **Validado en vivo por el owner con datos reales** (mismo documento,
-  encabezado): "CARTERA REAL-DATA = VALIDADA EN VIVO (owner smoke OK)...
-  rango 01/06–31/07/2026: Trabajadas=1761... Aluar rollup Trab=800".
-
-- **Rentabilidad** (HANDOFF.md, "RENTABILIDAD — PBIP↔HUB SOURCE-PARITY
-  RECONCILIATION", DAX citado TEXTUAL de `Time Logs Reports.tmdl`/
-  `Comparativo.tmdl`): la medida real es `'Horas  Trabajadas por Mes'` =
-  `SUMMARIZE('Time Logs Reports', 'Time Logs Reports'[Project],
-  'Time Logs Reports'[Mes], "Horas", SUM('Time Logs Reports'[HORAS]))`,
-  unida a la tabla calculada `Comparativo` por `Key_Proyect_desc`
-  (`Upper+sin espacios` del Project crudo del CSV). `Comparativo` es
-  explícitamente una UNION de 4 fuentes distintas (Vendidas/Certificadas
-  de "Horas por proyectos" + Trabajadas de Time Logs) — una MEZCLA
-  DELIBERADA, dentro de la propia página "Analisis Rentabilidad", para
-  poder calcular `Diff Cer vs Tr = Certificadas - Trabajadas` (¿cuánto de
-  lo certificado/facturado se respalda con horas realmente registradas en
-  time-tracking?). El campo `HsTrabajadas` de "Horas por proyectos" NUNCA
-  se lee para esta medida — confirmado leyendo `get_rentabilidad` completo
-  (solo usa `hsCertificadas`/`hsVendidas` de esa fuente).
-
-CONCLUSIÓN (ahora respaldada por binding primario, no por comentario):
-son dos medidas del modelo PBIP ORIGINAL, deliberadamente distintas,
-coincidiendo solo en el nombre visible "Horas Trabajadas" — un problema de
-ROTULADO/producto (dos páginas usan la misma palabra para cosas distintas),
-NO un defecto de código reconciliable. Ninguno de los dos pipelines tiene
-corte de mes/fecha hardcodeado (auditado `_default_hot_years`/
-`get_cartera_facts`/`_operationalMonthCap` — el scope es siempre por AÑO);
-el síntoma "desaparece desde julio" es consistente con que el campo MANUAL
-de SharePoint (`HsTrabajadas`) no se actualiza desde esa fecha — un gap de
-completitud de dato en el origen, ajeno al código.
-
-Por eso este archivo NO afirma igualdad — bloquea la DIVERGENCIA esperada
-por diseño original, para que una futura edición no la "corrija" haciendo
-que ambas lean la misma fuente sin una decisión explícita de negocio del
-owner (eso sería cambiar la semántica de una de las dos métricas, o
-requeriría rotular a una de las dos páginas de forma más honesta).
+Este archivo YA NO bloquea la divergencia (la versión anterior aseguraba
+`agosto["trabajadas"] != agosto_trab_rentabilidad` como contrato deliberado)
+— ahora bloquea la RECONCILIACIÓN: mismo proyecto/año/mes/filtros ⇒ MISMO
+número en ambas páginas. Si algún día alguien reintroduce una fuente
+distinta para uno de los dos lados, este test lo marca como regresión.
+Cubre: Agosto 2026, Julio 2026, un mes histórico (2025, ejercitando el
+scope `anios=` de ambos lados), filtro por Proyecto y filtro por Cliente.
+Los valores del fixture (2682/150/80/500) reproducen la ESCALA del reporte
+real del owner, sin hardcodear esos números como regla de producción — son
+datos de fixture, no literales del código bajo prueba.
 """
 from __future__ import annotations
+
+import csv
+import io
 
 from webapp.services import reporting_repository as repo_mod
 from webapp.services.reporting_repository import ReportingRepository
@@ -70,14 +50,16 @@ _HP, _PROY, _CLI, _COLAB, _USERINFO = "hp-list", "proy-list", "cli-list", "colab
 
 _CSV_HEADERS = ["Date", "Client", "Project", "Task", "Email", "Duration Decimal"]
 
+# Decoy deliberado: si algún camino todavía leyera `HsTrabajadas` en vez de
+# Time Logs, este valor (bien distinto de 2682/150/80/500) lo delataría.
+_DECOY_HSTRABAJADAS = "999"
+
 
 def _items(rows):
     return [{"id": r.get("id", ""), "fields": r} for r in rows]
 
 
 def _csv_text(rows):
-    import csv
-    import io
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=_CSV_HEADERS)
     writer.writeheader()
@@ -86,7 +68,11 @@ def _csv_text(rows):
     return buf.getvalue().encode("utf-8")
 
 
-def _patch(monkeypatch, *, horas_por_proyectos, proyectos, clientes, time_logs_rows):
+def _patch(monkeypatch, *, horas_por_proyectos, proyectos, clientes, csv_files, file_rows):
+    """`csv_files`/`file_rows`: MISMA estructura que test_reporting_batch_b.py
+    — necesario acá porque el mes histórico (2025) requiere `anios=["2025"]`
+    ⇒ SOLO el archivo 2025 se descarga (HOT WINDOW/COLD HISTORY corrective,
+    source loading por nombre de archivo, ver reporting_repository.py)."""
     def fake_json(url, access_token=None, **kw):
         if url == f"{repo_mod.GRAPH_BASE}/sites/{repo_mod.TIME_LOGS_SITE_PATH}":
             return {"id": _OPS_SITE}
@@ -94,7 +80,7 @@ def _patch(monkeypatch, *, horas_por_proyectos, proyectos, clientes, time_logs_r
 
     def fake_paged(url, access_token=None, **kw):
         if f"/sites/{_OPS_SITE}/drive/root:" in url and ":/children" in url:
-            return [{"id": "csv-1", "name": "Time Logs Reports.csv"}]
+            return csv_files
         if "/columns" in url:
             return []
         if _HP in url:
@@ -108,9 +94,10 @@ def _patch(monkeypatch, *, horas_por_proyectos, proyectos, clientes, time_logs_r
         return []
 
     def fake_bytes(url, access_token=None, **kw):
-        if "/drive/items/csv-1/content" in url:
-            return _csv_text(time_logs_rows)
-        return b""
+        for item_id, rows in file_rows.items():
+            if f"/drive/items/{item_id}/content" in url:
+                return _csv_text(rows)
+        return _csv_text([])
 
     monkeypatch.setattr(repo_mod.microsoft365, "graph_get_json", fake_json)
     monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
@@ -124,48 +111,127 @@ def _repo():
     )
 
 
-def test_cartera_and_rentabilidad_worked_hours_are_deliberately_different_pbip_measures(monkeypatch):
-    # MISMO proyecto/cliente/mes en las dos fuentes, con volúmenes bien
-    # distintos a propósito (150 vs 2682) — reproduce, a escala de fixture,
-    # la queja real del owner (Rentabilidad mostraba un volumen que Cartera
-    # no mostraba para "el mismo" período). Si algún día alguien iguala
-    # estos dos números para que "reconcilien", este test lo marca como una
-    # regresión de semántica de negocio contra el binding PBIP confirmado
-    # arriba, no como un fix legítimo.
+def _full_fixture(monkeypatch):
+    """2 proyectos Mantenimiento (Soporte Danone/Danone, Implementación
+    YPF/YPF) × 2026 (Julio+Agosto, archivo actual) + 1 mes histórico 2025
+    (Marzo, archivo `Times previos`-style separado) — cubre reconciliación
+    por mes, por proyecto y por cliente en una sola fuente compartida."""
     _patch(
         monkeypatch,
-        horas_por_proyectos=[{
-            "ProyectoLookupId": "p1", "EmpresaLookupId": "c1",
-            "A_x00f1_o": "2026", "Mes": "Agosto", "HsTrabajadas": "150", "HsVendidas": "150", "HsFacturadas": "150",
-        }],
-        proyectos=[{"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Mantenimiento", "Status": "En curso"}],
-        clientes=[{"id": "c1", "Title": "Danone"}],
-        time_logs_rows=[
-            {"Date": "2026-08-05", "Client": "Danone", "Project": "Soporte Danone",
-             "Task": "Soporte", "Email": "a@danwor.com", "Duration Decimal": "2682"},
+        horas_por_proyectos=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Julio",
+             "HsTrabajadas": _DECOY_HSTRABAJADAS, "HsVendidas": "160", "HsFacturadas": "140"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+             "HsTrabajadas": _DECOY_HSTRABAJADAS, "HsVendidas": "160", "HsFacturadas": "140"},
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c2", "A_x00f1_o": "2026", "Mes": "Agosto",
+             "HsTrabajadas": _DECOY_HSTRABAJADAS, "HsVendidas": "520", "HsFacturadas": "500"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2025", "Mes": "Marzo",
+             "HsTrabajadas": _DECOY_HSTRABAJADAS, "HsVendidas": "90", "HsFacturadas": "80"},
         ],
+        proyectos=[
+            {"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Mantenimiento", "Status": "En curso"},
+            {"id": "p2", "Title": "Implementación YPF", "TipodeProyecto": "Mantenimiento", "Status": "En curso"},
+        ],
+        clientes=[{"id": "c1", "Title": "Danone"}, {"id": "c2", "Title": "YPF"}],
+        csv_files=[
+            {"id": "csv-2026", "name": "Time Logs Reports.csv"},
+            {"id": "csv-2025", "name": "Time Logs Reports 2025.csv"},
+        ],
+        file_rows={
+            "csv-2026": [
+                {"Date": "2026-07-10", "Client": "Danone", "Project": "Soporte Danone",
+                 "Task": "Soporte", "Email": "a@danwor.com", "Duration Decimal": "150"},
+                {"Date": "2026-08-05", "Client": "Danone", "Project": "Soporte Danone",
+                 "Task": "Soporte", "Email": "a@danwor.com", "Duration Decimal": "2682"},
+                {"Date": "2026-08-12", "Client": "YPF", "Project": "Implementación YPF",
+                 "Task": "Dev", "Email": "b@danwor.com", "Duration Decimal": "500"},
+            ],
+            "csv-2025": [
+                {"Date": "2025-03-15", "Client": "Danone", "Project": "Soporte Danone",
+                 "Task": "Soporte", "Email": "a@danwor.com", "Duration Decimal": "80"},
+            ],
+        },
     )
-    repo = _repo()
-    service = ReportingService(repo)
 
+
+def _cartera_row(cartera_rows, proyecto, mes):
+    return next(r for r in cartera_rows if r["proyecto"] == proyecto and r["mes"] == mes)
+
+
+def _rentabilidad_trab(rentabilidad, proyecto, anio, mes_idx):
+    row = next(p for p in rentabilidad["proyectos"] if p["proyecto"] == proyecto)
+    return row["trabByYear"][anio][mes_idx]
+
+
+def test_cartera_and_rentabilidad_reconcile_agosto_2026(monkeypatch):
+    _full_fixture(monkeypatch)
+    service = ReportingService(_repo())
     cartera_rows = service.get_cartera_mantenimiento("tok", anios=["2026"])
-    agosto = next(r for r in cartera_rows if r["mes"] == "8")
-    assert agosto["trabajadas"] == 150.0, (
-        "Cartera lee 'Horas por proyectos'[HsTrabajadas] — binding PBIP confirmado "
-        "en real-data-lineage.md (lineage Fase 1, validada en vivo por el owner)"
-    )
-
     rentabilidad = service.get_rentabilidad("tok", anios=["2026"])
-    proyecto_row = next(p for p in rentabilidad["proyectos"] if p["proyecto"] == "Soporte Danone")
-    agosto_trab_rentabilidad = proyecto_row["trabByYear"]["2026"][7]  # índice 7 = Agosto
-    assert agosto_trab_rentabilidad == 2682.0, (
-        "Rentabilidad lee SUM('Time Logs Reports'[HORAS]) vía la medida "
-        "'Horas  Trabajadas por Mes' — DAX citado textual en HANDOFF.md "
-        "(RENTABILIDAD — PBIP↔HUB SOURCE-PARITY RECONCILIATION)"
-    )
 
-    # La divergencia es EL CONTRATO (confirmado por binding PBIP primario,
-    # no supuesto), no un bug — nunca deben coincidir por casualidad en
-    # este fixture (si coincidieran, el fixture estaría mal armado, no
-    # probando nada).
-    assert agosto["trabajadas"] != agosto_trab_rentabilidad
+    agosto = _cartera_row(cartera_rows, "Soporte Danone", "8")
+    agosto_rent = _rentabilidad_trab(rentabilidad, "Soporte Danone", "2026", 7)  # índice 7 = Agosto
+    assert agosto["trabajadas"] == 2682.0
+    assert agosto["trabajadas"] == agosto_rent
+    assert agosto["trabajadas"] != float(_DECOY_HSTRABAJADAS)
+
+
+def test_cartera_and_rentabilidad_reconcile_julio_2026(monkeypatch):
+    _full_fixture(monkeypatch)
+    service = ReportingService(_repo())
+    cartera_rows = service.get_cartera_mantenimiento("tok", anios=["2026"])
+    rentabilidad = service.get_rentabilidad("tok", anios=["2026"])
+
+    julio = _cartera_row(cartera_rows, "Soporte Danone", "7")
+    julio_rent = _rentabilidad_trab(rentabilidad, "Soporte Danone", "2026", 6)  # índice 6 = Julio
+    assert julio["trabajadas"] == 150.0
+    assert julio["trabajadas"] == julio_rent
+
+
+def test_cartera_and_rentabilidad_reconcile_historical_month_2025(monkeypatch):
+    # Mes histórico — ejercita el scope `anios=["2025"]` en AMBOS lados
+    # (Cartera vía `hot_years`, Rentabilidad vía su propio `anios`): el
+    # HOT WINDOW/COLD HISTORY corrective de Time Logs (source loading por
+    # archivo) no debe romper la reconciliación fuera de la ventana caliente
+    # por defecto.
+    _full_fixture(monkeypatch)
+    service = ReportingService(_repo())
+    cartera_rows = service.get_cartera_mantenimiento("tok", anios=["2025"])
+    rentabilidad = service.get_rentabilidad("tok", anios=["2025"])
+
+    marzo = _cartera_row(cartera_rows, "Soporte Danone", "3")
+    marzo_rent = _rentabilidad_trab(rentabilidad, "Soporte Danone", "2025", 2)  # índice 2 = Marzo
+    assert marzo["trabajadas"] == 80.0
+    assert marzo["trabajadas"] == marzo_rent
+
+
+def test_cartera_and_rentabilidad_reconcile_per_proyecto_filter(monkeypatch):
+    # Filtro por Proyecto: los DOS proyectos de Agosto 2026 reconcilian
+    # INDEPENDIENTEMENTE — la agregación es por proyecto×año×mes, nunca un
+    # escalar de portfolio que mezclaría ambos.
+    _full_fixture(monkeypatch)
+    service = ReportingService(_repo())
+    cartera_rows = service.get_cartera_mantenimiento("tok", anios=["2026"])
+    rentabilidad = service.get_rentabilidad("tok", anios=["2026"])
+
+    danone = _cartera_row(cartera_rows, "Soporte Danone", "8")
+    ypf = _cartera_row(cartera_rows, "Implementación YPF", "8")
+    assert danone["trabajadas"] == 2682.0
+    assert ypf["trabajadas"] == 500.0
+    assert danone["trabajadas"] == _rentabilidad_trab(rentabilidad, "Soporte Danone", "2026", 7)
+    assert ypf["trabajadas"] == _rentabilidad_trab(rentabilidad, "Implementación YPF", "2026", 7)
+
+
+def test_cartera_and_rentabilidad_reconcile_per_cliente_filter(monkeypatch):
+    # Filtro por Cliente: Cartera/Mantenimiento y Rentabilidad exponen
+    # `cliente` en cada fila — filtrar por YPF aísla el mismo proyecto en
+    # ambas páginas y sigue reconciliando.
+    _full_fixture(monkeypatch)
+    service = ReportingService(_repo())
+    cartera_rows = [r for r in service.get_cartera_mantenimiento("tok", anios=["2026"]) if r["cliente"] == "YPF"]
+    rentabilidad_rows = [p for p in service.get_rentabilidad("tok", anios=["2026"])["proyectos"] if p["cliente"] == "YPF"]
+
+    assert len(cartera_rows) == 1 and len(rentabilidad_rows) == 1
+    agosto = _cartera_row(cartera_rows, "Implementación YPF", "8")
+    assert agosto["trabajadas"] == 500.0
+    assert agosto["trabajadas"] == rentabilidad_rows[0]["trabByYear"]["2026"][7]

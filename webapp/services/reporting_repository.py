@@ -34,6 +34,7 @@ import io
 import logging
 import re
 import time
+from datetime import datetime
 
 import config
 from core import microsoft365
@@ -205,6 +206,26 @@ def _time_logs_mes(date_value) -> str:
 def _time_logs_anio(date_value) -> str:
     mes = _time_logs_mes(date_value)
     return mes[:4] if mes else ""
+
+
+# HOT WINDOW / COLD HISTORY corrective (Horas Productivas, owner decision
+# 2026-08-18 — "la optimización debe ocurrir en source loading, no filtrar
+# DESPUÉS de descargar todos los CSV"): para elegir QUÉ archivos descargar
+# sin abrir ninguno, se infiere el año de cada item por su NOMBRE — la
+# convención observada en `Times previos/` es un año de 4 dígitos en el
+# nombre para cada archivo histórico ("Time Logs Reports 2025.csv"); el
+# archivo SIN año en el nombre es el CSV "vivo" de la raíz (owner-confirmed:
+# su rango real es 01/01–hoy del año calendario en curso), tratado como el
+# año actual. Es una inferencia de NOMBRE, nunca de contenido — no abre/
+# parsea el archivo para decidir si lo descarga.
+_CSV_NAME_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def _infer_time_logs_csv_year(item: dict) -> str:
+    m = _CSV_NAME_YEAR_RE.search(_text(item.get("name")))
+    if m:
+        return m.group(1)
+    return str(datetime.now().year)
 
 
 class ReportingConfigurationError(Exception):
@@ -868,18 +889,34 @@ class ReportingRepository:
 
         return collect(f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children")
 
-    def _download_time_logs_rows(self, site_id: str) -> list[dict]:
-        """Descarga + combina TODOS los CSV de la carpeta (MISMA semántica
-        que `Table.Combine`/header promovido del M: delimiter=",", UTF-8).
-        Un archivo individual inválido (headers requeridos faltantes, o no
+    def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
+        """Descarga + combina CSV de la carpeta (MISMA semántica que
+        `Table.Combine`/header promovido del M: delimiter=",", UTF-8). Un
+        archivo individual inválido (headers requeridos faltantes, o no
         decodifica) se SALTEA sin romper el combine completo (fail-soft
         por-archivo — un CSV legacy/corrupto no debe tumbar toda la
         experiencia). Si NINGÚN archivo aporta filas válidas,
         `ReportingSourceError` (falla real de fuente, no un dataset vacío
-        legítimo)."""
+        legítimo).
+
+        `hot_years` (HOT WINDOW / COLD HISTORY corrective, Horas
+        Productivas — owner decision 2026-08-18): `None` (default,
+        preserva el contrato previo EXACTO — Rentabilidad y los wrappers
+        standalone de Productivas siguen sin acotar) descarga TODOS los
+        archivos encontrados. Una lista explícita SELECCIONA los archivos
+        ANTES de descargar (`_infer_time_logs_csv_year`, por nombre — nunca
+        post-filtro después de bajar todo) — si ningún archivo mapea a esos
+        años (p. ej. un año futuro sin export todavía), es un dataset
+        VACÍO legítimo (`[]`), no un `ReportingSourceError` — ese error
+        sigue reservado a la fuente genuinamente vacía/rota."""
         items = self._list_time_logs_csv_items(site_id)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
+        if hot_years is not None:
+            wanted = set(hot_years)
+            items = [it for it in items if _infer_time_logs_csv_year(it) in wanted]
+            if not items:
+                return []
         rows: list[dict] = []
         for it in items:
             item_id = _text(it.get("id"))
@@ -900,7 +937,7 @@ class ReportingRepository:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
         return rows
 
-    def get_time_logs_facts(self, access_token: str) -> list[dict]:
+    def get_time_logs_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Hechos de Time Logs Reports normalizados y unidos a Cliente vía
         Proyectos — alimenta Horas Productivas (AMBAS perspectivas,
         Productivas Y No Asignadas) y Rentabilidad/Ejecutadas (Batch B).
@@ -915,7 +952,18 @@ class ReportingRepository:
         Time Logs, sin fetches redundantes dentro de este método). Un
         Project sin match en Proyectos (o Proyecto sin Cliente resuelto)
         conserva el texto crudo de Client/Project del CSV como fallback —
-        nunca descarta la fila silenciosamente."""
+        nunca descarta la fila silenciosamente.
+
+        `hot_years` (HOT WINDOW / COLD HISTORY corrective, Horas
+        Productivas — owner decision 2026-08-18): `None` (default)
+        preserva el contrato PREVIO exacto — descarga TODOS los CSV
+        encontrados (Rentabilidad y los wrappers standalone de Productivas
+        siguen llamando así, sin cambios de comportamiento). Una lista
+        explícita acota la SELECCIÓN DE ARCHIVOS antes de descargar (ver
+        `_download_time_logs_rows`) — usado por `get_batch_b` para la
+        ventana caliente/año frío, MISMO mecanismo que `hot_years` de
+        "Horas por proyectos" (`_fetch_horas_proyectos`), pero acá aplicado
+        a selección de archivo en vez de `$filter` OData."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("time_logs")
@@ -936,7 +984,7 @@ class ReportingRepository:
                 proy_by_key[key] = fields
         cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
 
-        raw_rows = self._download_time_logs_rows(operaciones_site_id)
+        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
         timer.stage("csv_download_parse", len(raw_rows))
         facts = []
         for row in raw_rows:

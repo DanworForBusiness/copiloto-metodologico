@@ -468,9 +468,18 @@ def test_cartera_mantenimiento_anio_estado_pairs_mantenimiento_only_distinct_sor
 class _HotYearsRecordingRepo:
     def __init__(self):
         self.calls = []
+        # CANONICAL SOURCE DECISION (owner 2026-08-18): Mantenimiento ahora
+        # también lee Time Logs (para "Horas Trabajadas") — separado de
+        # `calls` (Horas por proyectos) para no romper las aserciones
+        # `calls[-1]` ya existentes.
+        self.time_logs_calls = []
 
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
+        return []
+
+    def get_time_logs_facts(self, access_token, *, hot_years=None):
+        self.time_logs_calls.append(hot_years)
         return []
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
@@ -489,12 +498,17 @@ def test_service_default_hot_years_is_current_and_previous_year(monkeypatch):
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera_mantenimiento("tok")
     assert repo.calls[-1]["hot_years"] == ["2026", "2025"]
+    # La MISMA ventana acota la lectura de Time Logs (CANONICAL SOURCE
+    # DECISION) — un año frío de Mantenimiento nunca debe arrastrar el
+    # historial completo de Time Logs.
+    assert repo.time_logs_calls[-1] == ["2026", "2025"]
 
 
 def test_service_explicit_anios_overrides_default_hot_window():
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera_mantenimiento("tok", anios=["2024"])
     assert repo.calls[-1]["hot_years"] == ["2024"]
+    assert repo.time_logs_calls[-1] == ["2024"]
 
 
 def test_service_get_cartera_proyecto_never_receives_hot_years():
@@ -504,23 +518,41 @@ def test_service_get_cartera_proyecto_never_receives_hot_years():
 
 
 def test_service_get_cartera_combo_never_receives_hot_years():
-    # `get_cartera()` (retrocompat combo) tampoco acota — mismo criterio.
+    # `get_cartera()` (retrocompat combo) tampoco acota — mismo criterio,
+    # ahora también para Time Logs (CANONICAL SOURCE DECISION).
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera("tok")
     assert repo.calls[-1]["hot_years"] is None
+    assert repo.time_logs_calls[-1] is None
 
 
 # --- Service: derivaciones + shaping -----------------------------------------
 
 class _FakeRepo:
-    def __init__(self, facts):
+    def __init__(self, facts, time_logs=None):
         self._facts = facts
+        # CANONICAL SOURCE DECISION (owner 2026-08-18): Mantenimiento
+        # deriva "Horas Trabajadas" de Time Logs, no de `hsTrabajadas` —
+        # `time_logs=None` (default) ⇒ sin horas registradas, trabajadas=0.
+        self._time_logs = time_logs if time_logs is not None else []
 
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
 
+    def get_time_logs_facts(self, access_token, *, hot_years=None):
+        return self._time_logs
+
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
         return []
+
+
+def _tl_fact(**kw):
+    """Fact de Time Logs mínimo para tests de servicio (grano proyecto×año×
+    mes que `_trab_by_proyecto_by_year` consume) — `mes` en formato
+    'YYYY-MM' (YA normalizado por el repository, ver `_time_logs_mes`)."""
+    base = dict(proyecto="Mantenimiento Costeo Directo", anio="2026", mes="2026-08", horas=134.0)
+    base.update(kw)
+    return base
 
 
 def _mant_fact(**kw):
@@ -542,9 +574,17 @@ def _proy_fact(**kw):
 
 
 def test_service_mantenimiento_shape_diff_and_fecha():
-    out = ReportingService(_FakeRepo([_mant_fact()])).get_cartera("tok")
+    # CANONICAL SOURCE DECISION (owner 2026-08-18): "trabajadas" ya no lee
+    # `hsTrabajadas` (SharePoint) — se deriva de Time Logs, MISMO join
+    # `_norm_key(proyecto)`×año×mes que Rentabilidad. El fixture de Time
+    # Logs replica el MISMO valor (134) que antes tenía `hsTrabajadas` —
+    # los números esperados (diff=-6, etc.) no cambian, solo su fuente.
+    out = ReportingService(
+        _FakeRepo([_mant_fact()], time_logs=[_tl_fact(horas=134.0)])
+    ).get_cartera("tok")
     assert out["proyecto"] == []
     m = out["mantenimiento"][0]
+    assert m["trabajadas"] == 134                # de Time Logs, no de hsTrabajadas
     assert m["diff"] == -6                       # 128 - 134
     assert m["facturadas"] == m["certificadas"] == 128   # Mantenimiento: facturadas = certificadas
     assert m["fecha"] == "2026-08-01"            # primer día del mes

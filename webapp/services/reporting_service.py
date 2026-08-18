@@ -197,6 +197,34 @@ def _calendario_monthly(calendario_act: str) -> list[int]:
     return [1 if nombre in text else 0 for nombre in _MESES_NOMBRES]
 
 
+def _trab_by_proyecto_by_year(time_logs: list[dict]) -> dict[str, dict[str, list[float]]]:
+    """Agrega Time Logs por (`_norm_key(proyecto)`, año) → `[horas x 12]` —
+    MISMO join/grano que `get_rentabilidad` usa para su "Horas Trabajadas"
+    (defecto #1 del SOURCE-PARITY RECONCILIATION, ver ahí: `_norm_key`, no
+    el título exacto — reproduce `Key_Proyect_desc` del PBIP). Excluye los
+    2 proyectos placeholder de "No Asignadas" (Time Logs de portfolio, sin
+    Proyecto real que reconciliar en Cartera/Rentabilidad).
+
+    Factorizado para reuso (owner decision 2026-08-18 — "Cartera/Horas
+    Trabajadas debe reconciliar con Rentabilidad para el mismo contexto Año/
+    Mes/filtros, aunque la fidelidad al PBIP original ya estaba demostrada"):
+    Cartera/Mantenimiento (`_mantenimiento_rows`) ahora deriva SU "Horas
+    Trabajadas" de esta MISMA fuente canónica, en vez de `Horas por
+    proyectos[HsTrabajadas]` (campo manual de SharePoint) — MISMA función,
+    nunca dos implementaciones del mismo join que puedan divergir."""
+    out: dict[str, dict[str, list[float]]] = {}
+    for tl in time_logs:
+        anio = tl.get("anio")
+        n = _time_logs_month_num(tl.get("mes"))
+        if not _is_valid_anio(anio) or n is None:
+            continue
+        if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+            continue
+        key = _norm_key(tl.get("proyecto"))
+        out.setdefault(key, {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
+    return out
+
+
 def _fecha_min(facts_con_mes: list[dict]) -> str:
     """Fecha representativa (primer día del mes MÁS TEMPRANO presente) para
     el filtro Desde/Hasta de una fila agregada (Horas Vendidas/
@@ -299,8 +327,10 @@ class ReportingService:
         (P5, owner live QA de performance — Cartera ~17s): Mantenimiento
         NUNCA necesita esperar la descarga/parseo de la XLSX."""
         facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
+        time_logs = self._repository.get_time_logs_facts(access_token)
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         return {
-            "mantenimiento": self._mantenimiento_rows(facts),
+            "mantenimiento": self._mantenimiento_rows(facts, trab_by_proyecto),
             "proyecto": self._proyecto_rows(facts),
         }
 
@@ -318,10 +348,47 @@ class ReportingService:
         curso". Una lista explícita (p. ej. `["2024"]`) es el lazy-load de
         un año FRÍO puntual, disparado por el usuario al elegirlo en el
         <select> de Año — ver `reporting_cartera_data` (router) para el
-        contrato de `anios` como form param."""
+        contrato de `anios` como form param. La MISMA ventana acota AHORA
+        también la lectura de Time Logs (ver abajo) — un año frío de
+        Mantenimiento dispara la descarga de SOLO ese año de Time Logs,
+        nunca el historial completo.
+
+        "HORAS TRABAJADAS" — CANONICAL SOURCE DECISION (owner, 2026-08-18):
+        el incidente original (owner report — "Cartera/Proyectos deja de
+        mostrar Horas Trabajadas desde ~Julio 2026, Rentabilidad sí las
+        muestra para el mismo período") fue auditado contra evidencia PBIP
+        PRIMARIA (TMDL/DAX, ver `test_reporting_cartera_rentabilidad_
+        worked_hours_sources.py`) y confirmó que eran dos medidas
+        DELIBERADAMENTE distintas del modelo original — Cartera leía el
+        campo MANUAL de SharePoint `Horas por proyectos[HsTrabajadas]`;
+        Rentabilidad, `SUM('Time Logs Reports'[HORAS])`. Esa fidelidad al
+        PBIP quedó demostrada, pero el owner definió una NUEVA decisión de
+        PRODUCTO (no una corrección de bug): para el mismo contexto
+        Año/Mes/filtros, "Cartera / Horas Trabajadas" debe reconciliar con
+        "Rentabilidad / Horas Trabajadas" — ambas deben leer la MISMA
+        fuente canónica (Time Logs). Fix: `trabajadas` ya NO lee
+        `f["hsTrabajadas"]` — se deriva de `trab_by_proyecto`
+        (`_trab_by_proyecto_by_year(time_logs)`, MISMO join/grano
+        `_norm_key(proyecto)`×año×mes que `get_rentabilidad` ya usa) a la
+        granularidad NATIVA de Mantenimiento (proyecto×mes×año) —
+        preservando TODOS sus filtros existentes (Client Partner, Proyecto,
+        Cliente, Estado, Año, Mes: ninguno depende de `trabajadas`, todos
+        siguen leyendo `f[...]` sin cambios).
+
+        SCOPE (deliberado, no una omisión): esta decisión aplica SOLO a
+        Mantenimiento (grano mensual, el caso concreto reportado —
+        Aluar/Ago-2026). `get_cartera_proyecto`/`_proyecto_rows` (agregado
+        de vida completa del proyecto) SIGUE leyendo `f["hsTrabajadas"]` —
+        no fue parte de la decisión explícita, queda como pregunta abierta
+        si también debe homologarse (ver reporte de publicación). El campo
+        SharePoint `HsTrabajadas` NO se borra/reinterpreta — `get_cartera_
+        facts` sigue poblándolo tal cual, todavía consumido por
+        `_proyecto_rows`."""
         hot_years = anios if anios is not None else self._default_hot_years()
         facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
-        return self._mantenimiento_rows(facts)
+        time_logs = self._repository.get_time_logs_facts(access_token, hot_years=hot_years)
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+        return self._mantenimiento_rows(facts, trab_by_proyecto)
 
     def get_cartera_mantenimiento_anios(self, access_token: str) -> list[dict]:
         """Metadata de años/estado disponibles de Mantenimiento (HOT WINDOW
@@ -352,14 +419,25 @@ class ReportingService:
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
-    def _mantenimiento_rows(self, facts: list[dict]) -> list[dict]:
+    def _mantenimiento_rows(self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]]) -> list[dict]:
+        """`trab_by_proyecto` (CANONICAL SOURCE DECISION, ver docstring de
+        `get_cartera_mantenimiento`): `[anio][mes-1]` de
+        `_trab_by_proyecto_by_year(time_logs)`, MISMO join `_norm_key
+        (proyecto)` que Rentabilidad — reemplaza `f["hsTrabajadas"]` (campo
+        manual de SharePoint) como fuente de 'trabajadas'. Mes no
+        parseable o proyecto/año sin horas de Time Logs ⇒ 0.0 (fail-soft,
+        nunca un valor inventado — NO es lo mismo que "no hubo horas", es
+        el resultado correcto en ambos casos)."""
         rows = []
         for f in facts:
             if f.get("tipoProyecto") != "Mantenimiento":
                 continue
-            trabajadas = _round2(f["hsTrabajadas"])
-            certificadas = _round2(f["hsCertificadas"])
             mes_num = _month_num(f["mes"])
+            if mes_num is not None:
+                trabajadas = _round2(trab_by_proyecto.get(_norm_key(f.get("proyecto")), {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
+            else:
+                trabajadas = 0.0
+            certificadas = _round2(f["hsCertificadas"])
             rows.append({
                 "cliente": f["cliente"],
                 "cp": f["clientPartner"],
@@ -556,7 +634,13 @@ class ReportingService:
                 g["vendByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
             g["facts"].append(f)
 
-        trab_by_proyecto: dict[str, dict] = {}
+        # Defecto #1 (ver arriba): `_norm_key`, no el título exacto —
+        # reproduce el join real del PBIP (`Key_Proyect_desc`). Factorizado
+        # en `_trab_by_proyecto_by_year` (reusado también por Cartera/
+        # Mantenimiento, ver `get_cartera_mantenimiento` — CANONICAL SOURCE
+        # DECISION) — MISMA función, nunca dos implementaciones del mismo
+        # join que puedan divergir.
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
             anio = tl.get("anio")
@@ -565,11 +649,6 @@ class ReportingService:
                 continue
             if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
-                continue
-            # Defecto #1 (ver arriba): `_norm_key`, no el título exacto —
-            # reproduce el join real del PBIP (`Key_Proyect_desc`).
-            key = _norm_key(tl.get("proyecto"))
-            trab_by_proyecto.setdefault(key, {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
 
         def _round_year_map(m: dict) -> dict:
             return {a: [_round2(v) for v in arr] for a, arr in m.items()}
