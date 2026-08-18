@@ -64,20 +64,24 @@
      <html>) le pintaría un track claro sobre su panel blanco. Valor
      idéntico al que la regla tenía cuando vivía en este archivo. */
   --bar-track-bg: rgba(0,0,0,.06);
+  /* Colores de `.experience-tabs` (primitivo Hub, ahora en tools.css). Se
+     fijan aca por la MISMA razon que el resto de este bloque: Reporting
+     dibuja su superficie clara SIEMPRE, independiente del tema del Hub —
+     sin el pin, el override de tema oscuro del primitivo (que cuelga de
+     <html>) le pondria texto claro sobre su panel blanco. Valores
+     identicos a los que resolvian `var(--ink)`/`var(--ink-faint)` cuando
+     las reglas vivian en este archivo. */
+  --tab-ink: #1f1f24;
+  --tab-ink-muted: #7a7a82;
   color: var(--ink); font-size: 14px; line-height: 1.4;
 }
-/* Tabs de experiencia — antes una "tarjeta" propia (fondo blanco + borde +
-   radio), ahora un underline plano apoyado directo sobre el fondo del Hub
-   (.module-content), sin dibujar una segunda superficie. */
-.reporting-integral-preview nav.experience-tabs {
-  display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px;
-}
-.reporting-integral-preview nav.experience-tabs button {
-  background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font: 600 .82rem var(--sans);
-  color: var(--ink-faint); cursor: pointer; white-space: nowrap; margin-bottom: -1px;
-}
-.reporting-integral-preview nav.experience-tabs button:hover { color: var(--ink); }
-.reporting-integral-preview nav.experience-tabs button.is-active { color: var(--ink); border-bottom-color: var(--gold); }
+/* `.experience-tabs` PROMOVIDA a tools.css (primitivo Hub) al ganar su
+   segundo consumidor real: la nav de capacidades de Comercial. Reporting no
+   cambia — el color sale alla por `var(--tab-ink…)` y este bloque pinea esos
+   tokens a los valores de siempre (ver el bloque de tokens de arriba). Lo
+   que NO se promovio es la navegacion: EXPERIENCES/setExperience/
+   TAB_HYDRATION_TRIGGERS/RENDERERS/FILTER_BARS/telemetria siguen siendo
+   logica propia de Reporting en reporting.js. */
 
 /* `.dashboard-view-switch` (Hub Dashboard Contextual View Control
    corrective, ver HANDOFF) es ahora un primitivo NEUTRAL en tools.css,

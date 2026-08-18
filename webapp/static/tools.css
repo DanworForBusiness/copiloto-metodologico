@@ -512,9 +512,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-section__count { color: #8b8b96; }
 .dashboard-section__body { padding: 4px 16px 20px; }
 
-/* Estados de arrastre (reordenamiento drag-and-drop, ver app.js initDashboardSections). */
-.dashboard-section__head { cursor: grab; }
-.dashboard-section__head:active { cursor: grabbing; }
+/* Estados de arrastre (reordenamiento drag-and-drop, ver app.js
+   initDashboardSections). El cursor cuelga de `[draggable="true"]`, no de
+   `.dashboard-section__head` a secas: el drag SIEMPRE fue opt-in (los
+   listeners viven en el contenedor `[data-dashboard-key]` y el dragstart
+   exige el atributo), pero el cursor lo anunciaba en TODA seccion — una
+   afordancia falsa para una seccion deliberadamente no reordenable, como
+   los buckets de Actividades, cuyo orden es semantico. Todos los
+   consumidores existentes ponen `draggable="true"`, asi que ninguno cambia. */
+.dashboard-section__head[draggable="true"] { cursor: grab; }
+.dashboard-section__head[draggable="true"]:active { cursor: grabbing; }
 .dashboard-section__grip { color: rgba(128,128,128,.5); font-size: .8rem; letter-spacing: -2px; user-select: none; }
 .dashboard-section.is-dragging { opacity: .45; }
 .dashboard-section.is-drop-target { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
@@ -2108,6 +2115,47 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
 .callout-row .callout { height: 100%; margin: 0; }
 @media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
+
+/* HUB CAPABILITY/EXPERIENCE NAV PRIMITIVE — barra de navegacion entre las
+   capacidades de un workspace (underline plano apoyado directo sobre el
+   fondo del Hub, sin dibujar una segunda superficie). Promovido desde
+   reporting.css, donde vivia scopeado a `.reporting-integral-preview` — o
+   sea inerte fuera de Reporting, porque base.html no carga ese archivo — al
+   ganar su SEGUNDO consumidor real: la nav Dashboard|Actividades de
+   Comercial. MISMO precedente que `.matrix-scroll` y que la familia
+   `.bar-*`. Se conserva el nombre `experience-tabs` a proposito: renombrar
+   ahora tocaria markup+JS de Reporting sin ganancia funcional.
+
+   Se promueve la ESTRUCTURA. La navegacion en si (que capacidades existen,
+   como se conmutan, hidratacion por tab, telemetria) sigue siendo de cada
+   vertical: aca no hay ningun acoplamiento a `EXPERIENCES` ni a un motor.
+
+   TEMA — el punto delicado de esta promocion: las reglas originales usaban
+   `var(--ink)`/`var(--ink-faint)`, tokens que Reporting define para SU
+   superficie clara. `--ink-faint` no existe fuera de ahi, y `--ink` si
+   existe Hub-wide pero con el significado INVERTIDO (#e4e4ec, texto claro
+   para fondo oscuro): copiadas tal cual, la tab activa quedaba blanco sobre
+   blanco en tema claro. Por eso el color sale por token propio con
+   fallback, con override en `.content-theme-dark` y con un pin dentro de
+   `.reporting-integral-preview` (que fuerza su panel claro en AMBOS temas)
+   para que Reporting resuelva exactamente los mismos valores de siempre.
+   Mismo patron que `--bar-track-bg` y que `.activity-kpi__value`.
+
+   NO es un tablist ARIA: son botones. El consumidor marca el activo con
+   `aria-current`; deliberadamente no se hornea aca un contrato
+   `role="tab"` incompleto (sin roving tabindex ni flechas). */
+.experience-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
+.experience-tabs button {
+  background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font: 600 .82rem var(--sans);
+  color: var(--tab-ink-muted, #7a7a82); cursor: pointer; white-space: nowrap; margin-bottom: -1px;
+}
+.experience-tabs button:hover { color: var(--tab-ink, #1f1f24); }
+.experience-tabs button.is-active { color: var(--tab-ink, #1f1f24); border-bottom-color: var(--gold); }
+/* Foco visible: MISMO lenguaje que el resto de los interactivos del Hub
+   (`.activity-kpi--clickable`, `.activity-bar-row--clickable`). Solo aparece
+   en navegacion por teclado. */
+.experience-tabs button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.content-theme-dark { --tab-ink: #e4e4ec; --tab-ink-muted: #8b8b96; }
 
 /* HUB BAR PRIMITIVE — categoría → UNA magnitud → UNA barra horizontal.
    Promovido desde reporting.css (donde vivía scopeado a

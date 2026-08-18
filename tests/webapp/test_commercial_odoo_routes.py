@@ -635,3 +635,62 @@ def test_operations_staffing_route_unaffected_by_odoo_batch(monkeypatch):
     response = client.get("/operaciones/staffing/asignaciones")
     assert response.status_code == 200
     assert '<p class="eyebrow">Staffing</p>' in response.text
+
+
+# ============================================================================
+# Batch 3A / C1 — `.experience-tabs` promovido a primitivo Hub
+# ============================================================================
+
+def test_experience_tabs_promoted_hub_wide_and_reporting_pins_its_own_colors():
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    reporting_css = (_STATIC / "reporting.css").read_text(encoding="utf-8")
+    # La ESTRUCTURA vive en tools.css sin scope de vertical: base.html no
+    # carga reporting.css, así que scopeada era inerte fuera de Reporting.
+    for rule in (".experience-tabs {", ".experience-tabs button {"):
+        assert rule in tools_css, rule
+        assert f".reporting-integral-preview nav{rule}" not in reporting_css, rule
+    assert "nav.experience-tabs" not in reporting_css
+    # Los colores NO se copiaron tal cual: `--ink` existe Hub-wide con el
+    # significado INVERTIDO (#e4e4ec, texto claro para fondo oscuro) y
+    # `--ink-faint` sólo existe dentro de Reporting. Salen por token propio
+    # con fallback + override de tema oscuro.
+    assert "var(--tab-ink-muted, #7a7a82)" in tools_css
+    assert "var(--tab-ink, #1f1f24)" in tools_css
+    assert ".content-theme-dark { --tab-ink:" in tools_css
+    # Reporting fuerza su panel claro en AMBOS temas: sin el pin, el override
+    # de tema oscuro le pondría texto claro sobre fondo blanco.
+    assert "--tab-ink: #1f1f24;" in reporting_css
+    assert "--tab-ink-muted: #7a7a82;" in reporting_css
+
+
+def test_experience_tabs_primitive_carries_no_reporting_navigation_logic():
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    tabs_block = tools_css.split(".experience-tabs {", 1)[1].split("/* HUB", 1)[0]
+    for leaked in ("EXPERIENCES", "setExperience", "reporting-experience-tabs", "TAB_HYDRATION"):
+        assert leaked not in tabs_block, leaked
+    # La navegación de Reporting sigue siendo suya. Se mira CÓDIGO, no prosa:
+    # el comentario de commercial.js nombra a propósito lo que NO reusa, y un
+    # scan del texto crudo daría un falso positivo por esa misma mención.
+    reporting_js = (_STATIC / "reporting.js").read_text(encoding="utf-8")
+    assert "function setExperience(" in reporting_js
+    commercial_code = re.sub(r"//[^\n]*", "", _COMMERCIAL_JS)
+    for leaked in ("setExperience(", "EXPERIENCES", "TAB_HYDRATION_TRIGGERS"):
+        assert leaked not in commercial_code, leaked
+
+
+def test_experience_tabs_stay_responsive_without_horizontal_scroll():
+    # `flex-wrap: wrap` ya venía de Reporting y es lo que evita el scroll
+    # horizontal en viewport angosto — se preserva al promover.
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    tabs_rule = tools_css.split(".experience-tabs {", 1)[1].split("}", 1)[0]
+    assert "flex-wrap: wrap" in tabs_rule
+
+
+def test_section_drag_affordance_is_scoped_to_actually_draggable_heads():
+    # El cursor `grab` colgaba de `.dashboard-section__head` a secas y por lo
+    # tanto lo anunciaba también en secciones deliberadamente NO reordenables
+    # (los buckets de Actividades). El drag SIEMPRE fue opt-in por markup;
+    # ahora el cursor también lo es.
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    assert '.dashboard-section__head[draggable="true"] { cursor: grab; }' in tools_css
+    assert ".dashboard-section__head { cursor: grab; }" not in tools_css
