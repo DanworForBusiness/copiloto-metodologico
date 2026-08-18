@@ -49,8 +49,21 @@
 // directo en el markup: panel `data-breakdown=""` visible, panel
 // `data-breakdown="activas"` `hidden`).
 
+// Capacidades IMPLEMENTADAS del workspace. Deliberadamente NO se listan las
+// que todavía no tienen funcionalidad detrás (Licencias, Clientes, Leads, Mis
+// Tareas, Historial de Perdidas, Detalle de Oportunidades): una tab muerta es
+// una promesa rota, se agregan cuando exista contenido real.
+const COMMERCIAL_CAPABILITIES = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "actividades", label: "Actividades" },
+];
+
 const commercialState = {
   tipo: "todos",
+  // Capability activa. State client-side puro, sin routing nuevo: MISMO
+  // criterio que Reporting (`state.experience`, sin URL) — no hay
+  // requerimiento de deep-link a una capability.
+  capability: "dashboard",
   // Dimensión de horas de "Distribución por Etapa" (small multiple #2). NO es
   // un filtro: no cambia universo, etapas, capability ni la tabla — sólo qué
   // magnitud dibuja el segundo gráfico. Por eso vive acá y NO dispara fetch.
@@ -59,6 +72,16 @@ const commercialState = {
   errorState: "", // "config_incomplete" | "source_error" | ""
   summary: null,
   pipeline: null,
+  // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
+  // costo de una capability que no se está viendo. `idle` = todavía no se
+  // pidió, o quedó stale tras cambiar el filtro global.
+  activities: null,
+  activitiesStatus: "idle", // idle | loading | ready | error
+  activitiesErrorState: "",
+  // Filtros LOCALES de Actividades — client-side sobre el dataset ya
+  // cargado, nunca un round-trip (ver commercialFilteredActivities).
+  actPeriod: "all", // all | week:0 | week:1 | week:2
+  actUser: "",
 };
 
 function commercialEsc(value) {
@@ -316,22 +339,241 @@ function commercialActivasAnalysisHtml(pipeline) {
     ${commercialPipelineTableHtml(pipeline)}`;
 }
 
-function commercialRender() {
-  const root = document.getElementById("commercial-main-content");
-  if (!root) return;
+// ── Capability navigation ───────────────────────────────────────────────────
+// Barra de capacidades sobre el primitivo COMPARTIDO `.experience-tabs`
+// (promovido a tools.css en este batch — antes vivía scopeado a Reporting, o
+// sea inerte acá porque base.html no carga reporting.css). Lo que NO se reusa
+// es la navegación de Reporting (EXPERIENCES/setExperience/hydration
+// registry/telemetría/renderers): eso es lógica suya. Acá alcanza con un
+// registry chico y un state local.
+//
+// A11y: `<nav>` + botones, con `aria-current` en el activo. Deliberadamente
+// NO se declara `role="tablist"`/`role="tab"`: ese contrato exige roving
+// tabindex y navegación por flechas, que el Hub no implementa en ningún lado
+// — anunciarlo sin cumplirlo sería peor que no anunciarlo. `aria-controls` sí
+// aplica: hay UN contenedor único de capability.
+function commercialNavHtml() {
+  const buttons = COMMERCIAL_CAPABILITIES.map(cap => {
+    const active = commercialState.capability === cap.id;
+    return `<button type="button" class="${active ? "is-active" : ""}"`
+      + `${active ? ' aria-current="true"' : ""}`
+      + ` aria-controls="commercial-capability-panel" data-commercial-capability="${cap.id}">`
+      + `${commercialEsc(cap.label)}</button>`;
+  }).join("");
+  return `<nav class="experience-tabs" aria-label="Capacidades comerciales">${buttons}</nav>`;
+}
 
+// ── Actividades pendientes ──────────────────────────────────────────────────
+// `days_until` se calcula ACÁ, no en el backend: el server cachea 300s, así
+// que un valor calculado allá queda congelado y al cruzar la medianoche
+// clasifica mal el bucket.
+//
+// La fecha llega como "YYYY-MM-DD" y es una FECHA CALENDARIO, no un instante.
+// `new Date("2026-08-20")` la interpretaría como medianoche UTC y en un huso
+// al oeste devolvería el día anterior — de ahí el parseo por componentes
+// contra `new Date(y, m-1, d)`, que construye medianoche LOCAL. El
+// `Math.round` sobre la diferencia absorbe los días de 23/25 horas de los
+// cambios de horario, que si no correrían el resultado en 1.
+function commercialDaysUntil(iso) {
+  if (!iso) return null;
+  const parts = String(iso).split("-");
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
+  if (!isFinite(y) || !isFinite(m) || !isFinite(d)) return null;
+  const target = new Date(y, m - 1, d);
+  // Rechaza fechas imposibles que el constructor "normaliza" (2026-13-45).
+  if (target.getFullYear() !== y || target.getMonth() !== m - 1 || target.getDate() !== d) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+function commercialFmtDate(iso) {
+  if (!iso) return "—";
+  const parts = String(iso).split("-");
+  if (parts.length !== 3) return "—";
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+// Semana LUNES→DOMINGO (semántica legacy). `week:0` = la semana en curso.
+function commercialDaysSinceMonday() {
+  const day = new Date().getDay(); // 0 = domingo
+  return day === 0 ? 6 : day - 1;
+}
+function commercialDaysToEndOfWeek() {
+  const day = new Date().getDay();
+  return day === 0 ? 0 : 7 - day;
+}
+
+// Filtros LOCALES: client-side sobre el dataset ya cargado. No van al
+// endpoint porque el volumen es chico y porque las opciones de Responsable se
+// DERIVAN del propio dataset (no hay catálogo de usuarios que consultar). Sin
+// persistencia — no hay precedente Hub y arrastraría estado de usuario, fuera
+// de alcance. Sólo LEEN el tipo global, nunca lo tocan.
+function commercialFilteredActivities() {
+  const all = (commercialState.activities && commercialState.activities.activities) || [];
+  const period = commercialState.actPeriod;
+  const user = commercialState.actUser;
+  const since = commercialDaysSinceMonday();
+  const toEnd = commercialDaysToEndOfWeek();
+  return all.filter(act => {
+    if (user && act.user !== user) return false;
+    if (period !== "all") {
+      const offset = parseInt(String(period).split(":")[1] ?? "0", 10);
+      const days = commercialDaysUntil(act.deadline);
+      // Sin fecha queda EXCLUIDA cuando hay período activo (semántica legacy
+      // preservada): no se puede afirmar que caiga en esa semana.
+      if (days === null) return false;
+      if (days < offset * 7 - since || days > offset * 7 + toEnd) return false;
+    }
+    return true;
+  });
+}
+
+// Buckets: exactamente los dos del legacy. Sin fecha cuenta como Pendiente.
+function commercialActivityBuckets(rows) {
+  const overdue = [], pending = [];
+  rows.forEach(act => {
+    const days = commercialDaysUntil(act.deadline);
+    (days !== null && days < 0 ? overdue : pending).push({ ...act, days });
+  });
+  return { overdue, pending };
+}
+
+// Sección NO reordenable: sin `draggable`, sin grip, y montada FUERA de un
+// contenedor `[data-dashboard-key]` — con lo cual `initDashboardSections`
+// (app.js) directamente no la ve: sus listeners cuelgan del contenedor y el
+// dragstart exige el atributo. Reusa el MISMO contrato visual de
+// `.dashboard-section` sin heredar un comportamiento que acá sería
+// incorrecto: el orden Retrasadas → Pendientes es semántico, no una
+// preferencia del usuario.
+function commercialStaticSection(id, title, countLabel, bodyHtml) {
+  return `<details class="dashboard-section" data-section-id="${id}" open>
+    <summary class="dashboard-section__head">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">${commercialEsc(title)}</span>
+      ${countLabel ? `<span class="dashboard-section__count">${commercialEsc(countLabel)}</span>` : ""}
+    </summary>
+    <div class="dashboard-section__body">${bodyHtml}</div>
+  </details>`;
+}
+
+// TODO dato que llega de Odoo se escapa acá (`commercialEsc`), incluida la
+// `note` que el backend ya normalizó: esa limpieza es de payload/formato, NO
+// un permiso para tratar la fuente como HTML confiable.
+function commercialActivityTableHtml(rows) {
+  if (!rows.length) return `<p class="empty-panel">Sin actividades para este filtro.</p>`;
+  const body = rows.map(act => {
+    const rel = act.days === null ? ""
+      : act.days < 0 ? ` (venc. ${Math.abs(act.days)}d)`
+      : act.days === 0 ? " (hoy)" : ` (${act.days}d)`;
+    const detail = [act.summary, act.note].filter(Boolean).join(" · ") || "—";
+    return `<tr>
+      <td class="left">${commercialEsc(commercialFmtDate(act.deadline))}${commercialEsc(rel)}</td>
+      <td class="left">${commercialEsc(act.type)}</td>
+      <td class="left">${commercialEsc(act.opportunity)}</td>
+      <td class="left">${commercialEsc(act.client)}</td>
+      <td class="left">${commercialEsc(act.user)}</td>
+      <td class="left">${commercialEsc(detail)}</td>
+    </tr>`;
+  }).join("");
+  // `<colgroup>` dimensionando las columnas desde el markup: MISMO recurso
+  // que el Detalle de Asignaciones (staffing_dashboard.html) para una tabla
+  // de VARIAS columnas de texto. Sin esto, `table-layout:fixed` reparte el
+  // sobrante en partes iguales y con `.row-label-col` (340px) para una fecha
+  // corta las cinco columnas descriptivas quedaban en ~40px ("Mi…", "AC…").
+  // No es CSS nuevo: es el mismo primitivo compartido.
+  //
+  // Anchos en PX, no en %: con porcentajes la tabla siempre mide lo que mide
+  // el panel, y en 375px las seis columnas quedaban en ~50px cada una,
+  // ilegibles. En px la tabla conserva su ancho y `.matrix-scroll` (primitivo
+  // Hub, promovido justamente para esto) da scroll horizontal DENTRO del
+  // panel — MISMO comportamiento que las matrices mensuales de Reporting. Se
+  // prefiere scroll a truncar: el contenido nunca queda inalcanzable.
+  // Fecha va primera y entera porque "(venc. 12d)" es la señal de triage.
+  return `<div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:160px"><col style="width:70px"><col style="width:130px">
+          <col style="width:80px"><col style="width:90px"><col style="width:150px">
+        </colgroup>
+        <thead><tr><th class="left">Fecha</th><th class="left">Tipo</th><th class="left">Oportunidad</th><th class="left">Cliente</th><th class="left">Responsable</th><th class="left">Detalle</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+function commercialActivitiesControlsHtml() {
+  const periods = [["all", "Todas"], ["week:0", "Esta semana"], ["week:1", "Próxima"], ["week:2", "En 2 semanas"]];
+  const buttons = periods.map(([key, label]) =>
+    `<button type="button" class="${commercialState.actPeriod === key ? "is-active" : ""}" data-commercial-act-period="${key}">${commercialEsc(label)}</button>`
+  ).join("");
+  // Responsables DERIVADOS del dataset cargado (mismo criterio que el legacy)
+  // — no existe un endpoint de usuarios y no hace falta.
+  const all = (commercialState.activities && commercialState.activities.activities) || [];
+  const users = [...new Set(all.map(a => a.user).filter(Boolean))].sort();
+  const options = users.map(u =>
+    `<option value="${commercialEsc(u)}"${commercialState.actUser === u ? " selected" : ""}>${commercialEsc(u)}</option>`
+  ).join("");
+  return `<div class="whatsnew-filters">
+      <label class="whatsnew-filter">
+        <span>Período</span>
+        <div class="dashboard-view-switch" role="group" aria-label="Período">${buttons}</div>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Responsable</span>
+        <select data-commercial-act-user>
+          <option value=""${commercialState.actUser === "" ? " selected" : ""}>Todos</option>
+          ${options}
+        </select>
+      </label>
+    </div>`;
+}
+
+function commercialActividadesHtml() {
+  if (commercialState.activitiesStatus === "idle" || commercialState.activitiesStatus === "loading") {
+    return commercialLoadingHtml("Cargando actividades pendientes…");
+  }
+  if (commercialState.activitiesStatus === "error") {
+    const label = commercialState.activitiesErrorState === "config_incomplete"
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las actividades desde el CRM en este momento.";
+    return `<p class="empty-panel">${commercialEsc(label)}</p>`;
+  }
+  const rows = commercialFilteredActivities();
+  const buckets = commercialActivityBuckets(rows);
+  // KPIs: SOLO los dos que los datos sostienen directamente. Reflejan el
+  // conjunto FILTRADO, para que nunca contradigan los contadores de las
+  // secciones de abajo.
+  const kpis = `<div class="activity-kpi-grid">
+      ${commercialKpi("Total pendientes", commercialFmtInt(rows.length))}
+      ${commercialKpi("Retrasadas", commercialFmtInt(buckets.overdue.length))}
+    </div>`;
+  // Retrasadas SIEMPRE antes que Pendientes — orden semántico, ver
+  // commercialStaticSection.
+  const sections = commercialStaticSection("act-retrasadas", "Retrasadas",
+      `${commercialFmtInt(buckets.overdue.length)} actividad(es)`, commercialActivityTableHtml(buckets.overdue))
+    + commercialStaticSection("act-pendientes", "Pendientes",
+      `${commercialFmtInt(buckets.pending.length)} actividad(es)`, commercialActivityTableHtml(buckets.pending));
+  return `<p class="perspective-label">Actividades Pendientes</p>
+    ${commercialActivitiesControlsHtml()}
+    ${kpis}
+    <div>${sections}</div>`;
+}
+
+// Contenido del Dashboard (la capability inicial). Se separó de
+// `commercialRender` al aparecer la segunda capability: el shell (nav +
+// filtro global + contenedor) es común, y esto es sólo lo que va adentro.
+function commercialDashboardHtml() {
   if (commercialState.status === "idle" || commercialState.status === "loading") {
-    root.innerHTML = commercialLoadingHtml("Cargando datos comerciales…");
-    return;
+    return commercialLoadingHtml("Cargando datos comerciales…");
   }
   if (commercialState.status === "error") {
     const label = commercialState.errorState === "config_incomplete"
       ? "El CRM todavía no está configurado para este espacio."
       : "No pudimos cargar los datos comerciales desde el CRM en este momento.";
-    root.innerHTML = `${commercialFilterHtml()}<p class="empty-panel">${commercialEsc(label)}</p>`;
-    return;
+    return `<p class="empty-panel">${commercialEsc(label)}</p>`;
   }
-
   const s = commercialState.summary;
   const p = commercialState.pipeline;
   const kpiGrid = `<div class="activity-kpi-grid">
@@ -362,17 +604,68 @@ function commercialRender() {
     </div>`;
   const sections = commercialDashboardSection("resumen", "Resumen", `${commercialFmtInt(s.activas.count)} oportunidad(es) activa(s)`, kpiGrid)
     + commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, analysisPanels);
+  return commercialDashboardSections("commercial", sections);
+}
+
+// Shell de la página: navegación de capacidades + filtro GLOBAL + el
+// contenedor único de la capability activa. El filtro Todos/New Name/Base
+// Instalada vive ACÁ, fuera del contenedor de capability y por encima de él:
+// es transversal a todo Comercial, así que no se duplica dentro de cada
+// capability ni se reinicia al conmutar (su estado real vive en
+// `commercialState.tipo`, no en el DOM).
+function commercialRender() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
   root.innerHTML = `
+    ${commercialNavHtml()}
     ${commercialFilterHtml()}
-    ${commercialDashboardSections("commercial", sections)}
+    <div id="commercial-capability-panel">${commercialCapabilityHtml()}</div>
   `;
+  commercialWireCapability();
+}
+
+function commercialCapabilityHtml() {
+  return commercialState.capability === "actividades"
+    ? commercialActividadesHtml()
+    : commercialDashboardHtml();
+}
+
+// Los motores compartidos se wirean SOLO cuando el Dashboard está en pantalla
+// — Actividades no tiene secciones draggables ni breakdown. Se llaman después
+// de cada render porque el subárbol es nuevo: nodos frescos, sin listeners
+// duplicados.
+function commercialWireCapability() {
+  if (commercialState.capability !== "dashboard") return;
   initDashboardSections(document);
   initEventBreakdown(document, { openFirst: false });
 }
 
+// Re-render acotado al panel de la capability (sin tocar nav ni filtro
+// global). Lo usan los filtros locales de Actividades y los estados de carga.
+function commercialRenderCapability() {
+  const panel = document.getElementById("commercial-capability-panel");
+  if (!panel) return commercialRender();
+  panel.innerHTML = commercialCapabilityHtml();
+  commercialWireCapability();
+}
+
+// Conmutación de capability. LAZY (ver HANDOFF — Batch 3A): Dashboard no paga
+// el costo de Actividades, y Actividades se pide la PRIMERA vez que se abre.
+// Una re-entrada con el dataset ya `ready` no vuelve a pedir nada.
+function commercialSetCapability(capability) {
+  if (capability === commercialState.capability) return;
+  commercialState.capability = capability;
+  commercialRender();
+  if (capability === "actividades" && commercialState.activitiesStatus === "idle") {
+    commercialLoadActivities();
+  } else if (capability === "dashboard" && commercialState.status === "idle") {
+    commercialLoadData();
+  }
+}
+
 async function commercialLoadData() {
   commercialState.status = "loading";
-  commercialRender();
+  commercialRenderCapability();
   HubForegroundProgress.begin("commercial", { seedMs: 9000 });
   try {
     const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
@@ -396,7 +689,56 @@ async function commercialLoadData() {
     commercialState.errorState = "source_error";
     HubForegroundProgress.fail("commercial");
   }
+  commercialRenderCapability();
+}
+
+// Carga de Actividades — MISMO contrato fail-soft y MISMO loader canónico que
+// el Dashboard. Una sola request; el universo (todas las `mail.activity`
+// pendientes de cualquier `crm.lead`, incluidas ganadas/perdidas/archivadas)
+// lo resuelve el service.
+async function commercialLoadActivities() {
+  commercialState.activitiesStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/activities?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.activities = resp.activities;
+      commercialState.activitiesStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.activitiesStatus = "error";
+      commercialState.activitiesErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.activitiesStatus = "error";
+    commercialState.activitiesErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// Cambio del filtro GLOBAL: invalida los datasets de TODAS las capabilities
+// (el tipo cambia la población de todas) pero sólo re-pide el de la que está
+// en pantalla. La otra queda `idle` y se recarga sola la próxima vez que se
+// abra — sin framework de cache, sólo dos flags.
+function commercialSetTipo(tipo) {
+  if (tipo === commercialState.tipo) return;
+  commercialState.tipo = tipo;
+  commercialState.status = "idle";
+  commercialState.summary = null;
+  commercialState.pipeline = null;
+  commercialState.activities = null;
+  commercialState.activitiesStatus = "idle";
+  // Los filtros locales de Actividades se reinician con el dataset: sus
+  // opciones de Responsable se derivan de datos que ya no son los mismos.
+  commercialState.actPeriod = "all";
+  commercialState.actUser = "";
   commercialRender();
+  if (commercialState.capability === "actividades") commercialLoadActivities();
+  else commercialLoadData();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -421,12 +763,29 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialDistribucionHtml(commercialState.pipeline, dim);
       return;
     }
+    const capButton = event.target.closest("[data-commercial-capability]");
+    if (capButton) {
+      commercialSetCapability(capButton.dataset.commercialCapability);
+      return;
+    }
+    // Filtros LOCALES de Actividades: sólo re-render del panel, nunca fetch
+    // ni cambio del estado global.
+    const periodButton = event.target.closest("[data-commercial-act-period]");
+    if (periodButton) {
+      if (periodButton.dataset.commercialActPeriod === commercialState.actPeriod) return;
+      commercialState.actPeriod = periodButton.dataset.commercialActPeriod;
+      commercialRenderCapability();
+      return;
+    }
     const button = event.target.closest("[data-commercial-tipo]");
     if (!button) return;
-    const tipo = button.dataset.commercialTipo;
-    if (tipo === commercialState.tipo) return;
-    commercialState.tipo = tipo;
-    commercialLoadData();
+    commercialSetTipo(button.dataset.commercialTipo);
+  });
+  root.addEventListener("change", event => {
+    const select = event.target.closest("[data-commercial-act-user]");
+    if (!select) return;
+    commercialState.actUser = select.value;
+    commercialRenderCapability();
   });
   commercialLoadData();
 });

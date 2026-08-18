@@ -292,14 +292,28 @@ def test_commercial_view_switch_lives_inside_the_shared_sticky_header():
     assert '"dashboard-view-switch"' in sticky_block
 
 
-def test_commercial_sticky_header_appears_before_dashboard_sections_in_render():
-    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
-    assert render_fn.index("commercialFilterHtml()") < render_fn.index("commercialDashboardSections(")
+def test_commercial_sticky_header_appears_before_the_capability_panel_in_render():
+    # Batch 3A: `commercialRender` es ahora el SHELL (nav + filtro global +
+    # contenedor de capability) y el contenido del Dashboard vive en
+    # `commercialDashboardHtml`. El filtro global sigue por ENCIMA del
+    # contenido, sólo que ahora por encima de CUALQUIER capability.
+    render_fn = _COMMERCIAL_JS.split("function commercialRender(", 1)[1].split("\nfunction ", 1)[0]
+    assert render_fn.index("commercialNavHtml()") < render_fn.index("commercialFilterHtml()")
+    assert render_fn.index("commercialFilterHtml()") < render_fn.index('id="commercial-capability-panel"')
+    dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialDashboardSections(" in dashboard_fn
 
 
-def test_commercial_did_not_adopt_experience_tabs():
-    # Una única capability hoy — no navegación por tabs todavía.
-    assert "experience-tabs" not in _COMMERCIAL_JS
+def test_commercial_now_navigates_capabilities_with_the_shared_tab_primitive():
+    # CONTRATO ACTUALIZADO DELIBERADAMENTE EN BATCH 3A. Hasta 2B este test
+    # exigía que Comercial NO usara `experience-tabs` — era cierto mientras
+    # existía una sola capability. Con Dashboard + Actividades la navegación
+    # es real, y usa el primitivo COMPARTIDO, no una barra propia.
+    nav_fn = _COMMERCIAL_JS.split("function commercialNavHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'class="experience-tabs"' in nav_fn
+    # Sigue sin haber CSS propio de la vertical para la navegación.
+    assert "commercial-tabs" not in _COMMERCIAL_JS
+    assert "commercial-nav" not in _COMMERCIAL_JS
 
 
 def test_commercial_did_not_adopt_staffing_filter_bar_layout():
@@ -468,9 +482,9 @@ def test_analysis_panel_starts_hidden_not_via_default_auto_open():
     # El estado inicial "cerrado" está codificado en el propio markup (panel
     # "" visible, panel "activas" hidden) — NO depende de que la función lo
     # calcule, porque con openFirst:false la función no llama a show() en absoluto.
-    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
-    assert 'data-breakdown=""' in render_fn
-    assert 'data-breakdown="activas" hidden' in render_fn
+    dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'data-breakdown=""' in dashboard_fn
+    assert 'data-breakdown="activas" hidden' in dashboard_fn
 
 
 def test_breakdown_group_attribute_wraps_the_dashboard_sections_container():
@@ -481,12 +495,12 @@ def test_breakdown_group_attribute_wraps_the_dashboard_sections_container():
 
 
 def test_active_opportunities_analysis_contains_the_stage_1_8_table_not_pipeline_total():
-    render_fn = _COMMERCIAL_JS.split("function commercialRender()", 1)[1].split("\nasync function", 1)[0]
-    # Batch 2B: el panel ahora se COMPONE (gráfico arriba + tabla abajo) en
-    # `commercialActivasAnalysisHtml`, que es quien invoca la tabla. La tabla
-    # sigue siendo exactamente la misma y sigue perteneciendo a este panel —
-    # cambió el punto de composición, no el universo ni el dueño.
-    assert "commercialActivasAnalysisHtml(p)" in render_fn
+    dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
+    # Batch 2B: el panel se COMPONE (gráfico arriba + tabla abajo) en
+    # `commercialActivasAnalysisHtml`, que es quien invoca la tabla. Batch 3A
+    # sólo movió ese bloque de `commercialRender` a `commercialDashboardHtml`
+    # al aparecer la segunda capability — mismo universo, mismo dueño.
+    assert "commercialActivasAnalysisHtml(p)" in dashboard_fn
     analysis_fn = _COMMERCIAL_JS.split("function commercialActivasAnalysisHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert "commercialPipelineTableHtml(pipeline)" in analysis_fn
     assert "commercialDistribucionHtml(pipeline" in analysis_fn
@@ -738,3 +752,100 @@ def test_activities_endpoint_never_exposes_a_write_verb():
     for verb in ("post", "put", "patch", "delete"):
         response = getattr(client, verb)("/comercial/data/activities")
         assert response.status_code == 405, (verb, response.status_code)
+
+
+# ============================================================================
+# Batch 3A / C3 — capability navigation
+# ============================================================================
+
+def test_only_implemented_capabilities_are_listed():
+    registry = _COMMERCIAL_JS.split("const COMMERCIAL_CAPABILITIES = [", 1)[1].split("];", 1)[0]
+    assert registry.count('id: "') == 2
+    assert '{ id: "dashboard", label: "Dashboard" }' in registry
+    assert '{ id: "actividades", label: "Actividades" }' in registry
+    # Ninguna tab muerta: una capability sin funcionalidad detrás es una
+    # promesa rota.
+    for not_yet in ("licencias", "clientes", "leads", "mis-tareas", "historial", "prospectos"):
+        assert f'id: "{not_yet}"' not in registry
+
+
+def test_dashboard_is_the_default_capability():
+    state = _COMMERCIAL_JS.split("const commercialState = {", 1)[1].split("\n};", 1)[0]
+    assert 'capability: "dashboard"' in state
+    assert 'activitiesStatus: "idle"' in state
+
+
+def test_capability_nav_uses_shared_primitive_and_minimal_aria():
+    nav = _COMMERCIAL_JS.split("function commercialNavHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'class="experience-tabs"' in nav
+    assert 'aria-label="Capacidades comerciales"' in nav
+    assert 'aria-current="true"' in nav
+    assert 'aria-controls="commercial-capability-panel"' in nav
+    # NO se declara un tablist ARIA incompleto (sin roving tabindex ni flechas).
+    for banned in ('role="tablist"', 'role="tab"', 'aria-selected'):
+        assert banned not in nav, banned
+
+
+def test_global_filter_lives_outside_the_capability_panel():
+    render = _COMMERCIAL_JS.split("function commercialRender(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialNavHtml()" in render
+    assert "commercialFilterHtml()" in render
+    assert 'id="commercial-capability-panel"' in render
+    # El filtro global se emite UNA vez y fuera del panel: no se duplica
+    # dentro de cada capability.
+    assert render.count("commercialFilterHtml()") == 1
+    capability = _COMMERCIAL_JS.split("function commercialCapabilityHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialFilterHtml" not in capability
+
+
+def test_activities_are_lazy_and_never_fetched_for_the_dashboard():
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert "commercialLoadActivities" not in boot, "el arranque NUNCA pide actividades"
+    assert "commercialLoadData();" in boot
+    switch = _COMMERCIAL_JS.split("function commercialSetCapability(", 1)[1].split("\nfunction ", 1)[0]
+    # Sólo se pide si nunca se pidió (o quedó stale): una re-entrada con el
+    # dataset ya listo no repite el fetch.
+    assert 'commercialState.activitiesStatus === "idle"' in switch
+    assert "commercialLoadActivities()" in switch
+
+
+def test_global_filter_change_invalidates_both_datasets_but_reloads_only_the_active_one():
+    fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'commercialState.status = "idle"' in fn
+    assert 'commercialState.activitiesStatus = "idle"' in fn
+    assert 'if (commercialState.capability === "actividades") commercialLoadActivities();' in fn
+    assert "else commercialLoadData();" in fn
+
+
+def test_activity_buckets_are_never_draggable_or_reorderable():
+    fn = _COMMERCIAL_JS.split("function commercialStaticSection(", 1)[1].split("\nfunction ", 1)[0]
+    assert "draggable" not in fn, "el orden Retrasadas → Pendientes es semántico"
+    assert "dashboard-section__grip" not in fn
+    # Y no se registran en el spine que wirea reorder/persistencia.
+    actividades = _COMMERCIAL_JS.split("function commercialActividadesHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "data-dashboard-key" not in actividades
+    assert "commercialDashboardSections" not in actividades
+
+
+def test_activity_local_filters_never_refetch_or_touch_global_state():
+    handler = _COMMERCIAL_JS.split('const periodButton = event.target.closest("[data-commercial-act-period]");', 1)[1]
+    branch = handler.split("const button = event.target.closest", 1)[0]
+    assert "commercialRenderCapability()" in branch
+    for banned in ("fetch(", "commercialLoadActivities", "commercialLoadData", "commercialState.tipo ="):
+        assert banned not in branch, banned
+
+
+def test_activity_rows_escape_every_odoo_sourced_field():
+    fn = _COMMERCIAL_JS.split("function commercialActivityTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for field in ("act.type", "act.opportunity", "act.client", "act.user", "detail"):
+        assert f"commercialEsc({field})" in fn, field
+    # La normalización server-side del `note` NO reemplaza el escaping.
+    assert "commercialEsc(commercialFmtDate(act.deadline))" in fn
+
+
+def test_activities_capability_only_shows_the_two_supported_kpis():
+    fn = _COMMERCIAL_JS.split("function commercialActividadesHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'commercialKpi("Total pendientes"' in fn
+    assert 'commercialKpi("Retrasadas"' in fn
+    assert fn.count("commercialKpi(") == 2, "sin métricas inventadas"
+    assert "Actividades Pendientes" in fn
