@@ -210,6 +210,36 @@ class CommercialService:
         )
         return {"count": len(opps), "hours": hours, "revenue": revenue, "weighted_revenue": w_revenue, "weighted_hours": w_hours}
 
+    # SEGMENTACIÓN NN / BI (ver HANDOFF — Landing Homologation): `tag_ids` es
+    # many2many y `_in_tag` es una prueba de PERTENENCIA, así que New Name y
+    # Base Instalada NO son mutuamente excluyentes NI exhaustivos: una
+    # oportunidad puede tener los dos tags, o ninguno. Por eso se cuentan los
+    # CUATRO conjuntos de forma explícita en vez de derivar un resto
+    # ("otros = total - nn - bi"), que sólo sería correcto si el solapamiento
+    # fuera cero — cosa que el modelo de datos no garantiza. Con esto el
+    # front puede mostrar la lectura conocida (New Name / Base Instalada) y
+    # explicar honestamente por qué no reconcilian con el total.
+    # Cero consultas nuevas: se calcula sobre las MISMAS oportunidades que ya
+    # se trajeron para el resto del summary.
+    def _segments(self, opps: list, nn_id, bi_id) -> dict:
+        nn, bi, both, neither = [], [], [], []
+        for opp in opps:
+            in_nn, in_bi = self._in_tag(opp, nn_id), self._in_tag(opp, bi_id)
+            if in_nn:
+                nn.append(opp)
+            if in_bi:
+                bi.append(opp)
+            if in_nn and in_bi:
+                both.append(opp)
+            if not in_nn and not in_bi:
+                neither.append(opp)
+        return {
+            "nn": self._aggregate_count_hours(nn),
+            "bi": self._aggregate_count_hours(bi),
+            "both": self._aggregate_count_hours(both),
+            "neither": self._aggregate_count_hours(neither),
+        }
+
     def _aggregate_count_hours(self, opps: list) -> dict:
         return {"count": len(opps), "hours": sum(get_property_num(o.get("lead_properties"), "Horas") for o in opps)}
 
@@ -342,6 +372,18 @@ class CommercialService:
                 "conversion": round(won_count / denom * 100, 1) if denom > 0 else 0,
                 "conversion_with_suspended": round(won_count / denom_susp * 100, 1) if denom_susp > 0 else 0,
             }
+            # `segments` SÓLO en la vista sin filtrar: dentro de la vista "New
+            # Name" un desglose New Name/Base Instalada sería redundante (o
+            # peor, confuso: "bi" ahí serían las que tienen AMBOS tags).
+            if tipo == "todos":
+                views[tipo]["segments"] = {
+                    "prospectos": self._segments(prospects_by[tipo], nn_id, bi_id),
+                    "pipeline": self._segments(pipeline_by[tipo], nn_id, bi_id),
+                    "activas": self._segments(active_by[tipo], nn_id, bi_id),
+                    "ganadas": self._segments(won_by[tipo], nn_id, bi_id),
+                    "perdidas": self._segments(lost_by[tipo], nn_id, bi_id),
+                    "suspendidas": self._segments(suspended_by[tipo], nn_id, bi_id),
+                }
         return views
 
     def get_summary(self, tipo: str = "todos") -> dict:

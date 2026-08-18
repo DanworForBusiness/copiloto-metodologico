@@ -575,3 +575,61 @@ def test_iso_deadline_and_note_helpers_are_fail_soft():
     assert strip_html_note("<p>a   b</p>") == "a b"
     for bad in (None, False, 0, 123):
         assert strip_html_note(bad) == ""
+
+
+# ============================================================================
+# Landing Homologation — segmentación NN/BI honesta
+# ============================================================================
+
+def test_segments_count_the_four_sets_explicitly_never_a_derived_remainder():
+    # El fixture tiene, a propósito, una oportunidad con AMBOS tags y otra con
+    # NINGUNO: es el caso que hace que NN + BI no reconcilie con el total.
+    svc_module.clear_cache()
+    leads = [
+        {"id": 1, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [10], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [{"string": "Horas", "value": 10}]},
+        {"id": 2, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [11], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [{"string": "Horas", "value": 20}]},
+        {"id": 3, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [10, 11], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [{"string": "Horas", "value": 30}]},
+        {"id": 4, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [{"string": "Horas", "value": 40}]},
+        # Una SEGUNDA sin tags: con una sola, el solapamiento (+1) y el hueco
+        # (-1) se cancelan y nn+bi daría igual al total por casualidad,
+        # escondiendo justo lo que este test quiere demostrar.
+        {"id": 5, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [], "probability": 50,
+         "expected_revenue": 0, "lead_properties": [{"string": "Horas", "value": 50}]},
+    ]
+    client = FakeOdooClient(stages=STAGES, tags=TAGS, leads=leads)
+    summary = CommercialService(client).get_summary("todos")
+    seg = summary["segments"]["activas"]
+    assert summary["activas"]["count"] == 5
+    assert seg["nn"]["count"] == 2      # ids 1 y 3
+    assert seg["bi"]["count"] == 2      # ids 2 y 3
+    assert seg["both"]["count"] == 1    # id 3
+    assert seg["neither"]["count"] == 2  # ids 4 y 5
+    # La prueba de que NO es una partición: nn + bi != total.
+    assert seg["nn"]["count"] + seg["bi"]["count"] != summary["activas"]["count"]
+    # Y la identidad que SÍ vale.
+    assert seg["nn"]["count"] + seg["bi"]["count"] - seg["both"]["count"] + seg["neither"]["count"] == 5
+    assert seg["nn"]["hours"] == 40 and seg["neither"]["hours"] == 90
+    svc_module.clear_cache()
+
+
+def test_segments_only_exist_in_the_unfiltered_view():
+    # Dentro de "New Name" un desglose NN/BI sería redundante o engañoso.
+    svc_module.clear_cache()
+    service = CommercialService(_build_client())
+    assert "segments" in service.get_summary("todos")
+    assert "segments" not in service.get_summary("nn")
+    assert "segments" not in service.get_summary("bi")
+    svc_module.clear_cache()
+
+
+def test_segments_cover_every_landing_metric_that_shows_a_split():
+    svc_module.clear_cache()
+    segments = CommercialService(_build_client()).get_summary("todos")["segments"]
+    assert set(segments) == {"prospectos", "pipeline", "activas", "ganadas", "perdidas", "suspendidas"}
+    for name, seg in segments.items():
+        assert set(seg) == {"nn", "bi", "both", "neither"}, name
+    svc_module.clear_cache()
