@@ -694,3 +694,47 @@ def test_section_drag_affordance_is_scoped_to_actually_draggable_heads():
     tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
     assert '.dashboard-section__head[draggable="true"] { cursor: grab; }' in tools_css
     assert ".dashboard-section__head { cursor: grab; }" not in tools_css
+
+
+# ============================================================================
+# Batch 3A / C2 — endpoint de Actividades
+# ============================================================================
+
+def test_activities_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/activities", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_activities_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/activities").status_code == 403
+
+
+def test_activities_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _ActStub(_StubService):
+        def get_activities(self, tipo="todos"):
+            return {"tipo": tipo, "activities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _ActStub())
+    response = client.get("/comercial/data/activities?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["activities"]["tipo"] == "nn"
+
+
+def test_activities_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_activities(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/activities")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_activities_endpoint_never_exposes_a_write_verb():
+    # Read-only de punta a punta: cualquier verbo de escritura no existe.
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/activities")
+        assert response.status_code == 405, (verb, response.status_code)

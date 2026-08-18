@@ -17,11 +17,12 @@ from webapp.services.odoo_client import OdooTransportError
 
 
 class FakeOdooClient:
-    def __init__(self, *, stages, tags, leads, lost_reasons=None, configured=True):
+    def __init__(self, *, stages, tags, leads, lost_reasons=None, activities=None, configured=True):
         self.stages = stages
         self.tags = tags
         self.leads = leads
         self.lost_reasons = lost_reasons or []
+        self.activities = activities or []
         self._configured = configured
         self.calls: list[tuple[str, list, list | None]] = []
         self._raise_for_model: str | None = None
@@ -58,6 +59,15 @@ class FakeOdooClient:
         if model == "crm.lead":
             matched = [lead for lead in self.leads if self._matches(lead, domain)]
             return [self._project(lead, fields) for lead in matched]
+        if model == "mail.activity":
+            # `mail.activity` no tiene el flag `active` de crm.lead: en Odoo el
+            # modelo SOLO contiene actividades pendientes (las hechas se
+            # borran), así que no hay default implícito que emular.
+            matched = [a for a in self.activities if self._matches_activity(a, domain)]
+            if order == "date_deadline asc":
+            # NULLs al final, MISMO criterio que PostgreSQL con ASC.
+                matched = sorted(matched, key=lambda a: (a.get("date_deadline") in (None, False), a.get("date_deadline") or ""))
+            return [self._project_activity(a, fields) for a in matched]
         raise AssertionError(f"unexpected model {model}")
 
     def search_count(self, model, domain=None):
@@ -76,6 +86,12 @@ class FakeOdooClient:
                 ok = lead.get("stage_id") in value
             elif field == "id" and op == "in":
                 ok = lead.get("id") in value
+            elif op == "in":
+                # `["active", "in", [True, False]]` es la forma real de pedirle
+                # a Odoo "traeme archivados TAMBIÉN" (la usa el join de
+                # Actividades). `active` ausente = True, igual que en Odoo.
+                actual = lead.get("active", True) if field == "active" else lead.get(field)
+                ok = actual in value
             elif op == "=":
                 ok = lead.get(field) == value
             elif op == "!=":
@@ -89,6 +105,30 @@ class FakeOdooClient:
             if not ok:
                 return False
         return True
+
+    def _matches_activity(self, act: dict, domain: list) -> bool:
+        for field, op, value in domain:
+            if field == "res_id" and op == "in":
+                ok = act.get("res_id") in value
+            elif op == "=":
+                ok = act.get(field) == value
+            elif op == "!=":
+                ok = act.get(field) != value
+            else:
+                raise AssertionError(f"unsupported operator {op!r} on mail.activity field {field!r}")
+            if not ok:
+                return False
+        return True
+
+    def _project_activity(self, act: dict, fields: list | None) -> dict:
+        base = {"id": act.get("id", 0)}
+        for f in (fields or []):
+            if f in ("user_id", "activity_type_id"):
+                pair = act.get(f)
+                base[f] = list(pair) if pair else False
+            else:
+                base[f] = act.get(f, False)
+        return base
 
     def _project(self, lead: dict, fields: list | None) -> dict:
         base = {"id": lead["id"]}

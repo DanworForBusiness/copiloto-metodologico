@@ -48,6 +48,7 @@ es la única superficie de invalidación — sin endpoint Refresh todavía
 """
 from __future__ import annotations
 
+import re
 import threading
 import time
 from datetime import date
@@ -133,6 +134,39 @@ def _get_prop_label(properties, label: str) -> str:
         return "Sin definir"
     sel_label = next((opt[1] for opt in (prop.get("selection") or []) if opt[0] == val), None)
     return sel_label or "Sin definir"
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def strip_html_note(raw) -> str:
+    """`mail.activity.note` llega como HTML de Odoo. Se normaliza a texto
+    plano (tags -> espacio, whitespace colapsado) para payload y para no
+    mover HTML de la fuente hacia el browser. Esto es NORMALIZACION, NO
+    sustituye el escaping de salida: el cliente escapa TODO dato de origen
+    Odoo igual (ver commercial.js)."""
+    if not raw or not isinstance(raw, str):
+        return ""
+    return _WS_RE.sub(" ", _HTML_TAG_RE.sub(" ", raw)).strip()
+
+
+def iso_deadline(raw) -> str | None:
+    """`date_deadline` de Odoo -> "YYYY-MM-DD" validada, o None.
+
+    Se devuelve la FECHA CALENDARIO cruda a proposito: el `days_until` lo
+    calcula el cliente (ver commercial.js). El legacy lo computaba en el
+    server y lo cacheaba, con lo cual al cruzar la medianoche servia un
+    valor corrido y clasificaba mal el bucket. Fecha malformada/ausente ->
+    None (fail-soft, MISMO criterio que el legacy: sin fecha, la actividad
+    sigue siendo pendiente)."""
+    if not raw or raw is True:
+        return None
+    text = str(raw)[:10]
+    try:
+        return date.fromisoformat(text).isoformat()
+    except (ValueError, TypeError):
+        return None
 
 
 def _is_excluded_motivo(motivo: str) -> bool:
@@ -384,6 +418,82 @@ class CommercialService:
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
             views = _cached("commercial:pipeline", self._build_pipeline)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Actividades pendientes ───────────────────────────────────────────
+    # UNIVERSO (decisión de owner, Batch 3A): la capability representa
+    # TRABAJO PENDIENTE, no el universo analítico de Oportunidades Activas.
+    # Por eso NO se restringe a etapas 1–8: entra la actividad pendiente de
+    # CUALQUIER `crm.lead` relevante — etapa 0, activas, ganadas, perdidas y
+    # archivadas incluidas. Ocultar tareas reales para "cuadrar" con el
+    # Dashboard sería una consistencia artificial. `mail.activity` sólo
+    # contiene actividades PENDIENTES (Odoo borra las hechas), así que
+    # "pendiente" es semántica del modelo, no un filtro que agreguemos.
+    def _build_activities(self) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        acts = self._client.search_read(
+            "mail.activity",
+            domain=[["res_model", "=", "crm.lead"]],
+            fields=["res_id", "date_deadline", "activity_type_id", "summary", "note", "user_id"],
+            order="date_deadline asc",
+        )
+        # El lead se trae con `active in [True, False]` a propósito: si la
+        # oportunidad fue archivada pero la actividad sigue pendiente, la
+        # tarea existe igual y debe verse (ver UNIVERSO arriba). `tag_ids`
+        # es lo que habilita el particionado NN/BI en memoria — el filtro
+        # global aplica por los tags del LEAD asociado, no de la actividad.
+        lead_ids = sorted({a["res_id"] for a in acts if a.get("res_id")})
+        lead_map: dict = {}
+        if lead_ids:
+            leads = self._client.search_read(
+                "crm.lead",
+                domain=[["id", "in", lead_ids], ["active", "in", [True, False]]],
+                fields=["id", "name", "partner_id", "tag_ids"],
+            )
+            lead_map = {lead["id"]: lead for lead in leads}
+
+        rows = []
+        for act in acts:
+            lead = lead_map.get(act.get("res_id")) or {}
+            rows.append({
+                "opportunity": lead.get("name") or "",
+                "client": lead["partner_id"][1] if lead.get("partner_id") else "",
+                "user": act["user_id"][1] if act.get("user_id") else "",
+                "type": act["activity_type_id"][1] if act.get("activity_type_id") else "",
+                "summary": act.get("summary") or "",
+                "note": strip_html_note(act.get("note")),
+                "deadline": iso_deadline(act.get("date_deadline")),
+                # Sólo para el particionado por tag; se descarta abajo.
+                "_tag_ids": lead.get("tag_ids") or [],
+            })
+
+        def _group(subset: list) -> dict:
+            # El orden por deadline lo fija Odoo (`order=`) y el
+            # particionado lo preserva. Los BUCKETS (Retrasadas/Pendientes)
+            # NO se calculan acá: dependen de `days_until`, que es del
+            # cliente para no quedar congelado por el TTL del cache.
+            return {
+                "activities": [{k: v for k, v in row.items() if k != "_tag_ids"} for row in subset],
+                "total": len(subset),
+            }
+
+        return {
+            "todos": _group(rows),
+            "nn": _group([r for r in rows if self._in_tag({"tag_ids": r["_tag_ids"]}, nn_id)]),
+            "bi": _group([r for r in rows if self._in_tag({"tag_ids": r["_tag_ids"]}, bi_id)]),
+        }
+
+    def get_activities(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:activities", self._build_activities)
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]

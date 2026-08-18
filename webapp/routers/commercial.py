@@ -160,3 +160,20 @@ def commercial_data_pipeline(request: Request, tipo: str = Query("todos")):
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
         return _commercial_data_error_response(request, exc, endpoint="pipeline")
     return JSONResponse({"state": "ok", "pipeline": pipeline})
+
+
+@router.get("/comercial/data/activities", include_in_schema=False)
+def commercial_data_activities(request: Request, tipo: str = Query("todos")):
+    """Actividades pendientes (`mail.activity` sobre `crm.lead`). MISMO
+    contrato fail-soft y MISMA gate de sesión/entitlement que summary/
+    pipeline — read-only, sin ningún write hacia Odoo."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        activities = CommercialService().get_activities(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="activities")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="activities")
+    return JSONResponse({"state": "ok", "activities": activities})

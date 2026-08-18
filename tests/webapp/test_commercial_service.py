@@ -409,3 +409,169 @@ def test_lost_reason_resolution_failure_is_best_effort_never_breaks_summary():
     # Attempt 2 (lost_reason_ids) pese a que Attempt 1 falló, y sigue
     # excluido por ser "Cierre Administrativo".
     assert summary["perdidas"]["count"] == 1
+
+
+# ============================================================================
+# Batch 3A / C2 — Actividades pendientes (`mail.activity`)
+# ============================================================================
+
+ACTIVITY_LEADS = [
+    # Universo DELIBERADAMENTE heterogéneo: la capability representa TRABAJO
+    # PENDIENTE, no "Oportunidades Activas". Entran actividades de leads en
+    # etapa 0, activos, ganados, perdidos y ARCHIVADOS.
+    {"id": 900, "name": "Prospecto Cero", "stage_id": 1, "active": True, "tag_ids": [10],
+     "partner_id": [70, "Cliente Prospecto"]},
+    {"id": 901, "name": "Activa Uno", "stage_id": 2, "active": True, "tag_ids": [11],
+     "partner_id": [71, "Cliente Activo"]},
+    {"id": 902, "name": "Ganada Uno", "stage_id": 4, "active": True, "tag_ids": [10, 11],
+     "partner_id": [72, "Cliente Ganado"]},
+    {"id": 903, "name": "Archivada Uno", "stage_id": 3, "active": False, "tag_ids": [],
+     "partner_id": False},
+]
+
+ACTIVITIES = [
+    {"id": 1, "res_id": 900, "res_model": "crm.lead", "date_deadline": "2026-01-05",
+     "activity_type_id": [5, "Llamada"], "summary": "Primer contacto", "note": "<p>Llamar   al  <b>CTO</b></p>",
+     "user_id": [20, "Ana Gómez"]},
+    {"id": 2, "res_id": 901, "res_model": "crm.lead", "date_deadline": "2026-03-10",
+     "activity_type_id": [6, "Reunión"], "summary": "", "note": False,
+     "user_id": [21, "Bruno Paz"]},
+    {"id": 3, "res_id": 902, "res_model": "crm.lead", "date_deadline": "2026-02-01",
+     "activity_type_id": [5, "Llamada"], "summary": "Seguimiento", "note": "",
+     "user_id": [20, "Ana Gómez"]},
+    # Archivada + sin fecha + sin responsable: los tres bordes juntos.
+    {"id": 4, "res_id": 903, "res_model": "crm.lead", "date_deadline": False,
+     "activity_type_id": False, "summary": "Sin fecha", "note": "", "user_id": False},
+]
+
+
+def _activities_client(**kwargs):
+    return FakeOdooClient(stages=STAGES, tags=TAGS, leads=ACTIVITY_LEADS, activities=ACTIVITIES, **kwargs)
+
+
+def test_activities_query_targets_mail_activity_on_crm_lead_only():
+    client = _activities_client()
+    CommercialService(client).get_activities("todos")
+    act_calls = [c for c in client.calls if c[0] == "mail.activity"]
+    assert len(act_calls) == 1, "una sola consulta a mail.activity (las 3 vistas se calculan en memoria)"
+    _model, domain, fields = act_calls[0]
+    assert domain == [["res_model", "=", "crm.lead"]]
+    assert set(fields) == {"res_id", "date_deadline", "activity_type_id", "summary", "note", "user_id"}
+
+
+def test_activities_join_includes_archived_leads_on_purpose():
+    # Si la oportunidad fue archivada pero la actividad sigue pendiente, la
+    # tarea existe igual y debe verse — de ahí `active in [True, False]`.
+    client = _activities_client()
+    CommercialService(client).get_activities("todos")
+    lead_calls = [c for c in client.calls if c[0] == "crm.lead"]
+    assert lead_calls, "se consulta crm.lead para resolver nombre/cliente/tags"
+    _model, domain, fields = lead_calls[-1]
+    assert ["active", "in", [True, False]] in domain
+    assert "tag_ids" in fields, "tag_ids es lo que habilita el particionado NN/BI en memoria"
+
+
+def test_activities_universe_is_not_limited_to_active_stages():
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    names = {r["opportunity"] for r in rows}
+    assert names == {"Prospecto Cero", "Activa Uno", "Ganada Uno", "Archivada Uno"}
+    assert len(rows) == 4
+
+
+def test_activities_are_ordered_by_deadline_with_undated_last():
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    assert [r["deadline"] for r in rows] == ["2026-01-05", "2026-02-01", "2026-03-10", None]
+
+
+def test_activities_note_is_normalised_to_plain_text():
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    first = next(r for r in rows if r["deadline"] == "2026-01-05")
+    assert first["note"] == "Llamar al CTO", "tags fuera y whitespace colapsado"
+    assert next(r for r in rows if r["deadline"] == "2026-03-10")["note"] == ""
+
+
+def test_activities_expose_iso_deadline_never_a_precomputed_days_until():
+    # El cálculo de días es del CLIENTE: hacerlo acá lo dejaría congelado por
+    # el TTL del cache y al cruzar la medianoche clasificaría mal el bucket.
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    assert all("days_until" not in r for r in rows)
+    assert all(r["deadline"] is None or len(r["deadline"]) == 10 for r in rows)
+
+
+def test_activities_relational_fields_are_flattened_with_safe_fallbacks():
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    undated = next(r for r in rows if r["deadline"] is None)
+    assert undated["opportunity"] == "Archivada Uno"
+    assert undated["client"] == ""   # partner_id False
+    assert undated["user"] == ""     # user_id False
+    assert undated["type"] == ""     # activity_type_id False
+
+
+def test_activities_nn_bi_views_are_partitioned_in_memory_by_lead_tags():
+    service = CommercialService(_activities_client())
+    todos = service.get_activities("todos")
+    nn = service.get_activities("nn")
+    bi = service.get_activities("bi")
+    assert todos["total"] == 4
+    # NN = tag 10 → leads 900 y 902; BI = tag 11 → leads 901 y 902.
+    assert {r["opportunity"] for r in nn["activities"]} == {"Prospecto Cero", "Ganada Uno"}
+    assert {r["opportunity"] for r in bi["activities"]} == {"Activa Uno", "Ganada Uno"}
+    assert nn["total"] == 2 and bi["total"] == 2
+
+
+def test_activities_never_leak_the_internal_tag_helper_field():
+    rows = CommercialService(_activities_client()).get_activities("todos")["activities"]
+    assert all("_tag_ids" not in r for r in rows)
+
+
+def test_activities_use_the_module_cache(monkeypatch):
+    svc_module.clear_cache()
+    client = _activities_client()
+    service = CommercialService(client)
+    service.get_activities("todos")
+    service.get_activities("nn")
+    assert len([c for c in client.calls if c[0] == "mail.activity"]) == 1, "la segunda vista sale del cache"
+    svc_module.clear_cache()
+
+
+def test_activities_unconfigured_odoo_raises_configuration_error():
+    client = _activities_client(configured=False)
+    svc_module.clear_cache()
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(client).get_activities("todos")
+
+
+def test_activities_transport_failure_becomes_commercial_data_error():
+    svc_module.clear_cache()
+    client = _activities_client()
+    client.raise_on("mail.activity", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_activities("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+
+
+def test_activities_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    service = CommercialService(_activities_client())
+    assert service.get_activities("no-existe")["total"] == service.get_activities("todos")["total"]
+    svc_module.clear_cache()
+
+
+def test_activities_path_never_writes_to_odoo():
+    client = _activities_client()
+    CommercialService(client).get_activities("todos")
+    assert not hasattr(client, "write"), "el fake no expone writes"
+    # Sólo lecturas: cada call registrada es un search_read.
+    assert all(model in ("crm.tag", "crm.lead", "mail.activity") for model, _d, _f in client.calls)
+
+
+def test_iso_deadline_and_note_helpers_are_fail_soft():
+    from webapp.services.commercial_service import iso_deadline, strip_html_note
+    assert iso_deadline("2026-08-20") == "2026-08-20"
+    assert iso_deadline("2026-08-20 10:00:00") == "2026-08-20"
+    for bad in (None, False, True, "", "basura", "2026-13-45"):
+        assert iso_deadline(bad) is None, bad
+    assert strip_html_note("<p>a   b</p>") == "a b"
+    for bad in (None, False, 0, 123):
+        assert strip_html_note(bad) == ""
