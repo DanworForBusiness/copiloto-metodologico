@@ -9,8 +9,16 @@ Executes the REAL shared primitives (`_isValidAnioValue`/
 `_operationalMonthCap`/`_applyMonthCap`/`_sumMonthlyArrays`/
 `_diffMonthly`/`_quarterValue`/`_validMesOptions`) via node — no browser
 framework, same pattern as reporting_rollup_reconciliation.node.js. Also
-covers the structural/source-seam guarantees (no "Todos" in Año, Rentabilidad
-hot/cold mirrors Horas Vendidas) that don't need runtime execution.
+covers the structural/source-seam guarantees (Rentabilidad hot/cold
+mirrors Horas Vendidas) that don't need runtime execution.
+
+AÑO/MES MULTI-SELECT corrective (owner directive — "REPORTING INTEGRAL —
+PROPAGATE APPROVED TEMPORAL FILTER PATTERN"): Año SUPERSEDE su regla
+previa "single-select, nunca Todos" — Rentabilidad/Horas Vendidas
+migraron a los mismos pills multi-select que Cartera, empty-selection ==
+Todos. Los tests de esa regla vieja fueron reemplazados por sus
+equivalentes multi-select (ver test_reporting_cartera.py, sección AÑO/MES
+MULTI-SELECT).
 """
 from __future__ import annotations
 
@@ -33,20 +41,23 @@ def test_temporal_contract_invariants_hold():
     assert "ALL TEMPORAL CONTRACT INVARIANTS PASSED" in result.stdout
 
 
-# --- YEAR DOMAIN: Año es single-select, "Todos" retirado -------------------
+# --- YEAR DOMAIN: Año pasó a multi-select pills (AÑO/MES MULTI-SELECT
+# corrective — SUPERSEDE la regla vieja "single-select, nunca Todos") ------
 
-def test_horas_vendidas_and_rentabilidad_anio_field_never_offer_todos():
-    for fn in ("horasVendidasAnioField", "rentabilidadAnioField"):
+def test_horas_vendidas_and_rentabilidad_anio_is_now_multiselect_pills_like_cartera():
+    for fn in ("horasVendidasAnioPills", "rentabilidadAnioPills"):
+        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 300]
+        assert "pillMultiField(\"Año\"" in body, fn
+        assert "AnioOptions()" in body, fn
+
+
+def test_horas_vendidas_and_rentabilidad_mes_is_now_multiselect_pills_and_cap_aware():
+    for fn in ("horasVendidasMesPills", "rentabilidadMesPills"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
-        assert '>Todos</option>' not in body, f"{fn} NUNCA debe ofrecer 'Todos' — Año es single-select (owner)"
-        assert "options.map(a =>" in body
-
-
-def test_horas_vendidas_and_rentabilidad_mes_field_keeps_todos_and_is_cap_aware():
-    for fn in ("horasVendidasMesField", "rentabilidadMesField"):
-        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
-        assert '>Todos</option>' in body, f"{fn} SÍ debe seguir ofreciendo 'Todos' (pertenece al dominio de Mes)"
-        assert "_validMesOptions(anio)" in body
+        assert 'pillMultiField("Mes"' in body, fn
+        # Cap generalizado a multi-año (owner decision: válido si lo es
+        # para ALGÚN año tildado) — reusa el MISMO helper que Cartera.
+        assert "_mesValidoParaAlgunAnio(" in body, fn
 
 
 def test_anio_options_functions_filter_through_valid_anio_value():
@@ -58,9 +69,14 @@ def test_anio_options_functions_filter_through_valid_anio_value():
 # --- resetFilters ("Limpiar") — default sensato, nunca Desde/Hasta residual -
 
 def test_limpiar_resets_rentabilidad_and_horas_vendidas_to_anio_mes_estado():
+    # AÑO/MES MULTI-SELECT corrective: Año/Mes son Sets propios ahora,
+    # "Limpiar" los reasigna directo (default sensato para Año, Mes a
+    # vacío/Todos) — MISMO criterio que Cartera.
     fn = _REPORTING_JS[_REPORTING_JS.index("function resetFilters("):_REPORTING_JS.index("function toggleCarteraAnioInicio(")]
-    assert 'state.filters.rentabilidad = { anio: rentabilidadDefaultAnio(), mes: "" };' in fn
-    assert 'state.filters.horasvendidas = { anio: horasVendidasDefaultAnio(), mes: "" };' in fn
+    assert "state.rentabilidadAnios = rentabilidadDefaultAniosSet();" in fn
+    assert "state.rentabilidadMeses = new Set();" in fn
+    assert "state.horasVendidasAnios = horasVendidasDefaultAniosSet();" in fn
+    assert "state.horasVendidasMeses = new Set();" in fn
     # YEAR_TO_DATE_EXPERIENCES (el generador Desde/Hasta viejo) quedó VACÍO —
     # las 3 experiencias que alguna vez lo usaron migraron a Año/Mes/Estado
     # (Rentabilidad/HV) o Año/Estado (Participación, owner directive — "Do
@@ -81,7 +97,7 @@ def test_rentabilidad_hot_cold_lifecycle_mirrors_horas_vendidas():
 
 
 def test_rentabilidad_data_endpoint_accepts_anios_param():
-    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadColdYear"):_REPORTING_JS.index("async function loadRentabilidadColdYear") + 950]
+    fn = _REPORTING_JS[_REPORTING_JS.index("async function loadRentabilidadColdYear"):_REPORTING_JS.index("async function loadRentabilidadColdYear") + 1300]
     assert '"/operaciones/reporting/integral/data/rentabilidad"' in fn
     assert "anios: anio" in fn
 

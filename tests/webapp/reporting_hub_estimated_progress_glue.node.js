@@ -201,7 +201,7 @@ assertTrue(intervalCleared, "D: el sweep se limpia solo cuando no queda ningún 
 fetchCallCount = 0;
 fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", cartera: { mantenimiento: [] } }) });
 state.carteraMantenimientoYearLoading = new Set();
-state.carteraMantenimientoYearError = "";
+state.carteraMantenimientoYearErrors = new Set();
 await loadCarteraMantenimientoColdYear("2023");
 assertEqual(callsFor("cartera", "begin").length, 1, "Cartera cold-year: begin() con la MISMA key que su primera hidratación");
 assertEqual(callsFor("cartera", "complete").length, 1, "Cartera cold-year: complete() al resolver OK");
@@ -212,7 +212,7 @@ fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "graph_
 state.carteraMantenimientoYearLoading = new Set();
 await loadCarteraMantenimientoColdYear("2022");
 assertEqual(callsFor("cartera", "fail").length, 1, "Cartera cold-year: fail() cuando el backend responde error");
-assertTrue(state.carteraMantenimientoYearError === "2022", "Cartera cold-year: el fail-soft existente (error de año) sigue intacto");
+assertTrue(state.carteraMantenimientoYearErrors.has("2022"), "Cartera cold-year: el fail-soft existente (error de año, ahora un Set — AÑO/MES MULTI-SELECT corrective) sigue intacto");
 
 // Cartera: excepción de red -> fail() también (catch).
 fetchImpl = () => Promise.reject(new Error("network down"));

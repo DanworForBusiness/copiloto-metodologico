@@ -901,9 +901,14 @@ def test_meses_largos_is_fixed_twelve_months_not_derived_from_data():
 
 
 def test_cartera_mes_field_renders_all_twelve_months_plus_todos():
-    fn = _REPORTING_JS[_REPORTING_JS.index("function carteraMesField()"):_REPORTING_JS.index("function renderCarteraFilterBar()")]
-    assert "MESES_LARGOS" in fn
-    assert "Todos" in fn  # opción "Todos los meses" siempre presente, sin importar data
+    # AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER): Mes pasó de
+    # <select> a pills — los 12 meses siguen fijos, sin importar data
+    # (MESES.map, nunca un array recortado por facet), y selección vacía
+    # sigue significando "Todos" (nunca un pill "Todos" explícito, MISMO
+    # criterio que Horas Productivas).
+    fn = _REPORTING_JS[_REPORTING_JS.index("function carteraMesPills()"):_REPORTING_JS.index("function pillMultiField(")]
+    assert "MESES.map((abrev, i) =>" in fn
+    assert "MESES_LARGOS[i]" in fn
 
 
 # --- P2: single-flight cache per source-family (owner live QA de performance) -
@@ -934,37 +939,67 @@ def test_all_source_family_loaders_flip_status_synchronously_before_any_await():
         assert "await" not in pre_flip, fn_name
 
 
-def test_facet_config_cartera_anio_and_mes_both_have_predicate():
-    # HOT WINDOW / COLD HISTORY corrective: Año DEJÓ de participar en la
-    # reconciliación genérica (`predicate` lo exime, mismo mecanismo que
-    # Mes/Desde-Hasta) — con la ventana caliente por defecto, `baseRows`
-    # NUNCA contiene años fríos, así que la reconciliación genérica
-    # (`availableOptions(F) = baseRows sin F`) podría un año frío recién
-    # elegido a "Todos" antes de que termine de cargar. Año usa su PROPIA
-    # reconciliación metadata-driven (`pruneCarteraAnio`, ver
+def test_facet_config_cartera_anio_and_mes_apply_on_base_rows_not_predicate():
+    # AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER): Año/Mes
+    # dejaron el motor de `fields`/`predicate` (valor único) — son Sets
+    # multi-select aplicados directo sobre `baseRows`, MISMO criterio que
+    # Año de Inicio/Estado. Año conserva su PROPIA reconciliación
+    # metadata-driven (`pruneCarteraAnio`, ver
     # test_stale_anio_is_pruned_via_own_metadata_driven_function abajo).
     idx = _REPORTING_JS.index("const FACET_CONFIG = {")
     idx = _REPORTING_JS.index("cartera:", idx)
     block = _REPORTING_JS[idx:idx + 2500]
-    anio_idx = block.index('key: "anio"')
-    mes_idx = block.index('key: "mes"')
-    anio_entry = block[anio_idx:mes_idx if mes_idx > anio_idx else anio_idx + 200]
-    mes_entry = block[mes_idx:mes_idx + 200]
-    assert "predicate" in anio_entry
-    assert "predicate" in mes_entry
+    fields_idx = block.index("fields:")
+    base_rows_block = block[:fields_idx]
+    fields_block = block[fields_idx:fields_idx + 200]
+    assert "state.carteraAnios" in base_rows_block
+    assert "state.carteraMeses" in base_rows_block
+    assert 'key: "anio"' not in fields_block
+    assert 'key: "mes"' not in fields_block
 
 
 def test_stale_anio_is_pruned_via_own_metadata_driven_function():
     assert "function carteraAnioOptions()" in _REPORTING_JS
     assert "function pruneCarteraAnio()" in _REPORTING_JS
     fn = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioOptions()"):_REPORTING_JS.index("function pruneCarteraAnio()")]
-    # Unión metadata (años fríos incluidos) + filas ya cargadas, faceteado por Estado.
+    # Unión metadata (años fríos incluidos) + filas ya cargadas, faceteado por
+    # Estado — vía `_statusOrAllIfEmpty` (ESTADO VACÍO corrective: mismo
+    # gate, pero nunca colapsa las opciones a nada si Estado queda sin
+    # ningún tildado).
     assert "carteraMantenimientoAniosDisponibles" in fn
     assert "CARTERA_MANTENIMIENTO_ROWS" in fn
-    assert "state.carteraStatus[" in fn
+    assert "_statusOrAllIfEmpty(state.carteraStatus)" in fn
     prune = _REPORTING_JS[_REPORTING_JS.index("function pruneCarteraAnio()"):]
     prune = prune[:prune.index("\n}")]
-    assert "available.has(current)" in prune
+    # Año pasó a multi-select (Set) — poda individual de años obsoletos,
+    # nunca vacía toda la selección por uno solo inválido.
+    assert "available.has(y)" in prune
+    assert "state.carteraAnios = new Set(" in prune
+
+
+def test_estado_vacio_keeps_temporal_pills_structure_disabled_not_collapsed():
+    # ESTADO VACÍO corrective (owner — mejora transversal): con AMBOS
+    # checkboxes de Estado destildados, Año/Mes NUNCA colapsan a "sin
+    # opciones" — conservan la MISMA estructura de pills (calculada como si
+    # Estado tuviera todo tildado) pero el grupo entero queda deshabilitado
+    # (`disabledAll`) hasta que el usuario tilde al menos un Estado.
+    assert "function _statusHasAnySelected(statusMap)" in _REPORTING_JS
+    assert "function _statusOrAllIfEmpty(statusMap)" in _REPORTING_JS
+    gate = _REPORTING_JS[_REPORTING_JS.index("function _statusOrAllIfEmpty"):_REPORTING_JS.index("function _statusOrAllIfEmpty") + 400]
+    assert "forced[k] = true" in gate
+    pill_field = _REPORTING_JS[_REPORTING_JS.index("function pillMultiField"):_REPORTING_JS.index("function checkboxGroupField")]
+    assert "opts.disabledAll" in pill_field
+    for fn_name, status_var in (
+        ("carteraAnioPills", "carteraStatus"), ("carteraMesPills", "carteraStatus"),
+        ("rentabilidadAnioPills", "rentabilidadStatus"), ("rentabilidadMesPills", "rentabilidadStatus"),
+        ("horasVendidasAnioPills", "horasVendidasStatus"), ("horasVendidasMesPills", "horasVendidasStatus"),
+    ):
+        start = _REPORTING_JS.index(f"function {fn_name}(")
+        body = _REPORTING_JS[start:_REPORTING_JS.index("\n}", start)]
+        assert f"_statusHasAnySelected(state.{status_var})" in body, fn_name
+        assert "disabledAll" in body, fn_name
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".dashboard-view-switch button:disabled { opacity: .35; cursor: not-allowed; }" in css
 
 
 # ============================================================================
@@ -1190,8 +1225,10 @@ def _rent_filter_bar():
 
 
 def test_rentabilidad_dom_shows_anio_mes_estado_not_desde_hasta():
+    # AÑO/MES MULTI-SELECT corrective (propagación del patrón Cartera):
+    # Año/Mes son pills, no <select>.
     fb = _rent_filter_bar()
-    assert "rentabilidadAnioField()" in fb and "rentabilidadMesField()" in fb
+    assert "rentabilidadAnioPills()" in fb and "rentabilidadMesPills()" in fb
     assert "toggleRentabilidadStatus('En curso')" in fb and "toggleRentabilidadStatus('Finalizado')" in fb
     assert 'dateField("rentabilidad"' not in fb          # Desde/Hasta removidos del DOM
     assert '"desde"' not in fb and '"hasta"' not in fb
@@ -1204,7 +1241,9 @@ def test_rentabilidad_estado_default_en_curso_only():
 
 def test_rentabilidad_anio_options_faceted_by_estado_and_selects():
     block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadAnioOptions"):_REPORTING_JS.index("function rentabilidadDefaultAnio")]
-    assert "state.rentabilidadStatus[p.estado]" in block
+    # ESTADO VACÍO corrective: gateado vía `_statusOrAllIfEmpty`, no
+    # directo contra `state.rentabilidadStatus`.
+    assert "_statusOrAllIfEmpty(state.rentabilidadStatus)" in block
     assert "facetRowsExcept(statusRows, state.filters.rentabilidad" in block
 
 
@@ -1226,11 +1265,14 @@ def test_rentabilidad_cert_ejec_two_panel_shared_grid_and_formatter():
 
 
 def test_anio_mes_fields_are_narrow_everywhere():
+    # AÑO/MES MULTI-SELECT corrective (propagación del patrón Cartera a
+    # Rentabilidad/Horas Vendidas, ver HANDOFF): las 3 experiencias migraron
+    # de <select> a pills — Año se dimensiona a sus propias opciones (nunca
+    # `--narrow`, eso era del <select> retirado), Mes usa `--fill` en las 3.
     assert ".reporting-integral-preview .whatsnew-filter--narrow select { min-width: 0; }" in _REPORTING_CSS
-    rent_anio = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadAnioField"):_REPORTING_JS.index("function rentabilidadMesField")]
-    assert "whatsnew-filter--narrow" in rent_anio
-    cart_anio = _REPORTING_JS[_REPORTING_JS.index("function carteraAnioField"):_REPORTING_JS.index("function carteraMesField")]
-    assert "whatsnew-filter--narrow" in cart_anio
+    for fn_name in ("carteraMesPills", "rentabilidadMesPills", "horasVendidasMesPills"):
+        block = _REPORTING_JS[_REPORTING_JS.index(f"function {fn_name}("):_REPORTING_JS.index(f"function {fn_name}(") + 600]
+        assert "fill: true" in block, fn_name
 
 
 # ============================================================================
@@ -1239,7 +1281,7 @@ def test_anio_mes_fields_are_narrow_everywhere():
 
 def test_horas_vendidas_dom_shows_anio_mes_estado_not_desde_hasta():
     fb = _REPORTING_JS[_REPORTING_JS.index("function renderHorasVendidasFilterBar"):_REPORTING_JS.index("// Client Partner primero")]
-    assert "horasVendidasAnioField()" in fb and "horasVendidasMesField()" in fb
+    assert "horasVendidasAnioPills()" in fb and "horasVendidasMesPills()" in fb
     assert "toggleHorasVendidasStatus('En curso')" in fb and "toggleHorasVendidasStatus('Finalizado')" in fb
     assert 'dateField("horasvendidas"' not in fb
     assert '"desde"' not in fb and '"hasta"' not in fb
@@ -1252,15 +1294,14 @@ def test_horas_vendidas_estado_default_en_curso_only():
 
 def test_horas_vendidas_anio_options_faceted_and_selected_population():
     opt = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioOptions"):_REPORTING_JS.index("function horasVendidasDefaultAnio")]
-    assert "state.horasVendidasStatus[r.estado]" in opt
+    # ESTADO VACÍO corrective: gateado vía `_statusOrAllIfEmpty`.
+    assert "_statusOrAllIfEmpty(state.horasVendidasStatus)" in opt
     assert "facetRowsExcept(statusRows, state.filters.horasvendidas" in opt
     sel = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasSelectedRows"):_REPORTING_JS.index("function horasVendidasSelectedRows") + 700]
-    assert "vendidasByYear" in sel and "_maskMes(arr, mes)" in sel
-
-
-def test_horas_vendidas_anio_mes_narrow():
-    aniofld = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioField"):_REPORTING_JS.index("function horasVendidasMesField")]
-    assert "whatsnew-filter--narrow" in aniofld
+    # AÑO/MES MULTI-SELECT corrective: `_yearRangeMonthly` (multi-año, OR
+    # dentro de dimensión) + `_maskMeses` (Set), MISMO criterio que
+    # Rentabilidad.
+    assert "vendidasByYear" in sel and "_yearRangeMonthly(" in sel and "_maskMeses(arr, state.horasVendidasMeses)" in sel
 
 
 def test_matrix_row_label_col_reserves_width():
@@ -1334,6 +1375,7 @@ def test_batch_a_loader_no_longer_populates_horas_vendidas_or_participacion():
 
 def test_horas_vendidas_anio_options_offer_cold_metadata_years():
     fn = _REPORTING_JS[_REPORTING_JS.index("function horasVendidasAnioOptions"):_REPORTING_JS.index("function horasVendidasDefaultAnio")]
-    # Los años fríos (metadata) se ofrecen en el <select>, respetando Estado.
+    # Los años fríos (metadata) se ofrecen en los pills, respetando Estado
+    # (vía `_statusOrAllIfEmpty` — ESTADO VACÍO corrective).
     assert "state.horasVendidasAniosDisponibles" in fn
-    assert "state.horasVendidasStatus[p.estado]" in fn
+    assert "statusGate[p.estado]" in fn

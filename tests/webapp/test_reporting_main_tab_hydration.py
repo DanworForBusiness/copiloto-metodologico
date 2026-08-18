@@ -60,11 +60,16 @@ def test_reset_filters_still_applies_defaults_explicitly_on_limpiar():
     # `defaultYearToDateFilters` se RETIRÓ (owner directive — Participación
     # convergió a Año/Estado, MISMO mecanismo que Rentabilidad/HV, ver
     # comercialParticipacionDefaultAnios) — ninguna experiencia usa Desde/
-    # Hasta full-history ya.
+    # Hasta full-history ya. `carteraDefaultFilters` también se RETIRÓ (AÑO/
+    # MES MULTI-SELECT corrective) — Año/Mes de Cartera ahora son Sets
+    # propios (carteraAnios/carteraMeses) reseteados inline al año/mes
+    # calendario actual, MISMO criterio de default sensato que antes.
     body = _function_body("resetFilters")
-    assert "carteraDefaultFilters" in body
+    assert "state.carteraAnios = new Set([String(new Date().getFullYear())]);" in body
+    assert "state.carteraMeses = new Set([String(new Date().getMonth() + 1)]);" in body
     assert "comercialParticipacionDefaultAnios" in body
     assert "defaultYearToDateFilters" not in body
+    assert "carteraDefaultFilters" not in body
 
 
 # ============================================================================
