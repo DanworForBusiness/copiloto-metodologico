@@ -884,6 +884,18 @@ const state = {
   carteraMantenimientoAniosStatus: "idle",
   carteraMantenimientoYearLoading: new Set(),
   carteraMantenimientoYearErrors: new Set(),
+  // CALL BUDGET corrective (owner 2026-08-18): "Horas Trabajadas" de
+  // Mantenimiento ahora tiene DOS ventanas independientes — SharePoint
+  // sigue precargando año actual + anterior (para que tildar el anterior
+  // no dispare un round-trip de "Horas por proyectos"), pero Time Logs
+  // SOLO se pide para el año efectivamente solicitado (contextual, ver
+  // reporting_service.py). Set EXPLÍCITO (MISMO criterio que
+  // comercialParticipacionLoadedYears — "no confundir fila SharePoint
+  // presente con Horas Trabajadas ya resuelta"): un año puede tener fila(s)
+  // en CARTERA_MANTENIMIENTO_ROWS (por el pre-fetch especulativo) sin que
+  // su trabajadas todavía esté resuelta — `carteraMantenimientoLoadedYears`
+  // ahora lee ESTE set, nunca los años presentes en las filas.
+  carteraMantenimientoTimeLogsAnios: new Set(),
   // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
@@ -2118,6 +2130,13 @@ async function loadCarteraMantenimiento() {
     const data = await resp.json();
     if (data.state === "ok" && data.cartera) {
       replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      // CALL BUDGET corrective: la primera hidratación (anios omitido)
+      // resuelve Time Logs SOLO al año calendario actual server-side
+      // (ver get_cartera_mantenimiento) — MISMO valor acá, para que
+      // `carteraMantenimientoLoadedYears` sepa que el año ANTERIOR (parte
+      // de la ventana caliente de SharePoint, presente en las filas de
+      // arriba) todavía NO tiene su Horas Trabajadas resuelta.
+      state.carteraMantenimientoTimeLogsAnios = new Set([String(new Date().getFullYear())]);
       state.carteraMantenimientoStatus = "ready";
       // Reconcilia Año/Mes (y Año de Inicio, no-op si Proyecto no está
       // activo) contra los datos REALES recién llegados — el default
@@ -2181,12 +2200,19 @@ function hydrateCarteraTab() {
   if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();
   if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();
 }
-// HOT WINDOW / COLD HISTORY corrective: años que YA están en el array
-// hidratado (ventana caliente inicial o un año frío ya mergeado) — fuente
-// de verdad ÚNICA (nunca un Set paralelo que pueda desincronizarse del
-// array real).
+// HOT WINDOW / COLD HISTORY corrective — CALL BUDGET corrective (owner
+// 2026-08-18): "años cargados" ya NO deriva de qué años tienen fila en
+// CARTERA_MANTENIMIENTO_ROWS — SharePoint precarga año actual+anterior
+// especulativamente, pero Time Logs ("Horas Trabajadas") solo se resuelve
+// para el año realmente solicitado (contextual). Un año puede tener fila
+// (por el pre-fetch) sin tener su trabajadas resuelta todavía — derivar de
+// las filas confundiría esos dos estados (MISMO problema que
+// comercialParticipacionLoadedYears ya resolvió con un Set explícito). Este
+// Set (`carteraMantenimientoTimeLogsAnios`) es la fuente de verdad: se
+// puebla en la primera hidratación (año actual) y en cada año frío
+// resuelto (`loadCarteraMantenimientoColdYear`).
 function carteraMantenimientoLoadedYears() {
-  return new Set(CARTERA_MANTENIMIENTO_ROWS.map(r => r.anio));
+  return new Set(state.carteraMantenimientoTimeLogsAnios);
 }
 // Metadata liviana de año/estado (ver /data/cartera/anios-disponibles) —
 // disparada UNA vez por `hydrateCarteraTab`, en PARALELO con los 2 fetches
@@ -2210,12 +2236,37 @@ async function loadCarteraMantenimientoAnios() {
   }
   render();
 }
+// Fusión por (proyecto, año, mes) — CALL BUDGET corrective (owner
+// 2026-08-18): a diferencia de un año FRÍO genuino (sin fila previa,
+// donde agregar alcanza), el año "anterior" del hot window de SharePoint
+// YA tiene fila(s) en CARTERA_MANTENIMIENTO_ROWS (con trabajadas=0, Time
+// Logs todavía sin resolver para ese año) — al resolverlo, la fila
+// entrante debe REEMPLAZAR la existente (misma identidad proyecto×año×
+// mes), nunca duplicarla. Un año genuinamente nuevo (sin fila previa) se
+// agrega entero, MISMO resultado que `mergeRows` en ese caso.
+function mergeCarteraMantenimientoRows(incoming) {
+  const keyOf = r => [r.proyecto, r.anio, r.mes].join("|");
+  const indexByKey = new Map(CARTERA_MANTENIMIENTO_ROWS.map((r, i) => [keyOf(r), i]));
+  (incoming || []).forEach(inc => {
+    const idx = indexByKey.get(keyOf(inc));
+    if (idx !== undefined) {
+      CARTERA_MANTENIMIENTO_ROWS[idx] = inc;
+    } else {
+      CARTERA_MANTENIMIENTO_ROWS.push(inc);
+      indexByKey.set(keyOf(inc), CARTERA_MANTENIMIENTO_ROWS.length - 1);
+    }
+  });
+}
 // Lazy-load de un año FRÍO puntual (HOT WINDOW / COLD HISTORY corrective)
 // — disparado desde renderCartera cuando el Año seleccionado todavía no
-// está en `carteraMantenimientoLoadedYears()`. Single-flight POR AÑO
-// (`carteraMantenimientoYearLoading`, un Set — nunca dos requests para el
-// mismo año en vuelo a la vez). `mergeRows` (nunca `replaceRows`): la
-// ventana caliente ya hidratada se PRESERVA, el año frío se agrega.
+// está en `carteraMantenimientoLoadedYears()` (ahora: sin Horas Trabajadas
+// resuelta — ver esa función; incluye tanto un año genuinamente frío como
+// el año "anterior" del hot window de SharePoint, presente pero con Time
+// Logs pendiente). Single-flight POR AÑO (`carteraMantenimientoYearLoading`,
+// un Set — nunca dos requests para el mismo año en vuelo a la vez).
+// `mergeCarteraMantenimientoRows` (nunca `mergeRows`/`replaceRows`): la
+// ventana caliente ya hidratada se PRESERVA, el año solicitado se
+// reemplaza/agrega según corresponda.
 async function loadCarteraMantenimientoColdYear(anio) {
   if (state.carteraMantenimientoYearLoading.has(anio)) return;
   state.carteraMantenimientoYearLoading.add(anio);
@@ -2238,7 +2289,8 @@ async function loadCarteraMantenimientoColdYear(anio) {
     });
     const data = await resp.json();
     if (data.state === "ok" && data.cartera && data.cartera.mantenimiento) {
-      mergeRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      mergeCarteraMantenimientoRows(data.cartera.mantenimiento);
+      state.carteraMantenimientoTimeLogsAnios.add(anio);
       reconcileExperienceFacets("cartera");
       HubForegroundProgress.complete("cartera");
     } else {

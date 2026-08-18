@@ -478,7 +478,7 @@ class _HotYearsRecordingRepo:
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
         return []
 
-    def get_time_logs_facts(self, access_token, *, hot_years=None):
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
         self.time_logs_calls.append(hot_years)
         return []
 
@@ -497,11 +497,15 @@ def test_service_default_hot_years_is_current_and_previous_year(monkeypatch):
     monkeypatch.setattr(service_mod, "datetime", _FixedDatetime)
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera_mantenimiento("tok")
+    # "Horas por proyectos" (SharePoint) preserva la ventana caliente
+    # especulativa de siempre (año actual + anterior) — Año/Mes puede
+    # tildar el anterior sin round-trip.
     assert repo.calls[-1]["hot_years"] == ["2026", "2025"]
-    # La MISMA ventana acota la lectura de Time Logs (CANONICAL SOURCE
-    # DECISION) — un año frío de Mantenimiento nunca debe arrastrar el
-    # historial completo de Time Logs.
-    assert repo.time_logs_calls[-1] == ["2026", "2025"]
+    # CALL BUDGET corrective (owner 2026-08-18): Time Logs es CONTEXTUAL,
+    # no una ventana especulativa — sin selección explícita, SOLO el año
+    # calendario actual (nunca el anterior "porque sí"). Evitar el 4x de
+    # llamadas Graph reportado por el owner.
+    assert repo.time_logs_calls[-1] == ["2026"]
 
 
 def test_service_explicit_anios_overrides_default_hot_window():
@@ -539,7 +543,7 @@ class _FakeRepo:
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
 
-    def get_time_logs_facts(self, access_token, *, hot_years=None):
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
         return self._time_logs
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):

@@ -844,7 +844,7 @@ class ReportingRepository:
             raise ReportingSourceError("time_logs_site", "no se pudo resolver el sitio Operaciones")
         return site_id
 
-    def _list_time_logs_csv_items(self, site_id: str) -> list[dict]:
+    def _list_time_logs_csv_items(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Children de `TIME_LOGS_FOLDER_PATH` + subcarpetas (recursivo),
         filtrados a `.csv` sin "OLD" en el nombre — MISMA regla que el M del
         PBIP (`[Extension]=".csv"` y `not Text.Contains([Name],"OLD")`).
@@ -867,7 +867,20 @@ class ReportingRepository:
         subcarpeta puede tener espacios/tildes en el nombre) y se aplica el
         MISMO filtro `.csv`/sin "OLD" en cada nivel. No hay evidencia de más
         de un nivel de anidamiento, pero la recursión no asume un nivel fijo
-        — si en el futuro apareciera un nivel adicional, se sigue igual."""
+        — si en el futuro apareciera un nivel adicional, se sigue igual.
+
+        FILE DISCOVERY OPTIMIZADO (owner CALL BUDGET corrective,
+        2026-08-18 — "para Año=2026, si el archivo corriente se identifica
+        en la raíz, NO listar Times previos/ salvo que sea necesario"):
+        `hot_years` (`None` = listado completo, sin cambios — usado por
+        `get_time_logs_years_available`/Rentabilidad/wrappers standalone,
+        que necesitan el catálogo/historial completo) — con una lista
+        EXPLÍCITA, primero se listan SOLO los archivos de la raíz (1 sola
+        llamada); si esos archivos YA cubren TODOS los años pedidos (el
+        caso típico: pedir el año actual, que SIEMPRE vive en la raíz sin
+        sufijo, ver `_infer_time_logs_csv_year`), se devuelve sin bajar a
+        ninguna subcarpeta — Times previos/ solo se lista cuando algún año
+        pedido no aparece en la raíz (años fríos históricos)."""
         def collect(folder_url: str) -> list[dict]:
             children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
                 folder_url, access_token=self._token,
@@ -887,7 +900,28 @@ class ReportingRepository:
                     found.append(it)
             return found
 
-        return collect(f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children")
+        root_url = f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children"
+        root_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+            root_url, access_token=self._token,
+        ))
+        root_files = [
+            it for it in root_children
+            if not it.get("folder")
+            and _text(it.get("name")).lower().endswith(".csv")
+            and "old" not in _text(it.get("name")).lower()
+        ]
+        if hot_years is not None:
+            wanted = set(hot_years)
+            have = {_infer_time_logs_csv_year(it) for it in root_files}
+            if wanted <= have:
+                return root_files
+        found = list(root_files)
+        for it in root_children:
+            if it.get("folder"):
+                item_id = _text(it.get("id"))
+                if item_id:
+                    found.extend(collect(f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/children"))
+        return found
 
     def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Descarga + combina CSV de la carpeta (MISMA semántica que
@@ -909,7 +943,7 @@ class ReportingRepository:
         años (p. ej. un año futuro sin export todavía), es un dataset
         VACÍO legítimo (`[]`), no un `ReportingSourceError` — ese error
         sigue reservado a la fuente genuinamente vacía/rota."""
-        items = self._list_time_logs_csv_items(site_id)
+        items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
         if hot_years is not None:
@@ -1032,6 +1066,47 @@ class ReportingRepository:
         timer.stage("shaping", len(facts))
         timer.total()
         return facts
+
+    def get_time_logs_worked_hours(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
+        """Proyección MÍNIMA de Time Logs — `{proyecto, anio, mes, horas}`
+        por fila, SIN resolver Proyectos/Cliente/porcentaje_part (CALL
+        BUDGET corrective, owner decision 2026-08-18 — Cartera reportó
+        4x más llamadas Graph tras la reconciliación: 2/3 de esa
+        duplicación era releer Proyectos/Cliente/columnas que Cartera YA
+        había leído para "Horas por proyectos", solo para enriquecer
+        campos de Time Logs — `cliente`/`estado`/`porcentajePart` — que
+        Cartera (y Rentabilidad) NUNCA consumen de acá; ambos hacen SU
+        PROPIO join por `_norm_key(proyecto)` contra datos que ya tienen.
+
+        `proyecto` acá es SIEMPRE el texto CRUDO del CSV (Project), nunca
+        resuelto contra Proyectos — `_norm_key` (Upper/sin espacios) ya
+        normaliza ambos lados del join sin necesitar el título resuelto
+        (MISMA base que el fallback de `get_time_logs_facts` cuando el
+        join falla — acá es la ÚNICA vía, nunca un fetch más liviano que
+        cambie el resultado del join real del PBIP).
+
+        Horas Productivas (Batch B) SIGUE usando `get_time_logs_facts`
+        (el contrato completo) — necesita cliente/estado/porcentajePart
+        para su propia UI (agrupar por Cliente, filtro de Estado, panel
+        "Cliente + Part"). Este método es SOLO para consumidores que
+        necesitan nada más que el agregado proyecto×año×mes×horas
+        (Cartera/Mantenimiento — ver `get_cartera_mantenimiento`).
+
+        `hot_years`: MISMO mecanismo de source-loading que
+        `get_time_logs_facts` (selecciona archivos por nombre ANTES de
+        descargar, ver `_download_time_logs_rows`)."""
+        self._token = access_token
+        operaciones_site_id = self._resolve_time_logs_site_id()
+        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
+        return [
+            {
+                "proyecto": _text(row.get("Project")),
+                "mes": _time_logs_mes(row.get("Date")),
+                "anio": _time_logs_anio(row.get("Date")),
+                "horas": _num(row.get("Duration Decimal")),
+            }
+            for row in raw_rows
+        ]
 
     def get_time_logs_years_available(self, access_token: str) -> list[str]:
         """Metadata LIVIANA de años disponibles de Time Logs (HOT WINDOW /

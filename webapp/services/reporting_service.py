@@ -342,7 +342,7 @@ class ReportingService:
         (P5, owner live QA de performance — Cartera ~17s): Mantenimiento
         NUNCA necesita esperar la descarga/parseo de la XLSX."""
         facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
-        time_logs = self._repository.get_time_logs_facts(access_token)
+        time_logs = self._repository.get_time_logs_worked_hours(access_token)
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         return {
             "mantenimiento": self._mantenimiento_rows(facts, trab_by_proyecto),
@@ -363,10 +363,9 @@ class ReportingService:
         curso". Una lista explícita (p. ej. `["2024"]`) es el lazy-load de
         un año FRÍO puntual, disparado por el usuario al elegirlo en el
         <select> de Año — ver `reporting_cartera_data` (router) para el
-        contrato de `anios` como form param. La MISMA ventana acota AHORA
-        también la lectura de Time Logs (ver abajo) — un año frío de
-        Mantenimiento dispara la descarga de SOLO ese año de Time Logs,
-        nunca el historial completo.
+        contrato de `anios` como form param. Esta ventana sigue acotando
+        SOLO "Horas por proyectos" (`get_cartera_facts`) — Time Logs tiene
+        SU PROPIO scope, ver abajo (CALL BUDGET corrective).
 
         "HORAS TRABAJADAS" — CANONICAL SOURCE DECISION (owner, 2026-08-18):
         el incidente original (owner report — "Cartera/Proyectos deja de
@@ -390,6 +389,39 @@ class ReportingService:
         Cliente, Estado, Año, Mes: ninguno depende de `trabajadas`, todos
         siguen leyendo `f[...]` sin cambios).
 
+        CALL BUDGET corrective (owner 2026-08-18 — la primera versión de
+        esta reconciliación medía 4→12 llamadas Graph, un ~3x, suficiente
+        para explicar la regresión de performance reportada — "no aceptar
+        funcionalmente correcto a costa de 4x performance"):
+
+        1) Time Logs es una métrica CONTEXTUAL de Cartera, NO una ventana
+           caliente especulativa como "Horas por proyectos" — `hot_years`
+           (arriba) sigue pre-cargando año actual + anterior de SharePoint
+           (para que tildar el Año anterior en el <select> no dispare un
+           round-trip), pero Time Logs SOLO se pide para los años
+           EXPLÍCITAMENTE solicitados: `anios` si vino explícito (mismo
+           contrato que Productivas: `selectedYears=[2024]` → Time Logs
+           2024 ONLY), o SOLO el año calendario ACTUAL si `anios is None`
+           (primera hidratación) — nunca año actual+anterior por defecto,
+           que sería inventar una descarga que nadie pidió todavía. Si el
+           usuario tilda el Año anterior (ya presente vía el pre-fetch de
+           SharePoint, pero con Time Logs aún sin resolver), el frontend
+           dispara su PROPIO lazy-load con `anios=[ese año]` — MISMO
+           mecanismo de año frío single-flight, ver
+           `loadCarteraMantenimientoColdYear`/reporting.js — que ahora
+           REEMPLAZA la fila existente (antes trabajadas=0 sin resolver)
+           en vez de duplicarla.
+        2) `get_time_logs_worked_hours` (NO `get_time_logs_facts`) — la
+           proyección MÍNIMA proyecto×año×mes×horas que
+           `_trab_by_proyecto_by_year` realmente consume, SIN releer
+           Proyectos/Cliente/columnas (esas 3 lecturas YA las hizo
+           `get_cartera_facts` arriba, para "Horas por proyectos" —
+           `get_time_logs_facts` las releía de nuevo SOLO para enriquecer
+           `cliente`/`estado`/`porcentajePart` de Time Logs, campos que
+           esta reconciliación NUNCA usa. Horas Productivas SIGUE
+           necesitando esos campos y sigue usando `get_time_logs_facts`
+           completo — ver `get_batch_b`).
+
         SCOPE (deliberado, no una omisión): esta decisión aplica SOLO a
         Mantenimiento (grano mensual, el caso concreto reportado —
         Aluar/Ago-2026). `get_cartera_proyecto`/`_proyecto_rows` (agregado
@@ -401,7 +433,8 @@ class ReportingService:
         `_proyecto_rows`."""
         hot_years = anios if anios is not None else self._default_hot_years()
         facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
-        time_logs = self._repository.get_time_logs_facts(access_token, hot_years=hot_years)
+        time_logs_years = anios if anios is not None else [str(datetime.now().year)]
+        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=time_logs_years)
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         return self._mantenimiento_rows(facts, trab_by_proyecto)
 
