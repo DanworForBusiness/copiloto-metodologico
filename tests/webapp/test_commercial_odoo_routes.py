@@ -224,11 +224,13 @@ def test_commercial_summary_and_pipeline_each_live_inside_their_own_dashboard_se
     # cada uno con su propio `data-section-id`, no una plantilla duplicada
     # a mano por sección.
     assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
-    # KPI → Contextual Drilldown corrective: "pipeline"/"Pipeline por Etapa"
-    # se renombró a "activas-analisis"/"Oportunidades Activas — Análisis" —
-    # la tabla stages 1-8 es semánticamente el detalle de Oportunidades
-    # Activas, no de Pipeline Total (ver test específico más abajo).
-    assert 'commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis",' in _COMMERCIAL_JS
+    # Landing Homologation: el Dashboard tiene ahora DOS familias de tiles —
+    # Resumen (9 principales) y Analíticas del Pipeline (6 derivadas).
+    assert 'commercialDashboardSection("analiticas", "Analíticas del Pipeline"' in _COMMERCIAL_JS
+    # "Oportunidades Activas — Análisis" ya NO se arma con el helper: lleva
+    # `data-breakdown` sobre la sección para poder aparecer/desaparecer
+    # entera, así que se emite con su propio markup (ver test específico).
+    assert 'data-section-id="activas-analisis" data-breakdown="activas"' in _COMMERCIAL_JS
     assert 'data-section-id="${id}"' in _COMMERCIAL_JS
     # El KPI grid y la tabla siguen siendo los MISMOS primitives de siempre
     # (sin tocar tiles/columnas) — solo ahora viven dentro del body de cada
@@ -285,21 +287,28 @@ def test_commercial_kpi_tiles_and_table_and_switch_primitives_unchanged():
 # que Reporting/Staffing, nunca suelto contra el hero.
 # ============================================================================
 
-def test_commercial_view_switch_lives_inside_the_shared_sticky_header():
-    assert '"dashboard-sticky-header"' in _COMMERCIAL_JS
-    sticky_block = _COMMERCIAL_JS.split('function commercialFilterHtml()', 1)[1].split('\n}\n', 1)[0]
-    assert '"dashboard-sticky-header"' in sticky_block
-    assert '"dashboard-view-switch"' in sticky_block
+def test_commercial_view_switch_lives_in_the_hero_next_to_the_subtitle():
+    # CONTRATO ACTUALIZADO DELIBERADAMENTE (Landing Homologation). Hasta acá
+    # el filtro global vivía en `.dashboard-sticky-header`, una franja propia
+    # entre el hero y la navegación. El owner lo movió a la MISMA línea del
+    # subtítulo: sigue siendo el mismo view control transversal, pero deja de
+    # gastar una banda entera del landing. Ya no necesita el sticky header.
+    filter_block = _COMMERCIAL_JS.split('function commercialFilterHtml()', 1)[1].split('\n}\n', 1)[0]
+    assert '"dashboard-view-switch"' in filter_block
+    assert '"dashboard-sticky-header"' not in _COMMERCIAL_JS
+    # Se monta en el hero, FUERA del contenedor que se reemplaza al conmutar
+    # de capacidad.
+    assert 'getElementById("commercial-hero-filter")' in _COMMERCIAL_JS
+    crm_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "crm.html").read_text(encoding="utf-8")
+    assert 'id="commercial-hero-filter"' in crm_html
+    assert crm_html.index("hero-lead-row") < crm_html.index('id="commercial-main-content"')
 
 
-def test_commercial_sticky_header_appears_before_the_capability_panel_in_render():
-    # Batch 3A: `commercialRender` es ahora el SHELL (nav + filtro global +
-    # contenedor de capability) y el contenido del Dashboard vive en
-    # `commercialDashboardHtml`. El filtro global sigue por ENCIMA del
-    # contenido, sólo que ahora por encima de CUALQUIER capability.
+def test_capability_nav_and_capability_panel_are_the_only_things_inside_main_content():
+    # El filtro global salió de `#commercial-main-content` (vive en el hero),
+    # así que el shell queda con la navegación y el panel de la capacidad.
     render_fn = _COMMERCIAL_JS.split("function commercialRender(", 1)[1].split("\nfunction ", 1)[0]
-    assert render_fn.index("commercialNavHtml()") < render_fn.index("commercialFilterHtml()")
-    assert render_fn.index("commercialFilterHtml()") < render_fn.index('id="commercial-capability-panel"')
+    assert render_fn.index("commercialNavHtml()") < render_fn.index('id="commercial-capability-panel"')
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert "commercialDashboardSections(" in dashboard_fn
 
@@ -414,10 +423,9 @@ def test_commercial_pipeline_table_has_a_totals_row():
 def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
     # Este corrective es EXCLUSIVAMENTE table layout — el resto del spine
     # (secciones + view control) sigue intacto.
-    assert '"dashboard-sticky-header"' in _COMMERCIAL_JS
     assert '"dashboard-view-switch"' in _COMMERCIAL_JS
     assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
-    assert 'commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis",' in _COMMERCIAL_JS
+    assert 'Oportunidades Activas — Análisis' in _COMMERCIAL_JS
 
 
 # ============================================================================
@@ -430,31 +438,40 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 # ============================================================================
 
 def test_only_active_opportunities_kpi_is_clickable():
-    # Único call site de `commercialClickableKpi` en todo el archivo — el
-    # resto de los 5 KPIs del grid siguen siendo `commercialKpi` (display-only).
-    assert 'commercialClickableKpi("Oportunidades activas", commercialFmtInt(s.activas.count), "activas")' in _COMMERCIAL_JS
-    assert _COMMERCIAL_JS.count("commercialClickableKpi(") == 2  # definición + un único call site
+    # Landing Homologation: los tiles se emiten con `commercialRichKpi`, y
+    # `eventKey` es lo único que agrega la afordancia de click. Un solo tile
+    # lo recibe — el único con drilldown Hub ya homologado. Los otros ocho
+    # conservan su información SIN simular una acción inexistente.
+    dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert dashboard_fn.count("eventKey:") == 1
+    assert 'eventKey: "activas"' in dashboard_fn
+    # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
+    rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    for label in ("Pipeline horas", "Pipeline ponderado (hs)", "Ganadas", "Perdidas", "Conversión"):
-        assert f'commercialKpi("{label}"' in _COMMERCIAL_JS
-    # Ninguno de los otros 5 pasa por la variante clickeable.
-    for banned_call in (
-        'commercialClickableKpi("Pipeline horas"', 'commercialClickableKpi("Pipeline ponderado',
-        'commercialClickableKpi("Ganadas"', 'commercialClickableKpi("Perdidas"',
-        'commercialClickableKpi("Conversión"',
-    ):
-        assert banned_call not in _COMMERCIAL_JS
+    # Ningún tile fuera de Oportunidades activas recibe `eventKey`, así que
+    # ninguno queda clickeable — sin afordancia falsa.
+    dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for label in ("Prospectos", "Pipeline total", "Pipeline ponderado", "Ganadas",
+                  "Perdidas", "Suspendidas", "Creadas esta semana", "Conversión"):
+        tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
+        assert len(tile) == 2, label
+        assert "eventKey" not in tile[1].split("}", 1)[0], label
 
 
 def test_clickable_kpi_reuses_the_shared_activity_kpi_clickable_modifier():
-    clickable_fn = _COMMERCIAL_JS.split("function commercialClickableKpi(", 1)[1].split("\nfunction ", 1)[0]
-    assert 'class="activity-kpi activity-kpi--clickable"' in clickable_fn
-    assert "data-event=" in clickable_fn
-    assert 'role="button"' in clickable_fn
-    assert 'tabindex="0"' in clickable_fn
-    assert "aria-label=" in clickable_fn
+    # `commercialClickableKpi` se fusionó en `commercialRichKpi` (Landing
+    # Homologation): un solo generador de tile, y la afordancia sale sólo con
+    # `eventKey`. El contrato que importa —reusar el modificador COMPARTIDO,
+    # no inventar uno propio— sigue vigente.
+    rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert "activity-kpi--clickable" in rich_fn
+    assert "data-event=" in rich_fn
+    assert 'role="button"' in rich_fn
+    assert 'tabindex="0"' in rich_fn
+    assert "aria-label=" in rich_fn
 
 
 def test_commercial_reuses_shared_init_event_breakdown_never_a_parallel_handler():
@@ -482,9 +499,13 @@ def test_analysis_panel_starts_hidden_not_via_default_auto_open():
     # El estado inicial "cerrado" está codificado en el propio markup (panel
     # "" visible, panel "activas" hidden) — NO depende de que la función lo
     # calcule, porque con openFirst:false la función no llama a show() en absoluto.
+    # Landing Homologation: ya NO hay panel placeholder. `data-breakdown` va
+    # sobre la SECCIÓN, que arranca `hidden`, así que el análisis no reserva
+    # espacio en el landing y desaparece entero al deseleccionar.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert 'data-breakdown=""' in dashboard_fn
-    assert 'data-breakdown="activas" hidden' in dashboard_fn
+    assert 'data-breakdown="activas" open hidden' in dashboard_fn
+    assert 'data-breakdown=""' not in dashboard_fn
+    assert "Hacé clic en" not in _COMMERCIAL_JS
 
 
 def test_breakdown_group_attribute_wraps_the_dashboard_sections_container():
@@ -606,9 +627,15 @@ def test_commercial_local_css_does_not_duplicate_shared_hub_primitives():
     # en este repo — un comentario que menciona el literal prohibido).
     raw = (_STATIC / "commercial.css").read_text(encoding="utf-8")
     rules = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    # Un override POSICIONAL dentro de un contenedor propio es legítimo (lo
+    # mismo hace reporting.css con `.dashboard-view-switch`); lo prohibido es
+    # RE-DEFINIR el primitivo, o sea abrir un bloque con su selector desnudo.
     for shared in (".chart-tooltip", ".dashboard-view-switch", ".perspective-label",
                    ".staffing-timeline-toolbar", ".dashboard-table", ".matrix-scroll", ".activity-kpi"):
-        assert shared not in rules, shared
+        for line in rules.splitlines():
+            stripped = line.strip()
+            assert not stripped.startswith(shared + " {"), (shared, stripped)
+            assert not stripped.startswith(shared + "{"), (shared, stripped)
 
 
 def test_commercial_charts_introduce_no_library_canvas_or_external_dependency():
@@ -640,14 +667,17 @@ def test_no_other_kpi_gained_a_drilldown_this_batch():
     # Creadas, Target: ninguno gana `data-event` ni panel propio en este batch
     # — contar solo MARKUP real dentro de cada función, no menciones en
     # comentarios (que mencionan `data-event`/`data-breakdown` varias veces).
-    clickable_fn = _COMMERCIAL_JS.split("function commercialClickableKpi(", 1)[1].split("\nfunction ", 1)[0]
-    assert clickable_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # Aislar el LITERAL de los paneles (no el comentario que lo precede,
-    # que también menciona `data-breakdown` en prosa).
-    panels_literal = _COMMERCIAL_JS.split("const analysisPanels = `", 1)[1].split("\n  const sections =", 1)[0]
-    assert panels_literal.count('data-breakdown="') == 2  # "" (vacío) + "activas"
+    rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
+    # Un ÚNICO `data-breakdown` en todo el markup: el de la sección de
+    # Activas. Ya no hay panel placeholder que acompañar (Landing
+    # Homologation) — se cuenta sobre el markup, no sobre los comentarios,
+    # que mencionan el atributo en prosa varias veces.
+    markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
+                       if not line.strip().startswith("//"))
+    assert markup.count('data-breakdown="') == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
-    plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n// KPI", 1)[0]
+    plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
     assert "data-event" not in plain_kpi_fn
 
 
@@ -939,3 +969,23 @@ def test_analytics_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch
 def test_analytics_endpoint_never_exposes_a_write_verb():
     for verb in ("post", "put", "patch", "delete"):
         assert getattr(client, verb)("/comercial/data/analytics").status_code == 405, verb
+
+
+def test_dashboard_hydration_fetches_analytics_but_never_blocks_on_it():
+    # Las analíticas son la consulta más pesada (historial de Odoo). Si
+    # fallan, el landing se muestra igual y sólo ese bloque avisa.
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function", 1)[0]
+    assert "/comercial/data/analytics" in load_fn
+    assert 'analyticsResp.state === "ok" ? analyticsResp.analytics : null' in load_fn
+    # El estado ready NO depende de que las analíticas hayan salido bien.
+    assert 'summaryResp.state === "ok" && pipelineResp.state === "ok"' in load_fn
+
+
+def test_analytics_service_never_writes_and_reads_only_known_models():
+    # Lectura pura: el service de analíticas no llama nada que no sea
+    # search_read sobre los modelos del CRM/historial.
+    analytics_block = _COMMERCIAL_SERVICE_PY.split("def _build_analytics(", 1)[1].split("\n    def get_analytics", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in analytics_block, banned
+    for model in ('"crm.stage"', '"crm.lead"', '"mail.message"'):
+        assert model in _COMMERCIAL_SERVICE_PY, model

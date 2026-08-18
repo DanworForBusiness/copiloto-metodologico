@@ -31,7 +31,15 @@
     <section class="module-hero">
       <p class="eyebrow">Comercial</p>
       <h1>Dashboard CRM</h1>
-      <p class="hero-lead full-page-subtitle">Gestión y analítica comercial integrada con nuestro CRM Odoo.</p>
+      {# El filtro global vive en la MISMA línea que el subtítulo (ver HANDOFF
+         — Landing Homologation): es transversal a todo Comercial, así que no
+         merece una franja propia entre el hero y la navegación de
+         capacidades. El punto de montaje va acá, pero lo renderiza
+         commercial.js, porque su estado (todos/nn/bi) es del cliente. #}
+      <div class="hero-lead-row">
+        <p class="hero-lead full-page-subtitle">Gestión y analítica comercial integrada con nuestro CRM Odoo.</p>
+        <div id="commercial-hero-filter"></div>
+      </div>
     </section>
     <div id="commercial-main-content"></div>
   </main>

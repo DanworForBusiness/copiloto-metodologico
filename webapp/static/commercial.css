@@ -82,3 +82,37 @@
   .category-plot__area { gap: 3px; }
   .category-plot__xlab { gap: 3px; }
 }
+
+/* ── Filtro global en el hero ────────────────────────────────────────────────
+   El filtro Todos/New Name/Base Instalada comparte linea con el subtitulo, a
+   la derecha: es transversal a todo el workspace y no necesita una franja
+   propia. `align-items:baseline` + el margen del parrafo en 0 son lo que
+   evita que sumar el filtro AGREGUE altura al hero — la fila mide lo que ya
+   media el subtitulo. En viewport angosto envuelve y el filtro cae debajo,
+   alineado a la izquierda. */
+.hero-lead-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.hero-lead-row > .hero-lead { margin-bottom: 0; flex: 1 1 320px; }
+.hero-lead-row > div { flex: 0 0 auto; }
+.hero-lead-row .dashboard-view-switch { margin: 0; }
+
+/* ── Tiles del landing ───────────────────────────────────────────────────────
+   Homologacion del landing legacy: un tile puede llevar, ademas del valor
+   principal, una magnitud secundaria (horas) y la composicion por segmento.
+   Nada de esto es un tile nuevo: es el MISMO `.activity-kpi` compartido con
+   dos lineas mas. */
+.kpi-sub { color: var(--soft); font: 600 .72rem var(--mono); letter-spacing: .02em; }
+.kpi-split { display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 2px; }
+.kpi-split__item { font: 500 .66rem var(--sans); color: var(--soft); white-space: nowrap; }
+.kpi-split__item b { font-weight: 700; font-family: var(--mono); font-size: .7rem; }
+/* El desglose es foco-able porque su tooltip explica por que New Name y Base
+   Instalada NO suman el total (ver commercial.js: son segmentos que se
+   superponen). Sin foco, esa aclaracion seria inaccesible por teclado. */
+.kpi-split:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+.content-theme-dark .kpi-sub,
+.content-theme-dark .kpi-split__item { color: #8b8b96; }
+
+/* Grilla de las Analiticas del Pipeline: tiles mas chicos que los del
+   Resumen — son metricas derivadas, no la lectura principal del landing. */
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.analytics-grid .activity-kpi__value { font-size: clamp(1.25rem, 1.7vw, 1.55rem); }
+

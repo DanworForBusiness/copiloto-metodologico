@@ -1,53 +1,35 @@
-// commercial.js — Comercial / CRM (Commercial Hub Odoo Batch 1: Summary +
-// Pipeline, primer vertical slice real, 100% lectura). MISMO patrón de
-// hidratación que reporting.js (fetch + render manual sobre innerHTML, sin
-// Alpine reactivo) — bootstrap en DOMContentLoaded, ver el final de este
-// archivo. Consume ÚNICAMENTE los 2 endpoints propios
-// (`/comercial/data/summary|pipeline`, `tipo=todos|nn|bi`), reusa
-// primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/.activity-kpi,
-// .dashboard-view-switch, table.dashboard-table, .empty-panel,
-// .section-analysis-loading — todos en app.css/tools.css, ya usados por
-// Reporting/Asignaciones) — CERO CSS propio de esta vertical, CERO chart
-// library. "Distribución por Etapa" se dibuja con el primitivo COMPARTIDO
-// `.category-plot` (tools.css): barras para Oportunidades sobre la escala
-// izquierda y una línea con puntos para Horas/Ponderadas sobre la derecha,
-// todo en UNA superficie de ~250-300px. Sin librería, sin canvas, sin
-// dependencia nueva — el único SVG es la polilínea, y es presentacional.
+// commercial.js — Comercial / CRM (workspace propio del Hub, 100% lectura).
+// MISMO patrón de hidratación que reporting.js (fetch + render manual sobre
+// innerHTML, sin Alpine reactivo) — bootstrap en DOMContentLoaded, al final
+// del archivo. Consume sus 4 endpoints propios (`/comercial/data/summary|
+// pipeline|analytics|activities`, `tipo=todos|nn|bi`).
 //
-// UI Spine corrective (ver HANDOFF — Commercial UI Spine Audit): el KPI
-// grid y la tabla de Pipeline viven DENTRO del backbone de dashboard
-// compartido (.dashboard-sections[data-dashboard-key] > <details
-// class="dashboard-section"> > .dashboard-section__body, wireado por
-// app.js::initDashboardSections — MISMA marca que Reporting/Staffing,
-// nunca un motor de collapse/drag propio). `commercialDashboardSection`/
-// `commercialDashboardSections` son un helper LOCAL mínimo (mismo shape
-// que reporting.js::dashboardSection/dashboardSections) — NO existe un
-// renderer compartido global para esto (auditado: Reporting lo define
-// local, Staffing lo arma directo en su template Alpine) — extraer un
-// helper transversal ahora sería una refactorización prematura fuera de
-// scope; si esta duplicación reaparece en una futura vertical, ahí sí es
-// candidato natural de extracción.
+// Reusa primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/
+// .activity-kpi, .experience-tabs, .dashboard-view-switch, .dashboard-section,
+// table.dashboard-table, .matrix-scroll, .chart-tooltip, .empty-panel,
+// .section-analysis-loading — todos en app.css/tools.css) y aporta su CSS
+// propio en commercial.css, linkeado desde su template: ahí viven la
+// composición del gráfico (`.category-plot`) y el layout del landing, que
+// son de esta vertical y no primitivos del Hub (ver el encabezado de ese
+// archivo). Cero librería de charts, cero canvas, cero dependencia nueva.
 //
-// Loader: el ÚNICO progress bar del Hub es `HubForegroundProgress`
-// (app.js) — este archivo NUNCA toca el nodo/DOM del progress
-// directamente, solo notifica lifecycle (begin/complete/fail) con la key
-// "commercial". Un cache-hit server-side (mismo `tipo` reconsultado dentro
-// del TTL, o el switch Todos/NN/BI que golpea el MISMO cache — ver
-// commercial_service.py) resuelve casi instantáneo: begin()+complete() en
-// sucesión inmediata, sin espera artificial (ver HANDOFF §12).
+// LANDING (ver HANDOFF — Landing Homologation): el Dashboard homologa las dos
+// familias de tiles del CRM legacy — 9 principales (Resumen) + 6 derivadas
+// (Analíticas del Pipeline) — preservando su riqueza informativa: valor,
+// horas y composición por segmento. El filtro global Todos/New Name/Base
+// Instalada vive en el hero, no en una franja propia.
 //
-// KPI → Contextual Drilldown (ver HANDOFF — Batch 2A, Oportunidades
-// Activas): "Oportunidades activas" es HOY el único KPI clickeable
-// (`commercialClickableKpi`) — el resto del grid sigue siendo
-// `commercialKpi` display-only hasta que tengan su propio drilldown real.
-// Reusa el motor COMPARTIDO `initEventBreakdown` (app.js, ya usado por
-// "Eventos y catálogo" en Actividad/Admin) vía el contrato
-// `[data-breakdown-group]`/`[data-event]`/`[data-breakdown]` — nunca un
-// handler de click propio. `{openFirst:false}` (parámetro nuevo del motor,
-// ver app.js) evita el auto-open del primer trigger que "Eventos y
-// catálogo" sí quiere; acá el análisis arranca cerrado (estado codificado
-// directo en el markup: panel `data-breakdown=""` visible, panel
-// `data-breakdown="activas"` `hidden`).
+// Loader: el ÚNICO progress bar del Hub es `HubForegroundProgress` (app.js) —
+// este archivo NUNCA toca su DOM, sólo notifica lifecycle (begin/complete/
+// fail) con la key "commercial".
+//
+// KPI → Contextual Drilldown: "Oportunidades activas" es HOY el único KPI
+// clickeable, porque es el único con un drilldown ya homologado; el resto
+// conserva su información pero NO simula una acción inexistente. Reusa el
+// motor COMPARTIDO `initEventBreakdown` (app.js) vía `[data-breakdown-group]`/
+// `[data-event]`/`[data-breakdown]` — nunca un handler propio. El atributo
+// `data-breakdown` va sobre la SECCIÓN entera, así que el análisis no ocupa
+// espacio hasta que se lo acciona y desaparece completo al cerrarlo.
 
 // Capacidades IMPLEMENTADAS del workspace. Deliberadamente NO se listan las
 // que todavía no tienen funcionalidad detrás (Licencias, Clientes, Leads, Mis
@@ -73,6 +55,7 @@ const commercialState = {
   errorState: "", // "config_incomplete" | "source_error" | ""
   summary: null,
   pipeline: null,
+  analytics: null,
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
   // costo de una capability que no se está viendo. `idle` = todavía no se
   // pidió, o quedó stale tras cambiar el filtro global.
@@ -111,14 +94,45 @@ function commercialKpi(label, value) {
     + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
 }
 
-// KPI → Contextual Drilldown (ver HANDOFF): variante clickeable de
-// `commercialKpi`, trigger de `initEventBreakdown` (app.js) vía `data-event`
-// — NUNCA un handler propio. Solo el KPI con un drilldown real gana esta
-// forma; el resto sigue siendo `commercialKpi` display-only.
-function commercialClickableKpi(label, value, eventKey) {
-  return `<div class="activity-kpi activity-kpi--clickable" data-event="${eventKey}" role="button" tabindex="0" aria-label="Ver análisis de ${commercialEsc(label)}">`
+// Tile del landing con la riqueza informativa del CRM legacy: valor
+// principal, una magnitud secundaria opcional (horas) y la composición por
+// segmento. Sigue siendo el `.activity-kpi` COMPARTIDO — sólo suma líneas.
+function commercialRichKpi(label, value, { sub = "", split = null, eventKey = "" } = {}) {
+  const clickable = eventKey ? ` activity-kpi--clickable" data-event="${eventKey}" role="button" tabindex="0"`
+    + ` aria-label="Ver análisis de ${commercialEsc(label)}"` : '"';
+  return `<div class="activity-kpi${clickable}>`
     + `<span class="activity-kpi__value">${commercialEsc(value)}</span>`
-    + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
+    + `<span class="activity-kpi__label">${commercialEsc(label)}</span>`
+    + (sub ? `<span class="kpi-sub">${commercialEsc(sub)}</span>` : "")
+    + (split || "")
+    + `</div>`;
+}
+
+// Composición New Name / Base Instalada.
+//
+// NO es una partición: `tag_ids` es many2many, así que una oportunidad puede
+// tener los dos tags o ninguno, y por eso New Name + Base Instalada no tiene
+// por qué dar el total. Mostrar "otros = total − nn − bi" sería inventar
+// aritmética. La lectura visible replica la del legacy (dos cifras) y la
+// explicación honesta —cuántas comparten ambos segmentos y cuántas no tienen
+// ninguno— viaja en el tooltip compartido, que además es foco-able para que
+// no quede sólo al alcance del mouse.
+function commercialSplitHtml(segment, labels) {
+  if (!segment) return "";
+  const nnLabel = (labels && labels.nn) || "New Name";
+  const biLabel = (labels && labels.bi) || "Base Instalada";
+  const lines = [
+    `${nnLabel}: ${commercialFmtInt(segment.nn.count)}`,
+    `${biLabel}: ${commercialFmtInt(segment.bi.count)}`,
+    `Con ambos segmentos: ${commercialFmtInt(segment.both.count)}`,
+    `Sin segmento asignado: ${commercialFmtInt(segment.neither.count)}`,
+    "Los segmentos se superponen: no suman el total.",
+  ];
+  return `<div class="kpi-split chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(lines.join(" · "))}">`
+    + `<span class="kpi-split__item">${commercialEsc(nnLabel)} <b>${commercialFmtInt(segment.nn.count)}</b></span>`
+    + `<span class="kpi-split__item">${commercialEsc(biLabel)} <b>${commercialFmtInt(segment.bi.count)}</b></span>`
+    + commercialChartTooltip(lines)
+    + `</div>`;
 }
 
 function commercialLoadingHtml(label) {
@@ -142,9 +156,13 @@ function commercialFilterHtml() {
   const buttons = tipos.map(([key, label]) =>
     `<button type="button" class="${commercialState.tipo === key ? "is-active" : ""}" data-commercial-tipo="${key}">${commercialEsc(label)}</button>`
   ).join("");
-  return `<div class="dashboard-sticky-header">
-    <div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>
-  </div>`;
+  // Landing Homologation: el filtro pasó a compartir línea con el subtítulo
+  // del hero (ver `hero-lead-row` en crm.html/commercial.css). Sigue siendo
+  // el MISMO view control transversal — cambió dónde se dibuja, no qué hace:
+  // filtra la población de TODAS las capacidades y mantiene su semántica de
+  // invalidación. Ya no necesita `.dashboard-sticky-header`, que era el
+  // contenedor de una franja propia que el hero absorbió.
+  return `<div class="dashboard-view-switch" role="group" aria-label="Tipo">${buttons}</div>`;
 }
 
 // ── Distribución por Etapa ─────────────────────────────────────────────────
@@ -625,34 +643,81 @@ function commercialDashboardHtml() {
   }
   const s = commercialState.summary;
   const p = commercialState.pipeline;
+  const a = commercialState.analytics;
+  // Las horas van como magnitud secundaria, nunca pegadas al valor: el valor
+  // principal es `white-space:nowrap`, y "50,963 hs" desbordaba el tile hacia
+  // el de al lado en la grilla de nueve.
+  const hs = value => `${commercialFmtInt(value)} hs`;
+  // `segments` sólo viene en la vista sin filtrar: dentro de New Name o Base
+  // Instalada el desglose sería redundante, así que el service no lo manda y
+  // acá simplemente no hay split que dibujar.
+  const seg = name => commercialSplitHtml(s.segments && s.segments[name], s.labels);
+
+  // Los NUEVE tiles del landing legacy. "Oportunidades activas" es el único
+  // clickeable: es el único con un drilldown Hub ya homologado. Los demás
+  // conservan su información pero NO simulan una acción que todavía no
+  // existe — una afordancia falsa es peor que ninguna.
   const kpiGrid = `<div class="activity-kpi-grid">
-      ${commercialKpi("Pipeline horas", commercialFmtInt(s.pipeline.hours))}
-      ${commercialKpi("Pipeline ponderado (hs)", commercialFmtInt(s.pipeline.weighted_hours))}
-      ${commercialClickableKpi("Oportunidades activas", commercialFmtInt(s.activas.count), "activas")}
-      ${commercialKpi("Ganadas", commercialFmtInt(s.ganadas.count))}
-      ${commercialKpi("Perdidas", commercialFmtInt(s.perdidas.count))}
-      ${commercialKpi("Conversión", commercialFmtPercent(s.conversion))}
+      ${commercialRichKpi("Oportunidades activas", commercialFmtInt(s.activas.count),
+        { sub: hs(s.activas.hours), split: seg("activas"), eventKey: "activas" })}
+      ${commercialRichKpi("Prospectos", commercialFmtInt(s.prospectos.count),
+        { sub: hs(s.prospectos.hours), split: seg("prospectos") })}
+      ${commercialRichKpi("Pipeline total", commercialFmtInt(s.pipeline.hours),
+        { sub: "horas", split: seg("pipeline") })}
+      ${commercialRichKpi("Pipeline ponderado", commercialFmtInt(s.pipeline.weighted_hours),
+        { sub: "horas ponderadas" })}
+      ${commercialRichKpi("Ganadas", commercialFmtInt(s.ganadas.count),
+        { sub: hs(s.ganadas.hours), split: seg("ganadas") })}
+      ${commercialRichKpi("Perdidas", commercialFmtInt(s.perdidas.count),
+        { sub: hs(s.perdidas.hours), split: seg("perdidas") })}
+      ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
+        { sub: hs(s.suspendidas.hours), split: seg("suspendidas") })}
+      ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
+        { sub: a ? `${commercialFmtInt(a.creadas.last_week)} la semana pasada` : "" })}
+      ${commercialRichKpi("Conversión", commercialFmtPercent(s.conversion),
+        { sub: `${commercialFmtPercent(s.conversion_with_suspended)} con suspendidas` })}
     </div>`;
-  // "Oportunidades Activas — Análisis" (KPI → Contextual Drilldown, ver
-  // HANDOFF): la tabla stages 1–8 (antes sección paralela "Pipeline por
-  // Etapa") es semánticamente el detalle de "Oportunidades activas", no de
-  // Pipeline Total (universo 0–8, drilldown propio no implementado en este
-  // batch) — audit live legacy confirmó ambos universos son distintos.
-  // Panel `data-breakdown=""` = estado "sin selección" (MISMO patrón que
-  // "Eventos y catálogo"): visible por default, se oculta recién cuando
-  // `initEventBreakdown` activa `data-breakdown="activas"` al click. Arranca
-  // así en el markup — `initEventBreakdown(document, {openFirst:false})` NO
-  // auto-abre el primero (ver app.js), a diferencia de su comportamiento
-  // histórico.
-  const analysisPanels = `
-    <div class="activity-breakdown__panel" data-breakdown="">
-      <p class="empty-panel">Hacé clic en "Oportunidades activas" para ver el detalle por etapa.</p>
-    </div>
-    <div class="activity-breakdown__panel" data-breakdown="activas" hidden>
-      ${commercialActivasAnalysisHtml(p)}
-    </div>`;
-  const sections = commercialDashboardSection("resumen", "Resumen", `${commercialFmtInt(s.activas.count)} oportunidad(es) activa(s)`, kpiGrid)
-    + commercialDashboardSection("activas-analisis", "Oportunidades Activas — Análisis", `${commercialFmtInt(p.opportunities)} oportunidad(es)`, analysisPanels);
+
+  // "Analíticas del Pipeline" — la segunda familia del landing legacy. Seis
+  // métricas derivadas, todas read-only por ahora: sus paneles de detalle son
+  // drilldowns propios todavía no homologados.
+  const analyticsGrid = a ? `<div class="activity-kpi-grid analytics-grid">
+      ${commercialRichKpi("Edad del pipeline", a.pipeline_age.avg_days != null ? `${a.pipeline_age.avg_days}d` : "—",
+        { sub: `${commercialFmtInt(a.pipeline_age.count)} oportunidad(es) activa(s)` })}
+      ${commercialRichKpi("Tiempo por etapa", a.stage_time.avg_days != null ? `${a.stage_time.avg_days}d` : "—",
+        { sub: a.stage_time.stages_with_data ? `${commercialFmtInt(a.stage_time.stages_with_data)} etapa(s) con datos` : "sin datos de historial" })}
+      ${commercialRichKpi("Conversión etapa a etapa", a.stage_conversion.min_rate != null ? `${a.stage_conversion.min_rate}%` : "—",
+        { sub: a.stage_conversion.min_rate != null ? "tasa mínima (cuello de botella)" : "sin datos" })}
+      ${commercialRichKpi("Tiempo de cierre", a.close_time.avg_days != null ? `${a.close_time.avg_days}d` : "—",
+        { sub: `${commercialFmtInt(a.close_time.count)} oportunidad(es) ganada(s)` })}
+      ${commercialRichKpi("Estancadas", commercialFmtInt(a.stagnant.count),
+        { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento` })}
+      ${commercialRichKpi("Conversión de leads", commercialFmtPercent(a.lead_conversion.rate_any_conv),
+        { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad` })}
+    </div>` : `<p class="empty-panel">No pudimos calcular las analíticas del pipeline en este momento.</p>`;
+
+  // El análisis contextual NO ocupa lugar hasta que se acciona su KPI: el
+  // atributo `data-breakdown` va sobre la SECCIÓN entera, así que
+  // `initEventBreakdown` la muestra y la esconde completa con el mismo motor
+  // de siempre. Sin panel placeholder, sin espacio reservado, sin un segundo
+  // mecanismo de breakdown.
+  const analysisSection = `<details class="dashboard-section" data-section-id="activas-analisis" data-breakdown="activas" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Oportunidades Activas — Análisis</span>
+        <span class="dashboard-section__count">${commercialFmtInt(p.opportunities)} oportunidad(es)</span>
+      </summary>
+      <div class="dashboard-section__body">${commercialActivasAnalysisHtml(p)}</div>
+    </details>`;
+
+  // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
+  // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
+  // protagonismo que no le corresponde y sugería que el bloque entero hablaba
+  // de eso. Cada tile ya declara su propia magnitud.
+  const sections = commercialDashboardSection("resumen", "Resumen", "", kpiGrid)
+    + commercialDashboardSection("analiticas", "Analíticas del Pipeline", "", analyticsGrid)
+    + analysisSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -667,9 +732,13 @@ function commercialRender() {
   if (!root) return;
   root.innerHTML = `
     ${commercialNavHtml()}
-    ${commercialFilterHtml()}
     <div id="commercial-capability-panel">${commercialCapabilityHtml()}</div>
   `;
+  // El filtro global se dibuja FUERA de `#commercial-main-content`, en el
+  // hero: es transversal a las capacidades, así que no puede vivir dentro del
+  // contenedor que se reemplaza al conmutar.
+  const heroFilter = document.getElementById("commercial-hero-filter");
+  if (heroFilter) heroFilter.innerHTML = commercialFilterHtml();
   commercialWireCapability();
 }
 
@@ -718,13 +787,19 @@ async function commercialLoadData() {
   HubForegroundProgress.begin("commercial", { seedMs: 9000 });
   try {
     const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
-    const [summaryResp, pipelineResp] = await Promise.all([
+    const [summaryResp, pipelineResp, analyticsResp] = await Promise.all([
       fetch(`/comercial/data/summary?${qs}`).then(r => r.json()),
       fetch(`/comercial/data/pipeline?${qs}`).then(r => r.json()),
+      fetch(`/comercial/data/analytics?${qs}`).then(r => r.json()),
     ]);
     if (summaryResp.state === "ok" && pipelineResp.state === "ok") {
       commercialState.summary = summaryResp.summary;
       commercialState.pipeline = pipelineResp.pipeline;
+      // Las analíticas degradan SOLAS: dependen del historial de Odoo, que es
+      // la consulta más pesada del dashboard. Si fallan, el resto del landing
+      // se muestra igual y sólo ese bloque avisa — nunca se cae la página
+      // entera por una métrica derivada.
+      commercialState.analytics = analyticsResp.state === "ok" ? analyticsResp.analytics : null;
       commercialState.status = "ready";
       HubForegroundProgress.complete("commercial");
     } else {
@@ -779,6 +854,7 @@ function commercialSetTipo(tipo) {
   commercialState.status = "idle";
   commercialState.summary = null;
   commercialState.pipeline = null;
+  commercialState.analytics = null;
   commercialState.activities = null;
   commercialState.activitiesStatus = "idle";
   // Los filtros locales de Actividades se reinician con el dataset: sus
@@ -793,7 +869,9 @@ function commercialSetTipo(tipo) {
 document.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("commercial-main-content");
   if (!root) return; // otra página del Hub — este script no aplica.
-  root.addEventListener("click", event => {
+  // La delegación cuelga de `document`, no de `root`: desde este batch el
+  // filtro global vive en el hero, fuera de `#commercial-main-content`.
+  document.addEventListener("click", event => {
     // Switch Horas | Ponderadas (ver commercialDistribucionHtml). Re-render
     // QUIRÚRGICO de `[data-commercial-dist]` y nada más: sin fetch (el dato ya
     // está en `commercialState.pipeline`, las dos dimensiones vienen en la
@@ -830,7 +908,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!button) return;
     commercialSetTipo(button.dataset.commercialTipo);
   });
-  root.addEventListener("change", event => {
+  document.addEventListener("change", event => {
     const select = event.target.closest("[data-commercial-act-user]");
     if (!select) return;
     commercialState.actUser = select.value;
