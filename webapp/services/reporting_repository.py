@@ -537,6 +537,46 @@ class ReportingRepository:
     def get_cartera_facts(
         self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
     ) -> list[dict]:
+        """Hechos de Cartera normalizados a grano proyecto×mes — ver
+        `_cartera_facts_and_dimension` para el contrato completo. Wrapper
+        delgado que descarta la dimensión de proyecto (UNION GRAIN
+        corrective) para preservar el contrato EXACTO de siempre a los
+        callers que no la necesitan (Proyecto, tests existentes)."""
+        facts, _project_dim = self._cartera_facts_and_dimension(
+            access_token, include_facturadas=include_facturadas, hot_years=hot_years,
+        )
+        return facts
+
+    def get_cartera_facts_with_project_dimension(
+        self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+    ) -> tuple[list[dict], dict[str, dict]]:
+        """MISMO fetch que `get_cartera_facts` (CERO llamadas Graph
+        adicionales — UNION GRAIN corrective, owner 2026-08-18) más la
+        dimensión de proyecto (`project_dim`, keyed por `_norm_key(título)`)
+        — necesaria para que Cartera/Mantenimiento pueda producir una fila
+        para una key (proyecto, año, mes) que existe en Time Logs pero
+        TODAVÍA no tiene fila en "Horas por proyectos" (ver
+        `reporting_service._mantenimiento_rows`).
+
+        `project_dim[key]`: `estado`/`tipoProyecto`/`idProyecto`/
+        `anioInicio` SIEMPRE resolubles contra Proyectos (`proy_by_id`, ya
+        fetcheado acá — independiente de si ese proyecto tiene hechos de
+        "Horas por proyectos" en ESTE `hot_years`). `cliente`/
+        `clientPartner` son "best effort" — se completan por co-ocurrencia
+        con los hechos de "Horas por proyectos" YA traídos en este mismo
+        `hot_years`; un proyecto sin NINGÚN hecho en el scope actual queda
+        con `cliente`/`clientPartner` = "" (fail-soft, NUNCA inventado —
+        MISMO criterio que el resto de este módulo). Un proyecto de Time
+        Logs cuyo título no resuelve contra Proyectos en absoluto no tiene
+        entrada en `project_dim` — el caller debe tratarlo como
+        "unmatched", nunca fabricar su dimensión."""
+        return self._cartera_facts_and_dimension(
+            access_token, include_facturadas=include_facturadas, hot_years=hot_years,
+        )
+
+    def _cartera_facts_and_dimension(
+        self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+    ) -> tuple[list[dict], dict[str, dict]]:
         """Hechos de Cartera normalizados a grano proyecto×mes, con la dimensión
         de proyecto/cliente ya unida y `facturadasProyecto` (SUM del XLSX por
         proyecto) adjunto. Nombres de negocio, NUNCA internal names SharePoint.
@@ -629,8 +669,42 @@ class ReportingRepository:
                 "facturadasProyecto": facturadas_by_key.get(_norm_key(proyecto_title), 0.0),
             })
         timer.stage("shaping", len(facts))
+
+        # UNION GRAIN corrective (owner 2026-08-18, ver docstring de
+        # `get_cartera_facts_with_project_dimension`): dimensión de proyecto
+        # resoluble por SU PROPIO título — Estado/Tipo/idProyecto/anioInicio
+        # vienen de `proy_by_id` (YA fetcheado arriba, CERO llamadas nuevas)
+        # y son válidos INDEPENDIENTEMENTE de si ese proyecto tiene hechos
+        # de "Horas por proyectos" en el `hot_years` de este request.
+        # Cliente/ClientPartner son "best effort": solo se conocen si ALGÚN
+        # hecho de Horas por proyectos de este mismo fetch los trae — un
+        # proyecto sin ningún hecho en el scope actual queda con "" (fail-
+        # soft, nunca inventado).
+        project_dim: dict[str, dict] = {}
+        for proy in proy_by_id.values():
+            title = _first(proy, PROY_TITLE)
+            if not title:
+                continue
+            key = _norm_key(title)
+            tipo_raw = _text(proy.get(PROY_TIPO))
+            tipo = "Mantenimiento" if tipo_raw == "Tiempo & Materiales" else tipo_raw
+            fecha_inicio = _text(proy.get(PROY_FECHA_INICIO))
+            project_dim[key] = {
+                "proyecto": title,
+                "idProyecto": _text(proy.get(PROY_ID_DANWOR)),
+                "tipoProyecto": tipo,
+                "estado": _text(proy.get(PROY_ESTADO)),
+                "anioInicio": fecha_inicio[:4] if fecha_inicio else "",
+                "cliente": "", "clientPartner": "",
+            }
+        for f in facts:
+            dim = project_dim.get(_norm_key(f["proyecto"]))
+            if dim is not None and not dim["cliente"] and f["cliente"]:
+                dim["cliente"] = f["cliente"]
+                dim["clientPartner"] = f["clientPartner"]
+
         timer.total()
-        return facts
+        return facts, project_dim
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token: str) -> list[dict]:
         """Pares distintos (año, estado) de Mantenimiento — metadata MÍNIMA

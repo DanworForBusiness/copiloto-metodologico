@@ -478,6 +478,14 @@ class _HotYearsRecordingRepo:
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
         return []
 
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+        # UNION GRAIN corrective (owner 2026-08-18): Mantenimiento/combo
+        # ahora piden la dimensión de proyecto junto con los facts —
+        # MISMO tracking de `calls` (es el mismo fetch subyacente, ver
+        # reporting_repository.py).
+        self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
+        return [], {}
+
     def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
         self.time_logs_calls.append(hot_years)
         return []
@@ -521,13 +529,25 @@ def test_service_get_cartera_proyecto_never_receives_hot_years():
     assert repo.calls[-1]["hot_years"] is None
 
 
-def test_service_get_cartera_combo_never_receives_hot_years():
-    # `get_cartera()` (retrocompat combo) tampoco acota — mismo criterio,
-    # ahora también para Time Logs (CANONICAL SOURCE DECISION).
+def test_service_get_cartera_combo_never_receives_hot_years(monkeypatch):
+    # `get_cartera()` (retrocompat combo) sigue SIN acotar "Horas por
+    # proyectos" — Proyecto necesita la vida completa, mismo criterio de
+    # siempre. SHARED LOADER CONSUMERS audit (owner 2026-08-18): Time Logs
+    # YA NO hereda ese mismo "sin acotar" — combo nunca debe quedar con
+    # None=all-history silencioso, usa el MISMO default contextual (año
+    # calendario actual) que `get_cartera_mantenimiento`.
+    class _FixedDatetime:
+        @staticmethod
+        def now():
+            import datetime as _dt
+            return _dt.datetime(2026, 8, 15)
+
+    import webapp.services.reporting_service as service_mod
+    monkeypatch.setattr(service_mod, "datetime", _FixedDatetime)
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera("tok")
     assert repo.calls[-1]["hot_years"] is None
-    assert repo.time_logs_calls[-1] is None
+    assert repo.time_logs_calls[-1] == ["2026"]
 
 
 # --- Service: derivaciones + shaping -----------------------------------------
@@ -542,6 +562,12 @@ class _FakeRepo:
 
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
+
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+        # UNION GRAIN corrective — estos tests NO ejercitan el camino
+        # Time-Logs-only (sus fixtures ya cubren la MISMA key desde
+        # "Horas por proyectos"), project_dim vacío es seguro/no-op acá.
+        return self._facts, {}
 
     def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
         return self._time_logs

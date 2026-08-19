@@ -19,10 +19,13 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 """
 from __future__ import annotations
 
+import logging
 import unicodedata
 from datetime import datetime
 
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
+
+_logger = logging.getLogger("danwor.reporting")
 
 # Proyectos placeholder "Horas No Productivas" del PBIP (real-data-lineage.md:284,
 # página "Hs No Asignadas": `[Project] IN {...}`) — parte del criterio de
@@ -340,12 +343,25 @@ class ReportingService:
         necesita). Preferir `get_cartera_mantenimiento`/`get_cartera_
         proyecto` desde el router cuando se conoce la perspectiva activa
         (P5, owner live QA de performance — Cartera ~17s): Mantenimiento
-        NUNCA necesita esperar la descarga/parseo de la XLSX."""
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
-        time_logs = self._repository.get_time_logs_worked_hours(access_token)
+        NUNCA necesita esperar la descarga/parseo de la XLSX.
+
+        SHARED LOADER CONSUMERS audit (owner 2026-08-18): Time Logs ya NO
+        queda sin acotar acá — MISMO default contextual que
+        `get_cartera_mantenimiento` (año calendario actual), consistente
+        aunque este combo no reciba `anios` — nunca "todo el historial"
+        por default silencioso."""
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=True,
+        )
+        time_logs = self._repository.get_time_logs_worked_hours(
+            access_token, hot_years=[str(datetime.now().year)],
+        )
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+        mantenimiento_rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched:
+            _logger.info("reporting.cartera combo unmatched_time_logs_projects=%d", len(unmatched))
         return {
-            "mantenimiento": self._mantenimiento_rows(facts, trab_by_proyecto),
+            "mantenimiento": mantenimiento_rows,
             "proyecto": self._proyecto_rows(facts),
         }
 
@@ -432,11 +448,25 @@ class ReportingService:
         facts` sigue poblándolo tal cual, todavía consumido por
         `_proyecto_rows`."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=False, hot_years=hot_years,
+        )
         time_logs_years = anios if anios is not None else [str(datetime.now().year)]
         time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=time_logs_years)
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
-        return self._mantenimiento_rows(facts, trab_by_proyecto)
+        rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched:
+            # UNION GRAIN corrective — diagnóstico (owner: "no esconder
+            # silenciosamente Time Logs cuyo proyecto no resuelve"): nunca
+            # se fabrica Cliente/CP/Estado para estas keys, se registran
+            # para que un gap de mapeo real (proyecto renombrado/no
+            # existente en Proyectos) sea visible, no se pierda en un log
+            # nunca leído.
+            _logger.info(
+                "reporting.cartera unmatched_time_logs_projects=%d keys=%s",
+                len(unmatched), [u["proyectoKey"] for u in unmatched][:10],
+            )
+        return rows
 
     def get_cartera_mantenimiento_anios(self, access_token: str) -> list[dict]:
         """Metadata de años/estado disponibles de Mantenimiento (HOT WINDOW
@@ -467,7 +497,10 @@ class ReportingService:
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
-    def _mantenimiento_rows(self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]]) -> list[dict]:
+    def _mantenimiento_rows(
+        self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]],
+        project_dim: dict[str, dict] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         """`trab_by_proyecto` (CANONICAL SOURCE DECISION, ver docstring de
         `get_cartera_mantenimiento`): `[anio][mes-1]` de
         `_trab_by_proyecto_by_year(time_logs)`, MISMO join `_norm_key
@@ -475,14 +508,39 @@ class ReportingService:
         manual de SharePoint) como fuente de 'trabajadas'. Mes no
         parseable o proyecto/año sin horas de Time Logs ⇒ 0.0 (fail-soft,
         nunca un valor inventado — NO es lo mismo que "no hubo horas", es
-        el resultado correcto en ambos casos)."""
+        el resultado correcto en ambos casos).
+
+        UNION GRAIN corrective (owner 2026-08-18 — "Time Logs puede
+        contener (proyecto,2026,agosto) pero si SharePoint no tiene esa
+        combinación, esa key ni siquiera existe como fila en Cartera"):
+        el universo de filas YA NO es solo "una por fact de SharePoint" —
+        es la UNIÓN de keys (proyecto normalizado, año, mes) presentes en
+        SharePoint O en `trab_by_proyecto`. Una key SOLO-Time-Logs produce
+        una fila con `trabajadas` real y `vendidasMensuales`/`certificadas`
+        = 0.0 (MISMA semántica de ausencia que el resto de este método —
+        nunca un valor SharePoint inventado), resolviendo Proyecto/Cliente/
+        CP/Estado contra `project_dim` (`get_cartera_facts_with_project_
+        dimension` — CERO llamadas Graph nuevas, ver reporting_repository.py).
+
+        `project_dim=None` preserva el contrato RETROCOMPATIBLE exacto
+        (ningún caller viejo que no pase la dimensión ve union rows —
+        usado por tests que ejercitan solo el camino SharePoint).
+
+        Retorna `(rows, unmatched)` — `unmatched`: keys Time-Logs-only cuyo
+        proyecto NO resuelve contra `project_dim` en absoluto (no existen
+        en Proyectos, o `project_dim` no fue provisto) — NUNCA se fabrica
+        Cliente/CP/Estado para ellas, se devuelven aparte para diagnóstico
+        (ver `get_cartera_mantenimiento`), nunca se pierden silenciosamente."""
         rows = []
+        covered: set[tuple[str, str, int]] = set()
         for f in facts:
             if f.get("tipoProyecto") != "Mantenimiento":
                 continue
             mes_num = _month_num(f["mes"])
+            key = _norm_key(f.get("proyecto"))
             if mes_num is not None:
-                trabajadas = _round2(trab_by_proyecto.get(_norm_key(f.get("proyecto")), {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
+                covered.add((key, f["anio"], mes_num))
+                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
             else:
                 trabajadas = 0.0
             certificadas = _round2(f["hsCertificadas"])
@@ -508,7 +566,41 @@ class ReportingService:
                 "anio": f["anio"],
                 "mes": str(mes_num) if mes_num is not None else "",
             })
-        return rows
+
+        unmatched: list[dict] = []
+        for key, by_year in trab_by_proyecto.items():
+            dim = (project_dim or {}).get(key)
+            for anio, monthly in by_year.items():
+                for idx, horas in enumerate(monthly):
+                    if horas <= 0:
+                        continue
+                    mes_num = idx + 1
+                    if (key, anio, mes_num) in covered:
+                        continue
+                    if dim is None:
+                        unmatched.append({
+                            "proyectoKey": key, "anio": anio, "mes": str(mes_num),
+                            "horas": _round2(horas),
+                        })
+                        continue
+                    if dim["tipoProyecto"] != "Mantenimiento":
+                        continue
+                    trabajadas = _round2(horas)
+                    rows.append({
+                        "cliente": dim["cliente"],
+                        "cp": dim["clientPartner"],
+                        "proyecto": dim["proyecto"],
+                        "diff": _round2(0.0 - trabajadas),
+                        "trabajadas": trabajadas,
+                        "certificadas": 0.0,
+                        "vendidasMensuales": 0.0,
+                        "facturadas": 0.0,
+                        "status": dim["estado"],
+                        "fecha": _fecha_primer_dia(anio, str(mes_num)),
+                        "anio": anio,
+                        "mes": str(mes_num),
+                    })
+        return rows, unmatched
 
     # --- Proyecto: agrega sobre la vida del proyecto, facturadas = XLSX -------
 
