@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
@@ -732,14 +733,87 @@ class ReportingService:
         `include_facturadas=False`: Rentabilidad NUNCA lee
         `facturadasProyecto` (solo certificadas/vendidas) — la XLSX de
         Facturadas es un costo real que esta experiencia pagaba sin
-        necesitarlo, mismo criterio que Cartera/Mantenimiento. Time Logs
-        (CSV) queda SIN acotar — no hay un mecanismo de scope físico
-        análogo a `$filter` para archivos ya descargados completos; ver
-        HANDOFF para la medición pendiente de si esto importa en la
-        práctica."""
+        necesitarlo, mismo criterio que Cartera/Mantenimiento.
+
+        TIME LOGS SCOPE corrective (owner 2026-08-18 — root cause PROBADA
+        de una regresión de performance real, ~14s→~92s, owner live
+        measurement): esta llamada NUNCA pasaba `hot_years` a Time Logs —
+        "SIN acotar" era, hasta el commit `f7a9d9b` (recursión a `Times
+        previos/`), inofensivo por accidente (el listado no-recursivo solo
+        podía encontrar el archivo actual, 1 CSV, sin importar el scope).
+        Ese commit hizo recursivo el listado — "sin acotar" pasó a
+        significar SILENCIOSAMENTE "descargar los 6 archivos/años
+        conocidos en CADA request", una fuente de fuga de scope entre un
+        loader compartido y un consumidor que nunca pidió el cambio (ver
+        REPOSITORY/SERVICE BOUNDARY corrective, HANDOFF). Fix: MISMO
+        `hot_years` ya resuelto arriba para "Horas por proyectos" — año
+        actual + anterior por defecto, un año frío puntual explícito —
+        aplicado TAMBIÉN a Time Logs (selecciona archivos por nombre ANTES
+        de descargar, ver reporting_repository.py). El repository NUNCA
+        cambia su propio default (`hot_years=None` sigue significando
+        "historial completo descubierto" — ese contrato es correcto y
+        deliberado); la fuga estaba en que este SERVICE nunca declaraba
+        explícitamente su scope.
+
+        DUPLICATE DIMENSIONS corrective (owner 2026-08-19 — profiling real
+        post-topology-fix: `horas_por_proyectos_total`≈10.5s y
+        `time_logs_total`≈10.9s, MITAD de ese segundo bloque —~4.1s— eran
+        una relectura de Proyectos/Cliente/columnas de porcentaje_part que
+        `get_cartera_facts` (arriba) YA hizo en este mismo request):
+        `get_time_logs_facts` (el contrato COMPLETO, con join a Proyectos/
+        Cliente para resolver `cliente`/`estado`/`porcentajePart`) queda
+        reservado a Horas Productivas (`get_batch_b`), que SÍ necesita esos
+        campos para su propia UI. Rentabilidad — igual que Cartera desde
+        el CALL BUDGET corrective anterior— solo necesita la proyección
+        MÍNIMA `proyecto`/`anio`/`mes`/`horas` para `_trab_by_proyecto_
+        by_year`; usa `get_time_logs_worked_hours` (MISMO método ya
+        existente para Cartera, nunca un loader nuevo) — cero relectura de
+        Proyectos/Cliente/columnas. Semántica de `trabByYear` SIN cambios —
+        `_trab_by_proyecto_by_year` consume exactamente los mismos 4
+        campos de cualquiera de los dos contratos (ver test de
+        equivalencia).
+
+        TWO-WAY CONCURRENCY corrective (owner 2026-08-19 — "NEXT
+        CANDIDATE — TOP-LEVEL TWO-BRANCH CONCURRENCY", contrato aceptado
+        tras auditoría de thread-safety, ver HANDOFF): `get_cartera_facts`
+        y `get_time_logs_worked_hours` son data-independientes hasta el
+        shaping de abajo — MISMO `hot_years` (resuelto UNA vez arriba, antes
+        de que arranque cualquiera de las dos), MISMO `access_token`,
+        ninguna rama lee nada que la otra produzca. Auditoría confirmó:
+        `core/microsoft365.py` no posee ni adquiere/refresca tokens (nada
+        que sincronizar); el único estado mutable compartido en
+        `ReportingRepository` es `self._token`, escrito con el MISMO valor
+        por ambas ramas; `self.site_id`/list ids se fijan una sola vez en
+        `__init__` y nunca se reasignan; ningún `_StageTimer` se comparte
+        entre las dos ramas. `ThreadPoolExecutor(max_workers=2)` LOCAL a
+        esta llamada — nunca global, nunca compartido entre requests — se
+        crea y cierra dentro del `with`.
+
+        ERROR PRIORITY (owner decision explícita — NO es la misma
+        semántica de falla exacta que la versión secuencial, ver HANDOFF):
+        se observa el `Future` de Cartera SIEMPRE primero, sin importar
+        cuál terminó antes en tiempo real. Cartera falla ⇒ su excepción se
+        propaga con prioridad, AUNQUE Time Logs pueda haber arrancado o
+        incluso completado mientras tanto (trabajo Graph aceptado como
+        posible desperdicio en ese escenario — nunca un problema de
+        corrección, ambas ramas son read-only). Cartera OK + Time Logs
+        falla ⇒ se propaga la excepción de Time Logs. `exc.stage`/
+        `exc.status_code` de `ReportingGraphError` viajan sin cambios en
+        cualquiera de los dos casos — el HTTP mapping existente
+        (`webapp/routers/reporting.py`) no se toca."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        cartera_facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
-        time_logs = self._repository.get_time_logs_facts(access_token)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            cartera_future = executor.submit(
+                self._repository.get_cartera_facts, access_token, include_facturadas=False, hot_years=hot_years,
+            )
+            time_logs_future = executor.submit(
+                self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
+            )
+            # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
+            # — Cartera SIEMPRE se observa antes que Time Logs, nunca
+            # "el que termine primero".
+            cartera_facts = cartera_future.result()
+            time_logs = time_logs_future.result()
 
         # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
         # Ene-2026 quedan direccionables por separado — el filtro Año del browser
@@ -1065,7 +1139,14 @@ class ReportingService:
     def get_horas_productivas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas` con su PROPIO
         fetch — usado standalone/en tests; `get_batch_b` hace el fetch UNA
-        vez para ambas perspectivas y llama el shaping directo (ver ahí)."""
+        vez para ambas perspectivas y llama el shaping directo (ver ahí).
+
+        `hot_years=None` (SIN acotar, full-history) es INTENCIONAL acá —
+        SHARED LOADER CONSUMERS audit (owner 2026-08-18): este wrapper
+        nunca está en el path de request real (el router llama `get_batch_b`,
+        nunca este método directo) — full-history es aceptable porque no
+        paga costo en producción, a diferencia de Rentabilidad (sí estaba
+        en el path real, ver fix de `get_rentabilidad`)."""
         facts = self._repository.get_time_logs_facts(access_token)
         return self._shape_horas_productivas(facts)
 
@@ -1228,7 +1309,10 @@ class ReportingService:
     def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas_no_asignadas` con
         su PROPIO fetch — usado standalone/en tests; `get_batch_b` hace el
-        fetch UNA vez para ambas perspectivas y llama el shaping directo."""
+        fetch UNA vez para ambas perspectivas y llama el shaping directo.
+
+        `hot_years=None` (SIN acotar) es INTENCIONAL — MISMO criterio que
+        `get_horas_productivas`: wrapper fuera del path de request real."""
         facts = self._repository.get_time_logs_facts(access_token)
         colaboradores = self._repository.get_colaboradores_email_map(access_token)
         return self._shape_horas_productivas_no_asignadas(facts, colaboradores)
