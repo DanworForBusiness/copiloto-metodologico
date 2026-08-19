@@ -181,6 +181,16 @@ USER_INFO_NAME = "Name"
 TIME_LOGS_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
 TIME_LOGS_FOLDER_PATH = "General/Template Dashboard"
 TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Duration Decimal")
+# EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
+# adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
+# recursión genérica introducida por `f7a9d9b` entraba a CUALQUIER subcarpeta
+# de `TIME_LOGS_FOLDER_PATH` — el diagnóstico real probó que eso incluye
+# carpetas no relacionadas con Time Logs (root tiene ≥5 subcarpetas, alguna
+# con anidamiento propio), causando ~55s de llamadas Graph invisibles/
+# irrelevantes. El contrato de origen real es SOLO estas 2 ubicaciones — el
+# histórico conocido vive DIRECTO adentro de esta carpeta, nunca más
+# profundo.
+TIME_LOGS_HISTORY_FOLDER_NAME = "Times previos"
 
 
 def _time_logs_mes(date_value) -> str:
@@ -918,84 +928,86 @@ class ReportingRepository:
             raise ReportingSourceError("time_logs_site", "no se pudo resolver el sitio Operaciones")
         return site_id
 
+    @staticmethod
+    def _is_time_logs_csv(item: dict) -> bool:
+        """MISMO filtro que el M del PBIP (`[Extension]=".csv"` y
+        `not Text.Contains([Name],"OLD")`), factorizado — se aplica
+        IDÉNTICO en la raíz y en `Times previos/`, nunca dos reglas
+        distintas."""
+        name_lower = _text(item.get("name")).lower()
+        return name_lower.endswith(".csv") and "old" not in name_lower
+
     def _list_time_logs_csv_items(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
-        """Children de `TIME_LOGS_FOLDER_PATH` + subcarpetas (recursivo),
-        filtrados a `.csv` sin "OLD" en el nombre — MISMA regla que el M del
-        PBIP (`[Extension]=".csv"` y `not Text.Contains([Name],"OLD")`).
+        """Adapter de UNA fuente conocida — NO un crawler genérico de
+        SharePoint (EXPLICIT SOURCE TOPOLOGY corrective, owner 2026-08-18).
 
-        RECURSIVO (owner incident — "Horas Productivas solo muestra 2026,
-        aunque hay históricos 2025 y anteriores en `Times previos/`", ver
-        HANDOFF): el gap estaba documentado desde el origen ("NO recursivo
-        — sin evidencia de subcarpetas... si el smoke real revela CSVs en
-        subcarpetas, extender a listado recursivo") pero nunca se confirmó
-        en un smoke real hasta este incidente — el owner confirmó que
-        `Template Dashboard/Times previos/` SÍ existe y contiene los CSV
-        históricos. `get_time_logs_facts` es el ÚNICO loader real de Time
-        Logs (Horas Productivas Y Rentabilidad lo comparten, ver
-        `get_batch_b`/`get_rentabilidad`) — arreglar ACÁ alcanza a ambos
-        consumidores, nunca un segundo parser específico de Productivas.
+        HISTORIA (para contexto, ya no vigente): la versión anterior de
+        este método recorría RECURSIVAMENTE cualquier subcarpeta que
+        encontrara bajo `TIME_LOGS_FOLDER_PATH` — introducido para llegar a
+        `Times previos/` (owner incident, "Horas Productivas solo muestra
+        2026 aunque hay históricos"). Un diagnóstico real (owner
+        2026-08-19, page-by-page timing) probó que esa recursión genérica
+        entraba a subcarpetas NO relacionadas con Time Logs — la raíz tiene
+        ≥5 subcarpetas, y al menos una tiene anidamiento propio — sumando
+        ~55s de llamadas Graph reales pero completamente irrelevantes para
+        esta fuente. El contrato de origen real es SOLO 2 ubicaciones
+        conocidas y planas:
 
-        Un item de Graph es carpeta si trae la faceta `folder` (ausente en
-        archivos, que traen `file` en su lugar) — se desciende UN nivel por
-        subcarpeta encontrada (vía `/children` por id, no por path — la
-        subcarpeta puede tener espacios/tildes en el nombre) y se aplica el
-        MISMO filtro `.csv`/sin "OLD" en cada nivel. No hay evidencia de más
-        de un nivel de anidamiento, pero la recursión no asume un nivel fijo
-        — si en el futuro apareciera un nivel adicional, se sigue igual.
+            Template Dashboard/                    → Time Logs Reports.csv (actual)
+            Template Dashboard/Times previos/       → Time Logs Reports YYYY.csv (histórico)
 
-        FILE DISCOVERY OPTIMIZADO (owner CALL BUDGET corrective,
-        2026-08-18 — "para Año=2026, si el archivo corriente se identifica
-        en la raíz, NO listar Times previos/ salvo que sea necesario"):
-        `hot_years` (`None` = listado completo, sin cambios — usado por
+        Nunca más profundo, nunca otra carpeta. `TIME_LOGS_HISTORY_FOLDER_
+        NAME` es la ÚNICA subcarpeta que este método conoce — matcheada por
+        nombre (case-insensitive), no por posición ni por ser "la primera
+        carpeta encontrada". Si en el futuro el histórico se reorganiza a
+        otra ubicación, este método necesita un cambio explícito — nunca
+        vuelve a "caminar todo y filtrar después".
+
+        FILE DISCOVERY OPTIMIZADO (CALL BUDGET corrective, 2026-08-18):
+        `hot_years` (`None` = listado completo — usado por
         `get_time_logs_years_available`/Rentabilidad/wrappers standalone,
         que necesitan el catálogo/historial completo) — con una lista
-        EXPLÍCITA, primero se listan SOLO los archivos de la raíz (1 sola
-        llamada); si esos archivos YA cubren TODOS los años pedidos (el
-        caso típico: pedir el año actual, que SIEMPRE vive en la raíz sin
-        sufijo, ver `_infer_time_logs_csv_year`), se devuelve sin bajar a
-        ninguna subcarpeta — Times previos/ solo se lista cuando algún año
-        pedido no aparece en la raíz (años fríos históricos)."""
-        def collect(folder_url: str) -> list[dict]:
-            children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
-                folder_url, access_token=self._token,
-            ))
-            found: list[dict] = []
-            for it in children:
-                name_lower = _text(it.get("name")).lower()
-                if it.get("folder"):
-                    item_id = _text(it.get("id"))
-                    if item_id:
-                        # Sin `_quote`: MISMO criterio que `_download_time_logs_rows`
-                        # (`/drive/items/{item_id}/content`) — el id de Graph nunca
-                        # se url-encodea acá, consistente con ese otro consumidor.
-                        found.extend(collect(f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/children"))
-                    continue
-                if name_lower.endswith(".csv") and "old" not in name_lower:
-                    found.append(it)
-            return found
-
+        EXPLÍCITA, primero se lista SOLO la raíz (1 llamada); si esos
+        archivos YA cubren TODOS los años pedidos (el caso típico: pedir
+        el año actual, que SIEMPRE vive en la raíz sin sufijo, ver
+        `_infer_time_logs_csv_year`), se devuelve sin listar `Times
+        previos/` en absoluto — esa carpeta solo se abre cuando algún año
+        pedido no aparece en la raíz (años fríos históricos), y esa
+        apertura es SIEMPRE un único listado de sus children directos,
+        nunca una recursión."""
         root_url = f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children"
         root_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
             root_url, access_token=self._token,
         ))
-        root_files = [
-            it for it in root_children
-            if not it.get("folder")
-            and _text(it.get("name")).lower().endswith(".csv")
-            and "old" not in _text(it.get("name")).lower()
-        ]
+        root_files = [it for it in root_children if not it.get("folder") and self._is_time_logs_csv(it)]
         if hot_years is not None:
             wanted = set(hot_years)
             have = {_infer_time_logs_csv_year(it) for it in root_files}
             if wanted <= have:
                 return root_files
-        found = list(root_files)
+
+        # Buscar `Times previos/` POR NOMBRE — nunca "la primera carpeta
+        # encontrada" ni una recursión sobre TODAS las carpetas de la raíz.
+        history_id = ""
         for it in root_children:
-            if it.get("folder"):
-                item_id = _text(it.get("id"))
-                if item_id:
-                    found.extend(collect(f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/children"))
-        return found
+            if it.get("folder") and _text(it.get("name")).strip().casefold() == TIME_LOGS_HISTORY_FOLDER_NAME.casefold():
+                history_id = _text(it.get("id"))
+                break
+        if not history_id:
+            # Sin `Times previos/` en la raíz: solo hay lo que ya está en
+            # `root_files` — nunca se inventa una carpeta ni se recorre
+            # ninguna otra buscándola.
+            return root_files
+
+        # Sin `_quote`: MISMO criterio que `_download_time_logs_rows`
+        # (`/drive/items/{item_id}/content`) — el id de Graph nunca se
+        # url-encodea acá.
+        history_url = f"{GRAPH_BASE}/sites/{site_id}/drive/items/{history_id}/children"
+        history_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+            history_url, access_token=self._token,
+        ))
+        history_files = [it for it in history_children if not it.get("folder") and self._is_time_logs_csv(it)]
+        return root_files + history_files
 
     def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Descarga + combina CSV de la carpeta (MISMA semántica que
