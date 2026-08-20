@@ -5095,6 +5095,24 @@ function reportingTabRawStatus(expId) {
     default: return "ready";
   }
 }
+// FEEDBACK VISIBILITY corrective (owner decision 2026-08-19 — owner live
+// smoke: "¿Qué te pareció este reporte?" quedaba visible mientras el
+// contenido activo todavía estaba cargando, dejando evaluar algo que
+// todavía no terminó de resolver). Reusa `reportingTabRawStatus` TAL
+// CUAL — ya es perspective-aware (Cartera/Comercial) y ya representa
+// "¿el contenido que el usuario está viendo AHORA está listo?", sin
+// inventar un estado nuevo. Deliberadamente DISTINTO de
+// `state.reportingTabHydrated[expId]` (una sola vía, nunca se apaga —
+// sigue gateando SOLO el shell de filtros/contenido, ver render(), ese
+// contrato queda intacto): feedback debe reflejar el momento PRESENTE,
+// no "alguna vez estuvo ready". Efecto colateral correcto, no un caso
+// especial: un error INCREMENTAL post-hidratación (año frío que falla, o
+// perspectiva hermana en su primera carga) también oculta feedback,
+// porque `reportingTabRawStatus` devuelve "error", no "ready" — MISMO
+// criterio que un error de primera carga (que ya lo oculta hoy).
+function isActiveReportReady(expId) {
+  return reportingTabRawStatus(expId) === "ready";
+}
 
 function render() {
   document.getElementById("reporting-experience-tabs").innerHTML = EXPERIENCES.map(e => `
@@ -5123,7 +5141,13 @@ function render() {
     // Feedback SIEMPRE como ÚLTIMO elemento del main tab (ver ticket §A1: para
     // Horas Productivas queda después del contenido Y de la nota Punch, que el
     // renderer ya emite). Un solo control por MAIN TAB, nunca por perspectiva.
-    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]() + reportingFeedbackHtml(expId);
+    // FEEDBACK VISIBILITY corrective (ver isActiveReportReady arriba):
+    // gateado por el status PRESENTE de la perspectiva/contenido activo,
+    // NUNCA por `reportingTabHydrated` (ese flag sigue siendo de una sola
+    // vía SOLO para filtros/contenido, ver arriba — feedback necesita el
+    // status de AHORA, no "alguna vez estuvo ready").
+    const feedbackHtml = isActiveReportReady(expId) ? reportingFeedbackHtml(expId) : "";
+    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]() + feedbackHtml;
   } else {
     // INITIAL LOADER MODE — SOLO tabs + loader inicial (o el estado de
     // error compartido si la PRIMERA hidratación falló). Filtros/KPIs/
