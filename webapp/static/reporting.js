@@ -2949,11 +2949,16 @@ async function loadCapacidadColdYear(anio) {
 }
 
 function renderCartera() {
-  // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF): la
-  // hidratación de AMBAS perspectivas (+ metadata de años) la dispara el
-  // SHELL (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING
-  // INITIAL-LOAD CONTRACT), nunca este dispatcher — acá solo queda el GATE
-  // de qué mostrar según el status de la perspectiva ACTIVA (progresivo —
+  // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF) + ACTIVE
+  // EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+  // 2026-08-19, ver hydrateCarteraTab): la hidratación la dispara el SHELL
+  // (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING
+  // INITIAL-LOAD CONTRACT), nunca este dispatcher — pero YA NO dispara
+  // AMBAS perspectivas: solo la perspectiva ACTIVA (Mantenimiento se carga
+  // en el bootstrap porque es la default; Proyecto recién on-demand al
+  // conmutar). La metadata de años de Mantenimiento sigue el contrato
+  // existente (ver hydrateCarteraTab). Acá solo queda el GATE de qué
+  // mostrar según el status de la perspectiva ACTIVA (progresivo —
   // Mantenimiento no espera a Proyecto ni viceversa).
   const persp = state.perspective.cartera;
   const status = carteraStatusFor(persp);
