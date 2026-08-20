@@ -2180,24 +2180,33 @@ function carteraStatusFor(persp) {
 function loadCarteraFor(persp) {
   if (persp === "Mantenimiento") loadCarteraMantenimiento(); else loadCarteraProyecto();
 }
-// MAIN-TAB HYDRATION CONTRACT (owner corrective — ver HANDOFF): Cartera
-// es un MAIN TAB con 2 perspectivas internas (Mantenimiento/Proyecto).
-// Antes, cada perspectiva se hidrataba LAZY e INDEPENDIENTE — recién al
-// activarla (ver el viejo gate `if (status === "idle") loadCarteraFor
-// (persp)` dentro de renderCartera). Eso daba un segundo ~15s de espera
-// completo la PRIMERA vez que el usuario cambiaba a Proyecto, aunque ya
-// llevara un rato mirando Mantenimiento. `hydrateCarteraTab()` dispara
-// AMBOS fetches (+ la metadata de años, ver abajo) en la PRIMERA
-// activación del tab — progresivo, nunca bloqueante: cada `load*` sigue
-// gateado por su PROPIO status (single-flight, ver P2 del corrective
-// anterior), así que llamar esto en cada render es gratis una vez que las
-// 3 cargas ya no están "idle". El render de la perspectiva ACTIVA sigue
-// gateado SOLO por su propio status (`carteraStatusFor(persp)`, ver
-// renderCartera) — Mantenimiento nunca espera a que Proyecto (más lento,
-// XLSX incluida) termine, y viceversa.
+// ACTIVE EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+// 2026-08-19 — lifecycle audit: el bootstrap de Cartera disparaba SUS 3
+// fetches -Mantenimiento, Proyecto, años- apenas cargaba la página,
+// AUNQUE Proyecto nunca fuera la perspectiva activa; si el owner cambiaba
+// de inmediato a otro tab, esos fetches de Proyecto seguían en vuelo en
+// background compitiendo por Graph/CPU con lo que el usuario SÍ pidió —
+// contaminando mediciones de wall-clock de otras experiencias, ver
+// HANDOFF). Reemplaza el corrective anterior "MAIN-TAB HYDRATION
+// CONTRACT" (que deliberadamente cargaba AMBAS perspectivas eager para
+// evitar un segundo ~15s de espera al cambiar a Proyecto) — el owner
+// prioriza ahora "nunca iniciar una perspectiva que el usuario no pidió"
+// por sobre esa ganancia. `hydrateCarteraTab()` dispara SOLO el fetch de
+// la perspectiva ACTIVA (`carteraStatusFor(persp)`/`loadCarteraFor(persp)`
+// — MISMOS helpers ya existentes, reusados tal cual) — Proyecto arranca
+// recién cuando el usuario conmuta a esa perspectiva. La metadata de años
+// de Mantenimiento sigue disparándose sin condicionar por perspectiva
+// (igual que siempre — es liviana, y el default de Cartera es SIEMPRE
+// Mantenimiento al bootstrap, así que en la práctica ya corre en ese
+// momento). Single-flight preservado sin cambios (`idle → loading →
+// ready/error`, ver P2) — ningún sistema de cache nuevo. NO resuelve
+// todavía la cancelación cross-tab (un fetch de Mantenimiento ya en vuelo
+// sigue completando en background si el usuario cambia de tab antes de
+// que resuelva — ese problema queda deliberadamente sin tocar, ver
+// HANDOFF).
 function hydrateCarteraTab() {
-  if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();
-  if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();
+  const persp = state.perspective.cartera;
+  if (carteraStatusFor(persp) === "idle") loadCarteraFor(persp);
   if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();
 }
 // HOT WINDOW / COLD HISTORY corrective — CALL BUDGET corrective (owner

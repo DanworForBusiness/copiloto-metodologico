@@ -935,11 +935,23 @@ def test_cartera_render_is_gated_by_data_status():
     assert "if (status !== \"ready\") return renderCarteraDataState();" in render_block
 
 
-def test_hydrate_cartera_tab_triggers_both_perspectives_and_anios_metadata():
+def test_hydrate_cartera_tab_loads_only_the_active_perspective_plus_anios_metadata():
+    # ACTIVE EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+    # 2026-08-19 — lifecycle audit): reemplaza el viejo contrato "ambas
+    # perspectivas eager" (protegido antes por este mismo test) — Proyecto
+    # NUNCA se dispara hasta que sea la perspectiva REALMENTE activa. La
+    # metadata de años de Mantenimiento sigue sin condicionar por
+    # perspectiva (liviana, y el default de Cartera es siempre
+    # Mantenimiento al bootstrap). Cobertura de runtime real (conteo de
+    # fetches, idle/ready, revisitas) en
+    # test_reporting_cartera_lifecycle_active_perspective_only.py.
     fn = _REPORTING_JS[_REPORTING_JS.index("function hydrateCarteraTab()"):_REPORTING_JS.index("function carteraMantenimientoLoadedYears")]
-    assert 'if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();' in fn
-    assert 'if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();' in fn
+    assert "const persp = state.perspective.cartera;" in fn
+    assert 'if (carteraStatusFor(persp) === "idle") loadCarteraFor(persp);' in fn
     assert 'if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();' in fn
+    # Nunca vuelve a disparar AMBAS perspectivas incondicionalmente.
+    assert 'if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();' not in fn
+    assert 'if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();' not in fn
 
 
 def test_cartera_failure_is_localized_fail_soft():
