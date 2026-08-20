@@ -374,17 +374,23 @@ def test_get_rentabilidad_defaults_to_hot_window(monkeypatch):
         captured["include_facturadas"] = include_facturadas
         return []
 
-    def fake_time_logs(self, access_token):
+    def fake_time_logs(self, access_token, *, hot_years=None):
+        captured["time_logs_hot_years"] = hot_years
         return []
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
-    monkeypatch.setattr(ReportingRepository, "get_time_logs_facts", fake_time_logs)
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
     _service().get_rentabilidad("tok")
     y = datetime.now().year
     assert captured["hot_years"] == [str(y), str(y - 1)]
     # P5 (owner live QA de performance — mismo criterio que Cartera/Mantenimiento):
     # Rentabilidad NUNCA lee facturadasProyecto, la XLSX era un costo desperdiciado.
     assert captured["include_facturadas"] is False
+    # TIME LOGS SCOPE corrective (owner 2026-08-18 — root cause de la
+    # regresión ~14s→~92s: Time Logs quedaba SIN acotar acá, heredando
+    # "todos los archivos" desde que el loader compartido se hizo
+    # recursivo). MISMA ventana que "Horas por proyectos", nunca None.
+    assert captured["time_logs_hot_years"] == [str(y), str(y - 1)]
 
 
 def test_get_rentabilidad_cold_year_passes_explicit_scope(monkeypatch):
@@ -394,10 +400,15 @@ def test_get_rentabilidad_cold_year_passes_explicit_scope(monkeypatch):
         captured["hot_years"] = hot_years
         return []
 
+    def fake_time_logs(self, access_token, *, hot_years=None):
+        captured["time_logs_hot_years"] = hot_years
+        return []
+
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
-    monkeypatch.setattr(ReportingRepository, "get_time_logs_facts", lambda self, access_token: [])
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
     _service().get_rentabilidad("tok", anios=["2024"])
     assert captured["hot_years"] == ["2024"]
+    assert captured["time_logs_hot_years"] == ["2024"]
 
 
 def test_get_rentabilidad_anios_reuses_horas_vendidas_metadata(monkeypatch):

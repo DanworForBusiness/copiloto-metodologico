@@ -120,9 +120,16 @@ def test_telemetry_is_noop_when_not_verbose(monkeypatch):
 
 def test_feedback_is_the_last_element_of_a_ready_tab():
     # UN control por MAIN TAB, SIEMPRE el último elemento (después del renderer,
-    # que para Horas Productivas ya incluye la nota Punch). Solo en READY.
+    # que para Horas Productivas ya incluye la nota Punch).
+    # FEEDBACK VISIBILITY corrective (owner decision 2026-08-19): "solo en
+    # READY" ya no significa "el tab se hidrató alguna vez"
+    # (`reportingTabHydrated`, una sola vía) — significa el status PRESENTE
+    # de la perspectiva/contenido activo (`isActiveReportReady`, reusa
+    # `reportingTabRawStatus`). Ver test_reporting_feedback_visibility.py
+    # para la cobertura de runtime real (bootstrap/switch/revisit/error).
     render = _REPORTING_JS[_REPORTING_JS.index("function render()"):_REPORTING_JS.index("function render()") + 2200]
-    assert "RENDERERS[expId]() + reportingFeedbackHtml(expId)" in render
+    assert "RENDERERS[expId]() + feedbackHtml" in render
+    assert "isActiveReportReady(expId) ? reportingFeedbackHtml(expId) : \"\"" in render
 
 
 def test_feedback_widget_copy_and_one_per_tab():

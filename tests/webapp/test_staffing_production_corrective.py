@@ -502,12 +502,12 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_98():
+def test_15_route_surface_still_99():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
     # test_route_contract.py::test_route_surface_matches_snapshot) ya había
-    # crecido a 98 en varios commits legítimos sin actualizar ESTE número.
+    # crecido en varios commits legítimos sin actualizar ESTE número.
     # Historial documentado del conteo:
     #   83 -> 84: Staffing Vacation Timeline Overlay original (POST
     #     .../vacaciones), luego RENOMBRADO one-for-one a .../ausencias por
@@ -522,8 +522,11 @@ def test_15_route_surface_still_98():
     #     anios-disponibles, data/rentabilidad(+anios-disponibles),
     #     data/batch-a, data/horas-vendidas(+anios-disponibles),
     #     data/participacion(+anios-disponibles), data/batch-b, feedback,
-    #     telemetry — más POST /operaciones/staffing/feedback. Nunca
-    #     regenerado en este archivo puntual hasta ahora.
+    #     telemetry — más POST /operaciones/staffing/feedback.
+    #   98 -> 99 (HOT WINDOW/COLD HISTORY corrective, Horas Productivas,
+    #     owner decision 2026-08-18): +POST data/batch-b/anios-disponibles
+    #     (metadata liviana de años, MISMO patrón que
+    #     data/cartera/anios-disponibles).
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -531,7 +534,7 @@ def test_15_route_surface_still_98():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 98
+    assert len(snapshot) == 99
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

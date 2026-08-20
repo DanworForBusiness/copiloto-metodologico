@@ -217,7 +217,13 @@ function carteraAnioInicioOptions() {
   // imposible bajo el Estado/filtros vigentes. Reusa el mismo `facetRowsExcept`.
   const statusRows = CARTERA_PROYECTO_ROWS.filter(r => state.carteraStatus[r.status]);
   const rows = facetRowsExcept(statusRows, state.filters.cartera || {}, _CARTERA_SELECT_FIELDS, "");
-  return distinctValues(rows, "anioInicio");
+  // YEAR ORDERING corrective (owner decision 2026-08-19): `compareFn`
+  // numérico DESCENDENTE explícito en ESTE call site únicamente — MISMO
+  // criterio visual que el resto de los selectores de Año del Hub
+  // (`carteraAnioOptions` ya era descendente). `distinctValues` en sí NO
+  // cambia de default (lo comparten facets de string ascendentes como
+  // cp/proyecto/cliente, ver FACET_CONFIG.cartera).
+  return distinctValues(rows, "anioInicio", (a, b) => Number(b) - Number(a));
 }
 function carteraDefaultAnioInicio() {
   const anioActual = String(new Date().getFullYear());
@@ -884,6 +890,18 @@ const state = {
   carteraMantenimientoAniosStatus: "idle",
   carteraMantenimientoYearLoading: new Set(),
   carteraMantenimientoYearErrors: new Set(),
+  // CALL BUDGET corrective (owner 2026-08-18): "Horas Trabajadas" de
+  // Mantenimiento ahora tiene DOS ventanas independientes — SharePoint
+  // sigue precargando año actual + anterior (para que tildar el anterior
+  // no dispare un round-trip de "Horas por proyectos"), pero Time Logs
+  // SOLO se pide para el año efectivamente solicitado (contextual, ver
+  // reporting_service.py). Set EXPLÍCITO (MISMO criterio que
+  // comercialParticipacionLoadedYears — "no confundir fila SharePoint
+  // presente con Horas Trabajadas ya resuelta"): un año puede tener fila(s)
+  // en CARTERA_MANTENIMIENTO_ROWS (por el pre-fetch especulativo) sin que
+  // su trabajadas todavía esté resuelta — `carteraMantenimientoLoadedYears`
+  // ahora lee ESTE set, nunca los años presentes en las filas.
+  carteraMantenimientoTimeLogsAnios: new Set(),
   // Rentabilidad (AMBAS perspectivas) — Batch B, ver loadRentabilidadData.
   // Fetch/status propio (Certificadas/Vendidas del backbone de Cartera +
   // Trabajadas/Ejecutadas del adapter de Time Logs, combinados en el
@@ -978,6 +996,18 @@ const state = {
   // ready|error que Batch A, endpoint/fetch propio (combinar CSV es costo
   // real, no se comparte con el backbone de Cartera).
   batchBDataStatus: "idle",
+  // HOT WINDOW / COLD HISTORY corrective (Horas Productivas — owner
+  // decision 2026-08-18, "Batch B nunca implementó el contrato
+  // transversal que Cartera/Batch A sí tienen"): metadata de años
+  // disponibles (endpoint separado y liviano, ver loadCapacidadAnios) +
+  // qué año(s) frío(s) están en vuelo/fallaron (single-flight POR AÑO,
+  // MISMO criterio que carteraMantenimientoYearLoading/YearErrors — los 3
+  // paneles de Batch B, cliente/clientePart/noAsignadas, comparten UN
+  // fetch por año, ver loadCapacidadColdYear).
+  capacidadAniosDisponibles: [],
+  capacidadAniosStatus: "idle",
+  capacidadYearLoading: new Set(),
+  capacidadYearErrors: new Set(),
   // Mes de Horas Productivas — MULTI-SELECT (owner live QA: el PBIP
   // original permite tildar VARIOS meses a la vez sobre el visual, un
   // `<select>` de valor único no lo representa — MISMO principio que Año de
@@ -2106,6 +2136,13 @@ async function loadCarteraMantenimiento() {
     const data = await resp.json();
     if (data.state === "ok" && data.cartera) {
       replaceRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      // CALL BUDGET corrective: la primera hidratación (anios omitido)
+      // resuelve Time Logs SOLO al año calendario actual server-side
+      // (ver get_cartera_mantenimiento) — MISMO valor acá, para que
+      // `carteraMantenimientoLoadedYears` sepa que el año ANTERIOR (parte
+      // de la ventana caliente de SharePoint, presente en las filas de
+      // arriba) todavía NO tiene su Horas Trabajadas resuelta.
+      state.carteraMantenimientoTimeLogsAnios = new Set([String(new Date().getFullYear())]);
       state.carteraMantenimientoStatus = "ready";
       // Reconcilia Año/Mes (y Año de Inicio, no-op si Proyecto no está
       // activo) contra los datos REALES recién llegados — el default
@@ -2149,32 +2186,48 @@ function carteraStatusFor(persp) {
 function loadCarteraFor(persp) {
   if (persp === "Mantenimiento") loadCarteraMantenimiento(); else loadCarteraProyecto();
 }
-// MAIN-TAB HYDRATION CONTRACT (owner corrective — ver HANDOFF): Cartera
-// es un MAIN TAB con 2 perspectivas internas (Mantenimiento/Proyecto).
-// Antes, cada perspectiva se hidrataba LAZY e INDEPENDIENTE — recién al
-// activarla (ver el viejo gate `if (status === "idle") loadCarteraFor
-// (persp)` dentro de renderCartera). Eso daba un segundo ~15s de espera
-// completo la PRIMERA vez que el usuario cambiaba a Proyecto, aunque ya
-// llevara un rato mirando Mantenimiento. `hydrateCarteraTab()` dispara
-// AMBOS fetches (+ la metadata de años, ver abajo) en la PRIMERA
-// activación del tab — progresivo, nunca bloqueante: cada `load*` sigue
-// gateado por su PROPIO status (single-flight, ver P2 del corrective
-// anterior), así que llamar esto en cada render es gratis una vez que las
-// 3 cargas ya no están "idle". El render de la perspectiva ACTIVA sigue
-// gateado SOLO por su propio status (`carteraStatusFor(persp)`, ver
-// renderCartera) — Mantenimiento nunca espera a que Proyecto (más lento,
-// XLSX incluida) termine, y viceversa.
+// ACTIVE EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+// 2026-08-19 — lifecycle audit: el bootstrap de Cartera disparaba SUS 3
+// fetches -Mantenimiento, Proyecto, años- apenas cargaba la página,
+// AUNQUE Proyecto nunca fuera la perspectiva activa; si el owner cambiaba
+// de inmediato a otro tab, esos fetches de Proyecto seguían en vuelo en
+// background compitiendo por Graph/CPU con lo que el usuario SÍ pidió —
+// contaminando mediciones de wall-clock de otras experiencias, ver
+// HANDOFF). Reemplaza el corrective anterior "MAIN-TAB HYDRATION
+// CONTRACT" (que deliberadamente cargaba AMBAS perspectivas eager para
+// evitar un segundo ~15s de espera al cambiar a Proyecto) — el owner
+// prioriza ahora "nunca iniciar una perspectiva que el usuario no pidió"
+// por sobre esa ganancia. `hydrateCarteraTab()` dispara SOLO el fetch de
+// la perspectiva ACTIVA (`carteraStatusFor(persp)`/`loadCarteraFor(persp)`
+// — MISMOS helpers ya existentes, reusados tal cual) — Proyecto arranca
+// recién cuando el usuario conmuta a esa perspectiva. La metadata de años
+// de Mantenimiento sigue disparándose sin condicionar por perspectiva
+// (igual que siempre — es liviana, y el default de Cartera es SIEMPRE
+// Mantenimiento al bootstrap, así que en la práctica ya corre en ese
+// momento). Single-flight preservado sin cambios (`idle → loading →
+// ready/error`, ver P2) — ningún sistema de cache nuevo. NO resuelve
+// todavía la cancelación cross-tab (un fetch de Mantenimiento ya en vuelo
+// sigue completando en background si el usuario cambia de tab antes de
+// que resuelva — ese problema queda deliberadamente sin tocar, ver
+// HANDOFF).
 function hydrateCarteraTab() {
-  if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();
-  if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();
+  const persp = state.perspective.cartera;
+  if (carteraStatusFor(persp) === "idle") loadCarteraFor(persp);
   if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();
 }
-// HOT WINDOW / COLD HISTORY corrective: años que YA están en el array
-// hidratado (ventana caliente inicial o un año frío ya mergeado) — fuente
-// de verdad ÚNICA (nunca un Set paralelo que pueda desincronizarse del
-// array real).
+// HOT WINDOW / COLD HISTORY corrective — CALL BUDGET corrective (owner
+// 2026-08-18): "años cargados" ya NO deriva de qué años tienen fila en
+// CARTERA_MANTENIMIENTO_ROWS — SharePoint precarga año actual+anterior
+// especulativamente, pero Time Logs ("Horas Trabajadas") solo se resuelve
+// para el año realmente solicitado (contextual). Un año puede tener fila
+// (por el pre-fetch) sin tener su trabajadas resuelta todavía — derivar de
+// las filas confundiría esos dos estados (MISMO problema que
+// comercialParticipacionLoadedYears ya resolvió con un Set explícito). Este
+// Set (`carteraMantenimientoTimeLogsAnios`) es la fuente de verdad: se
+// puebla en la primera hidratación (año actual) y en cada año frío
+// resuelto (`loadCarteraMantenimientoColdYear`).
 function carteraMantenimientoLoadedYears() {
-  return new Set(CARTERA_MANTENIMIENTO_ROWS.map(r => r.anio));
+  return new Set(state.carteraMantenimientoTimeLogsAnios);
 }
 // Metadata liviana de año/estado (ver /data/cartera/anios-disponibles) —
 // disparada UNA vez por `hydrateCarteraTab`, en PARALELO con los 2 fetches
@@ -2198,12 +2251,37 @@ async function loadCarteraMantenimientoAnios() {
   }
   render();
 }
+// Fusión por (proyecto, año, mes) — CALL BUDGET corrective (owner
+// 2026-08-18): a diferencia de un año FRÍO genuino (sin fila previa,
+// donde agregar alcanza), el año "anterior" del hot window de SharePoint
+// YA tiene fila(s) en CARTERA_MANTENIMIENTO_ROWS (con trabajadas=0, Time
+// Logs todavía sin resolver para ese año) — al resolverlo, la fila
+// entrante debe REEMPLAZAR la existente (misma identidad proyecto×año×
+// mes), nunca duplicarla. Un año genuinamente nuevo (sin fila previa) se
+// agrega entero, MISMO resultado que `mergeRows` en ese caso.
+function mergeCarteraMantenimientoRows(incoming) {
+  const keyOf = r => [r.proyecto, r.anio, r.mes].join("|");
+  const indexByKey = new Map(CARTERA_MANTENIMIENTO_ROWS.map((r, i) => [keyOf(r), i]));
+  (incoming || []).forEach(inc => {
+    const idx = indexByKey.get(keyOf(inc));
+    if (idx !== undefined) {
+      CARTERA_MANTENIMIENTO_ROWS[idx] = inc;
+    } else {
+      CARTERA_MANTENIMIENTO_ROWS.push(inc);
+      indexByKey.set(keyOf(inc), CARTERA_MANTENIMIENTO_ROWS.length - 1);
+    }
+  });
+}
 // Lazy-load de un año FRÍO puntual (HOT WINDOW / COLD HISTORY corrective)
 // — disparado desde renderCartera cuando el Año seleccionado todavía no
-// está en `carteraMantenimientoLoadedYears()`. Single-flight POR AÑO
-// (`carteraMantenimientoYearLoading`, un Set — nunca dos requests para el
-// mismo año en vuelo a la vez). `mergeRows` (nunca `replaceRows`): la
-// ventana caliente ya hidratada se PRESERVA, el año frío se agrega.
+// está en `carteraMantenimientoLoadedYears()` (ahora: sin Horas Trabajadas
+// resuelta — ver esa función; incluye tanto un año genuinamente frío como
+// el año "anterior" del hot window de SharePoint, presente pero con Time
+// Logs pendiente). Single-flight POR AÑO (`carteraMantenimientoYearLoading`,
+// un Set — nunca dos requests para el mismo año en vuelo a la vez).
+// `mergeCarteraMantenimientoRows` (nunca `mergeRows`/`replaceRows`): la
+// ventana caliente ya hidratada se PRESERVA, el año solicitado se
+// reemplaza/agrega según corresponda.
 async function loadCarteraMantenimientoColdYear(anio) {
   if (state.carteraMantenimientoYearLoading.has(anio)) return;
   state.carteraMantenimientoYearLoading.add(anio);
@@ -2226,7 +2304,8 @@ async function loadCarteraMantenimientoColdYear(anio) {
     });
     const data = await resp.json();
     if (data.state === "ok" && data.cartera && data.cartera.mantenimiento) {
-      mergeRows(CARTERA_MANTENIMIENTO_ROWS, data.cartera.mantenimiento);
+      mergeCarteraMantenimientoRows(data.cartera.mantenimiento);
+      state.carteraMantenimientoTimeLogsAnios.add(anio);
       reconcileExperienceFacets("cartera");
       HubForegroundProgress.complete("cartera");
     } else {
@@ -2779,13 +2858,107 @@ function renderBatchBDataState(label) {
   }
   return reportingLoadingHtml(`Cargando ${label}…`);
 }
+// HOT WINDOW / COLD HISTORY corrective (Horas Productivas — owner decision
+// 2026-08-18): metadata liviana de años — disparada UNA vez por
+// TAB_HYDRATION_TRIGGERS.capacidad, en PARALELO con `loadBatchBData` (nunca
+// bloquea el primer render de la ventana caliente). MISMO patrón que
+// loadCarteraMantenimientoAnios/loadHorasVendidasAnios.
+async function loadCapacidadAnios() {
+  state.capacidadAniosStatus = "loading";
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-b/anios-disponibles", {
+      method: "POST", body: new URLSearchParams({ graph_token: token }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok" && data.aniosDisponibles) {
+      state.capacidadAniosDisponibles = data.aniosDisponibles;
+      state.capacidadAniosStatus = "ready";
+    } else {
+      state.capacidadAniosStatus = "error";
+    }
+  } catch (e) {
+    state.capacidadAniosStatus = "error";
+  }
+  render();
+}
+// Años YA hidratados — fuente de verdad ÚNICA: las claves de
+// CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR (portfolio, poblado en CADA
+// hidratación exitosa — hot o fría — sin importar si esa carga trajo 0
+// filas por Cliente/Proyecto) — MISMO centinela que RENTABILIDAD_
+// NOASIGNADAS_BY_YEAR (ver rentabilidadLoadedYears).
+function capacidadLoadedYears() {
+  return new Set(Object.keys(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR));
+}
+// Fusión por (cliente, proyecto)/consultor (MISMO criterio que
+// mergeRentabilidadRows): un año frío se fusiona en el `horasByYear` de
+// cada fila ya hidratada, nunca crea una fila duplicada. Fila nueva
+// (Cliente/Proyecto o Consultor que solo tiene horas en el año frío) se
+// agrega entera. El denominador (portfolio) se fusiona directo.
+function _mergeCapacidadRows(target, incoming, keyOf) {
+  const byKey = new Map(target.map(r => [keyOf(r), r]));
+  (incoming || []).forEach(inc => {
+    const existing = byKey.get(keyOf(inc));
+    if (existing) {
+      Object.assign(existing.horasByYear || (existing.horasByYear = {}), inc.horasByYear || {});
+    } else {
+      target.push(inc);
+      byKey.set(keyOf(inc), inc);
+    }
+  });
+}
+function mergeBatchBRows(data) {
+  _mergeCapacidadRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas, r => `${r.cliente}|${r.proyecto}`);
+  _mergeCapacidadRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas, r => r.consultor);
+  Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, data.horasProductivasDenominador || {});
+}
+// Lazy-load de un año FRÍO puntual — disparado desde renderCapacidad cuando
+// el Año seleccionado de CUALQUIERA de los 3 paneles (cliente/clientePart/
+// noAsignadas) todavía no está en `capacidadLoadedYears()`. Single-flight
+// POR AÑO (MISMO criterio que Cartera/Rentabilidad/HV) — UN fetch alimenta
+// los 3 paneles a la vez (MISMO endpoint consolidado que la primera
+// hidratación, ver loadBatchBData). Key de progreso "batch-b" (MISMA que
+// REPORTING_HUB_PROGRESS.capacidad — mismo endpoint real que la primera
+// hidratación, ver comentario de esa tabla).
+async function loadCapacidadColdYear(anio) {
+  if (state.capacidadYearLoading.has(anio)) return;
+  state.capacidadYearLoading.add(anio);
+  reportingTelemetry("reporting.cold_year_load", { report_tab: "capacidad", load_scope: anio });
+  state.capacidadYearErrors.delete(anio);
+  HubForegroundProgress.begin("batch-b", { seedMs: 7500 });
+  try {
+    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
+    });
+    const data = await resp.json();
+    if (data.state === "ok") {
+      mergeBatchBRows(data);
+      reconcileExperienceFacets("capacidad");
+      HubForegroundProgress.complete("batch-b");
+    } else {
+      state.capacidadYearErrors.add(anio);
+      HubForegroundProgress.fail("batch-b");
+    }
+  } catch (e) {
+    state.capacidadYearErrors.add(anio);
+    HubForegroundProgress.fail("batch-b");
+  }
+  state.capacidadYearLoading.delete(anio);
+  render();
+}
 
 function renderCartera() {
-  // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF): la
-  // hidratación de AMBAS perspectivas (+ metadata de años) la dispara el
-  // SHELL (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING
-  // INITIAL-LOAD CONTRACT), nunca este dispatcher — acá solo queda el GATE
-  // de qué mostrar según el status de la perspectiva ACTIVA (progresivo —
+  // MAIN-TAB HYDRATION CONTRACT (owner corrective, ver HANDOFF) + ACTIVE
+  // EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+  // 2026-08-19, ver hydrateCarteraTab): la hidratación la dispara el SHELL
+  // (`TAB_HYDRATION_TRIGGERS`, ver `render()` — SHARED REPORTING
+  // INITIAL-LOAD CONTRACT), nunca este dispatcher — pero YA NO dispara
+  // AMBAS perspectivas: solo la perspectiva ACTIVA (Mantenimiento se carga
+  // en el bootstrap porque es la default; Proyecto recién on-demand al
+  // conmutar). La metadata de años de Mantenimiento sigue el contrato
+  // existente (ver hydrateCarteraTab). Acá solo queda el GATE de qué
+  // mostrar según el status de la perspectiva ACTIVA (progresivo —
   // Mantenimiento no espera a Proyecto ni viceversa).
   const persp = state.perspective.cartera;
   const status = carteraStatusFor(persp);
@@ -2881,6 +3054,22 @@ function rentabilidadRanked(rows) {
 // abajo — un acumulador ingenuo con `+=` perdería la señal).
 function _isValidAnioValue(v) { return /^\d{4}$/.test(String(v || "")); }
 function _currentYearStr() { return String(new Date().getFullYear()); }
+// YEAR ORDERING corrective (owner decision 2026-08-19 — presentation vs
+// semantic selection deben ser independientes: el audit de year-ordering
+// encontró 4 `xxxDefaultAnio()` acoplados a `options[options.length - 1]`
+// como "año más reciente", correcto SOLO mientras `xxxAnioOptions()`
+// devolviera ascendente — al homologar los selectores a descendente ese
+// acoplamiento se hubiera roto en silencio, ver HANDOFF). Compara VALOR
+// NUMÉRICO de cada opción, nunca posición del array — funciona igual sea
+// el array ascendente, descendente, o sin ordenar en absoluto. Reusa
+// `_isValidAnioValue` (MISMO dominio de año que el resto del archivo,
+// nunca una regla nueva) para descartar valores no-4-dígitos ANTES de
+// comparar, así un valor inválido nunca puede ganar por ser el mayor
+// numéricamente por accidente (p. ej. si algo corrupto colara "9999").
+function mostRecentValidYear(options) {
+  const validYears = options.filter(_isValidAnioValue).map(Number);
+  return validYears.length ? String(Math.max(...validYears)) : "";
+}
 // Mes calendario ACTUAL 1-12, o `null` si `anio` no es el año en curso
 // (histórico/futuro-no-soportado ⇒ sin cap).
 function _operationalMonthCap(anio) {
@@ -3033,13 +3222,16 @@ function rentabilidadAnioOptions() {
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa (el backend YA
   // descarta valores no-4-dígitos en la fuente) — Año NUNCA muestra un
   // valor fuera de /^\d{4}$/, sea cual sea el origen del dato.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): selectores de
+  // Año DESCENDENTE en todo el Hub (`.reverse()` tras el sort ascendente
+  // — MISMO patrón que `carteraAnioOptions`, ya descendente).
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 function rentabilidadDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = rentabilidadAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";  // más reciente válido
+  return mostRecentValidYear(options);
 }
 // AÑO/MES MULTI-SELECT corrective: default de la PRIMERA hidratación —
 // año actual válido (o el más reciente disponible) tildado, MISMO
@@ -3136,13 +3328,15 @@ function horasVendidasAnioOptions() {
   // de Año): segunda línea de defensa, el backend YA descarta valores
   // no-4-dígitos en la fuente (`_is_valid_anio`) — Año NUNCA muestra algo
   // fuera de /^\d{4}$/ sea cual sea el origen del dato.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 function horasVendidasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = horasVendidasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // AÑO/MES MULTI-SELECT corrective — MISMO criterio que
 // rentabilidadDefaultAniosSet.
@@ -3216,7 +3410,10 @@ function comercialParticipacionAnioOptions() {
   });
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa, MISMO criterio que
   // el resto de los <select>/checkbox-group de Año del Hub.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE.
+  // `comercialParticipacionDefaultAnios` usa membership de Set (ver
+  // abajo) — no depende de posición, no requiere ningún otro cambio.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default: ventana caliente (año actual + anterior) tildada — MISMO criterio
 // que `_default_hot_years` del backend, filtrado a lo que realmente resultó
@@ -4185,13 +4382,24 @@ const _CAPACIDAD_SELECT_FIELDS = [{ key: "cliente", field: "cliente" }, { key: "
 // respetan Estado + Cliente/Proyecto activos, MISMO criterio que
 // rentabilidadAnioOptions/horasVendidasAnioOptions ("como en las demas
 // tabs").
+// HOT WINDOW / COLD HISTORY corrective (owner decision 2026-08-18): "DO
+// NOT CONFUSE OPTIONS WITH HYDRATED FACTS" (MISMO criterio que
+// carteraAnioOptions) — con la ventana caliente por defecto (año actual +
+// anterior), las filas YA hidratadas nunca incluyen los años fríos, pero
+// esos años deben seguir siendo una opción SELECCIONABLE. Unión de la
+// metadata liviana (`state.capacidadAniosDisponibles`, ver
+// loadCapacidadAnios) con los años ya presentes en filas cargadas
+// (defensivo: si la metadata todavía no llegó, los años calientes recién
+// hidratados igual aparecen).
 function capacidadProductivasAnioOptions() {
   // UNRESOLVED-ESTADO corrective (ver _capacidadEstadoAllows).
   const statusRows = CAPACIDAD_PRODUCTIVAS_ROWS.filter(r => _capacidadEstadoAllows(r.estado));
   const rows = facetRowsExcept(statusRows, state.filters.capacidad || {}, _CAPACIDAD_SELECT_FIELDS, "");
-  const years = new Set();
+  const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default Año = año actual válido (owner corrective) — MISMO criterio que
 // rentabilidadDefaultAnio/horasVendidasDefaultAnio, aplicado UNA vez por
@@ -4201,7 +4409,7 @@ function capacidadProductivasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = capacidadProductivasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
 // ofrece 2026 aunque el CSV tiene años anteriores"): `_shape_horas_
@@ -4285,11 +4493,15 @@ function capacidadProductivasSelectedRows(panel) {
 // visibles") — MUCHO más simple que Productivas, sin cap de mes futuro ni
 // máscara de meses.
 const _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS = [{ key: "consultor", field: "consultor" }];
+// HOT WINDOW / COLD HISTORY corrective — MISMO criterio que
+// capacidadProductivasAnioOptions (metadata ∪ años hidratados).
 function capacidadNoAsignadasAnioOptions() {
   const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
-  const years = new Set();
+  const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default Año = año actual válido (owner corrective, MISMO criterio que
 // capacidadProductivasDefaultAnio) — si no está representado en los datos,
@@ -4298,7 +4510,7 @@ function capacidadNoAsignadasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = capacidadNoAsignadasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // Prune (MISMO criterio que pruneCapacidadProductivasAnio): si el año
 // elegido deja de ser válido (o todavía no se eligió ninguno), cae al
@@ -4697,6 +4909,30 @@ function renderCapacidadNoAsignadas() {
 
 function renderCapacidad() {
   const persp = state.perspective.capacidad;
+  if (state.batchBDataStatus === "ready") {
+    // HOT WINDOW / COLD HISTORY corrective (owner decision 2026-08-18):
+    // si el/los Año(s) del panel/perspectiva ACTIVA todavía no está(n)
+    // hidratado(s) (frío), dispara su propio lazy-load (single-flight POR
+    // AÑO, ver loadCapacidadColdYear — UN fetch alimenta los 3 paneles a
+    // la vez, MISMO endpoint real que la primera hidratación) y muestra el
+    // loader compartido mientras falte alguno — el filter bar (render
+    // aparte) sigue interactivo. MISMO criterio que renderCartera.
+    const aniosActivos = persp === "Productivas"
+      ? CAPACIDAD_PRODUCTIVAS_PANELS.map(panel => getFilter("capacidad", capacidadPanelAnioKey(panel)))
+      : [getFilter("capacidad", capacidadPanelAnioKey("noAsignadas"))];
+    const erroredChecked = aniosActivos.filter(y => y && state.capacidadYearErrors.has(y));
+    if (erroredChecked.length) {
+      return dashboardSections("reporting-capacidad",
+        reportingSourceErrorHtml(`los datos de Horas Productivas del año ${erroredChecked.join(", ")}`));
+    }
+    const loadedYears = capacidadLoadedYears();
+    const pendientes = [...new Set(aniosActivos.filter(y => y && !loadedYears.has(y)))];
+    if (pendientes.length) {
+      pendientes.forEach(loadCapacidadColdYear);
+      return dashboardSections("reporting-capacidad",
+        reportingLoadingHtml(`Cargando datos de Horas Productivas del año ${pendientes.join(", ")}…`));
+    }
+  }
   const sectionsHtml = persp === "Productivas" ? renderCapacidadProductivas() : renderCapacidadNoAsignadas();
   return dashboardSections("reporting-capacidad", sectionsHtml);
 }
@@ -4819,7 +5055,12 @@ const TAB_HYDRATION_TRIGGERS = {
   horasvendidas: hydrateHorasVendidasTab,
   comercial: () => { hydrateComercialParticipacionTab(); if (state.batchADataStatus === "idle") loadBatchAData(); },
   calendario: () => { if (state.batchADataStatus === "idle") loadBatchAData(); },
-  capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); },
+  // HOT WINDOW / COLD HISTORY corrective: metadata de años en PARALELO con
+  // el fetch de datos, MISMO criterio que Cartera/HV/Rentabilidad.
+  capacidad: () => {
+    if (state.batchBDataStatus === "idle") loadBatchBData();
+    if (state.capacidadAniosStatus === "idle") loadCapacidadAnios();
+  },
 };
 // Status CRUDO del tab para el propósito ÚNICO de "primera hidratación" —
 // reusa los MISMOS campos que cada experiencia ya usa internamente para su
@@ -4859,6 +5100,24 @@ function reportingTabRawStatus(expId) {
     default: return "ready";
   }
 }
+// FEEDBACK VISIBILITY corrective (owner decision 2026-08-19 — owner live
+// smoke: "¿Qué te pareció este reporte?" quedaba visible mientras el
+// contenido activo todavía estaba cargando, dejando evaluar algo que
+// todavía no terminó de resolver). Reusa `reportingTabRawStatus` TAL
+// CUAL — ya es perspective-aware (Cartera/Comercial) y ya representa
+// "¿el contenido que el usuario está viendo AHORA está listo?", sin
+// inventar un estado nuevo. Deliberadamente DISTINTO de
+// `state.reportingTabHydrated[expId]` (una sola vía, nunca se apaga —
+// sigue gateando SOLO el shell de filtros/contenido, ver render(), ese
+// contrato queda intacto): feedback debe reflejar el momento PRESENTE,
+// no "alguna vez estuvo ready". Efecto colateral correcto, no un caso
+// especial: un error INCREMENTAL post-hidratación (año frío que falla, o
+// perspectiva hermana en su primera carga) también oculta feedback,
+// porque `reportingTabRawStatus` devuelve "error", no "ready" — MISMO
+// criterio que un error de primera carga (que ya lo oculta hoy).
+function isActiveReportReady(expId) {
+  return reportingTabRawStatus(expId) === "ready";
+}
 
 function render() {
   document.getElementById("reporting-experience-tabs").innerHTML = EXPERIENCES.map(e => `
@@ -4887,7 +5146,13 @@ function render() {
     // Feedback SIEMPRE como ÚLTIMO elemento del main tab (ver ticket §A1: para
     // Horas Productivas queda después del contenido Y de la nota Punch, que el
     // renderer ya emite). Un solo control por MAIN TAB, nunca por perspectiva.
-    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]() + reportingFeedbackHtml(expId);
+    // FEEDBACK VISIBILITY corrective (ver isActiveReportReady arriba):
+    // gateado por el status PRESENTE de la perspectiva/contenido activo,
+    // NUNCA por `reportingTabHydrated` (ese flag sigue siendo de una sola
+    // vía SOLO para filtros/contenido, ver arriba — feedback necesita el
+    // status de AHORA, no "alguna vez estuvo ready").
+    const feedbackHtml = isActiveReportReady(expId) ? reportingFeedbackHtml(expId) : "";
+    mainContent.innerHTML = filterBarHtml + RENDERERS[expId]() + feedbackHtml;
   } else {
     // INITIAL LOADER MODE — SOLO tabs + loader inicial (o el estado de
     // error compartido si la PRIMERA hidratación falló). Filtros/KPIs/

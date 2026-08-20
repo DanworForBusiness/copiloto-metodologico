@@ -216,7 +216,9 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   state.capacidadStatus = { "En curso": true, "Finalizado": false };
   assertEqual(capacidadProductivasAnioOptions(), ["2019"], "con SOLO 'En curso' tildado, 2018 (año de Molinos, Finalizado) NO aparece como opción de Año");
   state.capacidadStatus = { "En curso": true, "Finalizado": true };
-  assertEqual(capacidadProductivasAnioOptions(), ["2018", "2019"], "tildar Finalizado también trae 2018 de vuelta a las opciones");
+  // YEAR ORDERING corrective (owner decision 2026-08-19): selectores de
+  // Año DESCENDENTE — orden de presentación, no afecta membership/facet.
+  assertEqual(capacidadProductivasAnioOptions(), ["2019", "2018"], "tildar Finalizado también trae 2018 de vuelta a las opciones");
 }
 
 // --- UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
@@ -237,7 +239,8 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   state.filters.capacidad = {};
 
   state.capacidadStatus = { "En curso": true, "Finalizado": true };
-  assertEqual(capacidadProductivasAnioOptions(), ["2019", "2026"], "ambos Estado tildados == 'sin filtro' del PBIP: 2019 (estado sin resolver) aparece igual que 2026");
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE.
+  assertEqual(capacidadProductivasAnioOptions(), ["2026", "2019"], "ambos Estado tildados == 'sin filtro' del PBIP: 2019 (estado sin resolver) aparece igual que 2026");
   assertEqual(capacidadProductivasSelectedRows("cliente").map(r => r.cliente).sort(), ["Aluar", "YPF"], "la fila con estado sin resolver entra a la población cuando Estado no angosta de verdad");
 
   state.capacidadStatus = { "En curso": true, "Finalizado": false };
@@ -395,7 +398,8 @@ CAPACIDAD_PRODUCTIVAS_ROWS.push(
   state.filters.capacidad = {};
   state.capacidadStatus = { "En curso": true, "Finalizado": true };
   const baseline = capacidadProductivasAnioOptions();
-  assertEqual(baseline, ["2019", "2021", "2023"], "los 3 años históricos hidratados aparecen como opción, ninguno perdido");
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE.
+  assertEqual(baseline, ["2023", "2021", "2019"], "los 3 años históricos hidratados aparecen como opción, ninguno perdido");
 
   // Elegir un Año en el panel LEFT (cliente) no debe quitar opciones —
   // ni siquiera las que ese propio panel ya no puede mostrar.

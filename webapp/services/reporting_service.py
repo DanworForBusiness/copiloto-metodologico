@@ -19,10 +19,14 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 """
 from __future__ import annotations
 
+import logging
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
+
+_logger = logging.getLogger("danwor.reporting")
 
 # Proyectos placeholder "Horas No Productivas" del PBIP (real-data-lineage.md:284,
 # página "Hs No Asignadas": `[Project] IN {...}`) — parte del criterio de
@@ -197,6 +201,34 @@ def _calendario_monthly(calendario_act: str) -> list[int]:
     return [1 if nombre in text else 0 for nombre in _MESES_NOMBRES]
 
 
+def _trab_by_proyecto_by_year(time_logs: list[dict]) -> dict[str, dict[str, list[float]]]:
+    """Agrega Time Logs por (`_norm_key(proyecto)`, año) → `[horas x 12]` —
+    MISMO join/grano que `get_rentabilidad` usa para su "Horas Trabajadas"
+    (defecto #1 del SOURCE-PARITY RECONCILIATION, ver ahí: `_norm_key`, no
+    el título exacto — reproduce `Key_Proyect_desc` del PBIP). Excluye los
+    2 proyectos placeholder de "No Asignadas" (Time Logs de portfolio, sin
+    Proyecto real que reconciliar en Cartera/Rentabilidad).
+
+    Factorizado para reuso (owner decision 2026-08-18 — "Cartera/Horas
+    Trabajadas debe reconciliar con Rentabilidad para el mismo contexto Año/
+    Mes/filtros, aunque la fidelidad al PBIP original ya estaba demostrada"):
+    Cartera/Mantenimiento (`_mantenimiento_rows`) ahora deriva SU "Horas
+    Trabajadas" de esta MISMA fuente canónica, en vez de `Horas por
+    proyectos[HsTrabajadas]` (campo manual de SharePoint) — MISMA función,
+    nunca dos implementaciones del mismo join que puedan divergir."""
+    out: dict[str, dict[str, list[float]]] = {}
+    for tl in time_logs:
+        anio = tl.get("anio")
+        n = _time_logs_month_num(tl.get("mes"))
+        if not _is_valid_anio(anio) or n is None:
+            continue
+        if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+            continue
+        key = _norm_key(tl.get("proyecto"))
+        out.setdefault(key, {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
+    return out
+
+
 def _fecha_min(facts_con_mes: list[dict]) -> str:
     """Fecha representativa (primer día del mes MÁS TEMPRANO presente) para
     el filtro Desde/Hasta de una fila agregada (Horas Vendidas/
@@ -244,13 +276,28 @@ class ReportingService:
             "salud": self._shape_salud(cliente_dim),
         }
 
-    def get_batch_b(self, access_token: str) -> dict:
+    def get_batch_b(self, access_token: str, *, anios: list[str] | None = None) -> dict:
         """UN método de entrada para Horas Productivas (AMBAS perspectivas,
         Productivas Y No Asignadas) — el router llama esto UNA vez, nunca 2
         POSTs separados que repitan la descarga/combine de TODOS los CSV de
         Time Logs (costo real, a diferencia de un GET de lista SharePoint —
-        ver `ReportingRepository.get_time_logs_facts`)."""
-        facts = self._repository.get_time_logs_facts(access_token)
+        ver `ReportingRepository.get_time_logs_facts`).
+
+        `anios` (HOT WINDOW / COLD HISTORY corrective — owner decision
+        2026-08-18, "Batch B nunca implementó el contrato transversal que
+        Cartera/Batch A sí tienen; el defecto estaba oculto porque la
+        fuente solo exponía 2026"): `None` (primera hidratación del tab)
+        resuelve a la ventana caliente por defecto (año actual + anterior,
+        `_default_hot_years` — MISMO contrato que Cartera/Rentabilidad/HV).
+        Una lista explícita es el lazy-load de un año FRÍO puntual,
+        disparado por el usuario al elegirlo en el <select> de Año — ver
+        `reporting_batch_b_data` (router). La optimización ocurre en
+        SOURCE LOADING (`get_time_logs_facts(hot_years=...)` selecciona
+        qué archivos descargar por su nombre, ANTES de bajarlos — ver
+        reporting_repository.py) — nunca un post-filtro después de
+        descargar todo el historial."""
+        hot_years = anios if anios is not None else self._default_hot_years()
+        facts = self._repository.get_time_logs_facts(access_token, hot_years=hot_years)
         colaboradores = self._repository.get_colaboradores_email_map(access_token)
         return {
             "horasProductivas": self._shape_horas_productivas(facts),
@@ -297,10 +344,25 @@ class ReportingService:
         necesita). Preferir `get_cartera_mantenimiento`/`get_cartera_
         proyecto` desde el router cuando se conoce la perspectiva activa
         (P5, owner live QA de performance — Cartera ~17s): Mantenimiento
-        NUNCA necesita esperar la descarga/parseo de la XLSX."""
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
+        NUNCA necesita esperar la descarga/parseo de la XLSX.
+
+        SHARED LOADER CONSUMERS audit (owner 2026-08-18): Time Logs ya NO
+        queda sin acotar acá — MISMO default contextual que
+        `get_cartera_mantenimiento` (año calendario actual), consistente
+        aunque este combo no reciba `anios` — nunca "todo el historial"
+        por default silencioso."""
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=True,
+        )
+        time_logs = self._repository.get_time_logs_worked_hours(
+            access_token, hot_years=[str(datetime.now().year)],
+        )
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+        mantenimiento_rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched:
+            _logger.info("reporting.cartera combo unmatched_time_logs_projects=%d", len(unmatched))
         return {
-            "mantenimiento": self._mantenimiento_rows(facts),
+            "mantenimiento": mantenimiento_rows,
             "proyecto": self._proyecto_rows(facts),
         }
 
@@ -318,10 +380,94 @@ class ReportingService:
         curso". Una lista explícita (p. ej. `["2024"]`) es el lazy-load de
         un año FRÍO puntual, disparado por el usuario al elegirlo en el
         <select> de Año — ver `reporting_cartera_data` (router) para el
-        contrato de `anios` como form param."""
+        contrato de `anios` como form param. Esta ventana sigue acotando
+        SOLO "Horas por proyectos" (`get_cartera_facts`) — Time Logs tiene
+        SU PROPIO scope, ver abajo (CALL BUDGET corrective).
+
+        "HORAS TRABAJADAS" — CANONICAL SOURCE DECISION (owner, 2026-08-18):
+        el incidente original (owner report — "Cartera/Proyectos deja de
+        mostrar Horas Trabajadas desde ~Julio 2026, Rentabilidad sí las
+        muestra para el mismo período") fue auditado contra evidencia PBIP
+        PRIMARIA (TMDL/DAX, ver `test_reporting_cartera_rentabilidad_
+        worked_hours_sources.py`) y confirmó que eran dos medidas
+        DELIBERADAMENTE distintas del modelo original — Cartera leía el
+        campo MANUAL de SharePoint `Horas por proyectos[HsTrabajadas]`;
+        Rentabilidad, `SUM('Time Logs Reports'[HORAS])`. Esa fidelidad al
+        PBIP quedó demostrada, pero el owner definió una NUEVA decisión de
+        PRODUCTO (no una corrección de bug): para el mismo contexto
+        Año/Mes/filtros, "Cartera / Horas Trabajadas" debe reconciliar con
+        "Rentabilidad / Horas Trabajadas" — ambas deben leer la MISMA
+        fuente canónica (Time Logs). Fix: `trabajadas` ya NO lee
+        `f["hsTrabajadas"]` — se deriva de `trab_by_proyecto`
+        (`_trab_by_proyecto_by_year(time_logs)`, MISMO join/grano
+        `_norm_key(proyecto)`×año×mes que `get_rentabilidad` ya usa) a la
+        granularidad NATIVA de Mantenimiento (proyecto×mes×año) —
+        preservando TODOS sus filtros existentes (Client Partner, Proyecto,
+        Cliente, Estado, Año, Mes: ninguno depende de `trabajadas`, todos
+        siguen leyendo `f[...]` sin cambios).
+
+        CALL BUDGET corrective (owner 2026-08-18 — la primera versión de
+        esta reconciliación medía 4→12 llamadas Graph, un ~3x, suficiente
+        para explicar la regresión de performance reportada — "no aceptar
+        funcionalmente correcto a costa de 4x performance"):
+
+        1) Time Logs es una métrica CONTEXTUAL de Cartera, NO una ventana
+           caliente especulativa como "Horas por proyectos" — `hot_years`
+           (arriba) sigue pre-cargando año actual + anterior de SharePoint
+           (para que tildar el Año anterior en el <select> no dispare un
+           round-trip), pero Time Logs SOLO se pide para los años
+           EXPLÍCITAMENTE solicitados: `anios` si vino explícito (mismo
+           contrato que Productivas: `selectedYears=[2024]` → Time Logs
+           2024 ONLY), o SOLO el año calendario ACTUAL si `anios is None`
+           (primera hidratación) — nunca año actual+anterior por defecto,
+           que sería inventar una descarga que nadie pidió todavía. Si el
+           usuario tilda el Año anterior (ya presente vía el pre-fetch de
+           SharePoint, pero con Time Logs aún sin resolver), el frontend
+           dispara su PROPIO lazy-load con `anios=[ese año]` — MISMO
+           mecanismo de año frío single-flight, ver
+           `loadCarteraMantenimientoColdYear`/reporting.js — que ahora
+           REEMPLAZA la fila existente (antes trabajadas=0 sin resolver)
+           en vez de duplicarla.
+        2) `get_time_logs_worked_hours` (NO `get_time_logs_facts`) — la
+           proyección MÍNIMA proyecto×año×mes×horas que
+           `_trab_by_proyecto_by_year` realmente consume, SIN releer
+           Proyectos/Cliente/columnas (esas 3 lecturas YA las hizo
+           `get_cartera_facts` arriba, para "Horas por proyectos" —
+           `get_time_logs_facts` las releía de nuevo SOLO para enriquecer
+           `cliente`/`estado`/`porcentajePart` de Time Logs, campos que
+           esta reconciliación NUNCA usa. Horas Productivas SIGUE
+           necesitando esos campos y sigue usando `get_time_logs_facts`
+           completo — ver `get_batch_b`).
+
+        SCOPE (deliberado, no una omisión): esta decisión aplica SOLO a
+        Mantenimiento (grano mensual, el caso concreto reportado —
+        Aluar/Ago-2026). `get_cartera_proyecto`/`_proyecto_rows` (agregado
+        de vida completa del proyecto) SIGUE leyendo `f["hsTrabajadas"]` —
+        no fue parte de la decisión explícita, queda como pregunta abierta
+        si también debe homologarse (ver reporte de publicación). El campo
+        SharePoint `HsTrabajadas` NO se borra/reinterpreta — `get_cartera_
+        facts` sigue poblándolo tal cual, todavía consumido por
+        `_proyecto_rows`."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
-        return self._mantenimiento_rows(facts)
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=False, hot_years=hot_years,
+        )
+        time_logs_years = anios if anios is not None else [str(datetime.now().year)]
+        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=time_logs_years)
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+        rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched:
+            # UNION GRAIN corrective — diagnóstico (owner: "no esconder
+            # silenciosamente Time Logs cuyo proyecto no resuelve"): nunca
+            # se fabrica Cliente/CP/Estado para estas keys, se registran
+            # para que un gap de mapeo real (proyecto renombrado/no
+            # existente en Proyectos) sea visible, no se pierda en un log
+            # nunca leído.
+            _logger.info(
+                "reporting.cartera unmatched_time_logs_projects=%d keys=%s",
+                len(unmatched), [u["proyectoKey"] for u in unmatched][:10],
+            )
+        return rows
 
     def get_cartera_mantenimiento_anios(self, access_token: str) -> list[dict]:
         """Metadata de años/estado disponibles de Mantenimiento (HOT WINDOW
@@ -352,14 +498,53 @@ class ReportingService:
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
-    def _mantenimiento_rows(self, facts: list[dict]) -> list[dict]:
+    def _mantenimiento_rows(
+        self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]],
+        project_dim: dict[str, dict] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """`trab_by_proyecto` (CANONICAL SOURCE DECISION, ver docstring de
+        `get_cartera_mantenimiento`): `[anio][mes-1]` de
+        `_trab_by_proyecto_by_year(time_logs)`, MISMO join `_norm_key
+        (proyecto)` que Rentabilidad — reemplaza `f["hsTrabajadas"]` (campo
+        manual de SharePoint) como fuente de 'trabajadas'. Mes no
+        parseable o proyecto/año sin horas de Time Logs ⇒ 0.0 (fail-soft,
+        nunca un valor inventado — NO es lo mismo que "no hubo horas", es
+        el resultado correcto en ambos casos).
+
+        UNION GRAIN corrective (owner 2026-08-18 — "Time Logs puede
+        contener (proyecto,2026,agosto) pero si SharePoint no tiene esa
+        combinación, esa key ni siquiera existe como fila en Cartera"):
+        el universo de filas YA NO es solo "una por fact de SharePoint" —
+        es la UNIÓN de keys (proyecto normalizado, año, mes) presentes en
+        SharePoint O en `trab_by_proyecto`. Una key SOLO-Time-Logs produce
+        una fila con `trabajadas` real y `vendidasMensuales`/`certificadas`
+        = 0.0 (MISMA semántica de ausencia que el resto de este método —
+        nunca un valor SharePoint inventado), resolviendo Proyecto/Cliente/
+        CP/Estado contra `project_dim` (`get_cartera_facts_with_project_
+        dimension` — CERO llamadas Graph nuevas, ver reporting_repository.py).
+
+        `project_dim=None` preserva el contrato RETROCOMPATIBLE exacto
+        (ningún caller viejo que no pase la dimensión ve union rows —
+        usado por tests que ejercitan solo el camino SharePoint).
+
+        Retorna `(rows, unmatched)` — `unmatched`: keys Time-Logs-only cuyo
+        proyecto NO resuelve contra `project_dim` en absoluto (no existen
+        en Proyectos, o `project_dim` no fue provisto) — NUNCA se fabrica
+        Cliente/CP/Estado para ellas, se devuelven aparte para diagnóstico
+        (ver `get_cartera_mantenimiento`), nunca se pierden silenciosamente."""
         rows = []
+        covered: set[tuple[str, str, int]] = set()
         for f in facts:
             if f.get("tipoProyecto") != "Mantenimiento":
                 continue
-            trabajadas = _round2(f["hsTrabajadas"])
-            certificadas = _round2(f["hsCertificadas"])
             mes_num = _month_num(f["mes"])
+            key = _norm_key(f.get("proyecto"))
+            if mes_num is not None:
+                covered.add((key, f["anio"], mes_num))
+                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
+            else:
+                trabajadas = 0.0
+            certificadas = _round2(f["hsCertificadas"])
             rows.append({
                 "cliente": f["cliente"],
                 "cp": f["clientPartner"],
@@ -382,7 +567,41 @@ class ReportingService:
                 "anio": f["anio"],
                 "mes": str(mes_num) if mes_num is not None else "",
             })
-        return rows
+
+        unmatched: list[dict] = []
+        for key, by_year in trab_by_proyecto.items():
+            dim = (project_dim or {}).get(key)
+            for anio, monthly in by_year.items():
+                for idx, horas in enumerate(monthly):
+                    if horas <= 0:
+                        continue
+                    mes_num = idx + 1
+                    if (key, anio, mes_num) in covered:
+                        continue
+                    if dim is None:
+                        unmatched.append({
+                            "proyectoKey": key, "anio": anio, "mes": str(mes_num),
+                            "horas": _round2(horas),
+                        })
+                        continue
+                    if dim["tipoProyecto"] != "Mantenimiento":
+                        continue
+                    trabajadas = _round2(horas)
+                    rows.append({
+                        "cliente": dim["cliente"],
+                        "cp": dim["clientPartner"],
+                        "proyecto": dim["proyecto"],
+                        "diff": _round2(0.0 - trabajadas),
+                        "trabajadas": trabajadas,
+                        "certificadas": 0.0,
+                        "vendidasMensuales": 0.0,
+                        "facturadas": 0.0,
+                        "status": dim["estado"],
+                        "fecha": _fecha_primer_dia(anio, str(mes_num)),
+                        "anio": anio,
+                        "mes": str(mes_num),
+                    })
+        return rows, unmatched
 
     # --- Proyecto: agrega sobre la vida del proyecto, facturadas = XLSX -------
 
@@ -514,14 +733,87 @@ class ReportingService:
         `include_facturadas=False`: Rentabilidad NUNCA lee
         `facturadasProyecto` (solo certificadas/vendidas) — la XLSX de
         Facturadas es un costo real que esta experiencia pagaba sin
-        necesitarlo, mismo criterio que Cartera/Mantenimiento. Time Logs
-        (CSV) queda SIN acotar — no hay un mecanismo de scope físico
-        análogo a `$filter` para archivos ya descargados completos; ver
-        HANDOFF para la medición pendiente de si esto importa en la
-        práctica."""
+        necesitarlo, mismo criterio que Cartera/Mantenimiento.
+
+        TIME LOGS SCOPE corrective (owner 2026-08-18 — root cause PROBADA
+        de una regresión de performance real, ~14s→~92s, owner live
+        measurement): esta llamada NUNCA pasaba `hot_years` a Time Logs —
+        "SIN acotar" era, hasta el commit `f7a9d9b` (recursión a `Times
+        previos/`), inofensivo por accidente (el listado no-recursivo solo
+        podía encontrar el archivo actual, 1 CSV, sin importar el scope).
+        Ese commit hizo recursivo el listado — "sin acotar" pasó a
+        significar SILENCIOSAMENTE "descargar los 6 archivos/años
+        conocidos en CADA request", una fuente de fuga de scope entre un
+        loader compartido y un consumidor que nunca pidió el cambio (ver
+        REPOSITORY/SERVICE BOUNDARY corrective, HANDOFF). Fix: MISMO
+        `hot_years` ya resuelto arriba para "Horas por proyectos" — año
+        actual + anterior por defecto, un año frío puntual explícito —
+        aplicado TAMBIÉN a Time Logs (selecciona archivos por nombre ANTES
+        de descargar, ver reporting_repository.py). El repository NUNCA
+        cambia su propio default (`hot_years=None` sigue significando
+        "historial completo descubierto" — ese contrato es correcto y
+        deliberado); la fuga estaba en que este SERVICE nunca declaraba
+        explícitamente su scope.
+
+        DUPLICATE DIMENSIONS corrective (owner 2026-08-19 — profiling real
+        post-topology-fix: `horas_por_proyectos_total`≈10.5s y
+        `time_logs_total`≈10.9s, MITAD de ese segundo bloque —~4.1s— eran
+        una relectura de Proyectos/Cliente/columnas de porcentaje_part que
+        `get_cartera_facts` (arriba) YA hizo en este mismo request):
+        `get_time_logs_facts` (el contrato COMPLETO, con join a Proyectos/
+        Cliente para resolver `cliente`/`estado`/`porcentajePart`) queda
+        reservado a Horas Productivas (`get_batch_b`), que SÍ necesita esos
+        campos para su propia UI. Rentabilidad — igual que Cartera desde
+        el CALL BUDGET corrective anterior— solo necesita la proyección
+        MÍNIMA `proyecto`/`anio`/`mes`/`horas` para `_trab_by_proyecto_
+        by_year`; usa `get_time_logs_worked_hours` (MISMO método ya
+        existente para Cartera, nunca un loader nuevo) — cero relectura de
+        Proyectos/Cliente/columnas. Semántica de `trabByYear` SIN cambios —
+        `_trab_by_proyecto_by_year` consume exactamente los mismos 4
+        campos de cualquiera de los dos contratos (ver test de
+        equivalencia).
+
+        TWO-WAY CONCURRENCY corrective (owner 2026-08-19 — "NEXT
+        CANDIDATE — TOP-LEVEL TWO-BRANCH CONCURRENCY", contrato aceptado
+        tras auditoría de thread-safety, ver HANDOFF): `get_cartera_facts`
+        y `get_time_logs_worked_hours` son data-independientes hasta el
+        shaping de abajo — MISMO `hot_years` (resuelto UNA vez arriba, antes
+        de que arranque cualquiera de las dos), MISMO `access_token`,
+        ninguna rama lee nada que la otra produzca. Auditoría confirmó:
+        `core/microsoft365.py` no posee ni adquiere/refresca tokens (nada
+        que sincronizar); el único estado mutable compartido en
+        `ReportingRepository` es `self._token`, escrito con el MISMO valor
+        por ambas ramas; `self.site_id`/list ids se fijan una sola vez en
+        `__init__` y nunca se reasignan; ningún `_StageTimer` se comparte
+        entre las dos ramas. `ThreadPoolExecutor(max_workers=2)` LOCAL a
+        esta llamada — nunca global, nunca compartido entre requests — se
+        crea y cierra dentro del `with`.
+
+        ERROR PRIORITY (owner decision explícita — NO es la misma
+        semántica de falla exacta que la versión secuencial, ver HANDOFF):
+        se observa el `Future` de Cartera SIEMPRE primero, sin importar
+        cuál terminó antes en tiempo real. Cartera falla ⇒ su excepción se
+        propaga con prioridad, AUNQUE Time Logs pueda haber arrancado o
+        incluso completado mientras tanto (trabajo Graph aceptado como
+        posible desperdicio en ese escenario — nunca un problema de
+        corrección, ambas ramas son read-only). Cartera OK + Time Logs
+        falla ⇒ se propaga la excepción de Time Logs. `exc.stage`/
+        `exc.status_code` de `ReportingGraphError` viajan sin cambios en
+        cualquiera de los dos casos — el HTTP mapping existente
+        (`webapp/routers/reporting.py`) no se toca."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        cartera_facts = self._repository.get_cartera_facts(access_token, include_facturadas=False, hot_years=hot_years)
-        time_logs = self._repository.get_time_logs_facts(access_token)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            cartera_future = executor.submit(
+                self._repository.get_cartera_facts, access_token, include_facturadas=False, hot_years=hot_years,
+            )
+            time_logs_future = executor.submit(
+                self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
+            )
+            # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
+            # — Cartera SIEMPRE se observa antes que Time Logs, nunca
+            # "el que termine primero".
+            cartera_facts = cartera_future.result()
+            time_logs = time_logs_future.result()
 
         # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
         # Ene-2026 quedan direccionables por separado — el filtro Año del browser
@@ -556,7 +848,13 @@ class ReportingService:
                 g["vendByYear"].setdefault(anio, [0.0] * 12)[n - 1] += f["hsVendidas"]
             g["facts"].append(f)
 
-        trab_by_proyecto: dict[str, dict] = {}
+        # Defecto #1 (ver arriba): `_norm_key`, no el título exacto —
+        # reproduce el join real del PBIP (`Key_Proyect_desc`). Factorizado
+        # en `_trab_by_proyecto_by_year` (reusado también por Cartera/
+        # Mantenimiento, ver `get_cartera_mantenimiento` — CANONICAL SOURCE
+        # DECISION) — MISMA función, nunca dos implementaciones del mismo
+        # join que puedan divergir.
+        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
             anio = tl.get("anio")
@@ -565,11 +863,6 @@ class ReportingService:
                 continue
             if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
                 no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
-                continue
-            # Defecto #1 (ver arriba): `_norm_key`, no el título exacto —
-            # reproduce el join real del PBIP (`Key_Proyect_desc`).
-            key = _norm_key(tl.get("proyecto"))
-            trab_by_proyecto.setdefault(key, {}).setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
 
         def _round_year_map(m: dict) -> dict:
             return {a: [_round2(v) for v in arr] for a, arr in m.items()}
@@ -834,10 +1127,26 @@ class ReportingService:
             })
         return rows
 
+    def get_batch_b_anios(self, access_token: str) -> list[str]:
+        """Metadata de años disponibles de Horas Productivas (HOT WINDOW /
+        COLD HISTORY corrective) — separada de `get_batch_b` a propósito,
+        MISMO criterio que `get_cartera_mantenimiento_anios`: las OPCIONES
+        del <select> de Año nunca deben confundirse con los años ya
+        HIDRATADOS por la ventana caliente. Delegado 1:1 al repository
+        (lista archivos por metadata, sin descargar ningún CSV)."""
+        return self._repository.get_time_logs_years_available(access_token)
+
     def get_horas_productivas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas` con su PROPIO
         fetch — usado standalone/en tests; `get_batch_b` hace el fetch UNA
-        vez para ambas perspectivas y llama el shaping directo (ver ahí)."""
+        vez para ambas perspectivas y llama el shaping directo (ver ahí).
+
+        `hot_years=None` (SIN acotar, full-history) es INTENCIONAL acá —
+        SHARED LOADER CONSUMERS audit (owner 2026-08-18): este wrapper
+        nunca está en el path de request real (el router llama `get_batch_b`,
+        nunca este método directo) — full-history es aceptable porque no
+        paga costo en producción, a diferencia de Rentabilidad (sí estaba
+        en el path real, ver fix de `get_rentabilidad`)."""
         facts = self._repository.get_time_logs_facts(access_token)
         return self._shape_horas_productivas(facts)
 
@@ -1000,7 +1309,10 @@ class ReportingService:
     def get_horas_productivas_no_asignadas(self, access_token: str) -> list[dict]:
         """Wrapper delgado de `_shape_horas_productivas_no_asignadas` con
         su PROPIO fetch — usado standalone/en tests; `get_batch_b` hace el
-        fetch UNA vez para ambas perspectivas y llama el shaping directo."""
+        fetch UNA vez para ambas perspectivas y llama el shaping directo.
+
+        `hot_years=None` (SIN acotar) es INTENCIONAL — MISMO criterio que
+        `get_horas_productivas`: wrapper fuera del path de request real."""
         facts = self._repository.get_time_logs_facts(access_token)
         colaboradores = self._repository.get_colaboradores_email_map(access_token)
         return self._shape_horas_productivas_no_asignadas(facts, colaboradores)

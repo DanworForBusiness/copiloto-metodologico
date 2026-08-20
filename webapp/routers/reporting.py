@@ -412,7 +412,7 @@ def reporting_participacion_anios_disponibles(request: Request, graph_token: str
 
 
 @router.post("/operaciones/reporting/integral/data/batch-b", include_in_schema=False)
-def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
+def reporting_batch_b_data(request: Request, graph_token: str = Form(""), anios: str = Form("")):
     """Datos REALES normalizados de Horas Productivas (AMBAS perspectivas,
     Productivas Y No Asignadas — Reporting Integral Batch B, CSV de Time
     Logs Reports). UN endpoint consolidado (no 2 POSTs separados) porque
@@ -420,7 +420,16 @@ def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
     (`ReportingService.get_batch_b` — descargar/parsear TODOS los CSV es
     costo real, a diferencia de un GET de lista SharePoint). MISMO gate/
     token/fail-soft que `reporting_cartera_data` — ver ese endpoint para el
-    contrato de errores completo."""
+    contrato de errores completo.
+
+    `anios` (HOT WINDOW / COLD HISTORY corrective, owner decision
+    2026-08-18): CSV de años (p. ej. "2024") a hidratar; vacío/omitido
+    resuelve al default de ventana caliente (año actual + anterior, ver
+    `ReportingService._default_hot_years`) — MISMO contrato que `anios` de
+    `reporting_cartera_data`. `aniosDisponibles` (metadata de años fríos
+    seleccionables) NO viaja acá a propósito, MISMO motivo que Cartera —
+    vive en `/data/batch-b/anios-disponibles`, disparado en paralelo sin
+    bloquear el primer render."""
     if not auth_service.session_user(request):
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
@@ -430,7 +439,8 @@ def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
 
     service = ReportingService()
     try:
-        batch_b = service.get_batch_b(graph_token)
+        anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
+        batch_b = service.get_batch_b(graph_token, anios=anios_list)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -441,6 +451,35 @@ def reporting_batch_b_data(request: Request, graph_token: str = Form("")):
         _logger.exception("reporting batch-b data: unexpected failure")
         return JSONResponse({"state": "source_error", "stage": "unexpected"})
     return JSONResponse({"state": "ok", **batch_b})
+
+
+@router.post("/operaciones/reporting/integral/data/batch-b/anios-disponibles", include_in_schema=False)
+def reporting_batch_b_anios_disponibles(request: Request, graph_token: str = Form("")):
+    """Metadata de año de Horas Productivas (HOT WINDOW / COLD HISTORY
+    corrective) — MISMO criterio que `reporting_cartera_anios_disponibles`:
+    endpoint separado y liviano (solo lista archivos por metadata Graph,
+    nunca descarga/parsea CSV) para no pagar ese costo en cada request de
+    la ventana caliente."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations / Reporting")
+    if not graph_token:
+        return JSONResponse({"state": "missing_token"})
+
+    service = ReportingService()
+    try:
+        anios_disponibles = service.get_batch_b_anios(graph_token)
+    except ReportingConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except ReportingGraphError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+    except ReportingSourceError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    except Exception:  # noqa: BLE001
+        _logger.exception("reporting batch-b anios-disponibles: unexpected failure")
+        return JSONResponse({"state": "source_error", "stage": "unexpected"})
+    return JSONResponse({"state": "ok", "aniosDisponibles": anios_disponibles})
 
 
 # ── Feedback + telemetría de Reporting (Shared Hub Feedback + Activity) ──────

@@ -42,15 +42,20 @@ def _csv_bytes(rows):
 
 
 def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, user_information=None, csv_files=None, file_rows=None,
-           ops_site_id=_OPS_SITE, cliente_columns=None):
-    """`csv_files`: lista de items de `/children` (id/name). `file_rows`:
+           ops_site_id=_OPS_SITE, cliente_columns=None, subfolder_csv_files=None):
+    """`csv_files`: lista de items de `/children` (id/name, o `folder: {...}`
+    para simular una subcarpeta — ver `subfolder_csv_files`). `file_rows`:
     dict item_id -> lista de filas CSV crudas para ESE archivo (permite
     simular un archivo con headers faltantes devolviendo bytes malformados
     vía una lista vacía + header custom, ver test de skip). `cliente_columns`:
     metadata cruda de `/lists/{cliente}/columns` (descubrimiento en vivo del
     internal name de `Porcentaje de Part.`, ver `_resolve_porcentaje_part_field`)
-    — default `[]` (sin match, fail-soft)."""
+    — default `[]` (sin match, fail-soft). `subfolder_csv_files`: dict
+    folder_item_id -> lista de items que devuelve SU PROPIO `/children`
+    (SOURCE COVERAGE corrective, ver HANDOFF — `_list_time_logs_csv_items`
+    ahora desciende a subcarpetas como `Times previos/`)."""
     file_rows = file_rows or {}
+    subfolder_csv_files = subfolder_csv_files or {}
 
     def fake_json(url, access_token=None, **kw):
         if url == f"{repo_mod.GRAPH_BASE}/sites/{repo_mod.TIME_LOGS_SITE_PATH}":
@@ -60,6 +65,9 @@ def _patch(monkeypatch, *, proyectos, clientes, colaboradores=None, user_informa
     def fake_paged(url, access_token=None, **kw):
         if f"/sites/{ops_site_id}/drive/root:" in url and ":/children" in url:
             return csv_files if csv_files is not None else [{"id": "f1", "name": "TimeLogs_2026.csv"}]
+        for folder_id, items in subfolder_csv_files.items():
+            if f"/sites/{ops_site_id}/drive/items/{folder_id}/children" in url:
+                return items
         if "/columns" in url:
             return cliente_columns if cliente_columns is not None else []
         if _PROY in url:
@@ -185,6 +193,258 @@ def test_get_time_logs_facts_falls_back_to_raw_csv_text_when_no_project_match(mo
     # Sin match en Proyectos -> conserva el texto crudo (nunca descarta la fila).
     assert facts[0]["proyecto"] == "Danwor - Horas No Productivas (#1)"
     assert facts[0]["cliente"] == "Danwor"
+
+
+def test_get_time_logs_facts_recurses_into_historical_subfolder(monkeypatch):
+    # SOURCE COVERAGE incident (owner report — "Horas Productivas solo
+    # muestra 2026 aunque hay historicos 2025 y anteriores en Template
+    # Dashboard/Times previos/", ver HANDOFF). El listado NO era recursivo
+    # ("sin evidencia de subcarpetas" en el comentario original — nunca
+    # confirmado en un smoke real hasta este incidente). Owner verificó los
+    # archivos reales: `Time Logs Reports 2026` (01/01–31/08/2026, current),
+    # `Time Logs Reports 2025` (02/01–31/12/2025) y `Time Logs Reports 2024`
+    # (01/01–31/12/2024) — AMBOS históricos viven en `Times previos/`,
+    # particiones por año SIN overlap de fechas (gate de duplicación
+    # levantado explícitamente por el owner — nunca se introduce dedup
+    # nueva). Este fixture reproduce esa estructura de 3 archivos/3 años:
+    # el CSV actual y una subcarpeta "Times previos" con DOS CSV históricos
+    # adentro, cada nivel devolviendo SU PROPIO `/children` (ver
+    # `subfolder_csv_files`). `get_time_logs_facts` es el ÚNICO loader real
+    # (compartido con Rentabilidad, ver get_batch_b/get_rentabilidad) — este
+    # test prueba la fuente compartida, nunca un parser nuevo de Productivas.
+    _patch(
+        monkeypatch, proyectos=[], clientes=[],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 2}},
+        ],
+        subfolder_csv_files={"folder-previos": [
+            {"id": "hist-2025", "name": "Time Logs Reports 2025.csv"},
+            {"id": "hist-2024", "name": "Time Logs Reports 2024.csv"},
+        ]},
+        file_rows={
+            "current-1": [{"Date": "2026-08-03", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "5", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-07-10", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "3", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2024": [{"Date": "2024-05-20", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "2", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    anios = {f["anio"] for f in facts}
+    assert anios == {"2026", "2025", "2024"}, anios
+
+
+def test_shape_horas_productivas_includes_historical_years_from_subfolder(monkeypatch):
+    # MISMO incidente, a nivel del contrato que Horas Productivas realmente
+    # consume (`horasByYear`, ver capacidadProductivasAnioOptions en
+    # reporting.js) — no alcanza probar solo los facts crudos, hay que
+    # demostrar que los 3 años (current + 2 históricos) llegan HASTA la
+    # forma que alimenta el selector comparativo two-side. Sin hardcodear
+    # los años en producción — el fixture usa 2024/2025/2026 porque
+    # reproduce la estructura real verificada por el owner, no porque el
+    # código conozca esos valores.
+    _patch(
+        monkeypatch,
+        proyectos=[{"id": "p1", "Title": "Soporte", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 2}},
+        ],
+        subfolder_csv_files={"folder-previos": [
+            {"id": "hist-2025", "name": "Time Logs Reports 2025.csv"},
+            {"id": "hist-2024", "name": "Time Logs Reports 2024.csv"},
+        ]},
+        file_rows={
+            "current-1": [{"Date": "2026-08-03", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "5", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-07-10", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "3", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2024": [{"Date": "2024-05-20", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "2", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    rows = _service().get_horas_productivas("tok")
+    assert len(rows) == 1
+    assert set(rows[0]["horasByYear"].keys()) == {"2026", "2025", "2024"}
+    # Two-side chart: cada año sigue siendo seleccionable independientemente
+    # por panel (capacidadPanelAnioKey) — no se tocó esa semántica, solo se
+    # ampliaron los años que la alimentan.
+    assert rows[0]["horasByYear"]["2026"][7] == 5.0  # Agosto, índice 7
+    assert rows[0]["horasByYear"]["2025"][6] == 3.0  # Julio, índice 6
+    assert rows[0]["horasByYear"]["2024"][4] == 2.0  # Mayo, índice 4
+
+
+def test_time_logs_current_and_historical_files_do_not_double_count(monkeypatch):
+    # DATA SAFETY GATE (owner verificó en vivo, gate levantado): 2024
+    # termina 31/12/2024, 2025 arranca 02/01/2025 y termina 31/12/2025,
+    # 2026 arranca 01/01/2026 — particiones temporales disjuntas por
+    # archivo/año, SIN overlap. Este test fija esa expectativa (nunca una
+    # dedup key inventada): la MISMA fecha/proyecto en dos archivos
+    # distintos SÍ debe sumar ambas filas (son hechos reales distintos,
+    # no un duplicado) — lo que NO debe pasar es que un archivo aporte
+    # horas más de una vez por listarse dos veces (ej. si algún día una
+    # subcarpeta apareciera anidada en más de un nivel).
+    _patch(
+        monkeypatch, proyectos=[], clientes=[],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 1}},
+        ],
+        subfolder_csv_files={"folder-previos": [{"id": "hist-2025", "name": "Time Logs Reports 2025.csv"}]},
+        file_rows={
+            "current-1": [{"Date": "2026-01-15", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "10", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-12-31", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "7", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    facts = _repo().get_time_logs_facts("tok")
+    # Una fila por archivo — nunca 2 (el mismo id de carpeta/archivo nunca
+    # se procesa dos veces).
+    assert len(facts) == 2
+    assert sum(f["horas"] for f in facts) == 17.0
+
+
+# ============================================================================
+# HOT WINDOW / COLD HISTORY corrective (owner decision 2026-08-18) — la
+# recursión a `Times previos/` (arriba) reveló que Batch B nunca implementó
+# el contrato transversal que Cartera/Batch A ya tienen: "source loading"
+# (seleccionar QUÉ archivos descargar por su NOMBRE antes de bajarlos, nunca
+# post-filtrar después de descargar todo el historial).
+# ============================================================================
+
+class _FixedDatetime2026:
+    @staticmethod
+    def now():
+        import datetime as _dt
+        return _dt.datetime(2026, 8, 15)
+
+
+def _three_year_fixture(monkeypatch, **overrides):
+    """MISMA estructura de 3 archivos/3 años que `test_get_time_logs_facts_
+    recurses_into_historical_subfolder` — factorizada para los tests de hot/
+    cold de abajo (evita repetir el fixture 6 veces)."""
+    kw = dict(
+        proyectos=[{"id": "p1", "Title": "Soporte", "EmpresaLookupId": "c1"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[
+            {"id": "current-1", "name": "Time Logs Reports.csv"},
+            {"id": "folder-previos", "name": "Times previos", "folder": {"childCount": 2}},
+        ],
+        subfolder_csv_files={"folder-previos": [
+            {"id": "hist-2025", "name": "Time Logs Reports 2025.csv"},
+            {"id": "hist-2024", "name": "Time Logs Reports 2024.csv"},
+        ]},
+        file_rows={
+            "current-1": [{"Date": "2026-08-03", "Project": "Soporte", "Client": "Danone",
+                            "Duration Decimal": "5", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2025": [{"Date": "2025-07-10", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "3", "Task": "Dev", "Email": "a@danwor.com"}],
+            "hist-2024": [{"Date": "2024-05-20", "Project": "Soporte", "Client": "Danone",
+                           "Duration Decimal": "2", "Task": "Dev", "Email": "a@danwor.com"}],
+        },
+    )
+    kw.update(overrides)
+    _patch(monkeypatch, **kw)
+
+
+def test_download_time_logs_rows_selects_files_by_hot_years_before_downloading(monkeypatch):
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch)
+    downloaded_ids = []
+    real_bytes = repo_mod.microsoft365.graph_get_bytes
+
+    def counting_bytes(url, access_token, **kw):
+        for item_id in ("current-1", "hist-2025", "hist-2024"):
+            if f"/items/{item_id}/content" in url:
+                downloaded_ids.append(item_id)
+        return real_bytes(url, access_token, **kw)
+
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_bytes", counting_bytes)
+
+    facts = _repo().get_time_logs_facts("tok", hot_years=["2025"])
+    # SOURCE LOADING (owner: "la optimización debe ocurrir en source
+    # loading, no filtrar DESPUÉS de descargar todos los CSV"): con
+    # hot_years=["2025"], SOLO ese archivo se descarga — current-1 (2026) e
+    # hist-2024 NUNCA se piden.
+    assert downloaded_ids == ["hist-2025"]
+    assert {f["anio"] for f in facts} == {"2025"}
+
+
+def test_get_time_logs_facts_hot_years_none_preserves_full_history_contract(monkeypatch):
+    # Otros consumidores de `get_time_logs_facts` (Rentabilidad, wrappers
+    # standalone de Productivas) NUNCA pasan `hot_years` — deben seguir
+    # viendo el historial COMPLETO, sin cambio de comportamiento.
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch)
+    facts = _repo().get_time_logs_facts("tok")
+    assert {f["anio"] for f in facts} == {"2026", "2025", "2024"}
+
+
+def test_get_time_logs_facts_hot_years_with_no_matching_file_returns_empty(monkeypatch):
+    _patch(
+        monkeypatch, proyectos=[], clientes=[],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [{"Date": "2026-01-01", "Project": "X", "Client": "Y",
+                                    "Duration Decimal": "1", "Task": "T", "Email": "a@danwor.com"}]},
+    )
+    facts = _repo().get_time_logs_facts("tok", hot_years=["2099"])
+    # Año futuro sin export todavía ⇒ dataset VACÍO legítimo — nunca
+    # `ReportingSourceError` (esa excepción queda reservada a la fuente
+    # genuinamente vacía/rota, ver `_download_time_logs_rows`).
+    assert facts == []
+
+
+def test_get_time_logs_years_available_lists_years_without_downloading_csv(monkeypatch):
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch)
+    downloaded = []
+    real_bytes = repo_mod.microsoft365.graph_get_bytes
+
+    def counting_bytes(url, access_token, **kw):
+        downloaded.append(url)
+        return real_bytes(url, access_token, **kw)
+
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_bytes", counting_bytes)
+
+    years = _repo().get_time_logs_years_available("tok")
+    # Metadata LIVIANA (HOT WINDOW/COLD HISTORY corrective, MISMO criterio
+    # que get_cartera_mantenimiento_anio_estado_pairs): solo lista archivos
+    # por nombre — nunca descarga/parsea ningún CSV.
+    assert downloaded == []
+    assert years == ["2024", "2025", "2026"]
+
+
+def test_get_batch_b_default_anios_uses_hot_window(monkeypatch):
+    import webapp.services.reporting_service as service_mod
+    monkeypatch.setattr(service_mod, "datetime", _FixedDatetime2026)
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch, colaboradores=[], user_information=[])
+    result = _service().get_batch_b("tok")
+    years = set(result["horasProductivas"][0]["horasByYear"].keys())
+    # Ventana caliente por defecto (2026 actual + 2025 anterior, MISMO
+    # `_default_hot_years` que Cartera/Rentabilidad/HV) — 2024 NUNCA
+    # aparece sin pedirlo explícitamente.
+    assert years == {"2026", "2025"}
+    assert set(result["horasProductivasDenominador"].keys()) == {"2026", "2025"}
+
+
+def test_get_batch_b_explicit_anios_lazy_loads_single_cold_year(monkeypatch):
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch, colaboradores=[], user_information=[])
+    result = _service().get_batch_b("tok", anios=["2024"])
+    years = set(result["horasProductivas"][0]["horasByYear"].keys())
+    assert years == {"2024"}
+    assert result["horasProductivas"][0]["horasByYear"]["2024"][4] == 2.0  # Mayo
+
+
+def test_get_batch_b_anios_delegates_to_repository_years_available(monkeypatch):
+    monkeypatch.setattr(repo_mod, "datetime", _FixedDatetime2026)
+    _three_year_fixture(monkeypatch)
+    assert _service().get_batch_b_anios("tok") == ["2024", "2025", "2026"]
 
 
 def test_download_time_logs_rows_skips_files_missing_required_headers(monkeypatch):
@@ -496,9 +756,9 @@ def test_get_batch_b_fetches_time_logs_and_colaboradores_once(monkeypatch):
     real_time_logs = ReportingRepository.get_time_logs_facts
     real_colab = ReportingRepository.get_colaboradores_email_map
 
-    def counted_time_logs(self, access_token):
+    def counted_time_logs(self, access_token, **kw):
         calls["time_logs"] += 1
-        return real_time_logs(self, access_token)
+        return real_time_logs(self, access_token, **kw)
 
     def counted_colab(self, access_token):
         calls["colaboradores"] += 1
@@ -622,7 +882,12 @@ def test_horas_productivas_and_no_asignadas_gate_on_batch_b_status_not_batch_a()
     # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
     # shell (`TAB_HYDRATION_TRIGGERS.capacidad`, ver `render()`) — ambos
     # sub-renderers solo gatean por status, nunca disparan su propio load.
-    assert 'capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); }' in _REPORTING_JS
+    # HOT WINDOW/COLD HISTORY corrective: el trigger ahora ADEMÁS dispara
+    # `loadCapacidadAnios` (metadata liviana, en paralelo — MISMO criterio
+    # que Cartera/HV/Rentabilidad), por eso el bloque es multi-línea.
+    trigger_block = _REPORTING_JS[_REPORTING_JS.index("capacidad: () => {"):_REPORTING_JS.index("capacidad: () => {") + 250]
+    assert 'if (state.batchBDataStatus === "idle") loadBatchBData();' in trigger_block
+    assert 'if (state.capacidadAniosStatus === "idle") loadCapacidadAnios();' in trigger_block
     for fn in ("renderCapacidadProductivas", "renderCapacidadNoAsignadas"):
         body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
         assert 'state.batchBDataStatus === "idle"' not in body
@@ -814,3 +1079,72 @@ def test_no_asignadas_and_productivas_share_the_same_punch_primitive():
         assert 'tone: "punch"' in _fn_body_exact(fn_name)
     # renderHubCallout está definido UNA sola vez (primitivo compartido).
     assert _REPORTING_JS.count("function renderHubCallout(") == 1
+
+
+# ============================================================================
+# Router — endpoint de metadata + threading de `anios` (HOT WINDOW/COLD
+# HISTORY corrective, MISMO patrón que test_reporting_cartera.py)
+# ============================================================================
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from webapp.main import app  # noqa: E402
+from webapp.routers import reporting as reporting_router  # noqa: E402
+from webapp.services import auth_service  # noqa: E402
+
+auth_service.ALLOWED_USERS = "ALL"
+auth_service.OPERATIONS_ALLOWED_USERS = "staffing-test@danwor.com,topbar-full@danwor.com,onedanwor-full@danwor.com"
+_BATCH_B_SESSION = auth_service.create_session(
+    {"email": "staffing-test@danwor.com", "name": "Rep Test", "first_name": "Rep", "family_name": "Test"}
+)
+_batch_b_client = TestClient(app)
+_batch_b_client.cookies.set(auth_service.COOKIE_NAME, _BATCH_B_SESSION)
+
+
+class _RecordingBatchBService:
+    def __init__(self, anios_disponibles=None):
+        self.received_anios = "unset"
+        self._anios_disponibles = anios_disponibles if anios_disponibles is not None else ["2024", "2025", "2026"]
+
+    def get_batch_b(self, access_token, *, anios=None):
+        self.received_anios = anios
+        return {"horasProductivas": [], "horasProductivasNoAsignadas": [], "horasProductivasDenominador": {}}
+
+    def get_batch_b_anios(self, access_token):
+        return self._anios_disponibles
+
+
+def test_batch_b_anios_disponibles_endpoint_requires_operations_session():
+    anon = TestClient(app)
+    r = anon.post("/operaciones/reporting/integral/data/batch-b/anios-disponibles",
+                  data={"graph_token": "tok"}, follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_batch_b_anios_disponibles_endpoint_success(monkeypatch):
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: _RecordingBatchBService())
+    r = _batch_b_client.post("/operaciones/reporting/integral/data/batch-b/anios-disponibles",
+                              data={"graph_token": "tok"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "ok"
+    assert body["aniosDisponibles"] == ["2024", "2025", "2026"]
+
+
+def test_batch_b_data_endpoint_omits_anios_resolves_to_none(monkeypatch):
+    # `anios` vacío/omitido ⇒ `anios_list=None` — el service resuelve la
+    # ventana caliente por defecto (MISMO contrato que `/data/cartera`).
+    recorder = _RecordingBatchBService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: recorder)
+    r = _batch_b_client.post("/operaciones/reporting/integral/data/batch-b", data={"graph_token": "tok"})
+    assert r.status_code == 200
+    assert recorder.received_anios is None
+
+
+def test_batch_b_data_endpoint_threads_explicit_anios_as_list(monkeypatch):
+    recorder = _RecordingBatchBService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: recorder)
+    r = _batch_b_client.post("/operaciones/reporting/integral/data/batch-b",
+                              data={"graph_token": "tok", "anios": "2024"})
+    assert r.status_code == 200
+    assert recorder.received_anios == ["2024"]
