@@ -1330,8 +1330,14 @@ def test_rentabilidad_anio_options_faceted_by_estado_and_selects():
 
 
 def test_rentabilidad_default_anio_current_or_latest():
+    # YEAR ORDERING corrective (owner decision 2026-08-19): el default ya
+    # NO indexa por posición del array (`options[options.length - 1]`,
+    # correcto SOLO mientras las opciones fueran ascendentes) — usa
+    # `mostRecentValidYear`, que compara valor numérico y es indiferente
+    # al orden de presentación (ver test_most_recent_valid_year_* abajo).
     block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadDefaultAnio"):_REPORTING_JS.index("function pruneRentabilidadAnio")]
-    assert "new Date().getFullYear()" in block and "options[options.length - 1]" in block
+    assert "new Date().getFullYear()" in block and "mostRecentValidYear(options)" in block
+    assert "options[options.length - 1]" not in block
 
 
 def test_rentabilidad_one_canonical_population():

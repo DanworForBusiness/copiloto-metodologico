@@ -217,7 +217,13 @@ function carteraAnioInicioOptions() {
   // imposible bajo el Estado/filtros vigentes. Reusa el mismo `facetRowsExcept`.
   const statusRows = CARTERA_PROYECTO_ROWS.filter(r => state.carteraStatus[r.status]);
   const rows = facetRowsExcept(statusRows, state.filters.cartera || {}, _CARTERA_SELECT_FIELDS, "");
-  return distinctValues(rows, "anioInicio");
+  // YEAR ORDERING corrective (owner decision 2026-08-19): `compareFn`
+  // numérico DESCENDENTE explícito en ESTE call site únicamente — MISMO
+  // criterio visual que el resto de los selectores de Año del Hub
+  // (`carteraAnioOptions` ya era descendente). `distinctValues` en sí NO
+  // cambia de default (lo comparten facets de string ascendentes como
+  // cp/proyecto/cliente, ver FACET_CONFIG.cartera).
+  return distinctValues(rows, "anioInicio", (a, b) => Number(b) - Number(a));
 }
 function carteraDefaultAnioInicio() {
   const anioActual = String(new Date().getFullYear());
@@ -3043,6 +3049,22 @@ function rentabilidadRanked(rows) {
 // abajo — un acumulador ingenuo con `+=` perdería la señal).
 function _isValidAnioValue(v) { return /^\d{4}$/.test(String(v || "")); }
 function _currentYearStr() { return String(new Date().getFullYear()); }
+// YEAR ORDERING corrective (owner decision 2026-08-19 — presentation vs
+// semantic selection deben ser independientes: el audit de year-ordering
+// encontró 4 `xxxDefaultAnio()` acoplados a `options[options.length - 1]`
+// como "año más reciente", correcto SOLO mientras `xxxAnioOptions()`
+// devolviera ascendente — al homologar los selectores a descendente ese
+// acoplamiento se hubiera roto en silencio, ver HANDOFF). Compara VALOR
+// NUMÉRICO de cada opción, nunca posición del array — funciona igual sea
+// el array ascendente, descendente, o sin ordenar en absoluto. Reusa
+// `_isValidAnioValue` (MISMO dominio de año que el resto del archivo,
+// nunca una regla nueva) para descartar valores no-4-dígitos ANTES de
+// comparar, así un valor inválido nunca puede ganar por ser el mayor
+// numéricamente por accidente (p. ej. si algo corrupto colara "9999").
+function mostRecentValidYear(options) {
+  const validYears = options.filter(_isValidAnioValue).map(Number);
+  return validYears.length ? String(Math.max(...validYears)) : "";
+}
 // Mes calendario ACTUAL 1-12, o `null` si `anio` no es el año en curso
 // (histórico/futuro-no-soportado ⇒ sin cap).
 function _operationalMonthCap(anio) {
@@ -3195,13 +3217,16 @@ function rentabilidadAnioOptions() {
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa (el backend YA
   // descarta valores no-4-dígitos en la fuente) — Año NUNCA muestra un
   // valor fuera de /^\d{4}$/, sea cual sea el origen del dato.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): selectores de
+  // Año DESCENDENTE en todo el Hub (`.reverse()` tras el sort ascendente
+  // — MISMO patrón que `carteraAnioOptions`, ya descendente).
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 function rentabilidadDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = rentabilidadAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";  // más reciente válido
+  return mostRecentValidYear(options);
 }
 // AÑO/MES MULTI-SELECT corrective: default de la PRIMERA hidratación —
 // año actual válido (o el más reciente disponible) tildado, MISMO
@@ -3298,13 +3323,15 @@ function horasVendidasAnioOptions() {
   // de Año): segunda línea de defensa, el backend YA descarta valores
   // no-4-dígitos en la fuente (`_is_valid_anio`) — Año NUNCA muestra algo
   // fuera de /^\d{4}$/ sea cual sea el origen del dato.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 function horasVendidasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = horasVendidasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // AÑO/MES MULTI-SELECT corrective — MISMO criterio que
 // rentabilidadDefaultAniosSet.
@@ -3378,7 +3405,10 @@ function comercialParticipacionAnioOptions() {
   });
   // TEMPORAL DOMAIN CONTRACT: segunda línea de defensa, MISMO criterio que
   // el resto de los <select>/checkbox-group de Año del Hub.
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE.
+  // `comercialParticipacionDefaultAnios` usa membership de Set (ver
+  // abajo) — no depende de posición, no requiere ningún otro cambio.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default: ventana caliente (año actual + anterior) tildada — MISMO criterio
 // que `_default_hot_years` del backend, filtrado a lo que realmente resultó
@@ -4362,7 +4392,9 @@ function capacidadProductivasAnioOptions() {
   const rows = facetRowsExcept(statusRows, state.filters.capacidad || {}, _CAPACIDAD_SELECT_FIELDS, "");
   const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default Año = año actual válido (owner corrective) — MISMO criterio que
 // rentabilidadDefaultAnio/horasVendidasDefaultAnio, aplicado UNA vez por
@@ -4372,7 +4404,7 @@ function capacidadProductivasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = capacidadProductivasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
 // ofrece 2026 aunque el CSV tiene años anteriores"): `_shape_horas_
@@ -4462,7 +4494,9 @@ function capacidadNoAsignadasAnioOptions() {
   const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
   const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
-  return [...years].filter(_isValidAnioValue).sort();
+  // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
+  // MISMO criterio que el resto de los selectores de Año del Hub.
+  return [...years].filter(_isValidAnioValue).sort().reverse();
 }
 // Default Año = año actual válido (owner corrective, MISMO criterio que
 // capacidadProductivasDefaultAnio) — si no está representado en los datos,
@@ -4471,7 +4505,7 @@ function capacidadNoAsignadasDefaultAnio() {
   const anioActual = String(new Date().getFullYear());
   const options = capacidadNoAsignadasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
-  return options.length ? options[options.length - 1] : "";
+  return mostRecentValidYear(options);
 }
 // Prune (MISMO criterio que pruneCapacidadProductivasAnio): si el año
 // elegido deja de ser válido (o todavía no se eligió ninguno), cae al
