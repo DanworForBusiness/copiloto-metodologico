@@ -985,6 +985,21 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    cualquier subconjunto. */
 .dashboard-view-switch--multi { flex-wrap: wrap; }
 .dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
+/* DENSIDAD CONTEXTUAL (owner corrective — Commercial Funnel spacing, ver
+   HANDOFF): variante de SOLO densidad, deliberadamente separada de
+   `--multi` arriba — `--multi` está nombrada y documentada para la
+   semántica de selección múltiple (Mes de Horas Productivas, "tildar
+   varios a la vez"), nunca para compacidad en general. Reusarla en un
+   switch single-select excluyente (Horas/Ponderadas del Funnel) sería un
+   nombre que promete un comportamiento que el control no tiene. Mismos
+   valores que `--multi` (4px/8px, .68rem) — es la MISMA escala compacta
+   ya establecida en el Hub, no un número nuevo — pero sin `flex-wrap`
+   (un toggle de 2 botones nunca necesita envolver) y sin ninguna
+   implicación de multi-select. Para un control LOCAL dentro de un chart
+   (nunca un filtro global de primera clase, ver `--scroll` arriba, que
+   sí preserva el peso completo por ser filtro): el switch pasa a ser
+   liviano en vez de competir en altura con el texto que lo acompaña. */
+.dashboard-view-switch--compact button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
 /* Mes de Año/Mes multi-select (DECISIÓN VISUAL OWNER — AÑO/MES
    MULTI-SELECT corrective, ver HANDOFF): a diferencia de `--multi`
    arriba (Horas Productivas, compacta + wrap), esta variante mantiene la

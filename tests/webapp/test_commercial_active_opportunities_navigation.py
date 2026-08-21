@@ -88,6 +88,31 @@ def test_header_wraps_gracefully_on_narrow_viewports_never_shrinking_the_title()
     assert ".category-plot-header .dashboard-view-switch { flex-shrink: 0; }" in commercial_css
 
 
+def test_funnel_block_has_a_real_section_gap_before_whatever_follows():
+    # Spacing rhythm corrective (C3.1, ver HANDOFF — "spacing NO cerrado"):
+    # antes de este fix el eje X quedaba pegado (0px) al bloque siguiente.
+    # El margin va en el wrapper de TODO el Funnel (`[data-commercial-dist]`)
+    # para que sea estructural — no depende de qué contenido venga después
+    # (hoy la tabla provisoria, en C4 Forecast/Origen/Detalle) — y usa el
+    # MISMO valor que el Hub ya usa para "después de un bloque analítico"
+    # (`.dashboard-section` margin, `.activity-kpi-grid` margin-bottom),
+    # nunca un número inventado para esta captura puntual.
+    commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
+    tools_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert "[data-commercial-dist] { margin-bottom: 12px; }" in commercial_css
+    assert ".dashboard-section { margin: 12px 0;" in tools_css
+    assert ".activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }" in tools_css
+
+
+def test_internal_funnel_gaps_stay_compact_only_the_exit_gap_grew():
+    # El ritmo interno (header→leyenda→plot) NO cambió en este corrective —
+    # sólo la salida del bloque. Evita que una futura edición "arregle" el
+    # gap de salida subiendo también los internos por error.
+    commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
+    assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }" in commercial_css
+    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px;" in commercial_css
+
+
 def test_no_focus_stealing_introduced_by_the_scroll_corrective():
     # El scroll es puramente visual — nunca mueve el foco (no hay contrato
     # aria-expanded/focus previo en el motor compartido, así que esta
@@ -125,8 +150,7 @@ def test_opportunities_bar_color_is_neutral_graphite_not_blue():
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     rules_only = re.sub(r"/\*.*?\*/", "", commercial_css, flags=re.S)
     assert "#2f6fbd" not in rules_only
-    assert ".category-plot__bar--count { background: #1f1f24; }" in commercial_css
-    assert ".content-theme-dark .category-plot__bar--count { background: #e4e4ec; }" in commercial_css
+    assert ".category-plot__bar--count { background: var(--commercial-neutral-ink); }" in commercial_css
 
 
 def test_hours_series_stays_gold_across_the_switch():
@@ -137,15 +161,28 @@ def test_hours_series_stays_gold_across_the_switch():
     assert ".category-plot-legend .swatch-bar--hours { background: var(--gold); }" in commercial_css
 
 
-def test_axis_and_swatch_colors_are_theme_aware_not_hardcoded_hex_only():
-    # Nunca un gris fijo que desaparezca contra el fondo oscuro — LIGHT y
-    # DARK definidos ambos, explícitamente, para cada elemento coloreado.
+def test_opportunities_color_is_centralized_in_one_local_theme_aware_variable():
+    # Color token audit (C3.1, ver HANDOFF): no existe un token Hub
+    # apropiado para reutilizar (--tab-ink está nombrado/documentado para
+    # `.experience-tabs`, no como contrato genérico) — se centraliza como
+    # variable LOCAL de esta hoja, nunca un primitivo Hub nuevo con un solo
+    # consumidor, y nunca el literal duplicado en cada selector.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
-    for light, dark in (
-        (".category-plot__axis--left span { right: 7px; color: #1f1f24; }",
-         ".content-theme-dark .category-plot__axis--left span { color: #e4e4ec; }"),
-        (".category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #1f1f24; }",
-         ".content-theme-dark .category-plot-legend .swatch-bar { background: #e4e4ec; }"),
-    ):
-        assert light in commercial_css, light
-        assert dark in commercial_css, dark
+    assert ":root { --commercial-neutral-ink: #1f1f24; }" in commercial_css
+    assert ".content-theme-dark { --commercial-neutral-ink: #e4e4ec; }" in commercial_css
+    # Un solo lugar (fuera de prosa) define los literales — todo lo demás
+    # los consume por var. Comentarios se descartan: mencionan el par varias
+    # veces documentando de dónde vienen y por qué no se adoptó --tab-ink.
+    rules_only = re.sub(r"/\*.*?\*/", "", commercial_css, flags=re.S)
+    assert rules_only.count("#1f1f24") == 1
+    assert rules_only.count("#e4e4ec") == 1
+    assert rules_only.count("var(--commercial-neutral-ink)") == 3  # bar--count, axis--left, swatch-bar
+
+
+def test_axis_and_swatch_colors_are_theme_aware_not_hardcoded_hex_only():
+    # Nunca un gris fijo que desaparezca contra el fondo oscuro — ambos
+    # consumidores restantes (eje, swatch) resuelven por la MISMA variable
+    # theme-aware, nunca un hex propio que pueda desalinearse del tile.
+    commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
+    assert ".category-plot__axis--left span { right: 7px; color: var(--commercial-neutral-ink); }" in commercial_css
+    assert ".category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }" in commercial_css

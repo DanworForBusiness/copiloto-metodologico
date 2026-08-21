@@ -279,7 +279,7 @@ function commercialDistribucionHtml(pipeline, dim) {
   return `
     <div class="category-plot-header">
       <p class="perspective-label">Funnel por Etapa</p>
-      <div class="dashboard-view-switch" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
+      <div class="dashboard-view-switch dashboard-view-switch--compact" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
     </div>
     <div class="category-plot-legend">
       <b><i class="swatch-bar swatch-bar--count"></i>Oportunidades <em>· escala izq.</em></b>

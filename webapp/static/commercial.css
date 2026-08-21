@@ -16,8 +16,9 @@
      otra magnitud las desborda;
    - `height: 188px` esta calibrado para el footprint de ~250-300px que pidio
      este corrective, no es una medida universal;
-   - el color de cada barra (#2f6fbd/`--gold`) y el de su eje correspondiente
-     son el MISMO a proposito: hornea "este eje pertenece a esta serie" (ver
+   - el color de cada barra (`--commercial-neutral-ink`/`--gold`) y el de su
+     eje correspondiente son el MISMO a proposito: hornea "este eje
+     pertenece a esta serie" (ver
      Active Opportunities Phase 2 / C3 — grouped bars, restaura la
      representacion legacy: Oportunidades y Horas/Ponderadas SON dos series
      de barras, nunca barra + linea);
@@ -41,6 +42,26 @@
    Nota de nombre: se conserva `category-plot` (descriptivo de la forma) en
    vez de un prefijo `commercial-*`, que ademas esta explicitamente prohibido
    por el guard de tests. El ownership lo fija este archivo, no el nombre. */
+
+/* COLOR TOKEN — auditoría C3.1 (ver HANDOFF): `#1f1f24`/`#e4e4ec` NO vienen
+   de una variable Hub existente — se copiaron literales desde
+   `.activity-kpi__value` (tools.css), que resuelve el MISMO par a mano, sin
+   var. Auditado: sí existe un token Hub theme-aware con estos DOS valores
+   exactos — `--tab-ink` (tools.css, consumido por `.experience-tabs`,
+   fallback `#1f1f24` + override `#e4e4ec` en `.content-theme-dark`) — pero
+   está nombrado y documentado para ESE consumidor puntual (tabs), no como
+   contrato genérico de "ink theme-aware" reutilizable (el propio Hub tiene
+   varias instancias de este mismo par bajo nombres distintos por
+   componente — `--tab-ink`, `--bar-track-bg`, el literal de
+   `.activity-kpi__value` — nunca un único token universal, por el
+   antecedente de `--ink` con significado invertido según superficie, ver
+   el comentario de la promoción de `.experience-tabs` en tools.css).
+   Mismo criterio acá: variable LOCAL de esta hoja, mismos DOS valores,
+   nombre propio — no se adopta `--tab-ink` (acoplaría este chart a la
+   semántica de un primitivo ajeno) ni se promueve un token Hub nuevo con
+   un solo consumidor. */
+:root { --commercial-neutral-ink: #1f1f24; }
+.content-theme-dark { --commercial-neutral-ink: #e4e4ec; }
 
 /* Header compuesto (Active Opportunities Phase 2 / C3.1, ver HANDOFF —
    spacing corrective): titulo y switch en la MISMA fila — antes vivian en
@@ -85,37 +106,52 @@
    Ponderadas se queda en `--gold`: es la MISMA serie, el switch solo cambia
    que magnitud mide, nunca de que color es. */
 .category-plot__bar { width: 38%; max-width: 20px; min-height: 2px; border-radius: 3px 3px 0 0; }
-.category-plot__bar--count { background: #1f1f24; }
-.content-theme-dark .category-plot__bar--count { background: #e4e4ec; }
+.category-plot__bar--count { background: var(--commercial-neutral-ink); }
 .category-plot__bar--hours { background: var(--gold); }
 /* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
    grilla, incluido el 0 apoyado en el eje. */
 .category-plot__axis { position: relative; }
 .category-plot__axis span { position: absolute; font: 600 .56rem var(--mono); letter-spacing: .02em; white-space: nowrap; transform: translateY(50%); }
 .category-plot__axis--left { grid-column: 1; }
-.category-plot__axis--left span { right: 7px; color: #1f1f24; }
+.category-plot__axis--left span { right: 7px; color: var(--commercial-neutral-ink); }
 .category-plot__axis--right { grid-column: 3; }
 .category-plot__axis--right span { left: 7px; color: #a67c00; }
 .category-plot__xlab { grid-column: 2; display: flex; gap: 5px; margin-top: 5px; }
+/* SECTION GAP (C3.1 — spacing corrective, ver HANDOFF): separación hacia el
+   BLOQUE SIGUIENTE (hoy la tabla "Detalle por Etapa" provisoria; en C4 el
+   detalle real) — antes 0px, el eje X quedaba pegado al próximo bloque. Va
+   en `[data-commercial-dist]` (el wrapper de TODO el Funnel: header +
+   leyenda + plot) para que sea estructural — no depende de qué venga
+   después, ni de que exista contenido. Mismo valor que el Hub ya usa para
+   "después de un bloque analítico completo" — `.dashboard-section` (margin
+   12px) y `.activity-kpi-grid` (margin-bottom 12px) — nunca un número
+   nuevo. Los gaps INTERNOS (header→leyenda→plot, 8px/7px) siguen
+   compactos a propósito: sólo la SALIDA del bloque se equipara al ritmo
+   entre bloques del resto del Hub. */
+[data-commercial-dist] { margin-bottom: 12px; }
 .category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
 .category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
 .category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .category-plot-legend em { font-style: normal; color: #7a7a82; }
-.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: #1f1f24; }
+.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }
 .category-plot-legend .swatch-bar--hours { background: var(--gold); }
 .content-theme-dark .category-plot-legend { color: #b6b6c0; }
 .content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }
-.content-theme-dark .category-plot-legend .swatch-bar { background: #e4e4ec; }
-.content-theme-dark .category-plot__axis--left span { color: #e4e4ec; }
 .content-theme-dark .category-plot__axis--right span { color: #d9a520; }
-/* scroll-margin-top (C3.1 — click del KPI navega al analisis, ver HANDOFF):
-   despeja el `.topbar` sticky compartido (74px desktop / 66px <=760px, ver
-   app.css) + ~12px de aire — mismo criterio que `.content-section` en
-   app.css/tools.css (scroll-margin-top en vez de scrollTo con numeros
-   magicos), valor propio porque el offset real de ESTE topbar no es el
-   mismo que el de esas paginas. Local a Comercial: `.dashboard-section` es
-   un primitivo compartido con otras verticales que no pidieron este
+/* SCROLL OFFSET — auditoría C3.1 (ver HANDOFF): NO existe en el Hub una
+   variable/token para altura de topbar, sticky offset ni scroll offset —
+   `74px`/`66px` están hardcodeados como literales en varios selectores de
+   app.css (`.app-shell` grid-rows, `.topbar`, `.module-nav`,
+   `.copilot-panel`, y su contraparte `@media(max-width:760px)`), nunca
+   detrás de una var. `86px`/`78px` acá son ESE mismo literal (74/66) + ~12px
+   de aire, medidos en vivo contra el chrome actual — offsets de
+   composición de Comercial, no un contrato Hub. Mismo criterio que
+   `.content-section` ya usa en app.css/tools.css (scroll-margin-top en vez
+   de scrollTo con numeros magicos) pero con valor propio, porque el
+   offset real de ESTE topbar en esta pagina no tiene por qué coincidir con
+   el de esas otras. Local a Comercial: `.dashboard-section` es un
+   primitivo compartido con otras verticales que no pidieron este
    comportamiento — promoverlo sin un segundo consumidor real seria
    prematuro (commercial.css solo carga en esta pagina, ver encabezado). */
 .dashboard-section { scroll-margin-top: 86px; }
