@@ -734,12 +734,62 @@ def test_analytics_stage_conversion_reports_the_bottleneck_rate():
 
 
 def test_creadas_counts_pipeline_entry_by_monday_based_weeks():
+    # Escenario AISLADO (auditoría "creadas" week-boundary, ver HANDOFF):
+    # antes reutilizaba _analytics_client(), cuyo id 2 (creado hace 10 días,
+    # con una transición real a "1 Contacto" fechada ayer) contamina el
+    # conteo de "esta semana" de jueves a domingo — su create_date cae
+    # justo sobre el límite de last_monday ese rango de días. Fixture propio
+    # y mínimo para que el resultado sea invariante los 7 días de la
+    # semana: this_monday/last_monday se derivan de HOY, nunca un offset
+    # fijo como "hoy - 10" (ese offset fijo fue la causa raíz).
     svc_module.clear_cache()
-    a = CommercialService(_analytics_client()).get_analytics("todos")
-    # id 4 entró esta semana (create_date, sin historial, ya en etapa 1).
-    # id 5 entró la semana pasada — archivada, se cuenta igual.
+    this_monday = date.today() - timedelta(days=date.today().weekday())
+    last_monday = this_monday - timedelta(days=7)
+    leads = [
+        # A — creada ESTA semana, ya en "1 Contacto" (stage_one), sin
+        # historial de transición → cuenta por create_date (fallback).
+        {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [],
+         "expected_revenue": 0, "lead_properties": [], "create_date": this_monday.isoformat()},
+        # B — creada la semana PASADA, archivada, ya en "1 Contacto", sin
+        # historial → cuenta igual por create_date (fallback); archivada no
+        # la excluye de "creadas".
+        {"id": 2, "type": "opportunity", "active": False, "stage_id": 2, "tag_ids": [],
+         "expected_revenue": 0, "lead_properties": [], "create_date": last_monday.isoformat()},
+    ]
+    client = FakeOdooClient(stages=STAGES, tags=TAGS, leads=leads)
+    a = CommercialService(client).get_analytics("todos")
     assert a["creadas"]["this_week"] == 1
     assert a["creadas"]["last_week"] == 1
+    svc_module.clear_cache()
+
+
+def test_creadas_uses_stage_one_entry_transition_before_create_date():
+    # Contrato de negocio (ver HANDOFF): "Creadas" es la entrada al
+    # PIPELINE (etapa 1), no la fecha de alta — una oportunidad puede haber
+    # nacido como prospecto la semana pasada y recién entrar a "1 Contacto"
+    # esta semana; cuenta por la fecha de ENTRADA, no por create_date.
+    # Escenario aislado, sin relación con _analytics_client()/id 2.
+    svc_module.clear_cache()
+    this_monday = date.today() - timedelta(days=date.today().weekday())
+    last_monday = this_monday - timedelta(days=7)
+    leads = [
+        # Creada la semana PASADA (por create_date parecería "last_week"),
+        # pero recién entró a "1 Contacto" (stage_one) ESTA semana.
+        {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [],
+         "expected_revenue": 0, "lead_properties": [], "create_date": last_monday.isoformat()},
+    ]
+    messages = [
+        {"id": 100, "res_id": 1, "date": this_monday.isoformat(), "tracked_field": "stage_id",
+         "model": "crm.lead"},
+    ]
+    tracking = [
+        {"mail_message_id": 100, "field": "stage_id", "old_value_integer": 1, "new_value_integer": 2},
+    ]
+    client = FakeOdooClient(stages=STAGES, tags=TAGS, leads=leads,
+                            messages=messages, tracking=tracking)
+    a = CommercialService(client).get_analytics("todos")
+    assert a["creadas"]["this_week"] == 1
+    assert a["creadas"]["last_week"] == 0
     svc_module.clear_cache()
 
 
