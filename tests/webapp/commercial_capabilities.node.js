@@ -213,10 +213,15 @@ function loadActivities(rows) {
     act({ deadline: isoOffset(-2) }), act({ deadline: isoOffset(0) }), act({ deadline: isoOffset(3) }), act({ deadline: null }),
   ]);
   const html = commercialActivityTableHtml(rows.overdue) + commercialActivityTableHtml(rows.pending);
-  assertTrue(html.includes("(venc. 2d)"), "vencida muestra hace cuánto");
-  assertTrue(html.includes("(hoy)"), "hoy se dice explícito");
-  assertTrue(html.includes("(3d)"), "futura muestra días restantes");
+  // C9: el relativo pasó de texto entre paréntesis a BADGE de color, MISMO
+  // primitivo compartido que "Próx. Acción" en el detalle de Oportunidades.
+  // El texto sigue estando — la urgencia no depende sólo del color.
+  assertTrue(html.includes(">venc. 2d<"), "vencida muestra hace cuánto");
+  assertTrue(html.includes(">hoy<"), "hoy se dice explícito");
+  assertTrue(html.includes(">3d<"), "futura muestra días restantes");
   assertTrue(html.includes("—"), "sin fecha no inventa una");
+  assertTrue(html.includes("dashboard-status-badge--green"), "y el relativo va como badge tonal");
+  assertTrue(!/\(venc\.|\(hoy\)|\(3d\)/.test(html), "sin los paréntesis del formato viejo");
 }
 
 // --- La sección estática reusa el contrato visual compartido -----------------

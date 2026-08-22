@@ -224,8 +224,10 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # DOM. C6b (tabla + filtros del Forecast, ver HANDOFF) agrega dos: el
     # trigger ACTIVO de forecast —de donde se LEE el modo Total/Ponderado, en
     # vez de guardarlo— y el host del título conmutable. El contrato sigue
-    # siendo explícito, no aproximado: se permiten EXACTAMENTE estos quince
-    # hooks y nada más.
+    # siendo explícito, no aproximado: se permiten EXACTAMENTE estos dieciséis
+    # hooks y nada más. C9 agrega el del cuerpo de Actividades, que su búsqueda
+    # y su orden re-renderizan sin tocar la barra de controles — si la
+    # regeneraran, el `<input>` perdería el foco.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -233,6 +235,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '`[data-event="${trigger.dataset.event}"]`',
         '"[data-commercial-funnel-area]"',
         '"[data-commercial-opportunities]"',
+        '"[data-commercial-activities-body]"',
         '"[data-commercial-forecast-body]"',
         '"[data-commercial-forecast-count]"',
         '"[data-commercial-forecast-title]"',
@@ -1152,11 +1155,15 @@ def test_activity_rows_escape_every_odoo_sourced_field():
 
 
 def test_activities_capability_only_shows_the_two_supported_kpis():
-    fn = _COMMERCIAL_JS.split("function commercialActividadesHtml(", 1)[1].split("\nfunction ", 1)[0]
+    # C9: los KPIs se movieron a `commercialActivitiesBodyHtml`, el host que la
+    # búsqueda y el orden re-renderizan quirúrgicamente sin tocar la barra.
+    fn = _COMMERCIAL_JS.split("function commercialActivitiesBodyHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert 'commercialKpi("Total pendientes"' in fn
     assert 'commercialKpi("Retrasadas"' in fn
     assert fn.count("commercialKpi(") == 2, "sin métricas inventadas"
-    assert "Actividades Pendientes" in fn
+    # El rótulo de la capability vive en el shell, no en el cuerpo re-renderizable.
+    shell = _COMMERCIAL_JS.split("function commercialActividadesHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "Actividades Pendientes" in shell
 
 
 # ============================================================================

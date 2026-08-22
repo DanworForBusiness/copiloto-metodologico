@@ -99,6 +99,15 @@ const commercialState = {
   // cargado, nunca un round-trip (ver commercialFilteredActivities).
   actPeriod: "all", // all | week:0 | week:1 | week:2
   actUser: "",
+  // Búsqueda y orden de Actividades (C9, ver HANDOFF) — MISMO comportamiento
+  // transversal que el detalle de Oportunidades. A diferencia de Activas, acá
+  // la búsqueda SÍ entra en el conjunto filtrado: los dos KPIs de arriba son
+  // literalmente los contadores de las secciones de abajo (no una vista
+  // analítica aparte como el Funnel), así que dejarla afuera los haría
+  // contradecir los encabezados. `null` = sin ordenar (orden de llegada).
+  actSearchText: "",
+  actSortKey: null,
+  actSortDir: 1, // 1 = ascendente, -1 = descendente
   // Filtros de ANÁLISIS del detalle de Oportunidades (C5e, ver HANDOFF):
   // Etapa/Vendedor afectan Funnel + tabla (ver
   // `commercialAnalysisFilteredOpportunities`); el texto libre es SÓLO de
@@ -1610,14 +1619,64 @@ function commercialDaysToEndOfWeek() {
 // DERIVAN del propio dataset (no hay catálogo de usuarios que consultar). Sin
 // persistencia — no hay precedente Hub y arrastraría estado de usuario, fuera
 // de alcance. Sólo LEEN el tipo global, nunca lo tocan.
+// Texto buscable de una actividad — MISMO criterio que
+// `commercialOpportunitySearchableText`: se busca sobre lo que la fila
+// MUESTRA (incluida la fecha formateada y el relativo "venc. 5d"), no sobre
+// los campos crudos, para que buscar lo que se ve funcione siempre.
+function commercialActivitySearchableText(act) {
+  const days = commercialDaysUntil(act.deadline);
+  const rel = days === null ? "" : days < 0 ? `venc. ${Math.abs(days)}d` : days === 0 ? "hoy" : `${days}d`;
+  return [act.type, act.opportunity, act.client, act.user, act.summary, act.note,
+    commercialFmtDate(act.deadline), rel].filter(Boolean).join(" ").toLowerCase();
+}
+
+// Claves de orden — MISMA mecánica que `COMMERCIAL_OPP_SORT_KEYS`. Fecha
+// ordena por `days` (el relativo, que es la señal de triage) y no por el
+// string de la fecha; sin fecha va al final en ascendente, nunca antes que
+// una actividad con vencimiento real.
+const COMMERCIAL_ACT_SORT_KEYS = {
+  deadline: a => (a.days != null ? Number(a.days) : Infinity),
+  type: a => (a.type || "").toLowerCase(),
+  opportunity: a => (a.opportunity || "").toLowerCase(),
+  client: a => (a.client || "").toLowerCase(),
+  user: a => (a.user || "").toLowerCase(),
+  detail: a => [a.summary, a.note].filter(Boolean).join(" ").toLowerCase(),
+};
+
+function commercialToggleActSort(key) {
+  if (commercialState.actSortKey === key) {
+    commercialState.actSortDir *= -1;
+  } else {
+    commercialState.actSortKey = key;
+    commercialState.actSortDir = 1;
+  }
+}
+
+// Orden client-side puro, y SIEMPRE dentro de cada bucket: Retrasadas y
+// Pendientes son dos tablas distintas, ordenar cruzándolas no significaría
+// nada. Copia el array antes de ordenar — `.sort` muta.
+function commercialActivitiesSorted(rows) {
+  const keyFn = commercialState.actSortKey && COMMERCIAL_ACT_SORT_KEYS[commercialState.actSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.actSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
 function commercialFilteredActivities() {
   const all = (commercialState.activities && commercialState.activities.activities) || [];
   const period = commercialState.actPeriod;
   const user = commercialState.actUser;
+  const query = (commercialState.actSearchText || "").trim().toLowerCase();
   const since = commercialDaysSinceMonday();
   const toEnd = commercialDaysToEndOfWeek();
   return all.filter(act => {
     if (user && act.user !== user) return false;
+    if (query && !commercialActivitySearchableText(act).includes(query)) return false;
     if (period !== "all") {
       const offset = parseInt(String(period).split(":")[1] ?? "0", 10);
       const days = commercialDaysUntil(act.deadline);
@@ -1663,13 +1722,32 @@ function commercialStaticSection(id, title, countLabel, bodyHtml) {
 // un permiso para tratar la fuente como HTML confiable.
 function commercialActivityTableHtml(rows) {
   if (!rows.length) return commercialEmptyStateHtml("Sin resultados", "Sin actividades para este filtro.");
-  const body = rows.map(act => {
+  // Cabeceras ORDENABLES — MISMO primitivo y MISMO contrato que el detalle de
+  // Oportunidades (`.dashboard-table-th--sortable`, tools.css): comportamiento
+  // transversal del Hub, no un mecanismo propio de esta tabla.
+  const th = (key, label) => {
+    const active = commercialState.actSortKey === key;
+    const arrow = active ? (commercialState.actSortDir === 1 ? " ▲" : " ▼") : "";
+    return `<th class="left dashboard-table-th--sortable" data-commercial-act-sort="${key}">`
+      + `${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const body = commercialActivitiesSorted(rows).map(act => {
+    // El relativo va como BADGE de color (C9), MISMO criterio que "Próx.
+    // Acción" en el detalle de Oportunidades: la magnitud de `days` —no el
+    // signo— define el tono (`commercialUrgencyColor`), porque una actividad
+    // vencida hace 3 días es tan urgente como una que vence en 3. La fecha
+    // queda como texto plano antes del badge, igual que allá. Sin fecha no hay
+    // tono que asignar, así que no hay badge.
     const rel = act.days === null ? ""
-      : act.days < 0 ? ` (venc. ${Math.abs(act.days)}d)`
-      : act.days === 0 ? " (hoy)" : ` (${act.days}d)`;
+      : act.days < 0 ? `venc. ${Math.abs(act.days)}d`
+      : act.days === 0 ? "hoy" : `${act.days}d`;
+    const color = commercialUrgencyColor(act.days);
+    const badge = rel && color
+      ? ` · <span class="dashboard-status-badge dashboard-status-badge--${color}">${commercialEsc(rel)}</span>`
+      : "";
     const detail = [act.summary, act.note].filter(Boolean).join(" · ") || "—";
     return `<tr>
-      <td class="left">${commercialEsc(commercialFmtDate(act.deadline))}${commercialEsc(rel)}</td>
+      <td class="left">${commercialEsc(commercialFmtDate(act.deadline))}${badge}</td>
       <td class="left">${commercialEsc(act.type)}</td>
       <td class="left">${commercialEsc(act.opportunity)}</td>
       <td class="left">${commercialEsc(act.client)}</td>
@@ -1690,19 +1768,44 @@ function commercialActivityTableHtml(rows) {
   // Hub, promovido justamente para esto) da scroll horizontal DENTRO del
   // panel — MISMO comportamiento que las matrices mensuales de Reporting. Se
   // prefiere scroll a truncar: el contenido nunca queda inalcanzable.
-  // Fecha va primera y entera porque "(venc. 12d)" es la señal de triage.
+  // Fecha va primera porque el relativo ("venc. 12d") es la señal de triage.
+  //
+  // REPARTO recalibrado con medición real (owner smoke: "sobra mucho espacio en
+  // la columna fecha, prefiero que ese espacio lo gane Oportunidad"). Con
+  // `table-layout:fixed` el navegador reparte el sobrante en PROPORCIÓN a los
+  // anchos declarados, así que lo que manda es la RELACIÓN entre ellos, no el
+  // valor absoluto. Medido sobre una tabla de 1231px: Fecha recibía 290px y su
+  // contenido más largo ("03/06/2026 · venc. 80d") pide 180 — 110px de aire —
+  // mientras Oportunidad recibía 235 pidiendo 485, con 5 de 9 filas truncadas.
+  // Fecha baja de 160 a 105 y Oportunidad sube de 130 a 185: la suma queda
+  // IGUAL (680px), así que el piso de scroll en mobile no cambia, y en ancho
+  // real Fecha aterriza en ~190 (justo lo que necesita, con un margen para un
+  // "venc. 100d") y Oportunidad gana ~100px. Sigue sin entrar todo —el total
+  // pedido por las seis columnas supera cualquier panel—, pero el espacio va
+  // ahora a la columna que el owner marcó como la más importante.
   return `<div class="matrix-scroll">
       <table class="dashboard-table">
         <colgroup>
-          <col style="width:160px"><col style="width:70px"><col style="width:130px">
+          <col style="width:105px"><col style="width:70px"><col style="width:185px">
           <col style="width:80px"><col style="width:90px"><col style="width:150px">
         </colgroup>
-        <thead><tr><th class="left">Fecha</th><th class="left">Tipo</th><th class="left">Oportunidad</th><th class="left">Cliente</th><th class="left">Responsable</th><th class="left">Detalle</th></tr></thead>
+        <thead><tr>${th("deadline", "Fecha")}${th("type", "Tipo")}${th("opportunity", "Oportunidad")}${th("client", "Cliente")}${th("user", "Responsable")}${th("detail", "Detalle")}</tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>`;
 }
 
+// Buscar + "✕ Limpiar" (C9): MISMOS primitivos que la barra de Activas
+// (`.whatsnew-filters`/`--fill` y el `.whatsnew-filter__clear` compartido del
+// Hub) — un solo lenguaje de filtros en toda la vertical, cero clase nueva.
+// "Buscar" es `--fill` y se come el espacio del medio, así que Limpiar queda
+// pegado a la derecha sin posicionamiento propio.
+//
+// A diferencia de Activas, acá Limpiar SÍ regenera la barra (vía
+// `commercialRenderCapability`): "Período" es un grupo de botones cuyo estado
+// activo vive en el markup, así que un reset quirúrgico tendría que tocar
+// cuatro botones + un select + un input. Regenerar es más simple y menos
+// frágil, y un click no tiene el problema de foco que sí tiene teclear.
 function commercialActivitiesControlsHtml() {
   const periods = [["all", "Todas"], ["week:0", "Esta semana"], ["week:1", "Próxima"], ["week:2", "En 2 semanas"]];
   const buttons = periods.map(([key, label]) =>
@@ -1727,6 +1830,11 @@ function commercialActivitiesControlsHtml() {
           ${options}
         </select>
       </label>
+      <label class="whatsnew-filter whatsnew-filter--fill">
+        <span>Buscar</span>
+        <input type="search" data-commercial-act-search aria-label="Buscar actividades" placeholder="Buscar…" value="${commercialEsc(commercialState.actSearchText)}">
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-act-clear>✕ Limpiar</button>
     </div>`;
 }
 
@@ -1740,6 +1848,18 @@ function commercialActividadesHtml() {
       : "No pudimos cargar las actividades desde el CRM en este momento.";
     return commercialEmptyStateHtml("No disponible", label);
   }
+  return `<p class="perspective-label">Actividades Pendientes</p>
+    ${commercialActivitiesControlsHtml()}
+    <div data-commercial-activities-body>${commercialActivitiesBodyHtml()}</div>`;
+}
+
+// KPIs + leyenda + las dos secciones, en UN host estable (C9): la búsqueda y
+// el orden lo re-renderizan QUIRÚRGICAMENTE, sin tocar la barra de controles
+// — si regeneraran el `<input>` en cada tecla, el foco se perdería después
+// del primer carácter (MISMO motivo por el que la barra de Activas nunca se
+// regenera al buscar). Período/Responsable sí siguen re-renderizando el panel
+// entero: son un click y un `change`, y así la barra refleja su propio estado.
+function commercialActivitiesBodyHtml() {
   const rows = commercialFilteredActivities();
   const buckets = commercialActivityBuckets(rows);
   // KPIs: SOLO los dos que los datos sostienen directamente. Reflejan el
@@ -1749,6 +1869,11 @@ function commercialActividadesHtml() {
       ${commercialKpi("Total pendientes", commercialFmtInt(rows.length))}
       ${commercialKpi("Retrasadas", commercialFmtInt(buckets.overdue.length))}
     </div>`;
+  // Leyenda de urgencia UNA sola vez, arriba de las dos secciones: los badges
+  // de las dos tablas usan la misma escala, así que repetirla por sección
+  // sería ruido. Sólo con filas — nunca una leyenda sobre la nada, MISMO
+  // criterio que `commercialOpportunitiesBlockHtml`.
+  const legend = rows.length ? commercialUrgencyLegendHtml() : "";
   // Retrasadas SIEMPRE antes que "Por vencer" — orden semántico, ver
   // commercialStaticSection.
   //
@@ -1759,15 +1884,20 @@ function commercialActividadesHtml() {
   // "Pendientes" leído al lado de "Total pendientes" invita a compararlos como
   // si midieran lo mismo. En el dominio TODAS son pendientes (`mail.activity`
   // sólo devuelve pendientes), así que el que tenía que desambiguarse era el
-  // subconjunto, no el total. Cambio de COPY: cero cambio de números.
+  // subconjunto, no el total.
   const sections = commercialStaticSection("act-retrasadas", "Retrasadas",
       `${commercialFmtInt(buckets.overdue.length)} actividad(es)`, commercialActivityTableHtml(buckets.overdue))
     + commercialStaticSection("act-pendientes", "Por vencer",
       `${commercialFmtInt(buckets.pending.length)} actividad(es)`, commercialActivityTableHtml(buckets.pending));
-  return `<p class="perspective-label">Actividades Pendientes</p>
-    ${commercialActivitiesControlsHtml()}
-    ${kpis}
-    <div>${sections}</div>`;
+  return `${kpis}${legend}<div>${sections}</div>`;
+}
+
+// Re-render quirúrgico del cuerpo de Actividades — nunca del panel entero.
+function commercialRenderActivitiesBody() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const host = root.querySelector("[data-commercial-activities-body]");
+  if (host) host.innerHTML = commercialActivitiesBodyHtml();
 }
 
 // Contenido del Dashboard (la capability inicial). Se separó de
@@ -2163,6 +2293,9 @@ function commercialSetTipo(tipo) {
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
   commercialState.actUser = "";
+  commercialState.actSearchText = "";
+  commercialState.actSortKey = null;
+  commercialState.actSortDir = 1;
   // Texto libre del detalle de Oportunidades (C5e, ver HANDOFF): mismo
   // criterio que Actividades arriba — se resetea siempre, nunca sobrevive a
   // un dataset distinto. Etapa/Vendedor NO se tocan acá: su reset es
@@ -2274,6 +2407,26 @@ document.addEventListener("DOMContentLoaded", () => {
     // Forecast SÍ se re-renderiza quirúrgicamente, así que los `<select>` se
     // regeneran con su valor neutro solos. Cero hooks de DOM propios y cero
     // red: el payload no cambia.
+    // "✕ Limpiar" de Actividades (C9): resetea Período + Responsable + Buscar.
+    // Regenera el panel a propósito (ver `commercialActivitiesControlsHtml`):
+    // el estado activo de "Período" vive en el markup de sus botones.
+    const actClear = event.target.closest("[data-commercial-act-clear]");
+    if (actClear) {
+      commercialState.actPeriod = "all";
+      commercialState.actUser = "";
+      commercialState.actSearchText = "";
+      commercialRenderCapability();
+      return;
+    }
+    // Orden por columna de Actividades (C9): MISMO contrato transversal que el
+    // detalle de Oportunidades — client-side puro, sin fetch, y re-render
+    // acotado al cuerpo (los KPIs siguen a las filas visibles).
+    const actSortTh = event.target.closest("[data-commercial-act-sort]");
+    if (actSortTh) {
+      commercialToggleActSort(actSortTh.dataset.commercialActSort);
+      commercialRenderActivitiesBody();
+      return;
+    }
     const forecastClear = event.target.closest("[data-commercial-forecast-clear]");
     if (forecastClear) {
       commercialState.forecastStageFilter = "";
@@ -2404,6 +2557,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // el `<input>` en cada tecla, el foco/cursor se perdería después del
   // primer carácter.
   document.addEventListener("input", event => {
+    // Búsqueda de Actividades (C9): re-render QUIRÚRGICO del cuerpo, así el
+    // `<input>` no se recrea y no pierde el foco entre teclas. Rama primero,
+    // antes del `return` temprano de la búsqueda de Oportunidades.
+    const actSearch = event.target.closest("[data-commercial-act-search]");
+    if (actSearch) {
+      commercialState.actSearchText = actSearch.value;
+      commercialRenderActivitiesBody();
+      return;
+    }
     const search = event.target.closest("[data-commercial-search]");
     if (!search) return;
     commercialState.oppSearchText = search.value;
