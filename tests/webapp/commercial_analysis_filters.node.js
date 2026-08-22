@@ -17,8 +17,17 @@ const vm = require("vm");
 const COMMERCIAL_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "commercial.js");
 const src = fs.readFileSync(COMMERCIAL_JS, "utf-8");
 
+// Los listeners que registra commercial.js se GUARDAN (no se descartan) para
+// poder ejercitar el delegado REAL de click en el bloque de "✕ Limpiar" — es
+// la única forma de testear el reset de la combinación de filtros como
+// comportamiento y no como texto fuente. El resto de los bloques no los usa.
+const listeners = Object.create(null);
 const sandbox = {
-  document: { addEventListener() {}, getElementById() { return null; }, querySelector() { return null; } },
+  document: {
+    addEventListener(type, cb) { (listeners[type] = listeners[type] || []).push(cb); },
+    getElementById() { return null; },
+    querySelector() { return null; },
+  },
   window: {},
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "config_incomplete" }) }); },
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
@@ -30,6 +39,7 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
 const {
+  commercialAnalysisFiltersHtml,
   commercialOppStageOptions,
   commercialOppSellerOptions,
   commercialAnalysisFilteredOpportunities,
@@ -272,6 +282,102 @@ const OPPS = [
   assertTrue(html.includes("panel-close") === false, "el botón de cierre NO vive más en el body (vive en <summary>, C5d — sin regresión)");
   assertTrue(html.includes('data-commercial-close-analysis') === false, "confirmación: el hook del botón de cierre no está en este body");
   resetState();
+}
+
+// --- 17: "✕ Limpiar" — reset de la COMBINACIÓN de filtros (owner request) ---
+{
+  resetState();
+  commercialState.pipeline = PIPELINE;
+  commercialState.opportunities = { opportunities: OPPS, total: OPPS.length };
+  const barHtml = () => commercialAnalysisFiltersHtml(
+    commercialOppStageOptions(PIPELINE, OPPS), commercialOppSellerOptions(OPPS));
+
+  // Primitivo COMPARTIDO del Hub, no una clase propia de Comercial: el mismo
+  // `.whatsnew-filter__clear` que ya usan What's New, Actividad, Staffing y
+  // Reporting Integral.
+  const clean = barHtml();
+  assertTrue(clean.includes('class="whatsnew-filter__clear" data-commercial-clear-filters'),
+    "reusa el primitivo compartido del Hub, sin CSS propio de Comercial");
+  assertTrue(clean.includes("✕ Limpiar"), "mismo glifo y copy que el resto del Hub");
+  assertTrue(clean.includes("<button type=\"button\" class=\"whatsnew-filter__clear\""),
+    "botón real (foco-able por default), nunca un span/div con handler");
+  // Va DESPUÉS del campo `--fill`, que se come el espacio del medio: así queda
+  // pegado a la derecha sin ningún posicionamiento a mano.
+  assertTrue(clean.lastIndexOf("data-commercial-clear-filters") > clean.lastIndexOf("data-commercial-search"),
+    "último ítem de la barra — a la derecha del campo que absorbe el espacio");
+
+  // SIEMPRE visible: condicionarlo al estado obligaría a regenerar la barra en
+  // cada tecla del buscador, que es exactamente lo que le haría perder el foco
+  // al `<input>`.
+  commercialState.oppStageFilter = "2 Relevamiento";
+  commercialState.oppSearchText = "Loma";
+  assertTrue(barHtml().includes("data-commercial-clear-filters"), "con filtros activos, está");
+  resetState();
+  commercialState.pipeline = PIPELINE;
+  commercialState.opportunities = { opportunities: OPPS, total: OPPS.length };
+  assertTrue(barHtml().includes("data-commercial-clear-filters"), "y sin filtros activos, también");
+
+  // --- Comportamiento REAL: se ejercita el delegado de click de commercial.js
+  // (capturado arriba), no su texto fuente.
+  const fakeControl = () => ({ value: "SUCIO" });
+  const controls = {
+    "[data-commercial-stage-filter]": fakeControl(),
+    "[data-commercial-seller-filter]": fakeControl(),
+    "[data-commercial-search]": fakeControl(),
+  };
+  const funnelHost = { innerHTML: "" };
+  const tableHost = { innerHTML: "" };
+  const bar = { querySelector: sel => controls[sel] || null };
+  const button = { closest: sel => (sel === "[data-commercial-analysis-filters]" ? bar : null) };
+  const root = {
+    innerHTML: "<!--root-intacto-->",
+    querySelector: sel => (sel === "[data-commercial-funnel-area]" ? funnelHost
+      : sel === "[data-commercial-opportunities]" ? tableHost : null),
+  };
+  // El bootstrap real: `DOMContentLoaded` es el que cablea el delegado, y
+  // necesita encontrar `#commercial-main-content` para no salir temprano.
+  sandbox.document.getElementById = id => (id === "commercial-main-content" ? root : null);
+  (listeners.DOMContentLoaded || []).forEach(cb => cb());
+  const clickDelegates = listeners.click || [];
+  assertTrue(clickDelegates.length === 1, "un solo delegado de click en todo el archivo");
+
+  commercialState.oppStageFilter = "2 Relevamiento";
+  commercialState.oppSellerFilter = "Roberto Seminara";
+  commercialState.oppSearchText = "Southbay";
+  commercialState.oppSortKey = "hours";
+  commercialState.tipo = "nn";
+  const before = { sort: commercialState.oppSortKey, tipo: commercialState.tipo };
+  // El propio bootstrap dispara `commercialLoadData()`, que sí re-renderiza —
+  // se repone el centinela ACÁ para que la medición sea del click y de nada más.
+  root.innerHTML = "<!--root-intacto-->";
+  clickDelegates.forEach(cb => cb({
+    target: { closest: sel => (sel === "[data-commercial-clear-filters]" ? button : null) },
+    preventDefault() {}, stopPropagation() {},
+  }));
+
+  assertTrue(commercialState.oppStageFilter === "" && commercialState.oppSellerFilter === ""
+    && commercialState.oppSearchText === "",
+    "un click resetea los TRES filtros de análisis a la vez");
+  assertTrue(commercialState.oppSortKey === before.sort,
+    "el orden de la tabla NO se toca: es una preferencia de lectura, no un filtro");
+  assertTrue(commercialState.tipo === before.tipo,
+    "el filtro GLOBAL Todos/New Name/Base Instalada tampoco: vive en el hero y tiene otro alcance");
+  assertTrue(controls["[data-commercial-stage-filter]"].value === ""
+    && controls["[data-commercial-seller-filter]"].value === ""
+    && controls["[data-commercial-search]"].value === "",
+    "los tres controles YA montados vuelven a su valor neutro");
+  assertTrue(root.innerHTML === "<!--root-intacto-->",
+    "sin render completo: cerraría el propio panel de Activas");
+  assertTrue(funnelHost.innerHTML.includes("category-plot") && tableHost.innerHTML.length > 0,
+    "y el Funnel + la tabla se re-renderizan quirúrgicamente con el universo sin filtrar");
+  // Cero red: el reset es client-side puro, como los tres filtros.
+  const clearBranch = src.split('closest("[data-commercial-clear-filters]")', 2)[1].split("return;", 2)[0];
+  assertTrue(!clearBranch.includes("fetch("), "Limpiar: cero fetch — client-side puro");
+  assertTrue(!clearBranch.includes("outerHTML"),
+    "no regenera la barra: destruiría el botón recién clickeado y el foco se caería al <body>");
+  resetState();
+  commercialState.oppSortKey = null;
+  commercialState.tipo = "todos";
 }
 
 if (failures) {

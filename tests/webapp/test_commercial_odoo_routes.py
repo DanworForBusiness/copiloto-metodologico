@@ -204,7 +204,11 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # `[data-commercial-opportunities]` en el delegado de búsqueda libre
     # (sólo tabla, nunca el Funnel — contrato explícito del owner). El
     # contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos siete hooks y nada más.
+    # EXACTAMENTE estos siete hooks y nada más. "✕ Limpiar" (owner request)
+    # agrega los TRES controles de la barra de filtros, buscados desde el propio
+    # botón (`closest` a la barra) y sólo para ponerlos en su valor neutro: la
+    # barra NUNCA se regenera, así el `<input>` no se recrea y el foco se queda
+    # en el botón. Diez hooks, exactos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
     assert queries == [
         '".chart-tooltip"',
@@ -212,6 +216,9 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-funnel-area]"',
         '"[data-commercial-opportunities]"',
         '\'[data-event="activas"]\'',
+        '"[data-commercial-stage-filter]"',
+        '"[data-commercial-seller-filter]"',
+        '"[data-commercial-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-opportunities]"',
     ], queries

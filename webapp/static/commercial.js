@@ -788,6 +788,25 @@ function commercialResetInvalidAnalysisFilters() {
 // `change`/`input`, más abajo): sus `<select>` ya reflejan su propio valor
 // tras el evento nativo, y regenerarla en cada tecla del buscador le haría
 // perder el foco al `<input>`.
+//
+// "✕ Limpiar" (owner request): resetea la COMBINACIÓN de los tres filtros en
+// un solo gesto. Reusa el primitivo COMPARTIDO del Hub
+// `.whatsnew-filter__clear` (tools.css) — el MISMO que ya usan What's New, el
+// dashboard de Actividad, Staffing y Reporting Integral: cero clase nueva,
+// cero CSS de Comercial. Va como ÚLTIMO hijo de `.whatsnew-filters` (misma
+// forma que What's New y Actividad, que también lo cuelgan directo de la
+// barra) y queda pegado a la derecha porque "Buscar" es
+// `.whatsnew-filter--fill` y se come el espacio del medio; `align-self:
+// flex-end` del propio primitivo lo alinea con la base de los campos.
+//
+// SIEMPRE visible, nunca condicionado a que haya algún filtro activo. Dos
+// razones, y la segunda es la que decide: (1) es el comportamiento del
+// tablero integral, que es el referido; (2) mostrarlo/esconderlo según el
+// estado obligaría a regenerar la barra en cada tecla del buscador — que es
+// exactamente lo que este bloque documenta que NO se puede hacer (el
+// `<input>` perdería el foco). La alternativa sería un tercer camino de
+// re-render sólo para togglear un botón; con nada seleccionado, "Limpiar" es
+// un no-op inofensivo, no una promesa falsa.
 function commercialAnalysisFiltersHtml(stageOptions, sellerOptions) {
   const stageOpts = stageOptions.map(s =>
     `<option value="${commercialEsc(s)}"${commercialState.oppStageFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
@@ -812,6 +831,7 @@ function commercialAnalysisFiltersHtml(stageOptions, sellerOptions) {
         <span>Buscar</span>
         <input type="search" data-commercial-search aria-label="Buscar oportunidades" placeholder="Buscar…" value="${commercialEsc(commercialState.oppSearchText)}">
       </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-clear-filters>✕ Limpiar</button>
     </div>`;
 }
 
@@ -1413,6 +1433,35 @@ document.addEventListener("DOMContentLoaded", () => {
     // — nunca sobre `commercialState.opportunities` crudo, que ignoraría
     // cualquier filtro activo y volvería a mostrar TODAS las filas al
     // ordenar.
+    // "✕ Limpiar" (owner request): resetea la COMBINACIÓN de filtros de
+    // análisis — Etapa, Vendedor y Buscar, los tres de una vez. NO toca el
+    // filtro GLOBAL Todos/New Name/Base Instalada (vive en el hero, es
+    // transversal a todo el workspace y tiene otro alcance) ni el orden de la
+    // tabla (`oppSortKey`, que a propósito sobrevive incluso a un cambio de
+    // tipo — es una preferencia de lectura, no un filtro).
+    // La barra NO se regenera, MISMO contrato que Etapa/Vendedor/Buscar (ver
+    // `commercialAnalysisFiltersHtml`): se ponen en su valor neutro los tres
+    // controles YA montados, buscándolos desde el botón (`closest` a la barra)
+    // y nunca por todo el documento. Así el `<input>` no se recrea y el foco
+    // se queda en "Limpiar" — un `outerHTML` de la barra destruiría el propio
+    // botón recién clickeado y el foco se caería al `<body>`.
+    const clearBtn = event.target.closest("[data-commercial-clear-filters]");
+    if (clearBtn) {
+      commercialState.oppStageFilter = "";
+      commercialState.oppSellerFilter = "";
+      commercialState.oppSearchText = "";
+      const bar = clearBtn.closest("[data-commercial-analysis-filters]");
+      if (bar) {
+        const stage = bar.querySelector("[data-commercial-stage-filter]");
+        const seller = bar.querySelector("[data-commercial-seller-filter]");
+        const search = bar.querySelector("[data-commercial-search]");
+        if (stage) stage.value = "";
+        if (seller) seller.value = "";
+        if (search) search.value = "";
+      }
+      commercialRerenderAnalysisFunnelAndTable(root);
+      return;
+    }
     const sortTh = event.target.closest("[data-commercial-sort]");
     if (sortTh) {
       commercialToggleOppSort(sortTh.dataset.commercialSort);
