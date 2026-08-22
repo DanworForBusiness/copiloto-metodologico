@@ -39,9 +39,9 @@ function fakeTrigger(isActive, eventKey) {
     classList: { contains: cls => cls === "is-active" && isActive },
   };
 }
-function fakeRootWithTarget() {
+function fakeRootWithTarget(initialOpen) {
   const calls = [];
-  const target = { scrollIntoView(opts) { calls.push(opts); } };
+  const target = { open: initialOpen, scrollIntoView(opts) { calls.push(opts); } };
   const root = { querySelector(sel) { root.lastSelector = sel; return sel === '[data-breakdown="activas"]' ? target : null; } };
   return { root, calls, target };
 }
@@ -59,6 +59,27 @@ function fakeRootWithTarget() {
   const { root, calls } = fakeRootWithTarget();
   commercialMaybeScrollToOpenedAnalysis(fakeTrigger(false, "activas"), root);
   assertTrue(calls.length === 0, "sin is-active, ningún scroll — el cierre nunca navega");
+}
+
+// --- D: abrir fuerza `open=true` en el <details> (owner corrective, ver
+//     HANDOFF): la X de cierre ahora vive en <summary> y sobrevive el
+//     colapso NATIVO del `<details>` — pero `initEventBreakdown` sólo
+//     gobierna `hidden` (mostrar/ocultar el bloque), nunca `open`
+//     (expandido/colapsado adentro). Sin esto, reabrir el tile tras haber
+//     colapsado el grupo a mano dejaría sólo la barra del <summary>
+//     visible, sin contenido, hasta el próximo render completo. ------------
+{
+  const { root, target } = fakeRootWithTarget(false); // simula: el owner lo había colapsado a mano
+  commercialMaybeScrollToOpenedAnalysis(fakeTrigger(true, "activas"), root);
+  assertTrue(target.open === true, "al abrir, se fuerza open=true aunque el <details> estuviera colapsado nativamente");
+}
+{
+  // Cerrar (is-active=false) nunca toca `open` — no es su responsabilidad,
+  // y forzarlo ahí pisaría una preferencia de collapse que el owner haya
+  // dejado a propósito para la próxima vez que se abra.
+  const { root, target } = fakeRootWithTarget(false);
+  commercialMaybeScrollToOpenedAnalysis(fakeTrigger(false, "activas"), root);
+  assertTrue(target.open === false, "al cerrar, `open` queda intocado — sólo se toca al ABRIR");
 }
 
 // --- E: sin `behavior` explícito — hereda scroll-behavior de <html>

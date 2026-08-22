@@ -183,7 +183,7 @@ function loadActivities(rows) {
 {
   loadActivities([]);
   const empty = commercialActividadesHtml();
-  assertTrue(count(empty, "empty-panel") === 2, "cada bucket vacío comunica su propio empty-panel");
+  assertTrue(count(empty, "dashboard-empty__label") === 2, "cada bucket vacío comunica su propio estado (MISMO patrón que Sin selección/Copiloto, ver HANDOFF)");
   commercialState.activitiesStatus = "loading";
   assertTrue(commercialActividadesHtml().includes("section-analysis-loading"), "loader compartido del Hub");
   commercialState.activitiesStatus = "error";

@@ -38,6 +38,7 @@ const {
   commercialOpportunitiesTableHtml,
   commercialToggleOppSort,
   commercialDaysUntil,
+  commercialFmtDate,
   commercialActivasAnalysisHtml,
   commercialDistribucionHtml,
 } = sandbox;
@@ -106,6 +107,46 @@ const count = (html, needle) => (html.match(new RegExp(needle.replace(/[.*+?^${}
   // matchea `<thead>`.
   const thCount = (html.match(/<th[ >]/g) || []).length;
   assertTrue(thCount === 11, `exactamente 11 columnas (got ${thCount})`);
+}
+
+// --- Lic.: tilde para "Si", celda en blanco para cualquier otro valor ------
+// (visual polish C5b, ver HANDOFF — MISMO patrón que
+// reporting.js::renderCalendarioCell: nunca "Sí"/"No" como texto).
+function rowCells(html, opportunityName) {
+  const rowHtml = html.split(`row-label">${opportunityName}<`, 2)[1].split("</tr>", 1)[0];
+  return [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1]);
+}
+{
+  resetSort();
+  const html = commercialOpportunitiesTableHtml(OPPORTUNITIES);
+  const zeta = rowCells(html, "Zeta Corp"); // licencias: "Si"
+  const alpha = rowCells(html, "Alpha SA"); // licencias: "No"
+  const mid = rowCells(html, "Mid Co"); // licencias: null
+  assertTrue(zeta[2] === "✓", `"Si" → tilde (got ${JSON.stringify(zeta[2])})`);
+  assertTrue(alpha[2] === "", `"No" → celda en blanco, nunca el texto "No" (got ${JSON.stringify(alpha[2])})`);
+  assertTrue(mid[2] === "", `null/ausente → celda en blanco (got ${JSON.stringify(mid[2])})`);
+  assertTrue(!html.includes(">Sí<") && !html.includes(">No<"), "Lic. nunca renderiza \"Sí\"/\"No\" como texto");
+}
+
+// --- Prior.: SOLO estrellas visibles, el texto vive en tooltip accesible ---
+// (visual polish C5b, ver HANDOFF): reusa `.chart-tooltip`/
+// `chart-tooltip-anchor` (tools.css) — MISMO primitivo que ya usa el
+// Funnel de este archivo — en vez de un `title=` nativo (ya prohibido para
+// el Funnel, ver commercial_distribucion_por_etapa.node.js).
+{
+  resetSort();
+  const html = commercialOpportunitiesTableHtml(OPPORTUNITIES);
+  const zeta = rowCells(html, "Zeta Corp"); // priority: "2" → Alta
+  const alpha = rowCells(html, "Alpha SA"); // priority: "1" → Media
+  const mid = rowCells(html, "Mid Co"); // priority: "0" → Sin prioridad
+  assertTrue(zeta[6].startsWith("⭐⭐<div"), `sólo estrellas visibles antes del tooltip (got ${JSON.stringify(zeta[6])})`);
+  const zetaVisible = zeta[6].split('<div class="chart-tooltip"')[0];
+  assertTrue(zetaVisible === "⭐⭐", `la parte VISIBLE de la celda es sólo estrellas, nunca el texto (got ${JSON.stringify(zetaVisible)})`);
+  assertTrue(/aria-label="Alta"/.test(html) && zeta[6].includes('<p>Alta</p>'), "el texto semántico vive en aria-label Y en el tooltip (mouse + teclado/AT)");
+  assertTrue(alpha[6].startsWith("⭐<div") && alpha[6].includes("<p>Media</p>"), "Media: una estrella, tooltip con el texto");
+  assertTrue(mid[6].startsWith("—<div") && mid[6].includes("<p>Sin prioridad</p>"), "sin prioridad: guion, tooltip explica el porqué");
+  assertTrue(html.includes('class="chart-tooltip-anchor" tabindex="0"'), "foco-able por teclado — MISMO contrato que el resto del Hub");
+  assertTrue(!/<td[^>]*title="/.test(html), "NUNCA el atributo title nativo del navegador (mismo criterio que el Funnel)");
 }
 
 // --- Lic. y Días resp. son intencionalmente NO ordenables -------------------
@@ -189,11 +230,15 @@ const count = (html, needle) => (html.match(new RegExp(needle.replace(/[.*+?^${}
     "cambiar de columna vuelve a ascendente, no hereda la dirección de la anterior");
 }
 
-// --- Vacío: mensaje empty-panel, nunca una tabla rota -----------------------
+// --- Vacío: estado Hub-consistente, nunca una tabla rota (visual polish,
+//     ver HANDOFF — MISMO patrón que "Sin selección" en Copiloto) ----------
 {
   resetSort();
-  assertTrue(commercialOpportunitiesTableHtml(null).includes("empty-panel"), "opportunities null no rompe, muestra empty-panel");
-  assertTrue(commercialOpportunitiesTableHtml({ opportunities: [], total: 0 }).includes("empty-panel"), "lista vacía muestra empty-panel");
+  const nullHtml = commercialOpportunitiesTableHtml(null);
+  const emptyHtml = commercialOpportunitiesTableHtml({ opportunities: [], total: 0 });
+  assertTrue(nullHtml.includes("dashboard-empty__label") && nullHtml.includes(">Sin resultados<"), "opportunities null no rompe, muestra el estado Hub-consistente");
+  assertTrue(emptyHtml.includes("dashboard-empty__label") && emptyHtml.includes(">Sin resultados<"), "lista vacía muestra el estado Hub-consistente");
+  assertTrue(!nullHtml.includes("empty-panel") && !emptyHtml.includes("empty-panel"), "ya no usa el texto suelto .empty-panel");
 }
 
 // --- commercialDaysUntil real: base de todos los sorts de fecha -------------
@@ -216,7 +261,95 @@ const count = (html, needle) => (html.match(new RegExp(needle.replace(/[.*+?^${}
   assertTrue(html.includes("&lt;script&gt;"), "escapado, no removido");
 }
 
-// --- Regresión: el Funnel (C3/C3.1) queda INTOCADO por C4 -------------------
+// --- Badges de urgencia en "Próx. Acción" (owner corrective, ver HANDOFF:
+//     leyenda de 4 colores "0-7/8-15/16-30/+30 días"). La MAGNITUD de
+//     `days` decide el color, no el signo — una actividad vencida hace 10d
+//     es tan urgente como una que vence en 10d. Reusa el primitivo
+//     COMPARTIDO `.dashboard-status-badge` (tools.css, mismo que Salud de
+//     Cliente) — el badge envuelve SOLO tipo+relativo, la fecha queda
+//     como texto plano antes (mismo criterio visual que el legacy). -------
+{
+  resetSort();
+  const URGENCY_OPPS = {
+    opportunities: [
+      { opportunity: "Verde SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [{ type: "To-Do", summary: "", deadline: isoOffset(-3) }],
+        last_response: null, days_elapsed: null },
+      { opportunity: "Amber SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [{ type: "Email", summary: "", deadline: isoOffset(10) }],
+        last_response: null, days_elapsed: null },
+      { opportunity: "Naranja SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [{ type: "Meeting", summary: "", deadline: isoOffset(-22) }],
+        last_response: null, days_elapsed: null },
+      { opportunity: "Rojo SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [{ type: "Revisión", summary: "", deadline: isoOffset(40) }],
+        last_response: null, days_elapsed: null },
+      { opportunity: "Sin Tipo SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [{ type: "", summary: "", deadline: isoOffset(-3) }],
+        last_response: null, days_elapsed: null },
+      { opportunity: "Sin Actividad SA", client: "C", seller: "S", licencias: null, hours: 1, weighted_hours: 1,
+        probability: 10, priority: "0", activities: [], last_response: null, days_elapsed: null },
+    ],
+    total: 6,
+  };
+  const html = commercialOpportunitiesTableHtml(URGENCY_OPPS);
+  const nextActionCell = name => rowCells(html, name)[7];
+  assertTrue(/dashboard-status-badge--green">To-Do \(venc\. 3d\)<\/span>/.test(nextActionCell("Verde SA")),
+    `0-7 días (abs) → green (got ${JSON.stringify(nextActionCell("Verde SA"))})`);
+  assertTrue(/dashboard-status-badge--amber">Email \(10d\)<\/span>/.test(nextActionCell("Amber SA")),
+    `8-15 días → amber (got ${JSON.stringify(nextActionCell("Amber SA"))})`);
+  assertTrue(/dashboard-status-badge--orange">Meeting \(venc\. 22d\)<\/span>/.test(nextActionCell("Naranja SA")),
+    `16-30 días → orange (got ${JSON.stringify(nextActionCell("Naranja SA"))})`);
+  assertTrue(/dashboard-status-badge--red">Revisión \(40d\)<\/span>/.test(nextActionCell("Rojo SA")),
+    `+30 días → red (got ${JSON.stringify(nextActionCell("Rojo SA"))})`);
+  const verdeCell = nextActionCell("Verde SA");
+  assertTrue(verdeCell.startsWith(`${commercialFmtDate(isoOffset(-3))} · <span`),
+    `la fecha queda como texto plano ANTES del badge, nunca envuelta (got ${JSON.stringify(verdeCell)})`);
+  assertTrue(nextActionCell("Sin Tipo SA") === commercialFmtDate(isoOffset(-3)),
+    `sin tipo de actividad → sólo la fecha, sin badge vacío (got ${JSON.stringify(nextActionCell("Sin Tipo SA"))})`);
+  assertTrue(nextActionCell("Sin Actividad SA") === "—", "sin actividades → guion, sin badge");
+}
+
+// --- Leyenda de urgencia: debajo de "Detalle de Oportunidades", antes de la
+//     TABLA (el `<table>` en sí, dentro de `[data-commercial-opportunities]`
+//     — C5e, ver HANDOFF, movió la leyenda DENTRO de ese wrapper junto con
+//     la tabla para que un re-render quirúrgico de sólo esa tabla, al
+//     filtrar/buscar, mantenga la leyenda sincronizada con las filas
+//     visibles en una sola asignación de innerHTML) — sólo si hay filas que
+//     clasificar (nunca un rótulo huérfano sobre una tabla vacía). ---------
+{
+  resetSort();
+  commercialState.opportunities = OPPORTUNITIES;
+  const withRows = commercialActivasAnalysisHtml({ opportunities: 0, stages: [] });
+  assertTrue(withRows.includes('<div class="urgency-legend">'), "leyenda presente cuando hay oportunidades");
+  for (const [color, label] of [["green", "0-7 días"], ["amber", "8-15 días"], ["orange", "16-30 días"], ["red", "+30 días"]]) {
+    assertTrue(withRows.includes(`urgency-legend__dot--${color}"></i>${label}`), `tier de leyenda: ${color} → ${label}`);
+  }
+  assertTrue(withRows.indexOf("Detalle de Oportunidades") < withRows.indexOf('class="urgency-legend"'),
+    "la leyenda va DESPUÉS del rótulo \"Detalle de Oportunidades\"");
+  assertTrue(withRows.indexOf("data-commercial-opportunities") < withRows.indexOf('class="urgency-legend"'),
+    "la leyenda vive DENTRO de [data-commercial-opportunities] (C5e) — no ya como hermana suelta antes de él");
+  assertTrue(withRows.indexOf('class="urgency-legend"') < withRows.indexOf('class="matrix-scroll"'),
+    "la leyenda va ANTES del wrapper de la tabla en sí");
+  commercialState.opportunities = { opportunities: [], total: 0 };
+  const withoutRows = commercialActivasAnalysisHtml({ opportunities: 0, stages: [] });
+  assertTrue(!withoutRows.includes("urgency-legend"), "sin oportunidades → sin leyenda huérfana");
+  commercialState.opportunities = null;
+}
+
+// --- Colgroup rebalanceado (owner screenshot: "Días resp." partiendo su
+//     título en dos líneas con espacio muerto en Próx. Acción) -------------
+{
+  resetSort();
+  const html = commercialOpportunitiesTableHtml(OPPORTUNITIES);
+  const cols = [...html.matchAll(/<col style="width:(\d+)%">/g)].map(m => Number(m[1]));
+  assertTrue(cols.length === 11, `11 <col> en el colgroup (got ${cols.length})`);
+  assertTrue(cols[8] === 18, `Próx. Acción baja a 18% (got ${cols[8]})`);
+  assertTrue(cols[10] === 7, `Días resp. sube a 7% para no partir el título (got ${cols[10]})`);
+  assertTrue(cols.reduce((a, b) => a + b, 0) === 100, `el colgroup sigue sumando 100% (got ${cols.reduce((a, b) => a + b, 0)})`);
+}
+
+// --- Regresión: el Funnel (C3/C3.1/C5a) queda INTOCADO por C4 ---------------
 {
   resetSort();
   commercialState.opportunities = OPPORTUNITIES;
@@ -226,12 +359,12 @@ const count = (html, needle) => (html.match(new RegExp(needle.replace(/[.*+?^${}
   const analysis = commercialActivasAnalysisHtml(PIPELINE);
   assertTrue(analysis.includes("Funnel por Etapa"), "el Funnel sigue presente");
   assertTrue(analysis.includes("category-plot"), "el gráfico grouped-bars sigue presente");
-  assertTrue(analysis.includes("dashboard-view-switch--compact"), "el switch compacto (C3.1) sigue presente");
+  assertTrue(analysis.includes("category-plot__bar--weighted"), "las tres series (C5a) siguen presentes, sin toggle");
   assertTrue(analysis.includes("Detalle de Oportunidades"), "debajo, el nuevo detalle por oportunidad (C4)");
   assertTrue(analysis.indexOf("Funnel por Etapa") < analysis.indexOf("Detalle de Oportunidades"),
     "el Funnel sigue ARRIBA, la tabla ABAJO — mismo orden que antes de C4");
   // Y el gráfico en sí es BIT A BIT el mismo que antes de este corrective.
-  const distStandalone = commercialDistribucionHtml(PIPELINE, "hours");
+  const distStandalone = commercialDistribucionHtml(PIPELINE);
   assertTrue(analysis.includes(distStandalone), "el HTML del Funnel dentro del panel es idéntico al que devuelve commercialDistribucionHtml sola");
   commercialState.opportunities = null;
 }

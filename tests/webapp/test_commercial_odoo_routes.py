@@ -184,18 +184,35 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     assert "setInterval" not in _COMMERCIAL_JS  # el timer del progress vive SOLO en HubForegroundProgress
     # El ban original de `querySelector` a secas era un PROXY de la intención
     # real: "no salgas a buscar nodos ajenos (los del progress) en el DOM".
-    # Batch 2B agregó UNA búsqueda acotada para el re-render quirúrgico del
-    # switch; C3.1 (ver HANDOFF — scroll al abrir el análisis) agrega una
-    # SEGUNDA, para ubicar la sección a la que hay que hacer scroll; C4 (ver
-    # HANDOFF — detalle por oportunidad) agrega una TERCERA, para el
-    # re-render quirúrgico de la tabla al ordenar una columna. El contrato
-    # sigue siendo explícito, no aproximado: se permiten EXACTAMENTE esos
-    # tres hooks y nada más, y los tres cuelgan de `root`, nunca de
-    # `document`.
+    # C3.1 (ver HANDOFF — scroll al abrir el análisis) agregó UNA búsqueda
+    # acotada para ubicar la sección a la que hay que hacer scroll. C5a
+    # retiró el switch Horas|Ponderadas (C3/C3.1) y con él la búsqueda de
+    # `[data-commercial-dist]` que usaba para su propio re-render — el
+    # Funnel ya no necesita re-renderizarse a sí mismo, sólo cambia con
+    # `pipeline` (Todos/NN/BI). El corrective de tooltip dinámico (ver
+    # HANDOFF) agrega una búsqueda LOCAL — `anchor.querySelector(".chart-
+    # tooltip")`, nunca sobre `root`/`document` — para medir el tooltip
+    # propio de esa columna, no un nodo ajeno. C5d (ver HANDOFF — cierre
+    # explícito) agrega una búsqueda del MISMO tile `[data-event="activas"]`
+    # que abre el panel, para simular su click y cerrar por el camino ya
+    # existente. C4 (ver HANDOFF — detalle por oportunidad) agrega otra,
+    # para el re-render quirúrgico de la tabla al ordenar una columna. C5e
+    # (ver HANDOFF — filtro Etapa/Vendedor/Buscar) agrega las tres
+    # restantes: `[data-commercial-funnel-area]` + `[data-commercial-
+    # opportunities]` en `commercialRerenderAnalysisFunnelAndTable` (Etapa/
+    # Vendedor tocan Funnel Y tabla, dos hosts distintos) y otra
+    # `[data-commercial-opportunities]` en el delegado de búsqueda libre
+    # (sólo tabla, nunca el Funnel — contrato explícito del owner). El
+    # contrato sigue siendo explícito, no aproximado: se permiten
+    # EXACTAMENTE estos siete hooks y nada más.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
     assert queries == [
+        '".chart-tooltip"',
         '`[data-breakdown="${trigger.dataset.event}"]`',
-        '"[data-commercial-dist]"',
+        '"[data-commercial-funnel-area]"',
+        '"[data-commercial-opportunities]"',
+        '\'[data-event="activas"]\'',
+        '"[data-commercial-opportunities]"',
         '"[data-commercial-opportunities]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
@@ -266,10 +283,28 @@ def test_commercial_local_section_helper_defined_once_mirrors_reporting_shape():
 def test_commercial_js_never_reimplements_drag_or_collapse_itself():
     # El comportamiento de drag/collapse/orden vive ÚNICAMENTE en
     # app.js::initDashboardSections — Comercial nunca define su propio
-    # listener de dragstart/dragover/drop ni maneja el estado open/closed
-    # de un <details> a mano.
-    for banned in ("addEventListener(\"dragstart\"", "addEventListener(\"dragover\"", "addEventListener(\"drop\"", ".open ="):
+    # listener de dragstart/dragover/drop, ni un botón/atajo propio para
+    # expandir/colapsar un <details>.
+    for banned in ("addEventListener(\"dragstart\"", "addEventListener(\"dragover\"", "addEventListener(\"drop\""):
         assert banned not in _COMMERCIAL_JS
+    # Única excepción narrow a ".open =" (owner corrective, ver HANDOFF: la
+    # X de cierre ahora vive en <summary> y sobrevive el colapso nativo del
+    # `<details>` — pero eso deja la sección "visible pero colapsada" si el
+    # owner la había colapsado a mano antes de cerrarla, porque
+    # `initEventBreakdown` sólo gobierna `hidden` — mostrar/ocultar el
+    # bloque — nunca `open` — expandido/colapsado ADENTRO de ese bloque:
+    # son dos ejes independientes que sólo esta sección combina). Esto NO
+    # reimplementa collapse (no hay listener propio de click en <summary>
+    # para togglear `open` — eso lo sigue haciendo el navegador nativo):
+    # sólo RESETEA `open` a un estado conocido-bueno exactamente cuando el
+    # motor compartido activa la sección, dentro de la función puntual que
+    # ya maneja esa transición (`commercialMaybeScrollToOpenedAnalysis`).
+    # Se audita que sea EXACTAMENTE esa única línea, no una reimplementación
+    # más amplia coleándose por el mismo hueco.
+    assert _COMMERCIAL_JS.count(".open =") == 1
+    scroll_fn = _COMMERCIAL_JS.split("function commercialMaybeScrollToOpenedAnalysis(", 1)[1].split("\nfunction ", 1)[0]
+    assert "section.open = true;" in scroll_fn
+    assert "addEventListener" not in scroll_fn
 
 
 def test_commercial_pipeline_heading_dead_class_is_gone():
@@ -570,25 +605,25 @@ def test_active_opportunities_analysis_contains_the_stage_1_8_table_not_pipeline
     assert "commercialActivasAnalysisHtml(p)" in dashboard_fn
     analysis_fn = _COMMERCIAL_JS.split("function commercialActivasAnalysisHtml(", 1)[1].split("\nfunction ", 1)[0]
     # C4 (ver HANDOFF): el placeholder agrupado-por-etapa fue reemplazado por
-    # el detalle real por oportunidad.
-    assert "commercialOpportunitiesTableHtml(commercialState.opportunities)" in analysis_fn
-    assert "commercialDistribucionHtml(pipeline" in analysis_fn
+    # el detalle real por oportunidad. C5e (ver HANDOFF — filtro Etapa/
+    # Vendedor/Buscar) intercala la derivación local entre `pipeline` y la
+    # tabla: `commercialOpportunitiesBlockHtml` (leyenda + tabla juntas,
+    # sobre las filas YA filtradas/buscadas) reemplaza la llamada directa a
+    # `commercialOpportunitiesTableHtml(commercialState.opportunities)` —
+    # ese acceso crudo es justo lo que un filtro activo necesita EVITAR.
+    assert "commercialOpportunitiesBlockHtml(tableRows)" in analysis_fn
+    assert "commercialDistribucionHtml(effectivePipeline)" in analysis_fn
     # Ya no existe la sección paralela "Pipeline por Etapa" ligada a Pipeline Total.
     assert "Pipeline por Etapa" not in _COMMERCIAL_JS
     assert 'commercialDashboardSection("pipeline",' not in _COMMERCIAL_JS
 
 
-def test_dimension_switch_does_not_refetch_rerender_globally_or_rewire_the_shared_engine():
-    # Invariante central del batch: el switch vive DENTRO del panel que abre
-    # `initEventBreakdown`, y ese motor guarda el estado abierto/cerrado sólo
-    # en el DOM. Un re-render global (o un re-wire del motor) cerraría el
-    # panel justo al conmutar la dimensión.
-    branch = _COMMERCIAL_JS.split(
-        'const dimButton = event.target.closest("[data-commercial-dim]");', 1
-    )[1].split("const button = event.target.closest", 1)[0]
-    assert "commercialDistribucionHtml(" in branch
-    for banned in ("commercialLoadData", "commercialRender(", "initEventBreakdown", "fetch("):
-        assert banned not in branch, banned
+def test_funnel_carries_no_dimension_switch_state_or_wiring():
+    # C5a retiró el switch Horas|Ponderadas (C3.1): sin estado de dimensión,
+    # sin handler de click propio, sin atributo que lo reconstruya.
+    assert "horasDim" not in _COMMERCIAL_JS
+    assert "data-commercial-dim" not in _COMMERCIAL_JS
+    assert "dimButton" not in _COMMERCIAL_JS
 
 
 def test_commercial_filter_copy_shows_new_name_and_base_instalada_not_abbreviations():
@@ -633,23 +668,29 @@ def test_bar_primitive_is_promoted_hub_wide_and_reporting_keeps_its_domain_color
 
 def test_no_commercial_specific_chart_css_or_class_was_invented():
     # Sigue vigente de 2A: Comercial no gana clases propias — consume el
-    # primitivo compartido o no dibuja.
+    # primitivo compartido o no dibuja. Los cuatro llevan el punto: son
+    # nombres de CLASE CSS baneados, nunca un ban de substring a secas — sin
+    # el punto, "commercial-funnel" también matchea el atributo LEGÍTIMO
+    # `data-commercial-funnel-area` (C5e, ver HANDOFF: los `data-*` con
+    # prefijo `commercial` SÍ están permitidos, sólo las clases CSS no).
     tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
-    for banned in ("commercial-funnel", "commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
+    for banned in (".commercial-funnel", ".commercial-chart", ".commercial-breakdown", ".commercial-analysis"):
         assert banned not in _COMMERCIAL_JS
         assert banned not in tools_css
     # OWNERSHIP (gate del corrective visual): la composición del gráfico
     # (`.category-plot`) NO es un primitivo elemental del Hub — es este
     # gráfico concreto: canaletas de eje ajustadas a sus rótulos, altura
     # calibrada a su footprint, color de cada serie acoplado al de su eje, y
-    # una leyenda que sólo sabe expresar EXACTAMENTE dos series de barras
-    # (Active Opportunities Phase 2 / C3 — grouped bars, restaura el Funnel
-    # legacy). Vive en el CSS de la vertical, con el MISMO mecanismo que
+    # una leyenda que sólo sabe expresar EXACTAMENTE tres series de barras
+    # (Active Opportunities Phase 2 / C3/C5a — grouped bars, restaura el
+    # Funnel legacy y muestra Oportunidades/Horas/Ponderadas simultáneas).
+    # Vive en el CSS de la vertical, con el MISMO mecanismo que
     # `reporting.css`: stylesheet propio linkeado desde su template, nunca
     # `base.html`. Se promoverá el día que exista un segundo consumidor real.
     commercial_css = (_STATIC / "commercial.css").read_text(encoding="utf-8")
     for rule in (".category-plot {", ".category-plot__area {", ".category-plot__bar {",
                  ".category-plot__bar--count {", ".category-plot__bar--hours {",
+                 ".category-plot__bar--weighted {",
                  ".category-plot__axis {", ".category-plot-legend {"):
         assert rule in commercial_css, rule
         assert rule not in tools_css, rule
@@ -680,27 +721,28 @@ def test_commercial_local_css_does_not_duplicate_shared_hub_primitives():
 
 
 def test_commercial_charts_introduce_no_library_canvas_or_external_dependency():
-    # Active Opportunities Phase 2 / C3 (restore legacy funnel
-    # representation): el chart es 100% DOM puro (grouped bars, dos `<div>`
-    # por etapa) — cero SVG, cero canvas, cero librería. La versión anterior
-    # ("A'", barra + línea con puntos) usaba un SVG inline; se retiró junto
-    # con el resto de esa representación, no queda ningún SVG en el archivo.
+    # Active Opportunities Phase 2 / C3/C5a (restore legacy funnel
+    # representation + 3-series simultáneas): el chart es 100% DOM puro
+    # (grouped bars, tres `<div>` por etapa) — cero SVG, cero canvas, cero
+    # librería. La versión anterior ("A'", barra + línea con puntos) usaba
+    # un SVG inline; se retiró junto con el resto de esa representación, no
+    # queda ningún SVG en el archivo.
     for banned in ("<canvas", "<svg", "<polyline", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
         assert banned not in _COMMERCIAL_JS, banned
 
 
 def test_grouped_bar_columns_are_the_sole_accessible_surface():
     # La superficie accesible por etapa es la COLUMNA (aria-label + tooltip
-    # compartido) — las dos barras (Oportunidades/Horas) son mudas, sin
-    # texto ni foco propio, para no duplicar la misma magnitud dos veces en
-    # el lector de pantalla.
+    # compartido) — las TRES barras (Oportunidades/Horas/Ponderadas, C5a)
+    # son mudas, sin texto ni foco propio, para no duplicar la misma
+    # magnitud varias veces en el lector de pantalla.
     col = _COMMERCIAL_JS.split("const cols = stages.map(", 1)[1].split("}).join", 1)[0]
     assert "category-plot__col" in col
     assert 'tabindex="0"' in col
     assert "aria-label=" in col
     assert "commercialChartTooltip(lines)" in col
-    assert "category-plot__bar--count" in col and "category-plot__bar--hours" in col
-    # UN solo tabindex/aria-label por columna — nunca uno por barra.
+    assert "category-plot__bar--count" in col and "category-plot__bar--hours" in col and "category-plot__bar--weighted" in col
+    # UN solo tabindex/aria-label por columna — nunca uno por barra/serie.
     assert col.count('tabindex="0"') == 1
     assert col.count("aria-label=") == 1
 

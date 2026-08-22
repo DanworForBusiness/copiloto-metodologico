@@ -1,10 +1,10 @@
 """
-test_commercial_distribucion_por_etapa.py — Comercial / Batch 2B:
-"Distribución por Etapa", dos small multiples coordinados (Oportunidades /
-Horas ↔ Horas Ponderadas) dentro del drilldown de Oportunidades Activas.
-Ver commercial_distribucion_por_etapa.node.js para las invariantes del motor
-real (escalas independientes, switch que sólo toca el segundo gráfico,
-single-series por barra, tooltip compartido).
+test_commercial_distribucion_por_etapa.py — Comercial / Active Opportunities
+Phase 2 / C5a: "Funnel por Etapa", TRES series simultáneas (Oportunidades /
+Horas / Hs Ponderadas) sobre DOS ejes, dentro del drilldown de Oportunidades
+Activas — sin switch, retirado en C5a. Ver
+commercial_distribucion_por_etapa.node.js para las invariantes del motor
+real (escalas compartidas Horas/Ponderadas, tooltip compartido).
 """
 from __future__ import annotations
 

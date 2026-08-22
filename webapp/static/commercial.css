@@ -16,15 +16,16 @@
      otra magnitud las desborda;
    - `height: 188px` esta calibrado para el footprint de ~250-300px que pidio
      este corrective, no es una medida universal;
-   - el color de cada barra (`--commercial-neutral-ink`/`--gold`) y el de su
-     eje correspondiente son el MISMO a proposito: hornea "este eje
-     pertenece a esta serie" (ver
-     Active Opportunities Phase 2 / C3 — grouped bars, restaura la
-     representacion legacy: Oportunidades y Horas/Ponderadas SON dos series
-     de barras, nunca barra + linea);
-   - `.swatch-bar`/`.swatch-bar--hours` expresan exactamente esas DOS series
-     — agregar una tercera exigiria repensar el ancho de columna, no es un
-     contrato generico de N series.
+   - el color de cada barra (`--commercial-neutral-ink`/`--gold`/el tono
+     dorado secundario de `.category-plot__bar--weighted`) y el de su eje
+     correspondiente son el MISMO a proposito: hornea "este eje pertenece a
+     esta serie" (ver Active Opportunities Phase 2 / C3/C5a — grouped bars:
+     Oportunidades, Horas y Hs Ponderadas SON TRES series de barras
+     simultaneas, nunca barra + linea, nunca un switch entre dos);
+   - `.swatch-bar`/`.swatch-bar--hours`/`.swatch-bar--weighted` expresan
+     exactamente esas TRES series — un ancho de columna repensado a
+     proposito para C5a (ver `.category-plot__bar`), no un contrato
+     generico de N series.
 
    O sea: no son piezas recombinables (un eje, un area de plot, una grilla)
    que otro grafico pueda componer distinto; es este grafico. Y no hay un
@@ -71,30 +72,23 @@
    puntual exagerado. Mismo patron `justify-content:space-between` que
    `.hero-lead-row` ya usa en este mismo archivo para "label izq. / control
    der." — no un layout nuevo. */
-.category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 3px; }
-/* `white-space:nowrap` en el título + `flex-shrink:0` en el switch (MISMO
-   par de reglas que `.hero-lead-row` ya usa en este archivo para su propio
-   "texto + control"): en viewport angosto el switch cae a su PROPIA línea
-   en vez de comprimir el título hasta que su texto envuelva a dos renglones
-   — nunca layout artificial, es el wrap normal de flex. */
+.category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+/* `white-space:nowrap` en el título (MISMO recurso que `.hero-lead-row` ya
+   usa en este archivo): sigue vigente aunque C5a retiró el switch que
+   antes compartía esta fila — `justify-content:space-between` no rompe con
+   un solo hijo, y el título nunca necesitó wrap propio. */
 .category-plot-header .perspective-label { margin-bottom: 0; white-space: nowrap; }
-.category-plot-header .dashboard-view-switch { flex-shrink: 0; }
-/* BALANCE ÓPTICO título↔leyenda↔plot (visual polish, ver HANDOFF): igualar
-   `margin-bottom` (8px/8px, corrective anterior) NO igualó el hueco
-   VISIBLE — medido con getBoundingClientRect() sobre el texto real (no
-   sólo las cajas contenedoras): con `align-items:center`, el switch
-   (más alto que el rótulo por su padding) estiraba la fila y centraba el
-   texto del rótulo DENTRO de ella, dejando ~6px de aire invisible bajo el
-   texto antes del margin — hueco óptico real de 14px hacia la leyenda.
-   Del otro lado, el tick superior del eje (`.category-plot__axis span`,
-   `bottom:100%` + `translateY(50%)`, intencional para centrar el número
-   sobre su línea de grilla) asoma ~5px POR ENCIMA del borde del plot — 8px
-   de margin quedaban en sólo 3px de aire visible hacia la leyenda. Dos
-   causas reales, no una diferencia de margin: `align-items:flex-end`
-   elimina el aire invisible bajo el rótulo (nunca se toca el tick del eje,
-   que es contrato del gráfico) y el margin baja a 3px — mismo valor que el
-   hueco hacia el plot, medido con el mismo criterio (texto visible, no
-   cajas). Resultado: ~3px ópticos de cada lado de la leyenda. */
+/* BALANCE ÓPTICO título↔leyenda (visual polish histórico, ver HANDOFF):
+   `align-items:flex-end` sigue vigente — elimina el aire invisible bajo el
+   rótulo que dejaba el switch ya retirado (C5a). El VALOR del margin ya
+   NO es el 3px de aquel ajuste: owner corrective posterior comparó este
+   ritmo interno (título→leyenda→plot) contra el de "Detalle de
+   Oportunidades" (rótulo→leyenda de urgencia→tabla, 12px/10px, ver
+   `[data-commercial-dist]` y `.urgency-legend` más abajo) y lo marcó
+   "comprimido" en contraste directo — la compacidad deliberada de
+   corrective anteriores quedó superada por esa comparación lado a lado
+   dentro del MISMO panel. Sube a 8px (ver también `.category-plot-legend`
+   más abajo, mismo criterio). */
 
 .category-plot { display: grid; grid-template-columns: 38px 1fr 52px; grid-template-rows: auto auto; }
 .category-plot__area {
@@ -108,22 +102,54 @@
 .category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
 .category-plot__col:hover { background: rgba(128,128,128,.07); }
 .category-plot__col:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-/* Grouped bars (Active Opportunities Phase 2 / C3, ver HANDOFF — restore
-   legacy funnel representation): DOS barras por columna, cada una con su
-   propia escala independiente (izq./der., ver commercialDistribucionHtml) —
-   nunca una comparable numericamente contra la otra por su altura. Ancho
-   mas angosto que la version de una sola barra para que las dos entren
-   lado a lado sin que la columna se ensanche.
+/* Grouped bars (Active Opportunities Phase 2 / C3/C5a, ver HANDOFF —
+   restore legacy funnel representation + 3-series simultáneas): TRES
+   barras por columna. Oportunidades tiene su propia escala (izq.); Horas y
+   Hs Ponderadas COMPARTEN la escala derecha (misma unidad — nunca
+   comparables numéricamente contra Oportunidades por su altura, que sería
+   un artefacto de escalas distintas). Ancho reducido de 38%/20px (dos
+   barras, C3) a 27%/15px (tres barras, C5a) para que las tres entren lado
+   a lado sin ensanchar la columna — mismo criterio de siempre, valor
+   recalculado para el nuevo N de series.
 
-   COLOR SEMANTICS (C3.1 — Danwor, ver HANDOFF): Oportunidades pasa de azul a
-   un neutral/graphite — MISMOS dos tokens que ya usa el resto del Hub para
+   COLOR SEMANTICS (C3.1/C5a — Danwor, ver HANDOFF): Oportunidades en
+   neutral/graphite — MISMOS dos tokens que ya usa el resto del Hub para
    texto/valor fuerte (`.activity-kpi__value` claro/oscuro: #1f1f24/#e4e4ec),
-   nunca un gris nuevo que desaparezca contra el fondo oscuro. Horas/
-   Ponderadas se queda en `--gold`: es la MISMA serie, el switch solo cambia
-   que magnitud mide, nunca de que color es. */
-.category-plot__bar { width: 38%; max-width: 20px; min-height: 2px; border-radius: 3px 3px 0 0; }
+   nunca un gris nuevo que desaparezca contra el fondo oscuro. Horas en
+   `--gold`. Hs Ponderadas necesitaba un tono DISTINGUIBLE pero de la MISMA
+   familia dorada (las dos comparten eje) — en claro, `#a67c00` (un dorado
+   bien oscurecido) se distingue con facilidad de `--gold` (#e7b008).
+   En OSCURO, owner corrective: `#d9a520` (heredado del par que
+   `.category-plot__axis--right span` ya usaba) resultó demasiado parecido
+   a `--gold` (#e7b008 vs #d9a520 — mismo tono amarillo-dorado, apenas
+   distinta luminancia) y las dos barras dejaban de distinguirse en la
+   práctica. `#e8820a` corrige esto virando el HUE hacia naranja (no sólo
+   la luminancia, que ya se había intentado y no alcanzaba) — sigue siendo
+   familia cálida/dorada, pero ahora claramente diferenciable barra a
+   barra. Mismo valor nuevo aplicado a los TRES consumidores que
+   comparten este tono (bar, leyenda, número del eje derecho — ver más
+   abajo) para que sigan siendo la MISMA familia entre sí. */
+.category-plot__bar { width: 27%; max-width: 15px; min-height: 2px; border-radius: 3px 3px 0 0; }
 .category-plot__bar--count { background: var(--commercial-neutral-ink); }
 .category-plot__bar--hours { background: var(--gold); }
+.category-plot__bar--weighted { background: #a67c00; }
+.content-theme-dark .category-plot__bar--weighted { background: #e8820a; }
+/* Flip dinámico del tooltip (corrective, ver HANDOFF — segunda vuelta:
+   owner reportó el MISMO recorte en el tooltip de Prior., dentro de la
+   tabla). Causas reales auditadas, dos: `.dashboard-section` (tools.css)
+   tiene `overflow:hidden` (recorta el tooltip del Funnel) y
+   `.matrix-scroll` (tools.css) tiene `overflow-x:auto` — que por espec de
+   CSS computa `overflow-y` a `auto` también cuando el otro eje no es
+   `visible` — así que TAMBIÉN recorta el tooltip de Prior., que vive
+   dentro de `.matrix-scroll` (la tabla), no dentro de `.dashboard-section`
+   directamente. Selector GENERALIZADO sobre `.chart-tooltip-anchor` (el
+   marcador que YA comparten ambos consumidores, tools.css) en vez de
+   `.category-plot__col` — nunca se toca `.chart-tooltip`, que sigue
+   sirviendo "siempre arriba" por default. `commercialPositionChartTooltip`
+   (commercial.js) agrega esta clase sobre CUALQUIER `.chart-tooltip-anchor`
+   cuando mide que no hay lugar arriba dentro del boundary que corresponda
+   (`.matrix-scroll` si existe, si no `.dashboard-section`). */
+.chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
 /* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
    grilla, incluido el 0 apoyado en el eje. */
 .category-plot__axis { position: relative; }
@@ -141,10 +167,17 @@
    después, ni de que exista contenido. Mismo valor que el Hub ya usa para
    "después de un bloque analítico completo" — `.dashboard-section` (margin
    12px) y `.activity-kpi-grid` (margin-bottom 12px) — nunca un número
-   nuevo. Los gaps INTERNOS (header→leyenda→plot, 8px/7px) siguen
-   compactos a propósito: sólo la SALIDA del bloque se equipara al ritmo
-   entre bloques del resto del Hub. */
-[data-commercial-dist] { margin-bottom: 12px; }
+   nuevo. Los gaps INTERNOS (header→leyenda→plot) YA NO son más compactos
+   a propósito — ver el corrective de `.category-plot-header`/
+   `.category-plot-legend` más abajo, que los sube a 8px/10px tras
+   comparación directa contra "Detalle de Oportunidades".
+   `margin-top` (owner feedback post-C5d): la ENTRADA del bloque —
+   título "Funnel por Etapa" + leyenda — sólo tenía el padding-top de
+   `.dashboard-section__body` (4px, tools.css) contra el `.dashboard-table`
+   de "Detalle de Oportunidades", que disfruta 12px de ambos lados (esta
+   regla + la de abajo). Mismo valor (12px), no uno nuevo, para que la
+   entrada y la salida del bloque respiren igual. */
+[data-commercial-dist] { margin-top: 12px; margin-bottom: 12px; }
 /* Rótulo "Detalle de Oportunidades" (visual polish, ver HANDOFF): quedaba
    con el margen inferior default de `.perspective-label` (6px, tools.css) —
    la mitad del margen que YA lo separa del bloque anterior (12px, la regla
@@ -155,24 +188,24 @@
    exclusivamente el de "Detalle de Oportunidades". */
 [data-commercial-dist] + .perspective-label { margin-bottom: 12px; }
 .category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
-/* Ritmo interno título→leyenda→plot (visual polish, ver HANDOFF): la
-   leyenda quedaba con 7px hacia el plot contra los 8px de
-   `.category-plot-header` hacia ELLA — la leyenda sentía menos aire hacia
-   el gráfico que el título hacia la leyenda. Se iguala al MISMO valor
-   (8px) para que quede centrada a igual distancia de ambos — nunca un
-   número nuevo, sólo la unificación de los dos que ya convivían acá. Los
-   gaps internos siguen compactos a propósito (ver comentario de
-   `[data-commercial-dist]` más arriba): esto no los acerca al ritmo de
-   12px "entre bloques", sólo los empareja entre sí. */
-.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+/* Ritmo interno título→leyenda→plot (owner corrective, ver HANDOFF: "los
+   márgenes armónicos de la tabla de detalle deben aplicar acá también").
+   Subió de 8px a 10px originalmente — mismo valor que `.urgency-legend`
+   (más abajo, en la tabla de detalle). Owner corrective post-C5e: el aire
+   que antes vivía como `margin-top` de la barra de filtros (ver
+   `[data-commercial-analysis-filters]`) se trasladó ACÁ — 12px — en vez de
+   separar la barra del `<summary>`, separa la leyenda del plot en sí. */
+.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
 .category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .category-plot-legend em { font-style: normal; color: #7a7a82; }
 .category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }
 .category-plot-legend .swatch-bar--hours { background: var(--gold); }
+.category-plot-legend .swatch-bar--weighted { background: #a67c00; }
+.content-theme-dark .category-plot-legend .swatch-bar--weighted { background: #e8820a; }
 .content-theme-dark .category-plot-legend { color: #b6b6c0; }
 .content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }
-.content-theme-dark .category-plot__axis--right span { color: #d9a520; }
+.content-theme-dark .category-plot__axis--right span { color: #e8820a; }
 /* SCROLL OFFSET — auditoría C3.1 (ver HANDOFF): NO existe en el Hub una
    variable/token para altura de topbar, sticky offset ni scroll offset —
    `74px`/`66px` están hardcodeados como literales en varios selectores de
@@ -243,4 +276,84 @@
    Resumen — son metricas derivadas, no la lectura principal del landing. */
 .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .analytics-grid .activity-kpi__value { font-size: clamp(1.25rem, 1.7vw, 1.55rem); }
+
+/* Piso de ancho de la tabla de Detalle de Oportunidades (visual polish,
+   ver HANDOFF — owner screenshot: columnas en % ya escalan de forma
+   orgánica hacia arriba, pero sin un piso se aprietan hasta ilegibles en
+   viewports angostos antes de que `.matrix-scroll` tenga margen para
+   activarse). Colgado de `[data-commercial-opportunities]` — el wrapper
+   que YA envuelve esta tabla (ver commercial.js) — nunca una clase nueva
+   sobre `.dashboard-table`, que es compartida con el resto del Hub. Valor
+   = suma de los mínimos legibles por columna (mismo criterio que las
+   columnas en px que este corrective reemplazó, no un número inventado). */
+[data-commercial-opportunities] table.dashboard-table { min-width: 900px; }
+
+/* Leyenda de urgencia de "Próx. Acción" (owner corrective, ver HANDOFF):
+   explica los 4 colores de `.dashboard-status-badge` que ahora badgean esa
+   columna (tools.css). MISMO ritmo flex que `.category-plot-legend`, pero
+   clase propia — semánticamente es una leyenda distinta (urgencia de
+   fecha, no series de un gráfico) aunque comparta mecánica visual, así que
+   no se reusa esa clase del Funnel para no acoplar dos conceptos que sólo
+   coinciden en look. El punto es redondo (semáforo) en vez del swatch
+   cuadrado del Funnel (barra) — mismo lenguaje que `.salud-dot`, sin
+   adoptar esa clase puntual de Reporting. Los 4 hex son LITERALES,
+   duplicados a propósito de `.dashboard-status-badge--{color}` (mismo
+   criterio que `.swatch-bar--weighted` ya duplica el hex de su badge/bar
+   correspondiente en vez de indirección con variables nuevas). */
+.urgency-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+.urgency-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.urgency-legend__dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.urgency-legend__dot--green { background: #2e9e5b; }
+.urgency-legend__dot--amber { background: #c89100; }
+.urgency-legend__dot--orange { background: #c2570c; }
+.urgency-legend__dot--red { background: #c0392b; }
+.content-theme-dark .urgency-legend { color: #b6b6c0; }
+
+/* Barra de filtros de análisis Etapa/Vendedor/Buscar (C5e, ver HANDOFF):
+   reusa `.whatsnew-filters`/`.whatsnew-filter` TAL CUAL (tools.css) — el
+   MISMO primitivo que Actividades ya usa en esta página para Período/
+   Responsable — sólo se compacta acá vía `[data-commercial-analysis-
+   filters]` (hook de posicionamiento, ver commercial.js), nunca tocando la
+   regla compartida: el default (`gap:14px; margin:4px 0 18px`, `select`
+   `min-width:190px`) es pensado para un toolbar de página completa, no
+   para vivir apretado arriba del Funnel ("no crear un toolbar grande",
+   owner corrective). Sin `margin-top` (owner corrective post-C5e): la
+   barra vive pegada al `<summary>` — sus propios controles (bordes de
+   `<select>`/`<input>`) ya dan suficiente separación visual, a diferencia
+   de un rótulo de texto plano. El aire que antes vivía acá se movió al
+   hueco leyenda→plot (ver `.category-plot-legend`, más abajo). */
+[data-commercial-analysis-filters] { margin: 0 0 12px; gap: 10px; }
+[data-commercial-analysis-filters] .whatsnew-filter select,
+[data-commercial-analysis-filters] .whatsnew-filter input[type="search"] { min-width: 130px; }
+[data-commercial-analysis-filters] .whatsnew-filter--fill input[type="search"] { min-width: 160px; width: 100%; }
+
+/* Botón de cierre explícito del análisis (Active Opportunities Phase 2 /
+   C5d, ver HANDOFF — segunda vuelta tras owner corrective: "la X debe
+   permanecer aunque colapses el grupo" + "la X debe estar alineada al
+   texto"). Vive DENTRO de `<summary class="dashboard-section__head">`
+   (ver commercial.js), como flex-item MÁS — nunca `position:absolute`
+   calibrado a mano: eso fue la versión anterior (un `top` en px contra la
+   altura asumida del `<summary>`) y quedaba un puñado de px desalineado
+   apenas la tipografía real difería del mockup usado para calibrarlo, y
+   además desaparecía al colapsar el `<details>` nativamente (vivía en
+   `.dashboard-section__body`, que es justo lo que ese toggle esconde).
+   Como flex-item del MISMO row que `.dashboard-section__title`/
+   `.dashboard-section__count` (`.dashboard-section__head`, tools.css:
+   `display:flex; align-items:center; gap:11px`), el `gap` del primitivo
+   compartido ya da el espaciado hacia el conteo — cero margen inventado,
+   cero solapamiento — y el `align-items:center` del mismo primitivo ya
+   centra el botón exactamente al baseline del texto, siempre, sin
+   calibrar nada. Visualmente en la MISMA familia discreta que
+   `.whatsnew-banner__close`/`.dw-lightbox__close` (borde cero, fondo
+   transparente, gris apagado, pill de hover) — sin adoptar esas clases
+   puntuales de otra feature, nombre propio de Comercial. */
+.panel-close {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: transparent; color: #7a7a82; font-size: 1.1rem; line-height: 1;
+  cursor: pointer;
+}
+.content-theme-dark .panel-close { color: #9a9aa2; }
+.panel-close:hover { color: inherit; background: rgba(128,128,128,.16); }
+.panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 

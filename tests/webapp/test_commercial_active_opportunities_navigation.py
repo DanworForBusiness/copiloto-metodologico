@@ -3,7 +3,9 @@ test_commercial_active_opportunities_navigation.py — Active Opportunities
 Phase 2 / C3.1 (ver HANDOFF — interaction + spacing corrective): al abrir
 "Oportunidades Activas — Análisis" desde el KPI, la vista navega a la
 sección (scrollIntoView, sin behavior explícito para heredar
-scroll-behavior de <html>); al cerrar/cambiar dimensión/filtrar, nunca.
+scroll-behavior de <html>); al cerrar/filtrar, nunca. El switch Horas|
+Ponderadas que este archivo cubría (C3.1) fue retirado en C5a — el Funnel
+muestra las tres series siempre, sin toggle que pueda disparar scroll.
 Ver commercial_active_opportunities_navigation.node.js para las
 invariantes del motor real (commercialMaybeScrollToOpenedAnalysis).
 """
@@ -33,15 +35,6 @@ def test_scroll_call_is_reused_by_both_click_and_keyboard_activation():
     # compartido (click y keydown Enter/Espacio) — nunca una copia.
     assert _COMMERCIAL_JS.count("function commercialMaybeScrollToOpenedAnalysis(") == 1
     assert _COMMERCIAL_JS.count("commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root)") == 2
-
-
-def test_dimension_switch_never_triggers_scroll():
-    # D — conmutar Horas/Ponderadas NO debe navegar: el bloque `if
-    # (dimButton) { ... }` en sí (sin el comentario que lo PRECEDE y sí
-    # menciona la función en prosa) no debe invocarla.
-    dim_block = _COMMERCIAL_JS.split('const dimButton = event.target.closest("[data-commercial-dim]");', 1)[1] \
-        .split("\n    }\n", 1)[0]
-    assert "commercialMaybeScrollToOpenedAnalysis" not in dim_block
 
 
 def test_capability_and_local_filters_never_trigger_scroll():
@@ -77,15 +70,17 @@ def test_module_content_gets_its_own_scroll_behavior_respecting_reduced_motion()
     assert reduced and ".module-content { scroll-behavior: auto; }" in reduced.group(1)
 
 
-def test_header_wraps_gracefully_on_narrow_viewports_never_shrinking_the_title():
-    # F — estructura/clases: el switch cae a su propia línea en mobile en
-    # vez de comprimir el título hasta que su texto envuelva a dos
-    # renglones (regresión real detectada en vivo durante el QA de este
-    # corrective) — mismo par de reglas que `.hero-lead-row` ya usa.
+def test_header_never_shrinks_or_wraps_the_title_text():
+    # F — estructura/clases (regresión real detectada en vivo durante el QA
+    # de C3.1, cuando el header compartía fila con el switch Horas|
+    # Ponderadas): el título nunca comprime su texto a dos renglones.
+    # `flex-wrap` en el contenedor y `white-space:nowrap` en el título
+    # siguen vigentes aunque C5a retiró el switch — mismo par de reglas que
+    # `.hero-lead-row` ya usa, y el título sigue siendo texto de longitud
+    # variable dentro de un `justify-content:space-between`.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     assert "flex-wrap: wrap" in re.search(r"\.category-plot-header\s*\{([^}]*)\}", commercial_css).group(1)
     assert ".category-plot-header .perspective-label { margin-bottom: 0; white-space: nowrap; }" in commercial_css
-    assert ".category-plot-header .dashboard-view-switch { flex-shrink: 0; }" in commercial_css
 
 
 def test_funnel_block_has_a_real_section_gap_before_whatever_follows():
@@ -97,30 +92,65 @@ def test_funnel_block_has_a_real_section_gap_before_whatever_follows():
     # MISMO valor que el Hub ya usa para "después de un bloque analítico"
     # (`.dashboard-section` margin, `.activity-kpi-grid` margin-bottom),
     # nunca un número inventado para esta captura puntual.
+    # `margin-top` (owner feedback post-C5d): la ENTRADA del bloque (título
+    # + leyenda) sólo tenía el padding-top de `.dashboard-section__body`
+    # (4px) contra los 12px que rodean "Detalle de Oportunidades" — mismo
+    # valor (12px), no uno nuevo, para igualar el ritmo de entrada y salida.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     tools_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
-    assert "[data-commercial-dist] { margin-bottom: 12px; }" in commercial_css
+    assert "[data-commercial-dist] { margin-top: 12px; margin-bottom: 12px; }" in commercial_css
     assert ".dashboard-section { margin: 12px 0;" in tools_css
     assert ".activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }" in tools_css
 
 
-def test_internal_funnel_gaps_stay_compact_and_are_optically_balanced():
-    # El ritmo interno (header→leyenda→plot) sigue compacto y NO se acerca
-    # al ritmo de 12px "entre bloques" (`[data-commercial-dist]`) — eso
-    # sigue vigente de C3.1. Lo que cambió (visual polish C4, ver HANDOFF):
-    # igualar los `margin-bottom` (8px/8px) NO igualó el hueco ÓPTICO real
-    # — medido con getBoundingClientRect() sobre el texto visible, no sólo
-    # las cajas contenedoras. `align-items:center` en el header centraba el
-    # rótulo dentro de una fila más alta que él (el switch la estira),
-    # dejando aire invisible bajo el texto; el tick superior del eje asoma
-    # por encima del borde del plot (`bottom:100%` + `translateY(50%)`,
-    # intencional, nunca tocado). `align-items:flex-end` elimina el aire
-    # invisible del rótulo y el margin baja a 3px para igualar el hueco
-    # óptico que ya existía hacia el plot (~3px, por el tick) — nunca un
-    # número inventado, es el mismo valor medido del otro lado.
+def test_close_button_lives_in_summary_aligned_with_the_count():
+    # Owner corrective, segunda vuelta (ver HANDOFF): la versión anterior
+    # (posicionamiento absoluto sobre el `<details>`, `top` calibrado a
+    # mano) tenía dos problemas reales que el owner reportó con evidencia
+    # (screenshots): (1) el botón desaparecía al colapsar el `<details>`
+    # nativamente — vivía en `.dashboard-section__body`, que es justo lo
+    # que ese toggle esconde; (2) el `top` en px, calibrado contra un
+    # mockup, quedaba ~4-5px desalineado del baseline real de "XX
+    # oportunidad(es)" en la app real. Fix estructural: el botón se movió
+    # DENTRO de `<summary>` (commercial.js), como flex-item más — hereda
+    # `align-items:center`/`gap` del primitivo compartido
+    # `.dashboard-section__head` (tools.css), así que la alineación es
+    # gratis y el botón sobrevive el colapso nativo (el `<summary>` SIEMPRE
+    # es visible). Cero `position:absolute`, cero `top`/`right` a mano.
+    commercial_js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.js").read_text(encoding="utf-8")
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
-    assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 3px; }" in commercial_css
-    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px;" in commercial_css
+    summary_block = commercial_js.split('data-section-id="activas-analisis"', 1)[1].split("</summary>", 1)[0]
+    assert 'class="dashboard-section__count"' in summary_block
+    assert 'data-commercial-close-analysis' in summary_block
+    assert summary_block.index("dashboard-section__count") < summary_block.index("data-commercial-close-analysis"), (
+        "el botón va DESPUÉS del conteo, en el MISMO flex row de <summary>"
+    )
+    panel_close_rule = re.search(r"\.panel-close\s*\{([^}]*)\}", commercial_css).group(1)
+    assert "position: absolute" not in panel_close_rule
+    assert "top:" not in panel_close_rule and "right:" not in panel_close_rule
+    assert '[data-section-id="activas-analisis"] { position: relative; }' not in commercial_css
+    assert '[data-section-id="activas-analisis"] .dashboard-section__count { margin-right:' not in commercial_css
+
+
+def test_internal_funnel_gaps_match_the_detail_table_rhythm():
+    # Owner corrective (screenshot, ver HANDOFF): "respetar los márgenes
+    # armónicos que ya resuelve la tabla de detalle... para que apliquen en
+    # el título y leyendas previo al gráfico" — el ritmo interno compacto
+    # (3px/8px, corrective anterior) quedó marcado como "comprimido" en
+    # comparación directa, DENTRO del mismo panel, contra "Detalle de
+    # Oportunidades" (12px/10px, ver `[data-commercial-dist]` y
+    # `.urgency-legend`). Título→leyenda sube a 8px. `align-items:flex-end`
+    # (corrective histórico) sigue vigente — sólo cambia el valor del
+    # margin.
+    # leyenda→plot (owner corrective post-C5e, ver HANDOFF: "saquemos el
+    # margin-top en Etapa y movámoslo entre el gráfico y las leyendas"): el
+    # aire que vivía como `margin-top` de la barra de filtros de análisis
+    # (Etapa/Vendedor/Buscar) se trasladó ACÁ — 12px — en vez de separar esa
+    # barra del `<summary>`.
+    commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
+    assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }" in commercial_css
+    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px;" in commercial_css
+    assert '[data-commercial-analysis-filters] { margin: 0 0 12px;' in commercial_css
 
 
 def test_no_focus_stealing_introduced_by_the_scroll_corrective():
@@ -132,15 +162,17 @@ def test_no_focus_stealing_introduced_by_the_scroll_corrective():
     assert "aria-expanded" not in _COMMERCIAL_JS
 
 
-def test_funnel_header_is_a_single_flex_row_title_left_switch_right():
-    # F — estructura/clases, nunca píxeles arbitrarios: título y switch
-    # comparten UN contenedor flex (antes en dos containers hermanos).
+def test_funnel_header_no_longer_carries_a_dimension_switch():
+    # C5a retiró el switch Horas|Ponderadas (C3.1): el header del Funnel
+    # sólo emite el rótulo — ya no hay un segundo control compartiendo la
+    # fila. El wrapper viejo (title/switch en containers separados, de
+    # ANTES de C3.1) tampoco existe.
     dist_fn = _COMMERCIAL_JS.split("function commercialDistribucionHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert '<div class="category-plot-header">' in dist_fn
     header_block = dist_fn.split('<div class="category-plot-header">', 1)[1].split("</div>", 1)[0]
     assert "perspective-label" in header_block
-    assert "dashboard-view-switch" in header_block
-    # El wrapper viejo (title/switch en containers separados) ya no existe.
+    assert "dashboard-view-switch" not in header_block
+    assert "data-commercial-dim" not in dist_fn
     assert "staffing-timeline-toolbar" not in _COMMERCIAL_JS
 
 
@@ -163,12 +195,25 @@ def test_opportunities_bar_color_is_neutral_graphite_not_blue():
     assert ".category-plot__bar--count { background: var(--commercial-neutral-ink); }" in commercial_css
 
 
-def test_hours_series_stays_gold_across_the_switch():
-    # El switch Horas/Ponderadas cambia valor+escala+label, NUNCA color: la
-    # serie sigue atada al mismo `--gold` en ambos modos.
+def test_hours_series_stays_gold_and_weighted_uses_a_distinguishable_gold_tone():
+    # C5a (tres series simultáneas): Horas sigue en `--gold`, sin cambios.
+    # Hs Ponderadas comparte el eje derecho con Horas pero NO puede compartir
+    # el mismo color — necesita un tono DISTINGUIBLE de la misma familia
+    # dorada (nunca un color ajeno a esa semántica).
+    # Owner corrective (dark theme, ver HANDOFF): `#d9a520` (heredado del
+    # eje derecho) resultó demasiado parecido a `--gold` (#e7b008) en
+    # oscuro — mismo tono amarillo, apenas distinta luminancia — y las
+    # barras dejaban de distinguirse. `#e8820a` vira el HUE hacia naranja
+    # (no sólo luminancia) para una diferenciación real, aplicado a los
+    # TRES consumidores que comparten este tono (bar/leyenda/eje derecho).
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     assert ".category-plot__bar--hours { background: var(--gold); }" in commercial_css
     assert ".category-plot-legend .swatch-bar--hours { background: var(--gold); }" in commercial_css
+    assert ".category-plot__bar--weighted { background: #a67c00; }" in commercial_css
+    assert ".category-plot-legend .swatch-bar--weighted { background: #a67c00; }" in commercial_css
+    assert ".content-theme-dark .category-plot__bar--weighted { background: #e8820a; }" in commercial_css
+    assert ".content-theme-dark .category-plot-legend .swatch-bar--weighted { background: #e8820a; }" in commercial_css
+    assert ".content-theme-dark .category-plot__axis--right span { color: #e8820a; }" in commercial_css
 
 
 def test_opportunities_color_is_centralized_in_one_local_theme_aware_variable():

@@ -895,7 +895,7 @@ OPP_LEADS = [
     # Etapa 1 (activa 1-8) — el caso "completo": todas las properties.
     {"id": 700, "name": "Opp Uno", "type": "opportunity", "active": True, "stage_id": 2,
      "tag_ids": [10], "partner_id": [80, "Cliente Uno"], "user_id": [50, "Vendedor Uno"],
-     "source_id": [60, "Google Ads"], "probability": 40, "priority": "2",
+     "source_id": [60, "Google Ads"], "probability": 40, "priority": "2", "expected_revenue": 25000,
      "lead_properties": [
          _prop_horas(100),
          _prop_date("Fecha de Ultima Respuesta", "2026-08-01"),
@@ -948,6 +948,28 @@ def test_opportunities_weighted_hours_is_centralized_in_service():
     uno = next(r for r in rows if r["opportunity"] == "Opp Uno")
     assert uno["hours"] == 100
     assert uno["weighted_hours"] == 40.0, "probability 40% * 100hs"
+    svc_module.clear_cache()
+
+
+def test_opportunities_row_includes_additive_revenue_field_without_a_new_odoo_call():
+    # C5e (ver HANDOFF — filtro Etapa/Vendedor del detalle de Oportunidades,
+    # owner decisión "preservar Revenue en el Funnel filtrado"): `revenue`
+    # se agrega como campo ADITIVO al MISMO `search_read` de `crm.lead` que
+    # ya existía — `expected_revenue` es el campo estándar que el resto del
+    # servicio ya usa para Revenue (`_build_pipeline`/`_aggregate_full`).
+    # Este test es la evidencia de "no nueva llamada a Odoo": cuenta las
+    # queries a `crm.lead` (deben seguir siendo UNA sola) y confirma que esa
+    # única query YA pide `expected_revenue`.
+    svc_module.clear_cache()
+    client = _opportunities_client()
+    rows = CommercialService(client).get_opportunities("todos")["opportunities"]
+    lead_calls = [c for c in client.calls if c[0] == "crm.lead"]
+    assert len(lead_calls) == 1, "una sola query a crm.lead — revenue no agrega una segunda"
+    assert "expected_revenue" in lead_calls[0][2], "el campo se pide en la MISMA query existente"
+    uno = next(r for r in rows if r["opportunity"] == "Opp Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Opp Dos")
+    assert uno["revenue"] == 25000.0
+    assert dos["revenue"] == 0.0, "sin expected_revenue en el lead fuente, revenue cae a 0 (no rompe)"
     svc_module.clear_cache()
 
 

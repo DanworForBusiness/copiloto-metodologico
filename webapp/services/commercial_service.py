@@ -513,7 +513,15 @@ class CommercialService:
     # sentido calcularlo en el cliente cuando ya se calcula igual en
     # `_build_pipeline`/`_aggregate_full` para el mismo campo. `tag_ids`
     # SOLO se usa para particionar todos/nn/bi en memoria — nunca viaja en
-    # la fila (ver HANDOFF: "No Etiquetas in output UI contract").
+    # la fila (ver HANDOFF: "No Etiquetas in output UI contract"). `revenue`
+    # (C5e, ver HANDOFF - filtro Etapa/Vendedor del detalle): campo ADITIVO
+    # sobre el MISMO `search_read` de `crm.lead` - `expected_revenue` ya es
+    # el campo estandar que el resto de este servicio usa para Revenue
+    # (`_build_pipeline`/`_aggregate_full`/`_build_forecast`), asi que
+    # agregarlo aca es solo sumarlo a `fields`, sin una segunda llamada a
+    # Odoo. Necesario para que el Funnel derivado LOCALMENTE en el frontend
+    # (cuando el owner filtra por Etapa/Vendedor) pueda seguir mostrando
+    # Revenue en su tooltip con la MISMA semantica que el Funnel sin filtrar.
     def _build_opportunities(self) -> dict:
         valid_ids, _prospect_ids, _suspended_ids = self._stage_partition()
         nn_tag, bi_tag = self._nn_bi_tags()
@@ -523,7 +531,7 @@ class CommercialService:
             "crm.lead",
             domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", valid_ids]],
             fields=["name", "partner_id", "user_id", "stage_id", "tag_ids", "source_id",
-                     "probability", "priority", "lead_properties"],
+                     "probability", "priority", "lead_properties", "expected_revenue"],
         )
         opp_ids = [o["id"] for o in opps]
         # TODAS las actividades pendientes de estas oportunidades — MISMO
@@ -567,6 +575,7 @@ class CommercialService:
                 "licencias": _get_prop_label(props, "Licencias"),
                 "hours": hours_raw,
                 "weighted_hours": weighted_hours,
+                "revenue": round(opp.get("expected_revenue", 0) or 0, 2),
                 "probability": opp.get("probability"),
                 "priority": opp.get("priority") or "0",
                 "activities": acts_by_opp.get(opp["id"], []),

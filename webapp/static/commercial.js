@@ -6,7 +6,7 @@
 //
 // Reusa primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/
 // .activity-kpi, .experience-tabs, .dashboard-view-switch, .dashboard-section,
-// table.dashboard-table, .matrix-scroll, .chart-tooltip, .empty-panel,
+// table.dashboard-table, .matrix-scroll, .chart-tooltip, .dashboard-empty,
 // .section-analysis-loading — todos en app.css/tools.css) y aporta su CSS
 // propio en commercial.css, linkeado desde su template: ahí viven la
 // composición del gráfico (`.category-plot`) y el layout del landing, que
@@ -46,11 +46,6 @@ const commercialState = {
   // criterio que Reporting (`state.experience`, sin URL) — no hay
   // requerimiento de deep-link a una capability.
   capability: "dashboard",
-  // Dimensión de horas del "Funnel por Etapa" (la segunda serie de barras).
-  // NO es un filtro: no cambia universo, etapas, capability ni la tabla —
-  // sólo qué magnitud dibuja esa serie y su eje. Por eso vive acá y NO
-  // dispara fetch.
-  horasDim: "hours", // hours | weighted
   status: "idle", // idle | loading | ready | error
   errorState: "", // "config_incomplete" | "source_error" | ""
   summary: null,
@@ -61,10 +56,9 @@ const commercialState = {
   // falla (MISMO criterio que `analytics`: es detalle adicional, nunca
   // bloquea el resto del landing).
   opportunities: null,
-  // Orden de la tabla de detalle — client-side puro, nunca un fetch (MISMO
-  // criterio que `horasDim`). `null` = sin ordenar (orden de llegada del
-  // backend). Sobrevive a un cambio de Todos/NN/BI (MISMO criterio que
-  // `horasDim`, que tampoco se resetea en `commercialSetTipo`).
+  // Orden de la tabla de detalle — client-side puro, nunca un fetch. `null`
+  // = sin ordenar (orden de llegada del backend). Sobrevive a un cambio de
+  // Todos/NN/BI — no se resetea en `commercialSetTipo`.
   oppSortKey: null,
   oppSortDir: 1, // 1 = ascendente, -1 = descendente
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
@@ -77,6 +71,19 @@ const commercialState = {
   // cargado, nunca un round-trip (ver commercialFilteredActivities).
   actPeriod: "all", // all | week:0 | week:1 | week:2
   actUser: "",
+  // Filtros de ANÁLISIS del detalle de Oportunidades (C5e, ver HANDOFF):
+  // Etapa/Vendedor afectan Funnel + tabla (ver
+  // `commercialAnalysisFilteredOpportunities`); el texto libre es SÓLO de
+  // tabla (ver `commercialSearchOpportunities`) — nunca toca el Funnel. Los
+  // tres son client-side puros sobre `opportunities`, ya cargado — cero
+  // round-trip. "" = sin filtro (Todas/Todos/sin buscar). A diferencia de
+  // `oppSortKey` (sobrevive el cambio de tipo), estos SÍ se resetean — ver
+  // `commercialResetAnalysisFiltersForNewTipo`: mismo criterio que
+  // `actPeriod`/`actUser` (arriba), un filtro por valor podría apuntar a un
+  // universo que ya no existe tras cambiar Todos/NN/BI.
+  oppStageFilter: "",
+  oppSellerFilter: "",
+  oppSearchText: "",
 };
 
 function commercialEsc(value) {
@@ -151,6 +158,21 @@ function commercialLoadingHtml(label) {
     + `<span class="section-analysis-loading-copy">${commercialEsc(label)}</span></p>`;
 }
 
+// Estado vacío/no-disponible Hub-consistente (visual polish, ver HANDOFF —
+// referencia: "Sin selección" en Copiloto/Métricas de Uso). Reusa
+// `.dashboard-empty`/`.dashboard-empty__label` (tools.css) — primitivo YA
+// compartido (Staffing, Activity), nunca uno inventado para Comercial: caja
+// con borde punteado, eyebrow dorado + texto centrado, en vez de un `<p
+// class="empty-panel">` suelto flotando bajo tabs/tabla. El eyebrow separa
+// la SEMÁNTICA sin cambiar la gramática visual: "No disponible" para fallas
+// de carga/cálculo (config incompleta, error de transporte — un estado que
+// se PARECE a un error pero nunca en rojo, el Hub no usa ese tratamiento
+// acá) vs "Sin resultados" para cero filas legítimas — nunca el mismo texto
+// para los dos casos.
+function commercialEmptyStateHtml(eyebrow, message) {
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">${commercialEsc(eyebrow)}</span><p>${commercialEsc(message)}</p></div>`;
+}
+
 // View Controls Spine corrective (ver HANDOFF — Tabs vs View Controls
 // Audit): Todos/NN/BI es un VIEW CONTROL (filtra la población de TODAS las
 // secciones), no navegación entre capacidades — por eso vive dentro de
@@ -177,25 +199,30 @@ function commercialFilterHtml() {
 }
 
 // ── Funnel por Etapa ───────────────────────────────────────────────────────
-// Restauración de la representación legacy (Active Opportunities Phase 2 /
-// C3, ver HANDOFF) sobre el primitivo COMPARTIDO `.category-plot`
-// (tools.css): GROUPED BARS — dos barras por etapa, Oportunidades y Horas/
-// Ponderadas, sobre las MISMAS posiciones de etapa. Universo: Activas,
-// etapas 1-8 (ver `_build_pipeline`/C1 — nunca el 0-8 de Pipeline Total/
-// Forecast). Reemplaza la versión anterior (barra + línea con puntos, "A'"):
-// el owner pidió el grouped bar real del legacy, no una variante Hub nueva.
-// Ambas series son DOM puro — sin librería de charts ni elemento gráfico
-// nativo del navegador.
+// TRES barras por etapa simultáneas (Active Opportunities Phase 2 / C5a, ver
+// HANDOFF): Oportunidades, Horas y Hs Ponderadas, sobre las MISMAS
+// posiciones de etapa. Reemplaza el switch Horas|Ponderadas (C3/C3.1) — el
+// payload de `_build_pipeline` YA traía las tres magnitudes por etapa desde
+// C1/C3, así que mostrarlas juntas fue puramente frontend: nunca se tocó el
+// backend ni el contrato del endpoint. Universo: Activas, etapas 1-8 (ver
+// `_build_pipeline`/C1 — nunca el 0-8 de Pipeline Total/Forecast). Las tres
+// series son DOM puro — sin librería de charts ni elemento gráfico nativo
+// del navegador.
 //
-// DOBLE ESCALA, A PROPÓSITO: cantidad y horas no comparten unidad ni orden
-// de magnitud. Lo que se compara es la DISTRIBUCIÓN de cada serie a lo
-// largo del embudo — nunca la altura de una barra de Oportunidades contra
-// la de Horas, que sería un artefacto de las escalas elegidas. De ahí las
-// mitigaciones obligatorias: ticks en AMBOS ejes, los dos arrancando en 0,
-// techo redondeado (`commercialNiceMax`), unidad explícita en la leyenda y
-// dos colores/swatches inequívocos (azul = Oportunidades/escala izq., oro =
-// Horas/escala der.). Los valores REALES viven en el tooltip (por columna,
-// las 4 métricas juntas) y en la tabla de detalle (C4); el gráfico nunca
+// DOS EJES, NO TRES: Oportunidades tiene su propia escala (izq.); Horas y Hs
+// Ponderadas COMPARTEN la escala derecha (misma unidad — horas — nunca dos
+// unidades distintas en el mismo eje). `maxHours` sale del máximo entre
+// AMBAS series para que ninguna de las dos toque el techo. Cantidad y horas
+// no comparten unidad ni orden de magnitud entre sí — se compara la
+// DISTRIBUCIÓN de cada serie a lo largo del embudo, nunca la altura de una
+// barra de Oportunidades contra una de Horas, que sería un artefacto de las
+// escalas elegidas. De ahí las mitigaciones obligatorias: ticks en AMBOS
+// ejes, los dos arrancando en 0, techo redondeado (`commercialNiceMax`),
+// unidad explícita en la leyenda y tres colores/swatches inequívocos
+// (neutral = Oportunidades/escala izq., oro = Horas/escala der., un segundo
+// tono dorado ya usado en este archivo para el eje derecho = Ponderadas/
+// escala der.). Los valores REALES viven en el tooltip (por columna, las 4
+// métricas juntas) y en la tabla de detalle (C4); el gráfico nunca
 // normaliza a porcentaje.
 function commercialChartTooltip(lines) {
   // Copia local mínima del helper homónimo de reporting.js — MISMA convención
@@ -204,6 +231,53 @@ function commercialChartTooltip(lines) {
   // tercer consumidor real corresponde extraerlo, no antes.
   const arr = Array.isArray(lines) ? lines : [lines];
   return `<div class="chart-tooltip" aria-hidden="true">${arr.map(l => `<p>${commercialEsc(l)}</p>`).join("")}</div>`;
+}
+
+// Posicionamiento dinámico del tooltip (corrective, ver HANDOFF — owner
+// smoke original: el tooltip del Funnel se recortaba cerca del borde
+// superior del panel; segunda vuelta: el MISMO recorte apareció en el
+// tooltip de Prior., dentro de la tabla). CAUSA REAL auditada, dos
+// boundaries distintos, mismo mecanismo: `.chart-tooltip` (tools.css) es
+// puramente CSS, `position:absolute; bottom:calc(100% + 7px)` — SIEMPRE
+// arriba, sin lógica de flip — y el recorte NO es un problema de
+// z-index/stacking (`.chart-tooltip` ya tiene z-index:30). Es un boundary
+// real: `.dashboard-section` (tools.css) tiene `overflow:hidden`, y
+// `.matrix-scroll` (tools.css, envuelve la tabla) tiene `overflow-x:auto`
+// — que por espec de CSS computa `overflow-y` a `auto` también cuando el
+// otro eje no es `visible`, así que TAMBIÉN recorta. Cualquier
+// `position:absolute` que se salga de la caja que corresponda se recorta
+// ahí, sin importar el z-index.
+//
+// Generalizado sobre CUALQUIER `.chart-tooltip-anchor` (el marcador que ya
+// comparten el Funnel y la celda de Prior. — antes esto sólo escuchaba
+// `.category-plot__col`, así que la tabla nunca se beneficiaba del flip):
+// mide el espacio real disponible ARRIBA dentro del boundary que
+// corresponda (`.matrix-scroll` si el anchor vive en una tabla scrolleable,
+// si no `.dashboard-section`) contra la altura real del tooltip (medible
+// con getBoundingClientRect() aunque esté con `visibility:hidden` — sigue
+// en el flujo de layout, a diferencia de `display:none`) y alterna una
+// clase (`is-tooltip-below`, ver `.chart-tooltip-anchor.is-tooltip-below`
+// en commercial.css) que invierte `bottom`→`top` — nunca se toca
+// `.chart-tooltip`/`.chart-tooltip-anchor` en sí (tools.css).
+// Decisión pura, sin DOM (testable directo con números — ver HANDOFF: "no
+// pinnear valores de píxeles arbitrarios"): ¿el espacio libre arriba
+// alcanza para el tooltip + el mismo gap que ya usa el CSS?
+function commercialTooltipNeedsFlip(spaceAbove, tooltipHeight, gap) {
+  return spaceAbove < tooltipHeight + gap;
+}
+
+const COMMERCIAL_TOOLTIP_GAP = 7; // mismo separador que ya usa `.chart-tooltip` (tools.css)
+
+function commercialPositionChartTooltip(anchor) {
+  const tooltip = anchor.querySelector(".chart-tooltip");
+  if (!tooltip) return;
+  const boundary = anchor.closest(".matrix-scroll, .dashboard-section");
+  const boundaryTop = boundary ? boundary.getBoundingClientRect().top : 0;
+  const anchorRect = anchor.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const spaceAbove = anchorRect.top - boundaryTop;
+  anchor.classList.toggle("is-tooltip-below",
+    commercialTooltipNeedsFlip(spaceAbove, tooltipRect.height, COMMERCIAL_TOOLTIP_GAP));
 }
 
 // Tooltip por etapa: SIEMPRE el cuadro completo (nombre de la etapa + las 4
@@ -244,42 +318,40 @@ function commercialAxisHtml(side, max) {
   return `<div class="category-plot__axis category-plot__axis--${side}">${ticks}</div>`;
 }
 
-// Contenido INTERNO de `[data-commercial-dist]` — el switch y el gráfico. Se
-// devuelve aparte del wrapper justamente para que el switch pueda
-// re-renderizar SÓLO este subárbol (ver el handler): un `commercialRender()`
-// completo reconstruiría todo `#commercial-main-content` y, como
-// `initEventBreakdown` guarda el estado abierto/cerrado únicamente en el DOM
-// (`hidden` + `.is-active`), cerraría el panel de Activas justo cuando el
-// usuario toca el switch que vive adentro.
-function commercialDistribucionHtml(pipeline, dim) {
+// Contenido INTERNO de `[data-commercial-dist]` — el gráfico. Se devuelve
+// aparte del wrapper por el MISMO motivo de siempre (ver HANDOFF): un
+// `commercialRender()` completo reconstruiría todo `#commercial-main-content`
+// y, como `initEventBreakdown` guarda el estado abierto/cerrado únicamente
+// en el DOM (`hidden` + `.is-active`), cerraría el panel de Activas. Ya no
+// hay switch que re-renderice este subárbol por sí solo (C5a lo retiró) —
+// el subárbol se re-renderiza igual cuando cambia `pipeline` (Todos/NN/BI).
+function commercialDistribucionHtml(pipeline) {
   const stages = (pipeline && pipeline.stages) || [];
   if (!stages.length) return "";
   // Sólo las etapas PRESENTES en la respuesta y en el orden recibido (el
   // service ya las entrega ordenadas 1→8 y agrupa únicamente las que tienen
   // oportunidades) — nunca 8 columnas hardcodeadas, nunca la etapa 0.
-  const hoursOf = s => (dim === "weighted" ? (s.weighted_hours || 0) : (s.hours || 0));
   const maxCount = commercialNiceMax(Math.max(...stages.map(s => s.count || 0)));
-  const maxHours = commercialNiceMax(Math.max(...stages.map(hoursOf)));
-  const hoursLabel = dim === "weighted" ? "Horas Ponderadas" : "Horas";
-
-  const dims = [["hours", "Horas"], ["weighted", "Ponderadas"]];
-  const switchButtons = dims.map(([key, label]) =>
-    `<button type="button" class="${dim === key ? "is-active" : ""}" data-commercial-dim="${key}">${commercialEsc(label)}</button>`
-  ).join("");
+  // Horas y Ponderadas comparten la MISMA escala derecha — el techo es el
+  // máximo entre las DOS series, nunca solo una (si no, la serie más alta
+  // de las dos podría tocar o exceder el techo del eje).
+  const maxHours = commercialNiceMax(Math.max(...stages.map(s => Math.max(s.hours || 0, s.weighted_hours || 0))));
 
   // La COLUMNA es la superficie accesible (no la barra individual): cubre
   // toda la banda de la etapa, lleva el `aria-label` plano con las CUATRO
   // magnitudes reales y ancla el tooltip compartido — un solo punto de
   // foco/hover por etapa, nunca uno por serie (evitaría duplicar el mismo
-  // dato dos veces en el lector de pantalla). Las dos barras son
+  // dato dos veces en el lector de pantalla). Las tres barras son
   // `aria-hidden` implícito (no son focusables ni tienen texto propio).
   const cols = stages.map((stage, index) => {
     const lines = commercialStageTooltipLines(stage);
     const countHeight = maxCount > 0 ? ((stage.count || 0) / maxCount * 100).toFixed(1) : "0.0";
-    const hoursHeight = maxHours > 0 ? (hoursOf(stage) / maxHours * 100).toFixed(1) : "0.0";
+    const hoursHeight = maxHours > 0 ? ((stage.hours || 0) / maxHours * 100).toFixed(1) : "0.0";
+    const weightedHeight = maxHours > 0 ? ((stage.weighted_hours || 0) / maxHours * 100).toFixed(1) : "0.0";
     return `<div class="category-plot__col chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(lines.join(" · "))}">`
       + `<div class="category-plot__bar category-plot__bar--count" style="height:${countHeight}%"></div>`
       + `<div class="category-plot__bar category-plot__bar--hours" style="height:${hoursHeight}%"></div>`
+      + `<div class="category-plot__bar category-plot__bar--weighted" style="height:${weightedHeight}%"></div>`
       + `${commercialChartTooltip(lines)}</div>`;
   }).join("");
 
@@ -290,11 +362,11 @@ function commercialDistribucionHtml(pipeline, dim) {
   return `
     <div class="category-plot-header">
       <p class="perspective-label">Funnel por Etapa</p>
-      <div class="dashboard-view-switch dashboard-view-switch--compact" role="group" aria-label="Dimensión de horas">${switchButtons}</div>
     </div>
     <div class="category-plot-legend">
       <b><i class="swatch-bar swatch-bar--count"></i>Oportunidades <em>· escala izq.</em></b>
-      <b><i class="swatch-bar swatch-bar--hours"></i>${commercialEsc(hoursLabel)} <em>· escala der.</em></b>
+      <b><i class="swatch-bar swatch-bar--hours"></i>Horas <em>· escala der.</em></b>
+      <b><i class="swatch-bar swatch-bar--weighted"></i>Hs Ponderadas <em>· escala der.</em></b>
     </div>
     <div class="category-plot">
       ${commercialAxisHtml("left", maxCount)}
@@ -318,7 +390,36 @@ function commercialDistribucionHtml(pipeline, dim) {
 // default. Reusa el MISMO Table Spine ya establecido (`.row-label-col` +
 // ancho default 88px de columnas métricas, `.matrix-scroll`) — cero CSS
 // propio de Comercial para esto.
-const COMMERCIAL_PRIORITY_LABELS = { "0": "—", "1": "⭐ Media", "2": "⭐⭐ Alta", "3": "⭐⭐⭐ Muy Alta" };
+// Prior. (visual polish, ver HANDOFF): la celda visible queda SOLO con las
+// estrellas — el texto ("Media"/"Alta"/"Muy Alta") se mueve al tooltip
+// compartido (`.chart-tooltip`, tools.css — MISMA caja que ya usa el
+// Funnel de este archivo, nunca un `title=` nativo) para reducir el
+// apriete horizontal sin perder el significado semántico.
+const COMMERCIAL_PRIORITY_STARS = { "0": "—", "1": "⭐", "2": "⭐⭐", "3": "⭐⭐⭐" };
+const COMMERCIAL_PRIORITY_LABELS = { "0": "Sin prioridad", "1": "Media", "2": "Alta", "3": "Muy Alta" };
+
+// Urgencia de "Próx. Acción" (owner corrective, ver HANDOFF — screenshot con
+// leyenda de 4 colores "0-7/8-15/16-30/+30 días"): la magnitud (no el signo)
+// de `days` es lo que importa — una actividad vencida hace 3 días es tan
+// urgente como una que vence en 3 — de ahí `Math.abs`. Reusa el primitivo
+// COMPARTIDO `.dashboard-status-badge` (tools.css, mismo que Salud de
+// Cliente en el tablero integral) — sólo se agrega la variante `--orange`
+// que faltaba (green/amber/red ya existían pero cubren 3 tonos, esta
+// leyenda necesita 4). `null` (sin fecha) no es un tono: no hay actividad
+// que clasificar, así que no hay badge.
+function commercialUrgencyColor(days) {
+  if (days == null) return null;
+  const abs = Math.abs(days);
+  if (abs <= 7) return "green";
+  if (abs <= 15) return "amber";
+  if (abs <= 30) return "orange";
+  return "red";
+}
+function commercialUrgencyLegendHtml() {
+  const tiers = [["green", "0-7 días"], ["amber", "8-15 días"], ["orange", "16-30 días"], ["red", "+30 días"]];
+  return `<div class="urgency-legend">${tiers.map(([color, label]) =>
+    `<b><i class="urgency-legend__dot urgency-legend__dot--${color}"></i>${label}</b>`).join("")}</div>`;
+}
 
 // Claves de orden — MISMA semántica que `SORT_KEYS` del legacy
 // (`renderTable`), adaptada a los nombres de campo del contrato Hub
@@ -368,7 +469,7 @@ function commercialToggleOppSort(key) {
 function commercialOpportunitiesTableHtml(opportunities) {
   const rows = (opportunities && opportunities.opportunities) || [];
   if (!rows.length) {
-    return `<p class="empty-panel">Sin oportunidades activas para este filtro.</p>`;
+    return commercialEmptyStateHtml("Sin resultados", "Sin oportunidades activas para este filtro.");
   }
   const sorted = commercialOpportunitiesSorted(rows);
   const th = (key, label, cls = "") => {
@@ -385,11 +486,26 @@ function commercialOpportunitiesTableHtml(opportunities) {
       ? acts.map(act => {
           const days = commercialDaysUntil(act.deadline);
           const rel = days === null ? "" : days < 0 ? ` (venc. ${Math.abs(days)}d)` : days === 0 ? " (hoy)" : ` (${days}d)`;
-          const label = act.type ? `${commercialFmtDate(act.deadline)} · ${act.type}` : commercialFmtDate(act.deadline);
-          return `${commercialEsc(label)}${commercialEsc(rel)}`;
+          const datePrefix = commercialEsc(commercialFmtDate(act.deadline));
+          // El badge SÓLO envuelve tipo+relativo ("To-Do (venc. 5d)") — la
+          // fecha queda como texto plano antes, igual que el legacy (owner
+          // corrective, ver HANDOFF: color por urgencia sobre el primitivo
+          // compartido, nunca sobre la fecha).
+          if (!act.type) return datePrefix;
+          const color = commercialUrgencyColor(days);
+          const typeAndRel = `${commercialEsc(act.type)}${commercialEsc(rel)}`;
+          const badge = color
+            ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${typeAndRel}</span>`
+            : typeAndRel;
+          return `${datePrefix} · ${badge}`;
         }).join("<br>")
       : "—";
-    const lic = o.licencias === "Si" ? "Sí" : o.licencias === "No" ? "No" : "—";
+    // Celda booleana (MISMO patrón que reporting.js::renderCalendarioCell —
+    // Integral/Calendario, ver HANDOFF): "Si" → tilde, cualquier otra cosa
+    // (No/Sin definir/ausente) → blanco. Nunca "Sí"/"No" como texto.
+    const lic = o.licencias === "Si" ? "✓" : "";
+    const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
+    const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
     return `
     <tr>
       <td class="row-label">${commercialEsc(o.opportunity)}</td>
@@ -399,7 +515,7 @@ function commercialOpportunitiesTableHtml(opportunities) {
       <td>${commercialFmtInt(o.hours)}</td>
       <td>${commercialFmtInt(o.weighted_hours)}</td>
       <td>${commercialFmtPercent(o.probability)}</td>
-      <td>${commercialEsc(COMMERCIAL_PRIORITY_LABELS[o.priority] || "—")}</td>
+      <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
       <td class="left">${nextAction}</td>
       <td>${o.last_response ? commercialEsc(commercialFmtDate(o.last_response)) : "—"}</td>
       <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
@@ -422,27 +538,43 @@ function commercialOpportunitiesTableHtml(opportunities) {
       <td>${commercialFmtInt(totals.weighted_hours)}</td>
       <td colspan="5"></td>
     </tr>`;
-  // `<colgroup>` propio (visual polish, ver HANDOFF): con 11 columnas el
-  // default compartido (`.row-label-col` 340px + 88px por columna sin
-  // clase) sobre-reserva Oportunidad y deja a las `.left` flexibles (Cliente/
-  // Vendedor/Próx. Acción) peleando por las migas — Próx. Acción, la más
-  // pesada de contenido, terminaba más comprimida que columnas puramente
-  // numéricas. MISMO recurso ya usado por `commercialActivityTableHtml`
-  // (Actividades, más arriba en este archivo) para una tabla de varias
-  // columnas de texto: el `<col>` explícito gana sobre la regla compartida
-  // en `table-layout:fixed` (ver comentario de esa función) — no se toca
-  // ningún primitivo de tools.css, así que ninguna otra tabla del Hub se
-  // ve afectada. Compactas de verdad (Lic./Hs/Hs Pond./Prob.) quedan
-  // angostas; Prior./Próx. Acción/Últ. Resp./Días resp. reciben el espacio
-  // que su contenido (estrellas, fecha+tipo+badge, fecha) necesita.
+  // `<colgroup>` propio en %, no en px (visual polish, ver HANDOFF — owner
+  // screenshot: "no responsive... incoherencia entre columnas... no tan
+  // hardcodeada que ante cualquier cambio mueva todos los márgenes"):
+  // con `table-layout:fixed` + `width:100%` (tools.css) un `<col>` en px
+  // YA se reescala proporcionalmente al ancho real del panel — verificado
+  // en vivo, las 11 columnas escalan con el MISMO factor — así que "px vs
+  // %" no era el bug. El problema real era que los px estaban calibrados
+  // para el contenido de C4/antes de C5b: Prior. reservaba espacio para
+  // "⭐⭐⭐ Muy Alta" (texto que C5b movió al tooltip) y le sobraba hueco
+  // vacío, mientras Oportunidad truncaba nombres reales largos ("Loma
+  // Negra - Mantenimiento Workzone"). Se expresa en % (más legible que una
+  // tabla de px que sólo tiene sentido si suman un total implícito) y se
+  // recalibra con evidencia real: Prior. baja a compacto (ya es sólo
+  // estrellas), Oportunidad y Próx. Acción — las dos columnas de contenido
+  // real más largo — suben. El `<col>` explícito sigue ganando sobre la
+  // regla compartida en `table-layout:fixed` (ver comentario de
+  // `commercialActivityTableHtml`) — no se toca ningún primitivo de
+  // tools.css. `min-width` sobre esta tabla puntual (ver regla en
+  // commercial.css, colgada de `[data-commercial-opportunities]` — el
+  // wrapper que ya existe, sin clase nueva) evita que esas proporciones
+  // se aprieten hasta ser ilegibles en viewports angostos — de ahí en
+  // más entra `.matrix-scroll`.
+  // Rebalanceo puntual (owner screenshot — "Días resp." partiendo su
+  // título en dos líneas mientras Próx. Acción sobraba espacio muerto):
+  // Próx. Acción 21%→18%, Días resp. 4%→7%. Misma evidencia que el resto
+  // de esta tabla — ancho real necesario por columna, no un número
+  // inventado (18% le sobra de sobra a un badge + fecha corta; 7% alcanza
+  // para "Días resp." en una sola línea, mismo orden de magnitud que "Hs
+  // Pond." a 6%/54px, que ya entra sin partirse).
   return `
     <div class="matrix-scroll">
       <table class="dashboard-table">
         <colgroup>
-          <col style="width:170px"><col style="width:120px"><col style="width:110px">
-          <col style="width:50px"><col style="width:60px"><col style="width:70px">
-          <col style="width:60px"><col style="width:90px"><col style="width:200px">
-          <col style="width:90px"><col style="width:65px">
+          <col style="width:22%"><col style="width:11%"><col style="width:10%">
+          <col style="width:4%"><col style="width:5%"><col style="width:6%">
+          <col style="width:5%"><col style="width:4%"><col style="width:18%">
+          <col style="width:8%"><col style="width:7%">
         </colgroup>
         <thead><tr>
           ${th("opportunity", "Oportunidad", "row-label-col")}
@@ -507,30 +639,257 @@ function commercialDashboardSections(dashboardKey, sectionsHtml) {
 // este archivo (ver Loader canónico — cero exploración arbitraria del DOM).
 function commercialMaybeScrollToOpenedAnalysis(trigger, root) {
   if (!trigger.classList.contains("is-active")) return;
-  root.querySelector(`[data-breakdown="${trigger.dataset.event}"]`)?.scrollIntoView({ block: "start" });
+  const section = root.querySelector(`[data-breakdown="${trigger.dataset.event}"]`);
+  // `open = true` (owner corrective, ver HANDOFF: la X de cierre ahora vive
+  // en `<summary>` y sobrevive el colapso nativo del `<details>` — pero eso
+  // deja la sección en un estado "visible pero colapsada" si el owner la
+  // había colapsado a mano antes de cerrarla: `initEventBreakdown` sólo
+  // gobierna `hidden` (mostrar/ocultar el bloque entero), nunca `open`
+  // (expandido/colapsado DENTRO de ese bloque) — son dos ejes
+  // independientes. Sin esto, reabrir el tile mostraría sólo la barra del
+  // `<summary>`, sin contenido, hasta el próximo render completo. El
+  // template siempre emite `open` fresco (commercialDashboardHtml), así
+  // que esto sólo importa para la re-apertura SIN un fetch/render de por
+  // medio — exactamente este camino.
+  if (section) section.open = true;
+  section?.scrollIntoView({ block: "start" });
 }
 
-// Cuerpo del panel de "Oportunidades Activas — Análisis": gráfico ARRIBA
-// (patrón), tabla ABAJO (precisión). Ambos en la MISMA `.dashboard-section`
-// — no una sección nueva, que rompería la relación contextual con el KPI que
-// abre este panel. La tabla SÍ se re-renderiza al ordenar una columna (ver
-// `[data-commercial-opportunities]` y el delegado de click), pero NUNCA con
-// el switch Horas/Ponderadas: ese sigue tocando sólo `[data-commercial-dist]`
-// (el gráfico), la tabla es la referencia numérica completa en cualquier
-// modo del gráfico y no depende de esa dimensión.
-// Sin etapas, `commercialDistribucionHtml` devuelve "" y el único mensaje lo
-// da el `.empty-panel` de la tabla — nunca rótulos huérfanos sobre la nada.
+// ── Filtros de análisis del detalle de Oportunidades (C5e, ver HANDOFF) ─────
+// Etapa/Vendedor son ANALÍTICOS: el mismo universo filtrado alimenta el
+// Funnel Y la tabla (ambos ya comparten universo desde C4 — mismo gate que
+// `_build_opportunities`). El texto libre es SÓLO de tabla — nunca toca el
+// Funnel (contrato explícito del owner: "Buscar 'Loma Negra' con Todas/Todos
+// no cambia lo que el Funnel representa"). Todo pure sobre el array YA
+// cargado (`commercialState.opportunities`) — `.filter()` siempre devuelve
+// un array nuevo, cero mutación del payload fuente, cero round-trip.
+
+function commercialOppStageOptions(pipeline, opportunities) {
+  // Orden CANÓNICO = el que ya trae `pipeline.stages` (el backend lo entrega
+  // 1→8, ver `_build_pipeline`) — nunca alfabético ni de aparición, que
+  // dependería del orden de retorno de Odoo. Sólo etapas REALMENTE
+  // presentes en `opportunities` (mismo criterio que el propio Funnel:
+  // nunca una opción fantasma sin datos detrás). El fallback (`extra`) es
+  // defensivo — mismo universo que `pipeline`, no debería divergir nunca,
+  // pero una etapa real nunca queda inseleccionable si divergiera.
+  const canonical = ((pipeline && pipeline.stages) || []).map(s => s.stage);
+  const present = new Set(opportunities.map(o => o.stage).filter(Boolean));
+  const ordered = canonical.filter(s => present.has(s));
+  const extra = [...present].filter(s => !canonical.includes(s));
+  return [...ordered, ...extra];
+}
+
+function commercialOppSellerOptions(opportunities) {
+  // Alfabético — a diferencia de Etapa, acá no existe una secuencia
+  // canónica que preservar, así que el orden determinístico más simple es
+  // el correcto.
+  return [...new Set(opportunities.map(o => o.seller).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+// Etapa + Vendedor COMPONEN (AND): "Etapa 6 + Roberto" = sólo las de Roberto
+// EN etapa 6, nunca una unión de ambos criterios. "" en cualquiera de los
+// dos = ese eje sin filtrar (Todas/Todos).
+function commercialAnalysisFilteredOpportunities(opportunities, stageFilter, sellerFilter) {
+  return opportunities.filter(o =>
+    (!stageFilter || o.stage === stageFilter) && (!sellerFilter || o.seller === sellerFilter));
+}
+
+// Deriva el Funnel LOCAL desde filas YA filtradas por Etapa/Vendedor — MISMA
+// forma que `/comercial/data/pipeline` (`{opportunities, stages:[{stage,
+// count, hours, weighted_hours, revenue}]}`) para que
+// `commercialDistribucionHtml` lo consuma SIN CAMBIOS — cero fork del
+// renderer del Funnel, cero segunda implementación de sus 3 series/2 ejes.
+// Sólo etapas con al menos una oportunidad aparecen (mismo criterio que el
+// propio `commercialDistribucionHtml`) — nunca se renumeran: "etapa 6"
+// sigue siendo "etapa 6" aunque sea la única presente, nunca pasa a "etapa
+// 1" por ser la única barra del gráfico.
+function commercialDeriveFunnelFromOpportunities(opportunities, referencePipeline) {
+  const buckets = new Map();
+  for (const o of opportunities) {
+    if (!o.stage) continue;
+    if (!buckets.has(o.stage)) buckets.set(o.stage, { stage: o.stage, count: 0, hours: 0, weighted_hours: 0, revenue: 0 });
+    const b = buckets.get(o.stage);
+    b.count += 1;
+    b.hours += o.hours || 0;
+    b.weighted_hours += o.weighted_hours || 0;
+    b.revenue += o.revenue || 0;
+  }
+  const order = commercialOppStageOptions(referencePipeline, opportunities);
+  return { opportunities: opportunities.length, stages: order.filter(s => buckets.has(s)).map(s => buckets.get(s)) };
+}
+
+// Texto buscable: SOLO valores RAW/DISPLAY del objeto, nunca el HTML
+// generado (evita falsos positivos con clases/atributos internos, y evita
+// que un cambio de markup rompa la búsqueda). Campos auditados 1:1 contra
+// las columnas VISIBLES de la tabla (ver `commercialOpportunitiesTableHtml`)
+// — fuente/tag_ids/probabilidad numérica cruda quedan afuera a propósito,
+// no son columnas de esta tabla.
+function commercialOpportunitySearchableText(o) {
+  const acts = o.activities || [];
+  const nextActionText = acts.map(act => {
+    const days = commercialDaysUntil(act.deadline);
+    const rel = days === null ? "" : days < 0 ? `venc. ${Math.abs(days)}d` : days === 0 ? "hoy" : `${days}d`;
+    return `${act.type || ""} ${commercialFmtDate(act.deadline)} ${rel}`;
+  }).join(" ");
+  return [
+    o.opportunity, o.client, o.seller,
+    o.licencias === "Si" ? "si" : "",
+    commercialFmtPercent(o.probability),
+    COMMERCIAL_PRIORITY_LABELS[o.priority] || "",
+    nextActionText,
+    o.last_response ? commercialFmtDate(o.last_response) : "",
+    o.days_elapsed != null ? `${o.days_elapsed}d` : "",
+  ].join(" ").toLowerCase();
+}
+
+function commercialSearchOpportunities(opportunities, text) {
+  const q = (text || "").trim().toLowerCase();
+  if (!q) return opportunities;
+  return opportunities.filter(o => commercialOpportunitySearchableText(o).includes(q));
+}
+
+// Composición completa del pipeline de derivación (ver diagrama en HANDOFF:
+// tipo → Etapa → Vendedor → [Funnel | búsqueda → tabla → totales]) leída
+// SIEMPRE desde `commercialState` — un solo lugar que la calcula, para que
+// los 4 call sites (render inicial, sort, Etapa/Vendedor, búsqueda) nunca
+// diverjan entre sí sobre qué filas son "las visibles ahora".
+function commercialCurrentAnalysisFilteredOpportunities() {
+  const allOpps = (commercialState.opportunities && commercialState.opportunities.opportunities) || [];
+  return commercialAnalysisFilteredOpportunities(allOpps, commercialState.oppStageFilter, commercialState.oppSellerFilter);
+}
+function commercialCurrentTableRows() {
+  return commercialSearchOpportunities(commercialCurrentAnalysisFilteredOpportunities(), commercialState.oppSearchText);
+}
+
+// Tras un cambio de Todos/NN/BI (C5e, ver HANDOFF): preserva Etapa/Vendedor
+// SÓLO si siguen siendo valores válidos en el universo recién cargado —
+// nunca un filtro apuntando a una etapa/vendedor que ya no existe en este
+// `tipo`, dejando una tabla vacía sin explicación aparente. A diferencia de
+// Etapa/Vendedor (preserva-si-válido), el texto libre se resetea SIEMPRE en
+// `commercialSetTipo` — mismo criterio que `actPeriod`/`actUser` (arriba en
+// este archivo: "sus opciones... se derivan de datos que ya no son los
+// mismos"), la convención MÁS SIMPLE ya establecida en este archivo para
+// filtros locales que sobreviven un cambio de dataset.
+function commercialResetInvalidAnalysisFilters() {
+  const rows = (commercialState.opportunities && commercialState.opportunities.opportunities) || [];
+  const stages = new Set(rows.map(o => o.stage).filter(Boolean));
+  const sellers = new Set(rows.map(o => o.seller).filter(Boolean));
+  if (commercialState.oppStageFilter && !stages.has(commercialState.oppStageFilter)) commercialState.oppStageFilter = "";
+  if (commercialState.oppSellerFilter && !sellers.has(commercialState.oppSellerFilter)) commercialState.oppSellerFilter = "";
+}
+
+// Barra de filtros compacta (owner corrective, ver HANDOFF: "no crear un
+// toolbar grande, usar el lenguaje visual del Hub"). Reusa
+// `.whatsnew-filters`/`.whatsnew-filter` TAL CUAL — el mismo primitivo que
+// `commercialActivitiesControlsHtml` (arriba en este archivo) ya usa para
+// Período/Responsable — nunca una clase nueva de toolbar. `data-commercial-
+// analysis-filters` es sólo un hook de posicionamiento CSS (ver
+// commercial.css) — nunca se re-renderiza a sí misma (ver los delegados de
+// `change`/`input`, más abajo): sus `<select>` ya reflejan su propio valor
+// tras el evento nativo, y regenerarla en cada tecla del buscador le haría
+// perder el foco al `<input>`.
+function commercialAnalysisFiltersHtml(stageOptions, sellerOptions) {
+  const stageOpts = stageOptions.map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.oppStageFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  const sellerOpts = sellerOptions.map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.oppSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-analysis-filters>
+      <label class="whatsnew-filter">
+        <span>Etapa</span>
+        <select data-commercial-stage-filter>
+          <option value=""${commercialState.oppStageFilter === "" ? " selected" : ""}>Todas</option>
+          ${stageOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-seller-filter>
+          <option value=""${commercialState.oppSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter whatsnew-filter--fill">
+        <span>Buscar</span>
+        <input type="search" data-commercial-search aria-label="Buscar oportunidades" placeholder="Buscar…" value="${commercialEsc(commercialState.oppSearchText)}">
+      </label>
+    </div>`;
+}
+
+// Leyenda de urgencia + tabla, combinadas (C5e, ver HANDOFF): antes la
+// leyenda vivía como hermana suelta entre el Funnel y `[data-commercial-
+// opportunities]` — un re-render quirúrgico de SÓLO la tabla (búsqueda,
+// Etapa/Vendedor) la dejaba desincronizada (mostraba/escondía la leyenda
+// del estado ANTERIOR al filtro). Ahora es parte del MISMO bloque
+// re-renderizable: una sola asignación de `innerHTML` mantiene ambas en
+// sync, siempre.
+function commercialOpportunitiesBlockHtml(rows) {
+  return `${rows.length ? commercialUrgencyLegendHtml() : ""}${commercialOpportunitiesTableHtml({ opportunities: rows })}`;
+}
+
+// Re-render quirúrgico de Funnel + tabla tras un cambio de Etapa/Vendedor
+// (C5e, ver HANDOFF) — nunca la barra de filtros (ver comentario de
+// `commercialAnalysisFiltersHtml`). Mismo criterio que el resto del archivo:
+// sin fetch, sin volver a cablear `initEventBreakdown`/`initDashboardSections`.
+function commercialRerenderAnalysisFunnelAndTable(root) {
+  const analysisFiltered = commercialCurrentAnalysisFilteredOpportunities();
+  const hasAnalysisFilters = commercialState.oppStageFilter !== "" || commercialState.oppSellerFilter !== "";
+  const effectivePipeline = hasAnalysisFilters
+    ? commercialDeriveFunnelFromOpportunities(analysisFiltered, commercialState.pipeline)
+    : commercialState.pipeline;
+  const dist = commercialDistribucionHtml(effectivePipeline);
+  const funnelHost = root.querySelector("[data-commercial-funnel-area]");
+  if (funnelHost) {
+    funnelHost.innerHTML = dist ? `<div data-commercial-dist>${dist}</div>
+      <p class="perspective-label">Detalle de Oportunidades</p>` : "";
+  }
+  const tableRows = commercialSearchOpportunities(analysisFiltered, commercialState.oppSearchText);
+  const tableHost = root.querySelector("[data-commercial-opportunities]");
+  if (tableHost) tableHost.innerHTML = commercialOpportunitiesBlockHtml(tableRows);
+}
+
+// Cuerpo del panel de "Oportunidades Activas — Análisis": filtros → gráfico
+// (patrón) → tabla (precisión). Todo en la MISMA `.dashboard-section` — no
+// una sección nueva, que rompería la relación contextual con el KPI que
+// abre este panel. `[data-commercial-funnel-area]` envuelve el Funnel
+// (contenedor ESTABLE incluso cuando `dist` es "" — sin etapas — para que
+// el re-render quirúrgico de Etapa/Vendedor siempre encuentre un host, ver
+// `commercialRerenderAnalysisFunnelAndTable`).
+// Sin filtros de análisis activos, `pipeline` llega SIN TOCAR (misma
+// referencia que `commercialState.pipeline`) — cero cambio de
+// comportamiento respecto de antes de C5e. Sin etapas, `commercialDistribucionHtml`
+// devuelve "" y el único mensaje lo da el `.dashboard-empty` de la tabla —
+// nunca rótulos huérfanos sobre la nada.
 function commercialActivasAnalysisHtml(pipeline) {
-  const dist = commercialDistribucionHtml(pipeline, commercialState.horasDim);
-  // El rótulo "Funnel por Etapa" lo emite el propio gráfico (vive dentro
-  // del subárbol que re-renderiza el switch), así que acá NO se repite —
-  // sólo el de la tabla. C4 (ver HANDOFF) reemplazó el placeholder "Detalle
-  // por Etapa" (agrupado, Batch 2A) por el detalle real por OPORTUNIDAD
-  // (`commercialOpportunitiesTableHtml`, universo `_build_opportunities`) —
-  // no se toca en C3, que fue exclusivamente el chart.
-  return `${dist ? `<div data-commercial-dist>${dist}</div>
-      <p class="perspective-label">Detalle de Oportunidades</p>` : ""}
-    <div data-commercial-opportunities>${commercialOpportunitiesTableHtml(commercialState.opportunities)}</div>`;
+  const allOpps = (commercialState.opportunities && commercialState.opportunities.opportunities) || [];
+  const analysisFiltered = commercialCurrentAnalysisFilteredOpportunities();
+  const hasAnalysisFilters = commercialState.oppStageFilter !== "" || commercialState.oppSellerFilter !== "";
+  const effectivePipeline = hasAnalysisFilters ? commercialDeriveFunnelFromOpportunities(analysisFiltered, pipeline) : pipeline;
+  const dist = commercialDistribucionHtml(effectivePipeline);
+  // El rótulo "Funnel por Etapa" lo emite el propio gráfico, así que acá NO
+  // se repite — sólo el de la tabla. C4 (ver HANDOFF) reemplazó el
+  // placeholder "Detalle por Etapa" (agrupado, Batch 2A) por el detalle
+  // real por OPORTUNIDAD (`commercialOpportunitiesTableHtml`, universo
+  // `_build_opportunities`) — no se toca en C3, que fue exclusivamente el
+  // chart.
+  // Cierre explícito (Active Opportunities Phase 2 / C5d, ver HANDOFF): el
+  // botón vive en el `<summary>` (ver `commercialDashboardHtml` —
+  // owner corrective: debe sobrevivir el colapso nativo del `<details>`,
+  // que es justo lo que este body deja de renderizar). NO tiene estado
+  // propio — `[data-commercial-close-analysis]` (delegado de click, más
+  // abajo) hace `.click()` sobre el MISMO trigger `[data-event="activas"]`
+  // que el motor compartido `initEventBreakdown` ya wireó (ver HANDOFF —
+  // KPI → Contextual Drilldown), exactamente como si el owner hubiera
+  // clickeado el tile de nuevo. Cero flag nuevo, cero segundo lifecycle: la
+  // única fuente de verdad sigue siendo `.is-active` en el tile + `hidden`
+  // en este panel, ambos gobernados por ese motor.
+  const tableRows = commercialSearchOpportunities(analysisFiltered, commercialState.oppSearchText);
+  const filtersHtml = allOpps.length
+    ? commercialAnalysisFiltersHtml(commercialOppStageOptions(pipeline, allOpps), commercialOppSellerOptions(allOpps))
+    : "";
+  return `${filtersHtml}
+    <div data-commercial-funnel-area>${dist ? `<div data-commercial-dist>${dist}</div>
+      <p class="perspective-label">Detalle de Oportunidades</p>` : ""}</div>
+    <div data-commercial-opportunities>${commercialOpportunitiesBlockHtml(tableRows)}</div>`;
 }
 
 // ── Capability navigation ───────────────────────────────────────────────────
@@ -656,7 +1015,7 @@ function commercialStaticSection(id, title, countLabel, bodyHtml) {
 // `note` que el backend ya normalizó: esa limpieza es de payload/formato, NO
 // un permiso para tratar la fuente como HTML confiable.
 function commercialActivityTableHtml(rows) {
-  if (!rows.length) return `<p class="empty-panel">Sin actividades para este filtro.</p>`;
+  if (!rows.length) return commercialEmptyStateHtml("Sin resultados", "Sin actividades para este filtro.");
   const body = rows.map(act => {
     const rel = act.days === null ? ""
       : act.days < 0 ? ` (venc. ${Math.abs(act.days)}d)`
@@ -732,7 +1091,7 @@ function commercialActividadesHtml() {
     const label = commercialState.activitiesErrorState === "config_incomplete"
       ? "El CRM todavía no está configurado para este espacio."
       : "No pudimos cargar las actividades desde el CRM en este momento.";
-    return `<p class="empty-panel">${commercialEsc(label)}</p>`;
+    return commercialEmptyStateHtml("No disponible", label);
   }
   const rows = commercialFilteredActivities();
   const buckets = commercialActivityBuckets(rows);
@@ -766,7 +1125,7 @@ function commercialDashboardHtml() {
     const label = commercialState.errorState === "config_incomplete"
       ? "El CRM todavía no está configurado para este espacio."
       : "No pudimos cargar los datos comerciales desde el CRM en este momento.";
-    return `<p class="empty-panel">${commercialEsc(label)}</p>`;
+    return commercialEmptyStateHtml("No disponible", label);
   }
   const s = commercialState.summary;
   const p = commercialState.pipeline;
@@ -821,19 +1180,34 @@ function commercialDashboardHtml() {
         { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento` })}
       ${commercialRichKpi("Conversión de leads", commercialFmtPercent(a.lead_conversion.rate_any_conv),
         { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad` })}
-    </div>` : `<p class="empty-panel">No pudimos calcular las analíticas del pipeline en este momento.</p>`;
+    </div>` : commercialEmptyStateHtml("No disponible", "No pudimos calcular las analíticas del pipeline en este momento.");
 
   // El análisis contextual NO ocupa lugar hasta que se acciona su KPI: el
   // atributo `data-breakdown` va sobre la SECCIÓN entera, así que
   // `initEventBreakdown` la muestra y la esconde completa con el mismo motor
   // de siempre. Sin panel placeholder, sin espacio reservado, sin un segundo
   // mecanismo de breakdown.
+  // Botón de cierre DENTRO del `<summary>` (owner corrective, ver HANDOFF:
+  // "la X debe permanecer aunque colapses el grupo"): viviendo en
+  // `.dashboard-section__body` desaparecía al colapsar el `<details>`
+  // nativamente (el body es exactamente lo que ese toggle esconde) — el
+  // `<summary>`, en cambio, SIEMPRE es visible, abierto o cerrado. También
+  // resuelve gratis la alineación con "XX oportunidad(es)" (owner
+  // corrective: "la X debe estar alineada al texto"): mismo `<span>` flex
+  // row, mismo baseline, sin un `top` en px calibrado a mano que se
+  // desalinea apenas cambia la tipografía real. El click delegado
+  // (`data-commercial-close-analysis`, más abajo) hace `preventDefault` +
+  // `stopPropagation` ANTES de togglear `.click()` sobre el trigger — sin
+  // eso, cualquier click acá también dispararía el toggle nativo de
+  // `<summary>` (abrir/cerrar el `<details>`), que es una acción DISTINTA
+  // de "cerrar el análisis" (deseleccionar el tile).
   const analysisSection = `<details class="dashboard-section" data-section-id="activas-analisis" data-breakdown="activas" open hidden>
       <summary class="dashboard-section__head" draggable="true">
         <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Oportunidades Activas — Análisis</span>
         <span class="dashboard-section__count">${commercialFmtInt(p.opportunities)} oportunidad(es)</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis aria-label="Cerrar análisis">&times;</button>
       </summary>
       <div class="dashboard-section__body">${commercialActivasAnalysisHtml(p)}</div>
     </details>`;
@@ -931,6 +1305,7 @@ async function commercialLoadData() {
       // por una vista derivada/de detalle.
       commercialState.analytics = analyticsResp.state === "ok" ? analyticsResp.analytics : null;
       commercialState.opportunities = opportunitiesResp.state === "ok" ? opportunitiesResp.opportunities : null;
+      commercialResetInvalidAnalysisFilters();
       commercialState.status = "ready";
       HubForegroundProgress.complete("commercial");
     } else {
@@ -993,6 +1368,13 @@ function commercialSetTipo(tipo) {
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
   commercialState.actUser = "";
+  // Texto libre del detalle de Oportunidades (C5e, ver HANDOFF): mismo
+  // criterio que Actividades arriba — se resetea siempre, nunca sobrevive a
+  // un dataset distinto. Etapa/Vendedor NO se tocan acá: su reset es
+  // condicional ("preserva si sigue siendo válido") y depende del universo
+  // NUEVO, que todavía no llegó — ver `commercialResetInvalidAnalysisFilters`,
+  // llamado dentro de `commercialLoadData` una vez que el fetch resuelve.
+  commercialState.oppSearchText = "";
   commercialRender();
   if (commercialState.capability === "actividades") commercialLoadActivities();
   else commercialLoadData();
@@ -1004,34 +1386,38 @@ document.addEventListener("DOMContentLoaded", () => {
   // La delegación cuelga de `document`, no de `root`: desde este batch el
   // filtro global vive en el hero, fuera de `#commercial-main-content`.
   document.addEventListener("click", event => {
-    // Switch Horas | Ponderadas (ver commercialDistribucionHtml). Re-render
-    // QUIRÚRGICO de `[data-commercial-dist]` y nada más: sin fetch (el dato ya
-    // está en `commercialState.pipeline`, las dos dimensiones vienen en la
-    // MISMA respuesta), sin `commercialRender()` completo y sin volver a
-    // llamar `initEventBreakdown` (re-wirearlo duplicaría listeners sobre los
-    // mismos triggers). Así el panel de Activas sigue abierto mientras se
-    // conmuta la dimensión, y la tabla queda intacta. La delegación vive en
-    // `root`, que NO se reemplaza, así que el switch re-renderizado sigue
-    // respondiendo sin re-wirear nada.
-    const dimButton = event.target.closest("[data-commercial-dim]");
-    if (dimButton) {
-      const dim = dimButton.dataset.commercialDim;
-      if (dim === commercialState.horasDim) return;
-      commercialState.horasDim = dim;
-      const host = root.querySelector("[data-commercial-dist]");
-      if (host) host.innerHTML = commercialDistribucionHtml(commercialState.pipeline, dim);
+    // Cerrar el análisis (Active Opportunities Phase 2 / C5d, ver HANDOFF):
+    // NO hay estado propio — se dispara un click REAL sobre el MISMO tile
+    // `[data-event="activas"]` que abrió el panel, exactamente el camino
+    // que ya maneja `initEventBreakdown` (app.js) para des-seleccionar. Si
+    // por lo que sea el tile no está montado, no rompe (optional chaining).
+    // `preventDefault`+`stopPropagation` (owner corrective: el botón ahora
+    // vive DENTRO de `<summary>`, ver `commercialDashboardHtml`) — sin
+    // esto, el click también dispara el toggle NATIVO de `<summary>`
+    // (abrir/cerrar el `<details>`), una acción distinta de "cerrar el
+    // análisis" que además dejaría el panel colapsado la próxima vez que
+    // se reabra el tile (el template siempre emite `open`, pero el toggle
+    // nativo lo pisa hasta el próximo render completo).
+    const closeBtn = event.target.closest("[data-commercial-close-analysis]");
+    if (closeBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      root.querySelector('[data-event="activas"]')?.click();
       return;
     }
     // Ordenar la tabla de detalle (Active Opportunities Phase 2 / C4, ver
-    // HANDOFF): MISMO patrón que el switch de arriba — re-render QUIRÚRGICO
-    // de `[data-commercial-opportunities]`, sin fetch (el orden es client-
-    // side puro sobre `commercialState.opportunities`, ya cargado) y sin
-    // tocar el gráfico ni volver a cablear el motor de desglose compartido.
+    // HANDOFF): re-render QUIRÚRGICO de `[data-commercial-opportunities]`,
+    // sin fetch (el orden es client-side puro) y sin tocar el gráfico ni
+    // volver a cablear el motor de desglose compartido. Ordena sobre el
+    // resultado YA filtrado por Etapa/Vendedor/búsqueda (C5e, ver HANDOFF)
+    // — nunca sobre `commercialState.opportunities` crudo, que ignoraría
+    // cualquier filtro activo y volvería a mostrar TODAS las filas al
+    // ordenar.
     const sortTh = event.target.closest("[data-commercial-sort]");
     if (sortTh) {
       commercialToggleOppSort(sortTh.dataset.commercialSort);
       const host = root.querySelector("[data-commercial-opportunities]");
-      if (host) host.innerHTML = commercialOpportunitiesTableHtml(commercialState.opportunities);
+      if (host) host.innerHTML = commercialOpportunitiesBlockHtml(commercialCurrentTableRows());
       return;
     }
     // KPI → Contextual Drilldown (ver HANDOFF — C3.1, navegación al abrir):
@@ -1066,11 +1452,58 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!button) return;
     commercialSetTipo(button.dataset.commercialTipo);
   });
+  // Flip dinámico del tooltip (corrective, ver HANDOFF — generalizado a
+  // CUALQUIER `.chart-tooltip-anchor`, no sólo las columnas del Funnel: el
+  // mismo recorte apareció en el tooltip de Prior., dentro de la tabla, que
+  // nunca escuchaba este flip). Se recalcula en CADA hover/foco — barato
+  // (dos getBoundingClientRect() + un toggle de clase) y determinístico,
+  // nunca depende de un cálculo cacheado que pueda quedar stale si la
+  // sección se reordena o el viewport cambia entre una entrada y la
+  // siguiente. `mouseover`/`focusin` (burbujean, a diferencia de
+  // `mouseenter`/`focus`) para poder delegar sobre `document`, MISMO
+  // criterio que el resto del archivo — cero listener por anchor.
+  document.addEventListener("mouseover", event => {
+    const anchor = event.target.closest(".chart-tooltip-anchor");
+    if (anchor) commercialPositionChartTooltip(anchor);
+  });
+  document.addEventListener("focusin", event => {
+    const anchor = event.target.closest(".chart-tooltip-anchor");
+    if (anchor) commercialPositionChartTooltip(anchor);
+  });
   document.addEventListener("change", event => {
     const select = event.target.closest("[data-commercial-act-user]");
     if (!select) return;
     commercialState.actUser = select.value;
     commercialRenderCapability();
+  });
+  // Filtros de análisis Etapa/Vendedor (C5e, ver HANDOFF): re-render
+  // QUIRÚRGICO — Etapa/Vendedor tocan Funnel + tabla (`[data-commercial-
+  // funnel-area]` + `[data-commercial-opportunities]`), nunca la barra de
+  // filtros en sí (sus `<select>` ya reflejan su propio valor nativo tras el
+  // `change` — regenerarla igual no rompería nada, pero es trabajo de más).
+  // Listener SEPARADO del de arriba (no ramas encadenadas en el mismo
+  // callback): ese usa `if (!select) return` — con una sola rama, agregar
+  // más ahí cortaría la ejecución para cualquier otro `<select>`.
+  document.addEventListener("change", event => {
+    const stageSelect = event.target.closest("[data-commercial-stage-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-seller-filter]");
+    if (!stageSelect && !sellerSelect) return;
+    if (stageSelect) commercialState.oppStageFilter = stageSelect.value;
+    if (sellerSelect) commercialState.oppSellerFilter = sellerSelect.value;
+    commercialRerenderAnalysisFunnelAndTable(root);
+  });
+  // Búsqueda libre (C5e, ver HANDOFF): `input`, no `change` — filtra en cada
+  // tecla (UX esperada de un buscador), nunca espera blur/Enter. SÓLO toca
+  // `[data-commercial-opportunities]` — jamás el Funnel (contrato explícito
+  // del owner) — y, crucialmente, nunca la barra de filtros: si regenerara
+  // el `<input>` en cada tecla, el foco/cursor se perdería después del
+  // primer carácter.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-search]");
+    if (!search) return;
+    commercialState.oppSearchText = search.value;
+    const host = root.querySelector("[data-commercial-opportunities]");
+    if (host) host.innerHTML = commercialOpportunitiesBlockHtml(commercialCurrentTableRows());
   });
   // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
   // motor compartido cablea su PROPIO `keydown` directo sobre el trigger

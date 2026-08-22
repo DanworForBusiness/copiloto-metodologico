@@ -491,11 +491,14 @@
 button.catalog-back { border: 0; background: transparent; cursor: pointer; font-family: inherit; }
 
 /* Reusa el look de .whatsnew-filter select para los date-picker del dashboard
-   (no se toca la regla original de What's New, se suma el selector). */
-.whatsnew-filter input[type="date"] { min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+   (no se toca la regla original de What's New, se suma el selector).
+   `input[type="search"]` (Comercial C5e, ver HANDOFF — buscador de
+   Oportunidades Activas) se suma acá por el MISMO motivo: mismo look de
+   input compacto, cero clase nueva. */
+.whatsnew-filter input[type="date"], .whatsnew-filter input[type="search"] { min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
   border-radius: 8px; background: transparent; color: inherit; font: .8rem var(--mono); }
-.whatsnew-filter select, .whatsnew-filter input[type="date"] { color: #1f1f24; }
-.content-theme-dark .whatsnew-filter select, .content-theme-dark .whatsnew-filter input[type="date"] { color: #e4e4ec; }
+.whatsnew-filter select, .whatsnew-filter input[type="date"], .whatsnew-filter input[type="search"] { color: #1f1f24; }
+.content-theme-dark .whatsnew-filter select, .content-theme-dark .whatsnew-filter input[type="date"], .content-theme-dark .whatsnew-filter input[type="search"] { color: #e4e4ec; }
 
 /* Grupos colapsables (equivalente a .whatsnew-day, pero con <details> nativo
    en vez de Alpine: acá el filtro es server-side, no hace falta JS de cliente). */
@@ -1184,14 +1187,19 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    para cualquier estado de dominio. Reemplaza `.status-pill` (Reporting) y
    `.status-badge` (Asignaciones) — dos nombres/formas para el mismo
    concepto, ahora uno. El primitivo SOLO define mecánica (tipografía/
-   padding/forma/paleta restringida a 4 colores) — el dominio elige la
+   padding/forma/paleta restringida a 5 colores) — el dominio elige la
    VARIANTE semántica (Asignaciones: activo→green, tentativo→amber,
    inactivo/otro→grey; Reporting: en curso→green, finalizado→grey,
-   verde/amarillo/rojo→green/amber/red), nunca una ontología cross-dominio
-   nueva. */
+   verde/amarillo/rojo→green/amber/red; Comercial: urgencia de "Próx.
+   Acción" por magnitud de días, 0-7→green/8-15→amber/16-30→orange/
+   +30→red), nunca una ontología cross-dominio nueva. `--orange` se agregó
+   para Comercial porque su leyenda necesita 4 tonos de urgencia — los 3
+   originales (green/amber/red) alcanzaban para "buen/regular/mal estado"
+   pero no para un semáforo de 4 escalones. */
 .dashboard-status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
 .dashboard-status-badge--green { background: rgba(46,158,91,.12); color: #2e9e5b; }
 .dashboard-status-badge--amber { background: rgba(200,145,0,.14); color: #c89100; }
+.dashboard-status-badge--orange { background: rgba(194,87,12,.14); color: #c2570c; }
 .dashboard-status-badge--red { background: rgba(192,57,43,.12); color: #c0392b; }
 .dashboard-status-badge--grey { background: rgba(122,122,130,.14); color: #7a7a82; }
 /* Punto semafórico discreto del badge de Salud de Cliente (Objetivo 1 — más
