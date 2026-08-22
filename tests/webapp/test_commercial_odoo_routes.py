@@ -186,12 +186,18 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # real: "no salgas a buscar nodos ajenos (los del progress) en el DOM".
     # Batch 2B agregó UNA búsqueda acotada para el re-render quirúrgico del
     # switch; C3.1 (ver HANDOFF — scroll al abrir el análisis) agrega una
-    # SEGUNDA, para ubicar la sección a la que hay que hacer scroll. El
-    # contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE esos dos hooks y nada más, y ambos cuelgan de `root`,
-    # nunca de `document`.
+    # SEGUNDA, para ubicar la sección a la que hay que hacer scroll; C4 (ver
+    # HANDOFF — detalle por oportunidad) agrega una TERCERA, para el
+    # re-render quirúrgico de la tabla al ordenar una columna. El contrato
+    # sigue siendo explícito, no aproximado: se permiten EXACTAMENTE esos
+    # tres hooks y nada más, y los tres cuelgan de `root`, nunca de
+    # `document`.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert queries == ['`[data-breakdown="${trigger.dataset.event}"]`', '"[data-commercial-dist]"'], queries
+    assert queries == [
+        '`[data-breakdown="${trigger.dataset.event}"]`',
+        '"[data-commercial-dist]"',
+        '"[data-commercial-opportunities]"',
+    ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
 
@@ -346,54 +352,52 @@ def test_commercial_todos_nn_bi_selector_behavior_is_unchanged():
 
 
 # ============================================================================
-# Table Spine corrective — la tabla de Pipeline adopta el contrato de
+# Table Spine corrective — la tabla de detalle de Oportunidades Activas
+# (C4, `commercialOpportunitiesTableHtml`) adopta el MISMO contrato de
 # distribución de columnas ya compartido en tools.css (`.row-label-col` +
 # ancho default de columnas métricas), en vez de que la columna descriptiva
-# absorba todo el ancho sobrante bajo `table-layout:fixed`.
+# absorba todo el ancho sobrante bajo `table-layout:fixed`. Reemplaza el
+# placeholder agrupado-por-etapa (Batch 2A, `commercialPipelineTableHtml`,
+# retirado en C4) por el detalle real por oportunidad — ver
+# commercial_opportunities_table.node.js para las invariantes de
+# renderizado/orden reales (columnas, Etiquetas ausente, totales, sort).
 # ============================================================================
 
-def test_commercial_pipeline_table_still_uses_the_shared_table_primitive():
+def test_commercial_pipeline_table_placeholder_no_longer_exists():
+    # C4 (ver HANDOFF) retira por completo el placeholder de Batch 2A —
+    # nunca queda como código muerto detrás de la tabla real.
+    assert "commercialPipelineTableHtml" not in _COMMERCIAL_JS
+
+
+def test_commercial_opportunities_table_still_uses_the_shared_table_primitive():
     assert 'class="dashboard-table"' in _COMMERCIAL_JS
 
 
-def test_commercial_pipeline_table_is_wrapped_in_the_shared_scroll_container():
-    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+def test_commercial_opportunities_table_is_wrapped_in_the_shared_scroll_container():
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert '<div class="matrix-scroll">' in table_fn
     assert table_fn.index('<div class="matrix-scroll">') < table_fn.index("<table")
 
 
-def test_commercial_pipeline_descriptive_column_adopts_row_label_col():
-    assert '<th class="row-label-col">Etapa</th>' in _COMMERCIAL_JS
-    # Ya no vive bajo `.left` (ese solo daba text-align, nunca el ancho).
-    assert '<th class="left">Etapa</th>' not in _COMMERCIAL_JS
-
-
-def test_commercial_pipeline_row_label_cell_adopts_shared_row_label_class():
-    assert '<td class="row-label">${commercialEsc(stage.stage)}</td>' in _COMMERCIAL_JS
-
-
-def test_commercial_metric_columns_receive_no_commercial_specific_width():
-    # Las columnas métricas (Oportunidades/Horas/Ponderadas/Revenue) siguen
-    # sin clase — heredan el ancho default (88px) del primitive compartido,
-    # nunca un ancho puntual de Comercial.
-    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for header in ("Oportunidades", "Horas", "Ponderadas (hs)", "Revenue"):
-        assert f"<th>{header}</th>" in table_fn
+def test_commercial_opportunities_descriptive_column_adopts_row_label_col():
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert '"row-label-col"' in table_fn
+    assert '<td class="row-label">${commercialEsc(o.opportunity)}</td>' in table_fn
 
 
 def test_no_commercial_specific_css_for_table_column_distribution():
     _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
     _APP_CSS = (_STATIC / "app.css").read_text(encoding="utf-8")
-    for banned in (".commercial-table", ".commercial-pipeline-table", ".commercial-col"):
+    for banned in (".commercial-table", ".commercial-opportunities-table", ".commercial-col"):
         assert banned not in _TOOLS_CSS
         assert banned not in _APP_CSS
         assert banned not in _COMMERCIAL_JS
 
 
-def test_commercial_pipeline_numeric_alignment_still_inherited_not_overridden():
+def test_commercial_opportunities_numeric_alignment_still_inherited_not_overridden():
     # Ningún `text-align` inline ni override puntual — la alineación numérica
     # sigue viniendo del default compartido (`table.dashboard-table td`).
-    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert "text-align" not in table_fn
 
 
@@ -411,20 +415,60 @@ def test_matrix_scroll_is_promoted_to_an_unscoped_shared_hub_primitive():
     assert _TOOLS_CSS.count(".matrix-scroll {") == 1
 
 
-def test_commercial_pipeline_table_has_a_totals_row():
+def test_commercial_opportunities_table_has_a_totals_row():
     # MISMO patrón que Reporting: `tr.is-total`/`td.row-label`, rollup
-    # client-side sobre las etapas ya recibidas — nunca un query/campo de
-    # total propio en el backend.
-    table_fn = _COMMERCIAL_JS.split("function commercialPipelineTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    # client-side sobre las oportunidades ya recibidas — nunca un query/campo
+    # de total propio en el backend. Sólo Hs/Hs Pond. tienen semántica
+    # aditiva sin ambigüedad (ver comentario en la función) — Prob./Prior./
+    # Días resp. deliberadamente NO se totalizan.
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert '<tr class="is-total">' in table_fn
-    assert '<td class="row-label">Total</td>' in table_fn
-    assert "pipeline.stages.reduce(" in table_fn
+    assert 'rows.reduce(' in table_fn
     assert "${totalRow}" in table_fn
 
 
+def test_commercial_opportunities_table_never_renders_an_etiquetas_column():
+    # tag_ids sólo particiona todos/nn/bi en memoria — nunca viaja en la
+    # fila (contrato ya decidido en el backend, `_build_opportunities`/
+    # HANDOFF: "No Etiquetas in output UI contract"). La UI lo hereda: la
+    # tabla nunca emite un header/celda literal para esa columna (se permite
+    # que el nombre aparezca en prosa/comentarios explicando la decisión).
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert ">Etiquetas<" not in table_fn
+    assert "o.tag_ids" not in table_fn and "o.tags" not in table_fn
+
+
+def test_commercial_lic_and_dias_resp_columns_are_intentionally_not_sortable():
+    # MISMA decisión que el legacy (`renderTable`): esas dos columnas nunca
+    # reciben `makeSortTh` — se preserva acá en vez de volver todo ordenable
+    # por default.
+    table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "<th>Lic.</th>" in table_fn
+    assert "<th>Días resp.</th>" in table_fn
+    assert 'data-commercial-sort="licencias"' not in table_fn
+    assert 'data-commercial-sort="days_elapsed"' not in table_fn
+
+
+def test_commercial_opportunities_data_acquisition_extends_load_data_without_removing_existing_fetches():
+    # C4 extiende `commercialLoadData` con un 4to fetch en paralelo — MISMO
+    # patrón ya establecido, nunca una segunda arquitectura de carga. Los 3
+    # fetches existentes (summary/pipeline/analytics) siguen presentes.
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "fetch(`/comercial/data/summary?${qs}`)" in load_fn
+    assert "fetch(`/comercial/data/pipeline?${qs}`)" in load_fn
+    assert "fetch(`/comercial/data/analytics?${qs}`)" in load_fn
+    assert "fetch(`/comercial/data/opportunities?${qs}`)" in load_fn
+    assert "commercialState.opportunities = opportunitiesResp.state" in load_fn
+
+
+def test_commercial_set_tipo_invalidates_opportunities_like_the_other_datasets():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.opportunities = null;" in tipo_fn
+
+
 def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
-    # Este corrective es EXCLUSIVAMENTE table layout — el resto del spine
-    # (secciones + view control) sigue intacto.
+    # Este corrective es EXCLUSIVAMENTE table layout/detalle — el resto del
+    # spine (secciones + view control) sigue intacto.
     assert '"dashboard-view-switch"' in _COMMERCIAL_JS
     assert 'commercialDashboardSection("resumen", "Resumen",' in _COMMERCIAL_JS
     assert 'Oportunidades Activas — Análisis' in _COMMERCIAL_JS
@@ -525,7 +569,9 @@ def test_active_opportunities_analysis_contains_the_stage_1_8_table_not_pipeline
     # al aparecer la segunda capability — mismo universo, mismo dueño.
     assert "commercialActivasAnalysisHtml(p)" in dashboard_fn
     analysis_fn = _COMMERCIAL_JS.split("function commercialActivasAnalysisHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert "commercialPipelineTableHtml(pipeline)" in analysis_fn
+    # C4 (ver HANDOFF): el placeholder agrupado-por-etapa fue reemplazado por
+    # el detalle real por oportunidad.
+    assert "commercialOpportunitiesTableHtml(commercialState.opportunities)" in analysis_fn
     assert "commercialDistribucionHtml(pipeline" in analysis_fn
     # Ya no existe la sección paralela "Pipeline por Etapa" ligada a Pipeline Total.
     assert "Pipeline por Etapa" not in _COMMERCIAL_JS
@@ -543,15 +589,6 @@ def test_dimension_switch_does_not_refetch_rerender_globally_or_rewire_the_share
     assert "commercialDistribucionHtml(" in branch
     for banned in ("commercialLoadData", "commercialRender(", "initEventBreakdown", "fetch("):
         assert banned not in branch, banned
-
-
-def test_stage_table_shared_primitives_and_totals_row_untouched_by_this_batch():
-    # Este batch es EXCLUSIVAMENTE reposicionamiento — la tabla en sí (Table
-    # Spine corrective) no cambia: row-label-col, matrix-scroll, tr.is-total.
-    assert '<th class="row-label-col">Etapa</th>' in _COMMERCIAL_JS
-    assert '<div class="matrix-scroll">' in _COMMERCIAL_JS
-    assert '<tr class="is-total">' in _COMMERCIAL_JS
-    assert "pipeline.stages.reduce(" in _COMMERCIAL_JS
 
 
 def test_commercial_filter_copy_shows_new_name_and_base_instalada_not_abbreviations():

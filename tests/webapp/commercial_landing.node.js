@@ -178,7 +178,7 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.
   assertTrue(html.includes("category-plot"), "el Funnel sigue siendo el gráfico");
   assertTrue(html.includes("Funnel por Etapa"), "con su rótulo");
-  assertTrue(html.includes("Detalle por Etapa"), "y la tabla debajo");
+  assertTrue(html.includes("Detalle de Oportunidades"), "y la tabla debajo (C4: detalle real por oportunidad)");
 }
 
 // --- Analíticas degradan solas ----------------------------------------------

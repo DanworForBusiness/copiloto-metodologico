@@ -71,7 +71,7 @@
    puntual exagerado. Mismo patron `justify-content:space-between` que
    `.hero-lead-row` ya usa en este mismo archivo para "label izq. / control
    der." — no un layout nuevo. */
-.category-plot-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 3px; }
 /* `white-space:nowrap` en el título + `flex-shrink:0` en el switch (MISMO
    par de reglas que `.hero-lead-row` ya usa en este archivo para su propio
    "texto + control"): en viewport angosto el switch cae a su PROPIA línea
@@ -79,6 +79,22 @@
    — nunca layout artificial, es el wrap normal de flex. */
 .category-plot-header .perspective-label { margin-bottom: 0; white-space: nowrap; }
 .category-plot-header .dashboard-view-switch { flex-shrink: 0; }
+/* BALANCE ÓPTICO título↔leyenda↔plot (visual polish, ver HANDOFF): igualar
+   `margin-bottom` (8px/8px, corrective anterior) NO igualó el hueco
+   VISIBLE — medido con getBoundingClientRect() sobre el texto real (no
+   sólo las cajas contenedoras): con `align-items:center`, el switch
+   (más alto que el rótulo por su padding) estiraba la fila y centraba el
+   texto del rótulo DENTRO de ella, dejando ~6px de aire invisible bajo el
+   texto antes del margin — hueco óptico real de 14px hacia la leyenda.
+   Del otro lado, el tick superior del eje (`.category-plot__axis span`,
+   `bottom:100%` + `translateY(50%)`, intencional para centrar el número
+   sobre su línea de grilla) asoma ~5px POR ENCIMA del borde del plot — 8px
+   de margin quedaban en sólo 3px de aire visible hacia la leyenda. Dos
+   causas reales, no una diferencia de margin: `align-items:flex-end`
+   elimina el aire invisible bajo el rótulo (nunca se toca el tick del eje,
+   que es contrato del gráfico) y el margin baja a 3px — mismo valor que el
+   hueco hacia el plot, medido con el mismo criterio (texto visible, no
+   cajas). Resultado: ~3px ópticos de cada lado de la leyenda. */
 
 .category-plot { display: grid; grid-template-columns: 38px 1fr 52px; grid-template-rows: auto auto; }
 .category-plot__area {
@@ -129,8 +145,26 @@
    compactos a propósito: sólo la SALIDA del bloque se equipara al ritmo
    entre bloques del resto del Hub. */
 [data-commercial-dist] { margin-bottom: 12px; }
+/* Rótulo "Detalle de Oportunidades" (visual polish, ver HANDOFF): quedaba
+   con el margen inferior default de `.perspective-label` (6px, tools.css) —
+   la mitad del margen que YA lo separa del bloque anterior (12px, la regla
+   de arriba). Selector posicional sobre el hook estructural que ya existe
+   (`[data-commercial-dist]` + el `.perspective-label` que le sigue), no una
+   clase nueva de Comercial: el rótulo del Funnel (`.category-plot-header
+   .perspective-label`, más abajo) queda intocado — este ajuste es
+   exclusivamente el de "Detalle de Oportunidades". */
+[data-commercial-dist] + .perspective-label { margin-bottom: 12px; }
 .category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
-.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+/* Ritmo interno título→leyenda→plot (visual polish, ver HANDOFF): la
+   leyenda quedaba con 7px hacia el plot contra los 8px de
+   `.category-plot-header` hacia ELLA — la leyenda sentía menos aire hacia
+   el gráfico que el título hacia la leyenda. Se iguala al MISMO valor
+   (8px) para que quede centrada a igual distancia de ambos — nunca un
+   número nuevo, sólo la unificación de los dos que ya convivían acá. Los
+   gaps internos siguen compactos a propósito (ver comentario de
+   `[data-commercial-dist]` más arriba): esto no los acerca al ritmo de
+   12px "entre bloques", sólo los empareja entre sí. */
+.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
 .category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
 .category-plot-legend em { font-style: normal; color: #7a7a82; }
 .category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }

@@ -1,8 +1,8 @@
 // commercial.js — Comercial / CRM (workspace propio del Hub, 100% lectura).
 // MISMO patrón de hidratación que reporting.js (fetch + render manual sobre
 // innerHTML, sin Alpine reactivo) — bootstrap en DOMContentLoaded, al final
-// del archivo. Consume sus 4 endpoints propios (`/comercial/data/summary|
-// pipeline|analytics|activities`, `tipo=todos|nn|bi`).
+// del archivo. Consume sus 5 endpoints propios (`/comercial/data/summary|
+// pipeline|analytics|opportunities|activities`, `tipo=todos|nn|bi`).
 //
 // Reusa primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/
 // .activity-kpi, .experience-tabs, .dashboard-view-switch, .dashboard-section,
@@ -56,6 +56,17 @@ const commercialState = {
   summary: null,
   pipeline: null,
   analytics: null,
+  // Detalle por oportunidad (Active Opportunities Phase 2 / C4, ver
+  // HANDOFF) — MISMO universo/gate que `pipeline`, pero degrada solo si
+  // falla (MISMO criterio que `analytics`: es detalle adicional, nunca
+  // bloquea el resto del landing).
+  opportunities: null,
+  // Orden de la tabla de detalle — client-side puro, nunca un fetch (MISMO
+  // criterio que `horasDim`). `null` = sin ordenar (orden de llegada del
+  // backend). Sobrevive a un cambio de Todos/NN/BI (MISMO criterio que
+  // `horasDim`, que tampoco se resetea en `commercialSetTipo`).
+  oppSortKey: null,
+  oppSortDir: 1, // 1 = ascendente, -1 = descendente
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
   // costo de una capability que no se está viendo. `idle` = todavía no se
   // pidió, o quedó stale tras cambiar el filtro global.
@@ -296,48 +307,157 @@ function commercialDistribucionHtml(pipeline, dim) {
     </div>`;
 }
 
-// Table Spine corrective (ver HANDOFF — Commercial Table Spine Audit):
-// `table-layout:fixed` (tools.css) reparte el ancho sobrante ENTERO a
-// cualquier columna sin ancho explícito — `.row-label-col` (340px) es el
-// contrato compartido ya usado por Reporting para la columna descriptiva,
-// que deja a las columnas métricas (sin clase) con el ancho default de
-// 88px cada una, en vez de que la descriptiva absorba todo el espacio. Cero
-// ancho/CSS propio de Comercial — mismo contrato, misma forma (1 columna
-// de texto + varias métricas) que ya resuelve Reporting.
-function commercialPipelineTableHtml(pipeline) {
-  if (!pipeline || !pipeline.stages || !pipeline.stages.length) {
-    return `<p class="empty-panel">Sin oportunidades activas en pipeline para este filtro.</p>`;
+// Detalle de Oportunidades Activas (Active Opportunities Phase 2 / C4, ver
+// HANDOFF): reemplaza el placeholder "Detalle por Etapa" (agrupado, Batch
+// 2A) por el detalle REAL por OPORTUNIDAD del legacy (`/relevamiento`) —
+// mismas columnas, MENOS "Etiquetas" (contrato ya decidido en el backend,
+// ver `_build_opportunities`/HANDOFF: "No Etiquetas in output UI contract").
+// "Lic." y "Días resp." son intencionalmente NO ordenables en el legacy
+// (`renderTable` — esas dos únicas columnas nunca reciben `makeSortTh`); se
+// preserva esa misma decisión acá en vez de volver todo ordenable por
+// default. Reusa el MISMO Table Spine ya establecido (`.row-label-col` +
+// ancho default 88px de columnas métricas, `.matrix-scroll`) — cero CSS
+// propio de Comercial para esto.
+const COMMERCIAL_PRIORITY_LABELS = { "0": "—", "1": "⭐ Media", "2": "⭐⭐ Alta", "3": "⭐⭐⭐ Muy Alta" };
+
+// Claves de orden — MISMA semántica que `SORT_KEYS` del legacy
+// (`renderTable`), adaptada a los nombres de campo del contrato Hub
+// (`_build_opportunities`). Ausente/false ordena al final en ascendente
+// (`-Infinity`/`Infinity` según corresponda), nunca antes que un valor real.
+const COMMERCIAL_OPP_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+  weighted_hours: o => (o.weighted_hours != null && o.weighted_hours !== false) ? Number(o.weighted_hours) : -Infinity,
+  probability: o => o.probability ?? -1,
+  priority: o => Number(o.priority ?? 0),
+  next_action: o => {
+    const days = (o.activities || []).map(act => commercialDaysUntil(act.deadline)).filter(d => d !== null);
+    return days.length ? Math.min(...days) : Infinity;
+  },
+  last_response: o => o.days_elapsed ?? Infinity,
+};
+
+// Orden client-side puro sobre el dataset YA cargado — nunca un round-trip
+// (MISMO criterio que el switch Horas/Ponderadas). Copia el array antes de
+// ordenar: el payload de `commercialState.opportunities` nunca se muta.
+function commercialOpportunitiesSorted(rows) {
+  const keyFn = commercialState.oppSortKey && COMMERCIAL_OPP_SORT_KEYS[commercialState.oppSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.oppSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+// Toggle de orden — MISMO contrato que `onColSort` del legacy: mismo header
+// invierte dirección, header distinto vuelve a ascendente (dir=1).
+function commercialToggleOppSort(key) {
+  if (commercialState.oppSortKey === key) {
+    commercialState.oppSortDir *= -1;
+  } else {
+    commercialState.oppSortKey = key;
+    commercialState.oppSortDir = 1;
   }
-  const rows = pipeline.stages.map(stage => `
+}
+
+function commercialOpportunitiesTableHtml(opportunities) {
+  const rows = (opportunities && opportunities.opportunities) || [];
+  if (!rows.length) {
+    return `<p class="empty-panel">Sin oportunidades activas para este filtro.</p>`;
+  }
+  const sorted = commercialOpportunitiesSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.oppSortKey === key;
+    const arrow = active ? (commercialState.oppSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const acts = o.activities || [];
+    // MISMO sufijo relativo que `commercialActivityTableHtml` (venc./hoy/Nd)
+    // — nunca un segundo formato de "días hasta" en el mismo archivo.
+    const nextAction = acts.length
+      ? acts.map(act => {
+          const days = commercialDaysUntil(act.deadline);
+          const rel = days === null ? "" : days < 0 ? ` (venc. ${Math.abs(days)}d)` : days === 0 ? " (hoy)" : ` (${days}d)`;
+          const label = act.type ? `${commercialFmtDate(act.deadline)} · ${act.type}` : commercialFmtDate(act.deadline);
+          return `${commercialEsc(label)}${commercialEsc(rel)}`;
+        }).join("<br>")
+      : "—";
+    const lic = o.licencias === "Si" ? "Sí" : o.licencias === "No" ? "No" : "—";
+    return `
     <tr>
-      <td class="row-label">${commercialEsc(stage.stage)}</td>
-      <td>${commercialFmtInt(stage.count)}</td>
-      <td>${commercialFmtInt(stage.hours)}</td>
-      <td>${commercialFmtInt(stage.weighted_hours)}</td>
-      <td>${commercialFmtMoney(stage.revenue)}</td>
-    </tr>`).join("");
-  // Fila de totales — rollup client-side sobre las etapas ya recibidas
-  // (MISMO criterio que Reporting: `tr.is-total`/`td.row-label`, nunca un
-  // query ni un campo de total propio en el backend).
-  const totals = pipeline.stages.reduce((acc, stage) => ({
-    count: acc.count + (stage.count || 0),
-    hours: acc.hours + (stage.hours || 0),
-    weighted_hours: acc.weighted_hours + (stage.weighted_hours || 0),
-    revenue: acc.revenue + (stage.revenue || 0),
-  }), { count: 0, hours: 0, weighted_hours: 0, revenue: 0 });
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td>${lic}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+      <td>${commercialFmtInt(o.weighted_hours)}</td>
+      <td>${commercialFmtPercent(o.probability)}</td>
+      <td>${commercialEsc(COMMERCIAL_PRIORITY_LABELS[o.priority] || "—")}</td>
+      <td class="left">${nextAction}</td>
+      <td>${o.last_response ? commercialEsc(commercialFmtDate(o.last_response)) : "—"}</td>
+      <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
+    </tr>`;
+  }).join("");
+  // Fila de totales — SOLO Hs/Hs Pond. tienen semántica aditiva sin
+  // ambigüedad (MISMO criterio que Reporting/el placeholder de Batch 2A ya
+  // retirado: rollup client-side, nunca un campo de total del backend).
+  // Prob./Prior./Días resp. son columnas por-oportunidad sin una agregación
+  // obvia (promedio? mínimo?) — inventar esa semántica no es parte de este
+  // corrective, así que quedan en blanco en vez de un número fabricado.
+  const totals = rows.reduce((acc, o) => ({
+    hours: acc.hours + (o.hours || 0),
+    weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
+  }), { hours: 0, weighted_hours: 0 });
   const totalRow = `
     <tr class="is-total">
-      <td class="row-label">Total</td>
-      <td>${commercialFmtInt(totals.count)}</td>
+      <td class="row-label" colspan="4">Total (${rows.length})</td>
       <td>${commercialFmtInt(totals.hours)}</td>
       <td>${commercialFmtInt(totals.weighted_hours)}</td>
-      <td>${commercialFmtMoney(totals.revenue)}</td>
+      <td colspan="5"></td>
     </tr>`;
+  // `<colgroup>` propio (visual polish, ver HANDOFF): con 11 columnas el
+  // default compartido (`.row-label-col` 340px + 88px por columna sin
+  // clase) sobre-reserva Oportunidad y deja a las `.left` flexibles (Cliente/
+  // Vendedor/Próx. Acción) peleando por las migas — Próx. Acción, la más
+  // pesada de contenido, terminaba más comprimida que columnas puramente
+  // numéricas. MISMO recurso ya usado por `commercialActivityTableHtml`
+  // (Actividades, más arriba en este archivo) para una tabla de varias
+  // columnas de texto: el `<col>` explícito gana sobre la regla compartida
+  // en `table-layout:fixed` (ver comentario de esa función) — no se toca
+  // ningún primitivo de tools.css, así que ninguna otra tabla del Hub se
+  // ve afectada. Compactas de verdad (Lic./Hs/Hs Pond./Prob.) quedan
+  // angostas; Prior./Próx. Acción/Últ. Resp./Días resp. reciben el espacio
+  // que su contenido (estrellas, fecha+tipo+badge, fecha) necesita.
   return `
     <div class="matrix-scroll">
       <table class="dashboard-table">
-        <thead><tr><th class="row-label-col">Etapa</th><th>Oportunidades</th><th>Horas</th><th>Ponderadas (hs)</th><th>Revenue</th></tr></thead>
-        <tbody>${rows}${totalRow}</tbody>
+        <colgroup>
+          <col style="width:170px"><col style="width:120px"><col style="width:110px">
+          <col style="width:50px"><col style="width:60px"><col style="width:70px">
+          <col style="width:60px"><col style="width:90px"><col style="width:200px">
+          <col style="width:90px"><col style="width:65px">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          <th>Lic.</th>
+          ${th("hours", "Hs")}
+          ${th("weighted_hours", "Hs Pond.")}
+          ${th("probability", "Prob.")}
+          ${th("priority", "Prior.")}
+          ${th("next_action", "Próx. Acción", "left")}
+          ${th("last_response", "Últ. Resp.")}
+          <th>Días resp.</th>
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
       </table>
     </div>`;
 }
@@ -393,22 +513,24 @@ function commercialMaybeScrollToOpenedAnalysis(trigger, root) {
 // Cuerpo del panel de "Oportunidades Activas — Análisis": gráfico ARRIBA
 // (patrón), tabla ABAJO (precisión). Ambos en la MISMA `.dashboard-section`
 // — no una sección nueva, que rompería la relación contextual con el KPI que
-// abre este panel. La tabla NO se filtra ni se re-renderiza con el switch:
-// sigue mostrando Horas y Ponderadas en columnas, así que es la referencia
-// numérica completa en cualquier modo del gráfico.
+// abre este panel. La tabla SÍ se re-renderiza al ordenar una columna (ver
+// `[data-commercial-opportunities]` y el delegado de click), pero NUNCA con
+// el switch Horas/Ponderadas: ese sigue tocando sólo `[data-commercial-dist]`
+// (el gráfico), la tabla es la referencia numérica completa en cualquier
+// modo del gráfico y no depende de esa dimensión.
 // Sin etapas, `commercialDistribucionHtml` devuelve "" y el único mensaje lo
 // da el `.empty-panel` de la tabla — nunca rótulos huérfanos sobre la nada.
 function commercialActivasAnalysisHtml(pipeline) {
   const dist = commercialDistribucionHtml(pipeline, commercialState.horasDim);
   // El rótulo "Funnel por Etapa" lo emite el propio gráfico (vive dentro
   // del subárbol que re-renderiza el switch), así que acá NO se repite —
-  // sólo el de la tabla. "Detalle por Etapa" (esta tabla agrupada por
-  // etapa) es un placeholder provisorio de Batch 2A — Active Opportunities
-  // Phase 2 / C4 la reemplaza por el detalle por OPORTUNIDAD real del
-  // legacy (ver HANDOFF); no se toca en C3, que es exclusivamente el chart.
+  // sólo el de la tabla. C4 (ver HANDOFF) reemplazó el placeholder "Detalle
+  // por Etapa" (agrupado, Batch 2A) por el detalle real por OPORTUNIDAD
+  // (`commercialOpportunitiesTableHtml`, universo `_build_opportunities`) —
+  // no se toca en C3, que fue exclusivamente el chart.
   return `${dist ? `<div data-commercial-dist>${dist}</div>
-      <p class="perspective-label">Detalle por Etapa</p>` : ""}
-    ${commercialPipelineTableHtml(pipeline)}`;
+      <p class="perspective-label">Detalle de Oportunidades</p>` : ""}
+    <div data-commercial-opportunities>${commercialOpportunitiesTableHtml(commercialState.opportunities)}</div>`;
 }
 
 // ── Capability navigation ───────────────────────────────────────────────────
@@ -792,19 +914,23 @@ async function commercialLoadData() {
   HubForegroundProgress.begin("commercial", { seedMs: 9000 });
   try {
     const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
-    const [summaryResp, pipelineResp, analyticsResp] = await Promise.all([
+    const [summaryResp, pipelineResp, analyticsResp, opportunitiesResp] = await Promise.all([
       fetch(`/comercial/data/summary?${qs}`).then(r => r.json()),
       fetch(`/comercial/data/pipeline?${qs}`).then(r => r.json()),
       fetch(`/comercial/data/analytics?${qs}`).then(r => r.json()),
+      fetch(`/comercial/data/opportunities?${qs}`).then(r => r.json()),
     ]);
     if (summaryResp.state === "ok" && pipelineResp.state === "ok") {
       commercialState.summary = summaryResp.summary;
       commercialState.pipeline = pipelineResp.pipeline;
-      // Las analíticas degradan SOLAS: dependen del historial de Odoo, que es
-      // la consulta más pesada del dashboard. Si fallan, el resto del landing
-      // se muestra igual y sólo ese bloque avisa — nunca se cae la página
-      // entera por una métrica derivada.
+      // Las analíticas y el detalle por oportunidad degradan SOLOS: analytics
+      // depende del historial de Odoo (la consulta más pesada) y
+      // opportunities es detalle adicional (C4) sobre el MISMO universo que
+      // `pipeline` — si cualquiera de los dos falla, el resto del landing se
+      // muestra igual y sólo ese bloque avisa, nunca se cae la página entera
+      // por una vista derivada/de detalle.
       commercialState.analytics = analyticsResp.state === "ok" ? analyticsResp.analytics : null;
+      commercialState.opportunities = opportunitiesResp.state === "ok" ? opportunitiesResp.opportunities : null;
       commercialState.status = "ready";
       HubForegroundProgress.complete("commercial");
     } else {
@@ -860,6 +986,7 @@ function commercialSetTipo(tipo) {
   commercialState.summary = null;
   commercialState.pipeline = null;
   commercialState.analytics = null;
+  commercialState.opportunities = null;
   commercialState.activities = null;
   commercialState.activitiesStatus = "idle";
   // Los filtros locales de Actividades se reinician con el dataset: sus
@@ -893,6 +1020,18 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialState.horasDim = dim;
       const host = root.querySelector("[data-commercial-dist]");
       if (host) host.innerHTML = commercialDistribucionHtml(commercialState.pipeline, dim);
+      return;
+    }
+    // Ordenar la tabla de detalle (Active Opportunities Phase 2 / C4, ver
+    // HANDOFF): MISMO patrón que el switch de arriba — re-render QUIRÚRGICO
+    // de `[data-commercial-opportunities]`, sin fetch (el orden es client-
+    // side puro sobre `commercialState.opportunities`, ya cargado) y sin
+    // tocar el gráfico ni volver a cablear el motor de desglose compartido.
+    const sortTh = event.target.closest("[data-commercial-sort]");
+    if (sortTh) {
+      commercialToggleOppSort(sortTh.dataset.commercialSort);
+      const host = root.querySelector("[data-commercial-opportunities]");
+      if (host) host.innerHTML = commercialOpportunitiesTableHtml(commercialState.opportunities);
       return;
     }
     // KPI → Contextual Drilldown (ver HANDOFF — C3.1, navegación al abrir):

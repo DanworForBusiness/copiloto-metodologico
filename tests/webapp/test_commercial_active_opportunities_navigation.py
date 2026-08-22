@@ -104,13 +104,23 @@ def test_funnel_block_has_a_real_section_gap_before_whatever_follows():
     assert ".activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }" in tools_css
 
 
-def test_internal_funnel_gaps_stay_compact_only_the_exit_gap_grew():
-    # El ritmo interno (header→leyenda→plot) NO cambió en este corrective —
-    # sólo la salida del bloque. Evita que una futura edición "arregle" el
-    # gap de salida subiendo también los internos por error.
+def test_internal_funnel_gaps_stay_compact_and_are_optically_balanced():
+    # El ritmo interno (header→leyenda→plot) sigue compacto y NO se acerca
+    # al ritmo de 12px "entre bloques" (`[data-commercial-dist]`) — eso
+    # sigue vigente de C3.1. Lo que cambió (visual polish C4, ver HANDOFF):
+    # igualar los `margin-bottom` (8px/8px) NO igualó el hueco ÓPTICO real
+    # — medido con getBoundingClientRect() sobre el texto visible, no sólo
+    # las cajas contenedoras. `align-items:center` en el header centraba el
+    # rótulo dentro de una fila más alta que él (el switch la estira),
+    # dejando aire invisible bajo el texto; el tick superior del eje asoma
+    # por encima del borde del plot (`bottom:100%` + `translateY(50%)`,
+    # intencional, nunca tocado). `align-items:flex-end` elimina el aire
+    # invisible del rótulo y el margin baja a 3px para igualar el hueco
+    # óptico que ya existía hacia el plot (~3px, por el tick) — nunca un
+    # número inventado, es el mismo valor medido del otro lado.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
-    assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }" in commercial_css
-    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 7px;" in commercial_css
+    assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 3px; }" in commercial_css
+    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px;" in commercial_css
 
 
 def test_no_focus_stealing_introduced_by_the_scroll_corrective():
