@@ -187,6 +187,46 @@
    .perspective-label`, más abajo) queda intocado — este ajuste es
    exclusivamente el de "Detalle de Oportunidades". */
 [data-commercial-dist] + .perspective-label { margin-bottom: 12px; }
+/* ── Oportunidades por Origen (C8, ver HANDOFF) ──────────────────────────────
+   Consume los primitivos COMPARTIDOS del Hub `.bar-track`/`.bar-fill`
+   (tools.css) directamente. NO reusa `.forecast-bar-cell`: esa es la
+   composicion "barra + numero alineados a la derecha DENTRO de una celda", y
+   la columna de Distribucion de Origen lleva SOLO la barra —el porcentaje es
+   su propia columna—, o sea es otra composicion. Nada que promover: sigue
+   habiendo un unico consumidor de esa clase.
+
+   Lo unico que aporta esta regla es el contexto: `.bar-track` esta pensado
+   como hijo de un flex (`flex:1`), y dentro de un `<td>` es un `<span>` inline
+   donde `height` no aplica. `display:block` lo vuelve una barra que llena la
+   celda. El alto baja de 14px a 6px para leer igual que la barra in-row de la
+   tabla de Forecast — mismo peso visual en la misma vertical, no un valor
+   nuevo. Color: `--gold` del propio primitivo, cero color propio. */
+.origin-breakdown .bar-track { display: block; height: 6px; }
+/* Aire hacia el bloque siguiente ("Detalle de Oportunidades") y de su rotulo
+   hacia su tabla: los MISMOS 12px que ya separan al Funnel de lo que sigue
+   (ver la regla de arriba), para que los tres bloques del panel respiren
+   igual. */
+.origin-breakdown { margin-bottom: 12px; }
+.origin-breakdown + .perspective-label { margin-bottom: 12px; }
+/* Rotulo del Detalle cuando el analisis va en dos columnas (C8 visual
+   corrective): al meter Funnel y Origen dentro de `.analysis-split`, el
+   rotulo ya no es hermano de `[data-commercial-dist]` ni de
+   `.origin-breakdown`, asi que perdia el aire que esas dos reglas le daban.
+   MISMO valor (12px), no uno nuevo. */
+.analysis-split + .perspective-label { margin-bottom: 12px; }
+/* SEPARADOR analisis | detalle (owner smoke: "una linea gris entre el
+   grafico/tabla superior y el detalle"). Marca el corte de jerarquia: arriba
+   el analisis en dos columnas, abajo el detalle transaccional a ancho
+   completo.
+
+   `rgba(128,128,128,.24)` y NO `var(--line)`: ese token esta scopeado a
+   `.copilot-panel` (tools.css), asi que en el dashboard resolveria al valor
+   de `:root` (app.css), pensado para fondo oscuro, y la linea seria casi
+   invisible en claro — la MISMA trampa que documenta el encabezado de este
+   archivo para `--ink`. Un gris con alfa lee en los dos temas sin override,
+   y es el valor que ya usan `.whatsnew-day` y los bordes del area del plot.
+   `padding-top` = el mismo 12px que el resto del ritmo del panel. */
+.analysis-split + .perspective-label { padding-top: 12px; border-top: 1px solid rgba(128,128,128,.24); }
 .category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
 /* Ritmo interno título→leyenda→plot (owner corrective, ver HANDOFF: "los
    márgenes armónicos de la tabla de detalle deben aplicar acá también").
@@ -303,8 +343,14 @@
    usa `.category-plot-legend em`, mismo par claro/oscuro. */
 .forecast-scope { margin: 0 0 8px; font: 500 .68rem var(--sans); color: #7a7a82; }
 .content-theme-dark .forecast-scope { color: #8b8b96; }
-/* Grafico | tabla LADO A LADO (owner smoke): el patron a la izquierda, la
-   precision a la derecha. `minmax(0,1fr)` en las DOS columnas —no `1fr`— es
+/* Grafico | tabla LADO A LADO. Composicion GENERICA de "analisis en dos
+   columnas": el patron a la izquierda, la precision a la derecha. Nacio con
+   Forecast y desde C8 la comparte tambien el analisis de Oportunidades
+   Activas (Funnel | Origen), que es la MISMA figura — grafico de alto fijo a
+   la izquierda, tabla que crece a la derecha — con las MISMAS proporciones.
+   De ahi el nombre neutro: llamarla `forecast-*` desde Activas seria mentir.
+   Sigue viviendo en el CSS de la vertical, no en tools.css: dos consumidores
+   dentro de Comercial no la vuelven un primitivo de plataforma. `minmax(0,1fr)` en las DOS columnas —no `1fr`— es
    lo que permite que los scroll boxes internos (`.forecast-plot__scroll` y
    `.matrix-scroll`) puedan encogerse: con `1fr` el minimo automatico de un
    grid item es su contenido, asi que el grafico con muchos periodos
@@ -316,8 +362,8 @@
    de la derecha creo que hay espacio"): la tabla tiene cuatro columnas
    angostas y le sobraba aire, asi que el grafico se lleva algo mas para que
    cada periodo respire. Numero pensado para ajustarse en el smoke visual. */
-.forecast-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 20px; align-items: stretch; }
-.forecast-split__chart, .forecast-split__table { min-width: 0; }
+.analysis-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 20px; align-items: stretch; }
+.analysis-split__chart, .analysis-split__table { min-width: 0; }
 /* PISO COMPARTIDO (owner smoke: "que el grafico y la tabla compartan el mismo
    piso de base"). Medido, eran DOS desfases distintos:
 
@@ -346,8 +392,41 @@
    por plataforma, asi que el anclaje abajo —que no toca la geometria del
    grafico— es la opcion correcta. El costo es aire ARRIBA del grafico cuando
    la tabla es larga; el beneficio es que los ejes nunca mienten. */
-.forecast-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }
-.forecast-split__chart > * { min-width: 0; }
+.analysis-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }
+/* ARRANQUE ALINEADO (owner smoke: "subir Funnel por Etapa para que empiece a
+   la misma altura que Oportunidades por Origen"). El anclaje ABAJO de la
+   columna izquierda existe para Forecast, donde el owner pidio piso
+   compartido: si la tabla de la derecha es mas alta, el grafico baja y queda
+   aire ARRIBA. En el analisis de Activas la preferencia es la inversa —
+   las dos columnas tienen que arrancar juntas— asi que el modificador
+   invierte el borde que comparten. Dos paneles, dos decisiones tomadas en
+   dos smokes distintos; se expresan como variante, no se pisa una con otra. */
+.analysis-split--top .analysis-split__chart { justify-content: flex-start; }
+/* El `margin-top` de `[data-commercial-dist]` venia de cuando el Funnel era lo
+   PRIMERO despues de la barra de filtros y necesitaba aire propio. Dentro de
+   la columna ya es el primer hijo y el aire lo da la barra, asi que ese margen
+   era justo el desfase de 12px que quedaba contra el rotulo de Origen. */
+.analysis-split__chart > [data-commercial-dist] { margin-top: 0; }
+/* ALTO: el grafico CRECE para llenar la columna (owner smoke: "al grafico le
+   falta altura"). Al alinear los arranques, el sobrante que antes quedaba
+   arriba paso a quedar abajo — la tabla de Origen con 9 filas es bastante mas
+   alta que los 188px fijos del area de plot.
+
+   Este es el mismo enfoque que se DESCARTO en Forecast, y se puede hacer aca
+   por un motivo concreto: lo que alli rompia el eje era la barra de scroll
+   horizontal, que come alto DENTRO de `.forecast-plot__scroll` y dejaba el
+   area 15px mas baja que el eje. El Funnel NO tiene scroll box: sus dos ejes
+   y el area son hijos de la MISMA fila de `.category-plot`, asi que estirar la
+   fila los estira a los tres juntos y los ticks siguen cayendo sobre sus
+   lineas de grilla. Verificado midiendo el tick de 0% contra la linea base.
+
+   `min-height` conserva el piso de 188px de la regla base: cuando la tabla de
+   al lado es mas corta, el grafico no se achica. Scopeado a la columna del
+   split — el Funnel fuera de ella (camino defensivo sin Origen) queda igual. */
+.analysis-split__chart > [data-commercial-dist] { display: flex; flex-direction: column; flex: 1 1 auto; }
+.analysis-split__chart .category-plot { flex: 1 1 auto; grid-template-rows: 1fr auto; }
+.analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }
+.analysis-split__chart > * { min-width: 0; }
 /* Una sola serie por vez (owner smoke): la barra ocupa mas ancho del que
    necesitaba cuando eran dos. `.category-plot__bar` base esta calibrada para
    TRES barras por columna (27%/15px, ver el Funnel) — override posicional,
@@ -360,7 +439,7 @@
 @media (max-width: 1100px) {
   /* Angosto: una columna. Comprimir las dos mitades mas alla de esto deja el
      grafico ilegible y la tabla con scroll permanente. */
-  .forecast-split { grid-template-columns: minmax(0, 1fr); }
+  .analysis-split { grid-template-columns: minmax(0, 1fr); }
 }
 /* Celda con barra in-row de la tabla por periodo (C6b, ver HANDOFF —
    paridad con el `#pipeline-drill-section` legacy). Composicion MINIMA sobre
@@ -379,7 +458,7 @@
    elastica se conforma con el ancho que le sobra y parte la etiqueta en dos,
    desalineandola de su barra. Override POSICIONAL sobre `.row-label-col`, que
    sigue siendo el primitivo compartido. */
-.forecast-split__table .row-label-col { white-space: nowrap; }
+.forecast-months .row-label-col { white-space: nowrap; }
 @media (max-width: 760px) {
   .forecast-bar-cell .bar-track { flex-basis: 48px; }
 }

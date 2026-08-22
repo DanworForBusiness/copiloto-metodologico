@@ -807,7 +807,7 @@ function commercialForecastTableHtml(months, mode) {
   // reparte el sobrante en PROPORCIÓN a los anchos declarados — con px, Mes
   // terminaba en 116px y recortaba "Septiembre de 2026" (que necesita 118px).
   // En %, Mes se queda con ~38% del panel y entra en una línea siempre.
-  return `<div class="matrix-scroll">
+  return `<div class="matrix-scroll forecast-months">
       <table class="dashboard-table">
         <colgroup><col style="width:38%"><col style="width:15%"><col style="width:32%"><col style="width:15%"></colgroup>
         <thead><tr><th>Mes</th><th>Opps.</th><th>${commercialEsc(metric.column)}</th><th>% del total</th></tr></thead>
@@ -854,9 +854,9 @@ function commercialForecastPanelBodyHtml(mode) {
   // ancho inútil.
   return commercialForecastFiltersHtml(commercialForecastFilterOptions(months))
     + commercialForecastPreambleHtml(mode)
-    + `<div class="forecast-split">
-        <div class="forecast-split__chart">${commercialForecastChartHtml(filtered, mode)}</div>
-        <div class="forecast-split__table">${commercialForecastTableHtml(filtered, mode)}</div>
+    + `<div class="analysis-split">
+        <div class="analysis-split__chart">${commercialForecastChartHtml(filtered, mode)}</div>
+        <div class="analysis-split__table">${commercialForecastTableHtml(filtered, mode)}</div>
       </div>`;
 }
 
@@ -1286,6 +1286,108 @@ function commercialCurrentAnalysisFilteredOpportunities() {
   const allOpps = (commercialState.opportunities && commercialState.opportunities.opportunities) || [];
   return commercialAnalysisFilteredOpportunities(allOpps, commercialState.oppStageFilter, commercialState.oppSellerFilter);
 }
+// ── Oportunidades por Origen (C8, ver HANDOFF) ─────────────────────────────
+// Agregación DERIVADA PURA del subset analítico — cero estado nuevo, cero
+// endpoint, cero fetch: `source` ya viaja en cada oportunidad desde C4
+// (`_build_opportunities`), con el MISMO fallback `"Sin definir"` que usaba el
+// `/crm/origen` legacy. El Hub ya tiene el dato en memoria.
+//
+// Recibe el subset EXPLÍCITAMENTE en vez de leer el estado, para que el
+// llamador sea el que declara qué universo está agregando — el mismo criterio
+// que `commercialDeriveFunnelFromOpportunities`. Nunca muta la entrada:
+// `Map` propio + `map`/`sort` sobre un array nuevo.
+//
+// `pct` es sobre el TOTAL del subset (no sobre el máximo): el texto dice
+// "% del total", así que la barra tiene que significar lo mismo. Se devuelve
+// como número y se formatea al renderizar, para que el mismo valor alimente el
+// ancho de la barra y su rótulo — nunca dos cálculos que puedan divergir.
+//
+// Orden determinístico: `count` desc y `source` asc como desempate estable —
+// sin el segundo criterio, dos orígenes con el mismo conteo podían alternar
+// posición entre renders según el orden de llegada de Odoo.
+function commercialDeriveOrigins(opportunities) {
+  const rows = Array.isArray(opportunities) ? opportunities : [];
+  const total = rows.length;
+  const bySource = new Map();
+  rows.forEach(opp => {
+    const source = (opp && opp.source && String(opp.source).trim()) || "Sin definir";
+    bySource.set(source, (bySource.get(source) || 0) + 1);
+  });
+  return [...bySource.entries()]
+    .map(([source, count]) => ({ source, count, pct: total > 0 ? (count / total) * 100 : 0 }))
+    .sort((a, b) => (b.count - a.count) || a.source.localeCompare(b.source, "es"));
+}
+
+// Tabla compacta `Origen | Opps. | Distribución | %`. Las filas son
+// INFORMATIVAS: sin handler, sin `data-source`, sin `cursor:pointer`, sin
+// `tabindex` — el drill por origen que tenía el legacy es un incremento
+// aparte, y una afordancia falsa es peor que ninguna.
+//
+// La distribución NO depende sólo del ancho/color de la barra: el porcentaje
+// existe como TEXTO en su propia columna, así que la tabla se lee igual sin
+// CSS y sin color. La barra queda `aria-hidden`: es la misma magnitud que la
+// columna de al lado, y anunciarla dos veces sólo ensucia el lector.
+//
+// Subset vacío → NO se dibuja nada (ni rótulo, ni cabeceras, ni 0%): MISMO
+// lenguaje que el Funnel hermano, que también desaparece cuando Etapa/Vendedor
+// no dejan oportunidades (ver `commercialActivasAnalysisHtml`) — el único
+// mensaje lo da el `.dashboard-empty` de la tabla de detalle, nunca un rótulo
+// huérfano sobre la nada.
+function commercialOriginsHtml(opportunities) {
+  const rows = commercialDeriveOrigins(opportunities);
+  if (!rows.length) return "";
+  const body = rows.map(row => `<tr>
+      <td class="row-label-col">${commercialEsc(row.source)}</td>
+      <td>${commercialFmtInt(row.count)}</td>
+      <td><span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:${row.pct.toFixed(1)}%"></span></span></td>
+      <td>${commercialEsc(commercialFmtPercent(row.pct))}</td>
+    </tr>`).join("");
+  // `colgroup` en % — MISMA convención que el resto de las tablas de la
+  // vertical (`table.dashboard-table` es `table-layout:fixed`, tools.css).
+  return `<p class="perspective-label">Oportunidades por Origen</p>
+    <div class="origin-breakdown matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup><col style="width:40%"><col style="width:15%"><col style="width:30%"><col style="width:15%"></colgroup>
+        <thead><tr><th>Origen</th><th>Opps.</th><th>Distribución</th><th>% del total</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+// Contenido de `[data-commercial-funnel-area]`, en UN solo lugar (C8): lo
+// arman el render completo y el re-render quirúrgico, y tenerlo duplicado era
+// la vía por la que dos bloques del mismo host se desincronizaban (ver el
+// precedente de la leyenda de urgencia en `commercialOpportunitiesBlockHtml`).
+// Origen vive ACÁ a propósito: este host se re-renderiza con Etapa/Vendedor y
+// con Limpiar, y NO con la búsqueda — exactamente el lifecycle que el contrato
+// pide para Origen, sin un hook de DOM nuevo.
+function commercialFunnelAreaHtml(dist, analysisFiltered) {
+  if (!dist) return "";
+  const origins = commercialOriginsHtml(analysisFiltered);
+  // Funnel | Origen LADO A LADO (C8 visual corrective): son dos lecturas
+  // complementarias del MISMO subset Stage+Seller, así que apiladas gastaban
+  // alto sin agregar información. Reusa `.analysis-split`, la composición que
+  // ya armaba Forecast (gráfico de alto fijo | tabla que crece) — misma
+  // figura, mismas proporciones, cero layout nuevo. Con `--top`: acá las dos
+  // columnas ARRANCAN juntas (owner smoke), al revés de Forecast, que comparte
+  // el piso — misma composición, dos variantes explícitas.
+  //
+  // Sin Origen (no debería pasar: los dos salen del mismo subset, pero si
+  // `opportunities` falló y `pipeline` no, el Funnel existe y Origen no) el
+  // Funnel va a ANCHO COMPLETO en vez de dejar media grilla vacía. Nunca dos
+  // tarjetas huérfanas: el estado de cero lo sigue dando la tabla de detalle.
+  const analysis = origins
+    ? `<div class="analysis-split analysis-split--top">
+        <div class="analysis-split__chart"><div data-commercial-dist>${dist}</div></div>
+        <div class="analysis-split__table">${origins}</div>
+      </div>`
+    : `<div data-commercial-dist>${dist}</div>`;
+  // El Detalle queda FUERA de las dos columnas, a ancho completo: la jerarquía
+  // es análisis arriba (Funnel + Origen), detalle transaccional abajo.
+  return `${analysis}
+      <p class="perspective-label">Detalle de Oportunidades</p>`;
+}
+
 function commercialCurrentTableRows() {
   return commercialSearchOpportunities(commercialCurrentAnalysisFilteredOpportunities(), commercialState.oppSearchText);
 }
@@ -1387,10 +1489,7 @@ function commercialRerenderAnalysisFunnelAndTable(root) {
     : commercialState.pipeline;
   const dist = commercialDistribucionHtml(effectivePipeline);
   const funnelHost = root.querySelector("[data-commercial-funnel-area]");
-  if (funnelHost) {
-    funnelHost.innerHTML = dist ? `<div data-commercial-dist>${dist}</div>
-      <p class="perspective-label">Detalle de Oportunidades</p>` : "";
-  }
+  if (funnelHost) funnelHost.innerHTML = commercialFunnelAreaHtml(dist, analysisFiltered);
   const tableRows = commercialSearchOpportunities(analysisFiltered, commercialState.oppSearchText);
   const tableHost = root.querySelector("[data-commercial-opportunities]");
   if (tableHost) tableHost.innerHTML = commercialOpportunitiesBlockHtml(tableRows);
@@ -1436,8 +1535,7 @@ function commercialActivasAnalysisHtml(pipeline) {
     ? commercialAnalysisFiltersHtml(commercialOppStageOptions(pipeline, allOpps), commercialOppSellerOptions(allOpps))
     : "";
   return `${filtersHtml}
-    <div data-commercial-funnel-area>${dist ? `<div data-commercial-dist>${dist}</div>
-      <p class="perspective-label">Detalle de Oportunidades</p>` : ""}</div>
+    <div data-commercial-funnel-area>${commercialFunnelAreaHtml(dist, analysisFiltered)}</div>
     <div data-commercial-opportunities>${commercialOpportunitiesBlockHtml(tableRows)}</div>`;
 }
 

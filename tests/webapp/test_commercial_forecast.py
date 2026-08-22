@@ -234,15 +234,24 @@ def test_c6_adds_no_month_drill_affordance():
     assert "forecastMonth" not in state and "forecastDrill" not in state
 
 
-def test_c6_did_not_start_the_origen_breakdown():
-    # "Oportunidades por Origen" es el OTRO pendiente frontend-only del mapa de
-    # paridad, y no entra en C6: el incremento tiene que quedar aislado para
-    # poder revertirse solo. El campo `source` ya viaja en el payload de
-    # oportunidades desde C4 — que exista el dato no significa que exista el
-    # bloque.
+def test_forecast_and_origen_stay_separate_increments():
+    # C6 se entregó SIN "Oportunidades por Origen" a propósito, para que cada
+    # incremento fuera reversible solo. C8 lo agregó — pero en el análisis de
+    # ACTIVAS, no acá: los dos bloques siguen siendo independientes y ninguno
+    # depende del otro. Lo que se afirma ya no es "Origen no existe" (existe),
+    # sino que no se contaminaron entre sí.
     code = _js_code(_COMMERCIAL_JS)
-    for banned in ("Origen", "origen", "origin", "source_id"):
-        assert banned not in code, banned
+    forecast_panel = code.split("function commercialForecastPanelBodyHtml(", 1)[1] \
+        .split("function commercialForecastCountLabel(", 1)[0]
+    for banned in ("Origen", "commercialDeriveOrigins", "commercialOriginsHtml", "origin-breakdown"):
+        assert banned not in forecast_panel, banned
+    origin_html = code.split("function commercialOriginsHtml(", 1)[1] \
+        .split("function commercialFunnelAreaHtml(", 1)[0]
+    for banned in ("forecast", "Forecast"):
+        assert banned not in origin_html, banned
+    # Y ninguno de los dos toca el backend: `source` y el payload de forecast ya
+    # venían del service, C6/C8 sólo agregaron consumidores.
+    assert "source_id" not in code, "el frontend nunca ve el campo crudo de Odoo"
 
 
 def test_activas_funnel_contract_is_untouched_by_c6():

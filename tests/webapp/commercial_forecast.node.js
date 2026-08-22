@@ -275,9 +275,9 @@ function fakeNode() {
   assertTrue(panel.includes("forecast-scope"), "usando el calificador propio, no una clase compartida redefinida");
   // Va ARRIBA del split: aplica a las DOS mitades, y sacarlo de la columna del
   // gráfico es lo que alinea el arranque de ambas (owner smoke).
-  assertTrue(panel.indexOf("forecast-scope") < panel.indexOf("forecast-split"),
+  assertTrue(panel.indexOf("forecast-scope") < panel.indexOf("analysis-split"),
     "y vive antes del split, no dentro de la columna del gráfico");
-  assertTrue(panel.indexOf("category-plot-legend") < panel.indexOf("forecast-split"),
+  assertTrue(panel.indexOf("category-plot-legend") < panel.indexOf("analysis-split"),
     "la leyenda también");
   resetState();
 }
@@ -500,9 +500,9 @@ function fakeNode() {
     && count(pond, "category-plot__bar--hours") === 0,
     "modo ponderado: dibuja Ponderadas sobre los cuatro buckets, y sólo Ponderadas");
   // Lado a lado: gráfico a la izquierda, tabla a la derecha (owner smoke).
-  assertTrue(total.includes("forecast-split__chart") && total.includes("forecast-split__table"),
+  assertTrue(total.includes("analysis-split__chart") && total.includes("analysis-split__table"),
     "gráfico y tabla viven en la grilla de dos columnas");
-  assertTrue(total.indexOf("forecast-split__chart") < total.indexOf("forecast-split__table"),
+  assertTrue(total.indexOf("analysis-split__chart") < total.indexOf("analysis-split__table"),
     "y el gráfico va primero: patrón a la izquierda, precisión a la derecha");
   // Ningún campo de la barra de filtros se estira al ancho completo.
   assertTrue(!total.includes("whatsnew-filter--fill"),

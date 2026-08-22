@@ -186,7 +186,25 @@ const OPPS = [
   const searched = commercialActivasAnalysisHtml(PIPELINE);
   assertTrue(searched.includes(distStandalone),
     "Etapa=Todas, Vendedor=Todos, Buscar=\"Loma Negra\": el Funnel sigue siendo BIT A BIT el mismo que el universo sin filtrar");
-  assertTrue((searched.match(/<tr>\s*<td/g) || []).length === 1, "la tabla, en cambio, sólo muestra la fila que matchea (excluye <thead><tr> y la fila de totales)");
+  // El conteo se acota al bloque de la TABLA (C8: el panel ahora tiene una
+  // segunda tabla, la de Oportunidades por Origen, que también emite
+  // `<tr><td>` — contar sobre el panel entero mediría las dos).
+  const tabla = searched.split("<div data-commercial-opportunities>", 2)[1] || "";
+  assertTrue((tabla.match(/<tr>\s*<td/g) || []).length === 1,
+    "la tabla, en cambio, sólo muestra la fila que matchea (excluye <thead><tr> y la fila de totales)");
+  // Y el bloque de Origen queda INTACTO con la búsqueda activa: sale del
+  // subset Etapa/Vendedor, previo a Search (C8, contrato explícito). Se compara
+  // el ÁREA Funnel+Origen, no el panel entero: la barra de filtros sí cambia,
+  // porque el `<input>` tiene que mostrar lo que se tipeó.
+  const areaFunnelOrigen = () => commercialActivasAnalysisHtml(PIPELINE)
+    .split("<div data-commercial-funnel-area>", 2)[1]
+    .split("<div data-commercial-opportunities>", 2)[0];
+  commercialState.oppSearchText = "";
+  const sinBuscar = areaFunnelOrigen();
+  commercialState.oppSearchText = "Loma Negra";
+  assertTrue(areaFunnelOrigen() === sinBuscar,
+    "el área Funnel + Origen es bit a bit idéntica con y sin búsqueda");
+  assertTrue(sinBuscar.includes("Oportunidades por Origen"), "y esa área incluye de verdad el bloque de Origen");
   resetState();
 }
 
