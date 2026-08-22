@@ -135,6 +135,24 @@ function commercialRichKpi(label, value, { sub = "", split = null, eventKey = ""
 // explicación honesta —cuántas comparten ambos segmentos y cuántas no tienen
 // ninguno— viaja en el tooltip compartido, que además es foco-able para que
 // no quede sólo al alcance del mouse.
+// Línea secundaria con el MISMO formato que la composición por segmento
+// (`.kpi-split`/`.kpi-split__item`, ver `commercialSplitHtml` abajo) — owner
+// smoke: los dos últimos tiles del Resumen la traían como `.kpi-sub` (mono
+// 600, .72rem) y rompían la homogeneidad de la grilla contra los seis que
+// muestran "New Name / Base Instalada". Ahora comparten tipografía y ritmo.
+// NO lleva tooltip ni `chart-tooltip-anchor`: no hay nada que aclarar, a
+// diferencia de NN/BI, donde el tooltip explica que los segmentos se
+// superponen y no suman el total. Por eso tampoco es foco-able — un foco sin
+// contenido detrás sería una promesa vacía.
+function commercialKpiPairsHtml(pairs) {
+  const items = (pairs || []).filter(pair => pair && pair[1] !== "" && pair[1] != null);
+  if (!items.length) return "";
+  return `<div class="kpi-split kpi-split--pairs">`
+    + items.map(([label, value]) =>
+      `<span class="kpi-split__item">${commercialEsc(label)} <b>${commercialEsc(value)}</b></span>`).join("")
+    + `</div>`;
+}
+
 function commercialSplitHtml(segment, labels) {
   if (!segment) return "";
   const nnLabel = (labels && labels.nn) || "New Name";
@@ -1179,9 +1197,9 @@ function commercialDashboardHtml() {
       ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
         { sub: hs(s.suspendidas.hours), split: seg("suspendidas") })}
       ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
-        { sub: a ? `${commercialFmtInt(a.creadas.last_week)} la semana pasada` : "" })}
+        { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "" })}
       ${commercialRichKpi("Conversión", commercialFmtPercent(s.conversion),
-        { sub: `${commercialFmtPercent(s.conversion_with_suspended)} con suspendidas` })}
+        { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;
 
   // "Analíticas del Pipeline" — la segunda familia del landing legacy. Seis

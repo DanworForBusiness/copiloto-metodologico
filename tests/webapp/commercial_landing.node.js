@@ -117,10 +117,24 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   assertTrue(tile("Pipeline ponderado").includes(">13,815<"), "Pipeline ponderado: horas");
   // Conversión conserva SUS DOS lecturas, como el legacy.
   assertTrue(tile("Conversión").includes("50.8%"), "Conversión: sin suspendidas");
-  assertTrue(tile("Conversión").includes("44.8% con suspendidas"), "Conversión: con suspendidas");
-  // Creadas: semana actual + anterior.
   assertTrue(tile("Creadas esta semana").includes(">0<"), "Creadas: esta semana");
-  assertTrue(tile("Creadas esta semana").includes("1 la semana pasada"), "Creadas: semana anterior");
+  // Creadas y Conversión: su lectura secundaria usa el MISMO formato que la
+  // composición por segmento (owner smoke) — `.kpi-split__item`, no `.kpi-sub`
+  // en mono/600, que rompía la homogeneidad de la grilla.
+  assertTrue(tile("Creadas esta semana").includes(">0<"), "Creadas: esta semana");
+  assertTrue(tile("Creadas esta semana").includes("Semana Anterior <b>1</b>"), "Creadas: semana anterior");
+  assertTrue(!tile("Creadas esta semana").includes("kpi-sub"), "y ya no como `.kpi-sub`");
+  assertTrue(!/la semana pasada/.test(html), "el copy viejo no queda en ningún lado");
+  assertTrue(tile("Conversión").includes("Incluyendo suspendidas <b>44.8%</b>"), "Conversión: incluyendo suspendidas, mismo formato");
+  assertTrue(!tile("Conversión").includes("kpi-sub"), "y tampoco como `.kpi-sub`");
+  // Las dos líneas nuevas NO son foco-ables: no tienen tooltip detrás, a
+  // diferencia de NN/BI. Se cuenta por el ancla que distingue cada familia —
+  // el marcador de anchor lo emite sólo el desglose por segmento, que sí tiene
+  // tooltip; el modificador de pares, sólo estas dos líneas.
+  assertTrue(count(html, "kpi-split chart-tooltip-anchor") === 6,
+    "sólo los seis desgloses por segmento son foco-ables");
+  assertTrue(count(html, "kpi-split kpi-split--pairs") === 2,
+    "y las dos líneas nuevas reusan la caja, sin foco ni tooltip");
 }
 
 // --- Analíticas: valor + subtítulo ------------------------------------------
@@ -145,7 +159,7 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
 // --- Composición NN/BI honesta ----------------------------------------------
 {
   const html = load();
-  assertTrue(count(html, 'class="kpi-split ') === 6, "seis tiles con composición por segmento");
+  assertTrue(count(html, "kpi-split chart-tooltip-anchor") === 6, "seis tiles con composición por segmento");
   const split = commercialSplitHtml(SEGMENTS.activas, SUMMARY.labels);
   assertTrue(split.includes("New Name <b>19</b>"), "lectura visible: New Name");
   assertTrue(split.includes("Base Instalada <b>20</b>"), "lectura visible: Base Instalada");
@@ -165,7 +179,7 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   const filtered = JSON.parse(JSON.stringify(SUMMARY));
   delete filtered.segments;  // el service no manda `segments` fuera de "todos"
   const html = load({ summary: filtered });
-  assertTrue(count(html, 'class="kpi-split ') === 0, "en New Name / Base Instalada no se repite el desglose");
+  assertTrue(count(html, "kpi-split chart-tooltip-anchor") === 0, "en New Name / Base Instalada no se repite el desglose");
   assertTrue(tilesOf(html) === 15, "pero siguen estando los 15 tiles");
 }
 

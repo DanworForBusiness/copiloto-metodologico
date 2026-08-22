@@ -265,6 +265,15 @@
 .kpi-split { display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 2px; }
 .kpi-split__item { font: 500 .66rem var(--sans); color: var(--soft); white-space: nowrap; }
 .kpi-split__item b { font-weight: 700; font-family: var(--mono); font-size: .7rem; }
+/* Los pares label+valor de un solo item PUEDEN partir en dos lineas (owner
+   smoke: "Incluyendo suspendidas 44.8%" se iba fuera del tile). El
+   `white-space:nowrap` de `.kpi-split__item` existe para que "New Name 19" no
+   se corte entre rotulo y valor — con DOS items cortos por tile eso nunca
+   desbordaba. Con un solo item largo, envolver es mejor que desbordar: el
+   `flex-wrap` del contenedor no alcanza porque el item es indivisible
+   mientras siga en nowrap. Modificador propio en vez de tocar la regla base,
+   que sigue sirviendo al desglose por segmento. */
+.kpi-split--pairs .kpi-split__item { white-space: normal; }
 /* El desglose es foco-able porque su tooltip explica por que New Name y Base
    Instalada NO suman el total (ver commercial.js: son segmentos que se
    superponen). Sin foco, esa aclaracion seria inaccesible por teclado. */
@@ -276,6 +285,15 @@
    Resumen — son metricas derivadas, no la lectura principal del landing. */
 .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .analytics-grid .activity-kpi__value { font-size: clamp(1.25rem, 1.7vw, 1.55rem); }
+/* Subtitulo de las analiticas SIN negrita (owner smoke: "para que se parezca
+   mas al original"). `.kpi-sub` base es `600 .72rem var(--mono)` — semibold y
+   monospace, un peso que compite con el valor de arriba. El original los tiene
+   en sans, tamano chico y peso normal (`text-slate-500 text-xs`, sin
+   `font-bold`, ver index.html del CRM legacy). Se adopta EXACTAMENTE la
+   tipografia de `.kpi-split__item` —el otro texto secundario de esta misma
+   grilla— en vez de inventar un tercer par tamano/peso: asi las dos familias
+   de tiles leen igual por debajo del valor. */
+.analytics-grid .kpi-sub { font: 500 .66rem var(--sans); letter-spacing: normal; }
 
 /* Piso de ancho de la tabla de Detalle de Oportunidades (visual polish,
    ver HANDOFF — owner screenshot: columnas en % ya escalan de forma
