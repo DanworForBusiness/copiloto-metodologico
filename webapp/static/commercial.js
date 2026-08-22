@@ -1651,11 +1651,20 @@ function commercialActividadesHtml() {
       ${commercialKpi("Total pendientes", commercialFmtInt(rows.length))}
       ${commercialKpi("Retrasadas", commercialFmtInt(buckets.overdue.length))}
     </div>`;
-  // Retrasadas SIEMPRE antes que Pendientes — orden semántico, ver
+  // Retrasadas SIEMPRE antes que "Por vencer" — orden semántico, ver
   // commercialStaticSection.
+  //
+  // "Por vencer", no "Pendientes" (owner smoke): el tile de arriba dice "Total
+  // pendientes" y cuenta el conjunto ENTERO (158 = 39 retrasadas + 119 por
+  // vencer), mientras esta sección tiene sólo las que todavía no vencieron. La
+  // aritmética siempre estuvo bien; lo que colisionaba era la palabra —
+  // "Pendientes" leído al lado de "Total pendientes" invita a compararlos como
+  // si midieran lo mismo. En el dominio TODAS son pendientes (`mail.activity`
+  // sólo devuelve pendientes), así que el que tenía que desambiguarse era el
+  // subconjunto, no el total. Cambio de COPY: cero cambio de números.
   const sections = commercialStaticSection("act-retrasadas", "Retrasadas",
       `${commercialFmtInt(buckets.overdue.length)} actividad(es)`, commercialActivityTableHtml(buckets.overdue))
-    + commercialStaticSection("act-pendientes", "Pendientes",
+    + commercialStaticSection("act-pendientes", "Por vencer",
       `${commercialFmtInt(buckets.pending.length)} actividad(es)`, commercialActivityTableHtml(buckets.pending));
   return `<p class="perspective-label">Actividades Pendientes</p>
     ${commercialActivitiesControlsHtml()}
