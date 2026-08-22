@@ -206,6 +206,183 @@
 .content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }
 .content-theme-dark .category-plot__axis--right span { color: #e8820a; }
+
+/* ── Forecast — Pipeline por Mes de Cierre (C6, ver HANDOFF) ─────────────────
+   Variante LOCAL MINIMA sobre la MISMA familia `.category-plot`. No se
+   refactoriza la familia ni se toca la geometria de Activas: todo lo de aca
+   abajo es un override POSICIONAL dentro de `.forecast-plot`, o sea inerte
+   para el Funnel.
+
+   DOS DIFERENCIAS estructurales, y solo dos:
+
+   1) UN EJE, no dos. Las dos series (Horas, Hs Ponderadas) son horas, asi
+      que comparten escala — la canaleta derecha de `.category-plot`
+      (52px, calibrada para "3,000") quedaria VACIA y sin significado.
+      De ahi `grid-template-columns: 38px 1fr` en vez de `38px 1fr 52px`.
+      El numero del eje toma el MISMO par de tonos que ya usa el eje de
+      horas del Funnel (`.category-plot__axis--right span`: #a67c00 claro /
+      #e8820a oscuro) — es el mismo eje semantico, cero color nuevo. El
+      `--left` del markup es solo posicion; el neutral de
+      `--commercial-neutral-ink` significa "Oportunidades", serie que aca no
+      existe.
+
+   2) SCROLL HORIZONTAL. Los buckets NO tienen techo (son los `YYYY-MM`
+      presentes en los datos + "Sin fecha"), a diferencia de las <=8 etapas
+      del Funnel, y las etiquetas son anchas ("ago 25", no "4"). Cada
+      periodo recibe un ancho minimo y el area + las etiquetas viven en UN
+      solo scroll box compartido (`__scroll`) para que no se puedan
+      desincronizar. El eje queda AFUERA, fijo: scrollear no debe perder la
+      escala.
+
+      `width:max-content` + `min-width:100%` es lo que da el comportamiento
+      pedido sin ninguna rama en JS: cuando todos los periodos entran,
+      max-content < 100% y gana el min-width, asi que el area ocupa el ancho
+      disponible y los `flex-grow` reparten el sobrante (identico al
+      Funnel); cuando no entran, max-content > 100% y el area desborda su
+      scroll box, que scrollea. El borde inferior y la grilla acompanan el
+      ancho REAL del contenido, no el visible. Nunca se truncan periodos,
+      nunca se esconden etiquetas alternadas.
+
+   `--forecast-col-min` es el unico numero nuevo y esta pensado para
+   ajustarse en el smoke visual del owner: es el ancho que necesita la
+   etiqueta mas larga del eje X ("sept 25"/"Sin fecha" se recortarian con
+   menos) mas el par de barras. */
+.forecast-plot {
+  --forecast-plot-h: 188px;   /* MISMA altura que `.category-plot__area`; el token la vuelve la unica fuente */
+  --forecast-col-min: 52px;
+  display: grid; grid-template-columns: 38px 1fr;
+}
+.forecast-plot > .category-plot__axis--left { height: var(--forecast-plot-h); }
+.forecast-plot > .category-plot__axis--left span { color: #a67c00; }
+.content-theme-dark .forecast-plot > .category-plot__axis--left span { color: #e8820a; }
+.forecast-plot__scroll { overflow-x: auto; }
+.forecast-plot .category-plot__area,
+.forecast-plot .category-plot__xlab { width: max-content; min-width: 100%; }
+.forecast-plot .category-plot__area { height: var(--forecast-plot-h); }
+.forecast-plot .category-plot__col,
+.forecast-plot .category-plot__xlab span {
+  flex: 1 1 var(--forecast-col-min); min-width: var(--forecast-col-min);
+}
+/* TOOLTIP — override POSICIONAL (no se redeclara `.chart-tooltip`, que sigue
+   siendo del Hub): vive DENTRO del area del grafico, no encima de la
+   columna. Causa real, auditada: `overflow-x:auto` hace que `overflow-y`
+   compute `auto` tambien (espec CSS), asi que `__scroll` recorta en AMBOS
+   ejes — y su caja es justa (el area + las etiquetas). El tooltip del
+   Funnel se ancla a `bottom:calc(100% + 7px)` sobre una columna de alto
+   completo, o sea ARRIBA de todo el area: dentro de esta caja quedaria
+   recortado, y el flip a `below` tambien (abajo tampoco hay lugar). Por eso
+   aca no aplica el flip vertical — `commercialPositionChartTooltip`
+   (commercial.js) detecta `.forecast-plot__scroll` y en su lugar hace el
+   clamp HORIZONTAL, que es el recorte que si queda: un tooltip de 200px
+   centrado sobre una columna de 52px se sale por izquierda en el primer
+   periodo y agranda el area scrolleable en el ultimo. La regla
+   `is-tooltip-below` se neutraliza por si el flip llegara igual desde otro
+   camino — nunca depender de que un listener no corra. */
+.forecast-plot .chart-tooltip,
+.forecast-plot .chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: 6px; }
+/* SCROLL FANTASMA (owner smoke: "que no haya scrollbar en el grafico").
+   Medido: con 7 periodos las barras entraban EXACTAS (555px de contenido en
+   555px de caja) y aun asi aparecia barra de scroll. La causa no es el
+   grafico: es el tooltip OCULTO del ultimo periodo. `.chart-tooltip` mide
+   200px de minimo y, centrado sobre una columna de ~80px, su caja sobresale
+   ~60px por la derecha — y una caja `position:absolute` SI cuenta para el
+   area scrolleable de su contenedor, visible o no. Resultado: 618px de
+   scrollWidth contra 555px de caja, o sea una barra de scroll permanente que
+   no lleva a ningun contenido.
+   Ensanchar el grafico NO lo resuelve (el sobrante es 100px - mitad de
+   columna: haria falta que cada periodo midiera 200px). Lo que lo resuelve es
+   que el ultimo tooltip no sobresalga: se ancla su borde DERECHO al de su
+   columna, que es el borde del area. Las demas columnas siguen centradas —
+   su desborde cae DENTRO del contenido y es inofensivo — y al hacer hover el
+   clamp de `commercialPositionChartTooltip` lo mete en la parte visible
+   midiendo bordes reales, sin asumir centrado. */
+.forecast-plot .category-plot__col:last-child .chart-tooltip { left: auto; right: 0; transform: none; }
+/* Calificador de universo: "Pipeline total · etapas 0-8". Va en el panel,
+   no en el tile (los tiles no cambian de copy en C6) y justo donde puede
+   confundirse con Oportunidades Activas (1-8). Mismo tono atenuado que ya
+   usa `.category-plot-legend em`, mismo par claro/oscuro. */
+.forecast-scope { margin: 0 0 8px; font: 500 .68rem var(--sans); color: #7a7a82; }
+.content-theme-dark .forecast-scope { color: #8b8b96; }
+/* Grafico | tabla LADO A LADO (owner smoke): el patron a la izquierda, la
+   precision a la derecha. `minmax(0,1fr)` en las DOS columnas —no `1fr`— es
+   lo que permite que los scroll boxes internos (`.forecast-plot__scroll` y
+   `.matrix-scroll`) puedan encogerse: con `1fr` el minimo automatico de un
+   grid item es su contenido, asi que el grafico con muchos periodos
+   ensancharia la fila entera y saldria scroll horizontal en la PAGINA en vez
+   de dentro del bloque. `align-items:start` para que la tabla no se estire a
+   la altura del grafico cuando tiene menos filas.
+
+   El reparto NO es 50/50 (owner smoke: "si hay que achicar un poco la tabla
+   de la derecha creo que hay espacio"): la tabla tiene cuatro columnas
+   angostas y le sobraba aire, asi que el grafico se lleva algo mas para que
+   cada periodo respire. Numero pensado para ajustarse en el smoke visual. */
+.forecast-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 20px; align-items: stretch; }
+.forecast-split__chart, .forecast-split__table { min-width: 0; }
+/* PISO COMPARTIDO (owner smoke: "que el grafico y la tabla compartan el mismo
+   piso de base"). Medido, eran DOS desfases distintos:
+
+   1) el ARRANQUE estaba corrido 44px de forma constante, porque el preambulo
+      (universo + serie) vivia dentro de la columna del grafico y empujaba el
+      area de plot hacia abajo. Se resolvio moviendolo al PANEL — describe las
+      dos mitades, no solo el grafico (ver `commercialForecastPreambleHtml`).
+
+   2) el PISO dependia de los datos: con 2 periodos la tabla terminaba 131px
+      ARRIBA del grafico, con 7 coincidian por casualidad (4px) y con 14
+      terminaba 178px ABAJO. La causa: el grafico tenia alto FIJO (188px de
+      plot) y la tabla crece con las filas.
+
+   La correccion: `align-items:stretch` iguala el alto de las dos columnas al
+   mayor de las dos, y el grafico se ANCLA ABAJO dentro de la suya
+   (`justify-content:flex-end`). Con eso el piso coincide EXACTO cuando la
+   tabla es mas alta — que es el caso que el owner vio — y cuando es mas corta
+   la tabla simplemente termina antes, con las dos arrancando juntas.
+
+   Se descarto la alternativa de ESTIRAR el area de plot para llenar el alto:
+   se implemento y se midio, y rompia la alineacion del eje. Cuando el grafico
+   scrollea, la barra de scroll horizontal se come alto DENTRO del scroll box,
+   asi que el area termina 15px mas baja que el eje (cuyo alto se derivaba de
+   la fila del grid) y los ticks dejaban de caer sobre sus lineas de grilla.
+   El alto de una barra de scroll no es expresable en CSS sin pinear un numero
+   por plataforma, asi que el anclaje abajo —que no toca la geometria del
+   grafico— es la opcion correcta. El costo es aire ARRIBA del grafico cuando
+   la tabla es larga; el beneficio es que los ejes nunca mienten. */
+.forecast-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }
+.forecast-split__chart > * { min-width: 0; }
+/* Una sola serie por vez (owner smoke): la barra ocupa mas ancho del que
+   necesitaba cuando eran dos. `.category-plot__bar` base esta calibrada para
+   TRES barras por columna (27%/15px, ver el Funnel) — override posicional,
+   el Funnel queda intacto. */
+.forecast-plot .category-plot__bar { width: 54%; max-width: 26px; }
+/* Limpiar a la derecha sin un campo elastico de relleno (owner smoke: el
+   dropdown de Vendedor no debe estirarse). MISMO recurso que
+   `.staffing-filter-bar__clear` para el Limpiar suelto. */
+[data-commercial-forecast-filters] .whatsnew-filter__clear { margin-left: auto; white-space: nowrap; }
+@media (max-width: 1100px) {
+  /* Angosto: una columna. Comprimir las dos mitades mas alla de esto deja el
+     grafico ilegible y la tabla con scroll permanente. */
+  .forecast-split { grid-template-columns: minmax(0, 1fr); }
+}
+/* Celda con barra in-row de la tabla por periodo (C6b, ver HANDOFF —
+   paridad con el `#pipeline-drill-section` legacy). Composicion MINIMA sobre
+   los primitivos COMPARTIDOS `.bar-track`/`.bar-fill`/`.bar-value`
+   (tools.css): lo unico que aporta esta clase es meterlos en una celda de
+   tabla, porque `.bar-row` —el envoltorio que el Hub ya tiene para ellos— es
+   una fila autonoma con label de 190px, no un `<td>`. Nada de color ni de
+   forma propios: la barra sigue siendo `--gold` como en Reporting.
+   `flex-shrink:0` en el track para que no se lo coma el valor en angosto, y
+   ancho fijo para que TODAS las filas compartan la misma escala visual (si
+   fuera fluido, cada celda mediria distinto segun el largo del numero). */
+.forecast-bar-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.forecast-bar-cell .bar-track { flex: 0 0 72px; height: 6px; }
+.forecast-bar-cell .bar-value { width: auto; min-width: 56px; }
+/* El mes completo ("Septiembre de 2026") en UNA linea: sin esto la columna
+   elastica se conforma con el ancho que le sobra y parte la etiqueta en dos,
+   desalineandola de su barra. Override POSICIONAL sobre `.row-label-col`, que
+   sigue siendo el primitivo compartido. */
+.forecast-split__table .row-label-col { white-space: nowrap; }
+@media (max-width: 760px) {
+  .forecast-bar-cell .bar-track { flex-basis: 48px; }
+}
 /* SCROLL OFFSET — auditoría C3.1 (ver HANDOFF): NO existe en el Hub una
    variable/token para altura de topbar, sticky offset ni scroll offset —
    `74px`/`66px` están hardcodeados como literales en varios selectores de
@@ -239,6 +416,12 @@
    horizontal — nunca se vuelve a apilarlas como filas. */
 @media (max-width: 760px) {
   .category-plot { grid-template-columns: 30px 1fr 42px; }
+  /* Forecast (C6): MISMA canaleta angosta que el Funnel, sin la columna
+     derecha. El `gap` lo heredan las dos reglas de abajo, compartidas.
+     El ancho minimo por periodo NO se achica: es lo que necesita la
+     etiqueta para seguir siendo legible — en angosto se scrollea antes, que
+     es exactamente el comportamiento pedido. */
+  .forecast-plot { grid-template-columns: 30px 1fr; }
   .category-plot__area { gap: 3px; }
   .category-plot__xlab { gap: 3px; }
   .dashboard-section { scroll-margin-top: 78px; }

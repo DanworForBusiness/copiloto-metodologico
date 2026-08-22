@@ -1,8 +1,12 @@
 // commercial.js — Comercial / CRM (workspace propio del Hub, 100% lectura).
 // MISMO patrón de hidratación que reporting.js (fetch + render manual sobre
 // innerHTML, sin Alpine reactivo) — bootstrap en DOMContentLoaded, al final
-// del archivo. Consume sus 5 endpoints propios (`/comercial/data/summary|
-// pipeline|analytics|opportunities|activities`, `tipo=todos|nn|bi`).
+// del archivo. Consume sus 6 endpoints propios (`/comercial/data/summary|
+// pipeline|analytics|opportunities|activities|forecast`, `tipo=todos|nn|bi`).
+// Sólo CUATRO se piden en el load inicial: `activities` (capability
+// Actividades) y `forecast` (análisis Forecast) son LAZY — se piden la
+// primera vez que se los abre, nunca en cada carga del landing (ver
+// `commercialLoadActivities`/`commercialLoadForecast`).
 //
 // Reusa primitives visuales COMPARTIDOS del Hub (.activity-kpi-grid/
 // .activity-kpi, .experience-tabs, .dashboard-view-switch, .dashboard-section,
@@ -23,8 +27,10 @@
 // este archivo NUNCA toca su DOM, sólo notifica lifecycle (begin/complete/
 // fail) con la key "commercial".
 //
-// KPI → Contextual Drilldown: "Oportunidades activas" es HOY el único KPI
-// clickeable, porque es el único con un drilldown ya homologado; el resto
+// KPI → Contextual Drilldown: hoy hay DOS análisis accionables —
+// "Oportunidades activas" (1 tile) y "Forecast" (C6: DOS tiles, "Pipeline
+// total" y "Pipeline ponderado", que son la misma población medida con y sin
+// probabilidad y por eso abren el MISMO panel). El resto de los tiles
 // conserva su información pero NO simula una acción inexistente. Reusa el
 // motor COMPARTIDO `initEventBreakdown` (app.js) vía `[data-breakdown-group]`/
 // `[data-event]`/`[data-breakdown]` — nunca un handler propio. El atributo
@@ -61,6 +67,28 @@ const commercialState = {
   // Todos/NN/BI — no se resetea en `commercialSetTipo`.
   oppSortKey: null,
   oppSortDir: 1, // 1 = ascendente, -1 = descendente
+  // Forecast por mes de cierre (C6, ver HANDOFF) — LAZY, igual que
+  // Actividades: NO entra al `Promise.all` inicial, porque es un análisis
+  // opcional y no debe agregar una request remota a CADA carga del landing.
+  // Se pide la primera vez que se abre el desglose, y se reusa mientras el
+  // `tipo` no cambie (ver `commercialLoadForecast`). `idle` = todavía no se
+  // pidió, o quedó invalidado por un cambio de Todos/NN/BI. NO es un cache
+  // por tipo: es el payload del tipo VIGENTE y nada más.
+  forecast: null,
+  forecastStatus: "idle", // idle | loading | ready | error
+  forecastErrorState: "",
+  // Filtros del panel de Forecast (C6b, ver HANDOFF — paridad con el
+  // `#pipeline-drill-section` legacy): Etapa y Vendedor, client-side puros
+  // sobre `months[].opportunities[]`, que el payload YA trae — cero
+  // round-trip. Universo 0-8, así que sus opciones NO son las de Activas
+  // (1-8): se derivan del propio payload de forecast, nunca de
+  // `pipeline.stages`. Son estado de FILTRO, no de "qué tile abrió el
+  // panel" (eso sigue viviendo sólo en el DOM, ver
+  // `commercialNormalizeSharedTriggerActiveState`): tienen que sobrevivir al
+  // re-render quirúrgico del panel, que es exactamente lo que un filtro
+  // necesita. "" = sin filtro.
+  forecastStageFilter: "",
+  forecastSellerFilter: "",
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
   // costo de una capability que no se está viendo. `idle` = todavía no se
   // pidió, o quedó stale tras cambiar el filtro global.
@@ -115,8 +143,15 @@ function commercialKpi(label, value) {
 // Tile del landing con la riqueza informativa del CRM legacy: valor
 // principal, una magnitud secundaria opcional (horas) y la composición por
 // segmento. Sigue siendo el `.activity-kpi` COMPARTIDO — sólo suma líneas.
-function commercialRichKpi(label, value, { sub = "", split = null, eventKey = "" } = {}) {
-  const clickable = eventKey ? ` activity-kpi--clickable" data-event="${eventKey}" role="button" tabindex="0"`
+// `eventView` (C6b, ver HANDOFF): cuando VARIOS tiles comparten un mismo
+// `data-event` —o sea abren el mismo análisis— este atributo declara QUÉ
+// lectura representa cada uno ("total" | "ponderado"). Es una propiedad
+// ESTÁTICA del tile (lo que el tile significa), no estado de runtime: el
+// hecho dinámico —cuál está activo— lo sigue diciendo `.is-active` en el DOM.
+function commercialRichKpi(label, value, { sub = "", split = null, eventKey = "", eventView = "" } = {}) {
+  const clickable = eventKey ? ` activity-kpi--clickable" data-event="${eventKey}"`
+    + (eventView ? ` data-commercial-event-view="${eventView}"` : "")
+    + ` role="button" tabindex="0"`
     + ` aria-label="Ver análisis de ${commercialEsc(label)}"` : '"';
   return `<div class="activity-kpi${clickable}>`
     + `<span class="activity-kpi__value">${commercialEsc(value)}</span>`
@@ -187,8 +222,34 @@ function commercialLoadingHtml(label) {
 // se PARECE a un error pero nunca en rojo, el Hub no usa ese tratamiento
 // acá) vs "Sin resultados" para cero filas legítimas — nunca el mismo texto
 // para los dos casos.
-function commercialEmptyStateHtml(eyebrow, message) {
-  return `<div class="dashboard-empty"><span class="dashboard-empty__label">${commercialEsc(eyebrow)}</span><p>${commercialEsc(message)}</p></div>`;
+// `action` (owner request — "Reintentar"): HTML ya armado que va DENTRO del
+// `<p>`, a continuación del mensaje. MISMA forma que el único precedente del
+// Hub para una acción dentro de un estado vacío (`staffing_dashboard.html`:
+// `.dashboard-empty` > `<p>` > `.dashboard-subhead__reset`) — cero CSS propio
+// y cero clase nueva. Vacío por default: la enorme mayoría de los estados
+// vacíos no tienen acción, y no se les inventa una.
+function commercialEmptyStateHtml(eyebrow, message, action = "") {
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">${commercialEsc(eyebrow)}</span>`
+    + `<p>${commercialEsc(message)}${action}</p></div>`;
+}
+
+// Botón de reintento. SÓLO tiene sentido para `source_error` —una falla de
+// transporte contra Odoo, que la próxima request puede resolver—, nunca para
+// `config_incomplete`: ahí falta configuración del espacio y reintentar sería
+// mentirle al usuario (mismo resultado, N veces). De ahí que el llamador
+// decida, en vez de que este helper lo ponga siempre.
+//
+// `key` DISCRIMINA qué se reintenta (corrective, ver HANDOFF): el mismo
+// primitivo visual para los dos estados de no-disponible, pero cada uno
+// reintenta LO SUYO. Sin esta key los dos botones caían en la misma rama del
+// delegado y el del Forecast terminaba recargando el Dashboard entero —
+// pidiendo cuatro endpoints que no habían fallado, sin pedir el forecast, y
+// cerrando el propio panel de paso. Compartir la caja no es compartir el
+// callback. Mismo patrón que `data-commercial-close-analysis`, que ya lleva
+// la key de su análisis.
+function commercialRetryButtonHtml(key, label) {
+  return ` <button type="button" class="dashboard-subhead__reset" data-commercial-retry="${key}"`
+    + ` aria-label="${commercialEsc(label)}">Reintentar</button>`;
 }
 
 // View Controls Spine corrective (ver HANDOFF — Tabs vs View Controls
@@ -286,9 +347,48 @@ function commercialTooltipNeedsFlip(spaceAbove, tooltipHeight, gap) {
 
 const COMMERCIAL_TOOLTIP_GAP = 7; // mismo separador que ya usa `.chart-tooltip` (tools.css)
 
+// Corrimiento HORIZONTAL del tooltip (C6, ver HANDOFF): decisión pura, sin
+// DOM, misma filosofía que `commercialTooltipNeedsFlip` — cuánto hay que mover
+// el tooltip para que entre completo dentro de su boundary. Necesario SÓLO
+// donde el boundary es estrecho en el eje X: el scroll horizontal del Forecast
+// (`.forecast-plot__scroll`), donde un tooltip de 200px sobre una columna de
+// ~80px quedaba ilegible en los períodos de los extremos.
+//
+// Recibe los BORDES REALES del tooltip en reposo, no el centro del ancla y su
+// ancho (owner smoke): así es agnóstico de CÓMO lo ancló el CSS. Hace falta
+// porque el último período ya no centra su tooltip —lo alinea al borde, para
+// no generar scroll fantasma (ver commercial.css)— y una fórmula que asumiera
+// centrado lo movería mal justo ahí. Devuelve px (positivo = a la derecha), 0
+// cuando ya entra tal cual.
+function commercialTooltipShift(left, right, boundaryLeft, boundaryRight, margin) {
+  if (left < boundaryLeft + margin) return (boundaryLeft + margin) - left;
+  if (right > boundaryRight - margin) return (boundaryRight - margin) - right;
+  return 0;
+}
+
 function commercialPositionChartTooltip(anchor) {
   const tooltip = anchor.querySelector(".chart-tooltip");
   if (!tooltip) return;
+  // Boundary del Forecast: `.forecast-plot__scroll` (overflow-x:auto → por
+  // espec `overflow-y` computa `auto` también, o sea recorta en AMBOS ejes).
+  // Ahí el tooltip NO puede vivir fuera del área del gráfico — de eso se
+  // encarga el CSS (`.forecast-plot .chart-tooltip`, commercial.css: dentro
+  // del área, no encima), así que el flip vertical no aplica y lo que hace
+  // falta es el clamp horizontal. El camino del Funnel y de la tabla queda
+  // EXACTAMENTE como estaba (mismo boundary, mismo flip, cero clamp).
+  const scroller = anchor.closest(".forecast-plot__scroll");
+  if (scroller) {
+    const box = scroller.getBoundingClientRect();
+    // Se mide la posición de REPOSO (sin el corrimiento de un hover anterior)
+    // y se corrige desde ahí: el CSS es el que decide cómo se ancla cada
+    // columna, y esto sólo lo empuja adentro si hace falta.
+    tooltip.style.transform = "none";
+    const rest = tooltip.getBoundingClientRect();
+    const shift = commercialTooltipShift(rest.left, rest.right,
+      box.left, box.right, COMMERCIAL_TOOLTIP_GAP);
+    if (shift) tooltip.style.transform = `translateX(${Math.round(shift)}px)`;
+    return;
+  }
   const boundary = anchor.closest(".matrix-scroll, .dashboard-section");
   const boundaryTop = boundary ? boundary.getBoundingClientRect().top : 0;
   const anchorRect = anchor.getBoundingClientRect();
@@ -395,6 +495,386 @@ function commercialDistribucionHtml(pipeline) {
       ${commercialAxisHtml("right", maxHours)}
       <div class="category-plot__xlab">${xlab}</div>
     </div>`;
+}
+
+// ── Forecast — Pipeline por Mes de Cierre (C6, ver HANDOFF) ─────────────────
+// DOS series simultáneas por período (Horas y Hs Ponderadas) y UN solo eje:
+// las dos magnitudes son horas, así que compartir escala es lo único
+// correcto — nunca dos ejes para la misma unidad. NO se implementa el switch
+// Horas|Ponderadas del legacy: el delta total↔ponderado ES lo que el
+// forecast comunica (con switch hay que recordar la vista anterior), y
+// además reintroduciría el estado que C5a ya eliminó del Funnel. Sin barra
+// de Oportunidades y sin barra de Revenue: las dos viven en el tooltip
+// (Revenue es otra unidad; el conteo es el desempate — 400 hs pueden ser 2
+// oportunidades o 40).
+//
+// UNIVERSO: etapas 0-8 (`_build_forecast` — Pipeline Total/Ponderado,
+// prospectos incluidos), NUNCA el 1-8 de Oportunidades Activas. Es semántica
+// legacy intencional y el panel la declara explícitamente (`.forecast-scope`)
+// justo donde puede confundirse.
+//
+// GEOMETRÍA: variante LOCAL mínima (`.forecast-plot`, commercial.css) sobre
+// la MISMA familia `.category-plot` — un eje (sin la columna derecha vacía
+// que tendría sentido sólo con dos escalas) y el área + las etiquetas dentro
+// de un scroll horizontal compartido. Los buckets NO tienen techo (son los
+// `YYYY-MM` presentes en los datos más "Sin fecha"), a diferencia de las <=8
+// etapas del Funnel: cada período recibe un ancho mínimo y el gráfico
+// scrollea cuando no entran. Nunca se truncan períodos en silencio, nunca se
+// esconden etiquetas alternadas dejando barras ambiguas.
+const COMMERCIAL_MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun",
+  "jul", "ago", "sep", "oct", "nov", "dic"];
+
+// Etiqueta del período. "Sin fecha" (y cualquier clave que no sea `YYYY-MM`)
+// se muestra TAL CUAL: es un bucket válido del backend, no un error. Tabla
+// fija en vez de `toLocaleDateString`: el resultado no depende del ICU
+// disponible en el runtime, así que es idéntico en el navegador y en el
+// harness de test.
+function commercialForecastPeriodLabel(month) {
+  const raw = String(month == null ? "" : month);
+  const parts = raw.split("-");
+  if (parts.length !== 2) return raw;
+  const idx = Number(parts[1]) - 1;
+  if (!(idx >= 0 && idx < 12) || !/^\d{4}$/.test(parts[0])) return raw;
+  return `${COMMERCIAL_MONTHS_SHORT[idx]} ${parts[0].slice(2)}`;
+}
+
+const COMMERCIAL_MONTHS_LONG = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+// Etiqueta LARGA — "Agosto de 2026" (owner smoke: "la convención del
+// original"). El legacy usa LAS DOS formas, cada una donde corresponde:
+// `fmtMonthShort` en el eje del gráfico (dashboard.js:2272) y `fmtMonth` en la
+// tabla del drill (dashboard.js:2450). Se preserva ese reparto: el eje X tiene
+// ~52px por período y un "Septiembre de 2026" ahí sería ilegible.
+// Mismo criterio que la corta: tabla fija en vez de `toLocaleDateString`, para
+// que el resultado no dependa del ICU del runtime.
+function commercialForecastPeriodLongLabel(month) {
+  const raw = String(month == null ? "" : month);
+  const parts = raw.split("-");
+  if (parts.length !== 2) return raw;
+  const idx = Number(parts[1]) - 1;
+  if (!(idx >= 0 && idx < 12) || !/^\d{4}$/.test(parts[0])) return raw;
+  return `${COMMERCIAL_MONTHS_LONG[idx]} de ${parts[0]}`;
+}
+
+// Tooltip por período: SIEMPRE el cuadro completo (período + las 4
+// magnitudes). MISMA composición que `commercialStageTooltipLines`. Acá va la
+// etiqueta LARGA: el eje X se queda con la corta por espacio, y este es
+// justamente el lugar donde se recupera la lectura completa — igual que la
+// tabla de al lado.
+function commercialForecastTooltipLines(bucket) {
+  return [
+    commercialForecastPeriodLongLabel(bucket.month),
+    `Oportunidades: ${commercialFmtInt(bucket.count)}`,
+    `Horas: ${commercialFmtInt(bucket.hours)}`,
+    `Ponderadas: ${commercialFmtInt(bucket.weighted_hours)} hs`,
+    `Revenue: ${commercialFmtMoney(bucket.revenue)}`,
+  ];
+}
+
+function commercialForecastChartHtml(months, mode) {
+  // ORDEN DEL BACKEND, intacto: `_build_forecast` ya entrega los meses
+  // ascendentes con "Sin fecha" SIEMPRE al final. Ordenar acá lo metería
+  // entre otros períodos (es alfabéticamente una "S"), así que el cliente
+  // NUNCA reordena — sólo dibuja.
+  const buckets = Array.isArray(months) ? months : [];
+  if (!buckets.length) return "";
+  // UNA sola serie, la del tile de entrada (owner smoke): el gráfico y la
+  // tabla hablan de la MISMA lectura — Horas con "Pipeline total", Hs
+  // Ponderadas con "Pipeline ponderado". Mostrar las dos acá contradecía a la
+  // tabla de al lado, que siempre tuvo una sola columna de métrica.
+  const metric = COMMERCIAL_FORECAST_METRIC[mode] || COMMERCIAL_FORECAST_METRIC.total;
+  // Techo de la serie VISIBLE (no el máximo entre las dos): con una sola
+  // serie, escalar contra la otra desperdiciaría alto en el modo ponderado,
+  // que siempre es menor o igual.
+  const max = commercialNiceMax(Math.max(...buckets.map(b => b[metric.key] || 0)));
+
+  // La COLUMNA es la superficie accesible (no la barra): un solo punto de
+  // foco/hover por período, con el `aria-label` plano de las 4 magnitudes —
+  // el tooltip sigue mostrando TODAS, aunque se dibuje una: la lectura
+  // completa del período nunca se pierde.
+  // NO lleva ni handler, ni identificador de mes, ni cursor:pointer — el
+  // drill mensual es C7, y una afordancia falsa es peor que ninguna.
+  const cols = buckets.map(bucket => {
+    const lines = commercialForecastTooltipLines(bucket);
+    const height = max > 0 ? ((bucket[metric.key] || 0) / max * 100).toFixed(1) : "0.0";
+    return `<div class="category-plot__col chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(lines.join(" · "))}">`
+      + `<div class="category-plot__bar category-plot__bar--${metric.series}" style="height:${height}%"></div>`
+      + `${commercialChartTooltip(lines)}</div>`;
+  }).join("");
+
+  const grid = COMMERCIAL_PLOT_TICKS.map(t => `<i style="bottom:${(t * 100).toFixed(0)}%"></i>`).join("");
+  const xlab = buckets.map(bucket =>
+    `<span>${commercialEsc(commercialForecastPeriodLabel(bucket.month))}</span>`).join("");
+
+  // El preámbulo (universo + serie) NO va acá: es del PANEL, no del gráfico —
+  // ver `commercialForecastPreambleHtml`.
+  return `
+    <div class="forecast-plot">
+      ${commercialAxisHtml("left", max)}
+      <div class="forecast-plot__scroll">
+        <div class="category-plot__area">
+          <div class="category-plot__grid">${grid}</div>
+          ${cols}
+        </div>
+        <div class="category-plot__xlab">${xlab}</div>
+      </div>
+    </div>`;
+}
+
+// ── Forecast: modo, filtros y tabla (C6b, ver HANDOFF) ─────────────────────
+// El legacy abría desde "Pipeline Total"/"Pipeline Ponderado" un
+// `#pipeline-drill-section` cuya TABLA mostraba una sola columna de métrica
+// según el tile de entrada, con el título conmutando entre "Forecast" y
+// "Forecast Ponderado". Decisión del owner: se preserva esa paridad.
+//
+// El modo NO se guarda en ninguna parte: se LEE del DOM, del tile que quedó
+// `.is-active` (ver `commercialNormalizeSharedTriggerActiveState`, que
+// garantiza que sea exactamente uno). El tile declara qué lectura representa
+// con `data-commercial-event-view`, que es una propiedad estática suya. Cero
+// `forecastOpenedBy`, cero estado paralelo: si mañana el panel se abre de
+// otra forma, el modo sigue saliendo del mismo lugar.
+function commercialForecastMode(root) {
+  if (!root) return "total"; // render completo: el panel arranca oculto, el modo es irrelevante
+  const active = root.querySelector('[data-event="forecast"].is-active');
+  return active && active.dataset.commercialEventView === "ponderado" ? "ponderado" : "total";
+}
+
+// Todo lo que cambia entre las dos lecturas, en UN solo lugar: el campo del
+// payload, el encabezado de la columna, el título del panel, y —desde el owner
+// smoke— el rótulo y el color de la única serie que dibuja el gráfico.
+// `series` es el sufijo de las clases COMPARTIDAS que ya existen
+// (`.category-plot__bar--hours` / `--weighted` y sus swatches): cero color
+// nuevo, y la barra queda del mismo tono que la lectura que representa.
+const COMMERCIAL_FORECAST_METRIC = {
+  total: { key: "hours", column: "Hs Total", legend: "Horas", series: "hours",
+    title: "Forecast — Pipeline por Mes de Cierre" },
+  ponderado: { key: "weighted_hours", column: "Hs Pond.", legend: "Hs Ponderadas", series: "weighted",
+    title: "Forecast Ponderado — Pipeline por Mes de Cierre" },
+};
+
+// Opciones de los filtros: se derivan del PROPIO payload de forecast, nunca de
+// `pipeline.stages` — el universo acá es 0-8 y el de Activas 1-8, así que las
+// etapas no son las mismas (Forecast incluye prospectos). Orden alfabético
+// para Vendedor y por nombre de etapa para Etapa: el prefijo numérico del
+// nombre ("0 Prospecto", "4 Propuesta") ya las ordena por avance del embudo,
+// sin depender del orden en que Odoo devolvió las oportunidades.
+function commercialForecastFilterOptions(months) {
+  const stages = new Set();
+  const sellers = new Set();
+  (months || []).forEach(m => (m.opportunities || []).forEach(o => {
+    if (o.stage) stages.add(o.stage);
+    if (o.seller) sellers.add(o.seller);
+  }));
+  return {
+    stages: [...stages].sort((a, b) => a.localeCompare(b, "es")),
+    sellers: [...sellers].sort((a, b) => a.localeCompare(b, "es")),
+  };
+}
+
+// Re-bucketing por Etapa/Vendedor. SIN filtros devuelve los meses TAL CUAL
+// llegaron —o sea los valores que calculó el service, que son la referencia—
+// y sólo recalcula cuando hay un filtro activo: MISMO criterio que
+// `commercialDeriveFunnelFromOpportunities` en Activas. `.map`/`.filter`
+// siempre devuelven estructuras nuevas: cero mutación del payload.
+//
+// `weighted_hours` se recalcula por oportunidad (`hours * probability / 100`,
+// redondeado por opp) igual que el legacy — el service suma y redondea al
+// final, así que un filtrado puede diferir en decimales del total sin filtrar.
+// Es la aritmética del legacy, preservada a propósito.
+function commercialForecastFilteredMonths(months) {
+  const source = Array.isArray(months) ? months : [];
+  const stageF = commercialState.forecastStageFilter;
+  const sellerF = commercialState.forecastSellerFilter;
+  if (!stageF && !sellerF) return source;
+  return source.map(m => {
+    const opps = (m.opportunities || []).filter(o =>
+      (!stageF || o.stage === stageF) && (!sellerF || o.seller === sellerF));
+    const hours = opps.reduce((sum, o) => sum + (o.hours || 0), 0);
+    const weighted = opps.reduce((sum, o) => sum + Math.round((o.hours || 0) * (o.probability || 0) / 100), 0);
+    return { ...m, count: opps.length, hours: Math.round(hours * 10) / 10,
+      weighted_hours: Math.round(weighted * 10) / 10, opportunities: opps };
+  });
+}
+
+// Filas visibles de la TABLA: sólo los períodos con valor en la métrica
+// ACTIVA, igual que el legacy (`relevant`). Consecuencia aceptada por el
+// owner: la tabla puede mostrar menos filas que columnas tenga el gráfico
+// —que sigue dibujando las dos series sobre todos los buckets— porque un mes
+// puede tener horas y cero ponderadas.
+function commercialForecastRelevantMonths(months, mode) {
+  const metric = COMMERCIAL_FORECAST_METRIC[mode].key;
+  return (months || []).filter(m => (m[metric] || 0) > 0);
+}
+
+// Preámbulo del PANEL: el universo (0-8) y qué serie se está leyendo. Vivía
+// dentro del gráfico y por eso empujaba el área de plot 44px hacia abajo,
+// dejando la tabla de al lado "más arriba" (owner smoke). Pero las dos líneas
+// describen el panel ENTERO, no sólo el gráfico: el universo vale igual para
+// la tabla, y el rótulo de la serie es el mismo que encabeza su columna de
+// métrica. Sacarlo de la columna izquierda es a la vez lo estructuralmente
+// correcto y lo que alinea el arranque de las dos mitades.
+function commercialForecastPreambleHtml(mode) {
+  const metric = COMMERCIAL_FORECAST_METRIC[mode] || COMMERCIAL_FORECAST_METRIC.total;
+  return `<p class="forecast-scope">Pipeline total · etapas 0–8</p>
+    <div class="category-plot-legend">
+      <b><i class="swatch-bar swatch-bar--${metric.series}"></i>${commercialEsc(metric.legend)}</b>
+    </div>`;
+}
+
+function commercialForecastFiltersHtml(options) {
+  const opt = (value, selected) =>
+    `<option value="${commercialEsc(value)}"${selected === value ? " selected" : ""}>${commercialEsc(value)}</option>`;
+  // MISMOS primitivos que la barra de Activas (`.whatsnew-filters`) y el MISMO
+  // "✕ Limpiar" compartido del Hub — un solo lenguaje de filtros en toda la
+  // vertical, cero clase nueva.
+  // Ninguno de los dos `<select>` es `--fill` (owner smoke): los dos cortan en
+  // el ancho que les da `.whatsnew-filter select` (190px), sin que Vendedor se
+  // estire hasta el borde. A "Limpiar" lo empuja a la derecha un
+  // `margin-left:auto` (commercial.css) — MISMO recurso que ya usa el Limpiar
+  // suelto de Staffing, en vez de un campo elástico de relleno.
+  return `<div class="whatsnew-filters" data-commercial-forecast-filters>
+      <label class="whatsnew-filter">
+        <span>Etapa</span>
+        <select data-commercial-forecast-stage-filter>
+          <option value=""${commercialState.forecastStageFilter === "" ? " selected" : ""}>Todas las etapas</option>
+          ${options.stages.map(s => opt(s, commercialState.forecastStageFilter)).join("")}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-forecast-seller-filter>
+          <option value=""${commercialState.forecastSellerFilter === "" ? " selected" : ""}>Todos los vendedores</option>
+          ${options.sellers.map(s => opt(s, commercialState.forecastSellerFilter)).join("")}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-forecast-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+// Tabla por período. Cuatro columnas, como el legacy: Mes, Opps., la métrica
+// ACTIVA (una sola, según el tile de entrada) y su % del total. La barra
+// in-row es relativa al MÁXIMO de la métrica —no al total— para que la
+// comparación entre meses se lea; el % sí es sobre el total. Reusa los
+// primitivos COMPARTIDOS `.bar-track`/`.bar-fill`/`.bar-value` (tools.css) y
+// el `.dashboard-table` de siempre.
+function commercialForecastTableHtml(months, mode) {
+  const metric = COMMERCIAL_FORECAST_METRIC[mode];
+  const rows = commercialForecastRelevantMonths(months, mode);
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados",
+      "Ningún período tiene horas para esta combinación de filtros.");
+  }
+  const total = rows.reduce((sum, m) => sum + (m[metric.key] || 0), 0);
+  const max = Math.max(...rows.map(m => m[metric.key] || 0), 1);
+  const body = rows.map(m => {
+    const value = m[metric.key] || 0;
+    const pct = total > 0 ? (value / total * 100).toFixed(1) : "0.0";
+    const width = (value / max * 100).toFixed(1);
+    // "Sin fecha" se explicita como "Sin fecha de cierre" — igual que el
+    // legacy: en una tabla de meses, "Sin fecha" solo es ambiguo. El resto va
+    // con el mes COMPLETO, la convención que el original usa en esta misma
+    // tabla (dashboard.js:2450 — `fmtMonth`, no `fmtMonthShort`).
+    const label = m.month === "Sin fecha" ? "Sin fecha de cierre" : commercialForecastPeriodLongLabel(m.month);
+    return `<tr>
+      <td class="row-label-col">${commercialEsc(label)}</td>
+      <td>${commercialFmtInt(m.count)}</td>
+      <td><span class="forecast-bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span>`
+      + `<span class="bar-value">${commercialFmtInt(value)} hs</span></span></td>
+      <td>${pct}%</td>
+    </tr>`;
+  }).join("");
+  // Fila de TOTALES (owner smoke). Reusa `tr.is-total` (tools.css), el MISMO
+  // primitivo que ya cierra la tabla de detalle de Oportunidades — cero clase
+  // nueva y cero número de estilo propio. `Total (N)` cuenta los períodos
+  // VISIBLES, así que siempre coincide con las filas de arriba y con el
+  // conteo del header. El % es 100 por construcción (cada fila es su parte de
+  // este mismo total) y va explícito en vez de en blanco: cierra la columna.
+  // La celda de la métrica va sin barra a propósito: una barra al 100% junto a
+  // barras escaladas contra el MÁXIMO se leería como "un mes más" y no como el
+  // agregado.
+  const totalCount = rows.reduce((sum, m) => sum + (m.count || 0), 0);
+  const totalRow = `<tr class="is-total">
+      <td class="row-label-col">Total (${commercialFmtInt(rows.length)})</td>
+      <td>${commercialFmtInt(totalCount)}</td>
+      <td>${commercialFmtInt(total)} hs</td>
+      <td>100%</td>
+    </tr>`;
+  // `<colgroup>` en % y no en px — MISMA convención que la tabla de detalle de
+  // Oportunidades (ver su comentario: "más legible que una tabla de px que
+  // sólo tiene sentido si suman un total implícito"), y además necesaria acá:
+  // `table.dashboard-table` ya es `table-layout:fixed` (tools.css), que
+  // reparte el sobrante en PROPORCIÓN a los anchos declarados — con px, Mes
+  // terminaba en 116px y recortaba "Septiembre de 2026" (que necesita 118px).
+  // En %, Mes se queda con ~38% del panel y entra en una línea siempre.
+  return `<div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup><col style="width:38%"><col style="width:15%"><col style="width:32%"><col style="width:15%"></colgroup>
+        <thead><tr><th>Mes</th><th>Opps.</th><th>${commercialEsc(metric.column)}</th><th>% del total</th></tr></thead>
+        <tbody>${body}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+// Cuerpo del panel de Forecast. Cubre los CUATRO estados del lazy load con
+// los MISMOS primitivos que ya usa el resto de Comercial — `idle` incluido:
+// el panel puede quedar montado y oculto antes del primer fetch, y en ese
+// caso muestra lo mismo que mientras carga (nunca un gráfico vacío ni un
+// hueco sin explicar). Tras un error o un payload vacío NO queda ningún
+// gráfico viejo: este cuerpo se reemplaza completo.
+function commercialForecastPanelBodyHtml(mode) {
+  if (commercialState.forecastStatus === "error") {
+    const configIncomplete = commercialState.forecastErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar el forecast desde el CRM en este momento.";
+    // MISMO criterio que el Dashboard: reintentar sólo si la falla puede
+    // resolverse en la próxima request.
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("forecast", "Reintentar la carga del forecast"));
+  }
+  if (commercialState.forecastStatus !== "ready") {
+    return commercialLoadingHtml("Cargando forecast…");
+  }
+  const months = (commercialState.forecast && commercialState.forecast.months) || [];
+  if (!months.length) {
+    return commercialEmptyStateHtml("Sin datos",
+      "No hay oportunidades con fecha de cierre para este segmento.");
+  }
+  // Etapa/Vendedor son ANALÍTICOS: el MISMO universo filtrado alimenta el
+  // gráfico Y la tabla — igual que Etapa/Vendedor en Activas, e igual que el
+  // legacy, que re-agrupaba todo el bloque. Las OPCIONES salen del payload
+  // completo (`months`), nunca del filtrado: una opción no puede
+  // desaparecer por haberla elegido.
+  const filtered = commercialForecastFilteredMonths(months);
+  // Gráfico y tabla LADO A LADO (owner smoke): el patrón a la izquierda, la
+  // precisión a la derecha — las dos lecturas del mismo período a la misma
+  // altura, sin scrollear entre una y otra. En viewport angosto la grilla
+  // vuelve a una columna (commercial.css), nunca se comprimen las dos a un
+  // ancho inútil.
+  return commercialForecastFiltersHtml(commercialForecastFilterOptions(months))
+    + commercialForecastPreambleHtml(mode)
+    + `<div class="forecast-split">
+        <div class="forecast-split__chart">${commercialForecastChartHtml(filtered, mode)}</div>
+        <div class="forecast-split__table">${commercialForecastTableHtml(filtered, mode)}</div>
+      </div>`;
+}
+
+// Conteo del header. "períodos", NUNCA "meses": el dataset puede incluir el
+// bucket VÁLIDO "Sin fecha", que no es un mes. Vacío mientras no hay payload
+// — el `<span>` se emite igual para que el re-render quirúrgico siempre
+// encuentre su host (MISMO criterio que `[data-commercial-funnel-area]`).
+// Refleja lo que la tabla muestra REALMENTE (períodos con valor en la métrica
+// activa, ya filtrados) más el total de esa métrica — el equivalente del
+// "N meses · N hs totales" legacy, pero sin llamarle "mes" a "Sin fecha".
+function commercialForecastCountLabel(mode) {
+  if (commercialState.forecastStatus !== "ready") return "";
+  const months = (commercialState.forecast && commercialState.forecast.months) || [];
+  if (!months.length) return "";
+  const rows = commercialForecastRelevantMonths(commercialForecastFilteredMonths(months), mode);
+  if (!rows.length) return "0 períodos";
+  const total = rows.reduce((sum, m) => sum + (m[COMMERCIAL_FORECAST_METRIC[mode].key] || 0), 0);
+  return `${commercialFmtInt(rows.length)} período(s) · ${commercialFmtInt(total)} hs`;
 }
 
 // Detalle de Oportunidades Activas (Active Opportunities Phase 2 / C4, ver
@@ -671,6 +1151,37 @@ function commercialMaybeScrollToOpenedAnalysis(trigger, root) {
   // medio — exactamente este camino.
   if (section) section.open = true;
   section?.scrollIntoView({ block: "start" });
+}
+
+// Marcador visual único cuando VARIOS triggers comparten un mismo
+// `data-event` (C6 visual corrective, ver HANDOFF): el motor compartido
+// resuelve por VALOR del atributo, así que su `show(ev)` marca `.is-active`
+// en TODOS los triggers de ese valor a la vez — con "Pipeline total" y
+// "Pipeline ponderado" abriendo el MISMO Forecast, eso se leía en pantalla
+// como una doble selección accidental. Acá se normaliza DESPUÉS de que el
+// motor corrió (su listener cuelga directo del trigger y corre antes de que
+// el click burbujee hasta el delegado que llama a esto): se le saca
+// `.is-active` a los hermanos y queda sólo en el nodo que el usuario
+// realmente activó.
+//
+// SIN estado propio: el nodo activador llega como argumento del evento y la
+// única fuente de verdad sigue siendo el DOM (`.is-active` en el trigger +
+// `hidden` en el panel), exactamente como antes. No se guarda en ninguna
+// parte "cuál tile abrió" — cambiar de tile de entrada es sólo mover una
+// clase, nunca un cambio de estado ni de datos.
+//
+// Sólo actúa en una APERTURA (`is-active` post-toggle), MISMO criterio que
+// `commercialMaybeScrollToOpenedAnalysis`: al cerrar, el motor ya dejó a
+// todos inactivos y acá no hay nada que preservar.
+//
+// GENÉRICO a propósito, no un caso especial de "forecast": cualquier análisis
+// del Hub con varios triggers equivalentes hereda el mismo comportamiento, y
+// para un análisis con un solo trigger (Activas) es un no-op exacto.
+function commercialNormalizeSharedTriggerActiveState(trigger, root) {
+  if (!trigger.classList.contains("is-active")) return;
+  root.querySelectorAll(`[data-event="${trigger.dataset.event}"]`).forEach(sibling => {
+    if (sibling !== trigger) sibling.classList.remove("is-active");
+  });
 }
 
 // ── Filtros de análisis del detalle de Oportunidades (C5e, ver HANDOFF) ─────
@@ -1160,10 +1671,14 @@ function commercialDashboardHtml() {
     return commercialLoadingHtml("Cargando datos comerciales…");
   }
   if (commercialState.status === "error") {
-    const label = commercialState.errorState === "config_incomplete"
+    const configIncomplete = commercialState.errorState === "config_incomplete";
+    const label = configIncomplete
       ? "El CRM todavía no está configurado para este espacio."
       : "No pudimos cargar los datos comerciales desde el CRM en este momento.";
-    return commercialEmptyStateHtml("No disponible", label);
+    // Reintentar sólo si la falla es de transporte (owner request): con el CRM
+    // sin configurar, el botón prometería algo que no puede pasar.
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("dashboard", "Reintentar la carga de datos comerciales"));
   }
   const s = commercialState.summary;
   const p = commercialState.pipeline;
@@ -1177,19 +1692,28 @@ function commercialDashboardHtml() {
   // acá simplemente no hay split que dibujar.
   const seg = name => commercialSplitHtml(s.segments && s.segments[name], s.labels);
 
-  // Los NUEVE tiles del landing legacy. "Oportunidades activas" es el único
-  // clickeable: es el único con un drilldown Hub ya homologado. Los demás
+  // Los NUEVE tiles del landing legacy. TRES son clickeables, sobre DOS
+  // análisis: "Oportunidades activas" abre el suyo, y "Pipeline total" +
+  // "Pipeline ponderado" abren el MISMO Forecast (C6, ver HANDOFF) — no son
+  // dos métricas distintas, son la misma población (0-8) medida con y sin
+  // probabilidad, y el panel presenta las dos series juntas, así que darle
+  // el análisis a una sola de las dos sería arbitrario. Los otros seis
   // conservan su información pero NO simulan una acción que todavía no
   // existe — una afordancia falsa es peor que ninguna.
+  // Consecuencia ACEPTADA de que los dos compartan `data-event`: mientras
+  // Forecast está abierto los DOS tiles quedan `.is-active`. El motor
+  // compartido resuelve por VALOR del atributo, no por nodo, así que no
+  // puede (ni debe) distinguir cuál lo abrió — y "los dos KPIs están siendo
+  // analizados ahora" es exactamente lo que pasa.
   const kpiGrid = `<div class="activity-kpi-grid">
       ${commercialRichKpi("Oportunidades activas", commercialFmtInt(s.activas.count),
         { sub: hs(s.activas.hours), split: seg("activas"), eventKey: "activas" })}
       ${commercialRichKpi("Prospectos", commercialFmtInt(s.prospectos.count),
         { sub: hs(s.prospectos.hours), split: seg("prospectos") })}
       ${commercialRichKpi("Pipeline total", commercialFmtInt(s.pipeline.hours),
-        { sub: "horas", split: seg("pipeline") })}
+        { sub: "horas", split: seg("pipeline"), eventKey: "forecast", eventView: "total" })}
       ${commercialRichKpi("Pipeline ponderado", commercialFmtInt(s.pipeline.weighted_hours),
-        { sub: "horas ponderadas" })}
+        { sub: "horas ponderadas", eventKey: "forecast", eventView: "ponderado" })}
       ${commercialRichKpi("Ganadas", commercialFmtInt(s.ganadas.count),
         { sub: hs(s.ganadas.hours), split: seg("ganadas") })}
       ${commercialRichKpi("Perdidas", commercialFmtInt(s.perdidas.count),
@@ -1245,9 +1769,34 @@ function commercialDashboardHtml() {
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Oportunidades Activas — Análisis</span>
         <span class="dashboard-section__count">${commercialFmtInt(p.opportunities)} oportunidad(es)</span>
-        <button type="button" class="panel-close" data-commercial-close-analysis aria-label="Cerrar análisis">&times;</button>
+        <button type="button" class="panel-close" data-commercial-close-analysis="activas" aria-label="Cerrar análisis">&times;</button>
       </summary>
       <div class="dashboard-section__body">${commercialActivasAnalysisHtml(p)}</div>
+    </details>`;
+
+  // Forecast (C6, ver HANDOFF): SEGUNDA sección de análisis, hermana de la
+  // de Activas y DENTRO DEL MISMO `[data-breakdown-group]` — a propósito. El
+  // motor compartido esconde todos los paneles del grupo salvo el que
+  // coincide, así que "un solo análisis abierto por vez" (abrir Forecast
+  // cierra Activas y viceversa) sale gratis y es el contrato elegido: los
+  // dos universos (0-8 y 1-8) nunca se ven simultáneamente. Cero grupo
+  // nuevo, cero lifecycle paralelo.
+  // El cuerpo y el conteo se actualizan QUIRÚRGICAMENTE cuando resuelve el
+  // lazy load (ver `commercialRenderForecastPanel`) — nunca con un
+  // `commercialRender()` completo, que reconstruiría
+  // `#commercial-main-content` y cerraría este mismo panel (el estado
+  // abierto/cerrado vive SÓLO en el DOM: `hidden` + `.is-active`). De ahí
+  // los dos hosts estables: `[data-commercial-forecast-count]` y
+  // `[data-commercial-forecast-body]`.
+  const forecastSection = `<details class="dashboard-section" data-section-id="forecast-analisis" data-breakdown="forecast" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title" data-commercial-forecast-title>${commercialEsc(COMMERCIAL_FORECAST_METRIC.total.title)}</span>
+        <span class="dashboard-section__count" data-commercial-forecast-count>${commercialEsc(commercialForecastCountLabel("total"))}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="forecast" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-forecast-body>${commercialForecastPanelBodyHtml("total")}</div>
     </details>`;
 
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
@@ -1256,7 +1805,8 @@ function commercialDashboardHtml() {
   // de eso. Cada tile ya declara su propia magnitud.
   const sections = commercialDashboardSection("resumen", "Resumen", "", kpiGrid)
     + commercialDashboardSection("analiticas", "Analíticas del Pipeline", "", analyticsGrid)
-    + analysisSection;
+    + analysisSection
+    + forecastSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -1388,6 +1938,94 @@ async function commercialLoadActivities() {
   commercialRenderCapability();
 }
 
+// ── Forecast — lazy load + render quirúrgico (C6, ver HANDOFF) ──────────────
+// Re-render QUIRÚRGICO del panel de Forecast: SÓLO su cuerpo y su conteo.
+// Nunca `commercialRender()`/`commercialRenderCapability()`, que
+// reconstruirían el subárbol y cerrarían el propio panel que se está
+// llenando (el estado abierto/cerrado del desglose vive únicamente en el DOM
+// — `hidden` + `.is-active`, gobernados por `initEventBreakdown`). MISMA
+// técnica que ya usan el sort y la búsqueda del detalle de Oportunidades:
+// buscar el host estable y reemplazar su `innerHTML`. El `root` se resuelve
+// acá (esta función también corre desde el resolve de un fetch, fuera de
+// cualquier delegado) con el MISMO `getElementById` que ya usa
+// `commercialRender` — nunca una búsqueda global sobre `document`, que
+// saldría a buscar nodos por todo el documento.
+function commercialRenderForecastPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  // El modo se resuelve UNA vez y se pasa: los tres hosts tienen que hablar
+  // de la misma lectura, y releerlo por host sería tres búsquedas de DOM para
+  // el mismo dato.
+  const mode = commercialForecastMode(root);
+  const body = root.querySelector("[data-commercial-forecast-body]");
+  if (body) body.innerHTML = commercialForecastPanelBodyHtml(mode);
+  const count = root.querySelector("[data-commercial-forecast-count]");
+  if (count) count.textContent = commercialForecastCountLabel(mode);
+  // Título conmutable (C6b): "Forecast" / "Forecast Ponderado" según el tile
+  // de entrada, como el legacy. Va por el MISMO camino quirúrgico que el
+  // resto del panel — nunca un render completo, que lo cerraría.
+  const title = root.querySelector("[data-commercial-forecast-title]");
+  if (title) title.textContent = COMMERCIAL_FORECAST_METRIC[mode].title;
+}
+
+// Una sola request, disparada por la PRIMERA apertura del desglose para el
+// `tipo` vigente. Reusa el MISMO contrato fail-soft que el resto de
+// Comercial y el MISMO loader canónico (`HubForegroundProgress`, key
+// "commercial"). El fallo queda AISLADO: sólo este panel avisa — el
+// Dashboard, Activas, las analíticas y el resto de los datos no se enteran.
+async function commercialLoadForecast() {
+  commercialState.forecastStatus = "loading";
+  commercialRenderForecastPanel();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/forecast?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.forecast = resp.forecast;
+      commercialState.forecastStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.forecastStatus = "error";
+      commercialState.forecastErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.forecastStatus = "error";
+    commercialState.forecastErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderForecastPanel();
+}
+
+// Puente entre el motor compartido y el lazy load. Se llama DESPUÉS de que
+// `initEventBreakdown` procesó el click/keydown (su listener cuelga directo
+// del trigger, así que `.is-active` ya refleja el estado post-click), con el
+// MISMO criterio que `commercialMaybeScrollToOpenedAnalysis`: sólo cuando el
+// trigger QUEDÓ activo, o sea sólo en una APERTURA. Cerrar y reabrir con el
+// mismo `tipo` NO vuelve a pedir nada — `forecastStatus` ya no es "idle".
+// Tampoco reintenta solo tras un error: el estado queda "error" hasta que
+// cambie el `tipo` (un reintento automático por cada apertura convertiría un
+// CRM caído en una tormenta de requests).
+function commercialMaybeLoadForecast(trigger) {
+  if (trigger.dataset.event !== "forecast") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.forecastStatus !== "idle") return;
+  commercialLoadForecast();
+}
+
+// Cambiar el tile de entrada con el panel YA abierto (C6b): el payload es el
+// MISMO, cambia sólo la lectura (columna de la tabla, título y total). Se
+// re-renderiza quirúrgicamente y CERO red — el modo lo lee del DOM, así que
+// alcanza con volver a dibujar. Sólo cuando el trigger quedó activo (nunca al
+// cerrar) y sólo con payload en mano: si todavía está cargando o falló, el
+// propio `commercialLoadForecast` va a renderizar cuando corresponda.
+function commercialMaybeRerenderForecastForMode(trigger) {
+  if (trigger.dataset.event !== "forecast") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.forecastStatus !== "ready") return;
+  commercialRenderForecastPanel();
+}
+
 // Cambio del filtro GLOBAL: invalida los datasets de TODAS las capabilities
 // (el tipo cambia la población de todas) pero sólo re-pide el de la que está
 // en pantalla. La otra queda `idle` y se recarga sola la próxima vez que se
@@ -1402,6 +2040,18 @@ function commercialSetTipo(tipo) {
   commercialState.opportunities = null;
   commercialState.activities = null;
   commercialState.activitiesStatus = "idle";
+  // Forecast (C6, ver HANDOFF): se invalida igual que el resto, y NO se
+  // re-pide acá — vuelve a "idle" y lo carga la próxima apertura del
+  // desglose, ya con el tipo nuevo. MISMO criterio que Actividades: cero
+  // cache por tipo, cero request por un análisis que quizá no se abra.
+  commercialState.forecast = null;
+  commercialState.forecastStatus = "idle";
+  commercialState.forecastErrorState = "";
+  // Sus filtros también: un valor de Etapa/Vendedor podría apuntar a un
+  // universo que ya no existe tras cambiar Todos/NN/BI (MISMO criterio que
+  // los filtros de Actividades y el texto libre de Oportunidades).
+  commercialState.forecastStageFilter = "";
+  commercialState.forecastSellerFilter = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -1436,11 +2086,32 @@ document.addEventListener("DOMContentLoaded", () => {
     // análisis" que además dejaría el panel colapsado la próxima vez que
     // se reabra el tile (el template siempre emite `open`, pero el toggle
     // nativo lo pisa hasta el próximo render completo).
+    // Parametrizado en C6 (ver HANDOFF): el atributo LLEVA la key del
+    // análisis (`activas` | `forecast`), así que los dos paneles usan este
+    // MISMO camino y no hay un segundo mecanismo de cierre.
+    //
+    // Resuelve el trigger ACTIVO de ese análisis (`.is-active`), no el
+    // primero del DOM (C6 visual corrective, ver HANDOFF). Antes daba igual
+    // porque los dos tiles de Pipeline quedaban activos a la vez; desde que
+    // sólo queda activo el que el usuario apretó (ver
+    // `commercialNormalizeSharedTriggerActiveState`), tomar el primero
+    // rompería el cierre en el caso real: con Forecast abierto desde
+    // "Pipeline ponderado", el primer `[data-event="forecast"]` del DOM es
+    // "Pipeline total", que está INACTIVO — su toggle lo leería como una
+    // apertura y el panel se quedaría abierto en vez de cerrarse.
+    //
+    // Sin fallback al primero a propósito: ése es exactamente el bug. Si no
+    // hay trigger activo, el panel no puede estar visible (el motor pone
+    // `hidden` y `.is-active` en la MISMA operación), así que no hay nada que
+    // cerrar y el optional chaining lo vuelve un no-op. Para Activas —un solo
+    // trigger, activo siempre que su panel esté abierto— el selector resuelve
+    // al mismo nodo de siempre: comportamiento idéntico, sin caso especial.
     const closeBtn = event.target.closest("[data-commercial-close-analysis]");
     if (closeBtn) {
       event.preventDefault();
       event.stopPropagation();
-      root.querySelector('[data-event="activas"]')?.click();
+      const key = closeBtn.dataset.commercialCloseAnalysis;
+      root.querySelector(`[data-event="${key}"].is-active`)?.click();
       return;
     }
     // Ordenar la tabla de detalle (Active Opportunities Phase 2 / C4, ver
@@ -1463,6 +2134,46 @@ document.addEventListener("DOMContentLoaded", () => {
     // y nunca por todo el documento. Así el `<input>` no se recrea y el foco
     // se queda en "Limpiar" — un `outerHTML` de la barra destruiría el propio
     // botón recién clickeado y el foco se caería al `<body>`.
+    // "Reintentar" (owner request + corrective, ver HANDOFF): cada estado de
+    // no-disponible reintenta LO SUYO, despachando por la key del atributo.
+    // Ninguno de los dos caminos duplica lifecycle: los dos reusan el loader
+    // que ya existe, que se ocupa del estado de carga, del loader canónico,
+    // del fail-soft y de su propio render.
+    //
+    // FORECAST: `commercialLoadForecast` directo — NO `commercialMaybeLoadForecast`,
+    // que exige `forecastStatus === "idle"` justamente para no reintentar solo
+    // en cada apertura; acá el reintento es explícito, lo pidió el usuario. El
+    // loader arranca poniendo `loading` y renderizando el panel, así que no
+    // hace falta preparar nada más: la transición es error → loading →
+    // ready|error, siempre por render QUIRÚRGICO (el panel no se cierra) y sin
+    // tocar summary/pipeline/analytics/opportunities ni los filtros del propio
+    // Forecast. El `tipo` lo lee el loader del estado global, como siempre.
+    //
+    // Los dos guards son contra `loading` —no contra `error`— para que un
+    // doble click no dispare dos tandas concurrentes, y cada uno mira SU
+    // propio status: un Forecast cargando no debe bloquear el reintento del
+    // Dashboard ni al revés.
+    const retryBtn = event.target.closest("[data-commercial-retry]");
+    if (retryBtn) {
+      if (retryBtn.dataset.commercialRetry === "forecast") {
+        if (commercialState.forecastStatus !== "loading") commercialLoadForecast();
+      } else if (commercialState.status !== "loading") {
+        commercialLoadData();
+      }
+      return;
+    }
+    // "✕ Limpiar" del Forecast (C6b): mismo primitivo y mismo gesto que el de
+    // Activas, pero acá NO hace falta tocar los controles a mano — el panel de
+    // Forecast SÍ se re-renderiza quirúrgicamente, así que los `<select>` se
+    // regeneran con su valor neutro solos. Cero hooks de DOM propios y cero
+    // red: el payload no cambia.
+    const forecastClear = event.target.closest("[data-commercial-forecast-clear]");
+    if (forecastClear) {
+      commercialState.forecastStageFilter = "";
+      commercialState.forecastSellerFilter = "";
+      commercialRenderForecastPanel();
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -1498,6 +2209,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // duplicar lógica).
     const kpiTrigger = event.target.closest("[data-event]");
     if (kpiTrigger) {
+      // Lazy load del Forecast (C6, ver HANDOFF): mismo punto de enganche y
+      // mismo criterio "sólo si quedó activo" que la navegación. No-op para
+      // cualquier otro trigger y para las reaperturas del mismo tipo.
+      commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
+      commercialMaybeLoadForecast(kpiTrigger);
+      commercialMaybeRerenderForecastForMode(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -1559,6 +2276,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sellerSelect) commercialState.oppSellerFilter = sellerSelect.value;
     commercialRerenderAnalysisFunnelAndTable(root);
   });
+  // Filtros del Forecast (C6b, ver HANDOFF): Etapa/Vendedor son ANALÍTICOS —
+  // el mismo universo filtrado alimenta el gráfico Y la tabla, igual que en
+  // Activas y igual que el legacy, que re-agrupaba todo el bloque. Todo
+  // client-side sobre `months[].opportunities[]`, que el payload ya trae:
+  // cero round-trip. Listener SEPARADO, mismo criterio que el de arriba (con
+  // una sola rama, un `return` temprano cortaría la ejecución para el otro).
+  document.addEventListener("change", event => {
+    const stageSelect = event.target.closest("[data-commercial-forecast-stage-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-forecast-seller-filter]");
+    if (!stageSelect && !sellerSelect) return;
+    if (stageSelect) commercialState.forecastStageFilter = stageSelect.value;
+    if (sellerSelect) commercialState.forecastSellerFilter = sellerSelect.value;
+    commercialRenderForecastPanel();
+  });
   // Búsqueda libre (C5e, ver HANDOFF): `input`, no `change` — filtra en cada
   // tecla (UX esperada de un buscador), nunca espera blur/Enter. SÓLO toca
   // `[data-commercial-opportunities]` — jamás el Funnel (contrato explícito
@@ -1581,6 +2312,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const kpiTrigger = event.target.closest("[data-event]");
     if (!kpiTrigger) return;
+    commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
+    commercialMaybeLoadForecast(kpiTrigger);
+    commercialMaybeRerenderForecastForMode(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

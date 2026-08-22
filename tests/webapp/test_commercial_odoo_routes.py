@@ -204,18 +204,39 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # `[data-commercial-opportunities]` en el delegado de búsqueda libre
     # (sólo tabla, nunca el Funnel — contrato explícito del owner). El
     # contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos siete hooks y nada más. "✕ Limpiar" (owner request)
-    # agrega los TRES controles de la barra de filtros, buscados desde el propio
-    # botón (`closest` a la barra) y sólo para ponerlos en su valor neutro: la
-    # barra NUNCA se regenera, así el `<input>` no se recrea y el foco se queda
-    # en el botón. Diez hooks, exactos.
+    # EXACTAMENTE estos siete hooks y nada más.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
+    # C6 (ver HANDOFF — Forecast) agrega DOS hooks: los hosts estables del
+    # panel de Forecast (`[data-commercial-forecast-body]` y su conteo) para
+    # el re-render quirúrgico cuando resuelve el lazy load — un render
+    # completo cerraría ese mismo panel. Y el hook de cierre pasó de
+    # `[data-event="activas"]` literal a la key que trae el propio botón, para
+    # que los DOS análisis (Activas y Forecast) usen el MISMO camino de cierre
+    # en vez de uno cada uno. Todos siguen colgando de `root`, nunca de
+    # `document`. "✕ Limpiar" (owner request) agrega los TRES controles de la
+    # barra de filtros, buscados desde el propio botón (`closest` a la barra) y
+    # sólo para ponerlos en su valor neutro: la barra NUNCA se regenera, así el
+    # `<input>` no se recrea y el foco se queda en el botón. El C6 visual
+    # corrective (ver HANDOFF) agrega el `querySelectorAll` de los triggers
+    # HERMANOS que comparten `data-event` — para dejar `.is-active` sólo en el
+    # que el usuario activó — y le pone `.is-active` al selector de la X, que
+    # ahora resuelve el trigger ACTIVO del análisis en vez del primero del
+    # DOM. C6b (tabla + filtros del Forecast, ver HANDOFF) agrega dos: el
+    # trigger ACTIVO de forecast —de donde se LEE el modo Total/Ponderado, en
+    # vez de guardarlo— y el host del título conmutable. El contrato sigue
+    # siendo explícito, no aproximado: se permiten EXACTAMENTE estos quince
+    # hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
+        '\'[data-event="forecast"].is-active\'',
         '`[data-breakdown="${trigger.dataset.event}"]`',
+        '`[data-event="${trigger.dataset.event}"]`',
         '"[data-commercial-funnel-area]"',
         '"[data-commercial-opportunities]"',
-        '\'[data-event="activas"]\'',
+        '"[data-commercial-forecast-body]"',
+        '"[data-commercial-forecast-count]"',
+        '"[data-commercial-forecast-title]"',
+        '`[data-event="${key}"].is-active`',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
@@ -525,25 +546,30 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 # de click propio de Comercial.
 # ============================================================================
 
-def test_only_active_opportunities_kpi_is_clickable():
-    # Landing Homologation: los tiles se emiten con `commercialRichKpi`, y
-    # `eventKey` es lo único que agrega la afordancia de click. Un solo tile
-    # lo recibe — el único con drilldown Hub ya homologado. Los otros ocho
-    # conservan su información SIN simular una acción inexistente.
+def test_only_analyses_with_a_homologated_drilldown_are_clickable():
+    # Landing Homologation + C6 (ver HANDOFF): los tiles se emiten con
+    # `commercialRichKpi`, y `eventKey` es lo único que agrega la afordancia de
+    # click. Lo reciben TRES tiles, sobre DOS análisis homologados —
+    # "Oportunidades activas", y "Pipeline total"/"Pipeline ponderado", que
+    # comparten la MISMA key porque son la misma población (0-8) medida con y
+    # sin probabilidad y el panel de Forecast presenta las dos series juntas.
+    # Los otros seis conservan su información SIN simular una acción
+    # inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 1
-    assert 'eventKey: "activas"' in dashboard_fn
+    assert dashboard_fn.count("eventKey:") == 3
+    assert dashboard_fn.count('eventKey: "activas"') == 1
+    assert dashboard_fn.count('eventKey: "forecast"') == 2
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    # Ningún tile fuera de Oportunidades activas recibe `eventKey`, así que
-    # ninguno queda clickeable — sin afordancia falsa.
+    # Ningún tile fuera de Activas y los dos Pipeline recibe `eventKey`, así
+    # que ninguno queda clickeable — sin afordancia falsa.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Prospectos", "Pipeline total", "Pipeline ponderado", "Ganadas",
-                  "Perdidas", "Suspendidas", "Creadas esta semana", "Conversión"):
+    for label in ("Prospectos", "Ganadas", "Perdidas", "Suspendidas",
+                  "Creadas esta semana", "Conversión"):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -755,21 +781,24 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Pipeline Total/Ponderado, Ganadas, Perdidas, Prospectos, Suspendidas,
-    # Creadas, Target: ninguno gana `data-event` ni panel propio en este batch
-    # — contar solo MARKUP real dentro de cada función, no menciones en
-    # comentarios (que mencionan `data-event`/`data-breakdown` varias veces).
+    # Ganadas, Perdidas, Prospectos, Suspendidas, Creadas, Target: ninguno gana
+    # `data-event` ni panel propio — contar solo MARKUP real dentro de cada
+    # función, no menciones en comentarios (que mencionan
+    # `data-event`/`data-breakdown` varias veces).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # UN solo `data-breakdown` real en el markup (el de la sección de
-    # Activas) + UNA referencia al MISMO atributo dentro del selector que
-    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
-    # scroll al abrir) para ubicarla — nunca un SEGUNDO panel/KPI con su
-    # propio breakdown. Se cuenta sobre el markup, no sobre los comentarios,
-    # que mencionan el atributo en prosa varias veces.
+    # DOS `data-breakdown` reales en el markup — la sección de Activas y, desde
+    # C6 (ver HANDOFF), la de Forecast — + UNA referencia al MISMO atributo
+    # dentro del selector que construye `commercialMaybeScrollToOpenedAnalysis`
+    # (C3.1, ver HANDOFF — scroll al abrir) para ubicar la que corresponda.
+    # Nunca un TERCER panel, y nunca un grupo de breakdown paralelo: los dos
+    # viven en el MISMO `[data-breakdown-group]`, que es lo que hace que el
+    # motor compartido muestre uno por vez. Se cuenta sobre el markup, no sobre
+    # los comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 2
+    assert markup.count('data-breakdown="') == 3
+    assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
     assert "data-event" not in plain_kpi_fn

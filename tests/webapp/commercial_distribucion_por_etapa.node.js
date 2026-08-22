@@ -140,7 +140,10 @@ const axisTicks = (html, side) => {
 //     para llegar a una fila de `<summary>`. -------------------------------
 {
   const summaryBlock = src.split('data-section-id="activas-analisis"', 2)[1].split("</summary>", 2)[0];
-  assertTrue(/<button type="button" class="panel-close" data-commercial-close-analysis aria-label="Cerrar análisis">/.test(summaryBlock),
+  // C6 (ver HANDOFF): el atributo pasó a LLEVAR la key del análisis
+  // (`activas` | `forecast`) para que los dos paneles usen este MISMO
+  // camino de cierre. Todo lo demás del botón queda igual.
+  assertTrue(/<button type="button" class="panel-close" data-commercial-close-analysis="activas" aria-label="Cerrar análisis">/.test(summaryBlock),
     "botón real (no span/div), foco-able por default, con aria-label semántico, DENTRO de <summary>");
   assertTrue(summaryBlock.includes(">&times;<") || summaryBlock.includes(">×<"), "el glifo visible es sólo la X — el texto accesible vive en aria-label");
   assertTrue(summaryBlock.indexOf("dashboard-section__count") < summaryBlock.indexOf("panel-close"),
@@ -156,8 +159,16 @@ const axisTicks = (html, side) => {
   const clickDelegate = src.split('document.addEventListener("click", event => {', 2)[1]
     .split('document.addEventListener("change", event => {', 2)[0];
   const closeBranch = clickDelegate.split('"[data-commercial-close-analysis]");', 2)[1].split("return;", 2)[0];
-  assertTrue(closeBranch.includes('querySelector(\'[data-event="activas"]\')?.click()'),
-    "cerrar = simular un click real sobre el MISMO trigger que abre — nunca un segundo lifecycle");
+  // C6: el selector se arma con la key que trae el propio botón, en vez de
+  // hardcodear "activas" — un solo mecanismo para los dos análisis. Sigue
+  // siendo un `.click()` REAL sobre el trigger, nunca un segundo lifecycle.
+  // C6 visual corrective: además exige `.is-active`, para resolver el trigger
+  // que REALMENTE abrió el análisis cuando varios comparten `data-event` (ver
+  // commercial_forecast.node.js). Para Activas —un solo trigger, activo
+  // siempre que su panel esté abierto— resuelve al mismo nodo de siempre.
+  assertTrue(closeBranch.includes("closeBtn.dataset.commercialCloseAnalysis")
+    && closeBranch.includes("querySelector(`[data-event=\"${key}\"].is-active`)?.click()"),
+    "cerrar = simular un click real sobre el trigger ACTIVO — nunca un segundo lifecycle");
   assertTrue(closeBranch.includes("event.preventDefault()") && closeBranch.includes("event.stopPropagation()"),
     "frena el toggle nativo de <summary> — si no, el click también abre/cierra el <details>");
   assertTrue(!closeBranch.includes("commercialState."), "el cierre no lee/escribe ningún campo de estado propio — cero flag nuevo");

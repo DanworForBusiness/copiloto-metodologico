@@ -14,8 +14,16 @@ const vm = require("vm");
 const COMMERCIAL_JS = path.resolve(__dirname, "..", "..", "webapp", "static", "commercial.js");
 const src = fs.readFileSync(COMMERCIAL_JS, "utf-8");
 
+// Los listeners se GUARDAN para poder ejercitar el delegado REAL de click en
+// el bloque de "Reintentar" (abajo), en vez de afirmar sobre texto fuente.
+const listeners = Object.create(null);
 const sandbox = {
-  document: { addEventListener() {}, getElementById() { return null; }, querySelector() { return null; } },
+  document: {
+    addEventListener(type, cb) { (listeners[type] = listeners[type] || []).push(cb); },
+    getElementById() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+  },
   window: {},
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "config_incomplete" }) }); },
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
@@ -117,7 +125,7 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   assertTrue(tile("Pipeline ponderado").includes(">13,815<"), "Pipeline ponderado: horas");
   // Conversión conserva SUS DOS lecturas, como el legacy.
   assertTrue(tile("Conversión").includes("50.8%"), "Conversión: sin suspendidas");
-  assertTrue(tile("Creadas esta semana").includes(">0<"), "Creadas: esta semana");
+
   // Creadas y Conversión: su lectura secundaria usa el MISMO formato que la
   // composición por segmento (owner smoke) — `.kpi-split__item`, no `.kpi-sub`
   // en mono/600, que rompía la homogeneidad de la grilla.
@@ -151,9 +159,26 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
 // --- Sin actionability falsa -------------------------------------------------
 {
   const html = load();
-  assertTrue(count(html, "activity-kpi--clickable") === 1, "un solo tile clickeable");
-  assertTrue(count(html, 'data-event="activas"') === 1, "y es Oportunidades activas");
-  assertTrue(count(html, 'role="button"') === 1, "ningún otro tile finge ser accionable");
+  const tile = label => {
+    const i = html.indexOf(`>${label}<`);
+    const start = html.lastIndexOf('<div class="activity-kpi', i);
+    return html.slice(start, html.indexOf("</div>", i));
+  };
+  // C6 (ver HANDOFF): TRES tiles clickeables sobre DOS análisis. "Pipeline
+  // total" y "Pipeline ponderado" comparten `data-event="forecast"` a
+  // propósito — misma población (0-8) medida con y sin probabilidad, y el
+  // panel muestra las dos series juntas. Los otros SEIS siguen sin fingir
+  // una acción inexistente, que es lo que este bloque protege.
+  assertTrue(count(html, "activity-kpi--clickable") === 3, "exactamente tres tiles clickeables");
+  assertTrue(count(html, 'data-event="activas"') === 1, "uno es Oportunidades activas");
+  assertTrue(count(html, 'data-event="forecast"') === 2, "y dos son los Pipeline, ambos al MISMO análisis");
+  assertTrue(count(html, 'role="button"') === 3, "ningún otro tile finge ser accionable");
+  // Los DOS triggers de forecast son los tiles de Pipeline, no otros.
+  assertTrue(tile("Pipeline total").includes('data-event="forecast"'), "Pipeline total abre Forecast");
+  assertTrue(tile("Pipeline ponderado").includes('data-event="forecast"'), "Pipeline ponderado abre el mismo Forecast");
+  for (const label of ["Prospectos", "Ganadas", "Perdidas", "Suspendidas", "Creadas esta semana", "Conversión"]) {
+    assertTrue(!tile(label).includes("data-event="), `${label} sigue siendo informativo`);
+  }
 }
 
 // --- Composición NN/BI honesta ----------------------------------------------
@@ -187,7 +212,11 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
 {
   const html = load();
   assertTrue(html.includes('data-breakdown="activas" open hidden'), "la sección entera arranca oculta");
-  assertTrue(count(html, "data-breakdown=") === 1, "un solo contrato de breakdown, sin panel placeholder");
+  // C6: un SEGUNDO panel de análisis, también oculto de entrada, en el MISMO
+  // grupo de breakdown (de ahí que el motor compartido muestre uno por vez).
+  assertTrue(html.includes('data-breakdown="forecast" open hidden'), "el panel de Forecast también arranca oculto");
+  assertTrue(count(html, "data-breakdown=") === 2, "exactamente dos contratos de breakdown, sin panel placeholder");
+  assertTrue(count(html, "data-breakdown-group") === 1, "y UN solo grupo — nunca un lifecycle paralelo");
   assertTrue(!/Hacé clic en/.test(html), "sin texto placeholder en el landing");
   // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.
   assertTrue(html.includes("category-plot"), "el Funnel sigue siendo el gráfico");
@@ -220,6 +249,85 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   const clickable = commercialRichKpi("X", "1", { eventKey: "k" });
   assertTrue(clickable.includes("activity-kpi--clickable"), "con eventKey: modificador COMPARTIDO");
   assertTrue(clickable.includes('data-event="k"'), "y el contrato del motor compartido");
+}
+
+// --- "Reintentar" en el estado de no-disponible (owner request) -------------
+{
+  const errorHtml = errorState => {
+    commercialState.status = "error";
+    commercialState.errorState = errorState;
+    const html = commercialDashboardHtml();
+    commercialState.status = "ready";
+    commercialState.errorState = "";
+    return html;
+  };
+
+  // `source_error` = falla de transporte contra Odoo: la próxima request puede
+  // resolverla, así que el botón tiene sentido.
+  const transport = errorHtml("source_error");
+  assertTrue(transport.includes("dashboard-empty"), "sigue siendo el primitivo de no-disponible del Hub");
+  assertTrue(/No pudimos cargar los datos comerciales/.test(transport), "con el mismo mensaje de siempre");
+  // El hook lleva la KEY de lo que reintenta (corrective, ver HANDOFF): el
+  // primitivo visual es compartido con el estado de error del Forecast, pero
+  // el callback NO. Sin el discriminador los dos caían en la misma rama y el
+  // del Forecast recargaba el Dashboard entero.
+  assertTrue(transport.includes('data-commercial-retry="dashboard"'),
+    "y ahora ofrece reintentar, declarando QUÉ reintenta");
+  assertTrue(transport.includes(">Reintentar</button>"), "con copy explícito");
+  assertTrue(transport.includes('class="dashboard-subhead__reset"'),
+    "reusa el primitivo compartido de acción-dentro-de-estado-vacío, sin clase propia de Comercial");
+  assertTrue(transport.includes('<button type="button" class="dashboard-subhead__reset" data-commercial-retry="dashboard"'),
+    "botón real (foco-able por default), nunca un span/div con handler");
+  assertTrue(transport.includes("aria-label="), "y con nombre accesible propio, no sólo 'Reintentar'");
+  // El botón vive DENTRO del `<p>`, como el único precedente del Hub.
+  assertTrue(transport.indexOf("data-commercial-retry") < transport.indexOf("</p>"),
+    "dentro del párrafo del mensaje, no como bloque suelto debajo");
+
+  // `config_incomplete` = falta configuración del espacio: reintentar daría el
+  // MISMO resultado siempre, así que no se ofrece.
+  const misconfigured = errorHtml("config_incomplete");
+  assertTrue(/todavía no está configurado/.test(misconfigured), "el mensaje de configuración no cambia");
+  assertTrue(!misconfigured.includes("data-commercial-retry"),
+    "y NO ofrece reintentar: sería una promesa falsa, el resultado no puede cambiar");
+
+  // Ningún otro estado gana el botón.
+  commercialState.status = "loading";
+  assertTrue(!commercialDashboardHtml().includes("data-commercial-retry"), "mientras carga, no");
+  commercialState.status = "ready";
+  assertTrue(!commercialDashboardHtml().includes("data-commercial-retry"), "y con datos, tampoco");
+
+  // --- Comportamiento REAL: se ejercita el delegado de click de commercial.js
+  const fetches = [];
+  sandbox.fetch = url => { fetches.push(url); return Promise.resolve({ json: () => Promise.resolve({ state: "source_error" }) }); };
+  // Root mínimo: `DOMContentLoaded` sale temprano si no encuentra
+  // `#commercial-main-content`, así que sin esto no se cablearía ningún
+  // delegado. `innerHTML` absorbe los re-renders sin necesidad de un DOM real.
+  sandbox.document.getElementById = () => ({ innerHTML: "" });
+  (listeners.DOMContentLoaded || []).forEach(cb => cb());
+  const clickDelegates = listeners.click || [];
+  assertTrue(clickDelegates.length === 1, "un solo delegado de click en todo commercial.js");
+  const fire = () => clickDelegates.forEach(cb => cb({
+    target: { closest: sel => (sel === "[data-commercial-retry]" ? { dataset: { commercialRetry: "dashboard" } } : null) },
+    preventDefault() {}, stopPropagation() {},
+  }));
+
+  commercialState.status = "error";
+  commercialState.errorState = "source_error";
+  fetches.length = 0;
+  fire();
+  assertTrue(fetches.length === 4,
+    "reintentar vuelve a pedir el dataset del Dashboard por el MISMO camino (los cuatro endpoints del load inicial)");
+  assertTrue(!fetches.some(u => u.includes("/forecast")),
+    "y sigue sin pedir el forecast: el lazy no se altera");
+  assertTrue(commercialState.status === "loading", "el estado pasa a carga, no queda pegado en error");
+
+  // Doble click no apila requests.
+  fetches.length = 0;
+  fire();
+  assertTrue(fetches.length === 0, "un segundo click mientras carga no apila otra tanda de requests");
+
+  commercialState.status = "ready";
+  commercialState.errorState = "";
 }
 
 if (failures) {
