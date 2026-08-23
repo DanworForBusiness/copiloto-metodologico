@@ -19,6 +19,9 @@ const sandbox = {
   sessionStorage: { getItem() { return "" } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({}) }) },
   console,
+  //  vive en app.js (chrome del Hub), fuera de este
+  // sandbox: Cartera lo invoca si dispara un lazy-load de anio frio.
+  HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
 };
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
@@ -121,6 +124,59 @@ assertTrue(ambos.includes("Mejor performance") && ambos.includes("Peor performan
   "D: los dos rotulos siguen presentes");
 assertTrue(conProyectos([proy("Alfa", 120, 100)]).includes('class="activity-grid-2"'),
   "D: la composicion de 2 columnas no cambia");
+
+// --- E: un estado vacio por CADA tab normalizado ------------------------
+// Los 7 sitios restantes vivian en otros tabs. Se vacia el dataset de cada uno
+// y se verifica el DOM producido por su render REAL: primitivo compartido, cero
+// texto plano, y el mensaje de negocio conservado. Con `DataStatus = "ready"`
+// a proposito — es justamente la combinacion "cargo bien y no hay filas".
+const TABS = [
+  ["renderCartera", "CARTERA_MANTENIMIENTO_ROWS", null],
+  ["renderHorasVendidas", "HORASVENDIDAS_ROWS", "horasVendidasDataStatus"],
+  ["renderComercialParticipacion", "COMERCIAL_PARTICIPACION_ROWS", "comercialParticipacionDataStatus"],
+  ["renderComercialSalud", "COMERCIAL_SALUD_ROWS", "batchADataStatus"],
+  ["renderCalendario", "CALENDARIO_ROWS", "batchADataStatus"],
+  ["renderCapacidadProductivas", "CAPACIDAD_PRODUCTIVAS_ROWS", "batchBDataStatus"],
+  ["renderCapacidadNoAsignadas", "CAPACIDAD_NOASIGNADAS_ROWS", "batchBDataStatus"],
+];
+
+TABS.forEach(([fnName, arrName, statusKey]) => {
+  const fn = vm.runInContext(fnName, sandbox);
+  const arr = vm.runInContext(arrName, sandbox);
+  if (typeof fn !== "function") { failures++; console.log(`FAIL: E: ${fnName} no es funcion`); return; }
+  if (!Array.isArray(arr)) { failures++; console.log(`FAIL: E: ${arrName} no es array`); return; }
+  arr.length = 0;                                  // dataset vacio: cero filas
+  if (statusKey) state[statusKey] = "ready";        // cargo bien, no hay datos
+  // Cartera tiene su propio ciclo de vida POR PERSPECTIVA (no un solo
+  // DataStatus): hay que declarar la perspectiva hidratada y su status.
+  state.carteraMantenimientoStatus = "ready";
+  state.carteraProyectoStatus = "ready";
+  state.reportingTabHydrated.cartera = true;
+  // Set vacio == "Todos": sin un anio puntual tildado, Cartera no dispara
+  // el lazy-load de anio frio (que ademas no es lo que este test mide).
+  state.carteraAnios = new Set();
+  state.carteraMeses = new Set();
+  let html = "";
+  try { html = fn() || ""; } catch (e) {
+    failures++; console.log(`FAIL: E: ${fnName} lanzo ${String(e).slice(0, 90)}`); return;
+  }
+  assertTrue(!html.includes("empty-note"), `E: ${fnName} sin texto plano`);
+  assertTrue(html.includes('<div class="dashboard-empty">'),
+    `E: ${fnName} usa el primitivo compartido`);
+  assertTrue(html.includes('class="dashboard-empty__label">Sin resultados<'),
+    `E: ${fnName} lleva el eyebrow compartido`);
+  assertTrue(html.includes("Sin filas para los filtros actuales."),
+    `E: ${fnName} conserva su mensaje de negocio`);
+});
+
+// --- F: el error NUNCA se disfraza de "Sin resultados" -------------------
+const errHtml = vm.runInContext("reportingSourceErrorHtml", sandbox)("los datos de Cartera");
+assertTrue(!errHtml.includes("dashboard-empty"),
+  "F: el estado de error no usa el primitivo de vacio");
+assertTrue(!errHtml.includes("Sin resultados"),
+  "F: el estado de error no dice 'Sin resultados'");
+assertTrue(errHtml.includes("No pudimos cargar"),
+  "F: el estado de error conserva su propia copy");
 
 if (failures > 0) {
   console.log(`${failures} Reporting empty state invariant(s) FAILED`);

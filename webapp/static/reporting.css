@@ -171,4 +171,3 @@
 .reporting-integral-preview table.dashboard-table.dashboard-table--compact { min-width: 0; }
 .reporting-integral-preview table.dashboard-table.dashboard-table--compact th.row-label-col { width: auto; }
 
-.reporting-integral-preview .empty-note { color: var(--ink-faint); font-size: .78rem; padding: 20px 0; text-align: center; }

@@ -134,17 +134,51 @@ def test_no_calculation_sorting_or_filter_semantics_changed():
 
 # --- 5: los otros tabs quedan como follow-up EXPLÍCITO -------------------
 
-def test_the_remaining_plain_text_states_are_a_declared_follow_up():
-    # Los estados vacíos de los OTROS tabs siguen en `.empty-note` a propósito
-    # (el owner acotó el alcance a Rentabilidad). Se fija la cuenta para que
-    # sea un pendiente visible y no un olvido: si alguien agrega uno nuevo, o
-    # normaliza otro, este número obliga a decidirlo.
+def test_no_plain_text_empty_state_remains_anywhere_in_reporting():
+    # Normalización COMPLETA: cero `<p class="empty-note">` en todo Reporting.
+    # Los 13 estados vacíos (3 del ranking + 3 de su perspectiva hermana + 7 de
+    # los otros tabs) pasan por el primitivo compartido.
     code = _js_code(_REPORTING_JS)
-    restantes = re.findall(r'<p class="empty-note">', code)
-    assert len(restantes) == 7, len(restantes)
-    # Y ninguno vive ya en Rentabilidad.
+    assert '<p class="empty-note">' not in code
+    assert 'class="empty-note"' not in code
+    # Y ninguna función de render la reintroduce.
     for fn in ("renderRentabilidadResumen", "renderRentabilidadCertEjecutadas"):
         assert "empty-note" not in _rentabilidad_block(fn), fn
-    # La clase local sigue definida mientras esos 7 la usen — retirarla es
-    # parte del follow-up, no de este increment.
-    assert ".empty-note" in _REPORTING_CSS
+
+
+def test_the_dead_local_primitive_was_removed():
+    # Con cero consumidores, la regla local se retira: dejarla es una
+    # invitación a reintroducir el segundo lenguaje visual.
+    assert "empty-note" not in _REPORTING_CSS
+    # El token que usaba sigue vivo para otras reglas — no se huerfanizó nada.
+    assert "--ink-faint" in _REPORTING_CSS
+
+
+def test_every_valid_empty_reporting_path_uses_the_shared_primitive():
+    # Las 13 ramas de cero-filas resuelven por el helper, y son las ÚNICAS que
+    # lo usan: los estados de ERROR conservan su tratamiento propio.
+    code = _js_code(_REPORTING_JS)
+    assert code.count("reportingEmptyStateHtml(") == 14   # 13 usos + la definición
+    for fn in ("renderCartera", "renderHorasVendidas", "renderComercialParticipacion",
+               "renderComercialSalud", "renderCalendario", "renderCapacidadProductivas",
+               "renderCapacidadNoAsignadas"):
+        body = code.split(f"function {fn}(", 1)[1].split("\n}", 1)[0]
+        assert "reportingEmptyStateHtml(" in body, fn
+        assert "empty-note" not in body, fn
+
+
+def test_error_states_never_borrow_the_empty_state_treatment():
+    # CONTRATO SEMÁNTICO: un fallo de fuente/carga/cálculo NUNCA se disfraza de
+    # "Sin resultados". `reportingSourceErrorHtml` conserva su propio markup y
+    # su propia copy, y no emite el primitivo de vacío.
+    code = _js_code(_REPORTING_JS)
+    err = code.split("function reportingSourceErrorHtml(", 1)[1].split("\n}", 1)[0]
+    assert "dashboard-empty" not in err
+    assert "Sin resultados" not in err
+    assert "No pudimos cargar" in err
+    # Y el helper de vacío no conoce el vocabulario de error.
+    empty = code.split("function reportingEmptyStateHtml(", 1)[1].split("\n}", 1)[0]
+    assert "No pudimos" not in empty and "No disponible" not in empty
+    # Los caminos de error (incluidos los parciales por año) siguen siendo
+    # ramas separadas, no la de cero filas.
+    assert code.count("reportingSourceErrorHtml(") >= 12

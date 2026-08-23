@@ -3125,7 +3125,7 @@ function renderCartera() {
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, cfg.columns)}</tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp + " — " + cfg.labels.join(" › "), rows.length + " fila(s)", detalleBody);
 
   return dashboardSections("reporting-cartera", resumen + detalle);
@@ -4317,7 +4317,7 @@ function renderHorasVendidas() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
 
   return dashboardSections("reporting-horasvendidas", resumen + detalle);
@@ -4376,7 +4376,7 @@ function renderComercialParticipacion() {
           <tr class="is-total"><td class="row-label">Total</td>${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<td>${c.rollup(rows)}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", "Participación por condición comercial", rows.length + " cliente(s)", detalleBody);
 
   return dashboardSections("reporting-comercial", detalle);
@@ -4408,7 +4408,7 @@ function renderComercialSalud() {
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_SALUD_COLUMNS)}</tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", "Salud de Cliente", rows.length + " cliente(s)", detalleBody);
 
   return dashboardSections("reporting-comercial", detalle);
@@ -4471,7 +4471,7 @@ function renderCalendario() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${fmtNum(v, "count")}</td>`).join("")}<td>${fmtNum(grandTotal, "count")}</td></tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp, rows.length + " fila(s)", detalleBody);
 
   return dashboardSections("reporting-calendario", resumen + detalle);
@@ -4933,7 +4933,7 @@ function renderCapacidadProductivas() {
             <thead><tr><th class="row-label-col">${columnLabel}</th>${sortHeader(panelKey, "Horas")}${sortHeader(panelKey, "% Incidencia")}</tr></thead>
             <tbody>${renderBusinessTreeRows(stateKey, tree, 0, capacidadProductivasColumns(panelKey))}</tbody>
           </table>
-        </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
+        </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}
       </div>
     </div>`;
 
@@ -5026,7 +5026,7 @@ function renderCapacidadNoAsignadas() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours0") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   // Copy de negocio (owner corrective — el usuario no necesita conocer el
   // Task fuente): "Horas sin asignación por consultor · {Año}", nunca el
   // literal técnico "Consultor — Task: No Asignación a Servicio en Cliente".
