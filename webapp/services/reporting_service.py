@@ -847,8 +847,14 @@ class ReportingService:
         (`webapp/routers/reporting.py`) no se toca."""
         hot_years = anios if anios is not None else self._default_hot_years()
         with ThreadPoolExecutor(max_workers=2) as executor:
+            # UNIVERSE SYMMETRY corrective: `..._with_project_dimension` en vez
+            # de `get_cartera_facts` — MISMO fetch, CERO llamadas Graph nuevas
+            # (devuelve además la dimensión de Proyectos que ese método ya leyó
+            # para armar los facts; ver reporting_repository.py). Es el MISMO
+            # helper que Cartera/Mantenimiento ya usa, no un loader nuevo.
             cartera_future = executor.submit(
-                self._repository.get_cartera_facts, access_token, include_facturadas=False, hot_years=hot_years,
+                self._repository.get_cartera_facts_with_project_dimension,
+                access_token, include_facturadas=False, hot_years=hot_years,
             )
             time_logs_future = executor.submit(
                 self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
@@ -856,7 +862,7 @@ class ReportingService:
             # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
             # — Cartera SIEMPRE se observa antes que Time Logs, nunca
             # "el que termine primero".
-            cartera_facts = cartera_future.result()
+            cartera_facts, project_dim = cartera_future.result()
             time_logs = time_logs_future.result()
 
         # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
@@ -899,6 +905,52 @@ class ReportingService:
         # DECISION) — MISMA función, nunca dos implementaciones del mismo
         # join que puedan divergir.
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+
+        # UNIVERSE SYMMETRY corrective (owner live proof, agosto 2026): el
+        # universo de proyectos de Rentabilidad era SOLO `cert_by_proyecto`, o
+        # sea las filas de "Horas por proyectos". Cartera/Mantenimiento, desde
+        # el UNION GRAIN corrective, descubre proyectos por Time Logs +
+        # `project_dim` (Proyectos) aunque no exista fila en "Horas por
+        # proyectos" — así que un proyecto con horas reales y mapping válido
+        # aparecía en Cartera y DESAPARECÍA de Rentabilidad. Medido en vivo:
+        # "Tenaris — Servicio Estratégico SAP BDC", 14,5 h presentes en Cartera
+        # y 0 en Rentabilidad.
+        #
+        # El universo ahora es la UNIÓN: `cert_by_proyecto` ∪ proyectos de Time
+        # Logs que resuelven contra `project_dim`. Las dimensiones (proyecto/
+        # cliente/CP/tipo/estado) salen de `project_dim` — NUNCA se inventan.
+        # `certByYear`/`vendByYear` quedan vacíos: es la MISMA semántica de
+        # ausencia que ya usa `_mantenimiento_rows` (0.0 / fail-soft), no un
+        # valor SharePoint fabricado. `tipo` viene de la dimensión, así que
+        # Mantenimiento vs Proyecto se preserva y el facet sigue funcionando.
+        #
+        # `trab_by_proyecto` ya excluye los 2 placeholder de "No asignadas"
+        # (ver `_trab_by_proyecto_by_year`), así que nunca entran acá — siguen
+        # siendo su propia fila de portfolio.
+        #
+        # Un proyecto de Time Logs SIN mapping en `project_dim` NO se inventa:
+        # queda como información de calidad de dato (log), igual criterio que
+        # `unmatched` en Cartera. Hacerlo visible es trabajo de observabilidad
+        # aparte, deliberadamente fuera de este corrective.
+        rentabilidad_unmatched: list[str] = []
+        for key in trab_by_proyecto:
+            if key in cert_by_proyecto:
+                continue
+            dim = project_dim.get(key)
+            if dim is None:
+                rentabilidad_unmatched.append(key)
+                continue
+            cert_by_proyecto[key] = {
+                "proyecto": dim["proyecto"], "cliente": dim["cliente"], "cp": dim["clientPartner"],
+                "tipo": dim["tipoProyecto"], "estado": dim.get("estado", ""),
+                "certByYear": {}, "vendByYear": {}, "facts": [],
+            }
+        if rentabilidad_unmatched:
+            _logger.info(
+                "reporting.rentabilidad unmatched_time_logs_projects=%d keys=%s",
+                len(rentabilidad_unmatched), rentabilidad_unmatched[:10],
+            )
+
         no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
             anio = tl.get("anio")

@@ -352,3 +352,127 @@ def test_collapsing_the_grain_does_not_merge_different_months(monkeypatch):
     assert por_mes["7"]["trabajadas"] == 40.0
     assert por_mes["8"]["trabajadas"] == 60.0            # NO 120.0
     assert por_mes["8"]["vendidasMensuales"] == 50.0     # las dos filas de agosto, sumadas
+
+
+# --- UNIVERSE SYMMETRY: Rentabilidad ve el MISMO universo que Cartera -----
+# Owner live proof (agosto 2026): "Tenaris - Servicio Estrategico SAP BDC"
+# tenia 14,5 h en Cartera y 0 en Rentabilidad. Cartera descubre proyectos por
+# Time Logs + `project_dim` (Proyectos) aunque no exista fila en "Horas por
+# proyectos"; Rentabilidad iteraba SOLO `cert_by_proyecto`, o sea esa lista.
+# Ahora el universo es la UNION, y las dimensiones salen de `project_dim`
+# (nunca inventadas).
+_LIVE_TENARIS_H = 14.5
+
+
+def _universe_fixture(monkeypatch, *, con_fila_sharepoint, tipo="Mantenimiento",
+                      en_proyectos=True, horas=_LIVE_TENARIS_H):
+    """Proyecto con horas de Time Logs en agosto 2026. `con_fila_sharepoint`
+    controla si existe la fila de "Horas por proyectos"; `en_proyectos`, si el
+    proyecto resuelve contra la dimension."""
+    hp = []
+    if con_fila_sharepoint:
+        hp.append({"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026",
+                    "Mes": "Agosto", "HsTrabajadas": "999", "HsVendidas": "40", "HsFacturadas": "30"})
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=hp,
+        proyectos=([{"id": "p1", "Title": "Tenaris - SAP BDC", "TipodeProyecto": tipo,
+                      "Status": "En curso"}] if en_proyectos else []),
+        clientes=[{"id": "c1", "Title": "Tenaris"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [
+            {"Date": "2026-08-12", "Client": "Tenaris", "Project": "Tenaris - SAP BDC",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": str(horas)},
+        ]},
+    )
+    return ReportingService(_repo())
+
+
+def _rent_row(payload, proyecto):
+    return next((r for r in payload["proyectos"] if r["proyecto"] == proyecto), None)
+
+
+def test_rentabilidad_includes_a_time_logs_only_project_with_valid_mapping(monkeypatch):
+    # A + B: presente, y con las horas canonicas de Time Logs.
+    svc = _universe_fixture(monkeypatch, con_fila_sharepoint=False)
+    row = _rent_row(svc.get_rentabilidad("tok", anios=["2026"]), "Tenaris - SAP BDC")
+    assert row is not None, "el proyecto desaparecia de Rentabilidad"
+    assert row["trabByYear"]["2026"][7] == _LIVE_TENARIS_H
+    assert row["trabajadas"] == _LIVE_TENARIS_H          # 14.5, nunca 0
+
+
+def test_time_logs_only_project_inherits_its_dimensions_from_project_dim(monkeypatch):
+    # C: Tipo Proyecto (y el resto de la dimension) vienen de `project_dim`,
+    # nunca inventados — asi que el facet Tipo Proyecto sigue discriminando.
+    for tipo in ("Mantenimiento", "Proyecto"):
+        svc = _universe_fixture(monkeypatch, con_fila_sharepoint=False, tipo=tipo)
+        row = _rent_row(svc.get_rentabilidad("tok", anios=["2026"]), "Tenaris - SAP BDC")
+        assert row["tipo"] == tipo, tipo
+        assert row["estado"] == "En curso"
+        # `cliente`/`cp` viven en la fila de "Horas por proyectos", no en
+        # Proyectos: sin esa fila, `project_dim` los deja en "" a proposito
+        # (ver reporting_repository, project_dim se siembra vacio y solo se
+        # completa desde un fact). NO se fabrican — y la clave es que
+        # Rentabilidad muestre EXACTAMENTE lo mismo que Cartera para ese
+        # proyecto, no que invente un nombre.
+        assert row["cliente"] == "" and row["cp"] == ""
+        if tipo == "Mantenimiento":
+            cart = [r for r in svc.get_cartera_mantenimiento("tok", anios=["2026"])
+                    if r["proyecto"] == "Tenaris - SAP BDC" and r["mes"] == "8"]
+            assert len(cart) == 1
+            assert cart[0]["cliente"] == row["cliente"]
+            assert cart[0]["cp"] == row["cp"]
+            assert cart[0]["status"] == row["estado"]
+    # Y las medidas que no tienen fuente conservan su cero legitimo.
+    assert row["certByYear"] == {} and row["vendByYear"] == {}
+    assert row["certificadas"] == 0.0 and row["vendidas"] == 0.0
+
+
+def test_project_present_in_both_universes_emits_exactly_one_row(monkeypatch):
+    # D + E: sin duplicar cuando existe en las dos fuentes.
+    svc = _universe_fixture(monkeypatch, con_fila_sharepoint=True)
+    payload = svc.get_rentabilidad("tok", anios=["2026"])
+    filas = [r for r in payload["proyectos"] if r["proyecto"] == "Tenaris - SAP BDC"]
+    assert len(filas) == 1
+    assert filas[0]["trabByYear"]["2026"][7] == _LIVE_TENARIS_H
+    assert filas[0]["certByYear"]["2026"][7] == 30.0     # la fila SharePoint SI aporta
+    assert filas[0]["trabajadas"] != 999.0               # el decoy manual nunca
+
+
+def test_unmapped_time_logs_project_gets_no_fabricated_dimensions(monkeypatch):
+    # F: sin mapping en Proyectos, no se inventa Cliente/Tipo/Estado.
+    svc = _universe_fixture(monkeypatch, con_fila_sharepoint=False, en_proyectos=False)
+    payload = svc.get_rentabilidad("tok", anios=["2026"])
+    assert _rent_row(payload, "Tenaris - SAP BDC") is None
+    for r in payload["proyectos"]:
+        assert r["cliente"] != "" or r["tipo"] != "", r    # nada fabricado vacio
+    assert not any(r["tipo"] == "" and r["trabajadas"] for r in payload["proyectos"])
+
+
+def test_cross_view_worked_hours_reconcile_for_the_same_project_month(monkeypatch):
+    # G — INVARIANTE INTEGRADO: mismo proyecto x anio x mes, tipo
+    # Mantenimiento y mapping valido ⇒ MISMO numero en las dos vistas, con
+    # 0, 1, 2 o 3 filas en "Horas por proyectos".
+    for n_filas in (0, 1, 2, 3):
+        _patch(
+            monkeypatch,
+            horas_por_proyectos=[{
+                "ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+                "HsTrabajadas": "999", "HsVendidas": str(10 + i), "HsFacturadas": str(5 + i),
+            } for i in range(n_filas)],
+            proyectos=[{"id": "p1", "Title": "Tenaris - SAP BDC",
+                         "TipodeProyecto": "Mantenimiento", "Status": "En curso"}],
+            clientes=[{"id": "c1", "Title": "Tenaris"}],
+            csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+            file_rows={"current-1": [
+                {"Date": "2026-08-12", "Client": "Tenaris", "Project": "Tenaris - SAP BDC",
+                 "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": str(_LIVE_TENARIS_H)},
+            ]},
+        )
+        svc = ReportingService(_repo())
+        cartera = sum(r["trabajadas"] for r in svc.get_cartera_mantenimiento("tok", anios=["2026"])
+                       if r["mes"] == "8")
+        svc2 = ReportingService(_repo())
+        rent = _rent_row(svc2.get_rentabilidad("tok", anios=["2026"]), "Tenaris - SAP BDC")
+        rent_h = rent["trabByYear"]["2026"][7]
+        assert round(cartera, 2) == round(rent_h, 2) == _LIVE_TENARIS_H, (n_filas, cartera, rent_h)

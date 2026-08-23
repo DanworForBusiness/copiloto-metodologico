@@ -372,13 +372,13 @@ def test_get_rentabilidad_defaults_to_hot_window(monkeypatch):
     def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         captured["hot_years"] = hot_years
         captured["include_facturadas"] = include_facturadas
-        return []
+        return [], {}
 
     def fake_time_logs(self, access_token, *, hot_years=None):
         captured["time_logs_hot_years"] = hot_years
         return []
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera_facts)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
     _service().get_rentabilidad("tok")
     y = datetime.now().year
@@ -398,13 +398,13 @@ def test_get_rentabilidad_cold_year_passes_explicit_scope(monkeypatch):
 
     def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         captured["hot_years"] = hot_years
-        return []
+        return [], {}
 
     def fake_time_logs(self, access_token, *, hot_years=None):
         captured["time_logs_hot_years"] = hot_years
         return []
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera_facts)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera_facts)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
     _service().get_rentabilidad("tok", anios=["2024"])
     assert captured["hot_years"] == ["2024"]
