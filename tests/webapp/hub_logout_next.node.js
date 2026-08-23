@@ -31,17 +31,12 @@ if (end === -1) {
 }
 const snippet = src.slice(start, end + 3);
 
-// `dwLogout` delega la limpieza del artefacto de Graph en
-// `dwClearGraphAuth`, que en la FASE 1A vive en la autoridad compartida
-// (hub_auth.js): el chrome decide CUANDO se limpia, la autoridad sabe QUE se
-// limpia.
-//
-// Se carga el MODULO COMPLETO, no un fragmento. Extraer sola la funcion
-// parecia mas prolijo y era un verde falso: `ARTIFACT` es una const del IIFE,
-// asi que la funcion suelta lanzaba ReferenceError y su propio try/catch se lo
-// tragaba — el test "pasaba" sin limpiar nada.
-const HUB_AUTH = path.resolve(__dirname, "..", "..", "webapp", "static", "hub_auth.js");
-const authSrc = fs.readFileSync(HUB_AUTH, "utf-8");
+// `dwLogout` delega la limpieza de la credencial en `dwClearGraphAuth`, que
+// vive en la autoridad compartida (hub_auth.js). Este harness NO carga la
+// autoridad: la espia. Lo que se prueba aca es la NAVEGACION post-logout —el
+// contrato de `next`—, y el ciclo de vida de la credencial es de
+// hub_auth_authority.node.js, que lo cubre entero. Mezclar los dos obligaria a
+// arrastrar MSAL a un harness de navegacion.
 
 let failures = 0;
 function assertTrue(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
@@ -77,6 +72,11 @@ function runLogout(location) {
     querySelector() { forbidden.push("document.querySelector"); return null; },
     getElementById() { forbidden.push("document.getElementById"); return null; },
   };
+  // La limpieza de la credencial la hace la AUTORIDAD (hub_auth.js). Aca se
+  // espia que el logout la INVOQUE — que hace por dentro es de
+  // hub_auth_authority.node.js, que lo cubre entero. Traer MSAL a este
+  // harness seria mezclar dos contratos.
+  const authorityOps = [];
   const sandbox = {
     window: { location: loc },
     location: loc,
@@ -92,10 +92,11 @@ function runLogout(location) {
     console,
   };
   vm.createContext(sandbox);
-  vm.runInContext(authSrc, sandbox, { filename: "hub_auth.js" });
+  // El espia de la autoridad, en su lugar real (window).
+  sandbox.window.dwClearGraphAuth = function () { authorityOps.push("dwClearGraphAuth"); };
   vm.runInContext(snippet, sandbox, { filename: "dwLogout.js" });
   vm.runInContext("window.dwLogout()", sandbox);
-  return { calls, href: loc.href, forbidden, storageOps };
+  return { calls, href: loc.href, forbidden, storageOps, authorityOps };
 }
 
 // --- A: el contrato textual del owner ---------------------------------------
@@ -167,24 +168,26 @@ assertTrue(!snippet.includes("confirm(") && !snippet.includes("localStorage")
   && !snippet.includes("document.cookie"),
   "F: el código del logout no introduce confirmación ni persistencia propia");
 
-// --- F2: HIGIENE DE AUTH — el logout limpia el artefacto de Graph ----------
-// Antes de este corrective la cookie moría y `dw-graph-token` sobrevivía: un
-// token de Graph válido quedaba en el browser después de cerrar sesión.
+// --- F2: HIGIENE DE AUTH — el logout baja la credencial ------------------
+// Antes del corrective de Fase 0 la cookie moria y el token de Graph seguia
+// vivo en el browser. La limpieza es de la AUTORIDAD (hub_auth.js): el chrome
+// decide CUANDO, la autoridad sabe QUE. Lo que se verifica aca es la
+// delegacion; el contenido de esa limpieza (bajar la cuenta de MSAL y vaciar
+// su cache) lo cubre hub_auth_authority.node.js.
 [comercial, conQuery, raro].forEach((r, i) => {
-  assertEqual(r.storageOps.join("|"), "removeItem:dw-graph-token",
-    `F2[${i}]: limpia dw-graph-token, y nada más`);
+  assertEqual(r.authorityOps.join("|"), "dwClearGraphAuth",
+    `F2[${i}]: el logout invoca la autoridad, exactamente una vez`);
 });
-// Delega en la autoridad compartida, no reimplementa la limpieza.
-assertTrue(snippet.includes("dwClearGraphAuth()"),
-  "F2: el logout delega en `dwClearGraphAuth`, la autoridad compartida");
-// Y la autoridad es la unica que nombra la credencial.
-assertTrue(!src.includes("dw-graph-token"),
-  "F2: app.js no nombra la credencial (la Fase 1A la mudo a la autoridad)");
-assertTrue(authSrc.includes("dw-graph-token"),
-  "F2: la autoridad si la nombra — es su responsabilidad");
-// Y la limpieza ocurre ANTES del fetch: si la red falla, el artefacto ya se fue.
+// El chrome NO conoce el mecanismo: no toca storage ni nombra credenciales.
+[comercial, conQuery, raro].forEach((r, i) => {
+  assertEqual(r.storageOps.length, 0,
+    `F2[${i}]: el logout no toca el storage por su cuenta`);
+});
+assertTrue(!src.includes("dw-graph-token") && !src.includes("msal"),
+  "F2: app.js no nombra la credencial ni el proveedor");
+// Y la limpieza ocurre ANTES del fetch: si la red falla, ya se bajo.
 assertTrue(snippet.indexOf("dwClearGraphAuth()") < snippet.indexOf("fetch("),
-  "F2: limpia antes del fetch — una red caída no puede dejar el token vivo");
+  "F2: limpia antes del fetch — una red caida no puede dejar la credencial viva");
 
 // --- G: el destino no está cableado a ninguna capability -------------------
 assertTrue(!snippet.includes("/comercial") && !snippet.includes("/reporting")

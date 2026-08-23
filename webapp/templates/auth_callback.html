@@ -23,7 +23,7 @@
   <button id="microsoft-login-btn" data-home="{{ home_url }}" style="display:none" aria-hidden="true" tabindex="-1"></button>
   <div class="auth-overlay" aria-hidden="true"><span class="auth-spinner"></span>Completando acceso…</div>
   <div id="login-message" class="login-error hidden"></div>
-  <script src="{{ url_for('static', path='hub_auth.js') }}?v={{ static_version }}"></script>
+  <script src="{{ url_for('static', path='vendor/msal-browser-4.30.0.min.js') }}?v={{ static_version }}"></script><script src="{{ url_for('static', path='hub_auth.js') }}?v={{ static_version }}"></script>
   <script src="{{ url_for('static', path='auth.js') }}?v={{ static_version }}"></script>
 </body>
 </html>

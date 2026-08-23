@@ -52,6 +52,15 @@ _HARNESS = Path(__file__).with_name("graph_auth_client.node.js")
 GRAPH_ARTIFACT = "dw-graph-token"
 
 
+def _js_code(raw: str) -> str:
+    """JS sin comentarios —de linea Y de bloque—. Los comentarios de este
+    contrato nombran a proposito el proveedor y los literales que estos tests
+    prohiben, asi que contar sobre prosa da falsos positivos."""
+    sin_bloque = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    return "\n".join(
+        l for l in sin_bloque.splitlines() if not l.strip().startswith("//"))
+
+
 # --- A: la decisión, aislada ------------------------------------------------
 
 def test_only_401_means_the_delegated_authorization_died():
@@ -204,32 +213,49 @@ def test_graph_auth_client_invariants_hold():
 
 # --- C: el lado cliente — el artefacto no sobrevive al logout --------------
 
-def test_logout_clears_the_graph_artifact_through_a_single_authority():
+def test_logout_clears_the_graph_credential_through_a_single_authority():
+    """El contrato de la Fase 0 —el logout no puede dejar viva la autorización
+    de Graph— sigue valiendo; lo que cambió dos veces es el mecanismo.
+
+    Fase 0: `dwClearGraphAuth` vivía en app.js y borraba una clave de
+    sessionStorage. Fase 1A: se mudó a la autoridad compartida. Fase 1B: la
+    autoridad ya no borra una clave —le pide a MSAL que baje la cuenta activa
+    y vacíe su cache—, porque las claves son de MSAL.
+
+    Lo que este test fija, invariante a las tres formas: hay UNA sola función
+    que sabe cómo se baja la credencial, vive en la autoridad, y el chrome la
+    invoca sin conocer el mecanismo.
+    """
     app_js = (_STATIC / "app.js").read_text(encoding="utf-8")
-    # Una sola función sabe cómo se borra el artefacto. En la FASE 1A se mudó
-    # de app.js a la autoridad compartida: sigue habiendo UNA, y ahora está
-    # donde vive el resto del ciclo de vida de la credencial.
+    app_code = _js_code(app_js)
     authority = (_STATIC / "hub_auth.js").read_text(encoding="utf-8")
-    assert authority.count("window.dwClearGraphAuth = function () {") == 1
-    assert authority.count(f'sessionStorage.removeItem(ARTIFACT)') == 1
+    # Una sola autoridad, y está en la autoridad.
+    assert authority.count("window.dwClearGraphAuth = function ()") == 1
     assert "window.dwClearGraphAuth = function" not in app_js
-    assert GRAPH_ARTIFACT not in app_js  # el chrome ya no nombra la credencial
-    # ...y el logout la usa en vez de reimplementarla.
+    # Baja la cuenta Y vacía la cache: las dos cosas, o queda algo vivo.
+    assert "setActiveAccount(null)" in authority
+    assert "clearCache()" in authority
+    # El chrome la invoca y no conoce el mecanismo.
     logout = app_js[app_js.index("window.dwLogout = function () {"):]
     logout = logout[:logout.index("\n};") + 3]
     assert "dwClearGraphAuth()" in logout
-    assert GRAPH_ARTIFACT not in logout, "el logout no debe conocer el nombre del artefacto"
+    assert GRAPH_ARTIFACT not in app_code
+    assert "msal" not in app_code.lower(), "el chrome no debe conocer el proveedor"
 
 
-def test_no_vertical_clears_the_graph_artifact_on_its_own():
-    # Higiene de auth es del Hub. Una vertical borrando el token por su cuenta
-    # es exactamente el acoplamiento que la Fase 1 viene a eliminar.
+def test_no_vertical_manages_graph_credentials_on_its_own():
+    """Higiene de auth es del Hub. Una vertical gestionando la credencial por
+    su cuenta es exactamente el acoplamiento que la Fase 1 eliminó — y ahora
+    incluye no conocer al proveedor: si una vertical usara `msal` directamente,
+    habría dos dueños del ciclo de vida."""
     for vertical in ("reporting.js", "commercial.js", "tools.js"):
         path = _STATIC / vertical
         if not path.exists():
             continue
-        src = path.read_text(encoding="utf-8")
+        src = _js_code(path.read_text(encoding="utf-8"))
         assert "removeItem" not in src, vertical
+        assert "msal" not in src.lower(), vertical
+        assert GRAPH_ARTIFACT not in src, vertical
 
 
 def test_reauthentication_is_offered_without_a_full_page_reload():

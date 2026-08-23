@@ -1,17 +1,19 @@
 // hub_auth_authority.node.js — invocado por
 // test_hub_auth_authority.py::test_hub_auth_authority_invariants_hold.
-// GRAPH TOKEN LIFECYCLE — FASE 1A, comportamiento REAL de la autoridad.
+// GRAPH TOKEN LIFECYCLE — FASE 1B: la autoridad con MSAL detras.
 //
-// Ejecuta hub_auth.js contra un `document` con listeners de verdad y un htmx
-// simulado que reproduce el ORDEN verificado en el artefacto pinneado
-// (htmx.org@2.0.4): dispara `htmx:confirm` primero, respeta
-// `defaultPrevented` abortando la pasada, y sólo despues arma los parametros
-// via `htmx:configRequest`.
+// Ejecuta hub_auth.js REAL contra un doble de MSAL que respeta su API publica
+// (`PublicClientApplication`, `initialize`, `get/setActiveAccount`,
+// `getAllAccounts`, `acquireTokenSilent`, `acquireTokenPopup`, `loginPopup`,
+// `clearCache`, `InteractionRequiredAuthError`) y un htmx simulado que
+// reproduce el ORDEN verificado en el artefacto pinneado (htmx 2.0.4).
 //
-// Lo que un test de archivo NO puede probar y acá se prueba: que el request
-// se DIFIERA de verdad (que no salga antes de que la autoridad conteste), que
-// la reemision no entre en loop, y que dos requests marcados concurrentes no
-// se pisen el token.
+// Por que un doble y no MSAL de verdad: MSAL real necesita un tenant, un
+// browser y un usuario. Lo que hay que probar aca es la LOGICA DE LA AUTORIDAD
+// —a quien le pide el token, en que orden, cuando escala a interactivo, y que
+// dos consumidores concurrentes no abran dos popups—, y eso se prueba con un
+// doble que devuelva lo que MSAL devolveria. El comportamiento de MSAL contra
+// Entra es del smoke real del owner, que es donde corresponde.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -26,52 +28,107 @@ function assertEqual(a, e, label) {
   if (a !== e) { failures++; console.log(`FAIL: ${label}\n  esperado: ${JSON.stringify(e)}\n  obtenido: ${JSON.stringify(a)}`); }
 }
 
-// --- un DOM y un sessionStorage minimos pero REALES ----------------------
-function makeEnv(stored, opts) {
+// ── el doble de MSAL ──────────────────────────────────────────────────────
+// `behaviour` decide que hace cada llamada; `log` registra QUE se llamo, que
+// es lo que casi todos los invariantes de abajo miran.
+function makeMsal(behaviour, captured) {
+  const b = behaviour || {};
+  const log = [];
+  class AuthError extends Error {
+    constructor(code) { super(code); this.errorCode = code; this.name = "AuthError"; }
+  }
+  class InteractionRequiredAuthError extends AuthError { }
+
+  class PublicClientApplication {
+    constructor(config) { log.push("new"); captured.config = config; this._active = null; }
+    async initialize() { log.push("initialize"); if (b.initializeThrows) throw new Error("init fallo"); }
+    getAllAccounts() { return (b.accounts || []).slice(); }
+    getActiveAccount() { return this._active; }
+    setActiveAccount(a) { log.push("setActiveAccount:" + (a ? a.username : "null")); this._active = a; }
+    async acquireTokenSilent(req) {
+      log.push("acquireTokenSilent");
+      captured.silentScopes = req.scopes;
+      if (b.silent === "interaction") throw new InteractionRequiredAuthError("interaction_required");
+      if (b.silent === "network") throw new AuthError("network_error");
+      return { accessToken: b.silentToken || "AT-SILENT", fromCache: true, expiresOn: new Date(0) };
+    }
+    async acquireTokenPopup(req) {
+      log.push("acquireTokenPopup");
+      if (b.popupDelayMs) await new Promise(r => setTimeout(r, b.popupDelayMs));
+      if (b.popup === "cancel") throw new AuthError("user_cancelled");
+      return { accessToken: b.popupToken || "AT-POPUP" };
+    }
+    async loginPopup(req) {
+      log.push("loginPopup:" + JSON.stringify(req.scopes) + ":" + req.prompt);
+      if (b.login === "cancel") throw new AuthError("user_cancelled");
+      return { idToken: "ID-TOKEN", account: { username: "joe@danwor.com" } };
+    }
+    async clearCache() { log.push("clearCache"); }
+  }
+  return { msal: { PublicClientApplication, InteractionRequiredAuthError, AuthError }, log };
+}
+
+// ── el entorno ────────────────────────────────────────────────────────────
+function makeEnv(behaviour, opts) {
   const options = opts || {};
+  const captured = {};
+  const { msal, log } = makeMsal(behaviour, captured);
   const listeners = {};
-  const store = Object.assign({}, stored);
-  const ops = [];
+  const fetches = [];
+  const store = {};
   const sessionStorage = {
-    getItem(k) {
-      ops.push(`get:${k}`);
-      if (options.throwOnAccess) throw new Error("storage particionado");
-      return k in store ? store[k] : null;
+    getItem(k) { if (options.storageThrows) throw new Error("particionado"); return k in store ? store[k] : null; },
+    setItem(k, v) { if (options.storageThrows) throw new Error("particionado"); store[k] = v; },
+    removeItem(k) { if (options.storageThrows) throw new Error("particionado"); delete store[k]; },
+  };
+  const win = { location: { origin: "https://hub.danwor.com", pathname: "/reporting", search: "" } };
+  win.self = win;
+  win.top = options.embedded ? { otro: true } : win;
+  const sandbox = {
+    window: win, msal, sessionStorage, console, Promise, setTimeout, Object, JSON, Date, Error,
+    document: { addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); } },
+    fetch(url, init) {
+      fetches.push({ url: String(url), method: (init && init.method) || "GET", body: init && init.body });
+      if (String(url).indexOf("/api/auth/microsoft/config") === 0) {
+        const cfg = options.config === "disabled"
+          ? { enabled: false }
+          : { enabled: true, tenant_id: "TENANT", client_id: "CLIENT" };
+        return Promise.resolve({ ok: options.configHttpOk !== false, json: () => Promise.resolve(cfg) });
+      }
+      if (String(url).indexOf("/api/auth/microsoft/token") === 0) {
+        return Promise.resolve({
+          ok: options.sessionOk !== false,
+          json: () => Promise.resolve(options.sessionOk === false
+            ? { detail: { message: "no autorizado", code: "microsoft_user_not_authorized" } }
+            : { ok: true }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
     },
-    setItem(k, v) { ops.push(`set:${k}`); if (options.throwOnAccess) throw new Error("x"); store[k] = v; },
-    removeItem(k) { ops.push(`remove:${k}`); if (options.throwOnAccess) throw new Error("x"); delete store[k]; },
   };
-  const document = {
-    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
-  };
-  const win = {};
-  const sandbox = { window: win, document, sessionStorage, console, Promise };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox, { filename: "hub_auth.js" });
-  return { win, listeners, store, ops, sandbox };
+  return { win, listeners, msalLog: log, fetches, store, captured };
 }
 
-// Un elemento con el `closest` que el hook usa para detectar el marcador.
 function makeElt(marked, id) {
   const elt = { id: id || "elt", marked };
   elt.closest = (sel) => (marked && sel === "[data-dw-graph-token]" ? elt : null);
   return elt;
 }
 
-// htmx 2.0.4 simulado: confirm -> (si no se aborto) configRequest -> request.
-// `skipConfirmation` reproduce el `if (confirmed === undefined)` de la 4213.
+// htmx 2.0.4 simulado — mismo orden que el artefacto pinneado.
 function makeHtmx(env) {
-  const issued = [];      // requests que SALIERON, con sus parametros
-  const order = [];       // traza para verificar el orden real
-  const queued = [];      // requests ENCOLADOS (nunca llegaron a los params)
-  let queueNext = false;  // la proxima reemision se encola en vez de salir
+  const issued = [];
+  const order = [];
+  const queued = [];
+  let queueNext = false;
   function issueAjaxRequest(elt, confirmed) {
     order.push(`issueAjaxRequest(confirmed=${!!confirmed})`);
     // htmx 2.0.4 linea 4290: con un xhr en vuelo el request se ENCOLA y
-    // retorna ANTES de `getExpressionVars` (4341). O sea: el gate ya corrio,
-    // pero los parametros no se armaron. Lo encolado se reemite en 4276-4287
-    // SIN el 6o argumento, asi que vuelve a pasar por el gate.
+    // retorna ANTES de `getExpressionVars` (4341). Lo encolado se reemite en
+    // 4276-4287 SIN el 6o argumento, asi que reentra por el gate.
     if (confirmed && queueNext) {
       queueNext = false;
       order.push("ENCOLADO (sin armar params)");
@@ -85,7 +142,6 @@ function makeHtmx(env) {
         issueRequest(skip) { return issueAjaxRequest(elt, !!skip); },
         preventDefault() { prevented = true; },
       };
-      // triggerEvent: devuelve false si defaultPrevented -> aborta la pasada.
       (env.listeners["htmx:confirm"] || []).forEach(fn => fn({ detail, preventDefault: detail.preventDefault }));
       order.push(`confirm -> prevented=${prevented}`);
       if (prevented) return;
@@ -96,8 +152,6 @@ function makeHtmx(env) {
     issued.push({ elt: elt.id, params });
     order.push("REQUEST SALE");
   }
-  // Reproduce el path de COLA de htmx 2.0.4 (4276-4287): el request encolado
-  // se reemite SIN el 6o argumento, o sea que vuelve a pasar por el gate.
   return {
     fire: (elt) => issueAjaxRequest(elt, undefined),
     queueTheRetry: () => { queueNext = true; },
@@ -107,188 +161,271 @@ function makeHtmx(env) {
   };
 }
 
-// El hook resuelve en microtasks: hay que drenarlas antes de mirar.
 const drain = () => new Promise(r => setImmediate(r));
+const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
 
 (async function main() {
-  // --- A: el contrato ------------------------------------------------------
+  // ── A: token en cache -> se devuelve sin interaccion ────────────────────
   {
-    const env = makeEnv({ "dw-graph-token": "TOKEN-A" });
-    assertTrue(typeof env.win.dwGraphToken === "function", "A: dwGraphToken existe");
-    const got = env.win.dwGraphToken();
-    assertTrue(got && typeof got.then === "function",
-      "A: devuelve una promesa (es el async lo que hace posible renovar en 1B)");
-    assertEqual(await got, "TOKEN-A", "A: resuelve el token vigente");
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-EN-CACHE" });
+    assertEqual(await env.win.dwGraphToken(), "AT-EN-CACHE", "A: devuelve el access token vigente");
+    assertTrue(env.msalLog.includes("acquireTokenSilent"), "A: lo pide a MSAL, no a un storage propio");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"),
+      "A: con token valido NO abre ninguna ventana");
+    assertEqual(env.msalLog.filter(l => l === "new").length, 1, "A: UNA PublicClientApplication");
+    assertEqual(env.msalLog.filter(l => l === "initialize").length, 1, "A: initialize() una vez");
+    // La instancia se comparte: un segundo pedido no crea otra.
+    await env.win.dwGraphToken();
+    assertEqual(env.msalLog.filter(l => l === "new").length, 1,
+      "A: el segundo pedido reusa la misma instancia");
   }
-  // Sin token: "" — NO null, NO undefined, NO excepcion. El server responde
-  // `missing_token` y la Fase 0 ya lo traduce a la accion correcta.
+
+  // ── B: RENOVACION SILENCIOSA — el fix ──────────────────────────────────
+  // MSAL resuelve `acquireTokenSilent` con su propia cache. La app no sabe ni
+  // tiene por que saber si eso salio de cache, de un refresh token o de la red.
   {
-    const env = makeEnv({});
-    assertEqual(await env.win.dwGraphToken(), "", "A: sin token devuelve string vacio");
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-RENOVADO" });
+    assertEqual(await env.win.dwGraphToken(), "AT-RENOVADO",
+      "B: la renovacion silenciosa devuelve token nuevo sin molestar al usuario");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "B: sin popup");
+    assertEqual(JSON.stringify(env.captured.silentScopes), '["User.Read","Sites.Read.All"]',
+      "B: renueva con los MISMOS permisos de Graph");
   }
-  // Storage particionado (incognito embebido): tampoco lanza.
+
+  // ── C: InteractionRequired -> popup; cualquier otro fallo -> vacio ─────
   {
-    const env = makeEnv({ "dw-graph-token": "X" }, { throwOnAccess: true });
-    let threw = false;
-    let v = "sentinel";
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-TRAS-POPUP" });
+    assertEqual(await env.win.dwGraphToken(), "AT-TRAS-POPUP",
+      "C: cuando el silencioso no alcanza, escala al popup");
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1, "C: UN popup");
+  }
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "network" });
+    assertEqual(await env.win.dwGraphToken(), "", "C: un fallo de red devuelve vacio");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"),
+      "C: un fallo de red NO abre un popup — no esta en manos del usuario");
+  }
+  // SIN CUENTA no se abre NADA. Es la linea entre un popup "controlado" y uno
+  // intruso: `dwGraphToken()` lo dispara la CARGA de un tab de Reporting, asi
+  // que escalar ahi abriria una ventana de Microsoft no pedida en cada carga —y
+  // el browser la bloquearia igual, porque no hay gesto de usuario detras—.
+  {
+    const env = makeEnv({ accounts: [], popupToken: "AT-NO-DEBERIA" });
+    assertEqual(await env.win.dwGraphToken(), "",
+      "C: sin cuenta devuelve vacio y deja que la Fase 0 ofrezca la accion");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"),
+      "C: sin cuenta NO abre un popup no solicitado");
+    assertTrue(!env.msalLog.includes("acquireTokenSilent"),
+      "C: y sin cuenta no tiene sentido intentar silencioso");
+  }
+  // CON cuenta, cancelar el popup devuelve vacio — no una excepcion sin dueño.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popup: "cancel" });
+    let threw = false, v = "sentinel";
     try { v = await env.win.dwGraphToken(); } catch (e) { threw = true; }
-    assertTrue(!threw, "A: storage inaccesible no propaga excepcion");
-    assertEqual(v, "", "A: storage inaccesible resuelve a vacio");
+    assertTrue(!threw, "C: cancelar el popup no propaga excepcion");
+    assertEqual(v, "", "C: cancelar el popup devuelve vacio (la Fase 0 lo explica)");
   }
 
-  // --- B: escritura y limpieza pasan por la autoridad ---------------------
+  // ── D: CONCURRENCIA — N consumidores, UN popup ─────────────────────────
+  // Sin esto, seis tabs de Reporting con la autorizacion vencida abrian SEIS
+  // ventanas de Microsoft. Es el invariante mas importante de este archivo.
   {
-    const env = makeEnv({});
-    env.win.dwRememberGraphAuth("NUEVO");
-    assertEqual(env.store["dw-graph-token"], "NUEVO", "B: la autoridad guarda");
-    assertEqual(await env.win.dwGraphToken(), "NUEVO", "B: y lo devuelve");
+    const env = makeEnv({
+      accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-COMPARTIDO", popupDelayMs: 20,
+    });
+    const results = await Promise.all([
+      env.win.dwGraphToken(), env.win.dwGraphToken(), env.win.dwGraphToken(),
+      env.win.dwGraphToken(), env.win.dwGraphToken(), env.win.dwGraphToken(),
+    ]);
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1,
+      "D: seis pedidos concurrentes abren UN solo popup");
+    assertTrue(results.every(t => t === "AT-COMPARTIDO"), "D: los seis reciben el mismo token");
+    // Y el candado se libera: un pedido POSTERIOR si puede volver a interactuar.
+    await env.win.dwGraphToken();
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 2,
+      "D: el candado se libero (no queda trabado para siempre)");
+  }
+
+  // ── E: LOGIN — MSAL abre el popup, el BACKEND crea la sesion ───────────
+  {
+    // `dwHubLogin` SI nace de un gesto del usuario (el boton "Ingresar"), asi
+    // que aca el popup sin cuenta es exactamente lo correcto.
+    const env = makeEnv({ accounts: [] });
+    const res = await env.win.dwHubLogin();
+    assertTrue(!!res && res.ok === true, "E: el login resuelve con la respuesta del backend");
+    const login = env.msalLog.find(l => l.indexOf("loginPopup") === 0);
+    assertTrue(!!login, "E: el popup lo abre MSAL");
+    assertTrue(login.includes('["User.Read","Sites.Read.All"]'),
+      "E: pide los MISMOS permisos de Graph que antes");
+    // Los scopes de OIDC (openid/profile/offline_access) NO los pide la app:
+    // son `defaultScopes` de MSAL. Pedirlos a mano seria gestionar el protocolo.
+    assertTrue(!login.includes("offline_access") && !login.includes("openid"),
+      "E: la app NO gestiona los scopes de OIDC — son de MSAL");
+    assertTrue(login.includes("select_account"), "E: preserva prompt=select_account");
+    const sesion = env.fetches.find(f => f.url.indexOf("/api/auth/microsoft/token") === 0);
+    assertTrue(!!sesion, "E: hay POST al backend para crear la sesion del Hub");
+    assertEqual(sesion.method, "POST", "E: sigue siendo POST");
+    assertTrue(String(sesion.body).includes("ID-TOKEN"), "E: viaja el id_token validado");
+    assertTrue(!String(sesion.body).includes("AT-"), "E: NO viaja ningun access token al backend");
+    assertTrue(env.msalLog.includes("setActiveAccount:joe@danwor.com"),
+      "E: la cuenta queda activa para que el silencioso funcione despues");
+  }
+  {
+    const env = makeEnv({ accounts: [] }, { sessionOk: false });
+    let detail = null;
+    try { await env.win.dwHubLogin(); } catch (e) { detail = e.detail; }
+    assertTrue(!!detail && detail.code === "microsoft_user_not_authorized",
+      "E: el detalle de 'acceso pendiente' del backend se preserva para la UI");
+  }
+
+  // ── F: LOGOUT — baja la cuenta y la cache de MSAL ──────────────────────
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] });
+    await env.win.dwGraphToken();
     env.win.dwClearGraphAuth();
-    assertEqual(env.store["dw-graph-token"], undefined, "B: la autoridad limpia");
-    assertEqual(await env.win.dwGraphToken(), "", "B: y despues no hay token");
-    // Un token vacio no se guarda: escribir "" dejaria un artefacto que miente.
-    env.win.dwRememberGraphAuth("");
-    assertEqual(env.store["dw-graph-token"], undefined, "B: no guarda un token vacio");
+    await drain(); await drain();
+    assertTrue(env.msalLog.includes("clearCache"), "F: vacia la cache de MSAL");
+    assertTrue(env.msalLog.includes("setActiveAccount:null"), "F: baja la cuenta activa");
+  }
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] });
+    let threw = false;
+    try { env.win.dwClearGraphAuth(); } catch (e) { threw = true; }
+    await drain();
+    assertTrue(!threw, "F: limpiar sin haber inicializado no explota");
+    assertTrue(!env.msalLog.includes("clearCache"),
+      "F: y no fuerza una inicializacion solo para limpiar");
   }
 
-  // --- C: htmx DIFIERE de verdad ------------------------------------------
+  // ── G: la cache se elige a proposito, y el diagnostico no miente ───────
   {
-    const env = makeEnv({ "dw-graph-token": "TOKEN-C" });
+    const env = makeEnv({ accounts: [ACCOUNT] });
+    await env.win.dwGraphToken();
+    assertEqual(env.captured.config.cache.cacheLocation, "sessionStorage",
+      "G: la instancia se construye con sessionStorage (sobrevive la navegacion full-page)");
+    assertEqual(env.captured.config.auth.authority, "https://login.microsoftonline.com/TENANT",
+      "G: authority del tenant que informa el backend");
+    assertEqual(env.captured.config.auth.redirectUri, "https://hub.danwor.com/",
+      "G: el redirect URI (SPA) registrado, con barra");
+    const d = await env.win.dwGraphAuthDiagnostics();
+    assertEqual(d.cacheLocationRequested, "sessionStorage", "G: el diagnostico reporta la cache pedida");
+    assertEqual(d.requestedCacheUsable, true, "G: y que aca esta usable");
+    assertEqual(d.likelyFallbackToMemory, false, "G: sin fallback a memoria");
+    assertEqual(d.embedded, false, "G: este contexto no es embebido");
+    assertTrue(d.hasAccount === true, "G: reporta que hay cuenta");
+    assertTrue(!!d.silentRenewal && d.silentRenewal.ok === true,
+      "G: reporta si el silencioso funciona — el dato clave del smoke");
+    // NUNCA una credencial en el diagnostico.
+    const json = JSON.stringify(d);
+    assertTrue(!json.includes("AT-") && !json.includes("ID-TOKEN"),
+      "G: el diagnostico NO expone credenciales");
+  }
+  // Storage particionado + embebido: el diagnostico lo DICE en vez de asumir
+  // que anda. Es exactamente el dato que el owner necesita del smoke del iframe.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] }, { storageThrows: true, embedded: true });
+    const d = await env.win.dwGraphAuthDiagnostics();
+    assertEqual(d.requestedCacheUsable, false, "G: detecta que la cache pedida no esta usable");
+    assertEqual(d.likelyFallbackToMemory, true,
+      "G: avisa el fallback a memoria (con navegacion full-page = cache perdida entre verticales)");
+    assertEqual(d.embedded, true, "G: detecta el contexto embebido");
+  }
+  // Y el diagnostico reporta el fallo del silencioso sin inventar exito.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction" });
+    const d = await env.win.dwGraphAuthDiagnostics();
+    assertEqual(d.silentRenewal.ok, false, "G: no finge que el silencioso anduvo");
+    assertEqual(d.silentRenewal.interactionRequired, true,
+      "G: distingue 'hace falta interaccion' de un error cualquiera");
+  }
+
+  // ── H: config incompleta o caida -> vacio, sin explotar y sin memoizar ─
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] }, { config: "disabled" });
+    assertEqual(await env.win.dwGraphToken(), "", "H: Microsoft sin configurar devuelve vacio");
+  }
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] }, { configHttpOk: false });
+    const cfgCalls = () => env.fetches.filter(f => f.url.indexOf("/api/auth/microsoft/config") === 0).length;
+    assertEqual(await env.win.dwGraphToken(), "", "H: config con error HTTP devuelve vacio");
+    assertEqual(cfgCalls(), 1, "H: se intento una vez...");
+    await env.win.dwGraphToken();
+    assertEqual(cfgCalls(), 2,
+      "H: ...y el siguiente pedido REINTENTA — un 503 puntual no deja el Hub sin auth hasta recargar");
+  }
+
+  // ── I: htmx DIFIERE de verdad ─────────────────────────────────────────
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-HTMX" });
     const htmx = makeHtmx(env);
-    const elt = makeElt(true, "marcado");
-    htmx.fire(elt);
-    // ANTES de drenar: el request NO puede haber salido.
-    assertEqual(htmx.issued.length, 0,
-      "C: el request no sale antes de que la autoridad conteste");
-    await drain();
-    assertEqual(htmx.issued.length, 1, "C: despues de la autoridad, sale una vez");
-    assertEqual(htmx.issued[0].params.graph_token, "TOKEN-C",
-      "C: el hook inyecta el token que resolvio la autoridad");
-    // El orden real: confirm aborta, y la reemision entra con confirmed=true.
+    htmx.fire(makeElt(true, "marcado"));
+    assertEqual(htmx.issued.length, 0, "I: el request no sale antes de que la autoridad conteste");
+    await drain(); await drain(); await drain();
+    assertEqual(htmx.issued.length, 1, "I: despues de la autoridad, sale una vez");
+    assertEqual(htmx.issued[0].params.graph_token, "AT-HTMX",
+      "I: el hook inyecta el token que resolvio la autoridad");
     assertEqual(htmx.order.join(" | "),
       "issueAjaxRequest(confirmed=false) | confirm -> prevented=true | "
       + "issueAjaxRequest(confirmed=true) | configRequest | REQUEST SALE",
-      "C: el orden es diferir -> resolver -> reemitir -> armar params -> salir");
+      "I: diferir -> resolver -> reemitir -> armar params -> salir");
   }
 
-  // --- D: sin marcador, htmx queda intacto --------------------------------
+  // ── J: sin marcador, htmx queda intacto ───────────────────────────────
   {
-    const env = makeEnv({ "dw-graph-token": "TOKEN-D" });
+    const env = makeEnv({ accounts: [ACCOUNT] });
     const htmx = makeHtmx(env);
     htmx.fire(makeElt(false, "sinmarca"));
-    assertEqual(htmx.issued.length, 1, "D: un request sin Graph sale de inmediato");
+    assertEqual(htmx.issued.length, 1, "J: un request sin Graph sale de inmediato");
     assertEqual(htmx.issued[0].params.graph_token, undefined,
-      "D: y no se le inyecta ninguna credencial");
-    assertTrue(!htmx.order.includes("confirm -> prevented=true"),
-      "D: no se difiere lo que no necesita Graph");
+      "J: y no se le inyecta ninguna credencial");
   }
 
-  // --- E: concurrencia — dos requests marcados no se pisan ----------------
-  // El panel de Admin tiene DOS botones marcados ("Refrescar cache" y
-  // "Generar seed"). Con un slot global compartido, el segundo le robaria el
-  // valor al primero. Por eso el hook indexa por elemento.
-  //
-  // OJO con lo que se prueba acá: NO que cada request lleve el token vigente
-  // al momento de disparar. El contrato es "un token valido AHORA", donde
-  // "ahora" es cuando la autoridad contesta — si el token se renovo mientras
-  // el request esperaba, corresponde que salga el nuevo. Lo que se aisla es
-  // que un elemento no consuma la resolucion del OTRO: con un slot global,
-  // el segundo le roba el valor al primero y el primero sale con "".
+  // ── K: un request ENCOLADO vuelve a pedir el token ────────────────────
+  // Un guard de "ya resolvi para este elemento" le daria el token de ANTES de
+  // la espera — que ahora que la renovacion es real, es el vencido.
   {
-    const env = makeEnv({ "dw-graph-token": "irrelevante" });
-    const htmx = makeHtmx(env);
-    // Una resolucion distinta por llamada, para poder rastrear cual fue de quien.
-    let n = 0;
-    env.win.dwGraphToken = async function () { n += 1; return `TOKEN-${n}`; };
-    const a = makeElt(true, "refrescar");
-    const b = makeElt(true, "seed");
-    htmx.fire(a);
-    htmx.fire(b);
-    await drain(); await drain();
-    assertEqual(htmx.issued.length, 2, "E: los dos requests salen");
-    const byId = {};
-    htmx.issued.forEach(r => { byId[r.elt] = r.params.graph_token; });
-    assertEqual(n, 2, "E: la autoridad se consulta una vez por request, no una para los dos");
-    // Cada uno con SU resolucion, y ninguno vacio: eso es lo que el slot por
-    // elemento (WeakMap) garantiza.
-    assertTrue(byId["refrescar"] && byId["seed"], "E: ninguno sale sin token");
-    assertTrue(byId["refrescar"] !== byId["seed"],
-      "E: cada request lleva su propia resolucion");
-  }
-
-  // --- I: un request ENCOLADO vuelve a pedir el token ---------------------
-  // El caso que un guard de "ya resolvi para este elemento" romperia, y que
-  // solo se ve reproduciendo el encolado REAL de htmx: el gate corre, la
-  // autoridad resuelve, la reemision se ENCOLA (4290) sin armar parametros, y
-  // recien mucho despues se drena — reentrando por el gate (4276-4287).
-  //
-  // Sin guard, ese request vuelve a pedir el token y sale con el fresco. Con
-  // guard, pasa derecho y consume el que quedo colgado desde antes de la
-  // espera: en Fase 1A da igual, en 1B es exactamente el token vencido que
-  // todo este trabajo viene a evitar.
-  {
-    const env = makeEnv({ "dw-graph-token": "VIEJO" });
+    const env = makeEnv({ accounts: [ACCOUNT] });
     const htmx = makeHtmx(env);
     const elt = makeElt(true, "encolado");
-    let pedidos = 0;
-    env.win.dwGraphToken = async function () {
-      pedidos += 1;
-      return env.store["dw-graph-token"] || "";
-    };
-    htmx.queueTheRetry();            // la reemision se va a encolar
-    htmx.fire(elt); await drain();
-    assertEqual(pedidos, 1, "I: el primer disparo consulta la autoridad");
-    assertEqual(htmx.issued.length, 0, "I: nada salio todavia — quedo encolado");
-    assertEqual(htmx.queuedCount(), 1, "I: hay un request en la cola");
-    // Pasa el tiempo, el token se renueva, y la cola se drena.
-    env.store["dw-graph-token"] = "RENOVADO";
-    htmx.drainQueue(); await drain();
-    assertEqual(pedidos, 2, "I: el request encolado vuelve a consultar la autoridad");
-    assertEqual(htmx.issued.length, 1, "I: y sale");
-    assertEqual(htmx.issued[0].params.graph_token, "RENOVADO",
-      "I: lleva el token fresco, no el de antes de la espera");
+    let n = 0;
+    env.win.dwGraphToken = async function () { n += 1; return "AT-" + n; };
+    htmx.queueTheRetry();
+    htmx.fire(elt); await drain(); await drain();
+    assertEqual(n, 1, "K: el primer disparo consulta la autoridad");
+    assertEqual(htmx.issued.length, 0, "K: nada salio — quedo encolado");
+    assertEqual(htmx.queuedCount(), 1, "K: hay un request en la cola");
+    htmx.drainQueue(); await drain(); await drain();
+    assertEqual(n, 2, "K: el encolado vuelve a consultar la autoridad");
+    assertEqual(htmx.issued.length, 1, "K: y sale");
+    assertEqual(htmx.issued[0].params.graph_token, "AT-2",
+      "K: con el token fresco, no el de antes de la espera");
   }
 
-  // --- F: la reemision no entra en loop -----------------------------------
-  // Si el hook no marcara la reemision, `htmx:confirm` volveria a diferir para
-  // siempre. El corte es doble: `issueRequest(true)` y el guard de `resolved`.
+  // ── L: si la autoridad falla, el request sale igual con "" ────────────
   {
-    const env = makeEnv({ "dw-graph-token": "TOKEN-F" });
-    const htmx = makeHtmx(env);
-    htmx.fire(makeElt(true, "unavez"));
-    await drain(); await drain(); await drain();
-    assertEqual(htmx.issued.length, 1, "F: sale exactamente una vez");
-    const confirms = htmx.order.filter(o => o.startsWith("confirm ->")).length;
-    assertEqual(confirms, 1, "F: el gate se evalua una sola vez");
-  }
-
-  // --- G: el token se consume, no se cachea -------------------------------
-  // El proximo disparo del MISMO elemento vuelve a pasar por la autoridad. Si
-  // el valor quedara pegado, en la Fase 1B un token vencido se reusaria.
-  {
-    const env = makeEnv({ "dw-graph-token": "PRIMERO" });
-    const htmx = makeHtmx(env);
-    const elt = makeElt(true, "repetido");
-    htmx.fire(elt); await drain();
-    env.store["dw-graph-token"] = "SEGUNDO";
-    htmx.fire(elt); await drain();
-    assertEqual(htmx.issued.length, 2, "G: los dos disparos salen");
-    assertEqual(htmx.issued[0].params.graph_token, "PRIMERO", "G: el primero lleva el viejo");
-    assertEqual(htmx.issued[1].params.graph_token, "SEGUNDO",
-      "G: el segundo vuelve a preguntar (no reusa un token cacheado)");
-  }
-
-  // --- H: si la autoridad falla, el request sale igual con "" -------------
-  // Dejarlo colgado seria peor: un spinner infinito sin explicacion. Con ""
-  // el server responde `missing_token` y el usuario ve la accion que resuelve.
-  {
-    const env = makeEnv({ "dw-graph-token": "X" });
+    const env = makeEnv({ accounts: [ACCOUNT] });
     const htmx = makeHtmx(env);
     env.win.dwGraphToken = async function () { throw new Error("autoridad caida"); };
     htmx.fire(makeElt(true, "falla"));
     await drain(); await drain();
-    assertEqual(htmx.issued.length, 1, "H: el request no queda colgado");
-    assertEqual(htmx.issued[0].params.graph_token, "",
-      "H: sale con vacio y el server decide");
+    assertEqual(htmx.issued.length, 1, "L: el request no queda colgado");
+    assertEqual(htmx.issued[0].params.graph_token, "", "L: sale con vacio y el server decide");
+  }
+
+  // ── M: la app NO tiene ninguna API de refresh token ───────────────────
+  // Owner: la app nunca lee, escribe, rota, serializa ni exporta un refresh
+  // token, y no tiene clave de storage propia para credenciales.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] });
+    await env.win.dwGraphToken();
+    const expuesto = Object.keys(env.win).filter(k => k.indexOf("dw") === 0);
+    assertTrue(!expuesto.some(k => /refresh/i.test(k)),
+      "M: no hay ninguna funcion de refresh token expuesta");
+    // La autoridad no escribio NADA por su cuenta: las claves que existan son
+    // de MSAL. Aca el doble no escribe, asi que el storage queda vacio.
+    assertEqual(Object.keys(env.store).length, 0,
+      "M: la autoridad no escribe claves propias de credenciales");
   }
 
   if (failures > 0) {

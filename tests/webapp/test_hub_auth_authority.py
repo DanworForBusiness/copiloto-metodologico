@@ -41,9 +41,13 @@ MARKER = "data-dw-graph-token"
 
 
 def _js_code(raw: str) -> str:
-    """JS sin comentarios: los bloques que documentan este contrato citan a
-    propósito los literales que estos tests cuentan."""
-    return "\n".join(l for l in raw.splitlines() if not l.strip().startswith("//"))
+    """JS sin comentarios —de línea Y de bloque—: los comentarios que
+    documentan este contrato citan a propósito los literales que estos tests
+    cuentan. `auth.js` explica en su cabecera `/* */` justamente el PKCE que
+    dejó de tener, así que quedarse sólo con `//` deja pasar todo eso."""
+    sin_bloque = re.sub(r"/\*.*?\*/", "", raw, flags=re.S)
+    return "\n".join(
+        l for l in sin_bloque.splitlines() if not l.strip().startswith("//"))
 
 
 def _without_marker(text: str) -> str:
@@ -52,22 +56,49 @@ def _without_marker(text: str) -> str:
 
 # --- A: EL GUARD -----------------------------------------------------------
 
-def test_only_the_shared_authority_names_the_credential_artifact():
-    """El invariante central. Si este test falla, alguien volvió a poseer la
-    credencial y la Fase 1B dejó de poder reemplazar el proveedor en un lugar.
+def test_no_code_anywhere_owns_a_graph_credential_key():
+    """EL GUARD CENTRAL, actualizado a la Fase 1B.
+
+    En la Fase 1A la regla era "sólo la autoridad nombra `dw-graph-token`".
+    Ahora esa clave NO EXISTE en ninguna parte: MSAL es dueño completo de sus
+    artefactos y usa sus propias claves. Así que la regla se vuelve más
+    fuerte, no más débil — nadie, ni la autoridad, tiene una clave propia de
+    credenciales.
+
+    Si este test falla, alguien reintrodujo storage de credenciales a mano, que
+    es exactamente lo que la decisión del owner prohíbe.
     """
     offenders = []
     for path in sorted(_ROOT.glob("webapp/**/*")):
         if path.is_dir() or path.suffix not in (".js", ".html", ".py", ".css"):
             continue
-        if path == _AUTHORITY:
+        if "vendor" in path.parts:      # MSAL es de MSAL
             continue
-        if _without_marker(path.read_text(encoding="utf-8")).count(ARTIFACT):
+        text = _without_marker(path.read_text(encoding="utf-8"))
+        if ARTIFACT in text:
             offenders.append(str(path.relative_to(_ROOT)))
     assert offenders == [], (
-        "estos archivos nombran la credencial de Graph; sólo hub_auth.js puede: "
+        "estos archivos vuelven a nombrar una clave de credencial propia: "
         + ", ".join(offenders)
     )
+
+
+def test_the_application_never_touches_a_refresh_token():
+    """El límite explícito de la aprobación del owner: MSAL puede usar su cache
+    de SPA —refresh token incluido— pero la app NUNCA lo lee, escribe, rota,
+    serializa ni exporta, y no hay implementación propia ni clave propia.
+
+    Se cuenta sobre código sin comentarios a propósito: los bloques que
+    documentan este contrato mencionan "refresh token" justamente para
+    explicar de quién es.
+    """
+    for path in sorted(_ROOT.glob("webapp/**/*.js")):
+        if "vendor" in path.parts:
+            continue
+        code = _js_code(path.read_text(encoding="utf-8"))
+        low = code.lower()
+        for banned in ("refresh_token", "refreshtoken"):
+            assert banned not in low, f"{path.name}: {banned}"
 
 
 def test_no_application_code_defines_its_own_graph_token_accessor():
@@ -164,13 +195,31 @@ def test_every_graph_consumer_goes_through_the_authority():
             assert "await dwGraphToken()" in window, f"{name}: graph_token sin la autoridad"
 
 
-def test_login_delegates_the_write_instead_of_owning_it():
-    """El login ENTREGA el token; no sabe dónde se guarda. En la Fase 1B ese
-    guardado desaparece (MSAL mantiene su cache) y este delegado es el punto
-    exacto donde se corta."""
+def test_login_no_longer_writes_a_credential_at_all():
+    """En la Fase 1A el login ENTREGABA el token a la autoridad para que lo
+    guardara. En la 1B ni eso: MSAL lo guarda en su cache al resolver el
+    popup, así que el paso de guardado desaparece. `auth.js` queda como la
+    capa de UI del login —botón, overlay, mensajes— y el protocolo entero se
+    fue.
+    """
     code = _js_code((_STATIC / "auth.js").read_text(encoding="utf-8"))
-    assert "dwRememberGraphAuth" in code
-    assert "sessionStorage" not in code
+    # El protocolo ya no vive acá.
+    for gone in ("code_challenge", "code_verifier", "crypto.subtle", "oauth2/v2.0",
+                 "grant_type", "dwRememberGraphAuth", "sessionStorage", "localStorage"):
+        assert gone not in code, f"auth.js todavía tiene {gone}"
+    # Y el login se pide a la autoridad.
+    assert "dwHubLogin()" in code
+
+
+def test_the_backend_still_creates_the_hub_session_from_the_id_token():
+    """Lo que NO cambia: la sesión del Hub la crea el server con el `id_token`
+    validado. MSAL no sabe nada de la cookie del Hub, y el Hub no sabe nada de
+    la cache de MSAL."""
+    code = _js_code(_AUTHORITY.read_text(encoding="utf-8"))
+    assert '"/api/auth/microsoft/token"' in code
+    assert "id_token: res.idToken" in code
+    # Y NUNCA se le manda un access token al backend.
+    assert "accessToken" not in code.split("/api/auth/microsoft/token")[1][:400]
 
 
 def test_logout_hygiene_still_goes_through_the_authority():
