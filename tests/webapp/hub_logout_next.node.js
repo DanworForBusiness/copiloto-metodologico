@@ -31,6 +31,16 @@ if (end === -1) {
 }
 const snippet = src.slice(start, end + 3);
 
+// `dwLogout` delega la limpieza del artefacto de Graph en
+// `dwClearGraphAuth` (misma autoridad, app.js): hay que traer las DOS o el
+// sandbox no tiene la funcion.
+const clearStart = src.indexOf("window.dwClearGraphAuth = function () {");
+if (clearStart === -1) {
+  console.log("FAIL: no se encontró window.dwClearGraphAuth en app.js");
+  process.exit(1);
+}
+const clearSnippet = src.slice(clearStart, src.indexOf("\n};", clearStart) + 3);
+
 let failures = 0;
 function assertTrue(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
 function assertEqual(actual, expected, label) {
@@ -43,6 +53,15 @@ function runLogout(location) {
   const calls = [];
   const forbidden = [];
   const loc = Object.assign({ href: "", origin: "https://hub.danwor.com" }, location);
+  // sessionStorage: se ESPIA en vez de prohibirse — el logout ahora SI debe
+  // limpiar el artefacto de Graph (higiene de auth), pero nada mas.
+  const storageOps = [];
+  const sessionTrap = {
+    removeItem(k) { storageOps.push(`removeItem:${k}`); },
+    getItem(k) { storageOps.push(`getItem:${k}`); return null; },
+    setItem(k) { storageOps.push(`setItem:${k}`); },
+    clear() { storageOps.push("clear"); },
+  };
   const storageTrap = new Proxy({}, {
     get(_t, prop) { forbidden.push(`storage.${String(prop)}`); return () => undefined; },
     set(_t, prop) { forbidden.push(`storage.${String(prop)}`); return true; },
@@ -57,7 +76,7 @@ function runLogout(location) {
     window: { location: loc },
     location: loc,
     localStorage: storageTrap,
-    sessionStorage: storageTrap,
+    sessionStorage: sessionTrap,
     document: documentTrap,
     URLSearchParams,
     encodeURIComponent,
@@ -68,9 +87,10 @@ function runLogout(location) {
     console,
   };
   vm.createContext(sandbox);
+  vm.runInContext(clearSnippet, sandbox, { filename: "dwClearGraphAuth.js" });
   vm.runInContext(snippet, sandbox, { filename: "dwLogout.js" });
   vm.runInContext("window.dwLogout()", sandbox);
-  return { calls, href: loc.href, forbidden };
+  return { calls, href: loc.href, forbidden, storageOps };
 }
 
 // --- A: el contrato textual del owner ---------------------------------------
@@ -134,12 +154,27 @@ assertEqual(new URLSearchParams(raro.href.split("?")[1]).get("next"), "//evil.ex
 assertEqual(comercial.calls.length, 1, "F: exactamente una request");
 assertEqual(comercial.calls[0].url, "/api/auth/logout", "F: la request es el logout de siempre");
 assertEqual(comercial.calls[0].method, "POST", "F: sigue siendo POST");
-// Sin modal, sin confirmación, sin estado: nada de storage ni cookies ni DOM.
+// Sin modal, sin confirmación, sin estado propio: nada de localStorage,
+// cookies ni DOM. `sessionStorage` YA NO está prohibido — se espía aparte.
 const tocado = [comercial, conQuery, raro].flatMap(r => r.forbidden);
-assertTrue(tocado.length === 0, `F: no toca storage/cookie/DOM (tocó: ${tocado.join(", ")})`);
+assertTrue(tocado.length === 0, `F: no toca localStorage/cookie/DOM (tocó: ${tocado.join(", ")})`);
 assertTrue(!snippet.includes("confirm(") && !snippet.includes("localStorage")
-  && !snippet.includes("sessionStorage") && !snippet.includes("document.cookie"),
+  && !snippet.includes("document.cookie"),
   "F: el código del logout no introduce confirmación ni persistencia propia");
+
+// --- F2: HIGIENE DE AUTH — el logout limpia el artefacto de Graph ----------
+// Antes de este corrective la cookie moría y `dw-graph-token` sobrevivía: un
+// token de Graph válido quedaba en el browser después de cerrar sesión.
+[comercial, conQuery, raro].forEach((r, i) => {
+  assertEqual(r.storageOps.join("|"), "removeItem:dw-graph-token",
+    `F2[${i}]: limpia dw-graph-token, y nada más`);
+});
+// Delega en la autoridad compartida, no reimplementa la limpieza.
+assertTrue(snippet.includes("dwClearGraphAuth()"),
+  "F2: el logout delega en `dwClearGraphAuth`, la autoridad compartida");
+// Y la limpieza ocurre ANTES del fetch: si la red falla, el artefacto ya se fue.
+assertTrue(snippet.indexOf("dwClearGraphAuth()") < snippet.indexOf("fetch("),
+  "F2: limpia antes del fetch — una red caída no puede dejar el token vivo");
 
 // --- G: el destino no está cableado a ninguna capability -------------------
 assertTrue(!snippet.includes("/comercial") && !snippet.includes("/reporting")

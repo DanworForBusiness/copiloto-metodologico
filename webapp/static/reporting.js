@@ -925,6 +925,10 @@ const state = {
   // debe esperar el fetch+parse de la XLSX de Facturadas que solo Proyecto
   // usa, ver loadCarteraMantenimiento/loadCarteraProyecto). idle → loading
   // → ready | error, mismo criterio que el resto del Hub.
+  // AUTORIZACIÓN DE GRAPH: estado del HUB, no de una experiencia — todas
+  // comparten UN token, así que si venció, venció para todas. Se prende
+  // desde `reportingClassifyState` y lo lee `reportingAuthGateHtml`.
+  graphAuthRequired: false,
   carteraMantenimientoStatus: "idle",
   carteraProyectoStatus: "idle",
   // HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): metadata de años
@@ -1293,6 +1297,54 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
 function reportingLoadingHtml(label) {
   return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
     + `<span class="section-analysis-loading-copy">${esc(label)}</span></p>`;
+}
+// AUTORIZACIÓN DE GRAPH vencida — estado del HUB, no de una experiencia.
+// Todas las verticales comparten UN token, así que si venció, venció para
+// todas: por eso el flag vive en `state.graphAuthRequired` y no por
+// experiencia.
+//
+// Distinto de `reportingSourceErrorHtml` a propósito: hasta este corrective,
+// un 401 se mostraba como "No pudimos cargar … desde SharePoint" — un error
+// de fuente que era FALSO y que además no sugería la acción que sí
+// desbloquea. El usuario terminaba descubriendo por prueba y error que salir
+// y volver a entrar lo arreglaba.
+//
+// LÍMITE HONESTO de esta fase: hoy el token de Graph se adquiere ÚNICAMENTE
+// en el login interactivo (no se pide `offline_access`, no hay refresh
+// token), así que la única recuperación real es volver a pasar por Microsoft.
+// El botón lo hace en UN click y vuelve al contexto exacto vía `next` — no es
+// un reload de página. La renovación silenciosa, sin re-login, es Fase 1
+// (MSAL Browser); cuando exista, sólo cambia lo que hace este botón.
+function reportingAuthRequiredHtml() {
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">Sesión de datos</span>`
+    + `<p>Tu sesión de datos con Microsoft necesita renovarse. `
+    + `<button type="button" class="dashboard-subhead__reset" onclick="dwLogout()">Renovar sesión</button></p></div>`;
+}
+
+// CLASIFICADOR ÚNICO de las respuestas de los endpoints Graph del Hub. Antes
+// cada loader hacía `if (data.state === "ok" && …) else "error"`, así que los
+// cuatro estados del contrato colapsaban en uno: dato válido sin filas,
+// falla de fuente, token ausente y 401 se veían igual.
+//
+// Devuelve el status de la experiencia y, de paso, prende el flag compartido
+// cuando la causa es de autorización.
+function reportingClassifyState(data) {
+  const s = data && data.state;
+  if (s === "ok") return "ready";    // defensivo: los callers ya lo filtran
+  if (s === "auth_required" || s === "missing_token") {
+    state.graphAuthRequired = true;
+    return s;                        // los dos se distinguen en el estado…
+  }
+  return "error";                     // …y comparten tratamiento visual: misma acción
+}
+
+// Puerta compartida de los renderers de estado: si la autorización venció, el
+// mensaje es del Hub y gana sobre cualquier copy de la experiencia.
+function reportingAuthGateHtml(status) {
+  if (status === "auth_required" || status === "missing_token" || state.graphAuthRequired) {
+    return reportingAuthRequiredHtml();
+  }
+  return "";
 }
 function reportingSourceErrorHtml(label) {
   return `<p class="empty-panel">No pudimos cargar ${esc(label)} desde SharePoint en este momento. `
@@ -2271,7 +2323,7 @@ async function loadCarteraMantenimiento() {
       // solo porque nadie tocó un filtro a mano todavía.
       reconcileExperienceFacets("cartera");
     } else {
-      state.carteraMantenimientoStatus = "error";
+      state.carteraMantenimientoStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraMantenimientoStatus = "error";
@@ -2293,7 +2345,7 @@ async function loadCarteraProyecto() {
       state.carteraAnioInicio = carteraDefaultAnioInicio();
       state.carteraProyectoStatus = "ready";
     } else {
-      state.carteraProyectoStatus = "error";
+      state.carteraProyectoStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraProyectoStatus = "error";
@@ -2364,7 +2416,7 @@ async function loadCarteraMantenimientoAnios() {
       state.carteraMantenimientoAniosDisponibles = data.aniosDisponibles;
       state.carteraMantenimientoAniosStatus = "ready";
     } else {
-      state.carteraMantenimientoAniosStatus = "error";
+      state.carteraMantenimientoAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraMantenimientoAniosStatus = "error";
@@ -2440,6 +2492,10 @@ async function loadCarteraMantenimientoColdYear(anio) {
   render();
 }
 function renderCarteraDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   const persp = state.perspective.cartera;
   if (carteraStatusFor(persp) === "error") {
     return reportingSourceErrorHtml("los datos de Cartera");
@@ -2504,7 +2560,7 @@ async function loadRentabilidadData() {
       }
       state.rentabilidadDataStatus = "ready";
     } else {
-      state.rentabilidadDataStatus = "error";
+      state.rentabilidadDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.rentabilidadDataStatus = "error";
@@ -2527,7 +2583,7 @@ async function loadRentabilidadAnios() {
       state.rentabilidadAniosDisponibles = data.aniosDisponibles;
       state.rentabilidadAniosStatus = "ready";
     } else {
-      state.rentabilidadAniosStatus = "error";
+      state.rentabilidadAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.rentabilidadAniosStatus = "error";
@@ -2593,6 +2649,10 @@ async function loadRentabilidadColdYear(anio) {
   render();
 }
 function renderRentabilidadDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.rentabilidadDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Rentabilidad");
   }
@@ -2636,7 +2696,7 @@ async function loadBatchAData() {
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
       state.batchADataStatus = "ready";
     } else {
-      state.batchADataStatus = "error";
+      state.batchADataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.batchADataStatus = "error";
@@ -2644,6 +2704,10 @@ async function loadBatchAData() {
   render();
 }
 function renderBatchADataState(label) {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.batchADataStatus === "error") {
     return reportingSourceErrorHtml(label);
   }
@@ -2688,7 +2752,7 @@ async function loadHorasVendidasData() {
       }
       state.horasVendidasDataStatus = "ready";
     } else {
-      state.horasVendidasDataStatus = "error";
+      state.horasVendidasDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.horasVendidasDataStatus = "error";
@@ -2710,7 +2774,7 @@ async function loadHorasVendidasAnios() {
       state.horasVendidasAniosDisponibles = data.aniosDisponibles;
       state.horasVendidasAniosStatus = "ready";
     } else {
-      state.horasVendidasAniosStatus = "error";
+      state.horasVendidasAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.horasVendidasAniosStatus = "error";
@@ -2773,6 +2837,10 @@ function mergeHorasVendidasRows(incoming) {
   });
 }
 function renderHorasVendidasDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.horasVendidasDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Horas Vendidas");
   }
@@ -2828,7 +2896,7 @@ async function loadComercialParticipacionData() {
       }
       state.comercialParticipacionDataStatus = "ready";
     } else {
-      state.comercialParticipacionDataStatus = "error";
+      state.comercialParticipacionDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.comercialParticipacionDataStatus = "error";
@@ -2851,7 +2919,7 @@ async function loadComercialParticipacionAnios() {
       state.comercialParticipacionAniosDisponibles = data.aniosDisponibles;
       state.comercialParticipacionAniosStatus = "ready";
     } else {
-      state.comercialParticipacionAniosStatus = "error";
+      state.comercialParticipacionAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.comercialParticipacionAniosStatus = "error";
@@ -2917,6 +2985,10 @@ async function loadComercialParticipacionColdYears(anios) {
   render();
 }
 function renderParticipacionDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.comercialParticipacionDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Participación");
   }
@@ -2965,7 +3037,7 @@ async function loadBatchBData() {
       }
       state.batchBDataStatus = "ready";
     } else {
-      state.batchBDataStatus = "error";
+      state.batchBDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.batchBDataStatus = "error";
@@ -2973,6 +3045,10 @@ async function loadBatchBData() {
   render();
 }
 function renderBatchBDataState(label) {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.batchBDataStatus === "error") {
     return reportingSourceErrorHtml(label);
   }
@@ -2995,7 +3071,7 @@ async function loadCapacidadAnios() {
       state.capacidadAniosDisponibles = data.aniosDisponibles;
       state.capacidadAniosStatus = "ready";
     } else {
-      state.capacidadAniosStatus = "error";
+      state.capacidadAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.capacidadAniosStatus = "error";

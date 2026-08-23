@@ -85,6 +85,7 @@ from webapp.services.activity_context import (
 # `activity_context` (ese sigue existiendo solo para la normalización
 # histórica interna de `activity_context`/`activity_analytics`).
 from webapp.services.module_registry import OP01_MODULE_ID
+from webapp.graph_auth_state import graph_error_state
 from webapp.services.staffing_repository import AbsenceGraphError, AbsenceSchemaError
 from webapp.services.staffing_service import StaffingService, build_dashboard_payload
 from webapp.templating import templates
@@ -358,7 +359,15 @@ def staffing_ausencias(request: Request, graph_token: str = Form("")):
             module=OP01_MODULE_ID, operation="absences", error_type=type(exc).__name__,
             stage=exc.stage, reason=exc.reason, http_status=exc.status_code,
         )
-        return JSONResponse({"state": "graph_error", "stage": exc.stage, "http_status": exc.status_code})
+        # 401 = la autorización delegada de Graph vencida, NO una caída de
+        # SharePoint. MISMA decisión compartida que Reporting
+        # (`webapp.graph_auth_state`), con el vocabulario de falla de fuente
+        # de Staffing (`graph_error`) intacto para todo lo demás — su
+        # template y sus tests dependen de ese nombre.
+        return JSONResponse({
+            "state": graph_error_state(exc.status_code, source_state="graph_error"),
+            "stage": exc.stage, "http_status": exc.status_code,
+        })
     except Exception as exc:  # noqa: BLE001 — falla inesperada, nunca de config
         log_verbose(
             EVENT_DATA_LOAD_FAILED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING,

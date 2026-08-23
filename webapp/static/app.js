@@ -374,9 +374,21 @@ window.dwToggleDiagnostic = function (on) {
 // ("/comercial" → "%2Fcomercial") sin doble-encodear, y es el mismo helper que
 // ya usa `dwToggleDiagnostic`. Transversal por construcción: el destino se lee
 // de la ubicación actual, así que no hay una rama por capability.
+// HIGIENE DE AUTH (auditoría cross-vertical, owner 2026-08-23): el logout
+// borraba la cookie de sesión y dejaba VIVO el `dw-graph-token` en
+// sessionStorage. Un token de Graph válido sobrevivía al cierre de sesión —
+// inválido: la autorización delegada es parte del contexto de auth, así que
+// se va con él. Una sola autoridad limpia una sola vez.
+window.dwClearGraphAuth = function () {
+  try { sessionStorage.removeItem("dw-graph-token"); } catch (e) { /* sin storage: nada que limpiar */ }
+};
+
 window.dwLogout = function () {
   const next = window.location.pathname + window.location.search;
   const target = `/onedanwor?${new URLSearchParams({ next }).toString()}`;
+  // Se limpia ANTES del fetch: si la red falla, el artefacto de auth ya no
+  // está. `finally` garantiza la navegación igual.
+  window.dwClearGraphAuth();
   fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.href = target; });
 };
 

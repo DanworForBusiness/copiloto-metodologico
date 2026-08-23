@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -147,11 +148,16 @@ def test_logout_is_resolved_once_in_the_shared_chrome():
     assert _APP_JS.count("window.dwLogout = function () {") == 1
     topbar = (_ROOT / "webapp" / "templates" / "partials" / "platform_topbar.html").read_text(encoding="utf-8")
     assert topbar.count("dwLogout()") == 1
-    # Ninguna vertical trae su propio logout.
+    # Ninguna vertical DEFINE un logout. INVOCARLO sí está permitido y es lo
+    # que se busca: Reporting ofrece "Renovar sesión" cuando la autorización
+    # de Graph murió, y eso tiene que resolverse con el logout compartido en
+    # vez de con un re-login propio. La regla es de PROPIEDAD, no de mención:
+    # lo que rompe la autoridad única es una segunda implementación.
+    define = re.compile(r"(?:window\.)?dwLogout\s*=|function\s+dwLogout\b")
     for vertical in ("commercial.js", "reporting.js", "staffing.js", "tools.js"):
         path = _STATIC / vertical
         if path.exists():
-            assert "dwLogout" not in path.read_text(encoding="utf-8"), vertical
+            assert not define.search(path.read_text(encoding="utf-8")), vertical
 
 
 def test_logout_destination_is_derived_never_hardcoded_per_capability():

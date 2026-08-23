@@ -42,6 +42,7 @@ from datetime import datetime, timezone
 
 from core.content_registry import DEFAULT_PACK
 from webapp import operations_access, workspaces
+from webapp.graph_auth_state import graph_error_state
 from webapp.services import auth_service, feedback_store
 from webapp.services.activity_context import AREA_REPORTING, SCOPE_OPERATIONS
 from webapp.services.activity_service import is_verbose, log_activity, log_verbose
@@ -55,6 +56,26 @@ from webapp.templating import templates
 
 router = APIRouter()
 _logger = logging.getLogger("danwor.reporting")
+
+
+def _graph_error_response(exc: ReportingGraphError) -> JSONResponse:
+    """Falla de TRANSPORTE Graph → estado. UN solo punto para las 11 rutas
+    de datos: antes cada `except` repetía el mismo literal `source_error`,
+    así que un 401 —la autorización delegada vencida— era indistinguible de
+    una caída real de SharePoint, y el usuario leía un error de fuente que
+    era falso. La decisión vive en `webapp.graph_auth_state` (ver ahí por
+    qué 401 sí y 403 no); acá sólo se le da forma HTTP.
+
+    `http_status` se sigue mandando: era la ÚNICA pista que existía, y el
+    frontend nunca la leía.
+
+    `ReportingSourceError` (workbook inválido, tabla faltante) NO pasa por
+    acá: no tiene status HTTP y es una falla de fuente de verdad.
+    """
+    return JSONResponse({
+        "state": graph_error_state(exc.status_code),
+        "stage": exc.stage, "http_status": exc.status_code,
+    })
 
 
 @router.get("/operaciones/reporting/integral", response_class=HTMLResponse, include_in_schema=False)
@@ -129,7 +150,7 @@ def reporting_cartera_data(
         # un RuntimeError genérico surgido más abajo (parseo/join/etc.).
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001 — inesperada: se loguea con traceback server-side
@@ -163,7 +184,7 @@ def reporting_cartera_anios_disponibles(request: Request, graph_token: str = For
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -201,7 +222,7 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), a
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -231,7 +252,7 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -266,7 +287,7 @@ def reporting_batch_a_data(request: Request, graph_token: str = Form("")):
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -303,7 +324,7 @@ def reporting_horas_vendidas_data(request: Request, graph_token: str = Form(""),
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -332,7 +353,7 @@ def reporting_horas_vendidas_anios_disponibles(request: Request, graph_token: st
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -372,7 +393,7 @@ def reporting_participacion_data(request: Request, graph_token: str = Form(""), 
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -402,7 +423,7 @@ def reporting_participacion_anios_disponibles(request: Request, graph_token: str
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -444,7 +465,7 @@ def reporting_batch_b_data(request: Request, graph_token: str = Form(""), anios:
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
@@ -473,7 +494,7 @@ def reporting_batch_b_anios_disponibles(request: Request, graph_token: str = For
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
-        return JSONResponse({"state": "source_error", "stage": exc.stage, "http_status": exc.status_code})
+        return _graph_error_response(exc)
     except ReportingSourceError as exc:
         return JSONResponse({"state": "source_error", "stage": exc.stage})
     except Exception:  # noqa: BLE001
