@@ -29,6 +29,8 @@ from __future__ import annotations
 import csv
 import io
 
+import pytest
+
 from webapp.services import reporting_repository as repo_mod
 from webapp.services.reporting_repository import ReportingRepository
 from webapp.services.reporting_service import ReportingService
@@ -233,3 +235,120 @@ def test_unmatched_time_logs_project_is_tracked_not_fabricated():
     assert unmatched[0]["proyectoKey"] == "PROYECTOFANTASMA"
     assert unmatched[0]["horas"] == 500.0
     assert unmatched[0]["mes"] == "8"
+
+
+# --- ANTI FAN-OUT (owner live proof, agosto 2026) -------------------------
+# "Horas por proyectos" PUEDE traer N filas para el mismo proyecto x anio x
+# mes (distintas entradas/correcciones del mismo mes). El bucle de emision
+# le asignaba a CADA una el agregado mensual COMPLETO de Time Logs, asi que
+# `trabajadas` quedaba multiplicada por N. Medido en vivo: 3 filas x 203,5 h
+# = 610,5 h reportadas, y 2 x 9,0 = 18,0 -> 416 h inventadas en un mes.
+#
+# El grano de SALIDA es proyecto x anio x mes (ver el UNION GRAIN corrective
+# del docstring de `_mantenimiento_rows`): las horas trabajadas canonicas
+# entran UNA sola vez, sin importar cuantas filas tenga la fuente.
+_FANOUT_H = 203.5          # el valor vivo del caso A
+_FANOUT_DECOY = "999"      # si algun camino volviera a leer HsTrabajadas
+
+
+def _fanout_fixture(monkeypatch, n_filas, horas_time_logs, mes="Agosto", dia="05"):
+    """N filas de SharePoint para el MISMO proyecto x anio x mes, y UN solo
+    agregado de Time Logs. `HsVendidas`/`HsFacturadas` distintas por fila para
+    poder verificar que se SUMAN (no se descartan ni se toma "la primera")."""
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[{
+            "ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": mes,
+            "HsTrabajadas": _FANOUT_DECOY,
+            "HsVendidas": str(100 + i), "HsFacturadas": str(10 + i),
+        } for i in range(n_filas)],
+        proyectos=[{"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Mantenimiento",
+                     "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [
+            {"Date": f"2026-08-{dia}", "Client": "Danone", "Project": "Soporte Danone",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": str(horas_time_logs)},
+        ]},
+    )
+    return ReportingService(_repo()).get_cartera_mantenimiento("tok", anios=["2026"])
+
+
+@pytest.mark.parametrize("n_filas", [1, 2, 3])
+def test_worked_hours_never_fan_out_no_matter_how_many_source_rows(monkeypatch, n_filas):
+    rows = _fanout_fixture(monkeypatch, n_filas, _FANOUT_H)
+    agosto = [r for r in rows if r["mes"] == "8"]
+    total = round(sum(r["trabajadas"] for r in agosto), 2)
+    # LA invariante: el canonico entra una vez, no N veces.
+    assert total == _FANOUT_H, (n_filas, total)
+    # Y explicitamente: NO es N x H para N > 1.
+    if n_filas > 1:
+        assert total != round(n_filas * _FANOUT_H, 2)
+    # Grano de salida: UNA fila logica por proyecto x anio x mes.
+    assert len(agosto) == 1, (n_filas, len(agosto))
+    # El campo manual nunca alimenta trabajadas.
+    assert total != float(_FANOUT_DECOY)
+
+
+@pytest.mark.parametrize("n_filas", [1, 2, 3])
+def test_certified_and_sold_hours_are_summed_not_discarded(monkeypatch, n_filas):
+    # Las otras medidas SI son aditivas por fila de origen: cada fila de
+    # SharePoint aporta sus propias horas. Colapsar el grano no puede
+    # perderlas (la UI ya las sumaba por rollup, ver CARTERA_CONFIG).
+    rows = _fanout_fixture(monkeypatch, n_filas, _FANOUT_H)
+    agosto = [r for r in rows if r["mes"] == "8"]
+    esperado_vend = float(sum(100 + i for i in range(n_filas)))
+    esperado_cert = float(sum(10 + i for i in range(n_filas)))
+    assert round(sum(r["vendidasMensuales"] for r in agosto), 2) == esperado_vend
+    assert round(sum(r["certificadas"] for r in agosto), 2) == esperado_cert
+    # `facturadas` es source-faithful en Mantenimiento (== certificadas).
+    assert round(sum(r["facturadas"] for r in agosto), 2) == esperado_cert
+    # `diff` se recalcula sobre los valores colapsados, no arrastra el fan-out.
+    assert round(sum(r["diff"] for r in agosto), 2) == round(esperado_cert - _FANOUT_H, 2)
+
+
+def test_live_case_a_three_source_rows_report_2035_not_6105(monkeypatch):
+    # Equivalente al caso vivo A (Danone - Modern Data Stack SAP Fase I).
+    rows = _fanout_fixture(monkeypatch, 3, 203.5)
+    agosto = [r for r in rows if r["mes"] == "8"]
+    assert round(sum(r["trabajadas"] for r in agosto), 2) == 203.5
+    assert round(sum(r["trabajadas"] for r in agosto), 2) != 610.5
+
+
+def test_live_case_b_two_source_rows_report_90_not_180(monkeypatch):
+    # Equivalente al caso vivo B (Danone - Mantenimiento Proyecto B-One).
+    rows = _fanout_fixture(monkeypatch, 2, 9.0)
+    agosto = [r for r in rows if r["mes"] == "8"]
+    assert round(sum(r["trabajadas"] for r in agosto), 2) == 9.0
+    assert round(sum(r["trabajadas"] for r in agosto), 2) != 18.0
+
+
+def test_collapsing_the_grain_does_not_merge_different_months(monkeypatch):
+    # El grano incluye el mes: agrupar no puede fusionar meses distintos.
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Julio",
+             "HsTrabajadas": _FANOUT_DECOY, "HsVendidas": "10", "HsFacturadas": "1"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+             "HsTrabajadas": _FANOUT_DECOY, "HsVendidas": "20", "HsFacturadas": "2"},
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+             "HsTrabajadas": _FANOUT_DECOY, "HsVendidas": "30", "HsFacturadas": "3"},
+        ],
+        proyectos=[{"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Mantenimiento",
+                     "Status": "En curso"}],
+        clientes=[{"id": "c1", "Title": "Danone"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [
+            {"Date": "2026-07-10", "Client": "Danone", "Project": "Soporte Danone",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "40"},
+            {"Date": "2026-08-05", "Client": "Danone", "Project": "Soporte Danone",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "60"},
+        ]},
+    )
+    rows = ReportingService(_repo()).get_cartera_mantenimiento("tok", anios=["2026"])
+    por_mes = {r["mes"]: r for r in rows}
+    assert sorted(por_mes) == ["7", "8"]                 # dos filas, no una ni tres
+    assert por_mes["7"]["trabajadas"] == 40.0
+    assert por_mes["8"]["trabajadas"] == 60.0            # NO 120.0
+    assert por_mes["8"]["vendidasMensuales"] == 50.0     # las dos filas de agosto, sumadas

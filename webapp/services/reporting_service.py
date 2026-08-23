@@ -534,17 +534,56 @@ class ReportingService:
         (ver `get_cartera_mantenimiento`), nunca se pierden silenciosamente."""
         rows = []
         covered: set[tuple[str, str, int]] = set()
+        # ANTI FAN-OUT (owner live proof, agosto 2026): este bucle emitía UNA
+        # FILA POR FACT de SharePoint, y a cada una le asignaba el agregado
+        # mensual COMPLETO de Time Logs. Cuando "Horas por proyectos" tiene N
+        # filas para el MISMO proyecto×año×mes (pasa de verdad: distintas
+        # entradas/correcciones del mismo mes), `trabajadas` quedaba
+        # multiplicada por N. Medido en vivo: 3 filas × 203,5 h = 610,5 h
+        # reportadas, y 2 × 9,0 = 18,0 — 416 h inventadas en un solo mes.
+        #
+        # El grano DECLARADO de este método (ver el UNION GRAIN corrective del
+        # docstring) siempre fue la UNIÓN DE KEYS `(proyecto normalizado, año,
+        # mes)`; la implementación lo contradecía. Ahora se agrupa por esa
+        # clave ANTES de emitir: una fila lógica por key, con `trabajadas`
+        # tomada UNA sola vez.
+        #
+        # `certificadas`/`vendidasMensuales` SÍ son aditivas por fila de origen
+        # (cada fila de SharePoint aporta sus propias horas certificadas/
+        # vendidas del mes), así que se SUMAN — no se descartan ni se toma
+        # "la primera". Eso preserva exactamente los totales que la UI ya
+        # mostraba: sus columnas rollupean con `sumField` (ver CARTERA_CONFIG),
+        # o sea que las filas duplicadas ya se sumaban en pantalla. Lo único
+        # que cambia de valor es `trabajadas` (y `diff`, que la usa).
+        #
+        # Las dimensiones (cliente/CP/proyecto/estado/fecha) se toman del
+        # primer fact del grupo, no por arbitrariedad: están determinadas por
+        # el proyecto —se resuelven contra los mismos lookups de Proyectos/
+        # Cliente en `get_cartera_facts`— así que son idénticas dentro de una
+        # key. `trabajadas` NO depende del orden: sale de `trab_by_proyecto`
+        # por clave, nunca de una fila puntual.
+        grouped: dict[tuple[str, str, int | None], dict] = {}
         for f in facts:
             if f.get("tipoProyecto") != "Mantenimiento":
                 continue
             mes_num = _month_num(f["mes"])
-            key = _norm_key(f.get("proyecto"))
+            gkey = (_norm_key(f.get("proyecto")), f["anio"], mes_num)
+            g = grouped.get(gkey)
+            if g is None:
+                # `dict` preserva orden de inserción — el orden de salida sigue
+                # siendo el de primera aparición en la fuente, como antes.
+                g = grouped[gkey] = {"fact": f, "certificadas": 0.0, "vendidas": 0.0}
+            g["certificadas"] += f["hsCertificadas"]
+            g["vendidas"] += f["hsVendidas"]
+
+        for (key, anio, mes_num), g in grouped.items():
+            f = g["fact"]
             if mes_num is not None:
-                covered.add((key, f["anio"], mes_num))
-                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
+                covered.add((key, anio, mes_num))
+                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(anio, [0.0] * 12)[mes_num - 1])
             else:
                 trabajadas = 0.0
-            certificadas = _round2(f["hsCertificadas"])
+            certificadas = _round2(g["certificadas"])
             rows.append({
                 "cliente": f["cliente"],
                 "cp": f["clientPartner"],
@@ -552,19 +591,24 @@ class ReportingService:
                 "diff": _round2(certificadas - trabajadas),
                 "trabajadas": trabajadas,
                 "certificadas": certificadas,
-                "vendidasMensuales": _round2(f["hsVendidas"]),
+                "vendidasMensuales": _round2(g["vendidas"]),
                 # Source-faithful: Mantenimiento no usa el XLSX (facturadas == certificadas).
                 "facturadas": certificadas,
                 "status": f["estado"],
-                "fecha": _fecha_primer_dia(f["anio"], f["mes"]),
+                "fecha": _fecha_primer_dia(anio, f["mes"]),
                 # UX1 (owner live QA): Año/Mes reemplazan Desde/Hasta como
-                # filtro de Mantenimiento — grano MENSUAL real de la fuente
-                # (Horas por proyectos es proyecto×mes). `mes` normalizado a
-                # string "1".."12" (mismo índice+1 que el resto de la app,
-                # ver `_month_num`) para matchear el <select> del frontend
-                # (valores HTML siempre son string); fila con mes no
-                # parseable ⇒ "" (nunca inventa un mes).
-                "anio": f["anio"],
+                # filtro de Mantenimiento — grano MENSUAL. Un comentario previo
+                # afirmaba acá que "Horas por proyectos es proyecto×mes": la
+                # data real lo desmiente (puede traer N filas para el mismo
+                # proyecto×mes), y creerlo fue justo lo que produjo el fan-out
+                # que corrige el bloque de arriba. El grano proyecto×año×mes es
+                # el de la SALIDA, garantizado por el agrupamiento, no una
+                # propiedad de la fuente. `mes` normalizado a string "1".."12"
+                # (mismo índice+1 que el resto de la app, ver `_month_num`)
+                # para matchear el <select> del frontend (valores HTML siempre
+                # son string); fila con mes no parseable ⇒ "" (nunca inventa
+                # un mes).
+                "anio": anio,
                 "mes": str(mes_num) if mes_num is not None else "",
             })
 
