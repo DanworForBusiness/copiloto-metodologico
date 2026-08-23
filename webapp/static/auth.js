@@ -112,7 +112,10 @@
 
   function rememberGraphToken(token) {
     if (!token) return;
-    try { sessionStorage.setItem("dw-graph-token", token); } catch (e) { /* sin storage: se omite */ }
+    // La autoridad (hub_auth.js) es la que sabe DÓNDE vive la credencial —
+    // acá sólo se la entrega. En la Fase 1B este guardado se va del todo:
+    // MSAL mantiene su propia cache y este delegado es el punto de corte.
+    if (typeof window.dwRememberGraphAuth === "function") window.dwRememberGraphAuth(token);
   }
 
   async function createSession(idToken) {

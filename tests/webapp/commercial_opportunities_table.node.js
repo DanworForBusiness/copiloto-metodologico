@@ -25,6 +25,14 @@ const src = fs.readFileSync(COMMERCIAL_JS, "utf-8");
 const sandbox = {
   document: { addEventListener() {}, getElementById() { return null; }, querySelector() { return null; } },
   window: {},
+  // `dwGraphToken` es la AUTORIDAD del Hub sobre el access token de Graph y
+  // vive en hub_auth.js, no en reporting.js — mismo criterio que
+  // `HubForegroundProgress`/`initDashboardSections`, que viven en app.js. Stub
+  // suficiente: lo que se prueba acá es el render, no el ciclo de vida de la
+  // credencial (eso es de hub_auth_authority.node.js). Devuelve "" igual que
+  // el stub de sessionStorage al que reemplaza: la Fase 1A no cambia el
+  // escenario que este harness venia probando.
+  dwGraphToken: async () => "",
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "config_incomplete" }) }); },
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
   initDashboardSections() {},

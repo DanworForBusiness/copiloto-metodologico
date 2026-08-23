@@ -63,7 +63,7 @@
     <p class="admin-help">Regenera los catálogos Danwor desde insumos técnicos crudos publicados en SharePoint o en la carpeta entrante local: dominios/CSN, espacios, conexiones, seguridad/DAC y demás artefactos soportados. Preserva la curaduría manual del senior (intención, veredicto, resumen y criterios) y actualiza solo el contenido derivado de la evidencia técnica.</p>
     <form hx-post="/admin/catalog/generate" hx-target="#res-catalog" hx-swap="innerHTML"
           hx-indicator="#ind-catalog" hx-disabled-elt="button[type='submit']"
-          hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'>
+          data-dw-graph-token>
       <div class="admin-actions">
         <button type="submit" class="btn-primary">Regenerar catálogo</button>
         <span id="ind-catalog" class="admin-indicator htmx-indicator">generando…</span>
@@ -172,12 +172,12 @@
     <div class="admin-actions">
       <button type="button" class="btn-secondary"
               hx-post="/admin/sharepoint/refresh-cache"
-              hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+              data-dw-graph-token
               hx-target="#res-sharepoint" hx-swap="innerHTML"
               hx-indicator="#ind-sharepoint">Refrescar cache</button>
       <button type="button" class="btn-primary"
               hx-post="/admin/sharepoint/seed"
-              hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+              data-dw-graph-token
               hx-target="#res-sharepoint" hx-swap="innerHTML"
               hx-indicator="#ind-sharepoint">Generar seed</button>
       <span id="ind-sharepoint" class="admin-indicator htmx-indicator">consultando…</span>

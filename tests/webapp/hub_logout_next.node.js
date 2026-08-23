@@ -32,14 +32,16 @@ if (end === -1) {
 const snippet = src.slice(start, end + 3);
 
 // `dwLogout` delega la limpieza del artefacto de Graph en
-// `dwClearGraphAuth` (misma autoridad, app.js): hay que traer las DOS o el
-// sandbox no tiene la funcion.
-const clearStart = src.indexOf("window.dwClearGraphAuth = function () {");
-if (clearStart === -1) {
-  console.log("FAIL: no se encontró window.dwClearGraphAuth en app.js");
-  process.exit(1);
-}
-const clearSnippet = src.slice(clearStart, src.indexOf("\n};", clearStart) + 3);
+// `dwClearGraphAuth`, que en la FASE 1A vive en la autoridad compartida
+// (hub_auth.js): el chrome decide CUANDO se limpia, la autoridad sabe QUE se
+// limpia.
+//
+// Se carga el MODULO COMPLETO, no un fragmento. Extraer sola la funcion
+// parecia mas prolijo y era un verde falso: `ARTIFACT` es una const del IIFE,
+// asi que la funcion suelta lanzaba ReferenceError y su propio try/catch se lo
+// tragaba — el test "pasaba" sin limpiar nada.
+const HUB_AUTH = path.resolve(__dirname, "..", "..", "webapp", "static", "hub_auth.js");
+const authSrc = fs.readFileSync(HUB_AUTH, "utf-8");
 
 let failures = 0;
 function assertTrue(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
@@ -67,6 +69,9 @@ function runLogout(location) {
     set(_t, prop) { forbidden.push(`storage.${String(prop)}`); return true; },
   });
   const documentTrap = {
+    // hub_auth.js registra sus hooks de htmx al cargar: eso es la AUTORIDAD
+    // inicializandose, no el logout tocando el DOM.
+    addEventListener() { },
     get cookie() { forbidden.push("document.cookie(get)"); return ""; },
     set cookie(v) { forbidden.push("document.cookie(set)"); },
     querySelector() { forbidden.push("document.querySelector"); return null; },
@@ -87,7 +92,7 @@ function runLogout(location) {
     console,
   };
   vm.createContext(sandbox);
-  vm.runInContext(clearSnippet, sandbox, { filename: "dwClearGraphAuth.js" });
+  vm.runInContext(authSrc, sandbox, { filename: "hub_auth.js" });
   vm.runInContext(snippet, sandbox, { filename: "dwLogout.js" });
   vm.runInContext("window.dwLogout()", sandbox);
   return { calls, href: loc.href, forbidden, storageOps };
@@ -172,6 +177,11 @@ assertTrue(!snippet.includes("confirm(") && !snippet.includes("localStorage")
 // Delega en la autoridad compartida, no reimplementa la limpieza.
 assertTrue(snippet.includes("dwClearGraphAuth()"),
   "F2: el logout delega en `dwClearGraphAuth`, la autoridad compartida");
+// Y la autoridad es la unica que nombra la credencial.
+assertTrue(!src.includes("dw-graph-token"),
+  "F2: app.js no nombra la credencial (la Fase 1A la mudo a la autoridad)");
+assertTrue(authSrc.includes("dw-graph-token"),
+  "F2: la autoridad si la nombra — es su responsabilidad");
 // Y la limpieza ocurre ANTES del fetch: si la red falla, el artefacto ya se fue.
 assertTrue(snippet.indexOf("dwClearGraphAuth()") < snippet.indexOf("fetch("),
   "F2: limpia antes del fetch — una red caída no puede dejar el token vivo");

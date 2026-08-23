@@ -913,7 +913,12 @@ _TOOLS_CSS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools
 
 def test_cartera_fetches_the_backend_endpoint():
     assert '"/operaciones/reporting/integral/data/cartera"' in _REPORTING_JS
-    assert 'sessionStorage.getItem("dw-graph-token")' in _REPORTING_JS
+    # El token ya no se lee del storage acá: lo resuelve la autoridad
+    # compartida del Hub (`dwGraphToken`, hub_auth.js). Lo que este test
+    # sigue afirmando es lo mismo de antes —que Cartera manda un token con
+    # su request—, ahora contra el contrato correcto.
+    assert "await dwGraphToken()" in _REPORTING_JS
+    assert "dw-graph-token" not in _REPORTING_JS  # nunca vuelve a poseerlo
 
 
 def test_cartera_populates_existing_arrays_in_place_not_reassign():

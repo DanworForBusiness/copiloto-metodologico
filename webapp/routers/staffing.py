@@ -31,9 +31,11 @@ body preservados (307, no 302/303). Nunca vuelven a implementar la lógica
 de la página/fragmento — un solo punto de verdad evita que ambos
 diverjan.
 
-El token Graph delegado sigue viviendo en `sessionStorage` del browser
-(mismo mecanismo de `webapp/static/auth.js` que ya usa el panel de Admin —
-`hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") ...}'`);
+El token Graph delegado lo resuelve la AUTORIDAD compartida del Hub
+(`dwGraphToken`, webapp/static/hub_auth.js) — el cliente ya no lee el
+storage de credenciales, y el fragmento htmx sólo DECLARA que necesita
+Graph (`data-dw-graph-token`): el parámetro lo inyecta el hook transversal
+tras esperar a la autoridad;
 este router NUNCA lo posee, lo persiste ni lo loguea. `GET` no requiere
 `graph_token` ni llama a Graph — el token del browser no está disponible en
 un GET server-side normal (arquitectura preservada de Batch 1: el

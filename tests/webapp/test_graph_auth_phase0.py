@@ -206,9 +206,14 @@ def test_graph_auth_client_invariants_hold():
 
 def test_logout_clears_the_graph_artifact_through_a_single_authority():
     app_js = (_STATIC / "app.js").read_text(encoding="utf-8")
-    # Una sola función sabe cómo se borra el artefacto...
-    assert app_js.count("window.dwClearGraphAuth = function () {") == 1
-    assert app_js.count(f'sessionStorage.removeItem("{GRAPH_ARTIFACT}")') == 1
+    # Una sola función sabe cómo se borra el artefacto. En la FASE 1A se mudó
+    # de app.js a la autoridad compartida: sigue habiendo UNA, y ahora está
+    # donde vive el resto del ciclo de vida de la credencial.
+    authority = (_STATIC / "hub_auth.js").read_text(encoding="utf-8")
+    assert authority.count("window.dwClearGraphAuth = function () {") == 1
+    assert authority.count(f'sessionStorage.removeItem(ARTIFACT)') == 1
+    assert "window.dwClearGraphAuth = function" not in app_js
+    assert GRAPH_ARTIFACT not in app_js  # el chrome ya no nombra la credencial
     # ...y el logout la usa en vez de reimplementarla.
     logout = app_js[app_js.index("window.dwLogout = function () {"):]
     logout = logout[:logout.index("\n};") + 3]

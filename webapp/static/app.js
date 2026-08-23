@@ -375,13 +375,12 @@ window.dwToggleDiagnostic = function (on) {
 // ya usa `dwToggleDiagnostic`. Transversal por construcción: el destino se lee
 // de la ubicación actual, así que no hay una rama por capability.
 // HIGIENE DE AUTH (auditoría cross-vertical, owner 2026-08-23): el logout
-// borraba la cookie de sesión y dejaba VIVO el `dw-graph-token` en
-// sessionStorage. Un token de Graph válido sobrevivía al cierre de sesión —
-// inválido: la autorización delegada es parte del contexto de auth, así que
-// se va con él. Una sola autoridad limpia una sola vez.
-window.dwClearGraphAuth = function () {
-  try { sessionStorage.removeItem("dw-graph-token"); } catch (e) { /* sin storage: nada que limpiar */ }
-};
+// borraba la cookie de sesión y dejaba VIVO el artefacto de Graph. Un token
+// válido sobrevivía al cierre de sesión — inválido: la autorización delegada
+// es parte del contexto de auth, así que se va con él.
+// `dwClearGraphAuth` vive en la AUTORIDAD (hub_auth.js), no acá: el chrome
+// decide CUÁNDO se limpia, la autoridad sabe QUÉ se limpia. En la Fase 1B eso
+// además incluye bajar la cuenta y la cache de MSAL, sin tocar este archivo.
 
 window.dwLogout = function () {
   const next = window.location.pathname + window.location.search;
@@ -500,9 +499,8 @@ function dwShowLightbox(src) {
 // publicar"). El token de Graph vive en el sessionStorage del copiloto (este
 // contexto), no en el del iframe; por eso el POST lo hace el PADRE y devuelve el
 // resultado al iframe que lo pidió.
-function dwRunRegenerate(source) {
-  let token = "";
-  try { token = sessionStorage.getItem("dw-graph-token") || ""; } catch (e) {}
+async function dwRunRegenerate(source) {
+  const token = await dwGraphToken();
   const reply = (ok, message) => {
     if (source) { try { source.postMessage({ type: "dw-regenerate-result", ok: ok, message: message }, window.location.origin); } catch (e) {} }
   };
@@ -991,7 +989,7 @@ function staffingDashboard(payload) {
       this.absencesLoading = true;
       this.absencesLoadError = false;
       try {
-        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const token = await dwGraphToken();
         const body = new URLSearchParams({ graph_token: token });
         const response = await fetch("/operaciones/staffing/asignaciones/ausencias", { method: "POST", body });
         const data = await response.json();
@@ -1014,7 +1012,7 @@ function staffingDashboard(payload) {
       this.historyLoading = true;
       this.historyLoadError = false;
       try {
-        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const token = await dwGraphToken();
         const body = new URLSearchParams({ graph_token: token });
         const response = await fetch("/operaciones/staffing/asignaciones/historial", { method: "POST", body });
         const data = await response.json();

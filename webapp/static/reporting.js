@@ -2264,7 +2264,8 @@ function dashboardSections(dashboardKey, sectionsHtml) {
 // Carga LAZY de los datos REALES de Cartera desde el backend, POR
 // PERSPECTIVA (P5, owner live QA de performance — ver
 // loadCarteraMantenimiento/loadCarteraProyecto abajo). Mismo token
-// delegado del browser que Staffing (sessionStorage "dw-graph-token").
+// delegado del browser que Staffing, pedido a la autoridad compartida
+// del Hub (`dwGraphToken`, hub_auth.js) — Reporting no toca el storage.
 // Popula EN EL LUGAR los arrays que CARTERA_CONFIG ya referencia (nunca
 // reasigna) — el motor de facets/jerarquía/rollups no se entera de que las
 // filas ahora son reales. Fail-soft: una falla deja esa perspectiva de
@@ -2301,7 +2302,7 @@ function replaceMonthly(arr, values) {
 async function loadCarteraMantenimiento() {
   state.carteraMantenimientoStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento" }),
     });
@@ -2333,7 +2334,7 @@ async function loadCarteraMantenimiento() {
 async function loadCarteraProyecto() {
   state.carteraProyectoStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "proyecto" }),
     });
@@ -2407,7 +2408,7 @@ function carteraMantenimientoLoadedYears() {
 async function loadCarteraMantenimientoAnios() {
   state.carteraMantenimientoAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2469,7 +2470,7 @@ async function loadCarteraMantenimientoColdYear(anio) {
   // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("cartera", { seedMs: 9000 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST",
       body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento", anios: anio }),
@@ -2541,7 +2542,7 @@ function rentabilidadLoadedYears() {
 async function loadRentabilidadData() {
   state.rentabilidadDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2574,7 +2575,7 @@ async function loadRentabilidadData() {
 async function loadRentabilidadAnios() {
   state.rentabilidadAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2628,7 +2629,7 @@ async function loadRentabilidadColdYear(anio) {
   // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("rentabilidad", { seedMs: 14500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
@@ -2683,7 +2684,7 @@ function renderRentabilidadDataState() {
 async function loadBatchAData() {
   state.batchADataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-a", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2737,7 +2738,7 @@ function horasVendidasLoadedYears() {
 async function loadHorasVendidasData() {
   state.horasVendidasDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2765,7 +2766,7 @@ async function loadHorasVendidasData() {
 async function loadHorasVendidasAnios() {
   state.horasVendidasAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2797,7 +2798,7 @@ async function loadHorasVendidasColdYear(anio) {
   // independiente, varias pueden estar en vuelo/fallar a la vez.
   HubForegroundProgress.begin("horasvendidas", { seedMs: 9500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
@@ -2876,7 +2877,7 @@ function hydrateComercialParticipacionTab() {
 async function loadComercialParticipacionData() {
   state.comercialParticipacionDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2910,7 +2911,7 @@ async function loadComercialParticipacionData() {
 async function loadComercialParticipacionAnios() {
   state.comercialParticipacionAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2963,7 +2964,7 @@ async function loadComercialParticipacionColdYears(anios) {
   // Participación es la perspectiva activa), nunca el batch-a de Salud.
   HubForegroundProgress.begin("participacion", { seedMs: 10000 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anios.join(",") }),
     });
@@ -3009,7 +3010,7 @@ function renderParticipacionDataState() {
 async function loadBatchBData() {
   state.batchBDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -3062,7 +3063,7 @@ function renderBatchBDataState(label) {
 async function loadCapacidadAnios() {
   state.capacidadAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -3123,7 +3124,7 @@ async function loadCapacidadColdYear(anio) {
   state.capacidadYearErrors.delete(anio);
   HubForegroundProgress.begin("batch-b", { seedMs: 7500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
