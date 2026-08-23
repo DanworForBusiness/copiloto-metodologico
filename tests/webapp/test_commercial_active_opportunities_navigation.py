@@ -159,7 +159,14 @@ def test_no_focus_stealing_introduced_by_the_scroll_corrective():
     # corrective no debe inventar uno).
     scroll_fn = _COMMERCIAL_JS.split("function commercialMaybeScrollToOpenedAnalysis(", 1)[1].split("\nfunction ", 1)[0]
     assert ".focus(" not in scroll_fn
-    assert "aria-expanded" not in _COMMERCIAL_JS
+    assert "aria-expanded" not in scroll_fn
+    # La assertion era GLOBAL sobre commercial.js, y valía mientras nada usara
+    # el atributo. El chevron de Creadas sí lo usa, y es exactamente para lo
+    # que existe: un control cuyo estado de expansión hay que anunciar. Lo que
+    # este test protege —que el corrective de SCROLL no invente un contrato de
+    # foco/expansión— sigue intacto, ahora acotado a la función que audita.
+    for state in ('aria-expanded="true"', 'aria-expanded="false"'):
+        assert state not in scroll_fn
 
 
 def test_funnel_header_no_longer_carries_a_dimension_switch():

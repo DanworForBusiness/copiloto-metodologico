@@ -105,8 +105,26 @@ const commercialState = {
   // nunca un fetch (MISMO dataset ya cargado, sólo cambia qué fila se ve
   // abierta). "" = ninguno expandido.
   creadasYear: null,
-  creadasExpandedMonth: "",
-  creadasExpandedWeek: "",
+  // Meses expandidos — VARIOS a la vez. El legacy abría uno solo y cerraba el
+  // anterior (`_createdExpandedMonth`); poder abrir dos para compararlos es
+  // una mejora aprobada, no una desviación de paridad.
+  creadasExpandedMonths: [],
+  // Selección para el detalle — SEPARADA de la expansión. Antes el detalle se
+  // derivaba del mes expandido, así que un mismo click hacía dos cosas
+  // inconexas y no había forma de cerrar el detalle sin colapsar el mes.
+  // `null` = sin detalle; `{ month, week }` con `week === null` para el mes
+  // entero.
+  creadasSelection: null,
+  // Filtros LOCALES del drill — se resuelven sobre el payload ya cargado y
+  // NUNCA disparan un fetch (el universo de negocio lo cambia sólo Tipo).
+  creadasSeller: "",
+  creadasSearch: "",
+  // Orden del detalle — MISMO contrato que Actividades y Oportunidades:
+  // `null` = el orden canonico (fecha de entrada ascendente, el del legacy),
+  // y un click en una cabecera lo cambia. La primera columna que se clickea
+  // arranca ascendente; volver a clickearla invierte.
+  creadasSortKey: null,
+  creadasSortDir: 1,
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
   // costo de una capability que no se está viendo. `idle` = todavía no se
   // pidió, o quedó stale tras cambiar el filtro global.
@@ -933,10 +951,31 @@ function commercialCreadasWeekOfMonth(entryDate) {
   return Math.ceil(Number(entryDate.slice(8, 10)) / 7);
 }
 
+// Color del badge de estado. Se compara por RAIZ y sin distinguir
+// mayusculas/acentos, no por igualdad exacta.
+//
+// El motivo es un problema de DATOS en Odoo, no de presentacion: el mismo
+// desenlace llega escrito de dos formas ("Perdida" y "Perdido" conviven en el
+// mismo mes), y hay estados que nunca tuvieron badge ("Suspendido"). Con la
+// comparacion exacta —que es la que tenia el legacy, `status === "Perdida"`—
+// una de las dos variantes se renderizaba como texto plano al lado de la otra
+// con badge rojo, en la misma columna. No es una regresion del Hub: es un
+// defecto heredado que los datos reales expusieron.
+//
+// La normalizacion es SOLO para elegir el color. El texto se muestra tal como
+// viene de Odoo: corregirlo en el cliente escondería la inconsistencia de la
+// fuente, que es un problema real y de negocio (ver el reporte del increment).
+//
+// Las etapas numeradas del pipeline ("1 - Inicial", "6 - Armando Propuestas
+// Formales") NO llevan badge a proposito: un badge marca un DESENLACE, y una
+// etapa intermedia no lo es. Van como texto plano, igual que antes.
 function commercialCreadasStatusColor(status) {
-  if (status === "Ganada") return "green";
-  if (status === "Perdida") return "red";
-  return null;
+  const s = (status || "").toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  if (s.startsWith("ganad")) return "green";      // Ganada / Ganado
+  if (s.startsWith("perdid")) return "red";       // Perdida / Perdido
+  if (s.startsWith("suspendid")) return "grey";   // Suspendida / Suspendido
+  return null;                                    // etapas del pipeline: sin badge
 }
 
 const COMMERCIAL_MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -946,17 +985,122 @@ function commercialCreadasMonthLabel(month) {
   return `${COMMERCIAL_MONTH_NAMES[m - 1]} de ${y}`;
 }
 
-// Ranking por vendedor (año seleccionado) — reusa `.bar-row` (tools.css),
-// el primitivo YA promovido Hub-wide (ver
+// ── FILTRADO LOCAL ────────────────────────────────────────────────────────
+// Año, Vendedor y Buscar se resuelven SOBRE EL PAYLOAD YA CARGADO. Ninguno
+// dispara un fetch: el universo de negocio lo cambia sólo Tipo (Todos/NN/BI),
+// que sigue con su contrato de dataset intacto.
+//
+// La búsqueda usa `toLowerCase()` a secas — MISMO criterio que
+// `commercialOppMatchesSearch`/`commercialActivityMatchesSearch`, las dos
+// búsquedas que ya existen en la vertical. Un normalizado de acentos acá y no
+// allá sería una tercera semántica de búsqueda.
+function commercialCreadasMatchesSearch(opp, query) {
+  if (!query) return true;
+  return [opp.name, opp.client, opp.seller, opp.origen, opp.status]
+    .filter(Boolean).join(" ").toLowerCase().includes(query);
+}
+
+// Vendedores DERIVADOS del payload ya cargado — MISMO criterio que
+// `Responsable` en Actividades: no hay endpoint de usuarios y no hace falta.
+// Se derivan del AÑO activo, así que el select nunca ofrece un vendedor que no
+// puede producir ni una fila.
+function commercialCreadasSellers(months, year) {
+  const sellers = new Set();
+  (months || []).filter(m => m.month.startsWith(year))
+    .forEach(m => (m.opportunities || []).forEach(o => sellers.add(o.seller || "Sin vendedor")));
+  return [...sellers].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+// El universo filtrado: los meses del año con sus oportunidades pasadas por
+// Vendedor + Buscar, y el `count` RECALCULADO sobre lo que queda. Un mes que
+// se queda sin oportunidades desaparece — mostrarlo con 0 sería ruido.
+//
+// Es la ÚNICA fuente del ranking, la tabla y el detalle: si cada uno filtrara
+// por su cuenta podrían discrepar, que es exactamente el tipo de
+// inconsistencia que un drill no puede permitirse.
+function commercialCreadasFiltered(months, year) {
+  const seller = commercialState.creadasSeller;
+  const query = (commercialState.creadasSearch || "").trim().toLowerCase();
+  return (months || [])
+    .filter(m => m.month.startsWith(year))
+    .map(m => {
+      const opps = (m.opportunities || []).filter(o =>
+        (!seller || (o.seller || "Sin vendedor") === seller)
+        && commercialCreadasMatchesSearch(o, query));
+      return { month: m.month, count: opps.length, opportunities: opps };
+    })
+    .filter(m => m.count > 0)
+    .sort((a, b) => b.month.localeCompare(a.month));
+}
+
+function commercialCreadasHasLocalFilters() {
+  return !!(commercialState.creadasSeller || (commercialState.creadasSearch || "").trim());
+}
+
+// Horas de un conjunto de oportunidades. `horas` puede ser `null` ("sin horas
+// cargadas", que el backend distingue a propósito de 0): se suma como 0 pero
+// el "—" de la celda lo decide `commercialCreadasHoursCell`.
+function commercialCreadasHours(opps) {
+  return (opps || []).reduce((sum, o) => sum + (o.horas || 0), 0);
+}
+// Celda de Horas — MISMO criterio que el legacy: con oportunidades pero sin
+// horas cargadas muestra "—"; sin oportunidades, "0".
+function commercialCreadasHoursCell(opps) {
+  const hs = commercialCreadasHours(opps);
+  if (hs) return commercialFmtInt(hs);
+  return (opps || []).length ? "—" : "0";
+}
+
+// ── BARRA DE FILTROS ──────────────────────────────────────────────────────
+// Año / Vendedor / Buscar / Limpiar en UNA fila, con los MISMOS primitivos que
+// la barra de Actividades y la de Activas (`.whatsnew-filters` +
+// `--fill` + `.whatsnew-filter__clear`) — un solo lenguaje de filtros en toda
+// la vertical, cero clase nueva. "Buscar" es `--fill` y se come el espacio del
+// medio, así que Limpiar queda pegado a la derecha sin posicionamiento propio.
+function commercialCreadasControlsHtml(months) {
+  const years = commercialCreadasYears(months);
+  const year = commercialCreadasEffectiveYear(months);
+  const sellers = commercialCreadasSellers(months, year);
+  return `<div class="whatsnew-filters" data-commercial-creadas-filters>
+      <label class="whatsnew-filter">
+        <span>Año</span>
+        <select data-commercial-creadas-year>
+          ${years.map(y => `<option value="${y}"${y === year ? " selected" : ""}>${y}</option>`).join("")}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-creadas-seller>
+          <option value=""${commercialState.creadasSeller === "" ? " selected" : ""}>Todos</option>
+          ${sellers.map(v => `<option value="${commercialEsc(v)}"${commercialState.creadasSeller === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="whatsnew-filter whatsnew-filter--fill">
+        <span>Buscar</span>
+        <input type="search" data-commercial-creadas-search aria-label="Buscar oportunidades creadas"
+               placeholder="Buscar…" value="${commercialEsc(commercialState.creadasSearch)}">
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-creadas-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+// ── RANKING POR VENDEDOR — el ÚNICO gráfico del análisis ──────────────────
+// Reusa `.bar-row` (tools.css), el primitivo ya promovido Hub-wide (ver
 // test_bar_primitive_is_promoted_hub_wide...), MISMO que usa Reporting/
-// Rentabilidad para su propio ranking — cero clase nueva.
-function commercialCreadasSellerRankingHtml(months, year) {
-  const opps = (months || []).filter(m => m.month.startsWith(year)).flatMap(m => m.opportunities || []);
+// Rentabilidad para su propio ranking. Descendente, y responde a los filtros
+// activos como todo lo demás: si Vendedor filtra a uno solo, muestra uno solo
+// —mantener las barras de los demás obligaría a una regla de filtrado
+// especial para el ranking, y dos semánticas de filtro en la misma pantalla.
+function commercialCreadasSellerRankingHtml(filtered) {
+  const opps = (filtered || []).flatMap(m => m.opportunities || []);
   const counts = {};
-  opps.forEach(o => { const s = o.seller || "Sin vendedor"; counts[s] = (counts[s] || 0) + 1; });
+  opps.forEach(o => { const v = o.seller || "Sin vendedor"; counts[v] = (counts[v] || 0) + 1; });
   const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   if (!rows.length) {
-    return commercialEmptyStateHtml("Sin resultados", "Ningún vendedor tiene oportunidades creadas en este año.");
+    return commercialEmptyStateHtml("Sin resultados",
+      commercialCreadasHasLocalFilters()
+        ? "Ningún vendedor tiene oportunidades creadas con estos filtros."
+        : "Ningún vendedor tiene oportunidades creadas en este año.");
   }
   const max = rows[0][1];
   return rows.map(([seller, count]) => `
@@ -966,131 +1110,258 @@ function commercialCreadasSellerRankingHtml(months, year) {
     </div>`).join("");
 }
 
-// Semanas de UN mes ya expandido — MISMOS primitivos `.bar-track`/
-// `.bar-fill`/`.bar-value` que la tabla de Forecast, fila CLICKEABLE (ver
-// `commercialCreadasMonthTableHtml`) hacia el detalle por oportunidad.
-function commercialCreadasWeekRowsHtml(monthBucket) {
+// ── LA ETIQUETA DE SEMANA — RECUPERADA DEL LEGACY, TEXTUAL ────────────────
+// `frontend/js/dashboard.js::renderCreatedDrillTable` (legacy):
+//
+//     const dayStart = (wk - 1) * 7 + 1;
+//     const dayEnd   = Math.min(wk * 7, daysInMonth);
+//     const padZ     = n => String(n).padStart(2, "0");
+//     const label    = `Sem. ${wk} (${padZ(dayStart)}/${padZ(m)}–${padZ(dayEnd)}/${padZ(m)})`;
+//
+// O sea: `Sem. 2 (08/07–14/07)`. El separador es EN DASH (–, U+2013), no un
+// guión ASCII. El último bucket se recorta a `daysInMonth`, así que en un
+// febrero de 28 días la semana 4 es `(22/02–28/02)` y no `(22/02–28/02)` por
+// casualidad — se recorta de verdad en meses de 30/31.
+//
+// Las HORAS van en su propia COLUMNA, no dentro del label: el legacy las tenía
+// así y meterlas en el texto haría la primera columna mucho más ancha sin
+// ganar nada.
+//
+// El bucket sigue siendo `ceil(día/7)` — NO la semana Monday-anchored del KPI
+// semanal. Son dos conceptos distintos a propósito.
+function commercialCreadasWeekLabel(month, week) {
+  const [, m] = month.split("-").map(Number);
+  const daysInMonth = new Date(Number(month.slice(0, 4)), m, 0).getDate();
+  const padZ = n => String(n).padStart(2, "0");
+  const dayStart = (week - 1) * 7 + 1;
+  const dayEnd = Math.min(week * 7, daysInMonth);
+  return `Sem. ${week} (${padZ(dayStart)}/${padZ(m)}–${padZ(dayEnd)}/${padZ(m)})`;
+}
+
+// Cuántos buckets tiene un mes — `ceil(díasDelMes / 7)`, MISMO criterio que el
+// legacy, que renderizaba TODAS las semanas del mes (las vacías atenuadas y no
+// clickeables) para que el mes se leyera completo.
+function commercialCreadasWeekCount(month) {
+  const [y, m] = month.split("-").map(Number);
+  return Math.ceil(new Date(y, m, 0).getDate() / 7);
+}
+
+// ── UNA SOLA TABLA JERÁRQUICA: MES → SEMANA ───────────────────────────────
+// Antes eran dos tablas desconectadas (la mensual acá y la semanal apareciendo
+// en otro lugar). Ahora las semanas son FILAS HIJAS de su mes, dentro de la
+// misma tabla y el mismo `<tbody>`.
+//
+// ALINEACIÓN: la primera columna es TEXTO y va a la izquierda; Opps. y Horas
+// son números y van a la derecha, que es el DEFAULT de `table.dashboard-table`
+// (th y td) — o sea cero clase para las numéricas. Para las de TEXTO el
+// primitivo es `.left`, NO `.row-label-col`: esa última sólo tiene regla para
+// `<th>`, así que un `<td class="row-label-col">` cae en el `text-align:right`
+// genérico. Ese es exactamente el desalineado que se ve hoy —header a la
+// izquierda, celda a la derecha—. Nada
+// centrado — un mes centrado no se puede escanear en una columna.
+//
+// DOS ACCIONES SEPARADAS en la fila de mes, que antes eran un solo click
+// ambiguo:
+//   * el CHEVRON (botón propio) expande/colapsa las semanas;
+//   * el RESTO DE LA FILA selecciona el mes y abre su detalle.
+// El chevron corta la propagación, así que expandir no toca el detalle.
+function commercialCreadasWeekRowsHtml(bucket) {
   const byWeek = {};
-  (monthBucket.opportunities || []).forEach(o => {
+  (bucket.opportunities || []).forEach(o => {
     const w = commercialCreadasWeekOfMonth(o.entry_date);
     (byWeek[w] || (byWeek[w] = [])).push(o);
   });
-  const weeks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
-  const maxW = Math.max(...weeks.map(w => byWeek[w].length), 1);
-  return weeks.map(w => {
-    const opps = byWeek[w];
+  const total = commercialCreadasWeekCount(bucket.month);
+  const maxW = Math.max(...Object.values(byWeek).map(a => a.length), 1);
+  const sel = commercialState.creadasSelection;
+  const rows = [];
+  for (let w = 1; w <= total; w += 1) {
+    const opps = byWeek[w] || [];
+    const has = opps.length > 0;
     const width = (opps.length / maxW * 100).toFixed(1);
-    return `<tr class="commercial-creadas-row" data-commercial-creadas-week="${monthBucket.month}:${w}">
-      <td class="row-label-col">Semana ${w}</td>
-      <td><span class="forecast-bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span>`
-      + `<span class="bar-value">${commercialFmtInt(opps.length)}</span></span></td>
+    const selected = !!(sel && sel.month === bucket.month && sel.week === w);
+    // Sin oportunidades: se muestra igual (el mes se lee completo) pero
+    // atenuada y NO seleccionable — abrir un detalle vacío no informa nada.
+    const attrs = has
+      ? ` data-commercial-creadas-week="${commercialEsc(bucket.month)}:${w}" tabindex="0" role="button"`
+      : ' aria-disabled="true"';
+    const row = `<tr class="commercial-creadas-week${has ? "" : " is-empty"}${selected ? " is-selected" : ""}"${attrs}>
+      <td class="left commercial-creadas-week-label">${commercialEsc(commercialCreadasWeekLabel(bucket.month, w))}</td>
+      <td>${commercialFmtInt(opps.length)}</td>
+      <td>${commercialCreadasHoursCell(opps)}</td>
+      <td class="commercial-creadas-dist"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span></td>
     </tr>`;
-  }).join("");
+    rows.push(row);
+  }
+  return rows.join("");
 }
 
-// Tabla mensual — año seleccionado, descendente. MISMOS primitivos que la
-// tabla de Forecast (`.dashboard-table`/`.matrix-scroll`/`.bar-track`/
-// `.bar-fill`/`.bar-value`, colgroup en %) — cero clase nueva. Fila de mes
-// CLICKEABLE (el drill mensual que el comentario histórico de
-// `commercialForecastTableHtml` marcaba como "C7, todavía no homologado" —
-// ESTE es ese drill): expande semanas sin fetch, todo client-side sobre el
-// payload ya cargado (MISMO criterio que Etapa/Vendedor de Forecast).
-function commercialCreadasMonthTableHtml(months, year) {
-  const rows = (months || []).filter(m => m.month.startsWith(year));
-  if (!rows.length) {
-    return commercialEmptyStateHtml("Sin resultados", "Ninguna oportunidad entró al pipeline en este año.");
+function commercialCreadasMonthTableHtml(filtered) {
+  if (!filtered.length) {
+    return commercialEmptyStateHtml("Sin resultados",
+      commercialCreadasHasLocalFilters()
+        ? "Ninguna oportunidad coincide con estos filtros."
+        : "Ninguna oportunidad entró al pipeline en este año.");
   }
-  const max = Math.max(...rows.map(m => m.count), 1);
-  const body = rows.map(m => {
+  const max = Math.max(...filtered.map(m => m.count), 1);
+  const sel = commercialState.creadasSelection;
+  const body = filtered.map(m => {
     const width = (m.count / max * 100).toFixed(1);
-    const expanded = commercialState.creadasExpandedMonth === m.month;
-    const caret = expanded ? "▾" : "▸";
-    const monthRow = `<tr class="commercial-creadas-row" data-commercial-creadas-month="${commercialEsc(m.month)}">
-      <td class="row-label-col">${caret} ${commercialEsc(commercialCreadasMonthLabel(m.month))}</td>
-      <td><span class="forecast-bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span>`
-      + `<span class="bar-value">${commercialFmtInt(m.count)}</span></span></td>
+    const expanded = commercialState.creadasExpandedMonths.indexOf(m.month) !== -1;
+    const selected = !!(sel && sel.month === m.month && sel.week === null);
+    const monthRow = `<tr class="commercial-creadas-month${selected ? " is-selected" : ""}"
+        data-commercial-creadas-month="${commercialEsc(m.month)}">
+      <td class="left">
+        <button type="button" class="commercial-creadas-caret"
+          data-commercial-creadas-toggle="${commercialEsc(m.month)}"
+          aria-expanded="${expanded ? "true" : "false"}"
+          aria-label="${expanded ? "Colapsar" : "Expandir"} las semanas de ${commercialEsc(commercialCreadasMonthLabel(m.month))}">${expanded ? "▾" : "▸"}</button>
+        <span class="commercial-creadas-month-label">${commercialEsc(commercialCreadasMonthLabel(m.month))}</span>
+      </td>
+      <td>${commercialFmtInt(m.count)}</td>
+      <td>${commercialCreadasHoursCell(m.opportunities)}</td>
+      <td class="commercial-creadas-dist"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span></td>
     </tr>`;
     return expanded ? monthRow + commercialCreadasWeekRowsHtml(m) : monthRow;
   }).join("");
   return `<div class="matrix-scroll forecast-months">
-      <table class="dashboard-table">
-        <colgroup><col style="width:55%"><col style="width:45%"></colgroup>
-        <thead><tr><th>Mes</th><th>Oportunidades</th></tr></thead>
+      <table class="dashboard-table commercial-creadas-table">
+        <thead><tr>
+          <th class="row-label-col">Mes / Semana</th>
+          <th>Opps.</th>
+          <th>Horas</th>
+          <th class="left">Distribución</th>
+        </tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>`;
 }
 
-// Detalle por oportunidad (mes o semana seleccionada) — MISMAS 6 columnas
-// que el legacy (Fecha entrada/Oportunidad/Cliente/Vendedor/Origen/Estado),
-// orden ASCENDENTE por fecha de entrada — MISMO criterio legacy.
-function commercialCreadasDetailHtml(months) {
-  const monthKey = commercialState.creadasExpandedMonth;
-  if (!monthKey) return "";
-  const bucket = (months || []).find(m => m.month === monthKey);
+// Claves ordenables del detalle. `entry_date` se ordena por el ISO crudo (no
+// por la fecha formateada dd/mm/aaaa, que ordenaria alfabeticamente y pondria
+// el 01/12 antes del 02/01). El resto, texto normalizado a minusculas para que
+// el orden no dependa de mayusculas.
+const COMMERCIAL_CREADAS_SORT_KEYS = {
+  entry_date: o => o.entry_date || "",
+  name: o => (o.name || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  origen: o => (o.origen || "").toLowerCase(),
+  status: o => (o.status || "").toLowerCase(),
+};
+
+// Orden client-side puro sobre el detalle ya filtrado. Sin clave activa
+// devuelve el orden CANONICO del legacy (fecha de entrada ascendente): el
+// ordenamiento es una capa encima, nunca reemplaza el default probado.
+// Copia el array antes de ordenar — `.sort` muta.
+function commercialCreadasSorted(opps) {
+  const keyFn = commercialState.creadasSortKey
+    && COMMERCIAL_CREADAS_SORT_KEYS[commercialState.creadasSortKey];
+  const base = [...opps].sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  if (!keyFn) return base;
+  const dir = commercialState.creadasSortDir;
+  return base.sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+// Cabecera ordenable — MISMO primitivo y MISMO contrato que Actividades y
+// Oportunidades (`.dashboard-table-th--sortable`, tools.css): comportamiento
+// transversal del Hub, no un mecanismo propio de esta tabla.
+function commercialCreadasSortTh(key, label, cls) {
+  const active = commercialState.creadasSortKey === key;
+  const arrow = active ? (commercialState.creadasSortDir === 1 ? " ▲" : " ▼") : "";
+  const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+  return `<th class="${classes}" data-commercial-creadas-sort="${key}"`
+    + ` title="Ordenar por ${commercialEsc(label)}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+}
+
+// ── DETALLE — CONTEXTUAL Y DESCARTABLE ────────────────────────────────────
+// Sólo existe si hay una selección explícita. Antes se derivaba del mes
+// expandido, así que aparecía sin pedirlo y no se podía cerrar sin colapsar el
+// mes.
+//
+// El × cierra SÓLO el detalle: no toca año, vendedor, búsqueda, meses
+// expandidos ni el dataset, y no dispara ningún fetch.
+//
+// Columnas y orden: los MISMOS 6 del legacy (Fecha entrada / Oportunidad /
+// Cliente / Vendedor / Origen / Estado), ascendente por fecha de entrada.
+function commercialCreadasDetailHtml(filtered) {
+  const sel = commercialState.creadasSelection;
+  if (!sel) return "";
+  const bucket = (filtered || []).find(m => m.month === sel.month);
+  // La selección puede quedar fuera del universo filtrado (se cambió el año o
+  // se filtró un vendedor que no tiene ese mes): no se renderiza detalle
+  // huérfano, y tampoco se pisa la selección — si el filtro se revierte,
+  // vuelve.
   if (!bucket) return "";
   let opps = bucket.opportunities || [];
-  let label = commercialCreadasMonthLabel(monthKey);
-  const weekKey = commercialState.creadasExpandedWeek;
-  if (weekKey && weekKey.startsWith(`${monthKey}:`)) {
-    const w = Number(weekKey.split(":")[1]);
-    opps = opps.filter(o => commercialCreadasWeekOfMonth(o.entry_date) === w);
-    label = `Semana ${w} de ${label}`;
+  let scope = commercialCreadasMonthLabel(sel.month);
+  if (sel.week !== null) {
+    opps = opps.filter(o => commercialCreadasWeekOfMonth(o.entry_date) === sel.week);
+    scope = `${commercialCreadasWeekLabel(sel.month, sel.week)} · ${scope}`;
   }
-  opps = [...opps].sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  opps = commercialCreadasSorted(opps);
   const rows = opps.map(o => {
     const color = commercialCreadasStatusColor(o.status);
     const statusHtml = color
       ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${commercialEsc(o.status)}</span>`
       : commercialEsc(o.status);
     return `<tr>
-      <td>${commercialEsc(commercialFmtDate(o.entry_date))}</td>
-      <td class="row-label-col">${commercialEsc(o.name)}</td>
-      <td>${commercialEsc(o.client) || "—"}</td>
-      <td>${commercialEsc(o.seller) || "—"}</td>
-      <td>${commercialEsc(o.origen) || "—"}</td>
-      <td>${statusHtml}</td>
+      <td class="left">${commercialEsc(commercialFmtDate(o.entry_date))}</td>
+      <td class="left">${commercialEsc(o.name)}</td>
+      <td class="left">${commercialEsc(o.client) || "—"}</td>
+      <td class="left">${commercialEsc(o.seller) || "—"}</td>
+      <td class="left">${commercialEsc(o.origen) || "—"}</td>
+      <td class="left">${statusHtml}</td>
     </tr>`;
   }).join("");
-  return `<div class="matrix-scroll" data-commercial-creadas-detail style="margin-top:16px">
-      <p class="perspective-label">${commercialEsc(label)} — ${commercialFmtInt(opps.length)} oportunidad(es)</p>
-      <table class="dashboard-table">
-        <thead><tr><th>Fecha entrada</th><th class="row-label-col">Oportunidad</th><th>Cliente</th><th>Vendedor</th><th>Origen</th><th>Estado</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+  const body = rows || `<tr><td colspan="6">${commercialEsc("Sin oportunidades para esta selección.")}</td></tr>`;
+  return `<div data-commercial-creadas-detail style="margin-top:16px">
+      <div class="commercial-creadas-detail-head">
+        <p class="perspective-label">Detalle · ${commercialEsc(scope)} — ${commercialFmtInt(opps.length)} oportunidad(es)</p>
+        <button type="button" class="panel-close"
+          data-commercial-creadas-detail-close aria-label="Cerrar detalle">×</button>
+      </div>
+      <div class="matrix-scroll">
+        <table class="dashboard-table commercial-creadas-detail-table">
+          <thead><tr>
+            ${commercialCreadasSortTh("entry_date", "Fecha entrada", "left")}
+            ${commercialCreadasSortTh("name", "Oportunidad", "row-label-col")}
+            ${commercialCreadasSortTh("client", "Cliente", "left")}
+            ${commercialCreadasSortTh("seller", "Vendedor", "left")}
+            ${commercialCreadasSortTh("origen", "Origen", "left")}
+            ${commercialCreadasSortTh("status", "Estado", "left")}
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
     </div>`;
 }
 
 // Conteo del header — "N oportunidad(es) · <año>", MISMO criterio que
 // `commercialForecastCountLabel` (vacío mientras no hay payload, el `<span>`
-// se emite igual para que el re-render quirúrgico siempre encuentre su
-// host).
+// se emite igual para que el re-render quirúrgico siempre encuentre su host).
+// Cuenta sobre el universo FILTRADO: si el header dijera el total del año
+// mientras la tabla muestra un vendedor, los dos números se contradirían.
 function commercialCreadasCountLabel() {
   if (commercialState.creadasStatus !== "ready") return "";
   const months = (commercialState.creadas && commercialState.creadas.months) || [];
   if (!months.length) return "";
   const year = commercialCreadasEffectiveYear(months);
-  const total = months.filter(m => m.month.startsWith(year)).reduce((sum, m) => sum + m.count, 0);
+  const total = commercialCreadasFiltered(months, year).reduce((sum, m) => sum + m.count, 0);
   return `${commercialFmtInt(total)} oportunidad(es) · ${year}`;
 }
 
-function commercialCreadasYearSelectHtml(months) {
-  const years = commercialCreadasYears(months);
-  const selected = commercialCreadasEffectiveYear(months);
-  return `<div class="whatsnew-filters">
-      <label class="whatsnew-filter">
-        <span>Año</span>
-        <select data-commercial-creadas-year>
-          ${years.map(y => `<option value="${y}"${y === selected ? " selected" : ""}>${y}</option>`).join("")}
-        </select>
-      </label>
-    </div>`;
-}
-
 // Cuerpo del panel — cubre los CUATRO estados del lazy load, MISMO criterio
-// que `commercialForecastPanelBodyHtml`. Ranking + tabla mensual LADO A
-// LADO (`.analysis-split`, MISMO primitivo que Forecast), detalle por
-// oportunidad debajo cuando hay un mes expandido.
+// que `commercialForecastPanelBodyHtml`.
+//
+// JERARQUÍA (owner UX decision): filtros → ranking → UNA tabla Mes/Semana →
+// detalle opcional. En VERTICAL, no lado a lado: ranking y tabla apilados eran
+// dos capas visualmente desconectadas de la misma pregunta.
 function commercialCreadasPanelBodyHtml() {
   if (commercialState.creadasStatus === "error") {
     const configIncomplete = commercialState.creadasErrorState === "config_incomplete";
@@ -1109,18 +1380,19 @@ function commercialCreadasPanelBodyHtml() {
       "No hay oportunidades con fecha de entrada al pipeline para este segmento.");
   }
   const year = commercialCreadasEffectiveYear(months);
-  return commercialCreadasYearSelectHtml(months)
-    + `<div class="analysis-split">
+  const filtered = commercialCreadasFiltered(months, year);
+  return commercialCreadasControlsHtml(months)
+    + `<div class="commercial-creadas-analysis">
         <div>
           <h3 class="perspective-label">Ranking por vendedor</h3>
-          ${commercialCreadasSellerRankingHtml(months, year)}
+          ${commercialCreadasSellerRankingHtml(filtered)}
         </div>
         <div>
-          <h3 class="perspective-label">Por mes</h3>
-          ${commercialCreadasMonthTableHtml(months, year)}
+          <h3 class="perspective-label">Por mes y semana</h3>
+          ${commercialCreadasMonthTableHtml(filtered)}
         </div>
       </div>`
-    + commercialCreadasDetailHtml(months);
+    + commercialCreadasDetailHtml(filtered);
 }
 
 // Detalle de Oportunidades Activas (Active Opportunities Phase 2 / C4, ver
@@ -2557,8 +2829,10 @@ async function commercialLoadCreadas() {
       // `commercialCreadasEffectiveYear`) — nunca conserva un año de una
       // carga anterior con otro `tipo`.
       commercialState.creadasYear = null;
-      commercialState.creadasExpandedMonth = "";
-      commercialState.creadasExpandedWeek = "";
+      commercialState.creadasExpandedMonths = [];
+      commercialState.creadasSelection = null;
+      commercialState.creadasSeller = "";
+      commercialState.creadasSearch = "";
       HubForegroundProgress.complete("commercial");
     } else {
       commercialState.creadasStatus = "error";
@@ -2620,8 +2894,10 @@ function commercialSetTipo(tipo) {
   commercialState.creadasStatus = "idle";
   commercialState.creadasErrorState = "";
   commercialState.creadasYear = null;
-  commercialState.creadasExpandedMonth = "";
-  commercialState.creadasExpandedWeek = "";
+  commercialState.creadasExpandedMonths = [];
+  commercialState.creadasSelection = null;
+  commercialState.creadasSeller = "";
+  commercialState.creadasSearch = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -2743,23 +3019,75 @@ document.addEventListener("DOMContentLoaded", () => {
     // limpio (semana/detalle previos no sobreviven a cambiar de mes); una
     // semana dentro del MISMO mes togglea sola. Re-render QUIRÚRGICO del
     // panel — MISMO camino que el resto de Creadas/Forecast.
+    // CHEVRON — expande/colapsa las semanas del mes. VA PRIMERO y corta acá:
+    // el chevron vive DENTRO de la fila de mes, así que sin este atajo un click
+    // en él haría las DOS cosas (expandir y abrir detalle), que es justo la
+    // ambigüedad que este corrective elimina. Varios meses pueden estar
+    // abiertos a la vez.
+    const creadasToggle = event.target.closest("[data-commercial-creadas-toggle]");
+    if (creadasToggle) {
+      event.stopPropagation();
+      const month = creadasToggle.dataset.commercialCreadasToggle;
+      const open = commercialState.creadasExpandedMonths;
+      const at = open.indexOf(month);
+      if (at === -1) open.push(month); else open.splice(at, 1);
+      commercialRenderCreadasPanel();
+      return;
+    }
+    // FILA DE MES (el resto del contenido) — selecciona el mes y abre su
+    // detalle, SIN tocar la expansión: son dos preguntas distintas ("¿cómo se
+    // reparte el mes por semana?" vs "¿qué oportunidades son?"). Re-clickear el
+    // mes ya seleccionado cierra el detalle — mismo resultado que el ×.
     const creadasMonthRow = event.target.closest("[data-commercial-creadas-month]");
     if (creadasMonthRow) {
       const month = creadasMonthRow.dataset.commercialCreadasMonth;
-      if (commercialState.creadasExpandedMonth === month) {
-        commercialState.creadasExpandedMonth = "";
-        commercialState.creadasExpandedWeek = "";
+      const sel = commercialState.creadasSelection;
+      commercialState.creadasSelection = (sel && sel.month === month && sel.week === null)
+        ? null : { month: month, week: null };
+      commercialRenderCreadasPanel();
+      return;
+    }
+    // FILA DE SEMANA — selecciona esa semana y abre su detalle.
+    const creadasWeekRow = event.target.closest("[data-commercial-creadas-week]");
+    if (creadasWeekRow) {
+      const parts = creadasWeekRow.dataset.commercialCreadasWeek.split(":");
+      const month = parts[0];
+      const week = Number(parts[1]);
+      const sel = commercialState.creadasSelection;
+      commercialState.creadasSelection = (sel && sel.month === month && sel.week === week)
+        ? null : { month: month, week: week };
+      commercialRenderCreadasPanel();
+      return;
+    }
+    // CABECERA ORDENABLE del detalle — MISMO contrato que Actividades: la
+    // primera vez ordena ascendente, volver a clickear invierte. Cero red.
+    const creadasSort = event.target.closest("[data-commercial-creadas-sort]");
+    if (creadasSort) {
+      const key = creadasSort.dataset.commercialCreadasSort;
+      if (commercialState.creadasSortKey === key) {
+        commercialState.creadasSortDir *= -1;
       } else {
-        commercialState.creadasExpandedMonth = month;
-        commercialState.creadasExpandedWeek = "";
+        commercialState.creadasSortKey = key;
+        commercialState.creadasSortDir = 1;
       }
       commercialRenderCreadasPanel();
       return;
     }
-    const creadasWeekRow = event.target.closest("[data-commercial-creadas-week]");
-    if (creadasWeekRow) {
-      const key = creadasWeekRow.dataset.commercialCreadasWeek;
-      commercialState.creadasExpandedWeek = commercialState.creadasExpandedWeek === key ? "" : key;
+    // × DEL DETALLE — cierra SÓLO el detalle. No toca año, vendedor, búsqueda,
+    // meses expandidos ni el dataset, y no dispara ningún fetch.
+    if (event.target.closest("[data-commercial-creadas-detail-close]")) {
+      commercialState.creadasSelection = null;
+      commercialRenderCreadasPanel();
+      return;
+    }
+    // "✕ Limpiar" de Creadas — resetea SÓLO los filtros locales del drill
+    // (Vendedor + Buscar). El Año se preserva a propósito: es la ventana que el
+    // usuario eligió mirar, no un filtro que "ensucia" la vista. Y el selector
+    // GLOBAL de Tipo (Todos/NN/BI) no se toca ni de casualidad: cambia el
+    // universo de negocio y su dataset, no es un filtro de esta tabla.
+    if (event.target.closest("[data-commercial-creadas-clear]")) {
+      commercialState.creadasSeller = "";
+      commercialState.creadasSearch = "";
       commercialRenderCreadasPanel();
       return;
     }
@@ -2920,11 +3248,59 @@ document.addEventListener("DOMContentLoaded", () => {
   // mismo criterio que los de arriba.
   document.addEventListener("change", event => {
     const yearSelect = event.target.closest("[data-commercial-creadas-year]");
-    if (!yearSelect) return;
-    commercialState.creadasYear = yearSelect.value;
-    commercialState.creadasExpandedMonth = "";
-    commercialState.creadasExpandedWeek = "";
+    if (yearSelect) {
+      commercialState.creadasYear = yearSelect.value;
+      // Expansión y detalle se resetean: un mes del año anterior no existe bajo
+      // el año nuevo. El VENDEDOR y la BÚSQUEDA se PRESERVAN — "quiero ver a
+      // Juan en 2025 y en 2026" es la pregunta natural, y perder el filtro en
+      // cada cambio de año obligaría a re-elegirlo cada vez. Pero si ese
+      // vendedor no existe en el año destino se limpia solo: dejarlo puesto
+      // mostraría una tabla vacía sin que se vea por qué.
+      commercialState.creadasExpandedMonths = [];
+      commercialState.creadasSelection = null;
+      const months = (commercialState.creadas && commercialState.creadas.months) || [];
+      if (commercialState.creadasSeller
+          && commercialCreadasSellers(months, yearSelect.value).indexOf(commercialState.creadasSeller) === -1) {
+        commercialState.creadasSeller = "";
+      }
+      commercialRenderCreadasPanel();
+      return;
+    }
+    // VENDEDOR — filtro LOCAL sobre el payload ya cargado. Cero red.
+    const sellerSelect = event.target.closest("[data-commercial-creadas-seller]");
+    if (sellerSelect) {
+      commercialState.creadasSeller = sellerSelect.value;
+      // El detalle abierto puede quedar fuera del universo filtrado. NO se
+      // fuerza a cerrar: el render omite un detalle huérfano, y si el filtro se
+      // revierte el detalle vuelve tal cual estaba.
+      commercialRenderCreadasPanel();
+      return;
+    }
+  });
+
+  // BUSCAR — `input` y no `change`, para filtrar en cada tecla (UX esperada de
+  // un buscador), MISMO criterio que las búsquedas de Activas y Actividades.
+  // Cero red: filtra el payload ya cargado.
+  //
+  // El foco y el caret se restauran a mano porque el re-render del panel
+  // reemplaza el `<input>` y se los llevaría en cada tecla — MISMO problema y
+  // MISMA solución que la búsqueda de Actividades.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-creadas-search]");
+    if (!search) return;
+    commercialState.creadasSearch = search.value;
+    const caret = search.selectionStart;
+    // El host del panel SOBREVIVE al re-render (sólo cambia su `innerHTML`), así
+    // que se captura ANTES y se busca DENTRO de él: la consulta queda scopeada
+    // al panel y nunca al documento, MISMO criterio que el resto de los hooks
+    // de la vertical.
+    const panel = search.closest("[data-commercial-creadas-body]");
     commercialRenderCreadasPanel();
+    const again = panel && panel.querySelector("[data-commercial-creadas-search]");
+    if (again) {
+      again.focus();
+      try { again.setSelectionRange(caret, caret); } catch (e) { /* type=search sin soporte */ }
+    }
   });
   // Búsqueda libre (C5e, ver HANDOFF): `input`, no `change` — filtra en cada
   // tecla (UX esperada de un buscador), nunca espera blur/Enter. SÓLO toca

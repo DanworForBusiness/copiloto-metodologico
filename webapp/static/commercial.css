@@ -652,3 +652,161 @@
 .panel-close:hover { color: inherit; background: rgba(128,128,128,.16); }
 .panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
+/* ── Creadas — jerarquía del análisis (owner UX corrective) ────────────────
+   Antes el ranking y la tabla mensual iban LADO A LADO (`.analysis-split`) y
+   las semanas aparecían como una tabla aparte: tres capas visualmente
+   desconectadas de la misma pregunta. Ahora es una sola columna —filtros,
+   ranking, UNA tabla Mes→Semana, detalle opcional— y las semanas son filas
+   HIJAS de su mes.
+
+   Se reusa todo lo que ya existe: `.whatsnew-filters` para la barra,
+   `.bar-row` para el ranking, `.dashboard-table`/`.matrix-scroll` para la
+   tabla, `.dashboard-empty` para los vacíos y `.panel-close` para el ×. Lo de
+   abajo es SÓLO lo que ninguno de esos primitivos cubre: la jerarquía visual
+   de la tabla y el header del detalle. */
+.commercial-creadas-analysis { display: grid; gap: 18px; }
+
+/* El chevron es un BOTÓN de verdad (no un glifo en el `<td>`) porque tiene su
+   propia acción —expandir— distinta de la de la fila —seleccionar—. Sin
+   apariencia de botón: el peso visual lo tiene la fila, no el control. */
+.commercial-creadas-caret {
+  width: 18px; height: 18px; margin-right: 4px; padding: 0; flex-shrink: 0;
+  display: inline-grid; place-items: center; vertical-align: middle;
+  border: 0; border-radius: 4px; background: transparent;
+  color: #7a7a82; font-size: .7rem; line-height: 1; cursor: pointer;
+}
+.content-theme-dark .commercial-creadas-caret { color: #9a9aa2; }
+.commercial-creadas-caret:hover { color: inherit; background: rgba(128,128,128,.16); }
+.commercial-creadas-caret:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+/* Filas seleccionables. El hover marca que se puede clickear y `is-selected`
+   marca qué detalle se está viendo — sin eso, cerrar y reabrir el detalle no
+   tendría ninguna referencia visual de sobre qué. */
+.commercial-creadas-month, .commercial-creadas-week[data-commercial-creadas-week] { cursor: pointer; }
+.commercial-creadas-month:hover > td,
+.commercial-creadas-week[data-commercial-creadas-week]:hover > td { background: rgba(128,128,128,.07); }
+.commercial-creadas-month.is-selected > td,
+.commercial-creadas-week.is-selected > td {
+  background: color-mix(in srgb, transparent 88%, var(--gold));
+}
+.commercial-creadas-week[data-commercial-creadas-week]:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: -2px;
+}
+
+/* La INDENTACIÓN es lo que hace legible la jerarquía: una semana sin sangría
+   se lee como otro mes. Va en el padding de la celda (no en un margen del
+   texto) para que el hover cubra la fila completa.
+
+   El valor no es decorativo: el texto del MES no arranca en su padding (8px)
+   sino después del chevron —18px de botón + 4px de margen— o sea a 30px del
+   borde de la celda. Con `padding-left:30px` la semana quedaba ALINEADA con
+   el mes, con sangría visual cero (medido: -3px). 50px deja ~20px de sangría
+   real, que es lo que hace que la jerarquía se lea. */
+.commercial-creadas-week-label { padding-left: 50px !important; }
+.commercial-creadas-month-label { font-weight: 600; }
+/* Semanas sin oportunidades: se muestran igual —el mes se lee completo, MISMO
+   criterio que el legacy— pero atenuadas y no clickeables. */
+.commercial-creadas-week.is-empty > td { opacity: .45; }
+
+/* Header del detalle: el título a la izquierda y el × pegado a la derecha, sin
+   posicionamiento propio. El `.perspective-label` trae su propio margen, que
+   acá estorba. */
+.commercial-creadas-detail-head { display: flex; align-items: center; gap: 11px; }
+.commercial-creadas-detail-head > .perspective-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+
+/* RESPONSIVE — mismo criterio que el resto de las matrices del Hub: el
+   overflow horizontal es INTERNO a `.matrix-scroll`, nunca de la página. Con
+   `table-layout: fixed` y seis columnas, por debajo de ~900px las de texto
+   quedan tan angostas que todo se corta; a partir de ahí la tabla del detalle
+   deja de comprimirse y scrollea dentro de su contenedor. La de Mes/Semana NO
+   necesita `min-width`: son cuatro columnas y la primera ya está acotada.
+
+   `min-width:0` en las dos columnas del análisis apilado para que un contenido
+   ancho no empuje la grilla — el mismo fix que `.activity-grid-2 > *` aplica
+   al primitivo compartido. */
+.commercial-creadas-analysis > * { min-width: 0; }
+/* El detalle reparte por CONTENIDO, no por porcentajes rigidos. Con el
+   `table-layout: fixed` del primitivo compartido, Oportunidad se quedaba con su
+   28% aunque no lo usara mientras Cliente truncaba
+   ("MURCHISON S.A. ESTIBAJES Y CARG…") con espacio sobrante al lado: los anchos
+   fijos no redistribuyen. `auto` le da a cada columna lo que su contenido pide.
+
+   Y las celdas de texto dejan de truncar: `td.left` trae
+   `white-space: nowrap` + `ellipsis` (correcto para una matriz de medidas, donde
+   la columna tiene que mantener su ancho), pero esta es una tabla de TEXTO —
+   truncar un nombre de cliente pierde justamente el dato que se vino a leer.
+   Con `auto` + wrap, el navegador reparte y solo parte en dos lineas si de
+   verdad no entra.
+
+   La fecha SI queda nowrap y con ancho minimo: es la unica columna de formato
+   fijo, y dejarla partir "06/08/" + "2026" seria peor que cualquier ahorro. */
+table.dashboard-table.commercial-creadas-detail-table { table-layout: auto; min-width: 720px; }
+table.dashboard-table.commercial-creadas-detail-table td.left,
+table.dashboard-table.commercial-creadas-detail-table td.row-label-col {
+  white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word;
+}
+table.dashboard-table.commercial-creadas-detail-table th:first-child,
+table.dashboard-table.commercial-creadas-detail-table td:first-child {
+  white-space: nowrap; width: 104px;
+}
+/* `th.row-label-col` trae `width: 340px` de tools.css, pensado para una
+   matriz de medidas donde el rotulo es la unica columna ancha. Acá TODAS son
+   de texto y ese ancho descompensa el reparto: Oportunidad se llevaba 340px
+   mientras Cliente quedaba en 80 y truncaba. Con `auto`, cada una recibe lo
+   que su contenido pide. */
+table.dashboard-table.commercial-creadas-detail-table th.row-label-col { width: auto; }
+@media (max-width: 760px) {
+  /* La barra de filtros ya envuelve por `.whatsnew-filters` (flex-wrap), pero
+     el buscador `--fill` necesita poder encogerse hasta desaparecer su
+     `min-width` o fuerza una fila más ancha que el panel. */
+  [data-commercial-creadas-filters] .whatsnew-filter--fill { flex-basis: 100%; }
+  [data-commercial-creadas-filters] .whatsnew-filter--fill input[type="search"] { min-width: 0; }
+  /* La indentación de semana se reduce, no se pierde: sin sangría la jerarquía
+     deja de leerse, que es justamente lo que esta tabla vino a arreglar. */
+  .commercial-creadas-week-label { padding-left: 38px !important; }
+}
+
+/* La columna de Distribución lleva SOLO la barra —los números tienen columna
+   propia—, así que NO usa `.forecast-bar-cell`: esa composición es "barra +
+   número alineados a la derecha dentro de la celda" y fija la barra en 72px
+   (`flex: 0 0 72px`), que en una pantalla ancha deja la barra perdida en el
+   medio de la columna. Mismo criterio y misma solución que `.origin-breakdown`,
+   que ya documenta este caso: `.bar-track` en block, ocupando el ancho real.
+
+   El `<colgroup>` es lo que hace la distribución inteligente: las tres primeras
+   columnas tienen ancho FIJO porque su contenido no crece con el viewport (una
+   etiqueta de semana y dos números), y Distribución va sin `width` para que
+   absorba TODO el sobrante. Con porcentajes, a 1550px la primera columna se
+   llevaba 682px para un texto de 110px. */
+.commercial-creadas-dist { padding-right: 8px; }
+.commercial-creadas-dist .bar-track { display: block; height: 8px; }
+.commercial-creadas-week .commercial-creadas-dist .bar-track { height: 6px; }
+
+/* DISTRIBUCIÓN DE COLUMNAS — anchos FIJOS para lo predecible, elástica la barra.
+   Con porcentajes, a 1550px la primera columna se llevaba 682px para un texto de
+   ~110px: 570px de aire muerto. El contenido de las tres primeras no crece con
+   el viewport (una etiqueta de semana y dos números), así que se fijan; la de
+   Distribución va sin `width` y absorbe TODO el sobrante, que es lo que hace que
+   la barra se lea como un gráfico y no como un guioncito.
+
+   Va por CSS y no por `<colgroup>`: el `<col>` NO gana contra
+   `th.row-label-col { width: 340px }` ni contra
+   `th:not(.left):not(.row-label-col) { width: 88px }` de tools.css (medido:
+   347/101/123 en vez de 260/76/92). Una sola fuente de verdad, con la
+   especificidad suficiente para no depender de la precedencia col/celda. */
+table.dashboard-table.commercial-creadas-table th:nth-child(1),
+table.dashboard-table.commercial-creadas-table td:nth-child(1) { width: 264px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(2),
+table.dashboard-table.commercial-creadas-table td:nth-child(2) { width: 76px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(3),
+table.dashboard-table.commercial-creadas-table td:nth-child(3) { width: 92px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(4),
+table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
+@media (max-width: 760px) {
+  /* En angosto la barra deja de tener espacio útil y el texto es lo que
+     importa: se le da un mínimo y la tabla scrollea dentro de `.matrix-scroll`
+     si hace falta, nunca la página. */
+  table.dashboard-table.commercial-creadas-table th:nth-child(1),
+  table.dashboard-table.commercial-creadas-table td:nth-child(1) { width: 208px; }
+  table.dashboard-table.commercial-creadas-table { min-width: 460px; }
+}

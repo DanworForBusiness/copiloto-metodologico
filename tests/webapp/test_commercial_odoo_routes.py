@@ -229,8 +229,11 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # el foco. Creadas Legacy Parity (ver HANDOFF) agrega DOS más — MISMO
     # criterio que Forecast: los hosts estables del panel de Creadas
     # (`[data-commercial-creadas-body]`/`-count`) para su propio re-render
-    # quirúrgico. El contrato sigue siendo explícito, no aproximado: se
-    # permiten EXACTAMENTE estos dieciocho hooks y nada más.
+    # quirúrgico. El owner UX corrective de Creadas agrega UNO: su búsqueda
+    # restaura el foco del `<input>` tras el re-render del panel — MISMO
+    # problema y MISMA solución que la búsqueda de Activas de arriba.
+    # El contrato sigue siendo explícito, no aproximado: se permiten
+    # EXACTAMENTE estos diecinueve hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -249,6 +252,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
         '"[data-commercial-opportunities]"',
+        '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS

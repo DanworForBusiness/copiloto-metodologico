@@ -124,7 +124,7 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 18, queries   # C9 sumó el cuerpo de Actividades; Creadas Legacy Parity sumó 2 más (host del panel + conteo)
+    assert len(queries) == 19, queries   # + la busqueda de Creadas (restaura el foco del input tras el re-render)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

@@ -44,6 +44,14 @@ const {
   commercialCreadasDetailHtml,
   commercialCreadasCountLabel,
   commercialCreadasPanelBodyHtml,
+  commercialCreadasFiltered,
+  commercialCreadasSellers,
+  commercialCreadasWeekLabel,
+  commercialCreadasWeekCount,
+  commercialCreadasHoursCell,
+  commercialCreadasSorted,
+  commercialCreadasMatchesSearch,
+  commercialCreadasStatusColor,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
 
@@ -60,8 +68,12 @@ function resetCreadasState() {
   commercialState.creadasErrorState = "";
   commercialState.creadas = null;
   commercialState.creadasYear = null;
-  commercialState.creadasExpandedMonth = "";
-  commercialState.creadasExpandedWeek = "";
+  commercialState.creadasExpandedMonths = [];
+  commercialState.creadasSelection = null;
+  commercialState.creadasSeller = "";
+  commercialState.creadasSearch = "";
+  commercialState.creadasSortKey = null;
+  commercialState.creadasSortDir = 1;
 }
 
 const CUR_YEAR = new Date().getFullYear();
@@ -104,18 +116,26 @@ const PREV_YEAR = CUR_YEAR - 1;
     { month: `${CUR_YEAR}-02`, count: 3, opportunities: [
       { seller: "Ana Gómez" }, { seller: "Bruno Paz" }, { seller: "Ana Gómez" },
     ] },
-    { month: `${CUR_YEAR}-03`, count: 1, opportunities: [{ seller: "Bruno Paz" }] },
+    { month: `${CUR_YEAR}-03`, count: 1, opportunities: [{ seller: "Ana Gómez" }] },
+    // El fixture NO deja empate a propósito. Antes Ana y Bruno quedaban 2-2, así
+    // que lo que el assert de abajo observaba era el ORDEN DE ITERACIÓN, no el
+    // ranking — y ese orden cambió legítimamente: `commercialCreadasFiltered`
+    // devuelve los meses DESCENDENTE (el más reciente primero, MISMO criterio
+    // que el legacy), así que en un empate ahora aparece primero quien esté en
+    // el mes más nuevo. Un empate no tiene orden definido y no debería tenerlo:
+    // con Ana en 3 y Bruno en 1, el assert mide lo que dice medir.
     // Otro año — NO debe contarse para el ranking del año actual.
     { month: `${PREV_YEAR}-01`, count: 1, opportunities: [{ seller: "Carla Ruiz" }] },
   ];
-  const html = commercialCreadasSellerRankingHtml(months, String(CUR_YEAR));
+  const html = commercialCreadasSellerRankingHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR)));
   assertTrue(html.includes('class="bar-row"'), "usa el primitivo .bar-row (Hub-wide, tools.css)");
   const anaIdx = html.indexOf("Ana G");
   const brunoIdx = html.indexOf("Bruno Paz");
-  assertTrue(anaIdx !== -1 && brunoIdx !== -1 && anaIdx < brunoIdx, "Ana Gómez (2) rankea ANTES que Bruno Paz (1) — descendente");
+  assertTrue(anaIdx !== -1 && brunoIdx !== -1 && anaIdx < brunoIdx, "Ana Gómez (3) rankea ANTES que Bruno Paz (1) — descendente");
   assertTrue(!html.includes("Carla Ruiz"), "vendedor de OTRO año no entra al ranking del año seleccionado");
 
-  const empty = commercialCreadasSellerRankingHtml([], String(CUR_YEAR));
+  const empty = commercialCreadasSellerRankingHtml(commercialCreadasFiltered([], String(CUR_YEAR)));
   assertTrue(empty.includes("Sin resultados"), "sin oportunidades ese año → estado vacío compartido, nunca un ranking en blanco");
 }
 
@@ -131,15 +151,17 @@ const PREV_YEAR = CUR_YEAR - 1;
       { entry_date: `${CUR_YEAR}-01-20`, seller: "Bruno" },
     ] },
   ];
-  const collapsed = commercialCreadasMonthTableHtml(months, String(CUR_YEAR));
+  const collapsed = commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR)));
   const marIdx = collapsed.indexOf(`data-commercial-creadas-month="${CUR_YEAR}-03"`);
   const eneIdx = collapsed.indexOf(`data-commercial-creadas-month="${CUR_YEAR}-01"`);
   assertTrue(marIdx !== -1 && eneIdx !== -1 && marIdx < eneIdx, "meses en orden DESCENDENTE (marzo antes que enero)");
   assertTrue(collapsed.includes("▸"), "mes colapsado muestra el caret ▸");
   assertTrue(!collapsed.includes(`data-commercial-creadas-week="${CUR_YEAR}-01:1"`), "sin expandir, NINGUNA fila de semana en el DOM");
 
-  commercialState.creadasExpandedMonth = `${CUR_YEAR}-01`;
-  const expanded = commercialCreadasMonthTableHtml(months, String(CUR_YEAR));
+  commercialState.creadasExpandedMonths = [`${CUR_YEAR}-01`];
+  const expanded = commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR)));
   assertTrue(expanded.includes("▾"), "mes expandido muestra el caret ▾");
   assertTrue(expanded.includes(`data-commercial-creadas-week="${CUR_YEAR}-01:1"`), "semana 1 (día 3) presente tras expandir enero");
   assertTrue(expanded.includes(`data-commercial-creadas-week="${CUR_YEAR}-01:3"`), "semana 3 (día 20) presente tras expandir enero");
@@ -157,8 +179,11 @@ const PREV_YEAR = CUR_YEAR - 1;
       { entry_date: `${CUR_YEAR}-02-10`, entry_fmt: "10/02", name: "Perdida SA", client: "C2", seller: "V2", origen: "Sin definir", status: "Perdida" },
     ],
   }];
-  commercialState.creadasExpandedMonth = `${CUR_YEAR}-02`;
-  const html = commercialCreadasDetailHtml(months);
+  // El detalle ya NO se deriva del mes expandido: hay una SELECCIÓN explícita
+  // (owner UX corrective — expandir y seleccionar son dos acciones distintas).
+  commercialState.creadasSelection = { month: `${CUR_YEAR}-02`, week: null };
+  const html = commercialCreadasDetailHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR)));
   const gIdx = html.indexOf("Ganada Co");
   const pIdx = html.indexOf("Perdida SA");
   const tIdx = html.indexOf("Tardía");
@@ -168,8 +193,9 @@ const PREV_YEAR = CUR_YEAR - 1;
   assertTrue(!html.includes('dashboard-status-badge--green">1 Contacto'), "un estado que no es Ganada/Perdida queda como texto plano, sin badge de color");
 
   // Semana específica dentro del mes filtra el detalle.
-  commercialState.creadasExpandedWeek = `${CUR_YEAR}-02:1`; // día 5 → semana 1
-  const weekHtml = commercialCreadasDetailHtml(months);
+  commercialState.creadasSelection = { month: `${CUR_YEAR}-02`, week: 1 }; // día 5 → semana 1
+  const weekHtml = commercialCreadasDetailHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR)));
   assertTrue(weekHtml.includes("Ganada Co") && !weekHtml.includes("Perdida SA") && !weekHtml.includes("Tardía"),
     "detalle de semana filtra a SOLO las oportunidades de esa semana (día 5 = semana 1)");
   resetCreadasState();
@@ -198,7 +224,368 @@ const PREV_YEAR = CUR_YEAR - 1;
   assertEqual(commercialCreadasCountLabel(), `2 oportunidad(es) · ${CUR_YEAR}`, "conteo del header refleja el año efectivo");
   const bodyHtml = commercialCreadasPanelBodyHtml();
   assertTrue(bodyHtml.includes("data-commercial-creadas-year"), "cuerpo listo incluye el selector de Año");
-  assertTrue(bodyHtml.includes("Ranking por vendedor") && bodyHtml.includes("Por mes"), "ranking y tabla mensual, lado a lado (.analysis-split, MISMO primitivo que Forecast)");
+  assertTrue(bodyHtml.includes("Ranking por vendedor") && bodyHtml.includes("Por mes y semana"),
+    "ranking y tabla APILADOS — lado a lado eran dos capas desconectadas (owner UX corrective)");
+  resetCreadasState();
+}
+
+// ==========================================================================
+// OWNER UX CORRECTIVE — jerarquia, filtros locales, detalle descartable, orden
+// ==========================================================================
+
+// Fixture compartido: dos meses del año actual, tres vendedores, y una opp SIN
+// horas cargadas (`horas: null`, que el backend distingue de 0 a proposito).
+function uxMonths() {
+  return [
+    { month: `${CUR_YEAR}-07`, count: 3, opportunities: [
+      { id: 1, entry_date: `${CUR_YEAR}-07-03`, name: "Alfa BDC", client: "Loma Negra", seller: "Ana Gomez", origen: "Base Instalada", status: "1 - Inicial", horas: 100 },
+      { id: 2, entry_date: `${CUR_YEAR}-07-10`, name: "Beta PaPM", client: "Danone", seller: "Bruno Paz", origen: "Integrador", status: "Ganada", horas: null },
+      { id: 3, entry_date: `${CUR_YEAR}-07-25`, name: "Gamma Datasphere", client: "Colbun", seller: "Ana Gomez", origen: "SAP NOW", status: "Perdida", horas: 50 },
+    ] },
+    { month: `${CUR_YEAR}-06`, count: 1, opportunities: [
+      { id: 4, entry_date: `${CUR_YEAR}-06-08`, name: "Delta Workzone", client: "Ternium", seller: "Carla Ruiz", origen: "Sin definir", status: "2 - Relevamiento", horas: 30 },
+    ] },
+  ];
+}
+function uxReady(extra) {
+  resetCreadasState();
+  commercialState.creadas = { months: uxMonths() };
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasYear = String(CUR_YEAR);
+  Object.assign(commercialState, extra || {});
+}
+const uxFiltered = (year) => commercialCreadasFiltered(uxMonths(), String(year || CUR_YEAR));
+const countOf = (h, sub) => h.split(sub).length - 1;
+
+// --- A: UNA sola tabla jerarquica Mes/Semana -------------------------------
+{
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`] });
+  const html = commercialCreadasPanelBodyHtml();
+  assertEqual(countOf(html, "commercial-creadas-table"), 1,
+    "A: existe EXACTAMENTE una tabla jerarquica Mes/Semana");
+  assertEqual(countOf(html, "<table"), 1,
+    "A: sin seleccion, la jerarquica es la UNICA tabla (no hay una de semanas aparte)");
+  assertTrue(html.includes("Mes / Semana"),
+    "A: UNA columna para las dos jerarquias, no dos tablas desconectadas");
+}
+
+// --- B: las semanas son filas HIJAS de su mes -----------------------------
+{
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`] });
+  const html = commercialCreadasMonthTableHtml(uxFiltered());
+  const jul = html.indexOf(`data-commercial-creadas-month="${CUR_YEAR}-07"`);
+  const jun = html.indexOf(`data-commercial-creadas-month="${CUR_YEAR}-06"`);
+  const wk1 = html.indexOf(`data-commercial-creadas-week="${CUR_YEAR}-07:1"`);
+  assertTrue(jul !== -1 && jun !== -1 && wk1 !== -1, "B: mes, mes y semana presentes");
+  assertTrue(jul < wk1 && wk1 < jun,
+    "B: las semanas de julio van DENTRO de julio — entre su mes y el mes siguiente");
+  assertEqual(countOf(html, `data-commercial-creadas-week="${CUR_YEAR}-06:`), 0,
+    "B: un mes colapsado no emite filas de semana");
+  assertEqual(countOf(html, `data-commercial-creadas-week="${CUR_YEAR}-07:`), 3,
+    "B: solo las semanas CON oportunidades son seleccionables (dias 3, 10 y 25)");
+  assertEqual(countOf(html, 'class="commercial-creadas-week'),
+    commercialCreadasWeekCount(`${CUR_YEAR}-07`),
+    "B: se renderizan TODAS las semanas del mes, MISMO criterio legacy");
+  assertTrue(html.includes("is-empty"), "B: las vacias van atenuadas, no ocultas");
+}
+
+// --- C: las celdas de texto NO estan centradas ----------------------------
+{
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`] });
+  const html = commercialCreadasMonthTableHtml(uxFiltered());
+  // El primitivo de <td> a la izquierda es `.left`. NO `.row-label-col`, que
+  // SOLO tiene regla para <th>: un `<td class="row-label-col">` cae en el
+  // `text-align:right` generico y queda desalineado con su propio header. Ese
+  // era el defecto de alineacion que el owner reporto.
+  assertTrue(html.includes('<td class="left">'), "C: la celda de MES usa el primitivo .left");
+  assertTrue(html.includes('class="left commercial-creadas-week-label"'),
+    "C: la celda de SEMANA tambien");
+  assertEqual(countOf(html, '<td class="row-label-col"'), 0,
+    "C: ningun <td> usa .row-label-col — no alinea a la izquierda");
+  assertEqual(countOf(html, "text-align:center"), 0, "C: nada centrado inline");
+}
+
+// --- D: la etiqueta de semana RECUPERA la referencia legacy ---------------
+// `frontend/js/dashboard.js::renderCreatedDrillTable` (legacy):
+//   `Sem. ${wk} (${padZ(dayStart)}/${padZ(m)}-${padZ(dayEnd)}/${padZ(m)})`
+// con EN DASH (U+2013) y el ultimo bucket recortado a `daysInMonth`.
+{
+  assertEqual(commercialCreadasWeekLabel(`${CUR_YEAR}-07`, 1), "Sem. 1 (01/07–07/07)",
+    "D: semana 1 con su rango de fechas, no solo 'Semana 1'");
+  assertEqual(commercialCreadasWeekLabel(`${CUR_YEAR}-07`, 2), "Sem. 2 (08/07–14/07)",
+    "D: semana 2");
+  assertEqual(commercialCreadasWeekLabel(`${CUR_YEAR}-07`, 5), "Sem. 5 (29/07–31/07)",
+    "D: la ultima semana se RECORTA al ultimo dia del mes (31, no 35)");
+  assertEqual(commercialCreadasWeekLabel(`${CUR_YEAR}-06`, 5), "Sem. 5 (29/06–30/06)",
+    "D: y en un mes de 30 dias recorta a 30");
+  assertTrue(commercialCreadasWeekLabel(`${CUR_YEAR}-07`, 1).indexOf("–") !== -1,
+    "D: el separador es EN DASH como el legacy, no un guion ASCII");
+  // Las HORAS son su propia COLUMNA (el legacy las tenia asi), con su criterio
+  // de "—" vs "0" preservado.
+  assertEqual(commercialCreadasHoursCell([{ horas: 10 }, { horas: 5 }]), "15", "D: horas sumadas");
+  assertEqual(commercialCreadasHoursCell([{ horas: null }]), "—",
+    "D: con oportunidades pero sin horas cargadas muestra em dash, MISMO criterio legacy");
+  assertEqual(commercialCreadasHoursCell([]), "0", "D: sin oportunidades, cero");
+  // Y la columna existe en la tabla.
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`] });
+  assertTrue(commercialCreadasMonthTableHtml(uxFiltered()).includes("<th>Horas</th>"),
+    "D: Horas es una columna de la tabla");
+}
+
+// --- E: el chevron es un control SEPARADO de la fila ----------------------
+{
+  uxReady({ creadasExpandedMonths: [] });
+  const collapsed = commercialCreadasMonthTableHtml(uxFiltered());
+  assertTrue(collapsed.includes(`data-commercial-creadas-toggle="${CUR_YEAR}-07"`),
+    "E: el chevron tiene su PROPIO hook, distinto del de la fila");
+  assertTrue(collapsed.includes('aria-expanded="false"'), "E: colapsado lo anuncia");
+  assertTrue(collapsed.indexOf("▸") !== -1, "E: y muestra el caret cerrado");
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`] });
+  const expanded = commercialCreadasMonthTableHtml(uxFiltered());
+  assertTrue(expanded.includes('aria-expanded="true"'), "E: expandido lo anuncia");
+  assertTrue(expanded.indexOf("▾") !== -1, "E: y muestra el caret abierto");
+  // VARIOS meses a la vez — mejora aprobada sobre el legacy, que abria uno solo.
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`, `${CUR_YEAR}-06`] });
+  assertEqual(countOf(commercialCreadasMonthTableHtml(uxFiltered()), 'aria-expanded="true"'), 2,
+    "E: DOS meses pueden estar abiertos a la vez");
+}
+
+// --- F y G: seleccion de mes y de semana ---------------------------------
+{
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  const mes = commercialCreadasDetailHtml(uxFiltered());
+  assertTrue(mes.indexOf("Detalle · ") !== -1, "F: el header del detalle declara su alcance");
+  assertTrue(mes.includes("3 oportunidad(es)"), "F: el detalle de MES trae las 3 del mes");
+  assertTrue(mes.includes("Alfa BDC") && mes.includes("Beta PaPM") && mes.includes("Gamma Datasphere"),
+    "F: las tres oportunidades del mes");
+
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: 2 } });
+  const sem = commercialCreadasDetailHtml(uxFiltered());
+  assertTrue(sem.includes("Sem. 2 (08/07–14/07)"),
+    "G: el alcance del detalle de SEMANA usa la etiqueta legacy completa");
+  assertTrue(sem.includes("1 oportunidad(es)"), "G: solo la opp del dia 10 (semana 2)");
+  assertTrue(sem.includes("Beta PaPM") && !sem.includes("Alfa BDC"),
+    "G: filtra a esa semana y excluye las otras");
+}
+
+// --- H: el detalle solo existe con seleccion, y se puede cerrar -----------
+{
+  uxReady({ creadasSelection: null });
+  assertEqual(commercialCreadasDetailHtml(uxFiltered()), "",
+    "H: sin seleccion NO hay detalle (antes se derivaba del mes expandido)");
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  const html = commercialCreadasDetailHtml(uxFiltered());
+  assertTrue(html.includes("data-commercial-creadas-detail-close"), "H: hay accion de cierre");
+  assertTrue(html.includes('aria-label="Cerrar detalle"'), "H: accesible");
+  assertTrue(html.includes('class="panel-close"'),
+    "H: el x reusa el primitivo del Hub, cero clase nueva");
+  // Expandir NO abre detalle: son dos acciones distintas.
+  uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`], creadasSelection: null });
+  assertTrue(!commercialCreadasPanelBodyHtml().includes("data-commercial-creadas-detail"),
+    "H: un mes EXPANDIDO sin seleccionar no abre el detalle");
+}
+
+// --- I: cerrar el detalle no toca nada mas -------------------------------
+{
+  uxReady({
+    creadasExpandedMonths: [`${CUR_YEAR}-07`, `${CUR_YEAR}-06`],
+    creadasSeller: "Ana Gomez", creadasSearch: "alfa",
+    creadasSelection: { month: `${CUR_YEAR}-07`, week: null },
+  });
+  const antes = {
+    expanded: [...commercialState.creadasExpandedMonths],
+    seller: commercialState.creadasSeller,
+    search: commercialState.creadasSearch,
+    year: commercialState.creadasYear,
+  };
+  const datasetAntes = commercialState.creadas;
+  commercialState.creadasSelection = null;          // exactamente lo que hace el x
+  assertEqual(commercialState.creadasExpandedMonths, antes.expanded, "I: preserva los meses expandidos");
+  assertEqual(commercialState.creadasSeller, antes.seller, "I: preserva el vendedor");
+  assertEqual(commercialState.creadasSearch, antes.search, "I: preserva la busqueda");
+  assertEqual(commercialState.creadasYear, antes.year, "I: preserva el año");
+  assertTrue(commercialState.creadas === datasetAntes,
+    "I: y el dataset sigue siendo el MISMO objeto (cero refetch)");
+  assertEqual(commercialCreadasDetailHtml(uxFiltered()), "", "I: el detalle desaparece");
+}
+
+// --- J: los filtros son LOCALES sobre el payload ya cargado --------------
+{
+  uxReady({ creadasSeller: "Ana Gomez" });
+  let f = uxFiltered();
+  assertEqual(f.reduce((s, m) => s + m.count, 0), 2, "J: Vendedor filtra a las 2 de Ana");
+  assertEqual(f.length, 1, "J: y el mes que se queda sin filas desaparece");
+  assertTrue(!commercialCreadasSellerRankingHtml(f).includes("Bruno"),
+    "J: el ranking responde al filtro — sin reglas especiales para el ranking");
+
+  const opp = uxMonths()[0].opportunities[1];
+  assertTrue(commercialCreadasMatchesSearch(opp, "beta"), "J: busca por oportunidad");
+  assertTrue(commercialCreadasMatchesSearch(opp, "danone"), "J: por cliente");
+  assertTrue(commercialCreadasMatchesSearch(opp, "bruno"), "J: por vendedor");
+  assertTrue(commercialCreadasMatchesSearch(opp, "integrador"), "J: por origen");
+  assertTrue(commercialCreadasMatchesSearch(opp, "ganada"), "J: por estado");
+  assertTrue(commercialCreadasMatchesSearch(opp, "danone"), "J: case-insensitive");
+  assertTrue(!commercialCreadasMatchesSearch(opp, "inexistente"), "J: descarta lo que no coincide");
+
+  uxReady({ creadasSearch: "loma" });
+  assertEqual(uxFiltered().reduce((s, m) => s + m.count, 0), 1,
+    "J: Buscar filtra a la opp de Loma Negra");
+
+  uxReady({});
+  assertEqual(uxFiltered(PREV_YEAR).length, 0, "J: otro año no produce filas del dataset actual");
+  assertEqual(commercialCreadasSellers(uxMonths(), String(CUR_YEAR)),
+    ["Ana Gomez", "Bruno Paz", "Carla Ruiz"], "J: opciones de Vendedor derivadas y ordenadas");
+  assertEqual(commercialCreadasSellers(uxMonths(), String(PREV_YEAR)), [],
+    "J: acotadas al año activo — nunca ofrece un vendedor que no puede dar filas");
+}
+
+// --- K: Limpiar resetea SOLO los filtros locales ------------------------
+{
+  uxReady({
+    creadasSeller: "Ana Gomez", creadasSearch: "alfa",
+    creadasExpandedMonths: [`${CUR_YEAR}-07`],
+  });
+  const tipoAntes = commercialState.tipo;
+  const datasetAntes = commercialState.creadas;
+  commercialState.creadasSeller = "";              // lo que hace el boton
+  commercialState.creadasSearch = "";
+  assertEqual(commercialState.creadasYear, String(CUR_YEAR),
+    "K: el AÑO se preserva — es la ventana que el usuario eligio, no un filtro");
+  assertEqual(commercialState.tipo, tipoAntes,
+    "K: el selector GLOBAL de Tipo no se toca (cambia el universo de negocio)");
+  assertTrue(commercialState.creadas === datasetAntes, "K: el dataset es el MISMO (cero refetch)");
+  assertEqual(uxFiltered().reduce((s, m) => s + m.count, 0), 4,
+    "K: vuelve el universo completo del año");
+}
+
+// --- M: sin resultados usa el primitivo compartido del Hub --------------
+{
+  uxReady({ creadasSeller: "Nadie Existe" });
+  const f = uxFiltered();
+  assertEqual(f.length, 0, "M: el filtro no deja filas");
+  [["tabla", commercialCreadasMonthTableHtml(f)], ["ranking", commercialCreadasSellerRankingHtml(f)]]
+    .forEach(([que, html]) => {
+      assertTrue(html.includes('class="dashboard-empty"'), `M: ${que} usa el primitivo compartido`);
+      assertTrue(html.includes("Sin resultados"), `M: ${que} con el eyebrow compartido`);
+    });
+  assertTrue(commercialCreadasMonthTableHtml(f).includes("estos filtros"),
+    "M: el mensaje distingue 'no hay CON ESTOS FILTROS'");
+  uxReady({});
+  assertTrue(commercialCreadasMonthTableHtml(uxFiltered(PREV_YEAR)).includes("en este año"),
+    "M: de 'no hay EN EL AÑO'");
+}
+
+// --- N: la falla de fuente conserva su propia semantica ----------------
+{
+  resetCreadasState();
+  commercialState.creadasStatus = "error";
+  commercialState.creadasErrorState = "source_error";
+  const html = commercialCreadasPanelBodyHtml();
+  assertTrue(html.includes("No disponible"), "N: la falla de fuente NO se disfraza de vacio");
+  assertTrue(!html.includes("Sin resultados"), "N: y no usa el eyebrow de vacio");
+  assertTrue(html.includes("Reintentar"), "N: conserva su accion de reintento");
+  commercialState.creadasErrorState = "config_incomplete";
+  const cfg = commercialCreadasPanelBodyHtml();
+  assertTrue(!cfg.includes("Reintentar"),
+    "N: config incompleta sigue sin ofrecer reintento — un retry no lo arregla");
+  resetCreadasState();
+}
+
+// --- ORDEN por columna clickeable --------------------------------------
+{
+  const opps = uxMonths()[0].opportunities;
+  commercialState.creadasSortKey = null;
+  assertEqual(commercialCreadasSorted(opps).map(o => o.id), [1, 2, 3],
+    "ORDEN: sin clave activa, el CANONICO del legacy (entry_date ascendente)");
+  commercialState.creadasSortKey = "client"; commercialState.creadasSortDir = 1;
+  assertEqual(commercialCreadasSorted(opps).map(o => o.client), ["Colbun", "Danone", "Loma Negra"],
+    "ORDEN: por cliente ascendente");
+  commercialState.creadasSortDir = -1;
+  assertEqual(commercialCreadasSorted(opps).map(o => o.client), ["Loma Negra", "Danone", "Colbun"],
+    "ORDEN: invertido al re-clickear la misma columna");
+  // La fecha ordena por el ISO, NO por el texto dd/mm/aaaa — que pondria el
+  // 01/12 antes del 02/01.
+  const cruzado = [
+    { id: "a", entry_date: `${CUR_YEAR}-12-01` }, { id: "b", entry_date: `${CUR_YEAR}-01-02` },
+  ];
+  commercialState.creadasSortKey = "entry_date"; commercialState.creadasSortDir = 1;
+  assertEqual(commercialCreadasSorted(cruzado).map(o => o.id), ["b", "a"],
+    "ORDEN: la fecha ordena por ISO, nunca por el texto formateado");
+  const originalIds = opps.map(o => o.id);
+  commercialState.creadasSortKey = "client";
+  commercialCreadasSorted(opps);
+  assertEqual(opps.map(o => o.id), originalIds, "ORDEN: no muta el array de entrada");
+  resetCreadasState();
+
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  const detalle = commercialCreadasDetailHtml(uxFiltered());
+  assertEqual(countOf(detalle, "dashboard-table-th--sortable"), 6,
+    "ORDEN: las SEIS columnas del detalle son ordenables, con el primitivo COMPARTIDO");
+  assertTrue(detalle.includes('data-commercial-creadas-sort="entry_date"'), "ORDEN: hook por columna");
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null },
+            creadasSortKey: "client", creadasSortDir: 1 });
+  assertTrue(commercialCreadasDetailHtml(uxFiltered()).indexOf("Cliente ▲") !== -1,
+    "ORDEN: la columna activa muestra su direccion");
+  resetCreadasState();
+}
+
+// --- O: la conservacion no se toco -------------------------------------
+{
+  // El bucket de semana sigue siendo el del legacy — NO la semana
+  // Monday-anchored del KPI. Es el invariante que separa los dos conceptos.
+  assertEqual(commercialCreadasWeekOfMonth(`${CUR_YEAR}-07-08`), 2,
+    "O: el bucket sigue siendo ceil(dia/7), sin unificar con el KPI semanal");
+  uxReady({});
+  const f = uxFiltered();
+  const julio = f.find(m => m.month === `${CUR_YEAR}-07`);
+  let porSemana = 0;
+  for (let w = 1; w <= commercialCreadasWeekCount(julio.month); w += 1) {
+    porSemana += julio.opportunities.filter(o => commercialCreadasWeekOfMonth(o.entry_date) === w).length;
+  }
+  assertEqual(porSemana, julio.count,
+    "O: las semanas suman EXACTAMENTE el mes — cero perdida, cero duplicacion");
+  assertEqual(f.reduce((s, m) => s + m.count, 0), 4, "O: y los meses suman el universo del año");
+  resetCreadasState();
+}
+
+// --- ESTADO: el badge resuelve las VARIANTES de la fuente ---------------
+// Owner live smoke: los datos de Odoo NO estan estandarizados — "Perdida" y
+// "Perdido" conviven en el mismo mes, y "Suspendido" nunca tuvo badge. Con la
+// comparacion exacta que tenia el legacy (`status === "Perdida"`) una de las
+// dos variantes salia como texto plano al lado de la otra con badge rojo, en la
+// misma columna. Se compara por RAIZ, sin distinguir mayusculas ni acentos.
+{
+  assertEqual(commercialCreadasStatusColor("Ganada"), "green", "ESTADO: Ganada");
+  assertEqual(commercialCreadasStatusColor("Ganado"), "green", "ESTADO: Ganado (variante de genero)");
+  assertEqual(commercialCreadasStatusColor("Perdida"), "red", "ESTADO: Perdida");
+  assertEqual(commercialCreadasStatusColor("Perdido"), "red",
+    "ESTADO: Perdido — la variante que se quedaba SIN badge");
+  assertEqual(commercialCreadasStatusColor("Suspendido"), "grey",
+    "ESTADO: Suspendido — no tenia badge en absoluto");
+  assertEqual(commercialCreadasStatusColor("Suspendida"), "grey", "ESTADO: Suspendida");
+  // Insensible a mayusculas y a espacios de la fuente.
+  assertEqual(commercialCreadasStatusColor("PERDIDO"), "red", "ESTADO: insensible a mayusculas");
+  assertEqual(commercialCreadasStatusColor("  Perdido  "), "red", "ESTADO: tolera espacios");
+  // Las ETAPAS del pipeline NO llevan badge: un badge marca un desenlace, y una
+  // etapa intermedia no lo es.
+  ["1 - Inicial", "3 - Armando Orden Magnitud", "6 - Armando Propuestas Formales",
+   "2 - Relevamiento", "8 - Propuesta formal Presentada"].forEach(etapa => {
+    assertEqual(commercialCreadasStatusColor(etapa), null, `ESTADO: "${etapa}" va sin badge`);
+  });
+  assertEqual(commercialCreadasStatusColor(""), null, "ESTADO: vacio sin badge");
+  assertEqual(commercialCreadasStatusColor(null), null, "ESTADO: null sin badge");
+
+  // Y el TEXTO se muestra tal como viene de la fuente: normalizarlo en el
+  // cliente esconderia la inconsistencia de Odoo, que es un problema real.
+  uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  const conVariantes = uxMonths();
+  conVariantes[0].opportunities[0].status = "Perdido";
+  const html = commercialCreadasDetailHtml(
+    commercialCreadasFiltered(conVariantes, String(CUR_YEAR)));
+  assertTrue(html.indexOf("Perdido") !== -1,
+    "ESTADO: el texto se muestra tal cual llega, sin corregirlo por detras");
+  assertTrue(html.indexOf("dashboard-status-badge--red") !== -1,
+    "ESTADO: y ahora si resuelve su badge");
   resetCreadasState();
 }
 

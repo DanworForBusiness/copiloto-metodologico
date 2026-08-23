@@ -346,7 +346,11 @@ def test_forecast_and_the_activas_analysis_stay_different_by_design():
     # la variante lisa, pero SIGUE siendo el primero en el markup, así que
     # `plain_block` (el primer split) sigue resolviendo al SUYO.
     assert markup.count('class="analysis-split analysis-split--top"') == 1
-    assert markup.count('class="analysis-split">') == 2
+    # UNO solo, el de Activas. Creadas usaba `.analysis-split` para poner
+    # ranking y tabla lado a lado; el owner UX corrective los apiló
+    # (`.commercial-creadas-analysis`) porque eran dos capas visualmente
+    # desconectadas de la misma pregunta.
+    assert markup.count('class="analysis-split">') == 1
     # El que lleva `--top` es el de Activas, no el de Forecast.
     top_block = markup.split('class="analysis-split analysis-split--top"', 1)[1][:400]
     assert "data-commercial-dist" in top_block and "forecast" not in top_block.lower()
