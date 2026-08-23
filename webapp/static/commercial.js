@@ -89,6 +89,24 @@ const commercialState = {
   // necesita. "" = sin filtro.
   forecastStageFilter: "",
   forecastSellerFilter: "",
+  // Drill de "Creadas" (Creadas Legacy Parity, ver HANDOFF — paridad con el
+  // legacy `#created-drill-section`/`/crm/opp-by-month`) — LAZY, MISMO
+  // criterio que Forecast: no entra al `Promise.all` inicial, se pide la
+  // primera vez que se abre el desglose, se reusa mientras el `tipo` no
+  // cambie. `idle` = todavía no se pidió, o quedó invalidado por un cambio
+  // de Todos/NN/BI.
+  creadas: null,
+  creadasStatus: "idle", // idle | loading | ready | error
+  creadasErrorState: "",
+  // Año seleccionado del drill — `null` hasta que el payload resuelve (el
+  // año por default es el más reciente CON datos, ver
+  // `commercialCreadasDefaultYear`, nunca el año calendario si no hay
+  // oportunidades ese año). Mes/semana expandidos — client-side puro,
+  // nunca un fetch (MISMO dataset ya cargado, sólo cambia qué fila se ve
+  // abierta). "" = ninguno expandido.
+  creadasYear: null,
+  creadasExpandedMonth: "",
+  creadasExpandedWeek: "",
   // Actividades — LAZY (ver commercialSetCapability): Dashboard no paga el
   // costo de una capability que no se está viendo. `idle` = todavía no se
   // pidió, o quedó stale tras cambiar el filtro global.
@@ -884,6 +902,225 @@ function commercialForecastCountLabel(mode) {
   if (!rows.length) return "0 períodos";
   const total = rows.reduce((sum, m) => sum + (m[COMMERCIAL_FORECAST_METRIC[mode].key] || 0), 0);
   return `${commercialFmtInt(rows.length)} período(s) · ${commercialFmtInt(total)} hs`;
+}
+
+// ── Creadas — drill mensual + ranking por vendedor (Creadas Legacy Parity,
+// ver HANDOFF — paridad con el legacy `#created-drill-section`/
+// `/crm/opp-by-month`) ──────────────────────────────────────────────────────
+// Año por default: el más RECIENTE con datos (MISMO criterio que el legacy:
+// el año actual si tiene oportunidades, si no el más reciente disponible —
+// nunca el año calendario a secas, que podría no tener ningún dato).
+function commercialCreadasYears(months) {
+  const years = new Set();
+  (months || []).forEach(m => years.add(m.month.slice(0, 4)));
+  return [...years].sort().reverse();
+}
+function commercialCreadasDefaultYear(months) {
+  const years = commercialCreadasYears(months);
+  if (!years.length) return null;
+  const current = String(new Date().getFullYear());
+  return years.includes(current) ? current : years[0];
+}
+function commercialCreadasEffectiveYear(months) {
+  return commercialState.creadasYear || commercialCreadasDefaultYear(months);
+}
+
+// Semana DENTRO del mes — MISMA fórmula que el legacy (ceil(día/7)), NUNCA
+// la semana Monday-anchored que usa el KPI semanal: son DOS conceptos de
+// "semana" DISTINTOS a propósito (owner directive — "do not correct or
+// unify the two concepts in this increment").
+function commercialCreadasWeekOfMonth(entryDate) {
+  return Math.ceil(Number(entryDate.slice(8, 10)) / 7);
+}
+
+function commercialCreadasStatusColor(status) {
+  if (status === "Ganada") return "green";
+  if (status === "Perdida") return "red";
+  return null;
+}
+
+const COMMERCIAL_MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+function commercialCreadasMonthLabel(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${COMMERCIAL_MONTH_NAMES[m - 1]} de ${y}`;
+}
+
+// Ranking por vendedor (año seleccionado) — reusa `.bar-row` (tools.css),
+// el primitivo YA promovido Hub-wide (ver
+// test_bar_primitive_is_promoted_hub_wide...), MISMO que usa Reporting/
+// Rentabilidad para su propio ranking — cero clase nueva.
+function commercialCreadasSellerRankingHtml(months, year) {
+  const opps = (months || []).filter(m => m.month.startsWith(year)).flatMap(m => m.opportunities || []);
+  const counts = {};
+  opps.forEach(o => { const s = o.seller || "Sin vendedor"; counts[s] = (counts[s] || 0) + 1; });
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados", "Ningún vendedor tiene oportunidades creadas en este año.");
+  }
+  const max = rows[0][1];
+  return rows.map(([seller, count]) => `
+    <div class="bar-row"><span class="bar-label">${commercialEsc(seller)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count / max * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${commercialFmtInt(count)}</span>
+    </div>`).join("");
+}
+
+// Semanas de UN mes ya expandido — MISMOS primitivos `.bar-track`/
+// `.bar-fill`/`.bar-value` que la tabla de Forecast, fila CLICKEABLE (ver
+// `commercialCreadasMonthTableHtml`) hacia el detalle por oportunidad.
+function commercialCreadasWeekRowsHtml(monthBucket) {
+  const byWeek = {};
+  (monthBucket.opportunities || []).forEach(o => {
+    const w = commercialCreadasWeekOfMonth(o.entry_date);
+    (byWeek[w] || (byWeek[w] = [])).push(o);
+  });
+  const weeks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
+  const maxW = Math.max(...weeks.map(w => byWeek[w].length), 1);
+  return weeks.map(w => {
+    const opps = byWeek[w];
+    const width = (opps.length / maxW * 100).toFixed(1);
+    return `<tr class="commercial-creadas-row" data-commercial-creadas-week="${monthBucket.month}:${w}">
+      <td class="row-label-col">Semana ${w}</td>
+      <td><span class="forecast-bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span>`
+      + `<span class="bar-value">${commercialFmtInt(opps.length)}</span></span></td>
+    </tr>`;
+  }).join("");
+}
+
+// Tabla mensual — año seleccionado, descendente. MISMOS primitivos que la
+// tabla de Forecast (`.dashboard-table`/`.matrix-scroll`/`.bar-track`/
+// `.bar-fill`/`.bar-value`, colgroup en %) — cero clase nueva. Fila de mes
+// CLICKEABLE (el drill mensual que el comentario histórico de
+// `commercialForecastTableHtml` marcaba como "C7, todavía no homologado" —
+// ESTE es ese drill): expande semanas sin fetch, todo client-side sobre el
+// payload ya cargado (MISMO criterio que Etapa/Vendedor de Forecast).
+function commercialCreadasMonthTableHtml(months, year) {
+  const rows = (months || []).filter(m => m.month.startsWith(year));
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados", "Ninguna oportunidad entró al pipeline en este año.");
+  }
+  const max = Math.max(...rows.map(m => m.count), 1);
+  const body = rows.map(m => {
+    const width = (m.count / max * 100).toFixed(1);
+    const expanded = commercialState.creadasExpandedMonth === m.month;
+    const caret = expanded ? "▾" : "▸";
+    const monthRow = `<tr class="commercial-creadas-row" data-commercial-creadas-month="${commercialEsc(m.month)}">
+      <td class="row-label-col">${caret} ${commercialEsc(commercialCreadasMonthLabel(m.month))}</td>
+      <td><span class="forecast-bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span>`
+      + `<span class="bar-value">${commercialFmtInt(m.count)}</span></span></td>
+    </tr>`;
+    return expanded ? monthRow + commercialCreadasWeekRowsHtml(m) : monthRow;
+  }).join("");
+  return `<div class="matrix-scroll forecast-months">
+      <table class="dashboard-table">
+        <colgroup><col style="width:55%"><col style="width:45%"></colgroup>
+        <thead><tr><th>Mes</th><th>Oportunidades</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+}
+
+// Detalle por oportunidad (mes o semana seleccionada) — MISMAS 6 columnas
+// que el legacy (Fecha entrada/Oportunidad/Cliente/Vendedor/Origen/Estado),
+// orden ASCENDENTE por fecha de entrada — MISMO criterio legacy.
+function commercialCreadasDetailHtml(months) {
+  const monthKey = commercialState.creadasExpandedMonth;
+  if (!monthKey) return "";
+  const bucket = (months || []).find(m => m.month === monthKey);
+  if (!bucket) return "";
+  let opps = bucket.opportunities || [];
+  let label = commercialCreadasMonthLabel(monthKey);
+  const weekKey = commercialState.creadasExpandedWeek;
+  if (weekKey && weekKey.startsWith(`${monthKey}:`)) {
+    const w = Number(weekKey.split(":")[1]);
+    opps = opps.filter(o => commercialCreadasWeekOfMonth(o.entry_date) === w);
+    label = `Semana ${w} de ${label}`;
+  }
+  opps = [...opps].sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+  const rows = opps.map(o => {
+    const color = commercialCreadasStatusColor(o.status);
+    const statusHtml = color
+      ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${commercialEsc(o.status)}</span>`
+      : commercialEsc(o.status);
+    return `<tr>
+      <td>${commercialEsc(commercialFmtDate(o.entry_date))}</td>
+      <td class="row-label-col">${commercialEsc(o.name)}</td>
+      <td>${commercialEsc(o.client) || "—"}</td>
+      <td>${commercialEsc(o.seller) || "—"}</td>
+      <td>${commercialEsc(o.origen) || "—"}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="matrix-scroll" data-commercial-creadas-detail style="margin-top:16px">
+      <p class="perspective-label">${commercialEsc(label)} — ${commercialFmtInt(opps.length)} oportunidad(es)</p>
+      <table class="dashboard-table">
+        <thead><tr><th>Fecha entrada</th><th class="row-label-col">Oportunidad</th><th>Cliente</th><th>Vendedor</th><th>Origen</th><th>Estado</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// Conteo del header — "N oportunidad(es) · <año>", MISMO criterio que
+// `commercialForecastCountLabel` (vacío mientras no hay payload, el `<span>`
+// se emite igual para que el re-render quirúrgico siempre encuentre su
+// host).
+function commercialCreadasCountLabel() {
+  if (commercialState.creadasStatus !== "ready") return "";
+  const months = (commercialState.creadas && commercialState.creadas.months) || [];
+  if (!months.length) return "";
+  const year = commercialCreadasEffectiveYear(months);
+  const total = months.filter(m => m.month.startsWith(year)).reduce((sum, m) => sum + m.count, 0);
+  return `${commercialFmtInt(total)} oportunidad(es) · ${year}`;
+}
+
+function commercialCreadasYearSelectHtml(months) {
+  const years = commercialCreadasYears(months);
+  const selected = commercialCreadasEffectiveYear(months);
+  return `<div class="whatsnew-filters">
+      <label class="whatsnew-filter">
+        <span>Año</span>
+        <select data-commercial-creadas-year>
+          ${years.map(y => `<option value="${y}"${y === selected ? " selected" : ""}>${y}</option>`).join("")}
+        </select>
+      </label>
+    </div>`;
+}
+
+// Cuerpo del panel — cubre los CUATRO estados del lazy load, MISMO criterio
+// que `commercialForecastPanelBodyHtml`. Ranking + tabla mensual LADO A
+// LADO (`.analysis-split`, MISMO primitivo que Forecast), detalle por
+// oportunidad debajo cuando hay un mes expandido.
+function commercialCreadasPanelBodyHtml() {
+  if (commercialState.creadasStatus === "error") {
+    const configIncomplete = commercialState.creadasErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las oportunidades creadas desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("creadas", "Reintentar la carga de oportunidades creadas"));
+  }
+  if (commercialState.creadasStatus !== "ready") {
+    return commercialLoadingHtml("Cargando oportunidades creadas…");
+  }
+  const months = (commercialState.creadas && commercialState.creadas.months) || [];
+  if (!months.length) {
+    return commercialEmptyStateHtml("Sin datos",
+      "No hay oportunidades con fecha de entrada al pipeline para este segmento.");
+  }
+  const year = commercialCreadasEffectiveYear(months);
+  return commercialCreadasYearSelectHtml(months)
+    + `<div class="analysis-split">
+        <div>
+          <h3 class="perspective-label">Ranking por vendedor</h3>
+          ${commercialCreadasSellerRankingHtml(months, year)}
+        </div>
+        <div>
+          <h3 class="perspective-label">Por mes</h3>
+          ${commercialCreadasMonthTableHtml(months, year)}
+        </div>
+      </div>`
+    + commercialCreadasDetailHtml(months);
 }
 
 // Detalle de Oportunidades Activas (Active Opportunities Phase 2 / C4, ver
@@ -1958,7 +2195,13 @@ function commercialDashboardHtml() {
       ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
         { sub: hs(s.suspendidas.hours), split: seg("suspendidas") })}
       ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
-        { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "" })}
+        // eventKey NUNCA condicional a `a` (Creadas Legacy Parity, ver
+        // HANDOFF): el drill es un fetch PROPIO/independiente
+        // (/comercial/data/creadas), no derivado de `analytics` — que
+        // ESE batch falle no debe apagar la afordancia de un análisis que
+        // igual puede cargar.
+        { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "",
+          eventKey: "creadas" })}
       ${commercialRichKpi("Conversión", commercialFmtPercent(s.conversion),
         { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;
@@ -2036,6 +2279,23 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-forecast-body>${commercialForecastPanelBodyHtml("total")}</div>
     </details>`;
 
+  // Creadas (Creadas Legacy Parity, ver HANDOFF): TERCERA sección de
+  // análisis, hermana de Activas/Forecast, mismo `[data-breakdown-group]`
+  // — "un solo análisis abierto por vez" sale gratis del motor compartido,
+  // MISMO criterio que Forecast. Lazy load + render quirúrgico también
+  // idénticos (ver `commercialRenderCreadasPanel`) — los hosts estables son
+  // `[data-commercial-creadas-count]`/`[data-commercial-creadas-body]`.
+  const creadasSection = `<details class="dashboard-section" data-section-id="creadas-analisis" data-breakdown="creadas" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Oportunidades Creadas — Análisis</span>
+        <span class="dashboard-section__count" data-commercial-creadas-count>${commercialEsc(commercialCreadasCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="creadas" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-creadas-body>${commercialCreadasPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -2043,7 +2303,8 @@ function commercialDashboardHtml() {
   const sections = commercialDashboardSection("resumen", "Resumen", "", kpiGrid)
     + commercialDashboardSection("analiticas", "Analíticas del Pipeline", "", analyticsGrid)
     + analysisSection
-    + forecastSection;
+    + forecastSection
+    + creadasSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -2263,6 +2524,67 @@ function commercialMaybeRerenderForecastForMode(trigger) {
   commercialRenderForecastPanel();
 }
 
+// ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
+// HANDOFF) ─────────────────────────────────────────────────────────────────
+// MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
+// conteo del panel) — nunca `commercialRender()`/`commercialRenderCapability()`,
+// que reconstruirían el subárbol y cerrarían el propio panel que se está
+// llenando.
+function commercialRenderCreadasPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-creadas-body]");
+  if (body) body.innerHTML = commercialCreadasPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-creadas-count]");
+  if (count) count.textContent = commercialCreadasCountLabel();
+}
+
+// Una sola request, disparada por la PRIMERA apertura del desglose para el
+// `tipo` vigente — MISMO criterio que Forecast (owner directive — "the KPI
+// must remain lightweight... first click fetches the drill"). El fallo
+// queda AISLADO: sólo este panel avisa.
+async function commercialLoadCreadas() {
+  commercialState.creadasStatus = "loading";
+  commercialRenderCreadasPanel();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/creadas?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.creadas = resp.creadas;
+      commercialState.creadasStatus = "ready";
+      // Año se recalcula contra el payload NUEVO en el próximo render (ver
+      // `commercialCreadasEffectiveYear`) — nunca conserva un año de una
+      // carga anterior con otro `tipo`.
+      commercialState.creadasYear = null;
+      commercialState.creadasExpandedMonth = "";
+      commercialState.creadasExpandedWeek = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.creadasStatus = "error";
+      commercialState.creadasErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.creadasStatus = "error";
+    commercialState.creadasErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCreadasPanel();
+}
+
+// Puente entre el motor compartido y el lazy load — MISMO criterio que
+// `commercialMaybeLoadForecast`: sólo en una APERTURA (trigger quedó
+// activo) y sólo si todavía no se pidió nada para el `tipo` vigente. Cerrar
+// y reabrir NO vuelve a pedir nada; un error tampoco reintenta solo (hasta
+// que cambie el `tipo`).
+function commercialMaybeLoadCreadas(trigger) {
+  if (trigger.dataset.event !== "creadas") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.creadasStatus !== "idle") return;
+  commercialLoadCreadas();
+}
+
 // Cambio del filtro GLOBAL: invalida los datasets de TODAS las capabilities
 // (el tipo cambia la población de todas) pero sólo re-pide el de la que está
 // en pantalla. La otra queda `idle` y se recarga sola la próxima vez que se
@@ -2289,6 +2611,17 @@ function commercialSetTipo(tipo) {
   // los filtros de Actividades y el texto libre de Oportunidades).
   commercialState.forecastStageFilter = "";
   commercialState.forecastSellerFilter = "";
+  // Creadas (Creadas Legacy Parity, ver HANDOFF): MISMO criterio que
+  // Forecast — invalida y NO re-pide acá, vuelve a "idle" y lo carga la
+  // próxima apertura del desglose con el tipo nuevo. Año/mes/semana
+  // expandidos también se resetean: un año/mes válido bajo un `tipo`
+  // podría no tener datos bajo el otro.
+  commercialState.creadas = null;
+  commercialState.creadasStatus = "idle";
+  commercialState.creadasErrorState = "";
+  commercialState.creadasYear = null;
+  commercialState.creadasExpandedMonth = "";
+  commercialState.creadasExpandedWeek = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -2397,9 +2730,37 @@ document.addEventListener("DOMContentLoaded", () => {
     if (retryBtn) {
       if (retryBtn.dataset.commercialRetry === "forecast") {
         if (commercialState.forecastStatus !== "loading") commercialLoadForecast();
+      } else if (retryBtn.dataset.commercialRetry === "creadas") {
+        if (commercialState.creadasStatus !== "loading") commercialLoadCreadas();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
+      return;
+    }
+    // Fila de mes/semana de Creadas (Creadas Legacy Parity, ver HANDOFF —
+    // paridad con el drill mensual del legacy): expande/colapsa, client-side
+    // puro sobre el payload YA cargado — nunca un fetch. Un mes se re-abre
+    // limpio (semana/detalle previos no sobreviven a cambiar de mes); una
+    // semana dentro del MISMO mes togglea sola. Re-render QUIRÚRGICO del
+    // panel — MISMO camino que el resto de Creadas/Forecast.
+    const creadasMonthRow = event.target.closest("[data-commercial-creadas-month]");
+    if (creadasMonthRow) {
+      const month = creadasMonthRow.dataset.commercialCreadasMonth;
+      if (commercialState.creadasExpandedMonth === month) {
+        commercialState.creadasExpandedMonth = "";
+        commercialState.creadasExpandedWeek = "";
+      } else {
+        commercialState.creadasExpandedMonth = month;
+        commercialState.creadasExpandedWeek = "";
+      }
+      commercialRenderCreadasPanel();
+      return;
+    }
+    const creadasWeekRow = event.target.closest("[data-commercial-creadas-week]");
+    if (creadasWeekRow) {
+      const key = creadasWeekRow.dataset.commercialCreadasWeek;
+      commercialState.creadasExpandedWeek = commercialState.creadasExpandedWeek === key ? "" : key;
+      commercialRenderCreadasPanel();
       return;
     }
     // "✕ Limpiar" del Forecast (C6b): mismo primitivo y mismo gesto que el de
@@ -2475,6 +2836,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
       commercialMaybeLoadForecast(kpiTrigger);
       commercialMaybeRerenderForecastForMode(kpiTrigger);
+      commercialMaybeLoadCreadas(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -2550,6 +2912,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sellerSelect) commercialState.forecastSellerFilter = sellerSelect.value;
     commercialRenderForecastPanel();
   });
+  // Año del drill de Creadas (Creadas Legacy Parity, ver HANDOFF): cambia
+  // SOLO la lectura (ranking + tabla mensual filtrados a ESE año) — el
+  // payload es el MISMO (todos los años ya vinieron en la carga única),
+  // cero round-trip. Mes/semana expandidos se resetean: un mes expandido
+  // del año anterior no tiene sentido bajo el año nuevo. Listener SEPARADO,
+  // mismo criterio que los de arriba.
+  document.addEventListener("change", event => {
+    const yearSelect = event.target.closest("[data-commercial-creadas-year]");
+    if (!yearSelect) return;
+    commercialState.creadasYear = yearSelect.value;
+    commercialState.creadasExpandedMonth = "";
+    commercialState.creadasExpandedWeek = "";
+    commercialRenderCreadasPanel();
+  });
   // Búsqueda libre (C5e, ver HANDOFF): `input`, no `change` — filtra en cada
   // tecla (UX esperada de un buscador), nunca espera blur/Enter. SÓLO toca
   // `[data-commercial-opportunities]` — jamás el Funnel (contrato explícito
@@ -2584,6 +2960,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
     commercialMaybeLoadForecast(kpiTrigger);
     commercialMaybeRerenderForecastForMode(kpiTrigger);
+    commercialMaybeLoadCreadas(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

@@ -164,19 +164,24 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
     const start = html.lastIndexOf('<div class="activity-kpi', i);
     return html.slice(start, html.indexOf("</div>", i));
   };
-  // C6 (ver HANDOFF): TRES tiles clickeables sobre DOS análisis. "Pipeline
+  // C6 (ver HANDOFF) + Creadas Legacy Parity (ver HANDOFF, incremento
+  // POSTERIOR): CUATRO tiles clickeables sobre TRES análisis. "Pipeline
   // total" y "Pipeline ponderado" comparten `data-event="forecast"` a
   // propósito — misma población (0-8) medida con y sin probabilidad, y el
-  // panel muestra las dos series juntas. Los otros SEIS siguen sin fingir
-  // una acción inexistente, que es lo que este bloque protege.
-  assertTrue(count(html, "activity-kpi--clickable") === 3, "exactamente tres tiles clickeables");
+  // panel muestra las dos series juntas. "Creadas esta semana" abre su
+  // propio drill (paridad con el legacy `/crm/opp-by-month`). Los otros
+  // CINCO siguen sin fingir una acción inexistente, que es lo que este
+  // bloque protege.
+  assertTrue(count(html, "activity-kpi--clickable") === 4, "exactamente cuatro tiles clickeables");
   assertTrue(count(html, 'data-event="activas"') === 1, "uno es Oportunidades activas");
   assertTrue(count(html, 'data-event="forecast"') === 2, "y dos son los Pipeline, ambos al MISMO análisis");
-  assertTrue(count(html, 'role="button"') === 3, "ningún otro tile finge ser accionable");
+  assertTrue(count(html, 'data-event="creadas"') === 1, "y uno es Creadas esta semana");
+  assertTrue(count(html, 'role="button"') === 4, "ningún otro tile finge ser accionable");
   // Los DOS triggers de forecast son los tiles de Pipeline, no otros.
   assertTrue(tile("Pipeline total").includes('data-event="forecast"'), "Pipeline total abre Forecast");
   assertTrue(tile("Pipeline ponderado").includes('data-event="forecast"'), "Pipeline ponderado abre el mismo Forecast");
-  for (const label of ["Prospectos", "Ganadas", "Perdidas", "Suspendidas", "Creadas esta semana", "Conversión"]) {
+  assertTrue(tile("Creadas esta semana").includes('data-event="creadas"'), "Creadas esta semana abre su propio drill");
+  for (const label of ["Prospectos", "Ganadas", "Perdidas", "Suspendidas", "Conversión"]) {
     assertTrue(!tile(label).includes("data-event="), `${label} sigue siendo informativo`);
   }
 }
@@ -215,7 +220,10 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   // C6: un SEGUNDO panel de análisis, también oculto de entrada, en el MISMO
   // grupo de breakdown (de ahí que el motor compartido muestre uno por vez).
   assertTrue(html.includes('data-breakdown="forecast" open hidden'), "el panel de Forecast también arranca oculto");
-  assertTrue(count(html, "data-breakdown=") === 2, "exactamente dos contratos de breakdown, sin panel placeholder");
+  // Creadas Legacy Parity (ver HANDOFF, incremento POSTERIOR): un TERCER
+  // panel, MISMO grupo, MISMO criterio.
+  assertTrue(html.includes('data-breakdown="creadas" open hidden'), "el panel de Creadas también arranca oculto");
+  assertTrue(count(html, "data-breakdown=") === 3, "exactamente tres contratos de breakdown, sin panel placeholder");
   assertTrue(count(html, "data-breakdown-group") === 1, "y UN solo grupo — nunca un lifecycle paralelo");
   assertTrue(!/Hacé clic en/.test(html), "sin texto placeholder en el landing");
   // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.

@@ -49,10 +49,13 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     assert '"source": opp["source_id"][1] if opp.get("source_id") else "Sin definir"' in service
     surface = (_ROOT / "tests" / "route_surface.json").read_text(encoding="utf-8")
     assert "origen" not in surface.lower() and "origin" not in surface.lower()
-    # El frontend sigue pidiendo los MISMOS cinco endpoints: cuatro en el load
-    # inicial y forecast lazy.
+    # El frontend sigue pidiendo los MISMOS endpoints de siempre para Origin
+    # (C8 no agregó ninguno): cuatro en el load inicial + activities +
+    # forecast lazy + creadas lazy (Creadas Legacy Parity, ver HANDOFF — un
+    # incremento POSTERIOR y no relacionado con Origin, que sí agregó el
+    # suyo propio).
     code = _js_code(_COMMERCIAL_JS)
-    assert code.count("/comercial/data/") == 6  # 4 iniciales + activities + forecast
+    assert code.count("/comercial/data/") == 7  # 4 iniciales + activities + forecast + creadas
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
@@ -110,14 +113,18 @@ def test_origin_reuses_the_shared_bar_primitives_without_coupling_to_forecast():
 
 def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # No es un panel nuevo: comparte el análisis expandido de Activas, así que
-    # sigue habiendo DOS `data-breakdown` (Activas y Forecast) y UN grupo.
+    # Origin en sí (C8) sigue sin agregar ningún `data-breakdown` propio —
+    # el conteo de 4 (Activas + Forecast + Creadas, ésta última de un
+    # incremento POSTERIOR y no relacionado — ver Creadas Legacy Parity en
+    # HANDOFF — + el selector del scroll) es el mismo total que cualquier
+    # otro test de esta suite que audite la superficie completa de paneles.
     markup = _js_code(_COMMERCIAL_JS)
-    assert markup.count('data-breakdown="') == 3   # activas + forecast + el selector del scroll
+    assert markup.count('data-breakdown="') == 4   # activas + forecast + creadas + el selector del scroll
     assert markup.count("data-breakdown-group>") == 1
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 16, queries   # C9 sumó el cuerpo de Actividades
+    assert len(queries) == 18, queries   # C9 sumó el cuerpo de Actividades; Creadas Legacy Parity sumó 2 más (host del panel + conteo)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

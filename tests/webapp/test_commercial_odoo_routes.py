@@ -223,11 +223,14 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # ahora resuelve el trigger ACTIVO del análisis en vez del primero del
     # DOM. C6b (tabla + filtros del Forecast, ver HANDOFF) agrega dos: el
     # trigger ACTIVO de forecast —de donde se LEE el modo Total/Ponderado, en
-    # vez de guardarlo— y el host del título conmutable. El contrato sigue
-    # siendo explícito, no aproximado: se permiten EXACTAMENTE estos dieciséis
-    # hooks y nada más. C9 agrega el del cuerpo de Actividades, que su búsqueda
-    # y su orden re-renderizan sin tocar la barra de controles — si la
-    # regeneraran, el `<input>` perdería el foco.
+    # vez de guardarlo— y el host del título conmutable. C9 agrega el del
+    # cuerpo de Actividades, que su búsqueda y su orden re-renderizan sin
+    # tocar la barra de controles — si la regeneraran, el `<input>` perdería
+    # el foco. Creadas Legacy Parity (ver HANDOFF) agrega DOS más — MISMO
+    # criterio que Forecast: los hosts estables del panel de Creadas
+    # (`[data-commercial-creadas-body]`/`-count`) para su propio re-render
+    # quirúrgico. El contrato sigue siendo explícito, no aproximado: se
+    # permiten EXACTAMENTE estos dieciocho hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -239,6 +242,8 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-forecast-body]"',
         '"[data-commercial-forecast-count]"',
         '"[data-commercial-forecast-title]"',
+        '"[data-commercial-creadas-body]"',
+        '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
@@ -550,29 +555,30 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 # ============================================================================
 
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
-    # Landing Homologation + C6 (ver HANDOFF): los tiles se emiten con
-    # `commercialRichKpi`, y `eventKey` es lo único que agrega la afordancia de
-    # click. Lo reciben TRES tiles, sobre DOS análisis homologados —
-    # "Oportunidades activas", y "Pipeline total"/"Pipeline ponderado", que
-    # comparten la MISMA key porque son la misma población (0-8) medida con y
-    # sin probabilidad y el panel de Forecast presenta las dos series juntas.
-    # Los otros seis conservan su información SIN simular una acción
+    # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity: los
+    # tiles se emiten con `commercialRichKpi`, y `eventKey` es lo único que
+    # agrega la afordancia de click. Lo reciben CUATRO tiles, sobre TRES
+    # análisis homologados — "Oportunidades activas", "Pipeline total"/
+    # "Pipeline ponderado" (comparten la MISMA key: misma población 0-8,
+    # con y sin probabilidad, un solo panel de Forecast) y "Creadas esta
+    # semana" (drill propio, paridad con el legacy `/crm/opp-by-month`).
+    # Los otros cinco conservan su información SIN simular una acción
     # inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 3
+    assert dashboard_fn.count("eventKey:") == 4
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
+    assert dashboard_fn.count('eventKey: "creadas"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    # Ningún tile fuera de Activas y los dos Pipeline recibe `eventKey`, así
-    # que ninguno queda clickeable — sin afordancia falsa.
+    # Ningún tile fuera de Activas, los dos Pipeline y Creadas recibe
+    # `eventKey`, así que ninguno queda clickeable — sin afordancia falsa.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Prospectos", "Ganadas", "Perdidas", "Suspendidas",
-                  "Creadas esta semana", "Conversión"):
+    for label in ("Prospectos", "Ganadas", "Perdidas", "Suspendidas", "Conversión"):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -784,23 +790,28 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Ganadas, Perdidas, Prospectos, Suspendidas, Creadas, Target: ninguno gana
+    # Ganadas, Perdidas, Prospectos, Suspendidas, Target: ninguno gana
     # `data-event` ni panel propio — contar solo MARKUP real dentro de cada
     # función, no menciones en comentarios (que mencionan
-    # `data-event`/`data-breakdown` varias veces).
+    # `data-event`/`data-breakdown` varias veces). Creadas SÍ lo ganó en
+    # este batch (Creadas Legacy Parity, ver HANDOFF) — su drill YA está
+    # homologado, así que queda EXCLUIDO de esta lista de "sigue sin
+    # drilldown" (ver los dos tests de arriba, que ahora lo esperan
+    # clickeable).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # DOS `data-breakdown` reales en el markup — la sección de Activas y, desde
-    # C6 (ver HANDOFF), la de Forecast — + UNA referencia al MISMO atributo
-    # dentro del selector que construye `commercialMaybeScrollToOpenedAnalysis`
-    # (C3.1, ver HANDOFF — scroll al abrir) para ubicar la que corresponda.
-    # Nunca un TERCER panel, y nunca un grupo de breakdown paralelo: los dos
-    # viven en el MISMO `[data-breakdown-group]`, que es lo que hace que el
-    # motor compartido muestre uno por vez. Se cuenta sobre el markup, no sobre
-    # los comentarios, que mencionan el atributo en prosa varias veces.
+    # TRES `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
+    # HANDOFF) y Creadas (Creadas Legacy Parity, ver HANDOFF) — + UNA
+    # referencia al MISMO atributo dentro del selector que construye
+    # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
+    # abrir) para ubicar la que corresponda. Nunca un CUARTO panel, y nunca
+    # un grupo de breakdown paralelo: los tres viven en el MISMO
+    # `[data-breakdown-group]`, que es lo que hace que el motor compartido
+    # muestre uno por vez. Se cuenta sobre el markup, no sobre los
+    # comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 3
+    assert markup.count('data-breakdown="') == 4
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -1010,6 +1021,112 @@ def test_opportunities_endpoint_never_exposes_a_write_verb():
     for verb in ("post", "put", "patch", "delete"):
         response = getattr(client, verb)("/comercial/data/opportunities")
         assert response.status_code == 405, (verb, response.status_code)
+
+
+# ============================================================================
+# Creadas Legacy Parity (ver HANDOFF) — drill de "Creadas" (paridad legacy
+# /crm/opp-by-month), MISMA gate/contrato fail-soft que el resto de
+# Comercial — MISMO patrón de 6 tests que el suite de Oportunidades Activas
+# de arriba.
+# ============================================================================
+
+def test_creadas_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/creadas", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_creadas_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/creadas").status_code == 403
+
+
+def test_creadas_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _CreadasStub(_StubService):
+        def get_creadas_detail(self, tipo="todos"):
+            return {"months": [{"month": "2024-02", "count": 1, "opportunities": []}], "tipo": tipo}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _CreadasStub())
+    response = client.get("/comercial/data/creadas?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["creadas"]["tipo"] == "nn"
+
+
+def test_creadas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_creadas_detail(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/creadas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_creadas_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_creadas_detail(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/creadas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_creadas_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/creadas")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_creadas_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    # Owner directive — "The KPI must remain lightweight... opening the
+    # normal Commercial dashboard does NOT trigger the new enriched drill
+    # fetch": `commercialLoadData` (la carga inicial) pide EXACTAMENTE
+    # summary/pipeline/analytics/opportunities — nunca creadas, que es lazy
+    # y sólo se pide al abrir su propio análisis (ver
+    # `commercialMaybeLoadCreadas`).
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/creadas" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+def test_creadas_load_is_lazy_single_flight_and_survives_reopen():
+    # MISMO criterio que Forecast (`commercialMaybeLoadForecast`): sólo
+    # dispara en una APERTURA (trigger quedó `.is-active`) y sólo si
+    # `creadasStatus` sigue en "idle" — cerrar y reabrir con el MISMO tipo
+    # NO vuelve a pedir nada.
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadCreadas(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "creadas"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.creadasStatus !== "idle"' in fn
+    assert "commercialLoadCreadas()" in fn
+
+
+def test_creadas_tipo_change_invalidates_but_does_not_refetch():
+    # MISMO criterio que Forecast/Actividades: `commercialSetTipo` invalida
+    # (vuelve a "idle") pero NUNCA llama a `commercialLoadCreadas` — el
+    # próximo fetch lo dispara la próxima apertura del análisis, con el
+    # tipo nuevo.
+    fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\ndocument.addEventListener(\"DOMContentLoaded\"", 1)[0]
+    assert "commercialState.creadas = null;" in fn
+    assert 'commercialState.creadasStatus = "idle";' in fn
+    assert "commercialLoadCreadas()" not in fn
+
+
+def test_creadas_local_interactions_never_refetch():
+    # Año/mes/semana son client-side puros sobre el payload YA cargado —
+    # owner directive: "year/month/week local interactions do not refetch".
+    year_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-year]")', 1)[1].split("});", 1)[0]
+    assert "fetch(" not in year_fn
+    assert "commercialRenderCreadasPanel()" in year_fn
+    month_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-month]")', 1)[1].split("const creadasWeekRow", 1)[0]
+    assert "fetch(" not in month_fn
+    week_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-week]")', 1)[1].split("\n    }", 1)[0]
+    assert "fetch(" not in week_fn
 
 
 # ============================================================================

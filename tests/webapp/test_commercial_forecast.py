@@ -338,9 +338,15 @@ def test_the_leak_vector_is_real_so_the_ownership_test_is_not_vacuous():
 def test_forecast_and_the_activas_analysis_stay_different_by_design():
     markup = _js_code(_COMMERCIAL_JS)
     # Activas declara `--top` (arranques alineados + crecimiento); Forecast no
-    # (piso compartido + alto fijo). Un solo consumidor de cada variante.
+    # (piso compartido + alto fijo) — sigue siendo el ÚNICO consumidor de
+    # `--top`. Creadas (Creadas Legacy Parity, ver HANDOFF, incremento
+    # POSTERIOR y no relacionado con este) reusa la variante SIN `--top`
+    # (ranking + tabla mensual, sin el gráfico de barras agrupadas que
+    # necesita ese anclaje) — Forecast deja de ser el único consumidor de
+    # la variante lisa, pero SIGUE siendo el primero en el markup, así que
+    # `plain_block` (el primer split) sigue resolviendo al SUYO.
     assert markup.count('class="analysis-split analysis-split--top"') == 1
-    assert markup.count('class="analysis-split">') == 1
+    assert markup.count('class="analysis-split">') == 2
     # El que lleva `--top` es el de Activas, no el de Forecast.
     top_block = markup.split('class="analysis-split analysis-split--top"', 1)[1][:400]
     assert "data-commercial-dist" in top_block and "forecast" not in top_block.lower()

@@ -763,6 +763,36 @@ class CommercialService:
         except (ValueError, TypeError):
             return None
 
+    # CANONICAL "Creadas" event set (Creadas Legacy Parity — ver HANDOFF):
+    # entrada a la primera etapa válida del pipeline, MISMA regla en TODOS
+    # los consumidores. Portado 1:1 desde `crm-comercial`/`backend/routers/
+    # crm.py::get_opp_by_month` (identidad de negocio ya verificada contra
+    # ese código real, no inferida). `opps` es CUALQUIER lista de crm.lead
+    # con `id`/`stage_id`/`create_date` — el KPI semanal (`_view`, ventana
+    # de 2 semanas) y el drill mensual/vendedor (`_build_creadas_detail`,
+    # historial completo) le pasan universos DISTINTOS al MISMO algoritmo,
+    # nunca reimplementan la regla por separado (trust invariant, ver
+    # ticket owner — "the drill must explain the tile").
+    def _created_entry_events(self, opps: list, transitions: dict, stage_one_id, valid_ids: list) -> dict:
+        """`{opp_id: date}` — sólo las oportunidades con fecha de entrada
+        determinable (transición histórica a `stage_one_id`, o `create_date`
+        si no hay historial Y la etapa ACTUAL ya es 1-8). Sin ninguna de las
+        dos, la oportunidad no aporta un evento (mismo criterio legacy)."""
+        events: dict = {}
+        for o in opps:
+            entry = None
+            for day_str, _old, new_s in transitions.get(o["id"], []):
+                if new_s == stage_one_id:
+                    entry = self._iso_day(day_str)
+                    break
+            if entry is None:
+                cur = o["stage_id"][0] if isinstance(o.get("stage_id"), (list, tuple)) else o.get("stage_id")
+                if cur in valid_ids:
+                    entry = self._iso_day(o.get("create_date"))
+            if entry is not None:
+                events[o["id"]] = entry
+        return events
+
     def _build_analytics(self) -> dict:
         today = date.today()
         nn_tag, bi_tag = self._nn_bi_tags()
@@ -894,24 +924,12 @@ class CommercialService:
             # 6. Creadas — entrada al PIPELINE (etapa 1), MISMA semántica que
             # el legacy: no es la fecha de alta si la oportunidad nació antes
             # como prospecto. Sin transición a etapa 1 registrada, se usa la
-            # creación para las que ya están en 1–8.
-            this_week = last_week = 0
-            for o in subset_recent:
-                entry = None
-                for day_str, _old, new_s in transitions.get(o["id"], []):
-                    if new_s == stage_one_id:
-                        entry = self._iso_day(day_str)
-                        break
-                if entry is None:
-                    cur = o["stage_id"][0] if isinstance(o.get("stage_id"), (list, tuple)) else o.get("stage_id")
-                    if cur in valid_ids:
-                        entry = self._iso_day(o.get("create_date"))
-                if entry is None:
-                    continue
-                if entry >= this_monday:
-                    this_week += 1
-                elif entry >= last_monday:
-                    last_week += 1
+            # creación para las que ya están en 1–8. Conteo semanal sobre el
+            # MISMO conjunto canónico que alimenta el drill (Creadas Legacy
+            # Parity, ver HANDOFF) — nunca un segundo algoritmo de entrada.
+            creadas_events = self._created_entry_events(subset_recent, transitions, stage_one_id, valid_ids)
+            this_week = sum(1 for d in creadas_events.values() if d >= this_monday)
+            last_week = sum(1 for d in creadas_events.values() if last_monday <= d < this_monday)
 
             return {
                 "pipeline_age": {"avg_days": avg_age, "count": len(ages)},
@@ -1029,6 +1047,131 @@ class CommercialService:
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
             views = _cached("commercial:analytics", self._build_analytics)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Drill de "Creadas" (Creadas Legacy Parity, ver HANDOFF) ──────────
+    # LAZY, endpoint propio — owner directive: "Do NOT put the full
+    # enriched Creadas drill payload into the normal /comercial/data/
+    # analytics response. The KPI must remain lightweight." Reusa
+    # `_created_entry_events` (MISMO algoritmo que el KPI semanal de
+    # `_build_analytics`) — nunca un segundo cómputo de entrada.
+    #
+    # UNIVERSO: a diferencia de `_build_analytics.recent` (ventana de 2
+    # semanas, todo lo que el KPI necesita), acá NO hay ventana de fecha —
+    # portado 1:1 del legacy (`/opp-by-month`, que tampoco la tenía): el
+    # selector de Año del drill necesita el historial COMPLETO, no solo las
+    # últimas 2 semanas. Incluye archivadas/perdidas (`active in [True,
+    # False]`) — MISMO criterio que el KPI, "una oportunidad creada esta
+    # semana y ya perdida se creó igual".
+    #
+    # ENRIQUECIMIENTO: UN solo batch adicional, acotado a los IDs del
+    # conjunto canónico (`events`) — nunca todo el universo de crm.lead, y
+    # nunca una consulta por oportunidad (owner directive — "No per-
+    # opportunity Odoo calls. No N+1").
+    def _build_creadas_detail(self) -> dict:
+        def _empty_views() -> dict:
+            return {tipo: {"months": []} for tipo in _TIPOS}
+
+        all_stages = self._client.search_read(
+            "crm.stage", [], fields=["id", "name", "sequence"], order="sequence asc"
+        )
+        valid_stages = sorted(
+            [st for st in all_stages if _stage_first_char(st) in "12345678"],
+            key=lambda st: (int(st["name"].strip()[0]), st.get("sequence", 99)),
+        )
+        valid_ids = [st["id"] for st in valid_stages]
+        if not valid_ids:
+            return _empty_views()
+        stage_one_id = valid_stages[0]["id"]
+
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "in", [True, False]]],
+            fields=["id", "stage_id", "create_date", "tag_ids"],
+        )
+        if not opps:
+            return _empty_views()
+        transitions = self._stage_transitions([o["id"] for o in opps])
+        events = self._created_entry_events(opps, transitions, stage_one_id, valid_ids)
+        if not events:
+            return _empty_views()
+
+        opp_by_id = {o["id"]: o for o in opps}
+        enriched = self._client.search_read(
+            "crm.lead",
+            domain=[["id", "in", sorted(events)], ["active", "in", [True, False]]],
+            fields=["id", "name", "partner_id", "user_id", "stage_id", "probability",
+                     "active", "source_id", "lead_properties"],
+        )
+        enriched_by_id = {o["id"]: o for o in enriched}
+
+        def _row(opp_id, entry) -> dict | None:
+            rich = enriched_by_id.get(opp_id)
+            if not rich:
+                return None
+            stage_name = rich["stage_id"][1] if rich.get("stage_id") else "Sin etapa"
+            # Excluye etapa 0-Prospecto — MISMO guard que legacy: la etapa
+            # ACTUAL puede haber revertido a prospecto pese a tener un
+            # evento de entrada histórico.
+            if stage_name.strip().startswith("0"):
+                return None
+            prob = rich.get("probability", 0) or 0
+            active = rich.get("active", True)
+            # MISMA clasificación que el legacy — nunca reinterpretada acá
+            # (owner directive — "Do NOT independently reinterpret status").
+            if not active and prob == 0:
+                status = "Perdida"
+            elif prob == 100:
+                status = "Ganada"
+            else:
+                status = stage_name
+            return {
+                "id": opp_id,
+                "name": rich.get("name") or "",
+                "client": rich["partner_id"][1] if rich.get("partner_id") else "",
+                "seller": rich["user_id"][1] if rich.get("user_id") else "",
+                "stage": stage_name,
+                "status": status,
+                "origen": rich["source_id"][1] if rich.get("source_id") else "Sin definir",
+                "entry_date": entry.isoformat(),
+                "horas": get_property_num(rich.get("lead_properties"), "Horas") or None,
+            }
+
+        all_rows = [r for r in (_row(opp_id, entry) for opp_id, entry in events.items()) if r]
+
+        def _group_by_month(rows: list) -> dict:
+            by_month: dict = {}
+            for r in rows:
+                by_month.setdefault(r["entry_date"][:7], []).append(r)
+            months = [
+                {"month": month, "count": len(group), "opportunities": sorted(group, key=lambda r: r["entry_date"])}
+                for month, group in by_month.items()
+            ]
+            months.sort(key=lambda m: m["month"], reverse=True)
+            return {"months": months}
+
+        def _partition(tag_id) -> dict:
+            ids = {o["id"] for o in opps if self._in_tag(o, tag_id)}
+            return _group_by_month([r for r in all_rows if r["id"] in ids])
+
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        return {
+            "todos": _group_by_month(all_rows),
+            "nn": _partition(nn_id),
+            "bi": _partition(bi_id),
+        }
+
+    def get_creadas_detail(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:creadas", self._build_creadas_detail)
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]

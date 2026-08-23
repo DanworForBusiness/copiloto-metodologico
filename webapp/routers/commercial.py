@@ -200,6 +200,33 @@ def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "forecast": forecast})
 
 
+@router.get("/comercial/data/creadas", include_in_schema=False)
+def commercial_data_creadas(request: Request, tipo: str = Query("todos")):
+    """Drill de "Creadas" (Creadas Legacy Parity, ver HANDOFF — paridad con
+    el legacy `/crm/opp-by-month`): grano mensual + por oportunidad
+    (vendedor, cliente, origen, estado, horas) sobre el MISMO conjunto canónico
+    de eventos que el KPI semanal de `/comercial/data/analytics` (ver
+    `commercial_service._created_entry_events`) — nunca un segundo
+    algoritmo de entrada al pipeline.
+
+    LAZY por diseño (owner directive — "the KPI must remain lightweight"):
+    endpoint propio, SÓLO se pide al abrir el análisis desde el tile
+    "Creadas esta semana" — nunca durante la hidratación normal del
+    dashboard (`/comercial/data/summary|pipeline|analytics|opportunities`).
+    MISMO contrato fail-soft y MISMA gate de sesión/entitlement que el
+    resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        creadas = CommercialService().get_creadas_detail(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="creadas")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="creadas")
+    return JSONResponse({"state": "ok", "creadas": creadas})
+
+
 @router.get("/comercial/data/activities", include_in_schema=False)
 def commercial_data_activities(request: Request, tipo: str = Query("todos")):
     """Actividades pendientes (`mail.activity` sobre `crm.lead`). MISMO

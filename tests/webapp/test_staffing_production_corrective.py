@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_106():
+def test_15_route_surface_still_107():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -556,6 +556,11 @@ def test_15_route_surface_still_106():
     #     anios-disponibles (metadata liviana de años, MISMO patrón que
     #     data/cartera/anios-disponibles). Los dos lados sumaron rutas en paralelo
     #     desde 98: siete de Comercial acá, una de Reporting en main.
+    #   106 -> 107 (Creadas Legacy Parity, ver HANDOFF): +GET
+    #     /comercial/data/creadas, drill de "Creadas" (mensual + ranking por
+    #     vendedor + detalle por oportunidad, paridad con el legacy
+    #     `/crm/opp-by-month`) — LAZY (nunca en la hidratación normal del
+    #     dashboard), read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -563,7 +568,7 @@ def test_15_route_surface_still_106():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 106
+    assert len(snapshot) == 107
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

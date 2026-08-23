@@ -793,6 +793,199 @@ def test_creadas_uses_stage_one_entry_transition_before_create_date():
     svc_module.clear_cache()
 
 
+# ============================================================================
+# Creadas Legacy Parity (ver HANDOFF) — drill mensual + ranking por vendedor,
+# paridad con el legacy `/crm/opp-by-month`. `_created_entry_events` es el
+# ÚNICO algoritmo de entrada al pipeline — el KPI semanal (arriba) y el
+# drill (acá) le pasan universos DISTINTOS a la MISMA función, nunca la
+# reimplementan por separado.
+# ============================================================================
+
+def _creadas_detail_client():
+    """Fixture única que cubre las 6 poblaciones canónicas de una sola vez:
+    transición histórica, fallback por create_date, archivada (Perdida),
+    ganada, activa "normal" (status = nombre de etapa) y exclusión por
+    etapa 0 (revertida a Prospecto pese a tener historial de entrada)."""
+    stages = [
+        {"id": 1, "name": "0 Prospección"},
+        {"id": 2, "name": "1 Contacto"},   # stage_one
+        {"id": 3, "name": "5 Negociación"},
+    ]
+    leads = [
+        # id 1 — transición histórica a stage_one (Ene), sigue activa en
+        # otra etapa válida (3) → status = nombre de esa etapa.
+        {"id": 1, "type": "opportunity", "active": True, "stage_id": 3, "tag_ids": [10],
+         "create_date": "2024-03-01", "probability": 40, "partner_id": [70, "Cliente Uno"],
+         "user_id": [20, "Ana Gómez"], "source_id": [30, "Referido"], "lead_properties": _hp(12)},
+        # id 2 — SIN historial, create_date fallback (Feb), currently en
+        # stage_one — MISMO mes que id 3 (para el test de agrupación
+        # mensual/ranking), vendedor DISTINTO.
+        {"id": 2, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [],
+         "create_date": "2024-02-10", "probability": 20, "partner_id": [71, "Cliente Dos"],
+         "user_id": [21, "Bruno Paz"], "source_id": False, "lead_properties": []},
+        # id 3 — ARCHIVADA + probability 0 → "Perdida"; sin historial,
+        # create_date fallback, mismo mes que id 2, MISMO vendedor que id 2
+        # (para que el ranking sume 2 bajo "Bruno Paz").
+        {"id": 3, "type": "opportunity", "active": False, "stage_id": 3, "tag_ids": [],
+         "create_date": "2024-02-15", "probability": 0, "partner_id": [72, "Cliente Tres"],
+         "user_id": [21, "Bruno Paz"], "source_id": [31, "Web"], "lead_properties": []},
+        # id 4 — probability 100 → "Ganada".
+        {"id": 4, "type": "opportunity", "active": True, "stage_id": 3, "tag_ids": [],
+         "create_date": "2024-02-20", "probability": 100, "partner_id": [73, "Cliente Cuatro"],
+         "user_id": [20, "Ana Gómez"], "source_id": False, "lead_properties": []},
+        # id 5 — TENÍA una transición histórica a stage_one, pero revirtió a
+        # etapa 0 (Prospección) — excluida del drill (guard explícito
+        # portado del legacy: "la etapa ACTUAL puede haber revertido a
+        # prospecto pese a tener un evento de entrada histórico").
+        {"id": 5, "type": "opportunity", "active": True, "stage_id": 1, "tag_ids": [],
+         "create_date": "2024-01-01", "probability": 10, "partner_id": False,
+         "user_id": False, "source_id": False, "lead_properties": []},
+    ]
+    messages = [
+        {"id": 900, "res_id": 1, "date": "2024-01-15", "tracked_field": "stage_id", "model": "crm.lead"},
+        {"id": 901, "res_id": 5, "date": "2024-01-05", "tracked_field": "stage_id", "model": "crm.lead"},
+    ]
+    tracking = [
+        {"mail_message_id": 900, "field": "stage_id", "old_value_integer": 1, "new_value_integer": 2},
+        {"mail_message_id": 901, "field": "stage_id", "old_value_integer": 1, "new_value_integer": 2},
+    ]
+    return FakeOdooClient(stages=stages, tags=TAGS, leads=leads, messages=messages, tracking=tracking)
+
+
+def test_creadas_detail_covers_all_canonical_populations_and_derives_status():
+    svc_module.clear_cache()
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    months = {m["month"]: m for m in detail["months"]}
+    by_id = {o["id"]: o for m in months.values() for o in m["opportunities"]}
+
+    # id 5 (revertida a etapa 0) NUNCA aparece — ninguna población canónica
+    # la incluye pese a tener historial de transición.
+    assert 5 not in by_id
+    assert len(by_id) == 4
+
+    # id 1 — transición histórica (Ene 15), status = nombre de etapa actual.
+    assert by_id[1]["entry_date"] == "2024-01-15"
+    assert by_id[1]["status"] == "5 Negociación"
+    assert by_id[1]["seller"] == "Ana Gómez"
+    assert by_id[1]["client"] == "Cliente Uno"
+    assert by_id[1]["origen"] == "Referido"
+    assert by_id[1]["horas"] == 12
+
+    # id 2 — create_date fallback (Feb 10), status = nombre de etapa (stage_one).
+    assert by_id[2]["entry_date"] == "2024-02-10"
+    assert by_id[2]["status"] == "1 Contacto"
+    assert by_id[2]["origen"] == "Sin definir"  # source_id False
+    assert by_id[2]["horas"] is None  # sin lead_properties, get_property_num → 0 → None
+
+    # id 3 — archivada + probability 0 → "Perdida" (NUNCA desaparece del
+    # drill por estar archivada — MISMO criterio que el KPI semanal).
+    assert by_id[3]["status"] == "Perdida"
+
+    # id 4 — probability 100 → "Ganada".
+    assert by_id[4]["status"] == "Ganada"
+
+
+def test_creadas_detail_groups_by_month_descending_and_orders_opportunities_ascending():
+    svc_module.clear_cache()
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    months = detail["months"]
+    # Ene (id 1) y Feb (id 2, 3, 4) — descendente: Feb antes que Ene.
+    assert [m["month"] for m in months] == ["2024-02", "2024-01"]
+    feb = months[0]
+    assert feb["count"] == 3
+    # Orden ASCENDENTE por entry_date dentro del mes — MISMO criterio legacy.
+    assert [o["entry_date"] for o in feb["opportunities"]] == ["2024-02-10", "2024-02-15", "2024-02-20"]
+
+
+def test_creadas_detail_seller_field_supports_ranking_aggregation():
+    # El ranking por vendedor se agrega client-side (JS) sobre este campo —
+    # el backend sólo necesita exponerlo correctamente por oportunidad.
+    svc_module.clear_cache()
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    sellers = [o["seller"] for m in detail["months"] for o in m["opportunities"]]
+    assert sellers.count("Bruno Paz") == 2  # ids 2 y 3
+    assert sellers.count("Ana Gómez") == 2  # ids 1 y 4
+
+
+def test_creadas_detail_partitions_by_tag_same_criterion_as_the_kpi():
+    svc_module.clear_cache()
+    service = CommercialService(_creadas_detail_client())
+    todos = service.get_creadas_detail("todos")
+    nn = service.get_creadas_detail("nn")
+    todos_ids = {o["id"] for m in todos["months"] for o in m["opportunities"]}
+    nn_ids = {o["id"] for m in nn["months"] for o in m["opportunities"]}
+    assert todos_ids == {1, 2, 3, 4}
+    assert nn_ids == {1}  # SOLO id 1 tiene tag_ids=[10] (New Names)
+
+
+def test_creadas_detail_enrichment_is_one_batched_query_never_per_opportunity():
+    # Owner directive — "No per-opportunity Odoo calls. No N+1": UNA sola
+    # consulta a crm.lead con `id in [...]` para el enriquecimiento, nunca
+    # una por oportunidad del conjunto canónico.
+    svc_module.clear_cache()
+    client = _creadas_detail_client()
+    CommercialService(client).get_creadas_detail("todos")
+    lead_calls = [c for c in client.calls if c[0] == "crm.lead"]
+    enrichment_calls = [c for c in lead_calls if any(cond[0] == "id" and cond[1] == "in" for cond in c[1])]
+    assert len(enrichment_calls) == 1, enrichment_calls
+
+
+def test_creadas_kpi_and_drill_reconcile_for_the_same_period():
+    # Trust invariant (owner directive — "the drill must explain the
+    # tile"): para un período comparable, el conteo del KPI semanal debe
+    # coincidir con la cantidad de eventos canónicos del drill en ESE
+    # período — AMBOS derivan de `_created_entry_events`, nunca de
+    # algoritmos distintos que puedan divergir.
+    svc_module.clear_cache()
+    this_monday = date.today() - timedelta(days=date.today().weekday())
+    leads = [
+        {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [],
+         "create_date": this_monday.isoformat(), "probability": 10, "partner_id": [70, "Cliente"],
+         "user_id": [20, "Ana"], "source_id": False, "lead_properties": []},
+        {"id": 2, "type": "opportunity", "active": False, "stage_id": 2, "tag_ids": [],
+         "create_date": this_monday.isoformat(), "probability": 0, "partner_id": [71, "Cliente 2"],
+         "user_id": [21, "Bruno"], "source_id": False, "lead_properties": []},
+    ]
+    stages = [{"id": 1, "name": "0 Prospección"}, {"id": 2, "name": "1 Contacto"}]
+    client = FakeOdooClient(stages=stages, tags=TAGS, leads=leads)
+    service = CommercialService(client)
+    kpi_this_week = service.get_analytics("todos")["creadas"]["this_week"]
+    svc_module.clear_cache()
+    detail = service.get_creadas_detail("todos")
+    drill_this_week = sum(
+        1 for m in detail["months"] for o in m["opportunities"]
+        if o["entry_date"] >= this_monday.isoformat()
+    )
+    assert kpi_this_week == drill_this_week == 2
+    # Ninguna población (activa/archivada) desapareció del drill.
+    all_ids = {o["id"] for m in detail["months"] for o in m["opportunities"]}
+    assert all_ids == {1, 2}
+
+
+def test_creadas_detail_empty_without_valid_stages_or_events():
+    svc_module.clear_cache()
+    # Sin etapas 1-8 configuradas.
+    client = FakeOdooClient(stages=[{"id": 1, "name": "0 Prospección"}], tags=TAGS, leads=[])
+    assert CommercialService(client).get_creadas_detail("todos") == {"months": []}
+    svc_module.clear_cache()
+    # Etapas válidas, pero cero oportunidades.
+    client2 = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[])
+    assert CommercialService(client2).get_creadas_detail("todos") == {"months": []}
+
+
+def test_creadas_detail_requires_configuration_and_wraps_transport_errors():
+    svc_module.clear_cache()
+    unconfigured = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[], configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_creadas_detail("todos")
+    svc_module.clear_cache()
+    failing = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[])
+    failing.raise_on("crm.stage", stage="authenticate")
+    with pytest.raises(CommercialDataError) as exc_info:
+        CommercialService(failing).get_creadas_detail("todos")
+    assert exc_info.value.stage == "authenticate"
+
+
 def test_analytics_views_are_partitioned_by_tag_without_extra_queries():
     svc_module.clear_cache()
     client = _analytics_client()
