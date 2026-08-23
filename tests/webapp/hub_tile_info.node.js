@@ -146,10 +146,23 @@ assertEqual(Object.keys(KPI_INFO).length, 2, "G: exactamente dos contratos docum
 
 // --- H: la copy explica el contrato, no disculpa una diferencia ---------
 const todaLaCopy = [].concat(KPI_INFO.carteraTrabajadas, KPI_INFO.rentabilidadTrabajadas).join(" ");
-assertTrue(/Time Logs/.test(todaLaCopy), "H: nombra la FUENTE");
-assertTrue(/Grano: proyecto/.test(todaLaCopy), "H: nombra el GRANO");
-assertEqual(count(todaLaCopy, "Tipo Proyecto = Mantenimiento"), 2,
-  "H: las dos copys nombran la CONDICION de comparabilidad");
+assertEqual(count(todaLaCopy, "Time Logs"), 2, "H: las dos nombran la FUENTE");
+assertEqual(count(todaLaCopy, "Grano: proyecto"), 2, "H: las dos nombran el GRANO");
+// Las dos nombran la DIMENSION de comparabilidad...
+const cart = KPI_INFO.carteraTrabajadas.join(" "), rent = KPI_INFO.rentabilidadTrabajadas.join(" ");
+assertTrue(/Tipo Proyecto/.test(cart) && /Tipo Proyecto/.test(rent),
+  "H: las dos nombran Tipo Proyecto como condicion");
+// ...pero solo Cartera/Mantenimiento FIJA un valor: su alcance es fijo.
+assertTrue(/Tipo Proyecto = Mantenimiento/.test(cart),
+  "H: Cartera/Mantenimiento fija su tipo");
+// Rentabilidad es AGNOSTICA (owner adjustment): su alcance lo determina el
+// filtro activo, asi que no puede nombrar Mantenimiento como si fuera suyo.
+assertTrue(!/Mantenimiento/.test(rent),
+  "H: la copy de Rentabilidad no se apropia de Mantenimiento");
+// Y NO promete comparabilidad con la perspectiva Proyecto: esa todavia lee el
+// campo manual, afirmarlo documentaria un contrato inexistente.
+assertTrue(!/Cartera \/ Proyecto/.test(todaLaCopy) && !/Tipo Proyecto = Proyecto/.test(todaLaCopy),
+  "H: nadie promete todavia comparabilidad con la perspectiva Proyecto");
 [/pueden diferir/i, /puede variar/i, /aproximad/i, /error/i, /no coincid/i].forEach(rx => {
   assertTrue(!rx.test(todaLaCopy), `H: la copy no disculpa una diferencia (${rx})`);
 });

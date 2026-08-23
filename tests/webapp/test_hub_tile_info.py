@@ -137,10 +137,23 @@ def test_only_the_two_proven_operations_tiles_are_wired():
 
 
 def test_the_copy_explains_the_contract_and_never_excuses_a_difference():
-    info = _REPORTING_JS.split("const _KPI_INFO = {", 1)[1].split("\n};", 1)[0]
+    # Sobre el CODIGO, no la prosa: los comentarios que documentan este
+    # contrato citan a propósito los mismos literales que se cuentan acá
+    # (patrón ya conocido en este repo).
+    info = _js_code(_REPORTING_JS).split("const _KPI_INFO = {", 1)[1].split("\n};", 1)[0]
     assert info.count("Time Logs") == 2                     # la FUENTE, en las dos
     assert info.count("Grano: proyecto") == 2               # el GRANO, en las dos
-    assert info.count("Tipo Proyecto = Mantenimiento") == 2  # la CONDICIÓN, en las dos
+    assert info.count("Tipo Proyecto") == 2                 # la DIMENSIÓN, en las dos
+    cartera = info.split("carteraTrabajadas: [", 1)[1].split("],", 1)[0]
+    rentab = info.split("rentabilidadTrabajadas: [", 1)[1].split("],", 1)[0]
+    # Cartera/Mantenimiento FIJA su tipo — su alcance es fijo por construcción.
+    assert "Tipo Proyecto = Mantenimiento" in cartera
+    # Rentabilidad es AGNÓSTICA (owner adjustment): su alcance lo determina el
+    # filtro activo, así que no puede nombrar Mantenimiento como si fuera suyo.
+    assert "Mantenimiento" not in rentab
+    # Y nadie promete todavía comparabilidad con la perspectiva Proyecto: esa
+    # sigue leyendo el campo manual `hsTrabajadas` (ver el audit de linaje).
+    assert "Cartera / Proyecto" not in info and "Tipo Proyecto = Proyecto" not in info
     # Nunca una disculpa: el icono no explica una inconsistencia.
     for banned in ("pueden diferir", "puede variar", "aproximad", "no coincid",
                    "error", "puede que", "estimado"):

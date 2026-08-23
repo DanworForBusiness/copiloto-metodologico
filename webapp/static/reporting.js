@@ -168,10 +168,17 @@ const _KPI_INFO = {
     "Grano: proyecto × año × mes.",
     "Para comparar con Rentabilidad, aplicar Tipo Proyecto = Mantenimiento.",
   ],
+  // AGNOSTICA DE TIPO (owner adjustment): Rentabilidad NO es una metrica de
+  // Mantenimiento — su alcance lo fija el filtro Tipo Proyecto activo, que
+  // por defecto no filtra nada. Nombrar Mantenimiento aca lo convertia en el
+  // dueno conceptual de la vista, que es falso. Y NO se promete
+  // comparabilidad con la perspectiva Proyecto: esa todavia lee el campo
+  // manual `hsTrabajadas`, asi que afirmarlo documentaria un contrato que no
+  // existe (ver el audit de linaje de Proyecto).
   rentabilidadTrabajadas: [
-    "Horas registradas en Time Logs para los tipos de proyecto incluidos por los filtros activos.",
+    "Horas registradas en Time Logs para los proyectos incluidos por los filtros activos.",
     "Grano: proyecto × año × mes.",
-    "Para comparar con Cartera / Mantenimiento, aplicar Tipo Proyecto = Mantenimiento y el mismo período.",
+    "Para comparar con una perspectiva de Cartera, alinear Tipo Proyecto, período y filtros.",
   ],
 };
 
