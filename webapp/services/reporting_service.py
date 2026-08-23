@@ -354,16 +354,28 @@ class ReportingService:
         facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
             access_token, include_facturadas=True,
         )
-        time_logs = self._repository.get_time_logs_worked_hours(
-            access_token, hot_years=[str(datetime.now().year)],
+        # Time Logs SIN acotar en este camino combinado: la mitad Proyecto
+        # necesita la VIDA COMPLETA (ver `_proyecto_rows`, owner decision
+        # OPTION A) y acotarla daría un "total de por vida" de un solo año.
+        # UNA sola lectura para las dos mitades — el scope contextual de
+        # `get_cartera_mantenimiento` es una decisión de PERFORMANCE de ese
+        # camino (Mantenimiento filtra por Año/Mes de todos modos, así que
+        # años extra no cambian su resultado), no de corrección. Este combo es
+        # legacy/tests (el frontend siempre manda `perspectiva`) y ya paga la
+        # XLSX más la historia completa de "Horas por proyectos".
+        trab_by_proyecto = _trab_by_proyecto_by_year(
+            self._repository.get_time_logs_worked_hours(access_token, hot_years=None),
         )
-        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         mantenimiento_rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
-        if unmatched:
-            _logger.info("reporting.cartera combo unmatched_time_logs_projects=%d", len(unmatched))
+        proyecto_rows, unmatched_proy = self._proyecto_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched or unmatched_proy:
+            _logger.info(
+                "reporting.cartera combo unmatched_time_logs_projects=%d/%d",
+                len(unmatched), len(unmatched_proy),
+            )
         return {
             "mantenimiento": mantenimiento_rows,
-            "proyecto": self._proyecto_rows(facts),
+            "proyecto": proyecto_rows,
         }
 
     def get_cartera_mantenimiento(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
@@ -492,9 +504,44 @@ class ReportingService:
         de TODOS los meses históricos), una ventana acá rompería el
         contrato de totales de por vida. El hot-window de este corrective
         es EXCLUSIVO de Mantenimiento (grano mensual, con default que
-        aterriza en el mes/año calendario actual)."""
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
-        return self._proyecto_rows(facts)
+        aterriza en el mes/año calendario actual).
+
+        CANONICAL SOURCE (owner decision — OPTION A): `trabajadas` sale de
+        Time Logs, la MISMA autoridad que Mantenimiento y Rentabilidad, vía
+        el MISMO helper compartido `_trab_by_proyecto_by_year`. El campo
+        manual `hsTrabajadas` de SharePoint SIGUE existiendo y sigue
+        viajando en los facts — simplemente ya no alimenta "Hs Trabajadas
+        Acum" (su futuro como medida propia con otro nombre, o su baja, es
+        una decisión de negocio aparte).
+
+        `hot_years=None` para Time Logs a propósito: el grano de esta
+        perspectiva es la VIDA del proyecto, así que necesita todos los años
+        disponibles — acotarlo daría un "total de por vida" que en realidad
+        es de dos años. Es el mismo criterio que ya rige su lectura de
+        "Horas por proyectos" (también sin ventana). Secuencial como
+        `get_cartera_mantenimiento`, no concurrente: una lectura más, nunca
+        una por proyecto.
+
+        `..._with_project_dimension` en vez de `get_cartera_facts`: MISMO
+        fetch, CERO llamadas Graph nuevas (devuelve la dimensión que ese
+        método ya leía), y es lo que permite que un proyecto que sólo existe
+        en Time Logs pero resuelve contra Proyectos aparezca igual."""
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=True,
+        )
+        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        rows, unmatched = self._proyecto_rows(
+            facts, _trab_by_proyecto_by_year(time_logs), project_dim,
+        )
+        if unmatched:
+            # MISMO criterio que Mantenimiento: nunca se fabrica dimensión
+            # para estas keys ni se descartan en silencio. Hacerlas visibles
+            # en la UI es trabajo de observabilidad aparte.
+            _logger.info(
+                "reporting.cartera proyecto unmatched_time_logs_projects=%d keys=%s",
+                len(unmatched), [u["proyectoKey"] for u in unmatched][:10],
+            )
+        return rows
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
@@ -649,12 +696,56 @@ class ReportingService:
 
     # --- Proyecto: agrega sobre la vida del proyecto, facturadas = XLSX -------
 
-    def _proyecto_rows(self, facts: list[dict]) -> list[dict]:
+    def _proyecto_rows(
+        self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]] | None = None,
+        project_dim: dict[str, dict] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """Perspectiva Proyecto — grano LIFETIME/PROJECT-LEVEL (owner decision
+        OPTION A): UNA fila por proyecto, medidas acumuladas sobre toda su
+        vida. Deliberadamente SIN `anio`/`mes` en la salida y sin filtros de
+        período: `anioInicio` decide qué proyectos entran, nunca qué horas se
+        suman. La UI ya lo declara ("Hs Trabajadas Acum").
+
+        CANONICAL SOURCE: `trabajadas` = suma de TODOS los años de
+        `trab_by_proyecto` (Time Logs, vía `_trab_by_proyecto_by_year` — el
+        MISMO helper y el MISMO join `_norm_key(proyecto)` que Mantenimiento y
+        Rentabilidad). Se lee UNA sola vez por grupo, fuera del loop de facts:
+        N filas de "Horas por proyectos" para el mismo proyecto NO pueden
+        multiplicar el total (mismo defecto que se corrigió en
+        `_mantenimiento_rows`, prevenido acá por construcción).
+
+        CLAVE = `_norm_key(proyecto)`, ya no `idProyecto`. No es cosmético:
+        Time Logs sólo trae el NOMBRE del proyecto, nunca `idProyecto`, así que
+        agrupar por id y buscar horas por nombre le daría a cada proyecto
+        homónimo el total COMPLETO. El costo aceptado es el mismo que las otras
+        dos vistas ya asumen (es el join del PBIP): dos proyectos SharePoint
+        con el mismo nombre normalizado colapsan en una fila. `idProyecto`
+        sigue viajando en la fila como identidad.
+
+        `certificadas`/`vendidas` siguen siendo aditivas por fila de origen
+        (cada fila mensual aporta las suyas) — se suman, no se descartan.
+        `facturadas` es un TOTAL por proyecto del XLSX: se toma UNA vez.
+
+        `trab_by_proyecto=None`/`project_dim=None` preservan el contrato
+        RETROCOMPATIBLE exacto para callers viejos (`get_cartera`, tests que
+        ejercitan sólo el camino SharePoint): sin Time Logs `trabajadas` queda
+        en 0.0 — la MISMA semántica de ausencia del resto del método, nunca el
+        campo manual de vuelta.
+
+        Retorna `(rows, unmatched)` — `unmatched`: keys de Time Logs que no
+        resuelven contra `project_dim`. NUNCA se les fabrica Cliente/CP/Estado;
+        se devuelven aparte para diagnóstico, nunca se pierden en silencio."""
+        trab = trab_by_proyecto or {}
+
+        def _lifetime(key: str) -> float:
+            """Total de vida: todos los años, todos los meses, UNA vez."""
+            return sum(sum(monthly) for monthly in trab.get(key, {}).values())
+
         groups: dict[str, dict] = {}
         for f in facts:
             if f.get("tipoProyecto") == "Mantenimiento":
                 continue
-            key = f.get("idProyecto") or f.get("proyecto")
+            key = _norm_key(f.get("proyecto"))
             if not key:
                 continue
             g = groups.get(key)
@@ -663,19 +754,41 @@ class ReportingService:
                     "cliente": f["cliente"], "cp": f["clientPartner"],
                     "idProyecto": f["idProyecto"], "proyecto": f["proyecto"],
                     "status": f["estado"], "anioInicio": f["anioInicio"],
-                    "trabajadas": 0.0, "certificadas": 0.0, "vendidas": 0.0,
+                    "certificadas": 0.0, "vendidas": 0.0,
                     # facturadas es un TOTAL por proyecto (XLSX); NO se re-suma
                     # por mes — se toma una vez (idéntico en cada fact del proyecto).
                     "facturadas": _round2(f.get("facturadasProyecto", 0.0)),
                 }
                 groups[key] = g
-            g["trabajadas"] += f["hsTrabajadas"]
             g["certificadas"] += f["hsCertificadas"]
             g["vendidas"] += f["hsVendidas"]
 
+        # UNION: un proyecto que sólo existe en Time Logs pero resuelve contra
+        # `project_dim` aparece igual — MISMO criterio que `_mantenimiento_rows`.
+        # Sin fila de SharePoint, certificadas/vendidas/facturadas quedan en 0.0
+        # (semántica de ausencia, nunca un valor inventado).
+        unmatched: list[dict] = []
+        for key in trab:
+            if key in groups:
+                continue
+            if _lifetime(key) <= 0:
+                continue
+            dim = (project_dim or {}).get(key)
+            if dim is None:
+                unmatched.append({"proyectoKey": key, "horas": _round2(_lifetime(key))})
+                continue
+            if dim["tipoProyecto"] == "Mantenimiento":
+                continue
+            groups[key] = {
+                "cliente": dim["cliente"], "cp": dim["clientPartner"],
+                "idProyecto": dim["idProyecto"], "proyecto": dim["proyecto"],
+                "status": dim["estado"], "anioInicio": dim["anioInicio"],
+                "certificadas": 0.0, "vendidas": 0.0, "facturadas": 0.0,
+            }
+
         rows = []
-        for g in groups.values():
-            trabajadas = _round2(g["trabajadas"])
+        for key, g in groups.items():
+            trabajadas = _round2(_lifetime(key))
             certificadas = _round2(g["certificadas"])
             rows.append({
                 "cliente": g["cliente"], "cp": g["cp"],
@@ -688,7 +801,7 @@ class ReportingService:
                 "status": g["status"],
                 "anioInicio": g["anioInicio"],
             })
-        return rows
+        return rows, unmatched
 
     # --- Batch B: Rentabilidad (Resumen / Certificadas vs Ejecutadas) -------
     # Ejecutadas/Trabajadas verificado con evidencia PRIMARIA del PBIP

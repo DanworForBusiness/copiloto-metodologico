@@ -563,3 +563,190 @@ def test_every_positive_time_logs_hour_is_represented_or_classified_in_cartera(m
     # excluye `_trab_by_proyecto_by_year`, tiene su propia representacion).
     visible_para_cartera = con_fila + sin_fila + tipo_proy + fantasma
     assert round(visible_para_cartera - en_filas - no_reconciliable - fuera_del_universo, 2) == 0.0
+
+
+# --- PERSPECTIVA PROYECTO: fuente canonica, grano de VIDA -----------------
+# Owner decision OPTION A: Proyecto sigue siendo lifetime/project-level (una
+# fila por proyecto, "Hs Trabajadas Acum", sin Anio/Mes de horas — `anioInicio`
+# decide QUE proyectos entran, no que horas se suman), pero `trabajadas` deja
+# de salir del campo manual `hsTrabajadas` y pasa a Time Logs, la MISMA
+# autoridad y el MISMO join `_norm_key(proyecto)` que Mantenimiento y
+# Rentabilidad. El campo manual sigue existiendo; solo dejo de ser la medida.
+_PROY_DECOY = "999"        # HsTrabajadas manual: si volviera, se ve
+
+
+def _tl(fecha, horas, proyecto="Rollout Reporting"):
+    return {"Date": fecha, "Client": "Ternium", "Project": proyecto,
+            "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": str(horas)}
+
+
+def _proy_patch(monkeypatch, *, n_filas_sharepoint=1, time_logs_rows=(),
+                proyectos=None, tipo="Proyecto"):
+    """N filas de "Horas por proyectos" para el MISMO proyecto, mas Time Logs
+    repartidos en DOS anios (archivo historico + archivo actual) para poder
+    verificar el total de VIDA."""
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[{
+            "ProyectoLookupId": "p1", "EmpresaLookupId": "c1",
+            "A_x00f1_o": "2025" if i else "2026", "Mes": "Marzo",
+            "HsTrabajadas": _PROY_DECOY,
+            "HsVendidas": str(10 + i), "HsFacturadas": str(5 + i),
+        } for i in range(n_filas_sharepoint)],
+        proyectos=(proyectos if proyectos is not None else
+                   [{"id": "p1", "Title": "Rollout Reporting",
+                     "TipodeProyecto": tipo, "Status": "En curso",
+                     "FechadeInicio": "2026-01-15"}]),
+        clientes=[{"id": "c1", "Title": "Ternium"}],
+        csv_files=[{"id": "y2024", "name": "Time Logs Reports 2024.csv"},
+                   {"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"y2024": list(time_logs_rows[:1]), "current-1": list(time_logs_rows[1:])},
+    )
+    # La perspectiva Proyecto SI descarga/parsea la XLSX de Facturadas, que es
+    # ortogonal a lo que prueban estos tests (horas trabajadas) — `_patch`
+    # devuelve CSV para cualquier byte y eso no es un workbook valido. Se
+    # stubbea a vacio: `facturadas` no participa de ninguna afirmacion de acá.
+    monkeypatch.setattr(ReportingRepository, "_facturadas_by_project", lambda self, site_id: {})
+    return ReportingService(_repo())
+
+
+_TL_VIDA = [_tl("2024-05-02", 100), _tl("2026-03-10", 40)]      # 140 h de vida
+
+
+def test_proyecto_worked_hours_come_from_time_logs_not_the_manual_field(monkeypatch):
+    svc = _proy_patch(monkeypatch, time_logs_rows=_TL_VIDA)
+    fila = next(r for r in svc.get_cartera_proyecto("tok") if r["proyecto"] == "Rollout Reporting")
+    assert fila["trabajadas"] == 140.0            # 100 (2024) + 40 (2026)
+    assert fila["trabajadas"] != float(_PROY_DECOY)
+
+
+def test_proyecto_lifetime_total_sums_every_available_year_exactly_once(monkeypatch):
+    svc = _proy_patch(monkeypatch, time_logs_rows=_TL_VIDA)
+    fila = next(r for r in svc.get_cartera_proyecto("tok") if r["proyecto"] == "Rollout Reporting")
+    assert fila["trabajadas"] == 140.0
+    # Grano project-level: sin `anio`/`mes` en la salida.
+    assert "anio" not in fila and "mes" not in fila
+    assert fila["anioInicio"] == "2026"           # atributo del proyecto, no periodo
+
+
+@pytest.mark.parametrize("n_filas", [1, 2, 3])
+def test_proyecto_source_rows_never_multiply_the_canonical_total(monkeypatch, n_filas):
+    # N filas de origen para el MISMO proyecto no pueden multiplicar Time Logs
+    # (el mismo defecto que se corrigio en Mantenimiento).
+    svc = _proy_patch(monkeypatch, n_filas_sharepoint=n_filas, time_logs_rows=_TL_VIDA)
+    filas = [r for r in svc.get_cartera_proyecto("tok") if r["proyecto"] == "Rollout Reporting"]
+    assert len(filas) == 1, n_filas               # una fila por proyecto, siempre
+    assert filas[0]["trabajadas"] == 140.0, n_filas
+    if n_filas > 1:
+        assert filas[0]["trabajadas"] != 140.0 * n_filas
+    # `vendidas`/`certificadas` SI son aditivas por fila de origen.
+    assert filas[0]["vendidas"] == float(sum(10 + i for i in range(n_filas)))
+    assert filas[0]["certificadas"] == float(sum(5 + i for i in range(n_filas)))
+
+
+def test_proyecto_identity_is_the_normalized_project_name(monkeypatch):
+    # Dos filas cuyo `idProyecto` difiere pero cuyo nombre normaliza IGUAL: UNA
+    # fila, con el canonico UNA vez. Agrupar por id le daria el total completo a
+    # cada una (fan-out), porque Time Logs solo trae el NOMBRE.
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[
+            {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026",
+             "Mes": "Marzo", "HsTrabajadas": _PROY_DECOY, "HsVendidas": "10", "HsFacturadas": "5"},
+            {"ProyectoLookupId": "p2", "EmpresaLookupId": "c1", "A_x00f1_o": "2026",
+             "Mes": "Abril", "HsTrabajadas": _PROY_DECOY, "HsVendidas": "20", "HsFacturadas": "6"},
+        ],
+        proyectos=[
+            {"id": "p1", "Title": "Rollout Reporting", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+            {"id": "p2", "Title": "ROLLOUT  REPORTING", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+        ],
+        clientes=[{"id": "c1", "Title": "Ternium"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [_tl("2026-03-10", 40)]},
+    )
+    monkeypatch.setattr(ReportingRepository, "_facturadas_by_project", lambda self, site_id: {})
+    rows = ReportingService(_repo()).get_cartera_proyecto("tok")
+    assert len(rows) == 1
+    assert rows[0]["trabajadas"] == 40.0          # NO 80.0
+    assert rows[0]["vendidas"] == 30.0            # las dos filas de origen, sumadas
+
+
+def test_proyecto_time_logs_only_project_with_valid_mapping_appears(monkeypatch):
+    # Sin fila en "Horas por proyectos", pero con mapping valido en Proyectos.
+    svc = _proy_patch(monkeypatch, n_filas_sharepoint=0,
+                     time_logs_rows=[_tl("2024-05-02", 12), _tl("2026-03-10", 8)])
+    fila = next((r for r in svc.get_cartera_proyecto("tok")
+                 if r["proyecto"] == "Rollout Reporting"), None)
+    assert fila is not None, "un proyecto solo-Time-Logs con mapping no puede desaparecer"
+    assert fila["trabajadas"] == 20.0
+    # Medidas sin fuente conservan su cero legitimo, nunca un valor inventado.
+    assert fila["certificadas"] == 0.0 and fila["vendidas"] == 0.0 and fila["facturadas"] == 0.0
+    assert fila["status"] == "En curso"           # dimension heredada, no fabricada
+
+
+def test_proyecto_never_fabricates_dimensions_for_unmapped_time_logs(monkeypatch):
+    svc = _proy_patch(monkeypatch, n_filas_sharepoint=0, proyectos=[],
+                     time_logs_rows=[_tl("2024-05-02", 12), _tl("2026-03-10", 8)])
+    assert svc.get_cartera_proyecto("tok") == []
+
+
+def test_proyecto_and_mantenimiento_universes_do_not_overlap(monkeypatch):
+    svc = _proy_patch(monkeypatch, tipo="Mantenimiento", time_logs_rows=_TL_VIDA)
+    assert svc.get_cartera_proyecto("tok") == []
+    svc2 = _proy_patch(monkeypatch, tipo="Proyecto", time_logs_rows=_TL_VIDA)
+    assert svc2.get_cartera_mantenimiento("tok", anios=["2026"]) == []
+
+
+def test_proyecto_reads_time_logs_once_never_per_project(monkeypatch):
+    # Sin N+1: una sola lectura de Time Logs para toda la perspectiva, aunque
+    # haya varios proyectos.
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[
+            {"ProyectoLookupId": f"p{i}", "EmpresaLookupId": "c1", "A_x00f1_o": "2026",
+             "Mes": "Marzo", "HsTrabajadas": _PROY_DECOY, "HsVendidas": "10", "HsFacturadas": "5"}
+            for i in range(1, 4)
+        ],
+        proyectos=[{"id": f"p{i}", "Title": f"Proyecto {i}", "TipodeProyecto": "Proyecto",
+                    "Status": "En curso"} for i in range(1, 4)],
+        clientes=[{"id": "c1", "Title": "Ternium"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [_tl("2026-03-10", 40, "Proyecto 1")]},
+    )
+    monkeypatch.setattr(ReportingRepository, "_facturadas_by_project", lambda self, site_id: {})
+    repo = _repo()
+    llamadas = {"n": 0}
+    real = repo.get_time_logs_worked_hours
+
+    def contando(*a, **kw):
+        llamadas["n"] += 1
+        return real(*a, **kw)
+
+    repo.get_time_logs_worked_hours = contando
+    rows = ReportingService(repo).get_cartera_proyecto("tok")
+    assert len(rows) == 3
+    assert llamadas["n"] == 1, llamadas          # NUNCA una por proyecto
+    assert sum(r["trabajadas"] for r in rows) == 40.0
+
+
+def test_proyecto_stays_lifetime_and_introduces_no_period_filters():
+    # Contrato de ARCHIVO: grano project-level y cero filtros de periodo nuevos.
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
+    cfg = js.split('"Proyecto": {', 1)[1].split("\n  },", 1)[0]
+    assert "Hs Trabajadas Acum" in cfg
+    # Anio/Mes de horas siguen siendo exclusivos de Mantenimiento.
+    facet = js.split("FACET_CONFIG = {", 1)[1].split("rentabilidad: () =>", 1)[0]
+    assert 'persp !== "Proyecto" || state.carteraAnioInicio.has(r.anioInicio)' in facet
+    assert facet.count("carteraAnios") == 2 and facet.count("carteraMeses") == 2
+    svc_src = (root / "webapp" / "services" / "reporting_service.py").read_text(encoding="utf-8")
+    proy = svc_src.split("def _proyecto_rows(", 1)[1].split("# --- Batch B", 1)[0]
+    fila = proy.split("rows.append({", 1)[1].split("})", 1)[0]
+    assert '"anio"' not in fila and '"mes"' not in fila
+    assert '"anioInicio"' in fila
+    # Y el campo manual ya no alimenta la medida (solo puede quedar citado en
+    # la prosa del docstring).
+    codigo = "\n".join(l for l in proy.splitlines() if not l.strip().startswith("#"))
+    codigo = codigo.split('"""', 2)[-1] if '"""' in codigo else codigo
+    assert "hsTrabajadas" not in codigo
