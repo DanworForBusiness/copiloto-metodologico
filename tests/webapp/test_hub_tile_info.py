@@ -121,19 +121,26 @@ def test_the_icon_follows_the_hub_icon_convention_and_stays_secondary():
     assert ancho < 17, ancho
 
 
-def test_only_the_two_proven_operations_tiles_are_wired():
+def test_only_the_tiles_with_a_proven_contract_are_wired():
     code = _js_code(_REPORTING_JS)
-    # Dos contratos documentados, ni uno más: la adopción es incremental.
+    # TRES contratos documentados, ni uno más: la adopción sigue siendo por
+    # contrato PROBADO. Proyecto entró recién cuando su `trabajadas` pasó a
+    # Time Logs (OPTION A); antes habría documentado un contrato falso.
     assert code.count("const _KPI_INFO = {") == 1
-    assert code.count("_KPI_INFO.carteraTrabajadas") == 1
-    assert code.count("_KPI_INFO.rentabilidadTrabajadas") == 1
-    assert code.count("_KPI_INFO.") == 2
+    for nombre in ("carteraTrabajadas", "proyectoTrabajadas", "rentabilidadTrabajadas"):
+        assert code.count(f"_KPI_INFO.{nombre}") == 1, nombre
+    assert code.count("_KPI_INFO.") == 3
     # Ningún otro `info:` colado en otro tile.
     assert code.count("info: _KPI_INFO") == 1               # Rentabilidad, inline
-    assert code.count("? _KPI_INFO.carteraTrabajadas : undefined") == 1
-    # Dos CALL SITES con `info` — la definición de la función no cuenta.
+    # Dos CALL SITES con `info` — el de Cartera resuelve por perspectiva, así
+    # que las dos perspectivas comparten un único call site. La definición de
+    # la función no cuenta.
     llamadas = re.findall(r"(?<!function )renderDashboardKpi\(\{[^}]*\binfo\b", code)
     assert len(llamadas) == 2, llamadas
+    # Y ese call site sólo puede resolver a una de las dos copys de Cartera.
+    rama = code.split("const info = k.key !== ", 1)[1].split(";", 1)[0]
+    assert "carteraTrabajadas" in rama and "proyectoTrabajadas" in rama
+    assert "rentabilidadTrabajadas" not in rama
 
 
 def test_the_copy_explains_the_contract_and_never_excuses_a_difference():
@@ -141,19 +148,23 @@ def test_the_copy_explains_the_contract_and_never_excuses_a_difference():
     # contrato citan a propósito los mismos literales que se cuentan acá
     # (patrón ya conocido en este repo).
     info = _js_code(_REPORTING_JS).split("const _KPI_INFO = {", 1)[1].split("\n};", 1)[0]
-    assert info.count("Time Logs") == 2                     # la FUENTE, en las dos
-    assert info.count("Grano: proyecto") == 2               # el GRANO, en las dos
-    assert info.count("Tipo Proyecto") == 2                 # la DIMENSIÓN, en las dos
+    assert info.count("Time Logs") == 3                     # la FUENTE, en las tres
+    assert info.count("Grano: proyecto") == 3               # el GRANO, en las tres
     cartera = info.split("carteraTrabajadas: [", 1)[1].split("],", 1)[0]
+    proyecto = info.split("proyectoTrabajadas: [", 1)[1].split("],", 1)[0]
     rentab = info.split("rentabilidadTrabajadas: [", 1)[1].split("],", 1)[0]
     # Cartera/Mantenimiento FIJA su tipo — su alcance es fijo por construcción.
     assert "Tipo Proyecto = Mantenimiento" in cartera
+    assert "año × mes" in cartera                           # grano mensual
+    # Cartera/Proyecto declara SU tipo y su grano de VIDA, y NO promete grano
+    # mensual: eso sería un contrato que esa perspectiva no tiene.
+    assert "tipo Proyecto" in proyecto and "toda la vida del proyecto" in proyecto
+    assert "año × mes" not in proyecto
+    assert "período histórico equivalente" in proyecto
     # Rentabilidad es AGNÓSTICA (owner adjustment): su alcance lo determina el
-    # filtro activo, así que no puede nombrar Mantenimiento como si fuera suyo.
-    assert "Mantenimiento" not in rentab
-    # Y nadie promete todavía comparabilidad con la perspectiva Proyecto: esa
-    # sigue leyendo el campo manual `hsTrabajadas` (ver el audit de linaje).
-    assert "Cartera / Proyecto" not in info and "Tipo Proyecto = Proyecto" not in info
+    # filtro activo, así que no puede apropiarse de NINGÚN tipo.
+    assert "Mantenimiento" not in rentab and "tipo Proyecto" not in rentab
+    assert "Tipo Proyecto" in rentab                         # la dimensión, sí
     # Nunca una disculpa: el icono no explica una inconsistencia.
     for banned in ("pueden diferir", "puede variar", "aproximad", "no coincid",
                    "error", "puede que", "estimado"):

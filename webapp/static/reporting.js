@@ -168,6 +168,16 @@ const _KPI_INFO = {
     "Grano: proyecto × año × mes.",
     "Para comparar con Rentabilidad, aplicar Tipo Proyecto = Mantenimiento.",
   ],
+  // Habilitada recien ahora (owner decision OPTION A): hasta que `trabajadas`
+  // de esta perspectiva dejo de salir del campo manual `hsTrabajadas`, esta
+  // copy habria documentado un contrato falso. Grano de VIDA, no mensual —
+  // por eso "Grano: proyecto" a secas y la comparacion pide el periodo
+  // historico equivalente, no un mes.
+  proyectoTrabajadas: [
+    "Horas registradas en Time Logs para proyectos de tipo Proyecto, acumuladas durante toda la vida del proyecto.",
+    "Grano: proyecto.",
+    "Para comparar con Rentabilidad, considerar el mismo proyecto y el período histórico equivalente.",
+  ],
   // AGNOSTICA DE TIPO (owner adjustment): Rentabilidad NO es una metrica de
   // Mantenimiento — su alcance lo fija el filtro Tipo Proyecto activo, que
   // por defecto no filtra nada. Nombrar Mantenimiento aca lo convertia en el
@@ -202,11 +212,14 @@ function carteraKpiTiles(cfg, rows) {
     // SUM(Certificadas) − SUM(Trabajadas), ver comentario de
     // CARTERA_CONFIG) sin `diffCell` — el primitivo decide el signo/color.
     const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);
-    // Solo el tile de horas trabajadas de MANTENIMIENTO lleva info: es el
-    // que tiene su contrato probado (ver `_KPI_INFO`). Los otros cuatro
+    // Solo el tile de horas trabajadas lleva info, y con la copy de SU
+    // perspectiva: las dos derivan de Time Logs pero con alcance y grano
+    // distintos (Mantenimiento = tipo Mantenimiento, grano mensual;
+    // Proyecto = tipo Proyecto, grano de vida). Los otros cuatro
     // (Diff/Certificadas/Vendidas/Facturadas) quedan intactos.
-    const info = (k.key === "trabajadas" && cfg.rows === CARTERA_MANTENIMIENTO_ROWS)
-      ? _KPI_INFO.carteraTrabajadas : undefined;
+    const info = k.key !== "trabajadas" ? undefined
+      : (cfg.rows === CARTERA_MANTENIMIENTO_ROWS ? _KPI_INFO.carteraTrabajadas
+        : cfg.rows === CARTERA_PROYECTO_ROWS ? _KPI_INFO.proyectoTrabajadas : undefined);
     return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours", info });
   }).join("");
 }

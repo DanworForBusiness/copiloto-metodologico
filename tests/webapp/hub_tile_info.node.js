@@ -133,36 +133,57 @@ cards.forEach(c => {
 assertTrue(mantHtml.includes("Para comparar con Rentabilidad, aplicar Tipo Proyecto = Mantenimiento."),
   "F: la copy de Cartera nombra la regla de comparacion");
 
-// --- G: los demas tiles NO ganan info de arrastre -----------------------
+// --- G: cada perspectiva lleva SU copy, y solo el tile de horas ----------
+// Proyecto tambien la tiene desde OPTION A: su `trabajadas` ya deriva de Time
+// Logs. Antes de eso, documentarla habria sido un contrato falso.
 const proyHtml = carteraKpiTiles(CARTERA_CONFIG["Proyecto"], []);
-assertEqual(count(proyHtml, "activity-kpi__info"), 0,
-  "G: la perspectiva Proyecto no gana info (su contrato no esta documentado)");
-["Diff Hs", "Hs Certificadas", "Hs Vendidas", "Hs Facturadas"].forEach(l => {
-  const card = cards.find(c => c.includes(l));
-  assertTrue(card && !card.includes("activity-kpi__info"), `G: "${l}" sin info`);
+assertEqual(count(proyHtml, "activity-kpi__info"), 1,
+  "G: en Proyecto tambien SOLO un tile lleva info");
+const proyCards = proyHtml.split('<div class="activity-kpi').slice(1);
+proyCards.forEach(c => {
+  assertEqual(c.includes("activity-kpi__info"), c.includes("Hs Trabajadas"),
+    `G: Proyecto "${(c.match(/activity-kpi__label">([^<]*)/) || [])[1]}"`);
 });
-// Solo DOS copys cableadas en todo el archivo.
-assertEqual(Object.keys(KPI_INFO).length, 2, "G: exactamente dos contratos documentados");
+// Y cada perspectiva recibe la copy de SU alcance, nunca la de la otra.
+assertTrue(proyHtml.includes("acumuladas durante toda la vida del proyecto"),
+  "G: Proyecto recibe SU copy (grano de vida)");
+assertTrue(!proyHtml.includes("proyectos de tipo Mantenimiento"),
+  "G: Proyecto no recibe la copy de Mantenimiento");
+assertTrue(!mantHtml.includes("toda la vida del proyecto"),
+  "G: Mantenimiento no recibe la copy de Proyecto");
+// Los otros cuatro tiles siguen sin info, en las DOS perspectivas.
+["Diff Hs", "Hs Certificadas", "Hs Vendidas", "Hs Facturadas"].forEach(l => {
+  [["Mantenimiento", cards], ["Proyecto", proyCards]].forEach(([persp, cs]) => {
+    const card = cs.find(c => c.includes(l));
+    assertTrue(card && !card.includes("activity-kpi__info"), `G: ${persp} "${l}" sin info`);
+  });
+});
+// TRES copys cableadas, ni una mas: la adopcion sigue siendo por contrato
+// probado, nunca de arrastre.
+assertEqual(Object.keys(KPI_INFO).length, 3, "G: exactamente tres contratos documentados");
 
 // --- H: la copy explica el contrato, no disculpa una diferencia ---------
-const todaLaCopy = [].concat(KPI_INFO.carteraTrabajadas, KPI_INFO.rentabilidadTrabajadas).join(" ");
-assertEqual(count(todaLaCopy, "Time Logs"), 2, "H: las dos nombran la FUENTE");
-assertEqual(count(todaLaCopy, "Grano: proyecto"), 2, "H: las dos nombran el GRANO");
-// Las dos nombran la DIMENSION de comparabilidad...
-const cart = KPI_INFO.carteraTrabajadas.join(" "), rent = KPI_INFO.rentabilidadTrabajadas.join(" ");
-assertTrue(/Tipo Proyecto/.test(cart) && /Tipo Proyecto/.test(rent),
-  "H: las dos nombran Tipo Proyecto como condicion");
-// ...pero solo Cartera/Mantenimiento FIJA un valor: su alcance es fijo.
-assertTrue(/Tipo Proyecto = Mantenimiento/.test(cart),
-  "H: Cartera/Mantenimiento fija su tipo");
-// Rentabilidad es AGNOSTICA (owner adjustment): su alcance lo determina el
-// filtro activo, asi que no puede nombrar Mantenimiento como si fuera suyo.
-assertTrue(!/Mantenimiento/.test(rent),
-  "H: la copy de Rentabilidad no se apropia de Mantenimiento");
-// Y NO promete comparabilidad con la perspectiva Proyecto: esa todavia lee el
-// campo manual, afirmarlo documentaria un contrato inexistente.
-assertTrue(!/Cartera \/ Proyecto/.test(todaLaCopy) && !/Tipo Proyecto = Proyecto/.test(todaLaCopy),
-  "H: nadie promete todavia comparabilidad con la perspectiva Proyecto");
+const cart = KPI_INFO.carteraTrabajadas.join(" ");
+const proy = KPI_INFO.proyectoTrabajadas.join(" ");
+const rent = KPI_INFO.rentabilidadTrabajadas.join(" ");
+const todaLaCopy = [cart, proy, rent].join(" ");
+assertEqual(count(todaLaCopy, "Time Logs"), 3, "H: las tres nombran la FUENTE");
+// GRANO: las dos de Cartera lo declaran, y son DISTINTOS a proposito —
+// Mantenimiento es mensual, Proyecto es de vida.
+assertTrue(/Grano: proyecto × año × mes\./.test(cart), "H: Mantenimiento declara grano mensual");
+assertTrue(/Grano: proyecto\./.test(proy), "H: Proyecto declara grano de vida");
+assertTrue(!/año × mes/.test(proy), "H: Proyecto NO promete grano mensual");
+assertTrue(/Grano: proyecto × año × mes\./.test(rent), "H: Rentabilidad declara grano mensual");
+// CONDICION de comparabilidad en las tres.
+assertTrue(/Tipo Proyecto = Mantenimiento/.test(cart), "H: Mantenimiento fija su tipo");
+assertTrue(/tipo Proyecto/.test(proy), "H: Proyecto nombra su tipo");
+assertTrue(/período histórico equivalente/.test(proy),
+  "H: Proyecto pide el periodo equivalente, no un mes");
+assertTrue(/Tipo Proyecto/.test(rent), "H: Rentabilidad nombra la dimension");
+// Rentabilidad es AGNOSTICA: su alcance lo determina el filtro activo, asi que
+// no puede nombrar NINGUN tipo como si fuera suyo.
+assertTrue(!/Mantenimiento/.test(rent) && !/tipo Proyecto/.test(rent),
+  "H: la copy de Rentabilidad no se apropia de un tipo");
 [/pueden diferir/i, /puede variar/i, /aproximad/i, /error/i, /no coincid/i].forEach(rx => {
   assertTrue(!rx.test(todaLaCopy), `H: la copy no disculpa una diferencia (${rx})`);
 });
