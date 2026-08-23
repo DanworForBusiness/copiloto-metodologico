@@ -52,6 +52,7 @@ vm.runInContext(src, sandbox, { filename: "reporting.js" });
 const { render, capacidadPanelAnioKey } = sandbox;
 const state = vm.runInContext("state", sandbox);
 const CAPACIDAD_PRODUCTIVAS_ROWS = vm.runInContext("CAPACIDAD_PRODUCTIVAS_ROWS", sandbox);
+const CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR = vm.runInContext("CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR", sandbox);
 
 let failures = 0;
 function assertTrue(cond, label) {
@@ -113,6 +114,13 @@ render();
 // Para probar el estado "ya hidratado" sin depender de esa mecánica async,
 // se fuerza el status a "ready" directamente (equivalente a que el fetch ya
 // resolvió) y se vuelve a renderizar.
+// HOT WINDOW/COLD HISTORY corrective (owner decision 2026-08-18): capacidad
+// ahora TAMBIÉN gatea el contenido por año hidratado (MISMO criterio que
+// Cartera/Rentabilidad/HV, ver `capacidadLoadedYears()`/renderCapacidad en
+// reporting.js) — simular que el año 2019 (seleccionado en ambos paneles,
+// ver arriba) YA fue hidratado, igual que un `loadBatchBData()` real
+// poblaría este centinela junto con las filas.
+Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, { "2019": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
 state.batchBDataStatus = "ready";
 render();
 
@@ -222,7 +230,11 @@ state.comercialParticipacionDataStatus = "loading";
 render();
 assertTrue(state.reportingTabHydrated.comercial, "COMERCIAL C: flag one-way sigue hidratado");
 assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL C: filtros permanecen durante el año frío");
-assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL C: feedback permanece durante el año frío");
+// FEEDBACK VISIBILITY corrective (owner decision 2026-08-19): feedback ya
+// NO sigue al flag one-way — sigue el status PRESENTE de la perspectiva
+// activa (`isActiveReportReady`). Con Participación "loading" (año frío en
+// vuelo), feedback se OCULTA, aunque filtros/contenido permanezcan.
+assertFalse(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL C: feedback OCULTO durante el año frío (status activo = loading)");
 state.comercialParticipacionDataStatus = "ready";
 
 // Case D — switch a Salud de Cliente tras hidratar: sin blanking.
@@ -248,7 +260,10 @@ state.perspective.comercial = "Salud de Cliente";
 state.batchADataStatus = "loading";
 render();
 assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "COMERCIAL F: filter bar PRESENTE con Salud (hermana) en carga, post-hidratación");
-assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL F: feedback PRESENTE");
+// FEEDBACK VISIBILITY corrective: Salud (perspectiva ACTIVA) está
+// "loading" -> feedback OCULTO, aunque la filter bar (que no gatea por
+// status) permanezca.
+assertFalse(mainEl.innerHTML.includes(FEEDBACK_MARK), "COMERCIAL F: feedback OCULTO (Salud, la perspectiva activa, está loading)");
 state.batchADataStatus = "ready";
 
 // ============================================================================
@@ -297,7 +312,9 @@ state.carteraMantenimientoStatus = "loading";
 render();
 assertTrue(state.reportingTabHydrated.cartera, "CARTERA C.1: flag one-way sigue hidratado al conmutar a Mantenimiento");
 assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA C.1: filter bar PRESENTE pese a Mantenimiento en carga (post-hidratación)");
-assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.1: feedback PRESENTE");
+// FEEDBACK VISIBILITY corrective: Mantenimiento (perspectiva ACTIVA) está
+// "loading" -> feedback OCULTO (ya no sigue el flag one-way de hidratación).
+assertFalse(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.1: feedback OCULTO (Mantenimiento, la perspectiva activa, está loading)");
 assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA C.1: loader CONTEXTUAL del contenido presente (perspectiva en carga)");
 // C.2 — inversa: Mantenimiento ready → Proyecto con Proyecto loading.
 state.carteraMantenimientoStatus = "ready";
@@ -306,7 +323,7 @@ state.carteraProyectoStatus = "loading";
 render();
 assertTrue(state.reportingTabHydrated.cartera, "CARTERA C.2 (inversa): sigue hidratado al conmutar a Proyecto");
 assertTrue(mainEl.innerHTML.includes(FILTERBAR_MARK), "CARTERA C.2 (inversa): filter bar PRESENTE pese a Proyecto en carga");
-assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.2 (inversa): feedback PRESENTE");
+assertFalse(mainEl.innerHTML.includes(FEEDBACK_MARK), "CARTERA C.2 (inversa): feedback OCULTO (Proyecto, la perspectiva activa, está loading)");
 assertTrue(mainEl.innerHTML.includes(LOADER_MARK), "CARTERA C.2 (inversa): loader contextual del contenido presente");
 state.carteraProyectoStatus = "ready";  // deja el estado limpio
 

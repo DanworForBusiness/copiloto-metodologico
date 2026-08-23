@@ -34,6 +34,7 @@ import io
 import logging
 import re
 import time
+from datetime import datetime
 
 import config
 from core import microsoft365
@@ -180,6 +181,16 @@ USER_INFO_NAME = "Name"
 TIME_LOGS_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
 TIME_LOGS_FOLDER_PATH = "General/Template Dashboard"
 TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Duration Decimal")
+# EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
+# adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
+# recursión genérica introducida por `f7a9d9b` entraba a CUALQUIER subcarpeta
+# de `TIME_LOGS_FOLDER_PATH` — el diagnóstico real probó que eso incluye
+# carpetas no relacionadas con Time Logs (root tiene ≥5 subcarpetas, alguna
+# con anidamiento propio), causando ~55s de llamadas Graph invisibles/
+# irrelevantes. El contrato de origen real es SOLO estas 2 ubicaciones — el
+# histórico conocido vive DIRECTO adentro de esta carpeta, nunca más
+# profundo.
+TIME_LOGS_HISTORY_FOLDER_NAME = "Times previos"
 
 
 def _time_logs_mes(date_value) -> str:
@@ -205,6 +216,26 @@ def _time_logs_mes(date_value) -> str:
 def _time_logs_anio(date_value) -> str:
     mes = _time_logs_mes(date_value)
     return mes[:4] if mes else ""
+
+
+# HOT WINDOW / COLD HISTORY corrective (Horas Productivas, owner decision
+# 2026-08-18 — "la optimización debe ocurrir en source loading, no filtrar
+# DESPUÉS de descargar todos los CSV"): para elegir QUÉ archivos descargar
+# sin abrir ninguno, se infiere el año de cada item por su NOMBRE — la
+# convención observada en `Times previos/` es un año de 4 dígitos en el
+# nombre para cada archivo histórico ("Time Logs Reports 2025.csv"); el
+# archivo SIN año en el nombre es el CSV "vivo" de la raíz (owner-confirmed:
+# su rango real es 01/01–hoy del año calendario en curso), tratado como el
+# año actual. Es una inferencia de NOMBRE, nunca de contenido — no abre/
+# parsea el archivo para decidir si lo descarga.
+_CSV_NAME_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def _infer_time_logs_csv_year(item: dict) -> str:
+    m = _CSV_NAME_YEAR_RE.search(_text(item.get("name")))
+    if m:
+        return m.group(1)
+    return str(datetime.now().year)
 
 
 class ReportingConfigurationError(Exception):
@@ -516,6 +547,46 @@ class ReportingRepository:
     def get_cartera_facts(
         self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
     ) -> list[dict]:
+        """Hechos de Cartera normalizados a grano proyecto×mes — ver
+        `_cartera_facts_and_dimension` para el contrato completo. Wrapper
+        delgado que descarta la dimensión de proyecto (UNION GRAIN
+        corrective) para preservar el contrato EXACTO de siempre a los
+        callers que no la necesitan (Proyecto, tests existentes)."""
+        facts, _project_dim = self._cartera_facts_and_dimension(
+            access_token, include_facturadas=include_facturadas, hot_years=hot_years,
+        )
+        return facts
+
+    def get_cartera_facts_with_project_dimension(
+        self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+    ) -> tuple[list[dict], dict[str, dict]]:
+        """MISMO fetch que `get_cartera_facts` (CERO llamadas Graph
+        adicionales — UNION GRAIN corrective, owner 2026-08-18) más la
+        dimensión de proyecto (`project_dim`, keyed por `_norm_key(título)`)
+        — necesaria para que Cartera/Mantenimiento pueda producir una fila
+        para una key (proyecto, año, mes) que existe en Time Logs pero
+        TODAVÍA no tiene fila en "Horas por proyectos" (ver
+        `reporting_service._mantenimiento_rows`).
+
+        `project_dim[key]`: `estado`/`tipoProyecto`/`idProyecto`/
+        `anioInicio` SIEMPRE resolubles contra Proyectos (`proy_by_id`, ya
+        fetcheado acá — independiente de si ese proyecto tiene hechos de
+        "Horas por proyectos" en ESTE `hot_years`). `cliente`/
+        `clientPartner` son "best effort" — se completan por co-ocurrencia
+        con los hechos de "Horas por proyectos" YA traídos en este mismo
+        `hot_years`; un proyecto sin NINGÚN hecho en el scope actual queda
+        con `cliente`/`clientPartner` = "" (fail-soft, NUNCA inventado —
+        MISMO criterio que el resto de este módulo). Un proyecto de Time
+        Logs cuyo título no resuelve contra Proyectos en absoluto no tiene
+        entrada en `project_dim` — el caller debe tratarlo como
+        "unmatched", nunca fabricar su dimensión."""
+        return self._cartera_facts_and_dimension(
+            access_token, include_facturadas=include_facturadas, hot_years=hot_years,
+        )
+
+    def _cartera_facts_and_dimension(
+        self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+    ) -> tuple[list[dict], dict[str, dict]]:
         """Hechos de Cartera normalizados a grano proyecto×mes, con la dimensión
         de proyecto/cliente ya unida y `facturadasProyecto` (SUM del XLSX por
         proyecto) adjunto. Nombres de negocio, NUNCA internal names SharePoint.
@@ -608,8 +679,42 @@ class ReportingRepository:
                 "facturadasProyecto": facturadas_by_key.get(_norm_key(proyecto_title), 0.0),
             })
         timer.stage("shaping", len(facts))
+
+        # UNION GRAIN corrective (owner 2026-08-18, ver docstring de
+        # `get_cartera_facts_with_project_dimension`): dimensión de proyecto
+        # resoluble por SU PROPIO título — Estado/Tipo/idProyecto/anioInicio
+        # vienen de `proy_by_id` (YA fetcheado arriba, CERO llamadas nuevas)
+        # y son válidos INDEPENDIENTEMENTE de si ese proyecto tiene hechos
+        # de "Horas por proyectos" en el `hot_years` de este request.
+        # Cliente/ClientPartner son "best effort": solo se conocen si ALGÚN
+        # hecho de Horas por proyectos de este mismo fetch los trae — un
+        # proyecto sin ningún hecho en el scope actual queda con "" (fail-
+        # soft, nunca inventado).
+        project_dim: dict[str, dict] = {}
+        for proy in proy_by_id.values():
+            title = _first(proy, PROY_TITLE)
+            if not title:
+                continue
+            key = _norm_key(title)
+            tipo_raw = _text(proy.get(PROY_TIPO))
+            tipo = "Mantenimiento" if tipo_raw == "Tiempo & Materiales" else tipo_raw
+            fecha_inicio = _text(proy.get(PROY_FECHA_INICIO))
+            project_dim[key] = {
+                "proyecto": title,
+                "idProyecto": _text(proy.get(PROY_ID_DANWOR)),
+                "tipoProyecto": tipo,
+                "estado": _text(proy.get(PROY_ESTADO)),
+                "anioInicio": fecha_inicio[:4] if fecha_inicio else "",
+                "cliente": "", "clientPartner": "",
+            }
+        for f in facts:
+            dim = project_dim.get(_norm_key(f["proyecto"]))
+            if dim is not None and not dim["cliente"] and f["cliente"]:
+                dim["cliente"] = f["cliente"]
+                dim["clientPartner"] = f["clientPartner"]
+
         timer.total()
-        return facts
+        return facts, project_dim
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token: str) -> list[dict]:
         """Pares distintos (año, estado) de Mantenimiento — metadata MÍNIMA
@@ -823,36 +928,115 @@ class ReportingRepository:
             raise ReportingSourceError("time_logs_site", "no se pudo resolver el sitio Operaciones")
         return site_id
 
-    def _list_time_logs_csv_items(self, site_id: str) -> list[dict]:
-        """Children de `TIME_LOGS_FOLDER_PATH`, filtrados a `.csv` sin "OLD"
-        en el nombre — MISMA regla que el M del PBIP (`[Extension]=".csv"`
-        y `not Text.Contains([Name],"OLD")`). NO recursivo — sin evidencia
-        de subcarpetas para estos CSV (el M del PBIP escanea el sitio
-        completo vía el conector genérico de Power Query, pero la MISMA
-        carpeta ya está confirmada existente/alcanzable por la XLSX de
-        Vacaciones de Staffing); si el smoke real revela CSVs en
-        subcarpetas, extender a listado recursivo."""
-        children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
-            f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children",
-            access_token=self._token,
-        ))
-        return [
-            it for it in children
-            if _text(it.get("name")).lower().endswith(".csv") and "old" not in _text(it.get("name")).lower()
-        ]
+    @staticmethod
+    def _is_time_logs_csv(item: dict) -> bool:
+        """MISMO filtro que el M del PBIP (`[Extension]=".csv"` y
+        `not Text.Contains([Name],"OLD")`), factorizado — se aplica
+        IDÉNTICO en la raíz y en `Times previos/`, nunca dos reglas
+        distintas."""
+        name_lower = _text(item.get("name")).lower()
+        return name_lower.endswith(".csv") and "old" not in name_lower
 
-    def _download_time_logs_rows(self, site_id: str) -> list[dict]:
-        """Descarga + combina TODOS los CSV de la carpeta (MISMA semántica
-        que `Table.Combine`/header promovido del M: delimiter=",", UTF-8).
-        Un archivo individual inválido (headers requeridos faltantes, o no
+    def _list_time_logs_csv_items(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
+        """Adapter de UNA fuente conocida — NO un crawler genérico de
+        SharePoint (EXPLICIT SOURCE TOPOLOGY corrective, owner 2026-08-18).
+
+        HISTORIA (para contexto, ya no vigente): la versión anterior de
+        este método recorría RECURSIVAMENTE cualquier subcarpeta que
+        encontrara bajo `TIME_LOGS_FOLDER_PATH` — introducido para llegar a
+        `Times previos/` (owner incident, "Horas Productivas solo muestra
+        2026 aunque hay históricos"). Un diagnóstico real (owner
+        2026-08-19, page-by-page timing) probó que esa recursión genérica
+        entraba a subcarpetas NO relacionadas con Time Logs — la raíz tiene
+        ≥5 subcarpetas, y al menos una tiene anidamiento propio — sumando
+        ~55s de llamadas Graph reales pero completamente irrelevantes para
+        esta fuente. El contrato de origen real es SOLO 2 ubicaciones
+        conocidas y planas:
+
+            Template Dashboard/                    → Time Logs Reports.csv (actual)
+            Template Dashboard/Times previos/       → Time Logs Reports YYYY.csv (histórico)
+
+        Nunca más profundo, nunca otra carpeta. `TIME_LOGS_HISTORY_FOLDER_
+        NAME` es la ÚNICA subcarpeta que este método conoce — matcheada por
+        nombre (case-insensitive), no por posición ni por ser "la primera
+        carpeta encontrada". Si en el futuro el histórico se reorganiza a
+        otra ubicación, este método necesita un cambio explícito — nunca
+        vuelve a "caminar todo y filtrar después".
+
+        FILE DISCOVERY OPTIMIZADO (CALL BUDGET corrective, 2026-08-18):
+        `hot_years` (`None` = listado completo — usado por
+        `get_time_logs_years_available`/Rentabilidad/wrappers standalone,
+        que necesitan el catálogo/historial completo) — con una lista
+        EXPLÍCITA, primero se lista SOLO la raíz (1 llamada); si esos
+        archivos YA cubren TODOS los años pedidos (el caso típico: pedir
+        el año actual, que SIEMPRE vive en la raíz sin sufijo, ver
+        `_infer_time_logs_csv_year`), se devuelve sin listar `Times
+        previos/` en absoluto — esa carpeta solo se abre cuando algún año
+        pedido no aparece en la raíz (años fríos históricos), y esa
+        apertura es SIEMPRE un único listado de sus children directos,
+        nunca una recursión."""
+        root_url = f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children"
+        root_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+            root_url, access_token=self._token,
+        ))
+        root_files = [it for it in root_children if not it.get("folder") and self._is_time_logs_csv(it)]
+        if hot_years is not None:
+            wanted = set(hot_years)
+            have = {_infer_time_logs_csv_year(it) for it in root_files}
+            if wanted <= have:
+                return root_files
+
+        # Buscar `Times previos/` POR NOMBRE — nunca "la primera carpeta
+        # encontrada" ni una recursión sobre TODAS las carpetas de la raíz.
+        history_id = ""
+        for it in root_children:
+            if it.get("folder") and _text(it.get("name")).strip().casefold() == TIME_LOGS_HISTORY_FOLDER_NAME.casefold():
+                history_id = _text(it.get("id"))
+                break
+        if not history_id:
+            # Sin `Times previos/` en la raíz: solo hay lo que ya está en
+            # `root_files` — nunca se inventa una carpeta ni se recorre
+            # ninguna otra buscándola.
+            return root_files
+
+        # Sin `_quote`: MISMO criterio que `_download_time_logs_rows`
+        # (`/drive/items/{item_id}/content`) — el id de Graph nunca se
+        # url-encodea acá.
+        history_url = f"{GRAPH_BASE}/sites/{site_id}/drive/items/{history_id}/children"
+        history_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
+            history_url, access_token=self._token,
+        ))
+        history_files = [it for it in history_children if not it.get("folder") and self._is_time_logs_csv(it)]
+        return root_files + history_files
+
+    def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
+        """Descarga + combina CSV de la carpeta (MISMA semántica que
+        `Table.Combine`/header promovido del M: delimiter=",", UTF-8). Un
+        archivo individual inválido (headers requeridos faltantes, o no
         decodifica) se SALTEA sin romper el combine completo (fail-soft
         por-archivo — un CSV legacy/corrupto no debe tumbar toda la
         experiencia). Si NINGÚN archivo aporta filas válidas,
         `ReportingSourceError` (falla real de fuente, no un dataset vacío
-        legítimo)."""
-        items = self._list_time_logs_csv_items(site_id)
+        legítimo).
+
+        `hot_years` (HOT WINDOW / COLD HISTORY corrective, Horas
+        Productivas — owner decision 2026-08-18): `None` (default,
+        preserva el contrato previo EXACTO — Rentabilidad y los wrappers
+        standalone de Productivas siguen sin acotar) descarga TODOS los
+        archivos encontrados. Una lista explícita SELECCIONA los archivos
+        ANTES de descargar (`_infer_time_logs_csv_year`, por nombre — nunca
+        post-filtro después de bajar todo) — si ningún archivo mapea a esos
+        años (p. ej. un año futuro sin export todavía), es un dataset
+        VACÍO legítimo (`[]`), no un `ReportingSourceError` — ese error
+        sigue reservado a la fuente genuinamente vacía/rota."""
+        items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
+        if hot_years is not None:
+            wanted = set(hot_years)
+            items = [it for it in items if _infer_time_logs_csv_year(it) in wanted]
+            if not items:
+                return []
         rows: list[dict] = []
         for it in items:
             item_id = _text(it.get("id"))
@@ -873,7 +1057,7 @@ class ReportingRepository:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
         return rows
 
-    def get_time_logs_facts(self, access_token: str) -> list[dict]:
+    def get_time_logs_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Hechos de Time Logs Reports normalizados y unidos a Cliente vía
         Proyectos — alimenta Horas Productivas (AMBAS perspectivas,
         Productivas Y No Asignadas) y Rentabilidad/Ejecutadas (Batch B).
@@ -888,7 +1072,18 @@ class ReportingRepository:
         Time Logs, sin fetches redundantes dentro de este método). Un
         Project sin match en Proyectos (o Proyecto sin Cliente resuelto)
         conserva el texto crudo de Client/Project del CSV como fallback —
-        nunca descarta la fila silenciosamente."""
+        nunca descarta la fila silenciosamente.
+
+        `hot_years` (HOT WINDOW / COLD HISTORY corrective, Horas
+        Productivas — owner decision 2026-08-18): `None` (default)
+        preserva el contrato PREVIO exacto — descarga TODOS los CSV
+        encontrados (Rentabilidad y los wrappers standalone de Productivas
+        siguen llamando así, sin cambios de comportamiento). Una lista
+        explícita acota la SELECCIÓN DE ARCHIVOS antes de descargar (ver
+        `_download_time_logs_rows`) — usado por `get_batch_b` para la
+        ventana caliente/año frío, MISMO mecanismo que `hot_years` de
+        "Horas por proyectos" (`_fetch_horas_proyectos`), pero acá aplicado
+        a selección de archivo en vez de `$filter` OData."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("time_logs")
@@ -909,7 +1104,7 @@ class ReportingRepository:
                 proy_by_key[key] = fields
         cli_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in clientes_items}
 
-        raw_rows = self._download_time_logs_rows(operaciones_site_id)
+        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
         timer.stage("csv_download_parse", len(raw_rows))
         facts = []
         for row in raw_rows:
@@ -957,6 +1152,62 @@ class ReportingRepository:
         timer.stage("shaping", len(facts))
         timer.total()
         return facts
+
+    def get_time_logs_worked_hours(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
+        """Proyección MÍNIMA de Time Logs — `{proyecto, anio, mes, horas}`
+        por fila, SIN resolver Proyectos/Cliente/porcentaje_part (CALL
+        BUDGET corrective, owner decision 2026-08-18 — Cartera reportó
+        4x más llamadas Graph tras la reconciliación: 2/3 de esa
+        duplicación era releer Proyectos/Cliente/columnas que Cartera YA
+        había leído para "Horas por proyectos", solo para enriquecer
+        campos de Time Logs — `cliente`/`estado`/`porcentajePart` — que
+        Cartera (y Rentabilidad) NUNCA consumen de acá; ambos hacen SU
+        PROPIO join por `_norm_key(proyecto)` contra datos que ya tienen.
+
+        `proyecto` acá es SIEMPRE el texto CRUDO del CSV (Project), nunca
+        resuelto contra Proyectos — `_norm_key` (Upper/sin espacios) ya
+        normaliza ambos lados del join sin necesitar el título resuelto
+        (MISMA base que el fallback de `get_time_logs_facts` cuando el
+        join falla — acá es la ÚNICA vía, nunca un fetch más liviano que
+        cambie el resultado del join real del PBIP).
+
+        Horas Productivas (Batch B) SIGUE usando `get_time_logs_facts`
+        (el contrato completo) — necesita cliente/estado/porcentajePart
+        para su propia UI (agrupar por Cliente, filtro de Estado, panel
+        "Cliente + Part"). Este método es SOLO para consumidores que
+        necesitan nada más que el agregado proyecto×año×mes×horas
+        (Cartera/Mantenimiento — ver `get_cartera_mantenimiento`).
+
+        `hot_years`: MISMO mecanismo de source-loading que
+        `get_time_logs_facts` (selecciona archivos por nombre ANTES de
+        descargar, ver `_download_time_logs_rows`)."""
+        self._token = access_token
+        operaciones_site_id = self._resolve_time_logs_site_id()
+        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
+        return [
+            {
+                "proyecto": _text(row.get("Project")),
+                "mes": _time_logs_mes(row.get("Date")),
+                "anio": _time_logs_anio(row.get("Date")),
+                "horas": _num(row.get("Duration Decimal")),
+            }
+            for row in raw_rows
+        ]
+
+    def get_time_logs_years_available(self, access_token: str) -> list[str]:
+        """Metadata LIVIANA de años disponibles de Time Logs (HOT WINDOW /
+        COLD HISTORY corrective, Horas Productivas) — SOLO lista los
+        archivos de `TIME_LOGS_FOLDER_PATH` (Graph metadata, nunca
+        descarga/parsea ningún CSV) e infiere el año de cada uno por su
+        nombre (`_infer_time_logs_csv_year`). Separada de
+        `get_time_logs_facts` a propósito — MISMO criterio que
+        `get_cartera_mantenimiento_anio_estado_pairs`: las OPCIONES del
+        <select> de Año nunca deben confundirse con los años ya
+        HIDRATADOS por la ventana caliente."""
+        self._token = access_token
+        operaciones_site_id = self._resolve_time_logs_site_id()
+        items = self._list_time_logs_csv_items(operaciones_site_id)
+        return sorted({_infer_time_logs_csv_year(it) for it in items})
 
     def get_colaboradores_email_map(self, access_token: str) -> dict[str, str]:
         """Email (lowercase) → nombre de Consultor. El person field

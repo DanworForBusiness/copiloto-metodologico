@@ -98,8 +98,11 @@ def test_rentabilidad_both_perspectives_gate_on_the_same_shared_status():
 
 def test_capacidad_both_perspectives_gate_on_the_same_shared_status():
     # SHARED REPORTING INITIAL-LOAD CONTRACT: el trigger se centralizó en el
-    # shell (`TAB_HYDRATION_TRIGGERS.capacidad`, ver `render()`).
-    assert 'capacidad: () => { if (state.batchBDataStatus === "idle") loadBatchBData(); }' in _REPORTING_JS
+    # shell (`TAB_HYDRATION_TRIGGERS.capacidad`, ver `render()`). HOT WINDOW/
+    # COLD HISTORY corrective (owner decision 2026-08-18): el bloque ahora
+    # ADEMÁS dispara `loadCapacidadAnios` (metadata liviana, en paralelo).
+    trigger_block = _REPORTING_JS[_REPORTING_JS.index("capacidad: () => {"):_REPORTING_JS.index("capacidad: () => {") + 250]
+    assert 'if (state.batchBDataStatus === "idle") loadBatchBData();' in trigger_block
     productivas = _function_body("renderCapacidadProductivas")
     no_asignadas = _function_body("renderCapacidadNoAsignadas")
     for body in (productivas, no_asignadas):

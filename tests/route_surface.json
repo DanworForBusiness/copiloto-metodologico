@@ -80,6 +80,7 @@
   "POST /modules/{stem}/trees/start",
   "POST /operaciones/reporting/integral/data/batch-a",
   "POST /operaciones/reporting/integral/data/batch-b",
+  "POST /operaciones/reporting/integral/data/batch-b/anios-disponibles",
   "POST /operaciones/reporting/integral/data/cartera",
   "POST /operaciones/reporting/integral/data/cartera/anios-disponibles",
   "POST /operaciones/reporting/integral/data/horas-vendidas",

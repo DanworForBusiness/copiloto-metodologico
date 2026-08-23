@@ -468,9 +468,26 @@ def test_cartera_mantenimiento_anio_estado_pairs_mantenimiento_only_distinct_sor
 class _HotYearsRecordingRepo:
     def __init__(self):
         self.calls = []
+        # CANONICAL SOURCE DECISION (owner 2026-08-18): Mantenimiento ahora
+        # también lee Time Logs (para "Horas Trabajadas") — separado de
+        # `calls` (Horas por proyectos) para no romper las aserciones
+        # `calls[-1]` ya existentes.
+        self.time_logs_calls = []
 
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
+        return []
+
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+        # UNION GRAIN corrective (owner 2026-08-18): Mantenimiento/combo
+        # ahora piden la dimensión de proyecto junto con los facts —
+        # MISMO tracking de `calls` (es el mismo fetch subyacente, ver
+        # reporting_repository.py).
+        self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
+        return [], {}
+
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
+        self.time_logs_calls.append(hot_years)
         return []
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
@@ -488,13 +505,22 @@ def test_service_default_hot_years_is_current_and_previous_year(monkeypatch):
     monkeypatch.setattr(service_mod, "datetime", _FixedDatetime)
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera_mantenimiento("tok")
+    # "Horas por proyectos" (SharePoint) preserva la ventana caliente
+    # especulativa de siempre (año actual + anterior) — Año/Mes puede
+    # tildar el anterior sin round-trip.
     assert repo.calls[-1]["hot_years"] == ["2026", "2025"]
+    # CALL BUDGET corrective (owner 2026-08-18): Time Logs es CONTEXTUAL,
+    # no una ventana especulativa — sin selección explícita, SOLO el año
+    # calendario actual (nunca el anterior "porque sí"). Evitar el 4x de
+    # llamadas Graph reportado por el owner.
+    assert repo.time_logs_calls[-1] == ["2026"]
 
 
 def test_service_explicit_anios_overrides_default_hot_window():
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera_mantenimiento("tok", anios=["2024"])
     assert repo.calls[-1]["hot_years"] == ["2024"]
+    assert repo.time_logs_calls[-1] == ["2024"]
 
 
 def test_service_get_cartera_proyecto_never_receives_hot_years():
@@ -503,24 +529,60 @@ def test_service_get_cartera_proyecto_never_receives_hot_years():
     assert repo.calls[-1]["hot_years"] is None
 
 
-def test_service_get_cartera_combo_never_receives_hot_years():
-    # `get_cartera()` (retrocompat combo) tampoco acota — mismo criterio.
+def test_service_get_cartera_combo_never_receives_hot_years(monkeypatch):
+    # `get_cartera()` (retrocompat combo) sigue SIN acotar "Horas por
+    # proyectos" — Proyecto necesita la vida completa, mismo criterio de
+    # siempre. SHARED LOADER CONSUMERS audit (owner 2026-08-18): Time Logs
+    # YA NO hereda ese mismo "sin acotar" — combo nunca debe quedar con
+    # None=all-history silencioso, usa el MISMO default contextual (año
+    # calendario actual) que `get_cartera_mantenimiento`.
+    class _FixedDatetime:
+        @staticmethod
+        def now():
+            import datetime as _dt
+            return _dt.datetime(2026, 8, 15)
+
+    import webapp.services.reporting_service as service_mod
+    monkeypatch.setattr(service_mod, "datetime", _FixedDatetime)
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera("tok")
     assert repo.calls[-1]["hot_years"] is None
+    assert repo.time_logs_calls[-1] == ["2026"]
 
 
 # --- Service: derivaciones + shaping -----------------------------------------
 
 class _FakeRepo:
-    def __init__(self, facts):
+    def __init__(self, facts, time_logs=None):
         self._facts = facts
+        # CANONICAL SOURCE DECISION (owner 2026-08-18): Mantenimiento
+        # deriva "Horas Trabajadas" de Time Logs, no de `hsTrabajadas` —
+        # `time_logs=None` (default) ⇒ sin horas registradas, trabajadas=0.
+        self._time_logs = time_logs if time_logs is not None else []
 
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
 
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+        # UNION GRAIN corrective — estos tests NO ejercitan el camino
+        # Time-Logs-only (sus fixtures ya cubren la MISMA key desde
+        # "Horas por proyectos"), project_dim vacío es seguro/no-op acá.
+        return self._facts, {}
+
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
+        return self._time_logs
+
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
         return []
+
+
+def _tl_fact(**kw):
+    """Fact de Time Logs mínimo para tests de servicio (grano proyecto×año×
+    mes que `_trab_by_proyecto_by_year` consume) — `mes` en formato
+    'YYYY-MM' (YA normalizado por el repository, ver `_time_logs_mes`)."""
+    base = dict(proyecto="Mantenimiento Costeo Directo", anio="2026", mes="2026-08", horas=134.0)
+    base.update(kw)
+    return base
 
 
 def _mant_fact(**kw):
@@ -542,9 +604,17 @@ def _proy_fact(**kw):
 
 
 def test_service_mantenimiento_shape_diff_and_fecha():
-    out = ReportingService(_FakeRepo([_mant_fact()])).get_cartera("tok")
+    # CANONICAL SOURCE DECISION (owner 2026-08-18): "trabajadas" ya no lee
+    # `hsTrabajadas` (SharePoint) — se deriva de Time Logs, MISMO join
+    # `_norm_key(proyecto)`×año×mes que Rentabilidad. El fixture de Time
+    # Logs replica el MISMO valor (134) que antes tenía `hsTrabajadas` —
+    # los números esperados (diff=-6, etc.) no cambian, solo su fuente.
+    out = ReportingService(
+        _FakeRepo([_mant_fact()], time_logs=[_tl_fact(horas=134.0)])
+    ).get_cartera("tok")
     assert out["proyecto"] == []
     m = out["mantenimiento"][0]
+    assert m["trabajadas"] == 134                # de Time Logs, no de hsTrabajadas
     assert m["diff"] == -6                       # 128 - 134
     assert m["facturadas"] == m["certificadas"] == 128   # Mantenimiento: facturadas = certificadas
     assert m["fecha"] == "2026-08-01"            # primer día del mes
@@ -865,11 +935,23 @@ def test_cartera_render_is_gated_by_data_status():
     assert "if (status !== \"ready\") return renderCarteraDataState();" in render_block
 
 
-def test_hydrate_cartera_tab_triggers_both_perspectives_and_anios_metadata():
+def test_hydrate_cartera_tab_loads_only_the_active_perspective_plus_anios_metadata():
+    # ACTIVE EXPERIENCE + ACTIVE PERSPECTIVE ONLY corrective (owner decision
+    # 2026-08-19 — lifecycle audit): reemplaza el viejo contrato "ambas
+    # perspectivas eager" (protegido antes por este mismo test) — Proyecto
+    # NUNCA se dispara hasta que sea la perspectiva REALMENTE activa. La
+    # metadata de años de Mantenimiento sigue sin condicionar por
+    # perspectiva (liviana, y el default de Cartera es siempre
+    # Mantenimiento al bootstrap). Cobertura de runtime real (conteo de
+    # fetches, idle/ready, revisitas) en
+    # test_reporting_cartera_lifecycle_active_perspective_only.py.
     fn = _REPORTING_JS[_REPORTING_JS.index("function hydrateCarteraTab()"):_REPORTING_JS.index("function carteraMantenimientoLoadedYears")]
-    assert 'if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();' in fn
-    assert 'if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();' in fn
+    assert "const persp = state.perspective.cartera;" in fn
+    assert 'if (carteraStatusFor(persp) === "idle") loadCarteraFor(persp);' in fn
     assert 'if (state.carteraMantenimientoAniosStatus === "idle") loadCarteraMantenimientoAnios();' in fn
+    # Nunca vuelve a disparar AMBAS perspectivas incondicionalmente.
+    assert 'if (state.carteraProyectoStatus === "idle") loadCarteraProyecto();' not in fn
+    assert 'if (state.carteraMantenimientoStatus === "idle") loadCarteraMantenimiento();' not in fn
 
 
 def test_cartera_failure_is_localized_fail_soft():
@@ -1248,8 +1330,14 @@ def test_rentabilidad_anio_options_faceted_by_estado_and_selects():
 
 
 def test_rentabilidad_default_anio_current_or_latest():
+    # YEAR ORDERING corrective (owner decision 2026-08-19): el default ya
+    # NO indexa por posición del array (`options[options.length - 1]`,
+    # correcto SOLO mientras las opciones fueran ascendentes) — usa
+    # `mostRecentValidYear`, que compara valor numérico y es indiferente
+    # al orden de presentación (ver test_most_recent_valid_year_* abajo).
     block = _REPORTING_JS[_REPORTING_JS.index("function rentabilidadDefaultAnio"):_REPORTING_JS.index("function pruneRentabilidadAnio")]
-    assert "new Date().getFullYear()" in block and "options[options.length - 1]" in block
+    assert "new Date().getFullYear()" in block and "mostRecentValidYear(options)" in block
+    assert "options[options.length - 1]" not in block
 
 
 def test_rentabilidad_one_canonical_population():
