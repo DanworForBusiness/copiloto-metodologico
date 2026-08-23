@@ -1221,9 +1221,11 @@ def test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_forma
     # STANDARDIZATION CORRECTIVE — el formateo es responsabilidad EXCLUSIVA
     # del primitivo, nunca del call site, ver
     # test_reporting_kpi_primitive.py).
-    tiles_fn = _REPORTING_JS[_REPORTING_JS.index("function carteraKpiTiles"):_REPORTING_JS.index("function carteraKpiTiles") + 1100]
+    # Delimitado por el CIERRE real de la función, no por un largo mágico: un
+    # comentario nuevo adentro corría el call site fuera de la ventana fija.
+    tiles_fn = _REPORTING_JS.split("function carteraKpiTiles", 1)[1].split("\n}", 1)[0]
     assert 'const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);' in tiles_fn
-    assert 'renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" })' in tiles_fn
+    assert 'renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours", info })' in tiles_fn
     # Patrón viejo (formateo inline en el call site) no debe quedar.
     assert "fmtNum(sumField(" not in tiles_fn
     assert "fmtNum(col.rollup(rows)" not in tiles_fn

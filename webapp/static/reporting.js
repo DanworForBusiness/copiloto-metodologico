@@ -152,6 +152,29 @@ const CARTERA_CONFIG = {
 // fórmula de agregación repetida acá. `rows` son las filas YA filtradas
 // (mismas que alimentan la tabla), así que el tile y la tabla nunca
 // divergen.
+// CONTRATO DE DATO de los tiles de horas trabajadas de Operaciones — la
+// UNICA copy de info cableada por ahora, y solo porque su reconciliacion
+// quedo probada en vivo (agosto 2026: Cartera/Mantenimiento == Rentabilidad
+// con Tipo Proyecto = Mantenimiento, proyecto por proyecto). Explica el
+// contrato, nunca disculpa una diferencia: dice bajo QUE condiciones la
+// comparacion es valida, no que "los valores pueden diferir".
+//
+// El resto de los tiles NO recibe info todavia: la afordancia es del
+// primitivo compartido y cada tile se suma cuando su propio contrato este
+// documentado, no de arrastre.
+const _KPI_INFO = {
+  carteraTrabajadas: [
+    "Horas registradas en Time Logs para proyectos de tipo Mantenimiento.",
+    "Grano: proyecto × año × mes.",
+    "Para comparar con Rentabilidad, aplicar Tipo Proyecto = Mantenimiento.",
+  ],
+  rentabilidadTrabajadas: [
+    "Horas registradas en Time Logs para los tipos de proyecto incluidos por los filtros activos.",
+    "Grano: proyecto × año × mes.",
+    "Para comparar con Cartera / Mantenimiento, aplicar Tipo Proyecto = Mantenimiento y el mismo período.",
+  ],
+};
+
 const CARTERA_KPI_EXTRA = [
   { key: "diff", label: "Diff Hs" },
   { key: "trabajadas", label: "Hs Trabajadas" },
@@ -172,7 +195,12 @@ function carteraKpiTiles(cfg, rows) {
     // SUM(Certificadas) − SUM(Trabajadas), ver comentario de
     // CARTERA_CONFIG) sin `diffCell` — el primitivo decide el signo/color.
     const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);
-    return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" });
+    // Solo el tile de horas trabajadas de MANTENIMIENTO lleva info: es el
+    // que tiene su contrato probado (ver `_KPI_INFO`). Los otros cuatro
+    // (Diff/Certificadas/Vendidas/Facturadas) quedan intactos.
+    const info = (k.key === "trabajadas" && cfg.rows === CARTERA_MANTENIMIENTO_ROWS)
+      ? _KPI_INFO.carteraTrabajadas : undefined;
+    return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours", info });
   }).join("");
 }
 
@@ -1165,7 +1193,56 @@ function fmtNum(value, type = "hours") {
 // por defecto (patrón nth-child o el `accent` explícito). KPIs neutros (hours/
 // count/totales) usan `format` no-"signed" ⇒ nunca se overridean. Lógica ÚNICA
 // acá (primitivo compartido), nunca duplicada por experiencia.
-function renderDashboardKpi({ label, value, format = "hours", accent, smartAccent }) {
+// TILE INFO (opcional, TRUST/EXPLAINABILITY): `info` = array de líneas que
+// explican el CONTRATO DE DATO del tile — qué mide, de qué fuente, con qué
+// grano, y bajo qué condiciones es comparable con otra vista. NO es un
+// indicador de error ni de estado: nunca sirve para justificar una
+// inconsistencia, sólo para decir por qué un número significa lo que
+// significa (ver `_KPI_INFO`).
+//
+// Array de strings y no un objeto con campos nombrados a propósito: el
+// contrato de este primitivo son escalares planos (`label`/`value`/`format`/
+// `accent`), y `.chart-tooltip p` YA sabe renderizar varias líneas. Un
+// vocabulario de metadata con reglas de render por campo sería un framework
+// para dos consumidores. La estructura vive en la REDACCIÓN, y los tests
+// afirman el CONTENIDO (que la copy nombre fuente, grano y regla de
+// comparación), que es lo que realmente importa.
+//
+// `info` ausente ⇒ markup byte-idéntico al de siempre. La afordancia va
+// absolutamente posicionada (ver tools.css), así que un tile con info mide
+// exactamente lo mismo que uno sin info.
+function renderKpiInfoHtml(label, lines) {
+  const body = lines.map(l => `<p>${esc(l)}</p>`).join("");
+  // Etiqueta accesible ANTES que el tooltip visual: no se depende de `title=""`
+  // ni del hover. `.chart-tooltip-anchor` se revela con :hover/:focus/
+  // :focus-within, así que teclado y touch (el tap enfoca el botón) acceden a
+  // la misma información sin JS.
+  //
+  // `<button>` y no un `<span tabindex>`: focus y semántica de teclado
+  // gratis, y el lector de pantalla lo anuncia como control.
+  //
+  // Propagación: los tiles clickeables del Hub cablean `click` Y `keydown`
+  // DIRECTO sobre el propio tile (ver `initEventBreakdown`, app.js), no por
+  // delegación — así que hay que frenar los dos, o consultar la info
+  // activaría/cerraría el desglose del tile. Escape suelta el foco, que es
+  // lo que cierra este tooltip (no hay popover persistente que cerrar).
+  const stopKeys = "if(event.key==='Escape'){this.blur();}"
+    + "else if(event.key==='Enter'||event.key===' '){event.stopPropagation();}";
+  // El tooltip es HERMANO del botón, no su hijo: así se posiciona contra el
+  // CARD y su borde izquierdo nunca puede salirse del tile (ni, por lo tanto,
+  // del viewport — ver tools.css, medido). Por eso el botón no lleva
+  // `.chart-tooltip-anchor`: ese patrón envuelve al disparador, y acá el
+  // disparador es un icono en una esquina. Se reusa la CAJA `.chart-tooltip`;
+  // el disparo va por selector de hermano adyacente.
+  return `<button type="button" class="activity-kpi__info"`
+    + ` aria-label="${esc(`Información sobre ${label}: ${lines.join(" ")}`)}"`
+    + ` onclick="event.stopPropagation()" onkeydown="${stopKeys}">`
+    + `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>`
+    + `<path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>`
+    + `</button><span class="chart-tooltip">${body}</span>`;
+}
+
+function renderDashboardKpi({ label, value, format = "hours", accent, smartAccent, info }) {
   const display = fmtNum(value, format);
   const n = typeof value === "number" ? value : Number(value);
   let valueClass = "activity-kpi__value";
@@ -1179,7 +1256,9 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
     effectiveAccent = n > 0 ? "positive" : "negative";
   }
   const cardClass = effectiveAccent ? `activity-kpi activity-kpi--${effectiveAccent}` : "activity-kpi";
-  return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span></div>`;
+  const withInfo = !!(info && info.length);
+  const infoHtml = withInfo ? renderKpiInfoHtml(label, info) : "";
+  return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span>${infoHtml}</div>`;
 }
 
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
@@ -3613,7 +3692,7 @@ function renderRentabilidadResumen() {
     <div class="activity-kpi-grid">
       ${renderDashboardKpi({ label: "Horas Vendidas", value: vendidas, format: "hours" })}
       ${renderDashboardKpi({ label: "Horas Certificadas", value: certificadas, format: "hours" })}
-      ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours" })}
+      ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours", info: _KPI_INFO.rentabilidadTrabajadas })}
       ${renderDashboardKpi({ label: "Rentabilidad horas", value: rentabilidadHoras, format: "signed" })}
       ${renderDashboardKpi({ label: "No asignadas a servicios", value: noAsignadasPortfolio, format: "hours" })}
     </div>`);
