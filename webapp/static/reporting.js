@@ -1315,10 +1315,60 @@ function reportingLoadingHtml(label) {
 // El botón lo hace en UN click y vuelve al contexto exacto vía `next` — no es
 // un reload de página. La renovación silenciosa, sin re-login, es Fase 1
 // (MSAL Browser); cuando exista, sólo cambia lo que hace este botón.
+// Los datasets que hidratan cada tab. Es el MISMO criterio que
+// `reportingTabRawStatus` usa para decidir si un tab tiene contenido: acá se
+// usa al revés, para volver a ponerlos en "idle" y que el trigger del tab
+// re-dispare. Se listan TODOS los del tab (no sólo el de la perspectiva
+// activa) porque tras reautenticar conviene que la perspectiva hermana también
+// se recupere — conmutarla no re-entra al loader (el flag de hidratación es
+// one-way), así que si se dejara fallada quedaría fallada para siempre.
+const REPORTING_TAB_DATASETS = {
+  cartera: ["carteraMantenimientoStatus", "carteraProyectoStatus"],
+  rentabilidad: ["rentabilidadDataStatus"],
+  horasvendidas: ["horasVendidasDataStatus"],
+  comercial: ["comercialParticipacionDataStatus", "batchADataStatus"],
+  calendario: ["batchADataStatus"],
+  capacidad: ["batchBDataStatus"],
+};
+
+// RECUPERACIÓN ACOTADA tras reautenticar. Owner: reintentar el componente útil
+// más chico, sin forzar logout y sin recargar el Hub si el componente puede
+// reintentar solo.
+//
+// Lo que NO se toca, a propósito: la experiencia activa, los filtros, las
+// perspectivas, los años seleccionados ni el scroll. Se vuelven a "idle"
+// únicamente los datasets del tab que está mirando el usuario, y su trigger de
+// hidratación —que es idempotente y sólo dispara sobre "idle"— hace el resto.
+async function reportingReauthenticate() {
+  if (typeof window.dwGraphReauthenticate !== "function") return false;
+  const ok = await window.dwGraphReauthenticate();
+  if (!ok) return false;          // canceló: el cuadro sigue ofreciendo la acción
+
+  state.graphAuthRequired = false;
+  const expId = state.experience;
+  (REPORTING_TAB_DATASETS[expId] || []).forEach((key) => {
+    // Sólo lo que quedó sin resolver: un dataset que YA cargó bien no se
+    // vuelve a pedir por una reautenticación de otro.
+    if (state[key] !== "ready") state[key] = "idle";
+  });
+  // El flag de primera hidratación es one-way y no se baja: si el tab ya había
+  // mostrado contenido, sigue mostrándolo mientras el retry corre.
+  const trigger = TAB_HYDRATION_TRIGGERS[expId];
+  if (trigger) trigger();
+  render();
+  return true;
+}
+
 function reportingAuthRequiredHtml() {
+  // La acción ES la reautenticación, no el logout. Antes este botón cerraba la
+  // sesión del Hub para forzar un login nuevo: funcionaba, pero cobraba de más
+  // —el usuario perdía la ubicación, los filtros y todo lo que ya había
+  // cargado— para resolver algo que sólo necesitaba renovar la autorización de
+  // datos. Cerrar sesión sigue siendo una intención distinta, con su botón en
+  // el topbar.
   return `<div class="dashboard-empty"><span class="dashboard-empty__label">Sesión de datos</span>`
     + `<p>Tu sesión de datos con Microsoft necesita renovarse. `
-    + `<button type="button" class="dashboard-subhead__reset" onclick="dwLogout()">Renovar sesión</button></p></div>`;
+    + `<button type="button" class="dashboard-subhead__reset" onclick="reportingReauthenticate()">Renovar sesión</button></p></div>`;
 }
 
 // CLASIFICADOR ÚNICO de las respuestas de los endpoints Graph del Hub. Antes

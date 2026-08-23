@@ -192,59 +192,117 @@ const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
       "B: renueva con los MISMOS permisos de Graph");
   }
 
-  // ── C: InteractionRequired -> popup; cualquier otro fallo -> vacio ─────
+  // ── C: dwGraphToken NUNCA abre un popup ────────────────────────────────
+  // EL INVARIANTE CENTRAL de este corrective. `dwGraphToken` lo invoca la
+  // hidratacion automatica de los tabs, asi que cualquier interaccion que
+  // naciera de ahi no tendria un gesto de usuario detras: el browser la
+  // bloquearia, y si no la bloqueara seria peor —un loader de datos abriendo
+  // Microsoft por su cuenta, en cada carga—.
+  //
+  // Se cubren los CUATRO caminos por los que puede no haber token.
   {
-    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-TRAS-POPUP" });
-    assertEqual(await env.win.dwGraphToken(), "AT-TRAS-POPUP",
-      "C: cuando el silencioso no alcanza, escala al popup");
-    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1, "C: UN popup");
-  }
-  {
-    const env = makeEnv({ accounts: [ACCOUNT], silent: "network" });
-    assertEqual(await env.win.dwGraphToken(), "", "C: un fallo de red devuelve vacio");
-    assertTrue(!env.msalLog.includes("acquireTokenPopup"),
-      "C: un fallo de red NO abre un popup — no esta en manos del usuario");
-  }
-  // SIN CUENTA no se abre NADA. Es la linea entre un popup "controlado" y uno
-  // intruso: `dwGraphToken()` lo dispara la CARGA de un tab de Reporting, asi
-  // que escalar ahi abriria una ventana de Microsoft no pedida en cada carga —y
-  // el browser la bloquearia igual, porque no hay gesto de usuario detras—.
-  {
-    const env = makeEnv({ accounts: [], popupToken: "AT-NO-DEBERIA" });
+    // 1. InteractionRequiredAuthError: el caso que este corrective cierra.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "NO-DEBERIA" });
     assertEqual(await env.win.dwGraphToken(), "",
-      "C: sin cuenta devuelve vacio y deja que la Fase 0 ofrezca la accion");
+      "C1: con InteractionRequired devuelve vacio");
     assertTrue(!env.msalLog.includes("acquireTokenPopup"),
-      "C: sin cuenta NO abre un popup no solicitado");
-    assertTrue(!env.msalLog.includes("acquireTokenSilent"),
-      "C: y sin cuenta no tiene sentido intentar silencioso");
+      "C1: y NO abre popup — la senal viaja por el contrato de la Fase 0");
+    // Pero SI deja dicho que reautenticar serviria.
+    assertEqual(env.win.dwGraphNeedsInteraction(), true,
+      "C1: levanta la senal para que el Hub OFREZCA la accion");
   }
-  // CON cuenta, cancelar el popup devuelve vacio — no una excepcion sin dueño.
+  {
+    // 2. Sin cuenta.
+    const env = makeEnv({ accounts: [], popupToken: "NO-DEBERIA" });
+    assertEqual(await env.win.dwGraphToken(), "", "C2: sin cuenta devuelve vacio");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "C2: sin cuenta NO abre popup");
+    assertTrue(!env.msalLog.includes("acquireTokenSilent"),
+      "C2: sin cuenta no tiene sentido intentar silencioso");
+    assertEqual(env.win.dwGraphNeedsInteraction(), true, "C2: y la senal queda levantada");
+  }
+  {
+    // 3. Un fallo de red NO es de autorizacion: no se ofrece reautenticar algo
+    //    que reautenticar no arregla.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "network" });
+    assertEqual(await env.win.dwGraphToken(), "", "C3: un fallo de red devuelve vacio");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "C3: sin popup");
+    assertEqual(env.win.dwGraphNeedsInteraction(), false,
+      "C3: y NO ofrece reautenticar — la red no se arregla con un login");
+  }
+  {
+    // 4. Config caida.
+    const env = makeEnv({ accounts: [ACCOUNT] }, { config: "disabled" });
+    assertEqual(await env.win.dwGraphToken(), "", "C4: config incompleta devuelve vacio");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "C4: sin popup");
+  }
+  // Y el exito BAJA la senal: no queda ofreciendo renovar algo que ya anda.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-OK" });
+    await env.win.dwGraphToken();
+    assertEqual(env.win.dwGraphNeedsInteraction(), false,
+      "C: una adquisicion exitosa baja la senal");
+  }
+
+  // ── D: SEIS fallos silenciosos concurrentes -> CERO popups ─────────────
+  // El escenario real: seis datasets de un tab hidratando a la vez con la
+  // autorizacion vencida. Antes de este corrective eso era —en el mejor caso—
+  // un popup, y en el peor seis.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "NO-DEBERIA" });
+    const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => env.win.dwGraphToken()));
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 0,
+      "D: seis fallos silenciosos concurrentes abren CERO popups");
+    assertTrue(results.every(t => t === ""), "D: los seis devuelven vacio");
+    assertEqual(env.win.dwGraphNeedsInteraction(), true, "D: y la senal queda levantada una vez");
+  }
+
+  // ── D2: LA REAUTENTICACION EXPLICITA es la unica que interactua ────────
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-REAUTH" });
+    // Primero el camino automatico falla en silencio...
+    await env.win.dwGraphToken();
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 0, "D2: sin popup todavia");
+    // ...y recien el gesto del usuario abre UNO.
+    assertEqual(await env.win.dwGraphReauthenticate(), true,
+      "D2: la reautenticacion explicita informa que quedo lista");
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1,
+      "D2: EXACTAMENTE un popup");
+    assertEqual(env.win.dwGraphNeedsInteraction(), false, "D2: y baja la senal");
+    // Tras reautenticar, el camino silencioso vuelve a servir.
+    const env2 = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-DESPUES" });
+    assertEqual(await env2.win.dwGraphToken(), "AT-DESPUES",
+      "D2: despues de reautenticar el silencioso alcanza de nuevo");
+  }
+  // Reautentica AL MISMO usuario cuando hay cuenta (no un select_account a ciegas).
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction" });
+    await env.win.dwGraphReauthenticate();
+    assertTrue(env.msalLog.includes("acquireTokenPopup"), "D2: abrio el popup");
+  }
+
+  // ── D3: la recuperacion explicita CONCURRENTE no hace tormenta ─────────
+  // Doble click en "Renovar sesion", o dos tabs ofreciendo el boton y los dos
+  // clickeados: UN popup, y todos reciben el mismo resultado.
+  {
+    const env = makeEnv({
+      accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-UNO", popupDelayMs: 20,
+    });
+    const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => env.win.dwGraphReauthenticate()));
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1,
+      "D3: seis recuperaciones explicitas concurrentes abren UN popup");
+    assertTrue(results.every(r => r === true), "D3: las seis reciben el mismo resultado");
+    // Y el candado se libera: un click POSTERIOR si puede volver a interactuar.
+    await env.win.dwGraphReauthenticate();
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 2,
+      "D3: el candado se libero (no queda trabado para siempre)");
+  }
+  // Cancelar devuelve false — el cuadro sigue ofreciendo la accion.
   {
     const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popup: "cancel" });
     let threw = false, v = "sentinel";
-    try { v = await env.win.dwGraphToken(); } catch (e) { threw = true; }
-    assertTrue(!threw, "C: cancelar el popup no propaga excepcion");
-    assertEqual(v, "", "C: cancelar el popup devuelve vacio (la Fase 0 lo explica)");
-  }
-
-  // ── D: CONCURRENCIA — N consumidores, UN popup ─────────────────────────
-  // Sin esto, seis tabs de Reporting con la autorizacion vencida abrian SEIS
-  // ventanas de Microsoft. Es el invariante mas importante de este archivo.
-  {
-    const env = makeEnv({
-      accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-COMPARTIDO", popupDelayMs: 20,
-    });
-    const results = await Promise.all([
-      env.win.dwGraphToken(), env.win.dwGraphToken(), env.win.dwGraphToken(),
-      env.win.dwGraphToken(), env.win.dwGraphToken(), env.win.dwGraphToken(),
-    ]);
-    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1,
-      "D: seis pedidos concurrentes abren UN solo popup");
-    assertTrue(results.every(t => t === "AT-COMPARTIDO"), "D: los seis reciben el mismo token");
-    // Y el candado se libera: un pedido POSTERIOR si puede volver a interactuar.
-    await env.win.dwGraphToken();
-    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 2,
-      "D: el candado se libero (no queda trabado para siempre)");
+    try { v = await env.win.dwGraphReauthenticate(); } catch (e) { threw = true; }
+    assertTrue(!threw, "D3: cancelar no propaga excepcion");
+    assertEqual(v, false, "D3: cancelar devuelve false");
   }
 
   // ── E: LOGIN — MSAL abre el popup, el BACKEND crea la sesion ───────────

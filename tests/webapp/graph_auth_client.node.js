@@ -88,7 +88,14 @@ const auth = authRequiredHtml();
 const fuente = sourceErrorHtml("los datos de Rentabilidad");
 assertTrue(auth !== fuente, "B: el cuadro de autorizacion no es el de fuente");
 // El de autorizacion nombra la accion que SI resuelve...
-assertTrue(auth.includes("dwLogout()"), "B: ofrece el logout compartido del Hub");
+// La accion es la REAUTENTICACION compartida, no el logout. El logout
+// funcionaba pero cobraba de mas: el usuario perdia la ubicacion, los filtros
+// y todo lo ya cargado por algo que solo necesitaba renovar la autorizacion
+// de datos (owner corrective previo al smoke).
+assertTrue(auth.includes("reportingReauthenticate()"),
+  "B: ofrece la reautenticacion compartida");
+assertTrue(!auth.includes("dwLogout"),
+  "B: y NO cierra sesion — eso es otra intencion, con su boton en el topbar");
 assertTrue(auth.includes("Microsoft"), "B: dice con quien hay que renovar");
 // ...y NO culpa a SharePoint, que es lo que el usuario leia antes.
 assertTrue(!auth.includes("SharePoint"), "B: no le echa la culpa a la fuente");

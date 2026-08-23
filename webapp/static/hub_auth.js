@@ -22,12 +22,22 @@
    bundle 4.30.0), o sea que el ciclo de vida es de la librería y no algo que
    la app arme.
 
-   EL CONTRATO SIGUE SIENDO UNO:
+   DOS CONTRATOS, Y LA SEPARACIÓN ES EL PUNTO:
 
-       const token = await dwGraphToken();
+       const token = await dwGraphToken();        // silencioso, SIEMPRE
+       const ok    = await dwGraphReauthenticate();  // interactivo, SÓLO por gesto
 
-   "dame un access token de Graph VÁLIDO ahora". Ahora eso puede implicar una
-   renovación silenciosa real.
+   `dwGraphToken` lo invoca la HIDRATACIÓN AUTOMÁTICA de los tabs, así que no
+   puede abrir nada: sin un gesto de usuario detrás el browser bloquearía el
+   popup, y si no lo bloqueara sería peor —un loader de datos abriendo
+   Microsoft por su cuenta, en cada carga—. Cuando no puede resolver en
+   silencio devuelve "" y LEVANTA UNA SEÑAL; el resto lo decide el usuario.
+
+   `dwGraphReauthenticate` es el ÚNICO lugar del proyecto que llama
+   `acquireTokenPopup`, y se dispara desde el botón del cuadro de la Fase 0.
+   Devuelve si quedó lista, para que quien la pidió reintente SU componente:
+   no navega, no recarga, no cierra sesión. El logout sigue siendo otra
+   intención ("quiero terminar mi sesión del Hub"), con su propia función.
 
    CACHE: `sessionStorage`, elegida a propósito y no por comodidad — ver
    CACHE POLICY más abajo.
@@ -132,6 +142,12 @@
   // esperan la misma.
   let interactive = null;
 
+  // "Hay una reautenticacion que serviria". Lo levanta el camino silencioso
+  // cuando se topa con `InteractionRequiredAuthError` o con la ausencia de
+  // cuenta, y lo baja una adquisicion exitosa. NO es una credencial ni un
+  // estado de datos: es la respuesta a "conviene ofrecer el boton?".
+  let needsInteraction = false;
+
   function runInteractive(fn) {
     if (!interactive) {
       interactive = Promise.resolve()
@@ -141,50 +157,86 @@
     return interactive;
   }
 
-  // ── EL CONTRATO ───────────────────────────────────────────────────────
-  // Devuelve un access token de Graph válido AHORA, o "" si no se pudo.
+  // ── EL CONTRATO — SILENCIOSO, SIEMPRE ─────────────────────────────────
+  // "dame un access token de Graph si se puede SIN interacción".
+  //
+  // NUNCA abre un popup. Ni una ventana, ni un redirect, ni nada que le robe
+  // el foco al usuario. Esta función la invoca la HIDRATACIÓN AUTOMÁTICA de
+  // los tabs, así que cualquier interacción que naciera de acá no tendría un
+  // gesto de usuario detrás: el browser la bloquearía, y si no la bloqueara
+  // sería peor —un loader de datos abriendo Microsoft por su cuenta, en cada
+  // carga—. La interacción vive en `dwGraphReauthenticate`, y sólo ahí.
+  //
   // Nunca lanza: un consumidor no puede decidir qué hacer con una falla de
-  // auth, y "" hace que el server responda `missing_token`/`auth_required`,
-  // que la Fase 0 ya traduce a la acción correcta.
+  // auth. Devuelve "" y el server responde `missing_token`, que la Fase 0 ya
+  // traduce a la acción correcta — que ahora ES la reautenticación explícita.
   window.dwGraphToken = async function () {
     let app;
     try { app = await getApp(); } catch (e) { return ""; }
 
     const account = activeAccount(app);
 
-    // SIN CUENTA: se devuelve "" y NO se abre nada. Esto es deliberado y es la
-    // diferencia entre un popup "controlado" y uno intruso: sin cuenta en esta
-    // pestaña, un `dwGraphToken()` disparado por la CARGA de un tab de
-    // Reporting abriría una ventana de Microsoft que el usuario no pidió —en
-    // cada carga—. El browser además la bloquearía, porque no hay gesto de
-    // usuario detrás. Con "" el server responde `missing_token` y la Fase 0
-    // muestra "Tu sesión de datos con Microsoft necesita renovarse" con su
-    // botón: la reautenticación la decide el usuario, no la carga de la página.
-    if (!account) return "";
+    // SIN CUENTA en esta pestaña: no hay nada silencioso que intentar.
+    if (!account) { needsInteraction = true; return ""; }
 
     try {
       // El corazón del fix: MSAL renueva sin interacción usando SU cache.
       const res = await app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
-      if (res && res.accessToken) return res.accessToken;
+      if (res && res.accessToken) { needsInteraction = false; return res.accessToken; }
+      needsInteraction = true;
+      return "";
     } catch (e) {
-      // Sólo la interacción-requerida escala al popup. Un fallo de red o de
-      // configuración NO abre una ventana: sería pedirle al usuario que
-      // resuelva algo que no está en sus manos.
-      if (!(e instanceof msal.InteractionRequiredAuthError)) return "";
+      if (e instanceof msal.InteractionRequiredAuthError) {
+        // El caso que este corrective cierra. Antes escalaba al popup acá
+        // mismo; ahora se SEÑALA y se devuelve "". La señal viaja por el
+        // contrato de la Fase 0 (`auth_required` → el cuadro con su botón) y
+        // el usuario decide. Es la diferencia entre ofrecer reautenticar y
+        // hacerlo por él.
+        needsInteraction = true;
+        return "";
+      }
+      // Un fallo de red o de configuración NO es un problema de autorización:
+      // no se ofrece reautenticar algo que reautenticar no arregla.
+      return "";
     }
+  };
 
-    // HAY CUENTA y el silencioso no alcanzó: acá el popup SÍ corresponde. Es el
-    // caso raro en que también murió lo que MSAL usa para renovar, y
-    // reautenticar es genuinamente lo único que desbloquea. Compartido (un solo
-    // popup para N consumidores) y silencioso ante el cancel: quien cierra la
-    // ventana obtiene "" y ve el estado de la Fase 0, no una excepción sin dueño.
+  // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────
+  // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`. Se
+  // invoca desde un GESTO DEL USUARIO —el botón "Renovar sesión" del cuadro de
+  // la Fase 0—, nunca desde un loader.
+  //
+  // Compartido: si el usuario clickea dos veces, o si dos tabs ofrecen el
+  // botón y se clickean ambos, se abre UN popup. Sin esto, un doble click es
+  // una tormenta de ventanas de Microsoft.
+  //
+  // Devuelve `true` si la reautenticación quedó lista, para que quien la pidió
+  // pueda reintentar SU componente. No navega, no recarga, no cierra sesión.
+  window.dwGraphReauthenticate = async function () {
+    let app;
+    try { app = await getApp(); } catch (e) { return false; }
     return runInteractive(async () => {
       try {
-        const res = await app.acquireTokenPopup({ scopes: GRAPH_SCOPES, account });
-        return (res && res.accessToken) || "";
-      } catch (e) { return ""; }
+        const account = activeAccount(app);
+        const req = { scopes: GRAPH_SCOPES };
+        if (account) req.account = account;      // reautenticar AL MISMO usuario
+        const res = await app.acquireTokenPopup(req);
+        if (res && res.account) app.setActiveAccount(res.account);
+        const ok = !!(res && res.accessToken);
+        if (ok) needsInteraction = false;
+        return ok;
+      } catch (e) {
+        // Cancelar el popup no es un error del usuario: se queda como estaba y
+        // el cuadro sigue ofreciendo la acción.
+        return false;
+      }
     });
   };
+
+  // Señal consultable, para que el Hub pueda decidir si OFRECER la acción sin
+  // tener que provocar un fallo primero. No es una credencial ni un estado de
+  // datos: sólo dice "hay una reautenticación que serviría".
+  window.dwGraphNeedsInteraction = function () { return needsInteraction; };
 
   // ── LOGIN ─────────────────────────────────────────────────────────────
   // El popup lo abre MSAL. Lo que sigue igual es lo de siempre: el `id_token`
@@ -220,6 +272,7 @@
   // QUÉ. Baja la cuenta activa y vacía la cache de MSAL — sin tocar ninguna
   // clave a mano, porque las claves son de MSAL.
   window.dwClearGraphAuth = function () {
+    needsInteraction = false;     // tras cerrar sesión no hay nada que renovar
     if (!appPromise) return;      // nunca se inicializó: no hay nada que bajar
     appPromise
       .then((app) => {
@@ -254,6 +307,7 @@
       embedded: window.top !== window.self,
       graphScopes: GRAPH_SCOPES.slice(),
       initialized: !!appPromise,
+      needsInteraction: needsInteraction,
       hasAccount: false,
       accountCount: 0,
       msalCacheEntries: 0,

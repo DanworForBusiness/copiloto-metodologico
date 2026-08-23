@@ -259,13 +259,22 @@ def test_no_vertical_manages_graph_credentials_on_its_own():
 
 
 def test_reauthentication_is_offered_without_a_full_page_reload():
-    # Owner: "Do NOT implement full-page reload as recovery". La acción es el
-    # logout compartido (que preserva `next`), no un reload que perdería la
-    # ubicación y no renovaría nada.
+    """Owner (Fase 0): "Do NOT implement full-page reload as recovery". La regla
+    no cambió; la ACCIÓN sí, dos veces.
+
+    Fase 0: el botón llamaba `dwLogout()`, que preservaba `next` — funcionaba,
+    pero cobraba de más: el usuario perdía los filtros y todo lo ya cargado por
+    algo que sólo necesitaba renovar la autorización de datos. Ahora llama a la
+    reautenticación compartida, que reintenta el tab activo en el lugar.
+
+    Un reload seguiría siendo lo peor de los tres: perdería la ubicación y
+    encima no renovaría nada.
+    """
     src = (_STATIC / "reporting.js").read_text(encoding="utf-8")
     start = src.index("function reportingAuthRequiredHtml(")
     fn = src[start:src.index("\n}", start) + 2]
-    assert "dwLogout()" in fn
+    assert "reportingReauthenticate()" in fn
+    assert "dwLogout" not in fn, "cerrar sesión es otra intención, no la recuperación"
     for banned in ("location.reload", "location.href", "window.location"):
         assert banned not in fn, banned
 
