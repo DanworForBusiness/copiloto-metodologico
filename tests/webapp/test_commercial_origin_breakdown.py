@@ -92,9 +92,13 @@ def test_origin_reuses_the_shared_bar_primitives_without_coupling_to_forecast():
     # comparte el ARRANQUE (`--top`).
     assert ".analysis-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }" in rules
     assert ".analysis-split--top .analysis-split__chart { justify-content: flex-start; }" in rules
-    # El Funnel crece para llenar su columna, y eso está SCOPEADO al split: el
-    # `height: 188px` base y el override de Forecast quedan intactos.
-    assert ".analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }" in rules
+    # El Funnel crece para llenar su columna, y eso está SCOPEADO a `--top`,
+    # no al split: Forecast también vive en un `.analysis-split__chart` y tiene
+    # su propio `.category-plot__area`, así que sin el modificador la regla se
+    # le colaba (ver test_forecast_fixed_height_contract_is_not_overridable...
+    # en test_commercial_forecast.py). El `height: 188px` base y el override de
+    # Forecast quedan intactos.
+    assert ".analysis-split--top .analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }" in rules
     assert "height: 188px;" in rules            # la regla base sigue existiendo
     assert ".forecast-plot .category-plot__area { height: var(--forecast-plot-h); }" in rules
     # El separador análisis|detalle no usa `var(--line)`: ese token está

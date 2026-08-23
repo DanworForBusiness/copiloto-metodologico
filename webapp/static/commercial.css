@@ -421,11 +421,26 @@
    lineas de grilla. Verificado midiendo el tick de 0% contra la linea base.
 
    `min-height` conserva el piso de 188px de la regla base: cuando la tabla de
-   al lado es mas corta, el grafico no se achica. Scopeado a la columna del
-   split — el Funnel fuera de ella (camino defensivo sin Origen) queda igual. */
-.analysis-split__chart > [data-commercial-dist] { display: flex; flex-direction: column; flex: 1 1 auto; }
-.analysis-split__chart .category-plot { flex: 1 1 auto; grid-template-rows: 1fr auto; }
-.analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }
+   al lado es mas corta, el grafico no se achica.
+
+   SCOPE — las tres reglas exigen `--top`, no solo la columna del split. Sin
+   el modificador la tercera se colaba en Forecast, que tambien tiene un
+   `.category-plot__area` dentro de `.analysis-split__chart`, y le ganaba por
+   ORDEN DE FUENTE a su contrato de alto fijo (`.forecast-plot
+   .category-plot__area`, misma especificidad, mas arriba en el archivo). El
+   efecto medido: `min-height` fija el alto USADO pero no vuelve el alto
+   DEFINIDO, asi que `.category-plot__col { height: 100% }` resolvia contra
+   `auto` y colapsaba a los 2px de `min-height` de la barra — grafico plano
+   con el eje rotulando la escala correcta, mas scrollbar vertical, porque la
+   columna caida al piso del area empujaba los tooltips ocultos 83px fuera
+   del scroll box. `--top` ya distingue exactamente los dos paneles, y es su
+   propietario honesto: el crecimiento es el CIERRE de la misma decision que
+   alinea los arranques, no una decision aparte. Van las tres y no solo la
+   que filtraba — las otras dos son permeables por identico motivo y un
+   tercer consumidor las activaria. */
+.analysis-split--top .analysis-split__chart > [data-commercial-dist] { display: flex; flex-direction: column; flex: 1 1 auto; }
+.analysis-split--top .analysis-split__chart .category-plot { flex: 1 1 auto; grid-template-rows: 1fr auto; }
+.analysis-split--top .analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }
 .analysis-split__chart > * { min-width: 0; }
 /* Una sola serie por vez (owner smoke): la barra ocupa mas ancho del que
    necesitaba cuando eran dos. `.category-plot__bar` base esta calibrada para

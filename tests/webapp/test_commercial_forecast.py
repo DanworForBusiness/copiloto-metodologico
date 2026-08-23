@@ -254,6 +254,104 @@ def test_forecast_and_origen_stay_separate_increments():
     assert "source_id" not in code, "el frontend nunca ve el campo crudo de Odoo"
 
 
+# ── Regresion: el contrato de alto fijo de Forecast no es sobreescribible ───
+# C8 (7182877) genero el layout de dos columnas para que lo compartieran
+# Forecast y el analisis de Activas, y agrego tres reglas de CRECIMIENTO del
+# grafico scopeadas a `.analysis-split__chart`. Una de ellas
+# —`.category-plot__area { height: auto; min-height: 188px }`— alcanzaba
+# tambien a Forecast, que tiene su propio `.category-plot__area` dentro de esa
+# misma columna, y le ganaba por ORDEN DE FUENTE a
+# `.forecast-plot .category-plot__area` (misma especificidad, mas arriba en el
+# archivo). Medido: la columna colapsaba de 187px a 2px, todas las barras a
+# 2px con el eje rotulando bien la escala, y aparecia scrollbar vertical
+# porque los tooltips ocultos caian 83px fuera del scroll box.
+#
+# Estos tests fijan la PROPIEDAD de la regla, no pixeles: el crecimiento es
+# del panel que alinea arranques (`--top`), y Forecast conserva su alto fijo.
+_GEOMETRY_PROPS = {"height", "min-height", "max-height",
+                   "flex", "flex-grow", "flex-basis", "grid-template-rows"}
+
+
+def _rules_touching_the_chart_column(raw: str):
+    """(selector, props) de cada regla que gobierna la columna del grafico."""
+    out = []
+    for selector, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", _css_rules(raw)):
+        selector = " ".join(selector.split())
+        if ".analysis-split__chart" not in selector:
+            continue
+        props = {d.split(":", 1)[0].strip() for d in decls.split(";") if ":" in d}
+        out.append((selector, props))
+    return out
+
+
+def test_chart_growth_rules_are_owned_by_the_top_variant_not_by_the_split():
+    # Regla GENERICA, no una lista de tres selectores: cualquier regla futura
+    # que toque la geometria de la caja del grafico desde la columna del split
+    # tiene que declarar de que panel es. Si no, se cuela en el otro.
+    unowned = [s for s, props in _rules_touching_the_chart_column(_COMMERCIAL_CSS)
+               if props & _GEOMETRY_PROPS and ".analysis-split--top" not in s]
+    assert not unowned, f"reglas de geometria sin panel declarado: {unowned}"
+    # Y las tres que existen hoy siguen existiendo, con `--top`.
+    rules = _css_rules(_COMMERCIAL_CSS)
+    for grow in (".analysis-split--top .analysis-split__chart > [data-commercial-dist]"
+                 " { display: flex; flex-direction: column; flex: 1 1 auto; }",
+                 ".analysis-split--top .analysis-split__chart .category-plot"
+                 " { flex: 1 1 auto; grid-template-rows: 1fr auto; }",
+                 ".analysis-split--top .analysis-split__chart .category-plot__area"
+                 " { height: auto; min-height: 188px; }"):
+        assert grow in rules, grow
+
+
+def test_forecast_keeps_its_own_fixed_height_contract():
+    rules = _css_rules(_COMMERCIAL_CSS)
+    # El token es la unica fuente del alto, y el area lo consume.
+    assert "--forecast-plot-h: 188px;" in rules
+    assert ".forecast-plot .category-plot__area { height: var(--forecast-plot-h); }" in rules
+    # El eje izquierdo lee el MISMO token — es lo que hace que los ticks caigan
+    # sobre las lineas de grilla.
+    assert ".forecast-plot > .category-plot__axis--left { height: var(--forecast-plot-h); }" in rules
+    # Nadie le puso `min-height` al area de Forecast: `min-height` fija el alto
+    # USADO pero no vuelve el alto DEFINIDO, asi que `height: 100%` de la
+    # columna resolveria contra `auto` y colapsaria a los 2px de la barra.
+    for selector, props in _rules_touching_the_chart_column(_COMMERCIAL_CSS):
+        if ".analysis-split--top" in selector:
+            continue
+        assert "min-height" not in props, selector
+    assert ".category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%;" in rules
+    assert "min-height: 2px;" in rules      # el 2px al que colapsaba la barra
+
+
+def test_the_leak_vector_is_real_so_the_ownership_test_is_not_vacuous():
+    # Sin esto, los dos tests de arriba podrian pasar por casualidad: prueban
+    # que Forecast EFECTIVAMENTE vive dentro de `.analysis-split__chart` y
+    # EFECTIVAMENTE tiene un `.category-plot__area`, o sea que la regla sin
+    # `--top` lo alcanzaria.
+    markup = _js_code(_COMMERCIAL_JS)
+    chart = markup.split("function commercialForecastChartHtml(", 1)[1].split("\n}", 1)[0]
+    assert "category-plot__area" in chart
+    # El grafico de Forecast se emite DENTRO de la columna del split base.
+    plain_block = markup.split('class="analysis-split">', 1)[1][:400]
+    assert "analysis-split__chart" in plain_block
+    assert "commercialForecastChartHtml" in plain_block
+
+
+def test_forecast_and_the_activas_analysis_stay_different_by_design():
+    markup = _js_code(_COMMERCIAL_JS)
+    # Activas declara `--top` (arranques alineados + crecimiento); Forecast no
+    # (piso compartido + alto fijo). Un solo consumidor de cada variante.
+    assert markup.count('class="analysis-split analysis-split--top"') == 1
+    assert markup.count('class="analysis-split">') == 1
+    # El que lleva `--top` es el de Activas, no el de Forecast.
+    top_block = markup.split('class="analysis-split analysis-split--top"', 1)[1][:400]
+    assert "data-commercial-dist" in top_block and "forecast" not in top_block.lower()
+    plain_block = markup.split('class="analysis-split">', 1)[1][:400]
+    assert "commercialForecastChartHtml" in plain_block
+    rules = _css_rules(_COMMERCIAL_CSS)
+    # Y las dos decisiones de anclaje siguen siendo explicitas y opuestas.
+    assert ".analysis-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }" in rules
+    assert ".analysis-split--top .analysis-split__chart { justify-content: flex-start; }" in rules
+
+
 def test_activas_funnel_contract_is_untouched_by_c6():
     # Regresión: el Funnel de Activas sigue con sus TRES series, sus DOS ejes
     # y su universo 1-8 — C6 no comparte geometría con él.
