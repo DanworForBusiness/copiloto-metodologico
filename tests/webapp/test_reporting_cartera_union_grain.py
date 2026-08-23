@@ -33,7 +33,7 @@ import pytest
 
 from webapp.services import reporting_repository as repo_mod
 from webapp.services.reporting_repository import ReportingRepository
-from webapp.services.reporting_service import ReportingService
+from webapp.services.reporting_service import ReportingService, _trab_by_proyecto_by_year
 
 _SITE, _OPS_SITE = "site-1", "ops-site-1"
 _HP, _PROY, _CLI, _COLAB, _USERINFO = "hp-list", "proy-list", "cli-list", "colab-list", "userinfo-list"
@@ -476,3 +476,90 @@ def test_cross_view_worked_hours_reconcile_for_the_same_project_month(monkeypatc
         rent = _rent_row(svc2.get_rentabilidad("tok", anios=["2026"]), "Tenaris - SAP BDC")
         rent_h = rent["trabByYear"]["2026"][7]
         assert round(cartera, 2) == round(rent_h, 2) == _LIVE_TENARIS_H, (n_filas, cartera, rent_h)
+
+
+# --- CONSERVACION: ninguna hora canonica desaparece en silencio -----------
+# Regla de nivel superior (owner): toda hora positiva de Time Logs esta
+#   A. representada en un proyecto de negocio con mapping valido, o
+#   B. clasificada EXPLICITAMENTE como no reconciliable.
+# Nada puede evaporarse. En esta fase la clasificacion es interna/visible en
+# test: la observabilidad en UI es trabajo aparte, deliberadamente diferido.
+def _conservacion_fixture(monkeypatch):
+    """Cuatro clases de hora de Time Logs en agosto 2026, todas positivas:
+      100 h  proyecto Mantenimiento con mapping y fila SharePoint
+       50 h  proyecto Mantenimiento con mapping y SIN fila SharePoint
+       25 h  proyecto tipo Proyecto con mapping (fuera del universo de Mant.)
+       10 h  proyecto SIN mapping en Proyectos
+        7 h  placeholder de "No asignadas"
+    """
+    _patch(
+        monkeypatch,
+        horas_por_proyectos=[{
+            "ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
+            "HsTrabajadas": "999", "HsVendidas": "1", "HsFacturadas": "1",
+        }],
+        proyectos=[
+            {"id": "p1", "Title": "Mant Con Fila", "TipodeProyecto": "Mantenimiento", "Status": "En curso"},
+            {"id": "p2", "Title": "Mant Sin Fila", "TipodeProyecto": "Mantenimiento", "Status": "En curso"},
+            {"id": "p3", "Title": "Tipo Proyecto", "TipodeProyecto": "Proyecto", "Status": "En curso"},
+        ],
+        clientes=[{"id": "c1", "Title": "ACME"}],
+        csv_files=[{"id": "current-1", "name": "Time Logs Reports.csv"}],
+        file_rows={"current-1": [
+            {"Date": "2026-08-03", "Client": "ACME", "Project": "Mant Con Fila",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "100"},
+            {"Date": "2026-08-04", "Client": "ACME", "Project": "Mant Sin Fila",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "50"},
+            {"Date": "2026-08-05", "Client": "ACME", "Project": "Tipo Proyecto",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "25"},
+            {"Date": "2026-08-06", "Client": "ACME", "Project": "Fantasma Sin Alta",
+             "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "10"},
+            {"Date": "2026-08-07", "Client": "Danwor", "Project": "Danwor - Horas No Productivas (#1)",
+             "Task": "Interno", "Email": "a@danwor.com", "Duration Decimal": "7"},
+        ]},
+    )
+    return 100.0, 50.0, 25.0, 10.0, 7.0
+
+
+def test_every_positive_time_logs_hour_is_represented_or_classified_in_rentabilidad(monkeypatch):
+    con_fila, sin_fila, tipo_proy, fantasma, placeholder = _conservacion_fixture(monkeypatch)
+    payload = ReportingService(_repo()).get_rentabilidad("tok", anios=["2026"])
+    en_proyectos = round(sum(r["trabByYear"].get("2026", [0.0] * 12)[7]
+                             for r in payload["proyectos"]), 2)
+    no_asignadas = round(payload["noAsignadasByYear"]["2026"][7], 2)
+    # A: Rentabilidad cubre TODOS los tipos con mapping valido.
+    assert en_proyectos == round(con_fila + sin_fila + tipo_proy, 2)
+    # A (bis): el placeholder tiene su propia fila de portfolio, no se pierde.
+    assert no_asignadas == placeholder
+    # B: lo unico fuera es el proyecto sin alta — clasificado, no evaporado.
+    total_canonico = con_fila + sin_fila + tipo_proy + fantasma + placeholder
+    assert round(total_canonico - en_proyectos - no_asignadas, 2) == fantasma
+    # Y NUNCA aparece con dimensiones inventadas.
+    assert not any(r["proyecto"] == "Fantasma Sin Alta" for r in payload["proyectos"])
+
+
+def test_every_positive_time_logs_hour_is_represented_or_classified_in_cartera(monkeypatch):
+    con_fila, sin_fila, tipo_proy, fantasma, placeholder = _conservacion_fixture(monkeypatch)
+    repo = _repo()
+    facts, project_dim = repo.get_cartera_facts_with_project_dimension(
+        "tok", include_facturadas=False, hot_years=["2026"])
+    trab = _trab_by_proyecto_by_year(
+        repo.get_time_logs_worked_hours("tok", hot_years=["2026"]))
+    rows, unmatched = ReportingService(repo)._mantenimiento_rows(facts, trab, project_dim)
+
+    en_filas = round(sum(r["trabajadas"] for r in rows if r["mes"] == "8"), 2)
+    no_reconciliable = round(sum(u["horas"] for u in unmatched if u["mes"] == "8"), 2)
+    fuera_del_universo = round(
+        sum(monthly["2026"][7] for key, monthly in trab.items()
+            if (project_dim.get(key) or {}).get("tipoProyecto") not in (None, "Mantenimiento")), 2)
+
+    # A: los dos proyectos Mantenimiento con mapping — con y sin fila.
+    assert en_filas == round(con_fila + sin_fila, 2)
+    # B: el proyecto sin alta queda clasificado, nunca descartado.
+    assert no_reconciliable == fantasma
+    # Exclusion DECLARADA de universo (no una perdida): tipo Proyecto.
+    assert fuera_del_universo == tipo_proy
+    # La particion cubre todo lo que Cartera podia ver (el placeholder ya lo
+    # excluye `_trab_by_proyecto_by_year`, tiene su propia representacion).
+    visible_para_cartera = con_fila + sin_fila + tipo_proy + fantasma
+    assert round(visible_para_cartera - en_filas - no_reconciliable - fuera_del_universo, 2) == 0.0
