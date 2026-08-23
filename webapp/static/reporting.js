@@ -1299,6 +1299,27 @@ function reportingSourceErrorHtml(label) {
     + `Las demás vistas de Reporting siguen disponibles.</p>`;
 }
 
+// Estado VACÍO Hub-consistente. Reusa `.dashboard-empty`/`.dashboard-empty__label`
+// (tools.css) — el primitivo YA compartido por Copiloto/Métricas de Uso
+// (`admin_activity_content.html`), CRM/Comercial (`commercialEmptyStateHtml`) y
+// Asignaciones (`staffing_dashboard.html`): caja de borde punteado, eyebrow
+// dorado y texto centrado. Reporting era el único vertical que se lo salteaba,
+// con un `<p class="empty-note">` suelto (clase LOCAL de reporting.css) — un
+// segundo lenguaje visual para el mismo estado.
+//
+// Adaptador, NO un diseño nuevo: cero CSS propio, cero clase nueva, misma
+// estructura de markup que los otros tres consumidores. `esc` en las dos
+// partes, igual que el resto del archivo.
+//
+// El eyebrow es "Sin resultados" — el vocabulario que el Hub ya usa para CERO
+// FILAS LEGÍTIMAS, distinto de "No disponible", reservado a fallas de
+// carga/cálculo (ver `reportingSourceErrorHtml`, abajo, que conserva su propio
+// tratamiento). No se inventa un eyebrow por experiencia.
+function reportingEmptyStateHtml(message, eyebrow = "Sin resultados") {
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">${esc(eyebrow)}</span>`
+    + `<p>${esc(message)}</p></div>`;
+}
+
 function diffCell(diff) {
   const cls = diff < 0 ? "diff-neg" : (diff > 0 ? "diff-pos" : "");
   return `<span class="${cls}">${fmtNum(diff, "signed")}</span>`;
@@ -3728,14 +3749,14 @@ function renderRentabilidadResumen() {
     <div class="activity-grid-2">
       <div>
         <p class="perspective-label">Mejor performance</p>
-        ${positivos.length ? rentabilidadRankingList(positivos, "positivos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+        ${positivos.length ? rentabilidadRankingList(positivos, "positivos", maxAbs) : reportingEmptyStateHtml("Sin proyectos con rentabilidad ≥ 0.")}
       </div>
       <div>
         <p class="perspective-label">Peor performance</p>
-        ${negativos.length ? rentabilidadRankingList(negativos, "negativos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+        ${negativos.length ? rentabilidadRankingList(negativos, "negativos", maxAbs) : reportingEmptyStateHtml("Sin proyectos con rentabilidad negativa.")}
       </div>
     </div>
-  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin proyectos para los filtros actuales.");
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
   const mensual = renderRentabilidadMensual(rows, portfolio);
@@ -3804,14 +3825,14 @@ function renderRentabilidadCertEjecutadas() {
   const panel = (tipo) => {
     const g = groups.find(x => x.tipo === tipo);
     return `<div><p class="perspective-label">${esc(tipo)}</p>`
-      + (g ? groupBlock(g) : `<p class="empty-note">Sin datos para los filtros actuales.</p>`)
+      + (g ? groupBlock(g) : reportingEmptyStateHtml("Sin datos para los filtros actuales."))
       + `</div>`;
   };
   const analysisContent = groups.length ? `
     <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
     <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
     <div class="activity-grid-2" style="margin-top:12px">${panel("Mantenimiento")}${panel("Proyecto")}</div>
-  ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin datos para los filtros actuales.");
   const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
 
@@ -3858,7 +3879,7 @@ function renderRentabilidadCertEjecutadas() {
       </tr></tbody>
     </table>
     </div>
-  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin proyectos para los filtros actuales.");
   const detail = dashboardSection("detalle", "Detalle por proyecto", rows.length + " proyecto(s)", detailBody);
 
   return analysis + detail;
