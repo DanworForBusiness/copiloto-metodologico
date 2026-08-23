@@ -355,9 +355,29 @@ window.dwToggleDiagnostic = function (on) {
   fetch("/api/diagnostic", { method: "POST", body }).finally(() => window.location.reload());
 };
 
-// Logout: limpia la cookie de sesión en el backend y vuelve al landing.
+// Logout: limpia la cookie de sesión en el backend y vuelve a la entrada del
+// Hub PRESERVANDO desde dónde se salió, en `next`. Antes iba a "/" a secas, así
+// que al volver a autenticarse el usuario aterrizaba siempre en el destino por
+// defecto de su perfil aunque hubiera salido desde otro workspace.
+//
+// `next` NO es un mecanismo nuevo: es el MISMO contrato del camino inverso
+// —entrar sin sesión a una página protegida, ver `workspaces.platform_login_redirect`,
+// que arma `next` igual, con `path` + `query`— y lo consume el mismo endpoint.
+// Quien lo VALIDA es el server (`render_landing`/`/onedanwor`): sólo acepta un
+// path propio que empiece con "/" y no con "//". Acá no se duplica esa regla:
+// se manda `pathname + search`, relativo, sin origin (una URL absoluta nunca
+// pasaría esa validación) y sin hash (el fragmento no viaja al server). Si
+// llegara algo no aceptable, el server lo descarta y cae en su default — nunca
+// redirige afuera.
+//
+// `URLSearchParams` da el encoding exacto que el server espera
+// ("/comercial" → "%2Fcomercial") sin doble-encodear, y es el mismo helper que
+// ya usa `dwToggleDiagnostic`. Transversal por construcción: el destino se lee
+// de la ubicación actual, así que no hay una rama por capability.
 window.dwLogout = function () {
-  fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.href = "/"; });
+  const next = window.location.pathname + window.location.search;
+  const target = `/onedanwor?${new URLSearchParams({ next }).toString()}`;
+  fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.href = target; });
 };
 
 document.body.addEventListener("htmx:beforeRequest", event => {
