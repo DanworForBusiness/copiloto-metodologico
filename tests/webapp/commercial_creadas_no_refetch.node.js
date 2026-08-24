@@ -111,7 +111,7 @@ function seed() {
 const handlerErrors = [];
 function fire(type, el) {
   (listeners[type] || []).forEach((fn, i) => {
-    try { fn({ target: el, detail: {}, stopPropagation() { }, preventDefault() { } }); }
+    try { fn({ target: el, key: el.key, detail: {}, stopPropagation() { }, preventDefault() { } }); }
     catch (e) { handlerErrors.push(`${type}#${i}: ${String(e).slice(0, 80)}`); }
   });
 }
@@ -184,7 +184,16 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   fire("click", sortTh);
   await check("ordenar por columna (dos clicks)");
 
-  // 9. LIMPIAR
+  // 9. CLICK EN EL RANKING — la puerta nueva del owner corrective. Filtra en
+  //    cascada sobre el payload ya cargado, igual que el dropdown.
+  const rankRow = makeEl({ commercialCreadasSellerPick: "Ana" });
+  fire("click", rankRow);
+  await check("click en un vendedor del ranking");
+  // 10. Y por TECLADO, que es el otro camino a la misma accion.
+  fire("keydown", Object.assign(rankRow, { key: "Enter" }));
+  await check("Enter sobre un vendedor del ranking");
+
+  // 11. LIMPIAR
   const clear = makeEl({ commercialCreadasClear: "" });
   fire("click", clear);
   await check("Limpiar");
@@ -204,7 +213,8 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   // Si el guard pasara porque los handlers no hicieron NADA, esto lo delata.
   assertEqual(commercialState.creadasSortKey, "client", "el orden se aplico (los handlers corrieron)");
   assertEqual(commercialState.creadasSortDir, -1, "y el segundo click invirtio");
-  assertEqual(commercialState.creadasSeller, "", "Limpiar reseteo el vendedor");
+  assertEqual(commercialState.creadasSeller, "",
+    "Limpiar reseteo el vendedor que el ranking habia aplicado");
   assertEqual(commercialState.creadasSearch, "", "Limpiar reseteo la busqueda");
   assertEqual(commercialState.creadasSelection, null, "el detalle quedo cerrado");
   assertEqual(commercialState.creadasExpandedMonths, [], "el mes quedo colapsado");

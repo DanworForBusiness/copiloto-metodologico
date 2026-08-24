@@ -52,6 +52,8 @@ const {
   commercialCreadasSorted,
   commercialCreadasMatchesSearch,
   commercialCreadasStatusColor,
+  commercialCreadasHours,
+  commercialCreadasSetSeller,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
 
@@ -129,7 +131,11 @@ const PREV_YEAR = CUR_YEAR - 1;
   ];
   const html = commercialCreadasSellerRankingHtml(
     commercialCreadasFiltered(months, String(CUR_YEAR)));
-  assertTrue(html.includes('class="bar-row"'), "usa el primitivo .bar-row (Hub-wide, tools.css)");
+  // La fila lleva el primitivo de barra Y el modificador de interaccion, los
+  // dos compartidos (tools.css). El literal exacto cambio al hacerla
+  // clickeable; lo que se prueba sigue siendo que CONSUME el primitivo.
+  assertTrue(html.includes("bar-row bar-row--clickable"),
+    "usa el primitivo .bar-row + el modificador de click compartido");
   const anaIdx = html.indexOf("Ana G");
   const brunoIdx = html.indexOf("Bruno Paz");
   assertTrue(anaIdx !== -1 && brunoIdx !== -1 && anaIdx < brunoIdx, "Ana Gómez (3) rankea ANTES que Bruno Paz (1) — descendente");
@@ -587,6 +593,283 @@ const countOf = (h, sub) => h.split(sub).length - 1;
   assertTrue(html.indexOf("dashboard-status-badge--red") !== -1,
     "ESTADO: y ahora si resuelve su badge");
   resetCreadasState();
+}
+
+// ==========================================================================
+// OWNER FINAL CORRECTIVE — proporciones de las barras, ranking interactivo,
+// jerarquia visual y chevron compartido
+// ==========================================================================
+
+// Extrae los anchos de barra en ORDEN de aparicion.
+const barWidths = (html) =>
+  [...html.matchAll(/bar-fill" style="width:([\d.]+)%/g)].map(m => parseFloat(m[1]));
+
+// Fixture con el EJEMPLO REAL del owner: julio con 4.040 h repartidas en cinco
+// semanas. Los dias caen en semanas 1..5 con `ceil(dia/7)`.
+function barsMonths() {
+  const hs = [2220, 80, 420, 680, 640];
+  const dias = [3, 10, 17, 24, 30];
+  return [{
+    month: `${CUR_YEAR}-07`, count: hs.length,
+    opportunities: hs.map((h, i) => ({
+      id: i, entry_date: `${CUR_YEAR}-07-${String(dias[i]).padStart(2, "0")}`,
+      name: "Opp " + i, client: "Cliente " + i, seller: i < 3 ? "Ana" : "Bruno",
+      origen: "Base Instalada", status: "1 - Inicial", horas: h,
+    })),
+  }];
+}
+function barsReady(extra) {
+  resetCreadasState();
+  commercialState.creadas = { months: barsMonths() };
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasYear = String(CUR_YEAR);
+  commercialState.creadasExpandedMonths = [`${CUR_YEAR}-07`];
+  Object.assign(commercialState, extra || {});
+}
+const cerca = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.15 : tol);
+
+// --- BARRAS: la semana es su parte DEL MES PADRE --------------------------
+// EL DEFECTO QUE CIERRA. Las barras median CANTIDAD DE OPORTUNIDADES —
+// `d.count / maxCount` para meses y `opps.length / weekMax` para semanas,
+// heredado del legacy (`renderCreatedDrillTable`)— mientras la columna de al
+// lado muestra HORAS. Dos semanas de 80 h y 420 h con una oportunidad cada una
+// salian IDENTICAS. Y las semanas se normalizaban contra la semana MAS GRANDE,
+// asi que esa daba 100% siempre, sin importar que fraccion del mes fuera.
+{
+  barsReady({});
+  const html = commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(barsMonths(), String(CUR_YEAR)));
+  const w = barWidths(html);
+  const hs = [2220, 80, 420, 680, 640];
+  const total = 4040;
+
+  assertEqual(w.length, 6, "BARRAS: una del mes + cinco de semana");
+  // El mes es el unico visible, asi que es su propio maximo: 100%.
+  assertTrue(cerca(w[0], 100), `BARRAS: el mes unico visible ocupa el 100% (dio ${w[0]})`);
+
+  hs.forEach((h, i) => {
+    const esperado = h / total * 100;
+    assertTrue(cerca(w[i + 1], esperado),
+      `BARRAS: semana ${i + 1} con ${h} h ≈ ${esperado.toFixed(1)}% del mes (dio ${w[i + 1]})`);
+  });
+
+  // EL GUARD CRITICO del owner: 80 h y 420 h NO pueden resolver al mismo ancho.
+  assertTrue(w[2] !== w[3],
+    `BARRAS: 80 h (${w[2]}%) y 420 h (${w[3]}%) tienen anchos DISTINTOS`);
+  // Y la relacion entre ellas refleja la de los datos (5.25x), no un empate.
+  const ratio = w[3] / w[2];
+  assertTrue(cerca(ratio, 420 / 80, 0.3),
+    `BARRAS: la razon entre 420 h y 80 h es ~5.25 en la barra (dio ${ratio.toFixed(2)})`);
+
+  // Composicion: las semanas suman el mes y NINGUNA lo excede.
+  const suma = w.slice(1).reduce((a, b) => a + b, 0);
+  assertTrue(cerca(suma, 100, 0.5), `BARRAS: las semanas suman ~100% del mes (dio ${suma.toFixed(1)})`);
+  assertTrue(w.slice(1).every(x => x <= 100), "BARRAS: ninguna semana excede el 100% de su padre");
+}
+
+// --- BARRAS: el mes se compara contra el MAXIMO VISIBLE -------------------
+{
+  resetCreadasState();
+  const months = [
+    { month: `${CUR_YEAR}-07`, count: 1, opportunities: [
+      { id: 1, entry_date: `${CUR_YEAR}-07-03`, name: "A", client: "C", seller: "Ana",
+        origen: "x", status: "1 - Inicial", horas: 1000 }] },
+    { month: `${CUR_YEAR}-06`, count: 1, opportunities: [
+      { id: 2, entry_date: `${CUR_YEAR}-06-03`, name: "B", client: "C", seller: "Bruno",
+        origen: "x", status: "1 - Inicial", horas: 250 }] },
+  ];
+  commercialState.creadas = { months };
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasYear = String(CUR_YEAR);
+  const w = barWidths(commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR))));
+  assertEqual(w.length, 2, "MESES: dos barras, ninguna semana (nada expandido)");
+  assertTrue(cerca(w[0], 100), `MESES: el mes de 1000 h es el maximo → 100% (dio ${w[0]})`);
+  assertTrue(cerca(w[1], 25), `MESES: el de 250 h es un cuarto → 25% (dio ${w[1]})`);
+  // Y el denominador son HORAS, no oportunidades: los dos meses tienen UNA
+  // oportunidad cada uno, asi que con la formula vieja habrian salido iguales.
+  assertTrue(w[0] !== w[1],
+    "MESES: dos meses con la MISMA cantidad de oportunidades pero distintas horas NO salen iguales");
+}
+
+// --- BARRAS: el denominador se recalcula con los FILTROS ------------------
+// El maximo tiene que reflejar lo que se esta VIENDO. Si el filtro saca al mes
+// mas grande, el que queda pasa a ser el 100%.
+{
+  resetCreadasState();
+  const months = [
+    { month: `${CUR_YEAR}-07`, count: 1, opportunities: [
+      { id: 1, entry_date: `${CUR_YEAR}-07-03`, name: "A", client: "C", seller: "Ana",
+        origen: "x", status: "1 - Inicial", horas: 1000 }] },
+    { month: `${CUR_YEAR}-06`, count: 1, opportunities: [
+      { id: 2, entry_date: `${CUR_YEAR}-06-03`, name: "B", client: "C", seller: "Bruno",
+        origen: "x", status: "1 - Inicial", horas: 250 }] },
+  ];
+  commercialState.creadas = { months };
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasYear = String(CUR_YEAR);
+
+  const sinFiltro = barWidths(commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR))));
+  assertTrue(cerca(sinFiltro[1], 25), "FILTRO: sin filtrar, el mes chico es el 25%");
+
+  // Filtrando a Bruno desaparece el mes de 1000 h, asi que el de 250 pasa a
+  // ser el maximo visible.
+  commercialState.creadasSeller = "Bruno";
+  const conFiltro = barWidths(commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR))));
+  assertEqual(conFiltro.length, 1, "FILTRO: queda un solo mes visible");
+  assertTrue(cerca(conFiltro[0], 100),
+    `FILTRO: el denominador se recalculo — el mes que queda es el 100% (dio ${conFiltro[0]})`);
+  resetCreadasState();
+}
+
+// --- BARRAS: cero horas no fabrica una barra positiva ---------------------
+{
+  resetCreadasState();
+  const months = [{ month: `${CUR_YEAR}-07`, count: 2, opportunities: [
+    { id: 1, entry_date: `${CUR_YEAR}-07-03`, name: "A", client: "C", seller: "Ana",
+      origen: "x", status: "1 - Inicial", horas: null },
+    { id: 2, entry_date: `${CUR_YEAR}-07-10`, name: "B", client: "C", seller: "Ana",
+      origen: "x", status: "1 - Inicial", horas: null },
+  ] }];
+  commercialState.creadas = { months };
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasYear = String(CUR_YEAR);
+  commercialState.creadasExpandedMonths = [`${CUR_YEAR}-07`];
+  const w = barWidths(commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(months, String(CUR_YEAR))));
+  // Sin horas en ningun lado: cero barras positivas, ni un minimo inventado.
+  assertTrue(w.every(x => x === 0),
+    `CERO: sin horas cargadas ninguna barra se fabrica un ancho (dio ${JSON.stringify(w)})`);
+  // Y la celda de Horas conserva su semantica de siempre.
+  assertEqual(commercialCreadasHoursCell(months[0].opportunities), "—",
+    "CERO: la celda sigue mostrando em-dash, no 0");
+  resetCreadasState();
+}
+
+// --- RANKING CLICKEABLE: contrato de Metricas de Uso ----------------------
+// Reusa `.bar-row--clickable` (tools.css, el MISMO bloque que
+// `.activity-bar-row--clickable` de Metricas de Uso) y su contrato de markup.
+{
+  barsReady({});
+  const html = commercialCreadasSellerRankingHtml(
+    commercialCreadasFiltered(barsMonths(), String(CUR_YEAR)));
+  assertTrue(html.includes("bar-row bar-row--clickable"), "RANKING: consume el primitivo compartido");
+  assertTrue(html.includes('role="button"'), "RANKING: rol de boton");
+  assertTrue(html.includes('tabindex="0"'), "RANKING: focoable con teclado");
+  assertTrue(html.includes('aria-label="Filtrar las oportunidades creadas por'),
+    "RANKING: dice que hace, no solo el nombre");
+  assertTrue(html.includes("data-commercial-creadas-seller-pick="),
+    "RANKING: hook por vendedor");
+  // La fila ENTERA es el target: etiqueta, barra y valor van adentro.
+  const fila = html.slice(html.indexOf("bar-row bar-row--clickable"));
+  const cierre = fila.indexOf("</div>", fila.indexOf("bar-value"));
+  const contenido = fila.slice(0, cierre);
+  ["bar-label", "bar-track", "bar-value"].forEach(parte => {
+    assertTrue(contenido.includes(parte), `RANKING: ${parte} esta DENTRO del target clickeable`);
+  });
+}
+
+// --- RANKING: estado seleccionado, en los DOS sentidos --------------------
+{
+  barsReady({ creadasSeller: "Ana" });
+  const html = commercialCreadasSellerRankingHtml(
+    commercialCreadasFiltered(barsMonths(), String(CUR_YEAR)));
+  assertTrue(html.includes("bar-row bar-row--clickable is-active"),
+    "RANKING: el vendedor seleccionado se marca con el estado compartido");
+  assertTrue(html.includes('aria-pressed="true"'), "RANKING: y lo expone semanticamente");
+  // Solo UNO queda activo.
+  assertEqual((html.match(/is-active/g) || []).length, 1, "RANKING: exactamente uno activo");
+  assertEqual((html.match(/aria-pressed="true"/g) || []).length, 1, "RANKING: un solo aria-pressed");
+
+  // Sin vendedor, ninguno.
+  barsReady({});
+  const limpio = commercialCreadasSellerRankingHtml(
+    commercialCreadasFiltered(barsMonths(), String(CUR_YEAR)));
+  assertEqual((limpio.match(/is-active/g) || []).length, 0,
+    "RANKING: sin vendedor seleccionado, ninguna fila activa");
+  assertEqual((limpio.match(/aria-pressed="true"/g) || []).length, 0, "RANKING: ni un aria-pressed");
+}
+
+// --- RANKING: el dropdown y el ranking comparten estado ------------------
+// La sincronizacion bidireccional NO necesita codigo de sincronizacion: los dos
+// DERIVAN de `commercialState.creadasSeller`, asi que no pueden divergir.
+{
+  barsReady({ creadasSeller: "Bruno" });
+  const body = commercialCreadasPanelBodyHtml();
+  assertTrue(body.includes('<option value="Bruno" selected>'),
+    "SYNC: el dropdown muestra el vendedor activo");
+  // La fila activa y el hook de Bruno tienen que ser LA MISMA fila. Se busca la
+  // fila entera por su apertura, sin slices posicionales fragiles.
+  const filas = [...body.matchAll(/<div class="bar-row bar-row--clickable([^"]*)"\s+data-commercial-creadas-seller-pick="([^"]+)"/g)]
+    .map(m => ({ activa: m[1].includes("is-active"), vendedor: m[2] }));
+  assertEqual(filas.filter(f => f.activa).map(f => f.vendedor), ["Bruno"],
+    "SYNC: el ranking marca al MISMO vendedor que el dropdown, y solo a ese");
+  // El universo tambien responde: la tabla del mes cuenta solo lo de Bruno (2
+  // de las 5 oportunidades). Se cuenta sobre el bloque de la TABLA, no sobre
+  // todo el body — el dropdown lista a todos los vendedores por definicion.
+  const tabla = body.slice(body.indexOf("Por mes y semana"));
+  const opps = (tabla.match(/<td>(\d+)<\/td>/) || [])[1];
+  assertEqual(opps, "2", "SYNC: la tabla cuenta solo las oportunidades del vendedor filtrado");
+}
+
+// --- CAMBIO DE VENDEDOR: que pasa con el DETALLE abierto ------------------
+{
+  // El mes seleccionado SIGUE teniendo oportunidades del vendedor nuevo: el
+  // detalle se re-renderiza al subconjunto, no se cierra.
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  commercialCreadasSetSeller("Ana");
+  assertTrue(commercialState.creadasSelection !== null,
+    "DETALLE: sigue abierto si el mes conserva oportunidades del vendedor");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR_YEAR}-07`],
+    "DETALLE: y los meses expandidos NO se colapsan");
+
+  // La SEMANA seleccionada se queda sin oportunidades bajo el filtro nuevo:
+  // se cierra SOLO el detalle.
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: 1 } });
+  commercialCreadasSetSeller("Bruno");   // Bruno esta en las semanas 4 y 5
+  assertEqual(commercialState.creadasSelection, null,
+    "DETALLE: se cierra si la seleccion se queda vacia");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR_YEAR}-07`],
+    "DETALLE: pero la expansion se preserva igual");
+  assertEqual(commercialState.creadasSeller, "Bruno", "DETALLE: y el filtro quedo aplicado");
+  resetCreadasState();
+}
+
+// --- CHEVRON: el primitivo COMPARTIDO del Hub ----------------------------
+// `.dashboard-table-toggle` + `.caret` (tools.css) es el chevron DORADO que ya
+// usan Reporting (arboles de Rentabilidad/Horas Vendidas) y Staffing (detalle
+// por consultor). Creadas tenia un boton gris propio.
+{
+  barsReady({});
+  const html = commercialCreadasMonthTableHtml(
+    commercialCreadasFiltered(barsMonths(), String(CUR_YEAR)));
+  assertTrue(html.includes('class="dashboard-table-toggle"'),
+    "CHEVRON: consume el primitivo compartido del Hub");
+  assertTrue(html.includes('<span class="caret">'),
+    "CHEVRON: con el `.caret` del primitivo, que es quien lleva el dorado");
+  assertTrue(!html.includes("commercial-creadas-caret"),
+    "CHEVRON: cero rastro del primitivo local que tenia antes");
+  // Sigue siendo un <button> real: Enter/Space nativos, sin JS de teclado.
+  assertTrue(html.includes('<button type="button" class="dashboard-table-toggle"'),
+    "CHEVRON: `<button>` real — teclado gratis del browser");
+  assertTrue(html.includes('aria-expanded="true"'), "CHEVRON: anuncia su estado");
+}
+
+// --- JERARQUIA VISUAL: la semana, mas liviana ---------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(__dirname, "..", "..", "webapp", "static", "commercial.css"), "utf-8");
+  const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assertTrue(/\.commercial-creadas-week[^{]*\.bar-fill\s*\{[^}]*opacity:/.test(sinComentarios),
+    "JERARQUIA: la barra de semana baja la intensidad con opacity");
+  // Y NO con un segundo amarillo inventado.
+  const bloqueSemana = (sinComentarios.match(/\.commercial-creadas-week[^{]*\.bar-fill\s*\{([^}]*)\}/) || [])[1] || "";
+  ["#", "rgb", "hsl", "gold"].forEach(color => {
+    assertTrue(!bloqueSemana.includes(color),
+      `JERARQUIA: la semana no declara color propio (${color}) — usa el token del padre`);
+  });
 }
 
 if (failures > 0) {

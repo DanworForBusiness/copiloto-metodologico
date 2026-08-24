@@ -728,10 +728,29 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .73rem; }
 /* Filas de "Eventos por tipo" clickeables: al elegir una, el panel derecho
    muestra su desglose (ver initEventBreakdown en app.js). */
-.activity-bar-row--clickable { cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px; transition: background .12s ease; }
-.activity-bar-row--clickable:hover { background: rgba(128,128,128,.10); }
-.activity-bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
-.activity-bar-row--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* CLICK PARA FILTRAR EN CASCADA — interaccion compartida.
+   Nacio en Metricas de Uso (`admin_activity_content.html`: click en un modulo
+   filtra la lista de eventos) y la reusa Comercial/Creadas (click en un
+   vendedor filtra el mes/semana y su detalle). El Hub tiene DOS primitivos de
+   barra —`.activity-bar-row` y `.bar-row`— y esta es la MISMA interaccion
+   sobre los dos, asi que comparten el bloque en vez de duplicar valores: un
+   solo lugar define hover, estado activo dorado y foco.
+
+   El estado activo usa el dorado del Hub a baja opacidad — la fila
+   seleccionada se identifica sin competir con la barra que contiene.
+
+   NO hay toggle-to-clear: clickear el ya seleccionado lo mantiene. La
+   convencion viene de `initModuleFilter` (app.js), donde limpiar es una
+   accion explicita y separada. */
+.activity-bar-row--clickable, .bar-row--clickable {
+  cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px;
+  transition: background .12s ease;
+}
+.activity-bar-row--clickable:hover, .bar-row--clickable:hover { background: rgba(128,128,128,.10); }
+.activity-bar-row--clickable.is-active, .bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
+.activity-bar-row--clickable:focus-visible, .bar-row--clickable:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 1px;
+}
 .dashboard-subhead__hint { font-weight: 400; letter-spacing: 0; text-transform: none; opacity: .75; }
 .dashboard-subhead__filter { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--gold); }
 .dashboard-subhead__reset { border: 0; background: transparent; padding: 0; margin-left: 2px; color: var(--gold); font: inherit; cursor: pointer; }

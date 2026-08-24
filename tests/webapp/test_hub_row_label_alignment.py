@@ -168,3 +168,69 @@ def test_creadas_detail_still_wraps_instead_of_truncating():
         rules)
     assert m, "el override de wrap del detalle de Creadas desapareció"
     assert "white-space: normal" in m.group(1)
+
+
+# --- D: los primitivos de TABLA compartidos no se duplican por vertical ----
+
+def test_expandable_rows_use_the_shared_hub_affordance():
+    """GUARD ARQUITECTONICO. El chevron de expandir/colapsar es UNA interaccion
+    del Hub, no una de cada vertical.
+
+    `.dashboard-table-toggle` + `.caret` ya vivia en `tools.css` —no hubo que
+    extraer nada— y lo consumian Reporting (arboles de Rentabilidad/Horas
+    Vendidas) y Staffing (detalle por consultor). Creadas tenia su propio boton
+    gris, que es como aparecen los segundos lenguajes visuales.
+
+    El invariante es CONCEPTUAL: ninguna vertical define su propio control de
+    expansion de fila. Se comprueba por la forma —un control que anuncia
+    `aria-expanded` desde una tabla— y no por un nombre de clase copiado.
+    """
+    for name in ("commercial.js", "reporting.js"):
+        code = _js_code((_STATIC / name).read_text(encoding="utf-8"))
+        # Todo control de expansion de fila declara el primitivo compartido.
+        for m in re.finditer(r'<button[^>]*aria-expanded=', code):
+            ventana = code[max(0, m.start() - 200):m.start() + 200]
+            assert "dashboard-table-toggle" in ventana,                 f"{name}: control de expansion sin el primitivo compartido"
+    # Y ninguna vertical define CSS propio para ese control.
+    for name in ("commercial.css", "reporting.css"):
+        path = _STATIC / name
+        if not path.exists():
+            continue
+        rules = _css_rules(path.read_text(encoding="utf-8"))
+        for m in re.finditer(r"([^{}]*(?:caret|toggle)[^{}]*)\{([^}]*)\}", rules):
+            decl = m.group(2)
+            for propiedad in ("color:", "font-size:", "cursor:", "outline:"):
+                assert propiedad not in decl,                     f"{name}: redefine {propiedad} del control de expansion — es del primitivo"
+
+
+def test_the_shared_toggle_keeps_its_gold_chevron_and_native_semantics():
+    """El contrato visual e interactivo que las dos verticales comparten: caret
+    dorado del token del Hub, `<button>` real (Enter/Space nativos, sin JS de
+    teclado a mano) y foco visible."""
+    rules = _css_rules(_tools_css())
+    assert re.search(r"\.dashboard-table-toggle \.caret\s*\{[^}]*color:\s*var\(--gold\)", rules),         "el caret compartido perdió el dorado del Hub"
+    assert re.search(r"button\.dashboard-table-toggle:focus-visible\s*\{[^}]*outline:", rules)
+    # Los dos consumidores lo usan como `<button>`, no como `<div role=button>`.
+    for name in ("commercial.js", "reporting.js"):
+        code = _js_code((_STATIC / name).read_text(encoding="utf-8"))
+        if "dashboard-table-toggle" not in code:
+            continue
+        assert '<button type="button" class="dashboard-table-toggle"' in code, name
+
+
+def test_the_cascade_filter_interaction_is_shared_not_copied():
+    """La otra interaccion transversal de este increment: "click para filtrar en
+    cascada", que nacio en Metricas de Uso. El Hub tiene DOS primitivos de barra
+    (`.activity-bar-row` y `.bar-row`) y la interaccion es la MISMA, asi que
+    comparten el bloque de reglas en vez de duplicar valores.
+
+    Si alguien copia los valores a un bloque propio de Comercial, este test lo
+    encuentra."""
+    rules = _css_rules(_tools_css())
+    for selector in (".activity-bar-row--clickable, .bar-row--clickable",
+                     ".activity-bar-row--clickable:hover, .bar-row--clickable:hover",
+                     ".activity-bar-row--clickable.is-active, .bar-row--clickable.is-active"):
+        assert selector in rules, f"el bloque compartido perdió: {selector}"
+    # Y Comercial no redefine la interaccion por su cuenta.
+    commercial = _css_rules((_STATIC / "commercial.css").read_text(encoding="utf-8"))
+    assert "bar-row--clickable" not in commercial,         "Comercial no debe redefinir el modificador de click — es compartido"

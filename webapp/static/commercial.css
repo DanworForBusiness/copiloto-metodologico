@@ -666,18 +666,17 @@
    de la tabla y el header del detalle. */
 .commercial-creadas-analysis { display: grid; gap: 18px; }
 
-/* El chevron es un BOTÓN de verdad (no un glifo en el `<td>`) porque tiene su
-   propia acción —expandir— distinta de la de la fila —seleccionar—. Sin
-   apariencia de botón: el peso visual lo tiene la fila, no el control. */
-.commercial-creadas-caret {
-  width: 18px; height: 18px; margin-right: 4px; padding: 0; flex-shrink: 0;
-  display: inline-grid; place-items: center; vertical-align: middle;
-  border: 0; border-radius: 4px; background: transparent;
-  color: #7a7a82; font-size: .7rem; line-height: 1; cursor: pointer;
-}
-.content-theme-dark .commercial-creadas-caret { color: #9a9aa2; }
-.commercial-creadas-caret:hover { color: inherit; background: rgba(128,128,128,.16); }
-.commercial-creadas-caret:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* El chevron usa el primitivo COMPARTIDO del Hub `.dashboard-table-toggle`
+   + `.caret` (tools.css), el mismo que Reporting usa en sus árboles de
+   Rentabilidad/Horas Vendidas y Staffing en su detalle por consultor: chevron
+   DORADO (`var(--gold)`), `<button>` real con Enter/Space nativo, hover y
+   focus-visible propios. Creadas tenía su propio botón gris — un segundo
+   lenguaje para la misma interacción.
+
+   Acá sólo se le da el espaciado hacia el label, que en Reporting no hace falta
+   porque el botón envuelve caret Y label. CERO color, CERO tamaño, CERO estado:
+   todo eso es del primitivo. */
+.commercial-creadas-month .dashboard-table-toggle { margin-right: 4px; vertical-align: middle; }
 
 /* Filas seleccionables. El hover marca que se puede clickear y `is-selected`
    marca qué detalle se está viendo — sin eso, cerrar y reabrir el detalle no
@@ -780,7 +779,15 @@ table.dashboard-table.commercial-creadas-detail-table th.row-label-col { width: 
    llevaba 682px para un texto de 110px. */
 .commercial-creadas-dist { padding-right: 8px; }
 .commercial-creadas-dist .bar-track { display: block; height: 8px; }
-.commercial-creadas-week .commercial-creadas-dist .bar-track { height: 6px; }
+/* JERARQUIA VISUAL mes vs semana. Las dos barras usaban la MISMA intensidad,
+   así que la relación padre/hijo no se leía de un vistazo.
+
+   La semana usa el MISMO token (`var(--gold)`, vía el `.bar-fill` compartido) a
+   MENOR intensidad, con `opacity` — no un segundo amarillo inventado. Si el
+   token cambia, las dos cambian juntas. Más baja y más clara: el peso visual
+   acompaña la jerarquía que la indentación ya declara. */
+.commercial-creadas-week .commercial-creadas-dist .bar-track { height: 5px; }
+.commercial-creadas-week .commercial-creadas-dist .bar-fill { opacity: .45; }
 
 /* DISTRIBUCIÓN DE COLUMNAS — anchos FIJOS para lo predecible, elástica la barra.
    Con porcentajes, a 1550px la primera columna se llevaba 682px para un texto de

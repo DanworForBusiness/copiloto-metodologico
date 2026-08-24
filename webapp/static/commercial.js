@@ -1103,11 +1103,33 @@ function commercialCreadasSellerRankingHtml(filtered) {
         : "Ningún vendedor tiene oportunidades creadas en este año.");
   }
   const max = rows[0][1];
-  return rows.map(([seller, count]) => `
-    <div class="bar-row"><span class="bar-label">${commercialEsc(seller)}</span>
+  // CLICK PARA FILTRAR EN CASCADA — MISMO contrato que Métricas de Uso
+  // (`admin_activity_content.html` + `initModuleFilter` en app.js): la FILA
+  // ENTERA es el target (etiqueta, barra y número), `role="button"` +
+  // `tabindex="0"` para que Enter/Space funcionen, `aria-label` que dice qué
+  // hace, y `.is-active` para el seleccionado. El CSS es el bloque compartido
+  // de tools.css — cero clase nueva, cero copia de la lógica.
+  //
+  // Un `<button>` nativo sería lo ideal, pero `.bar-row` es un contenedor flex
+  // de tres hijos y envolverlo rompería su layout; `role`+`tabindex`+`keydown`
+  // es exactamente lo que Métricas de Uso ya hace por la misma razón.
+  //
+  // SIN toggle-to-clear: clickear el vendedor ya seleccionado lo mantiene.
+  // Es la convención de `initModuleFilter`, donde limpiar es una acción
+  // explícita y separada — acá, el dropdown en "Todos" o el botón Limpiar.
+  const activo = commercialState.creadasSeller;
+  return rows.map(([seller, count]) => {
+    const sel = seller === activo;
+    return `
+    <div class="bar-row bar-row--clickable${sel ? " is-active" : ""}"
+      data-commercial-creadas-seller-pick="${commercialEsc(seller)}"
+      role="button" tabindex="0" aria-pressed="${sel ? "true" : "false"}"
+      aria-label="Filtrar las oportunidades creadas por ${commercialEsc(seller)}">
+      <span class="bar-label">${commercialEsc(seller)}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${(count / max * 100).toFixed(1)}%"></div></div>
       <span class="bar-value">${commercialFmtInt(count)}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 // ── LA ETIQUETA DE SEMANA — RECUPERADA DEL LEGACY, TEXTUAL ────────────────
@@ -1172,13 +1194,24 @@ function commercialCreadasWeekRowsHtml(bucket) {
     (byWeek[w] || (byWeek[w] = [])).push(o);
   });
   const total = commercialCreadasWeekCount(bucket.month);
-  const maxW = Math.max(...Object.values(byWeek).map(a => a.length), 1);
+  // DENOMINADOR DE LA SEMANA: las HORAS DE SU MES PADRE, no la semana más
+  // grande. La barra de una semana responde "¿qué parte del mes es?", así que
+  // las cinco semanas de un mes suman 100% y se leen como composición.
+  //
+  // Antes se normalizaba contra `weekMax` (la semana con MÁS oportunidades),
+  // heredado del legacy: la semana más grande daba 100% SIEMPRE, sin importar
+  // qué fracción del mes fuera, y el resto se escalaba contra ella. Dos
+  // semanas de 80 h y 420 h con una oportunidad cada una salían IDÉNTICAS.
+  const parentHours = commercialCreadasHours(bucket.opportunities);
   const sel = commercialState.creadasSelection;
   const rows = [];
   for (let w = 1; w <= total; w += 1) {
     const opps = byWeek[w] || [];
     const has = opps.length > 0;
-    const width = (opps.length / maxW * 100).toFixed(1);
+    // Sin horas en el mes no hay proporción que mostrar (y dividir por cero
+    // daría NaN): la barra queda en 0 en vez de fabricarse una.
+    const width = parentHours > 0
+      ? (commercialCreadasHours(opps) / parentHours * 100).toFixed(1) : "0.0";
     const selected = !!(sel && sel.month === bucket.month && sel.week === w);
     // Sin oportunidades: se muestra igual (el mes se lee completo) pero
     // atenuada y NO seleccionable — abrir un detalle vacío no informa nada.
@@ -1203,19 +1236,29 @@ function commercialCreadasMonthTableHtml(filtered) {
         ? "Ninguna oportunidad coincide con estos filtros."
         : "Ninguna oportunidad entró al pipeline en este año.");
   }
-  const max = Math.max(...filtered.map(m => m.count), 1);
+  // DENOMINADOR DEL MES: el MÁXIMO de HORAS entre los meses actualmente
+  // VISIBLES. Se recalcula sobre `filtered`, así que cambiar Año, Vendedor o
+  // Buscar reescala la comparación — que es lo correcto: la pregunta es "¿cómo
+  // se comparan los meses que estoy mirando?", no "¿cómo se comparaban antes
+  // de filtrar?".
+  //
+  // Antes el denominador era el máximo de `count` (cantidad de oportunidades),
+  // heredado del legacy, mientras la columna de al lado muestra HORAS: un mes
+  // de 4.040 h con 10 oportunidades salía más corto que uno de 500 h con 15.
+  const monthHours = filtered.map(m => commercialCreadasHours(m.opportunities));
+  const max = Math.max(...monthHours, 1);
   const sel = commercialState.creadasSelection;
-  const body = filtered.map(m => {
-    const width = (m.count / max * 100).toFixed(1);
+  const body = filtered.map((m, i) => {
+    const width = (monthHours[i] / max * 100).toFixed(1);
     const expanded = commercialState.creadasExpandedMonths.indexOf(m.month) !== -1;
     const selected = !!(sel && sel.month === m.month && sel.week === null);
     const monthRow = `<tr class="commercial-creadas-month${selected ? " is-selected" : ""}"
         data-commercial-creadas-month="${commercialEsc(m.month)}">
       <td class="left">
-        <button type="button" class="commercial-creadas-caret"
+        <button type="button" class="dashboard-table-toggle"
           data-commercial-creadas-toggle="${commercialEsc(m.month)}"
           aria-expanded="${expanded ? "true" : "false"}"
-          aria-label="${expanded ? "Colapsar" : "Expandir"} las semanas de ${commercialEsc(commercialCreadasMonthLabel(m.month))}">${expanded ? "▾" : "▸"}</button>
+          aria-label="${expanded ? "Colapsar" : "Expandir"} las semanas de ${commercialEsc(commercialCreadasMonthLabel(m.month))}"><span class="caret">${expanded ? "▾" : "▸"}</span></button>
         <span class="commercial-creadas-month-label">${commercialEsc(commercialCreadasMonthLabel(m.month))}</span>
       </td>
       <td>${commercialFmtInt(m.count)}</td>
@@ -1277,6 +1320,30 @@ function commercialCreadasSortTh(key, label, cls) {
   const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
   return `<th class="${classes}" data-commercial-creadas-sort="${key}"`
     + ` title="Ordenar por ${commercialEsc(label)}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+}
+
+// Cambiar de vendedor — UNA sola función para las TRES puertas (el dropdown,
+// el click en el ranking y Limpiar). Sin esto, tres caminos que hacen "lo
+// mismo" divergen en cuanto uno agregue un paso.
+//
+// Lo que hace con el DETALLE ABIERTO es el punto delicado: si el mes/semana
+// seleccionado sigue teniendo oportunidades bajo el filtro nuevo, el detalle se
+// re-renderiza a ese subconjunto; si se queda vacío, se cierra SOLO el detalle.
+// Los meses expandidos NO se tocan — colapsarlos sería castigar al usuario por
+// filtrar.
+function commercialCreadasSetSeller(seller) {
+  commercialState.creadasSeller = seller || "";
+  const sel = commercialState.creadasSelection;
+  if (sel) {
+    const months = (commercialState.creadas && commercialState.creadas.months) || [];
+    const year = commercialCreadasEffectiveYear(months);
+    const bucket = commercialCreadasFiltered(months, year).find(m => m.month === sel.month);
+    const quedan = bucket && (sel.week === null
+      ? bucket.opportunities.length
+      : bucket.opportunities.filter(o => commercialCreadasWeekOfMonth(o.entry_date) === sel.week).length);
+    if (!quedan) commercialState.creadasSelection = null;
+  }
+  commercialRenderCreadasPanel();
 }
 
 // ── DETALLE — CONTEXTUAL Y DESCARTABLE ────────────────────────────────────
@@ -3019,6 +3086,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // limpio (semana/detalle previos no sobreviven a cambiar de mes); una
     // semana dentro del MISMO mes togglea sola. Re-render QUIRÚRGICO del
     // panel — MISMO camino que el resto de Creadas/Forecast.
+    // RANKING — click en un vendedor lo selecciona en el dropdown y filtra en
+    // cascada. MISMA puerta que el `<select>`: el `<select>` se regenera con su
+    // `selected` correcto en el re-render, así que no hace falta tocarlo a mano.
+    const sellerPick = event.target.closest("[data-commercial-creadas-seller-pick]");
+    if (sellerPick) {
+      commercialCreadasSetSeller(sellerPick.dataset.commercialCreadasSellerPick);
+      return;
+    }
     // CHEVRON — expande/colapsa las semanas del mes. VA PRIMERO y corta acá:
     // el chevron vive DENTRO de la fila de mes, así que sin este atajo un click
     // en él haría las DOS cosas (expandir y abrir detalle), que es justo la
@@ -3086,9 +3161,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // GLOBAL de Tipo (Todos/NN/BI) no se toca ni de casualidad: cambia el
     // universo de negocio y su dataset, no es un filtro de esta tabla.
     if (event.target.closest("[data-commercial-creadas-clear]")) {
-      commercialState.creadasSeller = "";
       commercialState.creadasSearch = "";
-      commercialRenderCreadasPanel();
+      // Por la misma puerta que el dropdown y el ranking: Limpiar deja el
+      // vendedor en "Todos" y la selección del ranking se cae sola (el render
+      // deriva `.is-active` del estado, no de una clase pegada a mano).
+      commercialCreadasSetSeller("");
       return;
     }
     // "✕ Limpiar" del Forecast (C6b): mismo primitivo y mismo gesto que el de
@@ -3269,11 +3346,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // VENDEDOR — filtro LOCAL sobre el payload ya cargado. Cero red.
     const sellerSelect = event.target.closest("[data-commercial-creadas-seller]");
     if (sellerSelect) {
-      commercialState.creadasSeller = sellerSelect.value;
-      // El detalle abierto puede quedar fuera del universo filtrado. NO se
-      // fuerza a cerrar: el render omite un detalle huérfano, y si el filtro se
-      // revierte el detalle vuelve tal cual estaba.
-      commercialRenderCreadasPanel();
+      commercialCreadasSetSeller(sellerSelect.value);
       return;
     }
   });
@@ -3331,6 +3404,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // ese segundo camino de activación, sin duplicar el toggle/show en sí.
   document.addEventListener("keydown", event => {
     if (event.key !== "Enter" && event.key !== " ") return;
+    // RANKING de Creadas — la fila es `role="button"` + `tabindex="0"`, no un
+    // `<button>` nativo (envolver `.bar-row` rompería su layout flex de tres
+    // hijos), así que Enter/Space van a mano — MISMO criterio que
+    // `initModuleFilter` en Métricas de Uso, por la misma razón.
+    // `preventDefault` evita que Space scrollee la página, que es su default
+    // sobre un elemento no-botón.
+    //
+    // Va DENTRO de este delegado y no en uno nuevo: commercial.js mantiene UN
+    // SOLO delegado por tipo de evento (hay un test que lo fija) — dos
+    // listeners de `keydown` es justo el tipo de duplicación que ese contrato
+    // existe para evitar.
+    const sellerPick = event.target.closest && event.target.closest("[data-commercial-creadas-seller-pick]");
+    if (sellerPick) {
+      event.preventDefault();
+      commercialCreadasSetSeller(sellerPick.dataset.commercialCreadasSellerPick);
+      return;
+    }
     const kpiTrigger = event.target.closest("[data-event]");
     if (!kpiTrigger) return;
     commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
