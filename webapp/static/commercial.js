@@ -1419,9 +1419,9 @@ function commercialCreadasDetailHtml(filtered) {
   const body = rows || `<tr><td colspan="6">${commercialEsc("Sin oportunidades para esta selección.")}</td></tr>`;
   return `<div data-commercial-creadas-detail style="margin-top:16px">
       <div class="commercial-creadas-detail-head">
-        <p class="perspective-label">Detalle · ${commercialEsc(scope)} — ${commercialFmtInt(opps.length)} oportunidad(es)</p>
-        <button type="button" class="panel-close"
-          data-commercial-creadas-detail-close aria-label="Cerrar detalle">×</button>
+        <p class="perspective-label">Detalle — ${commercialFmtInt(opps.length)} oportunidad(es)`
+    + `${commercialCreadasFilterContextHtml(sel.week === null ? "Mes" : "Semana", scope,
+      "data-commercial-creadas-detail-close", "Cerrar el detalle")}</p>
       </div>
       <div class="matrix-scroll">
         <table class="dashboard-table commercial-creadas-detail-table">
@@ -1481,11 +1481,11 @@ function commercialCreadasPanelBodyHtml() {
   return commercialCreadasControlsHtml(months)
     + `<div class="commercial-creadas-analysis">
         <div>
-          <h3 class="perspective-label">Ranking por vendedor${commercialCreadasFilterContextHtml("Vendedor", commercialState.creadasSeller, "data-commercial-creadas-seller-clear", "Volver a todos los vendedores")}</h3>
+          <h3 class="perspective-label">Ranking por vendedor</h3>
           ${commercialCreadasSellerRankingHtml(filtered)}
         </div>
         <div>
-          <h3 class="perspective-label">Por mes y semana${commercialCreadasFilterContextHtml(commercialState.creadasSelection && commercialState.creadasSelection.week !== null ? "Semana" : "Mes", commercialCreadasSelectionLabel(), "data-commercial-creadas-selection-clear", "Cerrar el detalle")}</h3>
+          <h3 class="perspective-label">Por mes y semana${commercialCreadasFilterContextHtml("Vendedor", commercialState.creadasSeller, "data-commercial-creadas-seller-clear", "Volver a todos los vendedores")}</h3>
           ${commercialCreadasMonthTableHtml(filtered)}
         </div>
       </div>`
@@ -3123,14 +3123,6 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialCreadasSetSeller("");
       return;
     }
-    // ✕ DEL CONTEXTO DE MES/SEMANA — cierra SOLO la selección del detalle. No
-    // toca el vendedor, ni el año, ni la búsqueda, ni colapsa ningún mes
-    // expandido: cerrar un detalle no es dejar de mirar el mes.
-    if (event.target.closest("[data-commercial-creadas-selection-clear]")) {
-      commercialState.creadasSelection = null;
-      commercialRenderCreadasPanel();
-      return;
-    }
     // RANKING — click en un vendedor lo selecciona en el dropdown y filtra en
     // cascada. MISMA puerta que el `<select>`: el `<select>` se regenera con su
     // `selected` correcto en el re-render, así que no hace falta tocarlo a mano.
@@ -3193,8 +3185,11 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialRenderCreadasPanel();
       return;
     }
-    // × DEL DETALLE — cierra SÓLO el detalle. No toca año, vendedor, búsqueda,
-    // meses expandidos ni el dataset, y no dispara ningún fetch.
+    // ✕ DEL CONTEXTO DEL DETALLE — cierra SÓLO el detalle. No toca año,
+    // vendedor, búsqueda, meses expandidos ni el dataset, y no dispara ningún
+    // fetch. Es el ✕ del tag "Filtrado por Mes/Semana" que el detalle hereda de
+    // la tabla: antes había además un `.panel-close` propio haciendo lo mismo,
+    // y dos ✕ para una sola acción es ruido.
     if (event.target.closest("[data-commercial-creadas-detail-close]")) {
       commercialState.creadasSelection = null;
       commercialRenderCreadasPanel();

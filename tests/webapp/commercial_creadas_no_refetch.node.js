@@ -214,7 +214,7 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
 
   commercialState.creadasSeller = "Ana";
   commercialState.creadasSelection = { month: `${CUR}-07`, week: 1 };
-  fire("click", makeEl({ commercialCreadasSelectionClear: "" }));
+  fire("click", makeEl({ commercialCreadasDetailClose: "" }));
   await check("✕ del contexto de Mes/Semana");
   assertEqual(commercialState.creadasSelection, null, "✕ Mes: cierra la selección");
   assertEqual(commercialState.creadasSeller, "Ana", "✕ Mes: PRESERVA el Vendedor");

@@ -363,7 +363,10 @@ const countOf = (h, sub) => h.split(sub).length - 1;
 {
   uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
   const mes = commercialCreadasDetailHtml(uxFiltered());
-  assertTrue(mes.indexOf("Detalle · ") !== -1, "F: el header del detalle declara su alcance");
+  // El alcance ya no va en el titulo: viene en el TAG que el detalle HEREDA de
+  // la tabla (owner: cada capa contextualiza el filtro que recibio).
+  assertTrue(mes.indexOf("· Filtrado por Mes: ") !== -1,
+    "F: el detalle declara el filtro que HEREDO de la tabla");
   assertTrue(mes.includes("3 oportunidad(es)"), "F: el detalle de MES trae las 3 del mes");
   assertTrue(mes.includes("Alfa BDC") && mes.includes("Beta PaPM") && mes.includes("Gamma Datasphere"),
     "F: las tres oportunidades del mes");
@@ -385,9 +388,11 @@ const countOf = (h, sub) => h.split(sub).length - 1;
   uxReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
   const html = commercialCreadasDetailHtml(uxFiltered());
   assertTrue(html.includes("data-commercial-creadas-detail-close"), "H: hay accion de cierre");
-  assertTrue(html.includes('aria-label="Cerrar detalle"'), "H: accesible");
-  assertTrue(html.includes('class="panel-close"'),
-    "H: el x reusa el primitivo del Hub, cero clase nueva");
+  assertTrue(html.includes('title="Cerrar el detalle"'),
+    "H: accesible — `title`, MISMO contrato que Metricas de Uso");
+  assertTrue(html.includes('class="dashboard-subhead__reset"'),
+    "H: el ✕ es el del primitivo de contexto compartido");
+  assertTrue(!html.includes("panel-close"), "H: y NO quedan dos ✕ para la misma accion");
   // Expandir NO abre detalle: son dos acciones distintas.
   uxReady({ creadasExpandedMonths: [`${CUR_YEAR}-07`], creadasSelection: null });
   assertTrue(!commercialCreadasPanelBodyHtml().includes("data-commercial-creadas-detail"),
@@ -908,13 +913,24 @@ const cerca = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.15 : tol)
     "CASCADA: el contexto de Vendedor es visible tras seleccionarlo");
   assertTrue(body.includes("data-commercial-creadas-seller-clear"),
     "CASCADA: con su propio descarte");
+  const iRanking = body.indexOf("Ranking por vendedor");
+  const iTabla = body.indexOf("Por mes y semana");
+  assertTrue(body.indexOf("· Filtrado por Vendedor") > iTabla,
+    "CASCADA: el tag de Vendedor vive en la capa que lo HEREDA (la tabla)");
+  assertTrue(body.slice(iRanking, iTabla).indexOf("Filtrado por") === -1,
+    "CASCADA: el ranking NO lleva tag — es donde el filtro nace");
 
   barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
   const conMes = commercialCreadasPanelBodyHtml();
   assertTrue(conMes.includes("· Filtrado por Mes: "),
     "CASCADA: el contexto de Mes es visible tras seleccionarlo");
-  assertTrue(conMes.includes("data-commercial-creadas-selection-clear"),
+  assertTrue(conMes.includes("data-commercial-creadas-detail-close"),
     "CASCADA: con su propio descarte");
+  // CADA TAG EN LA CAPA QUE HEREDA EL FILTRO, no en la que lo origina (owner
+  // corrective): el vendedor nace en el ranking, asi que su tag va en la tabla;
+  // el mes/semana nace en la tabla, asi que su tag va en el detalle.
+  assertTrue(conMes.indexOf("· Filtrado por Mes") > conMes.indexOf("data-commercial-creadas-detail"),
+    "CASCADA: el tag de Mes vive en la capa que lo HEREDA (el detalle)");
 
   // Una SEMANA se nombra semana, no mes.
   barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: 2 } });
