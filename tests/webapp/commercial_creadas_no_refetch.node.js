@@ -304,6 +304,66 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   assertEqual(creadasRequests() - antesDeLaSegunda, 0,
     "GUARD E: la SEGUNDA seleccion del mismo año produce CERO requests");
 
+  // ── EL AÑO CACHEADO TIENE QUE RENDERIZARSE, no solo "no pedirse" ───────
+  // Regresion encontrada en el smoke del owner: elegir un año que YA estaba
+  // en cache dejaba el panel VACIO. El cache-hit cortaba temprano sin
+  // publicar el dataset, asi que `commercialState.creadas` seguia siendo el
+  // del año anterior y la tabla —que filtra por prefijo de mes— no matcheaba
+  // nada. Los años frios andaban porque pasaban por el fetch, que si adoptaba;
+  // fallaban justo los de la VENTANA CALIENTE. Contar requests no alcanzaba
+  // para verlo: cero requests era exactamente lo que el guard pedia.
+  const datosA = { months: [{ month: `${CUR}-07`, count: 1, opportunities: [
+    { id: 91, entry_date: `${CUR}-07-03`, name: "EnA", client: "CliA", seller: "Ana", origen: "BI", status: "Ganada", horas: 7 }] }] };
+  const datosB = { months: [{ month: `${CUR - 1}-03`, count: 1, opportunities: [
+    { id: 92, entry_date: `${CUR - 1}-03-05`, name: "EnB", client: "CliB", seller: "Bruno", origen: "NN", status: "Ganada", horas: 9 }] }] };
+  commercialState.creadasByYear = {
+    [String(CUR)]: { status: "ready", data: datosA },
+    [String(CUR - 1)]: { status: "ready", data: datosB },
+  };
+  commercialState.creadasYear = String(CUR);
+  commercialState.creadas = datosA;
+  commercialState.creadasStatus = "ready";
+  commercialState.creadasSeller = "";
+  commercialState.creadasSearch = "";
+
+  const selAB = makeEl({ commercialCreadasYear: "" });
+  const antesDelSwitch = creadasRequests();
+  selAB.value = String(CUR - 1);
+  fire("change", selAB);
+  await drain();
+  assertEqual(creadasRequests() - antesDelSwitch, 0,
+    "AÑO CACHEADO: cambiar a un año ya hidratado sigue sin pedir nada");
+  assertTrue(commercialState.creadas === datosB,
+    "AÑO CACHEADO: y PUBLICA el dataset de ESE año (no deja el anterior)");
+  let cuerpo = hosts["[data-commercial-creadas-body]"].innerHTML;
+  // El panel muestra ranking + tabla mes/semana; el NOMBRE de la oportunidad
+  // vive en el detalle, que exige una seleccion. Se afirma sobre lo que el
+  // panel realmente pinta: el rotulo del mes (lleva el año) y el vendedor.
+  assertTrue(cuerpo.indexOf("de " + (CUR - 1)) !== -1,
+    "AÑO CACHEADO: el panel renderiza los meses del año elegido");
+  assertTrue(cuerpo.indexOf("de " + CUR) === -1,
+    "AÑO CACHEADO: y ya no los del anterior");
+  assertTrue(cuerpo.indexOf("Bruno") !== -1 && cuerpo.indexOf("Ana") === -1,
+    "AÑO CACHEADO: el ranking tambien se rehizo sobre el año elegido");
+  assertTrue(cuerpo.indexOf("Sin datos") === -1,
+    "AÑO CACHEADO: no cae al estado vacio teniendo datos");
+
+  // Y de vuelta: el primer año tiene que volver a aparecer. El owner reporto
+  // exactamente esto — 2026 tenia datos, y despues de pasear por otros años
+  // volvia vacio.
+  selAB.value = String(CUR);
+  fire("change", selAB);
+  await drain();
+  assertEqual(creadasRequests() - antesDelSwitch, 0,
+    "AÑO CACHEADO: volver tampoco pide nada");
+  assertTrue(commercialState.creadas === datosA,
+    "AÑO CACHEADO: volver al año original lo REPUBLICA");
+  cuerpo = hosts["[data-commercial-creadas-body]"].innerHTML;
+  assertTrue(cuerpo.indexOf("de " + CUR) !== -1 && cuerpo.indexOf("de " + (CUR - 1)) === -1,
+    "AÑO CACHEADO: y el panel vuelve a mostrar sus meses");
+  assertTrue(cuerpo.indexOf("Ana") !== -1 && cuerpo.indexOf("Bruno") === -1,
+    "AÑO CACHEADO: con su propio ranking");
+
   // GUARD C: tener el año en el `<select>` no implica estar hidratado.
   const noHidratado = String(CUR - 5);
   commercialState.creadasSelectableYears.push(noHidratado);

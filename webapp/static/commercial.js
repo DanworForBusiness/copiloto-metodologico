@@ -2947,7 +2947,17 @@ async function commercialHydrateCreadasYear(year, opts) {
   const entry = commercialState.creadasByYear[key];
   // Ya cargado o en vuelo: cero fetch. Es el guard que hace que la SEGUNDA
   // seleccion del mismo año sea gratis.
+  //
+  // Pero "no hay que pedirlo" NO es "no hay nada que hacer": el estado POR
+  // AÑO y el dataset que leen los renderers son dos cosas DISTINTAS, y el año
+  // pedido hay que publicarlo como activo igual. Sin esto, elegir un año que
+  // ya estaba en cache dejaba `commercialState.creadas` apuntando al año
+  // ANTERIOR; como la tabla filtra por prefijo de mes, no matcheaba ninguno y
+  // el panel se veia VACIO — justo en los años de la ventana caliente,
+  // mientras que un año frio andaba bien por pasar por el fetch, que si
+  // adoptaba.
   if (entry && (entry.status === "ready" || entry.status === "loading")) {
+    if (opts && opts.activo) commercialCreadasAdoptYear(key);
     return entry.status === "ready";
   }
   commercialState.creadasByYear[key] = { status: "loading", data: null };
