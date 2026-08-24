@@ -1187,7 +1187,21 @@ table.dashboard-table td {
   font-variant-numeric: tabular-nums; color: #1f1f24;
 }
 .content-theme-dark table.dashboard-table td { border-bottom-color: rgba(255,255,255,.06); color: #e4e4ec; }
-table.dashboard-table td.left, table.dashboard-table td.row-label {
+/* `.row-label-col` es LA COLUMNA DEL ROTULO DE FILA: texto, a la izquierda.
+   Hasta acá esa alineación existía sólo para el `<th>` (ver arriba) y NO para
+   el `<td>`, así que una celda marcada como rótulo caía en el
+   `text-align: right` genérico de `td`. El contrato queda completo: header y
+   cuerpo de la misma columna se alinean igual, que es lo único que un
+   "rótulo de fila" puede significar.
+
+   Consumidores auditados antes de tocar la raíz: Reporting usa
+   `.row-label-col` SOLO en `<th>` (8 sitios, cero `<td>`), así que esta regla
+   no lo alcanza; los únicos `<td>` son los 3 de Comercial (Forecast x2,
+   Origen), y los tres son rótulos textuales —"Septiembre de 2026",
+   "Total (8)", "Base Instalada"—. Ninguno pedía otra alineación, así que se
+   arregla la raíz en vez de agregar overrides por feature. */
+table.dashboard-table td.left, table.dashboard-table td.row-label,
+table.dashboard-table td.row-label-col {
   text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* Columna de status COMPACTA/alineada a la derecha (corrective pre-Batch-A,

@@ -469,7 +469,12 @@ function fakeNode() {
     { month: "Sin fecha", count: 2, hours: 64, weighted_hours: 12, revenue: 1,
       opportunities: [{ stage: "1 Contacto", seller: "Beto", hours: 64, probability: 19 }] },
   ];
-  const cols = html => [...html.matchAll(/<th>([^<]*)<\/th>/g)].map(m => m[1]);
+  // El regex acepta atributos en el `<th>`: la columna del rotulo lleva `.left`
+  // desde el corrective de alineacion compartida (`td.row-label-col` a la
+  // izquierda y su header acompañando). Un `/<th>/` pelado dejaba de matchear el
+  // primero y el join quedaba incompleto — lo que se prueba son los ROTULOS y su
+  // orden, no si el `<th>` tiene clase.
+  const cols = html => [...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
   // Períodos = filas del `<tbody>` SIN la de totales (que también usa
   // `.row-label-col`). Separarlas es a propósito: así un cambio en la fila de
   // totales no puede pasar por "un período más".

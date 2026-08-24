@@ -855,7 +855,7 @@ function commercialForecastTableHtml(months, mode) {
   return `<div class="matrix-scroll forecast-months">
       <table class="dashboard-table">
         <colgroup><col style="width:38%"><col style="width:15%"><col style="width:32%"><col style="width:15%"></colgroup>
-        <thead><tr><th>Mes</th><th>Opps.</th><th>${commercialEsc(metric.column)}</th><th>% del total</th></tr></thead>
+        <thead><tr><th class="left">Mes</th><th>Opps.</th><th>${commercialEsc(metric.column)}</th><th>% del total</th></tr></thead>
         <tbody>${body}${totalRow}</tbody>
       </table>
     </div>`;
@@ -1866,7 +1866,7 @@ function commercialOriginsHtml(opportunities) {
     <div class="origin-breakdown matrix-scroll">
       <table class="dashboard-table">
         <colgroup><col style="width:40%"><col style="width:15%"><col style="width:30%"><col style="width:15%"></colgroup>
-        <thead><tr><th>Origen</th><th>Opps.</th><th>Distribución</th><th>% del total</th></tr></thead>
+        <thead><tr><th class="left">Origen</th><th>Opps.</th><th>Distribución</th><th>% del total</th></tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>`;

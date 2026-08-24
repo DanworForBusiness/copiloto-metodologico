@@ -259,7 +259,10 @@ function resetState(patch) {
 // --- 16/18/19: cabeceras, porcentaje como TEXTO, "Sin definir" visible ----
 {
   const html = commercialOriginsHtml(OPPS);
-  assertTrue([...html.matchAll(/<th>([^<]*)<\/th>/g)].map(m => m[1]).join("|")
+  // El regex acepta atributos en el `<th>`: la columna del rotulo lleva `.left`
+  // desde el corrective de alineacion compartida. Lo que se prueba son los
+  // ROTULOS y su orden, no si el `<th>` tiene clase.
+  assertTrue([...html.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]).join("|")
     === "Origen|Opps.|Distribución|% del total", "las cuatro columnas, con sus rótulos");
   assertTrue(html.includes("Oportunidades por Origen"), "y el bloque va rotulado");
   assertTrue(html.includes("perspective-label"), "con el primitivo de rótulo compartido");
