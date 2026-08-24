@@ -54,6 +54,9 @@ const {
   commercialCreadasStatusColor,
   commercialCreadasHours,
   commercialCreadasSetSeller,
+  commercialCreadasSelectionLabel,
+  commercialCreadasFilterContextHtml,
+  commercialCreadasMonthLabel,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
 
@@ -870,6 +873,122 @@ const cerca = (a, b, tol) => Math.abs(a - b) <= (tol === undefined ? 0.15 : tol)
     assertTrue(!bloqueSemana.includes(color),
       `JERARQUIA: la semana no declara color propio (${color}) — usa el token del padre`);
   });
+}
+
+// --- CONTEXTO DE FILTRO ACTIVO — el affordance del Hub ------------------
+// Reusa `.dashboard-subhead__filter` + `.dashboard-subhead__reset` (tools.css),
+// el primitivo que estreno Metricas de Uso: "· Filtrado por <strong>X</strong>
+// ✕", dorado, con el ✕ (U+2715) como descarte. Cero chip inventado.
+{
+  // Sin filtro no se emite nada — el contexto solo existe cuando hay contexto.
+  assertEqual(commercialCreadasFilterContextHtml("Vendedor", "", "data-x", "volver"), "",
+    "CONTEXTO: sin valor no se renderiza");
+
+  const ctx = commercialCreadasFilterContextHtml("Vendedor", "Ana", "data-x", "Volver a todos");
+  assertTrue(ctx.includes('class="dashboard-subhead__filter"'),
+    "CONTEXTO: consume el primitivo compartido del Hub");
+  assertTrue(ctx.includes('class="dashboard-subhead__reset"'),
+    "CONTEXTO: y su boton de descarte");
+  assertTrue(ctx.includes("· Filtrado por Vendedor: "),
+    "CONTEXTO: MISMA gramatica que Metricas de Uso, nombrando la dimension");
+  assertTrue(ctx.includes("<strong>Ana</strong>"), "CONTEXTO: el valor va en <strong>, como el precedente");
+  assertTrue(ctx.indexOf("✕") !== -1, "CONTEXTO: el mismo caracter de descarte (U+2715), no una × cualquiera");
+  assertTrue(ctx.includes('title="Volver a todos"'),
+    "CONTEXTO: `title` que dice a donde vuelve — MISMO contrato de accesibilidad");
+  // Escapa el valor: un nombre con < o & no puede inyectar markup.
+  assertTrue(!commercialCreadasFilterContextHtml("X", "<b>x</b>", "d", "t").includes("<b>"),
+    "CONTEXTO: escapa el valor");
+}
+
+// --- CONTEXTO: aparece en la cascada, en los dos niveles ----------------
+{
+  barsReady({ creadasSeller: "Ana" });
+  const body = commercialCreadasPanelBodyHtml();
+  assertTrue(body.includes("· Filtrado por Vendedor: <strong>Ana</strong>"),
+    "CASCADA: el contexto de Vendedor es visible tras seleccionarlo");
+  assertTrue(body.includes("data-commercial-creadas-seller-clear"),
+    "CASCADA: con su propio descarte");
+
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  const conMes = commercialCreadasPanelBodyHtml();
+  assertTrue(conMes.includes("· Filtrado por Mes: "),
+    "CASCADA: el contexto de Mes es visible tras seleccionarlo");
+  assertTrue(conMes.includes("data-commercial-creadas-selection-clear"),
+    "CASCADA: con su propio descarte");
+
+  // Una SEMANA se nombra semana, no mes.
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: 2 } });
+  const conSemana = commercialCreadasPanelBodyHtml();
+  assertTrue(conSemana.includes("· Filtrado por Semana: "),
+    "CASCADA: una seleccion de semana se nombra Semana");
+  assertTrue(conSemana.includes("Sem. 2 (08/07–14/07)"),
+    "CASCADA: y usa la etiqueta legacy completa");
+
+  // Sin nada seleccionado, ningun contexto.
+  barsReady({});
+  const limpio = commercialCreadasPanelBodyHtml();
+  assertTrue(!limpio.includes("Filtrado por"), "CASCADA: sin filtros no hay contexto");
+}
+
+// --- CONTEXTO: la etiqueta DERIVA del mismo estado que el detalle -------
+{
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: null } });
+  assertEqual(commercialCreadasSelectionLabel(), commercialCreadasMonthLabel(`${CUR_YEAR}-07`),
+    "CONTEXTO: la etiqueta de mes es la misma que usa el detalle");
+  barsReady({ creadasSelection: { month: `${CUR_YEAR}-07`, week: 3 } });
+  assertTrue(commercialCreadasSelectionLabel().indexOf("Sem. 3") === 0,
+    "CONTEXTO: la de semana arranca por la semana");
+  barsReady({});
+  assertEqual(commercialCreadasSelectionLabel(), "", "CONTEXTO: sin seleccion, vacia");
+}
+
+// --- DESCARTE: cada ✕ tiene su alcance, y solo ese ---------------------
+// Lo que el owner fue explicito en separar: descartar un filtro NO es resetear
+// todo (eso es Limpiar), y cerrar un detalle NO es dejar de mirar el mes.
+{
+  // ✕ de Vendedor: limpia el vendedor y NADA mas.
+  barsReady({
+    creadasSeller: "Ana", creadasSearch: "alfa",
+    creadasExpandedMonths: [`${CUR_YEAR}-07`],
+    creadasSelection: { month: `${CUR_YEAR}-07`, week: null },
+  });
+  const anioAntes = commercialState.creadasYear;
+  const datasetAntes = commercialState.creadas;
+  commercialCreadasSetSeller("");                 // lo que hace ese ✕
+  assertEqual(commercialState.creadasSeller, "", "DESCARTE: el vendedor se limpia");
+  assertEqual(commercialState.creadasSearch, "alfa", "DESCARTE: Buscar se PRESERVA");
+  assertEqual(commercialState.creadasYear, anioAntes, "DESCARTE: el Año se PRESERVA");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR_YEAR}-07`],
+    "DESCARTE: los meses expandidos se PRESERVAN");
+  assertTrue(commercialState.creadas === datasetAntes, "DESCARTE: el dataset es el MISMO (cero refetch)");
+
+  // ✕ de Mes/Semana: cierra la seleccion y NADA mas.
+  barsReady({
+    creadasSeller: "Ana", creadasSearch: "beta",
+    creadasExpandedMonths: [`${CUR_YEAR}-07`],
+    creadasSelection: { month: `${CUR_YEAR}-07`, week: 1 },
+  });
+  commercialState.creadasSelection = null;        // lo que hace el otro ✕
+  assertEqual(commercialState.creadasSelection, null, "DESCARTE: la seleccion se cierra");
+  assertEqual(commercialState.creadasSeller, "Ana", "DESCARTE: el Vendedor se PRESERVA");
+  assertEqual(commercialState.creadasSearch, "beta", "DESCARTE: Buscar se PRESERVA");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR_YEAR}-07`],
+    "DESCARTE: y NO se colapsa ningun mes expandido");
+  resetCreadasState();
+}
+
+// --- CONTEXTO: el dropdown y el ranking actualizan el MISMO estado ------
+{
+  barsReady({});
+  assertTrue(!commercialCreadasPanelBodyHtml().includes("Filtrado por Vendedor"),
+    "SYNC-CTX: sin vendedor, sin contexto");
+  // Por la puerta compartida — la misma que usan el dropdown y el ranking.
+  commercialCreadasSetSeller("Bruno");
+  const body = commercialCreadasPanelBodyHtml();
+  assertTrue(body.includes("· Filtrado por Vendedor: <strong>Bruno</strong>"),
+    "SYNC-CTX: cualquiera de las dos puertas actualiza el MISMO contexto");
+  assertTrue(body.includes('<option value="Bruno" selected>'), "SYNC-CTX: y el dropdown coincide");
+  resetCreadasState();
 }
 
 if (failures > 0) {

@@ -1346,6 +1346,36 @@ function commercialCreadasSetSeller(seller) {
   commercialRenderCreadasPanel();
 }
 
+// Etiqueta de la selección activa, o "" si no hay ninguna. Deriva del MISMO
+// estado que el detalle, así que no pueden decir cosas distintas.
+function commercialCreadasSelectionLabel() {
+  const sel = commercialState.creadasSelection;
+  if (!sel) return "";
+  const mes = commercialCreadasMonthLabel(sel.month);
+  return sel.week === null ? mes : `${commercialCreadasWeekLabel(sel.month, sel.week)} · ${mes}`;
+}
+
+// ── CONTEXTO DE FILTRO ACTIVO ────────────────────────────────────────────
+// El affordance de "qué estoy filtrando ahora, y cómo lo saco" del Hub. El
+// primitivo (`.dashboard-subhead__filter` + `.dashboard-subhead__reset`,
+// tools.css) ya existía y lo estrenó Métricas de Uso
+// (`admin_activity_content.html`): "· Filtrado por <strong>X</strong> ✕", en
+// dorado, con el ✕ (U+2715) como acción de descarte y un `title` que dice a
+// dónde vuelve. Cero clase nueva, cero chip inventado para Comercial.
+//
+// Diferencia con Métricas de Uso, deliberada: allá el markup es estático y JS
+// lo muestra/oculta con `hidden` porque hay UNA sola dimensión de filtro. Acá
+// el panel se re-renderiza entero, así que se emite sólo cuando aplica — y se
+// nombra la DIMENSIÓN ("Vendedor:", "Mes:") porque hay dos y sin el nombre no
+// se distinguen entre sí.
+function commercialCreadasFilterContextHtml(dimension, valor, hook, volverA) {
+  if (!valor) return "";
+  return ` <span class="dashboard-subhead__filter">· Filtrado por ${commercialEsc(dimension)}: `
+    + `<strong>${commercialEsc(valor)}</strong> `
+    + `<button type="button" class="dashboard-subhead__reset" ${hook}`
+    + ` title="${commercialEsc(volverA)}">✕</button></span>`;
+}
+
 // ── DETALLE — CONTEXTUAL Y DESCARTABLE ────────────────────────────────────
 // Sólo existe si hay una selección explícita. Antes se derivaba del mes
 // expandido, así que aparecía sin pedirlo y no se podía cerrar sin colapsar el
@@ -1451,11 +1481,11 @@ function commercialCreadasPanelBodyHtml() {
   return commercialCreadasControlsHtml(months)
     + `<div class="commercial-creadas-analysis">
         <div>
-          <h3 class="perspective-label">Ranking por vendedor</h3>
+          <h3 class="perspective-label">Ranking por vendedor${commercialCreadasFilterContextHtml("Vendedor", commercialState.creadasSeller, "data-commercial-creadas-seller-clear", "Volver a todos los vendedores")}</h3>
           ${commercialCreadasSellerRankingHtml(filtered)}
         </div>
         <div>
-          <h3 class="perspective-label">Por mes y semana</h3>
+          <h3 class="perspective-label">Por mes y semana${commercialCreadasFilterContextHtml(commercialState.creadasSelection && commercialState.creadasSelection.week !== null ? "Semana" : "Mes", commercialCreadasSelectionLabel(), "data-commercial-creadas-selection-clear", "Cerrar el detalle")}</h3>
           ${commercialCreadasMonthTableHtml(filtered)}
         </div>
       </div>`
@@ -3086,6 +3116,21 @@ document.addEventListener("DOMContentLoaded", () => {
     // limpio (semana/detalle previos no sobreviven a cambiar de mes); una
     // semana dentro del MISMO mes togglea sola. Re-render QUIRÚRGICO del
     // panel — MISMO camino que el resto de Creadas/Forecast.
+    // ✕ DEL CONTEXTO DE VENDEDOR — limpia SOLO el vendedor. Año, Buscar y el
+    // Tipo global quedan como estaban: descartar un filtro no es "resetear
+    // todo", que es lo que hace Limpiar y por eso son dos acciones distintas.
+    if (event.target.closest("[data-commercial-creadas-seller-clear]")) {
+      commercialCreadasSetSeller("");
+      return;
+    }
+    // ✕ DEL CONTEXTO DE MES/SEMANA — cierra SOLO la selección del detalle. No
+    // toca el vendedor, ni el año, ni la búsqueda, ni colapsa ningún mes
+    // expandido: cerrar un detalle no es dejar de mirar el mes.
+    if (event.target.closest("[data-commercial-creadas-selection-clear]")) {
+      commercialState.creadasSelection = null;
+      commercialRenderCreadasPanel();
+      return;
+    }
     // RANKING — click en un vendedor lo selecciona en el dropdown y filtra en
     // cascada. MISMA puerta que el `<select>`: el `<select>` se regenera con su
     // `selected` correcto en el re-render, así que no hace falta tocarlo a mano.

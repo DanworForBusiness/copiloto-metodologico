@@ -193,7 +193,36 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   fire("keydown", Object.assign(rankRow, { key: "Enter" }));
   await check("Enter sobre un vendedor del ranking");
 
-  // 11. LIMPIAR
+  // 11. LOS DOS ✕ DE CONTEXTO — se prueban acá y no en el harness de render
+  //     porque lo que importa es su ALCANCE, y eso vive en el HANDLER: llamar a
+  //     la función de negocio directamente no puede ver si el handler hace de
+  //     más. (Un mutation test de "el ✕ del vendedor también limpia Buscar"
+  //     pasaba sin que nadie lo notara, justamente por eso.)
+  commercialState.creadasSeller = "Ana";
+  commercialState.creadasSearch = "beta";
+  commercialState.creadasExpandedMonths = [`${CUR}-07`];
+  commercialState.creadasSelection = { month: `${CUR}-07`, week: 1 };
+  const yearAntes = commercialState.creadasYear;
+
+  fire("click", makeEl({ commercialCreadasSellerClear: "" }));
+  await check("✕ del contexto de Vendedor");
+  assertEqual(commercialState.creadasSeller, "", "✕ Vendedor: limpia el vendedor");
+  assertEqual(commercialState.creadasSearch, "beta", "✕ Vendedor: PRESERVA Buscar");
+  assertEqual(commercialState.creadasYear, yearAntes, "✕ Vendedor: PRESERVA el Año");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR}-07`],
+    "✕ Vendedor: PRESERVA los meses expandidos");
+
+  commercialState.creadasSeller = "Ana";
+  commercialState.creadasSelection = { month: `${CUR}-07`, week: 1 };
+  fire("click", makeEl({ commercialCreadasSelectionClear: "" }));
+  await check("✕ del contexto de Mes/Semana");
+  assertEqual(commercialState.creadasSelection, null, "✕ Mes: cierra la selección");
+  assertEqual(commercialState.creadasSeller, "Ana", "✕ Mes: PRESERVA el Vendedor");
+  assertEqual(commercialState.creadasSearch, "beta", "✕ Mes: PRESERVA Buscar");
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR}-07`],
+    "✕ Mes: NO colapsa ningún mes expandido");
+
+  // 12. LIMPIAR — su alcance más amplio, ya aprobado, sigue igual.
   const clear = makeEl({ commercialCreadasClear: "" });
   fire("click", clear);
   await check("Limpiar");
@@ -217,7 +246,11 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
     "Limpiar reseteo el vendedor que el ranking habia aplicado");
   assertEqual(commercialState.creadasSearch, "", "Limpiar reseteo la busqueda");
   assertEqual(commercialState.creadasSelection, null, "el detalle quedo cerrado");
-  assertEqual(commercialState.creadasExpandedMonths, [], "el mes quedo colapsado");
+  // La expansion la siembran los pasos de los dos ✕ (que verifican, justamente,
+  // que NO la tocan), asi que al final del recorrido el mes sigue abierto — y
+  // Limpiar tampoco lo colapsa: su alcance son los FILTROS, no la expansion.
+  assertEqual(commercialState.creadasExpandedMonths, [`${CUR}-07`],
+    "Limpiar no colapsa la expansion — su alcance son los filtros");
   assertTrue(commercialState.creadas !== null, "y el dataset NUNCA se invalido");
 
   // ── TIPO sigue con SU contrato (invalida y vuelve a pedir) ──────────────
