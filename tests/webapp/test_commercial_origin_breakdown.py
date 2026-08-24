@@ -55,7 +55,12 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # incremento POSTERIOR y no relacionado con Origin, que sí agregó el
     # suyo propio).
     code = _js_code(_COMMERCIAL_JS)
-    assert code.count("/comercial/data/") == 7  # 4 iniciales + activities + forecast + creadas
+    # 8 y no 7: el corrective hot/cold agrega
+    # `/comercial/data/creadas/anios-disponibles` — descubrimiento de años
+    # SEPARADO de los datos, mismo criterio que los `anios-disponibles` de
+    # Reporting. Si viajara dentro del payload, el `<select>` solo podria
+    # ofrecer los años ya hidratados.
+    assert code.count("/comercial/data/") == 8  # 4 iniciales + activities + forecast + creadas
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):

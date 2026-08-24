@@ -24,6 +24,7 @@
   "GET /comercial/data/activities",
   "GET /comercial/data/analytics",
   "GET /comercial/data/creadas",
+  "GET /comercial/data/creadas/anios-disponibles",
   "GET /comercial/data/forecast",
   "GET /comercial/data/opportunities",
   "GET /comercial/data/pipeline",

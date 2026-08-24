@@ -854,7 +854,10 @@ def _creadas_detail_client():
 
 def test_creadas_detail_covers_all_canonical_populations_and_derives_status():
     svc_module.clear_cache()
-    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    # `year=2024` explicito: el contrato paso a ser POR AÑO (owner hot/cold
+    # corrective) y estas fixtures viven en 2024. Antes el endpoint devolvia
+    # TODOS los meses de la historia y el año no hacia falta.
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos", year=2024)
     months = {m["month"]: m for m in detail["months"]}
     by_id = {o["id"]: o for m in months.values() for o in m["opportunities"]}
 
@@ -887,7 +890,7 @@ def test_creadas_detail_covers_all_canonical_populations_and_derives_status():
 
 def test_creadas_detail_groups_by_month_descending_and_orders_opportunities_ascending():
     svc_module.clear_cache()
-    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos", year=2024)
     months = detail["months"]
     # Ene (id 1) y Feb (id 2, 3, 4) — descendente: Feb antes que Ene.
     assert [m["month"] for m in months] == ["2024-02", "2024-01"]
@@ -901,7 +904,7 @@ def test_creadas_detail_seller_field_supports_ranking_aggregation():
     # El ranking por vendedor se agrega client-side (JS) sobre este campo —
     # el backend sólo necesita exponerlo correctamente por oportunidad.
     svc_module.clear_cache()
-    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos")
+    detail = CommercialService(_creadas_detail_client()).get_creadas_detail("todos", year=2024)
     sellers = [o["seller"] for m in detail["months"] for o in m["opportunities"]]
     assert sellers.count("Bruno Paz") == 2  # ids 2 y 3
     assert sellers.count("Ana Gómez") == 2  # ids 1 y 4
@@ -910,8 +913,8 @@ def test_creadas_detail_seller_field_supports_ranking_aggregation():
 def test_creadas_detail_partitions_by_tag_same_criterion_as_the_kpi():
     svc_module.clear_cache()
     service = CommercialService(_creadas_detail_client())
-    todos = service.get_creadas_detail("todos")
-    nn = service.get_creadas_detail("nn")
+    todos = service.get_creadas_detail("todos", year=2024)
+    nn = service.get_creadas_detail("nn", year=2024)
     todos_ids = {o["id"] for m in todos["months"] for o in m["opportunities"]}
     nn_ids = {o["id"] for m in nn["months"] for o in m["opportunities"]}
     assert todos_ids == {1, 2, 3, 4}
@@ -924,10 +927,26 @@ def test_creadas_detail_enrichment_is_one_batched_query_never_per_opportunity():
     # una por oportunidad del conjunto canónico.
     svc_module.clear_cache()
     client = _creadas_detail_client()
-    CommercialService(client).get_creadas_detail("todos")
+    CommercialService(client).get_creadas_detail("todos", year=2024)
     lead_calls = [c for c in client.calls if c[0] == "crm.lead"]
-    enrichment_calls = [c for c in lead_calls if any(cond[0] == "id" and cond[1] == "in" for cond in c[1])]
+    por_id = [c for c in lead_calls if any(cond[0] == "id" and cond[1] == "in" for cond in c[1])]
+    # El ENRIQUECIMIENTO se identifica por sus campos de presentación — es la
+    # query cuyo resultado se muestra. Sigue siendo UNA.
+    enrichment_calls = [c for c in por_id if "name" in (c[2] or [])]
     assert len(enrichment_calls) == 1, enrichment_calls
+    # El corrective hot/cold agrega OTRA lectura por id: los leads que llegaron
+    # por transición y no por `create_date` del año, de los que hace falta
+    # `stage_id`/`create_date` para aplicar la regla canónica. También es UNA
+    # sola y batcheada.
+    universo = [c for c in por_id if "name" not in (c[2] or [])]
+    assert len(universo) <= 1, universo
+    # EL INVARIANTE QUE IMPORTA, y que no cambió: ninguna lectura es POR
+    # OPORTUNIDAD. Cada `id in [...]` pide un lote, nunca uno solo por llamada
+    # repetida — que es la forma que tendría un N+1.
+    for call in por_id:
+        ids = next(cond[2] for cond in call[1] if cond[0] == "id" and cond[1] == "in")
+        assert isinstance(ids, list), call
+    assert len(por_id) <= 2, f"más lecturas por id de las esperadas: {por_id}"
 
 
 def test_creadas_kpi_and_drill_reconcile_for_the_same_period():
@@ -951,7 +970,9 @@ def test_creadas_kpi_and_drill_reconcile_for_the_same_period():
     service = CommercialService(client)
     kpi_this_week = service.get_analytics("todos")["creadas"]["this_week"]
     svc_module.clear_cache()
-    detail = service.get_creadas_detail("todos")
+    # Este caso vive en la semana ACTUAL (compara contra el KPI semanal), asi
+    # que pide el año en curso — no el 2024 de las otras fixtures.
+    detail = service.get_creadas_detail("todos", year=date.today().year)
     drill_this_week = sum(
         1 for m in detail["months"] for o in m["opportunities"]
         if o["entry_date"] >= this_monday.isoformat()
@@ -966,23 +987,23 @@ def test_creadas_detail_empty_without_valid_stages_or_events():
     svc_module.clear_cache()
     # Sin etapas 1-8 configuradas.
     client = FakeOdooClient(stages=[{"id": 1, "name": "0 Prospección"}], tags=TAGS, leads=[])
-    assert CommercialService(client).get_creadas_detail("todos") == {"months": []}
+    assert CommercialService(client).get_creadas_detail("todos", year=2024) == {"months": []}
     svc_module.clear_cache()
     # Etapas válidas, pero cero oportunidades.
     client2 = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[])
-    assert CommercialService(client2).get_creadas_detail("todos") == {"months": []}
+    assert CommercialService(client2).get_creadas_detail("todos", year=2024) == {"months": []}
 
 
 def test_creadas_detail_requires_configuration_and_wraps_transport_errors():
     svc_module.clear_cache()
     unconfigured = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[], configured=False)
     with pytest.raises(CommercialConfigurationError):
-        CommercialService(unconfigured).get_creadas_detail("todos")
+        CommercialService(unconfigured).get_creadas_detail("todos", year=2024)
     svc_module.clear_cache()
     failing = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[])
     failing.raise_on("crm.stage", stage="authenticate")
     with pytest.raises(CommercialDataError) as exc_info:
-        CommercialService(failing).get_creadas_detail("todos")
+        CommercialService(failing).get_creadas_detail("todos", year=2024)
     assert exc_info.value.stage == "authenticate"
 
 

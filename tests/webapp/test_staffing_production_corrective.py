@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_107():
+def test_15_route_surface_still_108():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -556,6 +556,14 @@ def test_15_route_surface_still_107():
     #     anios-disponibles (metadata liviana de años, MISMO patrón que
     #     data/cartera/anios-disponibles). Los dos lados sumaron rutas en paralelo
     #     desde 98: siete de Comercial acá, una de Reporting en main.
+    #   107 -> 108 (Creadas Hot/Cold Year Hydration, owner performance
+    #     corrective): +GET /comercial/data/creadas/anios-disponibles — el
+    #     DESCUBRIMIENTO de años seleccionables, separado de los datos a
+    #     propósito (MISMO criterio que los `anios-disponibles` de
+    #     Reporting). Una consulta con `limit=1`: declara disponibilidad, no
+    #     contenido. Si viajara dentro del payload de datos, el `<select>`
+    #     sólo podría ofrecer los años ya hidratados — que es exactamente el
+    #     costo que ese corrective elimina.
     #   106 -> 107 (Creadas Legacy Parity, ver HANDOFF): +GET
     #     /comercial/data/creadas, drill de "Creadas" (mensual + ranking por
     #     vendedor + detalle por oportunidad, paridad con el legacy
@@ -568,7 +576,7 @@ def test_15_route_surface_still_107():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 107
+    assert len(snapshot) == 108
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

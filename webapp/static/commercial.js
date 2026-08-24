@@ -95,6 +95,22 @@ const commercialState = {
   // primera vez que se abre el desglose, se reusa mientras el `tipo` no
   // cambie. `idle` = todavía no se pidió, o quedó invalidado por un cambio
   // de Todos/NN/BI.
+  // HIDRATACION POR AÑO (owner performance corrective). Antes había UN
+  // `creadas` con todos los meses de la historia; ahora hay un estado
+  // EXPLICITO por año, porque la existencia de una opción en el `<select>` no
+  // es evidencia de que sus datos estén cargados:
+  //
+  //   creadasByYear = { "2026": { status, data }, "2023": { status, data } }
+  //
+  // `status`: idle | loading | ready | error. Un año sin entrada es COLD.
+  creadasByYear: {},
+  // Años SELECCIONABLES — metadata, del endpoint de descubrimiento. NO implica
+  // que esos años estén hidratados (owner: "YEAR OPTION != YEAR HYDRATED").
+  creadasSelectableYears: [],
+  creadasAniosStatus: "idle",
+  // Estado del AÑO ACTIVO, derivado de `creadasByYear` — lo que el panel mira
+  // para decidir qué renderizar. Se mantiene por compatibilidad con los
+  // renderers, que preguntan por UN dataset.
   creadas: null,
   creadasStatus: "idle", // idle | loading | ready | error
   creadasErrorState: "",
@@ -928,9 +944,19 @@ function commercialForecastCountLabel(mode) {
 // Año por default: el más RECIENTE con datos (MISMO criterio que el legacy:
 // el año actual si tiene oportunidades, si no el más reciente disponible —
 // nunca el año calendario a secas, que podría no tener ningún dato).
+// Años del `<select>`: los SELECCIONABLES del descubrimiento, NO los que están
+// hidratados (owner: "YEAR OPTION != YEAR HYDRATED"). Antes se derivaban de
+// `months`, o sea del payload histórico completo — por eso el drill tenía que
+// traer toda la historia para poder ofrecer 2023.
+//
+// Fallback a los años del payload mientras el descubrimiento no resolvió: así
+// el `<select>` nunca queda vacío, y el año activo siempre es ofrecible.
 function commercialCreadasYears(months) {
+  const descubiertos = commercialState.creadasSelectableYears || [];
+  if (descubiertos.length) return descubiertos;
   const years = new Set();
   (months || []).forEach(m => years.add(m.month.slice(0, 4)));
+  if (commercialState.creadasYear) years.add(String(commercialState.creadasYear));
   return [...years].sort().reverse();
 }
 function commercialCreadasDefaultYear(months) {
@@ -2912,36 +2938,91 @@ function commercialRenderCreadasPanel() {
 // `tipo` vigente — MISMO criterio que Forecast (owner directive — "the KPI
 // must remain lightweight... first click fetches the drill"). El fallo
 // queda AISLADO: sólo este panel avisa.
-async function commercialLoadCreadas() {
-  commercialState.creadasStatus = "loading";
+// ── HIDRATACION POR AÑO ────────────────────────────────────────────────────
+// Un año, un fetch. `commercialState.creadasByYear[year]` es la fuente de
+// verdad de que esta cargado; la lista del `<select>` viene de otro lado y NO
+// implica hidratacion.
+async function commercialHydrateCreadasYear(year, opts) {
+  const key = String(year);
+  const entry = commercialState.creadasByYear[key];
+  // Ya cargado o en vuelo: cero fetch. Es el guard que hace que la SEGUNDA
+  // seleccion del mismo año sea gratis.
+  if (entry && (entry.status === "ready" || entry.status === "loading")) {
+    return entry.status === "ready";
+  }
+  commercialState.creadasByYear[key] = { status: "loading", data: null };
+  if (opts && opts.activo) commercialState.creadasStatus = "loading";
   commercialRenderCreadasPanel();
-  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
   try {
-    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const qs = `anio=${encodeURIComponent(key)}&tipo=${encodeURIComponent(commercialState.tipo)}`;
     const resp = await fetch(`/comercial/data/creadas?${qs}`).then(r => r.json());
     if (resp.state === "ok") {
-      commercialState.creadas = resp.creadas;
-      commercialState.creadasStatus = "ready";
-      // Año se recalcula contra el payload NUEVO en el próximo render (ver
-      // `commercialCreadasEffectiveYear`) — nunca conserva un año de una
-      // carga anterior con otro `tipo`.
-      commercialState.creadasYear = null;
-      commercialState.creadasExpandedMonths = [];
-      commercialState.creadasSelection = null;
-      commercialState.creadasSeller = "";
-      commercialState.creadasSearch = "";
-      HubForegroundProgress.complete("commercial");
-    } else {
-      commercialState.creadasStatus = "error";
-      commercialState.creadasErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
-      HubForegroundProgress.fail("commercial");
+      commercialState.creadasByYear[key] = { status: "ready", data: resp.creadas };
+      commercialCreadasAdoptYear(key);
+      return true;
     }
+    commercialState.creadasByYear[key] = {
+      status: "error", data: null,
+      errorState: resp.state === "config_incomplete" ? "config_incomplete" : "source_error",
+    };
   } catch (e) {
-    commercialState.creadasStatus = "error";
-    commercialState.creadasErrorState = "source_error";
-    HubForegroundProgress.fail("commercial");
+    commercialState.creadasByYear[key] = { status: "error", data: null, errorState: "source_error" };
   }
+  commercialCreadasAdoptYear(commercialState.creadasYear || key);
+  return false;
+}
+
+// Publica el año pedido como el ACTIVO si es el que el usuario esta mirando.
+// Los renderers preguntan por UN dataset (`commercialState.creadas`), asi que
+// aca se conecta el estado por año con esa lectura — sin que un año que termina
+// en background pise la vista de otro.
+function commercialCreadasAdoptYear(year) {
+  const key = String(year);
+  const activo = String(commercialState.creadasYear || key);
+  if (key !== activo) { commercialRenderCreadasPanel(); return; }
+  const entry = commercialState.creadasByYear[key] || { status: "idle" };
+  commercialState.creadas = entry.data;
+  commercialState.creadasStatus = entry.status === "ready" ? "ready"
+    : entry.status === "error" ? "error" : "loading";
+  commercialState.creadasErrorState = entry.errorState || "";
+  if (entry.status === "ready") HubForegroundProgress.complete("commercial");
+  else if (entry.status === "error") HubForegroundProgress.fail("commercial");
   commercialRenderCreadasPanel();
+}
+
+// Primera apertura del drill: descubrimiento + HOT WINDOW.
+//
+// Solo el año ACTUAL y el ANTERIOR se hidratan solos. Los mas viejos quedan
+// COLD: aparecen en el `<select>` (metadata barata) y se piden al
+// seleccionarse. Antes esta apertura reconstruia el historial canonico COMPLETO.
+//
+// Los dos van en PARALELO y el render NO espera al anterior: el año activo
+// pinta en cuanto esta, y el previo termina de poblar su cache despues.
+async function commercialLoadCreadas() {
+  const actual = new Date().getFullYear();
+  commercialState.creadasYear = String(actual);
+  HubForegroundProgress.begin("commercial", { seedMs: 4500 });
+
+  // El descubrimiento va en paralelo con los datos: es una consulta con
+  // `limit=1`, no puede ser el cuello de botella, y el `<select>` la necesita
+  // para poder ofrecer los años frios.
+  if (commercialState.creadasAniosStatus === "idle") {
+    commercialState.creadasAniosStatus = "loading";
+    fetch("/comercial/data/creadas/anios-disponibles")
+      .then(r => r.json())
+      .then(resp => {
+        commercialState.creadasSelectableYears = resp.state === "ok" ? (resp.anios || []) : [];
+        commercialState.creadasAniosStatus = resp.state === "ok" ? "ready" : "error";
+        commercialRenderCreadasPanel();
+      })
+      .catch(() => { commercialState.creadasAniosStatus = "error"; });
+  }
+
+  // El año activo primero, sin await del previo.
+  const activo = commercialHydrateCreadasYear(actual, { activo: true });
+  // HOT WINDOW: el previo warmea su cache en background.
+  commercialHydrateCreadasYear(actual - 1);
+  await activo;
 }
 
 // Puente entre el motor compartido y el lazy load — MISMO criterio que
@@ -3367,6 +3448,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const yearSelect = event.target.closest("[data-commercial-creadas-year]");
     if (yearSelect) {
       commercialState.creadasYear = yearSelect.value;
+      // COLD YEAR: si ese año no está hidratado, se pide SOLO ese año, con el
+      // estado de carga acotado al panel de Creadas. Si ya está en cache
+      // (`ready`), `commercialHydrateCreadasYear` corta sin fetch y la segunda
+      // selección es inmediata.
+      commercialHydrateCreadasYear(yearSelect.value, { activo: true });
       // Expansión y detalle se resetean: un mes del año anterior no existe bajo
       // el año nuevo. El VENDEDOR y la BÚSQUEDA se PRESERVAN — "quiero ver a
       // Juan en 2025 y en 2026" es la pregunta natural, y perder el filtro en

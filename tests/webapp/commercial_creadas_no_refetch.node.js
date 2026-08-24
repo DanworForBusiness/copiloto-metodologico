@@ -60,10 +60,22 @@ function makeEl(attrs) {
   };
   return el;
 }
+// El root NO puede ser un elemento nuevo por llamada: para probar que el
+// loader del año frio esta ACOTADO al panel hay que observar QUE hosts se
+// escribieron, y eso exige que sobrevivan entre renders.
+const hosts = {};
+const selectoresConsultados = [];
+const rootEl = makeEl({});
+rootEl.querySelector = (sel) => {
+  selectoresConsultados.push(sel);
+  if (!hosts[sel]) { hosts[sel] = makeEl({}); hosts[sel].textContent = ""; }
+  return hosts[sel];
+};
+let fetchOverride = null;
 const sandbox = {
   document: {
     addEventListener(type, fn) { (listeners[type] || (listeners[type] = [])).push(fn); },
-    getElementById(id) { return id === "commercial-main-content" ? makeEl({}) : null },
+    getElementById(id) { return id === "commercial-main-content" ? rootEl : null },
     querySelector() { return null },
     querySelectorAll() { return [] },
     body: { addEventListener() { }, classList: { add() { }, remove() { }, toggle() { } } },
@@ -72,6 +84,13 @@ const sandbox = {
   dwGraphToken: async () => "",
   fetch(url) {
     fetches.push(String(url));
+    // `fetchOverride` deja colgar una request a proposito (GUARD B). Sin un
+    // fetch controlable, "no espera al previo" no se puede DISTINGUIR de
+    // "los dos resolvieron rapido" — el test pasaria por accidente.
+    if (fetchOverride) {
+      const forzado = fetchOverride(String(url));
+      if (forzado) return forzado;
+    }
     return Promise.resolve({ json: () => Promise.resolve({ state: "ok", creadas: { months: [] } }) });
   },
   HubForegroundProgress: { begin() { }, complete() { }, fail() { }, settle() { } },
@@ -84,6 +103,7 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
 const commercialState = vm.runInContext("commercialState", sandbox);
+const commercialLoadCreadas = vm.runInContext("commercialLoadCreadas", sandbox);
 const CUR = new Date().getFullYear();
 
 // Payload ya cargado: el guard arranca DESPUES de la primera hidratacion.
@@ -98,6 +118,15 @@ function seed() {
     ] },
   ] };
   commercialState.creadasStatus = "ready";
+  // HOT WINDOW ya hidratada: el guard mide las interacciones POSTERIORES. Sin
+  // esto el estado por año esta vacio y cualquier toque dispararia una carga
+  // legitima, escondiendo lo que se quiere medir.
+  commercialState.creadasByYear = {
+    [String(CUR)]: { status: "ready", data: commercialState.creadas },
+    [String(CUR - 1)]: { status: "ready", data: { months: [] } },
+  };
+  commercialState.creadasSelectableYears = [String(CUR), String(CUR - 1), String(CUR - 3)];
+  commercialState.creadasAniosStatus = "ready";
   commercialState.creadasYear = String(CUR);
   commercialState.creadasExpandedMonths = [];
   commercialState.creadasSelection = null;
@@ -135,12 +164,6 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   // ── LA SECUENCIA COMPLETA que el owner enumero ──────────────────────────
   const pasos = [];
   const check = async (label) => { await drain(); pasos.push([label, creadasRequests()]); };
-
-  // 1. cambio de AÑO
-  const yearSel = makeEl({ commercialCreadasYear: "" });
-  yearSel.value = String(CUR - 1);
-  fire("change", yearSel);
-  await check("cambio de Año");
 
   // 2. cambio de VENDEDOR
   const sellerSel = makeEl({ commercialCreadasSeller: "" });
@@ -253,6 +276,46 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
     "Limpiar no colapsa la expansion — su alcance son los filtros");
   assertTrue(commercialState.creadas !== null, "y el dataset NUNCA se invalido");
 
+  // ── GUARDS D y E — EL AÑO FRIO, la UNICA interaccion que hidrata ────────
+  // Owner: primera seleccion de un año sin cache = EXACTAMENTE una hidratacion
+  // acotada; segunda = CERO. Se mide aparte de la secuencia local justamente
+  // porque el año NO es local: es el limite del contrato hot/cold.
+  const antesDelFrio = creadasRequests();
+  const frio = String(CUR - 3);
+  const yearSel = makeEl({ commercialCreadasYear: "" });
+  yearSel.value = frio;
+  fire("change", yearSel);
+  await drain();
+  const trasPrimera = creadasRequests() - antesDelFrio;
+  assertEqual(trasPrimera, 1,
+    `GUARD D: la PRIMERA seleccion del año frio ${frio} produce EXACTAMENTE una hidratacion`);
+  // Y acotada a ESE año: la request lleva su `anio`.
+  const url = fetches[fetches.length - 1];
+  assertTrue(url.indexOf("anio=" + frio) !== -1,
+    `GUARD D: la request esta acotada al año pedido (${url})`);
+  assertTrue(commercialState.creadasByYear[frio] !== undefined,
+    "GUARD D: y queda registrada en el estado por año");
+
+  // Segunda seleccion: el cache responde, cero red.
+  commercialState.creadasByYear[frio] = { status: "ready", data: { months: [] } };
+  const antesDeLaSegunda = creadasRequests();
+  fire("change", yearSel);
+  await drain();
+  assertEqual(creadasRequests() - antesDeLaSegunda, 0,
+    "GUARD E: la SEGUNDA seleccion del mismo año produce CERO requests");
+
+  // GUARD C: tener el año en el `<select>` no implica estar hidratado.
+  const noHidratado = String(CUR - 5);
+  commercialState.creadasSelectableYears.push(noHidratado);
+  assertTrue(commercialState.creadasByYear[noHidratado] === undefined,
+    "GUARD C: una opcion del selector NO implica estado hidratado");
+
+  // GUARD A: la apertura del drill nunca pide un año mas viejo que actual-1.
+  const pedidos = fetches.filter(u => u.indexOf("/comercial/data/creadas?") !== -1)
+    .map(u => (u.match(/anio=(\d+)/) || [])[1]).filter(Boolean).map(Number);
+  assertTrue(pedidos.every(y => y >= CUR - 1 || y === CUR - 3),
+    `GUARD A: solo se pidieron años hot o el frio elegido a mano (${JSON.stringify(pedidos)})`);
+
   // ── TIPO sigue con SU contrato (invalida y vuelve a pedir) ──────────────
   // El guard no dice "Creadas nunca pide nada": dice que las interacciones
   // LOCALES no piden. Tipo cambia el universo de negocio y su comportamiento
@@ -260,6 +323,69 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   const code = src.replace(/\/\*[\s\S]*?\*\//g, "");
   assertTrue(code.indexOf('creadasStatus = "idle"') !== -1,
     "TIPO: cambiar el universo devuelve Creadas a `idle` — su contrato de dataset sigue intacto");
+
+  // ── GUARD B — el año ACTIVO no espera al año previo ────────────────────
+  // Los dos van en paralelo, pero la ventana caliente no puede volverse una
+  // NUEVA espera: si el activo se bloqueara hasta que el previo termina, el
+  // usuario seguiria pagando datos que no pidio. Se deja el previo colgado a
+  // proposito y se exige que el activo igual quede usable.
+  const previo = String(CUR - 1);
+  commercialState.creadasByYear = {};
+  commercialState.creadasStatus = "idle";
+  commercialState.creadas = null;
+  commercialState.creadasAniosStatus = "ready";
+  let previoResolver = null;
+  fetchOverride = (u) => (u.indexOf("anio=" + previo) !== -1
+    ? new Promise((res) => { previoResolver = res; })   // nunca resuelve sola
+    : null);
+  await commercialLoadCreadas();
+  await drain();
+  assertEqual(commercialState.creadasStatus, "ready",
+    "GUARD B: el año activo queda usable aunque el previo siga en vuelo");
+  assertTrue(commercialState.creadas !== null,
+    "GUARD B: y con dataset, no un loader");
+  assertEqual((commercialState.creadasByYear[previo] || {}).status, "loading",
+    "GUARD B: el previo efectivamente seguia sin resolver (si no, el guard no probaria nada)");
+  // Y cuando el previo llega tarde, NO pisa la vista del año activo.
+  const activoAntes = commercialState.creadas;
+  previoResolver({ json: () => Promise.resolve({ state: "ok", creadas: { months: [{ month: previo + "-01", count: 9, opportunities: [] }] } }) });
+  await drain();
+  fetchOverride = null;
+  assertTrue(commercialState.creadas === activoAntes,
+    "GUARD B: el previo que termina en background NO pisa el dataset activo");
+  assertEqual((commercialState.creadasByYear[previo] || {}).status, "ready",
+    "GUARD B: pero si queda tibio en cache para cuando lo elijan");
+
+  // ── GUARD — EL LOADER DEL AÑO FRIO ESTA ACOTADO AL PANEL ───────────────
+  // Owner: elegir un año frio muestra un estado de carga de CREADAS, no
+  // devuelve todo el dashboard al loader inicial. La ventana caliente y el
+  // resto de la pantalla no se re-hidratan por elegir un año.
+  const otroFrio = String(CUR - 7);
+  commercialState.creadasSelectableYears.push(otroFrio);
+  let frioResolver = null;
+  fetchOverride = (u) => (u.indexOf("anio=" + otroFrio) !== -1
+    ? new Promise((res) => { frioResolver = res; })
+    : null);
+  selectoresConsultados.length = 0;
+  const selFrio = makeEl({ commercialCreadasYear: "" });
+  selFrio.value = otroFrio;
+  fire("change", selFrio);
+  await drain();
+  const bodyHost = hosts["[data-commercial-creadas-body]"];
+  assertTrue(!!bodyHost && bodyHost.innerHTML.indexOf("Cargando oportunidades creadas") !== -1,
+    "AÑO FRIO: mientras hidrata, el panel de Creadas muestra SU estado de carga");
+  // Acotado: los unicos hosts escritos son los de Creadas.
+  const ajenos = selectoresConsultados.filter(sel => sel.indexOf("creadas") === -1);
+  assertEqual(ajenos, [],
+    "AÑO FRIO: el render no toca ningun host fuera de Creadas");
+  frioResolver({ json: () => Promise.resolve({ state: "ok", creadas: { months: [] } }) });
+  await drain();
+  fetchOverride = null;
+  assertEqual(commercialState.creadasStatus, "ready",
+    "AÑO FRIO: al llegar, el panel sale del estado de carga");
+  assertTrue(bodyHost.innerHTML.indexOf("Cargando oportunidades creadas") === -1,
+    "AÑO FRIO: y el loader se retira");
+
 
   assertEqual(handlerErrors, [], "ningun handler lanzo durante la secuencia");
   if (failures > 0) {

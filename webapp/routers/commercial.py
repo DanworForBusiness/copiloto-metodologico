@@ -200,14 +200,50 @@ def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "forecast": forecast})
 
 
+@router.get("/comercial/data/creadas/anios-disponibles", include_in_schema=False)
+def commercial_data_creadas_anios(request: Request):
+    """Años SELECCIONABLES del drill — metadata, NO datos (owner decision,
+    OPTION A). Rango contiguo desde el año de la oportunidad más antigua hasta
+    el actual, con UNA consulta `limit=1`.
+
+    Declara disponibilidad, no contenido: un año seleccionado puede devolver
+    "Sin resultados" legítimamente, y eso NO es un error de descubrimiento
+    (owner: "YEAR OPTION != YEAR GUARANTEED TO CONTAIN DATA"). Reconstruir el
+    historial de etapas para poblar un `<select>` es exactamente el costo que
+    el corrective de hidratación elimina — MISMO criterio que los
+    `anios-disponibles` de Reporting, separados de sus datos a propósito.
+
+    Endpoint separado y no un campo del payload de datos: si viajara adentro,
+    el `<select>` sólo podría ofrecer los años ya hidratados.
+    """
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        anios = CommercialService().creadas_selectable_years()
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="creadas-anios")
+    except Exception as exc:  # noqa: BLE001
+        return _commercial_data_error_response(request, exc, endpoint="creadas-anios")
+    return JSONResponse({"state": "ok", "anios": anios})
+
+
 @router.get("/comercial/data/creadas", include_in_schema=False)
-def commercial_data_creadas(request: Request, tipo: str = Query("todos")):
+def commercial_data_creadas(request: Request, tipo: str = Query("todos"),
+                            anio: str = Query("")):
     """Drill de "Creadas" (Creadas Legacy Parity, ver HANDOFF — paridad con
     el legacy `/crm/opp-by-month`): grano mensual + por oportunidad
     (vendedor, cliente, origen, estado, horas) sobre el MISMO conjunto canónico
     de eventos que el KPI semanal de `/comercial/data/analytics` (ver
     `commercial_service._created_entry_events`) — nunca un segundo
     algoritmo de entrada al pipeline.
+
+    HOT/COLD POR AÑO (owner performance corrective): `anio` acota el universo
+    canónico a ESE año. Antes el endpoint no aceptaba año y devolvía TODOS los
+    meses de la historia — el drill hidrataba 2019 aunque el análisis por
+    default consuma el año actual. `anio` vacío resuelve al año actual, así que
+    el contrato viejo sigue funcionando para cualquier consumidor que no lo
+    mande.
 
     LAZY por diseño (owner directive — "the KPI must remain lightweight"):
     endpoint propio, SÓLO se pide al abrir el análisis desde el tile
@@ -219,7 +255,10 @@ def commercial_data_creadas(request: Request, tipo: str = Query("todos")):
     if redirect is not None:
         return redirect
     try:
-        creadas = CommercialService().get_creadas_detail(_normalize_tipo(tipo))
+        year = None
+        if anio.strip().isdigit():
+            year = int(anio.strip())
+        creadas = CommercialService().get_creadas_detail(_normalize_tipo(tipo), year=year)
     except (CommercialConfigurationError, CommercialDataError) as exc:
         return _commercial_data_error_response(request, exc, endpoint="creadas")
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response

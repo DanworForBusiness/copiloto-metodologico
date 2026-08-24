@@ -793,6 +793,123 @@ class CommercialService:
                 events[o["id"]] = entry
         return events
 
+    # ── HOT/COLD POR AÑO ────────────────────────────────────────────────
+    # `_stage_transitions` acotado: MISMAS dos consultas y MISMA forma de
+    # salida, pero el universo se limita por fecha del mensaje y/o por ids.
+    # Sin cota, `mail.message` con el join a
+    # `tracking_value_ids.field_id.name` recorre el historial de mensajes de
+    # TODOS los leads de la base — el costo que este corrective elimina.
+    def _stage_transitions_scoped(self, opp_ids=None, desde=None, hasta=None) -> dict:
+        domain = [
+            ["model", "=", "crm.lead"],
+            ["tracking_value_ids.field_id.name", "=", "stage_id"],
+        ]
+        if opp_ids is not None:
+            if not opp_ids:
+                return {}
+            domain.append(["res_id", "in", list(opp_ids)])
+        if desde:
+            domain.append(["date", ">=", desde])
+        if hasta:
+            domain.append(["date", "<=", hasta])
+        messages = self._client.search_read(
+            "mail.message", domain=domain, fields=["id", "res_id", "date"], order="date asc")
+        if not messages:
+            return {}
+        by_id = {m["id"]: m for m in messages}
+        tracking = self._client.search_read(
+            "mail.tracking.value",
+            domain=[["mail_message_id", "in", list(by_id)], ["field_id.name", "=", "stage_id"]],
+            fields=["mail_message_id", "old_value_integer", "new_value_integer"],
+        )
+        out: dict = {}
+        for tv in tracking:
+            raw = tv.get("mail_message_id")
+            msg = by_id.get(raw[0] if isinstance(raw, (list, tuple)) else raw)
+            if not msg:
+                continue
+            old_s, new_s = tv.get("old_value_integer") or None, tv.get("new_value_integer") or None
+            if old_s or new_s:
+                out.setdefault(msg["res_id"], []).append((str(msg["date"])[:10], old_s, new_s))
+        for opp_id in out:
+            out[opp_id].sort(key=lambda t: t[0])
+        return out
+
+    def creadas_selectable_years(self) -> list[str]:
+        """Rango CONTIGUO seleccionable: del año de la oportunidad más antigua
+        al actual. UNA consulta con `limit=1`.
+
+        Es el límite inferior VERDADERO más barato, y a propósito NO afirma que
+        cada año contenga eventos canónicos (owner decision — "YEAR OPTION !=
+        YEAR GUARANTEED TO CONTAIN DATA"): un año seleccionado puede devolver
+        "Sin resultados" legítimamente. Reconstruir el historial de etapas para
+        poblar un `<select>` es exactamente el costo que este corrective saca.
+        """
+        actual = date.today().year
+        oldest = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "in", [True, False]]],
+            fields=["create_date"], limit=1, order="create_date asc",
+        )
+        primero = actual
+        if oldest:
+            d = self._iso_day(oldest[0].get("create_date"))
+            if d:
+                primero = min(d.year, actual)
+        return [str(y) for y in range(actual, primero - 1, -1)]
+
+    def _creadas_year_universe(self, year: int, valid_ids: list, stage_one_id):
+        """Universo ACOTADO cuyo historial de transiciones alcanza para decidir
+        el evento canónico de `year` — y nada más.
+
+        La clave del diseño: en vez de reimplementar la regla canónica acotada
+        (que es donde se cuelan las divergencias), se acota el UNIVERSO y
+        despues se corre `_created_entry_events` TAL CUAL sobre el historial
+        COMPLETO de ese universo. La equivalencia con la version full-history
+        queda garantizada por construccion, no por replicar la logica.
+
+        Dos fuentes de candidatos:
+        * quien tuvo una transicion a etapa 1 con fecha DENTRO del año;
+        * quien fue creado DENTRO del año y hoy esta en una etapa valida
+          (los candidatos del fallback por `create_date`).
+
+        Para esos ids se pide su historial de transiciones SIN cota de fecha:
+        es lo que permite descartar una RE-ENTRADA (una oportunidad que ya
+        entro en un año anterior tiene su evento canonico alla, no acá) y lo
+        que mantiene intacta la semantica del fallback.
+        """
+        desde, hasta = f"{year}-01-01 00:00:00", f"{year}-12-31 23:59:59"
+        del_anio = self._stage_transitions_scoped(desde=desde, hasta=hasta)
+        candidatos = {
+            opp_id for opp_id, tramos in del_anio.items()
+            if any(new_s == stage_one_id for _d, _o, new_s in tramos)
+        }
+        fallback = self._client.search_read(
+            "crm.lead",
+            domain=[
+                ["type", "=", "opportunity"], ["active", "in", [True, False]],
+                ["create_date", ">=", desde], ["create_date", "<=", hasta],
+                ["stage_id", "in", valid_ids],
+            ],
+            fields=["id", "stage_id", "create_date", "tag_ids"],
+        )
+        ids = candidatos | {o["id"] for o in fallback}
+        if not ids:
+            return [], {}
+        # Historial COMPLETO de esos ids (sin cota de fecha, acotado por id):
+        # es lo que hace que la regla canonica se pueda aplicar sin cambios.
+        historial = self._stage_transitions_scoped(opp_ids=sorted(ids))
+        conocidos = {o["id"]: o for o in fallback}
+        faltantes = sorted(ids - set(conocidos))
+        if faltantes:
+            for o in self._client.search_read(
+                "crm.lead",
+                domain=[["id", "in", faltantes], ["active", "in", [True, False]]],
+                fields=["id", "stage_id", "create_date", "tag_ids"],
+            ):
+                conocidos[o["id"]] = o
+        return list(conocidos.values()), historial
+
     def _build_analytics(self) -> dict:
         today = date.today()
         nn_tag, bi_tag = self._nn_bi_tags()
@@ -1070,7 +1187,7 @@ class CommercialService:
     # conjunto canónico (`events`) — nunca todo el universo de crm.lead, y
     # nunca una consulta por oportunidad (owner directive — "No per-
     # opportunity Odoo calls. No N+1").
-    def _build_creadas_detail(self) -> dict:
+    def _build_creadas_detail(self, year: int) -> dict:
         def _empty_views() -> dict:
             return {tipo: {"months": []} for tipo in _TIPOS}
 
@@ -1086,15 +1203,17 @@ class CommercialService:
             return _empty_views()
         stage_one_id = valid_stages[0]["id"]
 
-        opps = self._client.search_read(
-            "crm.lead",
-            domain=[["type", "=", "opportunity"], ["active", "in", [True, False]]],
-            fields=["id", "stage_id", "create_date", "tag_ids"],
-        )
+        # HOT/COLD POR AÑO: el universo se acota ANTES de reconstruir nada. La
+        # regla canónica (`_created_entry_events`) se aplica DESPUÉS y SIN
+        # cambios sobre el historial completo de ese universo acotado — la
+        # equivalencia con la versión full-history es estructural.
+        opps, transitions = self._creadas_year_universe(year, valid_ids, stage_one_id)
         if not opps:
             return _empty_views()
-        transitions = self._stage_transitions([o["id"] for o in opps])
-        events = self._created_entry_events(opps, transitions, stage_one_id, valid_ids)
+        todos_los_eventos = self._created_entry_events(opps, transitions, stage_one_id, valid_ids)
+        # Y recién acá se filtra por año. Una RE-ENTRADA queda afuera sola: su
+        # evento canónico es la PRIMERA entrada, que cae en otro año.
+        events = {oid: d for oid, d in todos_los_eventos.items() if d and d.year == year}
         if not events:
             return _empty_views()
 
@@ -1165,13 +1284,21 @@ class CommercialService:
             "bi": _partition(bi_id),
         }
 
-    def get_creadas_detail(self, tipo: str = "todos") -> dict:
+    def get_creadas_detail(self, tipo: str = "todos", year: int | None = None) -> dict:
+        """Detalle canónico de Creadas de UN año. `year=None` resuelve al actual."""
+        if year is None:
+            year = date.today().year
         if tipo not in _TIPOS:
             tipo = "todos"
         if not self._client.is_configured():
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
-            views = _cached("commercial:creadas", self._build_creadas_detail)
+            # CACHE POR AÑO. La key vieja era `commercial:creadas` — una sola
+            # entrada con TODO el historial. `tipo` sigue FUERA de la key: las
+            # tres vistas (todos/nn/bi) se derivan del MISMO dataset anual, así
+            # que duplicar por tipo serían tres reconstrucciones idénticas.
+            views = _cached(f"commercial:creadas:{year}",
+                            lambda: self._build_creadas_detail(year))
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]

@@ -79,6 +79,12 @@ class FakeOdooClient:
                         ok = msg.get("res_id") in value
                     elif op == "=":
                         ok = msg.get(field) == value
+                    elif op in (">=", "<=", ">", "<"):
+                        actual = str(msg.get(field) or "")
+                        limite = str(value)
+                        ok = (actual >= limite if op == ">=" else
+                              actual <= limite if op == "<=" else
+                              actual > limite if op == ">" else actual < limite)
                     else:
                         raise AssertionError(f"unsupported {op!r} on mail.message {field!r}")
                     if not ok:

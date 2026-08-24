@@ -1047,7 +1047,7 @@ def test_creadas_endpoint_unlisted_user_is_denied(monkeypatch):
 
 def test_creadas_endpoint_returns_ok_state_and_payload(monkeypatch):
     class _CreadasStub(_StubService):
-        def get_creadas_detail(self, tipo="todos"):
+        def get_creadas_detail(self, tipo="todos", year=None):
             return {"months": [{"month": "2024-02", "count": 1, "opportunities": []}], "tipo": tipo}
     monkeypatch.setattr(commercial_router, "CommercialService", lambda: _CreadasStub())
     response = client.get("/comercial/data/creadas?tipo=nn")
@@ -1059,7 +1059,7 @@ def test_creadas_endpoint_returns_ok_state_and_payload(monkeypatch):
 
 def test_creadas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
     class _Boom(_StubService):
-        def get_creadas_detail(self, tipo="todos"):
+        def get_creadas_detail(self, tipo="todos", year=None):
             raise CommercialConfigurationError("no config")
     monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
     response = client.get("/comercial/data/creadas")
@@ -1069,7 +1069,7 @@ def test_creadas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
 
 def test_creadas_endpoint_source_error_carries_stage(monkeypatch):
     class _Boom(_StubService):
-        def get_creadas_detail(self, tipo="todos"):
+        def get_creadas_detail(self, tipo="todos", year=None):
             raise CommercialDataError("boom", stage="execute")
     monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
     response = client.get("/comercial/data/creadas")
@@ -1122,11 +1122,16 @@ def test_creadas_tipo_change_invalidates_but_does_not_refetch():
 
 
 def test_creadas_local_interactions_never_refetch():
-    # Año/mes/semana son client-side puros sobre el payload YA cargado —
-    # owner directive: "year/month/week local interactions do not refetch".
+    # MES y SEMANA son client-side puros sobre el payload YA cargado.
+    #
+    # EL AÑO YA NO: con el contrato hot/cold (owner performance corrective),
+    # seleccionar un año FRIO es la UNICA interaccion del drill que hidrata —
+    # exactamente lo que el contrato pide. Su propio guard vive en
+    # `commercial_creadas_no_refetch.node.js`: primera seleccion de un año sin
+    # cache = UN fetch acotado; segunda = CERO.
     year_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-year]")', 1)[1].split("});", 1)[0]
-    assert "fetch(" not in year_fn
-    assert "commercialRenderCreadasPanel()" in year_fn
+    assert "commercialHydrateCreadasYear(" in year_fn,         "el año debe pasar por el hidratador por año, no por un fetch propio"
+    assert "fetch(" not in year_fn, "y nunca armar su propia request"
     month_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-month]")', 1)[1].split("const creadasWeekRow", 1)[0]
     assert "fetch(" not in month_fn
     week_fn = _COMMERCIAL_JS.split('event.target.closest("[data-commercial-creadas-week]")', 1)[1].split("\n    }", 1)[0]
