@@ -237,10 +237,18 @@ def test_authorized_user_for_all_three_workspaces_sees_three_tiles(monkeypatch):
 
 
 def test_tile_grid_is_a_single_shared_responsive_component_no_per_tile_hacks():
-    # `.workspace-tiles`/`.workspace-tile` es la MISMA regla para 2 o 3
-    # tiles — auto-fit/minmax ya es responsive por construcción (3 col
-    # desktop ancho / 2 intermedio / 1 mobile, sin media queries a mano).
-    # Ninguna transform:scale ni override por cantidad de tiles.
+    # El ANCHO del grid es la MISMA regla para 2 o 3 tiles: auto-fit/minmax ya
+    # es responsive por construcción (3 col desktop ancho / 2 intermedio / 1
+    # mobile) y reparte el contenedor sin huecos — medido, 3 tiles 345px y 2
+    # tiles 529px. Este test protege ESO.
+    #
+    # Lo que SÍ depende de la cantidad, a propósito y desde un corrective
+    # posterior, es la PROPORCIÓN del tile (`aspect-ratio`): el 1:1 estaba
+    # tuneado para 3, y con 2 arrastraba el alto a 529px. Vive en su propio
+    # archivo (test_workspace_tile_scaling.py) y no toca el ancho.
+    #
+    # Sigue prohibido: transform:scale, y una segunda declaración de
+    # `.workspace-tiles` que bifurque el ancho por cantidad.
     assert "grid-template-columns:repeat(auto-fit,minmax(" in _BRAND_HERO_CSS
     assert re.search(r"\.workspace-tile\s*\{[^}]*transform:\s*scale", _BRAND_HERO_CSS) is None
     # Solo UNA declaración de `.workspace-tiles` en toda la hoja de estilos

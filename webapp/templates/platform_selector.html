@@ -9,7 +9,11 @@
       <p class="full-page-subtitle">Un punto de encuentro donde se conectan necesidades, capacidades, conocimiento y operación.<br>Elegí el espacio de trabajo al que querés entrar.</p>
     </div>
   </div>
-  <div class="workspace-tiles">
+  {# `data-visible-count` viene del RENDER (`cards|length`), no de contar el
+     DOM: el router ya sabe cuántos workspaces ve este usuario. La geometría
+     del tile depende de ese número y de nada más — nunca de qué vertical
+     esté oculta. #}
+  <div class="workspace-tiles" data-visible-count="{{ cards|length }}">
     {% for card in cards %}
     <a class="glass workspace-tile" href="{{ card.workspace.home_url }}">
       <div class="access-brand">
