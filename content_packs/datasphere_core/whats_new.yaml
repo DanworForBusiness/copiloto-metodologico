@@ -1,7 +1,14 @@
-# Novedades CURADAS (fuente manual del What's New).
-# El copiloto SOLO lee este archivo — nunca lo sobrescribe ni borra. Se FUSIONA con
-# los commits que llevan trailer `Novedad:` (fuente automática). Append-only: agregá
-# entradas arriba; no hace falta tocar nada más.
+# Novedades del Copiloto — LA fuente de publicación (no "la fuente manual").
+#
+# El copiloto SOLO lee este archivo: nunca lo sobrescribe ni borra. Append-only:
+# agregá entradas arriba; no hace falta tocar nada más.
+#
+# CAMBIO DESPLEGADO != NOVEDAD PUBLICADA. Antes esto se fusionaba con los commits
+# que llevaban un trailer `Novedad:`, leídos sobre TODO el repositorio — y como el
+# monolito tiene Comercial, Reporting, Staffing y plataforma, terminó anunciando
+# como novedad del Copiloto un fix de autenticación del Hub. Que un commit exista,
+# esté en main o sea técnicamente importante NO lo vuelve elegible: publicar es una
+# decisión editorial y se toma acá.
 #
 # Estructura de cada entrada (tags que el copiloto entiende):
 #   ref:       código corto y ESTABLE — aparece en dorado, como el hash de commit. Único.
@@ -15,7 +22,8 @@
 #              sumar `&tab=catalogo` (o tree/section/assistant) para abrir el módulo
 #              ya posicionado en esa pestaña del panel derecho.
 #
-# La fuente automática (commits) usa los trailers `Categoria:` y `Link:` para lo mismo.
+# `ref` tiene que ser único y estable: es lo que la cookie `dw-whatsnew-seen`
+# recuerda como "último anuncio visto". Cambiarlo re-dispara el banner.
 
 - ref: data-products-bdc
   fecha: "2026-07-31"
@@ -23,6 +31,19 @@
   categoria: "Gobernanza"
   detalle: "Sumamos los Data Products publicados bajo SAP Business Data Cloud: entidades publicadas, linaje completo que cruza HANA y HDLF/Object Store, las CDS de extracción que los alimentan (vía Replication Flow) y semáforo de cumplimiento — todo navegable desde la pestaña Catálogo → Catálogo de datos → Data Products."
   link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo"
+
+- ref: d6147d5
+  fecha: "2026-07-28"
+  titulo: "Publicá el catálogo desde cualquier módulo"
+  categoria: "Catálogo"
+  detalle: "Sumamos instructivos self-service \"Cómo publicar\" en Arquitectura & Conectividad (01), Seguridad & Gobernanza (02), Integración (03) y Modelado (04): exportás la metadata de Datasphere, la subís a SharePoint y el copiloto regenera el catálogo solo."
+
+- ref: 0722a31
+  fecha: "2026-07-25"
+  titulo: "Guía \"Cómo publicar un catálogo\""
+  categoria: "Catálogo"
+  detalle: "Instructivo paso a paso, self-service, para convertir metadata Datasphere en un dominio del catálogo navegable."
+  link: "/catalog/como-publicar?pack=datasphere_core"
 
 - ref: catalogos-danwor
   fecha: "2026-07-25"

@@ -5,8 +5,13 @@ Router del FEATURE COPILOT "Novedades": `GET /whats-new` (página) y
 `POST /whats-new/dismiss` (cierre del banner). Extraído de ``webapp/main.py``
 (Fase 2D) como RELOCACIÓN pura — sin rediseño de comportamiento.
 
-Es un feature COPILOT (sus entradas son pack-scoped vía
-``whats_new_service.entries(pack)``) que CONSUME capacidades compartidas sin
+Es un feature COPILOT y sus entradas son pack-scoped de punta a punta vía
+``whats_new_service.entries(pack)``. Esa afirmación ERA FALSA hasta el
+corrective de propiedad editorial: la fuente manual respetaba el pack, pero
+una segunda fuente leía ``git log`` sobre TODO el repositorio y publicaba
+cualquier commit con trailer ``Novedad:`` — así un fix de autenticación de
+Graph terminó anunciado como novedad del Copiloto. Hoy la única fuente es
+``content_packs/<pack>/whats_new.yaml``. CONSUME capacidades compartidas sin
 volverse él mismo una capacidad de plataforma: renderiza con la env Jinja única
 (``webapp.templating``), resuelve pack desde ``core.content_registry`` y usa la
 access policy / navegación de la web (``webapp.access`` / ``webapp.nav``).
