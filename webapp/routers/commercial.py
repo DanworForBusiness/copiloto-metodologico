@@ -181,6 +181,26 @@ def commercial_data_opportunities(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "opportunities": opportunities})
 
 
+@router.get("/comercial/data/prospects", include_in_schema=False)
+def commercial_data_prospects(request: Request, tipo: str = Query("todos")):
+    """Detalle por oportunidad de "Prospectos" (Commercial Tile 5, ver
+    HANDOFF) — universo stage 0, MISMO que el KPI del landing. LAZY: a
+    diferencia de `opportunities` (que hidrata con el resto del landing),
+    este endpoint sólo se pide en la primera apertura del desglose — MISMO
+    contrato que `forecast`/`creadas`. MISMO contrato fail-soft y MISMA gate
+    que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        prospects = CommercialService().get_prospects(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="prospects")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="prospects")
+    return JSONResponse({"state": "ok", "prospects": prospects})
+
+
 @router.get("/comercial/data/forecast", include_in_schema=False)
 def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     """Forecast por mes de cierre (Active Opportunities Phase 2, ver

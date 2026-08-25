@@ -232,8 +232,15 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # quirúrgico. El owner UX corrective de Creadas agrega UNO: su búsqueda
     # restaura el foco del `<input>` tras el re-render del panel — MISMO
     # problema y MISMA solución que la búsqueda de Activas de arriba.
+    # Commercial Tile 5 — Prospectos (ver HANDOFF) agrega CINCO: los hosts
+    # estables del panel (`[data-commercial-prospects-body]`/`-count`) para
+    # su propio re-render quirúrgico, MISMO criterio que Forecast/Creadas; y
+    # `[data-commercial-prospects-table]` — tres veces, una por delegado
+    # (orden de columna, Vendedor, Buscar) — MISMO host que los tres tocan,
+    # nunca la barra de filtros (ningún filtro de Prospectos regenera su
+    # propio `<select>`/`<input>`, así que ninguno pierde foco).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos diecinueve hooks y nada más.
+    # EXACTAMENTE estos veinticuatro hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -245,15 +252,20 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-forecast-body]"',
         '"[data-commercial-forecast-count]"',
         '"[data-commercial-forecast-title]"',
+        '"[data-commercial-prospects-body]"',
+        '"[data-commercial-prospects-count]"',
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
+        '"[data-commercial-prospects-table]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
         '"[data-commercial-opportunities]"',
+        '"[data-commercial-prospects-table]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
+        '"[data-commercial-prospects-table]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
@@ -559,30 +571,33 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 # ============================================================================
 
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
-    # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity: los
-    # tiles se emiten con `commercialRichKpi`, y `eventKey` es lo único que
-    # agrega la afordancia de click. Lo reciben CUATRO tiles, sobre TRES
-    # análisis homologados — "Oportunidades activas", "Pipeline total"/
-    # "Pipeline ponderado" (comparten la MISMA key: misma población 0-8,
-    # con y sin probabilidad, un solo panel de Forecast) y "Creadas esta
-    # semana" (drill propio, paridad con el legacy `/crm/opp-by-month`).
-    # Los otros cinco conservan su información SIN simular una acción
-    # inexistente.
+    # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity +
+    # Commercial Tile 5: los tiles se emiten con `commercialRichKpi`, y
+    # `eventKey` es lo único que agrega la afordancia de click. Lo reciben
+    # CINCO tiles, sobre CUATRO análisis homologados — "Oportunidades
+    # activas", "Pipeline total"/"Pipeline ponderado" (comparten la MISMA
+    # key: misma población 0-8, con y sin probabilidad, un solo panel de
+    # Forecast), "Creadas esta semana" (drill propio, paridad con el legacy
+    # `/crm/opp-by-month`) y "Prospectos" (drill propio, paridad con el
+    # legacy `/crm/relevamiento?stage_id=<etapa 0>`). Los otros cuatro
+    # conservan su información SIN simular una acción inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 4
+    assert dashboard_fn.count("eventKey:") == 5
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
     assert dashboard_fn.count('eventKey: "creadas"') == 1
+    assert dashboard_fn.count('eventKey: "prospectos"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    # Ningún tile fuera de Activas, los dos Pipeline y Creadas recibe
-    # `eventKey`, así que ninguno queda clickeable — sin afordancia falsa.
+    # Ningún tile fuera de Activas, los dos Pipeline, Creadas y Prospectos
+    # recibe `eventKey`, así que ninguno queda clickeable — sin afordancia
+    # falsa.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Prospectos", "Ganadas", "Perdidas", "Suspendidas", "Conversión"):
+    for label in ("Ganadas", "Perdidas", "Suspendidas", "Conversión"):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -794,28 +809,29 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Ganadas, Perdidas, Prospectos, Suspendidas, Target: ninguno gana
-    # `data-event` ni panel propio — contar solo MARKUP real dentro de cada
-    # función, no menciones en comentarios (que mencionan
-    # `data-event`/`data-breakdown` varias veces). Creadas SÍ lo ganó en
-    # este batch (Creadas Legacy Parity, ver HANDOFF) — su drill YA está
-    # homologado, así que queda EXCLUIDO de esta lista de "sigue sin
-    # drilldown" (ver los dos tests de arriba, que ahora lo esperan
-    # clickeable).
+    # Ganadas, Perdidas, Suspendidas, Target: ninguno gana `data-event` ni
+    # panel propio — contar solo MARKUP real dentro de cada función, no
+    # menciones en comentarios (que mencionan `data-event`/`data-breakdown`
+    # varias veces). Creadas y Prospectos SÍ lo ganaron (Creadas Legacy
+    # Parity y Commercial Tile 5, ver HANDOFF) — sus drills YA están
+    # homologados, así que quedan EXCLUIDOS de esta lista de "sigue sin
+    # drilldown" (ver los dos tests de arriba, que ahora los esperan
+    # clickeables).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # TRES `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
-    # HANDOFF) y Creadas (Creadas Legacy Parity, ver HANDOFF) — + UNA
-    # referencia al MISMO atributo dentro del selector que construye
+    # CUATRO `data-breakdown` reales en el markup — Activas, Forecast (C6,
+    # ver HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF) y
+    # Prospectos (Commercial Tile 5, ver HANDOFF) — + UNA referencia al
+    # MISMO atributo dentro del selector que construye
     # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
-    # abrir) para ubicar la que corresponda. Nunca un CUARTO panel, y nunca
-    # un grupo de breakdown paralelo: los tres viven en el MISMO
+    # abrir) para ubicar la que corresponda. Nunca un QUINTO panel, y nunca
+    # un grupo de breakdown paralelo: los cuatro viven en el MISMO
     # `[data-breakdown-group]`, que es lo que hace que el motor compartido
     # muestre uno por vez. Se cuenta sobre el markup, no sobre los
     # comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 4
+    assert markup.count('data-breakdown="') == 5
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -1189,6 +1205,115 @@ def test_forecast_endpoint_never_exposes_a_write_verb():
     for verb in ("post", "put", "patch", "delete"):
         response = getattr(client, verb)("/comercial/data/forecast")
         assert response.status_code == 405, (verb, response.status_code)
+
+
+# ============================================================================
+# Commercial Tile 5 — Prospectos (GET /comercial/data/prospects). Universo:
+# stage 0 (`prospect_ids`), MISMO que el KPI "Prospectos" del landing. LAZY,
+# MISMO patrón de 7 tests que el suite de Creadas de arriba (endpoint +
+# single-flight + ausente de la hidratación inicial).
+# ============================================================================
+
+def test_prospects_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/prospects", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_prospects_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/prospects").status_code == 403
+
+
+def test_prospects_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _ProspectsStub(_StubService):
+        def get_prospects(self, tipo="todos"):
+            return {"tipo": tipo, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _ProspectsStub())
+    response = client.get("/comercial/data/prospects?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["prospects"]["tipo"] == "nn"
+
+
+def test_prospects_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_prospects(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/prospects")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_prospects_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_prospects(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/prospects")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_prospects_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/prospects")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_prospects_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    # Owner directive (§13, ver HANDOFF) — "initial Commercial dashboard →
+    # NO Prospectos detail hydration": `commercialLoadData` (la carga
+    # inicial) sigue pidiendo EXACTAMENTE summary/pipeline/analytics/
+    # opportunities — nunca prospects, que es lazy y sólo se pide al abrir
+    # su propio análisis (ver `commercialMaybeLoadProspects`).
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/prospects" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+def test_prospects_load_is_lazy_single_flight_and_survives_reopen():
+    # MISMO criterio que Forecast/Creadas (`commercialMaybeLoadForecast`):
+    # sólo dispara en una APERTURA (trigger quedó `.is-active`) y sólo si
+    # `prospectsStatus` sigue en "idle" — cerrar y reabrir con el MISMO tipo
+    # NO vuelve a pedir nada.
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadProspects(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "prospectos"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.prospectsStatus !== "idle"' in fn
+
+
+def test_commercial_set_tipo_invalidates_prospects_like_the_other_datasets():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.prospects = null;" in tipo_fn
+    assert 'commercialState.prospectsStatus = "idle";' in tipo_fn
+    assert 'commercialState.prospectsSellerFilter = "";' in tipo_fn
+    assert 'commercialState.prospectsSearchText = "";' in tipo_fn
+
+
+def test_prospects_search_and_seller_filters_never_refetch():
+    # Owner §7 — "After initial lazy load: seller change / search typing /
+    # sort / Limpiar must produce ZERO Prospectos endpoint/Odoo refetches."
+    # Los cuatro delegados de estado local existen y viven fuera de
+    # `commercialLoadProspects` — el ÚNICO lugar donde vive el `fetch` real.
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    for marker in (
+        "commercialState.prospectsSellerFilter = sellerSelect.value;",
+        "commercialState.prospectsSearchText = search.value;",
+        "commercialToggleProspectsSort(prospectsSortTh.dataset.commercialProspectsSort);",
+        "commercialState.prospectsSellerFilter = \"\";\n      commercialState.prospectsSearchText = \"\";",
+    ):
+        assert marker in boot, marker
+    load_prospects_fn = _COMMERCIAL_JS.split("async function commercialLoadProspects(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(`/comercial/data/prospects" in load_prospects_fn
+    for local_fn_name in ("commercialToggleProspectsSort", "commercialSearchProspects", "commercialRenderProspectsPanel"):
+        body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
+        assert "fetch(" not in body, local_fn_name
 
 
 # ============================================================================

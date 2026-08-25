@@ -54,13 +54,15 @@ def test_c9_reuses_shared_primitives_instead_of_inventing_its_own():
 
 
 def test_activities_urgency_scale_is_the_same_one_as_active_opportunities():
-    # UN solo clasificador y UNA sola leyenda para las dos tablas del workspace
-    # — si se duplicaran, las escalas podrían divergir sin que nadie lo note.
+    # UN solo clasificador y UNA sola leyenda para las tres tablas del
+    # workspace (Commercial Tile 5 — Prospectos, ver HANDOFF, agregó la
+    # tercera) — si se duplicaran, las escalas podrían divergir sin que
+    # nadie lo note.
     assert _COMMERCIAL_JS.count("function commercialUrgencyColor(") == 1
     assert _COMMERCIAL_JS.count("function commercialUrgencyLegendHtml(") == 1
     code = _js_code(_COMMERCIAL_JS)
-    assert code.count("commercialUrgencyColor(") == 3   # definición + Activas + Actividades
-    assert code.count("commercialUrgencyLegendHtml()") == 3
+    assert code.count("commercialUrgencyColor(") == 4   # definición + Activas + Actividades + Prospectos
+    assert code.count("commercialUrgencyLegendHtml()") == 4
 
 
 def test_activities_search_and_sort_are_client_side_only():

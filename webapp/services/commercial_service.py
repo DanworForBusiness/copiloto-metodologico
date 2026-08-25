@@ -603,6 +603,107 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Prospectos — detalle (Commercial Tile 5, ver HANDOFF) ────────────────
+    # Universo: stage_id IN prospect_ids (`_stage_partition()[1]`, nombre de
+    # etapa que empieza con "0") — EL MISMO universo que el tile "Prospectos"
+    # del summary, nunca el de Activas (1-8). Legacy-compatible: recuperado de
+    # `crm-comercial`/`backend/routers/crm.py::get_relevamiento` (llamado por
+    # el legacy con `stage_id=<etapa 0>`, la MISMA función que también sirve
+    # el detalle de Activas con `stage_id=0` → etapas 1-8 — acá se porta un
+    # solo lado de ese endpoint compartido, con el universo de Prospectos).
+    #
+    # Fila CASI idéntica a `_build_opportunities`/`_row` (MISMAS fórmulas de
+    # Hs Pond./Últ. Resp./Días resp./actividades — ya auditadas y en
+    # producción para Activas) — la única fila nueva es "tags" (Etiquetas):
+    # el legacy la incluye en el detalle de Prospectos y Activas por igual,
+    # pero Activas la descartó a propósito en su contrato de salida (ver
+    # `_build_opportunities` — "No Etiquetas in output UI contract"); acá SÍ
+    # viaja porque el owner la pidió explícitamente para este tile. Nunca
+    # "stage"/"source": universo de una sola etapa (no hace falta columna
+    # Etapa) y Prospectos no tiene vista de Origen (esa es exclusiva de
+    # Activas, C8).
+    def _build_prospects(self) -> dict:
+        _valid_ids, prospect_ids, _suspended_ids = self._stage_partition()
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", prospect_ids]],
+            fields=["name", "partner_id", "user_id", "tag_ids",
+                     "probability", "priority", "lead_properties", "expected_revenue"],
+        )
+        opp_ids = [o["id"] for o in opps]
+        # TODAS las actividades pendientes, no sólo la próxima — MISMO
+        # criterio que `_build_opportunities` (portado 1:1 del legacy).
+        acts_by_opp: dict[int, list] = {}
+        if opp_ids:
+            activities = self._client.search_read(
+                "mail.activity",
+                domain=[["res_model", "=", "crm.lead"], ["res_id", "in", opp_ids]],
+                fields=["res_id", "date_deadline", "activity_type_id", "summary"],
+                order="date_deadline asc",
+            )
+            for act in activities:
+                acts_by_opp.setdefault(act["res_id"], []).append({
+                    "type": act["activity_type_id"][1] if act.get("activity_type_id") else "",
+                    "summary": act.get("summary") or "",
+                    "deadline": iso_deadline(act.get("date_deadline")),
+                })
+
+        # Nombres de tag — UNA consulta batch sobre los ids realmente
+        # presentes en este subset (MISMO criterio que el legacy
+        # `get_relevamiento`), nunca una consulta por oportunidad.
+        all_tag_ids = {tid for o in opps for tid in (o.get("tag_ids") or [])}
+        tag_names: dict[int, str] = {}
+        if all_tag_ids:
+            tags = self._client.search_read("crm.tag", [["id", "in", list(all_tag_ids)]], fields=["id", "name"])
+            tag_names = {t["id"]: t["name"] for t in tags}
+
+        today = date.today()
+
+        def _row(opp: dict) -> dict:
+            props = opp.get("lead_properties") or []
+            hours_raw = get_property_num(props, "Horas")
+            weighted_hours = round((opp.get("probability", 0) or 0) / 100 * hours_raw, 1)
+            last_response = _get_property_date(props, _PROP_ULTIMA_RESPUESTA)
+            days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "tags": [tag_names[tid] for tid in (opp.get("tag_ids") or []) if tid in tag_names],
+                "licencias": _get_prop_label(props, "Licencias"),
+                "hours": hours_raw,
+                "weighted_hours": weighted_hours,
+                "revenue": round(opp.get("expected_revenue", 0) or 0, 2),
+                "probability": opp.get("probability"),
+                "priority": opp.get("priority") or "0",
+                "activities": acts_by_opp.get(opp["id"], []),
+                "last_response": last_response,
+                "days_elapsed": days_elapsed,
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_prospects(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:prospects", self._build_prospects)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
     # Phase 2, C2 ──────────────────────────────────────────────────────────
     # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO

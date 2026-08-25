@@ -173,6 +173,25 @@ const commercialState = {
   oppStageFilter: "",
   oppSellerFilter: "",
   oppSearchText: "",
+  // Prospectos (Commercial Tile 5, ver HANDOFF) — LAZY, MISMO criterio que
+  // Forecast/Creadas: NO entra al `Promise.all` inicial (owner: "initial
+  // Commercial dashboard → NO Prospectos detail hydration"), se pide la
+  // primera vez que se abre el desglose y se reusa mientras el `tipo` no
+  // cambie. A diferencia de Activas (que SÍ hidrata con el resto del
+  // landing), Prospectos es un universo de una sola etapa sin gráfico de
+  // Funnel ni desglose por procedencia propios — sólo tabla + filtros
+  // locales Vendedor/Buscar, sin cascada de Etapa (universo ya es una sola
+  // etapa) ni chip de filtro activo (owner: "no hay cascada gráfico →
+  // filtro acá").
+  prospects: null,
+  prospectsStatus: "idle", // idle | loading | ready | error
+  prospectsErrorState: "",
+  prospectsSellerFilter: "",
+  prospectsSearchText: "",
+  // Orden de la tabla — client-side puro, MISMO contrato que `oppSortKey`:
+  // sobrevive el cambio de Todos/NN/BI (preferencia de lectura, no filtro).
+  prospectsSortKey: null,
+  prospectsSortDir: 1,
 };
 
 function commercialEsc(value) {
@@ -1733,6 +1752,251 @@ function commercialOpportunitiesTableHtml(opportunities) {
     </div>`;
 }
 
+// ── Prospectos — detalle (Commercial Tile 5, ver HANDOFF) ──────────────────
+// Tabla PARALELA a `commercialOpportunitiesTableHtml`, no una extensión de
+// esa función: Prospectos necesita una columna que Activas decidió NO
+// mostrar (Etiquetas — ver `test_commercial_opportunities_table_never_
+// renders_an_etiquetas_column`) y vive en su propio host/estado/lifecycle
+// (lazy, filtros propios, sin Etapa/Origen/Funnel — universo de una sola
+// etapa). Ramificar la función de Activas con un flag hubiera acoplado dos
+// contratos que el propio backend ya mantiene separados
+// (`_build_opportunities` vs `_build_prospects`). Reusa todo lo que SÍ es
+// genuinamente compartido: formatters (`commercialFmtInt`/`Percent`/`Esc`),
+// las estrellas de Prioridad (`COMMERCIAL_PRIORITY_STARS/LABELS`), la
+// urgencia de Próx. Acción (`commercialUrgencyColor`/`commercialDaysUntil`),
+// la leyenda (`commercialUrgencyLegendHtml`), el estado vacío
+// (`commercialEmptyStateHtml`), el badge compartido
+// (`.dashboard-status-badge`, tools.css — reusado en gris neutro para
+// Etiquetas, sin inventar un primitivo de "tag pill" propio) y el spine de
+// tabla (`.matrix-scroll`/`.dashboard-table`, tools.css) — cero CSS propio
+// de Prospectos.
+const COMMERCIAL_PROSPECTS_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+  weighted_hours: o => (o.weighted_hours != null && o.weighted_hours !== false) ? Number(o.weighted_hours) : -Infinity,
+  probability: o => o.probability ?? -1,
+  priority: o => Number(o.priority ?? 0),
+  next_action: o => {
+    const days = (o.activities || []).map(act => commercialDaysUntil(act.deadline)).filter(d => d !== null);
+    return days.length ? Math.min(...days) : Infinity;
+  },
+  last_response: o => o.days_elapsed ?? Infinity,
+};
+
+// Orden client-side puro sobre el dataset YA cargado — nunca un round-trip.
+function commercialProspectsSorted(rows) {
+  const keyFn = commercialState.prospectsSortKey && COMMERCIAL_PROSPECTS_SORT_KEYS[commercialState.prospectsSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.prospectsSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+function commercialToggleProspectsSort(key) {
+  if (commercialState.prospectsSortKey === key) {
+    commercialState.prospectsSortDir *= -1;
+  } else {
+    commercialState.prospectsSortKey = key;
+    commercialState.prospectsSortDir = 1;
+  }
+}
+
+function commercialProspectsSellerOptions(rows) {
+  return [...new Set(rows.map(o => o.seller).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+// Búsqueda: MISMO alcance que `commercialOpportunitySearchableText` (nombre,
+// cliente, vendedor, licencias, probabilidad, prioridad, próx. acción, últ.
+// resp. — el contrato de búsqueda YA establecido para esta MISMA forma de
+// fila) + Etiquetas, la única columna que Prospectos agrega sobre esa forma.
+function commercialProspectSearchableText(o) {
+  return [commercialOpportunitySearchableText(o), ...(o.tags || [])].join(" ").toLowerCase();
+}
+
+function commercialSearchProspects(rows, text) {
+  const q = (text || "").trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(o => commercialProspectSearchableText(o).includes(q));
+}
+
+function commercialProspectsTagsHtml(tags) {
+  if (!tags || !tags.length) return "—";
+  return tags.map(t => `<span class="dashboard-status-badge dashboard-status-badge--grey">${commercialEsc(t)}</span>`).join(" ");
+}
+
+function commercialProspectsTableHtml(prospects) {
+  const rows = (prospects && prospects.opportunities) || [];
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados", "Sin prospectos para este filtro.");
+  }
+  const sorted = commercialProspectsSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.prospectsSortKey === key;
+    const arrow = active ? (commercialState.prospectsSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-prospects-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const acts = o.activities || [];
+    const nextAction = acts.length
+      ? acts.map(act => {
+          const days = commercialDaysUntil(act.deadline);
+          const rel = days === null ? "" : days < 0 ? ` (venc. ${Math.abs(days)}d)` : days === 0 ? " (hoy)" : ` (${days}d)`;
+          const datePrefix = commercialEsc(commercialFmtDate(act.deadline));
+          if (!act.type) return datePrefix;
+          const color = commercialUrgencyColor(days);
+          const typeAndRel = `${commercialEsc(act.type)}${commercialEsc(rel)}`;
+          const badge = color
+            ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${typeAndRel}</span>`
+            : typeAndRel;
+          return `${datePrefix} · ${badge}`;
+        }).join("<br>")
+      : "—";
+    const lic = o.licencias === "Si" ? "✓" : "";
+    const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
+    const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
+    return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialProspectsTagsHtml(o.tags)}</td>
+      <td>${lic}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+      <td>${commercialFmtInt(o.weighted_hours)}</td>
+      <td>${commercialFmtPercent(o.probability)}</td>
+      <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
+      <td class="left">${nextAction}</td>
+      <td>${o.last_response ? commercialEsc(commercialFmtDate(o.last_response)) : "—"}</td>
+      <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
+    </tr>`;
+  }).join("");
+  // Fila de totales — MISMO criterio que Activas: sólo Hs/Hs Pond. suman sin
+  // ambigüedad, el resto queda en blanco en vez de una agregación inventada.
+  const totals = rows.reduce((acc, o) => ({
+    hours: acc.hours + (o.hours || 0),
+    weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
+  }), { hours: 0, weighted_hours: 0 });
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="5">Total (${rows.length})</td>
+      <td>${commercialFmtInt(totals.hours)}</td>
+      <td>${commercialFmtInt(totals.weighted_hours)}</td>
+      <td colspan="5"></td>
+    </tr>`;
+  // `<colgroup>` en % — MISMO criterio que Activas: ancho real por columna,
+  // nunca un número inventado. Doce columnas (once de Activas + Etiquetas):
+  // Oportunidad/Vendedor/Próx. Acción ceden unos puntos para darle a
+  // Etiquetas un ancho legible sin forzar `.matrix-scroll` de más.
+  return `
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:18%"><col style="width:10%"><col style="width:9%">
+          <col style="width:9%"><col style="width:4%"><col style="width:5%">
+          <col style="width:6%"><col style="width:5%"><col style="width:4%">
+          <col style="width:16%"><col style="width:7%"><col style="width:7%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          <th class="left">Etiquetas</th>
+          <th>Lic.</th>
+          ${th("hours", "Hs")}
+          ${th("weighted_hours", "Hs Pond.")}
+          ${th("probability", "Prob.")}
+          ${th("priority", "Prior.")}
+          ${th("next_action", "Próx. Acción", "left")}
+          ${th("last_response", "Últ. Resp.")}
+          <th>Días resp.</th>
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+function commercialProspectsBlockHtml(rows) {
+  return `${rows.length ? commercialUrgencyLegendHtml() : ""}${commercialProspectsTableHtml({ opportunities: rows })}`;
+}
+
+// Vendedor + Buscar filtran (AND) sobre el dataset YA cargado — cero
+// round-trip. Vendedor primero (mismo orden que la barra de filtros).
+function commercialCurrentProspectsRows() {
+  const all = (commercialState.prospects && commercialState.prospects.opportunities) || [];
+  const bySeller = commercialState.prospectsSellerFilter
+    ? all.filter(o => o.seller === commercialState.prospectsSellerFilter)
+    : all;
+  return commercialSearchProspects(bySeller, commercialState.prospectsSearchText);
+}
+
+// Barra de filtros LOCAL: Vendedor + Buscar + Limpiar — MISMO primitivo
+// `.whatsnew-filters`/`.whatsnew-filter` que el resto de Comercial. Sin
+// Etapa (universo de una sola etapa, no hay nada que particionar) y sin chip
+// de filtro activo (owner §8: el `<select>`/`<input>` YA representan el
+// estado activo — no hay cascada gráfico → filtro en este panel).
+function commercialProspectsFiltersHtml(sellerOptions) {
+  const sellerOpts = sellerOptions.map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.prospectsSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-prospects-filters>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-prospects-seller-filter>
+          <option value=""${commercialState.prospectsSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter whatsnew-filter--fill">
+        <span>Buscar</span>
+        <input type="search" data-commercial-prospects-search aria-label="Buscar prospectos" placeholder="Buscar…" value="${commercialEsc(commercialState.prospectsSearchText)}">
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-prospects-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+function commercialProspectsAnalysisHtml() {
+  const all = (commercialState.prospects && commercialState.prospects.opportunities) || [];
+  const rows = commercialCurrentProspectsRows();
+  const filtersHtml = all.length ? commercialProspectsFiltersHtml(commercialProspectsSellerOptions(all)) : "";
+  return `${filtersHtml}
+    <div data-commercial-prospects-table>${commercialProspectsBlockHtml(rows)}</div>`;
+}
+
+// Cuerpo del panel — MISMO contrato de estados que Forecast (loading/error/
+// ready), incluida la gate config_incomplete-vs-source_error para el botón
+// Reintentar (owner §9: "No disponible" + Reintentar scopeado, nunca una
+// versión propia de Prospectos de ese primitivo).
+function commercialProspectsPanelBodyHtml() {
+  if (commercialState.prospectsStatus === "error") {
+    const configIncomplete = commercialState.prospectsErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar los prospectos desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("prospectos", "Reintentar la carga de prospectos"));
+  }
+  if (commercialState.prospectsStatus !== "ready") {
+    return commercialLoadingHtml("Cargando prospectos…");
+  }
+  const total = (commercialState.prospects && commercialState.prospects.total) || 0;
+  if (!total) {
+    return commercialEmptyStateHtml("Sin datos", "No hay prospectos (etapa 0) para este segmento.");
+  }
+  return commercialProspectsAnalysisHtml();
+}
+
+function commercialProspectsCountLabel() {
+  if (commercialState.prospectsStatus !== "ready") return "";
+  const total = (commercialState.prospects && commercialState.prospects.total) || 0;
+  return `${commercialFmtInt(total)} prospecto(s)`;
+}
+
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver
 // arriba) — MISMA marca que reporting.js::dashboardSection/
 // dashboardSections, helper LOCAL (sin renderer compartido global, ver
@@ -2578,7 +2842,10 @@ function commercialDashboardHtml() {
       ${commercialRichKpi("Oportunidades activas", commercialFmtInt(s.activas.count),
         { sub: hs(s.activas.hours), split: seg("activas"), eventKey: "activas" })}
       ${commercialRichKpi("Prospectos", commercialFmtInt(s.prospectos.count),
-        { sub: hs(s.prospectos.hours), split: seg("prospectos") })}
+        // eventKey (Commercial Tile 5, ver HANDOFF): el drill es un fetch
+        // PROPIO/independiente (/comercial/data/prospects), MISMO criterio
+        // que Creadas — nunca condicional a otro bloque del summary.
+        { sub: hs(s.prospectos.hours), split: seg("prospectos"), eventKey: "prospectos" })}
       ${commercialRichKpi("Pipeline total", commercialFmtInt(s.pipeline.hours),
         { sub: "horas", split: seg("pipeline"), eventKey: "forecast", eventView: "total" })}
       ${commercialRichKpi("Pipeline ponderado", commercialFmtInt(s.pipeline.weighted_hours),
@@ -2691,6 +2958,23 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-creadas-body>${commercialCreadasPanelBodyHtml()}</div>
     </details>`;
 
+  // Prospectos (Commercial Tile 5, ver HANDOFF): CUARTA sección de análisis,
+  // hermana de Activas/Forecast/Creadas, MISMO `[data-breakdown-group]` — "un
+  // solo análisis abierto por vez" sale gratis del motor compartido. Lazy
+  // load + render quirúrgico MISMO criterio que Forecast (una sola request,
+  // sin año/hot-cold): los hosts estables son
+  // `[data-commercial-prospects-count]`/`[data-commercial-prospects-body]`.
+  const prospectsSection = `<details class="dashboard-section" data-section-id="prospectos-analisis" data-breakdown="prospectos" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Prospectos — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-prospects-count>${commercialEsc(commercialProspectsCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="prospectos" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-prospects-body>${commercialProspectsPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -2699,7 +2983,8 @@ function commercialDashboardHtml() {
     + commercialDashboardSection("analiticas", "Analíticas del Pipeline", "", analyticsGrid)
     + analysisSection
     + forecastSection
-    + creadasSection;
+    + creadasSection
+    + prospectsSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -2919,6 +3204,57 @@ function commercialMaybeRerenderForecastForMode(trigger) {
   commercialRenderForecastPanel();
 }
 
+// ── Prospectos — lazy load + render quirúrgico (Commercial Tile 5, ver
+// HANDOFF) ───────────────────────────────────────────────────────────────
+// MISMA técnica que Forecast (owner §13 — performance guard): una sola
+// request, disparada por la PRIMERA apertura del desglose para el `tipo`
+// vigente, MISMO contrato fail-soft y MISMO loader canónico
+// (`HubForegroundProgress`). El fallo queda AISLADO: sólo este panel avisa.
+function commercialRenderProspectsPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-prospects-body]");
+  if (body) body.innerHTML = commercialProspectsPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-prospects-count]");
+  if (count) count.textContent = commercialProspectsCountLabel();
+}
+
+async function commercialLoadProspects() {
+  commercialState.prospectsStatus = "loading";
+  commercialRenderProspectsPanel();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/prospects?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.prospects = resp.prospects;
+      commercialState.prospectsStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.prospectsStatus = "error";
+      commercialState.prospectsErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.prospectsStatus = "error";
+    commercialState.prospectsErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderProspectsPanel();
+}
+
+// Puente entre el motor compartido y el lazy load — MISMO criterio que
+// `commercialMaybeLoadForecast`: sólo en una APERTURA (trigger quedó activo)
+// y sólo si todavía no se pidió nada para el `tipo` vigente. Cerrar y
+// reabrir NO vuelve a pedir nada; un error tampoco reintenta solo (hasta que
+// cambie el `tipo`).
+function commercialMaybeLoadProspects(trigger) {
+  if (trigger.dataset.event !== "prospectos") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.prospectsStatus !== "idle") return;
+  commercialLoadProspects();
+}
+
 // ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
 // HANDOFF) ─────────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
@@ -3098,6 +3434,16 @@ function commercialSetTipo(tipo) {
   commercialState.creadasSelection = null;
   commercialState.creadasSeller = "";
   commercialState.creadasSearch = "";
+  // Prospectos (Commercial Tile 5, ver HANDOFF): MISMO criterio que
+  // Forecast/Creadas — invalida y NO re-pide acá, vuelve a "idle" y lo carga
+  // la próxima apertura del desglose con el tipo nuevo. Vendedor/Buscar se
+  // resetean: sus opciones/resultados se derivan de datos que ya no son los
+  // mismos (MISMO criterio que `oppSearchText`/`actUser` arriba).
+  commercialState.prospects = null;
+  commercialState.prospectsStatus = "idle";
+  commercialState.prospectsErrorState = "";
+  commercialState.prospectsSellerFilter = "";
+  commercialState.prospectsSearchText = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -3208,6 +3554,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.forecastStatus !== "loading") commercialLoadForecast();
       } else if (retryBtn.dataset.commercialRetry === "creadas") {
         if (commercialState.creadasStatus !== "loading") commercialLoadCreadas();
+      } else if (retryBtn.dataset.commercialRetry === "prospectos") {
+        if (commercialState.prospectsStatus !== "loading") commercialLoadProspects();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -3343,6 +3691,29 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialRenderForecastPanel();
       return;
     }
+    // Prospectos — "✕ Limpiar" (Commercial Tile 5, ver HANDOFF): MISMO
+    // criterio que Forecast — resetea Vendedor + Buscar de una sola vez y
+    // re-renderiza el panel entero (la barra de filtros también refleja el
+    // reset, a diferencia de Activas — acá no hay costo de foco porque
+    // Limpiar nunca se clickea a mitad de tecleo).
+    const prospectsClear = event.target.closest("[data-commercial-prospects-clear]");
+    if (prospectsClear) {
+      commercialState.prospectsSellerFilter = "";
+      commercialState.prospectsSearchText = "";
+      commercialRenderProspectsPanel();
+      return;
+    }
+    // Prospectos — orden de columna: re-render QUIRÚRGICO de
+    // `[data-commercial-prospects-table]`, MISMO criterio que el sort de
+    // Activas — client-side puro sobre el resultado YA filtrado por
+    // Vendedor/Buscar.
+    const prospectsSortTh = event.target.closest("[data-commercial-prospects-sort]");
+    if (prospectsSortTh) {
+      commercialToggleProspectsSort(prospectsSortTh.dataset.commercialProspectsSort);
+      const host = root.querySelector("[data-commercial-prospects-table]");
+      if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -3385,6 +3756,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeLoadForecast(kpiTrigger);
       commercialMaybeRerenderForecastForMode(kpiTrigger);
       commercialMaybeLoadCreadas(kpiTrigger);
+      commercialMaybeLoadProspects(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -3445,6 +3817,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (stageSelect) commercialState.oppStageFilter = stageSelect.value;
     if (sellerSelect) commercialState.oppSellerFilter = sellerSelect.value;
     commercialRerenderAnalysisFunnelAndTable(root);
+  });
+  // Prospectos — Vendedor (Commercial Tile 5, ver HANDOFF): filtro LOCAL
+  // sobre el payload ya cargado, MISMO criterio que Activas. Listener
+  // SEPARADO (mismo motivo que los de arriba: una sola rama con `return`
+  // temprano cortaría cualquier otro `<select>` que se agregue después).
+  document.addEventListener("change", event => {
+    const sellerSelect = event.target.closest("[data-commercial-prospects-seller-filter]");
+    if (!sellerSelect) return;
+    commercialState.prospectsSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-prospects-table]");
+    if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
   });
   // Filtros del Forecast (C6b, ver HANDOFF): Etapa/Vendedor son ANALÍTICOS —
   // el mismo universo filtrado alimenta el gráfico Y la tabla, igual que en
@@ -3550,6 +3933,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const host = root.querySelector("[data-commercial-opportunities]");
     if (host) host.innerHTML = commercialOpportunitiesBlockHtml(commercialCurrentTableRows());
   });
+  // Prospectos — Buscar (Commercial Tile 5, ver HANDOFF): `input`, no
+  // `change` — MISMO criterio que la búsqueda de Activas. SÓLO toca
+  // `[data-commercial-prospects-table]`, nunca la barra de filtros (el
+  // `<input>` perdería foco/cursor en cada tecla si se regenerara).
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-prospects-search]");
+    if (!search) return;
+    commercialState.prospectsSearchText = search.value;
+    const host = root.querySelector("[data-commercial-prospects-table]");
+    if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
+  });
   // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
   // motor compartido cablea su PROPIO `keydown` directo sobre el trigger
   // (nunca dispara un evento `click` sintético), así que el delegado de
@@ -3580,6 +3974,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeLoadForecast(kpiTrigger);
     commercialMaybeRerenderForecastForMode(kpiTrigger);
     commercialMaybeLoadCreadas(kpiTrigger);
+    commercialMaybeLoadProspects(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

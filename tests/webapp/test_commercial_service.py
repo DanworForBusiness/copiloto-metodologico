@@ -1271,6 +1271,220 @@ def test_opportunities_path_is_fail_soft_on_transport_and_config():
 
 
 # ============================================================================
+# Commercial Tile 5 — Detalle de Prospectos (`get_prospects`,
+# `GET /comercial/data/prospects`). Universo: MISMO que el KPI "Prospectos"
+# (stage 0) — NUNCA 1-8 (Oportunidades Activas) ni archivadas. A diferencia
+# de `_build_opportunities`, la fila SÍ expone "tags" (Etiquetas) — pedido
+# explícito del owner para este tile, ver HANDOFF. Fixture no-degenerada:
+# incluye una activa (etapa 1-8) y una prospecto ARCHIVADA con nombre/cliente
+# parecidos a un prospecto real, para probar que el dominio filtra por
+# stage_id/active y no por texto.
+# ============================================================================
+
+PROS_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+]
+PROS_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+    {"id": 12, "name": "VIP"},
+]
+
+PROS_LEADS = [
+    # Prospecto completo — etapa 0, todas las properties, DOS tags (NN + VIP).
+    {"id": 800, "name": "Prospecto Uno", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [10, 12], "partner_id": [80, "Cliente Prospecto Uno"], "user_id": [50, "Vendedor Uno"],
+     "probability": 50, "priority": "3", "expected_revenue": 8000,
+     "lead_properties": [
+         _prop_horas(40),
+         _prop_date("Fecha de Ultima Respuesta", "2026-08-10"),
+         _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]]),
+     ]},
+    # Prospecto BI, MISMO vendedor que Uno (vendedor compartido entre NN/BI)
+    # — sin properties/actividades, probability 0% (Hs Pond. debe dar 0.0).
+    {"id": 801, "name": "Prospecto Dos", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [11], "partner_id": [81, "Cliente Prospecto Dos"], "user_id": [50, "Vendedor Uno"],
+     "probability": 0, "priority": "0", "lead_properties": []},
+    # Sin vendedor/cliente asignado, probability 100% (Hs Pond. = Hs exactas).
+    {"id": 802, "name": "Prospecto Sin Vendedor", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [], "partner_id": False, "user_id": False,
+     "probability": 100, "priority": "1", "lead_properties": [_prop_horas(10)]},
+    # Etapa activa (1-8), MISMO nombre de cliente que Prospecto Uno — debe
+    # quedar AFUERA del universo (prueba que el filtro es por stage_id, no
+    # por texto/cliente similar).
+    {"id": 803, "name": "Activa Etapa 1 Cliente Similar", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [82, "Cliente Prospecto Uno"], "user_id": [51, "Vendedor Dos"],
+     "probability": 40, "priority": "2", "lead_properties": [_prop_horas(999)]},
+    # Prospecto ARCHIVADO (active=False), MISMA etapa 0 — debe quedar AFUERA
+    # (prueba que el filtro es por active, no sólo por stage_id).
+    {"id": 804, "name": "Prospecto Archivado", "type": "opportunity", "active": False, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [83, "Cliente Archivado"], "user_id": [50, "Vendedor Uno"],
+     "probability": 30, "priority": "0", "lead_properties": [_prop_horas(999)]},
+]
+
+PROS_ACTIVITIES = [
+    # Prospecto Uno tiene DOS actividades pendientes — legacy retiene ambas.
+    {"id": 1, "res_id": 800, "res_model": "crm.lead", "date_deadline": "2026-08-15",
+     "activity_type_id": [5, "Llamada"], "summary": "Primer contacto"},
+    {"id": 2, "res_id": 800, "res_model": "crm.lead", "date_deadline": "2026-08-20",
+     "activity_type_id": [6, "Reunión"], "summary": "Demo"},
+]
+
+
+def _prospects_client(**kwargs):
+    return FakeOdooClient(stages=PROS_STAGES, tags=PROS_TAGS, leads=PROS_LEADS, activities=PROS_ACTIVITIES, **kwargs)
+
+
+def test_prospects_universe_is_stage_0_never_active_or_archived():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    names = {r["opportunity"] for r in rows}
+    assert names == {"Prospecto Uno", "Prospecto Dos", "Prospecto Sin Vendedor"}
+    assert "Activa Etapa 1 Cliente Similar" not in names, "etapa 1-8 queda afuera aunque comparta cliente"
+    assert "Prospecto Archivado" not in names, "active=False queda afuera aunque esté en etapa 0"
+    svc_module.clear_cache()
+
+
+def test_prospects_row_includes_tags_unlike_opportunities():
+    # Desvío deliberado respecto de `_build_opportunities` (que NUNCA expone
+    # tag_ids/tags, ver `test_opportunities_row_never_exposes_tag_ids_or_
+    # etiquetas`) — acá el owner pidió Etiquetas explícitamente.
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Prospecto Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Prospecto Dos")
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Prospecto Sin Vendedor")
+    assert set(uno["tags"]) == {"New Names", "VIP"}
+    assert dos["tags"] == ["Base Instalada"]
+    assert sin_vendedor["tags"] == []
+    svc_module.clear_cache()
+
+
+def test_prospects_weighted_hours_matches_centralized_formula():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Prospecto Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Prospecto Dos")
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Prospecto Sin Vendedor")
+    assert uno["hours"] == 40 and uno["weighted_hours"] == 20.0, "probability 50% * 40hs"
+    assert dos["hours"] == 0 and dos["weighted_hours"] == 0.0, "sin Horas y probability 0%"
+    assert sin_vendedor["hours"] == 10 and sin_vendedor["weighted_hours"] == 10.0, "probability 100% = Hs exactas"
+    svc_module.clear_cache()
+
+
+def test_prospects_licencias_resolved_from_selection_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    assert next(r for r in rows if r["opportunity"] == "Prospecto Uno")["licencias"] == "Si"
+    assert next(r for r in rows if r["opportunity"] == "Prospecto Dos")["licencias"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_prospects_last_response_and_days_elapsed_from_date_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Prospecto Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Prospecto Dos")
+    assert uno["last_response"] == "2026-08-10"
+    assert uno["days_elapsed"] == (date.today() - date.fromisoformat("2026-08-10")).days
+    assert dos["last_response"] is None and dos["days_elapsed"] is None
+    svc_module.clear_cache()
+
+
+def test_prospects_activities_are_grouped_per_opportunity_all_not_just_next():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Prospecto Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Prospecto Dos")
+    assert len(uno["activities"]) == 2, "AMBAS actividades pendientes, no sólo la próxima"
+    assert {a["deadline"] for a in uno["activities"]} == {"2026-08-15", "2026-08-20"}
+    assert dos["activities"] == []
+    svc_module.clear_cache()
+
+
+def test_prospects_unassigned_seller_and_client_default_to_empty():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("todos")["opportunities"]
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Prospecto Sin Vendedor")
+    assert sin_vendedor["seller"] == "" and sin_vendedor["client"] == ""
+    svc_module.clear_cache()
+
+
+def test_prospects_seller_can_repeat_across_nn_and_bi_segments():
+    # Prospecto Uno (NN) y Prospecto Dos (BI) comparten vendedor — el dominio
+    # NN/BI no es una partición del vendedor, sólo del tag.
+    svc_module.clear_cache()
+    service = CommercialService(_prospects_client())
+    nn = {r["opportunity"]: r["seller"] for r in service.get_prospects("nn")["opportunities"]}
+    bi = {r["opportunity"]: r["seller"] for r in service.get_prospects("bi")["opportunities"]}
+    assert nn == {"Prospecto Uno": "Vendedor Uno"}
+    assert bi == {"Prospecto Dos": "Vendedor Uno"}
+    svc_module.clear_cache()
+
+
+def test_prospects_partitions_by_nn_bi_tag_never_double_query():
+    svc_module.clear_cache()
+    client = _prospects_client()
+    service = CommercialService(client)
+    todos = {r["opportunity"] for r in service.get_prospects("todos")["opportunities"]}
+    nn = {r["opportunity"] for r in service.get_prospects("nn")["opportunities"]}
+    bi = {r["opportunity"] for r in service.get_prospects("bi")["opportunities"]}
+    assert todos == {"Prospecto Uno", "Prospecto Dos", "Prospecto Sin Vendedor"}
+    assert nn == {"Prospecto Uno"}
+    assert bi == {"Prospecto Dos"}
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "una sola consulta a crm.lead"
+    svc_module.clear_cache()
+
+
+def test_prospects_use_the_module_cache():
+    svc_module.clear_cache()
+    client = _prospects_client()
+    service = CommercialService(client)
+    service.get_prospects("todos")
+    service.get_prospects("nn")
+    assert len([c for c in client.calls if c[0] == "mail.activity"]) == 1, "la segunda vista sale del cache"
+    svc_module.clear_cache()
+
+
+def test_prospects_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    rows = CommercialService(_prospects_client()).get_prospects("not-a-real-tipo")["opportunities"]
+    assert {r["opportunity"] for r in rows} == {"Prospecto Uno", "Prospecto Dos", "Prospecto Sin Vendedor"}
+    svc_module.clear_cache()
+
+
+def test_prospects_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _prospects_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_prospects("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _prospects_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_prospects("todos")
+    svc_module.clear_cache()
+
+
+def test_prospects_kpi_and_drill_conserve_count_and_hours():
+    # Owner §11 — "Under the same Tipo: Prospectos KPI count == Prospectos
+    # lazy dataset row count... Also preserve hours conservation." Ambos
+    # salen del MISMO dominio (`prospect_ids`, active=True, type=opportunity)
+    # pero de funciones DISTINTAS (`_build_summary` vs `_build_prospects`) —
+    # este test es la evidencia de que no divergieron.
+    svc_module.clear_cache()
+    service = CommercialService(_prospects_client())
+    for tipo in ("todos", "nn", "bi"):
+        kpi = service.get_summary(tipo)["prospectos"]
+        rows = service.get_prospects(tipo)["opportunities"]
+        assert kpi["count"] == len(rows), tipo
+        assert kpi["hours"] == sum(r["hours"] for r in rows), tipo
+    svc_module.clear_cache()
+
+
+# ============================================================================
 # Active Opportunities Phase 2 / C2 — Forecast por mes (`get_forecast`,
 # `GET /comercial/data/forecast`). Universo: stages 0-8 (Pipeline Total/
 # Ponderado) — NUNCA 1-8 (ese es Oportunidades Activas, C1). Semántica
