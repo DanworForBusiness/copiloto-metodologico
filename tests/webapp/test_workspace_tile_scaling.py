@@ -35,6 +35,12 @@ _VERTICALES = ("comercial", "commercial", "crm", "copilot", "copiloto",
                "operations", "operaciones", "reporting", "staffing")
 
 
+def _sin_comentarios(css: str) -> str:
+    """Los comentarios de esta hoja NOMBRAN a propósito lo que está prohibido
+    (explican por qué). Contarlos como código da un falso positivo."""
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
 def _regla(patron: str) -> str:
     """Cuerpo de la primera regla CSS cuyo selector matchea `patron`."""
     m = re.search(patron + r"\s*\{([^}]*)\}", _CSS)
@@ -160,11 +166,107 @@ def test_la_proporcion_por_cantidad_solo_aplica_con_multi_columna():
     `min-width`, así que una tarjeta apilada no hereda una proporción pensada
     para dos columnas."""
     bloques = re.findall(r"@media\s*\(min-width:\s*(\d+)px\)\s*\{(.*?)\n\}", _CSS, re.S)
+    # Dos bloques legítimos y separados: la PROPORCIÓN (todo el rango
+    # multi-columna) y la DENSIDAD original (sólo donde la tarjeta entra).
     contenedores = [(ancho, cuerpo) for ancho, cuerpo in bloques
-                    if 'data-visible-count="2"' in cuerpo]
-    assert len(contenedores) == 1, "la regla de 2 tiles debe vivir en UN media query"
+                    if "aspect-ratio:4/3" in cuerpo]
+    assert len(contenedores) == 1, "la proporción de 2 tiles debe vivir en UN media query"
     ancho, cuerpo = contenedores[0]
     # El corte tiene que estar por encima del ancho donde el grid apila: dos
     # columnas necesitan 2*260 + 22 = 542px de contenedor.
     assert int(ancho) >= 542
     assert 'data-visible-count="1"' in cuerpo, "el caso de 1 comparte el mismo corte"
+
+
+# ══ DENSIDAD INTERNA POR CANTIDAD ═════════════════════════════════════════
+# La geometría exterior no alcanzaba: con 2 tiles la tarjeta ya medía 529×397
+# pero el CONTENIDO seguía en la escala comprimida que se introdujo en a7c54a7
+# para que entrara el tercer workspace. Comprimir tiene sentido cuando hace
+# falta lugar para una capacidad más; con 2 no hace falta.
+
+# Valores ORIGINALES, recuperados de a7c54a7^ — no estimados de una captura.
+# `padding` y `h2` eran las únicas reglas propias del tile; el resto heredaba
+# los defaults compartidos de `.access-brand`/`.access-list`.
+_ROOMY = {
+    "padding": "38px 34px",
+    "h2": "clamp(1.5rem,2.6vw,2.1rem)",
+    "p": "1rem",
+    "li": ".96rem",
+    "check": "26px",
+    "list_gap": "14px",
+}
+_COMPACTA = {
+    "padding": "22px 26px",
+    "h2": "clamp(1.05rem,1.7vw,1.32rem)",
+    "p": ".82rem",
+    "li": ".78rem",
+    "check": "17px",
+    "list_gap": "7px",
+}
+
+
+def _bloque_roomy() -> str:
+    """El media query donde vive la densidad original de 2 tiles."""
+    m = re.search(r"@media\s*\(min-width:\s*(\d+)px\)\s*\{(.*?)\n\}", _CSS, re.S)
+    bloques = re.findall(r"@media\s*\(min-width:\s*(\d+)px\)\s*\{(.*?)\n\}", _CSS, re.S)
+    for ancho, cuerpo in bloques:
+        if "access-brand{padding:38px 34px}" in cuerpo.replace(" ", " "):
+            return cuerpo
+    return ""
+
+
+def test_dos_tiles_recuperan_la_densidad_original():
+    cuerpo = _bloque_roomy()
+    assert cuerpo, "no hay bloque de densidad para 2 tiles"
+    assert _ROOMY["padding"] in cuerpo
+    assert _ROOMY["h2"] in cuerpo
+    assert f'font-size:{_ROOMY["p"]}' in cuerpo
+    assert f'font-size:{_ROOMY["li"]}' in cuerpo
+    assert f'width:{_ROOMY["check"]}' in cuerpo
+    assert f'gap:{_ROOMY["list_gap"]}' in cuerpo
+    # Y TODA regla de ese bloque está calificada por la cantidad.
+    for regla in re.findall(r"^\s*(\.[^{]+)\{", cuerpo, re.M):
+        assert 'data-visible-count="2"' in regla, f"regla sin calificar: {regla.strip()}"
+
+
+def test_tres_tiles_conservan_la_densidad_compacta():
+    """El bloque compacto es el DEFAULT de la hoja y no se tocó: la densidad de
+    2 se agregó como override aditivo, así que 3 no se puede haber movido."""
+    for clave, valor in _COMPACTA.items():
+        assert valor in _CSS, f"se perdió el valor compacto de {clave}: {valor}"
+    # Los overrides compactos siguen SIN calificar por cantidad (son el default).
+    assert ".workspace-tile .access-brand{height:100%;display:flex" in _CSS
+    assert f'.workspace-tile .access-brand{{height:100%;display:flex;flex-direction:column;justify-content:center;padding:{_COMPACTA["padding"]}}}' in _CSS
+
+
+def test_la_densidad_no_usa_transform_scale():
+    """Escala REAL, no render escalado: `transform:scale` desenfoca texto y no
+    reflowea."""
+    codigo = _sin_comentarios(_CSS)
+    inicio = codigo.index(".workspace-tiles{")
+    assert "transform:scale" not in codigo[inicio:]
+
+
+def test_la_densidad_original_solo_donde_entra():
+    """Medido: el contenido a escala original entra con contenedor 1080
+    (529×397) y 1000, y desborda 12px a 900. El corte es el ancho donde el
+    contenedor llega a su tope — 1080 + los 24px de padding de `.screen` a cada
+    lado — o sea cuando la tarjeta mide los 529 de la referencia."""
+    bloques = re.findall(r"@media\s*\(min-width:\s*(\d+)px\)\s*\{(.*?)\n\}", _CSS, re.S)
+    anchos = [int(a) for a, cuerpo in bloques if "padding:38px 34px" in cuerpo]
+    assert anchos == [1128], f"el corte de la densidad original debería ser 1128, es {anchos}"
+
+
+def test_mobile_conserva_la_densidad_compacta():
+    """Owner §7: un viewport que apila dos workspaces en una columna NO es lo
+    mismo que tener un solo producto. Ninguna regla de densidad puede vivir
+    fuera de un `min-width`."""
+    fuera = re.sub(r"@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}", "", _CSS, flags=re.S)
+    assert 'data-visible-count="2"' not in fuera, \
+        "hay densidad por cantidad fuera de un media query: llegaría a mobile"
+
+
+def test_la_densidad_no_nombra_ninguna_vertical():
+    cuerpo = _bloque_roomy().lower()
+    for vertical in _VERTICALES:
+        assert vertical not in cuerpo, f"la densidad nombra '{vertical}'"

@@ -135,6 +135,43 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)
   .workspace-tiles[data-visible-count="2"] .workspace-tile{aspect-ratio:4/3}
   .workspace-tiles[data-visible-count="1"] .workspace-tile{aspect-ratio:auto}
 }
+
+/* La densidad roomy sólo donde MIDE que entra. El 4:3 se sostiene en todo el
+   rango multi-columna, pero el contenido a escala original necesita la
+   tarjeta completa: medido, entra con contenedor 1080 (529×397) y 1000
+   (489×367), y desborda 12px a 900. El corte es el ancho en el que el
+   contenedor llega a su tope de 1080 — 1080 + los 24px de padding de
+   `.screen` a cada lado — o sea justo cuando la tarjeta mide los 529 de la
+   referencia. Debajo manda la densidad compacta, que entra de sobra.
+
+   OJO para quien edite la copy: a 1080 la holgura es CERO (contenido 395 en
+   una caja de 395). Una línea más de descripción o un bullet más desbordan.
+   Si la copy tiene que crecer, la salida es alto por contenido en vez de 4:3
+   fijo — a 529 de ancho da los mismos 397, y nunca recorta. */
+@media (min-width:1128px){
+  /* DENSIDAD INTERNA, por cantidad. La geometria exterior no
+     alcanzaba: con 2 tiles la tarjeta ya medía 529×397 pero el CONTENIDO
+     seguía en la escala comprimida que se introdujo para que entrara el
+     tercer workspace (a7c54a7) — títulos, cuerpo, bullets, íconos y padding
+     todos reducidos. Comprimir tiene sentido cuando hace falta espacio para
+     una capacidad más; con 2 no hace falta y la tarjeta vuelve a su escala.
+
+     Estos valores son los de a7c54a7^, no una estimación: `padding` y `h2`
+     eran las únicas reglas propias del tile, y el resto heredaba los
+     defaults compartidos de `.access-brand`/`.access-list` (que siguen
+     intactos más arriba en esta misma hoja). Restaurarlos acá es reponer lo
+     que había, no inventar una escala nueva.
+
+     Es un OVERRIDE aditivo: el bloque compacto de arriba queda igual, así
+     que el layout de 3 no puede haberse movido. Y nada de `transform:scale`
+     — es tamaño real, no render escalado. */
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand{padding:38px 34px}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand h2{margin:16px 0 0;font-size:clamp(1.5rem,2.6vw,2.1rem);letter-spacing:-.03em;line-height:1.06}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand p{margin:20px 0 0;font-size:1rem;line-height:1.7;max-width:46ch}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-list{gap:14px;margin:30px 0 0}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-list li{gap:13px;font-size:.96rem}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-check{width:26px;height:26px;font-size:.85rem}
+}
 .workspace-tile .access-brand{height:100%;display:flex;flex-direction:column;justify-content:center;padding:22px 26px}
 .workspace-tile .access-brand h2{margin:10px 0 0;font-size:clamp(1.05rem,1.7vw,1.32rem);font-weight:800;letter-spacing:-.02em;line-height:1.1}
 .workspace-tile .access-brand h2 span{display:block;color:var(--gold)}

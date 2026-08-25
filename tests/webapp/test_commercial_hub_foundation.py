@@ -271,6 +271,12 @@ def test_workspace_tile_geometry_is_square_via_aspect_ratio_not_arbitrary_height
 
 
 def test_workspace_tile_typography_scale_is_smaller_than_the_shared_access_brand_default():
+    # Los regex del tile van ANCLADOS a inicio de línea: la regla COMPACTA es
+    # la que tiene que ser menor que el default compartido, y sin el ancla el
+    # patrón también matchea el override roomy de 2 tiles
+    # (`.workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand`),
+    # que RESTAURA la escala compartida a propósito cuando no hace falta
+    # comprimir. Ese caso lo cubre test_workspace_tile_scaling.py.
     # CORRECTIVE VISUAL (owner): "no comprimir únicamente el ancho dejando
     # la tipografía intacta" — la escala tipográfica/espacial DENTRO de
     # `.workspace-tile .access-brand` debe ser explícitamente MENOR que el
@@ -278,18 +284,18 @@ def test_workspace_tile_typography_scale_is_smaller_than_the_shared_access_brand
     # acceso/`.hub-hero`, que NO se toca). Nunca la misma escala solo con
     # un contenedor más angosto.
     shared_h1_match = re.search(r"\.access-brand h1\s*\{[^}]*font-size:\s*clamp\(([\d.]+)rem", _BRAND_HERO_CSS)
-    tile_h2_match = re.search(r"\.workspace-tile \.access-brand h2\s*\{[^}]*font-size:\s*clamp\(([\d.]+)rem", _BRAND_HERO_CSS)
+    tile_h2_match = re.search(r"^\.workspace-tile \.access-brand h2\s*\{[^}]*font-size:\s*clamp\(([\d.]+)rem", _BRAND_HERO_CSS, re.M)
     assert shared_h1_match and tile_h2_match
     assert float(tile_h2_match.group(1)) < float(shared_h1_match.group(1))
 
     shared_p_match = re.search(r"\.access-brand p\s*\{[^}]*font-size:\s*([\d.]+)rem", _BRAND_HERO_CSS)
-    tile_p_match = re.search(r"\.workspace-tile \.access-brand p\s*\{[^}]*font-size:\s*([\d.]+)rem", _BRAND_HERO_CSS)
+    tile_p_match = re.search(r"^\.workspace-tile \.access-brand p\s*\{[^}]*font-size:\s*([\d.]+)rem", _BRAND_HERO_CSS, re.M)
     assert shared_p_match and tile_p_match
     assert float(tile_p_match.group(1)) < float(shared_p_match.group(1))
 
     # El padding scoped al tile también debe ser menor que el shared default.
     shared_padding_match = re.search(r"\.access-brand\s*\{padding:\s*(\d+)px", _BRAND_HERO_CSS)
-    tile_padding_match = re.search(r"\.workspace-tile \.access-brand\s*\{[^}]*padding:\s*(\d+)px", _BRAND_HERO_CSS)
+    tile_padding_match = re.search(r"^\.workspace-tile \.access-brand\s*\{[^}]*padding:\s*(\d+)px", _BRAND_HERO_CSS, re.M)
     assert shared_padding_match and tile_padding_match
     assert int(tile_padding_match.group(1)) < int(shared_padding_match.group(1))
 
