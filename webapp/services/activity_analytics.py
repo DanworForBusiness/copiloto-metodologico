@@ -269,34 +269,76 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
     return events
 
 
+def _display_names(events: list[dict]) -> dict[str, str]:
+    """`{user: etiqueta}` — el ÚLTIMO `name` no vacío de cada identidad estable.
+
+    IDENTIDAD != ETIQUETA. El log guarda `user` (sub/email, estable) y `name`
+    (display, MUTABLE). Agrupar por `name or user` rompía las dos direcciones a
+    la vez, y en los datos reales pasaban las dos: una misma persona aparecía
+    como tres filas ("Jose O'Connor" / "Jose OConnor" / "Jose"), y un mismo
+    nombre de display aparecía en CUATRO cuentas distintas ("Smoke"). O sea que
+    inflaba unas filas y fusionaba otras.
+
+    "El último" es determinista con estos datos: `ts_utc` viene en TODOS los
+    eventos, en ISO (comparable como string), y ningún usuario multi-nombre
+    tiene empate en su timestamp máximo. Ante un empate igualmente resuelve
+    solo: gana el último en orden de lectura, que es cronológico.
+
+    NADA de normalizar texto — ni minúsculas, ni sacar puntuación, ni fuzzy.
+    La identidad viene de `user`; el nombre es sólo cómo se lo llama.
+    """
+    ultimo: dict[str, tuple[str, str]] = {}
+    for ev in events:
+        user, name = ev.get("user"), (ev.get("name") or "").strip()
+        if not user or not name:
+            continue
+        previo = ultimo.get(user)
+        if previo is None or (ev.get("ts_utc") or "") >= previo[0]:
+            ultimo[user] = ((ev.get("ts_utc") or ""), name)
+    return {user: nombre for user, (_ts, nombre) in ultimo.items()}
+
+
+def _label_of(user: str, display: dict[str, str]) -> str:
+    """Etiqueta visible de una identidad estable. Sin `name` en ningún evento,
+    se muestra el `user` — nunca se inventa un nombre."""
+    return display.get(user) or user
+
+
 def _user_facets(events: list[dict]) -> list[dict]:
     """Usuarios distintos en el rango de fechas (ANTES de aplicar el filtro de
     usuario), para que el <select> no se vacíe al filtrar. Módulo se resuelve
     aparte, en build_summary — es transversal (Copilot Y Operations, ver
     corrective A2) y necesita facetear contra Ámbito/Área, no solo fecha."""
+    # MISMA regla de display que el resto (antes se quedaba con el PRIMER
+    # nombre visto, así que el `<select>` podía llamar a alguien distinto que
+    # el desglose).
+    display = _display_names(events)
     users: dict[str, str] = {}
     for ev in events:
         if ev["user"]:
-            users.setdefault(ev["user"], ev["name"] or ev["user"])
+            users.setdefault(ev["user"], _label_of(ev["user"], display))
     return [
         {"value": user, "label": label}
         for user, label in sorted(users.items(), key=lambda kv: kv[1].lower())
     ]
 
 
-def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
+def _top(counter: Counter, n: int = _TOP_N, display: dict | None = None) -> list[dict]:
+    """Con `display`, el counter viene llaveado por identidad estable y la fila
+    lleva etiqueta visible + `user` (ver `_breakdown`)."""
     total_max = counter.most_common(1)[0][1] if counter else 0
     rows = []
     for key, count in counter.most_common(n):
         rows.append({
-            "label": key,
+            "label": _label_of(key, display) if display is not None else key,
             "count": count,
             "pct": round(100 * count / total_max) if total_max else 0,
+            **({"user": key} if display is not None else {}),
         })
     return rows
 
 
-def _breakdown(counter: Counter, n: int | None = None) -> dict:
+def _breakdown(counter: Counter, n: int | None = None, display: dict | None = None) -> dict:
     """Desglose de un DRILL-DOWN: por default COMPLETO.
 
     `_top` recorta a 10 sin decirlo. Para el leaderboard de la vista general
@@ -312,8 +354,14 @@ def _breakdown(counter: Counter, n: int | None = None) -> dict:
     maximo = counter.most_common(1)[0][1] if counter else 0
     filas = counter.most_common(n) if n else counter.most_common()
     return {
-        "rows": [{"label": k, "count": c,
-                  "pct": round(100 * c / maximo) if maximo else 0}
+        # Con `display`, el counter está llaveado por identidad ESTABLE: la fila
+        # lleva la etiqueta visible Y el `user` que la origina. Dos cuentas con
+        # el mismo nombre siguen siendo dos filas, y el payload permite
+        # distinguirlas en una auditoría.
+        "rows": [{"label": _label_of(k, display) if display is not None else k,
+                  "count": c,
+                  "pct": round(100 * c / maximo) if maximo else 0,
+                  **({"user": k} if display is not None else {})}
                  for k, c in filas],
         "total": total,
         "usuarios": len(counter),
@@ -623,10 +671,11 @@ def build_summary(
         daily_counts[ev["day"]] += 1
         usage_areas_seen.add(ev["area"])
         if ev["user"]:
+            # Se agrupa por la identidad ESTABLE. La etiqueta visible se
+            # resuelve al final, una sola vez, con `_display_names`.
             users_seen.add(ev["user"])
-            label = ev["name"] or ev["user"]
-            user_counts[label] += 1
-            event_user_counts.setdefault(ev["event"], Counter())[label] += 1
+            user_counts[ev["user"]] += 1
+            event_user_counts.setdefault(ev["event"], Counter())[ev["user"]] += 1
 
         if ev["ts_utc"]:
             ts_min = ev["ts_utc"] if ts_min is None else min(ts_min, ev["ts_utc"])
@@ -638,13 +687,13 @@ def build_summary(
             module_counts[ev["module"]] += 1
         if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
-            # El cubo de la cascada. MISMA identidad de display que
-            # `event_user_counts` (`name or user`) para que la comparacion
-            # contra el oraculo server-side sea de igual a igual.
+            # El cubo de la cascada. MISMA identidad estable que
+            # `event_user_counts`, para que la comparacion contra el oraculo
+            # server-side sea de igual a igual.
             if ev["user"]:
                 (module_event_user_counts
                  .setdefault(ev["module"], {})
-                 .setdefault(ev["event"], Counter())[ev["name"] or ev["user"]]) += 1
+                 .setdefault(ev["event"], Counter())[ev["user"]]) += 1
 
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
@@ -728,13 +777,19 @@ def build_summary(
     # derecho muestra su detalle. catalog_view abre por tipo de vista (`kind`);
     # el resto abre por usuario (quién lo generó). Se precalculan todos y el
     # front togglea con JS (sin request extra) — ver initEventBreakdown en app.js.
+    # Etiquetas visibles, resueltas UNA vez sobre TODO el rango — no sobre el
+    # subconjunto filtrado: el nombre de alguien no deberia cambiar segun que
+    # filtro este puesto.
+    display_names = _display_names(all_events)
+
     event_breakdowns: dict[str, dict] = {}
     for event, _count in event_counts.most_common():
         if event == "catalog_view":
             event_breakdowns[event] = {"dim": "tipo de vista", **_breakdown(catalog_kind_counts)}
         else:
             event_breakdowns[event] = {"dim": "usuario",
-                                       **_breakdown(event_user_counts.get(event, Counter()))}
+                                       **_breakdown(event_user_counts.get(event, Counter()),
+                                                    display=display_names)}
 
     return {
         "date_from": date_from,
@@ -771,7 +826,7 @@ def build_summary(
         # activity_context.py). Sin framework de localización.
         "event_labels": EVENT_LABELS,
         "top_modules": _top_modules(module_counts),
-        "top_users": _top(user_counts),
+        "top_users": _top(user_counts, display=display_names),
         # Mismo tope que top_modules (los módulos que realmente aparecen como fila
         # clickeable): no tiene sentido precalcular el desglose de un módulo que
         # ni se muestra. Keyed por LABEL visible (no por key interno) — así
@@ -789,7 +844,7 @@ def build_summary(
         # un drill-down no puede omitir filas en silencio.
         "module_event_user_breakdowns": {
             row["label"]: {
-                evento: {"dim": "usuario", **_breakdown(contador)}
+                evento: {"dim": "usuario", **_breakdown(contador, display=display_names)}
                 for evento, contador in module_event_user_counts.get(row["key"], {}).items()
             }
             for row in _top_modules(module_counts)
