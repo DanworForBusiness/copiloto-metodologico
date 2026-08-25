@@ -13,9 +13,22 @@ de un CDN. Hoy hay exactamente uno.
 | Origen | `https://unpkg.com/@azure/msal-browser@4.30.0/lib/msal-browser.min.js` |
 | Bytes | 332 695 |
 | SHA-256 | `2b580165064a6a4ec041ebd44832299172688a23a42c3b81d65314799dba04eb` |
-| Licencia | MIT |
+| Licencia | MIT — el texto completo, tal cual lo publica el paquete, en `msal-browser-4.30.0.LICENSE` |
 | Formato | UMD — expone `globalThis.msal`, se carga con `<script src>` sin build |
 | Consumidor | `webapp/static/hub_auth.js` (la autoridad de auth del Hub) |
+
+### El aviso de licencia va aparte, no dentro del bundle
+
+MIT pide que el aviso de copyright y el de permiso acompañen a la copia. El
+bundle minificado trae sólo un banner de versión
+(`/*! @azure/msal-browser v4.30.0 ... */`) — no el aviso — así que el texto
+completo se guarda al lado, en `msal-browser-4.30.0.LICENSE`, bajado del MISMO
+path del registry que el artefacto y copiado byte a byte.
+
+Deliberadamente **no** se inyecta prosa dentro del `.min.js`: eso cambiaría su
+SHA-256 y rompería la verificación de integridad — el artefacto tiene que
+quedar idéntico a lo que publica el registry. Un archivo hermano cumple lo
+mismo sin tocarlo.
 
 ### Por qué local y no CDN
 

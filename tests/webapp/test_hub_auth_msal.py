@@ -163,3 +163,37 @@ def test_the_vendor_directory_documents_its_own_provenance():
     assert MSAL_SHA256 in readme
     assert "unpkg.com/@azure/msal-browser" in readme     # el origen exacto
     assert "MIT" in readme                               # la licencia
+
+
+# ── CUMPLIMIENTO DE LICENCIA DEL ARTEFACTO VENDORIZADO ────────────────────
+# MIT pide que el aviso de copyright y el de permiso acompañen a la copia. El
+# bundle minificado trae SOLO un banner de versión, así que el aviso vive al
+# lado. Este guard es genérico a propósito: la próxima librería que se
+# vendorice hereda la obligación sin que nadie tenga que acordarse.
+
+_VENDOR = Path(__file__).resolve().parents[2] / "webapp" / "static" / "vendor"
+
+
+def test_todo_artefacto_vendorizado_tiene_su_aviso_de_licencia():
+    artefactos = sorted(_VENDOR.glob("*.min.js"))
+    assert artefactos, "no hay artefactos vendorizados: el guard quedaría vacío"
+    for artefacto in artefactos:
+        aviso = artefacto.with_suffix("").with_suffix(".LICENSE")
+        assert aviso.exists(), (
+            f"{artefacto.name} se redistribuye sin su aviso de licencia "
+            f"(se esperaba {aviso.name})"
+        )
+        texto = aviso.read_text(encoding="utf-8")
+        # Las dos cláusulas que MIT exige que viajen con la copia.
+        assert "Copyright (c)" in texto, f"{aviso.name} sin línea de copyright"
+        assert "shall be included in all" in texto, f"{aviso.name} sin aviso de permiso"
+
+
+def test_el_aviso_no_se_inyecta_dentro_del_bundle():
+    """Meter prosa en el `.min.js` cambiaría su SHA-256 y rompería la
+    verificación de integridad: el artefacto tiene que quedar idéntico a lo que
+    publica el registry."""
+    bundle = (_VENDOR / "msal-browser-4.30.0.min.js").read_text(encoding="utf-8", errors="ignore")
+    assert "shall be included in all" not in bundle
+    assert bundle.startswith("/*! @azure/msal-browser v4.30.0"), \
+        "el banner original del registry tiene que quedar tal cual"
