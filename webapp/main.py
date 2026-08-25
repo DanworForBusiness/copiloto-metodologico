@@ -23,6 +23,7 @@ from core import remote_store
 from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
+from webapp.services import odoo_client  # pool de conexiones de proceso (cierre en lifespan)
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_CATALOG
 from webapp.services.content_service import (
@@ -150,6 +151,14 @@ async def lifespan(app: FastAPI):
         # Flush final best-effort (cubre deploys/recycles graceful).
         try:
             await asyncio.to_thread(remote_store.mirror_up)
+        except Exception:
+            pass
+
+        # Cierre del pool de conexiones a Odoo. Vive en el PROCESO, asi que
+        # el unico lugar legitimo para cerrarlo es el shutdown de la app —
+        # nunca el fin de una request. Idempotente.
+        try:
+            odoo_client.close_transport()
         except Exception:
             pass
 
