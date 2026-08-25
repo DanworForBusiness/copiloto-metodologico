@@ -296,6 +296,32 @@ def _top(counter: Counter, n: int = _TOP_N) -> list[dict]:
     return rows
 
 
+def _breakdown(counter: Counter, n: int | None = None) -> dict:
+    """Desglose de un DRILL-DOWN: por default COMPLETO.
+
+    `_top` recorta a 10 sin decirlo. Para el leaderboard de la vista general
+    eso esta bien —es explicitamente un "top"—, pero un drill-down que
+    aparenta ser exhaustivo y omite filas en silencio miente sobre el
+    universo que dice desglosar. Aca las filas CONSERVAN por default.
+
+    `total` (suma del universo) y `usuarios` (cardinalidad) viajan siempre,
+    aun si algun consumidor decide recortar: la conservacion se puede
+    verificar sin depender de cuantas filas se pintaron.
+    """
+    total = sum(counter.values())
+    maximo = counter.most_common(1)[0][1] if counter else 0
+    filas = counter.most_common(n) if n else counter.most_common()
+    return {
+        "rows": [{"label": k, "count": c,
+                  "pct": round(100 * c / maximo) if maximo else 0}
+                 for k, c in filas],
+        "total": total,
+        "usuarios": len(counter),
+        "shown": len(filas),
+        "truncated": bool(n) and len(counter) > len(filas),
+    }
+
+
 def _top_modules(counter: Counter, n: int = _TOP_N) -> list[dict]:
     """Como _top() pero con `key` (identificador estable) Y `label` (visible,
     ver module_label) por separado — el template usa `label` tanto para
@@ -561,6 +587,16 @@ def build_summary(
     # app.js. Usage-only: un data_load_failed dentro de Asignaciones no debe
     # aparecer al clickear "Asignaciones" en este dashboard.
     module_event_counts: dict[str, Counter] = {}
+
+    # CASCADE INTEGRITY (corrective de confianza). El desglose por usuario del
+    # panel derecho tiene que resolverse por (modulo, evento), NUNCA por evento
+    # solo. `event_user_counts` esta llaveado por NOMBRE de evento, y nombres
+    # como `module_viewed` existen a proposito en Copiloto, Operaciones y
+    # Comercial: al filtrar por modulo a la izquierda, la derecha seguia
+    # mostrando el universo entero del nombre. La izquierda decia 175 y la
+    # derecha sumaba 978 — una falla de conservacion que ademas insinuaba que
+    # usuarios sin autorizacion habian entrado a un modulo sensible.
+    module_event_user_counts: dict[str, dict[str, Counter]] = {}
     # Conversaciones del asistente agrupadas por conversation_id: cada "turno" es un
     # assistant_query (router, o el bypass de "Explícame vos"), con su feedback si
     # hubo. Eventos viejos sin conversation_id quedan como conversación de un solo
@@ -602,6 +638,13 @@ def build_summary(
             module_counts[ev["module"]] += 1
         if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
+            # El cubo de la cascada. MISMA identidad de display que
+            # `event_user_counts` (`name or user`) para que la comparacion
+            # contra el oraculo server-side sea de igual a igual.
+            if ev["user"]:
+                (module_event_user_counts
+                 .setdefault(ev["module"], {})
+                 .setdefault(ev["event"], Counter())[ev["name"] or ev["user"]]) += 1
 
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
@@ -688,9 +731,10 @@ def build_summary(
     event_breakdowns: dict[str, dict] = {}
     for event, _count in event_counts.most_common():
         if event == "catalog_view":
-            event_breakdowns[event] = {"dim": "tipo de vista", "rows": _top(catalog_kind_counts)}
+            event_breakdowns[event] = {"dim": "tipo de vista", **_breakdown(catalog_kind_counts)}
         else:
-            event_breakdowns[event] = {"dim": "usuario", "rows": _top(event_user_counts.get(event, Counter()))}
+            event_breakdowns[event] = {"dim": "usuario",
+                                       **_breakdown(event_user_counts.get(event, Counter()))}
 
     return {
         "date_from": date_from,
@@ -735,6 +779,19 @@ def build_summary(
         # por `row["key"]` (interno) contra module_event_counts.
         "module_event_breakdowns": {
             row["label"]: _event_breakdown_rows(module_event_counts.get(row["key"], Counter()))
+            for row in _top_modules(module_counts)
+        },
+        # CASCADE INTEGRITY: el desglose por usuario DENTRO de un modulo. Es lo
+        # que le faltaba a la cascada — con esto la etapa de la derecha se
+        # resuelve por (modulo, evento) y hereda el filtro de la izquierda en
+        # vez de descartarlo. Mismo keyed-por-LABEL que `module_event_breakdowns`
+        # (coincide con `data-module="{{ row.label }}"` del template), y COMPLETO:
+        # un drill-down no puede omitir filas en silencio.
+        "module_event_user_breakdowns": {
+            row["label"]: {
+                evento: {"dim": "usuario", **_breakdown(contador)}
+                for evento, contador in module_event_user_counts.get(row["key"], {}).items()
+            }
             for row in _top_modules(module_counts)
         },
         "catalog_kind_counts": [

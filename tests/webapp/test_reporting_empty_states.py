@@ -98,7 +98,11 @@ def test_the_shared_hub_consumers_are_untouched():
     activity = (_ROOT / "webapp" / "templates" / "partials" / "admin_activity_content.html").read_text(encoding="utf-8")
     staffing = (_ROOT / "webapp" / "templates" / "operations" / "staffing_dashboard.html").read_text(encoding="utf-8")
     commercial = (_STATIC / "commercial.js").read_text(encoding="utf-8")
-    assert activity.count('class="dashboard-empty"') == 4        # Copiloto / Métricas de Uso
+    # 4 -> 5 (Cascade Integrity): el desglose por usuario pasó a resolverse por
+    # (módulo, evento), así que los paneles module-scoped traen su propio
+    # empty-state. Es un consumidor MÁS del primitivo compartido, no una
+    # redefinición — que es lo que este test protege.
+    assert activity.count('class="dashboard-empty"') == 5        # Copiloto / Métricas de Uso
     assert staffing.count('class="dashboard-empty"') == 2        # Asignaciones
     assert commercial.count('class="dashboard-empty"') == 1      # CRM, vía su helper
     assert "function commercialEmptyStateHtml(" in commercial

@@ -64,7 +64,15 @@ def test_c6_never_touched_the_shared_breakdown_engine():
     # marca `.is-active` por VALOR del atributo, o sea en TODOS los triggers de
     # ese valor. Nadie "arregló" eso en app.js — la normalización a un solo
     # marcador vive del lado de Comercial, sobre el nodo que el usuario activó.
-    assert 'rows.forEach(r => r.classList.toggle("is-active", r.dataset.event === ev));' in _APP_JS
+    # El motor ganó una dimensión OPCIONAL de módulo (Cascade Integrity), así
+    # que la línea ya no es una sola. LA PREMISA DE C6 NO CAMBIA y se sigue
+    # verificando: el marcado es por VALOR de atributo, y la condición de
+    # módulo es VACUA para una fila sin contexto de módulo (`suyo === null`) —
+    # que es el caso de TODOS los triggers de Comercial, ninguno de los cuales
+    # vive dentro de un `[data-module-breakdown]`.
+    assert 'r.dataset.event === ev && (suyo === null || suyo === mod));' in _APP_JS
+    assert 'const dentro = r.closest("[data-module-breakdown]");' in _APP_JS
+    assert "[data-module-breakdown]" not in _COMMERCIAL_JS, "si Comercial emitiera paneles por módulo, esta premisa habría que re-probarla"
 
 
 def test_single_visual_active_trigger_is_normalized_without_new_state():

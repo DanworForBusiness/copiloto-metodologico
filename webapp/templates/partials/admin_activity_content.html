@@ -250,7 +250,7 @@
     </div>
     {% endfor %}
     {% endmacro %}
-    <div class="activity-grid-2" data-breakdown-group>
+    <div class="activity-grid-2" data-breakdown-group data-cascade-module>
       <div>
         <p class="dashboard-subhead">
           Acciones de usuario <span class="dashboard-subhead__hint">· click para desglosar →</span>
@@ -272,8 +272,14 @@
             <p>Elegí un evento a la izquierda para ver su desglose (o volvé a hacer click en el elegido para des-seleccionarlo).</p>
           </div>
         </div>
+        {# CASCADE INTEGRITY: el panel se identifica por (modulo, evento), no
+           por evento solo. `data-breakdown-module=""` es el universo global
+           (sin modulo elegido); los demas son el desglose DENTRO del modulo.
+           Antes habia un unico panel por nombre de evento, asi que filtrar por
+           modulo a la izquierda no cambiaba nada a la derecha: se mostraba el
+           universo entero del evento. #}
         {% for event, bd in summary.event_breakdowns.items() %}
-        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" hidden>
+        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" data-breakdown-module="" hidden>
           <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ summary.event_labels.get(event, event) }}</code> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
           {% if bd.rows %}
           {% for r in bd.rows %}
@@ -290,6 +296,29 @@
           </div>
           {% endif %}
         </div>
+        {% endfor %}
+        {% for mod, eventos in summary.module_event_user_breakdowns.items() %}
+        {% for event, bd in eventos.items() %}
+        <div class="activity-breakdown__panel" data-breakdown="{{ event }}" data-breakdown-module="{{ mod }}" hidden>
+          <p class="dashboard-subhead">Desglose de <code class="activity-event-name" title="{{ summary.event_descriptions.get(event, 'Evento sin descripción registrada.') }}">{{ summary.event_labels.get(event, event) }}</code> · por {{ bd.dim }}
+            <span class="dashboard-subhead__filter">· en <strong>{{ mod }}</strong></span>
+            <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
+          {% if bd.rows %}
+          {% for r in bd.rows %}
+          <div class="activity-bar-row">
+            <span class="activity-bar-label">{{ r.label }}</span>
+            <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ r.pct }}%"></span></div>
+            <span class="activity-bar-count">{{ r.count }}</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin desglose</span>
+            <p>Este evento no tiene un desglose disponible en el rango seleccionado.</p>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
         {% endfor %}
       </div>
     </div>

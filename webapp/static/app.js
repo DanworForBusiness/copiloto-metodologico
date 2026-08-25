@@ -698,10 +698,35 @@ function initEventBreakdown(scope, { openFirst = true } = {}) {
   scope.querySelectorAll("[data-breakdown-group]").forEach(group => {
     const rows = [...group.querySelectorAll("[data-event]")];
     const panels = [...group.querySelectorAll("[data-breakdown]")];
+    // Dimensión OPCIONAL de módulo. SÓLO Métricas de Uso la declara (emite
+    // paneles con `data-breakdown-module`); Comercial y Reporting consumen
+    // este mismo motor sin ningún módulo, así que para ellos la condición es
+    // vacua y el comportamiento no cambia — incluido que `.is-active` se
+    // marque por VALOR de atributo en TODOS los triggers de ese valor.
+    //
+    // Sin esto el panel se resolvía por NOMBRE DE EVENTO solo: con un módulo
+    // filtrado a la izquierda, la derecha seguía mostrando el universo global
+    // del evento (175 vs 978 en vivo) — y `module_viewed` existe a propósito
+    // en Copiloto, Operaciones y Comercial.
     const show = ev => {
-      panels.forEach(p => { p.hidden = p.dataset.breakdown !== ev; });
-      rows.forEach(r => r.classList.toggle("is-active", r.dataset.event === ev));
+      group.dataset.activeEvent = ev || "";
+      const mod = group.dataset.activeModule || "";
+      panels.forEach(p => {
+        const suyo = p.dataset.breakdownModule;
+        p.hidden = !(p.dataset.breakdown === ev
+          && (suyo === undefined || suyo === (ev ? mod : "")));
+      });
+      rows.forEach(r => {
+        const dentro = r.closest("[data-module-breakdown]");
+        const suyo = dentro ? (dentro.dataset.moduleBreakdown || "") : null;
+        r.classList.toggle("is-active",
+          r.dataset.event === ev && (suyo === null || suyo === mod));
+      });
     };
+    // La referencia vive en el NODO del grupo, no en un símbolo de módulo:
+    // el motor tiene que seguir siendo evaluable EN AISLAMIENTO — hay harnesses
+    // que extraen esta función sola, y un símbolo de módulo la rompería ahí.
+    group.dwBreakdownShow = show;
     // Clic en la fila YA activa la des-selecciona (vuelve al estado "sin
     // desglose elegido") en vez de dejarla pegada — mismo espíritu que el
     // reset del filtro de módulo.
@@ -736,6 +761,11 @@ function initModuleFilter(scope) {
   const labelWrap = scope.querySelector("[data-module-filter-label]");
   const labelText = labelWrap ? labelWrap.querySelector("strong") : null;
   const resetBtn = labelWrap ? labelWrap.querySelector("[data-module-reset]") : null;
+  // Eventos disponibles DENTRO de un módulo (las filas de su panel).
+  const eventosDe = mod => {
+    const panel = panels.find(p => (p.dataset.moduleBreakdown || "") === mod);
+    return panel ? [...panel.querySelectorAll("[data-event]")].map(r => r.dataset.event) : [];
+  };
   const show = mod => {
     panels.forEach(p => { p.hidden = p.dataset.moduleBreakdown !== mod; });
     rows.forEach(r => r.classList.toggle("is-active", !!mod && r.dataset.module === mod));
@@ -743,6 +773,23 @@ function initModuleFilter(scope) {
       labelWrap.hidden = !mod;
       if (mod && labelText) labelText.textContent = mod;
     }
+    // LA ETAPA SIGUIENTE HEREDA EL MÓDULO. Antes no pasaba: los dos toggles
+    // eran independientes y sólo coincidían en pantalla.
+    //
+    // Se busca `[data-cascade-module]` —opt-in EXPLÍCITO del template de
+    // Métricas— y no `[data-breakdown-group]`: ese selector es del motor y de
+    // nadie más, que es lo que permite que Comercial y Reporting compartan el
+    // motor sin enterarse de que existe una dimensión de módulo.
+    scope.querySelectorAll("[data-cascade-module]").forEach(group => {
+      group.dataset.activeModule = mod;
+      // El evento elegido puede no existir en el módulo nuevo: se conserva si
+      // existe, y si no cae al más frecuente de ESE módulo — mismo criterio
+      // que el `openFirst` de siempre, ahora dentro del módulo activo.
+      const disponibles = eventosDe(mod);
+      const actual = group.dataset.activeEvent || "";
+      const elegido = disponibles.includes(actual) ? actual : (disponibles[0] || "");
+      if (group.dwBreakdownShow) group.dwBreakdownShow(elegido);
+    });
   };
   rows.forEach(r => {
     r.addEventListener("click", () => show(r.dataset.module));
