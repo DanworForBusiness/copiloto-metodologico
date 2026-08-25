@@ -384,28 +384,55 @@ const creadasRequests = () => fetches.filter(u => u.indexOf("/comercial/data/cre
   assertTrue(code.indexOf('creadasStatus = "idle"') !== -1,
     "TIPO: cambiar el universo devuelve Creadas a `idle` — su contrato de dataset sigue intacto");
 
-  // ── GUARD B — el año ACTIVO no espera al año previo ────────────────────
-  // Los dos van en paralelo, pero la ventana caliente no puede volverse una
-  // NUEVA espera: si el activo se bloqueara hasta que el previo termina, el
-  // usuario seguiria pagando datos que no pidio. Se deja el previo colgado a
-  // proposito y se exige que el activo igual quede usable.
+  // ── GUARD B — ACTIVE-FIRST: el previo ni siquiera ARRANCA antes ────────
+  // Contrato nuevo (owner performance gate). Antes los dos años salian
+  // juntos; medido contra el Odoo real, el previo le costaba ~1.3s al activo
+  // (~8.0s solo vs ~9.3s concurrente, 3 de 3 muestras pareadas, mismo signo
+  // en las tres). Compiten por el servidor, no por el event loop. La ventana
+  // caliente es trabajo OPCIONAL: no puede competir con el primer pintado.
+  //
+  // Por eso ya no alcanza con "el activo no espera al previo": hay que exigir
+  // el ORDEN. Se cuelga el ACTIVO y se comprueba que mientras tanto no salio
+  // ninguna request del previo.
   const previo = String(CUR - 1);
   commercialState.creadasByYear = {};
   commercialState.creadasStatus = "idle";
   commercialState.creadas = null;
   commercialState.creadasAniosStatus = "ready";
+  let activoResolver = null;
   let previoResolver = null;
-  fetchOverride = (u) => (u.indexOf("anio=" + previo) !== -1
-    ? new Promise((res) => { previoResolver = res; })   // nunca resuelve sola
-    : null);
-  await commercialLoadCreadas();
+  fetchOverride = (u) => {
+    if (u.indexOf("anio=" + CUR) !== -1) return new Promise((res) => { activoResolver = res; });
+    if (u.indexOf("anio=" + previo) !== -1) return new Promise((res) => { previoResolver = res; });
+    return null;
+  };
+  const aniosPedidos = () => fetches.filter(u => u.indexOf("/comercial/data/creadas?") !== -1)
+    .map(u => (u.match(/anio=([0-9]+)/) || [])[1]);
+  const antesDeAbrir = aniosPedidos().length;
+  const abriendo = commercialLoadCreadas();       // SIN await: el activo cuelga
+  await drain();
+  const durante = aniosPedidos().slice(antesDeAbrir);
+  assertTrue(durante.indexOf(String(CUR)) !== -1,
+    "GUARD B: la apertura pide el año ACTIVO");
+  assertEqual(durante.indexOf(previo), -1,
+    `GUARD B: y NO arranca el previo mientras el activo sigue en vuelo (${JSON.stringify(durante)})`);
+
+  // Resuelto el activo: pinta, y RECIEN ahi sale el previo.
+  activoResolver({ json: () => Promise.resolve({ state: "ok", creadas: { months: [
+    { month: `${CUR}-05`, count: 1, opportunities: [{ id: 77, entry_date: `${CUR}-05-02`,
+      name: "Act", client: "C", seller: "Ana", origen: "BI", status: "Ganada", horas: 3 }] }] } }) });
+  await abriendo;
   await drain();
   assertEqual(commercialState.creadasStatus, "ready",
-    "GUARD B: el año activo queda usable aunque el previo siga en vuelo");
+    "GUARD B: el año activo queda usable");
   assertTrue(commercialState.creadas !== null,
     "GUARD B: y con dataset, no un loader");
+  const despues = aniosPedidos().slice(antesDeAbrir);
+  assertTrue(despues.indexOf(previo) !== -1,
+    "GUARD B: el prefetch del previo arranca DESPUES — no se pierde, se pospone");
   assertEqual((commercialState.creadasByYear[previo] || {}).status, "loading",
-    "GUARD B: el previo efectivamente seguia sin resolver (si no, el guard no probaria nada)");
+    "GUARD B: y sigue en vuelo (si no, el resto del guard no probaria nada)");
+
   // Y cuando el previo llega tarde, NO pisa la vista del año activo.
   const activoAntes = commercialState.creadas;
   previoResolver({ json: () => Promise.resolve({ state: "ok", creadas: { months: [{ month: previo + "-01", count: 9, opportunities: [] }] } }) });

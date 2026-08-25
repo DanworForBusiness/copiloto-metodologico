@@ -3006,8 +3006,14 @@ function commercialCreadasAdoptYear(year) {
 // COLD: aparecen en el `<select>` (metadata barata) y se piden al
 // seleccionarse. Antes esta apertura reconstruia el historial canonico COMPLETO.
 //
-// Los dos van en PARALELO y el render NO espera al anterior: el año activo
-// pinta en cuanto esta, y el previo termina de poblar su cache despues.
+// ACTIVE-FIRST, no en paralelo. El año activo va SOLO; el previo arranca
+// recien cuando el activo resolvio y ya pinto.
+//
+// Arrancarlos juntos parecia gratis —el render nunca esperaba al previo— pero
+// medido contra el Odoo real no lo es: en 3 muestras pareadas el año activo
+// tardo ~8.0s solo y ~9.3s mientras el previo corria (+17%, mismo signo en las
+// 3). Compiten por el servidor, no por el event loop. La ventana caliente es
+// trabajo OPCIONAL de background: no puede competir con el primer pintado.
 async function commercialLoadCreadas() {
   const actual = new Date().getFullYear();
   commercialState.creadasYear = String(actual);
@@ -3028,11 +3034,17 @@ async function commercialLoadCreadas() {
       .catch(() => { commercialState.creadasAniosStatus = "error"; });
   }
 
-  // El año activo primero, sin await del previo.
-  const activo = commercialHydrateCreadasYear(actual, { activo: true });
-  // HOT WINDOW: el previo warmea su cache en background.
-  commercialHydrateCreadasYear(actual - 1);
-  await activo;
+  // 1. El año activo, SOLO. `commercialHydrateCreadasYear` adopta y renderiza
+  //    antes de resolver, asi que cuando este `await` vuelve ya hubo pintado.
+  const ok = await commercialHydrateCreadasYear(actual, { activo: true });
+
+  // 2. Recien ahora el previo, en background y sin `await`: nadie lo espera y
+  //    cuando termine NO toca la vista (`commercialCreadasAdoptYear` solo
+  //    publica el año que el usuario esta mirando).
+  //
+  //    Si el activo fallo no se prefetchea: el usuario va a reintentar, y ese
+  //    reintento no deberia competir con un calentamiento opcional.
+  if (ok) commercialHydrateCreadasYear(actual - 1);
 }
 
 // Puente entre el motor compartido y el lazy load — MISMO criterio que
@@ -3448,12 +3460,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sellerSelect) commercialState.forecastSellerFilter = sellerSelect.value;
     commercialRenderForecastPanel();
   });
-  // Año del drill de Creadas (Creadas Legacy Parity, ver HANDOFF): cambia
-  // SOLO la lectura (ranking + tabla mensual filtrados a ESE año) — el
-  // payload es el MISMO (todos los años ya vinieron en la carga única),
-  // cero round-trip. Mes/semana expandidos se resetean: un mes expandido
-  // del año anterior no tiene sentido bajo el año nuevo. Listener SEPARADO,
-  // mismo criterio que los de arriba.
+  // Año del drill de Creadas (Creadas Legacy Parity, ver HANDOFF). El año es
+  // la UNICA interaccion del drill que puede hidratar: un año de la ventana
+  // caliente responde del cache, uno frio se pide. Lo demas —mes, semana,
+  // vendedor, busqueda— sigue siendo lectura local con cero round-trips.
+  //
+  // (Antes esto decia "el payload es el MISMO, cero round-trip", que era cierto
+  // cuando la carga unica traia TODA la historia. Ya no.)
+  //
+  // Mes/semana expandidos se resetean: un mes expandido del año anterior no
+  // tiene sentido bajo el año nuevo. Listener SEPARADO, mismo criterio que los
+  // de arriba.
   document.addEventListener("change", event => {
     const yearSelect = event.target.closest("[data-commercial-creadas-year]");
     if (yearSelect) {
