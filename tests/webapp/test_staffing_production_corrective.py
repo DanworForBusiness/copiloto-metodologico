@@ -575,6 +575,11 @@ def test_15_route_surface_still_108():
     #     `/crm/relevamiento?stage_id=<etapa 0>`) — LAZY (nunca en la
     #     hidratación normal del dashboard), read-only, mismo contrato
     #     fail-soft.
+    #   109 -> 110 (Commercial Tile 6 — Ganadas, ver HANDOFF): +GET
+    #     /comercial/data/ganadas, drill de "Ganadas" (ranking por vendedor +
+    #     detalle por oportunidad, año-scoped, paridad con el legacy
+    #     `/crm/kpi-detail` bucket "won") — LAZY (nunca en la hidratación
+    #     normal del dashboard), read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -582,7 +587,7 @@ def test_15_route_surface_still_108():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 109
+    assert len(snapshot) == 110
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

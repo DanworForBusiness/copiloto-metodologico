@@ -1485,6 +1485,243 @@ def test_prospects_kpi_and_drill_conserve_count_and_hours():
 
 
 # ============================================================================
+# Commercial Tile 6 — Detalle de Ganadas por año (`get_ganadas_detail`,
+# `GET /comercial/data/ganadas`). Universo CANÓNICO — el MISMO que el KPI
+# "Ganadas" del summary: `type=opportunity, stage_id.is_won=True, date_closed`
+# dentro del año pedido. SIN `active` filter (una ganada archivada sigue
+# siendo válida) — a diferencia de Prospectos/Activas/Suspendidas. Fixture
+# no-degenerada: incluye una ganada archivada, una del año anterior con el
+# MISMO vendedor que una de este año, una activa-no-ganada, una perdida, una
+# suspendida, una sin `date_closed` y una sin vendedor/cliente — todas deben
+# quedar afuera salvo las de `THIS_YEAR` con `date_closed` real.
+#
+# CORRECCIÓN post-audit (owner smoke): la ausencia de una cláusula `active`
+# en el dominio NO significa "incluye archivadas" — Odoo excluye
+# `active=False` POR DEFECTO salvo que el dominio pida explícitamente
+# `["active", "in", [True, False]]` (ver `FakeOdooClient._matches`, que
+# replica ese comportamiento real a propósito). El KPI "Ganadas" existente
+# (`_build_summary`) tiene el MISMO dominio sin esa cláusula, así que en
+# Odoo real YA excluye archivadas hoy — el drill preserva EXACTAMENTE ese
+# comportamiento para no romper la conservación KPI↔drill (§3). "Ganada
+# Archivada" queda en el fixture a propósito: el test de abajo prueba la
+# EXCLUSIÓN, no la inclusión que el audit original asumió por error.
+# ============================================================================
+
+GANADAS_STAGES = [
+    {"id": 1, "name": "1 Contacto"},
+    {"id": 2, "name": "Ganado", "is_won": True},
+    {"id": 3, "name": "Suspendido - Pausa"},
+]
+GANADAS_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+
+GANADAS_LEADS = [
+    # Ganada de ESTE año, activa, NN.
+    {"id": 900, "name": "Ganada Uno", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [80, "Cliente Uno"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{THIS_YEAR}-03-15", "lead_properties": [_prop_horas(40)]},
+    # Ganada de ESTE año, ARCHIVADA (active=False), BI — debe quedar AFUERA:
+    # sin `active in [True, False]` explícito, Odoo (y el fake client) la
+    # excluyen por defecto — ver corrección post-audit arriba.
+    {"id": 901, "name": "Ganada Archivada", "type": "opportunity", "active": False, "stage_id": 2,
+     "tag_ids": [11], "partner_id": [81, "Cliente Dos"], "user_id": [51, "Vendedor Dos"],
+     "date_closed": f"{THIS_YEAR}-06-20", "lead_properties": [_prop_horas(25)]},
+    # Ganada del año ANTERIOR, MISMO vendedor que "Ganada Uno" — debe quedar
+    # afuera al pedir THIS_YEAR (prueba year-scoping, no solo el predicado).
+    {"id": 902, "name": "Ganada Año Pasado", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [82, "Cliente Tres"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{LAST_YEAR}-11-01", "lead_properties": [_prop_horas(99)]},
+    # Ganada SIN `date_closed` — debe quedar afuera de CUALQUIER año.
+    {"id": 903, "name": "Ganada Sin Fecha", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [], "partner_id": False, "user_id": False,
+     "date_closed": False, "lead_properties": [_prop_horas(999)]},
+    # Activa, NO ganada (etapa sin is_won) — debe quedar afuera.
+    {"id": 904, "name": "Activa No Ganada", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [83, "Cliente Cuatro"], "user_id": [52, "Vendedor Tres"],
+     "date_closed": f"{THIS_YEAR}-04-01", "lead_properties": [_prop_horas(999)]},
+    # Perdida (active=False, probability=0, etapa sin is_won) — debe quedar
+    # afuera aunque comparta año y `active=False` con la ganada archivada.
+    {"id": 905, "name": "Perdida", "type": "opportunity", "active": False, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [84, "Cliente Cinco"], "user_id": [53, "Vendedor Cuatro"],
+     "probability": 0, "date_closed": f"{THIS_YEAR}-05-01", "lead_properties": [_prop_horas(999)]},
+    # Suspendida (etapa sin is_won) — debe quedar afuera.
+    {"id": 906, "name": "Suspendida", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [10], "partner_id": [85, "Cliente Seis"], "user_id": [54, "Vendedor Cinco"],
+     "date_closed": f"{THIS_YEAR}-07-01", "lead_properties": [_prop_horas(999)]},
+    # Ganada de ESTE año, SIN vendedor/cliente asignado, BI — dentro del
+    # universo real (a diferencia de "Ganada Sin Fecha", que queda afuera
+    # por fecha). BI en vez de sin tag: con "Ganada Archivada" excluida (ver
+    # corrección arriba), esta es la ÚNICA ganada BI real del fixture — sin
+    # ella el test de partición NN/BI no probaría nada del lado BI.
+    {"id": 907, "name": "Ganada Sin Vendedor", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [11], "partner_id": False, "user_id": False,
+     "date_closed": f"{THIS_YEAR}-08-01", "lead_properties": []},
+]
+
+
+def _ganadas_client(**kwargs):
+    return FakeOdooClient(stages=GANADAS_STAGES, tags=GANADAS_TAGS, leads=GANADAS_LEADS, **kwargs)
+
+
+def test_ganadas_universe_is_current_year_won_only():
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]
+    names = {r["opportunity"] for r in rows}
+    assert names == {"Ganada Uno", "Ganada Sin Vendedor"}
+    svc_module.clear_cache()
+
+
+def test_ganadas_archived_is_excluded_by_odoos_implicit_active_default():
+    # Ver corrección post-audit arriba: sin `active in [True, False]`
+    # explícito, una ganada archivada NO aparece — MISMO comportamiento que
+    # el KPI "Ganadas" existente en Odoo real, preservado a propósito para
+    # no romper la conservación KPI↔drill.
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]
+    assert not any(r["opportunity"] == "Ganada Archivada" for r in rows)
+    svc_module.clear_cache()
+
+
+def test_ganadas_previous_year_never_leaks_into_current_year_request():
+    svc_module.clear_cache()
+    current = CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]
+    assert "Ganada Año Pasado" not in {r["opportunity"] for r in current}
+    svc_module.clear_cache()
+    previous = CommercialService(_ganadas_client()).get_ganadas_detail("todos", LAST_YEAR)["opportunities"]
+    assert {r["opportunity"] for r in previous} == {"Ganada Año Pasado"}
+    svc_module.clear_cache()
+
+
+def test_ganadas_same_seller_across_years_stays_scoped_per_request():
+    # "Ganada Uno" (THIS_YEAR) y "Ganada Año Pasado" (LAST_YEAR) comparten
+    # vendedor — cada request de año sólo debe traer LA SUYA.
+    svc_module.clear_cache()
+    service = CommercialService(_ganadas_client())
+    current = {r["opportunity"]: r["seller"] for r in service.get_ganadas_detail("todos", THIS_YEAR)["opportunities"]}
+    previous = {r["opportunity"]: r["seller"] for r in service.get_ganadas_detail("todos", LAST_YEAR)["opportunities"]}
+    assert current.get("Ganada Uno") == "Vendedor Uno"
+    assert previous.get("Ganada Año Pasado") == "Vendedor Uno"
+    assert "Ganada Año Pasado" not in current and "Ganada Uno" not in previous
+    svc_module.clear_cache()
+
+
+def test_ganadas_missing_date_closed_excluded_from_every_year():
+    svc_module.clear_cache()
+    service = CommercialService(_ganadas_client())
+    for year in (THIS_YEAR, LAST_YEAR):
+        names = {r["opportunity"] for r in service.get_ganadas_detail("todos", year)["opportunities"]}
+        assert "Ganada Sin Fecha" not in names, year
+    svc_module.clear_cache()
+
+
+def test_ganadas_active_lost_and_suspended_never_leak_in():
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]}
+    for banned in ("Activa No Ganada", "Perdida", "Suspendida"):
+        assert banned not in names, banned
+    svc_module.clear_cache()
+
+
+def test_ganadas_row_shape_is_deliberately_minimal():
+    # Oportunidad/Cliente/Vendedor/Horas — MISMO contrato que el legacy
+    # `_renderKpiDrillBody`/`fmt()` para el bucket "won". Sin Etapa/Motivo/
+    # Origen/Tags/Licencias/Probabilidad/Prioridad/Revenue: ninguno existe
+    # en el contrato real de Ganadas (owner: "Do NOT fetch/display dead
+    # legacy fields merely for symmetry").
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Ganada Uno")
+    assert set(uno.keys()) == {"opportunity", "client", "seller", "hours"}
+    assert uno["client"] == "Cliente Uno"
+    assert uno["seller"] == "Vendedor Uno"
+    assert uno["hours"] == 40
+    svc_module.clear_cache()
+
+
+def test_ganadas_unassigned_seller_and_client_default_to_empty():
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("todos", THIS_YEAR)["opportunities"]
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Ganada Sin Vendedor")
+    assert sin_vendedor["seller"] == "" and sin_vendedor["client"] == ""
+    assert sin_vendedor["hours"] == 0, "sin lead_properties, Horas cae a 0 (get_property_num)"
+    svc_module.clear_cache()
+
+
+def test_ganadas_partitions_by_nn_bi_tag_never_double_query():
+    svc_module.clear_cache()
+    client = _ganadas_client()
+    service = CommercialService(client)
+    todos = {r["opportunity"] for r in service.get_ganadas_detail("todos", THIS_YEAR)["opportunities"]}
+    nn = {r["opportunity"] for r in service.get_ganadas_detail("nn", THIS_YEAR)["opportunities"]}
+    bi = {r["opportunity"] for r in service.get_ganadas_detail("bi", THIS_YEAR)["opportunities"]}
+    assert todos == {"Ganada Uno", "Ganada Sin Vendedor"}
+    assert nn == {"Ganada Uno"}
+    assert bi == {"Ganada Sin Vendedor"}
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "una sola consulta a crm.lead"
+    svc_module.clear_cache()
+
+
+def test_ganadas_use_the_module_cache_per_year():
+    svc_module.clear_cache()
+    client = _ganadas_client()
+    service = CommercialService(client)
+    service.get_ganadas_detail("todos", THIS_YEAR)
+    service.get_ganadas_detail("nn", THIS_YEAR)
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "la segunda vista del MISMO año sale del cache"
+    service.get_ganadas_detail("todos", LAST_YEAR)
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 2, "un año DISTINTO sí re-consulta"
+    svc_module.clear_cache()
+
+
+def test_ganadas_year_none_resolves_to_current_year():
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("todos", None)["opportunities"]
+    assert {r["opportunity"] for r in rows} == {"Ganada Uno", "Ganada Sin Vendedor"}
+    svc_module.clear_cache()
+
+
+def test_ganadas_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    rows = CommercialService(_ganadas_client()).get_ganadas_detail("not-a-real-tipo", THIS_YEAR)["opportunities"]
+    assert {r["opportunity"] for r in rows} == {"Ganada Uno", "Ganada Sin Vendedor"}
+    svc_module.clear_cache()
+
+
+def test_ganadas_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _ganadas_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_ganadas_detail("todos", THIS_YEAR)
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _ganadas_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_ganadas_detail("todos", THIS_YEAR)
+    svc_module.clear_cache()
+
+
+def test_ganadas_kpi_and_drill_conserve_count_and_hours():
+    # Owner §3 — "For current year and the same Tipo: Ganadas KPI count ==
+    # Ganadas detail row count, and Ganadas KPI hours == SUM(detail.horas)."
+    # Ambos salen del MISMO dominio (`stage_id.is_won=True` + `date_closed`
+    # en el año) pero de funciones DISTINTAS (`_build_summary` vs
+    # `_build_ganadas_detail`) — este test es la evidencia de que no
+    # divergieron. El KPI SIEMPRE mira `THIS_YEAR` (año calendario actual,
+    # sin parámetro), así que la conservación sólo aplica para ese año.
+    svc_module.clear_cache()
+    service = CommercialService(_ganadas_client())
+    for tipo in ("todos", "nn", "bi"):
+        kpi = service.get_summary(tipo)["ganadas"]
+        rows = service.get_ganadas_detail(tipo, THIS_YEAR)["opportunities"]
+        assert kpi["count"] == len(rows), tipo
+        assert kpi["hours"] == sum(r["hours"] for r in rows), tipo
+    svc_module.clear_cache()
+
+
+# ============================================================================
 # Active Opportunities Phase 2 / C2 — Forecast por mes (`get_forecast`,
 # `GET /comercial/data/forecast`). Universo: stages 0-8 (Pipeline Total/
 # Ponderado) — NUNCA 1-8 (ese es Oportunidades Activas, C1). Semántica

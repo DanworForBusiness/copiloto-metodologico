@@ -192,6 +192,40 @@ const commercialState = {
   // sobrevive el cambio de Todos/NN/BI (preferencia de lectura, no filtro).
   prospectsSortKey: null,
   prospectsSortDir: 1,
+  // Ganadas (Commercial Tile 6, ver HANDOFF) — LAZY, MISMO criterio que
+  // Forecast/Creadas/Prospectos. A diferencia de Creadas, Ganadas NO usa la
+  // política de ventana caliente: sólo el año ACTIVO se hidrata al abrir el
+  // desglose — nunca el anterior en background (owner: "Ganadas does NOT
+  // use Creadas' hot-window policy"). El selector de año ofrece año actual
+  // .. año actual−5 (rango ESTÁTICO, paridad legacy — nunca un endpoint de
+  // descubrimiento: acá "opción de año" nunca significó "año con datos
+  // garantizados" ni tampoco necesitó una consulta barata para poblarse).
+  //
+  // ganadasByYear = { "2026": { status, data, errorState } } — MISMO
+  // contrato que `creadasByYear`, pero acá cada entrada es SÓLO la petición
+  // explícita del usuario, nunca un prefetch de background.
+  ganadasByYear: {},
+  // Estado del AÑO ACTIVO, derivado de `ganadasByYear` — mismo patrón que
+  // `creadas`/`creadasStatus`: los renderers preguntan por UN dataset.
+  ganadas: null,
+  ganadasStatus: "idle", // idle | loading | ready | error
+  ganadasErrorState: "",
+  ganadasYear: null, // "" hasta la primera hidratación; luego el año activo
+  // Vendedor — MISMA función sirve al <select>, al click en el ranking y a
+  // Limpiar (ver `commercialGanadasSetSeller`), MISMO criterio que Creadas.
+  // Sin búsqueda: el legacy Ganadas nunca tuvo un buscador (owner: "Do NOT
+  // add free-text Buscar in this increment").
+  ganadasSellerFilter: "",
+  // Cliente (owner corrective, post-smoke): SEGUNDO eje de filtro LOCAL,
+  // compone en AND con Vendedor — MISMO criterio que Etapa+Vendedor en
+  // Activas (`commercialAnalysisFilteredOpportunities`). Independiente del
+  // ranking (que sigue siendo SÓLO por vendedor): filtrar por Cliente
+  // acota el subconjunto que el ranking resume, nunca al revés.
+  ganadasClientFilter: "",
+  // Orden de la tabla — client-side puro, MISMA semántica que
+  // `prospectsSortKey`: sobrevive el cambio de Todos/NN/BI.
+  ganadasSortKey: null,
+  ganadasSortDir: 1,
 };
 
 function commercialEsc(value) {
@@ -1997,6 +2031,285 @@ function commercialProspectsCountLabel() {
   return `${commercialFmtInt(total)} prospecto(s)`;
 }
 
+// ── Ganadas — detalle por año (Commercial Tile 6, ver HANDOFF) ─────────────
+// Familia DISTINTA de Activas/Prospectos: no es stock por etapa, es un
+// desenlace histórico por año, con un contrato legacy mucho más chico (4
+// columnas, sin Etapa/Motivo/Origen/Tags/Licencias/Próx. Acción/Últ. Resp.).
+// Reusa lo genuinamente compartido — formatters, `.bar-row` (el MISMO
+// primitivo de ranking que ya usa Creadas, promovido Hub-wide), `.dashboard-
+// table`/`.matrix-scroll`, `commercialEmptyStateHtml`/`commercialRetryButtonHtml`/
+// `commercialLoadingHtml` — pero NO la tabla de Activas/Prospectos (columnas
+// distintas) ni la política de hidratación por año de Creadas (Ganadas nunca
+// precalienta el año anterior en background — owner directive).
+const COMMERCIAL_GANADAS_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+};
+
+function commercialGanadasSorted(rows) {
+  const keyFn = commercialState.ganadasSortKey && COMMERCIAL_GANADAS_SORT_KEYS[commercialState.ganadasSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.ganadasSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+function commercialToggleGanadasSort(key) {
+  if (commercialState.ganadasSortKey === key) {
+    commercialState.ganadasSortDir *= -1;
+  } else {
+    commercialState.ganadasSortKey = key;
+    commercialState.ganadasSortDir = 1;
+  }
+}
+
+function commercialGanadasSellerOptions(rows) {
+  return [...new Set(rows.map(o => o.seller).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function commercialGanadasClientOptions(rows) {
+  return [...new Set(rows.map(o => o.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+// Vendedor + Cliente COMPONEN (AND) — MISMO criterio que Etapa+Vendedor en
+// Activas (`commercialAnalysisFilteredOpportunities`): "" en cualquiera de
+// los dos eje = ese eje sin filtrar.
+function commercialGanadasFilteredRows() {
+  const all = (commercialState.ganadas && commercialState.ganadas.opportunities) || [];
+  return all.filter(o =>
+    (!commercialState.ganadasSellerFilter || o.seller === commercialState.ganadasSellerFilter)
+    && (!commercialState.ganadasClientFilter || o.client === commercialState.ganadasClientFilter));
+}
+
+// Ranking por vendedor — MISMO primitivo `.bar-row` que Creadas
+// (`commercialCreadasSellerRankingHtml`), pero ordenado y dimensionado por
+// HORAS (no por cantidad): así rankeaba el legacy
+// (`_renderKpiDrillSellerRanking` — `rows.sort((a,b)=>b[1].horas-a[1].horas)`,
+// ancho de barra `horas/maxHoras`), horas es la magnitud de negocio real.
+// La cantidad viaja igual, entre paréntesis en `.bar-value` — mismo child,
+// nunca una quinta columna que `.bar-row` no tiene.
+//
+// MISMA cascada que Creadas (owner §8): la fila entera es el target
+// (`role="button"` + `tabindex="0"`, Enter/Espacio funcionan porque `.bar-
+// row` no es un `<button>` nativo — envolverlo rompería su layout flex de
+// tres hijos, MISMO motivo que Creadas), SIN toggle-to-clear (clickear el
+// vendedor ya activo lo mantiene — Limpiar/"Todos" son las únicas salidas
+// explícitas).
+function commercialGanadasSellerRankingHtml(rows) {
+  if (!rows.length) {
+    return `<p class="perspective-label">Ranking por vendedor</p>` + commercialEmptyStateHtml("Sin resultados",
+      commercialState.ganadasSellerFilter
+        ? "Ningún vendedor tiene ganadas con este filtro."
+        : "Ningún vendedor tiene ganadas en este año.");
+  }
+  const map = {};
+  rows.forEach(o => {
+    const seller = o.seller || "Sin vendedor";
+    const bucket = map[seller] || (map[seller] = { count: 0, hours: 0 });
+    bucket.count += 1;
+    bucket.hours += (o.hours || 0);
+  });
+  const ranked = Object.entries(map).sort((a, b) => b[1].hours - a[1].hours);
+  const max = ranked[0][1].hours || 1;
+  const activo = commercialState.ganadasSellerFilter;
+  const rowsHtml = ranked.map(([seller, d]) => {
+    const sel = seller === activo;
+    return `
+    <div class="bar-row bar-row--clickable${sel ? " is-active" : ""}"
+      data-commercial-ganadas-seller-pick="${commercialEsc(seller)}"
+      role="button" tabindex="0" aria-pressed="${sel ? "true" : "false"}"
+      aria-label="Filtrar Ganadas por ${commercialEsc(seller)}">
+      <span class="bar-label">${commercialEsc(seller)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.hours / max * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${commercialFmtInt(d.hours)} hs (${commercialFmtInt(d.count)})</span>
+    </div>`;
+  }).join("");
+  return `<p class="perspective-label">Ranking por vendedor</p>${rowsHtml}`;
+}
+
+// Contexto de filtro activo — MISMO primitivo compartido que ya usa Creadas
+// (`commercialCreadasFilterContextHtml`, tools.css `.dashboard-subhead__
+// filter`/`__reset`): "· Filtrado por <dimensión>: <valor> ✕", MISMA
+// experiencia funcional y visual (owner corrective, post-smoke). Un chip
+// por eje activo — acá hay DOS (Vendedor/Cliente) donde Creadas sólo tiene
+// uno, así que se emiten en secuencia, nunca una variante "multi-filtro"
+// nueva.
+function commercialGanadasFilterContextHtml() {
+  return commercialCreadasFilterContextHtml("Vendedor", commercialState.ganadasSellerFilter,
+      "data-commercial-ganadas-seller-clear", "Volver a todos los vendedores")
+    + commercialCreadasFilterContextHtml("Cliente", commercialState.ganadasClientFilter,
+      "data-commercial-ganadas-client-clear", "Volver a todos los clientes");
+}
+
+function commercialGanadasTableHtml(rows) {
+  const sectionLabel = `<p class="perspective-label">Detalle de Ganadas${commercialGanadasFilterContextHtml()}</p>`;
+  if (!rows.length) {
+    return sectionLabel + commercialEmptyStateHtml("Sin resultados",
+      commercialState.ganadasSellerFilter
+        ? "Ninguna ganada coincide con este filtro."
+        : "No hay oportunidades ganadas en este año.");
+  }
+  const sorted = commercialGanadasSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.ganadasSortKey === key;
+    const arrow = active ? (commercialState.ganadasSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-ganadas-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+    </tr>`).join("");
+  const totalHoras = rows.reduce((s, o) => s + (o.hours || 0), 0);
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="3">Total (${rows.length})</td>
+      <td>${commercialFmtInt(totalHoras)}</td>
+    </tr>`;
+  return `${sectionLabel}
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:40%"><col style="width:25%"><col style="width:25%"><col style="width:10%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("hours", "Horas")}
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+// Ranking + tabla comparten UN solo host quirúrgico
+// (`[data-commercial-ganadas-results]`): los dos se derivan del MISMO
+// subconjunto filtrado por Vendedor, así que un cambio de filtro/orden
+// siempre los re-dibuja juntos — nunca uno desincronizado del otro.
+function commercialGanadasResultsHtml(rows) {
+  return commercialGanadasSellerRankingHtml(rows) + commercialGanadasTableHtml(rows);
+}
+
+// Año actual .. año actual−5 — rango ESTÁTICO, MISMA paridad legacy que el
+// `<select>` de `showKpiDrill` (`curY` a `curY-5`, 6 opciones). A propósito
+// NO es un descubrimiento contra Odoo: ofrecer una opción de año nunca
+// prometió que ese año tenga datos (mismo criterio ya establecido para
+// Creadas), y acá ni siquiera hace falta la consulta barata de
+// `creadas_selectable_years` — el rango del legacy YA es la fuente de
+// verdad completa.
+function commercialGanadasYearOptions() {
+  const current = new Date().getFullYear();
+  const years = [];
+  for (let y = current; y >= current - 5; y -= 1) years.push(String(y));
+  return years;
+}
+
+// Año / Vendedor / Cliente / Limpiar — MISMOS primitivos que el resto de
+// Comercial (`.whatsnew-filters`), SIN "Buscar" (owner §7: "Do NOT add
+// free-text Buscar in this increment" — el legacy Ganadas nunca tuvo uno).
+// Cliente (owner corrective, post-smoke) va DESPUÉS de Vendedor — MISMO
+// orden que Etapa→Vendedor en Activas: el eje que también alimenta un
+// gráfico (acá, Vendedor→ranking) va primero.
+function commercialGanadasControlsHtml() {
+  const year = commercialState.ganadasYear;
+  const allRows = (commercialState.ganadas && commercialState.ganadas.opportunities) || [];
+  const sellerOpts = commercialGanadasSellerOptions(allRows).map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.ganadasSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  const clientOpts = commercialGanadasClientOptions(allRows).map(c =>
+    `<option value="${commercialEsc(c)}"${commercialState.ganadasClientFilter === c ? " selected" : ""}>${commercialEsc(c)}</option>`).join("");
+  const yearOpts = commercialGanadasYearOptions().map(y =>
+    `<option value="${y}"${y === year ? " selected" : ""}>${y}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-ganadas-filters>
+      <label class="whatsnew-filter">
+        <span>Año</span>
+        <select data-commercial-ganadas-year>${yearOpts}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-ganadas-seller-filter>
+          <option value=""${commercialState.ganadasSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Cliente</span>
+        <select data-commercial-ganadas-client-filter>
+          <option value=""${commercialState.ganadasClientFilter === "" ? " selected" : ""}>Todos</option>
+          ${clientOpts}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-ganadas-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+// Cambiar de vendedor — UNA sola función para las TRES puertas (dropdown,
+// click en el ranking, Limpiar), MISMO contrato que
+// `commercialCreadasSetSeller`. Re-render de panel ENTERO (no quirúrgico):
+// a diferencia de Buscar (texto libre, perdería foco/cursor), acá no hay
+// ningún `<input>` que proteger — un `<select>` no pierde nada al
+// regenerarse, así que el mismo camino que ya usa Creadas es seguro y
+// simple acá también. NO toca Cliente — los dos ejes son independientes.
+function commercialGanadasSetSeller(seller) {
+  commercialState.ganadasSellerFilter = seller || "";
+  commercialRenderGanadasPanel();
+}
+
+// Cambiar de cliente — MISMO contrato que `commercialGanadasSetSeller`
+// (owner corrective, post-smoke), sólo con el dropdown como única puerta
+// (el ranking sigue siendo exclusivamente por vendedor). NO toca Vendedor.
+function commercialGanadasSetClient(client) {
+  commercialState.ganadasClientFilter = client || "";
+  commercialRenderGanadasPanel();
+}
+
+// Limpiar — resetea la COMBINACIÓN de los dos ejes en un solo gesto, MISMO
+// criterio que "✕ Limpiar" en Activas/Prospectos.
+function commercialGanadasClearFilters() {
+  commercialState.ganadasSellerFilter = "";
+  commercialState.ganadasClientFilter = "";
+  commercialRenderGanadasPanel();
+}
+
+function commercialGanadasCountLabel() {
+  if (commercialState.ganadasStatus !== "ready") return "";
+  const total = (commercialState.ganadas && commercialState.ganadas.total) || 0;
+  return `${commercialFmtInt(total)} ganada(s)`;
+}
+
+function commercialGanadasAnalysisHtml() {
+  const rows = commercialGanadasFilteredRows();
+  return commercialGanadasControlsHtml()
+    + `<div data-commercial-ganadas-results>${commercialGanadasResultsHtml(rows)}</div>`;
+}
+
+// Cuerpo del panel — MISMO contrato de estados que Forecast/Creadas/
+// Prospectos (loading/error/ready), incluida la gate config_incomplete-vs-
+// source_error para el botón Reintentar.
+function commercialGanadasPanelBodyHtml() {
+  if (commercialState.ganadasStatus === "error") {
+    const configIncomplete = commercialState.ganadasErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las oportunidades ganadas desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("ganadas", "Reintentar la carga de ganadas"));
+  }
+  if (commercialState.ganadasStatus !== "ready") {
+    return commercialLoadingHtml("Cargando ganadas…");
+  }
+  return commercialGanadasAnalysisHtml();
+}
+
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver
 // arriba) — MISMA marca que reporting.js::dashboardSection/
 // dashboardSections, helper LOCAL (sin renderer compartido global, ver
@@ -2851,7 +3164,13 @@ function commercialDashboardHtml() {
       ${commercialRichKpi("Pipeline ponderado", commercialFmtInt(s.pipeline.weighted_hours),
         { sub: "horas ponderadas", eventKey: "forecast", eventView: "ponderado" })}
       ${commercialRichKpi("Ganadas", commercialFmtInt(s.ganadas.count),
-        { sub: hs(s.ganadas.hours), split: seg("ganadas") })}
+        // eventKey (Commercial Tile 6, ver HANDOFF): el drill es un fetch
+        // PROPIO/independiente (/comercial/data/ganadas), MISMO criterio
+        // que Creadas/Prospectos — nunca condicional a otro bloque del
+        // summary. El KPI en sí NO cambia: sigue siendo año calendario
+        // actual, count+horas — promover el tile a clickeable no toca su
+        // semántica.
+        { sub: hs(s.ganadas.hours), split: seg("ganadas"), eventKey: "ganadas" })}
       ${commercialRichKpi("Perdidas", commercialFmtInt(s.perdidas.count),
         { sub: hs(s.perdidas.hours), split: seg("perdidas") })}
       ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
@@ -2975,6 +3294,22 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-prospects-body>${commercialProspectsPanelBodyHtml()}</div>
     </details>`;
 
+  // Ganadas (Commercial Tile 6, ver HANDOFF): QUINTA sección de análisis,
+  // hermana de Activas/Forecast/Creadas/Prospectos, MISMO
+  // `[data-breakdown-group]`. Lazy load POR AÑO + render quirúrgico (ver
+  // `commercialRenderGanadasPanel`) — los hosts estables son
+  // `[data-commercial-ganadas-count]`/`[data-commercial-ganadas-body]`.
+  const ganadasSection = `<details class="dashboard-section" data-section-id="ganadas-analisis" data-breakdown="ganadas" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Ganadas — Análisis</span>
+        <span class="dashboard-section__count" data-commercial-ganadas-count>${commercialEsc(commercialGanadasCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="ganadas" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-ganadas-body>${commercialGanadasPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -2984,7 +3319,8 @@ function commercialDashboardHtml() {
     + analysisSection
     + forecastSection
     + creadasSection
-    + prospectsSection;
+    + prospectsSection
+    + ganadasSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -3255,6 +3591,93 @@ function commercialMaybeLoadProspects(trigger) {
   commercialLoadProspects();
 }
 
+// ── Ganadas — lazy load POR AÑO, SIN ventana caliente (Commercial Tile 6,
+// ver HANDOFF) ───────────────────────────────────────────────────────────
+// MISMA técnica que `commercialHydrateCreadasYear` (cache por año, adopta y
+// renderiza ANTES de resolver) pero SIN el paso 2 de Creadas (prefetch del
+// año anterior en background) — owner directive explícita: "Ganadas does
+// NOT use Creadas' hot-window policy... Do NOT warm previous year in
+// background." Cada año sólo se pide cuando el usuario lo pide de verdad.
+function commercialRenderGanadasPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-ganadas-body]");
+  if (body) body.innerHTML = commercialGanadasPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-ganadas-count]");
+  if (count) count.textContent = commercialGanadasCountLabel();
+}
+
+async function commercialHydrateGanadasYear(year, opts) {
+  const key = String(year);
+  const entry = commercialState.ganadasByYear[key];
+  // Ya cargado o en vuelo: cero fetch — la SEGUNDA selección del mismo año
+  // es gratis. Pero "no hay que pedirlo" no es "no hay nada que hacer": el
+  // año pedido hay que publicarlo como activo igual (MISMO motivo que
+  // Creadas — sin esto, un año ya cacheado dejaría `commercialState.ganadas`
+  // apuntando al año ANTERIOR).
+  if (entry && (entry.status === "ready" || entry.status === "loading")) {
+    if (opts && opts.activo) commercialGanadasAdoptYear(key);
+    return entry.status === "ready";
+  }
+  commercialState.ganadasByYear[key] = { status: "loading", data: null };
+  if (opts && opts.activo) commercialState.ganadasStatus = "loading";
+  commercialRenderGanadasPanel();
+  try {
+    const qs = `year=${encodeURIComponent(key)}&tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/ganadas?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.ganadasByYear[key] = { status: "ready", data: resp.ganadas };
+      commercialGanadasAdoptYear(key);
+      return true;
+    }
+    commercialState.ganadasByYear[key] = {
+      status: "error", data: null,
+      errorState: resp.state === "config_incomplete" ? "config_incomplete" : "source_error",
+    };
+  } catch (e) {
+    commercialState.ganadasByYear[key] = { status: "error", data: null, errorState: "source_error" };
+  }
+  commercialGanadasAdoptYear(commercialState.ganadasYear || key);
+  return false;
+}
+
+// Publica el año pedido como el ACTIVO si es el que el usuario está mirando
+// — MISMO contrato que `commercialCreadasAdoptYear`.
+function commercialGanadasAdoptYear(year) {
+  const key = String(year);
+  const activo = String(commercialState.ganadasYear || key);
+  if (key !== activo) { commercialRenderGanadasPanel(); return; }
+  const entry = commercialState.ganadasByYear[key] || { status: "idle" };
+  commercialState.ganadas = entry.data;
+  commercialState.ganadasStatus = entry.status === "ready" ? "ready"
+    : entry.status === "error" ? "error" : "loading";
+  commercialState.ganadasErrorState = entry.errorState || "";
+  if (entry.status === "ready") HubForegroundProgress.complete("commercial");
+  else if (entry.status === "error") HubForegroundProgress.fail("commercial");
+  commercialRenderGanadasPanel();
+}
+
+// Primera apertura del drill: SÓLO el año activo (calendario actual, MISMA
+// lectura que el KPI). Nada de ventana caliente — ver el comentario de la
+// sección arriba.
+async function commercialLoadGanadas() {
+  const actual = new Date().getFullYear();
+  commercialState.ganadasYear = String(actual);
+  HubForegroundProgress.begin("commercial", { seedMs: 4500 });
+  await commercialHydrateGanadasYear(actual, { activo: true });
+}
+
+// Puente entre el motor compartido y el lazy load — MISMO criterio que
+// `commercialMaybeLoadForecast`/`commercialMaybeLoadProspects`: sólo en una
+// APERTURA (trigger quedó activo) y sólo si todavía no se pidió nada para
+// el `tipo` vigente.
+function commercialMaybeLoadGanadas(trigger) {
+  if (trigger.dataset.event !== "ganadas") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.ganadasStatus !== "idle") return;
+  commercialLoadGanadas();
+}
+
 // ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
 // HANDOFF) ─────────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
@@ -3444,6 +3867,20 @@ function commercialSetTipo(tipo) {
   commercialState.prospectsErrorState = "";
   commercialState.prospectsSellerFilter = "";
   commercialState.prospectsSearchText = "";
+  // Ganadas (Commercial Tile 6, ver HANDOFF): invalida TODO el cache por año
+  // — `ganadasByYear = {}`, no sólo el año activo. Un tipo nuevo cambia el
+  // universo de CADA año cacheado (la key de cache es sólo el año, `tipo`
+  // viaja aparte en la query string), así que dejar años "ready" del tipo
+  // viejo serviría datos incorrectos sin volver a pedir nada al reabrir con
+  // el tipo nuevo. Vendedor/Cliente/orden se resetean con el dataset —
+  // MISMO criterio que Prospectos.
+  commercialState.ganadasByYear = {};
+  commercialState.ganadas = null;
+  commercialState.ganadasStatus = "idle";
+  commercialState.ganadasErrorState = "";
+  commercialState.ganadasYear = null;
+  commercialState.ganadasSellerFilter = "";
+  commercialState.ganadasClientFilter = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -3556,6 +3993,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.creadasStatus !== "loading") commercialLoadCreadas();
       } else if (retryBtn.dataset.commercialRetry === "prospectos") {
         if (commercialState.prospectsStatus !== "loading") commercialLoadProspects();
+      } else if (retryBtn.dataset.commercialRetry === "ganadas") {
+        if (commercialState.ganadasStatus !== "loading") commercialLoadGanadas();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -3572,6 +4011,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // todo", que es lo que hace Limpiar y por eso son dos acciones distintas.
     if (event.target.closest("[data-commercial-creadas-seller-clear]")) {
       commercialCreadasSetSeller("");
+      return;
+    }
+    // Ganadas — ✕ DEL CONTEXTO (owner corrective, post-smoke: MISMA
+    // experiencia funcional/visual que Creadas): cada eje limpia SOLO el
+    // suyo — Año/Cliente quedan como estaban al limpiar Vendedor, y
+    // viceversa. Distinto de Limpiar, que resetea la combinación completa.
+    if (event.target.closest("[data-commercial-ganadas-seller-clear]")) {
+      commercialGanadasSetSeller("");
+      return;
+    }
+    if (event.target.closest("[data-commercial-ganadas-client-clear]")) {
+      commercialGanadasSetClient("");
       return;
     }
     // RANKING — click en un vendedor lo selecciona en el dropdown y filtra en
@@ -3714,6 +4165,31 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
       return;
     }
+    // Ganadas — "✕ Limpiar" (Commercial Tile 6, ver HANDOFF): resetea
+    // Vendedor Y Cliente en un solo gesto.
+    const ganadasClear = event.target.closest("[data-commercial-ganadas-clear]");
+    if (ganadasClear) {
+      commercialGanadasClearFilters();
+      return;
+    }
+    // Ganadas — orden de columna: re-render QUIRÚRGICO de
+    // `[data-commercial-ganadas-results]` (ranking + tabla, MISMO
+    // subconjunto), MISMO criterio que Prospectos/Activas.
+    const ganadasSortTh = event.target.closest("[data-commercial-ganadas-sort]");
+    if (ganadasSortTh) {
+      commercialToggleGanadasSort(ganadasSortTh.dataset.commercialGanadasSort);
+      const host = root.querySelector("[data-commercial-ganadas-results]");
+      if (host) host.innerHTML = commercialGanadasResultsHtml(commercialGanadasFilteredRows());
+      return;
+    }
+    // Ganadas — click en una fila del ranking (Commercial Tile 6, ver
+    // HANDOFF): MISMA cascada que Creadas — filtra por ese vendedor, SIN
+    // toggle-to-clear (clickear el ya activo lo mantiene).
+    const ganadasSellerPick = event.target.closest("[data-commercial-ganadas-seller-pick]");
+    if (ganadasSellerPick) {
+      commercialGanadasSetSeller(ganadasSellerPick.dataset.commercialGanadasSellerPick);
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -3757,6 +4233,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeRerenderForecastForMode(kpiTrigger);
       commercialMaybeLoadCreadas(kpiTrigger);
       commercialMaybeLoadProspects(kpiTrigger);
+      commercialMaybeLoadGanadas(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -3828,6 +4305,36 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialState.prospectsSellerFilter = sellerSelect.value;
     const host = root.querySelector("[data-commercial-prospects-table]");
     if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
+  });
+  // Ganadas — Año (Commercial Tile 6, ver HANDOFF): COLD YEAR — si ese año
+  // no está hidratado se pide SOLO ese año (`commercialHydrateGanadasYear`
+  // corta sin fetch si ya está en cache, MISMO criterio que Creadas). A
+  // diferencia de Creadas, el Vendedor NO se preserva entre años: Ganadas no
+  // tiene mes/semana expandidos que justifiquen esa complejidad, y el owner
+  // no pidió persistencia — resetear es el comportamiento más simple y
+  // predecible ("un año nuevo empieza sin filtro").
+  document.addEventListener("change", event => {
+    const yearSelect = event.target.closest("[data-commercial-ganadas-year]");
+    if (yearSelect) {
+      commercialState.ganadasYear = yearSelect.value;
+      commercialState.ganadasSellerFilter = "";
+      commercialState.ganadasClientFilter = "";
+      commercialHydrateGanadasYear(yearSelect.value, { activo: true });
+      return;
+    }
+    // Ganadas — Vendedor: filtro LOCAL sobre el payload ya cargado. Cero red.
+    const sellerSelect = event.target.closest("[data-commercial-ganadas-seller-filter]");
+    if (sellerSelect) {
+      commercialGanadasSetSeller(sellerSelect.value);
+      return;
+    }
+    // Ganadas — Cliente (owner corrective, post-smoke): MISMO criterio que
+    // Vendedor, filtro LOCAL, cero red.
+    const clientSelect = event.target.closest("[data-commercial-ganadas-client-filter]");
+    if (clientSelect) {
+      commercialGanadasSetClient(clientSelect.value);
+      return;
+    }
   });
   // Filtros del Forecast (C6b, ver HANDOFF): Etapa/Vendedor son ANALÍTICOS —
   // el mismo universo filtrado alimenta el gráfico Y la tabla, igual que en
@@ -3968,6 +4475,14 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialCreadasSetSeller(sellerPick.dataset.commercialCreadasSellerPick);
       return;
     }
+    // Ganadas — MISMO camino de teclado que el ranking de Creadas (Enter/
+    // Espacio sobre `.bar-row`, que no es un `<button>` nativo).
+    const ganadasSellerPick = event.target.closest && event.target.closest("[data-commercial-ganadas-seller-pick]");
+    if (ganadasSellerPick) {
+      event.preventDefault();
+      commercialGanadasSetSeller(ganadasSellerPick.dataset.commercialGanadasSellerPick);
+      return;
+    }
     const kpiTrigger = event.target.closest("[data-event]");
     if (!kpiTrigger) return;
     commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
@@ -3975,6 +4490,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeRerenderForecastForMode(kpiTrigger);
     commercialMaybeLoadCreadas(kpiTrigger);
     commercialMaybeLoadProspects(kpiTrigger);
+    commercialMaybeLoadGanadas(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

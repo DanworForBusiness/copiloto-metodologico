@@ -239,8 +239,16 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # (orden de columna, Vendedor, Buscar) — MISMO host que los tres tocan,
     # nunca la barra de filtros (ningún filtro de Prospectos regenera su
     # propio `<select>`/`<input>`, así que ninguno pierde foco).
+    # Commercial Tile 6 — Ganadas (ver HANDOFF) agrega TRES: los hosts
+    # estables del panel (`[data-commercial-ganadas-body]`/`-count`), MISMO
+    # criterio que Forecast/Creadas/Prospectos; y
+    # `[data-commercial-ganadas-results]` — UNA sola vez (sólo el delegado de
+    # orden de columna es quirúrgico; Vendedor/ranking/Limpiar re-renderizan
+    # el panel ENTERO vía `commercialGanadasSetSeller`, MISMO camino que
+    # `commercialCreadasSetSeller` — sin `<input>` de texto que proteger acá,
+    # un `<select>`/`.bar-row` no pierde nada al regenerarse).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos veinticuatro hooks y nada más.
+    # EXACTAMENTE estos veintisiete hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -254,10 +262,13 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-forecast-title]"',
         '"[data-commercial-prospects-body]"',
         '"[data-commercial-prospects-count]"',
+        '"[data-commercial-ganadas-body]"',
+        '"[data-commercial-ganadas-count]"',
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
         '"[data-commercial-prospects-table]"',
+        '"[data-commercial-ganadas-results]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
@@ -572,32 +583,35 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity +
-    # Commercial Tile 5: los tiles se emiten con `commercialRichKpi`, y
-    # `eventKey` es lo único que agrega la afordancia de click. Lo reciben
-    # CINCO tiles, sobre CUATRO análisis homologados — "Oportunidades
-    # activas", "Pipeline total"/"Pipeline ponderado" (comparten la MISMA
-    # key: misma población 0-8, con y sin probabilidad, un solo panel de
-    # Forecast), "Creadas esta semana" (drill propio, paridad con el legacy
-    # `/crm/opp-by-month`) y "Prospectos" (drill propio, paridad con el
-    # legacy `/crm/relevamiento?stage_id=<etapa 0>`). Los otros cuatro
-    # conservan su información SIN simular una acción inexistente.
+    # Commercial Tile 5 + Commercial Tile 6: los tiles se emiten con
+    # `commercialRichKpi`, y `eventKey` es lo único que agrega la afordancia
+    # de click. Lo reciben SEIS tiles, sobre CINCO análisis homologados —
+    # "Oportunidades activas", "Pipeline total"/"Pipeline ponderado"
+    # (comparten la MISMA key: misma población 0-8, con y sin probabilidad,
+    # un solo panel de Forecast), "Creadas esta semana" (drill propio,
+    # paridad con el legacy `/crm/opp-by-month`), "Prospectos" (drill propio,
+    # paridad con el legacy `/crm/relevamiento?stage_id=<etapa 0>`) y
+    # "Ganadas" (drill propio, paridad con el legacy `/crm/kpi-detail`
+    # bucket "won"). Los otros tres conservan su información SIN simular una
+    # acción inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 5
+    assert dashboard_fn.count("eventKey:") == 6
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
     assert dashboard_fn.count('eventKey: "creadas"') == 1
     assert dashboard_fn.count('eventKey: "prospectos"') == 1
+    assert dashboard_fn.count('eventKey: "ganadas"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    # Ningún tile fuera de Activas, los dos Pipeline, Creadas y Prospectos
-    # recibe `eventKey`, así que ninguno queda clickeable — sin afordancia
-    # falsa.
+    # Ningún tile fuera de Activas, los dos Pipeline, Creadas, Prospectos y
+    # Ganadas recibe `eventKey`, así que ninguno queda clickeable — sin
+    # afordancia falsa.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Ganadas", "Perdidas", "Suspendidas", "Conversión"):
+    for label in ("Perdidas", "Suspendidas", "Conversión"):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -809,29 +823,29 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Ganadas, Perdidas, Suspendidas, Target: ninguno gana `data-event` ni
-    # panel propio — contar solo MARKUP real dentro de cada función, no
-    # menciones en comentarios (que mencionan `data-event`/`data-breakdown`
-    # varias veces). Creadas y Prospectos SÍ lo ganaron (Creadas Legacy
-    # Parity y Commercial Tile 5, ver HANDOFF) — sus drills YA están
-    # homologados, así que quedan EXCLUIDOS de esta lista de "sigue sin
-    # drilldown" (ver los dos tests de arriba, que ahora los esperan
-    # clickeables).
+    # Perdidas, Suspendidas, Target: ninguno gana `data-event` ni panel
+    # propio — contar solo MARKUP real dentro de cada función, no menciones
+    # en comentarios (que mencionan `data-event`/`data-breakdown` varias
+    # veces). Creadas, Prospectos y Ganadas SÍ lo ganaron (Creadas Legacy
+    # Parity, Commercial Tile 5 y Commercial Tile 6, ver HANDOFF) — sus
+    # drills YA están homologados, así que quedan EXCLUIDOS de esta lista de
+    # "sigue sin drilldown" (ver los dos tests de arriba, que ahora los
+    # esperan clickeables).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # CUATRO `data-breakdown` reales en el markup — Activas, Forecast (C6,
-    # ver HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF) y
-    # Prospectos (Commercial Tile 5, ver HANDOFF) — + UNA referencia al
-    # MISMO atributo dentro del selector que construye
-    # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
-    # abrir) para ubicar la que corresponda. Nunca un QUINTO panel, y nunca
-    # un grupo de breakdown paralelo: los cuatro viven en el MISMO
+    # CINCO `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
+    # HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF), Prospectos
+    # (Commercial Tile 5, ver HANDOFF) y Ganadas (Commercial Tile 6, ver
+    # HANDOFF) — + UNA referencia al MISMO atributo dentro del selector que
+    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
+    # scroll al abrir) para ubicar la que corresponda. Nunca un SEXTO panel,
+    # y nunca un grupo de breakdown paralelo: los cinco viven en el MISMO
     # `[data-breakdown-group]`, que es lo que hace que el motor compartido
     # muestre uno por vez. Se cuenta sobre el markup, no sobre los
     # comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 5
+    assert markup.count('data-breakdown="') == 6
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -1314,6 +1328,182 @@ def test_prospects_search_and_seller_filters_never_refetch():
     for local_fn_name in ("commercialToggleProspectsSort", "commercialSearchProspects", "commercialRenderProspectsPanel"):
         body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
         assert "fetch(" not in body, local_fn_name
+
+
+# ============================================================================
+# Commercial Tile 6 — Ganadas (GET /comercial/data/ganadas). Universo:
+# stage_id.is_won=True + date_closed en el año pedido, MISMO que el KPI del
+# landing. LAZY por año, SIN ventana caliente (owner directive explícita —
+# a diferencia de Creadas, nunca prefetchea el año anterior en background).
+# ============================================================================
+
+def test_ganadas_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/ganadas", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_ganadas_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/ganadas").status_code == 403
+
+
+def test_ganadas_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _GanadasStub(_StubService):
+        def get_ganadas_detail(self, tipo="todos", year=None):
+            return {"tipo": tipo, "year": year, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _GanadasStub())
+    response = client.get("/comercial/data/ganadas?tipo=nn&year=2024")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["ganadas"]["tipo"] == "nn"
+    assert body["ganadas"]["year"] == 2024
+
+
+def test_ganadas_endpoint_year_zero_resolves_to_none_current_year(monkeypatch):
+    # `year=0` (default de query, ver contrato del owner) resuelve al año
+    # actual DENTRO del service (`year or None` → `get_ganadas_detail`
+    # recibe `None` y ahí resuelve `date.today().year`) — el router nunca
+    # calcula el año él mismo.
+    class _GanadasStub(_StubService):
+        def get_ganadas_detail(self, tipo="todos", year=None):
+            return {"tipo": tipo, "year": year, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _GanadasStub())
+    response = client.get("/comercial/data/ganadas")
+    assert response.status_code == 200
+    assert response.json()["ganadas"]["year"] is None
+
+
+def test_ganadas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_ganadas_detail(self, tipo="todos", year=None):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/ganadas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_ganadas_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_ganadas_detail(self, tipo="todos", year=None):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/ganadas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_ganadas_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/ganadas")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_ganadas_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    # Owner §13 — "initial Commercial dashboard → NO Prospectos detail
+    # hydration" (MISMO criterio ya establecido, ahora para Ganadas):
+    # `commercialLoadData` sigue pidiendo EXACTAMENTE summary/pipeline/
+    # analytics/opportunities — nunca ganadas, que es lazy y sólo se pide al
+    # abrir su propio análisis (ver `commercialMaybeLoadGanadas`).
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/ganadas" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+def test_ganadas_load_is_lazy_single_flight_and_hydrates_current_year_only():
+    # MISMO criterio "sólo en apertura + sólo si idle" que Forecast/Creadas/
+    # Prospectos — y, a diferencia de Creadas, SIN llamar a un segundo
+    # `commercialHydrateGanadasYear` para el año anterior (owner: "Do NOT
+    # warm previous year in background").
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadGanadas(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "ganadas"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.ganadasStatus !== "idle"' in fn
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadGanadas(", 1)[1].split("\nfunction ", 1)[0]
+    assert load_fn.count("commercialHydrateGanadasYear(") == 1, "una sola hidratación — nunca prefetch del año anterior"
+
+
+def test_commercial_set_tipo_invalidates_ganadas_and_its_year_cache():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.ganadasByYear = {};" in tipo_fn
+    assert "commercialState.ganadas = null;" in tipo_fn
+    assert 'commercialState.ganadasStatus = "idle";' in tipo_fn
+    assert 'commercialState.ganadasSellerFilter = "";' in tipo_fn
+    assert 'commercialState.ganadasClientFilter = "";' in tipo_fn
+
+
+def test_ganadas_year_change_hydrates_cold_year_and_reuses_cached_year():
+    # Un año no cacheado dispara `commercialHydrateGanadasYear`, que a su vez
+    # corta sin `fetch` si ese año ya está "ready"/"loading" (MISMO contrato
+    # que `commercialHydrateCreadasYear`) — la evidencia de "segunda
+    # selección == cero requests" vive en el guard de esa función misma.
+    hydrate_fn = _COMMERCIAL_JS.split("async function commercialHydrateGanadasYear(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'entry.status === "ready" || entry.status === "loading"' in hydrate_fn
+    assert "fetch(`/comercial/data/ganadas?" in hydrate_fn
+    year_change_fn = _COMMERCIAL_JS.split('const yearSelect = event.target.closest("[data-commercial-ganadas-year]");', 1)[1].split("return;\n    }", 1)[0]
+    assert "commercialHydrateGanadasYear(yearSelect.value, { activo: true })" in year_change_fn
+
+
+def test_ganadas_ranking_cascades_to_seller_dropdown_and_table_with_zero_refetch():
+    # Owner §8 — "ranking seller click → Vendedor dropdown selects seller →
+    # ranking selected state → table filters locally... No refetch." Una
+    # sola función (`commercialGanadasSetSeller`) sirve las TRES puertas
+    # (dropdown/ranking-click/Limpiar), MISMO contrato que
+    # `commercialCreadasSetSeller` — y ninguna llama `fetch(`.
+    ranking_fn = _COMMERCIAL_JS.split("function commercialGanadasSellerRankingHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "data-commercial-ganadas-seller-pick=" in ranking_fn
+    assert 'role="button"' in ranking_fn and 'tabindex="0"' in ranking_fn
+    assert "is-active" in ranking_fn
+    set_seller_fn = _COMMERCIAL_JS.split("function commercialGanadasSetSeller(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(" not in set_seller_fn
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert "commercialGanadasSetSeller(ganadasSellerPick.dataset.commercialGanadasSellerPick)" in boot
+    assert "commercialGanadasSetSeller(sellerSelect.value)" in boot
+
+
+def test_ganadas_never_gets_a_free_text_search_this_batch():
+    # Owner §7 — "Do NOT add free-text Buscar in this increment." A
+    # diferencia de Prospectos/Creadas/Activas, Ganadas no declara ningún
+    # hook `data-commercial-ganadas-search`.
+    assert "data-commercial-ganadas-search" not in _COMMERCIAL_JS
+
+
+def test_ganadas_table_has_exactly_the_four_legacy_columns():
+    # Oportunidad/Cliente/Vendedor/Horas — nada de Etapa/Motivo/Origen/Tags/
+    # Licencias/Probabilidad/Prioridad/Revenue (owner §9). Los labels viajan
+    # como ARGUMENTOS de `th(key, label, cls)`, nunca como texto literal
+    # `>Label<` en el template — de ahí buscar la forma `"Label"`.
+    table_fn = _COMMERCIAL_JS.split("function commercialGanadasTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in ('"Oportunidad"', '"Cliente"', '"Vendedor"', '"Horas"'):
+        assert expected in table_fn, expected
+    for banned in ('"Etapa"', '"Motivo"', '"Origen"', '"Etiquetas"', '"Lic."', '"Prob."', '"Prior."'):
+        assert banned not in table_fn, banned
+
+
+def test_ganadas_client_filter_composes_with_seller_never_replaces_it():
+    # Owner corrective (post-smoke): dropdown de Cliente, segundo eje AND
+    # con Vendedor — MISMO criterio que Etapa+Vendedor en Activas.
+    filtered_fn = _COMMERCIAL_JS.split("function commercialGanadasFilteredRows(", 1)[1].split("\nfunction ", 1)[0]
+    assert "ganadasSellerFilter" in filtered_fn and "ganadasClientFilter" in filtered_fn
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert "commercialGanadasSetClient(clientSelect.value)" in boot
+    clear_fn = _COMMERCIAL_JS.split("function commercialGanadasClearFilters(", 1)[1].split("\nfunction ", 1)[0]
+    assert "ganadasSellerFilter" in clear_fn and "ganadasClientFilter" in clear_fn
+
+
+def test_ganadas_reuses_the_shared_filter_context_chip_not_a_new_one():
+    # Owner corrective (post-smoke, screenshot): MISMA experiencia visual y
+    # funcional que Creadas — reusa `commercialCreadasFilterContextHtml`
+    # (el primitivo `.dashboard-subhead__filter`/`__reset`) tal cual, en vez
+    # de un chip propio de Ganadas.
+    context_fn = _COMMERCIAL_JS.split("function commercialGanadasFilterContextHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert context_fn.count("commercialCreadasFilterContextHtml(") == 2  # Vendedor + Cliente
+    assert "dashboard-subhead__filter" not in context_fn  # viene del primitivo reusado, no de acá
 
 
 # ============================================================================

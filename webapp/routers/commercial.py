@@ -201,6 +201,28 @@ def commercial_data_prospects(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "prospects": prospects})
 
 
+@router.get("/comercial/data/ganadas", include_in_schema=False)
+def commercial_data_ganadas(request: Request, tipo: str = Query("todos"), year: int = Query(0)):
+    """Detalle de "Ganadas" (Commercial Tile 6, ver HANDOFF) — universo
+    canónico stage_id.is_won=True + date_closed dentro del año pedido
+    (year=0 resuelve al año actual), MISMO dominio que el KPI del landing.
+    LAZY: sólo se pide al abrir el análisis, nunca en la hidratación normal
+    del dashboard. Cache por año en el service
+    (`commercial:ganadas:<year>`) — SIN ventana caliente: el frontend nunca
+    prefetchea el año anterior en background (owner directive). MISMO
+    contrato fail-soft y MISMA gate que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        ganadas = CommercialService().get_ganadas_detail(_normalize_tipo(tipo), year or None)
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="ganadas")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="ganadas")
+    return JSONResponse({"state": "ok", "ganadas": ganadas})
+
+
 @router.get("/comercial/data/forecast", include_in_schema=False)
 def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     """Forecast por mes de cierre (Active Opportunities Phase 2, ver

@@ -2376,7 +2376,13 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { flex: 1; height: 14px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 4px; position: relative; overflow: hidden; }
 .bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--gold); }
-.bar-value { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; }
+/* 60px -> 92px + nowrap (Commercial Tile 6 — Ganadas, ver HANDOFF, TERCER
+   consumidor real): "3.826 hs (12)" es más largo que los conteos cortos que
+   Creadas ya mostraba ("42") y partía en dos líneas dentro de la columna
+   original — regla del primitivo (como el breakpoint de arriba), no un
+   ancho especial para Ganadas. `.bar-track` (flex:1) absorbe la diferencia
+   solo — cero cambio de layout para los consumidores existentes. */
+.bar-value { width: 92px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; white-space: nowrap; }
 .perspective-label { color: var(--ink-faint, var(--soft)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
 .content-theme-dark { --bar-track-bg: rgba(255,255,255,.10); }
 /* Viewport angosto: `.bar-label`/`.bar-value` fijos (190px + 60px) dejaban el

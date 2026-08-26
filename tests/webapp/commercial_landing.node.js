@@ -164,27 +164,33 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
     const start = html.lastIndexOf('<div class="activity-kpi', i);
     return html.slice(start, html.indexOf("</div>", i));
   };
-  // C6 (ver HANDOFF) + Creadas Legacy Parity + Commercial Tile 5 (ver
-  // HANDOFF, incrementos POSTERIORES): CINCO tiles clickeables sobre CUATRO
-  // análisis. "Pipeline total" y "Pipeline ponderado" comparten
+  // C6 (ver HANDOFF) + Creadas Legacy Parity + Commercial Tile 5 + Commercial
+  // Tile 6 (ver HANDOFF, incrementos POSTERIORES): SEIS tiles clickeables
+  // sobre CINCO análisis. "Pipeline total" y "Pipeline ponderado" comparten
   // `data-event="forecast"` a propósito — misma población (0-8) medida con
   // y sin probabilidad, y el panel muestra las dos series juntas. "Creadas
-  // esta semana" y "Prospectos" abren cada uno su propio drill (paridad con
-  // el legacy `/crm/opp-by-month` y `/crm/relevamiento?stage_id=<etapa 0>`
-  // respectivamente). Los otros CUATRO siguen sin fingir una acción
+  // esta semana", "Prospectos" y "Ganadas" abren cada uno su propio drill
+  // (paridad con el legacy `/crm/opp-by-month`,
+  // `/crm/relevamiento?stage_id=<etapa 0>` y `/crm/kpi-detail` bucket "won"
+  // respectivamente). Los otros TRES siguen sin fingir una acción
   // inexistente, que es lo que este bloque protege.
-  assertTrue(count(html, "activity-kpi--clickable") === 5, "exactamente cinco tiles clickeables");
+  assertTrue(count(html, "activity-kpi--clickable") === 6, "exactamente seis tiles clickeables");
   assertTrue(count(html, 'data-event="activas"') === 1, "uno es Oportunidades activas");
   assertTrue(count(html, 'data-event="forecast"') === 2, "y dos son los Pipeline, ambos al MISMO análisis");
   assertTrue(count(html, 'data-event="creadas"') === 1, "y uno es Creadas esta semana");
   assertTrue(count(html, 'data-event="prospectos"') === 1, "y uno es Prospectos");
-  assertTrue(count(html, 'role="button"') === 5, "ningún otro tile finge ser accionable");
+  assertTrue(count(html, 'data-event="ganadas"') === 1, "y uno es Ganadas");
+  // Ganadas empieza "idle" (LAZY, ver HANDOFF): su panel muestra el loader
+  // canónico, nunca el ranking (que agregaría sus propios `role="button"`
+  // por vendedor) — el landing en frío sigue teniendo exactamente seis.
+  assertTrue(count(html, 'role="button"') === 6, "ningún otro tile finge ser accionable");
   // Los DOS triggers de forecast son los tiles de Pipeline, no otros.
   assertTrue(tile("Pipeline total").includes('data-event="forecast"'), "Pipeline total abre Forecast");
   assertTrue(tile("Pipeline ponderado").includes('data-event="forecast"'), "Pipeline ponderado abre el mismo Forecast");
   assertTrue(tile("Creadas esta semana").includes('data-event="creadas"'), "Creadas esta semana abre su propio drill");
   assertTrue(tile("Prospectos").includes('data-event="prospectos"'), "Prospectos abre su propio drill");
-  for (const label of ["Ganadas", "Perdidas", "Suspendidas", "Conversión"]) {
+  assertTrue(tile("Ganadas").includes('data-event="ganadas"'), "Ganadas abre su propio drill");
+  for (const label of ["Perdidas", "Suspendidas", "Conversión"]) {
     assertTrue(!tile(label).includes("data-event="), `${label} sigue siendo informativo`);
   }
 }
@@ -229,7 +235,10 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   // Commercial Tile 5 — Prospectos (ver HANDOFF, incremento POSTERIOR): un
   // CUARTO panel, MISMO grupo, MISMO criterio.
   assertTrue(html.includes('data-breakdown="prospectos" open hidden'), "el panel de Prospectos también arranca oculto");
-  assertTrue(count(html, "data-breakdown=") === 4, "exactamente cuatro contratos de breakdown, sin panel placeholder");
+  // Commercial Tile 6 — Ganadas (ver HANDOFF, incremento POSTERIOR): un
+  // QUINTO panel, MISMO grupo, MISMO criterio.
+  assertTrue(html.includes('data-breakdown="ganadas" open hidden'), "el panel de Ganadas también arranca oculto");
+  assertTrue(count(html, "data-breakdown=") === 5, "exactamente cinco contratos de breakdown, sin panel placeholder");
   assertTrue(count(html, "data-breakdown-group") === 1, "y UN solo grupo — nunca un lifecycle paralelo");
   assertTrue(!/Hacé clic en/.test(html), "sin texto placeholder en el landing");
   // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.

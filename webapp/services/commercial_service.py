@@ -704,6 +704,90 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Ganadas — detalle por año (Commercial Tile 6, ver HANDOFF) ───────────
+    # Dominio CANÓNICO — el MISMO que el KPI "Ganadas" del summary
+    # (`_build_summary`, ver arriba) y el legacy `/crm/kpi-detail`'s bucket
+    # "won": `type=opportunity, stage_id.is_won=True, date_closed` dentro del
+    # año pedido. Portado LITERAL, no re-derivado — cualquier divergencia acá
+    # rompería la conservación KPI↔drill que el owner exige.
+    #
+    # SIN cláusula `active` EXPLÍCITA — a propósito, corrección post-audit:
+    # el dominio legacy tampoco la tenía, pero eso NO significa "incluye
+    # archivadas". Odoo excluye `active=False` POR DEFECTO quando el
+    # dominio no menciona `active` (hay que pedir explícitamente `["active",
+    # "in", [True, False]]` para verlas — MISMO criterio que
+    # `_build_creadas_detail`/`_build_activities`, que sí lo hacen cuando
+    # genuinamente necesitan archivadas). El KPI "Ganadas" del summary
+    # (`_build_summary`, ver arriba) tiene EL MISMO dominio sin esa
+    # cláusula, así que en Odoo real YA excluye archivadas hoy — agregar acá
+    # `active in [True, False]` haría que el drill viera MÁS filas que el
+    # KPI y rompería la conservación que el owner exige (§3). Se preserva
+    # EXACTAMENTE el mismo comportamiento del KPI existente — cualquier
+    # decisión de incluir archivadas es un cambio de ALCANCE MAYOR (tocaría
+    # `_build_summary`, que es producción ya publicada) y requiere una
+    # decisión de owner aparte, no algo que este incremento decida solo.
+    #
+    # Límites de fecha SOLO fecha (sin hora) — MISMA asimetría ya documentada
+    # arriba (ver el docstring del módulo) respecto de Perdidas, que sí usa
+    # límites con hora. Preservada tal cual, no es un bug de este incremento.
+    #
+    # Fila DELIBERADAMENTE mínima (Oportunidad/Cliente/Vendedor/Horas): es
+    # EXACTAMENTE lo que el legacy `_renderKpiDrillBody`/`fmt()` expone para
+    # el bucket "won" — revenue/priority se piden en el legacy pero NUNCA se
+    # muestran, así que acá ni se piden (owner: "Do NOT fetch/display dead
+    # legacy fields merely for symmetry"). Sin Etapa/Motivo/Origen/Tags/
+    # Licencias/Probabilidad: ninguno existe en el contrato real de Ganadas.
+    def _build_ganadas_detail(self, year: int) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        year_start, year_end = f"{year}-01-01", f"{year}-12-31"
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[
+                ["type", "=", "opportunity"], ["stage_id.is_won", "=", True],
+                ["date_closed", ">=", year_start], ["date_closed", "<=", year_end],
+            ],
+            fields=["name", "partner_id", "user_id", "lead_properties", "tag_ids"],
+        )
+
+        def _row(opp: dict) -> dict:
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "hours": get_property_num(opp.get("lead_properties"), "Horas"),
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_ganadas_detail(self, tipo: str = "todos", year: int | None = None) -> dict:
+        """Detalle canónico de Ganadas de UN año. `year=None` resuelve al
+        actual — MISMO contrato que `get_creadas_detail`. Cache POR AÑO
+        (`commercial:ganadas:<year>`): a diferencia de Creadas, acá NO hay
+        ventana caliente — el frontend nunca pide el año anterior en
+        background (owner: "Ganadas does NOT use Creadas' hot-window
+        policy"), así que esta cache sólo evita repetir la MISMA consulta
+        dentro del TTL, nunca precalienta nada."""
+        if year is None:
+            year = date.today().year
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached(f"commercial:ganadas:{year}", lambda: self._build_ganadas_detail(year))
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
     # Phase 2, C2 ──────────────────────────────────────────────────────────
     # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO
