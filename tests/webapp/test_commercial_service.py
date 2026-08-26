@@ -1488,23 +1488,25 @@ def test_prospects_kpi_and_drill_conserve_count_and_hours():
 # Commercial Tile 6 — Detalle de Ganadas por año (`get_ganadas_detail`,
 # `GET /comercial/data/ganadas`). Universo CANÓNICO — el MISMO que el KPI
 # "Ganadas" del summary: `type=opportunity, stage_id.is_won=True, date_closed`
-# dentro del año pedido. SIN `active` filter (una ganada archivada sigue
-# siendo válida) — a diferencia de Prospectos/Activas/Suspendidas. Fixture
-# no-degenerada: incluye una ganada archivada, una del año anterior con el
-# MISMO vendedor que una de este año, una activa-no-ganada, una perdida, una
-# suspendida, una sin `date_closed` y una sin vendedor/cliente — todas deben
-# quedar afuera salvo las de `THIS_YEAR` con `date_closed` real.
+# dentro del año pedido — a diferencia de Prospectos/Activas/Suspendidas.
 #
-# CORRECCIÓN post-audit (owner smoke): la ausencia de una cláusula `active`
-# en el dominio NO significa "incluye archivadas" — Odoo excluye
-# `active=False` POR DEFECTO salvo que el dominio pida explícitamente
-# `["active", "in", [True, False]]` (ver `FakeOdooClient._matches`, que
-# replica ese comportamiento real a propósito). El KPI "Ganadas" existente
-# (`_build_summary`) tiene el MISMO dominio sin esa cláusula, así que en
-# Odoo real YA excluye archivadas hoy — el drill preserva EXACTAMENTE ese
-# comportamiento para no romper la conservación KPI↔drill (§3). "Ganada
-# Archivada" queda en el fixture a propósito: el test de abajo prueba la
-# EXCLUSIÓN, no la inclusión que el audit original asumió por error.
+# ARCHIVADAS EXCLUIDAS (corrección post-audit, owner smoke): la ausencia de
+# una cláusula `active` en el dominio NO significa "incluye archivadas" —
+# Odoo excluye `active=False` POR DEFECTO salvo que el dominio pida
+# explícitamente `["active", "in", [True, False]]` (ver
+# `FakeOdooClient._matches`, que replica ese comportamiento real a
+# propósito). El KPI "Ganadas" existente (`_build_summary`) tiene el MISMO
+# dominio sin esa cláusula, así que en Odoo real YA excluye archivadas hoy —
+# el drill preserva EXACTAMENTE ese comportamiento para no romper la
+# conservación KPI↔drill (§3). "Ganada Archivada" queda en el fixture a
+# propósito: el test de abajo prueba la EXCLUSIÓN, no la inclusión que el
+# audit original asumió por error.
+#
+# Fixture no-degenerada: incluye una ganada archivada (excluida, ver
+# arriba), una del año anterior con el MISMO vendedor que una de este año,
+# una activa-no-ganada, una perdida, una suspendida, una sin `date_closed` y
+# una sin vendedor/cliente — todas deben quedar afuera salvo las de
+# `THIS_YEAR` con `date_closed` real.
 # ============================================================================
 
 GANADAS_STAGES = [

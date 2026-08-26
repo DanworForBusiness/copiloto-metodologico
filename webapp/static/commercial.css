@@ -817,3 +817,15 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
   table.dashboard-table.commercial-creadas-table td:nth-child(1) { width: 208px; }
   table.dashboard-table.commercial-creadas-table { min-width: 460px; }
 }
+
+/* Ganadas — ritmo vertical del ranking (owner corrective, screenshot — pre-
+   smoke): faltaba el margen inferior entre el ranking y "Detalle de
+   Ganadas" que SÍ existía entre los filtros y el ranking
+   (`.whatsnew-filters` ya trae 18px de margen inferior, tools.css) —
+   `.bar-row` sólo trae 6px propios y `.dashboard-empty` ninguno. Scoped a
+   este wrapper (`commercialGanadasSellerRankingHtml`, commercial.js) — NO
+   toca `.bar-row`/`.dashboard-empty` compartidos, MISMO criterio que la
+   corrective anterior de `.bar-value` (nunca ampliar el primitivo cuando
+   sólo un consumidor lo necesita). */
+.commercial-ganadas-ranking { margin-bottom: 18px;
+}

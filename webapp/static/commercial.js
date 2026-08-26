@@ -2101,12 +2101,19 @@ function commercialGanadasFilteredRows() {
 // tres hijos, MISMO motivo que Creadas), SIN toggle-to-clear (clickear el
 // vendedor ya activo lo mantiene — Limpiar/"Todos" son las únicas salidas
 // explícitas).
+// Envoltorio `.commercial-ganadas-ranking` (owner corrective, screenshot:
+// falta el margen inferior que separa Filtros→Ranking también entre
+// Ranking→Detalle) — SOLO agrega el margen que `.bar-row`/`.dashboard-empty`
+// no traen por default (6px de `.bar-row`, ninguno de `.dashboard-empty`),
+// MISMO ritmo visual que el margen inferior ya establecido de
+// `.whatsnew-filters` (18px). Scoped a Ganadas — no toca `.bar-row` ni
+// ningún otro consumidor compartido.
 function commercialGanadasSellerRankingHtml(rows) {
   if (!rows.length) {
-    return `<p class="perspective-label">Ranking por vendedor</p>` + commercialEmptyStateHtml("Sin resultados",
+    return `<div class="commercial-ganadas-ranking"><p class="perspective-label">Ranking por vendedor</p>` + commercialEmptyStateHtml("Sin resultados",
       commercialState.ganadasSellerFilter
         ? "Ningún vendedor tiene ganadas con este filtro."
-        : "Ningún vendedor tiene ganadas en este año.");
+        : "Ningún vendedor tiene ganadas en este año.") + `</div>`;
   }
   const map = {};
   rows.forEach(o => {
@@ -2130,7 +2137,7 @@ function commercialGanadasSellerRankingHtml(rows) {
       <span class="bar-value">${commercialFmtInt(d.hours)} hs (${commercialFmtInt(d.count)})</span>
     </div>`;
   }).join("");
-  return `<p class="perspective-label">Ranking por vendedor</p>${rowsHtml}`;
+  return `<div class="commercial-ganadas-ranking"><p class="perspective-label">Ranking por vendedor</p>${rowsHtml}</div>`;
 }
 
 // Contexto de filtro activo — MISMO primitivo compartido que ya usa Creadas
