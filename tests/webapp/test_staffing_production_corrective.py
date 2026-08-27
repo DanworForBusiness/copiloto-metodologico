@@ -594,6 +594,17 @@ def test_15_route_surface_still_108():
     #     la hidratación normal del dashboard), read-only, mismo contrato
     #     fail-soft. Es el ÚLTIMO tile de la familia "relevamiento"
     #     (Activas/Prospectos/Suspendidas).
+    #   112 -> 114 (Analítica del Pipeline, ver HANDOFF): +2 GET.
+    #     `/comercial/data/pipeline-analytics-detail` — detalle COMPARTIDO de
+    #     CINCO tiles (Edad del pipeline/Tiempo por etapa/Conversión etapa a
+    #     etapa/Tiempo de cierre/Estancadas), MISMO universo que el titular
+    #     EAGER (`analytics`) pero por fila — paridad con el legacy
+    #     `/pipeline-analytics` (`setAnalyticsView`/`renderAnalyticsPanel*`).
+    #     `/comercial/data/lead-conversion-detail` — detalle de "Conversión
+    #     de leads", universo propio (`crm.lead type=lead` + historial de
+    #     `type`), paridad ACOTADA con el legacy `/lead-conversion` (sin el
+    #     árbol UTM/atribución de marketing — ver HANDOFF, brecha
+    #     intencional). Ambos LAZY, read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -601,7 +612,7 @@ def test_15_route_surface_still_108():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 112
+    assert len(snapshot) == 114
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

@@ -1282,6 +1282,89 @@ class CommercialService:
                 conocidos[o["id"]] = o
         return list(conocidos.values()), historial
 
+    # ── Helpers puros del embudo (Analítica del Pipeline, ver HANDOFF) ───────
+    # Extraídos de lo que antes vivía INLINE dentro de `_build_analytics`
+    # (agregados-only) para que el drill de detalle (más abajo,
+    # `_build_pipeline_analytics_detail`) reuse LITERAL la misma fórmula en
+    # vez de reimplementarla — MISMA razón que `_stage_transitions`/
+    # `_created_entry_events` ya son helpers compartidos. Puros: ninguno hace
+    # I/O, sólo procesan listas/dicts ya consultados. `_build_analytics`
+    # sigue devolviendo EXACTAMENTE los mismos agregados que antes — este
+    # refactor no cambia un solo número (ver
+    # `test_analytics_*`/`test_creadas_*`, que no se tocaron).
+    @staticmethod
+    def _pipeline_age_rows(opps: list, today) -> list[dict]:
+        rows = []
+        for o in opps:
+            d = CommercialService._iso_day(o.get("create_date"))
+            if d:
+                rows.append({"id": o["id"], "age_days": (today - d).days})
+        return rows
+
+    @staticmethod
+    def _close_time_rows(won_opps: list, today) -> list[dict]:
+        rows = []
+        for o in won_opps:
+            cd, dc = CommercialService._iso_day(o.get("create_date")), CommercialService._iso_day(o.get("date_closed"))
+            if cd and dc and (dc - cd).days >= 0:
+                rows.append({"id": o["id"], "days": (dc - cd).days})
+        return rows
+
+    @staticmethod
+    def _stagnant_rows(active_opps: list, transitions: dict, today, threshold_days: int) -> list[dict]:
+        rows = []
+        for o in active_opps:
+            trans = transitions.get(o["id"])
+            last = CommercialService._iso_day(trans[-1][0]) if trans else CommercialService._iso_day(o.get("create_date"))
+            if last and (today - last).days > threshold_days:
+                rows.append({"id": o["id"], "days_stagnant": (today - last).days, "last_move_date": last})
+        return rows
+
+    @staticmethod
+    def _per_stage_elapsed(subset_active: list, subset_won: list, transitions: dict, valid_ids: list) -> dict:
+        """`{stage_id: [días_transcurridos, ...]}` — cuánto tiempo pasó cada
+        oportunidad EN cada etapa antes de salir de ella."""
+        subset_ids = {o["id"] for o in subset_active} | {o["id"] for o in subset_won}
+        created_by_id = {o["id"]: CommercialService._iso_day(o.get("create_date"))
+                         for o in list(subset_active) + list(subset_won)}
+        per_stage: dict = {sid: [] for sid in valid_ids}
+        for opp_id, trans in transitions.items():
+            if opp_id not in subset_ids:
+                continue
+            created = created_by_id.get(opp_id)
+            if not created:
+                continue
+            entered = {}
+            if trans[0][1]:
+                entered[trans[0][1]] = created
+            for day_str, old_s, new_s in trans:
+                day = CommercialService._iso_day(day_str)
+                if day and old_s in entered:
+                    elapsed = (day - entered[old_s]).days
+                    if elapsed >= 0 and old_s in per_stage:
+                        per_stage[old_s].append(elapsed)
+                if new_s and day:
+                    entered[new_s] = day
+        return per_stage
+
+    @staticmethod
+    def _stage_reached_sets(subset_active: list, subset_won: list, transitions: dict, valid_ids: list) -> dict:
+        """`{stage_id: {opp_id, ...}}` — qué oportunidades ALCANZARON cada
+        etapa (por historial o por estar activa ahí ahora)."""
+        subset_ids = {o["id"] for o in subset_active} | {o["id"] for o in subset_won}
+        reached: dict = {sid: set() for sid in valid_ids}
+        for opp_id, trans in transitions.items():
+            if opp_id not in subset_ids:
+                continue
+            for _day, _old, new_s in trans:
+                if new_s in reached:
+                    reached[new_s].add(opp_id)
+        for o in subset_active:
+            cur = o["stage_id"][0] if isinstance(o.get("stage_id"), (list, tuple)) else o.get("stage_id")
+            if cur in reached:
+                reached[cur].add(o["id"])
+        return reached
+
     def _build_analytics(self) -> dict:
         today = date.today()
         nn_tag, bi_tag = self._nn_bi_tags()
@@ -1340,68 +1423,28 @@ class CommercialService:
 
         def _view(subset_active, subset_won, subset_recent) -> dict:
             # 1. Edad del pipeline — días abiertos de las activas.
-            ages = [(today - d).days for d in
-                    (self._iso_day(o.get("create_date")) for o in subset_active) if d]
+            ages = [r["age_days"] for r in self._pipeline_age_rows(subset_active, today)]
             avg_age = round(sum(ages) / len(ages), 1) if ages else 0
 
             # 2. Tiempo de cierre — creación → cierre, sólo ganadas del año.
-            closes = []
-            for o in subset_won:
-                cd, dc = self._iso_day(o.get("create_date")), self._iso_day(o.get("date_closed"))
-                if cd and dc and (dc - cd).days >= 0:
-                    closes.append((dc - cd).days)
+            closes = [r["days"] for r in self._close_time_rows(subset_won, today)]
             avg_close = round(sum(closes) / len(closes), 1) if closes else 0
 
             # 3. Estancadas — días desde el ÚLTIMO movimiento de etapa; sin
             # historial, desde la creación.
-            stagnant = 0
-            for o in subset_active:
-                trans = transitions.get(o["id"])
-                last = self._iso_day(trans[-1][0]) if trans else self._iso_day(o.get("create_date"))
-                if last and (today - last).days > STAGNANT_DAYS:
-                    stagnant += 1
+            stagnant = len(self._stagnant_rows(subset_active, transitions, today, STAGNANT_DAYS))
 
             # 4. Tiempo por etapa — se reconstruye cuándo entró y salió de
             # cada etapa. La primera transición siembra la etapa de origen en
             # la fecha de creación.
-            subset_ids = {o["id"] for o in subset_active} | {o["id"] for o in subset_won}
-            created_by_id = {o["id"]: self._iso_day(o.get("create_date"))
-                             for o in list(subset_active) + list(subset_won)}
-            per_stage: dict = {sid: [] for sid in valid_ids}
-            for opp_id, trans in transitions.items():
-                if opp_id not in subset_ids:
-                    continue
-                created = created_by_id.get(opp_id)
-                if not created:
-                    continue
-                entered = {}
-                if trans[0][1]:
-                    entered[trans[0][1]] = created
-                for day_str, old_s, new_s in trans:
-                    day = self._iso_day(day_str)
-                    if day and old_s in entered:
-                        elapsed = (day - entered[old_s]).days
-                        if elapsed >= 0 and old_s in per_stage:
-                            per_stage[old_s].append(elapsed)
-                    if new_s and day:
-                        entered[new_s] = day
+            per_stage = self._per_stage_elapsed(subset_active, subset_won, transitions, valid_ids)
             stage_avgs = [round(sum(v) / len(v), 1) for v in per_stage.values() if v]
             avg_stage = round(sum(stage_avgs) / len(stage_avgs), 1) if stage_avgs else None
 
             # 5. Conversión etapa a etapa — qué proporción de las que
             # ALCANZARON una etapa alcanzó también la siguiente. El titular es
             # la tasa MÍNIMA: el cuello de botella del embudo.
-            reached: dict = {sid: set() for sid in valid_ids}
-            for opp_id, trans in transitions.items():
-                if opp_id not in subset_ids:
-                    continue
-                for _day, _old, new_s in trans:
-                    if new_s in reached:
-                        reached[new_s].add(opp_id)
-            for o in subset_active:
-                cur = o["stage_id"][0] if isinstance(o.get("stage_id"), (list, tuple)) else o.get("stage_id")
-                if cur in reached:
-                    reached[cur].add(o["id"])
+            reached = self._stage_reached_sets(subset_active, subset_won, transitions, valid_ids)
             rates = []
             for idx, st in enumerate(valid_stages[:-1]):
                 entered_n = len(reached[st["id"]])
@@ -1536,6 +1579,349 @@ class CommercialService:
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
             views = _cached("commercial:analytics", self._build_analytics)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Drill de Analítica del Pipeline — detalle compartido (ver HANDOFF) ───
+    # LAZY, endpoint propio, MISMO criterio que Creadas/Prospectos/Ganadas/
+    # Perdidas/Suspendidas — "el KPI debe seguir liviano": `_build_analytics`
+    # (arriba, EAGER, parte de la hidratación inicial) sigue devolviendo
+    # SÓLO agregados; este builder re-consulta el MISMO universo con más
+    # campos de presentación y expone el detalle por fila.
+    #
+    # UN SOLO endpoint para CINCO sub-vistas (Edad/Tiempo por etapa/
+    # Conversión etapa a etapa/Tiempo de cierre/Estancadas) — las cinco
+    # comparten el MISMO cómputo de fondo (`active`+`won`+`_stage_transitions`,
+    # MISMA fórmula que `_build_analytics` vía los helpers puros de arriba),
+    # así que partirlas en cinco endpoints separados sería 5x el tráfico
+    # Odoo por la MISMA data. "Conversión de leads" es la excepción: universo
+    # totalmente distinto (`crm.lead type=lead` + `mail.tracking.value` sobre
+    # `type`, no sobre `stage_id`) — vive en su propio builder, más abajo.
+    #
+    # `stage_conversion` preserva el contrato YA vigente del titular
+    # (`min_rate`, en `_build_analytics`): SÓLO etapas 1-8, NUNCA la fila
+    # "Prospecto → Etapa 1" que sí trae el legacy (`prsp_rate` en
+    # `/pipeline-analytics`) — agregarla cambiaría qué valor puede ser el
+    # mínimo del embudo, y `min_rate` YA está en producción con la semántica
+    # actual. Deviation deliberada, documentada — no un byte-for-byte del
+    # legacy (ver HANDOFF).
+    def _build_pipeline_analytics_detail(self) -> dict:
+        today = date.today()
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+
+        all_stages = self._client.search_read(
+            "crm.stage", [], fields=["id", "name", "sequence"], order="sequence asc"
+        )
+        valid_stages = sorted(
+            [st for st in all_stages if _stage_first_char(st) in "12345678"],
+            key=lambda st: (int(st["name"].strip()[0]), st.get("sequence", 99)),
+        )
+        valid_ids = [st["id"] for st in valid_stages]
+
+        def _empty_views() -> dict:
+            return {tipo: {
+                "pipeline_age": {"opportunities": []},
+                "stage_time": [],
+                "stage_conversion": [],
+                "close_time": {"opportunities": []},
+                "stagnant": {"opportunities": [], "threshold_days": STAGNANT_DAYS},
+            } for tipo in _TIPOS}
+
+        if not valid_ids:
+            return _empty_views()
+
+        year = today.year
+        active = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", valid_ids]],
+            fields=["id", "name", "partner_id", "user_id", "stage_id", "create_date",
+                     "priority", "tag_ids", "lead_properties"],
+        )
+        won = self._client.search_read(
+            "crm.lead",
+            domain=[
+                ["type", "=", "opportunity"], ["stage_id.is_won", "=", True],
+                ["date_closed", ">=", f"{year}-01-01"], ["date_closed", "<=", f"{year}-12-31"],
+            ],
+            fields=["id", "name", "partner_id", "user_id", "create_date", "date_closed", "tag_ids"],
+        )
+        transitions = self._stage_transitions(sorted({o["id"] for o in active} | {o["id"] for o in won}))
+
+        def _by(subset, tag_id):
+            return [o for o in subset if self._in_tag(o, tag_id)]
+
+        def _client_of(o):
+            return o["partner_id"][1] if o.get("partner_id") else ""
+
+        def _seller_of(o):
+            return o["user_id"][1] if o.get("user_id") else ""
+
+        def _stage_of(o):
+            return o["stage_id"][1] if o.get("stage_id") else ""
+
+        def _view(subset_active, subset_won) -> dict:
+            by_id_active = {o["id"]: o for o in subset_active}
+            by_id_won = {o["id"]: o for o in subset_won}
+
+            age_rows = []
+            for r in self._pipeline_age_rows(subset_active, today):
+                o = by_id_active[r["id"]]
+                age_rows.append({
+                    "opportunity": o.get("name") or "", "client": _client_of(o), "seller": _seller_of(o),
+                    "stage": _stage_of(o), "create_date": o.get("create_date"), "age_days": r["age_days"],
+                })
+            age_rows.sort(key=lambda r: -r["age_days"])
+
+            close_rows = []
+            for r in self._close_time_rows(subset_won, today):
+                o = by_id_won[r["id"]]
+                close_rows.append({
+                    "opportunity": o.get("name") or "", "client": _client_of(o), "seller": _seller_of(o),
+                    "days": r["days"],
+                })
+            close_rows.sort(key=lambda r: -r["days"])
+
+            stagnant_rows = []
+            for r in self._stagnant_rows(subset_active, transitions, today, STAGNANT_DAYS):
+                o = by_id_active[r["id"]]
+                last_resp = _get_property_date(o.get("lead_properties"), _PROP_ULTIMA_RESPUESTA)
+                stagnant_rows.append({
+                    "opportunity": o.get("name") or "", "client": _client_of(o), "seller": _seller_of(o),
+                    "stage": _stage_of(o), "priority": o.get("priority") or "0",
+                    "days_stagnant": r["days_stagnant"], "last_move_date": r["last_move_date"].isoformat(),
+                    "last_response": last_resp,
+                })
+            stagnant_rows.sort(key=lambda r: -r["days_stagnant"])
+
+            per_stage = self._per_stage_elapsed(subset_active, subset_won, transitions, valid_ids)
+            stage_time_rows = [{
+                "stage": st["name"],
+                "avg_days": round(sum(per_stage[st["id"]]) / len(per_stage[st["id"]]), 1) if per_stage[st["id"]] else None,
+                "sample_count": len(per_stage[st["id"]]),
+            } for st in valid_stages]
+
+            reached = self._stage_reached_sets(subset_active, subset_won, transitions, valid_ids)
+            stage_conversion_rows = []
+            for idx, st in enumerate(valid_stages):
+                entered_n = len(reached[st["id"]])
+                if idx + 1 < len(valid_stages):
+                    next_st = valid_stages[idx + 1]
+                    advanced = len(reached[st["id"]] & reached[next_st["id"]])
+                    rate = round(advanced / entered_n * 100, 1) if entered_n else 0
+                    next_name = next_st["name"]
+                else:
+                    advanced, rate, next_name = None, None, None
+                stage_conversion_rows.append({
+                    "stage": st["name"], "next_stage": next_name,
+                    "entered": entered_n, "advanced": advanced, "rate": rate,
+                })
+
+            return {
+                "pipeline_age": {"opportunities": age_rows},
+                "stage_time": stage_time_rows,
+                "stage_conversion": stage_conversion_rows,
+                "close_time": {"opportunities": close_rows},
+                "stagnant": {"opportunities": stagnant_rows, "threshold_days": STAGNANT_DAYS},
+            }
+
+        return {
+            "todos": _view(active, won),
+            "nn": _view(_by(active, nn_id), _by(won, nn_id)),
+            "bi": _view(_by(active, bi_id), _by(won, bi_id)),
+        }
+
+    def get_pipeline_analytics_detail(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:pipeline_analytics_detail", self._build_pipeline_analytics_detail)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Drill de "Conversión de Leads" — detalle (ver HANDOFF) ───────────────
+    # LAZY, endpoint propio — universo TOTALMENTE distinto al resto de
+    # Analítica del Pipeline (`crm.lead type=lead` + historial del campo
+    # `type` vía `mail.tracking.value`, no de `stage_id`), así que nunca
+    # comparte query con `_build_pipeline_analytics_detail`. Re-consulta el
+    # MISMO universo que el titular EAGER (`_build_lead_conversion`, dentro
+    # de `_build_analytics`) con más campos de presentación, y agrega el
+    # desglose completo por resultado (Prospecto/Activa/Ganada/Perdida —
+    # antes sólo existían "cualquier conversión"/"avanzó a oportunidad").
+    #
+    # "Ganada"/"Perdida" usan la MISMA regla YA cerrada que los tiles
+    # Ganadas/Perdidas (`stage_id.is_won` / `active=False + probability=0`)
+    # — NUNCA la clasificación propia del legacy (`probability==100`), que
+    # sería una TERCERA definición de "ganada" que Hub no usa en ningún otro
+    # lado (consume el contrato ya cerrado, no lo reinventa — ver HANDOFF).
+    # Por construcción, cada convertida cae en EXACTAMENTE un bucket
+    # (Prospecto si etapa 0; si no, Ganada/Perdida/Activa) — la unión
+    # Prospecto∪Activa∪Ganada∪Perdida es la MISMA partición que ya usan
+    # `any_conv`/`adv_opp` del titular (ver test de conservación).
+    #
+    # Alcance deliberadamente ACOTADO respecto del legacy `/lead-conversion`:
+    # ese endpoint también arma un árbol UTM completo (campaña→medio→origen,
+    # con gráficos por campaña) y un buscador con 5 facetas — una feature de
+    # atribución de marketing aparte, no "conversión de leads" en sí, y Hub
+    # ya tiene una vista de Origen (C8, dentro del análisis de Activas). Se
+    # documenta como brecha de paridad intencional (ver reporte final), no
+    # una omisión silenciosa.
+    def _build_lead_conversion_detail(self) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+
+        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name", "is_won"])
+        lead_stage_ids = [st["id"] for st in all_stages if (st.get("name") or "").strip().lower() == "lead"]
+        prospect_ids = {st["id"] for st in all_stages if _stage_first_char(st) == "0"}
+        won_stage_ids = {st["id"] for st in all_stages if st.get("is_won")}
+
+        fields = ["id", "name", "partner_id", "partner_name", "user_id", "stage_id", "active",
+                  "probability", "create_date", "tag_ids"]
+
+        leads = self._client.search_read(
+            "crm.lead", domain=[["type", "=", "lead"], ["active", "in", [True, False]]], fields=fields
+        )
+        stuck = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", lead_stage_ids]],
+            fields=fields,
+        ) if lead_stage_ids else []
+
+        msgs = self._client.search_read(
+            "mail.message",
+            domain=[["model", "=", "crm.lead"], ["tracking_value_ids.field_id.name", "=", "type"]],
+            fields=["id", "res_id", "date"],
+        )
+        converted_ids: set = set()
+        conversion_dates: dict = {}
+        if msgs:
+            by_id = {m["id"]: m for m in msgs}
+            tvs = self._client.search_read(
+                "mail.tracking.value",
+                domain=[
+                    ["mail_message_id", "in", list(by_id)],
+                    ["field_id.name", "=", "type"],
+                    ["old_value_char", "ilike", "lead"],
+                    ["new_value_char", "ilike", "opor"],
+                ],
+                fields=["mail_message_id"],
+            )
+            for tv in tvs:
+                raw = tv.get("mail_message_id")
+                msg = by_id.get(raw[0] if isinstance(raw, (list, tuple)) else raw)
+                if msg:
+                    oid = msg["res_id"]
+                    converted_ids.add(oid)
+                    d = str(msg.get("date") or "")
+                    if oid not in conversion_dates or d < conversion_dates[oid]:
+                        conversion_dates[oid] = d
+        converted_ids -= {o["id"] for o in stuck}
+
+        converted = self._client.search_read(
+            "crm.lead",
+            domain=[["id", "in", sorted(converted_ids)], ["active", "in", [True, False]]],
+            fields=fields,
+        ) if converted_ids else []
+
+        def _co_key(rec):
+            partner = rec.get("partner_id")
+            return (partner[0], partner[1]) if partner else (0, rec.get("partner_name") or "Sin empresa")
+
+        def _row(rec, extra=None) -> dict:
+            row = {
+                "opportunity": rec.get("name") or "", "client": _co_key(rec)[1],
+                "seller": rec["user_id"][1] if rec.get("user_id") else "",
+                "create_date": rec.get("create_date"),
+            }
+            if extra:
+                row.update(extra)
+            return row
+
+        def _classify(rec) -> str:
+            sid = rec["stage_id"][0] if isinstance(rec.get("stage_id"), (list, tuple)) else rec.get("stage_id")
+            active = rec.get("active", True)
+            if sid in prospect_ids:
+                return "prospect"
+            if sid in won_stage_ids:
+                return "won"
+            if not active and (rec.get("probability", 0) or 0) == 0:
+                return "lost"
+            return "opp"
+
+        def _by(subset, tag_id):
+            return [o for o in subset if self._in_tag(o, tag_id)]
+
+        def _view(sub_leads, sub_stuck, sub_conv) -> dict:
+            still_lead_recs = [r for r in sub_leads if r.get("active", True)]
+            lost_lead_recs = [r for r in sub_leads if not r.get("active", True)]
+
+            buckets: dict = {"prospect": [], "opp": [], "won": [], "lost": []}
+            bucket_co: dict = {"prospect": set(), "opp": set(), "won": set(), "lost": set()}
+            for rec in sub_conv:
+                b = _classify(rec)
+                stage_name = rec["stage_id"][1] if rec.get("stage_id") else ""
+                row = _row(rec, {
+                    "stage": stage_name,
+                    "convert_date": (conversion_dates.get(rec["id"], "") or "")[:10] or None,
+                })
+                buckets[b].append(row)
+                bucket_co[b].add(_co_key(rec))
+
+            still_lead_rows = [_row(r) for r in still_lead_recs]
+            lost_lead_rows = [_row(r) for r in lost_lead_recs]
+
+            stuck_co = {_co_key(r) for r in sub_stuck}
+            still_lead_co = {_co_key(r) for r in still_lead_recs}
+            lost_lead_co = {_co_key(r) for r in lost_lead_recs}
+            all_conv_co = bucket_co["prospect"] | bucket_co["opp"] | bucket_co["won"] | bucket_co["lost"]
+            adv_co = bucket_co["opp"] | bucket_co["won"] | bucket_co["lost"]
+            # MISMO universo que el titular (`_build_lead_conversion`):
+            # leads + stuck (reversiones a "Lead") + convertidas — `stuck`
+            # SÓLO cuenta para el denominador, nunca aparece como bucket
+            # propio (MISMO criterio que el titular).
+            universe_co = still_lead_co | lost_lead_co | stuck_co | all_conv_co
+            total_co = len(universe_co)
+
+            def pct(n):
+                return round(n / total_co * 100, 1) if total_co else 0
+
+            return {
+                "companies": total_co,
+                "still_lead": {"count": len(still_lead_recs), "companies": len(still_lead_co),
+                                "opportunities": still_lead_rows},
+                "lost_lead": {"count": len(lost_lead_recs), "companies": len(lost_lead_co),
+                               "opportunities": lost_lead_rows},
+                "prospect": {"count": len(buckets["prospect"]), "companies": len(bucket_co["prospect"]),
+                             "opportunities": buckets["prospect"]},
+                "opp": {"count": len(buckets["opp"]), "companies": len(bucket_co["opp"]),
+                        "opportunities": buckets["opp"]},
+                "won": {"count": len(buckets["won"]), "companies": len(bucket_co["won"]),
+                        "opportunities": buckets["won"]},
+                "lost_opp": {"count": len(buckets["lost"]), "companies": len(bucket_co["lost"]),
+                             "opportunities": buckets["lost"]},
+                "any_conv": {"companies": len(all_conv_co), "rate": pct(len(all_conv_co))},
+                "adv_opp": {"companies": len(adv_co), "rate": pct(len(adv_co))},
+            }
+
+        return {
+            "todos": _view(leads, stuck, converted),
+            "nn": _view(_by(leads, nn_id), _by(stuck, nn_id), _by(converted, nn_id)),
+            "bi": _view(_by(leads, bi_id), _by(stuck, bi_id), _by(converted, bi_id)),
+        }
+
+    def get_lead_conversion_detail(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:lead_conversion_detail", self._build_lead_conversion_detail)
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]

@@ -262,8 +262,18 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # tiene Buscar que proteger — owner §10 — y el `<select>` de Vendedor no
     # pierde foco al regenerarse). Limpiar re-renderiza el panel ENTERO vía
     # `commercialRenderSuspendidasPanel`, MISMO camino que Prospectos.
+    # Analítica del Pipeline (ver HANDOFF) agrega OCHO: los hosts estables
+    # COMPARTIDOS de las cinco sub-vistas (`[data-commercial-${slug}-body]`/
+    # `-count`, UNA plantilla parametrizada por `slug` — nunca cinco pares
+    # de hooks repetidos — que `commercialRenderPipelineAnalyticsPanels`
+    # recorre); los hosts propios de "Conversión de leads"
+    # (`[data-commercial-lead-conversion-body]`/`-count`); y CUATRO
+    # `[data-commercial-*-table]` — una por cada sub-vista con tabla
+    # ordenable (Edad/Tiempo de cierre/Estancadas/Conversión de leads —
+    # Tiempo por etapa/Conversión etapa a etapa son ranking `.bar-row`, sin
+    # host de re-render quirúrgico propio).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos treinta y cuatro hooks y nada más.
+    # EXACTAMENTE estos cuarenta y dos hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -283,6 +293,10 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-perdidas-count]"',
         '"[data-commercial-suspendidas-body]"',
         '"[data-commercial-suspendidas-count]"',
+        '`[data-commercial-${slug}-body]`',
+        '`[data-commercial-${slug}-count]`',
+        '"[data-commercial-lead-conversion-body]"',
+        '"[data-commercial-lead-conversion-count]"',
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
@@ -290,6 +304,10 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-ganadas-results]"',
         '"[data-commercial-perdidas-table]"',
         '"[data-commercial-suspendidas-table]"',
+        '"[data-commercial-pipeline-age-table]"',
+        '"[data-commercial-close-time-table]"',
+        '"[data-commercial-stagnant-table]"',
+        '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
@@ -606,23 +624,31 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity +
     # Commercial Tile 5 + Commercial Tile 6 + Commercial Tile 7 + Commercial
-    # Tile 8: los tiles se emiten con `commercialRichKpi`, y `eventKey` es lo
-    # único que agrega la afordancia de click. Lo reciben OCHO tiles, sobre
-    # SIETE análisis homologados — "Oportunidades activas", "Pipeline
-    # total"/"Pipeline ponderado" (comparten la MISMA key: misma población
-    # 0-8, con y sin probabilidad, un solo panel de Forecast), "Creadas esta
-    # semana" (drill propio, paridad con el legacy `/crm/opp-by-month`),
-    # "Prospectos" (drill propio, paridad con el legacy
-    # `/crm/relevamiento?stage_id=<etapa 0>`), "Ganadas" (drill propio,
-    # paridad con el legacy `/crm/kpi-detail` bucket "won"), "Perdidas"
-    # (drill propio, paridad con el legacy `/crm/kpi-detail` bucket "lost"
-    # + `setKpiView('lost')`/`renderLostPanel`) y "Suspendidas" (drill
-    # propio, paridad con el legacy `/crm/relevamiento?stage_ids=<suspended>`
-    # + `setKpiView('suspended')`/`renderSuspendedPanel`, Commercial Tile 8,
-    # ver HANDOFF). El único tile restante conserva su información SIN
-    # simular una acción inexistente.
+    # Tile 8 + Analítica del Pipeline (ver HANDOFF): los tiles se emiten con
+    # `commercialRichKpi`, y `eventKey` es lo único que agrega la afordancia
+    # de click. Lo reciben CATORCE tiles, sobre TRECE análisis homologados —
+    # "Oportunidades activas", "Pipeline total"/"Pipeline ponderado"
+    # (comparten la MISMA key: misma población 0-8, con y sin probabilidad,
+    # un solo panel de Forecast), "Creadas esta semana" (drill propio,
+    # paridad con el legacy `/crm/opp-by-month`), "Prospectos" (drill
+    # propio, paridad con el legacy `/crm/relevamiento?stage_id=<etapa 0>`),
+    # "Ganadas" (drill propio, paridad con el legacy `/crm/kpi-detail`
+    # bucket "won"), "Perdidas" (drill propio, paridad con el legacy
+    # `/crm/kpi-detail` bucket "lost" + `setKpiView('lost')`/
+    # `renderLostPanel`), "Suspendidas" (drill propio, paridad con el legacy
+    # `/crm/relevamiento?stage_ids=<suspended>` +
+    # `setKpiView('suspended')`/`renderSuspendedPanel`, Commercial Tile 8,
+    # ver HANDOFF) y las SEIS de Analítica del Pipeline — "Edad del
+    # pipeline"/"Tiempo por etapa"/"Conversión etapa a etapa"/"Tiempo de
+    # cierre"/"Estancadas" (comparten un solo fetch/panel por debajo, pero
+    # CADA UNA su propia key/sección — paridad con el legacy
+    # `setAnalyticsView`/`renderAnalyticsPanel*`) y "Conversión de leads"
+    # (universo propio, paridad ACOTADA con el legacy `/lead-conversion` —
+    # sin el árbol UTM, ver HANDOFF). El único tile restante ("Conversión",
+    # ganadas/perdidas) conserva su información SIN simular una acción
+    # inexistente — el legacy tampoco la tiene clickeable.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 8
+    assert dashboard_fn.count("eventKey:") == 14
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
     assert dashboard_fn.count('eventKey: "creadas"') == 1
@@ -630,6 +656,12 @@ def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     assert dashboard_fn.count('eventKey: "ganadas"') == 1
     assert dashboard_fn.count('eventKey: "perdidas"') == 1
     assert dashboard_fn.count('eventKey: "suspendidas"') == 1
+    assert dashboard_fn.count('eventKey: "pipeline_age"') == 1
+    assert dashboard_fn.count('eventKey: "stage_time"') == 1
+    assert dashboard_fn.count('eventKey: "stage_conversion"') == 1
+    assert dashboard_fn.count('eventKey: "close_time"') == 1
+    assert dashboard_fn.count('eventKey: "stagnant"') == 1
+    assert dashboard_fn.count('eventKey: "lead_conversion"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
@@ -857,27 +889,30 @@ def test_no_other_kpi_gained_a_drilldown_this_batch():
     # Target: ninguno gana `data-event` ni panel propio —
     # contar solo MARKUP real dentro de cada función, no menciones en
     # comentarios (que mencionan `data-event`/`data-breakdown` varias
-    # veces). Creadas, Prospectos, Ganadas, Perdidas y Suspendidas SÍ lo
-    # ganaron (Creadas Legacy Parity, Commercial Tile 5, 6, 7 y 8, ver
-    # HANDOFF) — sus drills YA están homologados, así que quedan EXCLUIDOS de
-    # esta lista de "sigue sin drilldown" (ver los dos tests de arriba, que
-    # ahora los esperan clickeables).
+    # veces). Creadas, Prospectos, Ganadas, Perdidas, Suspendidas y las seis
+    # de Analítica del Pipeline SÍ lo ganaron (Creadas Legacy Parity,
+    # Commercial Tile 5, 6, 7, 8 y Analítica del Pipeline, ver HANDOFF) —
+    # sus drills YA están homologados, así que quedan EXCLUIDOS de esta
+    # lista de "sigue sin drilldown" (ver los dos tests de arriba, que ahora
+    # los esperan clickeables).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # SIETE `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
+    # TRECE `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
     # HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF), Prospectos
     # (Commercial Tile 5), Ganadas (Commercial Tile 6), Perdidas
-    # (Commercial Tile 7, ver HANDOFF) y Suspendidas (Commercial Tile 8, ver
-    # HANDOFF) — + UNA referencia al MISMO atributo dentro del selector que
-    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
-    # scroll al abrir) para ubicar la que corresponda. Nunca un OCTAVO panel,
-    # y nunca un grupo de breakdown paralelo: los siete viven en el MISMO
-    # `[data-breakdown-group]`, que es lo que hace que el motor compartido
-    # muestre uno por vez. Se cuenta sobre el markup, no sobre los
-    # comentarios, que mencionan el atributo en prosa varias veces.
+    # (Commercial Tile 7, ver HANDOFF), Suspendidas (Commercial Tile 8, ver
+    # HANDOFF) y las SEIS de Analítica del Pipeline (pipeline_age/stage_time/
+    # stage_conversion/close_time/stagnant/lead_conversion, ver HANDOFF) — +
+    # UNA referencia al MISMO atributo dentro del selector que construye
+    # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
+    # abrir) para ubicar la que corresponda. Nunca un panel paralelo fuera
+    # de este grupo, y nunca un grupo de breakdown paralelo: los trece viven
+    # en el MISMO `[data-breakdown-group]`, que es lo que hace que el motor
+    # compartido muestre uno por vez. Se cuenta sobre el markup, no sobre
+    # los comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 8
+    assert markup.count('data-breakdown="') == 14
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -2010,3 +2045,215 @@ def test_analytics_service_never_writes_and_reads_only_known_models():
         assert banned not in analytics_block, banned
     for model in ('"crm.stage"', '"crm.lead"', '"mail.message"'):
         assert model in _COMMERCIAL_SERVICE_PY, model
+
+
+# ============================================================================
+# Analítica del Pipeline — detalle compartido (GET
+# /comercial/data/pipeline-analytics-detail, ver HANDOFF). Universo: MISMO
+# que el titular EAGER (`analytics`), pero con las filas — UN endpoint para
+# CINCO sub-vistas (Edad/Tiempo por etapa/Conversión etapa a etapa/Tiempo de
+# cierre/Estancadas), LAZY, nunca en la hidratación inicial.
+# ============================================================================
+
+def test_pipeline_analytics_detail_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/pipeline-analytics-detail", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_pipeline_analytics_detail_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/pipeline-analytics-detail").status_code == 403
+
+
+def test_pipeline_analytics_detail_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _Stub(_StubService):
+        def get_pipeline_analytics_detail(self, tipo="todos"):
+            return {"tipo": tipo, "pipeline_age": {"opportunities": []}}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Stub())
+    response = client.get("/comercial/data/pipeline-analytics-detail?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["pipeline_analytics_detail"]["tipo"] == "nn"
+
+
+def test_pipeline_analytics_detail_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_pipeline_analytics_detail(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/pipeline-analytics-detail")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_pipeline_analytics_detail_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_pipeline_analytics_detail(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/pipeline-analytics-detail")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_pipeline_analytics_detail_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/pipeline-analytics-detail")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_pipeline_analytics_detail_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/pipeline-analytics-detail" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+# ============================================================================
+# "Conversión de Leads" — detalle (GET /comercial/data/lead-conversion-detail,
+# ver HANDOFF). Universo TOTALMENTE distinto — endpoint propio, LAZY, nunca
+# en la hidratación inicial, nunca comparte fetch con pipeline-analytics.
+# ============================================================================
+
+def test_lead_conversion_detail_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/lead-conversion-detail", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_lead_conversion_detail_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/lead-conversion-detail").status_code == 403
+
+
+def test_lead_conversion_detail_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _Stub(_StubService):
+        def get_lead_conversion_detail(self, tipo="todos"):
+            return {"tipo": tipo, "companies": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Stub())
+    response = client.get("/comercial/data/lead-conversion-detail?tipo=bi")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["lead_conversion_detail"]["tipo"] == "bi"
+
+
+def test_lead_conversion_detail_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_lead_conversion_detail(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/lead-conversion-detail")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_lead_conversion_detail_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_lead_conversion_detail(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/lead-conversion-detail")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_lead_conversion_detail_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/lead-conversion-detail")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_lead_conversion_detail_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/lead-conversion-detail" not in load_fn
+
+
+def test_pipeline_analytics_detail_load_is_lazy_single_flight_and_shared_by_five_keys():
+    # Las CINCO sub-vistas comparten el MISMO guard — abrir cualquiera de
+    # las cinco dispara el fetch UNA sola vez; reabrir cualquiera de las
+    # otras cuatro con el MISMO tipo no debe volver a pedir nada.
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadPipelineAnalyticsDetail(", 1)[1].split("\nfunction ", 1)[0]
+    assert "COMMERCIAL_PIPELINE_ANALYTICS_EVENT_KEYS.has(trigger.dataset.event)" in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.pipelineAnalyticsDetailStatus !== "idle"' in fn
+    keys_block = _COMMERCIAL_JS.split("const COMMERCIAL_PIPELINE_ANALYTICS_EVENT_KEYS = new Set([", 1)[1].split("]);", 1)[0]
+    for key in ("pipeline_age", "stage_time", "stage_conversion", "close_time", "stagnant"):
+        assert f'"{key}"' in keys_block, key
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadPipelineAnalyticsDetail(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(`/comercial/data/pipeline-analytics-detail" in load_fn
+
+
+def test_lead_conversion_detail_load_is_lazy_single_flight():
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadLeadConversionDetail(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "lead_conversion"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.leadConversionDetailStatus !== "idle"' in fn
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadLeadConversionDetail(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(`/comercial/data/lead-conversion-detail" in load_fn
+
+
+def test_commercial_set_tipo_invalidates_pipeline_analytics_and_lead_conversion_detail():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.pipelineAnalyticsDetail = null;" in tipo_fn
+    assert 'commercialState.pipelineAnalyticsDetailStatus = "idle";' in tipo_fn
+    assert "commercialState.leadConversionDetail = null;" in tipo_fn
+    assert 'commercialState.leadConversionDetailStatus = "idle";' in tipo_fn
+
+
+def test_pipeline_analytics_and_lead_conversion_never_get_unrelated_filter_dimensions():
+    # Owner §9 — sólo Tipo (global) + orden de columna donde corresponde;
+    # nada de Cliente/Vendedor/Buscar/selector de año/segundo grupo de
+    # breakdown para estas seis sub-vistas — ninguna de las seis lo pidió.
+    for banned in (
+        "data-commercial-pipeline-age-seller", "data-commercial-pipeline-age-search",
+        "data-commercial-close-time-seller", "data-commercial-stagnant-seller",
+        "data-commercial-lead-conversion-search", "data-commercial-lead-conversion-seller",
+        "data-commercial-lead-conversion-client", "data-commercial-lead-conversion-year",
+        "data-commercial-pipeline-age-year", "data-commercial-stage-time-seller",
+        "data-commercial-stage-conversion-seller",
+    ):
+        assert banned not in _COMMERCIAL_JS, banned
+
+
+def test_pipeline_analytics_and_lead_conversion_sort_interactions_never_refetch():
+    for local_fn_name in (
+        "commercialTogglePipelineAgeSort", "commercialPipelineAgeBlockHtml",
+        "commercialToggleCloseTimeSort", "commercialCloseTimeBlockHtml",
+        "commercialToggleStagnantSort", "commercialStagnantBlockHtml",
+        "commercialToggleLeadConversionSort", "commercialLeadConversionTableHtml",
+        "commercialStageTimeBlockHtml", "commercialStageConversionBlockHtml",
+        "commercialRenderPipelineAnalyticsPanels", "commercialRenderLeadConversionPanel",
+    ):
+        body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
+        assert "fetch(" not in body, local_fn_name
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    for marker in (
+        "commercialTogglePipelineAgeSort(pipelineAgeSortTh.dataset.commercialPipelineAgeSort);",
+        "commercialToggleCloseTimeSort(closeTimeSortTh.dataset.commercialCloseTimeSort);",
+        "commercialToggleStagnantSort(stagnantSortTh.dataset.commercialStagnantSort);",
+        "commercialToggleLeadConversionSort(leadConversionSortTh.dataset.commercialLeadConversionSort);",
+    ):
+        assert marker in boot, marker
+
+
+def test_pipeline_analytics_detail_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY.split("def _build_pipeline_analytics_detail(", 1)[1] \
+        .split("\n    def get_pipeline_analytics_detail", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    for model in ('"crm.stage"', '"crm.lead"'):
+        assert model in block, model
+
+
+def test_lead_conversion_detail_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY.split("def _build_lead_conversion_detail(", 1)[1] \
+        .split("\n    def get_lead_conversion_detail", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    for model in ('"crm.lead"', '"mail.message"', '"mail.tracking.value"'):
+        assert model in block, model

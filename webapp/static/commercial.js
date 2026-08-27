@@ -261,6 +261,24 @@ const commercialState = {
   suspendidasSellerFilter: "",
   suspendidasSortKey: null,
   suspendidasSortDir: 1,
+  // Analítica del Pipeline — detalle (ver HANDOFF): CINCO tiles comparten UN
+  // fetch/estado (`pipelineAnalyticsDetail*`, MISMO universo por debajo),
+  // cada uno con su propio sort local. "Conversión de leads" es aparte
+  // (universo propio, `leadConversionDetail*`).
+  pipelineAnalyticsDetail: null,
+  pipelineAnalyticsDetailStatus: "idle", // idle | loading | ready | error
+  pipelineAnalyticsDetailErrorState: "",
+  pipelineAgeSortKey: null,
+  pipelineAgeSortDir: 1,
+  closeTimeSortKey: null,
+  closeTimeSortDir: 1,
+  stagnantSortKey: null,
+  stagnantSortDir: 1,
+  leadConversionDetail: null,
+  leadConversionDetailStatus: "idle",
+  leadConversionDetailErrorState: "",
+  leadConversionSortKey: null,
+  leadConversionSortDir: 1,
 };
 
 function commercialEsc(value) {
@@ -2891,6 +2909,456 @@ function commercialSuspendidasCountLabel() {
   return `${commercialFmtInt(total)} suspendida(s)`;
 }
 
+// ── Analítica del Pipeline — detalle (ver HANDOFF) ───────────────────────
+// CINCO tiles (Edad del pipeline/Tiempo por etapa/Conversión etapa a etapa/
+// Tiempo de cierre/Estancadas) comparten UN SOLO fetch lazy
+// (`/comercial/data/pipeline-analytics-detail`) — MISMO universo por debajo
+// (activas + ganadas del año + historial de etapa), así que partirlo en
+// cinco peticiones sería 5x el tráfico Odoo por la MISMA data. Cada uno
+// abre su PROPIA sección (`data-breakdown` propio, para que el usuario
+// pueda ir directo a la que le interesa desde su tile), pero las cinco
+// leen del MISMO `commercialState.pipelineAnalyticsDetail` y comparten
+// status/error — la PRIMERA que se abre dispara el fetch, las otras cuatro
+// salen gratis. "Conversión de leads" es la excepción (universo propio, ver
+// más abajo).
+//
+// Escalas de color NUEVAS y DISTINTAS de `commercialUrgencyColor` (0-7/8-15/
+// 16-30/+30 días de PRÓXIMA actividad) — acá el significado de negocio es
+// otro (antigüedad/tiempo en etapa/tiempo de cierre/días sin movimiento,
+// portados 1:1 de los umbrales del legacy), así que mezclar la escala de
+// Actividades sería mentir sobre qué está midiendo el color. El PRIMITIVO
+// visual (`.dashboard-status-badge--{color}`) sí se reusa tal cual.
+function commercialAgeColor(days) {
+  if (days == null) return null;
+  if (days <= 30) return "green";
+  if (days <= 60) return "amber";
+  if (days <= 90) return "orange";
+  return "red";
+}
+function commercialStageTimeColor(days) {
+  if (days == null) return null;
+  if (days <= 14) return "green";
+  if (days <= 30) return "amber";
+  if (days <= 60) return "orange";
+  return "red";
+}
+function commercialConversionRateColor(rate) {
+  if (rate == null) return null;
+  if (rate >= 60) return "green";
+  if (rate >= 30) return "amber";
+  return "red";
+}
+function commercialCloseTimeColor(days) {
+  if (days == null) return null;
+  if (days <= 30) return "green";
+  if (days <= 90) return "amber";
+  if (days <= 180) return "orange";
+  return "red";
+}
+function commercialStagnantColor(days) {
+  if (days == null) return null;
+  if (days <= 60) return "amber";
+  if (days <= 90) return "orange";
+  return "red";
+}
+function commercialDaysBadge(days, color) {
+  if (days == null) return "—";
+  const badge = color
+    ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${commercialFmtInt(days)}d</span>`
+    : `${commercialFmtInt(days)}d`;
+  return badge;
+}
+
+// Estado + fetch compartidos de las cinco sub-vistas.
+function commercialPipelineAnalyticsSharedStateHtml() {
+  if (commercialState.pipelineAnalyticsDetailStatus === "error") {
+    const configIncomplete = commercialState.pipelineAnalyticsDetailErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar la analítica del pipeline desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("pipeline-analytics", "Reintentar la carga de la analítica del pipeline"));
+  }
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") {
+    return commercialLoadingHtml("Cargando analítica del pipeline…");
+  }
+  return null;
+}
+
+// — Edad del pipeline: tabla ordenable, MISMAS columnas que el legacy.
+const COMMERCIAL_PIPELINE_AGE_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  stage: o => (o.stage || "").toLowerCase(),
+  create_date: o => o.create_date || "",
+  age_days: o => o.age_days ?? -Infinity,
+};
+function commercialPipelineAgeSorted(rows) {
+  const keyFn = commercialState.pipelineAgeSortKey && COMMERCIAL_PIPELINE_AGE_SORT_KEYS[commercialState.pipelineAgeSortKey];
+  if (!keyFn) return [...rows].sort((a, b) => b.age_days - a.age_days);  // default: legacy — más vieja primero
+  const dir = commercialState.pipelineAgeSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialTogglePipelineAgeSort(key) {
+  if (commercialState.pipelineAgeSortKey === key) commercialState.pipelineAgeSortDir *= -1;
+  else { commercialState.pipelineAgeSortKey = key; commercialState.pipelineAgeSortDir = 1; }
+}
+function commercialPipelineAgeBlockHtml(rows) {
+  const sorted = commercialPipelineAgeSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.pipelineAgeSortKey === key;
+    const arrow = active ? (commercialState.pipelineAgeSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-pipeline-age-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td>${commercialFmtDate(o.create_date)}</td>
+      <td>${commercialDaysBadge(o.age_days, commercialAgeColor(o.age_days))}</td>
+    </tr>`).join("");
+  const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.age_days || 0), 0) / sorted.length) : 0;
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:22%"><col style="width:18%"><col style="width:16%">
+      <col style="width:14%"><col style="width:14%"><col style="width:16%"></colgroup>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
+      ${th("stage", "Etapa")}${th("create_date", "Creación")}${th("age_days", "Edad")}</tr></thead>
+    <tbody>${rowsHtml}
+      <tr class="dashboard-table-totals"><td colspan="5">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
+    </tbody>
+  </table></div>`;
+}
+function commercialPipelineAgePanelBodyHtml() {
+  const shared = commercialPipelineAnalyticsSharedStateHtml();
+  if (shared) return shared;
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.pipeline_age.opportunities) || [];
+  if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay oportunidades activas en este momento.");
+  return `<div data-commercial-pipeline-age-table>${commercialPipelineAgeBlockHtml(rows)}</div>`;
+}
+function commercialPipelineAgeCountLabel() {
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.pipeline_age.opportunities) || [];
+  return `${commercialFmtInt(rows.length)} oportunidad(es)`;
+}
+
+// — Tiempo por etapa: ranking `.bar-row` (MISMO primitivo que Perdidas —
+// Motivo), NUNCA una librería externa de gráficos/canvas — sin sort (orden
+// natural de etapa).
+function commercialStageTimeBlockHtml(rows) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay historial de etapas para este segmento.");
+  const max = Math.max(1, ...rows.map(r => r.avg_days || 0));
+  const rowsHtml = rows.map(r => {
+    const color = commercialStageTimeColor(r.avg_days);
+    const pct = r.avg_days ? (r.avg_days / max * 100).toFixed(1) : 0;
+    return `
+    <div class="bar-row">
+      <span class="bar-label">${commercialEsc(r.stage)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <span class="bar-value">${commercialDaysBadge(r.avg_days, color)}</span>
+    </div>`;
+  }).join("");
+  return rowsHtml;
+}
+function commercialStageTimePanelBodyHtml() {
+  const shared = commercialPipelineAnalyticsSharedStateHtml();
+  if (shared) return shared;
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_time) || [];
+  return commercialStageTimeBlockHtml(rows);
+}
+function commercialStageTimeCountLabel() {
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_time) || [];
+  const withData = rows.filter(r => r.avg_days != null).length;
+  return `${commercialFmtInt(withData)} etapa(s) con datos`;
+}
+
+// — Conversión etapa a etapa: ranking `.bar-row` de la TASA de avance
+// (0-100%), MISMO primitivo. La última etapa no tiene "siguiente" — se
+// muestra sin barra/valor, nunca un 0% inventado.
+function commercialStageConversionBlockHtml(rows) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay historial de etapas para este segmento.");
+  const rowsHtml = rows.map(r => {
+    const hasRate = r.rate != null;
+    const color = commercialConversionRateColor(r.rate);
+    const pct = hasRate ? r.rate.toFixed(1) : 0;
+    const value = hasRate
+      ? `<span class="dashboard-status-badge dashboard-status-badge--${color || "grey"}">${commercialFmtPercent(r.rate)}</span>`
+      : "—";
+    const label = hasRate ? `${commercialEsc(r.stage)} → ${commercialEsc(r.next_stage)}` : `${commercialEsc(r.stage)} (última etapa)`;
+    return `
+    <div class="bar-row">
+      <span class="bar-label">${label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <span class="bar-value">${value}</span>
+    </div>`;
+  }).join("");
+  return rowsHtml;
+}
+function commercialStageConversionPanelBodyHtml() {
+  const shared = commercialPipelineAnalyticsSharedStateHtml();
+  if (shared) return shared;
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_conversion) || [];
+  return commercialStageConversionBlockHtml(rows);
+}
+function commercialStageConversionCountLabel() {
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_conversion) || [];
+  const withRate = rows.filter(r => r.rate != null);
+  const min = withRate.length ? Math.min(...withRate.map(r => r.rate)) : null;
+  return min != null ? `mínima: ${commercialFmtPercent(min)}` : "sin datos";
+}
+
+// — Tiempo de cierre: tabla ordenable, sólo ganadas del año.
+const COMMERCIAL_CLOSE_TIME_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  days: o => o.days ?? -Infinity,
+};
+function commercialCloseTimeSorted(rows) {
+  const keyFn = commercialState.closeTimeSortKey && COMMERCIAL_CLOSE_TIME_SORT_KEYS[commercialState.closeTimeSortKey];
+  if (!keyFn) return [...rows].sort((a, b) => b.days - a.days);
+  const dir = commercialState.closeTimeSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialToggleCloseTimeSort(key) {
+  if (commercialState.closeTimeSortKey === key) commercialState.closeTimeSortDir *= -1;
+  else { commercialState.closeTimeSortKey = key; commercialState.closeTimeSortDir = 1; }
+}
+function commercialCloseTimeBlockHtml(rows) {
+  const sorted = commercialCloseTimeSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.closeTimeSortKey === key;
+    const arrow = active ? (commercialState.closeTimeSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-close-time-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td>${commercialDaysBadge(o.days, commercialCloseTimeColor(o.days))}</td>
+    </tr>`).join("");
+  const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.days || 0), 0) / sorted.length) : 0;
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:34%"><col style="width:26%"><col style="width:24%"><col style="width:16%"></colgroup>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}${th("days", "Días")}</tr></thead>
+    <tbody>${rowsHtml}
+      <tr class="dashboard-table-totals"><td colspan="3">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
+    </tbody>
+  </table></div>`;
+}
+function commercialCloseTimePanelBodyHtml() {
+  const shared = commercialPipelineAnalyticsSharedStateHtml();
+  if (shared) return shared;
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.close_time.opportunities) || [];
+  if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay oportunidades ganadas este año.");
+  return `<div data-commercial-close-time-table>${commercialCloseTimeBlockHtml(rows)}</div>`;
+}
+function commercialCloseTimeCountLabel() {
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.close_time.opportunities) || [];
+  return `${commercialFmtInt(rows.length)} oportunidad(es) ganada(s)`;
+}
+
+// — Estancadas: tabla ordenable, MISMAS columnas que el legacy (incluye
+// Prioridad + Última respuesta del cliente, además de Días estancada).
+const COMMERCIAL_STAGNANT_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  stage: o => (o.stage || "").toLowerCase(),
+  priority: o => Number(o.priority || 0),
+  last_move_date: o => o.last_move_date || "",
+  last_response: o => o.last_response || "",
+  days_stagnant: o => o.days_stagnant ?? -Infinity,
+};
+function commercialStagnantSorted(rows) {
+  const keyFn = commercialState.stagnantSortKey && COMMERCIAL_STAGNANT_SORT_KEYS[commercialState.stagnantSortKey];
+  if (!keyFn) return [...rows].sort((a, b) => b.days_stagnant - a.days_stagnant);
+  const dir = commercialState.stagnantSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialToggleStagnantSort(key) {
+  if (commercialState.stagnantSortKey === key) commercialState.stagnantSortDir *= -1;
+  else { commercialState.stagnantSortKey = key; commercialState.stagnantSortDir = 1; }
+}
+function commercialStagnantBlockHtml(rows) {
+  const sorted = commercialStagnantSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.stagnantSortKey === key;
+    const arrow = active ? (commercialState.stagnantSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-stagnant-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
+    const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
+    return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
+      <td>${commercialFmtDate(o.last_move_date)}</td>
+      <td>${o.last_response ? commercialFmtDate(o.last_response) : "—"}</td>
+      <td>${commercialDaysBadge(o.days_stagnant, commercialStagnantColor(o.days_stagnant))}</td>
+    </tr>`;
+  }).join("");
+  const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.days_stagnant || 0), 0) / sorted.length) : 0;
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:18%"><col style="width:14%"><col style="width:13%"><col style="width:12%">
+      <col style="width:8%"><col style="width:12%"><col style="width:12%"><col style="width:11%"></colgroup>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
+      ${th("stage", "Etapa")}${th("priority", "Prior.")}${th("last_move_date", "Últ. mov.")}
+      ${th("last_response", "Últ. resp. cliente")}${th("days_stagnant", "Días estanc.")}</tr></thead>
+    <tbody>${rowsHtml}
+      <tr class="dashboard-table-totals"><td colspan="7">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
+    </tbody>
+  </table></div>`;
+}
+function commercialStagnantPanelBodyHtml() {
+  const shared = commercialPipelineAnalyticsSharedStateHtml();
+  if (shared) return shared;
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stagnant.opportunities) || [];
+  if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay oportunidades estancadas 🎉");
+  return `<div data-commercial-stagnant-table>${commercialStagnantBlockHtml(rows)}</div>`;
+}
+function commercialStagnantCountLabel() {
+  if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
+  const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stagnant.opportunities) || [];
+  return `${commercialFmtInt(rows.length)} oportunidad(es)`;
+}
+
+// ── "Conversión de Leads" — detalle (ver HANDOFF) ────────────────────────
+// Universo TOTALMENTE distinto (crm.lead type=lead + historial de `type`) —
+// endpoint propio, LAZY, nunca comparte fetch con las cinco de arriba.
+// Alcance ACOTADO respecto del legacy (sin árbol UTM/atribución de
+// marketing — ver HANDOFF, brecha intencional documentada): recap de las
+// seis poblaciones + UNA tabla combinada de las cuatro convertidas
+// (Prospecto/Activa/Ganada/Perdida), reusando el MISMO primitivo de tabla.
+const COMMERCIAL_LEAD_CONV_OUTCOME = {
+  prospect: { label: "Prospecto", color: "grey" },
+  opp: { label: "Activa", color: "amber" },
+  won: { label: "Ganada", color: "green" },
+  lost_opp: { label: "Perdida", color: "red" },
+};
+function commercialLeadConversionAllRows() {
+  const d = commercialState.leadConversionDetail;
+  if (!d) return [];
+  return Object.keys(COMMERCIAL_LEAD_CONV_OUTCOME).flatMap(bucket =>
+    (d[bucket].opportunities || []).map(o => ({ ...o, outcome: bucket })));
+}
+const COMMERCIAL_LEAD_CONV_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  stage: o => (o.stage || "").toLowerCase(),
+  outcome: o => COMMERCIAL_LEAD_CONV_OUTCOME[o.outcome].label,
+  convert_date: o => o.convert_date || "",
+};
+function commercialLeadConversionSorted(rows) {
+  const keyFn = commercialState.leadConversionSortKey && COMMERCIAL_LEAD_CONV_SORT_KEYS[commercialState.leadConversionSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.leadConversionSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialToggleLeadConversionSort(key) {
+  if (commercialState.leadConversionSortKey === key) commercialState.leadConversionSortDir *= -1;
+  else { commercialState.leadConversionSortKey = key; commercialState.leadConversionSortDir = 1; }
+}
+function commercialLeadConversionTableHtml(rows) {
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados", "No hay leads convertidos para este segmento.");
+  }
+  const sorted = commercialLeadConversionSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.leadConversionSortKey === key;
+    const arrow = active ? (commercialState.leadConversionSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-lead-conversion-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const outcome = COMMERCIAL_LEAD_CONV_OUTCOME[o.outcome];
+    return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td><span class="dashboard-status-badge dashboard-status-badge--${outcome.color}">${outcome.label}</span></td>
+      <td>${commercialFmtDate(o.convert_date)}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:22%"><col style="width:18%"><col style="width:16%">
+      <col style="width:16%"><col style="width:14%"><col style="width:14%"></colgroup>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
+      ${th("stage", "Etapa")}${th("outcome", "Resultado")}${th("convert_date", "Convertido el")}</tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
+}
+function commercialLeadConversionAnalysisHtml() {
+  const d = commercialState.leadConversionDetail;
+  const pairs = [
+    ["Sigue como lead", commercialFmtInt(d.still_lead.count)],
+    ["Lead perdido", commercialFmtInt(d.lost_lead.count)],
+    ["Convertidas", `${commercialFmtInt(d.any_conv.companies)} (${commercialFmtPercent(d.any_conv.rate)})`],
+    ["Avanzó a oportunidad", `${commercialFmtInt(d.adv_opp.companies)} (${commercialFmtPercent(d.adv_opp.rate)})`],
+  ];
+  return `${commercialKpiPairsHtml(pairs)}
+    <div data-commercial-lead-conversion-table>${commercialLeadConversionTableHtml(commercialLeadConversionAllRows())}</div>`;
+}
+function commercialLeadConversionPanelBodyHtml() {
+  if (commercialState.leadConversionDetailStatus === "error") {
+    const configIncomplete = commercialState.leadConversionDetailErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar la conversión de leads desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("lead-conversion", "Reintentar la carga de conversión de leads"));
+  }
+  if (commercialState.leadConversionDetailStatus !== "ready") {
+    return commercialLoadingHtml("Cargando conversión de leads…");
+  }
+  const d = commercialState.leadConversionDetail;
+  if (!d || !d.companies) {
+    return commercialEmptyStateHtml("Sin datos", "No hay leads para este segmento.");
+  }
+  return commercialLeadConversionAnalysisHtml();
+}
+function commercialLeadConversionCountLabel() {
+  if (commercialState.leadConversionDetailStatus !== "ready") return "";
+  const d = commercialState.leadConversionDetail;
+  return d ? `${commercialFmtInt(d.companies)} empresa(s)` : "";
+}
+
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver
 // arriba) — MISMA marca que reporting.js::dashboardSection/
 // dashboardSections, helper LOCAL (sin renderer compartido global, ver
@@ -3775,22 +4243,25 @@ function commercialDashboardHtml() {
         { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;
 
-  // "Analíticas del Pipeline" — la segunda familia del landing legacy. Seis
-  // métricas derivadas, todas read-only por ahora: sus paneles de detalle son
-  // drilldowns propios todavía no homologados.
+  // "Analíticas del Pipeline" — la segunda familia del landing legacy. Ver
+  // HANDOFF: los seis titulares ganan drilldown propio — cinco comparten un
+  // fetch (`pipeline_age`/`stage_time`/`stage_conversion`/`close_time`/
+  // `stagnant`, MISMO universo por debajo) y "Conversión de leads" tiene el
+  // suyo (universo propio, `crm.lead type=lead`).
   const analyticsGrid = a ? `<div class="activity-kpi-grid analytics-grid">
       ${commercialRichKpi("Edad del pipeline", a.pipeline_age.avg_days != null ? `${a.pipeline_age.avg_days}d` : "—",
-        { sub: `${commercialFmtInt(a.pipeline_age.count)} oportunidad(es) activa(s)` })}
+        { sub: `${commercialFmtInt(a.pipeline_age.count)} oportunidad(es) activa(s)`, eventKey: "pipeline_age" })}
       ${commercialRichKpi("Tiempo por etapa", a.stage_time.avg_days != null ? `${a.stage_time.avg_days}d` : "—",
-        { sub: a.stage_time.stages_with_data ? `${commercialFmtInt(a.stage_time.stages_with_data)} etapa(s) con datos` : "sin datos de historial" })}
+        { sub: a.stage_time.stages_with_data ? `${commercialFmtInt(a.stage_time.stages_with_data)} etapa(s) con datos` : "sin datos de historial",
+          eventKey: "stage_time" })}
       ${commercialRichKpi("Conversión etapa a etapa", a.stage_conversion.min_rate != null ? `${a.stage_conversion.min_rate}%` : "—",
-        { sub: a.stage_conversion.min_rate != null ? "tasa mínima (cuello de botella)" : "sin datos" })}
+        { sub: a.stage_conversion.min_rate != null ? "tasa mínima (cuello de botella)" : "sin datos", eventKey: "stage_conversion" })}
       ${commercialRichKpi("Tiempo de cierre", a.close_time.avg_days != null ? `${a.close_time.avg_days}d` : "—",
-        { sub: `${commercialFmtInt(a.close_time.count)} oportunidad(es) ganada(s)` })}
+        { sub: `${commercialFmtInt(a.close_time.count)} oportunidad(es) ganada(s)`, eventKey: "close_time" })}
       ${commercialRichKpi("Estancadas", commercialFmtInt(a.stagnant.count),
-        { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento` })}
+        { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento`, eventKey: "stagnant" })}
       ${commercialRichKpi("Conversión de leads", commercialFmtPercent(a.lead_conversion.rate_any_conv),
-        { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad` })}
+        { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad`, eventKey: "lead_conversion" })}
     </div>` : commercialEmptyStateHtml("No disponible", "No pudimos calcular las analíticas del pipeline en este momento.");
 
   // El análisis contextual NO ocupa lugar hasta que se acciona su KPI: el
@@ -3930,6 +4401,78 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-suspendidas-body>${commercialSuspendidasPanelBodyHtml()}</div>
     </details>`;
 
+  // Analítica del Pipeline (ver HANDOFF): SEIS secciones más, MISMO
+  // `[data-breakdown-group]` que las de arriba. Las CINCO primeras
+  // comparten un solo fetch/estado (`pipelineAnalyticsDetail*`) — cada una
+  // con su propio host estable de conteo/cuerpo, para que el re-render
+  // quirúrgico de UNA no toque a las otras cuatro. "Conversión de leads" es
+  // la última, universo propio.
+  const pipelineAgeSection = `<details class="dashboard-section" data-section-id="pipeline-age-analisis" data-breakdown="pipeline_age" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Edad del Pipeline — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-pipeline-age-count>${commercialEsc(commercialPipelineAgeCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="pipeline_age" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-pipeline-age-body>${commercialPipelineAgePanelBodyHtml()}</div>
+    </details>`;
+
+  const stageTimeSection = `<details class="dashboard-section" data-section-id="stage-time-analisis" data-breakdown="stage_time" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Tiempo por Etapa — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-stage-time-count>${commercialEsc(commercialStageTimeCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="stage_time" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-stage-time-body>${commercialStageTimePanelBodyHtml()}</div>
+    </details>`;
+
+  const stageConversionSection = `<details class="dashboard-section" data-section-id="stage-conversion-analisis" data-breakdown="stage_conversion" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Conversión Etapa a Etapa — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-stage-conversion-count>${commercialEsc(commercialStageConversionCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="stage_conversion" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-stage-conversion-body>${commercialStageConversionPanelBodyHtml()}</div>
+    </details>`;
+
+  const closeTimeSection = `<details class="dashboard-section" data-section-id="close-time-analisis" data-breakdown="close_time" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Tiempo de Cierre — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-close-time-count>${commercialEsc(commercialCloseTimeCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="close_time" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-close-time-body>${commercialCloseTimePanelBodyHtml()}</div>
+    </details>`;
+
+  const stagnantSection = `<details class="dashboard-section" data-section-id="stagnant-analisis" data-breakdown="stagnant" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Estancadas — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-stagnant-count>${commercialEsc(commercialStagnantCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="stagnant" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-stagnant-body>${commercialStagnantPanelBodyHtml()}</div>
+    </details>`;
+
+  const leadConversionSection = `<details class="dashboard-section" data-section-id="lead-conversion-analisis" data-breakdown="lead_conversion" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Conversión de Leads — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-lead-conversion-count>${commercialEsc(commercialLeadConversionCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="lead_conversion" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-lead-conversion-body>${commercialLeadConversionPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -3942,7 +4485,13 @@ function commercialDashboardHtml() {
     + prospectsSection
     + ganadasSection
     + perdidasSection
-    + suspendidasSection;
+    + suspendidasSection
+    + pipelineAgeSection
+    + stageTimeSection
+    + stageConversionSection
+    + closeTimeSection
+    + stagnantSection
+    + leadConversionSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -4419,6 +4968,105 @@ function commercialMaybeLoadSuspendidas(trigger) {
   commercialLoadSuspendidas();
 }
 
+// ── Analítica del Pipeline — lazy load + render quirúrgico (ver HANDOFF) ──
+// CINCO secciones, UN SOLO fetch/estado: re-renderiza las CINCO cada vez
+// (cada una es liviana — un `if` de status + su propio slice del payload),
+// nunca cinco funciones de render redundantes que repitan el mismo
+// chequeo de estado compartido.
+const COMMERCIAL_PIPELINE_ANALYTICS_HOSTS = [
+  ["pipeline-age", commercialPipelineAgePanelBodyHtml, commercialPipelineAgeCountLabel],
+  ["stage-time", commercialStageTimePanelBodyHtml, commercialStageTimeCountLabel],
+  ["stage-conversion", commercialStageConversionPanelBodyHtml, commercialStageConversionCountLabel],
+  ["close-time", commercialCloseTimePanelBodyHtml, commercialCloseTimeCountLabel],
+  ["stagnant", commercialStagnantPanelBodyHtml, commercialStagnantCountLabel],
+];
+function commercialRenderPipelineAnalyticsPanels() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  COMMERCIAL_PIPELINE_ANALYTICS_HOSTS.forEach(([slug, bodyFn, countFn]) => {
+    const body = root.querySelector(`[data-commercial-${slug}-body]`);
+    if (body) body.innerHTML = bodyFn();
+    const count = root.querySelector(`[data-commercial-${slug}-count]`);
+    if (count) count.textContent = countFn();
+  });
+}
+
+async function commercialLoadPipelineAnalyticsDetail() {
+  commercialState.pipelineAnalyticsDetailStatus = "loading";
+  commercialRenderPipelineAnalyticsPanels();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/pipeline-analytics-detail?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.pipelineAnalyticsDetail = resp.pipeline_analytics_detail;
+      commercialState.pipelineAnalyticsDetailStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.pipelineAnalyticsDetailStatus = "error";
+      commercialState.pipelineAnalyticsDetailErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.pipelineAnalyticsDetailStatus = "error";
+    commercialState.pipelineAnalyticsDetailErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderPipelineAnalyticsPanels();
+}
+
+const COMMERCIAL_PIPELINE_ANALYTICS_EVENT_KEYS = new Set([
+  "pipeline_age", "stage_time", "stage_conversion", "close_time", "stagnant",
+]);
+function commercialMaybeLoadPipelineAnalyticsDetail(trigger) {
+  if (!COMMERCIAL_PIPELINE_ANALYTICS_EVENT_KEYS.has(trigger.dataset.event)) return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.pipelineAnalyticsDetailStatus !== "idle") return;
+  commercialLoadPipelineAnalyticsDetail();
+}
+
+// ── "Conversión de Leads" — lazy load + render quirúrgico (ver HANDOFF) ──
+// Universo propio, endpoint propio — MISMA técnica que Suspendidas.
+function commercialRenderLeadConversionPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-lead-conversion-body]");
+  if (body) body.innerHTML = commercialLeadConversionPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-lead-conversion-count]");
+  if (count) count.textContent = commercialLeadConversionCountLabel();
+}
+
+async function commercialLoadLeadConversionDetail() {
+  commercialState.leadConversionDetailStatus = "loading";
+  commercialRenderLeadConversionPanel();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/lead-conversion-detail?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.leadConversionDetail = resp.lead_conversion_detail;
+      commercialState.leadConversionDetailStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.leadConversionDetailStatus = "error";
+      commercialState.leadConversionDetailErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.leadConversionDetailStatus = "error";
+    commercialState.leadConversionDetailErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderLeadConversionPanel();
+}
+
+function commercialMaybeLoadLeadConversionDetail(trigger) {
+  if (trigger.dataset.event !== "lead_conversion") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.leadConversionDetailStatus !== "idle") return;
+  commercialLoadLeadConversionDetail();
+}
+
 // ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
 // HANDOFF) ─────────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
@@ -4639,6 +5287,17 @@ function commercialSetTipo(tipo) {
   commercialState.suspendidasStatus = "idle";
   commercialState.suspendidasErrorState = "";
   commercialState.suspendidasSellerFilter = "";
+  // Analítica del Pipeline (ver HANDOFF): MISMO criterio — invalida y NO
+  // re-pide acá, vuelve a "idle" y lo carga la próxima apertura del
+  // desglose con el tipo nuevo. El sort local NO se resetea (MISMO criterio
+  // que el resto de Comercial — un orden elegido sobrevive al cambio de
+  // Tipo, sólo el dataset se invalida).
+  commercialState.pipelineAnalyticsDetail = null;
+  commercialState.pipelineAnalyticsDetailStatus = "idle";
+  commercialState.pipelineAnalyticsDetailErrorState = "";
+  commercialState.leadConversionDetail = null;
+  commercialState.leadConversionDetailStatus = "idle";
+  commercialState.leadConversionDetailErrorState = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -4757,6 +5416,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.perdidasStatus !== "loading") commercialLoadPerdidas();
       } else if (retryBtn.dataset.commercialRetry === "suspendidas") {
         if (commercialState.suspendidasStatus !== "loading") commercialLoadSuspendidas();
+      } else if (retryBtn.dataset.commercialRetry === "pipeline-analytics") {
+        if (commercialState.pipelineAnalyticsDetailStatus !== "loading") commercialLoadPipelineAnalyticsDetail();
+      } else if (retryBtn.dataset.commercialRetry === "lead-conversion") {
+        if (commercialState.leadConversionDetailStatus !== "loading") commercialLoadLeadConversionDetail();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -5016,6 +5679,43 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
       return;
     }
+    // Analítica del Pipeline — orden de columna de las TRES sub-vistas con
+    // tabla (Edad/Tiempo de cierre/Estancadas — Tiempo por etapa/Conversión
+    // etapa a etapa son ranking `.bar-row`, sin sort): re-render QUIRÚRGICO
+    // de su propia tabla, MISMO criterio que Suspendidas.
+    const pipelineAgeSortTh = event.target.closest("[data-commercial-pipeline-age-sort]");
+    if (pipelineAgeSortTh) {
+      commercialTogglePipelineAgeSort(pipelineAgeSortTh.dataset.commercialPipelineAgeSort);
+      const host = root.querySelector("[data-commercial-pipeline-age-table]");
+      const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.pipeline_age.opportunities) || [];
+      if (host) host.innerHTML = commercialPipelineAgeBlockHtml(rows);
+      return;
+    }
+    const closeTimeSortTh = event.target.closest("[data-commercial-close-time-sort]");
+    if (closeTimeSortTh) {
+      commercialToggleCloseTimeSort(closeTimeSortTh.dataset.commercialCloseTimeSort);
+      const host = root.querySelector("[data-commercial-close-time-table]");
+      const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.close_time.opportunities) || [];
+      if (host) host.innerHTML = commercialCloseTimeBlockHtml(rows);
+      return;
+    }
+    const stagnantSortTh = event.target.closest("[data-commercial-stagnant-sort]");
+    if (stagnantSortTh) {
+      commercialToggleStagnantSort(stagnantSortTh.dataset.commercialStagnantSort);
+      const host = root.querySelector("[data-commercial-stagnant-table]");
+      const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stagnant.opportunities) || [];
+      if (host) host.innerHTML = commercialStagnantBlockHtml(rows);
+      return;
+    }
+    // Conversión de Leads — orden de columna de la tabla combinada de las
+    // cuatro convertidas: re-render QUIRÚRGICO, MISMO criterio.
+    const leadConversionSortTh = event.target.closest("[data-commercial-lead-conversion-sort]");
+    if (leadConversionSortTh) {
+      commercialToggleLeadConversionSort(leadConversionSortTh.dataset.commercialLeadConversionSort);
+      const host = root.querySelector("[data-commercial-lead-conversion-table]");
+      if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionAllRows());
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -5062,6 +5762,8 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeLoadGanadas(kpiTrigger);
       commercialMaybeLoadPerdidas(kpiTrigger);
       commercialMaybeLoadSuspendidas(kpiTrigger);
+      commercialMaybeLoadPipelineAnalyticsDetail(kpiTrigger);
+      commercialMaybeLoadLeadConversionDetail(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -5370,6 +6072,8 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeLoadGanadas(kpiTrigger);
     commercialMaybeLoadPerdidas(kpiTrigger);
     commercialMaybeLoadSuspendidas(kpiTrigger);
+    commercialMaybeLoadPipelineAnalyticsDetail(kpiTrigger);
+    commercialMaybeLoadLeadConversionDetail(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

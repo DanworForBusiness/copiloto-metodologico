@@ -388,3 +388,45 @@ def commercial_data_analytics(request: Request, tipo: str = Query("todos")):
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
         return _commercial_data_error_response(request, exc, endpoint="analytics")
     return JSONResponse({"state": "ok", "analytics": analytics})
+
+
+@router.get("/comercial/data/pipeline-analytics-detail", include_in_schema=False)
+def commercial_data_pipeline_analytics_detail(request: Request, tipo: str = Query("todos")):
+    """Detalle compartido de CINCO tiles de "Analítica del Pipeline" (Edad
+    del pipeline/Tiempo por etapa/Conversión etapa a etapa/Tiempo de
+    cierre/Estancadas, ver HANDOFF) — comparten el MISMO universo
+    (activas 1-8 + ganadas del año + historial de etapa), así que viven en
+    UN solo endpoint lazy en vez de cinco. "Conversión de leads" NO vive acá
+    — universo totalmente distinto, ver `/lead-conversion-detail`. MISMO
+    contrato fail-soft y MISMA gate que el resto de Comercial —
+    read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        detail = CommercialService().get_pipeline_analytics_detail(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="pipeline_analytics_detail")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="pipeline_analytics_detail")
+    return JSONResponse({"state": "ok", "pipeline_analytics_detail": detail})
+
+
+@router.get("/comercial/data/lead-conversion-detail", include_in_schema=False)
+def commercial_data_lead_conversion_detail(request: Request, tipo: str = Query("todos")):
+    """Detalle de "Conversión de leads" (ver HANDOFF) — universo propio
+    (`crm.lead type=lead` + historial del campo `type`), desglosado por
+    resultado (Prospecto/Activa/Ganada/Perdida — antes sólo "cualquier
+    conversión"/"avanzó a oportunidad" en el titular EAGER). LAZY, MISMO
+    contrato fail-soft y MISMA gate que el resto de Comercial —
+    read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        detail = CommercialService().get_lead_conversion_detail(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="lead_conversion_detail")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="lead_conversion_detail")
+    return JSONResponse({"state": "ok", "lead_conversion_detail": detail})

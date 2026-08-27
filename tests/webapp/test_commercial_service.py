@@ -1196,6 +1196,286 @@ def test_analytics_path_is_read_only_and_fail_soft():
 
 
 # ============================================================================
+# Analítica del Pipeline — detalle compartido (`get_pipeline_analytics_detail`,
+# `GET /comercial/data/pipeline-analytics-detail`, ver HANDOFF). Reusa el
+# fixture `_analytics_client()` de arriba a propósito — MISMO universo que el
+# titular EAGER (`get_analytics`), así que cada assert de conservación puede
+# comparar contra un número YA verificado por los tests de arriba.
+# ============================================================================
+
+def test_pipeline_analytics_detail_age_rows_carry_display_fields_and_sort_desc():
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
+    rows = detail["pipeline_age"]["opportunities"]
+    assert len(rows) == 3  # ids 1, 2, 4 — MISMO universo que el titular
+    assert [r["age_days"] for r in rows] == sorted((r["age_days"] for r in rows), reverse=True)
+    assert {"opportunity", "client", "seller", "stage", "create_date", "age_days"} <= set(rows[0])
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_close_rows_only_this_years_won():
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
+    rows = detail["close_time"]["opportunities"]
+    assert len(rows) == 1
+    assert rows[0]["days"] == 30  # creada hace 40, cerrada hace 10 — MISMO que el titular
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_stagnant_rows_use_last_move_not_creation():
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
+    rows = detail["stagnant"]["opportunities"]
+    assert len(rows) == 1  # id 1: se movió hace 60 días
+    assert rows[0]["days_stagnant"] == 60
+    assert rows[0]["last_response"] is None  # sin `lead_properties` en el fixture
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_stage_time_rows_are_per_stage_not_collapsed():
+    # A diferencia del titular (`stage_time.avg_days`, un ÚNICO promedio
+    # colapsado sobre todas las etapas), el detalle expone CADA etapa por
+    # separado — id 1 salió de "1 Contacto" 30 días después de crearse; "5
+    # Negociación" nunca tuvo una salida registrada → sin datos.
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
+    rows = {r["stage"]: r for r in detail["stage_time"]}
+    assert rows["1 Contacto"]["avg_days"] == 30.0
+    assert rows["1 Contacto"]["sample_count"] == 1
+    assert rows["5 Negociación"]["avg_days"] is None
+    assert rows["5 Negociación"]["sample_count"] == 0
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_stage_conversion_rows_last_stage_has_no_rate():
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
+    rows = {r["stage"]: r for r in detail["stage_conversion"]}
+    assert rows["1 Contacto"]["next_stage"] == "5 Negociación"
+    assert rows["1 Contacto"]["entered"] == 2
+    assert rows["1 Contacto"]["rate"] == 0.0
+    # Última etapa del embudo: sin "siguiente", sin tasa — nunca 0 ni None
+    # confundido con "0% de avance".
+    assert rows["5 Negociación"]["next_stage"] is None
+    assert rows["5 Negociación"]["advanced"] is None
+    assert rows["5 Negociación"]["rate"] is None
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_conserves_every_aggregate_from_the_headline():
+    # Owner §13 — conservación: cada agregado del titular (`get_analytics`,
+    # EAGER) debe poder RECONSTRUIRSE a partir de las filas de detalle
+    # (LAZY) — misma fórmula, mismo universo, dos consultas Odoo distintas
+    # pero el MISMO cómputo puro por debajo (ver los helpers compartidos).
+    svc_module.clear_cache()
+    service = CommercialService(_analytics_client())
+    headline = service.get_analytics("todos")
+    detail = service.get_pipeline_analytics_detail("todos")
+
+    age_rows = detail["pipeline_age"]["opportunities"]
+    assert len(age_rows) == headline["pipeline_age"]["count"]
+    assert round(sum(r["age_days"] for r in age_rows) / len(age_rows), 1) == headline["pipeline_age"]["avg_days"]
+
+    close_rows = detail["close_time"]["opportunities"]
+    assert len(close_rows) == headline["close_time"]["count"]
+    assert round(sum(r["days"] for r in close_rows) / len(close_rows), 1) == headline["close_time"]["avg_days"]
+
+    assert len(detail["stagnant"]["opportunities"]) == headline["stagnant"]["count"]
+    assert detail["stagnant"]["threshold_days"] == headline["stagnant"]["threshold_days"]
+
+    stage_avgs_with_data = [r["avg_days"] for r in detail["stage_time"] if r["avg_days"] is not None]
+    assert len(stage_avgs_with_data) == headline["stage_time"]["stages_with_data"]
+    assert round(sum(stage_avgs_with_data) / len(stage_avgs_with_data), 1) == headline["stage_time"]["avg_days"]
+
+    rates_with_next = [r["rate"] for r in detail["stage_conversion"] if r["next_stage"] is not None and r["entered"] > 0]
+    assert len(rates_with_next) == headline["stage_conversion"]["steps"]
+    assert min(rates_with_next) == headline["stage_conversion"]["min_rate"]
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_partitions_by_tag_without_extra_queries():
+    svc_module.clear_cache()
+    client = _analytics_client()
+    service = CommercialService(client)
+    service.get_pipeline_analytics_detail("todos")
+    calls_after_todos = len(client.calls)
+    service.get_pipeline_analytics_detail("nn")
+    service.get_pipeline_analytics_detail("bi")
+    assert len(client.calls) == calls_after_todos
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("not-a-real-tipo")
+    assert len(detail["pipeline_age"]["opportunities"]) == 3
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_without_valid_stages_degrades_instead_of_crashing():
+    svc_module.clear_cache()
+    client = FakeOdooClient(stages=[{"id": 1, "name": "Lead"}], tags=TAGS, leads=[])
+    detail = CommercialService(client).get_pipeline_analytics_detail("todos")
+    assert detail == {
+        "pipeline_age": {"opportunities": []}, "stage_time": [], "stage_conversion": [],
+        "close_time": {"opportunities": []}, "stagnant": {"opportunities": [], "threshold_days": 30},
+    }
+    svc_module.clear_cache()
+
+
+def test_pipeline_analytics_detail_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _analytics_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_pipeline_analytics_detail("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = FakeOdooClient(stages=STAGES, tags=TAGS, leads=[], configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_pipeline_analytics_detail("todos")
+    svc_module.clear_cache()
+
+
+# ============================================================================
+# "Conversión de Leads" — detalle (`get_lead_conversion_detail`,
+# `GET /comercial/data/lead-conversion-detail`, ver HANDOFF). Fixture propia,
+# no-degenerada: cubre las CUATRO poblaciones de convertidas (Prospecto/
+# Activa/Ganada/Perdida) + still_lead/lost_lead, y un caso boundary
+# deliberado — "Eta" tiene probability=100 pero su etapa NO es `is_won`, para
+# probar que "Ganada" usa la regla YA cerrada de Ganadas/Perdidas
+# (`stage_id.is_won`), nunca `probability==100` (la clasificación propia,
+# distinta, del legacy).
+# ============================================================================
+
+LC_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 4, "name": "Ganado", "is_won": True},
+    {"id": 6, "name": "Lead"},
+]
+
+LC_LEADS = [
+    # Sigue siendo lead, activo — "still_lead".
+    {"id": 20, "type": "lead", "active": True, "partner_id": [70, "ACME"], "stage_id": 6,
+     "tag_ids": [10], "probability": 0},
+    # Lead archivado — "lost_lead".
+    {"id": 21, "type": "lead", "active": False, "partner_id": [71, "Beta"], "stage_id": 6,
+     "tag_ids": [], "probability": 0},
+    # Convertida, sigue en etapa 0 — bucket "prospect".
+    {"id": 22, "type": "opportunity", "active": True, "partner_id": [72, "Gamma"], "stage_id": 1,
+     "tag_ids": [], "probability": 10},
+    # Convertida, activa en 1-8 — bucket "opp".
+    {"id": 23, "type": "opportunity", "active": True, "partner_id": [73, "Delta"], "stage_id": 2,
+     "tag_ids": [], "probability": 40},
+    # Convertida, etapa is_won=True — bucket "won" (LA regla, no probability).
+    {"id": 24, "type": "opportunity", "active": True, "partner_id": [74, "Epsilon"], "stage_id": 4,
+     "tag_ids": [], "probability": 100},
+    # Convertida, archivada + probability 0 — bucket "lost_opp".
+    {"id": 25, "type": "opportunity", "active": False, "partner_id": [75, "Zeta"], "stage_id": 2,
+     "tag_ids": [], "probability": 0},
+    # Convertida, probability=100 pero etapa NO es_won — bucket "opp", NUNCA
+    # "won" (el boundary que prueba la regla real).
+    {"id": 26, "type": "opportunity", "active": True, "partner_id": [76, "Eta"], "stage_id": 2,
+     "tag_ids": [], "probability": 100},
+]
+
+LC_MESSAGES = [
+    {"id": 900 + i, "res_id": oid, "date": f"2026-01-0{i + 1}", "tracked_field": "type", "model": "crm.lead"}
+    for i, oid in enumerate([22, 23, 24, 25, 26])
+]
+LC_TRACKING = [
+    {"mail_message_id": 900 + i, "field": "type", "old_value_char": "Lead", "new_value_char": "Oportunidad"}
+    for i in range(5)
+]
+
+
+def _lead_conversion_detail_client(**kwargs):
+    return FakeOdooClient(stages=LC_STAGES, tags=TAGS, leads=LC_LEADS,
+                          messages=LC_MESSAGES, tracking=LC_TRACKING, **kwargs)
+
+
+def test_lead_conversion_detail_buckets_partition_the_converted_universe():
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    assert [r["client"] for r in detail["prospect"]["opportunities"]] == ["Gamma"]
+    assert {r["client"] for r in detail["opp"]["opportunities"]} == {"Delta", "Eta"}
+    assert [r["client"] for r in detail["won"]["opportunities"]] == ["Epsilon"]
+    assert [r["client"] for r in detail["lost_opp"]["opportunities"]] == ["Zeta"]
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_won_uses_is_won_stage_not_probability_100():
+    # El boundary: "Eta" (probability=100, etapa "1 Contacto" NO is_won)
+    # NUNCA debe caer en "won" — MISMA regla que el tile Ganadas (ver
+    # HANDOFF), no la clasificación propia del legacy.
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    won_clients = {r["client"] for r in detail["won"]["opportunities"]}
+    assert "Eta" not in won_clients
+    assert won_clients == {"Epsilon"}  # SÓLO la etapa is_won=True
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_still_lead_and_lost_lead_split_by_active():
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    assert [r["client"] for r in detail["still_lead"]["opportunities"]] == ["ACME"]
+    assert [r["client"] for r in detail["lost_lead"]["opportunities"]] == ["Beta"]
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_conserves_companies_and_rates_from_the_headline():
+    # Owner §13 — conservación: `companies`/`any_conv`/`adv_opp` deben
+    # coincidir EXACTO con el titular EAGER (`_build_lead_conversion`,
+    # dentro de `get_analytics`) — por construcción, Prospecto∪Activa∪
+    # Ganada∪Perdida es la MISMA partición que ya usan any_conv/adv_opp ahí.
+    svc_module.clear_cache()
+    service = CommercialService(_lead_conversion_detail_client())
+    headline = service.get_analytics("todos")["lead_conversion"]
+    detail = service.get_lead_conversion_detail("todos")
+    assert detail["companies"] == headline["companies"]
+    assert detail["any_conv"]["companies"] == headline["any_conv"]
+    assert detail["any_conv"]["rate"] == headline["rate_any_conv"]
+    assert detail["adv_opp"]["companies"] == headline["adv_opp"]
+    assert detail["adv_opp"]["rate"] == headline["rate_adv_opp"]
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_partitions_by_tag_without_extra_queries():
+    svc_module.clear_cache()
+    client = _lead_conversion_detail_client()
+    service = CommercialService(client)
+    service.get_lead_conversion_detail("todos")
+    calls_after_todos = len(client.calls)
+    service.get_lead_conversion_detail("nn")
+    service.get_lead_conversion_detail("bi")
+    assert len(client.calls) == calls_after_todos
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("not-a-real-tipo")
+    assert detail["companies"] > 0
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _lead_conversion_detail_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_lead_conversion_detail("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _lead_conversion_detail_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_lead_conversion_detail("todos")
+    svc_module.clear_cache()
+
+
+# ============================================================================
 # Active Opportunities Phase 2 / C1 — Detalle de Oportunidades Activas
 # (`get_opportunities`, `GET /comercial/data/opportunities`). Universo: MISMO
 # que el KPI "Oportunidades activas" (stages 1-8) — NUNCA Pipeline Total

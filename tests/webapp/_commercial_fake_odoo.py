@@ -55,7 +55,14 @@ class FakeOdooClient:
             raise OdooTransportError(f"forced failure on {model}", stage=self._raise_stage)
 
         if model == "crm.stage":
-            return [{"id": s["id"], "name": s["name"]} for s in self.stages]
+            # `is_won`/`sequence` viajan SIEMPRE (como en el modelo real de
+            # Odoo, donde ambos existen con default aunque la fixture no los
+            # setee) — antes se devolvía SÓLO id/name sin importar `fields`,
+            # así que cualquier código que pidiera `is_won` (ver
+            # `_build_lead_conversion_detail`, Analítica del Pipeline) nunca
+            # podía verlo aunque la fixture lo trajera.
+            return [{"id": s["id"], "name": s["name"], "is_won": bool(s.get("is_won")),
+                     "sequence": s.get("sequence", 0)} for s in self.stages]
         if model == "crm.tag":
             return [{"id": t["id"], "name": t["name"]} for t in self.tags]
         if model == "crm.lost.reason":
