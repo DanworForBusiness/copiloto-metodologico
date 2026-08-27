@@ -267,6 +267,127 @@ def test_conversion_is_zero_when_denominator_is_zero():
     assert summary["conversion_with_suspended"] == 0
 
 
+def test_conversion_formulas_vary_by_tipo_nn_and_bi():
+    # Owner §6/§14 — Conversión NUNCA re-consulta Odoo por Tipo: se deriva de
+    # los MISMOS `won_by`/`lost_by`/`suspended_by` YA partidos por NN/BI en
+    # memoria (ver `_build_summary._split`) — el mismo patrón que Ganadas/
+    # Perdidas/Suspendidas. NN: won=1 (300), lost=1 (400), susp=1 (500) ->
+    # 1/2=50.0, 1/3=33.3. BI: won=1 (301), lost=0 (401 es motivo
+    # administrativo, EXCLUIDO del universo de negocio), susp=0 (501 no tiene
+    # tags) -> 1/1=100.0 en ambas variantes.
+    service = CommercialService(client=_build_client())
+    nn = service.get_summary("nn")
+    assert nn["conversion"] == 50.0
+    assert nn["conversion_with_suspended"] == 33.3
+    bi = service.get_summary("bi")
+    assert bi["conversion"] == 100.0
+    assert bi["conversion_with_suspended"] == 100.0
+
+
+def test_conversion_is_full_when_there_are_wins_and_nothing_else():
+    # Aísla el eje "ganadas only": sin perdidas ni suspendidas, el
+    # denominador de AMBAS variantes es sólo `won_count` -> 100% en las dos.
+    leads = [
+        {"id": 300, "type": "opportunity", "active": True, "stage_id": 4, "tag_ids": [10],
+         "lead_properties": _hp(10), "date_closed": f"{THIS_YEAR}-03-15"},
+    ]
+    client = _build_client(leads=leads)
+    summary = CommercialService(client=client).get_summary("todos")
+    assert summary["ganadas"]["count"] == 1
+    assert summary["perdidas"]["count"] == 0
+    assert summary["suspendidas"]["count"] == 0
+    assert summary["conversion"] == 100.0
+    assert summary["conversion_with_suspended"] == 100.0
+
+
+def test_conversion_is_zero_when_there_are_losses_and_nothing_else():
+    # Aísla el eje "perdidas only": sin ganadas, el denominador es sólo
+    # `lost_count` -> 0% en las dos variantes — DISTINTO camino que el
+    # denominador-cero (acá SÍ hay denominador, pero won_count=0).
+    leads = [
+        {"id": 400, "type": "opportunity", "active": False, "probability": 0, "tag_ids": [10],
+         "lead_properties": _hp(5), "date_closed": f"{THIS_YEAR}-02-10 10:00:00",
+         "lost_reason_id": [900, "Sin presupuesto"]},
+    ]
+    client = _build_client(leads=leads)
+    summary = CommercialService(client=client).get_summary("todos")
+    assert summary["ganadas"]["count"] == 0
+    assert summary["perdidas"]["count"] == 1
+    assert summary["conversion"] == 0.0
+    assert summary["conversion_with_suspended"] == 0.0
+
+
+def test_conversion_with_suspended_changes_when_suspendidas_changes_but_primary_does_not():
+    # Owner §6 — guard numérico explícito: agregar UNA suspendida con el
+    # MISMO won/lost cambia `conversion_with_suspended` (el denominador
+    # alternativo) pero jamás `conversion` (el primario, que ni siquiera lee
+    # `suspendidas`) — la prueba de que son dos fórmulas genuinamente
+    # distintas, no una UI que esconde la misma cuenta.
+    base_leads = [
+        {"id": 300, "type": "opportunity", "active": True, "stage_id": 4, "tag_ids": [10],
+         "lead_properties": _hp(10), "date_closed": f"{THIS_YEAR}-03-15"},
+        {"id": 400, "type": "opportunity", "active": False, "probability": 0, "tag_ids": [10],
+         "lead_properties": _hp(5), "date_closed": f"{THIS_YEAR}-02-10 10:00:00",
+         "lost_reason_id": [900, "Sin presupuesto"]},
+    ]
+    without_susp = CommercialService(client=_build_client(leads=base_leads)).get_summary("todos")
+    assert without_susp["conversion"] == 50.0
+    assert without_susp["conversion_with_suspended"] == 50.0  # sin suspendidas, ambas coinciden
+
+    svc_module.clear_cache()  # SEGUNDO cliente/fixture — sin esto, "todos" saldría cacheado del primero
+    with_susp = CommercialService(client=_build_client(leads=base_leads + [
+        {"id": 500, "type": "opportunity", "active": True, "stage_id": 5, "tag_ids": [10],
+         "lead_properties": _hp(12)},
+    ])).get_summary("todos")
+    assert with_susp["conversion"] == 50.0, "el primario NUNCA lee suspendidas — no debe cambiar"
+    assert with_susp["conversion_with_suspended"] == 33.3, "el alternativo SÍ cambia: 1/(1+1+1)"
+
+
+def test_conversion_conserves_the_denominator_from_the_same_summary_counts():
+    # Owner §6/§14 — "derived-from-canonical-summary": Conversión no lee un
+    # universo propio, se recalcula EXACTO a partir de `ganadas.count`/
+    # `perdidas.count`/`suspendidas.count` — los MISMOS tres campos ya
+    # expuestos y ya probados por sus propios tiles. Si esto divergiera,
+    # Conversión estaría re-derivando su propio conteo en vez de conservar
+    # el de los tres KPI ya cerrados.
+    service = CommercialService(client=_build_client())
+    for tipo in ("todos", "nn", "bi"):
+        summary = service.get_summary(tipo)
+        won = summary["ganadas"]["count"]
+        lost = summary["perdidas"]["count"]
+        susp = summary["suspendidas"]["count"]
+        denom, denom_susp = won + lost, won + lost + susp
+        expected = round(won / denom * 100, 1) if denom > 0 else 0
+        expected_susp = round(won / denom_susp * 100, 1) if denom_susp > 0 else 0
+        assert summary["conversion"] == expected, tipo
+        assert summary["conversion_with_suspended"] == expected_susp, tipo
+
+
+def test_conversion_rounds_to_one_decimal_place():
+    # 2/3*100 = 66.666... -> 66.7 (redondea hacia arriba); 1/3*100 =
+    # 33.333... -> 33.3 (trunca hacia abajo) — ambos casos NO terminan en un
+    # decimal limpio, así que prueban que el redondeo es real y no un
+    # truncamiento ni un entero.
+    service = CommercialService(client=_build_client())
+    assert service.get_summary("todos")["conversion"] == 66.7
+    assert service.get_summary("nn")["conversion_with_suspended"] == 33.3
+
+
+def test_conversion_computation_triggers_no_extra_odoo_queries_per_tipo():
+    # Owner §12 — Conversión es puramente aritmética sobre listas YA
+    # consultadas por Ganadas/Perdidas/Suspendidas dentro de la MISMA corrida
+    # de `_build_summary` — pedir "nn"/"bi" después de "todos" no debe
+    # disparar ninguna consulta nueva (MISMO cache, MISMA corrida) aunque
+    # cada Tipo tenga una fórmula de conversión distinta.
+    client = _build_client()
+    service = CommercialService(client=client)
+    service.get_summary("todos")
+    calls_after_todos = len(client.calls)
+    service.get_summary("nn")
+    service.get_summary("bi")
+    assert len(client.calls) == calls_after_todos
+
+
 # ============================================================================
 # 13 — Pipeline por etapa: orden por número inicial de etapa
 # ============================================================================
