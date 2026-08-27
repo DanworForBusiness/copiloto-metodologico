@@ -845,3 +845,54 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
       mismo margen de cierre. */
 .commercial-perdidas-ranking .bar-value { width: 92px; white-space: nowrap; }
 .commercial-perdidas-analysis { margin-bottom: 18px; }
+
+/* Conversión de Leads — jerarquía visual Campaña→Medio→Origen (owner
+   corrective, ver HANDOFF): los tres niveles compartían el MISMO
+   `.bar-fill`/`.bar-label` sin distinción alguna — sólo la sangría (antes
+   inline, ahora `padding-left` acá) declaraba la jerarquía, insuficiente
+   para leer padre/hijo/nieto de un vistazo.
+
+   MISMO criterio YA establecido en `.commercial-creadas-week` (ver arriba
+   en este archivo): el MISMO token `var(--gold)`, vía el `.bar-fill`
+   compartido, a MENOR intensidad por nivel vía `opacity` — nunca un color
+   inventado; si el token cambia, los tres niveles cambian juntos. Scoped a
+   `.commercial-lc-attribution` (wrapper propio, `commercialLeadConversion
+   AttributionHtml`, commercial.js) — NUNCA se toca `.bar-row`/`.bar-fill`/
+   `.bar-track`/`.bar-value` en sí, así que ningún otro bar-row del Hub (ni
+   las otras cinco sub-vistas de Analítica del Pipeline, que no usan estas
+   clases) se mueve.
+
+   Campaña — nivel dominante: opacidad plena, pista más alta, label en
+   negrita, y separación vertical extra ANTES de cada grupo nuevo (nunca
+   el primero — `:not(:first-child)`, para no duplicar el margen que ya
+   pone `.perspective-label` de arriba).
+   Medio — subordinado a Campaña: opacidad intermedia, pista más baja,
+   peso de label medio, sangría acorde.
+   Origen — subordinado a Medio: opacidad menor todavía, pista más baja
+   aún, peso de label normal + color atenuado, la mayor sangría. */
+.commercial-lc-attribution .bar-row { margin: 4px 0; }
+.commercial-lc-attribution .commercial-lc-attr-campana { padding-left: 0; }
+.commercial-lc-attribution .commercial-lc-attr-campana:not(:first-child) { margin-top: 14px; }
+.commercial-lc-attribution .commercial-lc-attr-campana .bar-label { font-weight: 700; }
+.commercial-lc-attribution .commercial-lc-attr-campana .bar-track { height: 14px; }
+.commercial-lc-attribution .commercial-lc-attr-campana .bar-fill { opacity: 1; }
+
+.commercial-lc-attribution .commercial-lc-attr-medio { padding-left: 20px; }
+.commercial-lc-attribution .commercial-lc-attr-medio .bar-label { font-weight: 500; }
+.commercial-lc-attribution .commercial-lc-attr-medio .bar-track { height: 10px; }
+.commercial-lc-attribution .commercial-lc-attr-medio .bar-fill { opacity: .62; }
+
+.commercial-lc-attribution .commercial-lc-attr-origen { padding-left: 40px; }
+.commercial-lc-attribution .commercial-lc-attr-origen .bar-label { font-weight: 400; color: var(--ink-soft, var(--soft)); }
+.commercial-lc-attribution .commercial-lc-attr-origen .bar-track { height: 6px; }
+.commercial-lc-attribution .commercial-lc-attr-origen .bar-fill { opacity: .38; }
+
+/* Tiempo por Etapa — "Muestras" faltaba junto a "Días Prom." (owner
+   corrective, ver HANDOFF — captura en vivo). `.bar-value` compartido
+   (60px, ver tools.css) partía "24d (12)" en dos líneas — MISMO problema
+   y MISMA solución YA aplicada a Ganadas/Perdidas: ensanchar SCOPEADO a
+   este wrapper (`commercialStageTimeBlockHtml`, commercial.js), nunca el
+   primitivo. `.bar-track` es `flex:1` — ensancharle sitio a `.bar-value`
+   ya angosta el gráfico solo, sin tocar `.bar-track` a mano. */
+.commercial-stage-time-ranking .bar-value { width: 92px; white-space: nowrap; }
+.commercial-stage-time-samples { color: var(--ink-soft, var(--soft)); font-variant-numeric: tabular-nums; }

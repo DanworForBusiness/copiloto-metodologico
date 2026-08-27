@@ -1213,6 +1213,25 @@ def test_pipeline_analytics_detail_age_rows_carry_display_fields_and_sort_desc()
     svc_module.clear_cache()
 
 
+def test_pipeline_analytics_detail_age_rows_create_date_is_truncated_to_date_only():
+    # Owner corrective (post-visual-audit, ver HANDOFF — captura en vivo de
+    # "Edad del Pipeline") — `create_date` es DATETIME real en Odoo
+    # ("YYYY-MM-DD HH:MM:SS"), nunca fecha pura. El fixture base
+    # (`_analytics_client`) usa `_d()` = `.isoformat()` de un `date`, que
+    # nunca reprodujo el bug — ESTE fixture usa una hora real a propósito.
+    svc_module.clear_cache()
+    leads = [
+        {"id": 1, "type": "opportunity", "stage_id": 2, "active": True, "tag_ids": [],
+         "probability": 50, "expected_revenue": 0, "lead_properties": [],
+         "create_date": "2026-04-25 21:26:03"},
+    ]
+    client = FakeOdooClient(stages=ANALYTICS_STAGES, tags=TAGS, leads=leads)
+    detail = CommercialService(client).get_pipeline_analytics_detail("todos")
+    row = detail["pipeline_age"]["opportunities"][0]
+    assert row["create_date"] == "2026-04-25"  # NUNCA "2026-04-25 21:26:03" ni partido a mitad
+    svc_module.clear_cache()
+
+
 def test_pipeline_analytics_detail_close_rows_only_this_years_won():
     svc_module.clear_cache()
     detail = CommercialService(_analytics_client()).get_pipeline_analytics_detail("todos")
@@ -1528,6 +1547,26 @@ def test_lead_conversion_detail_rows_carry_raw_attribution_never_the_placeholder
     detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
     eta = next(r for r in detail["opp"]["opportunities"] if r["client"] == "Eta")
     assert eta["campana"] == "" and eta["medio"] == "" and eta["origen"] == ""
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_rows_create_date_is_truncated_to_date_only():
+    # MISMO fix que `pipeline_age` (owner corrective, ver HANDOFF) — evita
+    # el mismo landmine si `create_date` se muestra alguna vez en esta
+    # tabla, y mantiene el campo consistente con `convert_date` (que ya
+    # trunca). El fixture base (LC_LEADS) no setea `create_date` — este usa
+    # una hora real a propósito.
+    svc_module.clear_cache()
+    leads = [
+        {"id": 22, "type": "opportunity", "active": True, "partner_id": [72, "Iota"], "stage_id": 2,
+         "tag_ids": [], "probability": 30, "create_date": "2026-03-10 08:15:42"},
+    ]
+    messages = [{"id": 900, "res_id": 22, "date": "2026-03-11", "tracked_field": "type", "model": "crm.lead"}]
+    tracking = [{"mail_message_id": 900, "field": "type", "old_value_char": "Lead", "new_value_char": "Oportunidad"}]
+    client = FakeOdooClient(stages=LC_STAGES, tags=TAGS, leads=leads, messages=messages, tracking=tracking)
+    detail = CommercialService(client).get_lead_conversion_detail("todos")
+    row = detail["opp"]["opportunities"][0]
+    assert row["create_date"] == "2026-03-10"  # NUNCA "2026-03-10 08:15:42"
     svc_module.clear_cache()
 
 

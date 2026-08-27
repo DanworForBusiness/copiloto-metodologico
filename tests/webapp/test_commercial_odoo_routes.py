@@ -2065,6 +2065,20 @@ def test_analytics_service_never_writes_and_reads_only_known_models():
 # cierre/Estancadas), LAZY, nunca en la hidratación inicial.
 # ============================================================================
 
+def test_stage_time_bar_row_shows_sample_count_next_to_avg_days():
+    # Owner corrective (visual audit — captura en vivo): "Muestras"
+    # (`sample_count`) se calculaba en el backend pero nunca se mostraba —
+    # ahora acompaña "Días Prom." en el MISMO `.bar-value`, con un wrapper
+    # SCOPEADO (`commercial-stage-time-ranking`) que ensancha `.bar-value`
+    # sin tocar el primitivo compartido (MISMO criterio que Ganadas/
+    # Perdidas — ver commercial.css).
+    fn = _COMMERCIAL_JS.split("function commercialStageTimeBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "r.sample_count" in fn
+    assert "commercial-stage-time-ranking" in fn
+    commercial_css = (_STATIC / "commercial.css").read_text(encoding="utf-8")
+    assert commercial_css.count(".commercial-stage-time-ranking .bar-value") == 1
+
+
 def test_pipeline_analytics_detail_endpoint_anonymous_redirects_to_login():
     anon = TestClient(app)
     response = anon.get("/comercial/data/pipeline-analytics-detail", follow_redirects=False)

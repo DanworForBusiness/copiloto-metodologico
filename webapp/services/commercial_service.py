@@ -1671,7 +1671,16 @@ class CommercialService:
                 o = by_id_active[r["id"]]
                 age_rows.append({
                     "opportunity": o.get("name") or "", "client": _client_of(o), "seller": _seller_of(o),
-                    "stage": _stage_of(o), "create_date": o.get("create_date"), "age_days": r["age_days"],
+                    "stage": _stage_of(o),
+                    # `create_date` es datetime en Odoo ("YYYY-MM-DD HH:MM:SS")
+                    # — `commercialFmtDate` (frontend) asume fecha pura y
+                    # parte por "-", así que sin truncar acá la hora quedaba
+                    # DENTRO del tercer segmento y el resultado salía
+                    # ilegible (owner corrective, ver HANDOFF — captura en
+                    # vivo de "Edad del Pipeline"). MISMO patrón `[:10]` ya
+                    # usado en el resto del archivo (`convert_date`, etc.).
+                    "create_date": (o.get("create_date") or "")[:10] or None,
+                    "age_days": r["age_days"],
                 })
             age_rows.sort(key=lambda r: -r["age_days"])
 
@@ -1855,7 +1864,13 @@ class CommercialService:
             row = {
                 "opportunity": rec.get("name") or "", "client": _co_key(rec)[1],
                 "seller": rec["user_id"][1] if rec.get("user_id") else "",
-                "create_date": rec.get("create_date"),
+                # MISMO fix que `pipeline_age` (ver HANDOFF): `create_date`
+                # es datetime en Odoo, `commercialFmtDate` asume fecha pura.
+                # No se muestra hoy en la tabla combinada, pero SÍ viaja en
+                # el payload (búsqueda por substring sobre todos los campos)
+                # — truncar acá evita el mismo landmine si algún día se
+                # muestra, y mantiene el campo consistente con `convert_date`.
+                "create_date": (rec.get("create_date") or "")[:10] or None,
                 "campana": _m2o_name(rec, "campaign_id"),
                 "medio": _m2o_name(rec, "medium_id"),
                 "origen": _m2o_name(rec, "source_id"),

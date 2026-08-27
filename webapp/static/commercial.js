@@ -3071,10 +3071,15 @@ function commercialStageTimeBlockHtml(rows) {
     <div class="bar-row">
       <span class="bar-label">${commercialEsc(r.stage)}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <span class="bar-value">${commercialDaysBadge(r.avg_days, color)}</span>
+      <span class="bar-value">${commercialDaysBadge(r.avg_days, color)} <span class="commercial-stage-time-samples">(${commercialFmtInt(r.sample_count)})</span></span>
     </div>`;
   }).join("");
-  return rowsHtml;
+  // Wrapper propio (owner corrective — "Muestras" faltaba, ver HANDOFF):
+  // permite ensanchar `.bar-value` SCOPEADO a este consumidor, nunca el
+  // primitivo compartido — MISMO criterio que `.commercial-ganadas-ranking`/
+  // `.commercial-perdidas-ranking` (ver commercial.css). `.bar-track` es
+  // `flex:1`, así que ensanchar `.bar-value` ya "achica" el gráfico solo.
+  return `<div class="commercial-stage-time-ranking">${rowsHtml}</div>`;
 }
 function commercialStageTimePanelBodyHtml() {
   const shared = commercialPipelineAnalyticsSharedStateHtml();
@@ -3415,6 +3420,16 @@ function commercialLeadConversionTableHtml(rows) {
 // así cada nivel se lee por su propia proporción). La medida es el conteo
 // CRUDO por nodo — MISMA que el legacy (sin empresas/%, que el legacy
 // tampoco muestra a este nivel).
+// Jerarquía visual Campaña→Medio→Origen (owner corrective, ver HANDOFF):
+// los tres niveles compartían el MISMO `.bar-fill`/`.bar-label` sin
+// distinción alguna — la sangría (`margin-left` inline) era la ÚNICA
+// señal de jerarquía, insuficiente para leer padre/hijo/nieto de un
+// vistazo. MISMO criterio YA establecido en `.commercial-creadas-week` (ver
+// commercial.css): el MISMO token `var(--gold)` vía el `.bar-fill`
+// compartido, a MENOR intensidad por nivel — nunca un color inventado.
+// Clases scoped a este bloque (`commercial-lc-attribution*`), nunca
+// tocando `.bar-row`/`.bar-fill`/`.bar-track`/`.bar-value` en sí — ningún
+// otro bar-row del Hub se mueve.
 function commercialLeadConversionAttributionHtml(tree) {
   if (!tree.length) return "";
   const maxCa = Math.max(1, ...tree.map(ca => ca.count));
@@ -3423,26 +3438,27 @@ function commercialLeadConversionAttributionHtml(tree) {
     const medioRows = ca.medios.map(me => {
       const maxOr = Math.max(1, ...me.origenes.map(o => o.count));
       const origenRows = me.origenes.map(o => `
-        <div class="bar-row" style="margin-left:36px">
+        <div class="bar-row commercial-lc-attr-origen">
           <span class="bar-label">${commercialEsc(o.origen)}</span>
           <div class="bar-track"><div class="bar-fill" style="width:${(o.count / maxOr * 100).toFixed(1)}%"></div></div>
           <span class="bar-value">${commercialFmtInt(o.count)}</span>
         </div>`).join("");
       return `
-        <div class="bar-row" style="margin-left:18px">
+        <div class="bar-row commercial-lc-attr-medio">
           <span class="bar-label">${commercialEsc(me.medio)}</span>
           <div class="bar-track"><div class="bar-fill" style="width:${(me.count / maxMe * 100).toFixed(1)}%"></div></div>
           <span class="bar-value">${commercialFmtInt(me.count)}</span>
         </div>${origenRows}`;
     }).join("");
     return `
-      <div class="bar-row">
+      <div class="bar-row commercial-lc-attr-campana">
         <span class="bar-label">${commercialEsc(ca.campana)}</span>
         <div class="bar-track"><div class="bar-fill" style="width:${(ca.count / maxCa * 100).toFixed(1)}%"></div></div>
         <span class="bar-value">${commercialFmtInt(ca.count)}</span>
       </div>${medioRows}`;
   }).join("");
-  return `<p class="perspective-label">Atribución — Campaña → Medio → Origen</p>${rows}`;
+  return `<p class="perspective-label">Atribución — Campaña → Medio → Origen</p>
+    <div class="commercial-lc-attribution">${rows}</div>`;
 }
 function commercialLeadConversionAnalysisHtml() {
   const d = commercialState.leadConversionDetail;
