@@ -254,8 +254,16 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # ranking/desglose/Limpiar re-renderizan el panel ENTERO vía
     # `commercialPerdidasSet*`/`commercialPerdidasClearFilters`, MISMO
     # camino que Ganadas).
+    # Commercial Tile 8 — Suspendidas (ver HANDOFF) agrega CUATRO: los hosts
+    # estables del panel (`[data-commercial-suspendidas-body]`/`-count`),
+    # MISMO criterio que el resto; y `[data-commercial-suspendidas-table]` —
+    # DOS veces, una por delegado quirúrgico (orden de columna, Vendedor) —
+    # MISMO host que ambos tocan, nunca la barra de filtros (Suspendidas no
+    # tiene Buscar que proteger — owner §10 — y el `<select>` de Vendedor no
+    # pierde foco al regenerarse). Limpiar re-renderiza el panel ENTERO vía
+    # `commercialRenderSuspendidasPanel`, MISMO camino que Prospectos.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos treinta hooks y nada más.
+    # EXACTAMENTE estos treinta y cuatro hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -273,17 +281,21 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-ganadas-count]"',
         '"[data-commercial-perdidas-body]"',
         '"[data-commercial-perdidas-count]"',
+        '"[data-commercial-suspendidas-body]"',
+        '"[data-commercial-suspendidas-count]"',
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-ganadas-results]"',
         '"[data-commercial-perdidas-table]"',
+        '"[data-commercial-suspendidas-table]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
+        '"[data-commercial-suspendidas-table]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
@@ -593,27 +605,31 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity +
-    # Commercial Tile 5 + Commercial Tile 6 + Commercial Tile 7: los tiles
-    # se emiten con `commercialRichKpi`, y `eventKey` es lo único que agrega
-    # la afordancia de click. Lo reciben SIETE tiles, sobre SEIS análisis
-    # homologados — "Oportunidades activas", "Pipeline total"/"Pipeline
-    # ponderado" (comparten la MISMA key: misma población 0-8, con y sin
-    # probabilidad, un solo panel de Forecast), "Creadas esta semana" (drill
-    # propio, paridad con el legacy `/crm/opp-by-month`), "Prospectos"
-    # (drill propio, paridad con el legacy
+    # Commercial Tile 5 + Commercial Tile 6 + Commercial Tile 7 + Commercial
+    # Tile 8: los tiles se emiten con `commercialRichKpi`, y `eventKey` es lo
+    # único que agrega la afordancia de click. Lo reciben OCHO tiles, sobre
+    # SIETE análisis homologados — "Oportunidades activas", "Pipeline
+    # total"/"Pipeline ponderado" (comparten la MISMA key: misma población
+    # 0-8, con y sin probabilidad, un solo panel de Forecast), "Creadas esta
+    # semana" (drill propio, paridad con el legacy `/crm/opp-by-month`),
+    # "Prospectos" (drill propio, paridad con el legacy
     # `/crm/relevamiento?stage_id=<etapa 0>`), "Ganadas" (drill propio,
-    # paridad con el legacy `/crm/kpi-detail` bucket "won") y "Perdidas"
+    # paridad con el legacy `/crm/kpi-detail` bucket "won"), "Perdidas"
     # (drill propio, paridad con el legacy `/crm/kpi-detail` bucket "lost"
-    # + `setKpiView('lost')`/`renderLostPanel`). Los otros dos conservan su
-    # información SIN simular una acción inexistente.
+    # + `setKpiView('lost')`/`renderLostPanel`) y "Suspendidas" (drill
+    # propio, paridad con el legacy `/crm/relevamiento?stage_ids=<suspended>`
+    # + `setKpiView('suspended')`/`renderSuspendedPanel`, Commercial Tile 8,
+    # ver HANDOFF). El único tile restante conserva su información SIN
+    # simular una acción inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 7
+    assert dashboard_fn.count("eventKey:") == 8
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
     assert dashboard_fn.count('eventKey: "creadas"') == 1
     assert dashboard_fn.count('eventKey: "prospectos"') == 1
     assert dashboard_fn.count('eventKey: "ganadas"') == 1
     assert dashboard_fn.count('eventKey: "perdidas"') == 1
+    assert dashboard_fn.count('eventKey: "suspendidas"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
@@ -621,10 +637,12 @@ def test_only_analyses_with_a_homologated_drilldown_are_clickable():
 
 def test_other_kpi_tiles_remain_display_only():
     # Ningún tile fuera de Activas, los dos Pipeline, Creadas, Prospectos,
-    # Ganadas y Perdidas recibe `eventKey`, así que ninguno queda
-    # clickeable — sin afordancia falsa.
+    # Ganadas, Perdidas y Suspendidas recibe `eventKey`, así que ninguno
+    # queda clickeable — sin afordancia falsa. Suspendidas era el último tile
+    # de esta lista (Commercial Tile 8, ver HANDOFF) — ahora sólo queda
+    # Conversión.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Suspendidas", "Conversión"):
+    for label in ("Conversión",):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -836,30 +854,30 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Suspendidas, Target: ninguno gana `data-event` ni panel propio —
+    # Target: ninguno gana `data-event` ni panel propio —
     # contar solo MARKUP real dentro de cada función, no menciones en
     # comentarios (que mencionan `data-event`/`data-breakdown` varias
-    # veces). Creadas, Prospectos, Ganadas y Perdidas SÍ lo ganaron
-    # (Creadas Legacy Parity, Commercial Tile 5, 6 y 7, ver HANDOFF) — sus
-    # drills YA están homologados, así que quedan EXCLUIDOS de esta lista de
-    # "sigue sin drilldown" (ver los dos tests de arriba, que ahora los
-    # esperan clickeables).
+    # veces). Creadas, Prospectos, Ganadas, Perdidas y Suspendidas SÍ lo
+    # ganaron (Creadas Legacy Parity, Commercial Tile 5, 6, 7 y 8, ver
+    # HANDOFF) — sus drills YA están homologados, así que quedan EXCLUIDOS de
+    # esta lista de "sigue sin drilldown" (ver los dos tests de arriba, que
+    # ahora los esperan clickeables).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # SEIS `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
+    # SIETE `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
     # HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF), Prospectos
-    # (Commercial Tile 5), Ganadas (Commercial Tile 6) y Perdidas
-    # (Commercial Tile 7, ver HANDOFF) — + UNA referencia al MISMO atributo
-    # dentro del selector que construye
-    # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
-    # abrir) para ubicar la que corresponda. Nunca un SÉPTIMO panel, y nunca
-    # un grupo de breakdown paralelo: los seis viven en el MISMO
+    # (Commercial Tile 5), Ganadas (Commercial Tile 6), Perdidas
+    # (Commercial Tile 7, ver HANDOFF) y Suspendidas (Commercial Tile 8, ver
+    # HANDOFF) — + UNA referencia al MISMO atributo dentro del selector que
+    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
+    # scroll al abrir) para ubicar la que corresponda. Nunca un OCTAVO panel,
+    # y nunca un grupo de breakdown paralelo: los siete viven en el MISMO
     # `[data-breakdown-group]`, que es lo que hace que el motor compartido
     # muestre uno por vez. Se cuenta sobre el markup, no sobre los
     # comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 7
+    assert markup.count('data-breakdown="') == 8
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -1692,6 +1710,144 @@ def test_perdidas_facet_interactions_never_refetch():
     assert "fetch(" not in load_perdidas_fn  # el fetch real vive en commercialHydratePerdidasYear
     hydrate_fn = _COMMERCIAL_JS.split("async function commercialHydratePerdidasYear(", 1)[1].split("\nfunction ", 1)[0]
     assert "fetch(`/comercial/data/perdidas?" in hydrate_fn
+
+
+# ============================================================================
+# Commercial Tile 8 — Suspendidas (GET /comercial/data/suspendidas). Universo:
+# `suspended_ids` (`_stage_partition()[2]`), MISMO que el KPI "Suspendidas"
+# del landing. STOCK actual, SIN año — MISMO patrón lazy-simple que
+# Prospectos (nunca Ganadas/Perdidas, que son año-scoped). Es el ÚLTIMO tile
+# de la familia "relevamiento" (Activas/Prospectos/Suspendidas).
+# ============================================================================
+
+def test_suspendidas_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/suspendidas", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_suspendidas_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/suspendidas").status_code == 403
+
+
+def test_suspendidas_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _SuspendidasStub(_StubService):
+        def get_suspendidas_detail(self, tipo="todos"):
+            return {"tipo": tipo, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _SuspendidasStub())
+    response = client.get("/comercial/data/suspendidas?tipo=nn")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["suspendidas"]["tipo"] == "nn"
+
+
+def test_suspendidas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_suspendidas_detail(self, tipo="todos"):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/suspendidas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_suspendidas_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_suspendidas_detail(self, tipo="todos"):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/suspendidas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_suspendidas_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/suspendidas")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_suspendidas_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/suspendidas" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+def test_suspendidas_load_is_lazy_single_flight_and_survives_reopen():
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadSuspendidas(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "suspendidas"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.suspendidasStatus !== "idle"' in fn
+
+
+def test_commercial_set_tipo_invalidates_suspendidas_like_the_other_datasets():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.suspendidas = null;" in tipo_fn
+    assert 'commercialState.suspendidasStatus = "idle";' in tipo_fn
+    assert 'commercialState.suspendidasSellerFilter = "";' in tipo_fn
+    # SIN año: a diferencia de Ganadas/Perdidas, Suspendidas no tiene caché
+    # por año que invalidar.
+    assert "suspendidasByYear" not in _COMMERCIAL_JS
+
+
+def test_suspendidas_never_gets_a_search_input_a_cliente_filter_or_a_chart():
+    # Owner §7/§10 (ver HANDOFF, Tile 8) — SÓLO Vendedor + Limpiar. Nada de
+    # Cliente/Buscar/ranking/chart/selector de año/filtro de Motivo — todos
+    # esos son de otros tiles.
+    for banned in (
+        "data-commercial-suspendidas-search", "data-commercial-suspendidas-client-filter",
+        "data-commercial-suspendidas-year", "data-commercial-suspendidas-motivo",
+        "data-commercial-suspendidas-seller-pick", "data-commercial-suspendidas-results",
+    ):
+        assert banned not in _COMMERCIAL_JS, banned
+    filters_fn = _COMMERCIAL_JS.split("function commercialSuspendidasFiltersHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "data-commercial-suspendidas-seller-filter" in filters_fn
+    assert "data-commercial-suspendidas-clear" in filters_fn
+    assert "bar-row" not in filters_fn and "chart" not in filters_fn.lower()
+
+
+def test_suspendidas_table_has_etapa_and_etiquetas_per_owner_decision():
+    # Owner §7 — Etapa Y Etiquetas viajan (a diferencia de Activas, que
+    # descartó ambas, y de Prospectos, que sólo tiene Etiquetas por ser
+    # universo de una sola etapa) — Suspendidas es genuinamente multi-etapa.
+    table_fn = _COMMERCIAL_JS.split("function commercialSuspendidasTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in ('"Oportunidad"', '"Cliente"', '"Vendedor"', '"Etapa"'):
+        assert expected in table_fn, expected
+    assert "commercialProspectsTagsHtml(" in table_fn, "Etiquetas reusa el mismo renderer de pills que Prospectos"
+
+
+def test_suspendidas_reuses_the_shared_urgency_scale_for_next_action():
+    # MISMO clasificador/leyenda que Activas/Actividades/Prospectos — ver
+    # `test_activities_urgency_scale_is_the_same_one_as_active_opportunities`
+    # en test_commercial_activities_controls.py, que ya cubre el conteo total.
+    table_fn = _COMMERCIAL_JS.split("function commercialSuspendidasTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialUrgencyColor(" in table_fn
+    block_fn = _COMMERCIAL_JS.split("function commercialSuspendidasBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialUrgencyLegendHtml()" in block_fn
+
+
+def test_suspendidas_seller_filter_and_sort_and_clear_never_refetch():
+    # Owner §18 — Vendedor/orden de columna/Limpiar son todos LOCALES sobre
+    # el payload ya cargado. Cero red tras la carga lazy inicial.
+    for local_fn_name in ("commercialToggleSuspendidasSort", "commercialCurrentSuspendidasRows",
+                          "commercialSuspendidasSellerOptions", "commercialSuspendidasTableHtml",
+                          "commercialSuspendidasBlockHtml", "commercialRenderSuspendidasPanel"):
+        body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
+        assert "fetch(" not in body, local_fn_name
+    load_suspendidas_fn = _COMMERCIAL_JS.split("async function commercialLoadSuspendidas(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(`/comercial/data/suspendidas" in load_suspendidas_fn
+    boot = _COMMERCIAL_JS.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    for marker in (
+        "commercialState.suspendidasSellerFilter = sellerSelect.value;",
+        "commercialToggleSuspendidasSort(suspendidasSortTh.dataset.commercialSuspendidasSort);",
+        "commercialState.suspendidasSellerFilter = \"\";",
+    ):
+        assert marker in boot, marker
 
 
 # ============================================================================

@@ -873,6 +873,108 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Suspendidas — detalle (Commercial Tile 8, ver HANDOFF) ───────────────
+    # Universo: stage_id IN suspended_ids (`_stage_partition()[2]`, nombre de
+    # etapa que CONTIENE "suspendido") — EL MISMO universo que el KPI
+    # "Suspendidas" del summary. STOCK actual, SIN año — `active=True`
+    # explícito (ver Ganadas: la ausencia de esa cláusula NO habría sido
+    # "incluye archivadas", así que acá se mantiene el mismo patrón ya
+    # correcto que Activas/Prospectos).
+    #
+    # Fila CASI idéntica a `_build_opportunities`/`_build_prospects` (MISMAS
+    # fórmulas de Hs Pond./Últ. Resp./Días resp./actividades — ya auditadas
+    # y en producción) — con DOS diferencias sobre `_build_opportunities`,
+    # ambas owner decision explícita (ver HANDOFF, Tile 8 §7):
+    #   - "stage" SÍ viaja (a diferencia de Activas, que la descartó, y de
+    #     Prospectos, que nunca la necesitó por ser una sola etapa):
+    #     Suspendidas es genuinamente multi-etapa — pueden coexistir varias
+    #     etapas cuyo nombre contiene "suspendido" — así que la Etapa es
+    #     información real, no ruido redundante.
+    #   - "tags" (Etiquetas) SÍ viaja — MISMO criterio que Prospectos.
+    # Sin "source": Origen es una vista exclusiva de Activas (C8), no parte
+    # del contrato de Suspendidas.
+    def _build_suspendidas_detail(self) -> dict:
+        _valid_ids, _prospect_ids, suspended_ids = self._stage_partition()
+        if not suspended_ids:
+            # Owner §2 — "return a valid zero result... do NOT issue a
+            # pointless crm.lead query with an empty/invalid stage domain."
+            return {tipo: {"opportunities": [], "total": 0} for tipo in _TIPOS}
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", suspended_ids]],
+            fields=["name", "partner_id", "user_id", "stage_id", "tag_ids",
+                     "probability", "priority", "lead_properties", "expected_revenue"],
+        )
+        opp_ids = [o["id"] for o in opps]
+        acts_by_opp: dict[int, list] = {}
+        if opp_ids:
+            activities = self._client.search_read(
+                "mail.activity",
+                domain=[["res_model", "=", "crm.lead"], ["res_id", "in", opp_ids]],
+                fields=["res_id", "date_deadline", "activity_type_id", "summary"],
+                order="date_deadline asc",
+            )
+            for act in activities:
+                acts_by_opp.setdefault(act["res_id"], []).append({
+                    "type": act["activity_type_id"][1] if act.get("activity_type_id") else "",
+                    "summary": act.get("summary") or "",
+                    "deadline": iso_deadline(act.get("date_deadline")),
+                })
+
+        all_tag_ids = {tid for o in opps for tid in (o.get("tag_ids") or [])}
+        tag_names: dict[int, str] = {}
+        if all_tag_ids:
+            tags = self._client.search_read("crm.tag", [["id", "in", list(all_tag_ids)]], fields=["id", "name"])
+            tag_names = {t["id"]: t["name"] for t in tags}
+
+        today = date.today()
+
+        def _row(opp: dict) -> dict:
+            props = opp.get("lead_properties") or []
+            hours_raw = get_property_num(props, "Horas")
+            weighted_hours = round((opp.get("probability", 0) or 0) / 100 * hours_raw, 1)
+            last_response = _get_property_date(props, _PROP_ULTIMA_RESPUESTA)
+            days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
+                "tags": [tag_names[tid] for tid in (opp.get("tag_ids") or []) if tid in tag_names],
+                "licencias": _get_prop_label(props, "Licencias"),
+                "hours": hours_raw,
+                "weighted_hours": weighted_hours,
+                "revenue": round(opp.get("expected_revenue", 0) or 0, 2),
+                "probability": opp.get("probability"),
+                "priority": opp.get("priority") or "0",
+                "activities": acts_by_opp.get(opp["id"], []),
+                "last_response": last_response,
+                "days_elapsed": days_elapsed,
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_suspendidas_detail(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:suspendidas", self._build_suspendidas_detail)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
     # Phase 2, C2 ──────────────────────────────────────────────────────────
     # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO

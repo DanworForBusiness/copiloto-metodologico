@@ -165,28 +165,30 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
     return html.slice(start, html.indexOf("</div>", i));
   };
   // C6 (ver HANDOFF) + Creadas Legacy Parity + Commercial Tile 5 + Commercial
-  // Tile 6 + Commercial Tile 7 (ver HANDOFF, incrementos POSTERIORES): SIETE
-  // tiles clickeables sobre SEIS análisis. "Pipeline total" y "Pipeline
-  // ponderado" comparten `data-event="forecast"` a propósito — misma
-  // población (0-8) medida con y sin probabilidad, y el panel muestra las
-  // dos series juntas. "Creadas esta semana", "Prospectos", "Ganadas" y
-  // "Perdidas" abren cada uno su propio drill (paridad con el legacy
-  // `/crm/opp-by-month`, `/crm/relevamiento?stage_id=<etapa 0>` y
-  // `/crm/kpi-detail` buckets "won"/"lost" respectivamente). Los otros DOS
-  // siguen sin fingir una acción inexistente, que es lo que este bloque
-  // protege.
-  assertTrue(count(html, "activity-kpi--clickable") === 7, "exactamente siete tiles clickeables");
+  // Tile 6 + Commercial Tile 7 + Commercial Tile 8 (ver HANDOFF, incrementos
+  // POSTERIORES): OCHO tiles clickeables sobre SIETE análisis. "Pipeline
+  // total" y "Pipeline ponderado" comparten `data-event="forecast"` a
+  // propósito — misma población (0-8) medida con y sin probabilidad, y el
+  // panel muestra las dos series juntas. "Creadas esta semana", "Prospectos",
+  // "Ganadas", "Perdidas" y "Suspendidas" abren cada uno su propio drill
+  // (paridad con el legacy `/crm/opp-by-month`,
+  // `/crm/relevamiento?stage_id=<etapa 0>`, `/crm/kpi-detail` buckets
+  // "won"/"lost" y `/crm/relevamiento?stage_ids=<suspended>` respectivamente).
+  // El único tile restante sigue sin fingir una acción inexistente, que es lo
+  // que este bloque protege.
+  assertTrue(count(html, "activity-kpi--clickable") === 8, "exactamente ocho tiles clickeables");
   assertTrue(count(html, 'data-event="activas"') === 1, "uno es Oportunidades activas");
   assertTrue(count(html, 'data-event="forecast"') === 2, "y dos son los Pipeline, ambos al MISMO análisis");
   assertTrue(count(html, 'data-event="creadas"') === 1, "y uno es Creadas esta semana");
   assertTrue(count(html, 'data-event="prospectos"') === 1, "y uno es Prospectos");
   assertTrue(count(html, 'data-event="ganadas"') === 1, "y uno es Ganadas");
   assertTrue(count(html, 'data-event="perdidas"') === 1, "y uno es Perdidas");
-  // Ganadas/Perdidas empiezan "idle" (LAZY, ver HANDOFF): sus paneles
-  // muestran el loader canónico, nunca el ranking/desglose (que agregarían
-  // sus propios `role="button"`) — el landing en frío sigue teniendo
-  // exactamente siete.
-  assertTrue(count(html, 'role="button"') === 7, "ningún otro tile finge ser accionable");
+  assertTrue(count(html, 'data-event="suspendidas"') === 1, "y uno es Suspendidas");
+  // Ganadas/Perdidas/Suspendidas empiezan "idle" (LAZY, ver HANDOFF): sus
+  // paneles muestran el loader canónico, nunca el ranking/tabla (que
+  // agregarían sus propios `role="button"`) — el landing en frío sigue
+  // teniendo exactamente ocho.
+  assertTrue(count(html, 'role="button"') === 8, "ningún otro tile finge ser accionable");
   // Los DOS triggers de forecast son los tiles de Pipeline, no otros.
   assertTrue(tile("Pipeline total").includes('data-event="forecast"'), "Pipeline total abre Forecast");
   assertTrue(tile("Pipeline ponderado").includes('data-event="forecast"'), "Pipeline ponderado abre el mismo Forecast");
@@ -194,7 +196,8 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   assertTrue(tile("Prospectos").includes('data-event="prospectos"'), "Prospectos abre su propio drill");
   assertTrue(tile("Ganadas").includes('data-event="ganadas"'), "Ganadas abre su propio drill");
   assertTrue(tile("Perdidas").includes('data-event="perdidas"'), "Perdidas abre su propio drill");
-  for (const label of ["Suspendidas", "Conversión"]) {
+  assertTrue(tile("Suspendidas").includes('data-event="suspendidas"'), "Suspendidas abre su propio drill");
+  for (const label of ["Conversión"]) {
     assertTrue(!tile(label).includes("data-event="), `${label} sigue siendo informativo`);
   }
 }
@@ -245,7 +248,10 @@ function load({ summary = SUMMARY, analytics = ANALYTICS, pipeline = PIPELINE } 
   // Commercial Tile 7 — Perdidas (ver HANDOFF, incremento POSTERIOR): un
   // SEXTO panel, MISMO grupo, MISMO criterio.
   assertTrue(html.includes('data-breakdown="perdidas" open hidden'), "el panel de Perdidas también arranca oculto");
-  assertTrue(count(html, "data-breakdown=") === 6, "exactamente seis contratos de breakdown, sin panel placeholder");
+  // Commercial Tile 8 — Suspendidas (ver HANDOFF, incremento POSTERIOR): un
+  // SÉPTIMO y ÚLTIMO panel, MISMO grupo, MISMO criterio.
+  assertTrue(html.includes('data-breakdown="suspendidas" open hidden'), "el panel de Suspendidas también arranca oculto");
+  assertTrue(count(html, "data-breakdown=") === 7, "exactamente siete contratos de breakdown, sin panel placeholder");
   assertTrue(count(html, "data-breakdown-group") === 1, "y UN solo grupo — nunca un lifecycle paralelo");
   assertTrue(!/Hacé clic en/.test(html), "sin texto placeholder en el landing");
   // Y cuando se muestra, adentro está el Funnel (grouped bars, C3) intacto.

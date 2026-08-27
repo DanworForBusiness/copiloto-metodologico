@@ -250,6 +250,27 @@ def commercial_data_perdidas(request: Request, tipo: str = Query("todos"), year:
     return JSONResponse({"state": "ok", "perdidas": perdidas})
 
 
+@router.get("/comercial/data/suspendidas", include_in_schema=False)
+def commercial_data_suspendidas(request: Request, tipo: str = Query("todos")):
+    """Detalle de "Suspendidas" (Commercial Tile 8, ver HANDOFF) — universo
+    canónico active=True + stage_id en `suspended_ids` (nombre de etapa que
+    CONTIENE "suspendido"), MISMO dominio que el KPI del landing. STOCK
+    actual — SIN año, a diferencia de Ganadas/Perdidas. LAZY: sólo se pide
+    al abrir el análisis, nunca en la hidratación normal del dashboard.
+    MISMO contrato fail-soft y MISMA gate que el resto de Comercial —
+    read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        suspendidas = CommercialService().get_suspendidas_detail(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="suspendidas")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="suspendidas")
+    return JSONResponse({"state": "ok", "suspendidas": suspendidas})
+
+
 @router.get("/comercial/data/forecast", include_in_schema=False)
 def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     """Forecast por mes de cierre (Active Opportunities Phase 2, ver

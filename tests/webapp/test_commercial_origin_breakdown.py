@@ -52,9 +52,9 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # El frontend sigue pidiendo los MISMOS endpoints de siempre para Origin
     # (C8 no agregó ninguno): cuatro en el load inicial + activities +
     # forecast lazy + creadas lazy + prospects lazy + ganadas lazy + perdidas
-    # lazy (Creadas Legacy Parity, Commercial Tile 5, 6 y 7, ver HANDOFF —
-    # cuatro incrementos POSTERIORES y no relacionados con Origin, que sí
-    # agregaron el suyo propio cada uno).
+    # lazy + suspendidas lazy (Creadas Legacy Parity, Commercial Tile 5, 6, 7
+    # y 8, ver HANDOFF — cinco incrementos POSTERIORES y no relacionados con
+    # Origin, que sí agregaron el suyo propio cada uno).
     code = _js_code(_COMMERCIAL_JS)
     # 11 y no 10: el corrective hot/cold agrega
     # `/comercial/data/creadas/anios-disponibles` — descubrimiento de años
@@ -68,7 +68,9 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # Commercial Tile 7 (ver HANDOFF) agrega `/comercial/data/perdidas`,
     # MISMO patrón que Ganadas — el desglose por Motivo se deriva
     # CLIENT-SIDE de esas mismas filas, así que no suma un endpoint propio.
-    assert code.count("/comercial/data/") == 11  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas
+    # Commercial Tile 8 (ver HANDOFF) agrega `/comercial/data/suspendidas`,
+    # lazy, SIN año — MISMO patrón que Prospectos.
+    assert code.count("/comercial/data/") == 12  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
@@ -127,18 +129,18 @@ def test_origin_reuses_the_shared_bar_primitives_without_coupling_to_forecast():
 def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # No es un panel nuevo: comparte el análisis expandido de Activas, así que
     # Origin en sí (C8) sigue sin agregar ningún `data-breakdown` propio —
-    # el conteo de 7 (Activas + Forecast + Creadas + Prospectos + Ganadas +
-    # Perdidas, las cuatro últimas de incrementos POSTERIORES y no
-    # relacionados — ver Creadas Legacy Parity, Commercial Tile 5, 6 y 7 en
-    # HANDOFF — + el selector del scroll) es el mismo total que cualquier
+    # el conteo de 8 (Activas + Forecast + Creadas + Prospectos + Ganadas +
+    # Perdidas + Suspendidas, las cinco últimas de incrementos POSTERIORES y
+    # no relacionados — ver Creadas Legacy Parity, Commercial Tile 5, 6, 7 y 8
+    # en HANDOFF — + el selector del scroll) es el mismo total que cualquier
     # otro test de esta suite que audite la superficie completa de paneles.
     markup = _js_code(_COMMERCIAL_JS)
-    assert markup.count('data-breakdown="') == 7   # activas + forecast + creadas + prospectos + ganadas + perdidas + el selector del scroll
+    assert markup.count('data-breakdown="') == 8   # activas + forecast + creadas + prospectos + ganadas + perdidas + suspendidas + el selector del scroll
     assert markup.count("data-breakdown-group>") == 1
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 30, queries   # + los 3 hooks de Perdidas (Commercial Tile 7, ver HANDOFF)
+    assert len(queries) == 34, queries   # + los 4 hooks de Suspendidas (Commercial Tile 8, ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

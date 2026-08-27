@@ -2053,6 +2053,257 @@ def test_perdidas_kpi_and_drill_conserve_count_and_hours():
 
 
 # ============================================================================
+# Commercial Tile 8 — Detalle de Suspendidas (`get_suspendidas_detail`,
+# `GET /comercial/data/suspendidas`). Universo: el MISMO que el KPI
+# "Suspendidas" del summary — `type=opportunity, active=True,
+# stage_id IN suspended_ids` (`_stage_partition()[2]`, nombre de etapa que
+# CONTIENE "suspendido", case-insensitive) — STOCK actual, SIN año. A
+# diferencia de Prospectos/Activas, Suspendidas es genuinamente multi-etapa:
+# pueden coexistir varias etapas "suspendido" distintas, así que la fixture
+# incluye DOS para probar que la Etapa por fila es real, no una constante.
+# Fixture no-degenerada: incluye una etapa "boundary" cuyo nombre se PARECE a
+# "suspendido" pero no contiene el substring, para probar que el matching es
+# literal y no difuso.
+# ============================================================================
+
+SUSP_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 3, "name": "6 Suspendido - Sin Actividad"},
+    {"id": 4, "name": "7 Suspendido - Pausa Cliente"},
+    {"id": 5, "name": "8 Ganado", "is_won": True},
+    # Boundary: se PARECE a "suspendido" ("suspenso") pero no contiene el
+    # substring — debe quedar AFUERA del universo de Suspendidas.
+    {"id": 6, "name": "6 Suspenso Temporal"},
+]
+SUSP_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+
+SUSP_LEADS = [
+    # Suspendida completa — etapa "Suspendido - Sin Actividad", todas las
+    # properties, tag NN, DOS actividades pendientes.
+    {"id": 900, "name": "Suspendida Uno", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [10], "partner_id": [70, "Cliente Suspendida Uno"], "user_id": [40, "Vendedor Uno"],
+     "probability": 40, "priority": "2", "expected_revenue": 6000,
+     "lead_properties": [
+         _prop_horas(50),
+         _prop_date("Fecha de Ultima Respuesta", "2026-08-05"),
+         _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]]),
+     ]},
+    # SEGUNDA etapa "suspendido" DISTINTA — prueba multi-etapa: coexiste con
+    # Suspendida Uno bajo un nombre de etapa diferente. Tag BI, sin
+    # actividades, sin properties (Hs Pond. debe dar 0.0).
+    {"id": 901, "name": "Suspendida Dos", "type": "opportunity", "active": True, "stage_id": 4,
+     "tag_ids": [11], "partner_id": [71, "Cliente Suspendida Dos"], "user_id": [41, "Vendedor Dos"],
+     "probability": 0, "priority": "0", "lead_properties": []},
+    # Sin vendedor/cliente/tags, probability 100% (Hs Pond. = Hs exactas).
+    {"id": 902, "name": "Suspendida Sin Vendedor", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [], "partner_id": False, "user_id": False,
+     "probability": 100, "priority": "1", "lead_properties": [_prop_horas(15)]},
+    # Boundary — etapa "Suspenso Temporal" (NO contiene "suspendido"): debe
+    # quedar AFUERA aunque el nombre se parezca.
+    {"id": 903, "name": "Suspenso Boundary", "type": "opportunity", "active": True, "stage_id": 6,
+     "tag_ids": [10], "partner_id": [72, "Cliente Boundary"], "user_id": [42, "Vendedor Tres"],
+     "probability": 50, "priority": "0", "lead_properties": [_prop_horas(999)]},
+    # Prospecto (etapa 0): debe quedar AFUERA.
+    {"id": 904, "name": "Prospecto Fuera", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [], "partner_id": [73, "Cliente Prospecto"], "user_id": [42, "Vendedor Tres"],
+     "probability": 20, "priority": "0", "lead_properties": [_prop_horas(999)]},
+    # Etapa activa 1-8 (no suspendida): debe quedar AFUERA.
+    {"id": 905, "name": "Activa Fuera", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [], "partner_id": [74, "Cliente Activa"], "user_id": [42, "Vendedor Tres"],
+     "probability": 60, "priority": "0", "lead_properties": [_prop_horas(999)]},
+    # Ganada (is_won): debe quedar AFUERA.
+    {"id": 906, "name": "Ganada Fuera", "type": "opportunity", "active": False, "stage_id": 5,
+     "tag_ids": [], "partner_id": [75, "Cliente Ganada"], "user_id": [42, "Vendedor Tres"],
+     "probability": 100, "priority": "0", "lead_properties": [_prop_horas(999)]},
+    # Perdida (active=False, probability=0): debe quedar AFUERA.
+    {"id": 907, "name": "Perdida Fuera", "type": "opportunity", "active": False, "stage_id": 2,
+     "tag_ids": [], "partner_id": [76, "Cliente Perdida"], "user_id": [42, "Vendedor Tres"],
+     "probability": 0, "priority": "0", "lead_properties": [_prop_horas(999)]},
+    # Suspendida ARCHIVADA (active=False), MISMA etapa suspendida que
+    # Suspendida Uno: debe quedar AFUERA (prueba que el filtro es por
+    # active, no sólo por stage_id).
+    {"id": 908, "name": "Suspendida Archivada", "type": "opportunity", "active": False, "stage_id": 3,
+     "tag_ids": [10], "partner_id": [77, "Cliente Archivada"], "user_id": [40, "Vendedor Uno"],
+     "probability": 40, "priority": "0", "lead_properties": [_prop_horas(999)]},
+]
+
+SUSP_ACTIVITIES = [
+    # Suspendida Uno tiene DOS actividades pendientes — legacy retiene ambas.
+    {"id": 1, "res_id": 900, "res_model": "crm.lead", "date_deadline": "2026-08-12",
+     "activity_type_id": [5, "Llamada"], "summary": "Retomar contacto"},
+    {"id": 2, "res_id": 900, "res_model": "crm.lead", "date_deadline": "2026-08-25",
+     "activity_type_id": [6, "Reunión"], "summary": "Seguimiento"},
+]
+
+
+def _suspendidas_client(**kwargs):
+    return FakeOdooClient(stages=SUSP_STAGES, tags=SUSP_TAGS, leads=SUSP_LEADS, activities=SUSP_ACTIVITIES, **kwargs)
+
+
+def test_suspendidas_universe_is_suspended_stage_only():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    names = {r["opportunity"] for r in rows}
+    assert names == {"Suspendida Uno", "Suspendida Dos", "Suspendida Sin Vendedor"}
+    assert "Suspenso Boundary" not in names, "el nombre de etapa NO contiene 'suspendido' — matching literal, no difuso"
+    assert "Prospecto Fuera" not in names, "etapa 0 queda afuera"
+    assert "Activa Fuera" not in names, "etapa 1-8 no suspendida queda afuera"
+    assert "Ganada Fuera" not in names, "is_won queda afuera"
+    assert "Perdida Fuera" not in names, "active=False + probability=0 queda afuera"
+    assert "Suspendida Archivada" not in names, "active=False queda afuera aunque esté en etapa suspendida"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_row_includes_stage_and_tags_per_owner_decision():
+    # Owner §7 (ver HANDOFF, Tile 8) — Etapa Y Etiquetas viajan, a diferencia
+    # de `_build_opportunities` (ninguna) y de Prospectos (sólo Etiquetas,
+    # por ser universo de una sola etapa). Suspendidas es genuinamente
+    # multi-etapa: cada fila debe reflejar SU PROPIA etapa, no una constante.
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Suspendida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Suspendida Dos")
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Suspendida Sin Vendedor")
+    assert uno["stage"] == "6 Suspendido - Sin Actividad"
+    assert dos["stage"] == "7 Suspendido - Pausa Cliente"
+    assert uno["stage"] != dos["stage"], "dos etapas suspendidas DISTINTAS coexisten, cada fila con la SUYA"
+    assert uno["tags"] == ["New Names"]
+    assert dos["tags"] == ["Base Instalada"]
+    assert sin_vendedor["tags"] == []
+    svc_module.clear_cache()
+
+
+def test_suspendidas_weighted_hours_matches_centralized_formula():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Suspendida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Suspendida Dos")
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Suspendida Sin Vendedor")
+    assert uno["hours"] == 50 and uno["weighted_hours"] == 20.0, "probability 40% * 50hs"
+    assert dos["hours"] == 0 and dos["weighted_hours"] == 0.0, "sin Horas y probability 0%"
+    assert sin_vendedor["hours"] == 15 and sin_vendedor["weighted_hours"] == 15.0, "probability 100% = Hs exactas"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_licencias_resolved_from_selection_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    assert next(r for r in rows if r["opportunity"] == "Suspendida Uno")["licencias"] == "Si"
+    assert next(r for r in rows if r["opportunity"] == "Suspendida Dos")["licencias"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_last_response_and_days_elapsed_from_date_property():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Suspendida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Suspendida Dos")
+    assert uno["last_response"] == "2026-08-05"
+    assert uno["days_elapsed"] == (date.today() - date.fromisoformat("2026-08-05")).days
+    assert dos["last_response"] is None and dos["days_elapsed"] is None
+    svc_module.clear_cache()
+
+
+def test_suspendidas_activities_are_grouped_per_opportunity_all_not_just_next():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Suspendida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Suspendida Dos")
+    assert len(uno["activities"]) == 2, "AMBAS actividades pendientes, no sólo la próxima"
+    assert {a["deadline"] for a in uno["activities"]} == {"2026-08-12", "2026-08-25"}
+    assert dos["activities"] == []
+    svc_module.clear_cache()
+
+
+def test_suspendidas_unassigned_seller_and_client_default_to_empty():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("todos")["opportunities"]
+    sin_vendedor = next(r for r in rows if r["opportunity"] == "Suspendida Sin Vendedor")
+    assert sin_vendedor["seller"] == "" and sin_vendedor["client"] == ""
+    svc_module.clear_cache()
+
+
+def test_suspendidas_partitions_by_nn_bi_tag_never_double_query():
+    svc_module.clear_cache()
+    client = _suspendidas_client()
+    service = CommercialService(client)
+    todos = {r["opportunity"] for r in service.get_suspendidas_detail("todos")["opportunities"]}
+    nn = {r["opportunity"] for r in service.get_suspendidas_detail("nn")["opportunities"]}
+    bi = {r["opportunity"] for r in service.get_suspendidas_detail("bi")["opportunities"]}
+    assert todos == {"Suspendida Uno", "Suspendida Dos", "Suspendida Sin Vendedor"}
+    assert nn == {"Suspendida Uno"}
+    assert bi == {"Suspendida Dos"}
+    assert len([c for c in client.calls if c[0] == "crm.lead"]) == 1, "una sola consulta a crm.lead"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_use_the_module_cache():
+    svc_module.clear_cache()
+    client = _suspendidas_client()
+    service = CommercialService(client)
+    service.get_suspendidas_detail("todos")
+    service.get_suspendidas_detail("nn")
+    assert len([c for c in client.calls if c[0] == "mail.activity"]) == 1, "la segunda vista sale del cache"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    rows = CommercialService(_suspendidas_client()).get_suspendidas_detail("not-a-real-tipo")["opportunities"]
+    assert {r["opportunity"] for r in rows} == {"Suspendida Uno", "Suspendida Dos", "Suspendida Sin Vendedor"}
+    svc_module.clear_cache()
+
+
+def test_suspendidas_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _suspendidas_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_suspendidas_detail("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _suspendidas_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_suspendidas_detail("todos")
+    svc_module.clear_cache()
+
+
+def test_suspendidas_empty_stage_set_returns_zero_without_querying_crm_lead():
+    # Owner §2 — "return a valid zero result... do NOT issue a pointless
+    # crm.lead query with an empty/invalid stage domain" — sin ninguna etapa
+    # cuyo nombre contenga "suspendido", el resultado es vacío y NUNCA se
+    # dispara la consulta a crm.lead.
+    svc_module.clear_cache()
+    stages_without_suspended = [s for s in SUSP_STAGES if "suspendido" not in s["name"].lower()]
+    client = FakeOdooClient(stages=stages_without_suspended, tags=SUSP_TAGS, leads=SUSP_LEADS, activities=SUSP_ACTIVITIES)
+    result = CommercialService(client).get_suspendidas_detail("todos")
+    assert result == {"opportunities": [], "total": 0}
+    assert not [c for c in client.calls if c[0] == "crm.lead"], "cero queries a crm.lead con el set vacío"
+    svc_module.clear_cache()
+
+
+def test_suspendidas_kpi_and_drill_conserve_count_and_hours():
+    # Owner §3 (MISMO patrón que Prospectos/Perdidas) — bajo el MISMO Tipo:
+    # Suspendidas KPI count == len(detail.rows), KPI hours == SUM(detail.
+    # rows[].hours). Ambos salen del MISMO dominio (`suspended_ids`,
+    # active=True, type=opportunity) pero de funciones DISTINTAS
+    # (`_build_summary` vs `_build_suspendidas_detail`) — este test es la
+    # evidencia de que no divergieron.
+    svc_module.clear_cache()
+    service = CommercialService(_suspendidas_client())
+    for tipo in ("todos", "nn", "bi"):
+        kpi = service.get_summary(tipo)["suspendidas"]
+        rows = service.get_suspendidas_detail(tipo)["opportunities"]
+        assert kpi["count"] == len(rows), tipo
+        assert kpi["hours"] == sum(r["hours"] for r in rows), tipo
+    svc_module.clear_cache()
+
+
+# ============================================================================
 # Active Opportunities Phase 2 / C2 — Forecast por mes (`get_forecast`,
 # `GET /comercial/data/forecast`). Universo: stages 0-8 (Pipeline Total/
 # Ponderado) — NUNCA 1-8 (ese es Oportunidades Activas, C1). Semántica

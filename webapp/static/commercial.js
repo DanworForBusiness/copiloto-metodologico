@@ -250,6 +250,17 @@ const commercialState = {
   // Orden de la tabla — MISMA semántica que `ganadasSortKey`.
   perdidasSortKey: null,
   perdidasSortDir: 1,
+  // Suspendidas (Commercial Tile 8, ver HANDOFF) — STOCK actual, SIN año
+  // (a diferencia de Ganadas/Perdidas): MISMO ciclo de vida lazy-simple que
+  // Prospectos — una sola petición al abrir, cache implícito mientras el
+  // `tipo` no cambie, SIN caché por año (no aplica) y SIN Buscar (owner §10
+  // — sólo Vendedor + Limpiar).
+  suspendidas: null,
+  suspendidasStatus: "idle", // idle | loading | ready | error
+  suspendidasErrorState: "",
+  suspendidasSellerFilter: "",
+  suspendidasSortKey: null,
+  suspendidasSortDir: 1,
 };
 
 function commercialEsc(value) {
@@ -2669,6 +2680,217 @@ function commercialPerdidasPanelBodyHtml() {
   return commercialPerdidasAnalysisHtml();
 }
 
+// ── Suspendidas — detalle (Commercial Tile 8, ver HANDOFF) ─────────────────
+// Familia "relevamiento" (Activas/Prospectos/Suspendidas): STOCK actual por
+// etapa, MISMAS fórmulas ya auditadas (Hs Pond./Últ. Resp./Días resp./
+// actividades/urgencia) — reusa `commercialProspectsTagsHtml` TAL CUAL para
+// Etiquetas (genérico: sólo recibe un array de strings, cero acoplamiento a
+// Prospectos) en vez de duplicar la función. Se diferencia de Prospectos en
+// DOS columnas (owner decisión explícita, Tile 8 §7): Etapa (universo
+// genuinamente multi-etapa — pueden coexistir varias etapas "suspendido")
+// y, ya heredado de Prospectos, Etiquetas. Tabla PARALELA a
+// `commercialProspectsTableHtml`/`commercialOpportunitiesTableHtml` (owner
+// §6: "small duplication is preferable to changing already-closed Activas/
+// Prospectos behavior" — NO se refactoriza la familia en este incremento).
+const COMMERCIAL_SUSPENDIDAS_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  stage: o => (o.stage || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+  weighted_hours: o => (o.weighted_hours != null && o.weighted_hours !== false) ? Number(o.weighted_hours) : -Infinity,
+  probability: o => o.probability ?? -1,
+  priority: o => Number(o.priority ?? 0),
+  next_action: o => {
+    const days = (o.activities || []).map(act => commercialDaysUntil(act.deadline)).filter(d => d !== null);
+    return days.length ? Math.min(...days) : Infinity;
+  },
+  last_response: o => o.days_elapsed ?? Infinity,
+};
+
+function commercialSuspendidasSorted(rows) {
+  const keyFn = commercialState.suspendidasSortKey && COMMERCIAL_SUSPENDIDAS_SORT_KEYS[commercialState.suspendidasSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.suspendidasSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+function commercialToggleSuspendidasSort(key) {
+  if (commercialState.suspendidasSortKey === key) {
+    commercialState.suspendidasSortDir *= -1;
+  } else {
+    commercialState.suspendidasSortKey = key;
+    commercialState.suspendidasSortDir = 1;
+  }
+}
+
+function commercialSuspendidasSellerOptions(rows) {
+  return [...new Set(rows.map(o => o.seller).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function commercialSuspendidasTableHtml(rows) {
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados",
+      commercialState.suspendidasSellerFilter
+        ? "Ninguna suspendida coincide con este filtro."
+        : "No hay oportunidades suspendidas en este momento.");
+  }
+  const sorted = commercialSuspendidasSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.suspendidasSortKey === key;
+    const arrow = active ? (commercialState.suspendidasSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-suspendidas-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const acts = o.activities || [];
+    const nextAction = acts.length
+      ? acts.map(act => {
+          const days = commercialDaysUntil(act.deadline);
+          const rel = days === null ? "" : days < 0 ? ` (venc. ${Math.abs(days)}d)` : days === 0 ? " (hoy)" : ` (${days}d)`;
+          const datePrefix = commercialEsc(commercialFmtDate(act.deadline));
+          if (!act.type) return datePrefix;
+          const color = commercialUrgencyColor(days);
+          const typeAndRel = `${commercialEsc(act.type)}${commercialEsc(rel)}`;
+          const badge = color
+            ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${typeAndRel}</span>`
+            : typeAndRel;
+          return `${datePrefix} · ${badge}`;
+        }).join("<br>")
+      : "—";
+    const lic = o.licencias === "Si" ? "✓" : "";
+    const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
+    const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
+    return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td class="left">${commercialProspectsTagsHtml(o.tags)}</td>
+      <td>${lic}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+      <td>${commercialFmtInt(o.weighted_hours)}</td>
+      <td>${commercialFmtPercent(o.probability)}</td>
+      <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
+      <td class="left">${nextAction}</td>
+      <td>${o.last_response ? commercialEsc(commercialFmtDate(o.last_response)) : "—"}</td>
+      <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
+    </tr>`;
+  }).join("");
+  const totals = rows.reduce((acc, o) => ({
+    hours: acc.hours + (o.hours || 0),
+    weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
+  }), { hours: 0, weighted_hours: 0 });
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="6">Total (${rows.length})</td>
+      <td>${commercialFmtInt(totals.hours)}</td>
+      <td>${commercialFmtInt(totals.weighted_hours)}</td>
+      <td colspan="5"></td>
+    </tr>`;
+  // Trece columnas (once de Prospectos + Etapa): Oportunidad/Vendedor/
+  // Próx. Acción ceden puntos para Etapa+Etiquetas — MISMO criterio de
+  // "ancho real por columna" ya establecido para Prospectos.
+  return `
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:16%"><col style="width:9%"><col style="width:8%">
+          <col style="width:9%"><col style="width:8%"><col style="width:4%">
+          <col style="width:5%"><col style="width:6%"><col style="width:5%">
+          <col style="width:4%"><col style="width:14%"><col style="width:7%">
+          <col style="width:7%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("stage", "Etapa", "left")}
+          <th class="left">Etiquetas</th>
+          <th>Lic.</th>
+          ${th("hours", "Hs")}
+          ${th("weighted_hours", "Hs Pond.")}
+          ${th("probability", "Prob.")}
+          ${th("priority", "Prior.")}
+          ${th("next_action", "Próx. Acción", "left")}
+          ${th("last_response", "Últ. Resp.")}
+          <th>Días resp.</th>
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+function commercialSuspendidasBlockHtml(rows) {
+  return `${rows.length ? commercialUrgencyLegendHtml() : ""}${commercialSuspendidasTableHtml(rows)}`;
+}
+
+function commercialCurrentSuspendidasRows() {
+  const all = (commercialState.suspendidas && commercialState.suspendidas.opportunities) || [];
+  return commercialState.suspendidasSellerFilter
+    ? all.filter(o => o.seller === commercialState.suspendidasSellerFilter)
+    : all;
+}
+
+// Vendedor + Limpiar — MISMOS primitivos que el resto de Comercial. SIN
+// Buscar (owner §10: "Do NOT add... search" — legacy Suspendidas nunca tuvo
+// uno) y SIN chip de filtro activo (MISMO criterio que Prospectos §8: el
+// `<select>` ya representa el estado activo).
+function commercialSuspendidasFiltersHtml(sellerOptions) {
+  const sellerOpts = sellerOptions.map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.suspendidasSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-suspendidas-filters>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-suspendidas-seller-filter>
+          <option value=""${commercialState.suspendidasSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-suspendidas-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+function commercialSuspendidasAnalysisHtml() {
+  const all = (commercialState.suspendidas && commercialState.suspendidas.opportunities) || [];
+  const rows = commercialCurrentSuspendidasRows();
+  const filtersHtml = all.length ? commercialSuspendidasFiltersHtml(commercialSuspendidasSellerOptions(all)) : "";
+  return `${filtersHtml}
+    <div data-commercial-suspendidas-table>${commercialSuspendidasBlockHtml(rows)}</div>`;
+}
+
+// Cuerpo del panel — MISMO contrato de estados que Prospectos.
+function commercialSuspendidasPanelBodyHtml() {
+  if (commercialState.suspendidasStatus === "error") {
+    const configIncomplete = commercialState.suspendidasErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las oportunidades suspendidas desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("suspendidas", "Reintentar la carga de suspendidas"));
+  }
+  if (commercialState.suspendidasStatus !== "ready") {
+    return commercialLoadingHtml("Cargando suspendidas…");
+  }
+  const total = (commercialState.suspendidas && commercialState.suspendidas.total) || 0;
+  if (!total) {
+    return commercialEmptyStateHtml("Sin datos", "No hay oportunidades suspendidas para este segmento.");
+  }
+  return commercialSuspendidasAnalysisHtml();
+}
+
+function commercialSuspendidasCountLabel() {
+  if (commercialState.suspendidasStatus !== "ready") return "";
+  const total = (commercialState.suspendidas && commercialState.suspendidas.total) || 0;
+  return `${commercialFmtInt(total)} suspendida(s)`;
+}
+
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver
 // arriba) — MISMA marca que reporting.js::dashboardSection/
 // dashboardSections, helper LOCAL (sin renderer compartido global, ver
@@ -3536,7 +3758,11 @@ function commercialDashboardHtml() {
         // en sí NO cambia (año calendario actual, count+horas).
         { sub: hs(s.perdidas.hours), split: seg("perdidas"), eventKey: "perdidas" })}
       ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
-        { sub: hs(s.suspendidas.hours), split: seg("suspendidas") })}
+        // Commercial Tile 8, ver HANDOFF — el ÚLTIMO tile inerte del
+        // landing: fetch propio/independiente (/comercial/data/
+        // suspendidas), MISMO criterio que Prospectos. El KPI en sí NO
+        // cambia (stock actual, count+horas, sin año).
+        { sub: hs(s.suspendidas.hours), split: seg("suspendidas"), eventKey: "suspendidas" })}
       ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
         // eventKey NUNCA condicional a `a` (Creadas Legacy Parity, ver
         // HANDOFF): el drill es un fetch PROPIO/independiente
@@ -3688,6 +3914,22 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-perdidas-body>${commercialPerdidasPanelBodyHtml()}</div>
     </details>`;
 
+  // Suspendidas (Commercial Tile 8, ver HANDOFF): SÉPTIMA y ÚLTIMA sección
+  // de análisis, hermana de Activas/Forecast/Creadas/Prospectos/Ganadas/
+  // Perdidas, MISMO `[data-breakdown-group]`. Lazy load simple (SIN año) +
+  // render quirúrgico — los hosts estables son
+  // `[data-commercial-suspendidas-count]`/`[data-commercial-suspendidas-body]`.
+  const suspendidasSection = `<details class="dashboard-section" data-section-id="suspendidas-analisis" data-breakdown="suspendidas" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Suspendidas — Detalle</span>
+        <span class="dashboard-section__count" data-commercial-suspendidas-count>${commercialEsc(commercialSuspendidasCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="suspendidas" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-suspendidas-body>${commercialSuspendidasPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -3699,7 +3941,8 @@ function commercialDashboardHtml() {
     + creadasSection
     + prospectsSection
     + ganadasSection
-    + perdidasSection;
+    + perdidasSection
+    + suspendidasSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -4131,6 +4374,51 @@ function commercialMaybeLoadPerdidas(trigger) {
   commercialLoadPerdidas();
 }
 
+// ── Suspendidas — lazy load + render quirúrgico (Commercial Tile 8, ver
+// HANDOFF) ───────────────────────────────────────────────────────────────
+// MISMA técnica que Prospectos (owner §13 — "follows the newer Commercial
+// lazy convention... NO year cache, NO background warming"): una sola
+// request, disparada por la PRIMERA apertura para el `tipo` vigente.
+function commercialRenderSuspendidasPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-suspendidas-body]");
+  if (body) body.innerHTML = commercialSuspendidasPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-suspendidas-count]");
+  if (count) count.textContent = commercialSuspendidasCountLabel();
+}
+
+async function commercialLoadSuspendidas() {
+  commercialState.suspendidasStatus = "loading";
+  commercialRenderSuspendidasPanel();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/suspendidas?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.suspendidas = resp.suspendidas;
+      commercialState.suspendidasStatus = "ready";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.suspendidasStatus = "error";
+      commercialState.suspendidasErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    commercialState.suspendidasStatus = "error";
+    commercialState.suspendidasErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderSuspendidasPanel();
+}
+
+function commercialMaybeLoadSuspendidas(trigger) {
+  if (trigger.dataset.event !== "suspendidas") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.suspendidasStatus !== "idle") return;
+  commercialLoadSuspendidas();
+}
+
 // ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
 // HANDOFF) ─────────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
@@ -4344,6 +4632,13 @@ function commercialSetTipo(tipo) {
   commercialState.perdidasSellerFilter = "";
   commercialState.perdidasClientFilter = "";
   commercialState.perdidasMotivoFilter = "";
+  // Suspendidas (Commercial Tile 8, ver HANDOFF): MISMO criterio que
+  // Prospectos — invalida y NO re-pide acá, vuelve a "idle" y lo carga la
+  // próxima apertura del desglose con el tipo nuevo.
+  commercialState.suspendidas = null;
+  commercialState.suspendidasStatus = "idle";
+  commercialState.suspendidasErrorState = "";
+  commercialState.suspendidasSellerFilter = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -4460,6 +4755,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.ganadasStatus !== "loading") commercialLoadGanadas();
       } else if (retryBtn.dataset.commercialRetry === "perdidas") {
         if (commercialState.perdidasStatus !== "loading") commercialLoadPerdidas();
+      } else if (retryBtn.dataset.commercialRetry === "suspendidas") {
+        if (commercialState.suspendidasStatus !== "loading") commercialLoadSuspendidas();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -4701,6 +4998,24 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialPerdidasSetMotivo(perdidasMotivoPick.dataset.commercialPerdidasMotivoPick);
       return;
     }
+    // Suspendidas — "✕ Limpiar" (Commercial Tile 8, ver HANDOFF): MISMO
+    // criterio que Prospectos — única resetea Vendedor (es el único filtro:
+    // owner §7 excluye Cliente/Buscar/ranking/chart para este tile).
+    const suspendidasClear = event.target.closest("[data-commercial-suspendidas-clear]");
+    if (suspendidasClear) {
+      commercialState.suspendidasSellerFilter = "";
+      commercialRenderSuspendidasPanel();
+      return;
+    }
+    // Suspendidas — orden de columna: re-render QUIRÚRGICO de
+    // `[data-commercial-suspendidas-table]`, MISMO criterio que Prospectos.
+    const suspendidasSortTh = event.target.closest("[data-commercial-suspendidas-sort]");
+    if (suspendidasSortTh) {
+      commercialToggleSuspendidasSort(suspendidasSortTh.dataset.commercialSuspendidasSort);
+      const host = root.querySelector("[data-commercial-suspendidas-table]");
+      if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -4746,6 +5061,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeLoadProspects(kpiTrigger);
       commercialMaybeLoadGanadas(kpiTrigger);
       commercialMaybeLoadPerdidas(kpiTrigger);
+      commercialMaybeLoadSuspendidas(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -4871,6 +5187,17 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialPerdidasSetClient(clientSelect.value);
       return;
     }
+  });
+  // Suspendidas — Vendedor (Commercial Tile 8, ver HANDOFF): filtro LOCAL
+  // sobre el payload ya cargado, MISMO criterio que Prospectos (único
+  // `<select>` del tile — owner §7). Listener SEPARADO, mismo motivo que los
+  // de arriba.
+  document.addEventListener("change", event => {
+    const sellerSelect = event.target.closest("[data-commercial-suspendidas-seller-filter]");
+    if (!sellerSelect) return;
+    commercialState.suspendidasSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-suspendidas-table]");
+    if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
   });
   // Filtros del Forecast (C6b, ver HANDOFF): Etapa/Vendedor son ANALÍTICOS —
   // el mismo universo filtrado alimenta el gráfico Y la tabla, igual que en
@@ -5042,6 +5369,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeLoadProspects(kpiTrigger);
     commercialMaybeLoadGanadas(kpiTrigger);
     commercialMaybeLoadPerdidas(kpiTrigger);
+    commercialMaybeLoadSuspendidas(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();
