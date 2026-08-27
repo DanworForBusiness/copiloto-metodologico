@@ -3038,8 +3038,8 @@ function commercialPipelineAgeBlockHtml(rows) {
   return `<div class="matrix-scroll"><table class="dashboard-table">
     <colgroup><col style="width:22%"><col style="width:18%"><col style="width:16%">
       <col style="width:14%"><col style="width:14%"><col style="width:16%"></colgroup>
-    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
-      ${th("stage", "Etapa")}${th("create_date", "Creación")}${th("age_days", "Edad")}</tr></thead>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}
+      ${th("stage", "Etapa", "left")}${th("create_date", "Creación")}${th("age_days", "Edad")}</tr></thead>
     <tbody>${rowsHtml}
       <tr class="dashboard-table-totals"><td colspan="5">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
     </tbody>
@@ -3170,7 +3170,7 @@ function commercialCloseTimeBlockHtml(rows) {
   const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.days || 0), 0) / sorted.length) : 0;
   return `<div class="matrix-scroll"><table class="dashboard-table">
     <colgroup><col style="width:34%"><col style="width:26%"><col style="width:24%"><col style="width:16%"></colgroup>
-    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}${th("days", "Días")}</tr></thead>
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}${th("days", "Días")}</tr></thead>
     <tbody>${rowsHtml}
       <tr class="dashboard-table-totals"><td colspan="3">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
     </tbody>
@@ -3243,8 +3243,8 @@ function commercialStagnantBlockHtml(rows) {
   return `<div class="matrix-scroll"><table class="dashboard-table">
     <colgroup><col style="width:18%"><col style="width:14%"><col style="width:13%"><col style="width:12%">
       <col style="width:8%"><col style="width:12%"><col style="width:12%"><col style="width:11%"></colgroup>
-    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
-      ${th("stage", "Etapa")}${th("priority", "Prior.")}${th("last_move_date", "Últ. mov.")}
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}
+      ${th("stage", "Etapa", "left")}${th("priority", "Prior.")}${th("last_move_date", "Últ. mov.")}
       ${th("last_response", "Últ. resp. cliente")}${th("days_stagnant", "Días estanc.")}</tr></thead>
     <tbody>${rowsHtml}
       <tr class="dashboard-table-totals"><td colspan="7">Promedio (${commercialFmtInt(sorted.length)})</td><td>${commercialFmtInt(avg)}d</td></tr>
@@ -3407,8 +3407,8 @@ function commercialLeadConversionTableHtml(rows) {
     <colgroup><col style="width:16%"><col style="width:13%"><col style="width:11%">
       <col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:10%">
       <col style="width:9%"><col style="width:9%"></colgroup>
-    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
-      ${th("stage", "Etapa")}${th("campana", "Campaña")}${th("medio", "Medio")}${th("origen", "Origen")}
+    <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}
+      ${th("stage", "Etapa", "left")}${th("campana", "Campaña", "left")}${th("medio", "Medio", "left")}${th("origen", "Origen", "left")}
       ${th("outcome", "Resultado")}${th("convert_date", "Convertido el")}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table></div>`;

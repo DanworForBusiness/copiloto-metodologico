@@ -2079,6 +2079,32 @@ def test_stage_time_bar_row_shows_sample_count_next_to_avg_days():
     assert commercial_css.count(".commercial-stage-time-ranking .bar-value") == 1
 
 
+def test_new_tables_give_text_columns_th_the_same_left_class_as_their_td():
+    # Owner corrective (captura en vivo — "las columnas siguen viéndose
+    # desalineadas"): `table.dashboard-table th` alinea a la DERECHA por
+    # default (tools.css); `td.left` alinea a la IZQUIERDA. Un `<th>` sin
+    # clase "left" para una columna cuyo `<td>` SÍ la tiene produce un
+    # `<th>`/`<td>` con los mismos límites geométricos (la tabla está bien
+    # armada) pero el TEXTO del header queda pegado a la derecha mientras el
+    # dato queda pegado a la izquierda — se lee como "no coinciden" aunque
+    # la columna en sí esté perfectamente alineada. Las CUATRO tablas
+    # nuevas (Edad del pipeline/Tiempo de cierre/Estancadas/Conversión de
+    # leads) tenían esta clase faltante en TODAS sus columnas de texto —
+    # las YA establecidas (Suspendidas, Prospectos, etc.) siempre la
+    # tuvieron, ver esas mismas líneas más arriba en este archivo.
+    checks = [
+        ("commercialPipelineAgeBlockHtml", ['"Cliente", "left"', '"Vendedor", "left"', '"Etapa", "left"']),
+        ("commercialCloseTimeBlockHtml", ['"Cliente", "left"', '"Vendedor", "left"']),
+        ("commercialStagnantBlockHtml", ['"Cliente", "left"', '"Vendedor", "left"', '"Etapa", "left"']),
+        ("commercialLeadConversionTableHtml", ['"Cliente", "left"', '"Vendedor", "left"', '"Etapa", "left"',
+                                                '"Campaña", "left"', '"Medio", "left"', '"Origen", "left"']),
+    ]
+    for fn_name, expected in checks:
+        fn = _COMMERCIAL_JS.split(f"function {fn_name}(", 1)[1].split("\nfunction ", 1)[0]
+        for marker in expected:
+            assert marker in fn, (fn_name, marker)
+
+
 def test_pipeline_analytics_detail_endpoint_anonymous_redirects_to_login():
     anon = TestClient(app)
     response = anon.get("/comercial/data/pipeline-analytics-detail", follow_redirects=False)
