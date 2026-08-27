@@ -355,8 +355,13 @@ function resetState(patch) {
   // 23/24/25 se verifican del lado de pytest (archivos intactos).
   // Origen no agrega estado al workspace.
   const state = src.split("const commercialState = {", 2)[1].split("\n};", 2)[0];
-  for (const banned of ["origin", "origen", "selectedOrigin", "originOpenedBy"]) {
-    assertTrue(!state.toLowerCase().includes(banned), `el estado no gana \`${banned}\``);
+  // `\b` antes de "origin"/"origen" — la palabra como IDENTIFICADOR propio,
+  // no como substring embebido en otro campo ya legítimo (owner corrective
+  // de Conversión de Leads, ver HANDOFF §4, agregó
+  // `leadConversionOrigenFilter` — "origen" de atribución UTM, NUNCA el
+  // "origen" de Origin/C8 que esta guarda vigila).
+  for (const banned of [/\borigin/i, /\borigen/i, /selectedOrigin/i, /originOpenedBy/i]) {
+    assertTrue(!banned.test(state), `el estado no gana \`${banned}\``);
   }
 
   // 26: el Funnel sigue saliendo del MISMO subset analítico.

@@ -1341,17 +1341,23 @@ def test_pipeline_analytics_detail_path_is_fail_soft_on_transport_and_config():
 # "Conversión de Leads" — detalle (`get_lead_conversion_detail`,
 # `GET /comercial/data/lead-conversion-detail`, ver HANDOFF). Fixture propia,
 # no-degenerada: cubre las CUATRO poblaciones de convertidas (Prospecto/
-# Activa/Ganada/Perdida) + still_lead/lost_lead, y un caso boundary
-# deliberado — "Eta" tiene probability=100 pero su etapa NO es `is_won`, para
-# probar que "Ganada" usa la regla YA cerrada de Ganadas/Perdidas
-# (`stage_id.is_won`), nunca `probability==100` (la clasificación propia,
-# distinta, del legacy).
+# Activa/Ganada/Perdida) + still_lead/lost_lead, el boundary truth table del
+# owner corrective A-E (ver HANDOFF §1/§3), y atribución UTM no-degenerada
+# (DOS campañas, un medio compartido entre combinaciones, VARIOS orígenes,
+# resultados/empresas distintos, atribución nula).
+#
+# OWNER DECISION (corrective post-trust-audit): "Ganada"/"Perdida"/
+# "Archivada"/"Activa" usan la regla PROPIA del legacy `/lead-conversion`
+# (`probability==100` / `active=False+probability=0` / `active=False` /
+# resto) — NUNCA `stage_id.is_won`. Por eso la fixture incluye una etapa
+# `is_won=True` (id 4) que NINGÚN outcome debe usar como criterio — sirve
+# ÚNICAMENTE para el boundary B.
 # ============================================================================
 
 LC_STAGES = [
     {"id": 1, "name": "0 Prospección"},
     {"id": 2, "name": "1 Contacto"},
-    {"id": 4, "name": "Ganado", "is_won": True},
+    {"id": 4, "name": "Ganado", "is_won": True},  # is_won=True — NUNCA debe decidir "Ganada" acá
     {"id": 6, "name": "Lead"},
 ]
 
@@ -1362,31 +1368,50 @@ LC_LEADS = [
     # Lead archivado — "lost_lead".
     {"id": 21, "type": "lead", "active": False, "partner_id": [71, "Beta"], "stage_id": 6,
      "tag_ids": [], "probability": 0},
-    # Convertida, sigue en etapa 0 — bucket "prospect".
+    # Convertida, sigue en etapa 0 — bucket "prospect" SIEMPRE gana, pase lo
+    # que pase con outcome (acá probability=10 → sería "Activa" de no ser
+    # por la etapa). Atribución: Campaña A / Organic / Direct.
     {"id": 22, "type": "opportunity", "active": True, "partner_id": [72, "Gamma"], "stage_id": 1,
-     "tag_ids": [], "probability": 10},
-    # Convertida, activa en 1-8 — bucket "opp".
+     "tag_ids": [], "probability": 10,
+     "campaign_id": [1, "Campaign A"], "medium_id": [12, "Organic"], "source_id": [103, "Direct"]},
+    # Boundary A — probability=100, etapa NO is_won -> Ganada -> bucket won.
+    # Atribución: Campaña A / Email / Google Ads.
     {"id": 23, "type": "opportunity", "active": True, "partner_id": [73, "Delta"], "stage_id": 2,
-     "tag_ids": [], "probability": 40},
-    # Convertida, etapa is_won=True — bucket "won" (LA regla, no probability).
+     "tag_ids": [], "probability": 100,
+     "campaign_id": [1, "Campaign A"], "medium_id": [10, "Email"], "source_id": [100, "Google Ads"]},
+    # Boundary B — probability<100, etapa SÍ is_won -> Activa (NUNCA Ganada)
+    # -> bucket opp. Atribución: Campaña A / Email / Facebook Ads (MISMO
+    # medio que Delta, origen distinto — prueba que un medio agrupa varios
+    # orígenes).
     {"id": 24, "type": "opportunity", "active": True, "partner_id": [74, "Epsilon"], "stage_id": 4,
-     "tag_ids": [], "probability": 100},
-    # Convertida, archivada + probability 0 — bucket "lost_opp".
+     "tag_ids": [], "probability": 40,
+     "campaign_id": [1, "Campaign A"], "medium_id": [10, "Email"], "source_id": [101, "Facebook Ads"]},
+    # Boundary C — active=False, probability=0 -> Perdida -> bucket lost.
+    # Atribución: Campaña B / Social / Google Ads (MISMO origen que Delta,
+    # bajo otra campaña — prueba que un origen se repite entre campañas).
     {"id": 25, "type": "opportunity", "active": False, "partner_id": [75, "Zeta"], "stage_id": 2,
-     "tag_ids": [], "probability": 0},
-    # Convertida, probability=100 pero etapa NO es_won — bucket "opp", NUNCA
-    # "won" (el boundary que prueba la regla real).
-    {"id": 26, "type": "opportunity", "active": True, "partner_id": [76, "Eta"], "stage_id": 2,
-     "tag_ids": [], "probability": 100},
+     "tag_ids": [], "probability": 0,
+     "campaign_id": [2, "Campaign B"], "medium_id": [11, "Social"], "source_id": [100, "Google Ads"]},
+    # Boundary D — active=False, 0<probability<100 -> Archivada -> bucket
+    # opp (MISMO bucket que Activa — el legacy nunca le dio uno propio).
+    # Atribución NULA (campaign/medium/source ausentes).
+    {"id": 26, "type": "opportunity", "active": False, "partner_id": [76, "Eta"], "stage_id": 2,
+     "tag_ids": [], "probability": 40,
+     "campaign_id": False, "medium_id": False, "source_id": False},
+    # Boundary E — active=True, probability<100 -> Activa -> bucket opp.
+    # Atribución: Campaña B / Social / LinkedIn.
+    {"id": 27, "type": "opportunity", "active": True, "partner_id": [77, "Theta"], "stage_id": 2,
+     "tag_ids": [], "probability": 20,
+     "campaign_id": [2, "Campaign B"], "medium_id": [11, "Social"], "source_id": [102, "LinkedIn"]},
 ]
 
 LC_MESSAGES = [
     {"id": 900 + i, "res_id": oid, "date": f"2026-01-0{i + 1}", "tracked_field": "type", "model": "crm.lead"}
-    for i, oid in enumerate([22, 23, 24, 25, 26])
+    for i, oid in enumerate([22, 23, 24, 25, 26, 27])
 ]
 LC_TRACKING = [
     {"mail_message_id": 900 + i, "field": "type", "old_value_char": "Lead", "new_value_char": "Oportunidad"}
-    for i in range(5)
+    for i in range(6)
 ]
 
 
@@ -1395,25 +1420,42 @@ def _lead_conversion_detail_client(**kwargs):
                           messages=LC_MESSAGES, tracking=LC_TRACKING, **kwargs)
 
 
+def test_lead_conversion_detail_outcome_truth_table_matches_legacy_not_is_won():
+    # Owner §1/§3 — las CINCO fixtures boundary, exactas.
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    by_client = {r["client"]: r["outcome"] for bucket in ("prospect", "opp", "won", "lost_opp")
+                 for r in detail[bucket]["opportunities"]}
+    assert by_client["Delta"] == "Ganada"      # A: probability=100, etapa NO is_won
+    assert by_client["Epsilon"] == "Activa"    # B: probability<100, etapa SÍ is_won -> NUNCA Ganada
+    assert by_client["Zeta"] == "Perdida"      # C: active=False, probability=0
+    assert by_client["Eta"] == "Archivada"     # D: active=False, 0<probability<100
+    assert by_client["Theta"] == "Activa"      # E: active=True, probability<100
+    svc_module.clear_cache()
+
+
 def test_lead_conversion_detail_buckets_partition_the_converted_universe():
     svc_module.clear_cache()
     detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
     assert [r["client"] for r in detail["prospect"]["opportunities"]] == ["Gamma"]
-    assert {r["client"] for r in detail["opp"]["opportunities"]} == {"Delta", "Eta"}
-    assert [r["client"] for r in detail["won"]["opportunities"]] == ["Epsilon"]
+    assert [r["client"] for r in detail["won"]["opportunities"]] == ["Delta"]
     assert [r["client"] for r in detail["lost_opp"]["opportunities"]] == ["Zeta"]
+    # "opp" agrupa Activa Y Archivada — MISMO bucket que `conv_to_opp` en el
+    # legacy (Archivada nunca tuvo lista propia ahí).
+    assert {r["client"] for r in detail["opp"]["opportunities"]} == {"Epsilon", "Eta", "Theta"}
     svc_module.clear_cache()
 
 
-def test_lead_conversion_detail_won_uses_is_won_stage_not_probability_100():
-    # El boundary: "Eta" (probability=100, etapa "1 Contacto" NO is_won)
-    # NUNCA debe caer en "won" — MISMA regla que el tile Ganadas (ver
-    # HANDOFF), no la clasificación propia del legacy.
+def test_lead_conversion_detail_prospect_stage_always_wins_the_bucket():
+    # Owner §1 — el ruteo a bucket prioriza la etapa 0 SIEMPRE, sea cual sea
+    # el outcome calculado (quirk real del legacy, preservado a propósito).
     svc_module.clear_cache()
-    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
-    won_clients = {r["client"] for r in detail["won"]["opportunities"]}
-    assert "Eta" not in won_clients
-    assert won_clients == {"Epsilon"}  # SÓLO la etapa is_won=True
+    client = _lead_conversion_detail_client()
+    # "Gamma" (probability=10, etapa 0) cae en "prospect" pese a que su
+    # propio outcome (Activa) NO sería "Prospecto" fuera de esa etapa.
+    detail = CommercialService(client).get_lead_conversion_detail("todos")
+    gamma = next(r for r in detail["prospect"]["opportunities"] if r["client"] == "Gamma")
+    assert gamma["outcome"] == "Prospecto"  # decisión de UI propia — ver HANDOFF
     svc_module.clear_cache()
 
 
@@ -1426,10 +1468,11 @@ def test_lead_conversion_detail_still_lead_and_lost_lead_split_by_active():
 
 
 def test_lead_conversion_detail_conserves_companies_and_rates_from_the_headline():
-    # Owner §13 — conservación: `companies`/`any_conv`/`adv_opp` deben
-    # coincidir EXACTO con el titular EAGER (`_build_lead_conversion`,
-    # dentro de `get_analytics`) — por construcción, Prospecto∪Activa∪
-    # Ganada∪Perdida es la MISMA partición que ya usan any_conv/adv_opp ahí.
+    # Owner §2 — la corrective SÓLO cambia la clasificación de outcome del
+    # detalle NUEVO; `companies`/`any_conv`/`adv_opp` del titular EAGER
+    # (`_build_lead_conversion`, sin tocar) deben seguir coincidiendo EXACTO
+    # — ambos salen de la MISMA partición por etapa (`sid not in
+    # prospect_ids`), que el fix de outcome nunca alteró.
     svc_module.clear_cache()
     service = CommercialService(_lead_conversion_detail_client())
     headline = service.get_analytics("todos")["lead_conversion"]
@@ -1439,6 +1482,81 @@ def test_lead_conversion_detail_conserves_companies_and_rates_from_the_headline(
     assert detail["any_conv"]["rate"] == headline["rate_any_conv"]
     assert detail["adv_opp"]["companies"] == headline["adv_opp"]
     assert detail["adv_opp"]["rate"] == headline["rate_adv_opp"]
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_attribution_hierarchy_is_campana_medio_origen():
+    # Owner §4/§9/§13 — jerarquía completa + conservación: la suma de los
+    # conteos de las hojas (Origen) es EXACTO el total de filas convertidas
+    # con atribución (las 4 poblaciones: prospect+opp+won+lost, 6 acá),
+    # nunca duplicando ni perdiendo una fila.
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    tree = {ca["campana"]: ca for ca in detail["attribution"]}
+    assert set(tree) == {"Campaign A", "Campaign B", "Sin campaña"}
+    assert tree["Campaign A"]["count"] == 3  # Gamma + Delta + Epsilon
+    assert tree["Campaign B"]["count"] == 2  # Zeta + Theta
+    assert tree["Sin campaña"]["count"] == 1  # Eta, atribución nula
+
+    email = next(m for m in tree["Campaign A"]["medios"] if m["medio"] == "Email")
+    assert email["count"] == 2  # Delta + Epsilon COMPARTEN el medio
+    origenes = {o["origen"]: o["count"] for o in email["origenes"]}
+    assert origenes == {"Google Ads": 1, "Facebook Ads": 1}
+
+    social = next(m for m in tree["Campaign B"]["medios"] if m["medio"] == "Social")
+    origenes_b = {o["origen"]: o["count"] for o in social["origenes"]}
+    assert origenes_b == {"Google Ads": 1, "LinkedIn": 1}  # "Google Ads" se repite entre campañas
+
+    sin_campana = tree["Sin campaña"]["medios"][0]
+    assert sin_campana["medio"] == "Sin medio"
+    assert sin_campana["origenes"] == [{"origen": "Sin origen", "count": 1}]
+
+    # Conservación: suma de hojas == suma de campañas == total de filas
+    # convertidas (prospect+opp+won+lost_opp).
+    leaf_total = sum(o["count"] for ca in detail["attribution"] for m in ca["medios"] for o in m["origenes"])
+    campana_total = sum(ca["count"] for ca in detail["attribution"])
+    rows_total = sum(len(detail[b]["opportunities"]) for b in ("prospect", "opp", "won", "lost_opp"))
+    assert leaf_total == campana_total == rows_total == 6
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_rows_carry_raw_attribution_never_the_placeholder():
+    # El placeholder ("Sin campaña"/...) es SÓLO de la agregación — la fila
+    # cruda guarda "" si falta, MISMO criterio que el legacy (`_fmt`/`rec`
+    # nunca escriben el placeholder, sólo `utm_hierarchy` al agrupar).
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    eta = next(r for r in detail["opp"]["opportunities"] if r["client"] == "Eta")
+    assert eta["campana"] == "" and eta["medio"] == "" and eta["origen"] == ""
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_attribution_excludes_still_lead_and_lost_lead():
+    # El árbol se arma SOLO de las convertidas (`all_conv` en el legacy) —
+    # nunca de still_lead/lost_lead, que ni siquiera tienen `convert_date`.
+    svc_module.clear_cache()
+    detail = CommercialService(_lead_conversion_detail_client()).get_lead_conversion_detail("todos")
+    leaf_total = sum(o["count"] for ca in detail["attribution"] for m in ca["medios"] for o in m["origenes"])
+    assert leaf_total == 6  # NUNCA 6 + still_lead(1) + lost_lead(1) = 8
+    svc_module.clear_cache()
+
+
+def test_lead_conversion_detail_no_extra_odoo_calls_for_attribution_fields():
+    # Owner §7 — `campaign_id`/`medium_id`/`source_id` viajan en los MISMOS
+    # `search_read` ya existentes (leads/stuck/converted) — CERO consultas
+    # adicionales por la atribución.
+    svc_module.clear_cache()
+    client = _lead_conversion_detail_client()
+    CommercialService(client).get_lead_conversion_detail("todos")
+    lead_calls = [c for c in client.calls if c[0] == "crm.lead"]
+    # 2 llamadas: `leads` (type=lead) + `converted` (id in [...]) — `stuck`
+    # se salta porque `lead_stage_ids` sólo tiene la etapa "Lead" y ninguna
+    # opportunity vive ahí en esta fixture, así que ni siquiera dispara.
+    assert len(lead_calls) >= 2
+    for call in lead_calls:
+        assert "campaign_id" in (call[2] or []), call
+        assert "medium_id" in (call[2] or []), call
+        assert "source_id" in (call[2] or []), call
     svc_module.clear_cache()
 
 

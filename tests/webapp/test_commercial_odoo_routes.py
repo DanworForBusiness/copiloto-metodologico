@@ -272,8 +272,16 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # ordenable (Edad/Tiempo de cierre/Estancadas/Conversión de leads —
     # Tiempo por etapa/Conversión etapa a etapa son ranking `.bar-row`, sin
     # host de re-render quirúrgico propio).
+    # Owner corrective — paridad de atribución de Conversión de Leads (ver
+    # HANDOFF §4/§5/§11) agrega DOS más: `[data-commercial-lead-conversion-
+    # table]`, dos veces adicionales — una por el delegado de las CUATRO
+    # facetas de `<select>` (Campaña/Medio/Origen/Vendedor, un solo
+    # listener, un solo host) y otra por el delegado de Buscar (`input`) —
+    # MISMO host que ya tocan el sort y Limpiar (vía re-render completo),
+    # nunca la barra de filtros (ningún control de Conversión de Leads
+    # regenera su propio `<select>`/`<input>`, así que ninguno pierde foco).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cuarenta y dos hooks y nada más.
+    # EXACTAMENTE estos cuarenta y cuatro hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -314,9 +322,11 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-suspendidas-table]"',
+        '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
+        '"[data-commercial-lead-conversion-table]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
@@ -2205,18 +2215,35 @@ def test_commercial_set_tipo_invalidates_pipeline_analytics_and_lead_conversion_
     assert 'commercialState.leadConversionDetailStatus = "idle";' in tipo_fn
 
 
-def test_pipeline_analytics_and_lead_conversion_never_get_unrelated_filter_dimensions():
-    # Owner §9 — sólo Tipo (global) + orden de columna donde corresponde;
-    # nada de Cliente/Vendedor/Buscar/selector de año/segundo grupo de
-    # breakdown para estas seis sub-vistas — ninguna de las seis lo pidió.
+def test_the_five_untouched_pipeline_tiles_never_get_unrelated_filter_dimensions():
+    # Owner §18 (corrective) — las CINCO sub-vistas de Pipeline Analytics
+    # QUE NO CAMBIARON en este corrective (Edad/Tiempo por etapa/Conversión
+    # etapa a etapa/Tiempo de cierre/Estancadas) siguen sin Cliente/
+    # Vendedor/Buscar/selector de año propios — sólo Tipo (global) + orden
+    # de columna donde corresponde. Lead Conversion es la ÚNICA excepción
+    # (ver test de abajo — ganó las cinco facetas del legacy a propósito).
     for banned in (
         "data-commercial-pipeline-age-seller", "data-commercial-pipeline-age-search",
         "data-commercial-close-time-seller", "data-commercial-stagnant-seller",
-        "data-commercial-lead-conversion-search", "data-commercial-lead-conversion-seller",
-        "data-commercial-lead-conversion-client", "data-commercial-lead-conversion-year",
         "data-commercial-pipeline-age-year", "data-commercial-stage-time-seller",
         "data-commercial-stage-conversion-seller",
     ):
+        assert banned not in _COMMERCIAL_JS, banned
+
+
+def test_lead_conversion_gets_exactly_the_five_recovered_legacy_facets():
+    # Owner corrective (§4/§5/§11, ver HANDOFF) — Lead Conversion recuperó
+    # las CINCO facetas/búsqueda EXACTAS del legacy `_filterLeadConvTable`
+    # (Buscar + Campaña + Medio + Origen + Vendedor) — nunca Cliente ni un
+    # selector de Año, que el legacy tampoco tiene ahí.
+    filters_fn = _COMMERCIAL_JS.split("function commercialLeadConversionFiltersHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in (
+        "data-commercial-lead-conversion-search", "data-commercial-lead-conversion-campana-filter",
+        "data-commercial-lead-conversion-medio-filter", "data-commercial-lead-conversion-origen-filter",
+        "data-commercial-lead-conversion-seller-filter", "data-commercial-lead-conversion-clear",
+    ):
+        assert expected in filters_fn, expected
+    for banned in ("data-commercial-lead-conversion-client", "data-commercial-lead-conversion-year"):
         assert banned not in _COMMERCIAL_JS, banned
 
 
@@ -2228,6 +2255,11 @@ def test_pipeline_analytics_and_lead_conversion_sort_interactions_never_refetch(
         "commercialToggleLeadConversionSort", "commercialLeadConversionTableHtml",
         "commercialStageTimeBlockHtml", "commercialStageConversionBlockHtml",
         "commercialRenderPipelineAnalyticsPanels", "commercialRenderLeadConversionPanel",
+        # Owner corrective — atribución/facetas de Lead Conversion (ver
+        # HANDOFF §11): TODAS locales, cero red.
+        "commercialLeadConversionFilteredRows", "commercialLeadConversionAllRows",
+        "commercialLeadConversionFilterOptions", "commercialLeadConversionFiltersHtml",
+        "commercialLeadConversionClearFilters", "commercialLeadConversionAttributionHtml",
     ):
         body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
         assert "fetch(" not in body, local_fn_name
@@ -2237,8 +2269,27 @@ def test_pipeline_analytics_and_lead_conversion_sort_interactions_never_refetch(
         "commercialToggleCloseTimeSort(closeTimeSortTh.dataset.commercialCloseTimeSort);",
         "commercialToggleStagnantSort(stagnantSortTh.dataset.commercialStagnantSort);",
         "commercialToggleLeadConversionSort(leadConversionSortTh.dataset.commercialLeadConversionSort);",
+        "commercialLeadConversionClearFilters();",
+        "commercialState.leadConversionCampanaFilter = campanaSelect.value;",
+        "commercialState.leadConversionSearchText = search.value;",
     ):
         assert marker in boot, marker
+
+
+def test_lead_conversion_filters_compose_with_and_exact_match_and_full_row_search():
+    # Owner §11/§12 — MISMA composición que el legacy `_filterLeadConvTable`:
+    # las CUATRO facetas de `<select>` son AND + comparación EXACTA
+    # (`!==`), Buscar es substring sobre TODOS los campos de la fila.
+    fn = _COMMERCIAL_JS.split("function commercialLeadConversionFilteredRows(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fCampana && r.campana !== fCampana" in fn
+    assert "fMedio && r.medio !== fMedio" in fn
+    assert "fOrigen && r.origen !== fOrigen" in fn
+    assert "fSeller && r.seller !== fSeller" in fn
+    assert "Object.values(r)" in fn  # búsqueda sobre TODOS los campos, no una lista fija
+    # Composición AND: cada faceta (4) + la búsqueda (1) es un
+    # `if (...) return false;` propio (early-return) — nunca un único `||`
+    # que las combine como OR.
+    assert fn.count("return false;") == 5
 
 
 def test_pipeline_analytics_detail_never_writes_and_reads_only_known_models():

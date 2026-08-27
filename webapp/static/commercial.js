@@ -279,6 +279,14 @@ const commercialState = {
   leadConversionDetailErrorState: "",
   leadConversionSortKey: null,
   leadConversionSortDir: 1,
+  // Atribución UTM (owner corrective post-trust-audit, ver HANDOFF §4/§5):
+  // CINCO facetas locales, MISMA composición AND que el legacy
+  // `_filterLeadConvTable`.
+  leadConversionCampanaFilter: "",
+  leadConversionMedioFilter: "",
+  leadConversionOrigenFilter: "",
+  leadConversionSellerFilter: "",
+  leadConversionSearchText: "",
 };
 
 function commercialEsc(value) {
@@ -3254,28 +3262,59 @@ function commercialStagnantCountLabel() {
 // ── "Conversión de Leads" — detalle (ver HANDOFF) ────────────────────────
 // Universo TOTALMENTE distinto (crm.lead type=lead + historial de `type`) —
 // endpoint propio, LAZY, nunca comparte fetch con las cinco de arriba.
-// Alcance ACOTADO respecto del legacy (sin árbol UTM/atribución de
-// marketing — ver HANDOFF, brecha intencional documentada): recap de las
-// seis poblaciones + UNA tabla combinada de las cuatro convertidas
-// (Prospecto/Activa/Ganada/Perdida), reusando el MISMO primitivo de tabla.
-const COMMERCIAL_LEAD_CONV_OUTCOME = {
-  prospect: { label: "Prospecto", color: "grey" },
-  opp: { label: "Activa", color: "amber" },
-  won: { label: "Ganada", color: "green" },
-  lost_opp: { label: "Perdida", color: "red" },
+//
+// Owner corrective (post-trust-audit, ver HANDOFF): completa la paridad de
+// atribución (Campaña→Medio→Origen) + las CINCO facetas/búsqueda del
+// legacy sobre el MISMO endpoint (`/comercial/data/lead-conversion-detail`
+// enriquecido, NUNCA un segundo endpoint) — la tabla combinada de las
+// cuatro convertidas sigue siendo UNA sola (decisión de UI propia de este
+// batch: el legacy usa seis pestañas separadas, acá se prefirió una tabla
+// con columna "Resultado" — MISMA información, forma distinta, ver
+// HANDOFF), pero ahora sortea/filtra sobre la MISMA fila que ya trae
+// `outcome`/`campana`/`medio`/`origen` del backend — un solo dataset
+// canónico, sin una segunda copia filtrada en paralelo.
+const COMMERCIAL_LEAD_CONV_OUTCOME_COLOR = {
+  Prospecto: "grey", Activa: "amber", Ganada: "green", Perdida: "red", Archivada: "grey",
 };
 function commercialLeadConversionAllRows() {
   const d = commercialState.leadConversionDetail;
   if (!d) return [];
-  return Object.keys(COMMERCIAL_LEAD_CONV_OUTCOME).flatMap(bucket =>
-    (d[bucket].opportunities || []).map(o => ({ ...o, outcome: bucket })));
+  return ["prospect", "opp", "won", "lost_opp"].flatMap(bucket => d[bucket].opportunities || []);
+}
+// Facetas — MISMA composición AND y MISMO scope de búsqueda (todos los
+// campos de la fila) que el legacy `_filterLeadConvTable`. Las opciones de
+// cada `<select>` se derivan de TODAS las filas (no facetadas entre sí — a
+// diferencia de Perdidas, acá no hay ranking/desglose cuyo eje propio haya
+// que ignorar, así que no aplica "avoid self-filter collapse").
+function commercialLeadConversionFilterOptions(rows, key) {
+  return [...new Set(rows.map(r => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+function commercialLeadConversionFilteredRows() {
+  const all = commercialLeadConversionAllRows();
+  const { leadConversionCampanaFilter: fCampana, leadConversionMedioFilter: fMedio,
+          leadConversionOrigenFilter: fOrigen, leadConversionSellerFilter: fSeller } = commercialState;
+  const search = (commercialState.leadConversionSearchText || "").toLowerCase().trim();
+  return all.filter(r => {
+    if (fCampana && r.campana !== fCampana) return false;
+    if (fMedio && r.medio !== fMedio) return false;
+    if (fOrigen && r.origen !== fOrigen) return false;
+    if (fSeller && r.seller !== fSeller) return false;
+    if (search) {
+      const hay = Object.values(r).map(v => String(v ?? "").toLowerCase()).join(" ");
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
 }
 const COMMERCIAL_LEAD_CONV_SORT_KEYS = {
   opportunity: o => (o.opportunity || "").toLowerCase(),
   client: o => (o.client || "").toLowerCase(),
   seller: o => (o.seller || "").toLowerCase(),
   stage: o => (o.stage || "").toLowerCase(),
-  outcome: o => COMMERCIAL_LEAD_CONV_OUTCOME[o.outcome].label,
+  campana: o => (o.campana || "").toLowerCase(),
+  medio: o => (o.medio || "").toLowerCase(),
+  origen: o => (o.origen || "").toLowerCase(),
+  outcome: o => o.outcome || "",
   convert_date: o => o.convert_date || "",
 };
 function commercialLeadConversionSorted(rows) {
@@ -3293,9 +3332,49 @@ function commercialToggleLeadConversionSort(key) {
   if (commercialState.leadConversionSortKey === key) commercialState.leadConversionSortDir *= -1;
   else { commercialState.leadConversionSortKey = key; commercialState.leadConversionSortDir = 1; }
 }
+function commercialLeadConversionClearFilters() {
+  commercialState.leadConversionCampanaFilter = "";
+  commercialState.leadConversionMedioFilter = "";
+  commercialState.leadConversionOrigenFilter = "";
+  commercialState.leadConversionSellerFilter = "";
+  commercialState.leadConversionSearchText = "";
+  commercialRenderLeadConversionPanel();
+}
+function commercialLeadConversionFiltersHtml() {
+  const all = commercialLeadConversionAllRows();
+  const opt = (key, current, allLabel) => {
+    const values = commercialLeadConversionFilterOptions(all, key);
+    return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
+      values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
+  };
+  return `<div class="whatsnew-filters" data-commercial-lead-conversion-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-lead-conversion-search aria-label="Buscar en conversión de leads"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.leadConversionSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Campaña</span>
+        <select data-commercial-lead-conversion-campana-filter>${opt("campana", commercialState.leadConversionCampanaFilter, "Todas")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Medio</span>
+        <select data-commercial-lead-conversion-medio-filter>${opt("medio", commercialState.leadConversionMedioFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Origen</span>
+        <select data-commercial-lead-conversion-origen-filter>${opt("origen", commercialState.leadConversionOrigenFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-lead-conversion-seller-filter>${opt("seller", commercialState.leadConversionSellerFilter, "Todos")}</select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-lead-conversion-clear>✕ Limpiar</button>
+    </div>`;
+}
 function commercialLeadConversionTableHtml(rows) {
   if (!rows.length) {
-    return commercialEmptyStateHtml("Sin resultados", "No hay leads convertidos para este segmento.");
+    return commercialEmptyStateHtml("Sin resultados", "Ningún lead convertido coincide con este filtro.");
   }
   const sorted = commercialLeadConversionSorted(rows);
   const th = (key, label, cls = "") => {
@@ -3305,24 +3384,65 @@ function commercialLeadConversionTableHtml(rows) {
     return `<th class="${classes}" data-commercial-lead-conversion-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
   };
   const rowsHtml = sorted.map(o => {
-    const outcome = COMMERCIAL_LEAD_CONV_OUTCOME[o.outcome];
+    const color = COMMERCIAL_LEAD_CONV_OUTCOME_COLOR[o.outcome] || "grey";
     return `
     <tr>
       <td class="row-label">${commercialEsc(o.opportunity)}</td>
       <td class="left">${commercialEsc(o.client)}</td>
       <td class="left">${commercialEsc(o.seller)}</td>
       <td class="left">${commercialEsc(o.stage)}</td>
-      <td><span class="dashboard-status-badge dashboard-status-badge--${outcome.color}">${outcome.label}</span></td>
+      <td class="left">${commercialEsc(o.campana) || "—"}</td>
+      <td class="left">${commercialEsc(o.medio) || "—"}</td>
+      <td class="left">${commercialEsc(o.origen) || "—"}</td>
+      <td><span class="dashboard-status-badge dashboard-status-badge--${color}">${commercialEsc(o.outcome)}</span></td>
       <td>${commercialFmtDate(o.convert_date)}</td>
     </tr>`;
   }).join("");
   return `<div class="matrix-scroll"><table class="dashboard-table">
-    <colgroup><col style="width:22%"><col style="width:18%"><col style="width:16%">
-      <col style="width:16%"><col style="width:14%"><col style="width:14%"></colgroup>
+    <colgroup><col style="width:16%"><col style="width:13%"><col style="width:11%">
+      <col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:10%">
+      <col style="width:9%"><col style="width:9%"></colgroup>
     <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente")}${th("seller", "Vendedor")}
-      ${th("stage", "Etapa")}${th("outcome", "Resultado")}${th("convert_date", "Convertido el")}</tr></thead>
+      ${th("stage", "Etapa")}${th("campana", "Campaña")}${th("medio", "Medio")}${th("origen", "Origen")}
+      ${th("outcome", "Resultado")}${th("convert_date", "Convertido el")}</tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table></div>`;
+}
+// Jerarquía de atribución Campaña→Medio→Origen (owner §4/§9/§13): MISMO
+// primitivo `.bar-row` que el resto de Comercial (nunca un árbol/canvas
+// nuevo) — tres niveles anidados vía indentación, la barra de cada nodo
+// escalada contra el máximo de SUS hermanos (no contra el total global,
+// así cada nivel se lee por su propia proporción). La medida es el conteo
+// CRUDO por nodo — MISMA que el legacy (sin empresas/%, que el legacy
+// tampoco muestra a este nivel).
+function commercialLeadConversionAttributionHtml(tree) {
+  if (!tree.length) return "";
+  const maxCa = Math.max(1, ...tree.map(ca => ca.count));
+  const rows = tree.map(ca => {
+    const maxMe = Math.max(1, ...ca.medios.map(me => me.count));
+    const medioRows = ca.medios.map(me => {
+      const maxOr = Math.max(1, ...me.origenes.map(o => o.count));
+      const origenRows = me.origenes.map(o => `
+        <div class="bar-row" style="margin-left:36px">
+          <span class="bar-label">${commercialEsc(o.origen)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${(o.count / maxOr * 100).toFixed(1)}%"></div></div>
+          <span class="bar-value">${commercialFmtInt(o.count)}</span>
+        </div>`).join("");
+      return `
+        <div class="bar-row" style="margin-left:18px">
+          <span class="bar-label">${commercialEsc(me.medio)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${(me.count / maxMe * 100).toFixed(1)}%"></div></div>
+          <span class="bar-value">${commercialFmtInt(me.count)}</span>
+        </div>${origenRows}`;
+    }).join("");
+    return `
+      <div class="bar-row">
+        <span class="bar-label">${commercialEsc(ca.campana)}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${(ca.count / maxCa * 100).toFixed(1)}%"></div></div>
+        <span class="bar-value">${commercialFmtInt(ca.count)}</span>
+      </div>${medioRows}`;
+  }).join("");
+  return `<p class="perspective-label">Atribución — Campaña → Medio → Origen</p>${rows}`;
 }
 function commercialLeadConversionAnalysisHtml() {
   const d = commercialState.leadConversionDetail;
@@ -3333,7 +3453,9 @@ function commercialLeadConversionAnalysisHtml() {
     ["Avanzó a oportunidad", `${commercialFmtInt(d.adv_opp.companies)} (${commercialFmtPercent(d.adv_opp.rate)})`],
   ];
   return `${commercialKpiPairsHtml(pairs)}
-    <div data-commercial-lead-conversion-table>${commercialLeadConversionTableHtml(commercialLeadConversionAllRows())}</div>`;
+    ${commercialLeadConversionAttributionHtml(d.attribution || [])}
+    ${commercialLeadConversionFiltersHtml()}
+    <div data-commercial-lead-conversion-table>${commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows())}</div>`;
 }
 function commercialLeadConversionPanelBodyHtml() {
   if (commercialState.leadConversionDetailStatus === "error") {
@@ -5298,6 +5420,11 @@ function commercialSetTipo(tipo) {
   commercialState.leadConversionDetail = null;
   commercialState.leadConversionDetailStatus = "idle";
   commercialState.leadConversionDetailErrorState = "";
+  commercialState.leadConversionCampanaFilter = "";
+  commercialState.leadConversionMedioFilter = "";
+  commercialState.leadConversionOrigenFilter = "";
+  commercialState.leadConversionSellerFilter = "";
+  commercialState.leadConversionSearchText = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -5707,13 +5834,22 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialStagnantBlockHtml(rows);
       return;
     }
-    // Conversión de Leads — orden de columna de la tabla combinada de las
-    // cuatro convertidas: re-render QUIRÚRGICO, MISMO criterio.
+    // Conversión de Leads — orden de columna de la tabla combinada (YA
+    // filtrada por las cinco facetas): re-render QUIRÚRGICO, MISMO criterio.
     const leadConversionSortTh = event.target.closest("[data-commercial-lead-conversion-sort]");
     if (leadConversionSortTh) {
       commercialToggleLeadConversionSort(leadConversionSortTh.dataset.commercialLeadConversionSort);
       const host = root.querySelector("[data-commercial-lead-conversion-table]");
-      if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionAllRows());
+      if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows());
+      return;
+    }
+    // Conversión de Leads — "✕ Limpiar" (owner corrective, ver HANDOFF):
+    // resetea las CINCO facetas de una sola vez y re-renderiza el panel
+    // ENTERO (MISMO criterio que Perdidas — acá tampoco hay costo de foco,
+    // Limpiar nunca se clickea a mitad de tecleo).
+    const leadConversionClear = event.target.closest("[data-commercial-lead-conversion-clear]");
+    if (leadConversionClear) {
+      commercialLeadConversionClearFilters();
       return;
     }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
@@ -5901,6 +6037,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const host = root.querySelector("[data-commercial-suspendidas-table]");
     if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
   });
+  // Conversión de Leads (owner corrective, ver HANDOFF): las CUATRO
+  // facetas de `<select>` (Campaña/Medio/Origen/Vendedor) son filtros
+  // LOCALES sobre el payload ya cargado, MISMA composición AND que el
+  // legacy `_filterLeadConvTable`. Re-render QUIRÚRGICO de
+  // `[data-commercial-lead-conversion-table]` — nunca la barra de filtros,
+  // que perdería el valor recién elegido en el resto de los `<select>` si
+  // se regenerara. Listener SEPARADO, mismo motivo que los de arriba.
+  document.addEventListener("change", event => {
+    const campanaSelect = event.target.closest("[data-commercial-lead-conversion-campana-filter]");
+    const medioSelect = event.target.closest("[data-commercial-lead-conversion-medio-filter]");
+    const origenSelect = event.target.closest("[data-commercial-lead-conversion-origen-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-lead-conversion-seller-filter]");
+    if (!campanaSelect && !medioSelect && !origenSelect && !sellerSelect) return;
+    if (campanaSelect) commercialState.leadConversionCampanaFilter = campanaSelect.value;
+    if (medioSelect) commercialState.leadConversionMedioFilter = medioSelect.value;
+    if (origenSelect) commercialState.leadConversionOrigenFilter = origenSelect.value;
+    if (sellerSelect) commercialState.leadConversionSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-lead-conversion-table]");
+    if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows());
+  });
   // Filtros del Forecast (C6b, ver HANDOFF): Etapa/Vendedor son ANALÍTICOS —
   // el mismo universo filtrado alimenta el gráfico Y la tabla, igual que en
   // Activas y igual que el legacy, que re-agrupaba todo el bloque. Todo
@@ -6015,6 +6171,16 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialState.prospectsSearchText = search.value;
     const host = root.querySelector("[data-commercial-prospects-table]");
     if (host) host.innerHTML = commercialProspectsBlockHtml(commercialCurrentProspectsRows());
+  });
+  // Conversión de Leads — Buscar (owner corrective, ver HANDOFF): `input`,
+  // no `change` — MISMO criterio que Prospectos. SÓLO toca
+  // `[data-commercial-lead-conversion-table]`, nunca la barra de filtros.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-lead-conversion-search]");
+    if (!search) return;
+    commercialState.leadConversionSearchText = search.value;
+    const host = root.querySelector("[data-commercial-lead-conversion-table]");
+    if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows());
   });
   // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
   // motor compartido cablea su PROPIO `keydown` directo sobre el trigger

@@ -145,7 +145,7 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 42, queries   # + los 8 hooks de Analítica del Pipeline (ver HANDOFF)
+    assert len(queries) == 44, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads (ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1
@@ -165,8 +165,13 @@ def test_c8_adds_no_origin_drill_affordance():
                    'role="button"', "tabindex"):
         assert banned not in origin_html, banned
     state = code.split("const commercialState = {", 1)[1].split("\n};", 1)[0]
-    for banned in ("origin", "origen", "selectedOrigin", "originOpenedBy"):
-        assert banned not in state.lower(), banned
+    # `\b` antes de "origin"/"origen" — la palabra como IDENTIFICADOR
+    # propio, no como substring embebido en otro campo ya legítimo (owner
+    # corrective de Conversión de Leads, ver HANDOFF §4, agregó
+    # `leadConversionOrigenFilter` — "origen" de atribución UTM, NUNCA el
+    # "origen" de Origin/C8 que esta guarda vigila).
+    for banned in (r"\borigin", r"\borigen", "selectedOrigin", "originOpenedBy"):
+        assert not re.search(banned, state, re.IGNORECASE), banned
 
 
 def test_c8_left_backend_and_shared_engine_untouched():

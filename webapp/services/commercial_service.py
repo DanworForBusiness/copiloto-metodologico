@@ -1751,38 +1751,52 @@ class CommercialService:
     # comparte query con `_build_pipeline_analytics_detail`. Re-consulta el
     # MISMO universo que el titular EAGER (`_build_lead_conversion`, dentro
     # de `_build_analytics`) con más campos de presentación, y agrega el
-    # desglose completo por resultado (Prospecto/Activa/Ganada/Perdida —
-    # antes sólo existían "cualquier conversión"/"avanzó a oportunidad").
+    # desglose completo por resultado + la atribución UTM — antes sólo
+    # existían "cualquier conversión"/"avanzó a oportunidad".
     #
-    # "Ganada"/"Perdida" usan la MISMA regla YA cerrada que los tiles
-    # Ganadas/Perdidas (`stage_id.is_won` / `active=False + probability=0`)
-    # — NUNCA la clasificación propia del legacy (`probability==100`), que
-    # sería una TERCERA definición de "ganada" que Hub no usa en ningún otro
-    # lado (consume el contrato ya cerrado, no lo reinventa — ver HANDOFF).
-    # Por construcción, cada convertida cae en EXACTAMENTE un bucket
-    # (Prospecto si etapa 0; si no, Ganada/Perdida/Activa) — la unión
-    # Prospecto∪Activa∪Ganada∪Perdida es la MISMA partición que ya usan
-    # `any_conv`/`adv_opp` del titular (ver test de conservación).
+    # OWNER DECISION (corrective post-trust-audit, ver HANDOFF): "Ganada"/
+    # "Perdida"/"Archivada"/"Activa" usan la regla PROPIA del legacy
+    # `/lead-conversion` (`probability==100` / `active=False+probability=0`
+    # / `active=False` / resto) — NUNCA `stage_id.is_won` (el intento
+    # anterior, revertido). El legacy usa DOS definiciones de "ganada"
+    # distintas a propósito en dos features distintas (`/summary`'s
+    # Ganadas KPI = is_won; `/lead-conversion` = probability==100) — Lead
+    # Conversion preserva la SUYA, no la de Ganadas/Perdidas.
     #
-    # Alcance deliberadamente ACOTADO respecto del legacy `/lead-conversion`:
-    # ese endpoint también arma un árbol UTM completo (campaña→medio→origen,
-    # con gráficos por campaña) y un buscador con 5 facetas — una feature de
-    # atribución de marketing aparte, no "conversión de leads" en sí, y Hub
-    # ya tiene una vista de Origen (C8, dentro del análisis de Activas). Se
-    # documenta como brecha de paridad intencional (ver reporte final), no
-    # una omisión silenciosa.
+    # RUTEO A BUCKET — MISMA prioridad que legacy: la etapa 0 (Prospecto)
+    # SIEMPRE gana el bucket, sea cual sea el resultado calculado (incluso
+    # una convertida con probability=100 que sigue en etapa 0 cae en
+    # "prospect", no en "won" — quirk real del legacy, preservado a
+    # propósito). Fuera de eso, Ganada→"won", Perdida→"lost", Activa Y
+    # Archivada COMPARTEN el bucket "opp" (MISMO agrupamiento que
+    # `conv_to_opp` en el legacy — Archivada nunca tuvo bucket propio ahí).
+    # El campo `outcome` de cada fila SÍ distingue Activa de Archivada — es
+    # una etiqueta nueva de ESTA UI (el legacy no la muestra por fila, sólo
+    # por pestaña), así que "prospect" muestra `outcome="Prospecto"` para
+    # que la tabla combinada sea legible (decisión de UI propia, no
+    # reinterpretación del ruteo).
+    #
+    # ATRIBUCIÓN — Campaña→Medio→Origen (owner §4/§9): MISMOS campos que el
+    # legacy (`campaign_id`/`medium_id`/`source_id`, ya vienen con nombre
+    # resuelto en el many2one — CERO consultas extra), MISMO universo
+    # (`all_conv` — las CUATRO poblaciones convertidas, nunca still_lead/
+    # lost_lead), MISMA medida (conteo crudo por nodo, sin empresas/%), y
+    # MISMOS placeholders de ausencia ("Sin campaña"/"Sin medio"/"Sin
+    # origen") aplicados SÓLO al agregar — la fila cruda guarda "" si falta
+    # (MISMO criterio que el legacy: los selects de filtro excluyen los
+    # valores vacíos de sus opciones vía `.filter(Boolean)`, nunca ofrecen
+    # un "(Sin definir)" que el legacy tampoco ofrece).
     def _build_lead_conversion_detail(self) -> dict:
         nn_tag, bi_tag = self._nn_bi_tags()
         nn_id = nn_tag["id"] if nn_tag else None
         bi_id = bi_tag["id"] if bi_tag else None
 
-        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name", "is_won"])
+        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
         lead_stage_ids = [st["id"] for st in all_stages if (st.get("name") or "").strip().lower() == "lead"]
         prospect_ids = {st["id"] for st in all_stages if _stage_first_char(st) == "0"}
-        won_stage_ids = {st["id"] for st in all_stages if st.get("is_won")}
 
         fields = ["id", "name", "partner_id", "partner_name", "user_id", "stage_id", "active",
-                  "probability", "create_date", "tag_ids"]
+                  "probability", "create_date", "tag_ids", "campaign_id", "medium_id", "source_id"]
 
         leads = self._client.search_read(
             "crm.lead", domain=[["type", "=", "lead"], ["active", "in", [True, False]]], fields=fields
@@ -1833,29 +1847,68 @@ class CommercialService:
             partner = rec.get("partner_id")
             return (partner[0], partner[1]) if partner else (0, rec.get("partner_name") or "Sin empresa")
 
+        def _m2o_name(rec, field):
+            val = rec.get(field)
+            return val[1] if isinstance(val, (list, tuple)) else ""
+
         def _row(rec, extra=None) -> dict:
             row = {
                 "opportunity": rec.get("name") or "", "client": _co_key(rec)[1],
                 "seller": rec["user_id"][1] if rec.get("user_id") else "",
                 "create_date": rec.get("create_date"),
+                "campana": _m2o_name(rec, "campaign_id"),
+                "medio": _m2o_name(rec, "medium_id"),
+                "origen": _m2o_name(rec, "source_id"),
             }
             if extra:
                 row.update(extra)
             return row
 
-        def _classify(rec) -> str:
-            sid = rec["stage_id"][0] if isinstance(rec.get("stage_id"), (list, tuple)) else rec.get("stage_id")
+        # Regla PROPIA de Lead Conversion (owner decision) — legacy
+        # `get_lead_conversion`, `outcome = ...`. NUNCA is_won.
+        def _outcome(rec) -> str:
+            prob = rec.get("probability", 0) or 0
             active = rec.get("active", True)
+            if prob == 100:
+                return "Ganada"
+            if not active and prob == 0:
+                return "Perdida"
+            if not active:
+                return "Archivada"
+            return "Activa"
+
+        def _bucket_for(rec, outcome) -> str:
+            sid = rec["stage_id"][0] if isinstance(rec.get("stage_id"), (list, tuple)) else rec.get("stage_id")
             if sid in prospect_ids:
                 return "prospect"
-            if sid in won_stage_ids:
+            if outcome == "Ganada":
                 return "won"
-            if not active and (rec.get("probability", 0) or 0) == 0:
+            if outcome == "Perdida":
                 return "lost"
-            return "opp"
+            return "opp"  # Activa Y Archivada comparten bucket — MISMO que legacy conv_to_opp
 
         def _by(subset, tag_id):
             return [o for o in subset if self._in_tag(o, tag_id)]
+
+        def _attribution(rows: list) -> list:
+            tree: dict = {}
+            for r in rows:
+                ca = r["campana"] or "Sin campaña"
+                me = r["medio"] or "Sin medio"
+                orig = r["origen"] or "Sin origen"
+                tree.setdefault(ca, {}).setdefault(me, {}).setdefault(orig, 0)
+                tree[ca][me][orig] += 1
+            out = []
+            for ca, medios in sorted(tree.items(), key=lambda kv: -sum(sum(v.values()) for v in kv[1].values())):
+                ca_count = sum(sum(v.values()) for v in medios.values())
+                medio_list = []
+                for me, origs in sorted(medios.items(), key=lambda kv: -sum(kv[1].values())):
+                    me_count = sum(origs.values())
+                    origen_list = [{"origen": o, "count": c}
+                                   for o, c in sorted(origs.items(), key=lambda kv: -kv[1])]
+                    medio_list.append({"medio": me, "count": me_count, "origenes": origen_list})
+                out.append({"campana": ca, "count": ca_count, "medios": medio_list})
+            return out
 
         def _view(sub_leads, sub_stuck, sub_conv) -> dict:
             still_lead_recs = [r for r in sub_leads if r.get("active", True)]
@@ -1863,15 +1916,19 @@ class CommercialService:
 
             buckets: dict = {"prospect": [], "opp": [], "won": [], "lost": []}
             bucket_co: dict = {"prospect": set(), "opp": set(), "won": set(), "lost": set()}
+            all_conv_rows: list = []
             for rec in sub_conv:
-                b = _classify(rec)
+                outcome = _outcome(rec)
+                b = _bucket_for(rec, outcome)
                 stage_name = rec["stage_id"][1] if rec.get("stage_id") else ""
                 row = _row(rec, {
                     "stage": stage_name,
+                    "outcome": "Prospecto" if b == "prospect" else outcome,
                     "convert_date": (conversion_dates.get(rec["id"], "") or "")[:10] or None,
                 })
                 buckets[b].append(row)
                 bucket_co[b].add(_co_key(rec))
+                all_conv_rows.append(row)
 
             still_lead_rows = [_row(r) for r in still_lead_recs]
             lost_lead_rows = [_row(r) for r in lost_lead_recs]
@@ -1907,6 +1964,7 @@ class CommercialService:
                              "opportunities": buckets["lost"]},
                 "any_conv": {"companies": len(all_conv_co), "rate": pct(len(all_conv_co))},
                 "adv_opp": {"companies": len(adv_co), "rate": pct(len(adv_co))},
+                "attribution": _attribution(all_conv_rows),
             }
 
         return {
