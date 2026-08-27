@@ -1724,6 +1724,335 @@ def test_ganadas_kpi_and_drill_conserve_count_and_hours():
 
 
 # ============================================================================
+# Commercial Tile 7 — Detalle de Perdidas por año (`get_perdidas_detail`,
+# `GET /comercial/data/perdidas`). Universo: el MISMO que el KPI "Perdidas"
+# del summary — `type=opportunity, active=False, probability=0, date_closed`
+# CON HORA dentro del año pedido — MENOS las oportunidades cuyo motivo
+# resuelto es "cierre administrativo" (`_resolve_lost_motivos` +
+# `_filter_excluded_lost`, reusados LITERAL, nunca reimplementados). Una
+# Perdida NO es sólo "inactiva + probability 0": el motivo administrativo la
+# saca del universo de negocio aunque matchee el dominio crudo.
+# ============================================================================
+
+PERDIDAS_STAGES = [
+    {"id": 1, "name": "1 Contacto"},
+    {"id": 2, "name": "Ganado", "is_won": True},
+    {"id": 3, "name": "Suspendido - Pausa"},
+]
+PERDIDAS_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+PERDIDAS_LOST_REASONS = [
+    {"id": 500, "name": "Precio"},
+    {"id": 501, "name": "Cierre Administrativo"},
+    {"id": 502, "name": "Sin presupuesto"},
+]
+
+PERDIDAS_LEADS = [
+    # Perdida válida, ESTE año, motivo tier 1 (lost_reason_id), NN.
+    {"id": 900, "name": "Perdida Uno", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [80, "Cliente Uno"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{THIS_YEAR}-03-15 10:00:00", "lead_properties": [_prop_horas(24)],
+     "lost_reason_id": [500, "Precio"]},
+    # Perdida válida, ESTE año, MISMO vendedor Y MISMO cliente que Uno,
+    # motivo tier 1 DISTINTO, BI — prueba "mismo vendedor/cliente entre
+    # varios motivos".
+    {"id": 901, "name": "Perdida Dos", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [11], "partner_id": [80, "Cliente Uno"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{THIS_YEAR}-05-01 12:00:00", "lead_properties": [_prop_horas(10)],
+     "lost_reason_id": [502, "Sin presupuesto"]},
+    # Perdida EXCLUIDA por motivo administrativo — debe desaparecer del
+    # universo entero (KPI Y drill), no sólo perder el label visible.
+    {"id": 902, "name": "Perdida Administrativa", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [81, "Cliente Dos"], "user_id": [51, "Vendedor Dos"],
+     "date_closed": f"{THIS_YEAR}-06-01 09:00:00", "lead_properties": [_prop_horas(999)],
+     "lost_reason_id": [501, "Cierre Administrativo"]},
+    # Perdida sin motivo resoluble por NINGÚN tier → "Sin definir".
+    {"id": 903, "name": "Perdida Sin Motivo", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [], "partner_id": [82, "Cliente Tres"], "user_id": [52, "Vendedor Tres"],
+     "date_closed": f"{THIS_YEAR}-07-01 08:00:00", "lead_properties": [_prop_horas(15)]},
+    # Perdida válida, motivo SÓLO vía tier 3 (lead_properties "Motivo de
+    # Perdida Danwor") — comparte vendedor con Uno/Dos.
+    {"id": 904, "name": "Perdida Property Motivo", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [83, "Cliente Cuatro"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{THIS_YEAR}-08-01 08:00:00",
+     "lead_properties": [_prop_horas(30),
+                          _prop_selection("Motivo de Perdida Danwor", "otro", [["otro", "Cambio de prioridades"]])]},
+    # Perdida del año ANTERIOR — debe quedar afuera al pedir THIS_YEAR.
+    {"id": 905, "name": "Perdida Año Pasado", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [84, "Cliente Cinco"], "user_id": [50, "Vendedor Uno"],
+     "date_closed": f"{LAST_YEAR}-11-01 10:00:00", "lead_properties": [_prop_horas(99)],
+     "lost_reason_id": [500, "Precio"]},
+    # Frontera: 1 de enero 00:00:00 exacto — debe estar DENTRO.
+    {"id": 906, "name": "Perdida Frontera Inicio", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [], "partner_id": [85, "Cliente Seis"], "user_id": [53, "Vendedor Cuatro"],
+     "date_closed": f"{THIS_YEAR}-01-01 00:00:00", "lead_properties": [_prop_horas(5)],
+     "lost_reason_id": [500, "Precio"]},
+    # Frontera: 31 de diciembre 23:59:59 exacto — debe estar DENTRO.
+    {"id": 907, "name": "Perdida Frontera Fin", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [], "partner_id": [86, "Cliente Siete"], "user_id": [53, "Vendedor Cuatro"],
+     "date_closed": f"{THIS_YEAR}-12-31 23:59:59", "lead_properties": [_prop_horas(5)],
+     "lost_reason_id": [500, "Precio"]},
+    # Justo AFUERA de la frontera (1 seg después del fin de año) — excluida.
+    {"id": 908, "name": "Perdida Fuera Frontera", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [], "partner_id": [87, "Cliente Ocho"], "user_id": [53, "Vendedor Cuatro"],
+     "date_closed": f"{THIS_YEAR + 1}-01-01 00:00:00", "lead_properties": [_prop_horas(999)],
+     "lost_reason_id": [500, "Precio"]},
+    # Sin date_closed — excluida.
+    {"id": 909, "name": "Perdida Sin Fecha", "type": "opportunity", "active": False, "probability": 0, "stage_id": 1,
+     "tag_ids": [], "partner_id": False, "user_id": False,
+     "date_closed": False, "lead_properties": [_prop_horas(999)],
+     "lost_reason_id": [500, "Precio"]},
+    # Activa, probability=0 — NO es una Perdida (active=True): prueba que
+    # `active=False` no es opcional en el dominio.
+    {"id": 910, "name": "Activa Prob0", "type": "opportunity", "active": True, "probability": 0, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [88, "Cliente Nueve"], "user_id": [54, "Vendedor Cinco"],
+     "date_closed": f"{THIS_YEAR}-04-01 10:00:00", "lead_properties": [_prop_horas(999)]},
+    # Inactiva pero probability>0 — NO es una Perdida real: prueba que
+    # `probability=0` no es opcional en el dominio.
+    {"id": 911, "name": "Inactiva Prob Positiva", "type": "opportunity", "active": False, "probability": 40, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [89, "Cliente Diez"], "user_id": [54, "Vendedor Cinco"],
+     "date_closed": f"{THIS_YEAR}-04-01 10:00:00", "lead_properties": [_prop_horas(999)]},
+    # Ganada — excluida (etapa is_won, no cae en el dominio active=False).
+    {"id": 912, "name": "Ganada", "type": "opportunity", "active": True, "probability": 100, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [90, "Cliente Once"], "user_id": [54, "Vendedor Cinco"],
+     "date_closed": f"{THIS_YEAR}-04-01 10:00:00", "lead_properties": [_prop_horas(999)]},
+    # Suspendida — excluida.
+    {"id": 913, "name": "Suspendida", "type": "opportunity", "active": True, "probability": 20, "stage_id": 3,
+     "tag_ids": [10], "partner_id": [91, "Cliente Doce"], "user_id": [54, "Vendedor Cinco"],
+     "date_closed": f"{THIS_YEAR}-04-01 10:00:00", "lead_properties": [_prop_horas(999)]},
+]
+
+
+def _perdidas_client(**kwargs):
+    return FakeOdooClient(stages=PERDIDAS_STAGES, tags=PERDIDAS_TAGS, leads=PERDIDAS_LEADS,
+                          lost_reasons=PERDIDAS_LOST_REASONS, **kwargs)
+
+
+PERDIDAS_VALID_NAMES = {
+    "Perdida Uno", "Perdida Dos", "Perdida Sin Motivo", "Perdida Property Motivo",
+    "Perdida Frontera Inicio", "Perdida Frontera Fin",
+}
+
+
+def test_perdidas_universe_is_current_year_valid_lost_only():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    assert {r["opportunity"] for r in rows} == PERDIDAS_VALID_NAMES
+    svc_module.clear_cache()
+
+
+def test_perdidas_administrative_motivo_is_excluded_from_the_whole_universe():
+    # No es sólo un label — la oportunidad desaparece del conteo Y de las filas.
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    assert "Perdida Administrativa" not in {r["opportunity"] for r in rows}
+    svc_module.clear_cache()
+
+
+def test_perdidas_active_true_never_enters_even_with_probability_zero():
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]}
+    assert "Activa Prob0" not in names
+    svc_module.clear_cache()
+
+
+def test_perdidas_probability_nonzero_never_enters_even_if_inactive():
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]}
+    assert "Inactiva Prob Positiva" not in names
+    svc_module.clear_cache()
+
+
+def test_perdidas_won_and_suspended_never_leak_in():
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]}
+    assert "Ganada" not in names and "Suspendida" not in names
+    svc_module.clear_cache()
+
+
+def test_perdidas_previous_year_never_leaks_into_current_year_request():
+    svc_module.clear_cache()
+    current = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    assert "Perdida Año Pasado" not in {r["opportunity"] for r in current}
+    svc_module.clear_cache()
+    previous = CommercialService(_perdidas_client()).get_perdidas_detail("todos", LAST_YEAR)["opportunities"]
+    assert {r["opportunity"] for r in previous} == {"Perdida Año Pasado"}
+    svc_module.clear_cache()
+
+
+def test_perdidas_year_boundaries_are_inclusive_both_ends():
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]}
+    assert "Perdida Frontera Inicio" in names, "Y-01-01 00:00:00 incluida"
+    assert "Perdida Frontera Fin" in names, "Y-12-31 23:59:59 incluida"
+    assert "Perdida Fuera Frontera" not in names, "1 seg después del fin de año, excluida"
+    svc_module.clear_cache()
+
+
+def test_perdidas_missing_date_closed_excluded_from_every_year():
+    svc_module.clear_cache()
+    service = CommercialService(_perdidas_client())
+    for year in (THIS_YEAR, LAST_YEAR):
+        names = {r["opportunity"] for r in service.get_perdidas_detail("todos", year)["opportunities"]}
+        assert "Perdida Sin Fecha" not in names, year
+    svc_module.clear_cache()
+
+
+def test_perdidas_motivo_resolves_tier1_lost_reason_id():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Perdida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Perdida Dos")
+    assert uno["motivo"] == "Precio"
+    assert dos["motivo"] == "Sin presupuesto"
+    svc_module.clear_cache()
+
+
+def test_perdidas_motivo_resolves_tier3_lead_property_fallback():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Perdida Property Motivo")
+    assert row["motivo"] == "Cambio de prioridades"
+    svc_module.clear_cache()
+
+
+def test_perdidas_unresolved_motivo_displays_as_sin_definir():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Perdida Sin Motivo")
+    assert row["motivo"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_perdidas_motivo_resolves_via_tier2_lost_reason_ids_when_tier1_absent():
+    # Fixture DEDICADA: ningún lead trae `lost_reason_id` (tier 1 no
+    # resuelve NADA — `not any(result.values())`), así que el service debe
+    # caer a `lost_reason_ids` (many2many, Odoo 17+) resuelto contra
+    # `crm.lost.reason`.
+    svc_module.clear_cache()
+    tier2_stages = [{"id": 1, "name": "1 Contacto"}]
+    tier2_reasons = [{"id": 600, "name": "Producto discontinuado"}, {"id": 601, "name": "Competencia"}]
+    tier2_leads = [
+        {"id": 950, "name": "Perdida Tier2 Uno", "type": "opportunity", "active": False, "probability": 0,
+         "stage_id": 1, "tag_ids": [], "partner_id": [95, "Cliente Trece"], "user_id": [55, "Vendedor Seis"],
+         "date_closed": f"{THIS_YEAR}-02-01 10:00:00", "lead_properties": [_prop_horas(12)],
+         "lost_reason_ids": [600]},
+        {"id": 951, "name": "Perdida Tier2 Dos", "type": "opportunity", "active": False, "probability": 0,
+         "stage_id": 1, "tag_ids": [], "partner_id": [96, "Cliente Catorce"], "user_id": [55, "Vendedor Seis"],
+         "date_closed": f"{THIS_YEAR}-02-15 10:00:00", "lead_properties": [_prop_horas(8)],
+         "lost_reason_ids": [600, 601]},
+    ]
+    client = FakeOdooClient(stages=tier2_stages, tags=PERDIDAS_TAGS, leads=tier2_leads, lost_reasons=tier2_reasons)
+    rows = CommercialService(client).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Perdida Tier2 Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Perdida Tier2 Dos")
+    assert uno["motivo"] == "Producto discontinuado"
+    assert dos["motivo"] == "Producto discontinuado / Competencia"
+    svc_module.clear_cache()
+
+
+def test_perdidas_row_shape_is_deliberately_minimal():
+    # Oportunidad/Cliente/Vendedor/Motivo/Hs — nada de Etapa/Origen/Tags/
+    # Licencias/Probabilidad/Prioridad/Revenue (owner: "Do NOT expose/fetch
+    # dead legacy fields such as revenue").
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Perdida Uno")
+    assert set(uno.keys()) == {"opportunity", "client", "seller", "motivo", "hours"}
+    assert uno["client"] == "Cliente Uno" and uno["seller"] == "Vendedor Uno" and uno["hours"] == 24
+    svc_module.clear_cache()
+
+
+def test_perdidas_same_seller_and_client_across_multiple_motivos():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", THIS_YEAR)["opportunities"]
+    uno = next(r for r in rows if r["opportunity"] == "Perdida Uno")
+    dos = next(r for r in rows if r["opportunity"] == "Perdida Dos")
+    assert uno["seller"] == dos["seller"] == "Vendedor Uno"
+    assert uno["client"] == dos["client"] == "Cliente Uno"
+    assert uno["motivo"] != dos["motivo"]
+    svc_module.clear_cache()
+
+
+def test_perdidas_partitions_by_nn_bi_tag_never_double_query():
+    svc_module.clear_cache()
+    client = _perdidas_client()
+    service = CommercialService(client)
+    todos = {r["opportunity"] for r in service.get_perdidas_detail("todos", THIS_YEAR)["opportunities"]}
+    calls_after_todos = len(client.calls)
+    nn = {r["opportunity"] for r in service.get_perdidas_detail("nn", THIS_YEAR)["opportunities"]}
+    bi = {r["opportunity"] for r in service.get_perdidas_detail("bi", THIS_YEAR)["opportunities"]}
+    assert todos == PERDIDAS_VALID_NAMES
+    assert nn == {"Perdida Uno", "Perdida Property Motivo"}
+    assert bi == {"Perdida Dos"}
+    # "todos" ya construyó y cacheó las TRES vistas juntas (`_build_perdidas_
+    # detail` arma el diccionario completo de una sola vez) — nn/bi no deben
+    # agregar NINGUNA consulta nueva.
+    assert len(client.calls) == calls_after_todos, "nn/bi salen del MISMO cache que todos, cero consultas nuevas"
+    svc_module.clear_cache()
+
+
+def test_perdidas_use_the_module_cache_per_year():
+    svc_module.clear_cache()
+    client = _perdidas_client()
+    service = CommercialService(client)
+    service.get_perdidas_detail("todos", THIS_YEAR)
+    calls_after_first = len(client.calls)
+    service.get_perdidas_detail("nn", THIS_YEAR)
+    assert len(client.calls) == calls_after_first, "la segunda vista del MISMO año sale del cache"
+    service.get_perdidas_detail("todos", LAST_YEAR)
+    assert len(client.calls) > calls_after_first, "un año DISTINTO sí re-consulta"
+    svc_module.clear_cache()
+
+
+def test_perdidas_year_none_resolves_to_current_year():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("todos", None)["opportunities"]
+    assert {r["opportunity"] for r in rows} == PERDIDAS_VALID_NAMES
+    svc_module.clear_cache()
+
+
+def test_perdidas_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    rows = CommercialService(_perdidas_client()).get_perdidas_detail("not-a-real-tipo", THIS_YEAR)["opportunities"]
+    assert {r["opportunity"] for r in rows} == PERDIDAS_VALID_NAMES
+    svc_module.clear_cache()
+
+
+def test_perdidas_path_is_fail_soft_on_transport_and_config():
+    svc_module.clear_cache()
+    client = _perdidas_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_perdidas_detail("todos", THIS_YEAR)
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _perdidas_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_perdidas_detail("todos", THIS_YEAR)
+    svc_module.clear_cache()
+
+
+def test_perdidas_kpi_and_drill_conserve_count_and_hours():
+    # Owner §3 — "For current year and same Tipo: KPI.count == len(detail.
+    # rows), KPI.hours == SUM(detail.rows[].hours) after: exact raw-domain
+    # selection; exact motivo resolution; exact administrative exclusion."
+    # Ambos salen del MISMO pipeline (`_build_summary`'s lost_raw/motivos/
+    # filter vs `_build_perdidas_detail`) reusando las MISMAS instance
+    # methods — este test es la evidencia de que no divergieron.
+    svc_module.clear_cache()
+    service = CommercialService(_perdidas_client())
+    for tipo in ("todos", "nn", "bi"):
+        kpi = service.get_summary(tipo)["perdidas"]
+        rows = service.get_perdidas_detail(tipo, THIS_YEAR)["opportunities"]
+        assert kpi["count"] == len(rows), tipo
+        assert kpi["hours"] == sum(r["hours"] for r in rows), tipo
+    svc_module.clear_cache()
+
+
+# ============================================================================
 # Active Opportunities Phase 2 / C2 — Forecast por mes (`get_forecast`,
 # `GET /comercial/data/forecast`). Universo: stages 0-8 (Pipeline Total/
 # Ponderado) — NUNCA 1-8 (ese es Oportunidades Activas, C1). Semántica

@@ -247,8 +247,15 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # el panel ENTERO vía `commercialGanadasSetSeller`, MISMO camino que
     # `commercialCreadasSetSeller` — sin `<input>` de texto que proteger acá,
     # un `<select>`/`.bar-row` no pierde nada al regenerarse).
+    # Commercial Tile 7 — Perdidas (ver HANDOFF) agrega TRES: los hosts
+    # estables del panel (`[data-commercial-perdidas-body]`/`-count`), MISMO
+    # criterio; y `[data-commercial-perdidas-table]` — UNA sola vez (sólo el
+    # delegado de orden de columna es quirúrgico; Vendedor/Cliente/Motivo/
+    # ranking/desglose/Limpiar re-renderizan el panel ENTERO vía
+    # `commercialPerdidasSet*`/`commercialPerdidasClearFilters`, MISMO
+    # camino que Ganadas).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos veintisiete hooks y nada más.
+    # EXACTAMENTE estos treinta hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -264,11 +271,14 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-prospects-count]"',
         '"[data-commercial-ganadas-body]"',
         '"[data-commercial-ganadas-count]"',
+        '"[data-commercial-perdidas-body]"',
+        '"[data-commercial-perdidas-count]"',
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-ganadas-results]"',
+        '"[data-commercial-perdidas-table]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
         '"[data-commercial-search]"',
@@ -583,35 +593,38 @@ def test_commercial_dashboard_spine_and_view_switch_survive_table_corrective():
 
 def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # Landing Homologation + C6 (ver HANDOFF) + Creadas Legacy Parity +
-    # Commercial Tile 5 + Commercial Tile 6: los tiles se emiten con
-    # `commercialRichKpi`, y `eventKey` es lo único que agrega la afordancia
-    # de click. Lo reciben SEIS tiles, sobre CINCO análisis homologados —
-    # "Oportunidades activas", "Pipeline total"/"Pipeline ponderado"
-    # (comparten la MISMA key: misma población 0-8, con y sin probabilidad,
-    # un solo panel de Forecast), "Creadas esta semana" (drill propio,
-    # paridad con el legacy `/crm/opp-by-month`), "Prospectos" (drill propio,
-    # paridad con el legacy `/crm/relevamiento?stage_id=<etapa 0>`) y
-    # "Ganadas" (drill propio, paridad con el legacy `/crm/kpi-detail`
-    # bucket "won"). Los otros tres conservan su información SIN simular una
-    # acción inexistente.
+    # Commercial Tile 5 + Commercial Tile 6 + Commercial Tile 7: los tiles
+    # se emiten con `commercialRichKpi`, y `eventKey` es lo único que agrega
+    # la afordancia de click. Lo reciben SIETE tiles, sobre SEIS análisis
+    # homologados — "Oportunidades activas", "Pipeline total"/"Pipeline
+    # ponderado" (comparten la MISMA key: misma población 0-8, con y sin
+    # probabilidad, un solo panel de Forecast), "Creadas esta semana" (drill
+    # propio, paridad con el legacy `/crm/opp-by-month`), "Prospectos"
+    # (drill propio, paridad con el legacy
+    # `/crm/relevamiento?stage_id=<etapa 0>`), "Ganadas" (drill propio,
+    # paridad con el legacy `/crm/kpi-detail` bucket "won") y "Perdidas"
+    # (drill propio, paridad con el legacy `/crm/kpi-detail` bucket "lost"
+    # + `setKpiView('lost')`/`renderLostPanel`). Los otros dos conservan su
+    # información SIN simular una acción inexistente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 6
+    assert dashboard_fn.count("eventKey:") == 7
     assert dashboard_fn.count('eventKey: "activas"') == 1
     assert dashboard_fn.count('eventKey: "forecast"') == 2
     assert dashboard_fn.count('eventKey: "creadas"') == 1
     assert dashboard_fn.count('eventKey: "prospectos"') == 1
     assert dashboard_fn.count('eventKey: "ganadas"') == 1
+    assert dashboard_fn.count('eventKey: "perdidas"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
 
 
 def test_other_kpi_tiles_remain_display_only():
-    # Ningún tile fuera de Activas, los dos Pipeline, Creadas, Prospectos y
-    # Ganadas recibe `eventKey`, así que ninguno queda clickeable — sin
-    # afordancia falsa.
+    # Ningún tile fuera de Activas, los dos Pipeline, Creadas, Prospectos,
+    # Ganadas y Perdidas recibe `eventKey`, así que ninguno queda
+    # clickeable — sin afordancia falsa.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    for label in ("Perdidas", "Suspendidas", "Conversión"):
+    for label in ("Suspendidas", "Conversión"):
         tile = dashboard_fn.split(f'commercialRichKpi("{label}"', 1)
         assert len(tile) == 2, label
         assert "eventKey" not in tile[1].split("}", 1)[0], label
@@ -823,29 +836,30 @@ def test_grouped_bar_columns_are_the_sole_accessible_surface():
 
 
 def test_no_other_kpi_gained_a_drilldown_this_batch():
-    # Perdidas, Suspendidas, Target: ninguno gana `data-event` ni panel
-    # propio — contar solo MARKUP real dentro de cada función, no menciones
-    # en comentarios (que mencionan `data-event`/`data-breakdown` varias
-    # veces). Creadas, Prospectos y Ganadas SÍ lo ganaron (Creadas Legacy
-    # Parity, Commercial Tile 5 y Commercial Tile 6, ver HANDOFF) — sus
+    # Suspendidas, Target: ninguno gana `data-event` ni panel propio —
+    # contar solo MARKUP real dentro de cada función, no menciones en
+    # comentarios (que mencionan `data-event`/`data-breakdown` varias
+    # veces). Creadas, Prospectos, Ganadas y Perdidas SÍ lo ganaron
+    # (Creadas Legacy Parity, Commercial Tile 5, 6 y 7, ver HANDOFF) — sus
     # drills YA están homologados, así que quedan EXCLUIDOS de esta lista de
     # "sigue sin drilldown" (ver los dos tests de arriba, que ahora los
     # esperan clickeables).
     rich_fn = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert rich_fn.count('data-event="') == 1  # un solo trigger posible por tile
-    # CINCO `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
+    # SEIS `data-breakdown` reales en el markup — Activas, Forecast (C6, ver
     # HANDOFF), Creadas (Creadas Legacy Parity, ver HANDOFF), Prospectos
-    # (Commercial Tile 5, ver HANDOFF) y Ganadas (Commercial Tile 6, ver
-    # HANDOFF) — + UNA referencia al MISMO atributo dentro del selector que
-    # construye `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF —
-    # scroll al abrir) para ubicar la que corresponda. Nunca un SEXTO panel,
-    # y nunca un grupo de breakdown paralelo: los cinco viven en el MISMO
+    # (Commercial Tile 5), Ganadas (Commercial Tile 6) y Perdidas
+    # (Commercial Tile 7, ver HANDOFF) — + UNA referencia al MISMO atributo
+    # dentro del selector que construye
+    # `commercialMaybeScrollToOpenedAnalysis` (C3.1, ver HANDOFF — scroll al
+    # abrir) para ubicar la que corresponda. Nunca un SÉPTIMO panel, y nunca
+    # un grupo de breakdown paralelo: los seis viven en el MISMO
     # `[data-breakdown-group]`, que es lo que hace que el motor compartido
     # muestre uno por vez. Se cuenta sobre el markup, no sobre los
     # comentarios, que mencionan el atributo en prosa varias veces.
     markup = "\n".join(line for line in _COMMERCIAL_JS.splitlines()
                        if not line.strip().startswith("//"))
-    assert markup.count('data-breakdown="') == 6
+    assert markup.count('data-breakdown="') == 7
     assert markup.count("data-breakdown-group>") == 1
     # Ningún otro helper (commercialKpi, el display-only) emite data-event.
     plain_kpi_fn = _COMMERCIAL_JS.split("function commercialKpi(", 1)[1].split("\n\n", 1)[0]
@@ -1504,6 +1518,180 @@ def test_ganadas_reuses_the_shared_filter_context_chip_not_a_new_one():
     context_fn = _COMMERCIAL_JS.split("function commercialGanadasFilterContextHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert context_fn.count("commercialCreadasFilterContextHtml(") == 2  # Vendedor + Cliente
     assert "dashboard-subhead__filter" not in context_fn  # viene del primitivo reusado, no de acá
+
+
+# ============================================================================
+# Commercial Tile 7 — Perdidas (GET /comercial/data/perdidas). Universo:
+# active=False + probability=0 + date_closed en el año pedido (límites CON
+# hora), MENOS exclusiones administrativas de motivo — MISMO pipeline que ya
+# usa el KPI (`_resolve_lost_motivos`/`_filter_excluded_lost`, reusados
+# literal). LAZY por año, SIN ventana caliente, FACETADO en tres ejes
+# (Vendedor/Cliente/Motivo).
+# ============================================================================
+
+def test_perdidas_endpoint_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/data/perdidas", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_perdidas_endpoint_unlisted_user_is_denied(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    assert ro.get("/comercial/data/perdidas").status_code == 403
+
+
+def test_perdidas_endpoint_returns_ok_state_and_payload(monkeypatch):
+    class _PerdidasStub(_StubService):
+        def get_perdidas_detail(self, tipo="todos", year=None):
+            return {"tipo": tipo, "year": year, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _PerdidasStub())
+    response = client.get("/comercial/data/perdidas?tipo=nn&year=2024")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "ok"
+    assert body["perdidas"]["tipo"] == "nn"
+    assert body["perdidas"]["year"] == 2024
+
+
+def test_perdidas_endpoint_year_zero_resolves_to_none_current_year(monkeypatch):
+    class _PerdidasStub(_StubService):
+        def get_perdidas_detail(self, tipo="todos", year=None):
+            return {"tipo": tipo, "year": year, "opportunities": [], "total": 0}
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _PerdidasStub())
+    response = client.get("/comercial/data/perdidas")
+    assert response.status_code == 200
+    assert response.json()["perdidas"]["year"] is None
+
+
+def test_perdidas_endpoint_is_fail_soft_like_the_rest_of_commercial(monkeypatch):
+    class _Boom(_StubService):
+        def get_perdidas_detail(self, tipo="todos", year=None):
+            raise CommercialConfigurationError("no config")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/perdidas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "config_incomplete"}
+
+
+def test_perdidas_endpoint_source_error_carries_stage(monkeypatch):
+    class _Boom(_StubService):
+        def get_perdidas_detail(self, tipo="todos", year=None):
+            raise CommercialDataError("boom", stage="execute")
+    monkeypatch.setattr(commercial_router, "CommercialService", lambda: _Boom())
+    response = client.get("/comercial/data/perdidas")
+    assert response.status_code == 200
+    assert response.json() == {"state": "source_error", "stage": "execute"}
+
+
+def test_perdidas_endpoint_never_exposes_a_write_verb():
+    for verb in ("post", "put", "patch", "delete"):
+        response = getattr(client, verb)("/comercial/data/perdidas")
+        assert response.status_code == 405, (verb, response.status_code)
+
+
+def test_perdidas_endpoint_is_absent_from_the_initial_dashboard_hydration():
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadData(", 1)[1].split("\nasync function ", 1)[0]
+    assert "/comercial/data/perdidas" not in load_fn
+    assert "/comercial/data/summary" in load_fn
+    assert "/comercial/data/pipeline" in load_fn
+    assert "/comercial/data/analytics" in load_fn
+    assert "/comercial/data/opportunities" in load_fn
+
+
+def test_perdidas_load_is_lazy_single_flight_and_hydrates_current_year_only():
+    fn = _COMMERCIAL_JS.split("function commercialMaybeLoadPerdidas(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'trigger.dataset.event !== "perdidas"' in fn
+    assert 'trigger.classList.contains("is-active")' in fn
+    assert 'commercialState.perdidasStatus !== "idle"' in fn
+    load_fn = _COMMERCIAL_JS.split("async function commercialLoadPerdidas(", 1)[1].split("\nfunction ", 1)[0]
+    assert load_fn.count("commercialHydratePerdidasYear(") == 1, "una sola hidratación — nunca prefetch del año anterior"
+
+
+def test_commercial_set_tipo_invalidates_perdidas_and_its_year_cache():
+    tipo_fn = _COMMERCIAL_JS.split("function commercialSetTipo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.perdidasByYear = {};" in tipo_fn
+    assert "commercialState.perdidas = null;" in tipo_fn
+    assert 'commercialState.perdidasStatus = "idle";' in tipo_fn
+    assert 'commercialState.perdidasSellerFilter = "";' in tipo_fn
+    assert 'commercialState.perdidasClientFilter = "";' in tipo_fn
+    assert 'commercialState.perdidasMotivoFilter = "";' in tipo_fn
+
+
+def test_perdidas_never_gets_a_free_text_search_or_a_motivo_dropdown():
+    # Owner §9/§10 — sólo Año/Vendedor/Cliente/Limpiar como controles; el
+    # Motivo se filtra por click en el desglose, nunca por un <select> propio.
+    assert "data-commercial-perdidas-search" not in _COMMERCIAL_JS
+    assert "data-commercial-perdidas-motivo-filter" not in _COMMERCIAL_JS
+    controls_fn = _COMMERCIAL_JS.split("function commercialPerdidasControlsHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in ("data-commercial-perdidas-year", "data-commercial-perdidas-seller-filter",
+                     "data-commercial-perdidas-client-filter", "data-commercial-perdidas-clear"):
+        assert expected in controls_fn, expected
+
+
+def test_perdidas_table_has_exactly_the_five_legacy_columns():
+    # "Hs" (no "Horas") — MISMO label que el legacy `panel-lost`
+    # (`makeSortTh(..., "horas", "center", "Hs")`), a diferencia de Ganadas
+    # (`kpi-drill-body`), que sí usaba la palabra completa — asimetría real
+    # entre las dos tablas legacy, no una inconsistencia introducida acá.
+    table_fn = _COMMERCIAL_JS.split("function commercialPerdidasTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in ('"Oportunidad"', '"Cliente"', '"Vendedor"', '"Motivo"', '"Hs"'):
+        assert expected in table_fn, expected
+    for banned in ('"Etapa"', '"Origen"', '"Etiquetas"', '"Lic."', '"Prob."', '"Prior."'):
+        assert banned not in table_fn, banned
+
+
+def test_perdidas_no_charting_library_the_motivo_breakdown_is_a_bar_row():
+    # Owner §10/§19 — reusa el MISMO primitivo `.bar-row` que el ranking,
+    # nunca un canvas/librería externa nueva.
+    motivo_fn = _COMMERCIAL_JS.split("function commercialPerdidasMotivoBreakdownHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "bar-row" in motivo_fn and "bar-track" in motivo_fn and "bar-fill" in motivo_fn
+    for banned in ("<canvas", "new Chart(", "doughnut"):
+        assert banned not in motivo_fn, banned
+
+
+def test_perdidas_seller_ranking_has_no_toggle_but_motivo_breakdown_does():
+    # Owner corrective de Ganadas (SIN toggle-to-clear en el ranking) se
+    # preserva; Motivo, en cambio, SÍ tiene toggle — MISMA semántica que el
+    # doughnut legacy (`lostMotivoFilter = lostMotivoFilter === label ? null
+    # : label`).
+    set_seller_fn = _COMMERCIAL_JS.split("function commercialPerdidasSetSeller(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'commercialState.perdidasSellerFilter = seller || "";' in set_seller_fn
+    assert "perdidasSellerFilter ===" not in set_seller_fn, "el ranking de vendedor NUNCA hace toggle-to-clear"
+    set_motivo_fn = _COMMERCIAL_JS.split("function commercialPerdidasSetMotivo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialState.perdidasMotivoFilter === motivo" in set_motivo_fn, "toggle-to-clear real"
+
+
+def test_perdidas_facets_avoid_self_filter_collapse():
+    # Owner §11 — ranking IGNORA su propio Vendedor; desglose de Motivo
+    # IGNORA su propio Motivo; la tabla aplica los TRES.
+    ranking_rows_fn = _COMMERCIAL_JS.split("function commercialPerdidasRankingRows(", 1)[1].split("\nfunction ", 1)[0]
+    assert "{ seller: false }" in ranking_rows_fn
+    motivo_rows_fn = _COMMERCIAL_JS.split("function commercialPerdidasMotivoRows(", 1)[1].split("\nfunction ", 1)[0]
+    assert "{ motivo: false }" in motivo_rows_fn
+    table_rows_fn = _COMMERCIAL_JS.split("function commercialPerdidasTableRows(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialPerdidasFilterRows(commercialPerdidasBaseRows())" in table_rows_fn, \
+        "la tabla aplica los tres ejes por default (sin overrides)"
+
+
+def test_perdidas_clear_resets_the_three_facets_but_not_the_year():
+    clear_fn = _COMMERCIAL_JS.split("function commercialPerdidasClearFilters(", 1)[1].split("\nfunction ", 1)[0]
+    assert "perdidasSellerFilter" in clear_fn and "perdidasClientFilter" in clear_fn and "perdidasMotivoFilter" in clear_fn
+    assert "perdidasYear" not in clear_fn, "Limpiar NUNCA toca el año seleccionado"
+
+
+def test_perdidas_facet_interactions_never_refetch():
+    # Owner §18 G/H/I/J/K — Vendedor/Cliente/ranking-click/Motivo-click/
+    # Limpiar son todos LOCALES.
+    for local_fn_name in ("commercialPerdidasSetSeller", "commercialPerdidasSetClient",
+                          "commercialPerdidasSetMotivo", "commercialPerdidasClearFilters",
+                          "commercialTogglePerdidasSort", "commercialPerdidasSellerRankingHtml",
+                          "commercialPerdidasMotivoBreakdownHtml"):
+        body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
+        assert "fetch(" not in body, local_fn_name
+    load_perdidas_fn = _COMMERCIAL_JS.split("async function commercialLoadPerdidas(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(" not in load_perdidas_fn  # el fetch real vive en commercialHydratePerdidasYear
+    hydrate_fn = _COMMERCIAL_JS.split("async function commercialHydratePerdidasYear(", 1)[1].split("\nfunction ", 1)[0]
+    assert "fetch(`/comercial/data/perdidas?" in hydrate_fn
 
 
 # ============================================================================

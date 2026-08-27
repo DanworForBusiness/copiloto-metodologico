@@ -829,3 +829,19 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    sólo un consumidor lo necesita). */
 .commercial-ganadas-ranking { margin-bottom: 18px;
 }
+
+/* Perdidas (Commercial Tile 7, ver HANDOFF) — MISMOS dos correctives que
+   Ganadas, aplicados a su propio wrapper (nunca al primitivo compartido):
+
+   1. `.bar-value` en 60px partía "1.234 hs (3)" en dos líneas — acá el
+      riesgo es MAYOR: el ranking vive en la mitad de `.activity-grid-2`
+      (Ranking | Motivo lado a lado), más angosto que el panel de ancho
+      completo de Ganadas.
+   2. Faltaba el margen inferior entre el análisis (Ranking + Motivo) y
+      "Detalle de Perdidas" que sí existe entre los filtros y el análisis
+      (`.whatsnew-filters` ya trae 18px). `.commercial-perdidas-analysis`
+      envuelve LAS DOS columnas (no sólo el ranking, a diferencia de
+      Ganadas) porque acá hay dos bloques lado a lado que necesitan el
+      mismo margen de cierre. */
+.commercial-perdidas-ranking .bar-value { width: 92px; white-space: nowrap; }
+.commercial-perdidas-analysis { margin-bottom: 18px; }

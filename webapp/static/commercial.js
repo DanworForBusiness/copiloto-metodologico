@@ -226,6 +226,30 @@ const commercialState = {
   // `prospectsSortKey`: sobrevive el cambio de Todos/NN/BI.
   ganadasSortKey: null,
   ganadasSortDir: 1,
+  // Perdidas (Commercial Tile 7, ver HANDOFF) — MISMO ciclo de vida por año
+  // que Ganadas (lazy, sin ventana caliente, cache por año). Se diferencia
+  // en tener TRES ejes de filtro local en vez de dos — Vendedor, Cliente y
+  // Motivo — que componen en FACETADO, no en AND simple sobre todo: cada
+  // eje analítico (ranking/desglose) IGNORA su PROPIO filtro activo al
+  // calcular su universo, para no colapsarse a una sola barra cuando el
+  // usuario ya lo seleccionó (owner §11 — "avoid self-filter collapse").
+  // La tabla sí aplica los tres a la vez.
+  perdidasByYear: {},
+  perdidas: null,
+  perdidasStatus: "idle", // idle | loading | ready | error
+  perdidasErrorState: "",
+  perdidasYear: null,
+  perdidasSellerFilter: "",
+  perdidasClientFilter: "",
+  // Motivo — MISMA idea que Vendedor/Cliente pero con TOGGLE-TO-CLEAR
+  // (clickear el motivo ya activo lo despeja): así se comportaba el
+  // doughnut del legacy (`lostMotivoFilter = lostMotivoFilter === label ?
+  // null : label`) y el owner no pidió cambiarlo — a diferencia del
+  // ranking por vendedor (Ganadas/Perdidas), que nunca tuvo toggle.
+  perdidasMotivoFilter: "",
+  // Orden de la tabla — MISMA semántica que `ganadasSortKey`.
+  perdidasSortKey: null,
+  perdidasSortDir: 1,
 };
 
 function commercialEsc(value) {
@@ -2317,6 +2341,334 @@ function commercialGanadasPanelBodyHtml() {
   return commercialGanadasAnalysisHtml();
 }
 
+// ── Perdidas — detalle por año, FACETADO (Commercial Tile 7, ver HANDOFF) ──
+// Universo: el MISMO pipeline que ya usa el KPI —
+// `active=False+probability=0+date_closed en año` → `_resolve_lost_motivos`
+// → `_filter_excluded_lost` — resuelto server-side (ver
+// `_build_perdidas_detail`, commercial_service.py); acá sólo se consume la
+// fila ya válida. Reusa lo genuinamente compartido: formatters, `.bar-row`
+// (MISMO primitivo que Ganadas), `commercialCreadasFilterContextHtml` (el
+// chip de contexto ya genérico), `.dashboard-table`/`.matrix-scroll`,
+// `.activity-grid-2` (layout de dos columnas YA promovido a tools.css, el
+// MISMO que usa Reporting para Mantenimiento|Proyecto) — NO inventa un
+// segundo primitivo de grilla. Sin librería de gráficos externa: el Hub no
+// carga ninguna en ningún lado (verificado), así que el desglose por
+// Motivo es OTRO `.bar-row`, mismo lenguaje visual que el ranking de al
+// lado — nunca un canvas nuevo.
+const COMMERCIAL_PERDIDAS_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  motivo: o => (o.motivo || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+};
+
+function commercialPerdidasSorted(rows) {
+  const keyFn = commercialState.perdidasSortKey && COMMERCIAL_PERDIDAS_SORT_KEYS[commercialState.perdidasSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.perdidasSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+function commercialTogglePerdidasSort(key) {
+  if (commercialState.perdidasSortKey === key) {
+    commercialState.perdidasSortDir *= -1;
+  } else {
+    commercialState.perdidasSortKey = key;
+    commercialState.perdidasSortDir = 1;
+  }
+}
+
+function commercialPerdidasSellerOptions(rows) {
+  return [...new Set(rows.map(o => o.seller).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+function commercialPerdidasClientOptions(rows) {
+  return [...new Set(rows.map(o => o.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function commercialPerdidasBaseRows() {
+  return (commercialState.perdidas && commercialState.perdidas.opportunities) || [];
+}
+
+// FACETADO (owner §11 — "avoid self-filter collapse"): cada llamador decide
+// qué eje IGNORA de su PROPIO filtro activo. Sin esto, seleccionar un
+// vendedor en el ranking dejaría el ranking mostrando UNA sola barra (la ya
+// elegida) — imposible cambiar de opinión sin pasar por Limpiar. La tabla
+// es la única vista que aplica los TRES ejes a la vez — es "el resultado
+// final", no un panel de exploración.
+function commercialPerdidasFilterRows(rows, { seller = true, client = true, motivo = true } = {}) {
+  return rows.filter(o =>
+    (!seller || !commercialState.perdidasSellerFilter || o.seller === commercialState.perdidasSellerFilter)
+    && (!client || !commercialState.perdidasClientFilter || o.client === commercialState.perdidasClientFilter)
+    && (!motivo || !commercialState.perdidasMotivoFilter || o.motivo === commercialState.perdidasMotivoFilter));
+}
+// Tabla: Año (ya implícito en el dataset cargado) ∧ Vendedor ∧ Cliente ∧ Motivo.
+function commercialPerdidasTableRows() {
+  return commercialPerdidasFilterRows(commercialPerdidasBaseRows());
+}
+// Ranking por vendedor: ∧ Cliente ∧ Motivo — ignora el propio Vendedor.
+function commercialPerdidasRankingRows() {
+  return commercialPerdidasFilterRows(commercialPerdidasBaseRows(), { seller: false });
+}
+// Desglose por Motivo: ∧ Vendedor ∧ Cliente — ignora el propio Motivo.
+function commercialPerdidasMotivoRows() {
+  return commercialPerdidasFilterRows(commercialPerdidasBaseRows(), { motivo: false });
+}
+
+// Ranking por vendedor — MISMA forma que Ganadas (ordenado/dimensionado por
+// HORAS, valor "hs (cantidad)"), SIN toggle-to-clear (clickear el vendedor
+// ya activo lo mantiene — MISMO criterio que Ganadas/Creadas). Envuelto en
+// `.commercial-perdidas-ranking` por la MISMA razón que
+// `.commercial-ganadas-ranking`: `.bar-value` en su ancho compartido de
+// 60px partía "1,234 hs (3)" en dos líneas (ver HANDOFF — Ganadas pre-
+// smoke gate) — acá el override es AÚN más necesario porque este ranking
+// vive en la mitad de `.activity-grid-2`, más angosto que el de Ganadas.
+function commercialPerdidasSellerRankingHtml(rows) {
+  if (!rows.length) {
+    return `<div class="commercial-perdidas-ranking"><p class="perspective-label">Ranking por vendedor</p>` + commercialEmptyStateHtml("Sin resultados",
+      (commercialState.perdidasClientFilter || commercialState.perdidasMotivoFilter)
+        ? "Ningún vendedor tiene perdidas con este filtro."
+        : "Ningún vendedor tiene perdidas en este año.") + `</div>`;
+  }
+  const map = {};
+  rows.forEach(o => {
+    const seller = o.seller || "Sin vendedor";
+    const bucket = map[seller] || (map[seller] = { count: 0, hours: 0 });
+    bucket.count += 1;
+    bucket.hours += (o.hours || 0);
+  });
+  const ranked = Object.entries(map).sort((a, b) => b[1].hours - a[1].hours);
+  const max = ranked[0][1].hours || 1;
+  const activo = commercialState.perdidasSellerFilter;
+  const rowsHtml = ranked.map(([seller, d]) => {
+    const sel = seller === activo;
+    return `
+    <div class="bar-row bar-row--clickable${sel ? " is-active" : ""}"
+      data-commercial-perdidas-seller-pick="${commercialEsc(seller)}"
+      role="button" tabindex="0" aria-pressed="${sel ? "true" : "false"}"
+      aria-label="Filtrar Perdidas por ${commercialEsc(seller)}">
+      <span class="bar-label">${commercialEsc(seller)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(d.hours / max * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${commercialFmtInt(d.hours)} hs (${commercialFmtInt(d.count)})</span>
+    </div>`;
+  }).join("");
+  return `<div class="commercial-perdidas-ranking"><p class="perspective-label">Ranking por vendedor</p>${rowsHtml}</div>`;
+}
+
+// Desglose por Motivo — legacy lo mostraba en un doughnut con librería
+// externa; portado como `.bar-row` (mismo primitivo, sin librería nueva —
+// ver comentario de sección). Métrica = CANTIDAD (owner §10: "NOT hours" — a
+// propósito distinto del ranking de al lado). CON toggle-to-clear
+// (clickear el motivo ya activo lo despeja) — MISMA semántica que el click
+// en el segmento del doughnut legacy, preservada a propósito. El valor
+// ("12") nunca necesita el override de ancho: cabe sobrado en los 60px
+// compartidos.
+function commercialPerdidasMotivoBreakdownHtml(rows) {
+  if (!rows.length) {
+    return `<p class="perspective-label">Por motivo de pérdida</p>` + commercialEmptyStateHtml("Sin resultados",
+      (commercialState.perdidasSellerFilter || commercialState.perdidasClientFilter)
+        ? "Ningún motivo tiene perdidas con este filtro."
+        : "Ningún motivo tiene perdidas en este año.");
+  }
+  const map = {};
+  rows.forEach(o => {
+    const motivo = o.motivo || "Sin definir";
+    map[motivo] = (map[motivo] || 0) + 1;
+  });
+  const ranked = Object.entries(map).sort((a, b) => b[1] - a[1]);
+  const max = ranked[0][1] || 1;
+  const activo = commercialState.perdidasMotivoFilter;
+  const rowsHtml = ranked.map(([motivo, count]) => {
+    const sel = motivo === activo;
+    return `
+    <div class="bar-row bar-row--clickable${sel ? " is-active" : ""}"
+      data-commercial-perdidas-motivo-pick="${commercialEsc(motivo)}"
+      role="button" tabindex="0" aria-pressed="${sel ? "true" : "false"}"
+      aria-label="Filtrar Perdidas por motivo ${commercialEsc(motivo)}">
+      <span class="bar-label">${commercialEsc(motivo)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count / max * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${commercialFmtInt(count)}</span>
+    </div>`;
+  }).join("");
+  return `<p class="perspective-label">Por motivo de pérdida</p>${rowsHtml}`;
+}
+
+function commercialPerdidasTableHtml(rows) {
+  const sectionLabel = `<p class="perspective-label">Detalle de Perdidas${commercialPerdidasFilterContextHtml()}</p>`;
+  if (!rows.length) {
+    return sectionLabel + commercialEmptyStateHtml("Sin resultados",
+      (commercialState.perdidasSellerFilter || commercialState.perdidasClientFilter || commercialState.perdidasMotivoFilter)
+        ? "Ninguna perdida coincide con estos filtros."
+        : "No hay oportunidades perdidas en este año.");
+  }
+  const sorted = commercialPerdidasSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.perdidasSortKey === key;
+    const arrow = active ? (commercialState.perdidasSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-perdidas-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.motivo)}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+    </tr>`).join("");
+  const totalHoras = rows.reduce((s, o) => s + (o.hours || 0), 0);
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="4">Total (${rows.length})</td>
+      <td>${commercialFmtInt(totalHoras)}</td>
+    </tr>`;
+  return `${sectionLabel}
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:32%"><col style="width:20%"><col style="width:20%"><col style="width:20%"><col style="width:8%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("motivo", "Motivo", "left")}
+          ${th("hours", "Hs")}
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+// Contexto de filtro activo — TRES chips posibles (Vendedor/Cliente/Motivo),
+// MISMO primitivo genérico ya reusado por Ganadas
+// (`commercialCreadasFilterContextHtml`) — cero chip nuevo, cero clase
+// nueva, sólo se emiten cuando aplica cada eje.
+function commercialPerdidasFilterContextHtml() {
+  return commercialCreadasFilterContextHtml("Vendedor", commercialState.perdidasSellerFilter,
+      "data-commercial-perdidas-seller-clear", "Volver a todos los vendedores")
+    + commercialCreadasFilterContextHtml("Cliente", commercialState.perdidasClientFilter,
+      "data-commercial-perdidas-client-clear", "Volver a todos los clientes")
+    + commercialCreadasFilterContextHtml("Motivo", commercialState.perdidasMotivoFilter,
+      "data-commercial-perdidas-motivo-clear", "Volver a todos los motivos");
+}
+
+// Año actual .. año actual−5 — MISMO rango estático que Ganadas (paridad
+// legacy, `lost-panel-year-select`: `curY` a `curY-5`).
+function commercialPerdidasYearOptions() {
+  const current = new Date().getFullYear();
+  const years = [];
+  for (let y = current; y >= current - 5; y -= 1) years.push(String(y));
+  return years;
+}
+
+// Año / Vendedor / Cliente / Limpiar — MISMOS primitivos que Ganadas, SIN
+// Motivo (owner §10: "No Motivo dropdown is required... legacy used
+// chart-click filtering") y SIN Buscar (legacy Perdidas tampoco tuvo uno).
+function commercialPerdidasControlsHtml() {
+  const year = commercialState.perdidasYear;
+  const allRows = commercialPerdidasBaseRows();
+  const sellerOpts = commercialPerdidasSellerOptions(allRows).map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.perdidasSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  const clientOpts = commercialPerdidasClientOptions(allRows).map(c =>
+    `<option value="${commercialEsc(c)}"${commercialState.perdidasClientFilter === c ? " selected" : ""}>${commercialEsc(c)}</option>`).join("");
+  const yearOpts = commercialPerdidasYearOptions().map(y =>
+    `<option value="${y}"${y === year ? " selected" : ""}>${y}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-perdidas-filters>
+      <label class="whatsnew-filter">
+        <span>Año</span>
+        <select data-commercial-perdidas-year>${yearOpts}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-perdidas-seller-filter>
+          <option value=""${commercialState.perdidasSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Cliente</span>
+        <select data-commercial-perdidas-client-filter>
+          <option value=""${commercialState.perdidasClientFilter === "" ? " selected" : ""}>Todos</option>
+          ${clientOpts}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-perdidas-clear>✕ Limpiar</button>
+    </div>`;
+}
+
+// Cambiar Vendedor/Cliente/Motivo — CUATRO puertas por eje (dropdown +
+// ranking/chart-click + Limpiar), MISMO contrato que
+// `commercialGanadasSetSeller`. Re-render de panel ENTERO: sin `<input>`
+// de texto que proteger, un `<select>`/`.bar-row` no pierde nada al
+// regenerarse.
+function commercialPerdidasSetSeller(seller) {
+  commercialState.perdidasSellerFilter = seller || "";
+  commercialRenderPerdidasPanel();
+}
+function commercialPerdidasSetClient(client) {
+  commercialState.perdidasClientFilter = client || "";
+  commercialRenderPerdidasPanel();
+}
+// Toggle-to-clear (ver comentario de `commercialPerdidasMotivoBreakdownHtml`).
+function commercialPerdidasSetMotivo(motivo) {
+  commercialState.perdidasMotivoFilter = commercialState.perdidasMotivoFilter === motivo ? "" : (motivo || "");
+  commercialRenderPerdidasPanel();
+}
+// Limpiar — resetea los TRES ejes, NUNCA el año (owner §11: "Limpiar
+// resets Vendedor/Cliente/Motivo but NOT the selected year").
+function commercialPerdidasClearFilters() {
+  commercialState.perdidasSellerFilter = "";
+  commercialState.perdidasClientFilter = "";
+  commercialState.perdidasMotivoFilter = "";
+  commercialRenderPerdidasPanel();
+}
+
+function commercialPerdidasCountLabel() {
+  if (commercialState.perdidasStatus !== "ready") return "";
+  const total = (commercialState.perdidas && commercialState.perdidas.total) || 0;
+  return `${commercialFmtInt(total)} perdida(s)`;
+}
+
+// Ranking | Motivo LADO A LADO — reusa `.activity-grid-2` (primitivo Hub YA
+// promovido, MISMO que usa Reporting para Mantenimiento|Proyecto) — cero
+// grilla nueva. Envuelto en `.commercial-perdidas-analysis` (margen
+// inferior propio, MISMO criterio que `.commercial-ganadas-ranking`: sin
+// esto el ritmo vertical hacia "Detalle de Perdidas" queda más apretado
+// que el de Filtros→Análisis arriba).
+function commercialPerdidasAnalysisHtml() {
+  const rankingHtml = commercialPerdidasSellerRankingHtml(commercialPerdidasRankingRows());
+  const motivoHtml = commercialPerdidasMotivoBreakdownHtml(commercialPerdidasMotivoRows());
+  const tableRows = commercialPerdidasTableRows();
+  return commercialPerdidasControlsHtml()
+    + `<div class="commercial-perdidas-analysis"><div class="activity-grid-2">
+        <div>${rankingHtml}</div>
+        <div>${motivoHtml}</div>
+      </div></div>`
+    + `<div data-commercial-perdidas-table>${commercialPerdidasTableHtml(tableRows)}</div>`;
+}
+
+// Cuerpo del panel — MISMO contrato de estados que Ganadas.
+function commercialPerdidasPanelBodyHtml() {
+  if (commercialState.perdidasStatus === "error") {
+    const configIncomplete = commercialState.perdidasErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las oportunidades perdidas desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("perdidas", "Reintentar la carga de perdidas"));
+  }
+  if (commercialState.perdidasStatus !== "ready") {
+    return commercialLoadingHtml("Cargando perdidas…");
+  }
+  return commercialPerdidasAnalysisHtml();
+}
+
 // Backbone de secciones draggable/colapsables (UI Spine corrective, ver
 // arriba) — MISMA marca que reporting.js::dashboardSection/
 // dashboardSections, helper LOCAL (sin renderer compartido global, ver
@@ -3179,7 +3531,10 @@ function commercialDashboardHtml() {
         // semántica.
         { sub: hs(s.ganadas.hours), split: seg("ganadas"), eventKey: "ganadas" })}
       ${commercialRichKpi("Perdidas", commercialFmtInt(s.perdidas.count),
-        { sub: hs(s.perdidas.hours), split: seg("perdidas") })}
+        // Commercial Tile 7, ver HANDOFF: fetch propio/independiente
+        // (/comercial/data/perdidas), MISMO criterio que Ganadas — el KPI
+        // en sí NO cambia (año calendario actual, count+horas).
+        { sub: hs(s.perdidas.hours), split: seg("perdidas"), eventKey: "perdidas" })}
       ${commercialRichKpi("Suspendidas", commercialFmtInt(s.suspendidas.count),
         { sub: hs(s.suspendidas.hours), split: seg("suspendidas") })}
       ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
@@ -3317,6 +3672,22 @@ function commercialDashboardHtml() {
       <div class="dashboard-section__body" data-commercial-ganadas-body>${commercialGanadasPanelBodyHtml()}</div>
     </details>`;
 
+  // Perdidas (Commercial Tile 7, ver HANDOFF): SEXTA sección de análisis,
+  // hermana de Activas/Forecast/Creadas/Prospectos/Ganadas, MISMO
+  // `[data-breakdown-group]`. Lazy load POR AÑO + render quirúrgico (ver
+  // `commercialRenderPerdidasPanel`) — los hosts estables son
+  // `[data-commercial-perdidas-count]`/`[data-commercial-perdidas-body]`.
+  const perdidasSection = `<details class="dashboard-section" data-section-id="perdidas-analisis" data-breakdown="perdidas" open hidden>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Perdidas — Análisis</span>
+        <span class="dashboard-section__count" data-commercial-perdidas-count>${commercialEsc(commercialPerdidasCountLabel())}</span>
+        <button type="button" class="panel-close" data-commercial-close-analysis="perdidas" aria-label="Cerrar análisis">&times;</button>
+      </summary>
+      <div class="dashboard-section__body" data-commercial-perdidas-body>${commercialPerdidasPanelBodyHtml()}</div>
+    </details>`;
+
   // "Resumen" va SIN contador en el header: la sección agrupa nueve métricas
   // distintas, así que fijar ahí el conteo de una sola (Activas) le daba un
   // protagonismo que no le corresponde y sugería que el bloque entero hablaba
@@ -3327,7 +3698,8 @@ function commercialDashboardHtml() {
     + forecastSection
     + creadasSection
     + prospectsSection
-    + ganadasSection;
+    + ganadasSection
+    + perdidasSection;
   return commercialDashboardSections("commercial", sections);
 }
 
@@ -3685,6 +4057,80 @@ function commercialMaybeLoadGanadas(trigger) {
   commercialLoadGanadas();
 }
 
+// ── Perdidas — lazy load POR AÑO, SIN ventana caliente (Commercial Tile 7,
+// ver HANDOFF) ─────────────────────────────────────────────────────────────
+// MISMA técnica que Ganadas — cache por año, adopta y renderiza ANTES de
+// resolver, SIN prefetch del año anterior en background. El desglose por
+// Motivo NUNCA dispara su propio fetch: se deriva de `commercialState.
+// perdidas` (ver `commercialPerdidasMotivoRows`), el MISMO payload que ya
+// trae la tabla — corrige el bug real del legacy (`/lost-reasons`
+// hardcodeado a año actual) sin agregar ningún RPC.
+function commercialRenderPerdidasPanel() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const body = root.querySelector("[data-commercial-perdidas-body]");
+  if (body) body.innerHTML = commercialPerdidasPanelBodyHtml();
+  const count = root.querySelector("[data-commercial-perdidas-count]");
+  if (count) count.textContent = commercialPerdidasCountLabel();
+}
+
+async function commercialHydratePerdidasYear(year, opts) {
+  const key = String(year);
+  const entry = commercialState.perdidasByYear[key];
+  if (entry && (entry.status === "ready" || entry.status === "loading")) {
+    if (opts && opts.activo) commercialPerdidasAdoptYear(key);
+    return entry.status === "ready";
+  }
+  commercialState.perdidasByYear[key] = { status: "loading", data: null };
+  if (opts && opts.activo) commercialState.perdidasStatus = "loading";
+  commercialRenderPerdidasPanel();
+  try {
+    const qs = `year=${encodeURIComponent(key)}&tipo=${encodeURIComponent(commercialState.tipo)}`;
+    const resp = await fetch(`/comercial/data/perdidas?${qs}`).then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.perdidasByYear[key] = { status: "ready", data: resp.perdidas };
+      commercialPerdidasAdoptYear(key);
+      return true;
+    }
+    commercialState.perdidasByYear[key] = {
+      status: "error", data: null,
+      errorState: resp.state === "config_incomplete" ? "config_incomplete" : "source_error",
+    };
+  } catch (e) {
+    commercialState.perdidasByYear[key] = { status: "error", data: null, errorState: "source_error" };
+  }
+  commercialPerdidasAdoptYear(commercialState.perdidasYear || key);
+  return false;
+}
+
+function commercialPerdidasAdoptYear(year) {
+  const key = String(year);
+  const activo = String(commercialState.perdidasYear || key);
+  if (key !== activo) { commercialRenderPerdidasPanel(); return; }
+  const entry = commercialState.perdidasByYear[key] || { status: "idle" };
+  commercialState.perdidas = entry.data;
+  commercialState.perdidasStatus = entry.status === "ready" ? "ready"
+    : entry.status === "error" ? "error" : "loading";
+  commercialState.perdidasErrorState = entry.errorState || "";
+  if (entry.status === "ready") HubForegroundProgress.complete("commercial");
+  else if (entry.status === "error") HubForegroundProgress.fail("commercial");
+  commercialRenderPerdidasPanel();
+}
+
+async function commercialLoadPerdidas() {
+  const actual = new Date().getFullYear();
+  commercialState.perdidasYear = String(actual);
+  HubForegroundProgress.begin("commercial", { seedMs: 4500 });
+  await commercialHydratePerdidasYear(actual, { activo: true });
+}
+
+function commercialMaybeLoadPerdidas(trigger) {
+  if (trigger.dataset.event !== "perdidas") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.perdidasStatus !== "idle") return;
+  commercialLoadPerdidas();
+}
+
 // ── Creadas — lazy load + render quirúrgico (Creadas Legacy Parity, ver
 // HANDOFF) ─────────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast: re-render QUIRÚRGICO (SOLO el cuerpo y el
@@ -3888,6 +4334,16 @@ function commercialSetTipo(tipo) {
   commercialState.ganadasYear = null;
   commercialState.ganadasSellerFilter = "";
   commercialState.ganadasClientFilter = "";
+  // Perdidas (Commercial Tile 7, ver HANDOFF): MISMO criterio que Ganadas
+  // — invalida TODO el cache por año, resetea los TRES ejes de filtro.
+  commercialState.perdidasByYear = {};
+  commercialState.perdidas = null;
+  commercialState.perdidasStatus = "idle";
+  commercialState.perdidasErrorState = "";
+  commercialState.perdidasYear = null;
+  commercialState.perdidasSellerFilter = "";
+  commercialState.perdidasClientFilter = "";
+  commercialState.perdidasMotivoFilter = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
   commercialState.actPeriod = "all";
@@ -4002,6 +4458,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.prospectsStatus !== "loading") commercialLoadProspects();
       } else if (retryBtn.dataset.commercialRetry === "ganadas") {
         if (commercialState.ganadasStatus !== "loading") commercialLoadGanadas();
+      } else if (retryBtn.dataset.commercialRetry === "perdidas") {
+        if (commercialState.perdidasStatus !== "loading") commercialLoadPerdidas();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -4197,6 +4655,52 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialGanadasSetSeller(ganadasSellerPick.dataset.commercialGanadasSellerPick);
       return;
     }
+    // Perdidas — "✕ Limpiar" (Commercial Tile 7, ver HANDOFF): resetea
+    // Vendedor, Cliente Y Motivo — NUNCA el año (owner §11).
+    const perdidasClear = event.target.closest("[data-commercial-perdidas-clear]");
+    if (perdidasClear) {
+      commercialPerdidasClearFilters();
+      return;
+    }
+    // Perdidas — ✕ de un chip de contexto individual: limpia SÓLO ese eje
+    // (MISMO criterio que Creadas — descartar un filtro no es "resetear
+    // todo", eso es Limpiar).
+    if (event.target.closest("[data-commercial-perdidas-seller-clear]")) {
+      commercialPerdidasSetSeller("");
+      return;
+    }
+    if (event.target.closest("[data-commercial-perdidas-client-clear]")) {
+      commercialPerdidasSetClient("");
+      return;
+    }
+    if (event.target.closest("[data-commercial-perdidas-motivo-clear]")) {
+      commercialPerdidasSetMotivo("");
+      return;
+    }
+    // Perdidas — orden de columna: re-render QUIRÚRGICO de
+    // `[data-commercial-perdidas-table]` (ranking/motivo no cambian con el
+    // orden de la tabla, así que no hace falta tocarlos).
+    const perdidasSortTh = event.target.closest("[data-commercial-perdidas-sort]");
+    if (perdidasSortTh) {
+      commercialTogglePerdidasSort(perdidasSortTh.dataset.commercialPerdidasSort);
+      const host = root.querySelector("[data-commercial-perdidas-table]");
+      if (host) host.innerHTML = commercialPerdidasTableHtml(commercialPerdidasTableRows());
+      return;
+    }
+    // Perdidas — click en una fila del ranking: MISMA cascada que Ganadas
+    // (SIN toggle-to-clear).
+    const perdidasSellerPick = event.target.closest("[data-commercial-perdidas-seller-pick]");
+    if (perdidasSellerPick) {
+      commercialPerdidasSetSeller(perdidasSellerPick.dataset.commercialPerdidasSellerPick);
+      return;
+    }
+    // Perdidas — click en un motivo del desglose: CON toggle-to-clear (ver
+    // `commercialPerdidasSetMotivo` — MISMA semántica que el doughnut legacy).
+    const perdidasMotivoPick = event.target.closest("[data-commercial-perdidas-motivo-pick]");
+    if (perdidasMotivoPick) {
+      commercialPerdidasSetMotivo(perdidasMotivoPick.dataset.commercialPerdidasMotivoPick);
+      return;
+    }
     const clearBtn = event.target.closest("[data-commercial-clear-filters]");
     if (clearBtn) {
       commercialState.oppStageFilter = "";
@@ -4241,6 +4745,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeLoadCreadas(kpiTrigger);
       commercialMaybeLoadProspects(kpiTrigger);
       commercialMaybeLoadGanadas(kpiTrigger);
+      commercialMaybeLoadPerdidas(kpiTrigger);
       commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
       return;
     }
@@ -4340,6 +4845,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const clientSelect = event.target.closest("[data-commercial-ganadas-client-filter]");
     if (clientSelect) {
       commercialGanadasSetClient(clientSelect.value);
+      return;
+    }
+  });
+  // Perdidas — Año (Commercial Tile 7, ver HANDOFF): MISMO contrato COLD
+  // YEAR que Ganadas. Vendedor/Cliente/Motivo NO se preservan entre años —
+  // MISMO criterio que Ganadas (resetear es lo más simple y predecible).
+  document.addEventListener("change", event => {
+    const yearSelect = event.target.closest("[data-commercial-perdidas-year]");
+    if (yearSelect) {
+      commercialState.perdidasYear = yearSelect.value;
+      commercialState.perdidasSellerFilter = "";
+      commercialState.perdidasClientFilter = "";
+      commercialState.perdidasMotivoFilter = "";
+      commercialHydratePerdidasYear(yearSelect.value, { activo: true });
+      return;
+    }
+    const sellerSelect = event.target.closest("[data-commercial-perdidas-seller-filter]");
+    if (sellerSelect) {
+      commercialPerdidasSetSeller(sellerSelect.value);
+      return;
+    }
+    const clientSelect = event.target.closest("[data-commercial-perdidas-client-filter]");
+    if (clientSelect) {
+      commercialPerdidasSetClient(clientSelect.value);
       return;
     }
   });
@@ -4490,6 +5019,20 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialGanadasSetSeller(ganadasSellerPick.dataset.commercialGanadasSellerPick);
       return;
     }
+    // Perdidas — MISMO camino de teclado, para el ranking Y el desglose por
+    // Motivo (los dos son `.bar-row`, no `<button>` nativo).
+    const perdidasSellerPick = event.target.closest && event.target.closest("[data-commercial-perdidas-seller-pick]");
+    if (perdidasSellerPick) {
+      event.preventDefault();
+      commercialPerdidasSetSeller(perdidasSellerPick.dataset.commercialPerdidasSellerPick);
+      return;
+    }
+    const perdidasMotivoPick = event.target.closest && event.target.closest("[data-commercial-perdidas-motivo-pick]");
+    if (perdidasMotivoPick) {
+      event.preventDefault();
+      commercialPerdidasSetMotivo(perdidasMotivoPick.dataset.commercialPerdidasMotivoPick);
+      return;
+    }
     const kpiTrigger = event.target.closest("[data-event]");
     if (!kpiTrigger) return;
     commercialNormalizeSharedTriggerActiveState(kpiTrigger, root);
@@ -4498,6 +5041,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeLoadCreadas(kpiTrigger);
     commercialMaybeLoadProspects(kpiTrigger);
     commercialMaybeLoadGanadas(kpiTrigger);
+    commercialMaybeLoadPerdidas(kpiTrigger);
     commercialMaybeScrollToOpenedAnalysis(kpiTrigger, root);
   });
   commercialLoadData();

@@ -580,6 +580,12 @@ def test_15_route_surface_still_108():
     #     detalle por oportunidad, año-scoped, paridad con el legacy
     #     `/crm/kpi-detail` bucket "won") — LAZY (nunca en la hidratación
     #     normal del dashboard), read-only, mismo contrato fail-soft.
+    #   110 -> 111 (Commercial Tile 7 — Perdidas, ver HANDOFF): +GET
+    #     /comercial/data/perdidas, drill de "Perdidas" (ranking por vendedor
+    #     + desglose por Motivo, derivado CLIENT-SIDE de las mismas filas +
+    #     detalle por oportunidad, año-scoped, paridad con el legacy
+    #     `/crm/kpi-detail` bucket "lost" + `setKpiView('lost')`/
+    #     `renderLostPanel`) — LAZY, read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -587,7 +593,7 @@ def test_15_route_surface_still_108():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 110
+    assert len(snapshot) == 111
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

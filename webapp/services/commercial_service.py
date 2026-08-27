@@ -788,6 +788,91 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Perdidas — detalle por año (Commercial Tile 7, ver HANDOFF) ──────────
+    # Dominio CANÓNICO — el MISMO que el KPI "Perdidas" del summary
+    # (`_build_summary`, ver arriba): `type=opportunity, active=False,
+    # probability=0, date_closed` dentro del año pedido, límites CON hora
+    # ("00:00:00"/"23:59:59") — asimetría real vs Ganadas (fecha sola),
+    # preservada tal cual, NUNCA normalizada por simetría.
+    #
+    # `active=False` va EXPLÍCITO en el dominio — a diferencia del landmine
+    # de Ganadas (ausencia de cláusula `active` = `active_test=True`
+    # implícito de Odoo, que excluye archivadas por defecto), acá el campo
+    # SÍ está nombrado, así que Odoo respeta el valor pedido sin ambigüedad.
+    #
+    # Perdida NO es sólo "inactiva + probability 0": una oportunidad puede
+    # matchear el dominio crudo y NO ser una Perdida de negocio si su motivo
+    # es administrativo. Por eso el pipeline tiene DOS pasos más, reusando
+    # LITERAL las mismas instance methods que ya usa el KPI — nunca una
+    # segunda implementación del cascade de motivo ni de la exclusión (eso
+    # rompería la conservación KPI↔drill en silencio):
+    #   1. `lost_raw`        = candidatos crudos del dominio;
+    #   2. `_resolve_lost_motivos(lost_raw)` = motivo resuelto por oportunidad
+    #      (cascade de 3 niveles: lost_reason_id → lost_reason_ids → lead_
+    #      properties "Motivo de Perdida Danwor");
+    #   3. `_filter_excluded_lost(...)` = saca las de motivo administrativo
+    #      ("cierre administrativo") — el universo que queda es la Perdida
+    #      de negocio real, exactamente lo que ya cuenta el KPI.
+    #
+    # Fila con Motivo (a diferencia de Ganadas): "Sin definir" para
+    # oportunidades sin motivo resoluble por ningún nivel del cascade — el
+    # mismo fallback que ya usaba el legacy `/lost-reasons`/`/lost-history`
+    # (nunca el `""` crudo de `/kpi-detail`'s `fmt()`, que acá rompería el
+    # agrupamiento del desglose de Motivo). Sin Etapa/Origen/Tags/Licencias/
+    # Probabilidad/Prioridad/Revenue: ninguno existe en el contrato real de
+    # Perdidas (`revenue` se pedía y ordenaba en el legacy pero NUNCA se
+    # mostraba — dead field, no se porta).
+    def _build_perdidas_detail(self, year: int) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        year_start, year_end = f"{year}-01-01", f"{year}-12-31"
+        lost_raw = self._client.search_read(
+            "crm.lead",
+            domain=[
+                ["type", "=", "opportunity"], ["active", "=", False], ["probability", "=", 0],
+                ["date_closed", ">=", f"{year_start} 00:00:00"], ["date_closed", "<=", f"{year_end} 23:59:59"],
+            ],
+            fields=["name", "partner_id", "user_id", "lead_properties", "tag_ids"],
+        )
+        lost_motivos = self._resolve_lost_motivos(lost_raw)
+        opps = self._filter_excluded_lost(lost_raw, lost_motivos)
+
+        def _row(opp: dict) -> dict:
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "motivo": lost_motivos.get(opp["id"]) or "Sin definir",
+                "hours": get_property_num(opp.get("lead_properties"), "Horas"),
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_perdidas_detail(self, tipo: str = "todos", year: int | None = None) -> dict:
+        """Detalle canónico de Perdidas de UN año. `year=None` resuelve al
+        actual — MISMO contrato que `get_ganadas_detail`. Cache POR AÑO
+        (`commercial:perdidas:<year>`), SIN ventana caliente (MISMA política
+        que Ganadas — nunca precalienta el año anterior)."""
+        if year is None:
+            year = date.today().year
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached(f"commercial:perdidas:{year}", lambda: self._build_perdidas_detail(year))
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
     # Phase 2, C2 ──────────────────────────────────────────────────────────
     # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO

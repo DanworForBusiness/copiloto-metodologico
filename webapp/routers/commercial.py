@@ -223,6 +223,33 @@ def commercial_data_ganadas(request: Request, tipo: str = Query("todos"), year: 
     return JSONResponse({"state": "ok", "ganadas": ganadas})
 
 
+@router.get("/comercial/data/perdidas", include_in_schema=False)
+def commercial_data_perdidas(request: Request, tipo: str = Query("todos"), year: int = Query(0)):
+    """Detalle de "Perdidas" (Commercial Tile 7, ver HANDOFF) — universo
+    canónico active=False + probability=0 + date_closed dentro del año
+    pedido (year=0 resuelve al año actual, límites CON hora), MENOS las
+    exclusiones administrativas de motivo — MISMO dominio + MISMO cascade
+    de motivo/exclusión que el KPI del landing (`_resolve_lost_motivos`/
+    `_filter_excluded_lost`, reusados literal, nunca reimplementados). LAZY:
+    sólo se pide al abrir el análisis, nunca en la hidratación normal del
+    dashboard. Cache por año en el service (`commercial:perdidas:<year>`)
+    — SIN ventana caliente. El desglose por Motivo se deriva CLIENT-SIDE de
+    estas MISMAS filas (nunca un endpoint separado — corrige el bug real
+    del legacy `/lost-reasons`, hardcodeado a año actual, sin agregar
+    ningún RPC extra). MISMO contrato fail-soft y MISMA gate que el resto
+    de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        perdidas = CommercialService().get_perdidas_detail(_normalize_tipo(tipo), year or None)
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="perdidas")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="perdidas")
+    return JSONResponse({"state": "ok", "perdidas": perdidas})
+
+
 @router.get("/comercial/data/forecast", include_in_schema=False)
 def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     """Forecast por mes de cierre (Active Opportunities Phase 2, ver
