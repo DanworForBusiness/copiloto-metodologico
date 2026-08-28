@@ -296,8 +296,14 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # agrega UNO: `[data-commercial-analytics-body]` en
     # `commercialRenderAnalyticsBody` — host estable para el re-render
     # QUIRÚRGICO del reintento, MISMO criterio que Forecast/Creadas/etc.
+    # El follow-up "FINAL DEPENDENCY CHECK" (ver HANDOFF) agrega OTRO:
+    # `[data-commercial-creadas-summary-tile]` en
+    # `commercialRenderCreadasSummaryTile` — "Creadas esta semana" (Resumen)
+    # sale del MISMO payload de Analíticas, así que un reintento exitoso lo
+    # recupera de "—" con su propio host acotado, sin tocar el resto de
+    # Resumen.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cuarenta y ocho hooks y nada más.
+    # EXACTAMENTE estos cuarenta y nueve hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
@@ -307,6 +313,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-funnel-area]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-activities-body]"',
+        '"[data-commercial-creadas-summary-tile]"',
         '"[data-commercial-analytics-body]"',
         '"[data-commercial-forecast-body]"',
         '"[data-commercial-forecast-count]"',
@@ -690,10 +697,14 @@ def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # sacó los SEIS tiles de Analítica del Pipeline de `commercialDashboardHtml`
     # hacia su propia función (`commercialAnalyticsBodyHtml`, host estable
     # para el reintento escopeado) — se suman los dos cuerpos, ninguna key
-    # se perdió ni se movió de función por accidente.
+    # se perdió ni se movió de función por accidente. El follow-up "FINAL
+    # DEPENDENCY CHECK" (ver HANDOFF) sacó TAMBIÉN "Creadas esta semana" a
+    # `commercialCreadasSummaryTileHtml` (su propio host de re-render) — se
+    # suma un tercer cuerpo por la misma razón.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
     analytics_fn = _COMMERCIAL_JS.split("function commercialAnalyticsBodyHtml(", 1)[1].split("\nfunction ", 1)[0]
-    combined = dashboard_fn + analytics_fn
+    creadas_tile_fn = _COMMERCIAL_JS.split("function commercialCreadasSummaryTileHtml(", 1)[1].split("\nfunction ", 1)[0]
+    combined = dashboard_fn + analytics_fn + creadas_tile_fn
     assert combined.count("eventKey:") == 14
     assert combined.count('eventKey: "activas"') == 1
     assert combined.count('eventKey: "forecast"') == 2

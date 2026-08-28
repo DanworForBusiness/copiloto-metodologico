@@ -4561,6 +4561,42 @@ function commercialRenderActivitiesBody() {
   if (host) host.innerHTML = commercialActivitiesBodyHtml();
 }
 
+// "Creadas esta semana" (tile del Resumen) — owner corrective "SCOPED
+// RETRY... FINAL DEPENDENCY CHECK" (ver HANDOFF): auditado a mano contra el
+// backend (`CommercialService.get_analytics`, `_view()`) — `creadas` sale
+// del MISMO `_view()` que arma `pipeline_age`/`stage_time`/etc., dentro del
+// MISMO payload `/comercial/data/analytics`. NO es un fetch propio (a
+// diferencia de lo que su propio `eventKey: "creadas"` podría sugerir — ESE
+// es el drill de detalle, `/comercial/data/creadas`, un endpoint totalmente
+// distinto para el ANÁLISIS al abrir el tile, no para el número que muestra
+// cerrado). Por eso este tile degrada a "—" exactamente cuando `analytics`
+// es null, igual que los seis tiles de abajo — y por eso un reintento
+// exitoso de Analíticas tiene que refrescarlo también: es el MISMO dato, no
+// un placeholder que sobrevive a propósito. Host propio
+// (`data-commercial-creadas-summary-tile`) para poder actualizar SÓLO este
+// tile sin tocar el resto de Resumen — `eventKey`/`split` siguen sin
+// depender de `a` fuera del propio valor mostrado, MISMO criterio que
+// siempre (el drill puede abrir igual aunque el número esté en "—").
+function commercialCreadasSummaryTileHtml() {
+  const a = commercialState.analytics;
+  return commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
+    { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "",
+      eventKey: "creadas" });
+}
+
+// Re-render QUIRÚRGICO de "Creadas esta semana" — SÓLO su host
+// (`data-commercial-creadas-summary-tile`), nunca el resto de Resumen: los
+// otros ocho tiles no dependen de `analytics`, así que no tienen nada que
+// recuperar. Llamado desde `commercialLoadAnalytics` junto con
+// `commercialRenderAnalyticsBody` — MISMA respuesta ya en memoria, cero
+// fetch adicional.
+function commercialRenderCreadasSummaryTile() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const host = root.querySelector("[data-commercial-creadas-summary-tile]");
+  if (host) host.innerHTML = commercialCreadasSummaryTileHtml();
+}
+
 // "Analíticas del Pipeline" — owner corrective "SCOPED RETRY FOR PIPELINE
 // ANALYTICS" (ver HANDOFF): TRES estados sobre `analyticsStatus`, MISMO
 // contrato que Forecast/Creadas/pipeline-analytics-detail (loading →
@@ -4657,6 +4693,12 @@ async function commercialLoadAnalytics() {
     HubForegroundProgress.fail("commercial");
   }
   commercialRenderAnalyticsBody();
+  // "Creadas esta semana" (Resumen) depende del MISMO payload (ver HANDOFF
+  // — dependency check): un reintento exitoso lo recupera de "—" al valor
+  // real; uno que vuelve a fallar lo deja como estaba (ya en "—", no hay
+  // nada que perder). CERO fetch adicional — usa `commercialState.analytics`
+  // ya actualizado arriba.
+  commercialRenderCreadasSummaryTile();
 }
 
 // Contenido del Dashboard (la capability inicial). Se separó de
@@ -4732,14 +4774,7 @@ function commercialDashboardHtml() {
         // suspendidas), MISMO criterio que Prospectos. El KPI en sí NO
         // cambia (stock actual, count+horas, sin año).
         { sub: hs(s.suspendidas.hours), split: seg("suspendidas"), eventKey: "suspendidas" })}
-      ${commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
-        // eventKey NUNCA condicional a `a` (Creadas Legacy Parity, ver
-        // HANDOFF): el drill es un fetch PROPIO/independiente
-        // (/comercial/data/creadas), no derivado de `analytics` — que
-        // ESE batch falle no debe apagar la afordancia de un análisis que
-        // igual puede cargar.
-        { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "",
-          eventKey: "creadas" })}
+      <div data-commercial-creadas-summary-tile>${commercialCreadasSummaryTileHtml()}</div>
       ${commercialRichKpi("Conversión", commercialFmtPercent(s.conversion),
         { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;

@@ -48,7 +48,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
-const { commercialAnalyticsBodyHtml, commercialLoadAnalytics } = sandbox;
+const { commercialAnalyticsBodyHtml, commercialLoadAnalytics, commercialCreadasSummaryTileHtml } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
 
 // Los delegados de click/keydown de commercial.js se cablean UNA sola vez,
@@ -178,17 +178,39 @@ function resetState(patch) {
     assertTrue(root.innerHTML === ROOT_SENTINEL, "un render completo hubiera cerrado Activas/Forecast si estaban abiertos");
   }
 
-  // ═══ G) Resumen queda byte-idéntico ══════════════════════════════════════
+  // ═══ G) Resumen queda igual salvo el ÚNICO tile que SÍ depende de
+  //        Analíticas ("Creadas esta semana") — owner follow-up "FINAL
+  //        DEPENDENCY CHECK" (ver HANDOFF): auditado contra el backend
+  //        (`CommercialService.get_analytics` → `_view()`), `creadas` sale
+  //        del MISMO payload que los seis tiles de Analíticas — así que
+  //        preservar el placeholder degradado ("—") DESPUÉS de que su
+  //        fuente se recuperó sería el error opuesto al que este corrective
+  //        previene. El resto de Resumen (summary/pipeline/opportunities,
+  //        ocho tiles que NO dependen de `analytics`) sí debe quedar
+  //        byte/referencia-idéntico. ══════════════════════════════════════
   {
     resetState();
+    hosts["[data-commercial-analytics-body]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"].innerHTML = commercialCreadasSummaryTileHtml(); // estado inicial: "—"
+    assertTrue(hosts["[data-commercial-creadas-summary-tile]"].innerHTML.includes(">—<"),
+      'inicial: Summary sano salvo Creadas="—" (Analytics=error)');
     const before = { summary: commercialState.summary, pipeline: commercialState.pipeline,
                       opportunities: commercialState.opportunities, status: commercialState.status,
                       tipo: commercialState.tipo };
-    hosts["[data-commercial-analytics-body]"] = fakeNode();
+    fetchCalls.length = 0;
     fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", analytics: ANALYTICS }) });
     await commercialLoadAnalytics();
+    assertTrue(fetchCalls.length === 1 && fetchCalls[0] === "/comercial/data/analytics?tipo=todos",
+      "el reintento sigue siendo EXACTAMENTE una request, al endpoint de siempre");
+    assertTrue(commercialState.analyticsStatus === "ready", "éxito: Analytics=ready");
+    const creadasHtml = hosts["[data-commercial-creadas-summary-tile]"].innerHTML;
+    assertTrue(!creadasHtml.includes(">—<") && creadasHtml.includes(`>${ANALYTICS.creadas.this_week}<`),
+      'Creadas pasa de "—" al valor recuperado — MISMA respuesta ya en memoria, sin fetch propio');
+    assertTrue(creadasHtml.includes("Semana Anterior") && creadasHtml.includes(String(ANALYTICS.creadas.last_week)),
+      "con su línea secundaria (Semana Anterior) también recuperada");
     assertTrue(commercialState.summary === before.summary, "summary: MISMA referencia, cero mutación");
-    assertTrue(commercialState.pipeline === before.pipeline, "pipeline: ídem");
+    assertTrue(commercialState.pipeline === before.pipeline, "pipeline: ídem — ningún tile no-relacionado cambia");
     assertTrue(commercialState.opportunities === before.opportunities, "opportunities: ídem");
     assertTrue(commercialState.status === before.status, "status general: ídem");
     assertTrue(commercialState.tipo === before.tipo, "Tipo vigente: ídem");
@@ -198,12 +220,16 @@ function resetState(patch) {
   {
     resetState();
     hosts["[data-commercial-analytics-body]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"].innerHTML = commercialCreadasSummaryTileHtml();
     fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "source_error" }) });
     await commercialLoadAnalytics();
     assertTrue(commercialState.analyticsStatus === "error" && commercialState.analyticsErrorState === "source_error",
       "vuelve a No disponible, nunca se queda pegado en loading");
     assertTrue(hosts["[data-commercial-analytics-body]"].innerHTML.includes('data-commercial-retry="analytics"'),
       "y el botón Reintentar sigue ahí — nunca un estado sin salida");
+    assertTrue(hosts["[data-commercial-creadas-summary-tile]"].innerHTML.includes(">—<"),
+      "y Creadas se queda en \"—\": no había nada que recuperar, no hay nada que perder");
     // Una excepción de red (fetch rechaza) cae en el MISMO camino fail-soft.
     resetState();
     hosts["[data-commercial-analytics-body]"] = fakeNode();
@@ -217,6 +243,8 @@ function resetState(patch) {
   {
     resetState({ tipo: "nn" });
     hosts["[data-commercial-analytics-body]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"] = fakeNode();
+    hosts["[data-commercial-creadas-summary-tile]"].innerHTML = "<!--bi-nuevo-creadas-->";
     let releaseFetch;
     fetchImpl = () => new Promise(resolve => { releaseFetch = resolve; });
     const inFlight = commercialLoadAnalytics(); // arranca bajo tipo "nn"
@@ -239,6 +267,8 @@ function resetState(patch) {
       "ni el dato: la respuesta de \"nn\" nunca se adopta bajo \"bi\"");
     assertTrue(hosts["[data-commercial-analytics-body]"].innerHTML === "<!--bi-nuevo-->",
       "y el host NO se re-renderiza con la respuesta obsoleta");
+    assertTrue(hosts["[data-commercial-creadas-summary-tile]"].innerHTML === "<!--bi-nuevo-creadas-->",
+      "y Creadas TAMPOCO — la misma respuesta obsoleta que no toca Analíticas no toca su tile derivado");
 
     // Camino de excepción: MISMO guard.
     resetState({ tipo: "nn" });
