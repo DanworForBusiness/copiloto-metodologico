@@ -63,7 +63,21 @@ let failures = 0;
 function assertTrue(cond, label) {
   if (!cond) { failures++; console.log(`FAIL: ${label}`); }
 }
-function fakeNode() { return { innerHTML: "" }; }
+// `outerHTML` como alias de `innerHTML` (owner smoke — "Creadas esta
+// semana" se achicó, ver HANDOFF): `commercialRenderCreadasSummaryTile`
+// ahora reemplaza el host con `outerHTML` (el host ES el `.activity-kpi`
+// mismo, no un wrapper — `innerHTML` metería un `.activity-kpi` nuevo
+// ADENTRO del viejo). Un nodo real de verdad reemplaza el elemento en su
+// padre; acá alcanza con que el string quede accesible para las
+// aserciones, sin modelar el árbol completo.
+function fakeNode() {
+  const node = { innerHTML: "" };
+  Object.defineProperty(node, "outerHTML", {
+    get() { return node.innerHTML; },
+    set(html) { node.innerHTML = html; },
+  });
+  return node;
+}
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 const ANALYTICS = {

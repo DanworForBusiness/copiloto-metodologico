@@ -412,12 +412,21 @@ function commercialActJumpToSection(sectionId, root) {
 // lectura representa cada uno ("total" | "ponderado"). Es una propiedad
 // ESTÁTICA del tile (lo que el tile significa), no estado de runtime: el
 // hecho dinámico —cuál está activo— lo sigue diciendo `.is-active` en el DOM.
-function commercialRichKpi(label, value, { sub = "", split = null, eventKey = "", eventView = "" } = {}) {
+// `hostAttr` (owner smoke — "Creadas esta semana" se achicó, ver HANDOFF):
+// hook de re-render QUIRÚRGICO opcional, escrito DIRECTO en el `.activity-kpi`
+// mismo — NUNCA un `<div>` wrapper alrededor. `.activity-kpi-grid` es CSS
+// Grid con `align-items: stretch` implícito: el grid ESTIRA a su hijo
+// DIRECTO a la altura de la fila. Un wrapper sin estilo propio recibe ESE
+// estiramiento (invisible, sin bordes), pero el `.activity-kpi` real —
+// ahora un NIETO, no un hijo — vuelve a su alto de contenido, más chico
+// que sus hermanos con más líneas de texto. De ahí el tile visualmente
+// "achicado" pese a que el layout seguía siendo correcto en los demás.
+function commercialRichKpi(label, value, { sub = "", split = null, eventKey = "", eventView = "", hostAttr = "" } = {}) {
   const clickable = eventKey ? ` activity-kpi--clickable" data-event="${eventKey}"`
     + (eventView ? ` data-commercial-event-view="${eventView}"` : "")
     + ` role="button" tabindex="0"`
     + ` aria-label="Ver análisis de ${commercialEsc(label)}"` : '"';
-  return `<div class="activity-kpi${clickable}>`
+  return `<div class="activity-kpi${clickable}${hostAttr ? ` ${hostAttr}` : ""}>`
     + `<span class="activity-kpi__value">${commercialEsc(value)}</span>`
     + `<span class="activity-kpi__label">${commercialEsc(label)}</span>`
     + (sub ? `<span class="kpi-sub">${commercialEsc(sub)}</span>` : "")
@@ -5064,29 +5073,38 @@ function commercialRenderActivitiesBody() {
 // cerrado). Por eso este tile degrada a "—" exactamente cuando `analytics`
 // es null, igual que los seis tiles de abajo — y por eso un reintento
 // exitoso de Analíticas tiene que refrescarlo también: es el MISMO dato, no
-// un placeholder que sobrevive a propósito. Host propio
-// (`data-commercial-creadas-summary-tile`) para poder actualizar SÓLO este
-// tile sin tocar el resto de Resumen — `eventKey`/`split` siguen sin
-// depender de `a` fuera del propio valor mostrado, MISMO criterio que
-// siempre (el drill puede abrir igual aunque el número esté en "—").
+// un placeholder que sobrevive a propósito.
+//
+// Hook de re-render vía `hostAttr` (owner smoke — el tile se veía
+// "achicado", ver HANDOFF), NUNCA un `<div>` wrapper alrededor: ver el
+// comentario de `commercialRichKpi` — un wrapper sin estilo propio rompe el
+// `align-items: stretch` implícito de `.activity-kpi-grid` (CSS Grid), que
+// hoy es lo que le da a este tile la MISMA altura que sus ocho hermanos
+// pese a tener menos líneas de texto (una sola: "Semana Anterior", contra
+// las tres de hs/NN/BI del resto). `eventKey`/`split` siguen sin depender
+// de `a` fuera del propio valor mostrado, MISMO criterio que siempre (el
+// drill puede abrir igual aunque el número esté en "—").
 function commercialCreadasSummaryTileHtml() {
   const a = commercialState.analytics;
   return commercialRichKpi("Creadas esta semana", a ? commercialFmtInt(a.creadas.this_week) : "—",
     { split: a ? commercialKpiPairsHtml([["Semana Anterior", commercialFmtInt(a.creadas.last_week)]]) : "",
-      eventKey: "creadas" });
+      eventKey: "creadas", hostAttr: "data-commercial-creadas-summary-tile" });
 }
 
 // Re-render QUIRÚRGICO de "Creadas esta semana" — SÓLO su host
-// (`data-commercial-creadas-summary-tile`), nunca el resto de Resumen: los
-// otros ocho tiles no dependen de `analytics`, así que no tienen nada que
-// recuperar. Llamado desde `commercialLoadAnalytics` junto con
-// `commercialRenderAnalyticsBody` — MISMA respuesta ya en memoria, cero
-// fetch adicional.
+// (`data-commercial-creadas-summary-tile`, hoy el `.activity-kpi` mismo),
+// nunca el resto de Resumen: los otros ocho tiles no dependen de
+// `analytics`, así que no tienen nada que recuperar. `outerHTML`, no
+// `innerHTML`: el host YA ES el `.activity-kpi` completo (no un wrapper
+// vacío alrededor), así que hay que reemplazar el elemento entero, no
+// meter uno nuevo adentro del viejo. Llamado desde `commercialLoadAnalytics`
+// junto con `commercialRenderAnalyticsBody` — MISMA respuesta ya en
+// memoria, cero fetch adicional.
 function commercialRenderCreadasSummaryTile() {
   const root = document.getElementById("commercial-main-content");
   if (!root) return;
   const host = root.querySelector("[data-commercial-creadas-summary-tile]");
-  if (host) host.innerHTML = commercialCreadasSummaryTileHtml();
+  if (host) host.outerHTML = commercialCreadasSummaryTileHtml();
 }
 
 // "Analíticas del Pipeline" — owner corrective "SCOPED RETRY FOR PIPELINE
@@ -5266,7 +5284,7 @@ function commercialDashboardHtml() {
         // suspendidas), MISMO criterio que Prospectos. El KPI en sí NO
         // cambia (stock actual, count+horas, sin año).
         { sub: hs(s.suspendidas.hours), split: seg("suspendidas"), eventKey: "suspendidas" })}
-      <div data-commercial-creadas-summary-tile>${commercialCreadasSummaryTileHtml()}</div>
+      ${commercialCreadasSummaryTileHtml()}
       ${commercialRichKpi("Conversión", commercialFmtPercent(s.conversion),
         { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;
