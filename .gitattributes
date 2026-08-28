@@ -1,2 +1,9 @@
 Procfile text eol=lf
 *.sh text eol=lf
+
+# Terceros servidos por la app: SIN conversion de line endings.
+# `core.autocrlf` esta en true, asi que sin esta regla un checkout fresco
+# reescribiria el bundle con CRLF, su SHA-256 cambiaria y la verificacion de
+# integridad de test_hub_auth_msal.py dejaria de valer. El artefacto se guarda
+# byte a byte como lo publica el registry.
+webapp/static/vendor/** -text

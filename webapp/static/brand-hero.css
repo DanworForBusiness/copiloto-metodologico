@@ -101,16 +101,84 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)
 @media (prefers-reduced-motion:reduce){.hero-scroll-line{animation:none}}
 
 /* ── Selector de workspace (2+ espacios disponibles, /onedanwor) — tarjetas
-   ricas con la MISMA grilla visual que `.access-brand` de la landing
-   (kicker/título+acento/descripción/checklist), reutilizada tal cual
-   adentro de cada tile. Solo `h2` (no `h1`, para no repetir el heading
-   principal de la página) necesita sus propias reglas. ── */
+   CUADRADAS (owner corrective: "3 cuadrados en una fila, con TODO su
+   contenido reducido proporcionalmente" — no solo angostar el ancho
+   dejando la tipografía intacta). `aspect-ratio:1/1` en `.workspace-tile`
+   es la única regla de geometría — nunca height/min-height arbitrario, y
+   la MISMA para las tres cards (ninguna excepción por workspace). La
+   escala tipográfica/espacial interna de abajo está scoped bajo
+   `.workspace-tile` para no tocar `.access-brand`/`.access-list`
+   compartidos (pantalla de acceso, `.hub-hero`) — esos conservan su
+   escala original sin cambios. Solo `h2` (no `h1`, para no repetir el
+   heading principal de la página) necesita sus propias reglas. ── */
 .workspace-tiles{width:min(1080px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px;margin-top:22px}
-.workspace-tile{display:block;text-decoration:none;color:var(--ink);transition:border-color .16s ease,transform .16s ease}
+.workspace-tile{display:block;aspect-ratio:1/1;text-decoration:none;color:var(--ink);transition:border-color .16s ease,transform .16s ease}
 .workspace-tile:hover{border-color:rgba(231,176,8,.5);transform:translateY(-2px)}
-.workspace-tile .access-brand{padding:38px 34px}
-.workspace-tile .access-brand h2{margin:16px 0 0;font-size:clamp(1.5rem,2.6vw,2.1rem);font-weight:800;letter-spacing:-.03em;line-height:1.06}
+/* Geometría por CANTIDAD de workspaces visibles (`data-visible-count`, del
+   render). El ANCHO del grid ya era correcto y no se toca: `auto-fit` colapsa
+   la pista sobrante y reparte los 1080px (medido: 3 tiles 345px, 2 tiles
+   529px, cero hueco). Lo que estaba tuneado para 3 era el `aspect-ratio:1/1`:
+   con 2 tiles el ancho crece bien pero el cuadrado arrastra el alto a 529px y
+   la tarjeta queda desproporcionadamente alta. Sólo la PROPORCIÓN se vuelve
+   count-aware.
+
+   Acotado a `min-width:600px` —el mismo corte que ya usa este archivo— porque
+   abajo de ~590px los tiles apilan a una columna y ahí manda la regla
+   responsive de siempre: una proporción pensada para dos columnas no tiene
+   sentido en una tarjeta apilada.
+
+   `1` es HOY inalcanzable: con un solo workspace el router redirige (307) a su
+   home y este selector no se renderiza. Se deja `auto` igualmente para que, si
+   ese redirect alguna vez se saca, la tarjeta se ajuste al contenido en vez de
+   volverse un cuadrado de 1080×1080 — el mismo defecto a mayor escala. */
+@media (min-width:600px){
+  .workspace-tiles[data-visible-count="2"] .workspace-tile{aspect-ratio:4/3}
+  .workspace-tiles[data-visible-count="1"] .workspace-tile{aspect-ratio:auto}
+}
+
+/* La densidad roomy sólo donde MIDE que entra. El 4:3 se sostiene en todo el
+   rango multi-columna, pero el contenido a escala original necesita la
+   tarjeta completa: medido, entra con contenedor 1080 (529×397) y 1000
+   (489×367), y desborda 12px a 900. El corte es el ancho en el que el
+   contenedor llega a su tope de 1080 — 1080 + los 24px de padding de
+   `.screen` a cada lado — o sea justo cuando la tarjeta mide los 529 de la
+   referencia. Debajo manda la densidad compacta, que entra de sobra.
+
+   OJO para quien edite la copy: a 1080 la holgura es CERO (contenido 395 en
+   una caja de 395). Una línea más de descripción o un bullet más desbordan.
+   Si la copy tiene que crecer, la salida es alto por contenido en vez de 4:3
+   fijo — a 529 de ancho da los mismos 397, y nunca recorta. */
+@media (min-width:1128px){
+  /* DENSIDAD INTERNA, por cantidad. La geometria exterior no
+     alcanzaba: con 2 tiles la tarjeta ya medía 529×397 pero el CONTENIDO
+     seguía en la escala comprimida que se introdujo para que entrara el
+     tercer workspace (a7c54a7) — títulos, cuerpo, bullets, íconos y padding
+     todos reducidos. Comprimir tiene sentido cuando hace falta espacio para
+     una capacidad más; con 2 no hace falta y la tarjeta vuelve a su escala.
+
+     Estos valores son los de a7c54a7^, no una estimación: `padding` y `h2`
+     eran las únicas reglas propias del tile, y el resto heredaba los
+     defaults compartidos de `.access-brand`/`.access-list` (que siguen
+     intactos más arriba en esta misma hoja). Restaurarlos acá es reponer lo
+     que había, no inventar una escala nueva.
+
+     Es un OVERRIDE aditivo: el bloque compacto de arriba queda igual, así
+     que el layout de 3 no puede haberse movido. Y nada de `transform:scale`
+     — es tamaño real, no render escalado. */
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand{padding:38px 34px}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand h2{margin:16px 0 0;font-size:clamp(1.5rem,2.6vw,2.1rem);letter-spacing:-.03em;line-height:1.06}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-brand p{margin:20px 0 0;font-size:1rem;line-height:1.7;max-width:46ch}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-list{gap:14px;margin:30px 0 0}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-list li{gap:13px;font-size:.96rem}
+  .workspace-tiles[data-visible-count="2"] .workspace-tile .access-check{width:26px;height:26px;font-size:.85rem}
+}
+.workspace-tile .access-brand{height:100%;display:flex;flex-direction:column;justify-content:center;padding:22px 26px}
+.workspace-tile .access-brand h2{margin:10px 0 0;font-size:clamp(1.05rem,1.7vw,1.32rem);font-weight:800;letter-spacing:-.02em;line-height:1.1}
 .workspace-tile .access-brand h2 span{display:block;color:var(--gold)}
+.workspace-tile .access-brand p{margin:10px 0 0;font-size:.82rem;line-height:1.45;max-width:none}
+.workspace-tile .access-list{gap:7px;margin:14px 0 0}
+.workspace-tile .access-list li{font-size:.78rem;gap:8px}
+.workspace-tile .access-check{width:17px;height:17px;font-size:.58rem}
 
 /* ── Overlay "Completando acceso…" (mientras se procesa el callback de Microsoft) ── */
 .auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;

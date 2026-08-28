@@ -58,6 +58,12 @@ function callsFor(key, op) { return foregroundCalls.filter(c => c.key === key &&
 // Graph requests adicionales".
 let fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) });
 let fetchCallCount = 0;
+// Las URLs, no solo el conteo. `fetchCallCount` es GLOBAL: cuenta tambien la
+// hidratacion de otros tabs que este harness deja en vuelo, asi que no puede
+// afirmar nada sobre UNA operacion. Contar por endpoint es mas especifico, no
+// mas laxo.
+let fetchUrls = [];
+const fetchesTo = (fragment) => fetchUrls.filter(u => u.includes(fragment)).length;
 
 let intervalCallback = null;
 let intervalCleared = false;
@@ -72,8 +78,16 @@ const sandbox = {
     },
   },
   window: {},
+  // `dwGraphToken` es la AUTORIDAD del Hub sobre el access token de Graph y
+  // vive en hub_auth.js, no en reporting.js — mismo criterio que
+  // `HubForegroundProgress`/`initDashboardSections`, que viven en app.js. Stub
+  // suficiente: lo que se prueba acá es el render, no el ciclo de vida de la
+  // credencial (eso es de hub_auth_authority.node.js). Devuelve "" igual que
+  // el stub de sessionStorage al que reemplaza: la Fase 1A no cambia el
+  // escenario que este harness venia probando.
+  dwGraphToken: async () => "",
   sessionStorage: { getItem() { return ""; } },
-  fetch(...args) { fetchCallCount++; return fetchImpl(...args); },
+  fetch(...args) { fetchCallCount++; fetchUrls.push(String(args[0])); return fetchImpl(...args); },
   initDashboardSections() {},
   HubForegroundProgress,
   setInterval(fn) { intervalCallback = fn; intervalCleared = false; return 1; },
@@ -199,13 +213,22 @@ assertTrue(intervalCleared, "D: el sweep se limpia solo cuando no queda ningún 
 
 // Cartera: éxito.
 fetchCallCount = 0;
+fetchUrls = [];
 fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", cartera: { mantenimiento: [] } }) });
 state.carteraMantenimientoYearLoading = new Set();
 state.carteraMantenimientoYearErrors = new Set();
 await loadCarteraMantenimientoColdYear("2023");
 assertEqual(callsFor("cartera", "begin").length, 1, "Cartera cold-year: begin() con la MISMA key que su primera hidratación");
 assertEqual(callsFor("cartera", "complete").length, 1, "Cartera cold-year: complete() al resolver OK");
-assertEqual(fetchCallCount, 1, "Cartera cold-year: exactamente UN fetch (cero requests adicionales)");
+// Lo que este invariante siempre quiso decir: la carga de un anio frio de
+// Cartera hace UN solo request a Cartera. El conteo global daba 7 desde la
+// Fase 1A —los otros 6 son rentabilidad/horas-vendidas/batch-b y sus
+// `anios-disponibles`, hidratando en paralelo—, porque el `await` de la
+// autoridad de tokens agrega un punto de suspension y esos flujos avanzan
+// dentro de la ventana del contador. No era un loop: verificado por URL, el
+// request de Cartera fue exactamente uno.
+assertEqual(fetchesTo("/data/cartera"), 1,
+  "Cartera cold-year: exactamente UN request a Cartera (cero adicionales)");
 
 // Cartera: fetch OK pero backend reporta error de negocio -> fail().
 fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "graph_error" }) });

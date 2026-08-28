@@ -355,9 +355,40 @@ window.dwToggleDiagnostic = function (on) {
   fetch("/api/diagnostic", { method: "POST", body }).finally(() => window.location.reload());
 };
 
-// Logout: limpia la cookie de sesión en el backend y vuelve al landing.
+// Logout: limpia la cookie de sesión en el backend y vuelve a la entrada del
+// Hub PRESERVANDO desde dónde se salió, en `next`. Antes iba a "/" a secas, así
+// que al volver a autenticarse el usuario aterrizaba siempre en el destino por
+// defecto de su perfil aunque hubiera salido desde otro workspace.
+//
+// `next` NO es un mecanismo nuevo: es el MISMO contrato del camino inverso
+// —entrar sin sesión a una página protegida, ver `workspaces.platform_login_redirect`,
+// que arma `next` igual, con `path` + `query`— y lo consume el mismo endpoint.
+// Quien lo VALIDA es el server (`render_landing`/`/onedanwor`): sólo acepta un
+// path propio que empiece con "/" y no con "//". Acá no se duplica esa regla:
+// se manda `pathname + search`, relativo, sin origin (una URL absoluta nunca
+// pasaría esa validación) y sin hash (el fragmento no viaja al server). Si
+// llegara algo no aceptable, el server lo descarta y cae en su default — nunca
+// redirige afuera.
+//
+// `URLSearchParams` da el encoding exacto que el server espera
+// ("/comercial" → "%2Fcomercial") sin doble-encodear, y es el mismo helper que
+// ya usa `dwToggleDiagnostic`. Transversal por construcción: el destino se lee
+// de la ubicación actual, así que no hay una rama por capability.
+// HIGIENE DE AUTH (auditoría cross-vertical, owner 2026-08-23): el logout
+// borraba la cookie de sesión y dejaba VIVO el artefacto de Graph. Un token
+// válido sobrevivía al cierre de sesión — inválido: la autorización delegada
+// es parte del contexto de auth, así que se va con él.
+// `dwClearGraphAuth` vive en la AUTORIDAD (hub_auth.js), no acá: el chrome
+// decide CUÁNDO se limpia, la autoridad sabe QUÉ se limpia. En la Fase 1B eso
+// además incluye bajar la cuenta y la cache de MSAL, sin tocar este archivo.
+
 window.dwLogout = function () {
-  fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.href = "/"; });
+  const next = window.location.pathname + window.location.search;
+  const target = `/onedanwor?${new URLSearchParams({ next }).toString()}`;
+  // Se limpia ANTES del fetch: si la red falla, el artefacto de auth ya no
+  // está. `finally` garantiza la navegación igual.
+  window.dwClearGraphAuth();
+  fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.href = target; });
 };
 
 document.body.addEventListener("htmx:beforeRequest", event => {
@@ -468,9 +499,8 @@ function dwShowLightbox(src) {
 // publicar"). El token de Graph vive en el sessionStorage del copiloto (este
 // contexto), no en el del iframe; por eso el POST lo hace el PADRE y devuelve el
 // resultado al iframe que lo pidió.
-function dwRunRegenerate(source) {
-  let token = "";
-  try { token = sessionStorage.getItem("dw-graph-token") || ""; } catch (e) {}
+async function dwRunRegenerate(source) {
+  const token = await dwGraphToken();
   const reply = (ok, message) => {
     if (source) { try { source.postMessage({ type: "dw-regenerate-result", ok: ok, message: message }, window.location.origin); } catch (e) {} }
   };
@@ -656,14 +686,47 @@ document.body.addEventListener("htmx:load", () => initDashboardSections(document
 // muestra su desglose (precalculado en summary.event_breakdowns) a la derecha.
 // Sin request extra; el swap de htmx recrea el grupo, por eso se re-cablea en
 // cada htmx:load igual que initDashboardSections.
-function initEventBreakdown(scope) {
+//
+// `openFirst` (KPI → Contextual Drilldown, ver HANDOFF): default `true`
+// preserva el comportamiento histórico de "Eventos y catálogo" (auto-abre el
+// primer trigger al cablear, "el evento más frecuente"). Un caller con un
+// grupo que debe arrancar CERRADO (ver commercial.js — la tarjeta
+// "Oportunidades activas" no debe auto-abrir su análisis al cargar el
+// dashboard) pasa `{openFirst:false}`; el estado inicial hidden/is-active en
+// ese caso lo define el propio markup, no esta función.
+function initEventBreakdown(scope, { openFirst = true } = {}) {
   scope.querySelectorAll("[data-breakdown-group]").forEach(group => {
     const rows = [...group.querySelectorAll("[data-event]")];
     const panels = [...group.querySelectorAll("[data-breakdown]")];
+    // Dimensión OPCIONAL de módulo. SÓLO Métricas de Uso la declara (emite
+    // paneles con `data-breakdown-module`); Comercial y Reporting consumen
+    // este mismo motor sin ningún módulo, así que para ellos la condición es
+    // vacua y el comportamiento no cambia — incluido que `.is-active` se
+    // marque por VALOR de atributo en TODOS los triggers de ese valor.
+    //
+    // Sin esto el panel se resolvía por NOMBRE DE EVENTO solo: con un módulo
+    // filtrado a la izquierda, la derecha seguía mostrando el universo global
+    // del evento (175 vs 978 en vivo) — y `module_viewed` existe a propósito
+    // en Copiloto, Operaciones y Comercial.
     const show = ev => {
-      panels.forEach(p => { p.hidden = p.dataset.breakdown !== ev; });
-      rows.forEach(r => r.classList.toggle("is-active", r.dataset.event === ev));
+      group.dataset.activeEvent = ev || "";
+      const mod = group.dataset.activeModule || "";
+      panels.forEach(p => {
+        const suyo = p.dataset.breakdownModule;
+        p.hidden = !(p.dataset.breakdown === ev
+          && (suyo === undefined || suyo === (ev ? mod : "")));
+      });
+      rows.forEach(r => {
+        const dentro = r.closest("[data-module-breakdown]");
+        const suyo = dentro ? (dentro.dataset.moduleBreakdown || "") : null;
+        r.classList.toggle("is-active",
+          r.dataset.event === ev && (suyo === null || suyo === mod));
+      });
     };
+    // La referencia vive en el NODO del grupo, no en un símbolo de módulo:
+    // el motor tiene que seguir siendo evaluable EN AISLAMIENTO — hay harnesses
+    // que extraen esta función sola, y un símbolo de módulo la rompería ahí.
+    group.dwBreakdownShow = show;
     // Clic en la fila YA activa la des-selecciona (vuelve al estado "sin
     // desglose elegido") en vez de dejarla pegada — mismo espíritu que el
     // reset del filtro de módulo.
@@ -681,7 +744,7 @@ function initEventBreakdown(scope) {
     group.querySelectorAll("[data-event-reset]").forEach(btn => {
       btn.addEventListener("click", () => show(""));
     });
-    if (rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
+    if (openFirst && rows.length) show(rows[0].dataset.event);  // por defecto: el evento más frecuente
   });
 }
 document.body.addEventListener("htmx:load", () => initEventBreakdown(document));
@@ -698,6 +761,11 @@ function initModuleFilter(scope) {
   const labelWrap = scope.querySelector("[data-module-filter-label]");
   const labelText = labelWrap ? labelWrap.querySelector("strong") : null;
   const resetBtn = labelWrap ? labelWrap.querySelector("[data-module-reset]") : null;
+  // Eventos disponibles DENTRO de un módulo (las filas de su panel).
+  const eventosDe = mod => {
+    const panel = panels.find(p => (p.dataset.moduleBreakdown || "") === mod);
+    return panel ? [...panel.querySelectorAll("[data-event]")].map(r => r.dataset.event) : [];
+  };
   const show = mod => {
     panels.forEach(p => { p.hidden = p.dataset.moduleBreakdown !== mod; });
     rows.forEach(r => r.classList.toggle("is-active", !!mod && r.dataset.module === mod));
@@ -705,6 +773,23 @@ function initModuleFilter(scope) {
       labelWrap.hidden = !mod;
       if (mod && labelText) labelText.textContent = mod;
     }
+    // LA ETAPA SIGUIENTE HEREDA EL MÓDULO. Antes no pasaba: los dos toggles
+    // eran independientes y sólo coincidían en pantalla.
+    //
+    // Se busca `[data-cascade-module]` —opt-in EXPLÍCITO del template de
+    // Métricas— y no `[data-breakdown-group]`: ese selector es del motor y de
+    // nadie más, que es lo que permite que Comercial y Reporting compartan el
+    // motor sin enterarse de que existe una dimensión de módulo.
+    scope.querySelectorAll("[data-cascade-module]").forEach(group => {
+      group.dataset.activeModule = mod;
+      // El evento elegido puede no existir en el módulo nuevo: se conserva si
+      // existe, y si no cae al más frecuente de ESE módulo — mismo criterio
+      // que el `openFirst` de siempre, ahora dentro del módulo activo.
+      const disponibles = eventosDe(mod);
+      const actual = group.dataset.activeEvent || "";
+      const elegido = disponibles.includes(actual) ? actual : (disponibles[0] || "");
+      if (group.dwBreakdownShow) group.dwBreakdownShow(elegido);
+    });
   };
   rows.forEach(r => {
     r.addEventListener("click", () => show(r.dataset.module));
@@ -951,7 +1036,7 @@ function staffingDashboard(payload) {
       this.absencesLoading = true;
       this.absencesLoadError = false;
       try {
-        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const token = await dwGraphToken();
         const body = new URLSearchParams({ graph_token: token });
         const response = await fetch("/operaciones/staffing/asignaciones/ausencias", { method: "POST", body });
         const data = await response.json();
@@ -974,7 +1059,7 @@ function staffingDashboard(payload) {
       this.historyLoading = true;
       this.historyLoadError = false;
       try {
-        const token = sessionStorage.getItem("dw-graph-token") || "";
+        const token = await dwGraphToken();
         const body = new URLSearchParams({ graph_token: token });
         const response = await fetch("/operaciones/staffing/asignaciones/historial", { method: "POST", body });
         const data = await response.json();

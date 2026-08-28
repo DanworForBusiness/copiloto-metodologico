@@ -92,7 +92,9 @@ def test_onedanwor_login_renders_canonical_kicker_and_one_line_title():
     anon = TestClient(app)
     response = anon.get("/onedanwor")
     assert response.status_code == 200
-    assert "Una plataforma · Todos los servicios Danwor" in response.text
+    # Shared Hub Copy Alignment (ver HANDOFF): "Todos nuestros servicios"
+    # es el copy DEFINITIVO del eyebrow (era "Todos los servicios Danwor").
+    assert "Una plataforma · Todos nuestros servicios" in response.text
     assert '<h1><span class="hub-hero__icon">' in response.text
     assert "</span>Danwor Hub</h1>" in response.text
 
@@ -238,7 +240,8 @@ def test_authenticated_selector_shows_danwor_hub_hero_not_repeated_card_eyebrow(
     text = response.text
     assert "Danwor Hub" in text
     assert 'class="glass access-brand hub-hero"' in text
-    assert "Una plataforma · Todos los servicios Danwor" in text
+    # Shared Hub Copy Alignment (ver HANDOFF): "Todos nuestros servicios".
+    assert "Una plataforma · Todos nuestros servicios" in text
     assert 'class="hub-hero__icon"' in text
     assert "Data & AI for Business" not in text
 
@@ -271,6 +274,11 @@ def test_zero_workspaces_gets_controlled_no_access_state(monkeypatch):
     response = _full_client().get("/onedanwor")
     assert response.status_code == 200
     assert "no tiene acceso habilitado" in response.text.lower()
+    # Shared Hub Copy Alignment (ver HANDOFF): platform_no_access.html
+    # hardcodea el mismo kicker INDEPENDIENTEMENTE del macro
+    # `hub_brand_lockup()` — verificado acá para que una futura
+    # consolidación no lo pierda de vista.
+    assert "Una plataforma · Todos nuestros servicios" in response.text
 
 
 # --- H/I: Copilot entries stay unchanged ----------------------------------

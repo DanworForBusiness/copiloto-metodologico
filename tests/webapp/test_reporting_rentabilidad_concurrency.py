@@ -59,13 +59,13 @@ def _sequential_expected():
     concurrencia (mocks triviales, sin threads) — el payload de las ramas
     concurrentes de abajo debe coincidir EXACTO contra esto."""
     def fake_cartera(self, access_token, *, include_facturadas, hot_years):
-        return list(_FACTS)
+        return list(_FACTS), {}
 
     def fake_time_logs(self, access_token, *, hot_years):
         return list(_TIME_LOGS)
 
     import unittest.mock as mock
-    with mock.patch.object(ReportingRepository, "get_cartera_facts", fake_cartera), \
+    with mock.patch.object(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera), \
          mock.patch.object(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs):
         return ReportingService(_repo()).get_rentabilidad("tok")
 
@@ -77,13 +77,13 @@ def test_both_branches_invoked_exactly_once_with_same_args(monkeypatch):
 
     def fake_cartera(self, access_token, *, include_facturadas, hot_years):
         calls["cartera"].append((access_token, include_facturadas, hot_years))
-        return list(_FACTS)
+        return list(_FACTS), {}
 
     def fake_time_logs(self, access_token, *, hot_years):
         calls["time_logs"].append((access_token, hot_years))
         return list(_TIME_LOGS)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     ReportingService(_repo()).get_rentabilidad("tok-abc", anios=["2026"])
@@ -103,12 +103,12 @@ def test_both_branches_invoked_exactly_once_with_same_args(monkeypatch):
 
 def test_result_payload_identical_to_sequential_contract(monkeypatch):
     def fake_cartera(self, access_token, *, include_facturadas, hot_years):
-        return list(_FACTS)
+        return list(_FACTS), {}
 
     def fake_time_logs(self, access_token, *, hot_years):
         return list(_TIME_LOGS)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     concurrent_result = ReportingService(_repo()).get_rentabilidad("tok")
@@ -130,7 +130,7 @@ def test_branches_actually_overlap_execution(monkeypatch):
         # Cartera retorna). Timeout acotado, nunca un hang real.
         started = time_logs_started.wait(timeout=2)
         assert started, "time_logs nunca arrancó mientras cartera estaba en vuelo — las ramas NO se solapan"
-        return list(_FACTS)
+        return list(_FACTS), {}
 
     def fake_time_logs(self, access_token, *, hot_years):
         time_logs_started.set()
@@ -138,7 +138,7 @@ def test_branches_actually_overlap_execution(monkeypatch):
         assert started, "cartera nunca arrancó mientras time_logs estaba en vuelo — las ramas NO se solapan"
         return list(_TIME_LOGS)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     result = ReportingService(_repo()).get_rentabilidad("tok")
@@ -157,7 +157,7 @@ def test_both_branches_fail_propagates_cartera_exception(monkeypatch):
         # la que se propaga cuando Cartera también falla.
         raise ReportingGraphError(stage="time_logs_site", status_code=503)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     with pytest.raises(ReportingGraphError) as exc_info:
@@ -168,12 +168,12 @@ def test_both_branches_fail_propagates_cartera_exception(monkeypatch):
 
 def test_cartera_ok_time_logs_fails_propagates_time_logs_exception(monkeypatch):
     def fake_cartera(self, access_token, *, include_facturadas, hot_years):
-        return list(_FACTS)
+        return list(_FACTS), {}
 
     def fake_time_logs(self, access_token, *, hot_years):
         raise ReportingGraphError(stage="time_logs_site", status_code=503)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     with pytest.raises(ReportingGraphError) as exc_info:
@@ -193,7 +193,7 @@ def test_cartera_fails_time_logs_ok_propagates_cartera_exception(monkeypatch):
     def fake_time_logs(self, access_token, *, hot_years):
         return list(_TIME_LOGS)
 
-    monkeypatch.setattr(ReportingRepository, "get_cartera_facts", fake_cartera)
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     with pytest.raises(ReportingGraphError) as exc_info:

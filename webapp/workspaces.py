@@ -8,9 +8,11 @@ Clasificación: PLATFORM / WORKSPACE DISCOVERY & ROUTING METADATA. NO importa
 general — cada `Workspace` apunta a un predicado YA EXISTENTE (Copiloto:
 sesión válida; Operations: `webapp.operations_access.is_operations_authorized_user`,
 admisión base + allowlist explícita `OPERATIONS_ALLOWED_USERS`, ORTOGONAL
-al tier de Copiloto — ver Operations Workspace Access Gate en HANDOFF) —
-este módulo NO inventa una nueva semántica de permisos, solo las agrega
-para poder listarlas.
+al tier de Copiloto — ver Operations Workspace Access Gate en HANDOFF;
+Comercial: `webapp.commercial_access.is_commercial_authorized_user`, MISMO
+contrato con su propia allowlist `COMMERCIAL_ALLOWED_USERS` — Commercial
+Hub Workspace Foundation, Batch 0) — este módulo NO inventa una nueva
+semántica de permisos, solo las agrega para poder listarlas.
 
 El descubrimiento de workspaces queda deliberadamente desacoplado de la
 FUENTE de autorización: hoy la fuente de Copiloto son los tiers de
@@ -50,7 +52,7 @@ from urllib.parse import urlencode
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
-from webapp import operations_access
+from webapp import commercial_access, operations_access
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,15 @@ OPERATIONS = Workspace(
     is_authorized=operations_access.is_operations_authorized_user,
 )
 
-_ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS)
+COMMERCIAL = Workspace(
+    key="commercial",
+    label="Gestión Comercial",
+    subtitle="CRM Danwor",
+    home_url="/comercial",
+    is_authorized=commercial_access.is_commercial_authorized_user,
+)
+
+_ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS, COMMERCIAL)
 
 
 def available_workspaces(user: dict | None) -> list[Workspace]:

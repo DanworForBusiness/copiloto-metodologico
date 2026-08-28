@@ -45,6 +45,7 @@ from __future__ import annotations
 SCOPE_PLATFORM = "platform"
 SCOPE_COPILOT = "copilot"
 SCOPE_OPERATIONS = "operations"
+SCOPE_COMMERCIAL = "commercial"
 SCOPE_UNKNOWN = "unknown"
 
 # --- area (área funcional) ---
@@ -55,6 +56,7 @@ AREA_ACADEMY = "academy"
 AREA_CATALOG = "catalog"
 AREA_STAFFING = "staffing"
 AREA_REPORTING = "reporting"
+AREA_CRM = "crm"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -99,6 +101,7 @@ SCOPE_LABELS: dict[str, str] = {
     SCOPE_PLATFORM: "Plataforma",
     SCOPE_COPILOT: "Copiloto",
     SCOPE_OPERATIONS: "Operaciones",
+    SCOPE_COMMERCIAL: "Comercial",
     SCOPE_UNKNOWN: "Sin clasificar",
 }
 AREA_LABELS: dict[str, str] = {
@@ -109,6 +112,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_CATALOG: "Catálogo",
     AREA_STAFFING: "Staffing",
     AREA_REPORTING: "Reporting",
+    AREA_CRM: "CRM",
     AREA_UNKNOWN: "Sin clasificar",
 }
 
@@ -285,6 +289,13 @@ _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     # Config incompleta no es "uso" (no es adopción real). Se clasifica por
     # el nombre CANÓNICO ya normalizado — ver `_EVENT_RENAME`.
     EVENT_CONFIGURATION_INCOMPLETE,
+    # Comercial — falla de Odoo (config incompleta o transporte) al servir
+    # /comercial/data/summary|pipeline (Commercial Hub Odoo Batch 1). Server-
+    # side directo (el router ya conoce la falla síncronamente) — a
+    # diferencia de los `reporting.*`/`staffing.feedback` de arriba, NO pasa
+    # por un beacon de cliente (sin telemetry framework nuevo para este
+    # batch, ver HANDOFF).
+    "commercial.data_error",
 })
 
 
@@ -337,6 +348,11 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.refresh": "Reporting — actualizar",
     "reporting.feedback": "Reporting — feedback de reporte",
     "staffing.feedback": "Asignaciones — feedback de reporte",
+    # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
+    # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que
+    # EVENT_DATA_LOAD_FAILED/EVENT_CONFIGURATION_INCOMPLETE, ninguno de los
+    # cuales tiene label acá tampoco (el dashboard de uso no renderiza
+    # eventos de diagnóstico, ver docstring de este dict).
 }
 
 

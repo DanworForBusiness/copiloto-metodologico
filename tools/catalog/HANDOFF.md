@@ -777,6 +777,16 @@ Veredicto: `parcial` si hay modelado en PRD o falta separación global/alcance; 
 ### 2026-07-24 — Claude (Novedades / What's New — Fase 1)
 **Estado: implementado y verificado (parser/render/routing/tests); 139 verdes. Falta commit real con trailer para verlo vivo.**
 
+> **SUPERADO (corrective de propiedad editorial).** La señal opt-in por trailer
+> `Novedad:` YA NO PUBLICA. Era correcta cuando el repo ERA el Copiloto; el
+> monolito después sumó Comercial, Reporting, Staffing y plataforma, y "commit
+> en este repo" dejó de significar "novedad del Copiloto" — el síntoma fue un
+> fix de autenticación de Graph anunciado como novedad del producto. Hoy la
+> ÚNICA fuente es `content_packs/<pack>/whats_new.yaml`, curada a mano. El
+> historial de git y este HANDOFF siguen siendo continuidad TÉCNICA, no
+> superficies de publicación. Lo de abajo queda como registro de lo que se
+> construyó entonces.
+
 Nueva iniciativa (no-catálogo): banner + página de "Novedades" para que se note qué cambió en el marco sin leerlo entero. SEÑAL opt-in: un trailer `Novedad:` en el mensaje del commit (los `fix`/refactors/acciones runtime NO aparecen → cero ruido, cero overload). Formato recomendado: `Novedad: <título> — <detalle>`.
 - `webapp/services/whats_new_service.py`: `git log --grep "^Novedad:"` → entries [{hash,date,subject,novedad}] (cache TTL 30s); `build_markdown` arma contenido con estructura del copiloto (`## {dw-gold}\`hash\` · fecha · {dw-black}título` + `> detalle`); `is_unseen(request)` compara la cookie `dw-whatsnew-seen` con el hash más nuevo.
 - `webapp/main.py`: `GET /whats-new` (página, render_sections, marca visto = avanza cookie SameSite=None) + `POST /whats-new/dismiss` (marca visto, devuelve vacío → HTMX quita el banner). El route de módulo pasa `whatsnew_unseen`.

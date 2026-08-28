@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}CRM · Comercial · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('commercial')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {# Identidad IZQUIERDA: MISMO componente animado histórico que Copiloto/
+     Operations (ver assets/danwor-animated-dancing.html vía
+     /brand/dancing/{pack}) — parametrizado acá con la identidad de
+     Comercial (config.COMMERCIAL_APP_TITLE/SUBTITLE). `pack` llega como
+     DEFAULT_PACK desde commercial.py (Comercial no tiene concepto de pack
+     propio; ver su router — mismo criterio que Operations). #}
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.COMMERCIAL_APP_TITLE | urlencode }}&subtitle={{ config.COMMERCIAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Comercial</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/commercial_nav.html" %}
+
+  {# MISMO primitivo de resize que Copiloto/Operations —
+     ver partials/workspace_shell.html::sidebar_resize_handle(). #}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Comercial</p>
+      <h1>Dashboard CRM</h1>
+      {# El filtro global vive en la MISMA línea que el subtítulo (ver HANDOFF
+         — Landing Homologation): es transversal a todo Comercial, así que no
+         merece una franja propia entre el hero y la navegación de
+         capacidades. El punto de montaje va acá, pero lo renderiza
+         commercial.js, porque su estado (todos/nn/bi) es del cliente. #}
+      <div class="hero-lead-row">
+        <p class="hero-lead full-page-subtitle">Gestión y analítica comercial integrada con nuestro CRM Odoo.</p>
+        <div id="commercial-hero-filter"></div>
+      </div>
+    </section>
+    <div id="commercial-main-content"></div>
+  </main>
+</div>
+
+{# CSS propio de la vertical (ver commercial.css) — MISMO mecanismo que
+   reporting.css en operations/reporting_integral.html: base.html solo carga
+   los stylesheets del Hub, y lo especifico de un workspace lo linkea su
+   propia pagina. #}
+<link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='commercial.js') }}?v={{ static_version }}"></script>
+{% endblock %}

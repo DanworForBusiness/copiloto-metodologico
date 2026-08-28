@@ -43,6 +43,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp.routers.landing import render_landing
+from webapp.safe_redirect import safe_internal_next
 from webapp.services import auth_service
 from webapp.templating import templates
 from webapp.workspaces import available_workspaces
@@ -61,7 +62,7 @@ router = APIRouter()
 _ONEDANWOR_LANDING_COPY = {
     "title": "Danwor Hub · Danwor",
     "eyebrow_ink": "Una plataforma",
-    "eyebrow_gold": "Todos los servicios Danwor",
+    "eyebrow_gold": "Todos nuestros servicios",
     "hub_brand_lockup": True,
     "brand_description": (
         "Un punto de encuentro donde se conectan necesidades, capacidades, "
@@ -116,6 +117,20 @@ _WORKSPACE_CARD_COPY = {
             "Analítica operativa",
         ],
     },
+    "commercial": {
+        "eyebrow": None,
+        "title": "Gestión Comercial",
+        "accent": "CRM Danwor",
+        "description": (
+            "Un espacio para gestionar oportunidades, seguir la actividad del CRM y "
+            "convertir la información comercial en decisiones accionables."
+        ),
+        "features": [
+            "Pipeline y oportunidades",
+            "Seguimiento de actividad comercial",
+            "Indicadores y analítica CRM",
+        ],
+    },
 }
 
 
@@ -130,7 +145,7 @@ def _resolve_onedanwor(request: Request, pack: str, next: str):
             request, selected, next, default_home="/onedanwor", copy=_ONEDANWOR_LANDING_COPY,
         )
 
-    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    safe_next = safe_internal_next(next)
     if safe_next:
         return RedirectResponse(safe_next, status_code=307)
 
@@ -167,6 +182,6 @@ def platform_compat_redirect(next: str = Query("")):
     debería reaparecer acá como POST — `workspaces.platform_login_redirect`
     resuelve esa transición con 303 (no 307), que fuerza GET en el
     siguiente hop. Ver su docstring."""
-    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    safe_next = safe_internal_next(next)
     target = f"/onedanwor?{urlencode({'next': safe_next})}" if safe_next else "/onedanwor"
     return RedirectResponse(target, status_code=307)

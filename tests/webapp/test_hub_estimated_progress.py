@@ -185,10 +185,12 @@ def test_reporting_loader_never_embeds_any_progress_bar_markup():
     assert 'function reportingLoadingHtml(label) {' in _REPORTING_JS
     assert "barHtml" not in _REPORTING_JS
     assert 'reportingLoadingHtml("Cargando…");' in _REPORTING_JS
-    assert "<div" not in _REPORTING_JS[
-        _REPORTING_JS.index("function reportingLoadingHtml(label) {"):
-        _REPORTING_JS.index("function reportingSourceErrorHtml(label) {")
-    ]
+    # Delimitado por el CIERRE de la propia función, no por "lo que viene
+    # después": el corte posicional se rompía al insertar cualquier helper
+    # entre las dos (pasó con `reportingEmptyStateHtml`), y lo que este test
+    # afirma es sobre el LOADER, no sobre sus vecinos.
+    loader = _REPORTING_JS.split("function reportingLoadingHtml(label) {", 1)[1].split("\n}", 1)[0]
+    assert "<div" not in loader
 
 
 # ============================================================================

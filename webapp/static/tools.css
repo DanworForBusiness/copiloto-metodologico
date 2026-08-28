@@ -491,11 +491,14 @@
 button.catalog-back { border: 0; background: transparent; cursor: pointer; font-family: inherit; }
 
 /* Reusa el look de .whatsnew-filter select para los date-picker del dashboard
-   (no se toca la regla original de What's New, se suma el selector). */
-.whatsnew-filter input[type="date"] { min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+   (no se toca la regla original de What's New, se suma el selector).
+   `input[type="search"]` (Comercial C5e, ver HANDOFF — buscador de
+   Oportunidades Activas) se suma acá por el MISMO motivo: mismo look de
+   input compacto, cero clase nueva. */
+.whatsnew-filter input[type="date"], .whatsnew-filter input[type="search"] { min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
   border-radius: 8px; background: transparent; color: inherit; font: .8rem var(--mono); }
-.whatsnew-filter select, .whatsnew-filter input[type="date"] { color: #1f1f24; }
-.content-theme-dark .whatsnew-filter select, .content-theme-dark .whatsnew-filter input[type="date"] { color: #e4e4ec; }
+.whatsnew-filter select, .whatsnew-filter input[type="date"], .whatsnew-filter input[type="search"] { color: #1f1f24; }
+.content-theme-dark .whatsnew-filter select, .content-theme-dark .whatsnew-filter input[type="date"], .content-theme-dark .whatsnew-filter input[type="search"] { color: #e4e4ec; }
 
 /* Grupos colapsables (equivalente a .whatsnew-day, pero con <details> nativo
    en vez de Alpine: acá el filtro es server-side, no hace falta JS de cliente). */
@@ -512,9 +515,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .content-theme-dark .dashboard-section__count { color: #8b8b96; }
 .dashboard-section__body { padding: 4px 16px 20px; }
 
-/* Estados de arrastre (reordenamiento drag-and-drop, ver app.js initDashboardSections). */
-.dashboard-section__head { cursor: grab; }
-.dashboard-section__head:active { cursor: grabbing; }
+/* Estados de arrastre (reordenamiento drag-and-drop, ver app.js
+   initDashboardSections). El cursor cuelga de `[draggable="true"]`, no de
+   `.dashboard-section__head` a secas: el drag SIEMPRE fue opt-in (los
+   listeners viven en el contenedor `[data-dashboard-key]` y el dragstart
+   exige el atributo), pero el cursor lo anunciaba en TODA seccion — una
+   afordancia falsa para una seccion deliberadamente no reordenable, como
+   los buckets de Actividades, cuyo orden es semantico. Todos los
+   consumidores existentes ponen `draggable="true"`, asi que ninguno cambia. */
+.dashboard-section__head[draggable="true"] { cursor: grab; }
+.dashboard-section__head[draggable="true"]:active { cursor: grabbing; }
 .dashboard-section__grip { color: rgba(128,128,128,.5); font-size: .8rem; letter-spacing: -2px; user-select: none; }
 .dashboard-section.is-dragging { opacity: .45; }
 .dashboard-section.is-drop-target { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
@@ -566,7 +576,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    con valores reales de 5-7 dígitos — CUALQUIER consumidor de KPI tiles
    (Asignaciones/Reporting/futuro Activity) lo necesita por igual, no es
    específico de un dominio. */
-.activity-kpi { min-width: 0; padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.activity-kpi { min-width: 0; padding: 14px 16px; border: 1px solid rgba(128,128,128,.24); border-left: 3px solid var(--kpi-accent, var(--gold)); border-radius: 10px; position: relative; display: flex; flex-direction: column; gap: 4px; }
 .activity-kpi__value {
   font: 800 clamp(1.6rem, 2.4vw, 2.1rem) var(--mono); color: #1f1f24; letter-spacing: -.02em;
   white-space: nowrap; font-variant-numeric: tabular-nums; overflow-wrap: normal;
@@ -602,6 +612,96 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    defecto, ver el primitivo). */
 .activity-kpi.activity-kpi--positive { --kpi-accent: #2e9e5b; }
 .activity-kpi.activity-kpi--negative { --kpi-accent: #c0392b; }
+/* KPI tile clickeable (KPI → Contextual Drilldown, ver HANDOFF): MISMO
+   lenguaje visual que `.activity-bar-row--clickable` de abajo (hover sutil,
+   acento dorado en foco/activo) — un tile con esta clase es trigger de
+   `initEventBreakdown` (app.js) vía `data-event`, nunca un handler propio.
+   Modifier opcional: la mayoría de los tiles de un KPI grid siguen siendo
+   display-only, solo el que tenga un drilldown real gana esta clase. */
+.activity-kpi--clickable { cursor: pointer; transition: background .12s ease, border-color .12s ease; }
+.activity-kpi--clickable:hover { background: rgba(128,128,128,.06); }
+.activity-kpi--clickable.is-active { border-color: var(--gold); background: rgba(231,176,8,.08); }
+.activity-kpi--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* TILE INFO (OPCIONAL) — afordancia que explica el CONTRATO DE DATO del
+   tile: definicion, fuente, grano, y bajo que condiciones es comparable con
+   otra vista. NO es un indicador de error ni de estado: nunca se usa para
+   justificar una inconsistencia, solo para decir por que un numero significa
+   lo que significa.
+
+   `position: relative` sobre `.activity-kpi` (regla base, arriba) es el
+   contenedor de esta afordancia. Auditado antes de agregarlo: NINGUN
+   descendiente de `.activity-kpi` estaba posicionado en absoluto, asi que es
+   INERTE para todo tile existente — no hay z-index ni overflow en juego.
+
+   Absolutamente posicionada a proposito: NO participa del flex column del
+   tile, asi que un tile con info mide EXACTAMENTE lo mismo que uno sin info.
+   Cero layout shift, cero cambio de geometria de grilla, y no hace falta un
+   footer para alojar el icono.
+
+   Reusa el tooltip COMPARTIDO del Hub (`.chart-tooltip-anchor`/
+   `.chart-tooltip`, mas abajo) — cero caja flotante nueva. Ese primitivo ya
+   se revela con :hover, :focus y :focus-within, asi que teclado y touch
+   funcionan sin JS. Lo unico que se overridea es la POSICION: el default
+   centra el tooltip sobre el anchor, y aca el anchor vive contra el borde
+   derecho del tile, asi que se ancla a la derecha para que crezca hacia
+   adentro y nunca se salga del viewport (MISMO override posicional que ya usa
+   la ultima columna del grafico de Forecast).
+
+   ESPECIFICIDAD (medido, no teorico): `.chart-tooltip-anchor { position:
+   relative }` se declara MAS ABAJO en este archivo, asi que con un solo
+   selector de clase le ganaba por ORDEN DE FUENTE a `position: absolute` — el
+   boton quedaba en el flex flow y el tile crecia 17px, justo lo que este
+   contrato prohibe. De ahi `.activity-kpi .activity-kpi__info` (dos clases):
+   gana sin importar el orden. No alcanza con "ponerlo despues": el anchor
+   compartido puede moverse de lugar en cualquier refactor futuro. */
+.activity-kpi .activity-kpi__info {
+  position: absolute; right: 8px; bottom: 8px; padding: 0; border: 0; background: none;
+  line-height: 0; color: #9a9aa2; cursor: pointer; opacity: .7;
+  transition: opacity .12s ease, color .12s ease;
+}
+.activity-kpi__info:hover, .activity-kpi__info:focus-visible { opacity: 1; color: var(--kpi-accent, var(--gold)); }
+.activity-kpi__info:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 50%; }
+/* MISMA convencion de icono que el resto del chrome del Hub (ver
+   `.theme-toggle svg`, layout.css): trazo, nunca relleno. Deliberadamente mas
+   chico que el boton de topbar — es secundario al valor del KPI. */
+.activity-kpi__info svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/* POSICION DEL TOOLTIP — contra el CARD, no contra el icono. Medido: anclado
+   al icono (el default `left:50%` del primitivo, o incluso `right:0`) el
+   tooltip de 200px se salia 27,5px por la IZQUIERDA del viewport en el tile
+   de la primera columna a 375px. Y ninguna media query lo arregla de raiz: el
+   margen disponible depende del ANCHO DE COLUMNA (>=150px por el `minmax` de
+   la grilla), que a su vez depende de cuantos tiles tenga ese grid, no del
+   viewport — a 1024px con 6 tiles la columna vuelve a 150px.
+
+   Anclado al card con `max-width: min(280px, 100%)`, el borde izquierdo del
+   tooltip NUNCA puede quedar a la izquierda del card, y por lo tanto nunca
+   fuera del viewport. Vale para cualquier ancho y cualquier cantidad de
+   tiles, sin media queries ni container queries (estas ultimas descartadas:
+   `container-type` implica containment de layout, que crea un stacking
+   context nuevo en el card y podria pintar el tooltip DEBAJO del tile
+   vecino).
+
+   `bottom: 27px` lo deja justo arriba del icono (que ocupa de 8px a 21px),
+   con el mismo aire de ~6px que el default del primitivo.
+
+   Se sigue reusando la CAJA compartida (`.chart-tooltip`: fondo, tipografia,
+   sombra, z-index, transicion) — lo unico propio es donde se ancla y como se
+   dispara, porque el patron `.chart-tooltip-anchor` (envolver el disparador)
+   no sirve para una afordancia en una esquina: el ancla seria el icono. */
+.activity-kpi > .chart-tooltip {
+  left: auto; right: 8px; bottom: 27px; transform: none; min-width: 0; max-width: min(280px, 100%);
+}
+/* DISPARO: hover (mouse), focus (teclado y tap — el tap enfoca el boton).
+   `:focus-within` ademas de `:focus` a proposito: medido, Chrome DEJA de
+   matchear `:focus` cuando el documento pierde el foco (ventana en segundo
+   plano) aunque el boton siga siendo el activeElement — con solo `:focus` el
+   tooltip desaparecia al volver de otra ventana. `:focus-visible` mantiene el
+   anillo de foco alineado con el resto del Hub. */
+.activity-kpi__info:hover + .chart-tooltip,
+.activity-kpi__info:focus + .chart-tooltip,
+.activity-kpi__info:focus-within + .chart-tooltip,
+.activity-kpi__info:focus-visible + .chart-tooltip { opacity: 1; visibility: visible; }
+.content-theme-dark .activity-kpi__info { color: #8b8b96; }
 
 .activity-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 /* Grid items default to `min-width:auto` — un hijo con contenido intrínsecamente
@@ -628,10 +728,29 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .73rem; }
 /* Filas de "Eventos por tipo" clickeables: al elegir una, el panel derecho
    muestra su desglose (ver initEventBreakdown en app.js). */
-.activity-bar-row--clickable { cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px; transition: background .12s ease; }
-.activity-bar-row--clickable:hover { background: rgba(128,128,128,.10); }
-.activity-bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
-.activity-bar-row--clickable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* CLICK PARA FILTRAR EN CASCADA — interaccion compartida.
+   Nacio en Metricas de Uso (`admin_activity_content.html`: click en un modulo
+   filtra la lista de eventos) y la reusa Comercial/Creadas (click en un
+   vendedor filtra el mes/semana y su detalle). El Hub tiene DOS primitivos de
+   barra —`.activity-bar-row` y `.bar-row`— y esta es la MISMA interaccion
+   sobre los dos, asi que comparten el bloque en vez de duplicar valores: un
+   solo lugar define hover, estado activo dorado y foco.
+
+   El estado activo usa el dorado del Hub a baja opacidad — la fila
+   seleccionada se identifica sin competir con la barra que contiene.
+
+   NO hay toggle-to-clear: clickear el ya seleccionado lo mantiene. La
+   convencion viene de `initModuleFilter` (app.js), donde limpiar es una
+   accion explicita y separada. */
+.activity-bar-row--clickable, .bar-row--clickable {
+  cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px;
+  transition: background .12s ease;
+}
+.activity-bar-row--clickable:hover, .bar-row--clickable:hover { background: rgba(128,128,128,.10); }
+.activity-bar-row--clickable.is-active, .bar-row--clickable.is-active { background: rgba(231,176,8,.16); }
+.activity-bar-row--clickable:focus-visible, .bar-row--clickable:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 1px;
+}
 .dashboard-subhead__hint { font-weight: 400; letter-spacing: 0; text-transform: none; opacity: .75; }
 .dashboard-subhead__filter { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--gold); }
 .dashboard-subhead__reset { border: 0; background: transparent; padding: 0; margin-left: 2px; color: var(--gold); font: inherit; cursor: pointer; }
@@ -968,6 +1087,21 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    cualquier subconjunto. */
 .dashboard-view-switch--multi { flex-wrap: wrap; }
 .dashboard-view-switch--multi button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
+/* DENSIDAD CONTEXTUAL (owner corrective — Commercial Funnel spacing, ver
+   HANDOFF): variante de SOLO densidad, deliberadamente separada de
+   `--multi` arriba — `--multi` está nombrada y documentada para la
+   semántica de selección múltiple (Mes de Horas Productivas, "tildar
+   varios a la vez"), nunca para compacidad en general. Reusarla en un
+   switch single-select excluyente (Horas/Ponderadas del Funnel) sería un
+   nombre que promete un comportamiento que el control no tiene. Mismos
+   valores que `--multi` (4px/8px, .68rem) — es la MISMA escala compacta
+   ya establecida en el Hub, no un número nuevo — pero sin `flex-wrap`
+   (un toggle de 2 botones nunca necesita envolver) y sin ninguna
+   implicación de multi-select. Para un control LOCAL dentro de un chart
+   (nunca un filtro global de primera clase, ver `--scroll` arriba, que
+   sí preserva el peso completo por ser filtro): el switch pasa a ser
+   liviano en vez de competir en altura con el texto que lo acompaña. */
+.dashboard-view-switch--compact button { padding: 4px 8px; font: 600 .68rem var(--mono); min-width: 30px; text-align: center; }
 /* Mes de Año/Mes multi-select (DECISIÓN VISUAL OWNER — AÑO/MES
    MULTI-SELECT corrective, ver HANDOFF): a diferencia de `--multi`
    arriba (Horas Productivas, compacta + wrap), esta variante mantiene la
@@ -1072,7 +1206,21 @@ table.dashboard-table td {
   font-variant-numeric: tabular-nums; color: #1f1f24;
 }
 .content-theme-dark table.dashboard-table td { border-bottom-color: rgba(255,255,255,.06); color: #e4e4ec; }
-table.dashboard-table td.left, table.dashboard-table td.row-label {
+/* `.row-label-col` es LA COLUMNA DEL ROTULO DE FILA: texto, a la izquierda.
+   Hasta acá esa alineación existía sólo para el `<th>` (ver arriba) y NO para
+   el `<td>`, así que una celda marcada como rótulo caía en el
+   `text-align: right` genérico de `td`. El contrato queda completo: header y
+   cuerpo de la misma columna se alinean igual, que es lo único que un
+   "rótulo de fila" puede significar.
+
+   Consumidores auditados antes de tocar la raíz: Reporting usa
+   `.row-label-col` SOLO en `<th>` (8 sitios, cero `<td>`), así que esta regla
+   no lo alcanza; los únicos `<td>` son los 3 de Comercial (Forecast x2,
+   Origen), y los tres son rótulos textuales —"Septiembre de 2026",
+   "Total (8)", "Base Instalada"—. Ninguno pedía otra alineación, así que se
+   arregla la raíz en vez de agregar overrides por feature. */
+table.dashboard-table td.left, table.dashboard-table td.row-label,
+table.dashboard-table td.row-label-col {
   text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* Columna de status COMPACTA/alineada a la derecha (corrective pre-Batch-A,
@@ -1112,6 +1260,16 @@ table.dashboard-table tr.depth-1 td.row-label { font-weight: 600; color: #55555c
 table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c; }
 .content-theme-dark table.dashboard-table tr.depth-1 td.row-label,
 .content-theme-dark table.dashboard-table tr.depth-2 td.row-label { color: #b2b2bc; }
+/* Wrapper de overflow horizontal para cualquier tabla/matriz ancha del Hub
+   (Table Spine corrective — ver HANDOFF): vivía scoped a
+   `.reporting-integral-preview` en reporting.css por ser el único
+   consumidor histórico, pero la regla en sí (`overflow-x:auto`) no tiene
+   NINGUNA semántica propia de Reporting — promovida acá, al lado del
+   primitivo `.dashboard-table` que envuelve, para que cualquier vertical
+   (Comercial incluida) obtenga scroll real en vez de que un ancestro con
+   `overflow` recorte la tabla en silencio. Comportamiento de Reporting sin
+   cambios (misma regla, mismo efecto, ahora sin scope). */
+.matrix-scroll { overflow-x: auto; }
 /* Toggle/indent de expansión — SIEMPRE dentro de la columna descriptiva
    (nunca desplaza columnas numéricas); ancho de indent por profundidad se
    fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo
@@ -1142,14 +1300,19 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    para cualquier estado de dominio. Reemplaza `.status-pill` (Reporting) y
    `.status-badge` (Asignaciones) — dos nombres/formas para el mismo
    concepto, ahora uno. El primitivo SOLO define mecánica (tipografía/
-   padding/forma/paleta restringida a 4 colores) — el dominio elige la
+   padding/forma/paleta restringida a 5 colores) — el dominio elige la
    VARIANTE semántica (Asignaciones: activo→green, tentativo→amber,
    inactivo/otro→grey; Reporting: en curso→green, finalizado→grey,
-   verde/amarillo/rojo→green/amber/red), nunca una ontología cross-dominio
-   nueva. */
+   verde/amarillo/rojo→green/amber/red; Comercial: urgencia de "Próx.
+   Acción" por magnitud de días, 0-7→green/8-15→amber/16-30→orange/
+   +30→red), nunca una ontología cross-dominio nueva. `--orange` se agregó
+   para Comercial porque su leyenda necesita 4 tonos de urgencia — los 3
+   originales (green/amber/red) alcanzaban para "buen/regular/mal estado"
+   pero no para un semáforo de 4 escalones. */
 .dashboard-status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 .64rem var(--sans); }
 .dashboard-status-badge--green { background: rgba(46,158,91,.12); color: #2e9e5b; }
 .dashboard-status-badge--amber { background: rgba(200,145,0,.14); color: #c89100; }
+.dashboard-status-badge--orange { background: rgba(194,87,12,.14); color: #c2570c; }
 .dashboard-status-badge--red { background: rgba(192,57,43,.12); color: #c0392b; }
 .dashboard-status-badge--grey { background: rgba(122,122,130,.14); color: #7a7a82; }
 /* Punto semafórico discreto del badge de Salud de Cliente (Objetivo 1 — más
@@ -2140,6 +2303,97 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
 .callout-row .callout { height: 100%; margin: 0; }
 @media (max-width: 760px) { .callout-row { grid-template-columns: 1fr; } }
+
+/* HUB CAPABILITY/EXPERIENCE NAV PRIMITIVE — barra de navegacion entre las
+   capacidades de un workspace (underline plano apoyado directo sobre el
+   fondo del Hub, sin dibujar una segunda superficie). Promovido desde
+   reporting.css, donde vivia scopeado a `.reporting-integral-preview` — o
+   sea inerte fuera de Reporting, porque base.html no carga ese archivo — al
+   ganar su SEGUNDO consumidor real: la nav Dashboard|Actividades de
+   Comercial. MISMO precedente que `.matrix-scroll` y que la familia
+   `.bar-*`. Se conserva el nombre `experience-tabs` a proposito: renombrar
+   ahora tocaria markup+JS de Reporting sin ganancia funcional.
+
+   Se promueve la ESTRUCTURA. La navegacion en si (que capacidades existen,
+   como se conmutan, hidratacion por tab, telemetria) sigue siendo de cada
+   vertical: aca no hay ningun acoplamiento a `EXPERIENCES` ni a un motor.
+
+   TEMA — el punto delicado de esta promocion: las reglas originales usaban
+   `var(--ink)`/`var(--ink-faint)`, tokens que Reporting define para SU
+   superficie clara. `--ink-faint` no existe fuera de ahi, y `--ink` si
+   existe Hub-wide pero con el significado INVERTIDO (#e4e4ec, texto claro
+   para fondo oscuro): copiadas tal cual, la tab activa quedaba blanco sobre
+   blanco en tema claro. Por eso el color sale por token propio con
+   fallback, con override en `.content-theme-dark` y con un pin dentro de
+   `.reporting-integral-preview` (que fuerza su panel claro en AMBOS temas)
+   para que Reporting resuelva exactamente los mismos valores de siempre.
+   Mismo patron que `--bar-track-bg` y que `.activity-kpi__value`.
+
+   NO es un tablist ARIA: son botones. El consumidor marca el activo con
+   `aria-current`; deliberadamente no se hornea aca un contrato
+   `role="tab"` incompleto (sin roving tabindex ni flechas). */
+.experience-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid rgba(128,128,128,.24); margin-bottom: 4px; }
+.experience-tabs button {
+  background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font: 600 .82rem var(--sans);
+  color: var(--tab-ink-muted, #7a7a82); cursor: pointer; white-space: nowrap; margin-bottom: -1px;
+}
+.experience-tabs button:hover { color: var(--tab-ink, #1f1f24); }
+.experience-tabs button.is-active { color: var(--tab-ink, #1f1f24); border-bottom-color: var(--gold); }
+/* Foco visible: MISMO lenguaje que el resto de los interactivos del Hub
+   (`.activity-kpi--clickable`, `.activity-bar-row--clickable`). Solo aparece
+   en navegacion por teclado. */
+.experience-tabs button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.content-theme-dark { --tab-ink: #e4e4ec; --tab-ink-muted: #8b8b96; }
+
+/* HUB BAR PRIMITIVE — categoría → UNA magnitud → UNA barra horizontal.
+   Promovido desde reporting.css (donde vivía scopeado a
+   `.reporting-integral-preview`, o sea: inerte fuera de Reporting, porque
+   base.html NO carga reporting.css) al ganar su SEGUNDO consumidor real —
+   los small multiples de "Distribución por Etapa" en Comercial. MISMO
+   precedente y misma diligencia que la promoción de `.matrix-scroll`.
+
+   Lo promovido es SOLO la estructura. Los modificadores de COLOR de dominio
+   de Reporting (.vendidas/.certificadas/.ejecutadas/.positivo/.negativo) y
+   su `.legend` SIGUEN scopeados en reporting.css: son semántica de negocio
+   de esa vertical, no primitivo. Como todos los usos de Reporting traen
+   modificador — y `.reporting-integral-preview .bar-fill.x` (0,3,0) le gana
+   al default de acá (0,1,0) — Reporting conserva su color exacto.
+
+   SEMÁNTICA: una sola serie por barra. Este primitivo NO expresa grouped/
+   multi-series ni doble escala; para comparar dos magnitudes se componen
+   DOS bloques independientes (small multiples), cada uno con su propia
+   escala — nunca dos `.bar-fill` dentro de un mismo `.bar-track`.
+
+   TEMA: Reporting fija su propia superficie clara SIEMPRE (ver el bloque de
+   tokens de `.reporting-integral-preview`), pero un consumidor Hub normal
+   vive en `.module-content`, que es #fff en tema claro y #181819 en oscuro.
+   Por eso el fondo del track sale por token con fallback: en claro (y en
+   Reporting, que lo fija) queda el MISMO `rgba(0,0,0,.06)` de siempre; en
+   oscuro se invierte para no quedar negro-sobre-negro. Mismo criterio para
+   los grises de texto: `--ink-soft`/`--ink-faint` sólo existen dentro de
+   Reporting, así que fuera de ahí caen al `--soft` real del Hub. */
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: .76rem; }
+.bar-row .bar-label { width: 190px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { flex: 1; height: 14px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 4px; position: relative; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--gold); }
+/* 60px -> 92px + nowrap (Commercial Tile 6 — Ganadas, ver HANDOFF, TERCER
+   consumidor real): "3.826 hs (12)" es más largo que los conteos cortos que
+   Creadas ya mostraba ("42") y partía en dos líneas dentro de la columna
+   original — regla del primitivo (como el breakpoint de arriba), no un
+   ancho especial para Ganadas. `.bar-track` (flex:1) absorbe la diferencia
+   solo — cero cambio de layout para los consumidores existentes. */
+.bar-value { width: 92px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; white-space: nowrap; }
+.perspective-label { color: var(--ink-faint, var(--soft)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+.content-theme-dark { --bar-track-bg: rgba(255,255,255,.10); }
+/* Viewport angosto: `.bar-label`/`.bar-value` fijos (190px + 60px) dejaban el
+   track sin ancho útil — se descubrió con el SEGUNDO consumidor, así que la
+   regla es del primitivo, no un parche de Comercial. La fila pasa a 2 líneas
+   (label arriba, track+valor abajo) en vez de comprimir la barra a nada. */
+@media (max-width: 760px) {
+  .bar-row { flex-wrap: wrap; gap: 4px 10px; }
+  .bar-row .bar-label { width: 100%; }
+  .bar-track { flex: 1 1 auto; min-width: 0; }
+}
 
 /* HUB CHART TOOLTIP PRIMITIVE (owner request — Rentabilidad: "los tooltip
    debieran ser una experiencia transversal... en asignaciones renderizamos

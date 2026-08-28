@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_99():
+def test_15_route_surface_still_119():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -522,11 +522,115 @@ def test_15_route_surface_still_99():
     #     anios-disponibles, data/rentabilidad(+anios-disponibles),
     #     data/batch-a, data/horas-vendidas(+anios-disponibles),
     #     data/participacion(+anios-disponibles), data/batch-b, feedback,
-    #     telemetry — más POST /operaciones/staffing/feedback.
-    #   98 -> 99 (HOT WINDOW/COLD HISTORY corrective, Horas Productivas,
-    #     owner decision 2026-08-18): +POST data/batch-b/anios-disponibles
-    #     (metadata liviana de años, MISMO patrón que
-    #     data/cartera/anios-disponibles).
+    #     telemetry — más POST /operaciones/staffing/feedback. Nunca
+    #     regenerado en este archivo puntual hasta ahora.
+    #   98 -> 99 (Commercial Hub Workspace Foundation, Batch 0): +GET
+    #     /comercial, el shell mínimo del tercer workspace (ver
+    #     webapp/routers/commercial.py) — un único endpoint nuevo, sin dato/
+    #     Odoo real todavía.
+    #   99 -> 101 (Commercial Hub Odoo Batch 1 — Summary + Pipeline, ver
+    #     HANDOFF): +GET /comercial/data/summary, +GET /comercial/data/
+    #     pipeline — el primer vertical slice real (Odoo read-only), sin
+    #     `graph_token`/Form (Odoo es un service account server-side, ver
+    #     config.py/webapp.services.odoo_client — nunca un token del browser).
+    #   101 -> 102 (Commercial Batch 3A — capability Actividades, ver
+    #     HANDOFF): +GET /comercial/data/activities, la segunda capability
+    #     del workspace (`mail.activity` sobre `crm.lead`, read-only, mismo
+    #     contrato fail-soft y misma gate de entitlement que summary/
+    #     pipeline).
+    #   102 -> 103 (Commercial Landing Homologation, ver HANDOFF): +GET
+    #     /comercial/data/analytics, que alimenta el bloque "Analíticas del
+    #     Pipeline" del landing (seis métricas derivadas del historial de
+    #     etapas) y el tile "Creadas" — read-only, mismo contrato fail-soft.
+    #   103 -> 104 (Active Opportunities Phase 2 / C1, ver HANDOFF): +GET
+    #     /comercial/data/opportunities, detalle por oportunidad del universo
+    #     de "Oportunidades activas" (stages 1-8) — alimenta la tabla de
+    #     detalle y el desglose por Origen (derivado client-side, sin
+    #     endpoint propio) — read-only, mismo contrato fail-soft.
+    #   104 -> 105 (Active Opportunities Phase 2 / C2, ver HANDOFF): +GET
+    #     /comercial/data/forecast, Pipeline Total/Ponderado agrupado por mes
+    #     de cierre (universo 0-8, deliberadamente DISTINTO del de
+    #     Oportunidades Activas) — read-only, mismo contrato fail-soft.
+    #   105 -> 106 (merge de origin/main — HOT WINDOW/COLD HISTORY corrective de
+    #     Horas Productivas, owner decision 2026-08-18): +POST data/batch-b/
+    #     anios-disponibles (metadata liviana de años, MISMO patrón que
+    #     data/cartera/anios-disponibles). Los dos lados sumaron rutas en paralelo
+    #     desde 98: siete de Comercial acá, una de Reporting en main.
+    #   107 -> 108 (Creadas Hot/Cold Year Hydration, owner performance
+    #     corrective): +GET /comercial/data/creadas/anios-disponibles — el
+    #     DESCUBRIMIENTO de años seleccionables, separado de los datos a
+    #     propósito (MISMO criterio que los `anios-disponibles` de
+    #     Reporting). Una consulta con `limit=1`: declara disponibilidad, no
+    #     contenido. Si viajara dentro del payload de datos, el `<select>`
+    #     sólo podría ofrecer los años ya hidratados — que es exactamente el
+    #     costo que ese corrective elimina.
+    #   106 -> 107 (Creadas Legacy Parity, ver HANDOFF): +GET
+    #     /comercial/data/creadas, drill de "Creadas" (mensual + ranking por
+    #     vendedor + detalle por oportunidad, paridad con el legacy
+    #     `/crm/opp-by-month`) — LAZY (nunca en la hidratación normal del
+    #     dashboard), read-only, mismo contrato fail-soft.
+    #   108 -> 109 (Commercial Tile 5 — Prospectos, ver HANDOFF): +GET
+    #     /comercial/data/prospects, drill de "Prospectos" (tabla por
+    #     oportunidad, paridad con el legacy
+    #     `/crm/relevamiento?stage_id=<etapa 0>`) — LAZY (nunca en la
+    #     hidratación normal del dashboard), read-only, mismo contrato
+    #     fail-soft.
+    #   109 -> 110 (Commercial Tile 6 — Ganadas, ver HANDOFF): +GET
+    #     /comercial/data/ganadas, drill de "Ganadas" (ranking por vendedor +
+    #     detalle por oportunidad, año-scoped, paridad con el legacy
+    #     `/crm/kpi-detail` bucket "won") — LAZY (nunca en la hidratación
+    #     normal del dashboard), read-only, mismo contrato fail-soft.
+    #   110 -> 111 (Commercial Tile 7 — Perdidas, ver HANDOFF): +GET
+    #     /comercial/data/perdidas, drill de "Perdidas" (ranking por vendedor
+    #     + desglose por Motivo, derivado CLIENT-SIDE de las mismas filas +
+    #     detalle por oportunidad, año-scoped, paridad con el legacy
+    #     `/crm/kpi-detail` bucket "lost" + `setKpiView('lost')`/
+    #     `renderLostPanel`) — LAZY, read-only, mismo contrato fail-soft.
+    #   111 -> 112 (Commercial Tile 8 — Suspendidas, ver HANDOFF): +GET
+    #     /comercial/data/suspendidas, drill de "Suspendidas" (tabla por
+    #     oportunidad, STOCK actual SIN año, paridad con el legacy
+    #     `/crm/relevamiento?stage_ids=<suspended>` +
+    #     `setKpiView('suspended')`/`renderSuspendedPanel`) — LAZY (nunca en
+    #     la hidratación normal del dashboard), read-only, mismo contrato
+    #     fail-soft. Es el ÚLTIMO tile de la familia "relevamiento"
+    #     (Activas/Prospectos/Suspendidas).
+    #   112 -> 114 (Analítica del Pipeline, ver HANDOFF): +2 GET.
+    #     `/comercial/data/pipeline-analytics-detail` — detalle COMPARTIDO de
+    #     CINCO tiles (Edad del pipeline/Tiempo por etapa/Conversión etapa a
+    #     etapa/Tiempo de cierre/Estancadas), MISMO universo que el titular
+    #     EAGER (`analytics`) pero por fila — paridad con el legacy
+    #     `/pipeline-analytics` (`setAnalyticsView`/`renderAnalyticsPanel*`).
+    #     `/comercial/data/lead-conversion-detail` — detalle de "Conversión
+    #     de leads", universo propio (`crm.lead type=lead` + historial de
+    #     `type`), paridad ACOTADA con el legacy `/lead-conversion` (sin el
+    #     árbol UTM/atribución de marketing — ver HANDOFF, brecha
+    #     intencional). Ambos LAZY, read-only, mismo contrato fail-soft.
+    #   114 -> 116 (Commercial Table Tabs -- Bucket 1: Licencias/Historial
+    #     Perdidas/Detalle Oportunidades, ver HANDOFF): +2 GET.
+    #     `/comercial/data/opportunities-detail` -- universo canonico stages
+    #     0-8 (MISMO que Forecast), active=True; sirve TANTO "Detalle
+    #     Oportunidades" COMO "Licencias" (el legacy ya trata a las dos tabs
+    #     como la MISMA fuente/endpoint, filtrada `licencias === "Si"`
+    #     client-side -- cero request adicional por Licencias).
+    #     `/comercial/data/lost-history` -- universo canonico
+    #     `type=opportunity, active=False, probability=0`, TODOS los anios
+    #     salvo el actual (que vive en el KPI "Perdidas" ya cerrado) + "Sin
+    #     fecha", reusando LITERAL `_resolve_lost_motivos`/
+    #     `_filter_excluded_lost` (nunca una segunda definicion de Perdidas).
+    #     Ambos LAZY, read-only, mismo contrato fail-soft.
+    #   116 -> 119 (Commercial Table Tabs -- Bucket 2: Clientes/Leads, ver
+    #     HANDOFF): +3 GET.
+    #     `/comercial/data/leads` -- universo `crm.lead type=lead,
+    #     active=True`, agrupado por empresa -- NUNCA type=opportunity
+    #     (un lead convertido cambia de tipo y desaparece solo de aca).
+    #     `/comercial/data/clients` -- partners con la property de
+    #     res.partner "Es Cliente?" = "Si" (contactos colapsados a su
+    #     empresa via commercial_partner_id), fallback fail-soft a todas
+    #     las oportunidades activas si esa property no existe.
+    #     `/comercial/data/ex-clients` -- MISMA mecanica, property = "Ex",
+    #     endpoint/estado totalmente separados (sub-tab lazy independiente
+    #     con historial de oportunidades ganadas/perdidas).
+    #     Los tres LAZY, read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -534,7 +638,7 @@ def test_15_route_surface_still_99():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 99
+    assert len(snapshot) == 119
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

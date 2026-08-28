@@ -152,6 +152,46 @@ const CARTERA_CONFIG = {
 // fórmula de agregación repetida acá. `rows` son las filas YA filtradas
 // (mismas que alimentan la tabla), así que el tile y la tabla nunca
 // divergen.
+// CONTRATO DE DATO de los tiles de horas trabajadas de Operaciones — la
+// UNICA copy de info cableada por ahora, y solo porque su reconciliacion
+// quedo probada en vivo (agosto 2026: Cartera/Mantenimiento == Rentabilidad
+// con Tipo Proyecto = Mantenimiento, proyecto por proyecto). Explica el
+// contrato, nunca disculpa una diferencia: dice bajo QUE condiciones la
+// comparacion es valida, no que "los valores pueden diferir".
+//
+// El resto de los tiles NO recibe info todavia: la afordancia es del
+// primitivo compartido y cada tile se suma cuando su propio contrato este
+// documentado, no de arrastre.
+const _KPI_INFO = {
+  carteraTrabajadas: [
+    "Horas registradas en Time Logs para proyectos de tipo Mantenimiento.",
+    "Grano: proyecto × año × mes.",
+    "Para comparar con Rentabilidad, aplicar Tipo Proyecto = Mantenimiento.",
+  ],
+  // Habilitada recien ahora (owner decision OPTION A): hasta que `trabajadas`
+  // de esta perspectiva dejo de salir del campo manual `hsTrabajadas`, esta
+  // copy habria documentado un contrato falso. Grano de VIDA, no mensual —
+  // por eso "Grano: proyecto" a secas y la comparacion pide el periodo
+  // historico equivalente, no un mes.
+  proyectoTrabajadas: [
+    "Horas registradas en Time Logs para proyectos de tipo Proyecto, acumuladas durante toda la vida del proyecto.",
+    "Grano: proyecto.",
+    "Para comparar con Rentabilidad, considerar el mismo proyecto y el período histórico equivalente.",
+  ],
+  // AGNOSTICA DE TIPO (owner adjustment): Rentabilidad NO es una metrica de
+  // Mantenimiento — su alcance lo fija el filtro Tipo Proyecto activo, que
+  // por defecto no filtra nada. Nombrar Mantenimiento aca lo convertia en el
+  // dueno conceptual de la vista, que es falso. Y NO se promete
+  // comparabilidad con la perspectiva Proyecto: esa todavia lee el campo
+  // manual `hsTrabajadas`, asi que afirmarlo documentaria un contrato que no
+  // existe (ver el audit de linaje de Proyecto).
+  rentabilidadTrabajadas: [
+    "Horas registradas en Time Logs para los proyectos incluidos por los filtros activos.",
+    "Grano: proyecto × año × mes.",
+    "Para comparar con una perspectiva de Cartera, alinear Tipo Proyecto, período y filtros.",
+  ],
+};
+
 const CARTERA_KPI_EXTRA = [
   { key: "diff", label: "Diff Hs" },
   { key: "trabajadas", label: "Hs Trabajadas" },
@@ -172,7 +212,15 @@ function carteraKpiTiles(cfg, rows) {
     // SUM(Certificadas) − SUM(Trabajadas), ver comentario de
     // CARTERA_CONFIG) sin `diffCell` — el primitivo decide el signo/color.
     const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);
-    return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" });
+    // Solo el tile de horas trabajadas lleva info, y con la copy de SU
+    // perspectiva: las dos derivan de Time Logs pero con alcance y grano
+    // distintos (Mantenimiento = tipo Mantenimiento, grano mensual;
+    // Proyecto = tipo Proyecto, grano de vida). Los otros cuatro
+    // (Diff/Certificadas/Vendidas/Facturadas) quedan intactos.
+    const info = k.key !== "trabajadas" ? undefined
+      : (cfg.rows === CARTERA_MANTENIMIENTO_ROWS ? _KPI_INFO.carteraTrabajadas
+        : cfg.rows === CARTERA_PROYECTO_ROWS ? _KPI_INFO.proyectoTrabajadas : undefined);
+    return renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours", info });
   }).join("");
 }
 
@@ -877,6 +925,10 @@ const state = {
   // debe esperar el fetch+parse de la XLSX de Facturadas que solo Proyecto
   // usa, ver loadCarteraMantenimiento/loadCarteraProyecto). idle → loading
   // → ready | error, mismo criterio que el resto del Hub.
+  // AUTORIZACIÓN DE GRAPH: estado del HUB, no de una experiencia — todas
+  // comparten UN token, así que si venció, venció para todas. Se prende
+  // desde `reportingClassifyState` y lo lee `reportingAuthGateHtml`.
+  graphAuthRequired: false,
   carteraMantenimientoStatus: "idle",
   carteraProyectoStatus: "idle",
   // HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): metadata de años
@@ -1165,7 +1217,56 @@ function fmtNum(value, type = "hours") {
 // por defecto (patrón nth-child o el `accent` explícito). KPIs neutros (hours/
 // count/totales) usan `format` no-"signed" ⇒ nunca se overridean. Lógica ÚNICA
 // acá (primitivo compartido), nunca duplicada por experiencia.
-function renderDashboardKpi({ label, value, format = "hours", accent, smartAccent }) {
+// TILE INFO (opcional, TRUST/EXPLAINABILITY): `info` = array de líneas que
+// explican el CONTRATO DE DATO del tile — qué mide, de qué fuente, con qué
+// grano, y bajo qué condiciones es comparable con otra vista. NO es un
+// indicador de error ni de estado: nunca sirve para justificar una
+// inconsistencia, sólo para decir por qué un número significa lo que
+// significa (ver `_KPI_INFO`).
+//
+// Array de strings y no un objeto con campos nombrados a propósito: el
+// contrato de este primitivo son escalares planos (`label`/`value`/`format`/
+// `accent`), y `.chart-tooltip p` YA sabe renderizar varias líneas. Un
+// vocabulario de metadata con reglas de render por campo sería un framework
+// para dos consumidores. La estructura vive en la REDACCIÓN, y los tests
+// afirman el CONTENIDO (que la copy nombre fuente, grano y regla de
+// comparación), que es lo que realmente importa.
+//
+// `info` ausente ⇒ markup byte-idéntico al de siempre. La afordancia va
+// absolutamente posicionada (ver tools.css), así que un tile con info mide
+// exactamente lo mismo que uno sin info.
+function renderKpiInfoHtml(label, lines) {
+  const body = lines.map(l => `<p>${esc(l)}</p>`).join("");
+  // Etiqueta accesible ANTES que el tooltip visual: no se depende de `title=""`
+  // ni del hover. `.chart-tooltip-anchor` se revela con :hover/:focus/
+  // :focus-within, así que teclado y touch (el tap enfoca el botón) acceden a
+  // la misma información sin JS.
+  //
+  // `<button>` y no un `<span tabindex>`: focus y semántica de teclado
+  // gratis, y el lector de pantalla lo anuncia como control.
+  //
+  // Propagación: los tiles clickeables del Hub cablean `click` Y `keydown`
+  // DIRECTO sobre el propio tile (ver `initEventBreakdown`, app.js), no por
+  // delegación — así que hay que frenar los dos, o consultar la info
+  // activaría/cerraría el desglose del tile. Escape suelta el foco, que es
+  // lo que cierra este tooltip (no hay popover persistente que cerrar).
+  const stopKeys = "if(event.key==='Escape'){this.blur();}"
+    + "else if(event.key==='Enter'||event.key===' '){event.stopPropagation();}";
+  // El tooltip es HERMANO del botón, no su hijo: así se posiciona contra el
+  // CARD y su borde izquierdo nunca puede salirse del tile (ni, por lo tanto,
+  // del viewport — ver tools.css, medido). Por eso el botón no lleva
+  // `.chart-tooltip-anchor`: ese patrón envuelve al disparador, y acá el
+  // disparador es un icono en una esquina. Se reusa la CAJA `.chart-tooltip`;
+  // el disparo va por selector de hermano adyacente.
+  return `<button type="button" class="activity-kpi__info"`
+    + ` aria-label="${esc(`Información sobre ${label}: ${lines.join(" ")}`)}"`
+    + ` onclick="event.stopPropagation()" onkeydown="${stopKeys}">`
+    + `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>`
+    + `<path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>`
+    + `</button><span class="chart-tooltip">${body}</span>`;
+}
+
+function renderDashboardKpi({ label, value, format = "hours", accent, smartAccent, info }) {
   const display = fmtNum(value, format);
   const n = typeof value === "number" ? value : Number(value);
   let valueClass = "activity-kpi__value";
@@ -1179,7 +1280,9 @@ function renderDashboardKpi({ label, value, format = "hours", accent, smartAccen
     effectiveAccent = n > 0 ? "positive" : "negative";
   }
   const cardClass = effectiveAccent ? `activity-kpi activity-kpi--${effectiveAccent}` : "activity-kpi";
-  return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span></div>`;
+  const withInfo = !!(info && info.length);
+  const infoHtml = withInfo ? renderKpiInfoHtml(label, info) : "";
+  return `<div class="${cardClass}"><span class="${valueClass}">${display}</span><span class="activity-kpi__label">${esc(label)}</span>${infoHtml}</div>`;
 }
 
 // Loader Hub COMPARTIDO (Phase 0A) — reusa el MISMO primitivo visual que
@@ -1195,9 +1298,128 @@ function reportingLoadingHtml(label) {
   return `<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>`
     + `<span class="section-analysis-loading-copy">${esc(label)}</span></p>`;
 }
+// AUTORIZACIÓN DE GRAPH vencida — estado del HUB, no de una experiencia.
+// Todas las verticales comparten UN token, así que si venció, venció para
+// todas: por eso el flag vive en `state.graphAuthRequired` y no por
+// experiencia.
+//
+// Distinto de `reportingSourceErrorHtml` a propósito: hasta este corrective,
+// un 401 se mostraba como "No pudimos cargar … desde SharePoint" — un error
+// de fuente que era FALSO y que además no sugería la acción que sí
+// desbloquea. El usuario terminaba descubriendo por prueba y error que salir
+// y volver a entrar lo arreglaba.
+//
+// LÍMITE HONESTO de esta fase: hoy el token de Graph se adquiere ÚNICAMENTE
+// en el login interactivo (no se pide `offline_access`, no hay refresh
+// token), así que la única recuperación real es volver a pasar por Microsoft.
+// El botón lo hace en UN click y vuelve al contexto exacto vía `next` — no es
+// un reload de página. La renovación silenciosa, sin re-login, es Fase 1
+// (MSAL Browser); cuando exista, sólo cambia lo que hace este botón.
+// Los datasets que hidratan cada tab. Es el MISMO criterio que
+// `reportingTabRawStatus` usa para decidir si un tab tiene contenido: acá se
+// usa al revés, para volver a ponerlos en "idle" y que el trigger del tab
+// re-dispare. Se listan TODOS los del tab (no sólo el de la perspectiva
+// activa) porque tras reautenticar conviene que la perspectiva hermana también
+// se recupere — conmutarla no re-entra al loader (el flag de hidratación es
+// one-way), así que si se dejara fallada quedaría fallada para siempre.
+const REPORTING_TAB_DATASETS = {
+  cartera: ["carteraMantenimientoStatus", "carteraProyectoStatus"],
+  rentabilidad: ["rentabilidadDataStatus"],
+  horasvendidas: ["horasVendidasDataStatus"],
+  comercial: ["comercialParticipacionDataStatus", "batchADataStatus"],
+  calendario: ["batchADataStatus"],
+  capacidad: ["batchBDataStatus"],
+};
+
+// RECUPERACIÓN ACOTADA tras reautenticar. Owner: reintentar el componente útil
+// más chico, sin forzar logout y sin recargar el Hub si el componente puede
+// reintentar solo.
+//
+// Lo que NO se toca, a propósito: la experiencia activa, los filtros, las
+// perspectivas, los años seleccionados ni el scroll. Se vuelven a "idle"
+// únicamente los datasets del tab que está mirando el usuario, y su trigger de
+// hidratación —que es idempotente y sólo dispara sobre "idle"— hace el resto.
+async function reportingReauthenticate() {
+  if (typeof window.dwGraphReauthenticate !== "function") return false;
+  const ok = await window.dwGraphReauthenticate();
+  if (!ok) return false;          // canceló: el cuadro sigue ofreciendo la acción
+
+  state.graphAuthRequired = false;
+  const expId = state.experience;
+  (REPORTING_TAB_DATASETS[expId] || []).forEach((key) => {
+    // Sólo lo que quedó sin resolver: un dataset que YA cargó bien no se
+    // vuelve a pedir por una reautenticación de otro.
+    if (state[key] !== "ready") state[key] = "idle";
+  });
+  // El flag de primera hidratación es one-way y no se baja: si el tab ya había
+  // mostrado contenido, sigue mostrándolo mientras el retry corre.
+  const trigger = TAB_HYDRATION_TRIGGERS[expId];
+  if (trigger) trigger();
+  render();
+  return true;
+}
+
+function reportingAuthRequiredHtml() {
+  // La acción ES la reautenticación, no el logout. Antes este botón cerraba la
+  // sesión del Hub para forzar un login nuevo: funcionaba, pero cobraba de más
+  // —el usuario perdía la ubicación, los filtros y todo lo que ya había
+  // cargado— para resolver algo que sólo necesitaba renovar la autorización de
+  // datos. Cerrar sesión sigue siendo una intención distinta, con su botón en
+  // el topbar.
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">Sesión de datos</span>`
+    + `<p>Tu sesión de datos con Microsoft necesita renovarse. `
+    + `<button type="button" class="dashboard-subhead__reset" onclick="reportingReauthenticate()">Renovar sesión</button></p></div>`;
+}
+
+// CLASIFICADOR ÚNICO de las respuestas de los endpoints Graph del Hub. Antes
+// cada loader hacía `if (data.state === "ok" && …) else "error"`, así que los
+// cuatro estados del contrato colapsaban en uno: dato válido sin filas,
+// falla de fuente, token ausente y 401 se veían igual.
+//
+// Devuelve el status de la experiencia y, de paso, prende el flag compartido
+// cuando la causa es de autorización.
+function reportingClassifyState(data) {
+  const s = data && data.state;
+  if (s === "ok") return "ready";    // defensivo: los callers ya lo filtran
+  if (s === "auth_required" || s === "missing_token") {
+    state.graphAuthRequired = true;
+    return s;                        // los dos se distinguen en el estado…
+  }
+  return "error";                     // …y comparten tratamiento visual: misma acción
+}
+
+// Puerta compartida de los renderers de estado: si la autorización venció, el
+// mensaje es del Hub y gana sobre cualquier copy de la experiencia.
+function reportingAuthGateHtml(status) {
+  if (status === "auth_required" || status === "missing_token" || state.graphAuthRequired) {
+    return reportingAuthRequiredHtml();
+  }
+  return "";
+}
 function reportingSourceErrorHtml(label) {
   return `<p class="empty-panel">No pudimos cargar ${esc(label)} desde SharePoint en este momento. `
     + `Las demás vistas de Reporting siguen disponibles.</p>`;
+}
+
+// Estado VACÍO Hub-consistente. Reusa `.dashboard-empty`/`.dashboard-empty__label`
+// (tools.css) — el primitivo YA compartido por Copiloto/Métricas de Uso
+// (`admin_activity_content.html`), CRM/Comercial (`commercialEmptyStateHtml`) y
+// Asignaciones (`staffing_dashboard.html`): caja de borde punteado, eyebrow
+// dorado y texto centrado. Reporting era el único vertical que se lo salteaba,
+// con un `<p class="empty-note">` suelto (clase LOCAL de reporting.css) — un
+// segundo lenguaje visual para el mismo estado.
+//
+// Adaptador, NO un diseño nuevo: cero CSS propio, cero clase nueva, misma
+// estructura de markup que los otros tres consumidores. `esc` en las dos
+// partes, igual que el resto del archivo.
+//
+// El eyebrow es "Sin resultados" — el vocabulario que el Hub ya usa para CERO
+// FILAS LEGÍTIMAS, distinto de "No disponible", reservado a fallas de
+// carga/cálculo (ver `reportingSourceErrorHtml`, abajo, que conserva su propio
+// tratamiento). No se inventa un eyebrow por experiencia.
+function reportingEmptyStateHtml(message, eyebrow = "Sin resultados") {
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">${esc(eyebrow)}</span>`
+    + `<p>${esc(message)}</p></div>`;
 }
 
 function diffCell(diff) {
@@ -2092,7 +2314,8 @@ function dashboardSections(dashboardKey, sectionsHtml) {
 // Carga LAZY de los datos REALES de Cartera desde el backend, POR
 // PERSPECTIVA (P5, owner live QA de performance — ver
 // loadCarteraMantenimiento/loadCarteraProyecto abajo). Mismo token
-// delegado del browser que Staffing (sessionStorage "dw-graph-token").
+// delegado del browser que Staffing, pedido a la autoridad compartida
+// del Hub (`dwGraphToken`, hub_auth.js) — Reporting no toca el storage.
 // Popula EN EL LUGAR los arrays que CARTERA_CONFIG ya referencia (nunca
 // reasigna) — el motor de facets/jerarquía/rollups no se entera de que las
 // filas ahora son reales. Fail-soft: una falla deja esa perspectiva de
@@ -2129,7 +2352,7 @@ function replaceMonthly(arr, values) {
 async function loadCarteraMantenimiento() {
   state.carteraMantenimientoStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento" }),
     });
@@ -2151,7 +2374,7 @@ async function loadCarteraMantenimiento() {
       // solo porque nadie tocó un filtro a mano todavía.
       reconcileExperienceFacets("cartera");
     } else {
-      state.carteraMantenimientoStatus = "error";
+      state.carteraMantenimientoStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraMantenimientoStatus = "error";
@@ -2161,7 +2384,7 @@ async function loadCarteraMantenimiento() {
 async function loadCarteraProyecto() {
   state.carteraProyectoStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST", body: new URLSearchParams({ graph_token: token, perspectiva: "proyecto" }),
     });
@@ -2173,7 +2396,7 @@ async function loadCarteraProyecto() {
       state.carteraAnioInicio = carteraDefaultAnioInicio();
       state.carteraProyectoStatus = "ready";
     } else {
-      state.carteraProyectoStatus = "error";
+      state.carteraProyectoStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraProyectoStatus = "error";
@@ -2235,7 +2458,7 @@ function carteraMantenimientoLoadedYears() {
 async function loadCarteraMantenimientoAnios() {
   state.carteraMantenimientoAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2244,7 +2467,7 @@ async function loadCarteraMantenimientoAnios() {
       state.carteraMantenimientoAniosDisponibles = data.aniosDisponibles;
       state.carteraMantenimientoAniosStatus = "ready";
     } else {
-      state.carteraMantenimientoAniosStatus = "error";
+      state.carteraMantenimientoAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.carteraMantenimientoAniosStatus = "error";
@@ -2297,7 +2520,7 @@ async function loadCarteraMantenimientoColdYear(anio) {
   // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("cartera", { seedMs: 9000 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/cartera", {
       method: "POST",
       body: new URLSearchParams({ graph_token: token, perspectiva: "mantenimiento", anios: anio }),
@@ -2320,6 +2543,10 @@ async function loadCarteraMantenimientoColdYear(anio) {
   render();
 }
 function renderCarteraDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   const persp = state.perspective.cartera;
   if (carteraStatusFor(persp) === "error") {
     return reportingSourceErrorHtml("los datos de Cartera");
@@ -2365,7 +2592,7 @@ function rentabilidadLoadedYears() {
 async function loadRentabilidadData() {
   state.rentabilidadDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2384,7 +2611,7 @@ async function loadRentabilidadData() {
       }
       state.rentabilidadDataStatus = "ready";
     } else {
-      state.rentabilidadDataStatus = "error";
+      state.rentabilidadDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.rentabilidadDataStatus = "error";
@@ -2398,7 +2625,7 @@ async function loadRentabilidadData() {
 async function loadRentabilidadAnios() {
   state.rentabilidadAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2407,7 +2634,7 @@ async function loadRentabilidadAnios() {
       state.rentabilidadAniosDisponibles = data.aniosDisponibles;
       state.rentabilidadAniosStatus = "ready";
     } else {
-      state.rentabilidadAniosStatus = "error";
+      state.rentabilidadAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.rentabilidadAniosStatus = "error";
@@ -2452,7 +2679,7 @@ async function loadRentabilidadColdYear(anio) {
   // varias pueden estar en vuelo/fallar en simultáneo sin pisarse.
   HubForegroundProgress.begin("rentabilidad", { seedMs: 14500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
@@ -2473,6 +2700,10 @@ async function loadRentabilidadColdYear(anio) {
   render();
 }
 function renderRentabilidadDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.rentabilidadDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Rentabilidad");
   }
@@ -2503,7 +2734,7 @@ function renderRentabilidadDataState() {
 async function loadBatchAData() {
   state.batchADataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-a", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2516,7 +2747,7 @@ async function loadBatchAData() {
       replaceRows(COMERCIAL_SALUD_ROWS, data.salud);
       state.batchADataStatus = "ready";
     } else {
-      state.batchADataStatus = "error";
+      state.batchADataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.batchADataStatus = "error";
@@ -2524,6 +2755,10 @@ async function loadBatchAData() {
   render();
 }
 function renderBatchADataState(label) {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.batchADataStatus === "error") {
     return reportingSourceErrorHtml(label);
   }
@@ -2553,7 +2788,7 @@ function horasVendidasLoadedYears() {
 async function loadHorasVendidasData() {
   state.horasVendidasDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2568,7 +2803,7 @@ async function loadHorasVendidasData() {
       }
       state.horasVendidasDataStatus = "ready";
     } else {
-      state.horasVendidasDataStatus = "error";
+      state.horasVendidasDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.horasVendidasDataStatus = "error";
@@ -2581,7 +2816,7 @@ async function loadHorasVendidasData() {
 async function loadHorasVendidasAnios() {
   state.horasVendidasAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2590,7 +2825,7 @@ async function loadHorasVendidasAnios() {
       state.horasVendidasAniosDisponibles = data.aniosDisponibles;
       state.horasVendidasAniosStatus = "ready";
     } else {
-      state.horasVendidasAniosStatus = "error";
+      state.horasVendidasAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.horasVendidasAniosStatus = "error";
@@ -2613,7 +2848,7 @@ async function loadHorasVendidasColdYear(anio) {
   // independiente, varias pueden estar en vuelo/fallar a la vez.
   HubForegroundProgress.begin("horasvendidas", { seedMs: 9500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/horas-vendidas", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
@@ -2653,6 +2888,10 @@ function mergeHorasVendidasRows(incoming) {
   });
 }
 function renderHorasVendidasDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.horasVendidasDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Horas Vendidas");
   }
@@ -2688,7 +2927,7 @@ function hydrateComercialParticipacionTab() {
 async function loadComercialParticipacionData() {
   state.comercialParticipacionDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2708,7 +2947,7 @@ async function loadComercialParticipacionData() {
       }
       state.comercialParticipacionDataStatus = "ready";
     } else {
-      state.comercialParticipacionDataStatus = "error";
+      state.comercialParticipacionDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.comercialParticipacionDataStatus = "error";
@@ -2722,7 +2961,7 @@ async function loadComercialParticipacionData() {
 async function loadComercialParticipacionAnios() {
   state.comercialParticipacionAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2731,7 +2970,7 @@ async function loadComercialParticipacionAnios() {
       state.comercialParticipacionAniosDisponibles = data.aniosDisponibles;
       state.comercialParticipacionAniosStatus = "ready";
     } else {
-      state.comercialParticipacionAniosStatus = "error";
+      state.comercialParticipacionAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.comercialParticipacionAniosStatus = "error";
@@ -2775,7 +3014,7 @@ async function loadComercialParticipacionColdYears(anios) {
   // Participación es la perspectiva activa), nunca el batch-a de Salud.
   HubForegroundProgress.begin("participacion", { seedMs: 10000 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/participacion", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anios.join(",") }),
     });
@@ -2797,6 +3036,10 @@ async function loadComercialParticipacionColdYears(anios) {
   render();
 }
 function renderParticipacionDataState() {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.comercialParticipacionDataStatus === "error") {
     return reportingSourceErrorHtml("los datos de Participación");
   }
@@ -2817,7 +3060,7 @@ function renderParticipacionDataState() {
 async function loadBatchBData() {
   state.batchBDataStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2845,7 +3088,7 @@ async function loadBatchBData() {
       }
       state.batchBDataStatus = "ready";
     } else {
-      state.batchBDataStatus = "error";
+      state.batchBDataStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.batchBDataStatus = "error";
@@ -2853,6 +3096,10 @@ async function loadBatchBData() {
   render();
 }
 function renderBatchBDataState(label) {
+  // La autorización vencida gana sobre cualquier copy de la experiencia:
+  // no es un problema de estos datos, es del Hub.
+  const authGate = reportingAuthGateHtml();
+  if (authGate) return authGate;
   if (state.batchBDataStatus === "error") {
     return reportingSourceErrorHtml(label);
   }
@@ -2866,7 +3113,7 @@ function renderBatchBDataState(label) {
 async function loadCapacidadAnios() {
   state.capacidadAniosStatus = "loading";
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b/anios-disponibles", {
       method: "POST", body: new URLSearchParams({ graph_token: token }),
     });
@@ -2875,7 +3122,7 @@ async function loadCapacidadAnios() {
       state.capacidadAniosDisponibles = data.aniosDisponibles;
       state.capacidadAniosStatus = "ready";
     } else {
-      state.capacidadAniosStatus = "error";
+      state.capacidadAniosStatus = reportingClassifyState(data);
     }
   } catch (e) {
     state.capacidadAniosStatus = "error";
@@ -2927,7 +3174,7 @@ async function loadCapacidadColdYear(anio) {
   state.capacidadYearErrors.delete(anio);
   HubForegroundProgress.begin("batch-b", { seedMs: 7500 });
   try {
-    const token = sessionStorage.getItem("dw-graph-token") || "";
+    const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/batch-b", {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
@@ -3005,7 +3252,7 @@ function renderCartera() {
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, cfg.columns)}</tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp + " — " + cfg.labels.join(" › "), rows.length + " fila(s)", detalleBody);
 
   return dashboardSections("reporting-cartera", resumen + detalle);
@@ -3344,6 +3591,12 @@ function horasVendidasDefaultAniosSet() {
   const anio = horasVendidasDefaultAnio();
   return anio ? new Set([anio]) : new Set();
 }
+// AÑO/MES MULTI-SELECT corrective — MISMO criterio que
+// rentabilidadDefaultAniosSet.
+function horasVendidasDefaultAniosSet() {
+  const anio = horasVendidasDefaultAnio();
+  return anio ? new Set([anio]) : new Set();
+}
 function pruneHorasVendidasAnio() {
   const available = new Set(horasVendidasAnioOptions());
   state.horasVendidasAnios = new Set([...state.horasVendidasAnios].filter(y => available.has(y)));
@@ -3607,7 +3860,7 @@ function renderRentabilidadResumen() {
     <div class="activity-kpi-grid">
       ${renderDashboardKpi({ label: "Horas Vendidas", value: vendidas, format: "hours" })}
       ${renderDashboardKpi({ label: "Horas Certificadas", value: certificadas, format: "hours" })}
-      ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours" })}
+      ${renderDashboardKpi({ label: "Horas Trabajadas", value: trabajadas, format: "hours", info: _KPI_INFO.rentabilidadTrabajadas })}
       ${renderDashboardKpi({ label: "Rentabilidad horas", value: rentabilidadHoras, format: "signed" })}
       ${renderDashboardKpi({ label: "No asignadas a servicios", value: noAsignadasPortfolio, format: "hours" })}
     </div>`);
@@ -3623,14 +3876,14 @@ function renderRentabilidadResumen() {
     <div class="activity-grid-2">
       <div>
         <p class="perspective-label">Mejor performance</p>
-        ${positivos.length ? rentabilidadRankingList(positivos, "positivos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad ≥ 0.</p>`}
+        ${positivos.length ? rentabilidadRankingList(positivos, "positivos", maxAbs) : reportingEmptyStateHtml("Sin proyectos con rentabilidad ≥ 0.")}
       </div>
       <div>
         <p class="perspective-label">Peor performance</p>
-        ${negativos.length ? rentabilidadRankingList(negativos, "negativos", maxAbs) : `<p class="empty-note">Sin proyectos con rentabilidad negativa.</p>`}
+        ${negativos.length ? rentabilidadRankingList(negativos, "negativos", maxAbs) : reportingEmptyStateHtml("Sin proyectos con rentabilidad negativa.")}
       </div>
     </div>
-  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin proyectos para los filtros actuales.");
   const ranking = dashboardSection("ranking", "Ranking por Rentabilidad horas", "Certificadas − Trabajadas", rankingBody);
 
   const mensual = renderRentabilidadMensual(rows, portfolio);
@@ -3699,14 +3952,14 @@ function renderRentabilidadCertEjecutadas() {
   const panel = (tipo) => {
     const g = groups.find(x => x.tipo === tipo);
     return `<div><p class="perspective-label">${esc(tipo)}</p>`
-      + (g ? groupBlock(g) : `<p class="empty-note">Sin datos para los filtros actuales.</p>`)
+      + (g ? groupBlock(g) : reportingEmptyStateHtml("Sin datos para los filtros actuales."))
       + `</div>`;
   };
   const analysisContent = groups.length ? `
     <p class="perspective-label" style="margin-bottom:2px">Hs Certificadas → SharePoint · Hs Ejecutadas → Time Logs</p>
     <div class="legend" style="margin-top:8px"><span class="l-certificadas">Certificadas</span><span class="l-ejecutadas">Ejecutadas</span></div>
     <div class="activity-grid-2" style="margin-top:12px">${panel("Mantenimiento")}${panel("Proyecto")}</div>
-  ` : `<p class="empty-note">Sin datos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin datos para los filtros actuales.");
   const analysisBody = `${sectionToolbar(perspectiveSwitch("rentabilidad", false))}${analysisContent}`;
   const analysis = dashboardSection("analisis", "Certificadas vs Ejecutadas", "por Tipo Proyecto Dash", analysisBody);
 
@@ -3753,7 +4006,7 @@ function renderRentabilidadCertEjecutadas() {
       </tr></tbody>
     </table>
     </div>
-  ` : `<p class="empty-note">Sin proyectos para los filtros actuales.</p>`;
+  ` : reportingEmptyStateHtml("Sin proyectos para los filtros actuales.");
   const detail = dashboardSection("detalle", "Detalle por proyecto", rows.length + " proyecto(s)", detailBody);
 
   return analysis + detail;
@@ -4191,7 +4444,7 @@ function renderHorasVendidas() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp, hierarchy.labels.join(" › "), detalleBody);
 
   return dashboardSections("reporting-horasvendidas", resumen + detalle);
@@ -4250,7 +4503,7 @@ function renderComercialParticipacion() {
           <tr class="is-total"><td class="row-label">Total</td>${COMERCIAL_PARTICIPACION_COLUMNS.map(c => `<td>${c.rollup(rows)}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", "Participación por condición comercial", rows.length + " cliente(s)", detalleBody);
 
   return dashboardSections("reporting-comercial", detalle);
@@ -4282,7 +4535,7 @@ function renderComercialSalud() {
         </tr></thead>
         <tbody>${renderBusinessTreeRows(stateKey, tree, 0, COMERCIAL_SALUD_COLUMNS)}</tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", "Salud de Cliente", rows.length + " cliente(s)", detalleBody);
 
   return dashboardSections("reporting-comercial", detalle);
@@ -4345,7 +4598,7 @@ function renderCalendario() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${fmtNum(v, "count")}</td>`).join("")}<td>${fmtNum(grandTotal, "count")}</td></tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   const detalle = dashboardSection("detalle", persp, rows.length + " fila(s)", detalleBody);
 
   return dashboardSections("reporting-calendario", resumen + detalle);
@@ -4410,6 +4663,22 @@ function capacidadProductivasDefaultAnio() {
   const options = capacidadProductivasAnioOptions();
   if (options.includes(anioActual)) return anioActual;
   return mostRecentValidYear(options);
+}
+// UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
+// ofrece 2026 aunque el CSV tiene años anteriores"): `_shape_horas_
+// productivas` (reporting_service.py) une cada fila a Proyectos por
+// nombre para resolver Estado — si esa unión falla (proyecto viejo/
+// renombrado, típico de filas HISTÓRICAS cuyo nombre ya no matchea la
+// lista Proyectos actual), `estado` queda `""`. Filtrar por
+// `state.capacidadStatus[r.estado]` directo excluía esas filas SIEMPRE,
+// aunque ambos checkboxes estuvieran tildados — el PBIP original no
+// tiene esta dimensión en absoluto, así que "ambos tildados" debe
+// significar "sin filtro real", nunca "excluir lo no resuelto". Con
+// Estado genuinamente angostado a uno solo, una fila sin estado resuelto
+// SÍ se excluye (no sabemos a cuál de los dos pertenece).
+function _capacidadEstadoAllows(estado) {
+  if (Object.prototype.hasOwnProperty.call(state.capacidadStatus, estado)) return state.capacidadStatus[estado];
+  return Object.values(state.capacidadStatus).every(Boolean);
 }
 // UNRESOLVED-ESTADO corrective (owner report — "Horas Productivas solo
 // ofrece 2026 aunque el CSV tiene años anteriores"): `_shape_horas_
@@ -4791,7 +5060,7 @@ function renderCapacidadProductivas() {
             <thead><tr><th class="row-label-col">${columnLabel}</th>${sortHeader(panelKey, "Horas")}${sortHeader(panelKey, "% Incidencia")}</tr></thead>
             <tbody>${renderBusinessTreeRows(stateKey, tree, 0, capacidadProductivasColumns(panelKey))}</tbody>
           </table>
-        </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}
+        </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}
       </div>
     </div>`;
 
@@ -4884,7 +5153,7 @@ function renderCapacidadNoAsignadas() {
           <tr class="is-total"><td class="row-label">Total</td>${totalMonthly.map(v => `<td>${v === 0 || v ? fmtNum(v, "hours0") : "—"}</td>`).join("")}</tr>
         </tbody>
       </table>
-    </div>` : `<p class="empty-note">Sin filas para los filtros actuales.</p>`}`;
+    </div>` : reportingEmptyStateHtml("Sin filas para los filtros actuales.")}`;
   // Copy de negocio (owner corrective — el usuario no necesita conocer el
   // Task fuente): "Horas sin asignación por consultor · {Año}", nunca el
   // literal técnico "Consultor — Task: No Asignación a Servicio en Cliente".

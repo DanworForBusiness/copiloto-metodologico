@@ -56,7 +56,9 @@ def test_hub_brand_lockup_macro_defined_once_and_reuses_hub_icon():
     assert "<rect" not in lockup_body
     # El kicker y el título "Danwor Hub" son fijos (no parametrizados) —
     # es LA identidad canónica, no una plantilla genérica de marca.
-    assert "Una plataforma · Todos los servicios Danwor" in lockup_body
+    # Shared Hub Copy Alignment (ver HANDOFF): "Todos nuestros servicios"
+    # es el copy DEFINITIVO (era "Todos los servicios Danwor").
+    assert "Una plataforma · Todos nuestros servicios" in lockup_body
     assert "Danwor Hub" in lockup_body
 
 
@@ -67,7 +69,7 @@ def test_platform_selector_imports_and_reuses_the_brand_lockup_macro():
     # mano — reusa el macro completo; el texto del kicker ya no vive
     # copiado en este archivo, solo referenciado vía la llamada al macro.
     assert "<rect" not in _SELECTOR
-    assert "Una plataforma · Todos los servicios Danwor" not in _SELECTOR
+    assert "Una plataforma · Todos nuestros servicios" not in _SELECTOR
 
 
 def test_landing_login_imports_and_reuses_the_same_brand_lockup_macro():

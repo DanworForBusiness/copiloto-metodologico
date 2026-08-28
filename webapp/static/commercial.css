@@ -1,0 +1,940 @@
+/* commercial.css — CSS propio del workspace Comercial / CRM.
+
+   MECANISMO: stylesheet de vertical linkeado desde el template de la propia
+   pagina (`templates/commercial/crm.html`), MISMA convencion que
+   `reporting.css` en `operations/reporting_integral.html`. `base.html` NO lo
+   carga: solo llega a las paginas de Comercial.
+
+   POR QUE ACA Y NO EN tools.css (ownership gate del corrective visual): la
+   familia `.category-plot` nacio en tools.css, pero auditada contra el
+   criterio real de la plataforma NO es un primitivo elemental — es la
+   COMPOSICION concreta de este grafico. Lo demuestran sus propias
+   declaraciones, no su nombre:
+
+   - `grid-template-columns: 38px 1fr 52px` son canaletas AJUSTADAS a los
+     rotulos de este chart (2 digitos a la izquierda, "3,000" a la derecha);
+     otra magnitud las desborda;
+   - `height: 188px` esta calibrado para el footprint de ~250-300px que pidio
+     este corrective, no es una medida universal;
+   - el color de cada barra (`--commercial-neutral-ink`/`--gold`/el tono
+     dorado secundario de `.category-plot__bar--weighted`) y el de su eje
+     correspondiente son el MISMO a proposito: hornea "este eje pertenece a
+     esta serie" (ver Active Opportunities Phase 2 / C3/C5a — grouped bars:
+     Oportunidades, Horas y Hs Ponderadas SON TRES series de barras
+     simultaneas, nunca barra + linea, nunca un switch entre dos);
+   - `.swatch-bar`/`.swatch-bar--hours`/`.swatch-bar--weighted` expresan
+     exactamente esas TRES series — un ancho de columna repensado a
+     proposito para C5a (ver `.category-plot__bar`), no un contrato
+     generico de N series.
+
+   O sea: no son piezas recombinables (un eje, un area de plot, una grilla)
+   que otro grafico pueda componer distinto; es este grafico. Y no hay un
+   segundo consumidor ni una necesidad de plataforma que lo justifique. La
+   regla del repo ya se aplico asi varias veces — `.matrix-scroll`,
+   `.bar-row` y `.perspective-label` vivieron scopeadas a Reporting hasta que
+   aparecio un segundo consumidor REAL. Cuando otra vertical necesite este
+   contrato, ahi corresponde promoverlo.
+
+   Lo que SI se consume del Hub y NO se duplica aca: `.chart-tooltip`,
+   `.dashboard-view-switch`, `.perspective-label`,
+   `.dashboard-table`/`.matrix-scroll`, `.activity-kpi*`, y los tokens
+   (`--gold`, `--mono`, `--sans`).
+
+   Nota de nombre: se conserva `category-plot` (descriptivo de la forma) en
+   vez de un prefijo `commercial-*`, que ademas esta explicitamente prohibido
+   por el guard de tests. El ownership lo fija este archivo, no el nombre. */
+
+/* COLOR TOKEN — auditoría C3.1 (ver HANDOFF): `#1f1f24`/`#e4e4ec` NO vienen
+   de una variable Hub existente — se copiaron literales desde
+   `.activity-kpi__value` (tools.css), que resuelve el MISMO par a mano, sin
+   var. Auditado: sí existe un token Hub theme-aware con estos DOS valores
+   exactos — `--tab-ink` (tools.css, consumido por `.experience-tabs`,
+   fallback `#1f1f24` + override `#e4e4ec` en `.content-theme-dark`) — pero
+   está nombrado y documentado para ESE consumidor puntual (tabs), no como
+   contrato genérico de "ink theme-aware" reutilizable (el propio Hub tiene
+   varias instancias de este mismo par bajo nombres distintos por
+   componente — `--tab-ink`, `--bar-track-bg`, el literal de
+   `.activity-kpi__value` — nunca un único token universal, por el
+   antecedente de `--ink` con significado invertido según superficie, ver
+   el comentario de la promoción de `.experience-tabs` en tools.css).
+   Mismo criterio acá: variable LOCAL de esta hoja, mismos DOS valores,
+   nombre propio — no se adopta `--tab-ink` (acoplaría este chart a la
+   semántica de un primitivo ajeno) ni se promueve un token Hub nuevo con
+   un solo consumidor. */
+:root { --commercial-neutral-ink: #1f1f24; }
+.content-theme-dark { --commercial-neutral-ink: #e4e4ec; }
+
+/* Header compuesto (Active Opportunities Phase 2 / C3.1, ver HANDOFF —
+   spacing corrective): titulo y switch en la MISMA fila — antes vivian en
+   containers hermanos separados (`<p>`/`.staffing-timeline-toolbar`), cada
+   uno con su propio margin-bottom, y esa suma secuencial (title 13px + 6px
+   + toolbar 33px + 8px) era el hueco que el owner marco, no un margin
+   puntual exagerado. Mismo patron `justify-content:space-between` que
+   `.hero-lead-row` ya usa en este mismo archivo para "label izq. / control
+   der." — no un layout nuevo. */
+.category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+/* `white-space:nowrap` en el título (MISMO recurso que `.hero-lead-row` ya
+   usa en este archivo): sigue vigente aunque C5a retiró el switch que
+   antes compartía esta fila — `justify-content:space-between` no rompe con
+   un solo hijo, y el título nunca necesitó wrap propio. */
+.category-plot-header .perspective-label { margin-bottom: 0; white-space: nowrap; }
+/* BALANCE ÓPTICO título↔leyenda (visual polish histórico, ver HANDOFF):
+   `align-items:flex-end` sigue vigente — elimina el aire invisible bajo el
+   rótulo que dejaba el switch ya retirado (C5a). El VALOR del margin ya
+   NO es el 3px de aquel ajuste: owner corrective posterior comparó este
+   ritmo interno (título→leyenda→plot) contra el de "Detalle de
+   Oportunidades" (rótulo→leyenda de urgencia→tabla, 12px/10px, ver
+   `[data-commercial-dist]` y `.urgency-legend` más abajo) y lo marcó
+   "comprimido" en contraste directo — la compacidad deliberada de
+   corrective anteriores quedó superada por esa comparación lado a lado
+   dentro del MISMO panel. Sube a 8px (ver también `.category-plot-legend`
+   más abajo, mismo criterio). */
+
+.category-plot { display: grid; grid-template-columns: 38px 1fr 52px; grid-template-rows: auto auto; }
+.category-plot__area {
+  position: relative; height: 188px; display: flex; align-items: flex-end; gap: 5px;
+  border-bottom: 1px solid rgba(128,128,128,.34); border-left: 1px solid rgba(128,128,128,.20);
+}
+.category-plot__grid { position: absolute; inset: 0; pointer-events: none; }
+.category-plot__grid i { position: absolute; left: 0; right: 0; height: 1px; background: rgba(128,128,128,.12); }
+/* La columna es la unidad ACCESIBLE: cubre el alto completo para que el
+   hover/foco tome toda la banda de la categoria, no solo las barras. */
+.category-plot__col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 3px; }
+.category-plot__col:hover { background: rgba(128,128,128,.07); }
+.category-plot__col:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+/* Grouped bars (Active Opportunities Phase 2 / C3/C5a, ver HANDOFF —
+   restore legacy funnel representation + 3-series simultáneas): TRES
+   barras por columna. Oportunidades tiene su propia escala (izq.); Horas y
+   Hs Ponderadas COMPARTEN la escala derecha (misma unidad — nunca
+   comparables numéricamente contra Oportunidades por su altura, que sería
+   un artefacto de escalas distintas). Ancho reducido de 38%/20px (dos
+   barras, C3) a 27%/15px (tres barras, C5a) para que las tres entren lado
+   a lado sin ensanchar la columna — mismo criterio de siempre, valor
+   recalculado para el nuevo N de series.
+
+   COLOR SEMANTICS (C3.1/C5a — Danwor, ver HANDOFF): Oportunidades en
+   neutral/graphite — MISMOS dos tokens que ya usa el resto del Hub para
+   texto/valor fuerte (`.activity-kpi__value` claro/oscuro: #1f1f24/#e4e4ec),
+   nunca un gris nuevo que desaparezca contra el fondo oscuro. Horas en
+   `--gold`. Hs Ponderadas necesitaba un tono DISTINGUIBLE pero de la MISMA
+   familia dorada (las dos comparten eje) — en claro, `#a67c00` (un dorado
+   bien oscurecido) se distingue con facilidad de `--gold` (#e7b008).
+   En OSCURO, owner corrective: `#d9a520` (heredado del par que
+   `.category-plot__axis--right span` ya usaba) resultó demasiado parecido
+   a `--gold` (#e7b008 vs #d9a520 — mismo tono amarillo-dorado, apenas
+   distinta luminancia) y las dos barras dejaban de distinguirse en la
+   práctica. `#e8820a` corrige esto virando el HUE hacia naranja (no sólo
+   la luminancia, que ya se había intentado y no alcanzaba) — sigue siendo
+   familia cálida/dorada, pero ahora claramente diferenciable barra a
+   barra. Mismo valor nuevo aplicado a los TRES consumidores que
+   comparten este tono (bar, leyenda, número del eje derecho — ver más
+   abajo) para que sigan siendo la MISMA familia entre sí. */
+.category-plot__bar { width: 27%; max-width: 15px; min-height: 2px; border-radius: 3px 3px 0 0; }
+.category-plot__bar--count { background: var(--commercial-neutral-ink); }
+.category-plot__bar--hours { background: var(--gold); }
+.category-plot__bar--weighted { background: #a67c00; }
+.content-theme-dark .category-plot__bar--weighted { background: #e8820a; }
+/* Flip dinámico del tooltip (corrective, ver HANDOFF — segunda vuelta:
+   owner reportó el MISMO recorte en el tooltip de Prior., dentro de la
+   tabla). Causas reales auditadas, dos: `.dashboard-section` (tools.css)
+   tiene `overflow:hidden` (recorta el tooltip del Funnel) y
+   `.matrix-scroll` (tools.css) tiene `overflow-x:auto` — que por espec de
+   CSS computa `overflow-y` a `auto` también cuando el otro eje no es
+   `visible` — así que TAMBIÉN recorta el tooltip de Prior., que vive
+   dentro de `.matrix-scroll` (la tabla), no dentro de `.dashboard-section`
+   directamente. Selector GENERALIZADO sobre `.chart-tooltip-anchor` (el
+   marcador que YA comparten ambos consumidores, tools.css) en vez de
+   `.category-plot__col` — nunca se toca `.chart-tooltip`, que sigue
+   sirviendo "siempre arriba" por default. `commercialPositionChartTooltip`
+   (commercial.js) agrega esta clase sobre CUALQUIER `.chart-tooltip-anchor`
+   cuando mide que no hay lugar arriba dentro del boundary que corresponda
+   (`.matrix-scroll` si existe, si no `.dashboard-section`). */
+.chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
+/* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
+   grilla, incluido el 0 apoyado en el eje. */
+.category-plot__axis { position: relative; }
+.category-plot__axis span { position: absolute; font: 600 .56rem var(--mono); letter-spacing: .02em; white-space: nowrap; transform: translateY(50%); }
+.category-plot__axis--left { grid-column: 1; }
+.category-plot__axis--left span { right: 7px; color: var(--commercial-neutral-ink); }
+.category-plot__axis--right { grid-column: 3; }
+.category-plot__axis--right span { left: 7px; color: #a67c00; }
+.category-plot__xlab { grid-column: 2; display: flex; gap: 5px; margin-top: 5px; }
+/* SECTION GAP (C3.1 — spacing corrective, ver HANDOFF): separación hacia el
+   BLOQUE SIGUIENTE (hoy la tabla "Detalle por Etapa" provisoria; en C4 el
+   detalle real) — antes 0px, el eje X quedaba pegado al próximo bloque. Va
+   en `[data-commercial-dist]` (el wrapper de TODO el Funnel: header +
+   leyenda + plot) para que sea estructural — no depende de qué venga
+   después, ni de que exista contenido. Mismo valor que el Hub ya usa para
+   "después de un bloque analítico completo" — `.dashboard-section` (margin
+   12px) y `.activity-kpi-grid` (margin-bottom 12px) — nunca un número
+   nuevo. Los gaps INTERNOS (header→leyenda→plot) YA NO son más compactos
+   a propósito — ver el corrective de `.category-plot-header`/
+   `.category-plot-legend` más abajo, que los sube a 8px/10px tras
+   comparación directa contra "Detalle de Oportunidades".
+   `margin-top` (owner feedback post-C5d): la ENTRADA del bloque —
+   título "Funnel por Etapa" + leyenda — sólo tenía el padding-top de
+   `.dashboard-section__body` (4px, tools.css) contra el `.dashboard-table`
+   de "Detalle de Oportunidades", que disfruta 12px de ambos lados (esta
+   regla + la de abajo). Mismo valor (12px), no uno nuevo, para que la
+   entrada y la salida del bloque respiren igual. */
+[data-commercial-dist] { margin-top: 12px; margin-bottom: 12px; }
+/* Rótulo "Detalle de Oportunidades" (visual polish, ver HANDOFF): quedaba
+   con el margen inferior default de `.perspective-label` (6px, tools.css) —
+   la mitad del margen que YA lo separa del bloque anterior (12px, la regla
+   de arriba). Selector posicional sobre el hook estructural que ya existe
+   (`[data-commercial-dist]` + el `.perspective-label` que le sigue), no una
+   clase nueva de Comercial: el rótulo del Funnel (`.category-plot-header
+   .perspective-label`, más abajo) queda intocado — este ajuste es
+   exclusivamente el de "Detalle de Oportunidades". */
+[data-commercial-dist] + .perspective-label { margin-bottom: 12px; }
+/* ── Oportunidades por Origen (C8, ver HANDOFF) ──────────────────────────────
+   Consume los primitivos COMPARTIDOS del Hub `.bar-track`/`.bar-fill`
+   (tools.css) directamente. NO reusa `.forecast-bar-cell`: esa es la
+   composicion "barra + numero alineados a la derecha DENTRO de una celda", y
+   la columna de Distribucion de Origen lleva SOLO la barra —el porcentaje es
+   su propia columna—, o sea es otra composicion. Nada que promover: sigue
+   habiendo un unico consumidor de esa clase.
+
+   Lo unico que aporta esta regla es el contexto: `.bar-track` esta pensado
+   como hijo de un flex (`flex:1`), y dentro de un `<td>` es un `<span>` inline
+   donde `height` no aplica. `display:block` lo vuelve una barra que llena la
+   celda. El alto baja de 14px a 6px para leer igual que la barra in-row de la
+   tabla de Forecast — mismo peso visual en la misma vertical, no un valor
+   nuevo. Color: `--gold` del propio primitivo, cero color propio. */
+.origin-breakdown .bar-track { display: block; height: 6px; }
+/* Aire hacia el bloque siguiente ("Detalle de Oportunidades") y de su rotulo
+   hacia su tabla: los MISMOS 12px que ya separan al Funnel de lo que sigue
+   (ver la regla de arriba), para que los tres bloques del panel respiren
+   igual. */
+.origin-breakdown { margin-bottom: 12px; }
+.origin-breakdown + .perspective-label { margin-bottom: 12px; }
+/* Rotulo del Detalle cuando el analisis va en dos columnas (C8 visual
+   corrective): al meter Funnel y Origen dentro de `.analysis-split`, el
+   rotulo ya no es hermano de `[data-commercial-dist]` ni de
+   `.origin-breakdown`, asi que perdia el aire que esas dos reglas le daban.
+   MISMO valor (12px), no uno nuevo. */
+.analysis-split + .perspective-label { margin-bottom: 12px; }
+/* SEPARADOR analisis | detalle (owner smoke: "una linea gris entre el
+   grafico/tabla superior y el detalle"). Marca el corte de jerarquia: arriba
+   el analisis en dos columnas, abajo el detalle transaccional a ancho
+   completo.
+
+   `rgba(128,128,128,.24)` y NO `var(--line)`: ese token esta scopeado a
+   `.copilot-panel` (tools.css), asi que en el dashboard resolveria al valor
+   de `:root` (app.css), pensado para fondo oscuro, y la linea seria casi
+   invisible en claro — la MISMA trampa que documenta el encabezado de este
+   archivo para `--ink`. Un gris con alfa lee en los dos temas sin override,
+   y es el valor que ya usan `.whatsnew-day` y los bordes del area del plot.
+   `padding-top` = el mismo 12px que el resto del ritmo del panel. */
+.analysis-split + .perspective-label { padding-top: 12px; border-top: 1px solid rgba(128,128,128,.24); }
+.category-plot__xlab span { flex: 1 1 0; min-width: 0; text-align: center; font: 600 .62rem var(--mono); color: #7a7a82; }
+/* Ritmo interno título→leyenda→plot (owner corrective, ver HANDOFF: "los
+   márgenes armónicos de la tabla de detalle deben aplicar acá también").
+   Subió de 8px a 10px originalmente — mismo valor que `.urgency-legend`
+   (más abajo, en la tabla de detalle). Owner corrective post-C5e: el aire
+   que antes vivía como `margin-top` de la barra de filtros (ver
+   `[data-commercial-analysis-filters]`) se trasladó ACÁ — 12px — en vez de
+   separar la barra del `<summary>`, separa la leyenda del plot en sí. */
+.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+.category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.category-plot-legend em { font-style: normal; color: #7a7a82; }
+.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }
+.category-plot-legend .swatch-bar--hours { background: var(--gold); }
+.category-plot-legend .swatch-bar--weighted { background: #a67c00; }
+.content-theme-dark .category-plot-legend .swatch-bar--weighted { background: #e8820a; }
+.content-theme-dark .category-plot-legend { color: #b6b6c0; }
+.content-theme-dark .category-plot-legend em,
+.content-theme-dark .category-plot__xlab span { color: #8b8b96; }
+.content-theme-dark .category-plot__axis--right span { color: #e8820a; }
+
+/* ── Forecast — Pipeline por Mes de Cierre (C6, ver HANDOFF) ─────────────────
+   Variante LOCAL MINIMA sobre la MISMA familia `.category-plot`. No se
+   refactoriza la familia ni se toca la geometria de Activas: todo lo de aca
+   abajo es un override POSICIONAL dentro de `.forecast-plot`, o sea inerte
+   para el Funnel.
+
+   DOS DIFERENCIAS estructurales, y solo dos:
+
+   1) UN EJE, no dos. Las dos series (Horas, Hs Ponderadas) son horas, asi
+      que comparten escala — la canaleta derecha de `.category-plot`
+      (52px, calibrada para "3,000") quedaria VACIA y sin significado.
+      De ahi `grid-template-columns: 38px 1fr` en vez de `38px 1fr 52px`.
+      El numero del eje toma el MISMO par de tonos que ya usa el eje de
+      horas del Funnel (`.category-plot__axis--right span`: #a67c00 claro /
+      #e8820a oscuro) — es el mismo eje semantico, cero color nuevo. El
+      `--left` del markup es solo posicion; el neutral de
+      `--commercial-neutral-ink` significa "Oportunidades", serie que aca no
+      existe.
+
+   2) SCROLL HORIZONTAL. Los buckets NO tienen techo (son los `YYYY-MM`
+      presentes en los datos + "Sin fecha"), a diferencia de las <=8 etapas
+      del Funnel, y las etiquetas son anchas ("ago 25", no "4"). Cada
+      periodo recibe un ancho minimo y el area + las etiquetas viven en UN
+      solo scroll box compartido (`__scroll`) para que no se puedan
+      desincronizar. El eje queda AFUERA, fijo: scrollear no debe perder la
+      escala.
+
+      `width:max-content` + `min-width:100%` es lo que da el comportamiento
+      pedido sin ninguna rama en JS: cuando todos los periodos entran,
+      max-content < 100% y gana el min-width, asi que el area ocupa el ancho
+      disponible y los `flex-grow` reparten el sobrante (identico al
+      Funnel); cuando no entran, max-content > 100% y el area desborda su
+      scroll box, que scrollea. El borde inferior y la grilla acompanan el
+      ancho REAL del contenido, no el visible. Nunca se truncan periodos,
+      nunca se esconden etiquetas alternadas.
+
+   `--forecast-col-min` es el unico numero nuevo y esta pensado para
+   ajustarse en el smoke visual del owner: es el ancho que necesita la
+   etiqueta mas larga del eje X ("sept 25"/"Sin fecha" se recortarian con
+   menos) mas el par de barras. */
+.forecast-plot {
+  --forecast-plot-h: 188px;   /* MISMA altura que `.category-plot__area`; el token la vuelve la unica fuente */
+  --forecast-col-min: 52px;
+  display: grid; grid-template-columns: 38px 1fr;
+}
+.forecast-plot > .category-plot__axis--left { height: var(--forecast-plot-h); }
+.forecast-plot > .category-plot__axis--left span { color: #a67c00; }
+.content-theme-dark .forecast-plot > .category-plot__axis--left span { color: #e8820a; }
+.forecast-plot__scroll { overflow-x: auto; }
+.forecast-plot .category-plot__area,
+.forecast-plot .category-plot__xlab { width: max-content; min-width: 100%; }
+.forecast-plot .category-plot__area { height: var(--forecast-plot-h); }
+.forecast-plot .category-plot__col,
+.forecast-plot .category-plot__xlab span {
+  flex: 1 1 var(--forecast-col-min); min-width: var(--forecast-col-min);
+}
+/* TOOLTIP — override POSICIONAL (no se redeclara `.chart-tooltip`, que sigue
+   siendo del Hub): vive DENTRO del area del grafico, no encima de la
+   columna. Causa real, auditada: `overflow-x:auto` hace que `overflow-y`
+   compute `auto` tambien (espec CSS), asi que `__scroll` recorta en AMBOS
+   ejes — y su caja es justa (el area + las etiquetas). El tooltip del
+   Funnel se ancla a `bottom:calc(100% + 7px)` sobre una columna de alto
+   completo, o sea ARRIBA de todo el area: dentro de esta caja quedaria
+   recortado, y el flip a `below` tambien (abajo tampoco hay lugar). Por eso
+   aca no aplica el flip vertical — `commercialPositionChartTooltip`
+   (commercial.js) detecta `.forecast-plot__scroll` y en su lugar hace el
+   clamp HORIZONTAL, que es el recorte que si queda: un tooltip de 200px
+   centrado sobre una columna de 52px se sale por izquierda en el primer
+   periodo y agranda el area scrolleable en el ultimo. La regla
+   `is-tooltip-below` se neutraliza por si el flip llegara igual desde otro
+   camino — nunca depender de que un listener no corra. */
+.forecast-plot .chart-tooltip,
+.forecast-plot .chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: 6px; }
+/* SCROLL FANTASMA (owner smoke: "que no haya scrollbar en el grafico").
+   Medido: con 7 periodos las barras entraban EXACTAS (555px de contenido en
+   555px de caja) y aun asi aparecia barra de scroll. La causa no es el
+   grafico: es el tooltip OCULTO del ultimo periodo. `.chart-tooltip` mide
+   200px de minimo y, centrado sobre una columna de ~80px, su caja sobresale
+   ~60px por la derecha — y una caja `position:absolute` SI cuenta para el
+   area scrolleable de su contenedor, visible o no. Resultado: 618px de
+   scrollWidth contra 555px de caja, o sea una barra de scroll permanente que
+   no lleva a ningun contenido.
+   Ensanchar el grafico NO lo resuelve (el sobrante es 100px - mitad de
+   columna: haria falta que cada periodo midiera 200px). Lo que lo resuelve es
+   que el ultimo tooltip no sobresalga: se ancla su borde DERECHO al de su
+   columna, que es el borde del area. Las demas columnas siguen centradas —
+   su desborde cae DENTRO del contenido y es inofensivo — y al hacer hover el
+   clamp de `commercialPositionChartTooltip` lo mete en la parte visible
+   midiendo bordes reales, sin asumir centrado. */
+.forecast-plot .category-plot__col:last-child .chart-tooltip { left: auto; right: 0; transform: none; }
+/* Calificador de universo: "Pipeline total · etapas 0-8". Va en el panel,
+   no en el tile (los tiles no cambian de copy en C6) y justo donde puede
+   confundirse con Oportunidades Activas (1-8). Mismo tono atenuado que ya
+   usa `.category-plot-legend em`, mismo par claro/oscuro. */
+.forecast-scope { margin: 0 0 8px; font: 500 .68rem var(--sans); color: #7a7a82; }
+.content-theme-dark .forecast-scope { color: #8b8b96; }
+/* Grafico | tabla LADO A LADO. Composicion GENERICA de "analisis en dos
+   columnas": el patron a la izquierda, la precision a la derecha. Nacio con
+   Forecast y desde C8 la comparte tambien el analisis de Oportunidades
+   Activas (Funnel | Origen), que es la MISMA figura — grafico de alto fijo a
+   la izquierda, tabla que crece a la derecha — con las MISMAS proporciones.
+   De ahi el nombre neutro: llamarla `forecast-*` desde Activas seria mentir.
+   Sigue viviendo en el CSS de la vertical, no en tools.css: dos consumidores
+   dentro de Comercial no la vuelven un primitivo de plataforma. `minmax(0,1fr)` en las DOS columnas —no `1fr`— es
+   lo que permite que los scroll boxes internos (`.forecast-plot__scroll` y
+   `.matrix-scroll`) puedan encogerse: con `1fr` el minimo automatico de un
+   grid item es su contenido, asi que el grafico con muchos periodos
+   ensancharia la fila entera y saldria scroll horizontal en la PAGINA en vez
+   de dentro del bloque. `align-items:start` para que la tabla no se estire a
+   la altura del grafico cuando tiene menos filas.
+
+   El reparto NO es 50/50 (owner smoke: "si hay que achicar un poco la tabla
+   de la derecha creo que hay espacio"): la tabla tiene cuatro columnas
+   angostas y le sobraba aire, asi que el grafico se lleva algo mas para que
+   cada periodo respire. Numero pensado para ajustarse en el smoke visual. */
+.analysis-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 20px; align-items: stretch; }
+.analysis-split__chart, .analysis-split__table { min-width: 0; }
+/* PISO COMPARTIDO (owner smoke: "que el grafico y la tabla compartan el mismo
+   piso de base"). Medido, eran DOS desfases distintos:
+
+   1) el ARRANQUE estaba corrido 44px de forma constante, porque el preambulo
+      (universo + serie) vivia dentro de la columna del grafico y empujaba el
+      area de plot hacia abajo. Se resolvio moviendolo al PANEL — describe las
+      dos mitades, no solo el grafico (ver `commercialForecastPreambleHtml`).
+
+   2) el PISO dependia de los datos: con 2 periodos la tabla terminaba 131px
+      ARRIBA del grafico, con 7 coincidian por casualidad (4px) y con 14
+      terminaba 178px ABAJO. La causa: el grafico tenia alto FIJO (188px de
+      plot) y la tabla crece con las filas.
+
+   La correccion: `align-items:stretch` iguala el alto de las dos columnas al
+   mayor de las dos, y el grafico se ANCLA ABAJO dentro de la suya
+   (`justify-content:flex-end`). Con eso el piso coincide EXACTO cuando la
+   tabla es mas alta — que es el caso que el owner vio — y cuando es mas corta
+   la tabla simplemente termina antes, con las dos arrancando juntas.
+
+   Se descarto la alternativa de ESTIRAR el area de plot para llenar el alto:
+   se implemento y se midio, y rompia la alineacion del eje. Cuando el grafico
+   scrollea, la barra de scroll horizontal se come alto DENTRO del scroll box,
+   asi que el area termina 15px mas baja que el eje (cuyo alto se derivaba de
+   la fila del grid) y los ticks dejaban de caer sobre sus lineas de grilla.
+   El alto de una barra de scroll no es expresable en CSS sin pinear un numero
+   por plataforma, asi que el anclaje abajo —que no toca la geometria del
+   grafico— es la opcion correcta. El costo es aire ARRIBA del grafico cuando
+   la tabla es larga; el beneficio es que los ejes nunca mienten. */
+.analysis-split__chart { display: flex; flex-direction: column; justify-content: flex-end; }
+/* ARRANQUE ALINEADO (owner smoke: "subir Funnel por Etapa para que empiece a
+   la misma altura que Oportunidades por Origen"). El anclaje ABAJO de la
+   columna izquierda existe para Forecast, donde el owner pidio piso
+   compartido: si la tabla de la derecha es mas alta, el grafico baja y queda
+   aire ARRIBA. En el analisis de Activas la preferencia es la inversa —
+   las dos columnas tienen que arrancar juntas— asi que el modificador
+   invierte el borde que comparten. Dos paneles, dos decisiones tomadas en
+   dos smokes distintos; se expresan como variante, no se pisa una con otra. */
+.analysis-split--top .analysis-split__chart { justify-content: flex-start; }
+/* El `margin-top` de `[data-commercial-dist]` venia de cuando el Funnel era lo
+   PRIMERO despues de la barra de filtros y necesitaba aire propio. Dentro de
+   la columna ya es el primer hijo y el aire lo da la barra, asi que ese margen
+   era justo el desfase de 12px que quedaba contra el rotulo de Origen. */
+.analysis-split__chart > [data-commercial-dist] { margin-top: 0; }
+/* ALTO: el grafico CRECE para llenar la columna (owner smoke: "al grafico le
+   falta altura"). Al alinear los arranques, el sobrante que antes quedaba
+   arriba paso a quedar abajo — la tabla de Origen con 9 filas es bastante mas
+   alta que los 188px fijos del area de plot.
+
+   Este es el mismo enfoque que se DESCARTO en Forecast, y se puede hacer aca
+   por un motivo concreto: lo que alli rompia el eje era la barra de scroll
+   horizontal, que come alto DENTRO de `.forecast-plot__scroll` y dejaba el
+   area 15px mas baja que el eje. El Funnel NO tiene scroll box: sus dos ejes
+   y el area son hijos de la MISMA fila de `.category-plot`, asi que estirar la
+   fila los estira a los tres juntos y los ticks siguen cayendo sobre sus
+   lineas de grilla. Verificado midiendo el tick de 0% contra la linea base.
+
+   `min-height` conserva el piso de 188px de la regla base: cuando la tabla de
+   al lado es mas corta, el grafico no se achica.
+
+   SCOPE — las tres reglas exigen `--top`, no solo la columna del split. Sin
+   el modificador la tercera se colaba en Forecast, que tambien tiene un
+   `.category-plot__area` dentro de `.analysis-split__chart`, y le ganaba por
+   ORDEN DE FUENTE a su contrato de alto fijo (`.forecast-plot
+   .category-plot__area`, misma especificidad, mas arriba en el archivo). El
+   efecto medido: `min-height` fija el alto USADO pero no vuelve el alto
+   DEFINIDO, asi que `.category-plot__col { height: 100% }` resolvia contra
+   `auto` y colapsaba a los 2px de `min-height` de la barra — grafico plano
+   con el eje rotulando la escala correcta, mas scrollbar vertical, porque la
+   columna caida al piso del area empujaba los tooltips ocultos 83px fuera
+   del scroll box. `--top` ya distingue exactamente los dos paneles, y es su
+   propietario honesto: el crecimiento es el CIERRE de la misma decision que
+   alinea los arranques, no una decision aparte. Van las tres y no solo la
+   que filtraba — las otras dos son permeables por identico motivo y un
+   tercer consumidor las activaria. */
+.analysis-split--top .analysis-split__chart > [data-commercial-dist] { display: flex; flex-direction: column; flex: 1 1 auto; }
+.analysis-split--top .analysis-split__chart .category-plot { flex: 1 1 auto; grid-template-rows: 1fr auto; }
+.analysis-split--top .analysis-split__chart .category-plot__area { height: auto; min-height: 188px; }
+.analysis-split__chart > * { min-width: 0; }
+/* Una sola serie por vez (owner smoke): la barra ocupa mas ancho del que
+   necesitaba cuando eran dos. `.category-plot__bar` base esta calibrada para
+   TRES barras por columna (27%/15px, ver el Funnel) — override posicional,
+   el Funnel queda intacto. */
+.forecast-plot .category-plot__bar { width: 54%; max-width: 26px; }
+/* Limpiar a la derecha sin un campo elastico de relleno (owner smoke: el
+   dropdown de Vendedor no debe estirarse). MISMO recurso que
+   `.staffing-filter-bar__clear` para el Limpiar suelto. */
+[data-commercial-forecast-filters] .whatsnew-filter__clear { margin-left: auto; white-space: nowrap; }
+@media (max-width: 1100px) {
+  /* Angosto: una columna. Comprimir las dos mitades mas alla de esto deja el
+     grafico ilegible y la tabla con scroll permanente. */
+  .analysis-split { grid-template-columns: minmax(0, 1fr); }
+}
+/* Celda con barra in-row de la tabla por periodo (C6b, ver HANDOFF —
+   paridad con el `#pipeline-drill-section` legacy). Composicion MINIMA sobre
+   los primitivos COMPARTIDOS `.bar-track`/`.bar-fill`/`.bar-value`
+   (tools.css): lo unico que aporta esta clase es meterlos en una celda de
+   tabla, porque `.bar-row` —el envoltorio que el Hub ya tiene para ellos— es
+   una fila autonoma con label de 190px, no un `<td>`. Nada de color ni de
+   forma propios: la barra sigue siendo `--gold` como en Reporting.
+   `flex-shrink:0` en el track para que no se lo coma el valor en angosto, y
+   ancho fijo para que TODAS las filas compartan la misma escala visual (si
+   fuera fluido, cada celda mediria distinto segun el largo del numero). */
+.forecast-bar-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.forecast-bar-cell .bar-track { flex: 0 0 72px; height: 6px; }
+.forecast-bar-cell .bar-value { width: auto; min-width: 56px; }
+/* El mes completo ("Septiembre de 2026") en UNA linea: sin esto la columna
+   elastica se conforma con el ancho que le sobra y parte la etiqueta en dos,
+   desalineandola de su barra. Override POSICIONAL sobre `.row-label-col`, que
+   sigue siendo el primitivo compartido. */
+.forecast-months .row-label-col { white-space: nowrap; }
+@media (max-width: 760px) {
+  .forecast-bar-cell .bar-track { flex-basis: 48px; }
+}
+/* SCROLL OFFSET — auditoría C3.1 (ver HANDOFF): NO existe en el Hub una
+   variable/token para altura de topbar, sticky offset ni scroll offset —
+   `74px`/`66px` están hardcodeados como literales en varios selectores de
+   app.css (`.app-shell` grid-rows, `.topbar`, `.module-nav`,
+   `.copilot-panel`, y su contraparte `@media(max-width:760px)`), nunca
+   detrás de una var. `86px`/`78px` acá son ESE mismo literal (74/66) + ~12px
+   de aire, medidos en vivo contra el chrome actual — offsets de
+   composición de Comercial, no un contrato Hub. Mismo criterio que
+   `.content-section` ya usa en app.css/tools.css (scroll-margin-top en vez
+   de scrollTo con numeros magicos) pero con valor propio, porque el
+   offset real de ESTE topbar en esta pagina no tiene por qué coincidir con
+   el de esas otras. Local a Comercial: `.dashboard-section` es un
+   primitivo compartido con otras verticales que no pidieron este
+   comportamiento — promoverlo sin un segundo consumidor real seria
+   prematuro (commercial.css solo carga en esta pagina, ver encabezado). */
+.dashboard-section { scroll-margin-top: 86px; }
+/* `scroll-behavior` del contenedor REAL que scrollea (auditado en vivo):
+   en este layout de Hub el que tiene overflow propio es `.module-content`
+   — NO `<html>`, que sí declara `scroll-behavior:smooth` en app.css pero
+   esa propiedad no cruza a un scroll box distinto. Mismo par
+   smooth/reduced-motion que `html` ya usa (app.css) — acá aplicado al
+   contenedor que corresponde en esta pagina, no un mecanismo nuevo. Sin
+   esto, `scrollIntoView()` sin `behavior` explícito caía en el default
+   "auto" (instantáneo) SIEMPRE, sin distinguir preferencia de movimiento. */
+.module-content { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  .module-content { scroll-behavior: auto; }
+}
+/* Viewport angosto: se achican las canaletas de los ejes y la separacion
+   entre columnas para que las categorias sigan entrando SIN scroll
+   horizontal — nunca se vuelve a apilarlas como filas. */
+@media (max-width: 760px) {
+  .category-plot { grid-template-columns: 30px 1fr 42px; }
+  /* Forecast (C6): MISMA canaleta angosta que el Funnel, sin la columna
+     derecha. El `gap` lo heredan las dos reglas de abajo, compartidas.
+     El ancho minimo por periodo NO se achica: es lo que necesita la
+     etiqueta para seguir siendo legible — en angosto se scrollea antes, que
+     es exactamente el comportamiento pedido. */
+  .forecast-plot { grid-template-columns: 30px 1fr; }
+  .category-plot__area { gap: 3px; }
+  .category-plot__xlab { gap: 3px; }
+  .dashboard-section { scroll-margin-top: 78px; }
+}
+
+/* ── Filtro global en el hero ────────────────────────────────────────────────
+   El filtro Todos/New Name/Base Instalada comparte linea con el subtitulo, a
+   la derecha: es transversal a todo el workspace y no necesita una franja
+   propia. `align-items:baseline` + el margen del parrafo en 0 son lo que
+   evita que sumar el filtro AGREGUE altura al hero — la fila mide lo que ya
+   media el subtitulo. En viewport angosto envuelve y el filtro cae debajo,
+   alineado a la izquierda. */
+.hero-lead-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.hero-lead-row > .hero-lead { margin-bottom: 0; flex: 1 1 320px; }
+.hero-lead-row > div { flex: 0 0 auto; }
+.hero-lead-row .dashboard-view-switch { margin: 0; }
+
+/* ── Tiles del landing ───────────────────────────────────────────────────────
+   Homologacion del landing legacy: un tile puede llevar, ademas del valor
+   principal, una magnitud secundaria (horas) y la composicion por segmento.
+   Nada de esto es un tile nuevo: es el MISMO `.activity-kpi` compartido con
+   dos lineas mas. */
+.kpi-sub { color: var(--soft); font: 600 .72rem var(--mono); letter-spacing: .02em; }
+.kpi-split { display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 2px; }
+.kpi-split__item { font: 500 .66rem var(--sans); color: var(--soft); white-space: nowrap; }
+.kpi-split__item b { font-weight: 700; font-family: var(--mono); font-size: .7rem; }
+/* Los pares label+valor de un solo item PUEDEN partir en dos lineas (owner
+   smoke: "Incluyendo suspendidas 44.8%" se iba fuera del tile). El
+   `white-space:nowrap` de `.kpi-split__item` existe para que "New Name 19" no
+   se corte entre rotulo y valor — con DOS items cortos por tile eso nunca
+   desbordaba. Con un solo item largo, envolver es mejor que desbordar: el
+   `flex-wrap` del contenedor no alcanza porque el item es indivisible
+   mientras siga en nowrap. Modificador propio en vez de tocar la regla base,
+   que sigue sirviendo al desglose por segmento. */
+.kpi-split--pairs .kpi-split__item { white-space: normal; }
+/* El desglose es foco-able porque su tooltip explica por que New Name y Base
+   Instalada NO suman el total (ver commercial.js: son segmentos que se
+   superponen). Sin foco, esa aclaracion seria inaccesible por teclado. */
+.kpi-split:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
+.content-theme-dark .kpi-sub,
+.content-theme-dark .kpi-split__item { color: #8b8b96; }
+
+/* Grilla de las Analiticas del Pipeline: tiles mas chicos que los del
+   Resumen — son metricas derivadas, no la lectura principal del landing. */
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.analytics-grid .activity-kpi__value { font-size: clamp(1.25rem, 1.7vw, 1.55rem); }
+/* Subtitulo de las analiticas SIN negrita (owner smoke: "para que se parezca
+   mas al original"). `.kpi-sub` base es `600 .72rem var(--mono)` — semibold y
+   monospace, un peso que compite con el valor de arriba. El original los tiene
+   en sans, tamano chico y peso normal (`text-slate-500 text-xs`, sin
+   `font-bold`, ver index.html del CRM legacy). Se adopta EXACTAMENTE la
+   tipografia de `.kpi-split__item` —el otro texto secundario de esta misma
+   grilla— en vez de inventar un tercer par tamano/peso: asi las dos familias
+   de tiles leen igual por debajo del valor. */
+.analytics-grid .kpi-sub { font: 500 .66rem var(--sans); letter-spacing: normal; }
+
+/* Piso de ancho de la tabla de Detalle de Oportunidades (visual polish,
+   ver HANDOFF — owner screenshot: columnas en % ya escalan de forma
+   orgánica hacia arriba, pero sin un piso se aprietan hasta ilegibles en
+   viewports angostos antes de que `.matrix-scroll` tenga margen para
+   activarse). Colgado de `[data-commercial-opportunities]` — el wrapper
+   que YA envuelve esta tabla (ver commercial.js) — nunca una clase nueva
+   sobre `.dashboard-table`, que es compartida con el resto del Hub. Valor
+   = suma de los mínimos legibles por columna (mismo criterio que las
+   columnas en px que este corrective reemplazó, no un número inventado). */
+[data-commercial-opportunities] table.dashboard-table { min-width: 900px; }
+
+/* Leyenda de urgencia de "Próx. Acción" (owner corrective, ver HANDOFF):
+   explica los 4 colores de `.dashboard-status-badge` que ahora badgean esa
+   columna (tools.css). MISMO ritmo flex que `.category-plot-legend`, pero
+   clase propia — semánticamente es una leyenda distinta (urgencia de
+   fecha, no series de un gráfico) aunque comparta mecánica visual, así que
+   no se reusa esa clase del Funnel para no acoplar dos conceptos que sólo
+   coinciden en look. El punto es redondo (semáforo) en vez del swatch
+   cuadrado del Funnel (barra) — mismo lenguaje que `.salud-dot`, sin
+   adoptar esa clase puntual de Reporting. Los 4 hex son LITERALES,
+   duplicados a propósito de `.dashboard-status-badge--{color}` (mismo
+   criterio que `.swatch-bar--weighted` ya duplica el hex de su badge/bar
+   correspondiente en vez de indirección con variables nuevas). */
+.urgency-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+.urgency-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.urgency-legend__dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.urgency-legend__dot--green { background: #2e9e5b; }
+.urgency-legend__dot--amber { background: #c89100; }
+.urgency-legend__dot--orange { background: #c2570c; }
+.urgency-legend__dot--red { background: #c0392b; }
+.content-theme-dark .urgency-legend { color: #b6b6c0; }
+
+/* Barra de filtros de análisis Etapa/Vendedor/Buscar (C5e, ver HANDOFF):
+   reusa `.whatsnew-filters`/`.whatsnew-filter` TAL CUAL (tools.css) — el
+   MISMO primitivo que Actividades ya usa en esta página para Período/
+   Responsable — sólo se compacta acá vía `[data-commercial-analysis-
+   filters]` (hook de posicionamiento, ver commercial.js), nunca tocando la
+   regla compartida: el default (`gap:14px; margin:4px 0 18px`, `select`
+   `min-width:190px`) es pensado para un toolbar de página completa, no
+   para vivir apretado arriba del Funnel ("no crear un toolbar grande",
+   owner corrective). Sin `margin-top` (owner corrective post-C5e): la
+   barra vive pegada al `<summary>` — sus propios controles (bordes de
+   `<select>`/`<input>`) ya dan suficiente separación visual, a diferencia
+   de un rótulo de texto plano. El aire que antes vivía acá se movió al
+   hueco leyenda→plot (ver `.category-plot-legend`, más abajo). */
+[data-commercial-analysis-filters] { margin: 0 0 12px; gap: 10px; }
+[data-commercial-analysis-filters] .whatsnew-filter select,
+[data-commercial-analysis-filters] .whatsnew-filter input[type="search"] { min-width: 130px; }
+[data-commercial-analysis-filters] .whatsnew-filter--fill input[type="search"] { min-width: 160px; width: 100%; }
+
+/* Botón de cierre explícito del análisis (Active Opportunities Phase 2 /
+   C5d, ver HANDOFF — segunda vuelta tras owner corrective: "la X debe
+   permanecer aunque colapses el grupo" + "la X debe estar alineada al
+   texto"). Vive DENTRO de `<summary class="dashboard-section__head">`
+   (ver commercial.js), como flex-item MÁS — nunca `position:absolute`
+   calibrado a mano: eso fue la versión anterior (un `top` en px contra la
+   altura asumida del `<summary>`) y quedaba un puñado de px desalineado
+   apenas la tipografía real difería del mockup usado para calibrarlo, y
+   además desaparecía al colapsar el `<details>` nativamente (vivía en
+   `.dashboard-section__body`, que es justo lo que ese toggle esconde).
+   Como flex-item del MISMO row que `.dashboard-section__title`/
+   `.dashboard-section__count` (`.dashboard-section__head`, tools.css:
+   `display:flex; align-items:center; gap:11px`), el `gap` del primitivo
+   compartido ya da el espaciado hacia el conteo — cero margen inventado,
+   cero solapamiento — y el `align-items:center` del mismo primitivo ya
+   centra el botón exactamente al baseline del texto, siempre, sin
+   calibrar nada. Visualmente en la MISMA familia discreta que
+   `.whatsnew-banner__close`/`.dw-lightbox__close` (borde cero, fondo
+   transparente, gris apagado, pill de hover) — sin adoptar esas clases
+   puntuales de otra feature, nombre propio de Comercial. */
+.panel-close {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: transparent; color: #7a7a82; font-size: 1.1rem; line-height: 1;
+  cursor: pointer;
+}
+.content-theme-dark .panel-close { color: #9a9aa2; }
+.panel-close:hover { color: inherit; background: rgba(128,128,128,.16); }
+.panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* ── Creadas — jerarquía del análisis (owner UX corrective) ────────────────
+   Antes el ranking y la tabla mensual iban LADO A LADO (`.analysis-split`) y
+   las semanas aparecían como una tabla aparte: tres capas visualmente
+   desconectadas de la misma pregunta. Ahora es una sola columna —filtros,
+   ranking, UNA tabla Mes→Semana, detalle opcional— y las semanas son filas
+   HIJAS de su mes.
+
+   Se reusa todo lo que ya existe: `.whatsnew-filters` para la barra,
+   `.bar-row` para el ranking, `.dashboard-table`/`.matrix-scroll` para la
+   tabla, `.dashboard-empty` para los vacíos y `.panel-close` para el ×. Lo de
+   abajo es SÓLO lo que ninguno de esos primitivos cubre: la jerarquía visual
+   de la tabla y el header del detalle. */
+.commercial-creadas-analysis { display: grid; gap: 18px; }
+
+/* El chevron usa el primitivo COMPARTIDO del Hub `.dashboard-table-toggle`
+   + `.caret` (tools.css), el mismo que Reporting usa en sus árboles de
+   Rentabilidad/Horas Vendidas y Staffing en su detalle por consultor: chevron
+   DORADO (`var(--gold)`), `<button>` real con Enter/Space nativo, hover y
+   focus-visible propios. Creadas tenía su propio botón gris — un segundo
+   lenguaje para la misma interacción.
+
+   Acá sólo se le da el espaciado hacia el label, que en Reporting no hace falta
+   porque el botón envuelve caret Y label. CERO color, CERO tamaño, CERO estado:
+   todo eso es del primitivo. */
+.commercial-creadas-month .dashboard-table-toggle { margin-right: 4px; vertical-align: middle; }
+
+/* Filas seleccionables. El hover marca que se puede clickear y `is-selected`
+   marca qué detalle se está viendo — sin eso, cerrar y reabrir el detalle no
+   tendría ninguna referencia visual de sobre qué. */
+.commercial-creadas-month, .commercial-creadas-week[data-commercial-creadas-week] { cursor: pointer; }
+.commercial-creadas-month:hover > td,
+.commercial-creadas-week[data-commercial-creadas-week]:hover > td { background: rgba(128,128,128,.07); }
+.commercial-creadas-month.is-selected > td,
+.commercial-creadas-week.is-selected > td {
+  background: color-mix(in srgb, transparent 88%, var(--gold));
+}
+.commercial-creadas-week[data-commercial-creadas-week]:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: -2px;
+}
+
+/* La INDENTACIÓN es lo que hace legible la jerarquía: una semana sin sangría
+   se lee como otro mes. Va en el padding de la celda (no en un margen del
+   texto) para que el hover cubra la fila completa.
+
+   El valor no es decorativo: el texto del MES no arranca en su padding (8px)
+   sino después del chevron —18px de botón + 4px de margen— o sea a 30px del
+   borde de la celda. Con `padding-left:30px` la semana quedaba ALINEADA con
+   el mes, con sangría visual cero (medido: -3px). 50px deja ~20px de sangría
+   real, que es lo que hace que la jerarquía se lea. */
+.commercial-creadas-week-label { padding-left: 50px !important; }
+.commercial-creadas-month-label { font-weight: 600; }
+/* Semanas sin oportunidades: se muestran igual —el mes se lee completo, MISMO
+   criterio que el legacy— pero atenuadas y no clickeables. */
+.commercial-creadas-week.is-empty > td { opacity: .45; }
+
+/* Header del detalle: el título a la izquierda y el × pegado a la derecha, sin
+   posicionamiento propio. El `.perspective-label` trae su propio margen, que
+   acá estorba. */
+.commercial-creadas-detail-head { display: flex; align-items: center; gap: 11px; }
+.commercial-creadas-detail-head > .perspective-label { flex: 1 1 auto; min-width: 0; margin: 0; }
+
+/* RESPONSIVE — mismo criterio que el resto de las matrices del Hub: el
+   overflow horizontal es INTERNO a `.matrix-scroll`, nunca de la página. Con
+   `table-layout: fixed` y seis columnas, por debajo de ~900px las de texto
+   quedan tan angostas que todo se corta; a partir de ahí la tabla del detalle
+   deja de comprimirse y scrollea dentro de su contenedor. La de Mes/Semana NO
+   necesita `min-width`: son cuatro columnas y la primera ya está acotada.
+
+   `min-width:0` en las dos columnas del análisis apilado para que un contenido
+   ancho no empuje la grilla — el mismo fix que `.activity-grid-2 > *` aplica
+   al primitivo compartido. */
+.commercial-creadas-analysis > * { min-width: 0; }
+/* El detalle reparte por CONTENIDO, no por porcentajes rigidos. Con el
+   `table-layout: fixed` del primitivo compartido, Oportunidad se quedaba con su
+   28% aunque no lo usara mientras Cliente truncaba
+   ("MURCHISON S.A. ESTIBAJES Y CARG…") con espacio sobrante al lado: los anchos
+   fijos no redistribuyen. `auto` le da a cada columna lo que su contenido pide.
+
+   Y las celdas de texto dejan de truncar: `td.left` trae
+   `white-space: nowrap` + `ellipsis` (correcto para una matriz de medidas, donde
+   la columna tiene que mantener su ancho), pero esta es una tabla de TEXTO —
+   truncar un nombre de cliente pierde justamente el dato que se vino a leer.
+   Con `auto` + wrap, el navegador reparte y solo parte en dos lineas si de
+   verdad no entra.
+
+   La fecha SI queda nowrap y con ancho minimo: es la unica columna de formato
+   fijo, y dejarla partir "06/08/" + "2026" seria peor que cualquier ahorro. */
+table.dashboard-table.commercial-creadas-detail-table { table-layout: auto; min-width: 720px; }
+table.dashboard-table.commercial-creadas-detail-table td.left,
+table.dashboard-table.commercial-creadas-detail-table td.row-label-col {
+  white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word;
+}
+table.dashboard-table.commercial-creadas-detail-table th:first-child,
+table.dashboard-table.commercial-creadas-detail-table td:first-child {
+  white-space: nowrap; width: 104px;
+}
+/* `th.row-label-col` trae `width: 340px` de tools.css, pensado para una
+   matriz de medidas donde el rotulo es la unica columna ancha. Acá TODAS son
+   de texto y ese ancho descompensa el reparto: Oportunidad se llevaba 340px
+   mientras Cliente quedaba en 80 y truncaba. Con `auto`, cada una recibe lo
+   que su contenido pide. */
+table.dashboard-table.commercial-creadas-detail-table th.row-label-col { width: auto; }
+@media (max-width: 760px) {
+  /* La barra de filtros ya envuelve por `.whatsnew-filters` (flex-wrap), pero
+     el buscador `--fill` necesita poder encogerse hasta desaparecer su
+     `min-width` o fuerza una fila más ancha que el panel. */
+  [data-commercial-creadas-filters] .whatsnew-filter--fill { flex-basis: 100%; }
+  [data-commercial-creadas-filters] .whatsnew-filter--fill input[type="search"] { min-width: 0; }
+  /* La indentación de semana se reduce, no se pierde: sin sangría la jerarquía
+     deja de leerse, que es justamente lo que esta tabla vino a arreglar. */
+  .commercial-creadas-week-label { padding-left: 38px !important; }
+}
+
+/* La columna de Distribución lleva SOLO la barra —los números tienen columna
+   propia—, así que NO usa `.forecast-bar-cell`: esa composición es "barra +
+   número alineados a la derecha dentro de la celda" y fija la barra en 72px
+   (`flex: 0 0 72px`), que en una pantalla ancha deja la barra perdida en el
+   medio de la columna. Mismo criterio y misma solución que `.origin-breakdown`,
+   que ya documenta este caso: `.bar-track` en block, ocupando el ancho real.
+
+   El `<colgroup>` es lo que hace la distribución inteligente: las tres primeras
+   columnas tienen ancho FIJO porque su contenido no crece con el viewport (una
+   etiqueta de semana y dos números), y Distribución va sin `width` para que
+   absorba TODO el sobrante. Con porcentajes, a 1550px la primera columna se
+   llevaba 682px para un texto de 110px. */
+.commercial-creadas-dist { padding-right: 8px; }
+.commercial-creadas-dist .bar-track { display: block; height: 8px; }
+/* JERARQUIA VISUAL mes vs semana. Las dos barras usaban la MISMA intensidad,
+   así que la relación padre/hijo no se leía de un vistazo.
+
+   La semana usa el MISMO token (`var(--gold)`, vía el `.bar-fill` compartido) a
+   MENOR intensidad, con `opacity` — no un segundo amarillo inventado. Si el
+   token cambia, las dos cambian juntas. Más baja y más clara: el peso visual
+   acompaña la jerarquía que la indentación ya declara. */
+.commercial-creadas-week .commercial-creadas-dist .bar-track { height: 5px; }
+.commercial-creadas-week .commercial-creadas-dist .bar-fill { opacity: .45; }
+
+/* DISTRIBUCIÓN DE COLUMNAS — anchos FIJOS para lo predecible, elástica la barra.
+   Con porcentajes, a 1550px la primera columna se llevaba 682px para un texto de
+   ~110px: 570px de aire muerto. El contenido de las tres primeras no crece con
+   el viewport (una etiqueta de semana y dos números), así que se fijan; la de
+   Distribución va sin `width` y absorbe TODO el sobrante, que es lo que hace que
+   la barra se lea como un gráfico y no como un guioncito.
+
+   Va por CSS y no por `<colgroup>`: el `<col>` NO gana contra
+   `th.row-label-col { width: 340px }` ni contra
+   `th:not(.left):not(.row-label-col) { width: 88px }` de tools.css (medido:
+   347/101/123 en vez de 260/76/92). Una sola fuente de verdad, con la
+   especificidad suficiente para no depender de la precedencia col/celda. */
+table.dashboard-table.commercial-creadas-table th:nth-child(1),
+table.dashboard-table.commercial-creadas-table td:nth-child(1) { width: 264px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(2),
+table.dashboard-table.commercial-creadas-table td:nth-child(2) { width: 76px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(3),
+table.dashboard-table.commercial-creadas-table td:nth-child(3) { width: 92px; }
+table.dashboard-table.commercial-creadas-table th:nth-child(4),
+table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
+@media (max-width: 760px) {
+  /* En angosto la barra deja de tener espacio útil y el texto es lo que
+     importa: se le da un mínimo y la tabla scrollea dentro de `.matrix-scroll`
+     si hace falta, nunca la página. */
+  table.dashboard-table.commercial-creadas-table th:nth-child(1),
+  table.dashboard-table.commercial-creadas-table td:nth-child(1) { width: 208px; }
+  table.dashboard-table.commercial-creadas-table { min-width: 460px; }
+}
+
+/* Ganadas — ritmo vertical del ranking (owner corrective, screenshot — pre-
+   smoke): faltaba el margen inferior entre el ranking y "Detalle de
+   Ganadas" que SÍ existía entre los filtros y el ranking
+   (`.whatsnew-filters` ya trae 18px de margen inferior, tools.css) —
+   `.bar-row` sólo trae 6px propios y `.dashboard-empty` ninguno. Scoped a
+   este wrapper (`commercialGanadasSellerRankingHtml`, commercial.js) — NO
+   toca `.bar-row`/`.dashboard-empty` compartidos, MISMO criterio que la
+   corrective anterior de `.bar-value` (nunca ampliar el primitivo cuando
+   sólo un consumidor lo necesita). */
+.commercial-ganadas-ranking { margin-bottom: 18px;
+}
+
+/* Perdidas (Commercial Tile 7, ver HANDOFF) — MISMOS dos correctives que
+   Ganadas, aplicados a su propio wrapper (nunca al primitivo compartido):
+
+   1. `.bar-value` en 60px partía "1.234 hs (3)" en dos líneas — acá el
+      riesgo es MAYOR: el ranking vive en la mitad de `.activity-grid-2`
+      (Ranking | Motivo lado a lado), más angosto que el panel de ancho
+      completo de Ganadas.
+   2. Faltaba el margen inferior entre el análisis (Ranking + Motivo) y
+      "Detalle de Perdidas" que sí existe entre los filtros y el análisis
+      (`.whatsnew-filters` ya trae 18px). `.commercial-perdidas-analysis`
+      envuelve LAS DOS columnas (no sólo el ranking, a diferencia de
+      Ganadas) porque acá hay dos bloques lado a lado que necesitan el
+      mismo margen de cierre. */
+.commercial-perdidas-ranking .bar-value { width: 92px; white-space: nowrap; }
+.commercial-perdidas-analysis { margin-bottom: 18px; }
+
+/* Conversión de Leads — owner UX corrective (ver HANDOFF §2/§3/§7): la
+   jerarquía Campaña→Medio→Origen retrocedió como visual principal (los
+   correctives previos de esta sección quedan sin efecto, ver historial —
+   el dato de atribución sigue intacto, sólo cambió qué se muestra
+   primero). Reemplazo: siete mini-KPI + "Leads por año"/"Origen de
+   marketing" lado a lado.
+
+   Mini-KPIs — MISMO primitivo `.activity-kpi`/`activity-kpi-grid` que el
+   dashboard principal (owner §3: "Use the SAME Hub KPI visual language...
+   Do NOT globally resize"). El modifier SOLO reduce densidad (padding/gap/
+   tamaño de valor) DENTRO de este wrapper — nunca toca la regla base, así
+   que el grid principal de 9 tiles no se mueve un píxel.
+
+   Owner follow-up (mid-smoke, "achicaria un poco mas... escala un 30%"):
+   TODAS las medidas de acá son la regla base de tools.css (padding
+   14px/16px, value clamp(1.6rem,2.4vw,2.1rem), gap 4px) multiplicadas por
+   0.7 — nunca un tamaño inventado. `activity-kpi__label` (el rótulo en
+   mayúscula, ej. "TOTAL LEADS") queda igual de bold, sólo más chico —
+   nunca pidieron sacarle el peso a ESE. El pie de texto (`kpi-sub`, ej.
+   "742 empresas únicas · base %") es el que el owner marcó bold+partido en
+   dos líneas: acá se saca el bold (400) y se fuerza una sola línea con
+   ellipsis, igual que `.bar-value` en el ranking de al lado. */
+.commercial-lc-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; margin-bottom: 16px; }
+.commercial-lc-kpis .activity-kpi { padding: 10px 11px; gap: 3px; }
+.commercial-lc-kpis .activity-kpi__value { font-size: clamp(1.1rem, 1.7vw, 1.45rem); }
+.commercial-lc-kpis .activity-kpi__label { font-size: .46rem; }
+.commercial-lc-kpis .kpi-sub {
+  font: 400 .58rem var(--sans); letter-spacing: normal;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Leads por año | Origen de marketing — LADO A LADO vía `.activity-grid-2`
+   (ver arriba, YA promovido). El `bar-value` de ambos rankings es un
+   conteo crudo simple (owner cambió de opinión sobre "13 · 40.6%" mid-
+   smoke, ver HANDOFF: el % del origen ahora vive en un tooltip mouseover
+   sobre la barra, MISMO primitivo `.chart-tooltip-anchor` que el resto del
+   Hub) — entra sin problema en el ancho base de `.bar-value` (92px,
+   tools.css), así que no hace falta ningún override acá. */
+.commercial-lc-analysis { margin-bottom: 18px; }
+
+/* Tiempo por Etapa / Conversión Etapa a Etapa — owner corrective (ver
+   HANDOFF: "no me sirve imprimir los valores... si no va a haber un
+   header" — captura en vivo). El ranking `.bar-row` mostraba Días Prom./
+   Muestras/Entraron/Avanzaron/Tasa SIN encabezado — ahora son tablas
+   `dashboard-table` reales (MISMO primitivo que Edad del pipeline/Tiempo
+   de cierre/Estancadas), cada valor con su `<th>`. El gráfico se
+   conserva pero ACHICADO: una barra angosta (6px) bajo el nombre de la
+   etapa en vez de una fila entera — reusa `.bar-fill` (MISMO `var(--gold)`,
+   nunca un color propio), nunca `.bar-track`/`.bar-row` en sí, así que
+   ningún otro consumidor de esos primitivos se mueve.
+   `white-space: normal` en la celda de etapa: `td.row-label` es
+   `nowrap` por default (tools.css) — necesario para que la mini-barra
+   pueda ir en su propia línea debajo del nombre en vez de intentar
+   compartir el renglón. */
+.commercial-pipeline-mini-bar-table td.row-label { white-space: normal; }
+.commercial-pipeline-mini-bar { height: 4px; margin-top: 4px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 2px; overflow: hidden; }
+.content-theme-dark .commercial-pipeline-mini-bar { background: rgba(255,255,255,.10); }
+.commercial-pipeline-mini-bar .bar-fill { position: static; height: 100%; border-radius: 2px; }
+
+/* Actividades — owner follow-up (sacó el título "Actividades Pendientes",
+   ver HANDOFF): `.whatsnew-filters` ya trae 4px de top margin (tools.css),
+   pero eso asumía el `<p class="perspective-label">` de arriba dándole 6px
+   más de aire por su propio margen inferior. Sin ese título, el mínimo de
+   10px que pidió el owner no lo cubre el margen base solo — override
+   SCOPEADO al wrapper propio de este panel (`commercial-act-panel`, ver
+   `commercialActividadesHtml`), nunca la regla compartida. */
+.commercial-act-panel > .whatsnew-filters { margin-top: 10px; }
+
+/* Bucket 1 — Licencias/Historial Perdidas/Detalle Oportunidades (ver
+   HANDOFF): owner follow-up pidió alinear la MISMA estructura que ya tiene
+   Actividades — sin título propio, filtros primero (leyenda de urgencia
+   después, donde corresponde). MISMO override que `.commercial-act-panel`
+   arriba, un solo wrapper compartido por las tres tabs nuevas (misma
+   necesidad exacta, nunca una clase por tab). */
+.commercial-bucket1-panel > .whatsnew-filters { margin-top: 10px; }
+
+/* Bucket 2 — Leads/Clientes/Ex Clientes (ver HANDOFF): stats con tiles de
+   tamaño NORMAL (`.activity-kpi-grid` sin el modificador `.commercial-lc-kpis`
+   de Conversión de Leads — owner corrective: esas tres vistas no tienen el
+   volumen de tiles de Conversión de Leads, así que no necesitan su
+   compactación, MISMO tamaño que el Resumen del Dashboard).
+   Fila de empresa/cliente expandible (Leads/Clientes) — owner corrective:
+   el toggle usa el MISMO primitivo transversal del Hub que ya define
+   tools.css (`.dashboard-table-toggle`/`.caret`, establecido en
+   Operaciones — Detalle de asignaciones — y ya en uso acá mismo para el
+   drill mensual de Creadas), nunca un glifo ▶/▼ suelto en su propia
+   columna — cero CSS propio, cero clase nueva. `.commercial-leads-inner`
+   — la sub-tabla anidada (leads de una empresa / oportunidades de un
+   cliente) va MÁS CHICA que la tabla principal, para que se lea como
+   detalle y no como una tabla hermana. */
+.commercial-leads-inner { font-size: .82em; }
+.commercial-leads-inner th, .commercial-leads-inner td { padding-top: 4px; padding-bottom: 4px; }

@@ -23,6 +23,25 @@ function makeEl() { return { innerHTML: "" }; }
 const sandbox = {
   document: { addEventListener() {}, getElementById() { return makeEl(); }, querySelector() { return null; } },
   window: {},
+  // `dwGraphToken` es la AUTORIDAD del Hub sobre el access token de Graph y
+  // vive en hub_auth.js, no en reporting.js — mismo criterio que
+  // `HubForegroundProgress`/`initDashboardSections`, que viven en app.js. Stub
+  // suficiente: lo que se prueba acá es el render, no el ciclo de vida de la
+  // credencial (eso es de hub_auth_authority.node.js). Devuelve "" igual que
+  // el stub de sessionStorage al que reemplaza: la Fase 1A no cambia el
+  // escenario que este harness venia probando.
+  dwGraphToken: async () => "",
+  // `HubForegroundProgress` tambien vive en app.js. Antes de la Fase 1A este
+  // harness no lo alcanzaba: el token se leia sincronicamente, asi que para
+  // cuando corria `render()` el fetch stub ya habia resuelto y el status era
+  // "ready". El `await` de la autoridad agrega un tick, asi que ahora se
+  // ejercita la rama CORRECTA — la barra de progreso mientras carga.
+  HubForegroundProgress: { begin() { }, complete() { }, fail() { }, settle() { } },
+  // Los timers del browser: mismo motivo que el stub de arriba — la barra
+  // compartida arranca su sweep con `setInterval`, y esta rama recien se
+  // ejercita desde la Fase 1A. No-op: el sweep no es lo que se prueba aca.
+  setInterval() { return 0; },
+  clearInterval() { },
   sessionStorage: { getItem() { return ""; } },
   fetch() { return Promise.resolve({ json: () => Promise.resolve({ state: "missing_token" }) }); },
   initDashboardSections() {},

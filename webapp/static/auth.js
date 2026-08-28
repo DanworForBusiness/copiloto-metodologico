@@ -1,33 +1,40 @@
-/* auth.js — Login Microsoft (Entra ID) OAuth2 + PKCE en POPUP.
-   La app puede ir embebida en un iframe (danwor.com/copiloto), y Microsoft no
-   permite autenticar dentro de un iframe. Por eso el login abre una ventana
-   nueva (top-level): authorize → ?code → exchange → /api/auth/microsoft/token
-   (setea la cookie de sesión) → postMessage al opener → la app entra.
-   La cookie debe ser SameSite=None; Secure para viajar en el iframe. */
-(function () {
-  const API = "/api/auth";
-  const STATE_KEY = "dw_ms_state";
-  const VERIFIER_PREFIX = "dw_ms_verifier_";
-  const MSG_TYPE = "danwor-auth";
+/* auth.js — la UI del login con Microsoft (Entra ID).
 
-  function b64url(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let bin = "";
-    bytes.forEach((b) => (bin += String.fromCharCode(b)));
-    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-  function randomB64(len = 32) {
-    const v = new Uint8Array(len);
-    crypto.getRandomValues(v);
-    return b64url(v);
-  }
-  async function sha256(value) {
-    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  }
-  // Debe coincidir EXACTO con el redirect URI (SPA) registrado en Azure (con barra).
-  function redirectUri() {
-    return window.location.origin + "/";
-  }
+   FASE 1B (owner decision 2026-08-23): este archivo YA NO implementa OAuth.
+   Antes tenía el flujo PKCE completo escrito a mano —generación de verifier y
+   challenge con `crypto.subtle`, `state` en localStorage, apertura del popup,
+   redirect a `authorize`, intercambio del `code` contra el token endpoint, y
+   un handshake de `postMessage` para devolverle el resultado al opener—.
+   Todo eso lo hace ahora MSAL Browser, detrás de la autoridad compartida del
+   Hub (`dwHubLogin` en hub_auth.js).
+
+   Lo que queda acá es lo que siempre fue de esta capa: el botón, el overlay,
+   los mensajes de error y la advertencia de storage restringido.
+
+   POR QUÉ IMPORTA que el protocolo se haya ido: el PKCE a mano adquiría el
+   access token UNA sola vez y no tenía forma de renovarlo (no pedía
+   `offline_access`, no había refresh token). De ahí venía la ventana de horas
+   en las que la sesión del Hub seguía viva y la autorización de Graph ya
+   estaba muerta. MSAL sí puede renovar, y es dueño completo de esos
+   artefactos: ninguna línea de la app los lee, escribe, rota ni exporta.
+
+   LO QUE NO CAMBIÓ, a propósito:
+   * el popup sigue siendo popup (la app puede ir embebida en un iframe, y
+     Microsoft no autentica dentro de un iframe);
+   * la sesión del Hub la sigue creando el BACKEND con el `id_token` validado
+     (`POST /api/auth/microsoft/token`), no el cliente;
+   * la cookie sigue siendo `SameSite=None; Secure` para viajar en el iframe;
+   * los permisos de Graph son los mismos (`User.Read`, `Sites.Read.All`);
+   * `prompt: "select_account"` se preserva.
+
+   PENDIENTE PARA EL OWNER (no bloqueante, requiere Azure): el `redirectUri`
+   sigue siendo `origin + "/"`, el único registrado como SPA. MSAL lee el
+   resultado del popup desde el opener, así que funciona — pero el popup
+   renderiza la landing un instante antes de cerrarse. Apuntarlo a una página
+   mínima lo evitaría, y eso implica registrar un redirect URI nuevo en Azure. */
+(function () {
+  const MIN_ERROR = "No se pudo iniciar sesión";
+
   function homeUrl() {
     const btn = document.getElementById("microsoft-login-btn");
     return (btn && btn.getAttribute("data-home")) || "/";
@@ -51,175 +58,37 @@
         "</b> autenticó correctamente, pero todavía no está autorizado para ingresar.";
     } else {
       box.className = "login-error";
-      box.textContent = message || "No se pudo iniciar sesión";
+      box.textContent = message || MIN_ERROR;
     }
     box.classList.remove("hidden");
     document.getElementById("acceso")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  async function getConfig() {
-    const r = await fetch(`${API}/microsoft/config`);
-    const c = await r.json();
-    if (!r.ok || !c.enabled || !c.tenant_id || !c.client_id) {
-      throw new Error("Microsoft no está configurado para esta app");
-    }
-    return c;
-  }
-
-  // Corre DENTRO del popup: arranca el redirect a Microsoft.
-  async function startAuthInThisWindow() {
-    const c = await getConfig();
-    const verifier = randomB64(64);
-    const challenge = b64url(await sha256(verifier));
-    const state = randomB64(32);
-    localStorage.setItem(STATE_KEY, state);
-    localStorage.setItem(VERIFIER_PREFIX + state, verifier);
-    const p = new URLSearchParams({
-      client_id: c.client_id,
-      response_type: "code",
-      redirect_uri: redirectUri(),
-      response_mode: "query",
-      scope: "openid profile email User.Read Sites.Read.All",
-      state,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      prompt: "select_account",
-    });
-    window.location.replace(
-      `https://login.microsoftonline.com/${encodeURIComponent(c.tenant_id)}/oauth2/v2.0/authorize?${p}`
-    );
-  }
-
-  async function exchangeCode(code, verifier) {
-    const c = await getConfig();
-    const body = new URLSearchParams({
-      client_id: c.client_id,
-      scope: "openid profile email User.Read Sites.Read.All",
-      code,
-      redirect_uri: redirectUri(),
-      grant_type: "authorization_code",
-      code_verifier: verifier,
-    });
-    const r = await fetch(
-      `https://login.microsoftonline.com/${encodeURIComponent(c.tenant_id)}/oauth2/v2.0/token`,
-      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }
-    );
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.id_token) throw new Error(d.error_description || "Microsoft no devolvió un token válido");
-    // Devolvemos también el access_token (Graph): lo usa el seed de casos SAP.
-    return { id_token: d.id_token, access_token: d.access_token || "" };
-  }
-
-  function rememberGraphToken(token) {
-    if (!token) return;
-    try { sessionStorage.setItem("dw-graph-token", token); } catch (e) { /* sin storage: se omite */ }
-  }
-
-  async function createSession(idToken) {
-    const r = await fetch(`${API}/microsoft/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const det = d.detail;
-      const err = new Error((det && det.message) || "No se pudo crear la sesión");
-      err.detail = det;
-      throw err;
-    }
-    return d;
-  }
-
-  function notifyOpener(payload) {
-    const ok = !!(window.opener && !window.opener.closed);
-    if (ok) {
-      window.opener.postMessage({ type: MSG_TYPE, ...payload }, window.location.origin);
-      window.close();
-      return true;
-    }
-    return false;
-  }
-
-  // Corre DENTRO del popup cuando Microsoft vuelve con ?code (o ?error).
-  async function handleRedirect() {
-    const params = new URLSearchParams(window.location.search);
-    const error = params.get("error");
-    const code = params.get("code");
-    const state = params.get("state");
-
-    if (error) {
-      const msg = params.get("error_description") || "Microsoft canceló el inicio de sesión";
-      if (!notifyOpener({ status: "error", message: msg })) showError(msg);
-      return true;
-    }
-    if (!code) return false;
-
-    setOverlay(true);
-    try {
-      const expected = localStorage.getItem(STATE_KEY);
-      const verifier = state ? localStorage.getItem(VERIFIER_PREFIX + state) : null;
-      localStorage.removeItem(STATE_KEY);
-      if (state) localStorage.removeItem(VERIFIER_PREFIX + state);
-      if (!state || state !== expected || !verifier) {
-        throw new Error("No se pudo validar el estado del login (reintentá desde el inicio)");
-      }
-      const tokens = await exchangeCode(code, verifier);
-      await createSession(tokens.id_token);
-      // Éxito: avisar al opener (la app) para que entre; si no hay opener, navegar acá.
-      // El token Graph viaja al opener por postMessage (mismo origen) y se guarda
-      // en su sessionStorage; si no hay opener, lo guardamos en esta ventana.
-      if (!notifyOpener({ status: "success", graph_token: tokens.access_token })) {
-        rememberGraphToken(tokens.access_token);
-        window.location.replace(homeUrl());
-      }
-    } catch (err) {
-      setOverlay(false);
-      if (!notifyOpener({ status: "error", message: err.message, detail: err.detail })) {
-        showError(err.message, err.detail);
-      }
-    }
-    return true;
-  }
-
-  // Click "Ingresar": abre el popup (top-level, fuera del iframe). Se abre en
-  // la MISMA página que inició el login (no siempre "/"), preservando su
-  // query actual (p. ej. `next`/`pack`) y agregando `auth_popup=1` — así el
-  // popup no fuerza la marca del Copiloto cuando el login arrancó desde
-  // "/onedanwor" (o cualquier otra puerta). El redirect_uri de Microsoft
-  // sigue fijo en "/" (ver `redirectUri()`) — no cambia acá.
-  window.loginWithMicrosoft = function (event) {
+  // Click "Ingresar". El popup, el protocolo y la cache son de MSAL; de acá
+  // sale el estado del botón y el destino final.
+  window.loginWithMicrosoft = async function (event) {
     if (event) event.preventDefault();
     const btn = document.getElementById("microsoft-login-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Abriendo Microsoft…"; }
-    const popupParams = new URLSearchParams(window.location.search);
-    popupParams.set("auth_popup", "1");
-    const popup = window.open(
-      window.location.pathname + "?" + popupParams.toString(),
-      "dwMsLogin",
-      "width=520,height=720,menubar=no,toolbar=no,location=yes,status=no"
-    );
-    if (!popup) {
-      resetButton();
-      showError("El navegador bloqueó la ventana de Microsoft. Habilitá los pop-ups e intentá de nuevo.");
-      return;
-    }
-    const timer = setInterval(() => {
-      if (popup.closed) { clearInterval(timer); resetButton(); }
-    }, 500);
-  };
-
-  // En el OPENER (la app): escucha el resultado del popup.
-  window.addEventListener("message", (event) => {
-    if (event.origin !== window.location.origin || !event.data || event.data.type !== MSG_TYPE) return;
-    if (event.data.status === "success") {
-      rememberGraphToken(event.data.graph_token);
+    try {
+      await window.dwHubLogin();
+      setOverlay(true);
       window.location.href = homeUrl();
-    } else {
+    } catch (err) {
+      setOverlay(false);
       resetButton();
-      showError(event.data.message, event.data.detail);
+      // El usuario que cierra el popup no cometió un error: MSAL lo reporta
+      // como `user_cancelled` y no corresponde mostrarle una alerta roja.
+      const code = (err && err.errorCode) || "";
+      if (code === "user_cancelled" || code === "popup_window_error") {
+        if (code === "popup_window_error") {
+          showError("El navegador bloqueó la ventana de Microsoft. Habilitá los pop-ups e intentá de nuevo.");
+        }
+        return;
+      }
+      showError((err && err.message) || MIN_ERROR, err && err.detail);
     }
-  });
+  };
 
   // Cookies/storage de terceros bloqueadas (incógnito, Safari/Chrome mobile): el
   // popup autentica en un contexto de PRIMERA parte (ondigitalocean.app top-level),
@@ -229,6 +98,9 @@
   // API real para esto (Safari/Firefox/Chrome recientes): dice si ESTE frame ya
   // tiene acceso a sus cookies sin partición. Solo aplica si estamos embebidos —
   // en acceso directo (sin iframe) nunca hay problema, sea cual sea el navegador.
+  //
+  // NO se usa para pedir acceso ni para ningún workaround de credenciales: sólo
+  // avisa antes de que el usuario intente algo que no va a poder completar.
   async function warnIfStorageRestricted() {
     if (window.top === window.self) return false;               // no embebido: no aplica
     if (!("hasStorageAccess" in document)) return false;         // API no soportada: no bloqueamos a ciegas
@@ -242,17 +114,7 @@
     return true;
   }
 
-  // Init: decidir el rol de esta ventana.
-  (async function init() {
-    const params = new URLSearchParams(window.location.search);
-    if (await handleRedirect()) return;                         // popup volviendo de Microsoft
-    if (window.opener && params.get("auth_popup") === "1") {    // popup recién abierto
-      try { await startAuthInThisWindow(); }
-      catch (err) { if (!notifyOpener({ status: "error", message: err.message })) showError(err.message); }
-      return;
-    }
-    // si no, es la app normal (opener): antes de esperar el click, chequeamos si
-    // el login va a poder completarse en este contexto.
-    await warnIfStorageRestricted();
-  })();
+  // Init. Ya no hay que decidir "soy popup o soy la app": MSAL maneja su propia
+  // ventana. Sólo queda avisar si el contexto no va a poder completar el login.
+  warnIfStorageRestricted();
 })();

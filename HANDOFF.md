@@ -7806,6 +7806,92 @@ status compartido (nunca uno por perspectiva fuera de Cartera), la tabla
 de invalidación nunca cruza a un tab no relacionado, ningún invalidador
 pisa un fetch en vuelo, `setExperience` nunca toca ningún status de datos.
 
+#### GUARDRAIL TRANSVERSAL DEL HUB — HOT/COLD (no solo Reporting)
+El contrato de arriba nació en Cartera/Mantenimiento, pero la regla NO es
+de Reporting: es del Hub. Creadas (Comercial) la adoptó como segundo
+consumidor real y ahí quedó claro que hay TRES invariantes separados, y
+que confundirlos es exactamente lo que produce el defecto:
+
+1. **YEAR OPTION != YEAR HYDRATED.** Que un año exista en el `<select>` no
+   es evidencia de que sus datos estén cargados. Si la lista de años se
+   DERIVA del payload —el defecto original de Creadas— entonces para poder
+   ofrecer un año hay que haberlo hidratado antes, y el selector obliga a
+   pagar toda la historia. Por eso el descubrimiento va SIEMPRE por un
+   endpoint liviano y separado (`anios-disponibles` en Cartera y en
+   Creadas), y el cliente lleva estado de hidratación EXPLÍCITO por año
+   (`comercialParticipacionLoadedYears` es un `Set`; `creadasByYear` es un
+   mapa con `status`). Un año sin hidratar es una opción legítima, no un
+   error.
+2. **AUTO HYDRATION <= HOT WINDOW.** La hidratación automática nunca
+   excede la ventana caliente (año actual + anterior, resuelta contra la
+   fecha real, nunca hardcodeada). Todo lo demás se paga sólo si el
+   usuario lo pide.
+3. **COLD YEAR == ON-DEMAND + CACHE.** Elegir un año frío hidrata ESE año,
+   una sola vez, con single-flight, y lo deja tibio para el resto de la
+   sesión. La segunda selección hace CERO requests. Y el año frío se AGREGA
+   (`mergeRows` en Cartera, cache por año en Creadas): nunca reemplaza ni
+   invalida la ventana caliente ya hidratada.
+
+**La ventana no se aplica por default, se aplica por CONTRATO DE LA
+MEDIDA.** La auditoría de arriba (Horas Vendidas/Rentabilidad/Horas
+Productivas) es el precedente: acotar una medida de vida completa no es
+una optimización, es un bug de datos. Antes de acotar, la pregunta es si
+la medida es año-y-mes o agregado histórico. Creadas ES año-y-mes (su
+análisis por default aterriza en el año en curso), así que la ventana
+aplica.
+
+**Y acotar el UNIVERSO no es lo mismo que reimplementar la REGLA.** El
+riesgo específico de Creadas: su evento canónico depende del historial de
+transiciones, así que una versión "por año" ingenua —mirar sólo los
+mensajes del año— contaría las re-entradas como altas nuevas. La forma
+segura es la que quedó implementada: acotar el universo de candidatos y
+después correr la regla canónica TAL CUAL sobre el historial completo de
+ESE universo, filtrando por año al final. La regla sigue viviendo en un
+solo lugar y la equivalencia se puede demostrar
+(`test_commercial_creadas_year_equivalence.py`).
+
+#### ACTIVE-YEAR FIRST PAINT — el cuarto invariante (medido, no inferido)
+Los tres invariantes de arriba dicen QUE hidratar. Este dice CUANDO, y salio
+de medir contra el Odoo real, no de razonar:
+
+4. **AUTO PREFETCH NUNCA COMPITE CON EL PRIMER PINTADO.** El año activo se
+   pide SOLO. El resto de la ventana caliente arranca DESPUES de que el
+   activo resolvio y pinto.
+
+Arrancar los dos años juntos parecia gratis —el render nunca esperaba al
+previo— pero no lo es. Tres muestras pareadas contra `danwor3.odoo.com`:
+
+    año activo SOLO                 8087 / 7946 / 7963 ms   (media ~8.0s)
+    año activo CON el previo al lado 8876 / 9946 / 9173 ms   (media ~9.3s)
+
+Mismo signo en las tres: ~+1.3s (+17%). No es contencion del event loop —las
+rutas son `def` sync y FastAPI las corre en threadpool—, es contencion aguas
+abajo (Odoo/DB/conexiones). "Caliente" no significa "tiene derecho a competir
+con el primer pintado": el previo es trabajo OPCIONAL y se pospone.
+
+Corolario que ya estaba y ahora importa mas: cuando el año de background
+termina NO toca la vista. `commercialCreadasAdoptYear` solo publica el año que
+el usuario esta mirando.
+
+#### EL COSTO REAL DE UNA LLAMADA A ODOO — medido, para no volver a optimizar
+#### la dimension equivocada
+El primer corrective por año bajo las FILAS leidas y no mejoro el reloj. La
+razon, medida: **el tiempo por llamada no tiene relacion con el volumen**.
+
+    crm.stage              15 filas   2690 ms
+    mail.message          691 filas   1048 ms
+    crm.tag                19 filas    725 ms
+
+El costo es POR ROUND-TRIP, ~0.7-1.0s cada uno, y de eso **el 74% es abrir la
+conexion**: la misma consulta repetida da ~718 ms con `httpx.post` suelto
+(lo que hace `odoo_client._call` hoy, sin keep-alive) y ~187 ms sobre un
+`httpx.Client` persistente. Ademas cada request HTTP construye su propio
+`OdooClient`, asi que re-autentica.
+
+Regla para el proximo que optimice Comercial: **contar round-trips, no filas.**
+Un año de Creadas son 9 llamadas ≈ 8s; el payload entero de transiciones de
+toda la historia son 2096 filas. El volumen nunca fue el problema.
+
 #### Commits de esta sección
 `e5fb1d3` (hot window backend), `e76564f` (main-tab hydration + filtro
 perspective-local + Año hot/cold frontend), `3915ab7` (refresh explícito +

@@ -354,16 +354,28 @@ class ReportingService:
         facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
             access_token, include_facturadas=True,
         )
-        time_logs = self._repository.get_time_logs_worked_hours(
-            access_token, hot_years=[str(datetime.now().year)],
+        # Time Logs SIN acotar en este camino combinado: la mitad Proyecto
+        # necesita la VIDA COMPLETA (ver `_proyecto_rows`, owner decision
+        # OPTION A) y acotarla daría un "total de por vida" de un solo año.
+        # UNA sola lectura para las dos mitades — el scope contextual de
+        # `get_cartera_mantenimiento` es una decisión de PERFORMANCE de ese
+        # camino (Mantenimiento filtra por Año/Mes de todos modos, así que
+        # años extra no cambian su resultado), no de corrección. Este combo es
+        # legacy/tests (el frontend siempre manda `perspectiva`) y ya paga la
+        # XLSX más la historia completa de "Horas por proyectos".
+        trab_by_proyecto = _trab_by_proyecto_by_year(
+            self._repository.get_time_logs_worked_hours(access_token, hot_years=None),
         )
-        trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
         mantenimiento_rows, unmatched = self._mantenimiento_rows(facts, trab_by_proyecto, project_dim)
-        if unmatched:
-            _logger.info("reporting.cartera combo unmatched_time_logs_projects=%d", len(unmatched))
+        proyecto_rows, unmatched_proy = self._proyecto_rows(facts, trab_by_proyecto, project_dim)
+        if unmatched or unmatched_proy:
+            _logger.info(
+                "reporting.cartera combo unmatched_time_logs_projects=%d/%d",
+                len(unmatched), len(unmatched_proy),
+            )
         return {
             "mantenimiento": mantenimiento_rows,
-            "proyecto": self._proyecto_rows(facts),
+            "proyecto": proyecto_rows,
         }
 
     def get_cartera_mantenimiento(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
@@ -492,9 +504,44 @@ class ReportingService:
         de TODOS los meses históricos), una ventana acá rompería el
         contrato de totales de por vida. El hot-window de este corrective
         es EXCLUSIVO de Mantenimiento (grano mensual, con default que
-        aterriza en el mes/año calendario actual)."""
-        facts = self._repository.get_cartera_facts(access_token, include_facturadas=True)
-        return self._proyecto_rows(facts)
+        aterriza en el mes/año calendario actual).
+
+        CANONICAL SOURCE (owner decision — OPTION A): `trabajadas` sale de
+        Time Logs, la MISMA autoridad que Mantenimiento y Rentabilidad, vía
+        el MISMO helper compartido `_trab_by_proyecto_by_year`. El campo
+        manual `hsTrabajadas` de SharePoint SIGUE existiendo y sigue
+        viajando en los facts — simplemente ya no alimenta "Hs Trabajadas
+        Acum" (su futuro como medida propia con otro nombre, o su baja, es
+        una decisión de negocio aparte).
+
+        `hot_years=None` para Time Logs a propósito: el grano de esta
+        perspectiva es la VIDA del proyecto, así que necesita todos los años
+        disponibles — acotarlo daría un "total de por vida" que en realidad
+        es de dos años. Es el mismo criterio que ya rige su lectura de
+        "Horas por proyectos" (también sin ventana). Secuencial como
+        `get_cartera_mantenimiento`, no concurrente: una lectura más, nunca
+        una por proyecto.
+
+        `..._with_project_dimension` en vez de `get_cartera_facts`: MISMO
+        fetch, CERO llamadas Graph nuevas (devuelve la dimensión que ese
+        método ya leía), y es lo que permite que un proyecto que sólo existe
+        en Time Logs pero resuelve contra Proyectos aparezca igual."""
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=True,
+        )
+        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        rows, unmatched = self._proyecto_rows(
+            facts, _trab_by_proyecto_by_year(time_logs), project_dim,
+        )
+        if unmatched:
+            # MISMO criterio que Mantenimiento: nunca se fabrica dimensión
+            # para estas keys ni se descartan en silencio. Hacerlas visibles
+            # en la UI es trabajo de observabilidad aparte.
+            _logger.info(
+                "reporting.cartera proyecto unmatched_time_logs_projects=%d keys=%s",
+                len(unmatched), [u["proyectoKey"] for u in unmatched][:10],
+            )
+        return rows
 
     # --- Mantenimiento: grano mensual, facturadas = certificadas -------------
 
@@ -534,17 +581,56 @@ class ReportingService:
         (ver `get_cartera_mantenimiento`), nunca se pierden silenciosamente."""
         rows = []
         covered: set[tuple[str, str, int]] = set()
+        # ANTI FAN-OUT (owner live proof, agosto 2026): este bucle emitía UNA
+        # FILA POR FACT de SharePoint, y a cada una le asignaba el agregado
+        # mensual COMPLETO de Time Logs. Cuando "Horas por proyectos" tiene N
+        # filas para el MISMO proyecto×año×mes (pasa de verdad: distintas
+        # entradas/correcciones del mismo mes), `trabajadas` quedaba
+        # multiplicada por N. Medido en vivo: 3 filas × 203,5 h = 610,5 h
+        # reportadas, y 2 × 9,0 = 18,0 — 416 h inventadas en un solo mes.
+        #
+        # El grano DECLARADO de este método (ver el UNION GRAIN corrective del
+        # docstring) siempre fue la UNIÓN DE KEYS `(proyecto normalizado, año,
+        # mes)`; la implementación lo contradecía. Ahora se agrupa por esa
+        # clave ANTES de emitir: una fila lógica por key, con `trabajadas`
+        # tomada UNA sola vez.
+        #
+        # `certificadas`/`vendidasMensuales` SÍ son aditivas por fila de origen
+        # (cada fila de SharePoint aporta sus propias horas certificadas/
+        # vendidas del mes), así que se SUMAN — no se descartan ni se toma
+        # "la primera". Eso preserva exactamente los totales que la UI ya
+        # mostraba: sus columnas rollupean con `sumField` (ver CARTERA_CONFIG),
+        # o sea que las filas duplicadas ya se sumaban en pantalla. Lo único
+        # que cambia de valor es `trabajadas` (y `diff`, que la usa).
+        #
+        # Las dimensiones (cliente/CP/proyecto/estado/fecha) se toman del
+        # primer fact del grupo, no por arbitrariedad: están determinadas por
+        # el proyecto —se resuelven contra los mismos lookups de Proyectos/
+        # Cliente en `get_cartera_facts`— así que son idénticas dentro de una
+        # key. `trabajadas` NO depende del orden: sale de `trab_by_proyecto`
+        # por clave, nunca de una fila puntual.
+        grouped: dict[tuple[str, str, int | None], dict] = {}
         for f in facts:
             if f.get("tipoProyecto") != "Mantenimiento":
                 continue
             mes_num = _month_num(f["mes"])
-            key = _norm_key(f.get("proyecto"))
+            gkey = (_norm_key(f.get("proyecto")), f["anio"], mes_num)
+            g = grouped.get(gkey)
+            if g is None:
+                # `dict` preserva orden de inserción — el orden de salida sigue
+                # siendo el de primera aparición en la fuente, como antes.
+                g = grouped[gkey] = {"fact": f, "certificadas": 0.0, "vendidas": 0.0}
+            g["certificadas"] += f["hsCertificadas"]
+            g["vendidas"] += f["hsVendidas"]
+
+        for (key, anio, mes_num), g in grouped.items():
+            f = g["fact"]
             if mes_num is not None:
-                covered.add((key, f["anio"], mes_num))
-                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(f["anio"], [0.0] * 12)[mes_num - 1])
+                covered.add((key, anio, mes_num))
+                trabajadas = _round2(trab_by_proyecto.get(key, {}).get(anio, [0.0] * 12)[mes_num - 1])
             else:
                 trabajadas = 0.0
-            certificadas = _round2(f["hsCertificadas"])
+            certificadas = _round2(g["certificadas"])
             rows.append({
                 "cliente": f["cliente"],
                 "cp": f["clientPartner"],
@@ -552,19 +638,24 @@ class ReportingService:
                 "diff": _round2(certificadas - trabajadas),
                 "trabajadas": trabajadas,
                 "certificadas": certificadas,
-                "vendidasMensuales": _round2(f["hsVendidas"]),
+                "vendidasMensuales": _round2(g["vendidas"]),
                 # Source-faithful: Mantenimiento no usa el XLSX (facturadas == certificadas).
                 "facturadas": certificadas,
                 "status": f["estado"],
-                "fecha": _fecha_primer_dia(f["anio"], f["mes"]),
+                "fecha": _fecha_primer_dia(anio, f["mes"]),
                 # UX1 (owner live QA): Año/Mes reemplazan Desde/Hasta como
-                # filtro de Mantenimiento — grano MENSUAL real de la fuente
-                # (Horas por proyectos es proyecto×mes). `mes` normalizado a
-                # string "1".."12" (mismo índice+1 que el resto de la app,
-                # ver `_month_num`) para matchear el <select> del frontend
-                # (valores HTML siempre son string); fila con mes no
-                # parseable ⇒ "" (nunca inventa un mes).
-                "anio": f["anio"],
+                # filtro de Mantenimiento — grano MENSUAL. Un comentario previo
+                # afirmaba acá que "Horas por proyectos es proyecto×mes": la
+                # data real lo desmiente (puede traer N filas para el mismo
+                # proyecto×mes), y creerlo fue justo lo que produjo el fan-out
+                # que corrige el bloque de arriba. El grano proyecto×año×mes es
+                # el de la SALIDA, garantizado por el agrupamiento, no una
+                # propiedad de la fuente. `mes` normalizado a string "1".."12"
+                # (mismo índice+1 que el resto de la app, ver `_month_num`)
+                # para matchear el <select> del frontend (valores HTML siempre
+                # son string); fila con mes no parseable ⇒ "" (nunca inventa
+                # un mes).
+                "anio": anio,
                 "mes": str(mes_num) if mes_num is not None else "",
             })
 
@@ -605,12 +696,56 @@ class ReportingService:
 
     # --- Proyecto: agrega sobre la vida del proyecto, facturadas = XLSX -------
 
-    def _proyecto_rows(self, facts: list[dict]) -> list[dict]:
+    def _proyecto_rows(
+        self, facts: list[dict], trab_by_proyecto: dict[str, dict[str, list[float]]] | None = None,
+        project_dim: dict[str, dict] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """Perspectiva Proyecto — grano LIFETIME/PROJECT-LEVEL (owner decision
+        OPTION A): UNA fila por proyecto, medidas acumuladas sobre toda su
+        vida. Deliberadamente SIN `anio`/`mes` en la salida y sin filtros de
+        período: `anioInicio` decide qué proyectos entran, nunca qué horas se
+        suman. La UI ya lo declara ("Hs Trabajadas Acum").
+
+        CANONICAL SOURCE: `trabajadas` = suma de TODOS los años de
+        `trab_by_proyecto` (Time Logs, vía `_trab_by_proyecto_by_year` — el
+        MISMO helper y el MISMO join `_norm_key(proyecto)` que Mantenimiento y
+        Rentabilidad). Se lee UNA sola vez por grupo, fuera del loop de facts:
+        N filas de "Horas por proyectos" para el mismo proyecto NO pueden
+        multiplicar el total (mismo defecto que se corrigió en
+        `_mantenimiento_rows`, prevenido acá por construcción).
+
+        CLAVE = `_norm_key(proyecto)`, ya no `idProyecto`. No es cosmético:
+        Time Logs sólo trae el NOMBRE del proyecto, nunca `idProyecto`, así que
+        agrupar por id y buscar horas por nombre le daría a cada proyecto
+        homónimo el total COMPLETO. El costo aceptado es el mismo que las otras
+        dos vistas ya asumen (es el join del PBIP): dos proyectos SharePoint
+        con el mismo nombre normalizado colapsan en una fila. `idProyecto`
+        sigue viajando en la fila como identidad.
+
+        `certificadas`/`vendidas` siguen siendo aditivas por fila de origen
+        (cada fila mensual aporta las suyas) — se suman, no se descartan.
+        `facturadas` es un TOTAL por proyecto del XLSX: se toma UNA vez.
+
+        `trab_by_proyecto=None`/`project_dim=None` preservan el contrato
+        RETROCOMPATIBLE exacto para callers viejos (`get_cartera`, tests que
+        ejercitan sólo el camino SharePoint): sin Time Logs `trabajadas` queda
+        en 0.0 — la MISMA semántica de ausencia del resto del método, nunca el
+        campo manual de vuelta.
+
+        Retorna `(rows, unmatched)` — `unmatched`: keys de Time Logs que no
+        resuelven contra `project_dim`. NUNCA se les fabrica Cliente/CP/Estado;
+        se devuelven aparte para diagnóstico, nunca se pierden en silencio."""
+        trab = trab_by_proyecto or {}
+
+        def _lifetime(key: str) -> float:
+            """Total de vida: todos los años, todos los meses, UNA vez."""
+            return sum(sum(monthly) for monthly in trab.get(key, {}).values())
+
         groups: dict[str, dict] = {}
         for f in facts:
             if f.get("tipoProyecto") == "Mantenimiento":
                 continue
-            key = f.get("idProyecto") or f.get("proyecto")
+            key = _norm_key(f.get("proyecto"))
             if not key:
                 continue
             g = groups.get(key)
@@ -619,19 +754,41 @@ class ReportingService:
                     "cliente": f["cliente"], "cp": f["clientPartner"],
                     "idProyecto": f["idProyecto"], "proyecto": f["proyecto"],
                     "status": f["estado"], "anioInicio": f["anioInicio"],
-                    "trabajadas": 0.0, "certificadas": 0.0, "vendidas": 0.0,
+                    "certificadas": 0.0, "vendidas": 0.0,
                     # facturadas es un TOTAL por proyecto (XLSX); NO se re-suma
                     # por mes — se toma una vez (idéntico en cada fact del proyecto).
                     "facturadas": _round2(f.get("facturadasProyecto", 0.0)),
                 }
                 groups[key] = g
-            g["trabajadas"] += f["hsTrabajadas"]
             g["certificadas"] += f["hsCertificadas"]
             g["vendidas"] += f["hsVendidas"]
 
+        # UNION: un proyecto que sólo existe en Time Logs pero resuelve contra
+        # `project_dim` aparece igual — MISMO criterio que `_mantenimiento_rows`.
+        # Sin fila de SharePoint, certificadas/vendidas/facturadas quedan en 0.0
+        # (semántica de ausencia, nunca un valor inventado).
+        unmatched: list[dict] = []
+        for key in trab:
+            if key in groups:
+                continue
+            if _lifetime(key) <= 0:
+                continue
+            dim = (project_dim or {}).get(key)
+            if dim is None:
+                unmatched.append({"proyectoKey": key, "horas": _round2(_lifetime(key))})
+                continue
+            if dim["tipoProyecto"] == "Mantenimiento":
+                continue
+            groups[key] = {
+                "cliente": dim["cliente"], "cp": dim["clientPartner"],
+                "idProyecto": dim["idProyecto"], "proyecto": dim["proyecto"],
+                "status": dim["estado"], "anioInicio": dim["anioInicio"],
+                "certificadas": 0.0, "vendidas": 0.0, "facturadas": 0.0,
+            }
+
         rows = []
-        for g in groups.values():
-            trabajadas = _round2(g["trabajadas"])
+        for key, g in groups.items():
+            trabajadas = _round2(_lifetime(key))
             certificadas = _round2(g["certificadas"])
             rows.append({
                 "cliente": g["cliente"], "cp": g["cp"],
@@ -644,7 +801,7 @@ class ReportingService:
                 "status": g["status"],
                 "anioInicio": g["anioInicio"],
             })
-        return rows
+        return rows, unmatched
 
     # --- Batch B: Rentabilidad (Resumen / Certificadas vs Ejecutadas) -------
     # Ejecutadas/Trabajadas verificado con evidencia PRIMARIA del PBIP
@@ -803,8 +960,14 @@ class ReportingService:
         (`webapp/routers/reporting.py`) no se toca."""
         hot_years = anios if anios is not None else self._default_hot_years()
         with ThreadPoolExecutor(max_workers=2) as executor:
+            # UNIVERSE SYMMETRY corrective: `..._with_project_dimension` en vez
+            # de `get_cartera_facts` — MISMO fetch, CERO llamadas Graph nuevas
+            # (devuelve además la dimensión de Proyectos que ese método ya leyó
+            # para armar los facts; ver reporting_repository.py). Es el MISMO
+            # helper que Cartera/Mantenimiento ya usa, no un loader nuevo.
             cartera_future = executor.submit(
-                self._repository.get_cartera_facts, access_token, include_facturadas=False, hot_years=hot_years,
+                self._repository.get_cartera_facts_with_project_dimension,
+                access_token, include_facturadas=False, hot_years=hot_years,
             )
             time_logs_future = executor.submit(
                 self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
@@ -812,7 +975,7 @@ class ReportingService:
             # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
             # — Cartera SIEMPRE se observa antes que Time Logs, nunca
             # "el que termine primero".
-            cartera_facts = cartera_future.result()
+            cartera_facts, project_dim = cartera_future.result()
             time_logs = time_logs_future.result()
 
         # Grano POR-AÑO (migración Año/Mes/Estado, HANDOFF §-16 #8): Ene-2025 y
@@ -855,6 +1018,52 @@ class ReportingService:
         # DECISION) — MISMA función, nunca dos implementaciones del mismo
         # join que puedan divergir.
         trab_by_proyecto = _trab_by_proyecto_by_year(time_logs)
+
+        # UNIVERSE SYMMETRY corrective (owner live proof, agosto 2026): el
+        # universo de proyectos de Rentabilidad era SOLO `cert_by_proyecto`, o
+        # sea las filas de "Horas por proyectos". Cartera/Mantenimiento, desde
+        # el UNION GRAIN corrective, descubre proyectos por Time Logs +
+        # `project_dim` (Proyectos) aunque no exista fila en "Horas por
+        # proyectos" — así que un proyecto con horas reales y mapping válido
+        # aparecía en Cartera y DESAPARECÍA de Rentabilidad. Medido en vivo:
+        # "Tenaris — Servicio Estratégico SAP BDC", 14,5 h presentes en Cartera
+        # y 0 en Rentabilidad.
+        #
+        # El universo ahora es la UNIÓN: `cert_by_proyecto` ∪ proyectos de Time
+        # Logs que resuelven contra `project_dim`. Las dimensiones (proyecto/
+        # cliente/CP/tipo/estado) salen de `project_dim` — NUNCA se inventan.
+        # `certByYear`/`vendByYear` quedan vacíos: es la MISMA semántica de
+        # ausencia que ya usa `_mantenimiento_rows` (0.0 / fail-soft), no un
+        # valor SharePoint fabricado. `tipo` viene de la dimensión, así que
+        # Mantenimiento vs Proyecto se preserva y el facet sigue funcionando.
+        #
+        # `trab_by_proyecto` ya excluye los 2 placeholder de "No asignadas"
+        # (ver `_trab_by_proyecto_by_year`), así que nunca entran acá — siguen
+        # siendo su propia fila de portfolio.
+        #
+        # Un proyecto de Time Logs SIN mapping en `project_dim` NO se inventa:
+        # queda como información de calidad de dato (log), igual criterio que
+        # `unmatched` en Cartera. Hacerlo visible es trabajo de observabilidad
+        # aparte, deliberadamente fuera de este corrective.
+        rentabilidad_unmatched: list[str] = []
+        for key in trab_by_proyecto:
+            if key in cert_by_proyecto:
+                continue
+            dim = project_dim.get(key)
+            if dim is None:
+                rentabilidad_unmatched.append(key)
+                continue
+            cert_by_proyecto[key] = {
+                "proyecto": dim["proyecto"], "cliente": dim["cliente"], "cp": dim["clientPartner"],
+                "tipo": dim["tipoProyecto"], "estado": dim.get("estado", ""),
+                "certByYear": {}, "vendByYear": {}, "facts": [],
+            }
+        if rentabilidad_unmatched:
+            _logger.info(
+                "reporting.rentabilidad unmatched_time_logs_projects=%d keys=%s",
+                len(rentabilidad_unmatched), rentabilidad_unmatched[:10],
+            )
+
         no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
             anio = tl.get("anio")

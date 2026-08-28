@@ -532,10 +532,12 @@ def test_service_get_cartera_proyecto_never_receives_hot_years():
 def test_service_get_cartera_combo_never_receives_hot_years(monkeypatch):
     # `get_cartera()` (retrocompat combo) sigue SIN acotar "Horas por
     # proyectos" — Proyecto necesita la vida completa, mismo criterio de
-    # siempre. SHARED LOADER CONSUMERS audit (owner 2026-08-18): Time Logs
-    # YA NO hereda ese mismo "sin acotar" — combo nunca debe quedar con
-    # None=all-history silencioso, usa el MISMO default contextual (año
-    # calendario actual) que `get_cartera_mantenimiento`.
+    # siempre. Y desde OPTION A (owner decision) Time Logs TAMPOCO se acota
+    # acá: la mitad Proyecto ahora deriva `trabajadas` de Time Logs con grano
+    # de VIDA, así que un scope contextual daría un "total de por vida" de un
+    # solo año. El default contextual sigue siendo de
+    # `get_cartera_mantenimiento` (ver su propio test más arriba), donde es una
+    # decisión de PERFORMANCE: Mantenimiento filtra por Año/Mes de todos modos.
     class _FixedDatetime:
         @staticmethod
         def now():
@@ -547,7 +549,7 @@ def test_service_get_cartera_combo_never_receives_hot_years(monkeypatch):
     repo = _HotYearsRecordingRepo()
     ReportingService(repo).get_cartera("tok")
     assert repo.calls[-1]["hot_years"] is None
-    assert repo.time_logs_calls[-1] == ["2026"]
+    assert repo.time_logs_calls[-1] is None      # vida completa, no un solo año
 
 
 # --- Service: derivaciones + shaping -----------------------------------------
@@ -639,9 +641,16 @@ def test_service_proyecto_aggregates_over_months_facturadas_not_resummed():
     assert out["mantenimiento"] == []
     assert len(out["proyecto"]) == 1
     p = out["proyecto"][0]
-    assert p["trabajadas"] == 340 and p["certificadas"] == 322 and p["vendidas"] == 360
+    # `certificadas`/`vendidas` SIGUEN agregando por mes de la fuente.
+    assert p["certificadas"] == 322 and p["vendidas"] == 360
     assert p["facturadas"] == 290                # XLSX total, NUNCA re-sumado por mes
-    assert p["diff"] == -18                       # 322 - 340
+    # `trabajadas` YA NO sale del campo manual `hsTrabajadas` (200+140=340):
+    # su autoridad es Time Logs (OPTION A). Este fixture no aporta Time Logs,
+    # así que el resultado correcto es 0.0 — semántica de ausencia, nunca el
+    # campo manual de vuelta. La reconciliación real con Time Logs vive en
+    # test_reporting_cartera_union_grain.py.
+    assert p["trabajadas"] == 0.0
+    assert p["diff"] == 322                       # 322 - 0
     assert p["idProyecto"] == "DAN-1042" and p["anioInicio"] == "2026"
 
 
@@ -904,7 +913,12 @@ _TOOLS_CSS = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools
 
 def test_cartera_fetches_the_backend_endpoint():
     assert '"/operaciones/reporting/integral/data/cartera"' in _REPORTING_JS
-    assert 'sessionStorage.getItem("dw-graph-token")' in _REPORTING_JS
+    # El token ya no se lee del storage acá: lo resuelve la autoridad
+    # compartida del Hub (`dwGraphToken`, hub_auth.js). Lo que este test
+    # sigue afirmando es lo mismo de antes —que Cartera manda un token con
+    # su request—, ahora contra el contrato correcto.
+    assert "await dwGraphToken()" in _REPORTING_JS
+    assert "dw-graph-token" not in _REPORTING_JS  # nunca vuelve a poseerlo
 
 
 def test_cartera_populates_existing_arrays_in_place_not_reassign():
@@ -1221,9 +1235,11 @@ def test_cartera_diff_hs_kpi_recomputes_from_filtered_leaf_rows_not_double_forma
     # STANDARDIZATION CORRECTIVE — el formateo es responsabilidad EXCLUSIVA
     # del primitivo, nunca del call site, ver
     # test_reporting_kpi_primitive.py).
-    tiles_fn = _REPORTING_JS[_REPORTING_JS.index("function carteraKpiTiles"):_REPORTING_JS.index("function carteraKpiTiles") + 1100]
+    # Delimitado por el CIERRE real de la función, no por un largo mágico: un
+    # comentario nuevo adentro corría el call site fuera de la ventana fija.
+    tiles_fn = _REPORTING_JS.split("function carteraKpiTiles", 1)[1].split("\n}", 1)[0]
     assert 'const value = k.key === "diff" ? sumField("diff")(rows) : col.rollup(rows);' in tiles_fn
-    assert 'renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours" })' in tiles_fn
+    assert 'renderDashboardKpi({ label: k.label, value, format: k.key === "diff" ? "signed" : "hours", info })' in tiles_fn
     # Patrón viejo (formateo inline en el call site) no debe quedar.
     assert "fmtNum(sumField(" not in tiles_fn
     assert "fmtNum(col.rollup(rows)" not in tiles_fn

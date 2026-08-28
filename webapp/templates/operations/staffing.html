@@ -37,7 +37,7 @@
     <div id="staffing-rows"
          hx-post="/operaciones/staffing/asignaciones/data"
          hx-trigger="load"
-         hx-vals='js:{graph_token: sessionStorage.getItem("dw-graph-token") || ""}'
+         data-dw-graph-token
          hx-target="this"
          hx-swap="innerHTML">
       <p class="section-analysis-loading"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Cargando asignaciones…</span></p>

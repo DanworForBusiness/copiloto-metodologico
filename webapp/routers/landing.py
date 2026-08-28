@@ -33,6 +33,7 @@ from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access
 from webapp.nav import home_url, login_redirect
 from webapp.presentation.invite import INVITE_COOKIE
+from webapp.safe_redirect import safe_internal_next
 from webapp.services import auth_service
 from webapp.services.content_service import list_academy
 from webapp.templating import templates
@@ -74,7 +75,7 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
     # `next` viaja desde login_redirect cuando el visitante venía de un link directo
     # (p. ej. Academy) sin sesión: solo se acepta un path propio, relativo, para
     # evitar un open-redirect a un host externo.
-    safe_next = next if next.startswith("/") and not next.startswith("//") else ""
+    safe_next = safe_internal_next(next)
     if auth_service.session_user(request):
         return RedirectResponse(safe_next or default_home, status_code=307)
     home_url = safe_next or default_home

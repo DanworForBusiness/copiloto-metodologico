@@ -22,6 +22,7 @@ from config import (
     AUTH_DEFAULT_DOMAIN,
     AZURE_CLIENT_ID,
     AZURE_TENANT_ID,
+    COMMERCIAL_ALLOWED_USERS,
     OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
     SESSION_SECRET,
@@ -122,6 +123,29 @@ def is_operations_user(email: str) -> bool:
     if not email:
         return False
     return email in _operations_set()
+
+
+def _commercial_set() -> set[str]:
+    """Allowlist EXPLÍCITA y PROVISORIA de Comercial — MISMO contrato que
+    `_operations_set()` (ver ese docstring): SIEMPRE devuelve un `set[str]`
+    concreto, nunca `None`, y el literal "ALL" queda rechazado — Comercial
+    NUNCA puede abrirse a "todos" por accidente de reuso del parser
+    compartido ni por configurar `COMMERCIAL_ALLOWED_USERS=ALL`."""
+    result = _csv_users(COMMERCIAL_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_commercial_user(email: str) -> bool:
+    """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
+    está en `COMMERCIAL_ALLOWED_USERS`. Deliberadamente ORTOGONAL a
+    `user_tier`/`is_authorized` — MISMO criterio que `is_operations_user` (ver
+    ese docstring): un caller debe seguir exigiendo `is_authorized(email)`
+    por separado (ver `webapp.commercial_access.is_commercial_authorized_user`).
+    Nunca "todos" — ver `_commercial_set()`."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _commercial_set()
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────
