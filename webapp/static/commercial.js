@@ -3732,15 +3732,24 @@ function commercialClientesStatsHtml() {
       ${commercialKpi("Sólo prospectos (0)", commercialFmtInt(onlyProspect))}
     </div>`;
 }
-function commercialClienteOppRowHtml(o) {
+// Owner corrective (ver HANDOFF): la fila padre (cliente) trae DOS
+// columnas — Activas/Prospectos — así que el detalle expandido las
+// espeja, en vez de un separador de fila de texto ("Activas — etapas
+// 1–8 (N)") para distinguir el grupo. Cada oportunidad cae en UNA sola
+// columna (nunca ambas — `kind` viene del propio bucket de origen,
+// `c.active`/`c.prospects`, mutuamente excluyentes) y la otra queda "—",
+// MISMO criterio "—" que ya usa la fila padre para el bucket vacío.
+function commercialClienteOppRowHtml(o, kind) {
   const prob = o.probability != null ? commercialFmtPercent(o.probability) : "—";
   const horas = o.hours ? `${commercialFmtInt(o.hours)} hs` : "—";
+  const val = `${prob} · ${horas}`;
   return `
     <tr>
       <td class="row-label">${commercialEsc(o.opportunity)}</td>
       <td class="left">${commercialEsc(o.seller) || "—"}</td>
       <td class="left">${commercialEsc(o.stage)}</td>
-      <td>${prob} · ${horas}</td>
+      <td>${kind === "active" ? val : "—"}</td>
+      <td>${kind === "prospect" ? val : "—"}</td>
     </tr>`;
 }
 function commercialClientesTableHtml(rows) {
@@ -3769,18 +3778,14 @@ function commercialClientesTableHtml(rows) {
       ? `data-commercial-clientes-toggle="${c.id}" role="button" tabindex="0" class="commercial-leads-company-row"` : "";
     let inner = "";
     if (isOpen) {
-      const activeRows = c.active.length
-        ? `<tr class="is-total"><td colspan="4">Activas — etapas 1–8 (${c.active.length})</td></tr>`
-          + c.active.map(commercialClienteOppRowHtml).join("") : "";
-      const prospectRows = c.prospects.length
-        ? `<tr class="is-total"><td colspan="4">Prospectos — etapa 0 (${c.prospects.length})</td></tr>`
-          + c.prospects.map(commercialClienteOppRowHtml).join("") : "";
+      const rows = c.active.map(o => commercialClienteOppRowHtml(o, "active")).join("")
+        + c.prospects.map(o => commercialClienteOppRowHtml(o, "prospect")).join("");
       inner = `
         <tr class="is-total"><td></td><td colspan="3">
           <div class="matrix-scroll"><table class="dashboard-table commercial-leads-inner">
             <thead><tr><th class="row-label-col">Oportunidad</th><th class="left">Vendedor</th>
-              <th class="left">Etapa</th><th>Prob. · Hs</th></tr></thead>
-            <tbody>${activeRows}${prospectRows}</tbody>
+              <th class="left">Etapa</th><th>Activas</th><th>Prospectos</th></tr></thead>
+            <tbody>${rows}</tbody>
           </table></div>
         </td></tr>`;
     }
