@@ -922,9 +922,11 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    necesidad exacta, nunca una clase por tab). */
 .commercial-bucket1-panel > .whatsnew-filters { margin-top: 10px; }
 
-/* Bucket 2 — Leads/Clientes/Ex Clientes (ver HANDOFF): stats mini (3
-   tiles), MISMA compactación que ya define `.commercial-lc-kpis` para
-   Conversión de Leads — reusado tal cual, cero regla nueva.
+/* Bucket 2 — Leads/Clientes/Ex Clientes (ver HANDOFF): stats con tiles de
+   tamaño NORMAL (`.activity-kpi-grid` sin el modificador `.commercial-lc-kpis`
+   de Conversión de Leads — owner corrective: esas tres vistas no tienen el
+   volumen de tiles de Conversión de Leads, así que no necesitan su
+   compactación, MISMO tamaño que el Resumen del Dashboard).
    `.commercial-leads-chevron`/`.commercial-leads-company-row` — fila de
    empresa/cliente expandible (Leads/Clientes), MISMO mecanismo que
    Creadas (array de claves abiertas) pero con su propia fila clickeable:

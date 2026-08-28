@@ -3623,7 +3623,7 @@ function commercialLeadsStatsHtml() {
   if (!data) return "";
   const noCompany = (data.companies || []).filter(c => c.name === "Sin empresa")
     .reduce((s, c) => s + c.leads.length, 0);
-  return `<div class="activity-kpi-grid commercial-lc-kpis">
+  return `<div class="activity-kpi-grid">
       ${commercialKpi("Total leads", commercialFmtInt(data.total_leads))}
       ${commercialKpi("Empresas", commercialFmtInt(data.total_companies))}
       ${commercialKpi("Sin empresa", commercialFmtInt(noCompany))}
@@ -3726,7 +3726,7 @@ function commercialClientesStatsHtml() {
   const rows = commercialClientesAllRows();
   const withActive = rows.filter(c => c.active.length > 0).length;
   const onlyProspect = rows.filter(c => c.active.length === 0 && c.prospects.length > 0).length;
-  return `<div class="activity-kpi-grid commercial-lc-kpis">
+  return `<div class="activity-kpi-grid">
       ${commercialKpi("Total clientes", commercialFmtInt(rows.length))}
       ${commercialKpi("Con activas (1–8)", commercialFmtInt(withActive))}
       ${commercialKpi("Sólo prospectos (0)", commercialFmtInt(onlyProspect))}
@@ -3843,7 +3843,7 @@ function commercialExClientesClearFilters() {
 function commercialExClientesStatsHtml() {
   const rows = commercialExClientesAllRows();
   const withHistory = rows.filter(c => (c.active.length + c.prospects.length + (c.history || []).length) > 0).length;
-  return `<div class="activity-kpi-grid commercial-lc-kpis">
+  return `<div class="activity-kpi-grid">
       ${commercialKpi("Total ex clientes", commercialFmtInt(rows.length))}
       ${commercialKpi("Con historial de oportunidades", commercialFmtInt(withHistory))}
     </div>`;
