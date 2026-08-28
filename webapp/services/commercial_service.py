@@ -975,6 +975,210 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
+    # ── Detalle de Oportunidades (Bucket 1, ver HANDOFF) ─────────────────────
+    # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — recuperado
+    # de `crm-comercial`/`backend/routers/crm.py::get_relevamiento`, llamado
+    # por el legacy tab "Detalle Oportunidades" con `stage_ids=<0-8>` (TODAS
+    # las etapas cuyo nombre matchea `/^[0-8]/`, previa consulta a
+    # `/crm/stages`) — EL MISMO universo "0-8" que ya usa Forecast acá arriba
+    # (`_build_forecast`, ver su propio comentario: "Forecast agrupa... sobre
+    # TODO el pipeline, prospectos incluidos" — semántica legacy INTENCIONAL,
+    # no un bug, y NO la de Activas — que es sólo 1-8, `_build_opportunities`
+    # — así que se reusa el MISMO patrón de filtro de `_build_forecast`, no
+    # el de Activas). `active=True` explícito, MISMO criterio que
+    # Activas/Prospectos/Suspendidas — excluye Perdidas (`active=False`) a
+    # propósito: el legacy nunca las trae acá (`get_relevamiento` siempre
+    # tiene `active=True` en su dominio, sea cual sea la rama de stage_id/
+    # stage_ids), Perdidas vive en su propio universo (Historial Perdidas,
+    # ver más abajo).
+    #
+    # LICENCIAS (ver HANDOFF §3/§4) — auditado línea por línea contra
+    # `frontend/js/dashboard.js::fetchAllActiveOpps/loadLicenciasTab`: pide
+    # `/crm/relevamiento?stage_id=0&tag_id=...` (sentinel "sin stage_id" —
+    # `stage_id=0` no filtra por la etapa 0, cae al branch `else` del backend
+    # que trae TODO el 0-8 sin restricción) y filtra CLIENT-SIDE
+    # `.filter(o => o.licencias === "Si")`. Es decir: Licencias y Detalle
+    # Oportunidades usan el MISMO endpoint/dominio en el legacy — la única
+    # diferencia es un filtro posterior, nunca una consulta separada. Por
+    # eso comparten ESTE MISMO método/endpoint acá — no porque se haya
+    # decidido fusionarlos por conveniencia, sino porque el propio legacy ya
+    # los trata como la MISMA fuente. La hipótesis "Licencias incluye
+    # Perdidas" NO se sostiene: `get_relevamiento` siempre exige
+    # `active=True`, sea cual sea la rama de stage — así que Licencias NUNCA
+    # incluyó oportunidades perdidas en el legacy alcanzable.
+    #
+    # Fila = MISMA fórmula que `_build_suspendidas_detail`/`_build_opportunities`
+    # (Hs Pond./Últ. Resp./Días resp./actividades, ya auditadas y en
+    # producción) — CON "stage"/"tags" (multi-etapa genuino, MISMO criterio
+    # que Suspendidas) y SIN "source"/"revenue": el legacy `renderTable`
+    # (compartido por Licencias Y Detalle en el propio `dashboard.js`) nunca
+    # imprime esas dos columnas para este contrato — no son un dead field
+    # accidental, es que el contrato real no las tiene.
+    def _build_opportunities_detail(self) -> dict:
+        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
+        stage_ids = [s["id"] for s in all_stages if _stage_first_char(s) in "012345678"]
+        if not stage_ids:
+            return {tipo: {"opportunities": [], "total": 0} for tipo in _TIPOS}
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", stage_ids]],
+            fields=["name", "partner_id", "user_id", "stage_id", "tag_ids",
+                     "probability", "priority", "lead_properties"],
+        )
+        opp_ids = [o["id"] for o in opps]
+        acts_by_opp: dict[int, list] = {}
+        if opp_ids:
+            activities = self._client.search_read(
+                "mail.activity",
+                domain=[["res_model", "=", "crm.lead"], ["res_id", "in", opp_ids]],
+                fields=["res_id", "date_deadline", "activity_type_id", "summary"],
+                order="date_deadline asc",
+            )
+            for act in activities:
+                acts_by_opp.setdefault(act["res_id"], []).append({
+                    "type": act["activity_type_id"][1] if act.get("activity_type_id") else "",
+                    "summary": act.get("summary") or "",
+                    "deadline": iso_deadline(act.get("date_deadline")),
+                })
+
+        all_tag_ids = {tid for o in opps for tid in (o.get("tag_ids") or [])}
+        tag_names: dict[int, str] = {}
+        if all_tag_ids:
+            tags = self._client.search_read("crm.tag", [["id", "in", list(all_tag_ids)]], fields=["id", "name"])
+            tag_names = {t["id"]: t["name"] for t in tags}
+
+        today = date.today()
+
+        def _row(opp: dict) -> dict:
+            props = opp.get("lead_properties") or []
+            hours_raw = get_property_num(props, "Horas")
+            weighted_hours = round((opp.get("probability", 0) or 0) / 100 * hours_raw, 1)
+            last_response = _get_property_date(props, _PROP_ULTIMA_RESPUESTA)
+            days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
+                "tags": [tag_names[tid] for tid in (opp.get("tag_ids") or []) if tid in tag_names],
+                "licencias": _get_prop_label(props, "Licencias"),
+                "hours": hours_raw,
+                "weighted_hours": weighted_hours,
+                "probability": opp.get("probability"),
+                "priority": opp.get("priority") or "0",
+                "activities": acts_by_opp.get(opp["id"], []),
+                "last_response": last_response,
+                "days_elapsed": days_elapsed,
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_opportunities_detail(self, tipo: str = "todos") -> dict:
+        """Universo canónico compartido por "Detalle Oportunidades" Y
+        "Licencias" (ver comentario de `_build_opportunities_detail` — el
+        legacy ya los trata como la MISMA fuente, filtrada distinto en cada
+        tab). UN solo endpoint/cache — Licencias filtra `licencias === "Si"`
+        client-side, cero fetch propio."""
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:opportunities-detail", self._build_opportunities_detail)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Historial de Perdidas (Bucket 1, ver HANDOFF) ────────────────────────
+    # Universo: `type=opportunity, active=False, probability=0` — MISMO
+    # dominio crudo que ya usan `_build_summary`/`_build_perdidas_detail`
+    # para Perdidas — recuperado de `crm-comercial`/
+    # `backend/routers/crm.py::get_lost_history`. Reusa LITERAL
+    # `_resolve_lost_motivos`/`_filter_excluded_lost` (nunca una segunda
+    # implementación del cascade de motivo ni de la exclusión administrativa
+    # — eso rompería la conservación KPI↔Historial en silencio).
+    #
+    # DIFERENCIA DELIBERADA con `_build_perdidas_detail` (preservada a
+    # propósito, ver HANDOFF §5): ESE método filtra `date_closed` en el
+    # DOMINIO de Odoo (`>= year_start, <= year_end`) porque es año-scoped por
+    # diseño (un año a la vez, con cache propio). Historial necesita
+    # exactamente lo opuesto — TODOS los años a la vez, MENOS el actual — y
+    # el legacy es explícito sobre por qué eso exige traer TODO sin filtro
+    # de fecha y resolver el año en Python: los operadores de comparación de
+    # fecha de Odoo EXCLUYEN silenciosamente los registros con
+    # `date_closed` nulo/False, así que un dominio con `>=`/`<=` perdería
+    # esas filas para siempre. Se preserva ese comportamiento 1:1: sin
+    # cláusula de fecha en el dominio, exclusión de año actual en Python, y
+    # "Sin fecha" es un bucket de historial VÁLIDO (nunca se descarta).
+    #
+    # Fila: SIN "stage"/"revenue" — MISMO criterio "sin dead fields" que ya
+    # aplica `_build_perdidas_detail` (ninguna de las dos existe en el
+    # contrato real que el legacy `renderLostHistoryTable` imprime).
+    def _build_lost_history(self) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        lost_raw = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", False], ["probability", "=", 0]],
+            fields=["name", "partner_id", "user_id", "date_closed", "lead_properties", "tag_ids"],
+        )
+
+        current_year = date.today().year
+
+        def _is_history(opp: dict) -> bool:
+            dc = (opp.get("date_closed") or "")[:4]
+            if dc.isdigit() and int(dc) >= current_year:
+                return False  # año actual → vive en el dashboard principal (Perdidas)
+            return True  # sin fecha, o año anterior → historial
+
+        lost_raw = [o for o in lost_raw if _is_history(o)]
+
+        lost_motivos = self._resolve_lost_motivos(lost_raw)
+        opps = self._filter_excluded_lost(lost_raw, lost_motivos)
+
+        def _row(opp: dict) -> dict:
+            dc = (opp.get("date_closed") or "")[:10]
+            return {
+                "opportunity": opp.get("name") or "",
+                "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "seller": opp["user_id"][1] if opp.get("user_id") else "",
+                "date_closed": dc,
+                "year": dc[:4] if dc else "Sin fecha",
+                "motivo": lost_motivos.get(opp["id"]) or "Sin definir",
+                "hours": get_property_num(opp.get("lead_properties"), "Horas") or None,
+            }
+
+        def _partition(subset: list) -> dict:
+            return {"opportunities": [_row(o) for o in subset], "total": len(subset)}
+
+        return {
+            "todos": _partition(opps),
+            "nn": _partition([o for o in opps if self._in_tag(o, nn_id)]),
+            "bi": _partition([o for o in opps if self._in_tag(o, bi_id)]),
+        }
+
+    def get_lost_history(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:lost-history", self._build_lost_history)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
     # ── Forecast (Pipeline Total/Ponderado por mes) — Active Opportunities
     # Phase 2, C2 ──────────────────────────────────────────────────────────
     # Universo: stages 0-8 (`_stage_first_char in "012345678"`) — el MISMO

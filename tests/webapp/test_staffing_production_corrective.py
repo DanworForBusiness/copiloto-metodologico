@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_108():
+def test_15_route_surface_still_116():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -605,6 +605,19 @@ def test_15_route_surface_still_108():
     #     `type`), paridad ACOTADA con el legacy `/lead-conversion` (sin el
     #     árbol UTM/atribución de marketing — ver HANDOFF, brecha
     #     intencional). Ambos LAZY, read-only, mismo contrato fail-soft.
+    #   114 -> 116 (Commercial Table Tabs -- Bucket 1: Licencias/Historial
+    #     Perdidas/Detalle Oportunidades, ver HANDOFF): +2 GET.
+    #     `/comercial/data/opportunities-detail` -- universo canonico stages
+    #     0-8 (MISMO que Forecast), active=True; sirve TANTO "Detalle
+    #     Oportunidades" COMO "Licencias" (el legacy ya trata a las dos tabs
+    #     como la MISMA fuente/endpoint, filtrada `licencias === "Si"`
+    #     client-side -- cero request adicional por Licencias).
+    #     `/comercial/data/lost-history` -- universo canonico
+    #     `type=opportunity, active=False, probability=0`, TODOS los anios
+    #     salvo el actual (que vive en el KPI "Perdidas" ya cerrado) + "Sin
+    #     fecha", reusando LITERAL `_resolve_lost_motivos`/
+    #     `_filter_excluded_lost` (nunca una segunda definicion de Perdidas).
+    #     Ambos LAZY, read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -612,7 +625,7 @@ def test_15_route_surface_still_108():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 114
+    assert len(snapshot) == 116
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

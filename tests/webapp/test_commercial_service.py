@@ -15,6 +15,7 @@ Tags: 10="New Names" (NN), 11="Base Instalada" (BI).
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -27,6 +28,10 @@ from webapp.services.commercial_service import (
     get_property_num,
 )
 from webapp.services.odoo_client import OdooTransportError
+
+_COMMERCIAL_SERVICE_PY_SRC = (
+    Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_service.py"
+).read_text(encoding="utf-8")
 
 THIS_YEAR = date.today().year
 LAST_YEAR = THIS_YEAR - 1
@@ -3002,4 +3007,343 @@ def test_forecast_path_is_fail_soft_on_transport_and_config():
     unconfigured = _forecast_client(configured=False)
     with pytest.raises(CommercialConfigurationError):
         CommercialService(unconfigured).get_forecast("todos")
+    svc_module.clear_cache()
+
+
+# ============================================================================
+# Bucket 1 — Detalle Oportunidades + Licencias (`get_opportunities_detail`,
+# `GET /comercial/data/opportunities-detail`). Universo: stages 0-8
+# (`_stage_first_char in "012345678"`) — el MISMO patrón que ya usa Forecast
+# (`_build_forecast`), NUNCA el de Activas (1-8, `_build_opportunities`).
+# `active=True` explícito — excluye Perdidas SIEMPRE, sea cual sea su
+# `licencias`. Licencias en sí es un filtro CLIENT-SIDE sobre este MISMO
+# universo (ver commercial.js) — acá se prueba que el campo `licencias` de
+# cada fila resuelve correctamente, que es lo que ese filtro necesita.
+# ============================================================================
+
+OPP_DETAIL_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 3, "name": "5 Suspendido - Pausa"},
+    # Ganado CON prefijo numérico (a diferencia del fixture base STAGES) —
+    # a propósito: prueba que Ganadas SÍ entra a Detalle si su etapa está
+    # nombrada dentro de 0-8 (active=True es lo único que decide, nunca
+    # is_won).
+    {"id": 4, "name": "8 Cierre", "is_won": True},
+    # Etapa FUERA del rango 0-8 (nombre no empieza con dígito) — universo
+    # post-venta, nunca parte de Detalle Oportunidades.
+    {"id": 5, "name": "Post-Venta"},
+]
+OPP_DETAIL_TAGS = [
+    {"id": 10, "name": "New Names"},
+    {"id": 11, "name": "Base Instalada"},
+]
+
+OPP_DETAIL_LEADS = [
+    # 1) Prospecto (etapa 0), licencias=Si, NN.
+    {"id": 1, "name": "Prospecto Con Licencia", "type": "opportunity", "active": True, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [200, "Cliente A"], "user_id": [100, "Vendedor A"],
+     "probability": 10, "priority": "1",
+     "lead_properties": [_prop_horas(20), _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 2) Activa (etapa 1), licencias=No, BI, SIN vendedor/cliente/horas —
+    # prueba que ninguno de los tres rompe la fila.
+    {"id": 2, "name": "Activa Sin Licencia", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [11], "partner_id": False, "user_id": False,
+     "probability": 40, "priority": "2",
+     "lead_properties": [_prop_selection("Licencias", "no", [["si", "Si"], ["no", "No"]])]},
+    # 3) Suspendida (etapa 5), licencias=Si, CON etiquetas y DOS actividades.
+    {"id": 3, "name": "Suspendida Con Licencia", "type": "opportunity", "active": True, "stage_id": 3,
+     "tag_ids": [10, 11], "partner_id": [201, "Cliente B"], "user_id": [101, "Vendedor B"],
+     "probability": 20, "priority": "0",
+     "lead_properties": [_prop_horas(15), _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 4) Ganada (etapa "8 Cierre", is_won, active=True), licencias=Si —
+    # DEBE estar en Detalle (active=True, etapa 0-8) — prueba que Ganadas
+    # no queda afuera por ser is_won.
+    {"id": 4, "name": "Ganada Con Licencia", "type": "opportunity", "active": True, "stage_id": 4,
+     "tag_ids": [10], "partner_id": [202, "Cliente C"], "user_id": [100, "Vendedor A"],
+     "probability": 100, "priority": "3",
+     "lead_properties": [_prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 5) PERDIDA (active=False, probability=0) CON licencias=Si — la prueba
+    # CLAVE de la hipótesis del owner: Licencias/Detalle NUNCA incluyen
+    # Perdidas, sea cual sea su campo `licencias`.
+    {"id": 5, "name": "Perdida Con Licencia", "type": "opportunity", "active": False, "stage_id": 2,
+     "tag_ids": [10], "partner_id": [203, "Cliente D"], "user_id": [100, "Vendedor A"],
+     "probability": 0, "priority": "0",
+     "lead_properties": [_prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 6) Etapa fuera de 0-8 ("Post-Venta") — excluida aunque active=True.
+    {"id": 6, "name": "Post Venta Fuera De Rango", "type": "opportunity", "active": True, "stage_id": 5,
+     "tag_ids": [10], "partner_id": [204, "Cliente E"], "user_id": [100, "Vendedor A"],
+     "probability": 50, "priority": "0",
+     "lead_properties": [_prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 7) type=lead (nunca opportunity) — excluida por el filtro de tipo.
+    {"id": 7, "name": "Lead Crudo", "type": "lead", "active": True, "stage_id": 1,
+     "tag_ids": [10], "partner_id": [205, "Cliente F"], "user_id": [100, "Vendedor A"],
+     "probability": 0, "priority": "0", "lead_properties": []},
+    # 8) Sin property Licencias en absoluto — resuelve "Sin definir", no
+    # rompe ni el filtro de Licencias (que sólo matchea "Si" exacto) ni el
+    # de Detalle (que no filtra por licencias).
+    {"id": 8, "name": "Sin Propiedad Licencias", "type": "opportunity", "active": True, "stage_id": 2,
+     "tag_ids": [11], "partner_id": [206, "Cliente G"], "user_id": [101, "Vendedor B"],
+     "probability": 30, "priority": "0", "lead_properties": []},
+]
+OPP_DETAIL_ACTIVITIES = [
+    {"res_id": 3, "res_model": "crm.lead", "date_deadline": "2026-09-01",
+     "activity_type_id": [1, "Llamada"], "summary": "Primer seguimiento"},
+    {"res_id": 3, "res_model": "crm.lead", "date_deadline": "2026-09-10",
+     "activity_type_id": [2, "Reunión"], "summary": "Cierre"},
+]
+
+
+def _opp_detail_client(**kwargs):
+    return FakeOdooClient(stages=OPP_DETAIL_STAGES, tags=OPP_DETAIL_TAGS, leads=OPP_DETAIL_LEADS,
+                          activities=OPP_DETAIL_ACTIVITIES, **kwargs)
+
+
+OPP_DETAIL_VALID_NAMES = {
+    "Prospecto Con Licencia", "Activa Sin Licencia", "Suspendida Con Licencia",
+    "Ganada Con Licencia", "Sin Propiedad Licencias",
+}
+
+
+def test_opportunities_detail_universe_is_stages_0_8_active_only():
+    # El oráculo: filas renderizadas == universo canónico stages 0-8,
+    # active=True — NUNCA Perdidas (id 5), NUNCA etapas fuera de rango
+    # (id 6), NUNCA type=lead (id 7). Guard contra "Detalle = Activas +
+    # Prospectos + Suspendidas" simplificado a mano: si alguien angostara
+    # el dominio a sólo 1-8 (excluyendo Prospecto, id 1) o le sumara
+    # Perdidas por error, este set deja de calzar.
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    assert {r["opportunity"] for r in rows} == OPP_DETAIL_VALID_NAMES
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_never_includes_lost_regardless_of_licencias():
+    # La hipótesis del owner ("Licencias puede incluir Perdidas") NO se
+    # sostiene contra el legacy alcanzable: `active=True` es incondicional.
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    assert "Perdida Con Licencia" not in {r["opportunity"] for r in rows}
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_excludes_stages_outside_0_8_and_leads():
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    names = {r["opportunity"] for r in rows}
+    assert "Post Venta Fuera De Rango" not in names
+    assert "Lead Crudo" not in names
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_licencias_field_resolves_si_no_and_sin_definir():
+    # El dato que el filtro CLIENT-SIDE de Licencias necesita: "Si" exacto
+    # (nunca "si"/True/1), "No" para el resto de las respuestas resueltas,
+    # y "Sin definir" cuando la property no existe — nunca None/"".
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    by_name = {r["opportunity"]: r for r in rows}
+    assert by_name["Prospecto Con Licencia"]["licencias"] == "Si"
+    assert by_name["Activa Sin Licencia"]["licencias"] == "No"
+    assert by_name["Sin Propiedad Licencias"]["licencias"] == "Sin definir"
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_handles_missing_seller_client_and_hours():
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Activa Sin Licencia")
+    assert row["client"] == "" and row["seller"] == ""
+    assert row["hours"] == 0  # get_property_num sin property -> 0, MISMO criterio que el resto del servicio
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_carries_tags_and_multiple_activities():
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Suspendida Con Licencia")
+    assert set(row["tags"]) == {"New Names", "Base Instalada"}
+    assert len(row["activities"]) == 2
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_partitions_by_tipo_without_extra_queries():
+    svc_module.clear_cache()
+    client = _opp_detail_client()
+    service = CommercialService(client)
+    todos = service.get_opportunities_detail("todos")["opportunities"]
+    nn = service.get_opportunities_detail("nn")["opportunities"]
+    bi = service.get_opportunities_detail("bi")["opportunities"]
+    assert len(todos) == len(OPP_DETAIL_VALID_NAMES)
+    # "Suspendida Con Licencia" lleva AMBOS tags (10 y 11) — pertenece a
+    # las dos particiones a la vez, MISMO criterio no-exclusivo que el
+    # resto de Comercial (`_in_tag` es pertenencia, no partición).
+    assert {r["opportunity"] for r in nn} == {"Prospecto Con Licencia", "Suspendida Con Licencia", "Ganada Con Licencia"}
+    assert {r["opportunity"] for r in bi} == {"Activa Sin Licencia", "Suspendida Con Licencia", "Sin Propiedad Licencias"}
+    calls_after_todos = len(client.calls)
+    service.get_opportunities_detail("nn")
+    service.get_opportunities_detail("bi")
+    assert len(client.calls) == calls_after_todos
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_opportunities_detail(", 1)[1] \
+        .split("\n    def get_opportunities_detail", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    for model in ('"crm.stage"', '"crm.lead"'):
+        assert model in block, model
+
+
+def test_opportunities_detail_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    detail = CommercialService(_opp_detail_client()).get_opportunities_detail("not-a-real-tipo")
+    assert detail["total"] == len(OPP_DETAIL_VALID_NAMES)
+    svc_module.clear_cache()
+
+
+def test_opportunities_detail_configuration_and_transport_errors():
+    svc_module.clear_cache()
+    client = _opp_detail_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_opportunities_detail("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _opp_detail_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_opportunities_detail("todos")
+    svc_module.clear_cache()
+
+
+# ============================================================================
+# Bucket 1 — Historial de Perdidas (`get_lost_history`,
+# `GET /comercial/data/lost-history`). Universo: `type=opportunity,
+# active=False, probability=0` (MISMO dominio crudo que Perdidas), TODOS
+# los años SALVO el actual (que vive en el KPI/drill ya cerrado) + el
+# bucket "Sin fecha". Reusa el fixture `PERDIDAS_LEADS` (ya auditado línea
+# por línea para el KPI/drill de Perdidas) — nunca un segundo fixture
+# paralelo — y agrega DOS registros del año ANTERIOR para probar exclusión
+# administrativa/motivo sin resolver DENTRO de la ventana de historial
+# (no conflar esas dos exclusiones con la del año actual).
+# ============================================================================
+
+LOST_HISTORY_EXTRA_LEADS = [
+    # Motivo administrativo, año ANTERIOR — debe excluirse por MOTIVO, no
+    # sólo por año (prueba que la exclusión aplica también fuera del año
+    # actual).
+    {"id": 950, "name": "Historial Administrativa", "type": "opportunity", "active": False, "probability": 0,
+     "stage_id": 1, "tag_ids": [10], "partner_id": [95, "Cliente Trece"], "user_id": [55, "Vendedor Seis"],
+     "date_closed": f"{LAST_YEAR}-02-01 10:00:00", "lead_properties": [_prop_horas(50)],
+     "lost_reason_id": [501, "Cierre Administrativo"]},
+    # Sin motivo resoluble por ningún tier, año ANTERIOR — "Sin definir",
+    # PERO válida (no administrativa) — debe quedar DENTRO del historial.
+    {"id": 951, "name": "Historial Sin Motivo Definido", "type": "opportunity", "active": False, "probability": 0,
+     "stage_id": 1, "tag_ids": [11], "partner_id": [96, "Cliente Catorce"], "user_id": [55, "Vendedor Seis"],
+     "date_closed": f"{LAST_YEAR}-03-01 10:00:00", "lead_properties": [_prop_horas(8)]},
+]
+
+
+def _lost_history_client(**kwargs):
+    return FakeOdooClient(stages=PERDIDAS_STAGES, tags=PERDIDAS_TAGS,
+                          leads=PERDIDAS_LEADS + LOST_HISTORY_EXTRA_LEADS,
+                          lost_reasons=PERDIDAS_LOST_REASONS, **kwargs)
+
+
+LOST_HISTORY_VALID_NAMES = {
+    "Perdida Año Pasado", "Perdida Sin Fecha", "Historial Sin Motivo Definido",
+}
+
+
+def test_lost_history_excludes_current_year_includes_prior_years_and_no_date():
+    # El oráculo: universo canónico = Perdidas válidas de negocio (post
+    # exclusión administrativa) cuyo año es < año actual, MÁS "Sin fecha"
+    # — NUNCA el año actual (vive en el KPI ya cerrado).
+    svc_module.clear_cache()
+    rows = CommercialService(_lost_history_client()).get_lost_history("todos")["opportunities"]
+    assert {r["opportunity"] for r in rows} == LOST_HISTORY_VALID_NAMES
+    svc_module.clear_cache()
+
+
+def test_lost_history_administrative_motivo_excluded_even_in_prior_years():
+    svc_module.clear_cache()
+    rows = CommercialService(_lost_history_client()).get_lost_history("todos")["opportunities"]
+    assert "Historial Administrativa" not in {r["opportunity"] for r in rows}
+    svc_module.clear_cache()
+
+
+def test_lost_history_active_true_and_wrong_probability_never_enter():
+    # Reusa los mismos guards que el KPI (`Activa Prob0`/`Inactiva Prob
+    # Positiva` en PERDIDAS_LEADS) — el dominio crudo es IDÉNTICO, nunca
+    # reimplementado.
+    svc_module.clear_cache()
+    names = {r["opportunity"] for r in CommercialService(_lost_history_client()).get_lost_history("todos")["opportunities"]}
+    assert "Activa Prob0" not in names
+    assert "Inactiva Prob Positiva" not in names
+    svc_module.clear_cache()
+
+
+def test_lost_history_missing_date_closed_is_a_valid_bucket_not_dropped():
+    # DIFERENCIA DELIBERADA con `_build_perdidas_detail` (que SÍ pierde
+    # estas filas por filtrar `date_closed` en el dominio de Odoo): acá
+    # "Sin fecha" es historial válido.
+    svc_module.clear_cache()
+    rows = CommercialService(_lost_history_client()).get_lost_history("todos")["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Perdida Sin Fecha")
+    assert row["date_closed"] == "" and row["year"] == "Sin fecha"
+    svc_module.clear_cache()
+
+
+def test_lost_history_row_has_no_dead_fields_same_as_perdidas():
+    svc_module.clear_cache()
+    rows = CommercialService(_lost_history_client()).get_lost_history("todos")["opportunities"]
+    row = next(r for r in rows if r["opportunity"] == "Perdida Año Pasado")
+    assert set(row.keys()) == {"opportunity", "client", "seller", "date_closed", "year", "motivo", "hours"}
+    svc_module.clear_cache()
+
+
+def test_lost_history_partitions_by_tipo_without_extra_queries():
+    svc_module.clear_cache()
+    client = _lost_history_client()
+    service = CommercialService(client)
+    todos = service.get_lost_history("todos")["opportunities"]
+    nn = service.get_lost_history("nn")["opportunities"]
+    bi = service.get_lost_history("bi")["opportunities"]
+    assert {r["opportunity"] for r in todos} == LOST_HISTORY_VALID_NAMES
+    assert {r["opportunity"] for r in nn} == {"Perdida Año Pasado"}
+    assert {r["opportunity"] for r in bi} == {"Historial Sin Motivo Definido"}
+    calls_after_todos = len(client.calls)
+    service.get_lost_history("nn")
+    service.get_lost_history("bi")
+    assert len(client.calls) == calls_after_todos
+    svc_module.clear_cache()
+
+
+def test_lost_history_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_lost_history(", 1)[1] \
+        .split("\n    def get_lost_history", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    assert '"crm.lead"' in block
+
+
+def test_lost_history_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    detail = CommercialService(_lost_history_client()).get_lost_history("not-a-real-tipo")
+    assert detail["total"] == len(LOST_HISTORY_VALID_NAMES)
+    svc_module.clear_cache()
+
+
+def test_lost_history_configuration_and_transport_errors():
+    svc_module.clear_cache()
+    client = _lost_history_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_lost_history("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _lost_history_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_lost_history("todos")
     svc_module.clear_cache()

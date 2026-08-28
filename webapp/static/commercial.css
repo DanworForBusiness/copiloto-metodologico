@@ -913,3 +913,11 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    SCOPEADO al wrapper propio de este panel (`commercial-act-panel`, ver
    `commercialActividadesHtml`), nunca la regla compartida. */
 .commercial-act-panel > .whatsnew-filters { margin-top: 10px; }
+
+/* Bucket 1 — Licencias/Historial Perdidas/Detalle Oportunidades (ver
+   HANDOFF): owner follow-up pidió alinear la MISMA estructura que ya tiene
+   Actividades — sin título propio, filtros primero (leyenda de urgencia
+   después, donde corresponde). MISMO override que `.commercial-act-panel`
+   arriba, un solo wrapper compartido por las tres tabs nuevas (misma
+   necesidad exacta, nunca una clase por tab). */
+.commercial-bucket1-panel > .whatsnew-filters { margin-top: 10px; }

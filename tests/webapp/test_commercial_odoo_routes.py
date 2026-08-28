@@ -302,8 +302,13 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # sale del MISMO payload de Analíticas, así que un reintento exitoso lo
     # recupera de "—" con su propio host acotado, sin tocar el resto de
     # Resumen.
+    # Bucket 1 (ver HANDOFF) agrega NUEVE: los TRES hosts estables
+    # `[data-commercial-{licencias,detalle,historial}-table]`, cada uno TRES
+    # veces (orden de columna, filtro `<select>`/Buscar propio, y "✕
+    # Limpiar" del tab) — MISMO patrón de re-render quirúrgico que ya usa
+    # el resto de Comercial, nunca un host nuevo por filtro.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cuarenta y nueve hooks y nada más.
+    # EXACTAMENTE estos cincuenta y ocho hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
@@ -337,6 +342,9 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-ganadas-results]"',
         '"[data-commercial-perdidas-table]"',
         '"[data-commercial-suspendidas-table]"',
+        '"[data-commercial-licencias-table]"',
+        '"[data-commercial-detalle-table]"',
+        '"[data-commercial-historial-table]"',
         '"[data-commercial-pipeline-age-table]"',
         '"[data-commercial-close-time-table]"',
         '"[data-commercial-stagnant-table]"',
@@ -349,11 +357,17 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-suspendidas-table]"',
+        '"[data-commercial-licencias-table]"',
+        '"[data-commercial-detalle-table]"',
+        '"[data-commercial-historial-table]"',
         '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-lead-conversion-table]"',
+        '"[data-commercial-licencias-table]"',
+        '"[data-commercial-detalle-table]"',
+        '"[data-commercial-historial-table]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
@@ -583,6 +597,36 @@ def test_commercial_opportunities_numeric_alignment_still_inherited_not_overridd
     # sigue viniendo del default compartido (`table.dashboard-table td`).
     table_fn = _COMMERCIAL_JS.split("function commercialOpportunitiesTableHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert "text-align" not in table_fn
+
+
+def test_bucket1_tables_th_alignment_matches_their_td_alignment():
+    # Owner live smoke (ver HANDOFF) — MISMA regresión que ya se cazó una
+    # vez en Comercial (commit 9b0abac, "align text-column headers with
+    # their data"): un `<th>` sin la MISMA clase de alineación que su
+    # `<td>` se desalinea visualmente de la columna aunque los límites
+    # geométricos de la celda coincidan perfecto (`getBoundingClientRect`
+    # no lo detecta — hace falta comparar `text-align` directamente). Acá
+    # se audita en el CÓDIGO: cada columna textual de las tres tablas
+    # nuevas de Bucket 1 lleva la clase "left" en su `th` Y en su `td`, o
+    # ninguna de las dos (columnas numéricas, alineación derecha default
+    # compartida por ambos).
+    detail_fn = _COMMERCIAL_JS.split("function commercialOppDetailTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected_th in (
+        '${th("client", "Cliente", "left")}', '${th("seller", "Vendedor", "left")}',
+        '${th("stage", "Etapa", "left")}', '${th("next_action", "Próx. Acción", "left")}',
+    ):
+        assert expected_th in detail_fn, expected_th
+    assert '<th class="left">Etiquetas</th>' in detail_fn
+    hist_fn = _COMMERCIAL_JS.split("function commercialLostHistoryTableHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected_th in (
+        '${th("date", "Fecha cierre", "left")}', '${th("client", "Cliente", "left")}',
+        '${th("seller", "Vendedor", "left")}', '${th("motivo", "Motivo pérdida", "left")}',
+    ):
+        assert expected_th in hist_fn, expected_th
+    # Y las `<td>` correspondientes SIGUEN llevando "left" — nunca se
+    # angostó el fix a sólo el header.
+    assert '<td class="left">${dateCell}</td>' in hist_fn
+    assert '<td class="left">${commercialEsc(o.client) || "—"}</td>' in hist_fn
 
 
 def test_matrix_scroll_is_promoted_to_an_unscoped_shared_hub_primitive():
@@ -1947,13 +1991,20 @@ def test_suspendidas_seller_filter_and_sort_and_clear_never_refetch():
 # ============================================================================
 
 def test_only_implemented_capabilities_are_listed():
+    # Bucket 1 (ver HANDOFF) suma las TRES primeras tabs de tabla legacy —
+    # Licencias/Historial Perdidas/Detalle Oportunidades — con contenido
+    # real detrás (endpoint + estado + render). Clientes/Leads/Mis Tareas
+    # siguen sin listar: próxima(s) iteración(es), ninguna tab muerta.
     registry = _COMMERCIAL_JS.split("const COMMERCIAL_CAPABILITIES = [", 1)[1].split("];", 1)[0]
-    assert registry.count('id: "') == 2
+    assert registry.count('id: "') == 5
     assert '{ id: "dashboard", label: "Dashboard" }' in registry
     assert '{ id: "actividades", label: "Actividades" }' in registry
+    assert '{ id: "licencias", label: "Licencias" }' in registry
+    assert '{ id: "historial-perdidas", label: "Historial Perdidas" }' in registry
+    assert '{ id: "detalle", label: "Detalle Oportunidades" }' in registry
     # Ninguna tab muerta: una capability sin funcionalidad detrás es una
     # promesa rota.
-    for not_yet in ("licencias", "clientes", "leads", "mis-tareas", "historial", "prospectos"):
+    for not_yet in ("clientes", "leads", "mis-tareas", "prospectos"):
         assert f'id: "{not_yet}"' not in registry
 
 

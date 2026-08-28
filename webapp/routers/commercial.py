@@ -271,6 +271,49 @@ def commercial_data_suspendidas(request: Request, tipo: str = Query("todos")):
     return JSONResponse({"state": "ok", "suspendidas": suspendidas})
 
 
+@router.get("/comercial/data/opportunities-detail", include_in_schema=False)
+def commercial_data_opportunities_detail(request: Request, tipo: str = Query("todos")):
+    """Detalle Oportunidades (Bucket 1, ver HANDOFF) — universo canónico
+    stages 0-8, active=True (MISMO universo que Forecast, ver
+    `CommercialService._build_opportunities_detail`). TAMBIÉN sirve
+    "Licencias": el legacy ya trata a las dos tabs como la MISMA fuente,
+    filtrada `licencias === "Si"` client-side — un solo endpoint/cache, cero
+    request propia para Licencias. LAZY: sólo se pide al abrir CUALQUIERA de
+    las dos tabs, nunca en la hidratación normal del dashboard. MISMO
+    contrato fail-soft y MISMA gate que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        detail = CommercialService().get_opportunities_detail(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="opportunities_detail")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="opportunities_detail")
+    return JSONResponse({"state": "ok", "opportunities_detail": detail})
+
+
+@router.get("/comercial/data/lost-history", include_in_schema=False)
+def commercial_data_lost_history(request: Request, tipo: str = Query("todos")):
+    """Historial de Perdidas (Bucket 1, ver HANDOFF) — universo canónico
+    `type=opportunity, active=False, probability=0`, TODOS los años excepto
+    el actual (que vive en el KPI/drill "Perdidas" del dashboard principal,
+    ya cerrado) + el bucket "Sin fecha". Reusa LITERAL
+    `_resolve_lost_motivos`/`_filter_excluded_lost` — nunca una segunda
+    definición de Perdidas. LAZY, MISMO contrato fail-soft y MISMA gate que
+    el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        history = CommercialService().get_lost_history(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="lost_history")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="lost_history")
+    return JSONResponse({"state": "ok", "lost_history": history})
+
+
 @router.get("/comercial/data/forecast", include_in_schema=False)
 def commercial_data_forecast(request: Request, tipo: str = Query("todos")):
     """Forecast por mes de cierre (Active Opportunities Phase 2, ver

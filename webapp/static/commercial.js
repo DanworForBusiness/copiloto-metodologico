@@ -37,13 +37,18 @@
 // `data-breakdown` va sobre la SECCIÓN entera, así que el análisis no ocupa
 // espacio hasta que se lo acciona y desaparece completo al cerrarlo.
 
-// Capacidades IMPLEMENTADAS del workspace. Deliberadamente NO se listan las
-// que todavía no tienen funcionalidad detrás (Licencias, Clientes, Leads, Mis
-// Tareas, Historial de Perdidas, Detalle de Oportunidades): una tab muerta es
-// una promesa rota, se agregan cuando exista contenido real.
+// Capacidades IMPLEMENTADAS del workspace. Bucket 1 (ver HANDOFF) suma las
+// TRES primeras tabs de tabla legacy — Licencias/Historial Perdidas/Detalle
+// Oportunidades. Deliberadamente NO se listan las que todavía no tienen
+// funcionalidad detrás (Clientes, Leads, Mis Tareas — próxima(s)
+// iteración(es)): una tab muerta es una promesa rota, se agregan cuando
+// exista contenido real.
 const COMMERCIAL_CAPABILITIES = [
   { id: "dashboard", label: "Dashboard" },
   { id: "actividades", label: "Actividades" },
+  { id: "licencias", label: "Licencias" },
+  { id: "historial-perdidas", label: "Historial Perdidas" },
+  { id: "detalle", label: "Detalle Oportunidades" },
 ];
 
 const commercialState = {
@@ -158,6 +163,41 @@ const commercialState = {
   activities: null,
   activitiesStatus: "idle", // idle | loading | ready | error
   activitiesErrorState: "",
+  // Bucket 1 — Detalle Oportunidades + Licencias (ver HANDOFF): MISMO
+  // universo/endpoint compartido por las DOS tabs (el legacy ya las trata
+  // como la misma fuente — Licencias es un filtro `licencias === "Si"`
+  // client-side sobre EL MISMO dataset que Detalle Oportunidades). LAZY —
+  // se pide la primera vez que se abre CUALQUIERA de las dos, la otra
+  // reusa el mismo estado sin una segunda request.
+  opportunitiesDetail: null,
+  opportunitiesDetailStatus: "idle", // idle | loading | ready | error
+  opportunitiesDetailErrorState: "",
+  // Filtros LOCALES de Licencias — client-side sobre `opportunitiesDetail`
+  // ya filtrado a licencias === "Si", nunca un round-trip propio.
+  licSearchText: "",
+  licStageFilter: "",
+  licSellerFilter: "",
+  licSortKey: null,
+  licSortDir: 1,
+  // Filtros LOCALES de Detalle Oportunidades — client-side sobre el
+  // universo COMPLETO de `opportunitiesDetail` (sin el filtro de Licencias).
+  detSearchText: "",
+  detStageFilter: "",
+  detSellerFilter: "",
+  detSortKey: null,
+  detSortDir: 1,
+  // Bucket 1 — Historial de Perdidas (ver HANDOFF): universo propio
+  // (`active=False, probability=0`, todos los años salvo el actual), LAZY,
+  // endpoint propio.
+  lostHistory: null,
+  lostHistoryStatus: "idle", // idle | loading | ready | error
+  lostHistoryErrorState: "",
+  histSearchText: "",
+  histYearFilter: "",
+  histSellerFilter: "",
+  histMotivoFilter: "",
+  histSortKey: null,
+  histSortDir: 1,
   // Filtros LOCALES de Actividades — client-side sobre el dataset ya
   // cargado, nunca un round-trip (ver commercialFilteredActivities).
   actPeriod: "all", // all | week:0 | week:1 | week:2
@@ -2985,6 +3025,458 @@ function commercialSuspendidasCountLabel() {
   return `${commercialFmtInt(total)} suspendida(s)`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Bucket 1 (ver HANDOFF) — Licencias / Historial de Perdidas / Detalle
+// Oportunidades. Licencias y Detalle comparten el MISMO universo backend
+// (`commercialState.opportunitiesDetail`, ver `commercialLoadOpportunitiesDetail`
+// — el legacy ya trata a las dos tabs como la misma fuente, filtrada
+// `licencias === "Si"` client-side) y por eso comparten TAMBIÉN la misma
+// tabla de 13 columnas — MISMA fila que ya usa Suspendidas
+// (`commercialSuspendidasTableHtml`, ver arriba), pero PARALELA a propósito
+// (owner §17: pequeña duplicación es preferible a tocar una tab ya cerrada
+// — Suspendidas no se refactoriza acá) y compartida SÓLO entre estas dos
+// tabs nuevas, que sí son el mismo incremento.
+// ═══════════════════════════════════════════════════════════════════════
+
+const COMMERCIAL_OPP_DETAIL_SORT_KEYS = {
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  stage: o => (o.stage || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
+  weighted_hours: o => (o.weighted_hours != null && o.weighted_hours !== false) ? Number(o.weighted_hours) : -Infinity,
+  probability: o => o.probability ?? -1,
+  priority: o => Number(o.priority ?? 0),
+  next_action: o => {
+    const days = (o.activities || []).map(act => commercialDaysUntil(act.deadline)).filter(d => d !== null);
+    return days.length ? Math.min(...days) : Infinity;
+  },
+  last_response: o => o.days_elapsed ?? Infinity,
+};
+
+function commercialOppDetailSearchableText(o) {
+  return [o.opportunity, o.client, o.seller].filter(Boolean).join(" ").toLowerCase();
+}
+
+// Fila — MISMAS 13 celdas que `commercialSuspendidasTableHtml` (Lic./Hs/Hs
+// Pond./Prob./Prior.+tooltip/Próx. Acción multi-actividad/Últ. Resp./Días
+// resp., ya auditadas y en producción para esa tab).
+function commercialOppDetailRowHtml(o) {
+  const acts = o.activities || [];
+  const nextAction = acts.length
+    ? acts.map(act => {
+        const days = commercialDaysUntil(act.deadline);
+        const rel = days === null ? "" : days < 0 ? ` (venc. ${Math.abs(days)}d)` : days === 0 ? " (hoy)" : ` (${days}d)`;
+        const datePrefix = commercialEsc(commercialFmtDate(act.deadline));
+        if (!act.type) return datePrefix;
+        const color = commercialUrgencyColor(days);
+        const typeAndRel = `${commercialEsc(act.type)}${commercialEsc(rel)}`;
+        const badge = color
+          ? `<span class="dashboard-status-badge dashboard-status-badge--${color}">${typeAndRel}</span>`
+          : typeAndRel;
+        return `${datePrefix} · ${badge}`;
+      }).join("<br>")
+    : "—";
+  const lic = o.licencias === "Si" ? "✓" : "";
+  const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
+  const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
+  return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td class="left">${commercialProspectsTagsHtml(o.tags)}</td>
+      <td>${lic}</td>
+      <td>${commercialFmtInt(o.hours)}</td>
+      <td>${commercialFmtInt(o.weighted_hours)}</td>
+      <td>${commercialFmtPercent(o.probability)}</td>
+      <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
+      <td class="left">${nextAction}</td>
+      <td>${o.last_response ? commercialEsc(commercialFmtDate(o.last_response)) : "—"}</td>
+      <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
+    </tr>`;
+}
+
+// Tabla completa (colgroup+thead+tbody+totales) — compartida por Licencias
+// y Detalle Oportunidades. `sortKey`/`sortDir` y el atributo de sort
+// (`sortAttr`) vienen del LLAMADOR: cada tab tiene su PROPIO estado de
+// orden (`licSortKey`/`detSortKey`), nunca uno compartido — ordenar
+// Licencias no debe mover el orden de Detalle ni viceversa.
+function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyLabel }) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin resultados", emptyLabel);
+  const keyFn = sortKey && COMMERCIAL_OPP_DETAIL_SORT_KEYS[sortKey];
+  const sorted = keyFn ? [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -sortDir;
+    if (av > bv) return sortDir;
+    return 0;
+  }) : rows;
+  const th = (key, label, cls = "") => {
+    const active = sortKey === key;
+    const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" ${sortAttr}="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(commercialOppDetailRowHtml).join("");
+  const totals = rows.reduce((acc, o) => ({
+    hours: acc.hours + (o.hours || 0),
+    weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
+  }), { hours: 0, weighted_hours: 0 });
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="6">Total (${rows.length})</td>
+      <td>${commercialFmtInt(totals.hours)}</td>
+      <td>${commercialFmtInt(totals.weighted_hours)}</td>
+      <td colspan="5"></td>
+    </tr>`;
+  return `
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:16%"><col style="width:9%"><col style="width:8%">
+          <col style="width:9%"><col style="width:8%"><col style="width:4%">
+          <col style="width:5%"><col style="width:6%"><col style="width:5%">
+          <col style="width:4%"><col style="width:14%"><col style="width:7%">
+          <col style="width:7%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("stage", "Etapa", "left")}
+          <th class="left">Etiquetas</th>
+          <th>Lic.</th>
+          ${th("hours", "Hs")}
+          ${th("weighted_hours", "Hs Pond.")}
+          ${th("probability", "Prob.")}
+          ${th("priority", "Prior.")}
+          ${th("next_action", "Próx. Acción", "left")}
+          ${th("last_response", "Últ. Resp.")}
+          <th>Días resp.</th>
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── Licencias (ver HANDOFF §4) ───────────────────────────────────────────
+// Universo: `opportunitiesDetail.opportunities` (stages 0-8, active=True)
+// filtrado `licencias === "Si"` — MISMO filtro CLIENT-SIDE que el legacy
+// `loadLicenciasTab` (`.filter(o => o.licencias === "Si")`), nunca un
+// dominio Odoo propio. Buscar es SÓLO por Oportunidad (MISMO alcance que
+// `filterLicenciasOpps` — nunca Cliente/Vendedor, a diferencia de Detalle).
+function commercialLicenciasAllRows() {
+  const all = (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
+  return all.filter(o => o.licencias === "Si");
+}
+function commercialOppDetailFilterOptions(rows, key) {
+  return [...new Set(rows.map(o => o[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+function commercialLicenciasFilteredRows() {
+  const all = commercialLicenciasAllRows();
+  const { licStageFilter: fStage, licSellerFilter: fSeller } = commercialState;
+  const search = (commercialState.licSearchText || "").toLowerCase().trim();
+  return all.filter(o => {
+    if (fStage && o.stage !== fStage) return false;
+    if (fSeller && o.seller !== fSeller) return false;
+    if (search && !(o.opportunity || "").toLowerCase().includes(search)) return false;
+    return true;
+  });
+}
+function commercialToggleLicenciasSort(key) {
+  if (commercialState.licSortKey === key) commercialState.licSortDir *= -1;
+  else { commercialState.licSortKey = key; commercialState.licSortDir = 1; }
+}
+function commercialLicenciasClearFilters() {
+  commercialState.licSearchText = "";
+  commercialState.licStageFilter = "";
+  commercialState.licSellerFilter = "";
+  commercialRenderCapability();
+}
+function commercialLicenciasFiltersHtml() {
+  const all = commercialLicenciasAllRows();
+  const opt = (key, current, allLabel) => {
+    const values = commercialOppDetailFilterOptions(all, key);
+    return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
+      values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
+  };
+  return `<div class="whatsnew-filters" data-commercial-licencias-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-licencias-search aria-label="Buscar en licencias"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.licSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Etapa</span>
+        <select data-commercial-licencias-stage-filter>${opt("stage", commercialState.licStageFilter, "Todas")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-licencias-seller-filter>${opt("seller", commercialState.licSellerFilter, "Todos")}</select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-licencias-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialLicenciasTableHtml(rows) {
+  return commercialOppDetailTableHtml(rows, {
+    sortKey: commercialState.licSortKey, sortDir: commercialState.licSortDir,
+    sortAttr: "data-commercial-licencias-sort",
+    emptyLabel: "Ninguna oportunidad con licencias coincide con este filtro.",
+  });
+}
+function commercialLicenciasHtml() {
+  if (commercialState.opportunitiesDetailStatus === "loading") {
+    return commercialLoadingHtml("Cargando licencias…");
+  }
+  if (commercialState.opportunitiesDetailStatus === "error") {
+    const configIncomplete = commercialState.opportunitiesDetailErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar las licencias desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("opportunities-detail", "Reintentar la carga de licencias"));
+  }
+  // Owner follow-up (ver HANDOFF): MISMA estructura que Actividades — sin
+  // título propio (`.commercial-bucket1-panel` es lo que le da a
+  // `.whatsnew-filters` su top margin, ver commercial.css), filtros
+  // PRIMERO, leyenda de urgencia después, tabla al final.
+  const rows = commercialLicenciasFilteredRows();
+  return `<div class="commercial-bucket1-panel">`
+    + commercialLicenciasFiltersHtml()
+    + commercialUrgencyLegendHtml()
+    + `<div data-commercial-licencias-table>${commercialLicenciasTableHtml(rows)}</div>`
+    + `</div>`;
+}
+
+// ── Detalle Oportunidades (ver HANDOFF §6) ───────────────────────────────
+// Universo COMPLETO de `opportunitiesDetail` (stages 0-8, active=True) —
+// SIN el filtro de Licencias. Buscar cubre Oportunidad+Cliente+Vendedor
+// (MISMO alcance que `filterDetalleOpps` en el legacy).
+function commercialDetalleAllRows() {
+  return (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
+}
+function commercialDetalleFilteredRows() {
+  const all = commercialDetalleAllRows();
+  const { detStageFilter: fStage, detSellerFilter: fSeller } = commercialState;
+  const search = (commercialState.detSearchText || "").toLowerCase().trim();
+  return all.filter(o => {
+    if (fStage && o.stage !== fStage) return false;
+    if (fSeller && o.seller !== fSeller) return false;
+    if (search && !commercialOppDetailSearchableText(o).includes(search)) return false;
+    return true;
+  });
+}
+function commercialToggleDetalleSort(key) {
+  if (commercialState.detSortKey === key) commercialState.detSortDir *= -1;
+  else { commercialState.detSortKey = key; commercialState.detSortDir = 1; }
+}
+function commercialDetalleClearFilters() {
+  commercialState.detSearchText = "";
+  commercialState.detStageFilter = "";
+  commercialState.detSellerFilter = "";
+  commercialRenderCapability();
+}
+function commercialDetalleFiltersHtml() {
+  const all = commercialDetalleAllRows();
+  const opt = (key, current, allLabel) => {
+    const values = commercialOppDetailFilterOptions(all, key);
+    return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
+      values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
+  };
+  return `<div class="whatsnew-filters" data-commercial-detalle-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-detalle-search aria-label="Buscar en detalle de oportunidades"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.detSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Etapa</span>
+        <select data-commercial-detalle-stage-filter>${opt("stage", commercialState.detStageFilter, "Todas")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-detalle-seller-filter>${opt("seller", commercialState.detSellerFilter, "Todos")}</select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-detalle-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialDetalleTableHtml(rows) {
+  return commercialOppDetailTableHtml(rows, {
+    sortKey: commercialState.detSortKey, sortDir: commercialState.detSortDir,
+    sortAttr: "data-commercial-detalle-sort",
+    emptyLabel: "Ninguna oportunidad coincide con este filtro.",
+  });
+}
+function commercialDetalleHtml() {
+  if (commercialState.opportunitiesDetailStatus === "loading") {
+    return commercialLoadingHtml("Cargando detalle de oportunidades…");
+  }
+  if (commercialState.opportunitiesDetailStatus === "error") {
+    const configIncomplete = commercialState.opportunitiesDetailErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar el detalle de oportunidades desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("opportunities-detail", "Reintentar la carga del detalle de oportunidades"));
+  }
+  // MISMA estructura que Licencias/Actividades (ver HANDOFF): sin título,
+  // filtros primero, leyenda después.
+  const rows = commercialDetalleFilteredRows();
+  return `<div class="commercial-bucket1-panel">`
+    + commercialDetalleFiltersHtml()
+    + commercialUrgencyLegendHtml()
+    + `<div data-commercial-detalle-table>${commercialDetalleTableHtml(rows)}</div>`
+    + `</div>`;
+}
+
+// ── Historial de Perdidas (ver HANDOFF §5) ───────────────────────────────
+// Universo/fila TOTALMENTE distintos de Licencias/Detalle — nunca comparte
+// tabla/estado con ellas. Motivo/Fecha son propios de este contrato (MISMO
+// criterio "sin dead fields" que ya aplica el KPI/drill Perdidas cerrado —
+// ver `_build_lost_history`, sin Etapa/Revenue).
+const COMMERCIAL_LOST_HISTORY_SORT_KEYS = {
+  date: o => o.date_closed || "",
+  opportunity: o => (o.opportunity || "").toLowerCase(),
+  client: o => (o.client || "").toLowerCase(),
+  seller: o => (o.seller || "").toLowerCase(),
+  motivo: o => (o.motivo || "").toLowerCase(),
+  hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -1,
+};
+function commercialLostHistoryAllRows() {
+  return (commercialState.lostHistory && commercialState.lostHistory.opportunities) || [];
+}
+function commercialLostHistoryFilteredRows() {
+  const all = commercialLostHistoryAllRows();
+  const { histYearFilter: fYear, histSellerFilter: fSeller, histMotivoFilter: fMotivo } = commercialState;
+  const search = (commercialState.histSearchText || "").toLowerCase().trim();
+  return all.filter(o => {
+    if (fYear && o.year !== fYear) return false;
+    if (fSeller && o.seller !== fSeller) return false;
+    if (fMotivo && o.motivo !== fMotivo) return false;
+    if (search) {
+      const hay = `${o.opportunity} ${o.client} ${o.motivo}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+}
+function commercialToggleLostHistorySort(key) {
+  if (commercialState.histSortKey === key) commercialState.histSortDir *= -1;
+  else { commercialState.histSortKey = key; commercialState.histSortDir = 1; }
+}
+function commercialLostHistoryClearFilters() {
+  commercialState.histSearchText = "";
+  commercialState.histYearFilter = "";
+  commercialState.histSellerFilter = "";
+  commercialState.histMotivoFilter = "";
+  commercialRenderCapability();
+}
+function commercialLostHistoryFiltersHtml() {
+  const all = commercialLostHistoryAllRows();
+  const opt = (key, current, allLabel) => {
+    const values = commercialOppDetailFilterOptions(all, key);
+    return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
+      values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
+  };
+  // Año ordenado DESCENDENTE (más reciente primero) — MISMO criterio que el
+  // legacy `_populateLostHistoryFilters` (`.sort().reverse()`).
+  const years = [...new Set(all.map(o => o.year).filter(Boolean))].sort().reverse();
+  const yearOpts = `<option value=""${commercialState.histYearFilter === "" ? " selected" : ""}>Todos</option>` +
+    years.map(y => `<option value="${commercialEsc(y)}"${commercialState.histYearFilter === y ? " selected" : ""}>${commercialEsc(y)}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-historial-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-historial-search aria-label="Buscar en historial de perdidas"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.histSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Año</span>
+        <select data-commercial-historial-year-filter>${yearOpts}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-historial-seller-filter>${opt("seller", commercialState.histSellerFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Motivo</span>
+        <select data-commercial-historial-motivo-filter>${opt("motivo", commercialState.histMotivoFilter, "Todos")}</select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-historial-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialLostHistoryTableHtml(rows) {
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados", "Ninguna oportunidad perdida coincide con este filtro.");
+  }
+  const keyFn = commercialState.histSortKey && COMMERCIAL_LOST_HISTORY_SORT_KEYS[commercialState.histSortKey];
+  const dir = commercialState.histSortDir;
+  const sorted = keyFn ? [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  }) : rows;
+  const th = (key, label, cls = "") => {
+    const active = commercialState.histSortKey === key;
+    const arrow = active ? (commercialState.histSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-historial-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(o => {
+    const dateCell = o.date_closed
+      ? `<span class="perspective-label" style="margin:0">${commercialEsc(o.year)}</span> ${commercialEsc(o.date_closed.slice(5).replace("-", "/"))}`
+      : `<span class="left" style="font-style:italic">Sin fecha</span>`;
+    const motivoBadge = o.motivo && o.motivo !== "Sin definir"
+      ? `<span class="dashboard-status-badge dashboard-status-badge--red">${commercialEsc(o.motivo)}</span>`
+      : `<span class="left">Sin definir</span>`;
+    return `
+    <tr>
+      <td class="left">${dateCell}</td>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client) || "—"}</td>
+      <td class="left">${commercialEsc(o.seller) || "—"}</td>
+      <td class="left">${motivoBadge}</td>
+      <td>${o.hours != null ? commercialFmtInt(o.hours) : "—"}</td>
+    </tr>`;
+  }).join("");
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:14%"><col style="width:26%"><col style="width:20%">
+      <col style="width:16%"><col style="width:16%"><col style="width:8%"></colgroup>
+    <thead><tr>
+      ${th("date", "Fecha cierre", "left")}
+      ${th("opportunity", "Oportunidad", "row-label-col")}
+      ${th("client", "Cliente", "left")}
+      ${th("seller", "Vendedor", "left")}
+      ${th("motivo", "Motivo pérdida", "left")}
+      ${th("hours", "Hs")}
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
+}
+function commercialHistorialPerdidasHtml() {
+  if (commercialState.lostHistoryStatus === "loading") {
+    return commercialLoadingHtml("Cargando historial de perdidas…");
+  }
+  if (commercialState.lostHistoryStatus === "error") {
+    const configIncomplete = commercialState.lostHistoryErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar el historial de perdidas desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("lost-history", "Reintentar la carga del historial de perdidas"));
+  }
+  // MISMA estructura que Licencias/Detalle/Actividades (ver HANDOFF): sin
+  // título, filtros primero. SIN leyenda de urgencia — Historial no tiene
+  // una dimensión de días/urgencia real (Fecha cierre/Motivo, no
+  // Días resp.), así que no se inventa una que no corresponde al dato.
+  const rows = commercialLostHistoryFilteredRows();
+  return `<div class="commercial-bucket1-panel">`
+    + commercialLostHistoryFiltersHtml()
+    + `<div data-commercial-historial-table>${commercialLostHistoryTableHtml(rows)}</div>`
+    + `</div>`;
+}
+
 // ── Analítica del Pipeline — detalle (ver HANDOFF) ───────────────────────
 // CINCO tiles (Edad del pipeline/Tiempo por etapa/Conversión etapa a etapa/
 // Tiempo de cierre/Estancadas) comparten UN SOLO fetch lazy
@@ -5040,9 +5532,13 @@ function commercialRender() {
 }
 
 function commercialCapabilityHtml() {
-  return commercialState.capability === "actividades"
-    ? commercialActividadesHtml()
-    : commercialDashboardHtml();
+  switch (commercialState.capability) {
+    case "actividades": return commercialActividadesHtml();
+    case "licencias": return commercialLicenciasHtml();
+    case "historial-perdidas": return commercialHistorialPerdidasHtml();
+    case "detalle": return commercialDetalleHtml();
+    default: return commercialDashboardHtml();
+  }
 }
 
 // Los motores compartidos se wirean SOLO cuando el Dashboard está en pantalla
@@ -5075,6 +5571,14 @@ function commercialSetCapability(capability) {
     commercialLoadActivities();
   } else if (capability === "dashboard" && commercialState.status === "idle") {
     commercialLoadData();
+  } else if ((capability === "licencias" || capability === "detalle")
+             && commercialState.opportunitiesDetailStatus === "idle") {
+    // Bucket 1 (ver HANDOFF): CUALQUIERA de las dos tabs dispara la MISMA
+    // carga — si la otra ya la dejó "ready"/"loading"/"error", este branch
+    // ni se evalúa (el guard de arriba exige "idle").
+    commercialLoadOpportunitiesDetail();
+  } else if (capability === "historial-perdidas" && commercialState.lostHistoryStatus === "idle") {
+    commercialLoadLostHistory();
   }
 }
 
@@ -5148,6 +5652,79 @@ async function commercialLoadActivities() {
   } catch (e) {
     commercialState.activitiesStatus = "error";
     commercialState.activitiesErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// ── Bucket 1 — Detalle Oportunidades + Licencias (ver HANDOFF) ──────────────
+// UN solo loader para las DOS tabs (mismo endpoint/estado compartido, ver
+// `commercialState.opportunitiesDetail`) — cualquiera de las dos que se
+// abra primero dispara la carga; la otra reusa el mismo dataset sin una
+// segunda request (ver `commercialSetCapability`). Re-render vía
+// `commercialRenderCapability()` — MISMO alcance "sólo el panel activo" que
+// ya usan Dashboard/Actividades; acá no hay una sección hermana que
+// preservar dentro del panel (a diferencia de Resumen/Analíticas), así que
+// no hace falta un host más chico.
+//
+// Tipo-safety: captura el `tipo` vigente antes del fetch y descarta la
+// respuesta si el usuario cambió Todos/NN/BI mientras viajaba (MISMO
+// criterio explícito que `commercialLoadAnalytics`, ver HANDOFF).
+async function commercialLoadOpportunitiesDetail() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.opportunitiesDetailStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/opportunities-detail?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return; // stale — Tipo cambió mientras viajaba
+    if (resp.state === "ok") {
+      commercialState.opportunitiesDetail = resp.opportunities_detail;
+      commercialState.opportunitiesDetailStatus = "ready";
+      commercialState.opportunitiesDetailErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.opportunitiesDetailStatus = "error";
+      commercialState.opportunitiesDetailErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return; // stale — idem, camino de excepción
+    commercialState.opportunitiesDetailStatus = "error";
+    commercialState.opportunitiesDetailErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// ── Bucket 1 — Historial de Perdidas (ver HANDOFF) ───────────────────────────
+// Universo/endpoint propio (nunca comparte fetch con Detalle/Licencias ni
+// con el KPI/drill "Perdidas" ya cerrado). MISMO criterio de tipo-safety y
+// re-render que `commercialLoadOpportunitiesDetail`.
+async function commercialLoadLostHistory() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.lostHistoryStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/lost-history?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return;
+    if (resp.state === "ok") {
+      commercialState.lostHistory = resp.lost_history;
+      commercialState.lostHistoryStatus = "ready";
+      commercialState.lostHistoryErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.lostHistoryStatus = "error";
+      commercialState.lostHistoryErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return;
+    commercialState.lostHistoryStatus = "error";
+    commercialState.lostHistoryErrorState = "source_error";
     HubForegroundProgress.fail("commercial");
   }
   commercialRenderCapability();
@@ -5756,6 +6333,27 @@ function commercialSetTipo(tipo) {
   commercialState.opportunities = null;
   commercialState.activities = null;
   commercialState.activitiesStatus = "idle";
+  // Bucket 1 (ver HANDOFF): MISMO criterio — invalida y NO re-pide acá,
+  // vuelve a "idle" y lo carga la próxima apertura de la tab con el tipo
+  // nuevo. Filtros locales se resetean con el dataset (MISMO criterio que
+  // Actividades/Prospectos — un valor de Etapa/Vendedor/Año podría apuntar
+  // a un universo que ya no existe tras cambiar Todos/NN/BI).
+  commercialState.opportunitiesDetail = null;
+  commercialState.opportunitiesDetailStatus = "idle";
+  commercialState.opportunitiesDetailErrorState = "";
+  commercialState.licSearchText = "";
+  commercialState.licStageFilter = "";
+  commercialState.licSellerFilter = "";
+  commercialState.detSearchText = "";
+  commercialState.detStageFilter = "";
+  commercialState.detSellerFilter = "";
+  commercialState.lostHistory = null;
+  commercialState.lostHistoryStatus = "idle";
+  commercialState.lostHistoryErrorState = "";
+  commercialState.histSearchText = "";
+  commercialState.histYearFilter = "";
+  commercialState.histSellerFilter = "";
+  commercialState.histMotivoFilter = "";
   // Forecast (C6, ver HANDOFF): se invalida igual que el resto, y NO se
   // re-pide acá — vuelve a "idle" y lo carga la próxima apertura del
   // desglose, ya con el tipo nuevo. MISMO criterio que Actividades: cero
@@ -5968,6 +6566,13 @@ document.addEventListener("DOMContentLoaded", () => {
         // cargaron bien, sólo Analíticas falló) y jamás debe volver a
         // "loading" por esto.
         if (commercialState.analyticsStatus !== "loading") commercialLoadAnalytics();
+      } else if (retryBtn.dataset.commercialRetry === "opportunities-detail") {
+        // Bucket 1 (ver HANDOFF): compartido por Licencias Y Detalle
+        // Oportunidades — reintentar desde CUALQUIERA de las dos arregla
+        // las dos (mismo dataset/estado). Guard contra el propio status.
+        if (commercialState.opportunitiesDetailStatus !== "loading") commercialLoadOpportunitiesDetail();
+      } else if (retryBtn.dataset.commercialRetry === "lost-history") {
+        if (commercialState.lostHistoryStatus !== "loading") commercialLoadLostHistory();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -6227,6 +6832,37 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
       return;
     }
+    // Bucket 1 — Licencias/Detalle/Historial Perdidas (ver HANDOFF): MISMO
+    // criterio que Suspendidas — "✕ Limpiar" re-renderiza el panel ENTERO
+    // (necesita reconstruir la barra de filtros, cuyos `<select>` pierden
+    // su valor elegido), orden de columna re-renderiza SÓLO la tabla.
+    const licenciasClear = event.target.closest("[data-commercial-licencias-clear]");
+    if (licenciasClear) { commercialLicenciasClearFilters(); return; }
+    const licenciasSortTh = event.target.closest("[data-commercial-licencias-sort]");
+    if (licenciasSortTh) {
+      commercialToggleLicenciasSort(licenciasSortTh.dataset.commercialLicenciasSort);
+      const host = root.querySelector("[data-commercial-licencias-table]");
+      if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
+      return;
+    }
+    const detalleClear = event.target.closest("[data-commercial-detalle-clear]");
+    if (detalleClear) { commercialDetalleClearFilters(); return; }
+    const detalleSortTh = event.target.closest("[data-commercial-detalle-sort]");
+    if (detalleSortTh) {
+      commercialToggleDetalleSort(detalleSortTh.dataset.commercialDetalleSort);
+      const host = root.querySelector("[data-commercial-detalle-table]");
+      if (host) host.innerHTML = commercialDetalleTableHtml(commercialDetalleFilteredRows());
+      return;
+    }
+    const historialClear = event.target.closest("[data-commercial-historial-clear]");
+    if (historialClear) { commercialLostHistoryClearFilters(); return; }
+    const historialSortTh = event.target.closest("[data-commercial-historial-sort]");
+    if (historialSortTh) {
+      commercialToggleLostHistorySort(historialSortTh.dataset.commercialHistorialSort);
+      const host = root.querySelector("[data-commercial-historial-table]");
+      if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
+      return;
+    }
     // Analítica del Pipeline — orden de columna de las TRES sub-vistas con
     // tabla (Edad/Tiempo de cierre/Estancadas — Tiempo por etapa/Conversión
     // etapa a etapa son ranking `.bar-row`, sin sort): re-render QUIRÚRGICO
@@ -6484,6 +7120,41 @@ document.addEventListener("DOMContentLoaded", () => {
     const host = root.querySelector("[data-commercial-suspendidas-table]");
     if (host) host.innerHTML = commercialSuspendidasBlockHtml(commercialCurrentSuspendidasRows());
   });
+  // Bucket 1 — Licencias (ver HANDOFF): Etapa/Vendedor son filtros LOCALES,
+  // MISMA composición AND que el resto de Comercial. Re-render QUIRÚRGICO
+  // de `[data-commercial-licencias-table]`, nunca la barra (los otros
+  // `<select>` perderían el valor recién elegido si se regenerara).
+  document.addEventListener("change", event => {
+    const stageSelect = event.target.closest("[data-commercial-licencias-stage-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-licencias-seller-filter]");
+    if (!stageSelect && !sellerSelect) return;
+    if (stageSelect) commercialState.licStageFilter = stageSelect.value;
+    if (sellerSelect) commercialState.licSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-licencias-table]");
+    if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
+  });
+  // Bucket 1 — Detalle Oportunidades: MISMO criterio que Licencias.
+  document.addEventListener("change", event => {
+    const stageSelect = event.target.closest("[data-commercial-detalle-stage-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-detalle-seller-filter]");
+    if (!stageSelect && !sellerSelect) return;
+    if (stageSelect) commercialState.detStageFilter = stageSelect.value;
+    if (sellerSelect) commercialState.detSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-detalle-table]");
+    if (host) host.innerHTML = commercialDetalleTableHtml(commercialDetalleFilteredRows());
+  });
+  // Bucket 1 — Historial de Perdidas: Año/Vendedor/Motivo, MISMO criterio.
+  document.addEventListener("change", event => {
+    const yearSelect = event.target.closest("[data-commercial-historial-year-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-historial-seller-filter]");
+    const motivoSelect = event.target.closest("[data-commercial-historial-motivo-filter]");
+    if (!yearSelect && !sellerSelect && !motivoSelect) return;
+    if (yearSelect) commercialState.histYearFilter = yearSelect.value;
+    if (sellerSelect) commercialState.histSellerFilter = sellerSelect.value;
+    if (motivoSelect) commercialState.histMotivoFilter = motivoSelect.value;
+    const host = root.querySelector("[data-commercial-historial-table]");
+    if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
+  });
   // Conversión de Leads (owner corrective, ver HANDOFF): las CUATRO
   // facetas de `<select>` (Campaña/Medio/Origen/Vendedor) son filtros
   // LOCALES sobre el payload ya cargado, MISMA composición AND que el
@@ -6632,6 +7303,30 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialState.leadConversionSearchText = search.value;
     const host = root.querySelector("[data-commercial-lead-conversion-table]");
     if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows());
+  });
+  // Bucket 1 — Buscar de Licencias/Detalle/Historial Perdidas (ver HANDOFF):
+  // `input`, no `change` — MISMO criterio que Prospectos/Conversión de
+  // Leads. SÓLO tocan su propia tabla, nunca la barra de filtros.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-licencias-search]");
+    if (!search) return;
+    commercialState.licSearchText = search.value;
+    const host = root.querySelector("[data-commercial-licencias-table]");
+    if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
+  });
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-detalle-search]");
+    if (!search) return;
+    commercialState.detSearchText = search.value;
+    const host = root.querySelector("[data-commercial-detalle-table]");
+    if (host) host.innerHTML = commercialDetalleTableHtml(commercialDetalleFilteredRows());
+  });
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-historial-search]");
+    if (!search) return;
+    commercialState.histSearchText = search.value;
+    const host = root.querySelector("[data-commercial-historial-table]");
+    if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
   });
   // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
   // motor compartido cablea su PROPIO `keydown` directo sobre el trigger

@@ -54,16 +54,19 @@ def test_c9_reuses_shared_primitives_instead_of_inventing_its_own():
 
 
 def test_activities_urgency_scale_is_the_same_one_as_active_opportunities():
-    # UN solo clasificador y UNA sola leyenda para las cuatro tablas del
-    # workspace (Commercial Tile 5 — Prospectos, ver HANDOFF, agregó la
-    # tercera; Commercial Tile 8 — Suspendidas, ver HANDOFF, agregó la
-    # cuarta) — si se duplicaran, las escalas podrían divergir sin que nadie
-    # lo note.
+    # UN solo clasificador y UNA sola leyenda para las tablas del workspace
+    # (Commercial Tile 5 — Prospectos, ver HANDOFF, agregó la tercera;
+    # Commercial Tile 8 — Suspendidas, ver HANDOFF, agregó la cuarta;
+    # Bucket 1 — Licencias/Detalle Oportunidades, ver HANDOFF, agregan la
+    # quinta y sexta, PERO comparten un ÚNICO row-renderer
+    # `commercialOppDetailRowHtml`, así que suman UNA sola llamada más a
+    # `commercialUrgencyColor` — no dos) — si se duplicaran, las escalas
+    # podrían divergir sin que nadie lo note.
     assert _COMMERCIAL_JS.count("function commercialUrgencyColor(") == 1
     assert _COMMERCIAL_JS.count("function commercialUrgencyLegendHtml(") == 1
     code = _js_code(_COMMERCIAL_JS)
-    assert code.count("commercialUrgencyColor(") == 5   # definición + Activas + Actividades + Prospectos + Suspendidas
-    assert code.count("commercialUrgencyLegendHtml()") == 5
+    assert code.count("commercialUrgencyColor(") == 6   # definición + Activas + Actividades + Prospectos + Suspendidas + Licencias/Detalle (fila compartida)
+    assert code.count("commercialUrgencyLegendHtml()") == 7   # + Licencias + Detalle (cada una su propia leyenda, ver HANDOFF)
 
 
 def test_activities_search_and_sort_are_client_side_only():
