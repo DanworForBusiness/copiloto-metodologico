@@ -3579,10 +3579,8 @@ function commercialLeadsTableHtml(companies) {
   const rows = sorted.map(c => {
     const key = `${c.id}_${c.name}`;
     const isOpen = commercialState.leadsExpanded.indexOf(key) !== -1;
-    const chevron = isOpen ? "▼" : "▶";
     const inner = isOpen ? `
       <tr class="is-total">
-        <td></td>
         <td colspan="2">
           <div class="matrix-scroll"><table class="dashboard-table commercial-leads-inner">
             <thead><tr>
@@ -3601,17 +3599,24 @@ function commercialLeadsTableHtml(companies) {
           </table></div>
         </td>
       </tr>` : "";
+    // Owner corrective (ver HANDOFF): flechita de expansión con el MISMO
+    // primitivo transversal del Hub (`.dashboard-table-toggle`/`.caret`,
+    // establecido en Operaciones — Detalle de asignaciones — y ya en uso
+    // acá mismo para el drill mensual de Creadas), nunca un glifo ▶/▼
+    // suelto en su propia columna.
     return `
-    <tr class="commercial-leads-company-row" data-commercial-leads-toggle="${commercialEsc(key)}" role="button" tabindex="0">
-      <td class="commercial-leads-chevron">${chevron}</td>
-      <td class="row-label">${commercialEsc(c.name)}</td>
+    <tr>
+      <td class="row-label">
+        <button type="button" class="dashboard-table-toggle" data-commercial-leads-toggle="${commercialEsc(key)}"
+          aria-expanded="${isOpen ? "true" : "false"}" aria-label="${isOpen ? "Colapsar" : "Expandir"} ${commercialEsc(c.name)}">
+          <span class="caret">${isOpen ? "▾" : "▸"}</span>${commercialEsc(c.name)}</button>
+      </td>
       <td>${commercialFmtInt(c.leads.length)}</td>
     </tr>${inner}`;
   }).join("");
   return `<div class="matrix-scroll"><table class="dashboard-table">
-    <colgroup><col style="width:4%"><col style="width:70%"><col style="width:26%"></colgroup>
+    <colgroup><col style="width:74%"><col style="width:26%"></colgroup>
     <thead><tr>
-      <th></th>
       ${th("name", "Empresa", "row-label-col")}
       ${th("count", "Leads")}
     </tr></thead>
@@ -3771,18 +3776,36 @@ function commercialClientesTableHtml(rows) {
   const body = sorted.map(c => {
     const hasOpps = c.active.length > 0 || c.prospects.length > 0;
     const isOpen = hasOpps && commercialState.clientesExpanded.indexOf(c.id) !== -1;
-    const chevron = !hasOpps ? "" : (isOpen ? "▼" : "▶");
     const licBadge = c.has_licencias
       ? `<span class="dashboard-status-badge dashboard-status-badge--grey">Licencias</span>` : "";
-    const rowAttrs = hasOpps
-      ? `data-commercial-clientes-toggle="${c.id}" role="button" tabindex="0" class="commercial-leads-company-row"` : "";
+    // Owner corrective (ver HANDOFF): MISMO primitivo transversal del Hub
+    // que Leads — `.dashboard-table-toggle`/`.caret`, nunca un glifo ▶/▼
+    // en su propia columna. Cliente sin oportunidades abiertas usa la
+    // variante `--leaf` (`<span>`, no `<button>` — MISMO criterio "leaf
+    // rows must not appear expandable" que Operaciones), con el caret
+    // oculto vía `.caret.leaf` para mantener la indentación alineada.
+    const toggle = hasOpps
+      ? `<button type="button" class="dashboard-table-toggle" data-commercial-clientes-toggle="${c.id}"
+          aria-expanded="${isOpen ? "true" : "false"}" aria-label="${isOpen ? "Colapsar" : "Expandir"} ${commercialEsc(c.name)}">
+          <span class="caret">${isOpen ? "▾" : "▸"}</span>${commercialEsc(c.name)}</button>`
+      : `<span class="dashboard-table-toggle dashboard-table-toggle--leaf"><span class="caret leaf"></span>${commercialEsc(c.name)}</span>`;
     let inner = "";
     if (isOpen) {
       const rows = c.active.map(o => commercialClienteOppRowHtml(o, "active")).join("")
         + c.prospects.map(o => commercialClienteOppRowHtml(o, "prospect")).join("");
+      // Owner corrective (ver HANDOFF, screenshot): sin `<colgroup>` propio,
+      // `table.dashboard-table` (tools.css, `table-layout: fixed`) le da a
+      // Activas/Prospectos el ancho por default de 88px reservado para
+      // columnas numéricas simples — insuficiente para "90% · 200 hs" con
+      // el espacio de sobra que deja Oportunidad/Vendedor/Etapa, así que el
+      // valor se parte en dos líneas aunque a la derecha quede aire.
+      // Anchos explícitos, MISMO criterio que ya usan las tablas de nivel
+      // superior de este mismo archivo.
       inner = `
-        <tr class="is-total"><td></td><td colspan="3">
+        <tr class="is-total"><td colspan="4">
           <div class="matrix-scroll"><table class="dashboard-table commercial-leads-inner">
+            <colgroup><col style="width:34%"><col style="width:18%">
+              <col style="width:20%"><col style="width:14%"><col style="width:14%"></colgroup>
             <thead><tr><th class="row-label-col">Oportunidad</th><th class="left">Vendedor</th>
               <th class="left">Etapa</th><th>Activas</th><th>Prospectos</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -3790,19 +3813,17 @@ function commercialClientesTableHtml(rows) {
         </td></tr>`;
     }
     return `
-    <tr ${rowAttrs}>
-      <td class="commercial-leads-chevron">${chevron}</td>
-      <td class="row-label">${commercialEsc(c.name)} ${licBadge}</td>
+    <tr>
+      <td class="row-label">${toggle} ${licBadge}</td>
       <td class="left">${commercialEsc((c.sellers || []).join(", ")) || "—"}</td>
       <td>${c.active.length ? commercialFmtInt(c.active.length) : "—"}</td>
       <td>${c.prospects.length ? commercialFmtInt(c.prospects.length) : "—"}</td>
     </tr>${inner}`;
   }).join("");
   return `<div class="matrix-scroll"><table class="dashboard-table">
-    <colgroup><col style="width:4%"><col style="width:38%"><col style="width:28%">
+    <colgroup><col style="width:42%"><col style="width:28%">
       <col style="width:15%"><col style="width:15%"></colgroup>
     <thead><tr>
-      <th></th>
       ${th("name", "Cliente", "row-label-col")}
       ${th("seller", "Vendedor", "left")}
       ${th("active", "Activas")}

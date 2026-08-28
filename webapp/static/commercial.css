@@ -927,15 +927,14 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    de Conversión de Leads — owner corrective: esas tres vistas no tienen el
    volumen de tiles de Conversión de Leads, así que no necesitan su
    compactación, MISMO tamaño que el Resumen del Dashboard).
-   `.commercial-leads-chevron`/`.commercial-leads-company-row` — fila de
-   empresa/cliente expandible (Leads/Clientes), MISMO mecanismo que
-   Creadas (array de claves abiertas) pero con su propia fila clickeable:
-   `table.dashboard-table tr:hover td` (tools.css) ya da el highlight
-   compartido, acá sólo falta el cursor y el ancho fijo de la celda del
-   chevron. `.commercial-leads-inner` — la sub-tabla anidada (leads de una
-   empresa / oportunidades de un cliente) va MÁS CHICA que la tabla
-   principal, para que se lea como detalle y no como una tabla hermana. */
-.commercial-leads-company-row { cursor: pointer; }
-.commercial-leads-chevron { width: 28px; text-align: center; color: var(--soft); font-size: .7rem; user-select: none; }
+   Fila de empresa/cliente expandible (Leads/Clientes) — owner corrective:
+   el toggle usa el MISMO primitivo transversal del Hub que ya define
+   tools.css (`.dashboard-table-toggle`/`.caret`, establecido en
+   Operaciones — Detalle de asignaciones — y ya en uso acá mismo para el
+   drill mensual de Creadas), nunca un glifo ▶/▼ suelto en su propia
+   columna — cero CSS propio, cero clase nueva. `.commercial-leads-inner`
+   — la sub-tabla anidada (leads de una empresa / oportunidades de un
+   cliente) va MÁS CHICA que la tabla principal, para que se lea como
+   detalle y no como una tabla hermana. */
 .commercial-leads-inner { font-size: .82em; }
 .commercial-leads-inner th, .commercial-leads-inner td { padding-top: 4px; padding-bottom: 4px; }
