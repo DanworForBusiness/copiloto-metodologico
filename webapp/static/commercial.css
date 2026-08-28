@@ -846,46 +846,45 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .commercial-perdidas-ranking .bar-value { width: 92px; white-space: nowrap; }
 .commercial-perdidas-analysis { margin-bottom: 18px; }
 
-/* Conversión de Leads — jerarquía visual Campaña→Medio→Origen (owner
-   corrective, ver HANDOFF): los tres niveles compartían el MISMO
-   `.bar-fill`/`.bar-label` sin distinción alguna — sólo la sangría (antes
-   inline, ahora `padding-left` acá) declaraba la jerarquía, insuficiente
-   para leer padre/hijo/nieto de un vistazo.
+/* Conversión de Leads — owner UX corrective (ver HANDOFF §2/§3/§7): la
+   jerarquía Campaña→Medio→Origen retrocedió como visual principal (los
+   correctives previos de esta sección quedan sin efecto, ver historial —
+   el dato de atribución sigue intacto, sólo cambió qué se muestra
+   primero). Reemplazo: siete mini-KPI + "Leads por año"/"Origen de
+   marketing" lado a lado.
 
-   MISMO criterio YA establecido en `.commercial-creadas-week` (ver arriba
-   en este archivo): el MISMO token `var(--gold)`, vía el `.bar-fill`
-   compartido, a MENOR intensidad por nivel vía `opacity` — nunca un color
-   inventado; si el token cambia, los tres niveles cambian juntos. Scoped a
-   `.commercial-lc-attribution` (wrapper propio, `commercialLeadConversion
-   AttributionHtml`, commercial.js) — NUNCA se toca `.bar-row`/`.bar-fill`/
-   `.bar-track`/`.bar-value` en sí, así que ningún otro bar-row del Hub (ni
-   las otras cinco sub-vistas de Analítica del Pipeline, que no usan estas
-   clases) se mueve.
+   Mini-KPIs — MISMO primitivo `.activity-kpi`/`activity-kpi-grid` que el
+   dashboard principal (owner §3: "Use the SAME Hub KPI visual language...
+   Do NOT globally resize"). El modifier SOLO reduce densidad (padding/gap/
+   tamaño de valor) DENTRO de este wrapper — nunca toca la regla base, así
+   que el grid principal de 9 tiles no se mueve un píxel.
 
-   Campaña — nivel dominante: opacidad plena, pista más alta, label en
-   negrita, y separación vertical extra ANTES de cada grupo nuevo (nunca
-   el primero — `:not(:first-child)`, para no duplicar el margen que ya
-   pone `.perspective-label` de arriba).
-   Medio — subordinado a Campaña: opacidad intermedia, pista más baja,
-   peso de label medio, sangría acorde.
-   Origen — subordinado a Medio: opacidad menor todavía, pista más baja
-   aún, peso de label normal + color atenuado, la mayor sangría. */
-.commercial-lc-attribution .bar-row { margin: 4px 0; }
-.commercial-lc-attribution .commercial-lc-attr-campana { padding-left: 0; }
-.commercial-lc-attribution .commercial-lc-attr-campana:not(:first-child) { margin-top: 14px; }
-.commercial-lc-attribution .commercial-lc-attr-campana .bar-label { font-weight: 700; }
-.commercial-lc-attribution .commercial-lc-attr-campana .bar-track { height: 14px; }
-.commercial-lc-attribution .commercial-lc-attr-campana .bar-fill { opacity: 1; }
+   Owner follow-up (mid-smoke, "achicaria un poco mas... escala un 30%"):
+   TODAS las medidas de acá son la regla base de tools.css (padding
+   14px/16px, value clamp(1.6rem,2.4vw,2.1rem), gap 4px) multiplicadas por
+   0.7 — nunca un tamaño inventado. `activity-kpi__label` (el rótulo en
+   mayúscula, ej. "TOTAL LEADS") queda igual de bold, sólo más chico —
+   nunca pidieron sacarle el peso a ESE. El pie de texto (`kpi-sub`, ej.
+   "742 empresas únicas · base %") es el que el owner marcó bold+partido en
+   dos líneas: acá se saca el bold (400) y se fuerza una sola línea con
+   ellipsis, igual que `.bar-value` en el ranking de al lado. */
+.commercial-lc-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; margin-bottom: 16px; }
+.commercial-lc-kpis .activity-kpi { padding: 10px 11px; gap: 3px; }
+.commercial-lc-kpis .activity-kpi__value { font-size: clamp(1.1rem, 1.7vw, 1.45rem); }
+.commercial-lc-kpis .activity-kpi__label { font-size: .46rem; }
+.commercial-lc-kpis .kpi-sub {
+  font: 400 .58rem var(--sans); letter-spacing: normal;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
-.commercial-lc-attribution .commercial-lc-attr-medio { padding-left: 20px; }
-.commercial-lc-attribution .commercial-lc-attr-medio .bar-label { font-weight: 500; }
-.commercial-lc-attribution .commercial-lc-attr-medio .bar-track { height: 10px; }
-.commercial-lc-attribution .commercial-lc-attr-medio .bar-fill { opacity: .62; }
-
-.commercial-lc-attribution .commercial-lc-attr-origen { padding-left: 40px; }
-.commercial-lc-attribution .commercial-lc-attr-origen .bar-label { font-weight: 400; color: var(--ink-soft, var(--soft)); }
-.commercial-lc-attribution .commercial-lc-attr-origen .bar-track { height: 6px; }
-.commercial-lc-attribution .commercial-lc-attr-origen .bar-fill { opacity: .38; }
+/* Leads por año | Origen de marketing — LADO A LADO vía `.activity-grid-2`
+   (ver arriba, YA promovido). El `bar-value` de ambos rankings es un
+   conteo crudo simple (owner cambió de opinión sobre "13 · 40.6%" mid-
+   smoke, ver HANDOFF: el % del origen ahora vive en un tooltip mouseover
+   sobre la barra, MISMO primitivo `.chart-tooltip-anchor` que el resto del
+   Hub) — entra sin problema en el ancho base de `.bar-value` (92px,
+   tools.css), así que no hace falta ningún override acá. */
+.commercial-lc-analysis { margin-bottom: 18px; }
 
 /* Tiempo por Etapa / Conversión Etapa a Etapa — owner corrective (ver
    HANDOFF: "no me sirve imprimir los valores... si no va a haber un
@@ -905,3 +904,12 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .commercial-pipeline-mini-bar { height: 4px; margin-top: 4px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 2px; overflow: hidden; }
 .content-theme-dark .commercial-pipeline-mini-bar { background: rgba(255,255,255,.10); }
 .commercial-pipeline-mini-bar .bar-fill { position: static; height: 100%; border-radius: 2px; }
+
+/* Actividades — owner follow-up (sacó el título "Actividades Pendientes",
+   ver HANDOFF): `.whatsnew-filters` ya trae 4px de top margin (tools.css),
+   pero eso asumía el `<p class="perspective-label">` de arriba dándole 6px
+   más de aire por su propio margen inferior. Sin ese título, el mínimo de
+   10px que pidió el owner no lo cubre el margen base solo — override
+   SCOPEADO al wrapper propio de este panel (`commercial-act-panel`, ver
+   `commercialActividadesHtml`), nunca la regla compartida. */
+.commercial-act-panel > .whatsnew-filters { margin-top: 10px; }

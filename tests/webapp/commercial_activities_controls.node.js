@@ -128,15 +128,17 @@ function resetState(patch) {
 // literalmente los contadores de las secciones de abajo.
 {
   resetState();
-  assertTrue(kpis(commercialActivitiesBodyHtml()).join("/") === "6/3", "sin filtros: 6 totales, 3 retrasadas");
+  assertTrue(kpis(commercialActivitiesBodyHtml()).join("/") === "6/3/3",
+    "sin filtros: 6 totales, 3 retrasadas, 3 por vencer");
   resetState({ actSearchText: "beto" });
   const body = commercialActivitiesBodyHtml();
-  assertTrue(kpis(body).join("/") === "3/1", "buscando 'beto': 3 totales, 1 retrasada");
+  assertTrue(kpis(body).join("/") === "3/1/2", "buscando 'beto': 3 totales, 1 retrasada, 2 por vencer");
   // Y coinciden con los encabezados de sección — el contrato que esto protege.
   assertTrue(body.includes("1 actividad(es)") && body.includes("2 actividad(es)"),
     "los contadores de Retrasadas/Pendientes acompañan, nunca se contradicen con los KPIs");
   resetState({ actSearchText: "zzz-no-existe" });
-  assertTrue(kpis(commercialActivitiesBodyHtml()).join("/") === "0/0", "sin resultados, los KPIs también en cero");
+  assertTrue(kpis(commercialActivitiesBodyHtml()).join("/") === "0/0/0",
+    "sin resultados, los KPIs también en cero");
   assertTrue(commercialActivitiesBodyHtml().includes("dashboard-empty"),
     "y las secciones muestran el estado vacío del Hub, no una tabla con sólo cabeceras");
 }
@@ -180,7 +182,12 @@ function resetState(patch) {
   const body = commercialActivitiesBodyHtml();
   assertTrue(count(body, "urgency-legend\\b") === 1,
     "la leyenda aparece UNA vez para las dos secciones — misma escala, no se repite");
-  assertTrue(body.indexOf("urgency-legend") < body.indexOf("act-retrasadas"), "y va arriba de las secciones");
+  // `data-section-id="..."` (no el substring "act-retrasadas" a secas): el
+  // tile clickeable de arriba también contiene "act-retrasadas" en su
+  // `data-commercial-act-jump`, así que un match laxo encontraría ESE, no
+  // la sección real.
+  assertTrue(body.indexOf("urgency-legend") < body.indexOf('data-section-id="act-retrasadas"'),
+    "y va arriba de las secciones");
   assertTrue(count(body, "urgency-legend__dot--") === 4, "con sus cuatro tonos");
   resetState({ actSearchText: "zzz-no-existe" });
   assertTrue(!commercialActivitiesBodyHtml().includes("urgency-legend"),
@@ -270,7 +277,7 @@ function resetState(patch) {
   fetchCalls.length = 0;
   fireInput("beto");
   assertTrue(commercialState.actSearchText === "beto", "el delegado de input guarda el texto");
-  assertTrue(kpis(hosts["[data-commercial-activities-body]"].innerHTML).join("/") === "3/1",
+  assertTrue(kpis(hosts["[data-commercial-activities-body]"].innerHTML).join("/") === "3/1/2",
     "y re-renderiza el cuerpo con el resultado");
   assertTrue(root.innerHTML === "<!--root-intacto-->",
     "sin render completo: el `<input>` no se recrea y no pierde el foco entre teclas");
@@ -303,6 +310,40 @@ function resetState(patch) {
   resetState();
 }
 
+// ═══ "RETRASADAS"/"POR VENCER" CLICKEABLES (owner follow-up, ver HANDOFF) ═══
+{
+  resetState();
+  const body = commercialActivitiesBodyHtml();
+  assertTrue(count(body, 'data-commercial-act-jump="act-retrasadas"') === 1,
+    "el tile Retrasadas lleva su propio hook de salto");
+  assertTrue(count(body, 'data-commercial-act-jump="act-pendientes"') === 1,
+    "y el tile Por vencer también");
+  assertTrue(count(body, "activity-kpi--clickable") === 2,
+    "sólo esos dos tiles son clickeables — Total pendientes no tiene sección propia");
+  // El motor real: click/keydown sobre el tile fuerza `open` y scrollea la
+  // `<details>` correspondiente — nunca `document.querySelector` (el sandbox
+  // arriba tira si algo lo usa).
+  const target = { open: false, scrolled: 0, scrollIntoView() { this.scrolled++; } };
+  hosts['[data-section-id="act-retrasadas"]'] = target;
+  fetchCalls.length = 0;
+  (listeners.click || []).forEach(cb => cb({
+    target: { closest: sel => (sel === "[data-commercial-act-jump]" ? { dataset: { commercialActJump: "act-retrasadas" } } : null) },
+    preventDefault() {}, stopPropagation() {},
+  }));
+  assertTrue(target.open === true, "el click reabre la sección si estaba colapsada");
+  assertTrue(target.scrolled === 1, "y hace scroll hacia ella");
+  assertTrue(fetchCalls.length === 0, "sin red: es sólo navegación local");
+  // Enter/Espacio (role=button, no <button> nativo) hacen lo mismo.
+  target.open = false; target.scrolled = 0;
+  (listeners.keydown || []).forEach(cb => cb({
+    key: "Enter",
+    target: { closest: sel => (sel === "[data-commercial-act-jump]" ? { dataset: { commercialActJump: "act-retrasadas" } } : null) },
+    preventDefault() {},
+  }));
+  assertTrue(target.open === true && target.scrolled === 1, "y el mismo camino por teclado (Enter)");
+  resetState();
+}
+
 // ═══ ANCHOS DE COLUMNA ══════════════════════════════════════════════════════
 // Owner smoke: "sobra mucho espacio en la columna fecha, prefiero que ese
 // espacio lo gane Oportunidad". Con `table-layout:fixed` el sobrante se reparte
@@ -323,14 +364,17 @@ function resetState(patch) {
 // ═══ NO REGRESIÓN ═══════════════════════════════════════════════════════════
 {
   resetState();
-  // El shell conserva su rótulo y su barra; el cuerpo va en su host estable.
+  // El shell conserva su barra; el cuerpo va en su host estable. El rótulo
+  // "Actividades Pendientes" se sacó (owner follow-up, ver HANDOFF) — sólo
+  // queda Período + su botonera arriba del cuerpo.
   const panel = commercialActividadesHtml();
-  assertTrue(panel.includes("Actividades Pendientes"), "el rótulo de la capability sigue en el shell");
+  assertTrue(!panel.includes("Actividades Pendientes"), "el título de la capability ya no se imprime");
   assertTrue(panel.includes("data-commercial-activities-body"), "y el cuerpo en su host estable");
   assertTrue(panel.indexOf("data-commercial-act-search") < panel.indexOf("data-commercial-activities-body"),
     "la barra de controles queda FUERA del host que se re-renderiza al buscar");
-  // Retrasadas siempre antes que Pendientes.
-  assertTrue(panel.indexOf("act-retrasadas") < panel.indexOf("act-pendientes"),
+  // Retrasadas siempre antes que Pendientes (comparando las SECCIONES, no
+  // los tiles clickeables que ya mencionan ambos ids más arriba).
+  assertTrue(panel.indexOf('data-section-id="act-retrasadas"') < panel.indexOf('data-section-id="act-pendientes"'),
     "el orden semántico de las secciones no cambió");
   // Estados de carga/error intactos.
   commercialState.activitiesStatus = "loading";

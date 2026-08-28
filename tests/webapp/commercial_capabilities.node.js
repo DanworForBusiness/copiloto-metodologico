@@ -167,16 +167,28 @@ function loadActivities(rows) {
     act({ deadline: isoOffset(-2) }), act({ deadline: isoOffset(-1) }), act({ deadline: isoOffset(5) }),
   ]);
   const html = commercialActividadesHtml();
-  assertTrue(html.includes('<p class="perspective-label">Actividades Pendientes</p>'), "heading de la capability");
-  assertTrue(count(html, 'class="activity-kpi"') === 2, "exactamente 2 KPIs — sin métricas inventadas");
-  assertTrue(html.includes("Total pendientes") && html.includes("Retrasadas"), "los KPIs son Total pendientes y Retrasadas");
+  // Owner follow-up (ver HANDOFF): el título "Actividades Pendientes" se
+  // sacó — sólo queda Período + su botonera arriba del cuerpo.
+  assertTrue(!html.includes("Actividades Pendientes"), "el título de la capability ya no se imprime");
+  assertTrue(html.includes("commercial-act-panel"), "el wrapper propio sigue dando el top margin a la barra");
+  // TRES KPIs (owner follow-up: sumó "Por vencer") — cuenta por
+  // `activity-kpi__value`, no por `class="activity-kpi"` a secas, porque
+  // los dos clickeables llevan una clase compuesta (`activity-kpi
+  // activity-kpi--clickable`) que un match exacto de la clase simple no ve.
+  assertTrue(count(html, 'class="activity-kpi__value"') === 3, "exactamente 3 KPIs — sin métricas inventadas");
+  assertTrue(count(html, "activity-kpi--clickable") === 2,
+    "Retrasadas y Por vencer son clickeables; Total pendientes no (sin sección propia)");
+  assertTrue(html.includes("Total pendientes") && html.includes("Retrasadas") && html.includes("Por vencer"),
+    "los KPIs son Total pendientes, Retrasadas y Por vencer");
   const ids = (html.match(/data-section-id="([^"]+)"/g) || []).map(m => m.replace(/.*="/, "").replace('"', ""));
   assertTrue(ids.join() === "act-retrasadas,act-pendientes", "Retrasadas SIEMPRE antes que Pendientes");
   assertTrue(!html.includes("draggable"), "los buckets NO son draggables — el orden es semántico");
   assertTrue(!html.includes("data-dashboard-key"), "no se registran en el spine que wirea reorder/persistencia");
   assertTrue(!html.includes("dashboard-section__grip"), "sin grip: no se anuncia una afordancia que no existe");
-  // Los KPIs reflejan el conjunto filtrado.
+  // Los KPIs reflejan el conjunto filtrado: 3 totales, 2 retrasadas (-2/-1), 1 por vencer (5).
   assertTrue(/Total pendientes/.test(html) && html.includes(">3<"), "Total pendientes = filas visibles");
+  assertTrue(html.includes(">2<"), "Retrasadas = las dos vencidas");
+  assertTrue(html.includes(">1<"), "Por vencer = la única futura");
 }
 
 // --- Estados vacío / carga / error -------------------------------------------

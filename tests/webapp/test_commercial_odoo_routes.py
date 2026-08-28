@@ -20,6 +20,7 @@ from webapp.services.commercial_service import CommercialConfigurationError, Com
 _STATIC = Path(__file__).resolve().parents[2] / "webapp" / "static"
 _APP_JS = (_STATIC / "app.js").read_text(encoding="utf-8")
 _COMMERCIAL_JS = (_STATIC / "commercial.js").read_text(encoding="utf-8")
+_COMMERCIAL_CSS = (_STATIC / "commercial.css").read_text(encoding="utf-8")
 _COMMERCIAL_PY = (Path(__file__).resolve().parents[2] / "webapp" / "routers" / "commercial.py").read_text(encoding="utf-8")
 _COMMERCIAL_SERVICE_PY = (
     Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_service.py"
@@ -286,9 +287,19 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # agrega DOS más: `[data-commercial-stage-time-table]`/
     # `[data-commercial-stage-conversion-table]`, cada uno UNA sola vez
     # (sólo el delegado de orden de columna es quirúrgico ahí).
+    # Owner follow-up — "Retrasadas"/"Por vencer" clickeables en Actividades
+    # (ver HANDOFF) agrega UNO, PRIMERO en el archivo (`commercialActJumpToSection`
+    # vive antes que todo lo de arriba): `[data-section-id="${sectionId}"]`,
+    # para ubicar la `<details>` ya visible a la que hay que scrollear —
+    # MISMO criterio acotado que el resto de esta lista, nunca `document`.
+    # Owner corrective "SCOPED RETRY FOR PIPELINE ANALYTICS" (ver HANDOFF)
+    # agrega UNO: `[data-commercial-analytics-body]` en
+    # `commercialRenderAnalyticsBody` — host estable para el re-render
+    # QUIRÚRGICO del reintento, MISMO criterio que Forecast/Creadas/etc.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cuarenta y seis hooks y nada más.
+    # EXACTAMENTE estos cuarenta y ocho hooks y nada más.
     assert queries == [
+        '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
         '`[data-breakdown="${trigger.dataset.event}"]`',
@@ -296,6 +307,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-funnel-area]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-activities-body]"',
+        '"[data-commercial-analytics-body]"',
         '"[data-commercial-forecast-body]"',
         '"[data-commercial-forecast-count]"',
         '"[data-commercial-forecast-title]"',
@@ -420,12 +432,21 @@ def test_commercial_js_never_reimplements_drag_or_collapse_itself():
     # sólo RESETEA `open` a un estado conocido-bueno exactamente cuando el
     # motor compartido activa la sección, dentro de la función puntual que
     # ya maneja esa transición (`commercialMaybeScrollToOpenedAnalysis`).
-    # Se audita que sea EXACTAMENTE esa única línea, no una reimplementación
+    # Owner follow-up (ver HANDOFF) agrega una SEGUNDA línea, MISMO criterio
+    # exacto (resetea `open` a un estado conocido-bueno, nunca un listener de
+    # `<summary>` propio): `commercialActJumpToSection`, para "Retrasadas"/
+    # "Por vencer" en Actividades — la `<details>` ahí es SIEMPRE visible
+    # (nunca hidden/toggled por `initEventBreakdown`), así que necesita su
+    # propio reset narrow, no puede compartir el de arriba.
+    # Se audita que sean EXACTAMENTE esas dos líneas, no una reimplementación
     # más amplia coleándose por el mismo hueco.
-    assert _COMMERCIAL_JS.count(".open =") == 1
+    assert _COMMERCIAL_JS.count(".open =") == 2
     scroll_fn = _COMMERCIAL_JS.split("function commercialMaybeScrollToOpenedAnalysis(", 1)[1].split("\nfunction ", 1)[0]
     assert "section.open = true;" in scroll_fn
     assert "addEventListener" not in scroll_fn
+    jump_fn = _COMMERCIAL_JS.split("function commercialActJumpToSection(", 1)[1].split("\nfunction ", 1)[0]
+    assert "section.open = true;" in jump_fn
+    assert "addEventListener" not in jump_fn
 
 
 def test_commercial_pipeline_heading_dead_class_is_gone():
@@ -665,21 +686,28 @@ def test_only_analyses_with_a_homologated_drilldown_are_clickable():
     # sin el árbol UTM, ver HANDOFF). El único tile restante ("Conversión",
     # ganadas/perdidas) conserva su información SIN simular una acción
     # inexistente — el legacy tampoco la tiene clickeable.
+    # Owner corrective "SCOPED RETRY FOR PIPELINE ANALYTICS" (ver HANDOFF)
+    # sacó los SEIS tiles de Analítica del Pipeline de `commercialDashboardHtml`
+    # hacia su propia función (`commercialAnalyticsBodyHtml`, host estable
+    # para el reintento escopeado) — se suman los dos cuerpos, ninguna key
+    # se perdió ni se movió de función por accidente.
     dashboard_fn = _COMMERCIAL_JS.split("function commercialDashboardHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert dashboard_fn.count("eventKey:") == 14
-    assert dashboard_fn.count('eventKey: "activas"') == 1
-    assert dashboard_fn.count('eventKey: "forecast"') == 2
-    assert dashboard_fn.count('eventKey: "creadas"') == 1
-    assert dashboard_fn.count('eventKey: "prospectos"') == 1
-    assert dashboard_fn.count('eventKey: "ganadas"') == 1
-    assert dashboard_fn.count('eventKey: "perdidas"') == 1
-    assert dashboard_fn.count('eventKey: "suspendidas"') == 1
-    assert dashboard_fn.count('eventKey: "pipeline_age"') == 1
-    assert dashboard_fn.count('eventKey: "stage_time"') == 1
-    assert dashboard_fn.count('eventKey: "stage_conversion"') == 1
-    assert dashboard_fn.count('eventKey: "close_time"') == 1
-    assert dashboard_fn.count('eventKey: "stagnant"') == 1
-    assert dashboard_fn.count('eventKey: "lead_conversion"') == 1
+    analytics_fn = _COMMERCIAL_JS.split("function commercialAnalyticsBodyHtml(", 1)[1].split("\nfunction ", 1)[0]
+    combined = dashboard_fn + analytics_fn
+    assert combined.count("eventKey:") == 14
+    assert combined.count('eventKey: "activas"') == 1
+    assert combined.count('eventKey: "forecast"') == 2
+    assert combined.count('eventKey: "creadas"') == 1
+    assert combined.count('eventKey: "prospectos"') == 1
+    assert combined.count('eventKey: "ganadas"') == 1
+    assert combined.count('eventKey: "perdidas"') == 1
+    assert combined.count('eventKey: "suspendidas"') == 1
+    assert combined.count('eventKey: "pipeline_age"') == 1
+    assert combined.count('eventKey: "stage_time"') == 1
+    assert combined.count('eventKey: "stage_conversion"') == 1
+    assert combined.count('eventKey: "close_time"') == 1
+    assert combined.count('eventKey: "stagnant"') == 1
+    assert combined.count('eventKey: "lead_conversion"') == 1
     # La afordancia (clase + role + tabindex) sale SÓLO cuando hay eventKey.
     rich = _COMMERCIAL_JS.split("function commercialRichKpi(", 1)[1].split("\nfunction ", 1)[0]
     assert "eventKey ?" in rich and "activity-kpi--clickable" in rich
@@ -1992,16 +2020,59 @@ def test_activity_rows_escape_every_odoo_sourced_field():
     assert "commercialEsc(commercialFmtDate(act.deadline))" in fn
 
 
-def test_activities_capability_only_shows_the_two_supported_kpis():
+def test_activities_capability_only_shows_the_three_supported_kpis():
     # C9: los KPIs se movieron a `commercialActivitiesBodyHtml`, el host que la
     # búsqueda y el orden re-renderizan quirúrgicamente sin tocar la barra.
+    # Owner follow-up (ver HANDOFF): se sumó "Por vencer" — el total (155) se
+    # lee junto a sus dos partes (retrasadas + por vencer). "Retrasadas"/
+    # "Por vencer" son clickeables (`commercialActClickableKpi`, saltan a su
+    # `<details>` ya visible); "Total pendientes" sigue con el KPI plano
+    # (`commercialKpi`) porque no tiene una sección propia a la que saltar.
     fn = _COMMERCIAL_JS.split("function commercialActivitiesBodyHtml(", 1)[1].split("\nfunction ", 1)[0]
     assert 'commercialKpi("Total pendientes"' in fn
-    assert 'commercialKpi("Retrasadas"' in fn
-    assert fn.count("commercialKpi(") == 2, "sin métricas inventadas"
-    # El rótulo de la capability vive en el shell, no en el cuerpo re-renderizable.
+    assert fn.count("commercialKpi(") == 1, "sin métricas planas inventadas"
+    assert 'commercialActClickableKpi("Retrasadas", commercialFmtInt(buckets.overdue.length), "act-retrasadas")' in fn
+    assert 'commercialActClickableKpi("Por vencer", commercialFmtInt(buckets.pending.length), "act-pendientes")' in fn
+    assert fn.count("commercialActClickableKpi(") == 2, "sin métricas clickeables inventadas"
+    # El título "Actividades Pendientes" se sacó (owner follow-up) — sólo
+    # queda Período + su botonera arriba del cuerpo.
     shell = _COMMERCIAL_JS.split("function commercialActividadesHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert "Actividades Pendientes" in shell
+    assert "Actividades Pendientes" not in shell
+    assert "commercial-act-panel" in shell
+
+
+def test_activity_kpis_jump_to_their_own_already_visible_section():
+    # Owner follow-up (ver HANDOFF) — "Retrasadas"/"Por vencer" saltan a su
+    # `<details data-section-id>` YA visible (nunca oculta/togglable), así
+    # que reusan el primitivo VISUAL `.activity-kpi--clickable` pero con su
+    # PROPIO atributo/delegado — nunca el motor `[data-event]` (ese asume una
+    # sección hidden/toggle, que acá no existe).
+    helper = _COMMERCIAL_JS.split("function commercialActClickableKpi(", 1)[1].split("\nfunction ", 1)[0]
+    assert "activity-kpi--clickable" in helper
+    assert 'data-commercial-act-jump="${commercialEsc(sectionId)}"' in helper
+    assert 'role="button" tabindex="0"' in helper
+    jump_fn = _COMMERCIAL_JS.split("function commercialActJumpToSection(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'root.querySelector(`[data-section-id="${sectionId}"]`)' in jump_fn
+    assert "section.open = true" in jump_fn
+    assert "scrollIntoView" in jump_fn
+    # Un solo delegado de click y uno de keydown en todo el archivo (contrato
+    # del repo) — la nueva faceta se sumó DENTRO de los existentes.
+    assert _COMMERCIAL_JS.count('document.addEventListener("click"') == 1
+    assert _COMMERCIAL_JS.count('document.addEventListener("keydown"') == 1
+    click_body = _COMMERCIAL_JS.split('document.addEventListener("click"', 1)[1]
+    assert '"[data-commercial-act-jump]"' in click_body
+    assert "commercialActJumpToSection(actJump.dataset.commercialActJump, root)" in click_body
+    keydown_body = _COMMERCIAL_JS.split('document.addEventListener("keydown"', 1)[1]
+    assert '"[data-commercial-act-jump]"' in keydown_body
+    assert "commercialActJumpToSection(actJumpKey.dataset.commercialActJump, root)" in keydown_body
+
+
+def test_activities_filter_bar_gets_top_margin_after_dropping_the_title():
+    # Owner follow-up: sacado el título, `.whatsnew-filters` (4px top margin
+    # base, tools.css) ya no hereda el aire del `<p class="perspective-label">`
+    # de arriba (6px de margen inferior) — override SCOPEADO al wrapper
+    # propio del panel, nunca la regla compartida.
+    assert ".commercial-act-panel > .whatsnew-filters { margin-top: 10px; }" in _COMMERCIAL_CSS
 
 
 # ============================================================================
@@ -2314,16 +2385,23 @@ def test_the_five_untouched_pipeline_tiles_never_get_unrelated_filter_dimensions
         assert banned not in _COMMERCIAL_JS, banned
 
 
-def test_lead_conversion_gets_exactly_the_five_recovered_legacy_facets():
+def test_lead_conversion_gets_the_five_legacy_facets_plus_resultado():
     # Owner corrective (§4/§5/§11, ver HANDOFF) — Lead Conversion recuperó
     # las CINCO facetas/búsqueda EXACTAS del legacy `_filterLeadConvTable`
     # (Buscar + Campaña + Medio + Origen + Vendedor) — nunca Cliente ni un
-    # selector de Año, que el legacy tampoco tiene ahí.
+    # selector de Año, que el legacy tampoco tiene ahí. Owner follow-up
+    # (mid-smoke, ver HANDOFF): "Resultado" se sumó como SEXTA faceta —
+    # ninguno de los 7 mini-KPI tiene una relación 1:1 limpia con la tabla
+    # (Total leads/Aún en lead/Lead perdido ni siquiera tienen filas ahí,
+    # ver `commercialLeadConversionAllRows`), así que en vez de tiles
+    # clicables se usó el fallback que el propio owner pidió: un dropdown
+    # más, mismo patrón AND que los otros cinco.
     filters_fn = _COMMERCIAL_JS.split("function commercialLeadConversionFiltersHtml(", 1)[1].split("\nfunction ", 1)[0]
     for expected in (
         "data-commercial-lead-conversion-search", "data-commercial-lead-conversion-campana-filter",
         "data-commercial-lead-conversion-medio-filter", "data-commercial-lead-conversion-origen-filter",
-        "data-commercial-lead-conversion-seller-filter", "data-commercial-lead-conversion-clear",
+        "data-commercial-lead-conversion-seller-filter", "data-commercial-lead-conversion-outcome-filter",
+        "data-commercial-lead-conversion-clear",
     ):
         assert expected in filters_fn, expected
     for banned in ("data-commercial-lead-conversion-client", "data-commercial-lead-conversion-year"):
@@ -2342,7 +2420,14 @@ def test_pipeline_analytics_and_lead_conversion_sort_interactions_never_refetch(
         # HANDOFF §11): TODAS locales, cero red.
         "commercialLeadConversionFilteredRows", "commercialLeadConversionAllRows",
         "commercialLeadConversionFilterOptions", "commercialLeadConversionFiltersHtml",
-        "commercialLeadConversionClearFilters", "commercialLeadConversionAttributionHtml",
+        "commercialLeadConversionClearFilters",
+        # Owner UX corrective — mini KPIs / Leads por año / Origen de
+        # marketing (ver HANDOFF §5/§6/§10): TODAS derivadas client-side del
+        # payload YA cargado, cero red.
+        "commercialLeadConversionKpisHtml", "commercialLeadConversionAllUniverseRows",
+        "commercialLeadConversionYearBuckets", "commercialLeadConversionYearRankingHtml",
+        "commercialLeadConversionOriginBuckets", "commercialLeadConversionOriginRankingHtml",
+        "commercialLeadConversionChartsHtml",
     ):
         body = re.split(r"\nasync function |\nfunction ", _COMMERCIAL_JS.split(f"function {local_fn_name}(", 1)[1], maxsplit=1)[0]
         assert "fetch(" not in body, local_fn_name
@@ -2361,18 +2446,21 @@ def test_pipeline_analytics_and_lead_conversion_sort_interactions_never_refetch(
 
 def test_lead_conversion_filters_compose_with_and_exact_match_and_full_row_search():
     # Owner §11/§12 — MISMA composición que el legacy `_filterLeadConvTable`:
-    # las CUATRO facetas de `<select>` son AND + comparación EXACTA
+    # las CUATRO facetas legacy de `<select>` son AND + comparación EXACTA
     # (`!==`), Buscar es substring sobre TODOS los campos de la fila.
+    # "Resultado" (owner follow-up mid-smoke, ver HANDOFF) se sumó con el
+    # MISMO patrón exact-match AND — quinta faceta de `<select>`.
     fn = _COMMERCIAL_JS.split("function commercialLeadConversionFilteredRows(", 1)[1].split("\nfunction ", 1)[0]
     assert "fCampana && r.campana !== fCampana" in fn
     assert "fMedio && r.medio !== fMedio" in fn
     assert "fOrigen && r.origen !== fOrigen" in fn
     assert "fSeller && r.seller !== fSeller" in fn
+    assert "fOutcome && r.outcome !== fOutcome" in fn
     assert "Object.values(r)" in fn  # búsqueda sobre TODOS los campos, no una lista fija
-    # Composición AND: cada faceta (4) + la búsqueda (1) es un
+    # Composición AND: cada faceta (5) + la búsqueda (1) es un
     # `if (...) return false;` propio (early-return) — nunca un único `||`
     # que las combine como OR.
-    assert fn.count("return false;") == 5
+    assert fn.count("return false;") == 6
 
 
 def test_pipeline_analytics_detail_never_writes_and_reads_only_known_models():

@@ -74,8 +74,13 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # lazy, SIN año — MISMO patrón que Prospectos. Analítica del Pipeline
     # (ver HANDOFF) agrega DOS: `/comercial/data/pipeline-analytics-detail`
     # (CINCO sub-vistas, UN fetch compartido) y
-    # `/comercial/data/lead-conversion-detail` (universo propio).
-    assert code.count("/comercial/data/") == 14  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail
+    # `/comercial/data/lead-conversion-detail` (universo propio). Owner
+    # corrective "SCOPED RETRY FOR PIPELINE ANALYTICS" (ver HANDOFF) agrega
+    # UNA ocurrencia MÁS de `/comercial/data/analytics` — CERO endpoint
+    # nuevo, es el MISMO literal ya contado en la carga inicial
+    # (`commercialLoadData`), repetido en `commercialLoadAnalytics` (el
+    # reintento escopeado pega al mismo endpoint).
+    assert code.count("/comercial/data/") == 15  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint, función nueva)
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
@@ -145,7 +150,7 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 46, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa (ver HANDOFF)
+    assert len(queries) == 48, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" (scoped retry, ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

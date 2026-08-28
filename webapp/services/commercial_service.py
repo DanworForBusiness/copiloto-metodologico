@@ -1963,8 +1963,18 @@ class CommercialService:
             def pct(n):
                 return round(n / total_co * 100, 1) if total_co else 0
 
+            # `total` — owner corrective (mini KPI tiles, ver HANDOFF §2):
+            # MISMA fórmula que el legacy (`total = n_still_lead + n_lost_lead
+            # + n_any_conv`, TODOS conteos crudos, nunca empresas) — la
+            # cabecera de "Total leads" usa este campo, NUNCA `companies`
+            # (que es la línea SECUNDARIA "empresas únicas · base para los
+            # %"). Suma de conteos YA calculados — cero query nueva.
+            total_raw = (len(still_lead_recs) + len(lost_lead_recs) + len(buckets["prospect"])
+                         + len(buckets["opp"]) + len(buckets["won"]) + len(buckets["lost"]))
+
             return {
                 "companies": total_co,
+                "total": total_raw,
                 "still_lead": {"count": len(still_lead_recs), "companies": len(still_lead_co),
                                 "opportunities": still_lead_rows},
                 "lost_lead": {"count": len(lost_lead_recs), "companies": len(lost_lead_co),
@@ -1973,9 +1983,14 @@ class CommercialService:
                              "opportunities": buckets["prospect"]},
                 "opp": {"count": len(buckets["opp"]), "companies": len(bucket_co["opp"]),
                         "opportunities": buckets["opp"]},
-                "won": {"count": len(buckets["won"]), "companies": len(bucket_co["won"]),
+                # `rate` en won/lost_opp — owner corrective (mini KPI tiles):
+                # el legacy también muestra "Ganadas"/"Perdidas" con %, MISMO
+                # denominador `total_co` que any_conv/adv_opp (`pct()`, ya
+                # usada acá) — no era necesario para el detalle por fila,
+                # pero SÍ para la tarjeta.
+                "won": {"count": len(buckets["won"]), "companies": len(bucket_co["won"]), "rate": pct(len(bucket_co["won"])),
                         "opportunities": buckets["won"]},
-                "lost_opp": {"count": len(buckets["lost"]), "companies": len(bucket_co["lost"]),
+                "lost_opp": {"count": len(buckets["lost"]), "companies": len(bucket_co["lost"]), "rate": pct(len(bucket_co["lost"])),
                              "opportunities": buckets["lost"]},
                 "any_conv": {"companies": len(all_conv_co), "rate": pct(len(all_conv_co))},
                 "adv_opp": {"companies": len(adv_co), "rate": pct(len(adv_co))},

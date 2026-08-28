@@ -57,6 +57,17 @@ const commercialState = {
   summary: null,
   pipeline: null,
   analytics: null,
+  // Owner corrective — "SCOPED RETRY FOR PIPELINE ANALYTICS" (ver HANDOFF):
+  // status PROPIO de "Analíticas del Pipeline", separado del `status`
+  // general del landing (arriba). Antes esta sección sólo tenía el dato
+  // (`analytics`, null si degradó) sin un status distinguible — no había
+  // forma de mostrar "cargando" durante un reintento sin tocar el resto del
+  // Dashboard. MISMO contrato idle|loading|ready|error que Forecast/Creadas/
+  // pipeline-analytics-detail — la carga INICIAL (`commercialLoadData`) la
+  // deja en ready|error junto con el resto del landing; SÓLO el reintento
+  // (`commercialLoadAnalytics`) la pasa por loading.
+  analyticsStatus: "idle",
+  analyticsErrorState: "",
   // Detalle por oportunidad (Active Opportunities Phase 2 / C4, ver
   // HANDOFF) — MISMO universo/gate que `pipeline`, pero degrada solo si
   // falla (MISMO criterio que `analytics`: es detalle adicional, nunca
@@ -287,12 +298,15 @@ const commercialState = {
   leadConversionSortKey: null,
   leadConversionSortDir: 1,
   // Atribución UTM (owner corrective post-trust-audit, ver HANDOFF §4/§5):
-  // CINCO facetas locales, MISMA composición AND que el legacy
-  // `_filterLeadConvTable`.
+  // CINCO facetas locales del legacy, MISMA composición AND que
+  // `_filterLeadConvTable`, + "Resultado" (owner follow-up mid-smoke, ver
+  // HANDOFF) como sexta faceta — fallback pedido por el propio owner ante
+  // la falta de relación 1:1 limpia entre mini-KPI y tabla.
   leadConversionCampanaFilter: "",
   leadConversionMedioFilter: "",
   leadConversionOrigenFilter: "",
   leadConversionSellerFilter: "",
+  leadConversionOutcomeFilter: "",
   leadConversionSearchText: "",
 };
 
@@ -320,6 +334,34 @@ function commercialFmtPercent(value) {
 function commercialKpi(label, value) {
   return `<div class="activity-kpi"><span class="activity-kpi__value">${commercialEsc(value)}</span>`
     + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
+}
+
+// Tile clickeable de Actividades (owner follow-up, ver HANDOFF): "Retrasadas"/
+// "Por vencer" arriba ya viven SIEMPRE visibles como `<details open>` más
+// abajo en el mismo panel (`commercialStaticSection`) — a diferencia de
+// `commercialRichKpi`/`data-event`, acá no hay nada que abrir/cerrar, sólo
+// llevar la vista a la sección que ya está ahí. Reusa el mismo primitivo
+// VISUAL `.activity-kpi--clickable` (cursor/hover/focus, tools.css) pero con
+// su propio atributo (`data-commercial-act-jump`) y su propio delegado —
+// enganchar esto al motor `[data-event]` sería forzar una sección
+// hidden/toggle que acá no existe.
+function commercialActClickableKpi(label, value, sectionId) {
+  return `<div class="activity-kpi activity-kpi--clickable" data-commercial-act-jump="${commercialEsc(sectionId)}"`
+    + ` role="button" tabindex="0" aria-label="Ir a ${commercialEsc(label)}">`
+    + `<span class="activity-kpi__value">${commercialEsc(value)}</span>`
+    + `<span class="activity-kpi__label">${commercialEsc(label)}</span></div>`;
+}
+
+// Scroll a una `<details data-section-id>` YA renderizada (nunca oculta) —
+// fuerza `open` primero por si el usuario la había colapsado a mano (MISMO
+// criterio que `commercialMaybeScrollToOpenedAnalysis`, sin su maquinaria de
+// toggle/`.is-active`, que acá no aplica). Busca sobre `root`, nunca
+// `document` — MISMO contrato que el resto de los hooks de este archivo.
+function commercialActJumpToSection(sectionId, root) {
+  const section = root.querySelector(`[data-section-id="${sectionId}"]`);
+  if (!section) return;
+  section.open = true;
+  section.scrollIntoView({ block: "start" });
 }
 
 // Tile del landing con la riqueza informativa del CRM legacy: valor
@@ -3393,13 +3435,22 @@ function commercialLeadConversionFilterOptions(rows, key) {
 function commercialLeadConversionFilteredRows() {
   const all = commercialLeadConversionAllRows();
   const { leadConversionCampanaFilter: fCampana, leadConversionMedioFilter: fMedio,
-          leadConversionOrigenFilter: fOrigen, leadConversionSellerFilter: fSeller } = commercialState;
+          leadConversionOrigenFilter: fOrigen, leadConversionSellerFilter: fSeller,
+          leadConversionOutcomeFilter: fOutcome } = commercialState;
   const search = (commercialState.leadConversionSearchText || "").toLowerCase().trim();
   return all.filter(r => {
     if (fCampana && r.campana !== fCampana) return false;
     if (fMedio && r.medio !== fMedio) return false;
     if (fOrigen && r.origen !== fOrigen) return false;
     if (fSeller && r.seller !== fSeller) return false;
+    // "Resultado" (owner follow-up, mid-smoke): NO hay relación 1:1 limpia
+    // entre los 7 mini-KPI y esta tabla — "Aún en lead"/"Lead perdido"/
+    // "Total leads" ni siquiera tienen filas acá (la tabla sólo muestra el
+    // universo CONVERTIDO: prospect/opp/won/lost_opp, ver
+    // `commercialLeadConversionAllRows`). Por eso NO son clicables; en su
+    // lugar, faceta más sobre `outcome` (Prospecto/Activa/Ganada/Perdida/
+    // Archivada) con el MISMO patrón AND que las otras cuatro.
+    if (fOutcome && r.outcome !== fOutcome) return false;
     if (search) {
       const hay = Object.values(r).map(v => String(v ?? "").toLowerCase()).join(" ");
       if (!hay.includes(search)) return false;
@@ -3438,6 +3489,7 @@ function commercialLeadConversionClearFilters() {
   commercialState.leadConversionMedioFilter = "";
   commercialState.leadConversionOrigenFilter = "";
   commercialState.leadConversionSellerFilter = "";
+  commercialState.leadConversionOutcomeFilter = "";
   commercialState.leadConversionSearchText = "";
   commercialRenderLeadConversionPanel();
 }
@@ -3469,6 +3521,10 @@ function commercialLeadConversionFiltersHtml() {
       <label class="whatsnew-filter">
         <span>Vendedor</span>
         <select data-commercial-lead-conversion-seller-filter>${opt("seller", commercialState.leadConversionSellerFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Resultado</span>
+        <select data-commercial-lead-conversion-outcome-filter>${opt("outcome", commercialState.leadConversionOutcomeFilter, "Todos")}</select>
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-lead-conversion-clear>✕ Limpiar</button>
     </div>`;
@@ -3516,58 +3572,159 @@ function commercialLeadConversionTableHtml(rows) {
 // así cada nivel se lee por su propia proporción). La medida es el conteo
 // CRUDO por nodo — MISMA que el legacy (sin empresas/%, que el legacy
 // tampoco muestra a este nivel).
-// Jerarquía visual Campaña→Medio→Origen (owner corrective, ver HANDOFF):
-// los tres niveles compartían el MISMO `.bar-fill`/`.bar-label` sin
-// distinción alguna — la sangría (`margin-left` inline) era la ÚNICA
-// señal de jerarquía, insuficiente para leer padre/hijo/nieto de un
-// vistazo. MISMO criterio YA establecido en `.commercial-creadas-week` (ver
-// commercial.css): el MISMO token `var(--gold)` vía el `.bar-fill`
-// compartido, a MENOR intensidad por nivel — nunca un color inventado.
-// Clases scoped a este bloque (`commercial-lc-attribution*`), nunca
-// tocando `.bar-row`/`.bar-fill`/`.bar-track`/`.bar-value` en sí — ningún
-// otro bar-row del Hub se mueve.
-function commercialLeadConversionAttributionHtml(tree) {
-  if (!tree.length) return "";
-  const maxCa = Math.max(1, ...tree.map(ca => ca.count));
-  const rows = tree.map(ca => {
-    const maxMe = Math.max(1, ...ca.medios.map(me => me.count));
-    const medioRows = ca.medios.map(me => {
-      const maxOr = Math.max(1, ...me.origenes.map(o => o.count));
-      const origenRows = me.origenes.map(o => `
-        <div class="bar-row commercial-lc-attr-origen">
-          <span class="bar-label">${commercialEsc(o.origen)}</span>
-          <div class="bar-track"><div class="bar-fill" style="width:${(o.count / maxOr * 100).toFixed(1)}%"></div></div>
-          <span class="bar-value">${commercialFmtInt(o.count)}</span>
-        </div>`).join("");
-      return `
-        <div class="bar-row commercial-lc-attr-medio">
-          <span class="bar-label">${commercialEsc(me.medio)}</span>
-          <div class="bar-track"><div class="bar-fill" style="width:${(me.count / maxMe * 100).toFixed(1)}%"></div></div>
-          <span class="bar-value">${commercialFmtInt(me.count)}</span>
-        </div>${origenRows}`;
-    }).join("");
-    return `
-      <div class="bar-row commercial-lc-attr-campana">
-        <span class="bar-label">${commercialEsc(ca.campana)}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${(ca.count / maxCa * 100).toFixed(1)}%"></div></div>
-        <span class="bar-value">${commercialFmtInt(ca.count)}</span>
-      </div>${medioRows}`;
-  }).join("");
-  return `<p class="perspective-label">Atribución — Campaña → Medio → Origen</p>
-    <div class="commercial-lc-attribution">${rows}</div>`;
+// ── Mini KPIs (owner UX corrective, ver HANDOFF §2/§3) ───────────────────
+// Reemplaza la única oración plana de resumen por SIETE tarjetas — MISMO
+// primitivo `commercialRichKpi` que el dashboard principal (Hub KPI visual
+// language, owner §3), envueltas en un wrapper propio SCOPEADO que sólo
+// achica densidad (padding/gap) — nunca se toca `.activity-kpi` global.
+//
+// Contrato EXACTO recuperado del legacy (`_renderLeadConvPanel`,
+// `panel-analytics-lead-conv` — ver HANDOFF): SIETE métricas, no seis — el
+// legacy nunca le dio a "Perdidos sin conv." (`lc-lost-lead`, Lead perdido)
+// su propia tarjeta de primer nivel (vivía anidada dentro de "Aún en
+// lead"), lo que la hacía fácil de pasar por alto — pero es un estado de
+// negocio genuinamente DISTINTO de "Perdidas" (`lc-lost-opp-co`,
+// Oportunidad perdida: una convertida que se perdió DESPUÉS de pasar a
+// oportunidad). Colapsarlas por simetría visual escondería la diferencia
+// real entre "nunca llegó a ser oportunidad" y "llegó y se perdió" — owner
+// decision explícita: preservar las siete.
+//
+// Cabecera vs línea secundaria — asimetría real del legacy, preservada tal
+// cual: Total leads/Aún en lead/Lead perdido muestran el CONTEO CRUDO de
+// registros (`total`/`still_lead.count`/`lost_lead.count`) con "empresas
+// únicas" como secundaria; Convertidas/Avanzaron/Ganadas/Perdidas muestran
+// el CONTEO DE EMPRESAS (`*.companies`) como cabecera — el legacy nunca
+// usó el mismo tipo de número en las siete tarjetas.
+function commercialLeadConversionKpisHtml(d) {
+  const cards = [
+    commercialRichKpi("Total leads", commercialFmtInt(d.total),
+      { sub: `${commercialFmtInt(d.companies)} empresas únicas · base %` }),
+    commercialRichKpi("Aún en lead", commercialFmtInt(d.still_lead.count),
+      { sub: `${commercialFmtInt(d.still_lead.companies)} empresas únicas` }),
+    commercialRichKpi("Lead perdido", commercialFmtInt(d.lost_lead.count),
+      { sub: `${commercialFmtInt(d.lost_lead.companies)} empresas únicas` }),
+    commercialRichKpi("Conv. a algo", commercialFmtInt(d.any_conv.companies),
+      { sub: `${commercialFmtPercent(d.any_conv.rate)} · prospecto o más` }),
+    commercialRichKpi("Avanzaron a opp.", commercialFmtInt(d.adv_opp.companies),
+      { sub: `${commercialFmtPercent(d.adv_opp.rate)} · etapa 1 o más` }),
+    commercialRichKpi("Ganadas", commercialFmtInt(d.won.companies),
+      { sub: commercialFmtPercent(d.won.rate) }),
+    commercialRichKpi("Perdidas", commercialFmtInt(d.lost_opp.companies),
+      { sub: commercialFmtPercent(d.lost_opp.rate) }),
+  ].join("");
+  return `<div class="activity-kpi-grid commercial-lc-kpis">${cards}</div>`;
+}
+
+// ── Leads por año / Origen de marketing (owner UX corrective §5/§6) ──────
+// Reemplazan el árbol Campaña→Medio→Origen como visual PRINCIPAL — el dato
+// de atribución (`campana`/`medio`/`origen` por fila) sigue intacto, sólo
+// cambia qué se muestra primero (owner §4: "changing PRESENTATION, not
+// deleting the attribution contract").
+//
+// Leads por año — MISMA semántica que el legacy `leads_per_year`
+// (`_renderLeadsPerYearChart`): universo COMPLETO (las seis poblaciones —
+// aún-lead/lead-perdido/las cuatro convertidas, NUNCA sólo convertidas),
+// agrupado por el AÑO de `create_date` (creación del registro, no de
+// conversión), orden CRONOLÓGICO ascendente. Sin fecha → excluido en
+// silencio (MISMO criterio que el legacy: `if yr and yr.isdigit()`), nunca
+// un bucket "sin fecha" inventado. Cien por ciento client-side sobre el
+// payload YA cargado — cero endpoint nuevo.
+function commercialLeadConversionAllUniverseRows() {
+  const d = commercialState.leadConversionDetail;
+  if (!d) return [];
+  return ["still_lead", "lost_lead", "prospect", "opp", "won", "lost_opp"]
+    .flatMap(bucket => d[bucket].opportunities || []);
+}
+function commercialLeadConversionYearBuckets() {
+  const counts = {};
+  commercialLeadConversionAllUniverseRows().forEach(r => {
+    const yr = (r.create_date || "").slice(0, 4);
+    if (!/^\d{4}$/.test(yr)) return;
+    counts[yr] = (counts[yr] || 0) + 1;
+  });
+  return Object.keys(counts).sort().map(year => ({ year, count: counts[year] }));
+}
+function commercialLeadConversionYearRankingHtml() {
+  const buckets = commercialLeadConversionYearBuckets();
+  const label = `<p class="perspective-label">Leads por año</p>`;
+  if (!buckets.length) return label + commercialEmptyStateHtml("Sin datos", "No hay fecha de creación para este segmento.");
+  const max = Math.max(1, ...buckets.map(b => b.count));
+  const rows = buckets.map(b => `
+    <div class="bar-row">
+      <span class="bar-label">${commercialEsc(b.year)}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(b.count / max * 100).toFixed(1)}%"></div></div>
+      <span class="bar-value">${commercialFmtInt(b.count)}</span>
+    </div>`).join("");
+  return label + rows;
+}
+
+// Origen de marketing — MISMA semántica que el legacy `origen_summary`
+// (NO `utm_hierarchy`: ese árbol nunca calculó porcentaje por nodo — los
+// ejemplos del owner con "|  %" sólo pueden salir de `origen_summary`,
+// que SÍ lo trae — prueba desde la forma del dato, no del rótulo). Universo
+// SOLO las cuatro convertidas (`prospect_ids`+`opp`+`won`+`lost_opp` —
+// MISMO `all_conv` que ya usa `commercialLeadConversionAllRows`, nunca
+// aún-lead/lead-perdido). Denominador = conteo CRUDO de esas filas (MISMO
+// `n_total_conv` del legacy, NUNCA empresas). Ausencia de origen →
+// "Sin definir" (MISMO placeholder que el resto del Hub — DISTINTO de
+// "Sin origen", que es sólo de la jerarquía retirada). Orden por conteo
+// descendente (ranking), no cronológico.
+function commercialLeadConversionOriginBuckets() {
+  const rows = commercialLeadConversionAllRows();
+  const total = rows.length;
+  const counts = {};
+  rows.forEach(r => {
+    const key = r.origen || "Sin definir";
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return Object.entries(counts)
+    .map(([origen, count]) => ({ origen, count, pct: total ? Math.round(count / total * 1000) / 10 : 0 }))
+    .sort((a, b) => b.count - a.count);
+}
+function commercialLeadConversionOriginRankingHtml() {
+  const buckets = commercialLeadConversionOriginBuckets();
+  const label = `<p class="perspective-label">Origen de marketing — oportunidades generadas</p>`;
+  if (!buckets.length) return label + commercialEmptyStateHtml("Sin datos", "No hay oportunidades convertidas para este segmento.");
+  const max = Math.max(1, ...buckets.map(b => b.count));
+  // Owner follow-up (cambió de opinión mid-smoke, ver HANDOFF): "count ·
+  // pct%" en el `bar-value` conflictuaba con cómo se vienen presentando el
+  // resto de los rankings del Hub (sólo el conteo crudo). El % sigue
+  // disponible, ahora como tooltip mouseover sobre la barra — MISMO
+  // primitivo compartido `.chart-tooltip-anchor`/`commercialChartTooltip`
+  // que ya usa el resto de Comercial (Funnel, columna Prior.), cero
+  // mecanismo nuevo.
+  const rows = buckets.map(b => `
+    <div class="bar-row">
+      <span class="bar-label">${commercialEsc(b.origen)}</span>
+      <div class="bar-track chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(commercialFmtPercent(b.pct))} del total convertido">
+        <div class="bar-fill" style="width:${(b.count / max * 100).toFixed(1)}%"></div>
+        ${commercialChartTooltip(`${commercialFmtPercent(b.pct)} del total convertido`)}
+      </div>
+      <span class="bar-value">${commercialFmtInt(b.count)}</span>
+    </div>`).join("");
+  return label + rows;
+}
+
+// LADO A LADO — reusa `.activity-grid-2` (primitivo Hub YA promovido,
+// MISMO que usa Perdidas para Ranking|Motivo y Reporting para
+// Mantenimiento|Proyecto) — cero grilla nueva. Ninguno de los dos responde
+// a las facetas de más abajo — MISMO criterio que el legacy (los
+// paneles de año/origen/UTM se pintan UNA vez por carga, nunca los
+// re-agrega `_filterLeadConvTable`, que sólo toca la tabla de detalle) —
+// sí responden al Tipo global, porque leen del MISMO
+// `commercialState.leadConversionDetail` que ya está scopeado por Tipo.
+function commercialLeadConversionChartsHtml() {
+  return `<div class="commercial-lc-analysis"><div class="activity-grid-2">
+      <div class="commercial-lc-year-ranking">${commercialLeadConversionYearRankingHtml()}</div>
+      <div class="commercial-lc-origin-ranking">${commercialLeadConversionOriginRankingHtml()}</div>
+    </div></div>`;
 }
 function commercialLeadConversionAnalysisHtml() {
   const d = commercialState.leadConversionDetail;
-  const pairs = [
-    ["Sigue como lead", commercialFmtInt(d.still_lead.count)],
-    ["Lead perdido", commercialFmtInt(d.lost_lead.count)],
-    ["Convertidas", `${commercialFmtInt(d.any_conv.companies)} (${commercialFmtPercent(d.any_conv.rate)})`],
-    ["Avanzó a oportunidad", `${commercialFmtInt(d.adv_opp.companies)} (${commercialFmtPercent(d.adv_opp.rate)})`],
-  ];
-  return `${commercialKpiPairsHtml(pairs)}
-    ${commercialLeadConversionAttributionHtml(d.attribution || [])}
-    ${commercialLeadConversionFiltersHtml()}
-    <div data-commercial-lead-conversion-table>${commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows())}</div>`;
+  return commercialLeadConversionKpisHtml(d)
+    + commercialLeadConversionChartsHtml()
+    + commercialLeadConversionFiltersHtml()
+    + `<div data-commercial-lead-conversion-table>${commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows())}</div>`;
 }
 function commercialLeadConversionPanelBodyHtml() {
   if (commercialState.leadConversionDetailStatus === "error") {
@@ -4330,6 +4487,11 @@ function commercialActivitiesControlsHtml() {
     </div>`;
 }
 
+// Owner follow-up (ver HANDOFF): el título de esta capability se sacó (sólo
+// queda Período + su botonera) — el wrapper propio (`.commercial-act-panel`)
+// es lo que le da a `.whatsnew-filters` su top margin scopeado
+// (commercial.css), ya que perdió el margen inferior que antes le daba
+// gratis el `<p class="perspective-label">` de arriba.
 function commercialActividadesHtml() {
   if (commercialState.activitiesStatus === "idle" || commercialState.activitiesStatus === "loading") {
     return commercialLoadingHtml("Cargando actividades pendientes…");
@@ -4340,9 +4502,10 @@ function commercialActividadesHtml() {
       : "No pudimos cargar las actividades desde el CRM en este momento.";
     return commercialEmptyStateHtml("No disponible", label);
   }
-  return `<p class="perspective-label">Actividades Pendientes</p>
+  return `<div class="commercial-act-panel">
     ${commercialActivitiesControlsHtml()}
-    <div data-commercial-activities-body>${commercialActivitiesBodyHtml()}</div>`;
+    <div data-commercial-activities-body>${commercialActivitiesBodyHtml()}</div>
+  </div>`;
 }
 
 // KPIs + leyenda + las dos secciones, en UN host estable (C9): la búsqueda y
@@ -4354,12 +4517,18 @@ function commercialActividadesHtml() {
 function commercialActivitiesBodyHtml() {
   const rows = commercialFilteredActivities();
   const buckets = commercialActivityBuckets(rows);
-  // KPIs: SOLO los dos que los datos sostienen directamente. Reflejan el
-  // conjunto FILTRADO, para que nunca contradigan los contadores de las
-  // secciones de abajo.
+  // KPIs: los TRES que los datos sostienen directamente — "Por vencer" se
+  // sumó (owner follow-up, ver HANDOFF) para que el total (155) se lea junto
+  // a sus dos partes (23 retrasadas + 132 por vencer), MISMO desglose que ya
+  // hacen las dos secciones de abajo, nunca un tercer conteo independiente.
+  // Reflejan el conjunto FILTRADO, para que nunca contradigan los
+  // contadores de las secciones. "Retrasadas"/"Por vencer" son clickeables
+  // (llevan a su `<details>` ya visible más abajo) — "Total pendientes" no,
+  // porque no tiene una sección propia a la que saltar.
   const kpis = `<div class="activity-kpi-grid">
       ${commercialKpi("Total pendientes", commercialFmtInt(rows.length))}
-      ${commercialKpi("Retrasadas", commercialFmtInt(buckets.overdue.length))}
+      ${commercialActClickableKpi("Retrasadas", commercialFmtInt(buckets.overdue.length), "act-retrasadas")}
+      ${commercialActClickableKpi("Por vencer", commercialFmtInt(buckets.pending.length), "act-pendientes")}
     </div>`;
   // Leyenda de urgencia UNA sola vez, arriba de las dos secciones: los badges
   // de las dos tablas usan la misma escala, así que repetirla por sección
@@ -4390,6 +4559,104 @@ function commercialRenderActivitiesBody() {
   if (!root) return;
   const host = root.querySelector("[data-commercial-activities-body]");
   if (host) host.innerHTML = commercialActivitiesBodyHtml();
+}
+
+// "Analíticas del Pipeline" — owner corrective "SCOPED RETRY FOR PIPELINE
+// ANALYTICS" (ver HANDOFF): TRES estados sobre `analyticsStatus`, MISMO
+// contrato que Forecast/Creadas/pipeline-analytics-detail (loading →
+// "Cargando…"; error → "No disponible" + Reintentar, sólo si NO es
+// `config_incomplete`; ready → los seis tiles con drilldown propio, sin
+// tocar sus fórmulas). `loading` sólo ocurre durante un reintento explícito
+// — la carga inicial (`commercialLoadData`) nunca pasa por acá en loading,
+// va directo a ready|error junto con el resto del landing.
+function commercialAnalyticsBodyHtml() {
+  if (commercialState.analyticsStatus === "loading") {
+    return commercialLoadingHtml("Cargando analíticas…");
+  }
+  if (commercialState.analyticsStatus === "error") {
+    const configIncomplete = commercialState.analyticsErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos calcular las analíticas del pipeline en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("analytics", "Reintentar la carga de la analítica del pipeline"));
+  }
+  const a = commercialState.analytics;
+  if (!a) return commercialEmptyStateHtml("No disponible", "No pudimos calcular las analíticas del pipeline en este momento.");
+  // Los seis titulares ganan drilldown propio — cinco comparten un fetch
+  // (`pipeline_age`/`stage_time`/`stage_conversion`/`close_time`/`stagnant`,
+  // MISMO universo por debajo) y "Conversión de leads" tiene el suyo
+  // (universo propio, `crm.lead type=lead`).
+  return `<div class="activity-kpi-grid analytics-grid">
+      ${commercialRichKpi("Edad del pipeline", a.pipeline_age.avg_days != null ? `${a.pipeline_age.avg_days}d` : "—",
+        { sub: `${commercialFmtInt(a.pipeline_age.count)} oportunidad(es) activa(s)`, eventKey: "pipeline_age" })}
+      ${commercialRichKpi("Tiempo por etapa", a.stage_time.avg_days != null ? `${a.stage_time.avg_days}d` : "—",
+        { sub: a.stage_time.stages_with_data ? `${commercialFmtInt(a.stage_time.stages_with_data)} etapa(s) con datos` : "sin datos de historial",
+          eventKey: "stage_time" })}
+      ${commercialRichKpi("Conversión etapa a etapa", a.stage_conversion.min_rate != null ? `${a.stage_conversion.min_rate}%` : "—",
+        { sub: a.stage_conversion.min_rate != null ? "tasa mínima (cuello de botella)" : "sin datos", eventKey: "stage_conversion" })}
+      ${commercialRichKpi("Tiempo de cierre", a.close_time.avg_days != null ? `${a.close_time.avg_days}d` : "—",
+        { sub: `${commercialFmtInt(a.close_time.count)} oportunidad(es) ganada(s)`, eventKey: "close_time" })}
+      ${commercialRichKpi("Estancadas", commercialFmtInt(a.stagnant.count),
+        { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento`, eventKey: "stagnant" })}
+      ${commercialRichKpi("Conversión de leads", commercialFmtPercent(a.lead_conversion.rate_any_conv),
+        { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad`, eventKey: "lead_conversion" })}
+    </div>`;
+}
+
+// Re-render QUIRÚRGICO de "Analíticas del Pipeline" — SÓLO su host estable
+// (`data-commercial-analytics-body`), nunca `commercialRenderCapability()`:
+// eso reconstruiría TODO `#commercial-main-content` (Resumen incluido) por
+// una sección que ya estaba lista, y cerraría cualquier análisis abierto
+// (Activas/Forecast, que viven en `data-breakdown-group` dentro del MISMO
+// contenedor).
+function commercialRenderAnalyticsBody() {
+  const root = document.getElementById("commercial-main-content");
+  if (!root) return;
+  const host = root.querySelector("[data-commercial-analytics-body]");
+  if (host) host.innerHTML = commercialAnalyticsBodyHtml();
+}
+
+// Reintento ESCOPEADO de "Analíticas del Pipeline" (owner corrective, ver
+// HANDOFF) — UN solo endpoint (`/comercial/data/analytics`), nunca
+// summary/pipeline/opportunities/activities ni los dos detalles lazy
+// (`pipeline-analytics-detail`/`lead-conversion-detail`, que siguen
+// cargando sólo cuando se abre su propio tile). Nunca muta `tipo`,
+// `summary`, `pipeline` ni `opportunities` — sólo lo suyo.
+//
+// Tipo-safety (§6): captura el `tipo` vigente ANTES del fetch y, al
+// resolver, sólo aplica la respuesta si sigue siendo el `tipo` actual —
+// si el usuario cambió Todos/NN/BI mientras esto viajaba, la respuesta
+// vieja se descarta en silencio (ni pisa el estado ni re-renderiza). MISMO
+// criterio que ya usa el resto de Comercial para invalidar por Tipo
+// (`commercialSetTipo` deja todo en "idle" y dispara una carga fresca), acá
+// explícito porque esta request puede seguir en vuelo cuando eso pasa.
+async function commercialLoadAnalytics() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.analyticsStatus = "loading";
+  commercialRenderAnalyticsBody();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/analytics?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return; // stale — Tipo cambió mientras viajaba
+    if (resp.state === "ok") {
+      commercialState.analytics = resp.analytics;
+      commercialState.analyticsStatus = "ready";
+      commercialState.analyticsErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.analyticsStatus = "error";
+      commercialState.analyticsErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return; // stale — idem, camino de excepción
+    commercialState.analyticsStatus = "error";
+    commercialState.analyticsErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderAnalyticsBody();
 }
 
 // Contenido del Dashboard (la capability inicial). Se separó de
@@ -4477,26 +4744,13 @@ function commercialDashboardHtml() {
         { split: commercialKpiPairsHtml([["Incluyendo suspendidas", commercialFmtPercent(s.conversion_with_suspended)]]) })}
     </div>`;
 
-  // "Analíticas del Pipeline" — la segunda familia del landing legacy. Ver
-  // HANDOFF: los seis titulares ganan drilldown propio — cinco comparten un
-  // fetch (`pipeline_age`/`stage_time`/`stage_conversion`/`close_time`/
-  // `stagnant`, MISMO universo por debajo) y "Conversión de leads" tiene el
-  // suyo (universo propio, `crm.lead type=lead`).
-  const analyticsGrid = a ? `<div class="activity-kpi-grid analytics-grid">
-      ${commercialRichKpi("Edad del pipeline", a.pipeline_age.avg_days != null ? `${a.pipeline_age.avg_days}d` : "—",
-        { sub: `${commercialFmtInt(a.pipeline_age.count)} oportunidad(es) activa(s)`, eventKey: "pipeline_age" })}
-      ${commercialRichKpi("Tiempo por etapa", a.stage_time.avg_days != null ? `${a.stage_time.avg_days}d` : "—",
-        { sub: a.stage_time.stages_with_data ? `${commercialFmtInt(a.stage_time.stages_with_data)} etapa(s) con datos` : "sin datos de historial",
-          eventKey: "stage_time" })}
-      ${commercialRichKpi("Conversión etapa a etapa", a.stage_conversion.min_rate != null ? `${a.stage_conversion.min_rate}%` : "—",
-        { sub: a.stage_conversion.min_rate != null ? "tasa mínima (cuello de botella)" : "sin datos", eventKey: "stage_conversion" })}
-      ${commercialRichKpi("Tiempo de cierre", a.close_time.avg_days != null ? `${a.close_time.avg_days}d` : "—",
-        { sub: `${commercialFmtInt(a.close_time.count)} oportunidad(es) ganada(s)`, eventKey: "close_time" })}
-      ${commercialRichKpi("Estancadas", commercialFmtInt(a.stagnant.count),
-        { sub: `+${commercialFmtInt(a.stagnant.threshold_days)} días sin movimiento`, eventKey: "stagnant" })}
-      ${commercialRichKpi("Conversión de leads", commercialFmtPercent(a.lead_conversion.rate_any_conv),
-        { sub: `${commercialFmtPercent(a.lead_conversion.rate_adv_opp)} avanzó a oportunidad`, eventKey: "lead_conversion" })}
-    </div>` : commercialEmptyStateHtml("No disponible", "No pudimos calcular las analíticas del pipeline en este momento.");
+  // "Analíticas del Pipeline" — HOST ESTABLE (`data-commercial-analytics-body`,
+  // owner corrective "SCOPED RETRY", ver HANDOFF): el contenido real lo arma
+  // `commercialAnalyticsBodyHtml()` — MISMO desacople que Forecast/Creadas/
+  // pipeline-analytics-detail, para poder re-renderizar SÓLO esta sección
+  // (loading→ready|error de un reintento) sin tocar Resumen ni el resto del
+  // Dashboard.
+  const analyticsGrid = `<div data-commercial-analytics-body>${commercialAnalyticsBodyHtml()}</div>`;
 
   // El análisis contextual NO ocupa lugar hasta que se acciona su KPI: el
   // atributo `data-breakdown` va sobre la SECCIÓN entera, así que
@@ -4811,6 +5065,13 @@ async function commercialLoadData() {
       // muestra igual y sólo ese bloque avisa, nunca se cae la página entera
       // por una vista derivada/de detalle.
       commercialState.analytics = analyticsResp.state === "ok" ? analyticsResp.analytics : null;
+      // Scoped retry (ver HANDOFF): status/errorState PROPIOS de esta
+      // sección, MISMO criterio `config_incomplete` vs `source_error` que
+      // el resto de los detalles lazy — decide si el botón Reintentar tiene
+      // sentido (nunca para config incompleta).
+      commercialState.analyticsStatus = analyticsResp.state === "ok" ? "ready" : "error";
+      commercialState.analyticsErrorState = analyticsResp.state === "ok" ? ""
+        : (analyticsResp.state === "config_incomplete" ? "config_incomplete" : "source_error");
       commercialState.opportunities = opportunitiesResp.state === "ok" ? opportunitiesResp.opportunities : null;
       commercialResetInvalidAnalysisFilters();
       commercialState.status = "ready";
@@ -5452,6 +5713,11 @@ function commercialSetTipo(tipo) {
   commercialState.summary = null;
   commercialState.pipeline = null;
   commercialState.analytics = null;
+  // Scoped retry (ver HANDOFF): MISMO criterio que el resto de los status
+  // lazy de acá abajo — vuelve a "idle", la próxima `commercialLoadData()`
+  // (que este cambio de Tipo dispara) la deja en ready|error de nuevo.
+  commercialState.analyticsStatus = "idle";
+  commercialState.analyticsErrorState = "";
   commercialState.opportunities = null;
   commercialState.activities = null;
   commercialState.activitiesStatus = "idle";
@@ -5536,6 +5802,7 @@ function commercialSetTipo(tipo) {
   commercialState.leadConversionMedioFilter = "";
   commercialState.leadConversionOrigenFilter = "";
   commercialState.leadConversionSellerFilter = "";
+  commercialState.leadConversionOutcomeFilter = "";
   commercialState.leadConversionSearchText = "";
   // Los filtros locales de Actividades se reinician con el dataset: sus
   // opciones de Responsable se derivan de datos que ya no son los mismos.
@@ -5659,6 +5926,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.pipelineAnalyticsDetailStatus !== "loading") commercialLoadPipelineAnalyticsDetail();
       } else if (retryBtn.dataset.commercialRetry === "lead-conversion") {
         if (commercialState.leadConversionDetailStatus !== "loading") commercialLoadLeadConversionDetail();
+      } else if (retryBtn.dataset.commercialRetry === "analytics") {
+        // Scoped retry (owner corrective, ver HANDOFF §5): guard contra el
+        // propio `analyticsStatus` — nunca contra `commercialState.status`
+        // general, que ya está "ready" en este escenario (Resumen/Pipeline
+        // cargaron bien, sólo Analíticas falló) y jamás debe volver a
+        // "loading" por esto.
+        if (commercialState.analyticsStatus !== "loading") commercialLoadAnalytics();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -5966,7 +6240,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     // Conversión de Leads — orden de columna de la tabla combinada (YA
-    // filtrada por las cinco facetas): re-render QUIRÚRGICO, MISMO criterio.
+    // filtrada por las facetas): re-render QUIRÚRGICO, MISMO criterio.
     const leadConversionSortTh = event.target.closest("[data-commercial-lead-conversion-sort]");
     if (leadConversionSortTh) {
       commercialToggleLeadConversionSort(leadConversionSortTh.dataset.commercialLeadConversionSort);
@@ -5975,7 +6249,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     // Conversión de Leads — "✕ Limpiar" (owner corrective, ver HANDOFF):
-    // resetea las CINCO facetas de una sola vez y re-renderiza el panel
+    // resetea todas las facetas de una sola vez y re-renderiza el panel
     // ENTERO (MISMO criterio que Perdidas — acá tampoco hay costo de foco,
     // Limpiar nunca se clickea a mitad de tecleo).
     const leadConversionClear = event.target.closest("[data-commercial-lead-conversion-clear]");
@@ -6037,6 +6311,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const capButton = event.target.closest("[data-commercial-capability]");
     if (capButton) {
       commercialSetCapability(capButton.dataset.commercialCapability);
+      return;
+    }
+    // "Retrasadas"/"Por vencer" clickeables (owner follow-up, ver HANDOFF):
+    // sólo scroll a la sección ya visible — ver `commercialActJumpToSection`.
+    const actJump = event.target.closest("[data-commercial-act-jump]");
+    if (actJump) {
+      commercialActJumpToSection(actJump.dataset.commercialActJump, root);
       return;
     }
     // Filtros LOCALES de Actividades: sólo re-render del panel, nunca fetch
@@ -6180,11 +6461,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const medioSelect = event.target.closest("[data-commercial-lead-conversion-medio-filter]");
     const origenSelect = event.target.closest("[data-commercial-lead-conversion-origen-filter]");
     const sellerSelect = event.target.closest("[data-commercial-lead-conversion-seller-filter]");
-    if (!campanaSelect && !medioSelect && !origenSelect && !sellerSelect) return;
+    // "Resultado" (owner follow-up): sexta faceta, MISMO patrón AND — ver
+    // `commercialLeadConversionFilteredRows`.
+    const outcomeSelect = event.target.closest("[data-commercial-lead-conversion-outcome-filter]");
+    if (!campanaSelect && !medioSelect && !origenSelect && !sellerSelect && !outcomeSelect) return;
     if (campanaSelect) commercialState.leadConversionCampanaFilter = campanaSelect.value;
     if (medioSelect) commercialState.leadConversionMedioFilter = medioSelect.value;
     if (origenSelect) commercialState.leadConversionOrigenFilter = origenSelect.value;
     if (sellerSelect) commercialState.leadConversionSellerFilter = sellerSelect.value;
+    if (outcomeSelect) commercialState.leadConversionOutcomeFilter = outcomeSelect.value;
     const host = root.querySelector("[data-commercial-lead-conversion-table]");
     if (host) host.innerHTML = commercialLeadConversionTableHtml(commercialLeadConversionFilteredRows());
   });
@@ -6331,6 +6616,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // SOLO delegado por tipo de evento (hay un test que lo fija) — dos
     // listeners de `keydown` es justo el tipo de duplicación que ese contrato
     // existe para evitar.
+    // "Retrasadas"/"Por vencer" — MISMO camino de teclado (role="button",
+    // no `<button>` nativo).
+    const actJumpKey = event.target.closest && event.target.closest("[data-commercial-act-jump]");
+    if (actJumpKey) {
+      event.preventDefault();
+      commercialActJumpToSection(actJumpKey.dataset.commercialActJump, root);
+      return;
+    }
     const sellerPick = event.target.closest && event.target.closest("[data-commercial-creadas-seller-pick]");
     if (sellerPick) {
       event.preventDefault();
